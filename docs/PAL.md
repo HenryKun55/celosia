@@ -32,21 +32,29 @@ extracted disc files stay under `disc/`.
   hashes. Its EE recompilation completed, and the macOS ARM64 runner built.
 - A smoke test initialized Metal on an Apple M1, loaded the PAL boot ELF, and
   progressed through the manager loader, found and loaded `GAMECORE.XFF`, and
-  began streaming `NICO.DAT`. The PAL loader needs the same three-field delay
+  entered its PAL entry point at `0x013554D0`, enabling host-clock sync before
+  it began streaming `NICO.DAT`. The PAL loader needs the same three-field delay
   after a successful file search used by the reference port so its graphics
   thread allocates packet buffers before the XFF modules. Celosia preserves
   the successful return value while that wait is scheduled; without that,
   the loader treated every successful search as a failure and retried it.
-  The remaining result is a black screen after successful `NICO.DAT` reads;
-  gameplay is not verified or claimed.
+  A 25-second screenshot smoke test shows the loading indicator, followed by
+  an almost-black frame with a small corrupt block. The remaining fault is
+  therefore after `GAMECORE` entry, in later game/render state; gameplay is
+  not verified or claimed.
 - Celosia's direct native renderer hooks and many runtime overrides are tied
   to USA addresses. A trace proved that applying them by numeric address to
   PAL can replace unrelated functions and generate invalid VIF1 chains, which
   in turn corrupt VU1 microcode. The PAL override registration therefore
-  installs only the verified `GAMECORE` entry hook and explicitly leaves all
-  USA-address hooks disabled. The PAL runner currently uses the generic Metal
-  GS path; the USA performance, visual completeness, and PS Vita claims do not
-  carry over.
+  installs only the profile-matched PAL `GAMECORE` entry hook at `0x013554D0`
+  and explicitly leaves all USA-address hooks disabled. The PAL runner currently
+  uses the generic Metal GS path; the USA performance, visual completeness, and
+  PS Vita claims do not carry over.
+
+The generated-source copy step ignores Finder/iCloud conflict copies such as
+`function 2.cpp`; compiling those beside the canonical generated source would
+otherwise produce duplicate-definition failures. The copies are not source
+inputs and can be kept outside `build/runner` for recovery.
 
 This is a build and boot-bring-up path, not a playable PAL release yet. Logs
 from a local run are written to `logs/play.log`; `./celosia diagnose` prints

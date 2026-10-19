@@ -24,8 +24,9 @@ void installSotcNative(PS2Runtime &runtime); // sotc_native.cpp
 
 namespace
 {
-    // Entry point of GAMECORE.XFF as laid out by the game's own loader.
-    constexpr uint32_t kGamecoreEntry = 0x01344788u;
+    // Entry points of GAMECORE.XFF as laid out by each release's loader.
+    constexpr uint32_t kUsaGamecoreEntry = 0x01344788u;
+    constexpr uint32_t kPalGamecoreEntry = 0x013554D0u;
 
     PS2Runtime::RecompiledFunction g_gamecoreEntry = nullptr;
     bool g_gamecoreEntered = false;
@@ -903,10 +904,10 @@ namespace
                 runtime.registerFunction(kMeshDisp, meshDumpHook<&g_meshDispOriginal, 'm'>);
             }
         }
-        if (runtime.hasFunction(kGamecoreEntry))
+        if (runtime.hasFunction(kUsaGamecoreEntry))
         {
-            g_gamecoreEntry = runtime.lookupFunction(kGamecoreEntry);
-            runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
+            g_gamecoreEntry = runtime.lookupFunction(kUsaGamecoreEntry);
+            runtime.registerFunction(kUsaGamecoreEntry, gamecoreEntryHook);
         }
     }
 
@@ -919,10 +920,10 @@ namespace
         // isolated until each address has been matched independently.
         std::cerr << "[sotc:pal] USA-address native overrides disabled" << std::endl;
 
-        if (runtime.hasFunction(kGamecoreEntry))
+        if (runtime.hasFunction(kPalGamecoreEntry))
         {
-            g_gamecoreEntry = runtime.lookupFunction(kGamecoreEntry);
-            runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
+            g_gamecoreEntry = runtime.lookupFunction(kPalGamecoreEntry);
+            runtime.registerFunction(kPalGamecoreEntry, gamecoreEntryHook);
         }
     }
 }
