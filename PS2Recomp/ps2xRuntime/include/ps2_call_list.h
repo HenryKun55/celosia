@@ -227,6 +227,7 @@
     X(sceDevVif0Reset)                        \
     X(sceDevVu0Reset)                         \
     X(sceFsDbChk)                             \
+    X(sceGetstat)                             \
     X(sceFsIntrSigSema)                       \
     X(sceFsSemExit)                           \
     X(sceFsSemInit)                           \

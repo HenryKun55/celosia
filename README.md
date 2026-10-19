@@ -3,11 +3,13 @@
 A native port of **Shadow of the Colossus** (PS2, USA, SCUS-97472) to macOS
 (Apple Silicon) and the **PS Vita**, built by statically recompiling the
 game's MIPS code to C++ with [PS2Recomp](https://github.com/ran-j/PS2Recomp).
+An experimental macOS build path for **PAL v1.00 (SCES-53326)** is also
+available; see [PAL build status and instructions](docs/PAL.md).
 
 No emulator runs the game's CPU code. The EE code from the boot ELF and the
 game's three XFF modules is translated into C++ ahead of time and compiled
-natively. The game is drawn by a native renderer (Metal on the Mac, OpenGL
-ES on the Vita) that reads its model data directly. The rest of the hardware
+natively. For the USA release, a native renderer (Metal on the Mac, OpenGL
+ES on the Vita) reads the game's model data directly. The rest of the hardware
 it talks to (DMA, IOP, SPU2) is reimplemented as host code.
 
 **Where it stands: [docs/STATUS.md](docs/STATUS.md)** (and the live
@@ -15,7 +17,7 @@ it talks to (DMA, IOP, SPU2) is reimplemented as host code.
 
 > **No game data is included.** You need your own copy of the game.
 
-## Status
+## Status (USA release)
 
 ![What is native](docs/port_status.svg)
 
@@ -35,12 +37,13 @@ it talks to (DMA, IOP, SPU2) is reimplemented as host code.
 
 - macOS on Apple Silicon, Xcode Command Line Tools
 - `brew install cmake ninja pkg-config ffmpeg python`
-- A disc image of **Shadow of the Colossus (USA)** (`SCUS_974.72`), as an
-  `.iso` or a `.zip` containing one
+- A disc image of **Shadow of the Colossus (USA)** (`SCUS_974.72`) for the
+  playable path, as an `.iso` or a `.zip` containing one. The experimental PAL
+  path requires **SCES-53326 v1.00** instead; see [PAL setup](docs/PAL.md).
 - About 10 GB of free disk space and an internet connection for the first build
   (CMake downloads raylib, imgui and sse2neon)
 
-## Quick start
+## Quick start (USA release)
 
 ```sh
 git clone git@github.com:HenryKun55/celosia.git
@@ -52,6 +55,20 @@ cd celosia
 `setup` takes a while the first time: it compiles the runtime and around 16k
 recompiled functions. It briefly opens the game window a few times while it
 captures each module (see below).
+
+### Experimental PAL build (macOS)
+
+Place your own PAL v1.00 ISO in [`iso/`](iso/README.md), then run:
+
+```sh
+./celosia setup --iso "iso/Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It).iso"
+./celosia run
+```
+
+The PAL code currently compiles into an Apple Silicon runner with Metal, but
+its boot has reached a black screen during testing. The USA game-specific
+native renderer and gameplay status above do not apply to PAL yet. See
+[docs/PAL.md](docs/PAL.md) for the tested scope and known limitations.
 
 ### Settings
 
@@ -82,8 +99,8 @@ A gamepad works out of the box. Keyboard:
 Shadow of the Colossus ships one small boot ELF and loads the rest of its code
 at run time: `KERNEL.XFF`, `MANAGER.XFF` and `GAMECORE.XFF`. These are
 relocatable modules that the game links in memory with its own dynamic linker.
-A static recompiler needs all of that code up front, so `setup` bootstraps it
-in stages:
+A static recompiler needs all of that code up front, so the USA `setup`
+bootstraps it in stages:
 
 1. **Boot ELF.** Function boundaries are recovered with `tools/funcmap_elf.py`.
    Symbol names come from `KERNEL.XFF`'s imports. The ELF is recompiled with
@@ -105,6 +122,8 @@ in stages:
 
 Everything generated (recompiled code, captures, build files) goes to
 `build/`. None of it is committed.
+The PAL build uses a version-specific static link profile instead of the USA
+module-capture sequence; see [docs/PAL.md](docs/PAL.md).
 
 ## PS Vita
 
@@ -195,6 +214,11 @@ fixes. They are meant to go back upstream.
 - [LightVelox/sotc-pc](https://github.com/LightVelox/sotc-pc), a Windows port of the PAL release on the
   same base: its development notes pointed to several shared runtime bugs (DMA chain length, scheduler
   unwinding).
+- [LightVelox/sotc-vibe-pc](https://github.com/LightVelox/sotc-vibe-pc),
+  specifically [commit `9b9a04c`](https://github.com/LightVelox/sotc-vibe-pc/commit/9b9a04c):
+  the PAL v1.00 layout profile, linking utilities, related recompiler switch,
+  and PAL boot-time handlers are adapted from that project's GPL-3.0 code. See
+  [tools/pal/README.md](tools/pal/README.md) for file-level attribution.
 - Shadow of the Colossus © Sony Interactive Entertainment / Team Ico. This
   project is not affiliated with or endorsed by them.
 

@@ -28,6 +28,14 @@ namespace ps2_stubs
         TODO_NAMED("sceFsSigSema", rdram, ctx, runtime);
     }
 
+    // The PAL sceGetstat implementation calls IOP RPC 12. Serve that query
+    // through Celosia's existing VFS, as in LightVelox/sotc-vibe-pc GPL-3.0
+    // (commit 9b9a04c). The PAL profile binds this name explicitly.
+    void sceGetstat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ps2_syscalls::fioGetstat(rdram, ctx, runtime);
+    }
+
     void close(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ps2_syscalls::fioClose(rdram, ctx, runtime);

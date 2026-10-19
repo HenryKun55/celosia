@@ -187,6 +187,9 @@ namespace ps2recomp
         bool patchSyscalls = false;
         bool patchCop0 = true;
         bool patchCache = true;
+        // Keep the historical Celosia behaviour by default. Profiles that
+        // combine several modules can disable this and list exact HLE stubs.
+        bool autoStubByName = true;
         std::vector<std::string> skipFunctions;
         std::unordered_map<uint32_t, std::string> patches;
         std::vector<std::string> stubImplementations;
