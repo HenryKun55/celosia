@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace native_renderer
@@ -70,6 +71,10 @@ namespace native_renderer
         bool background = false; // also drawn into the background image (what distance fades to)
         bool fogged = false;     // fades to the background image with distance (setFog)
         bool writeDepth = false; // write depth even when additive (a second pass follows)
+        // No depth write at all: the GS's TEST AFAIL FB_ONLY with every pixel
+        // under AREF (SotC's water: vertex alpha 0x20 < 0x40), so what is drawn
+        // after it on or just under the surface (the rings) is not hidden.
+        bool noDepthWrite = false;
         bool overlay = false; // a second pass over the same geometry: depth equal passes, no depth write
         bool screen = false; // 2D: positions already in clip space, no depth test or write
         // A shadow volume: no colour; its faces count on the stencil (front +1,
@@ -89,6 +94,12 @@ namespace native_renderer
         // reduced and blurred, at its own screen position, times
         // reflectionTint (the same packet's).
         bool refractionSample = false;
+        // SotC's water microcode 1: the vertex alpha times 0.2 + 0.8 (1 - |n . v|),
+        // v the normalised camera-space position, n the model's up axis, with
+        // light[0..15] the model-view matrix (columns) instead of the lights.
+        bool fresnel = false;
+        // reflectionBegin's ripple of the mirror image (t, H; H = 0: none).
+        float mirrorRipple[2] = {0.0f, 0.0f};
         // A screen-copy draw (SotC's 0x10f37c8 at layer 23): its texture is
         // the picture before its layer reduced to 256 x 256, at its own UV.
         bool screenCopy = false;

@@ -1,6 +1,14 @@
 # Known issues
 
-## Raised sword: the arm sweeps back and forth (emulated and native)
+## Raised sword: the arm sweeps back and forth (emulated and native) — gone
+
+**2026-10-19: no longer seen** (reported by the user while playing natively).
+The fix is not pinned down. Likely candidates, both in the game code's
+execution rather than a renderer: the 841 hidden entry points (c81db86,
+code packed after a jump and called through pointers) and the exact SDK
+soft-double (decomp_softfloat.cpp: truncation, not IEEE rounding). The notes
+below are kept for reference.
+
 
 Seen 2026-10-15 in the shrine and on the plain: with the sword raised and the
 stick untouched, Wander's arm swings widely within a second (10 screenshots

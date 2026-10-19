@@ -16,7 +16,7 @@ namespace native_renderer
     {
         float renderScale = 1.0f;   // the picture drawn at 512 x 448 times this, 0.5 to 4 (SOTC_RENDER_SCALE; 3 on the Mac)
         bool bloom = true;          // SOTC_BLOOM_SCALE=0 turns it off
-        float bloomStrength = 0.46f; // x the game's add strength (SOTC_BLOOM_SCALE)
+        float bloomStrength = 1.0f; // x the game's add strength (SOTC_BLOOM_SCALE); 1 = the PS2 (measured 2026-10-19 against the GS chain)
         float bloomRounds = 1.0f;   // blur rounds of +-3 texels at a quarter size, whole (SOTC_BLOOM_ROUNDS)
         float bloomSpread = 1.0f;   // each further round's growth (SOTC_BLOOM_SPREAD)
         bool vertexFog = true;      // the GS fog by distance (SOTC_NATIVE_NOVFOG)

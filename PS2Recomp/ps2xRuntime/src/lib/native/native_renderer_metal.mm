@@ -53,6 +53,7 @@ struct FogParams
     float3 colour;
     float4 debug; // w > 0: flat debug colour
     int clamp;    // the GS's CLAMP: bit 0 u, bit 1 v
+    float2 ripple; // the mirror's ripple (t, H; H = 0: none)
 };
 
 struct Light
@@ -77,7 +78,15 @@ vertex VOut nativeVertex(VIn in [[stage_in]], constant float4x4 &clip [[buffer(1
     out.uv = in.uv + light.uvOffset;
     out.color = float4(in.color) / 128.0; // 0x80 = 1.0
     out.color.a *= light.opacity;
-    if (light.lit != 0)
+    if (light.lit < 0)
+    {
+        // Water (microcode 1): alpha x (0.2 + 0.8 (1 - |n . v|)) in camera space.
+        float4 p = light.directions * float4(in.position, 1.0);
+        float4 n = light.directions * float4(0.0, 1.0, 0.0, 0.0);
+        float c = dot(normalize(p.xyz), n.xyz);
+        out.color.a *= 0.2 + 0.8 * (1.0 - abs(c));
+    }
+    else if (light.lit != 0)
     {
         float4 d = max(light.directions * float4(in.normal, 1.0), 0.0);
         d.w = 1.0;
@@ -118,10 +127,19 @@ fragment float4 nativeFragment(VOut in [[stage_in]], texture2d<float> tex [[text
     {
         // The mirrored world at this pixel, tinted (debug.w < 0: the tint's alpha).
         constexpr sampler clampLinear(address::clamp_to_edge, filter::linear);
-        // The GS blends by the mirror image's own alpha: where nothing was
-        // mirrored (cleared to 0) the water shows what is under it.
-        float4 r = reflection.sample(clampLinear, in.position.xy / fog.size);
-        return float4(saturate(r.rgb * fog.debug.rgb), saturate(r.a * -fog.debug.w));
+        // reflectionBegin's layer 15 TEX0 is PSMCT24 with TCC 0: the mirror
+        // image's alpha is never read; ALPHA 0x44 blends by the vertex alpha
+        // (microcode 1's, x VU 0x3f3 w in debug.w). The mirror as reflectionBegin
+        // ripples it: band i of 32 (8 rows of its 256) shifted right by
+        // (sin(2 (12 i + t) 24 pi / H) + 1) (0.8 x 8 i / H + 0.2) texels.
+        float2 uv = in.position.xy / fog.size;
+        if (fog.ripple.y > 0.0)
+        {
+            const float band = floor(saturate(uv.y) * 32.0);
+            uv.x += (sin(2.0 * (12.0 * band + fog.ripple.x) * 75.39822 / fog.ripple.y) + 1.0) * (0.8 * 8.0 * band / fog.ripple.y + 0.2) / 256.0;
+        }
+        float3 r = reflection.sample(clampLinear, uv).rgb;
+        return float4(saturate(r * fog.debug.rgb * in.color.rgb), saturate(in.color.a * -fog.debug.w));
     }
     const float lod = fog.maxLod > 0.0 ? clamp(log2(max(in.depth, 1e-3)) * fog.lodScale + fog.lodK, 0.0, fog.maxLod) : 0.0;
     constexpr sampler clampU(address::clamp_to_edge, address::repeat, address::repeat, filter::linear, mip_filter::linear);
@@ -195,6 +213,78 @@ fragment float4 bloomMask(Quad in [[stage_in]], depth2d<float> depth [[texture(0
             sum += gsz <= b.threshold + 1.0 ? 1.0 : 0.0;
         }
     return float4(b.maskColor.rgb * (sum / 16.0), 1.0);
+}
+
+// The GS chain (0x109e2a0) in its own buffers. The mask: the PS2 frame
+// (512 x 448) white where GS Z <= the threshold + 1 (the sprite at that Z,
+// ZTST GEQUAL), reduced to 256 x 256 by a bilinear sprite (texel coordinates
+// (p + 0.5) x (2, 1.75): two by two texels averaged).
+fragment float4 bloomMaskGS(Quad in [[stage_in]], depth2d<float> depth [[texture(0)]], constant BloomParams &b [[buffer(0)]])
+{
+    const uint2 size = uint2(depth.get_width(), depth.get_height());
+    const float2 scale = float2(size) / float2(512.0, 448.0);
+    const float2 p = floor(in.position.xy);
+    const float2 t = (p + 0.5) * float2(2.0, 1.75) - 0.5; // texel space, centres at integers
+    const float2 i0 = floor(t), f = t - i0;
+    float m[4];
+    for (int k = 0; k < 4; ++k)
+    {
+        const float2 at = clamp(i0 + float2(k & 1, k >> 1), float2(0.0), float2(511.0, 447.0));
+        const uint2 px = min(uint2((at + 0.5) * scale), size - 1);
+        const float d = depth.read(px);
+        const float gsz = d >= 1.0 ? 0.0 : b.zA + b.zB * (1.0 - d) / kNearW;
+        m[k] = gsz <= b.threshold + 1.0 ? 1.0 : 0.0;
+    }
+    const float v = mix(mix(m[0], m[1], f.x), mix(m[2], m[3], f.x), f.y);
+    return float4(b.maskColor.rgb * v, 1.0);
+}
+
+// The GS chain's blur: a copy of the 64 x 64 source onto a target of R
+// pixels, then 12 sprites shifted by 1, 2, 3 pixels (left, right, up, down)
+// lerped over it (ALPHA 0x44) by 64, 32, 16 / 128, each sampling the source
+// bilinearly at u = 0.5 + (p - d) x 64 / R (the copy at (p + 0.5) x 64 / R),
+// a sprite covering only d <= p < d + R.
+fragment float4 bloomBlur12(Quad in [[stage_in]], texture2d<float> src [[texture(0)]], constant float &targetSize [[buffer(0)]])
+{
+    constexpr sampler s(address::clamp_to_edge, filter::linear);
+    const float r = targetSize, k = 64.0 / r;
+    const float2 p = floor(in.position.xy);
+    // In 8-bit steps, each lerp truncated as the GS's ((Cs - Cd) x A >> 7):
+    // through the history the truncation compounds frame after frame.
+    float3 acc = floor(src.sample(s, (p + 0.5) * k / 64.0).rgb * 255.0 + 0.001);
+    const float2 d[12] = {float2(-1, 0), float2(1, 0), float2(0, -1), float2(0, 1), float2(-2, 0), float2(2, 0),
+                          float2(0, -2), float2(0, 2), float2(-3, 0), float2(3, 0), float2(0, -3), float2(0, 3)};
+    for (int i = 0; i < 12; ++i)
+    {
+        const float a = i < 4 ? 0.5 : (i < 8 ? 0.25 : 0.125);
+        const float2 q = p - d[i];
+        if (any(q < 0.0) || any(q >= r))
+            continue;
+        const float3 c = floor(src.sample(s, (0.5 + q * k) / 64.0).rgb * 255.0 + 0.001);
+        acc += floor((c - acc) * a);
+    }
+    return float4(acc / 255.0, 1.0);
+}
+
+// The GS chain's temporal step: the history (the last frame's blurred
+// result) drawn over this frame's 64 x 64 with alpha `temporal` (0x44:
+// Cd + ((Cs - Cd) x As >> 7), truncated).
+fragment float4 bloomTemporalGS(Quad in [[stage_in]], texture2d<float> current [[texture(0)]], texture2d<float> history [[texture(1)]],
+                                constant float &alpha [[buffer(0)]])
+{
+    constexpr sampler s(address::clamp_to_edge, filter::nearest);
+    const float3 cd = floor(current.sample(s, in.uv).rgb * 255.0 + 0.001), cs = floor(history.sample(s, in.uv).rgb * 255.0 + 0.001);
+    return float4((cd + floor((cs - cd) * alpha)) / 255.0, 1.0);
+}
+
+// The composite sprite: 0..512 x 0..448 with UV 0.5..256.5 of the 256 x 256
+// result, added (ALPHA 0x48) in the colour 0x118c140 (alpha 0x118c14c).
+fragment float4 bloomCompositeGS(Quad in [[stage_in]], texture2d<float> src [[texture(0)]], constant BloomParams &b [[buffer(0)]])
+{
+    constexpr sampler s(address::clamp_to_edge, filter::linear);
+    const float2 x = in.position.xy / b.texel - 0.5; // PS2 pixels (b.texel: render pixels per PS2 pixel)
+    const float2 uv = (0.5 + x * float2(256.0 / 512.0, 256.0 / 448.0)) / 256.0;
+    return float4(src.sample(s, uv).rgb * b.color.rgb * b.color.a, 1.0);
 }
 
 fragment float4 bloomBlur(Quad in [[stage_in]], texture2d<float> src [[texture(0)]], constant float2 &step [[buffer(0)]])
@@ -388,6 +478,12 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
         id<MTLTexture> bloomTex[3] = {nil, nil, nil}; // ping, pong, history
         bool bloomHistory = false;
         id<MTLRenderPipelineState> maskPipeline = nil, blurPipeline = nil, temporalPipeline = nil, compositePipeline = nil;
+        id<MTLRenderPipelineState> maskGsPipeline = nil, blur12Pipeline = nil, compositeGsPipeline = nil, temporalGsPipeline = nil;
+        // The GS chain's buffers: 0 the mask (256), 1 128, 2 64 (this frame),
+        // 3 64 (lerped with the history), 4 64 (history: the blurred 3),
+        // 5 128 (the blurred 3), 6 256 (that, enlarged).
+        id<MTLTexture> gsBloom[7] = {nil, nil, nil, nil, nil, nil, nil};
+        bool gsBloomHistory = false;
         uint32_t width = 0, height = 0;
         std::unordered_map<uint64_t, Mesh> meshes;
         std::unordered_map<uint64_t, id<MTLTexture>> textures;
@@ -499,6 +595,10 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
             blurPipeline = fullscreen(@"bloomBlur", false);
             temporalPipeline = fullscreen(@"bloomTemporal", false);
             compositePipeline = fullscreen(@"bloomComposite", true);
+            maskGsPipeline = fullscreen(@"bloomMaskGS", false);
+            blur12Pipeline = fullscreen(@"bloomBlur12", false);
+            compositeGsPipeline = fullscreen(@"bloomCompositeGS", true);
+            temporalGsPipeline = fullscreen(@"bloomTemporalGS", false);
             copySmall = fullscreen(@"copyTexture", false);
             glowReducePipeline = fullscreen(@"glowReduce", false);
             shadowReducePipeline = fullscreen(@"shadowReduce", false);
@@ -726,6 +826,16 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                 bd.storageMode = MTLStorageModePrivate;
                 t = [device newTextureWithDescriptor:bd];
             }
+            for (int i = 0; i < 7; ++i)
+            {
+                [gsBloom[i] release];
+                const uint32_t size = (i == 0 || i == 6) ? 256u : ((i == 1 || i == 5) ? 128u : 64u);
+                MTLTextureDescriptor *bd = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:size height:size mipmapped:NO];
+                bd.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+                bd.storageMode = MTLStorageModePrivate;
+                gsBloom[i] = [device newTextureWithDescriptor:bd];
+            }
+            gsBloomHistory = false;
             bloomHistory = false;
             width = w;
             height = h;
@@ -767,8 +877,9 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                     desc.colorAttachments[0].texture = target;
                     desc.colorAttachments[0].loadAction = load && !apart ? MTLLoadActionLoad : MTLLoadActionClear;
                     // The PS2 frame starts black; the mirror image is cleared to the fog
-                    // colour; a layer drawn apart (on the scene's depth) to nothing.
-                    desc.colorAttachments[0].clearColor = mirror ? MTLClearColorMake(fog.colour[0], fog.colour[1], fog.colour[2], 0.0)
+                    // colour (reflectionBegin: alpha 0x80); a layer drawn apart (on the
+                    // scene's depth) to nothing.
+                    desc.colorAttachments[0].clearColor = mirror ? MTLClearColorMake(fog.colour[0], fog.colour[1], fog.colour[2], 1.0)
                                                                  : MTLClearColorMake(0.0, 0.0, 0.0, apart ? 0.0 : 1.0);
                     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
                     id<MTLTexture> depth = mirror ? reflectionDepth : this->depth;
@@ -878,7 +989,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                         }
                         const int blendMode = static_cast<int>(d.state.blend);
                         const bool backdrop = d.state.screen || d.state.background;
-                        const int mode = blendMode | (backdrop ? 8 : 0) | (d.state.overlay ? 16 : 0) | (d.state.writeDepth ? 32 : 0);
+                        const int mode = blendMode | (backdrop ? 8 : 0) | (d.state.overlay ? 16 : 0) | (d.state.writeDepth ? 32 : 0) | (d.state.noDepthWrite ? 64 : 0);
                         if (mode != bound)
                         {
                             [encoder setRenderPipelineState:blendMode == 1 ? additive : (blendMode == 2 ? opaque : (blendMode == 3 ? subtract : pipeline))];
@@ -887,7 +998,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             // second pass lands on its first.
                             [encoder setDepthStencilState:backdrop ? depthOff
                                                                    : (d.state.overlay ? depthEqualReadOnly
-                                                                                      : (blendMode == 1 && !d.state.writeDepth && !additiveZ ? depthReadOnly : depthState))];
+                                                                                      : ((blendMode == 1 && !d.state.writeDepth && !additiveZ) || d.state.noDepthWrite ? depthReadOnly : depthState))];
                             bound = mode;
                         }
                         auto it = meshes.find(d.mesh);
@@ -903,7 +1014,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             float uvOffset[2];
                         } light;
                         std::memcpy(light.light, d.state.light, sizeof(light.light));
-                        light.lit = d.state.lit ? 1 : 0;
+                        light.lit = d.state.fresnel ? -1 : (d.state.lit ? 1 : 0);
                         light.opacity = d.state.opacity;
                         light.uvOffset[0] = d.state.uvOffset[0];
                         light.uvOffset[1] = d.state.uvOffset[1];
@@ -926,7 +1037,8 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             float colour[4];
                             float debug[4];
                             int clamp;
-                            int pad[3];
+                            int pad; // Metal aligns float2 to 8
+                            float ripple[2];
                         } fp = {fog.start, fog.width, (showFog && !d.state.screen) ? -1.0f : static_cast<float>(fog.steps), (!backgroundOnly && fogOn && d.state.fogged) ? 1 : 0,
                                 {static_cast<float>(w), static_cast<float>(h)},
                                 (fog.vertexFog && !d.state.screen && (!d.state.background || bgFog) && !(d.state.overlay && noOverlayFog)) ? 1 : 0, fog.base, fog.scale,
@@ -934,7 +1046,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                                 {fog.colour[0], fog.colour[1], fog.colour[2], 0},
                                 {static_cast<float>(d.state.debugColour & 0xFFu) / 255.0f, static_cast<float>((d.state.debugColour >> 8) & 0xFFu) / 255.0f,
                                  static_cast<float>((d.state.debugColour >> 16) & 0xFFu) / 255.0f, d.state.debugColour ? 1.0f : 0.0f},
-                                d.state.clamp, {0, 0, 0}};
+                                d.state.clamp, 0, {d.state.mirrorRipple[0], d.state.mirrorRipple[1]}};
                         if (d.state.reflectionSample || d.state.refractionSample)
                         {
                             for (int k = 0; k < 3; ++k)
@@ -989,6 +1101,51 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                         [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
                         [e endEncoding];
                     };
+                    static const bool oldBloom = std::getenv("SOTC_BLOOM_OLD") != nullptr; // the earlier approximation, to compare
+                    if (!oldBloom && maskGsPipeline && blur12Pipeline && compositeGsPipeline && temporalGsPipeline && copySmall)
+                    {
+                        // As the GS chain does it, frame after frame: mask -> 256 -> 128 ->
+                        // 64; lerp with the history (the last frame's blurred result) by
+                        // `temporal`; the history = that blurred at 64; the output = it
+                        // blurred at 128, enlarged to 256, added over the picture. The
+                        // history being blurred again every frame is what spreads the glow
+                        // far over the sky and makes it swell when the sky comes into view.
+                        bp.texel[0] = static_cast<float>(w) / 512.0f;
+                        bp.texel[1] = static_cast<float>(h) / 448.0f;
+                        quad(gsBloom[0], maskGsPipeline, false, [&](id<MTLRenderCommandEncoder> e)
+                        {
+                            [e setFragmentTexture:depth atIndex:0];
+                            [e setFragmentBytes:&bp length:sizeof(bp) atIndex:0];
+                        });
+                        quad(gsBloom[1], copySmall, false, [&](id<MTLRenderCommandEncoder> e) { [e setFragmentTexture:gsBloom[0] atIndex:0]; });
+                        quad(gsBloom[2], copySmall, false, [&](id<MTLRenderCommandEncoder> e) { [e setFragmentTexture:gsBloom[1] atIndex:0]; });
+                        const float alpha = gsBloomHistory ? bloom.temporal : 0.0f;
+                        quad(gsBloom[3], temporalGsPipeline, false, [&](id<MTLRenderCommandEncoder> e)
+                        {
+                            [e setFragmentTexture:gsBloom[2] atIndex:0];
+                            [e setFragmentTexture:gsBloom[4] atIndex:1];
+                            [e setFragmentBytes:&alpha length:sizeof(alpha) atIndex:0];
+                        });
+                        const float r64 = 64.0f, r128 = 128.0f;
+                        quad(gsBloom[4], blur12Pipeline, false, [&](id<MTLRenderCommandEncoder> e)
+                        {
+                            [e setFragmentTexture:gsBloom[3] atIndex:0];
+                            [e setFragmentBytes:&r64 length:sizeof(r64) atIndex:0];
+                        });
+                        gsBloomHistory = true;
+                        quad(gsBloom[5], blur12Pipeline, false, [&](id<MTLRenderCommandEncoder> e)
+                        {
+                            [e setFragmentTexture:gsBloom[3] atIndex:0];
+                            [e setFragmentBytes:&r128 length:sizeof(r128) atIndex:0];
+                        });
+                        quad(gsBloom[6], copySmall, false, [&](id<MTLRenderCommandEncoder> e) { [e setFragmentTexture:gsBloom[5] atIndex:0]; });
+                        quad(color, compositeGsPipeline, true, [&](id<MTLRenderCommandEncoder> e)
+                        {
+                            [e setFragmentTexture:gsBloom[6] atIndex:0];
+                            [e setFragmentBytes:&bp length:sizeof(bp) atIndex:0];
+                        });
+                        return;
+                    }
                     const float lw = static_cast<float>(bloomTex[0].width), lh = static_cast<float>(bloomTex[0].height);
                     quad(bloomTex[0], maskPipeline, false, [&](id<MTLRenderCommandEncoder> e)
                     {
@@ -1297,7 +1454,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                 if (bloomOn)
                     events.push_back({bloom.order, -1});
                 else
-                    bloomHistory = false;
+                    bloomHistory = gsBloomHistory = false;
                 for (size_t i = 0; i < blurs.size(); ++i)
                     events.push_back({blurs[i].order, static_cast<int>(i)});
                 std::stable_sort(events.begin(), events.end(), [](const Event &x, const Event &y) { return x.order < y.order; });

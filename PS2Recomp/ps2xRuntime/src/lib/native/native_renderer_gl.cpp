@@ -60,7 +60,13 @@ void main()
     vUV = vec4(aUV + uMisc.zw, c.w, fog * c.w);
     vColor = aColor / 128.0;
     vColor.a *= uMisc.y;
-    if (uMisc.x > 0.5)
+    if (uMisc.x < -0.5) // water (microcode 1): alpha x (0.2 + 0.8 (1 - |n . v|)) in camera space
+    {
+        vec4 p = uDirections[0] * aPos.x + uDirections[1] * aPos.y + uDirections[2] * aPos.z + uDirections[3];
+        float c = dot(normalize(p.xyz), uDirections[1].xyz);
+        vColor.a *= 0.2 + 0.8 * (1.0 - abs(c));
+    }
+    else if (uMisc.x > 0.5)
     {
         vec4 d = max(uDirections[0] * aNormal.x + uDirections[1] * aNormal.y + uDirections[2] * aNormal.z + uDirections[3], 0.0);
         d.w = 1.0;
@@ -106,7 +112,15 @@ void main()
     }
     if (textured > 1.5)
     {
-        { vec4 r = texture(uReflection, screen); oColor = vec4(clamp(r.rgb * uDebug.rgb, 0.0, 1.0), clamp(r.a * -uDebug.w, 0.0, 1.0)); }
+        // TEX0 TCC 0: the mirror's alpha is not read; the vertex alpha (microcode 1) x VU 0x3f3 w.
+        // reflectionBegin's ripple: band i of 32 (from the top) shifted by (sin(2 (12 i + t) 24 pi / H) + 1) (6.4 i / H + 0.2) texels.
+        vec2 uv = screen;
+        if (uFogC.z > 0.0)
+        {
+            float band = floor(clamp(1.0 - uv.y, 0.0, 0.999) * 32.0);
+            uv.x += (sin(2.0 * (12.0 * band + uFogC.y) * 75.39822 / uFogC.z) + 1.0) * (6.4 * band / uFogC.z + 0.2) / 256.0;
+        }
+        oColor = vec4(clamp(texture(uReflection, uv).rgb * uDebug.rgb * vColor.rgb, 0.0, 1.0), clamp(vColor.a * -uDebug.w, 0.0, 1.0));
         return;
     }
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
@@ -208,6 +222,56 @@ void main()
         oColor = vec4(0.0, 0.0, 0.0, clamp(texture(uSrc, vUV).r * uA.x, 0.0, 1.0));
     else if (uMode == 10) // bloom composite: rgb x uB.rgb x uB.a
         oColor = vec4(texture(uSrc, vUV).rgb * uB.rgb * uB.a, 1.0);
+    else if (uMode == 15) // the GS chain's mask at 256 x 256 (rows from the top): bilinear over the PS2 frame's
+    {                     // texels (p + 0.5) x (2, 1.75), each white where GS Z <= uA.x + 1; uB the mask colour
+        vec2 size = vec2(textureSize(uDepth, 0));
+        vec2 p = vec2(floor(gl_FragCoord.x), 255.0 - floor(gl_FragCoord.y));
+        vec2 t = (p + 0.5) * vec2(2.0, 1.75) - 0.5;
+        vec2 i0 = floor(t), f = t - i0;
+        float m[4];
+        for (int k = 0; k < 4; ++k)
+        {
+            vec2 at = clamp(i0 + vec2(k & 1, k >> 1), vec2(0.0), vec2(511.0, 447.0));
+            vec2 px = (at + 0.5) * size / vec2(512.0, 448.0);
+            ivec2 ip = ivec2(min(px.x, size.x - 1.0), min(size.y - 1.0 - px.y, size.y - 1.0));
+            m[k] = gsZ(texelFetch(uDepth, max(ip, ivec2(0)), 0).r, uA.y, uA.z) <= uA.x + 1.0 ? 1.0 : 0.0;
+        }
+        oColor = vec4(uB.rgb * mix(mix(m[0], m[1], f.x), mix(m[2], m[3], f.x), f.y), 1.0);
+    }
+    else if (uMode == 16) // the GS chain's blur: the 64 x 64 source onto uA.x pixels, 12 shifted lerps (8-bit, truncated)
+    {
+        // Worked with rows from the top as the GS's: the lerps weigh the later
+        // taps more, so the glow drifts (down and right) as the game's does.
+        float r = uA.x, k = 64.0 / r;
+        vec2 p = vec2(floor(gl_FragCoord.x), r - 1.0 - floor(gl_FragCoord.y));
+        vec2 t0 = (p + 0.5) * k;
+        vec3 acc = floor(texture(uSrc, vec2(t0.x, 64.0 - t0.y) / 64.0).rgb * 255.0 + 0.001);
+        vec2 d[12] = vec2[12](vec2(-1, 0), vec2(1, 0), vec2(0, -1), vec2(0, 1), vec2(-2, 0), vec2(2, 0),
+                              vec2(0, -2), vec2(0, 2), vec2(-3, 0), vec2(3, 0), vec2(0, -3), vec2(0, 3));
+        for (int i = 0; i < 12; ++i)
+        {
+            float a = i < 4 ? 0.5 : (i < 8 ? 0.25 : 0.125);
+            vec2 q = p - d[i];
+            if (any(lessThan(q, vec2(0.0))) || any(greaterThanEqual(q, vec2(r))))
+                continue;
+            vec2 t = 0.5 + q * k;
+            vec3 c = floor(texture(uSrc, vec2(t.x, 64.0 - t.y) / 64.0).rgb * 255.0 + 0.001);
+            acc += floor((c - acc) * a);
+        }
+        oColor = vec4(acc / 255.0, 1.0);
+    }
+    else if (uMode == 17) // the GS chain's temporal step: Cd + ((Cs - Cd) x uA.x) truncated, Cs the history (uSrc2)
+    {
+        vec3 cd = floor(texture(uSrc, vUV).rgb * 255.0 + 0.001), cs = floor(texture(uSrc2, vUV).rgb * 255.0 + 0.001);
+        oColor = vec4((cd + floor((cs - cd) * uA.x)) / 255.0, 1.0);
+    }
+    else if (uMode == 18) // the GS chain's composite: UV 0.5..256.5 over the PS2 frame; uA.xy render pixels per PS2 pixel
+    {
+        vec2 size = vec2(textureSize(uDepth, 0));
+        vec2 x = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y) / uA.xy - 0.5;
+        vec2 uv = (0.5 + x * vec2(256.0 / 512.0, 256.0 / 448.0)) / 256.0;
+        oColor = vec4(texture(uSrc, vec2(uv.x, 1.0 - uv.y)).rgb * uB.rgb * uB.a, 1.0);
+    }
     else if (uMode == 12) // zFog: background (uSrc) by the depth's slice; uA = start, width, steps
     {
         float d = texelFetch(uDepth, ivec2(vUV * vec2(textureSize(uDepth, 0))), 0).r;
@@ -249,7 +313,13 @@ void main(float3 aPos, float3 aNormal, float4 aColor, float2 aUV,
     vUV = float4(aUV + uMisc.zw, c.w, fog * c.w);
     vColor = aColor / 128.0;
     vColor.a *= uMisc.y;
-    if (uMisc.x > 0.5)
+    if (uMisc.x < -0.5) // water (microcode 1): alpha x (0.2 + 0.8 (1 - |n . v|)) in camera space
+    {
+        float4 p = uDirections[0] * aPos.x + uDirections[1] * aPos.y + uDirections[2] * aPos.z + uDirections[3];
+        float c = dot(normalize(p.xyz), uDirections[1].xyz);
+        vColor.a *= 0.2 + 0.8 * (1.0 - abs(c));
+    }
+    else if (uMisc.x > 0.5)
     {
         float4 d = max(uDirections[0] * aNormal.x + uDirections[1] * aNormal.y + uDirections[2] * aNormal.z + uDirections[3], 0.0);
         d.w = 1.0;
@@ -279,8 +349,16 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     }
     if (textured > 2.5)
         return float4(saturate(tex2D(uRefraction, screen).rgb * uDebug.rgb), -uDebug.w);
-    if (textured > 1.5)
-        { float4 r = tex2D(uReflection, screen); return float4(saturate(r.rgb * uDebug.rgb), saturate(r.a * -uDebug.w)); }
+    if (textured > 1.5) // TEX0 TCC 0: the mirror's alpha is not read; reflectionBegin's ripple
+    {
+        float2 uv = screen;
+        if (uFogC.z > 0.0)
+        {
+            float band = floor(clamp(1.0 - uv.y, 0.0, 0.999) * 32.0);
+            uv.x += (sin(2.0 * (12.0 * band + uFogC.y) * 75.39822 / uFogC.z) + 1.0) * (6.4 * band / uFogC.z + 0.2) / 256.0;
+        }
+        return float4(saturate(tex2D(uReflection, uv).rgb * uDebug.rgb * vColor.rgb), saturate(vColor.a * -uDebug.w));
+    }
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(1.0, 1.0, 1.0, 1.0);
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
@@ -435,6 +513,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target glowLayer, glowSmall[4]; // bossDeathEffect: layer 8 apart (on the picture's depth); 256, 128, 64, 64
         Target bloomTex[3];
         bool bloomHistory = false;
+        // The GS chain (as Metal): 0 mask 256, 1 128, 2 64, 3 64 lerped, 4 64 history, 5 128, 6 256.
+        Target gsBloom[7];
+        bool gsBloomHistory = false;
         uint32_t width = 0, height = 0;
         std::unordered_map<uint64_t, Mesh> meshes;
         std::unordered_map<uint64_t, Texture> textures;
@@ -643,6 +724,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             makeTarget(refractionHalf, 128, 128, false);
             for (Target &t : bloomTex)
                 makeTarget(t, std::max(w / 4u, 1u), std::max(h / 4u, 1u), false);
+#if !defined(PS2X_NATIVE_VITA)
+            for (int i = 0; i < 7; ++i)
+            {
+                const uint32_t size = (i == 0 || i == 6) ? 256u : ((i == 1 || i == 5) ? 128u : 64u);
+                makeTarget(gsBloom[i], size, size, false);
+            }
+            gsBloomHistory = false;
+#endif
             if (colorPlain.fbo)
                 glDeleteFramebuffers(1, &colorPlain.fbo);
             colorPlain = Target{};
@@ -897,8 +986,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             if (!load)
             {
-                if (mirror) // alpha 0: the water shows through where nothing is mirrored
-                    glClearColor(fog.colour[0], fog.colour[1], fog.colour[2], 0.0f);
+                if (mirror) // reflectionBegin clears with alpha 0x80
+                    glClearColor(fog.colour[0], fog.colour[1], fog.colour[2], 1.0f);
                 else
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 #if defined(PS2X_NATIVE_VITA)
@@ -1061,7 +1150,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     else
                     {
                         glDepthFunc(GL_LEQUAL); // the GS's GEQUAL: a surface drawn again in place passes
-                        glDepthMask(d.state.blend == native_renderer::Blend::Additive && !d.state.writeDepth ? GL_FALSE : GL_TRUE);
+                        glDepthMask((d.state.blend == native_renderer::Blend::Additive && !d.state.writeDepth) || d.state.noDepthWrite ? GL_FALSE : GL_TRUE);
                     }
                 }
                 auto tex = d.state.texture ? textures.find(d.state.texture) : textures.end();
@@ -1083,7 +1172,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (d.state.clamp & 1u) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (d.state.clamp & 2u) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
                 }
-                const float misc[4] = {d.state.lit ? 1.0f : 0.0f, d.state.opacity, d.state.uvOffset[0], d.state.uvOffset[1]};
+                const float misc[4] = {d.state.fresnel ? -1.0f : (d.state.lit ? 1.0f : 0.0f), d.state.opacity, d.state.uvOffset[0], d.state.uvOffset[1]};
                 const bool vertexFog = fog.vertexFog && !d.state.screen && (!d.state.background || bgFog);
 #if defined(PS2X_NATIVE_VITA)
                 // No depth texture for the zFog pass: the world before its layer
@@ -1094,7 +1183,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #endif
                 const float fogA[4] = {fog.start, fog.width, static_cast<float>(fog.steps), (!backgroundOnly && fogOn && (d.state.fogged || zFogged)) ? 1.0f : 0.0f};
                 const float fogB[4] = {static_cast<float>(w), static_cast<float>(h), vertexFog ? 1.0f : 0.0f, fog.base};
-                const float fogC[4] = {fog.scale, d.state.lodK, d.state.lodScale, d.state.maxLod};
+                // The mirror's ripple (t, H) where a reflection reads no mip level.
+                const float fogC[4] = {fog.scale, d.state.reflectionSample ? d.state.mirrorRipple[0] : d.state.lodK,
+                                       d.state.reflectionSample ? d.state.mirrorRipple[1] : d.state.lodScale, d.state.reflectionSample ? 0.0f : d.state.maxLod};
                 const float fogColour[4] = {fog.colour[0], fog.colour[1], fog.colour[2], static_cast<float>(textured)};
                 float debug[4] = {static_cast<float>(d.state.debugColour & 0xFFu) / 255.0f, static_cast<float>((d.state.debugColour >> 8) & 0xFFu) / 255.0f,
                                   static_cast<float>((d.state.debugColour >> 16) & 0xFFu) / 255.0f, d.state.debugColour ? 1.0f : 0.0f};
@@ -1136,6 +1227,34 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const float a[4] = {bloom.threshold, bloom.zA, bloom.zB, 0};
             const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
             bindTexture(2, color.depth);
+#if !defined(PS2X_NATIVE_VITA)
+            static const bool oldBloom = std::getenv("SOTC_BLOOM_OLD") != nullptr;
+            if (!oldBloom)
+            {
+                // The GS chain, as the Metal renderer does it (see there).
+                quad(gsBloom[0], 15, QuadBlend::None, a, maskColour);
+                bindTexture(0, gsBloom[0].texture);
+                quad(gsBloom[1], 0, QuadBlend::None);
+                bindTexture(0, gsBloom[1].texture);
+                quad(gsBloom[2], 0, QuadBlend::None);
+                const float alpha[4] = {gsBloomHistory ? bloom.temporal : 0.0f, 0, 0, 0};
+                bindTexture(0, gsBloom[2].texture);
+                bindTexture(1, gsBloom[4].texture);
+                quad(gsBloom[3], 17, QuadBlend::None, alpha);
+                const float r64[4] = {64, 0, 0, 0}, r128[4] = {128, 0, 0, 0};
+                bindTexture(0, gsBloom[3].texture);
+                quad(gsBloom[4], 16, QuadBlend::None, r64);
+                gsBloomHistory = true;
+                quad(gsBloom[5], 16, QuadBlend::None, r128);
+                bindTexture(0, gsBloom[5].texture);
+                quad(gsBloom[6], 0, QuadBlend::None);
+                const float scale[4] = {static_cast<float>(width) / 512.0f, static_cast<float>(height) / 448.0f, 0, 0};
+                const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
+                bindTexture(0, gsBloom[6].texture);
+                quad(colorPlain, 18, QuadBlend::Add, scale, colour);
+                return;
+            }
+#endif
             quad(bloomTex[0], 8, QuadBlend::None, a, maskColour);
             const int rounds = std::clamp(static_cast<int>(native_renderer::tuning().bloomRounds + 0.5f), 1, 8); // F10 panel (SOTC_BLOOM_ROUNDS)
             const float spreadGrow = native_renderer::tuning().bloomSpread;
@@ -1318,7 +1437,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         if (bloomOn)
             events.push_back({bloom.order, -1});
         else
-            bloomHistory = false;
+            bloomHistory = gsBloomHistory = false;
         for (size_t i = 0; i < blurs.size(); ++i)
             events.push_back({blurs[i].order, static_cast<int>(i)});
         std::stable_sort(events.begin(), events.end(), [](const Event &x, const Event &y) { return x.order < y.order; });

@@ -125,8 +125,16 @@ Water refraction: `waterRefractionBegin` (layer 9) copies the picture so
 far to 256 x 256, to 128 x 128 and back (a blur) and leaves TEX0 on it; the
 0x2200 surfaces are drawn there (and again in layer 15 on the reflection)
 with the per-surface packet (header +0x14 [1] + s x 0x40 + 0x20), tint at
-the CALL target +0x30 (alpha 128). Both passes blend ALPHA 0x44 at alpha 1,
-so the reflection covers the refraction where both land. Natively:
+the CALL target +0x30 (alpha 128). Layer 9 (microcode 2, VU1 image 87bc2f1b) draws the copy's
+colour as is (RGB 128) with the vertex alpha under PABE (below 0x80 not
+blended: opaque); layer 15 (microcode 1, 98a396b7, routine 0x648) draws
+reflectionBegin's rippled mirror (fbp + 0x20: 32 bands of 8 rows shifted by
+(sin(2 (12 i + t) 24 pi / H) + 1)(6.4 i / H + 0.2) texels, t = *0x118c030,
+H = *0x1192090) times the vertex RGB, alpha = vertex alpha x (VU 0x3f3 w /
+128) x (0.2 + 0.8 (1 - |n . v|)), v the normalised camera-space position, n
+the model's up axis (a Fresnel term: from above the pool bottom shows, at a
+grazing angle the mirror). Bit 25 surfaces go to layer 14 instead (unrippled
+mirror, ALPHA 0x8000000064: written as is). Natively:
 `refractionSample` draws at layer 9 (`SOTC_NATIVE_NOREFRACT`,
 `SOTC_REFRACT_SHOW` paints them red).
 
@@ -169,8 +177,8 @@ matrix, the ST extent `vec`, fog factors, VU 18..27), a material packet
 packets of 48-byte particles: position + size, colour 0..1, sin/cos of the
 rotation. The microcode expands each into a rotated square (s = size x
 0.7071; A = (k.x sin, k.y cos) s, B = (-cos, k.y sin) s, k at 0x118bfe0;
-type 1 along the billboard axes from *0x118bff4, 2/4/5 by the matrix),
-type 4 as a lit fan around the centre (routine 0xe48: centre normal the camera's third axis, corners toward the centre; L = VU 26, k = VU 27; s = min((n.x L.x + n.y L.y + k.w n.z L.z + k.w) / 2, 1)^2, colour x (s k.y + k.x)); types 2, 4 and 7 add the matrix's translation row; type 3 a streak between two points
+type 1 along the billboard axes from *0x118bff4, 2/4 by the matrix),
+type 4 as a lit fan around the centre (routine 0xe48: centre normal the camera's third axis, corners toward the centre; L = VU 26, k = VU 27; s = min((n.x L.x + n.y L.y + k.w n.z L.z + k.w) / 2, 1)^2, colour x (s k.y + k.x)); types 2, 4 and 7 add the matrix's translation row; type 5 (0xba8) the type 3 streak drawn as type 4's lit fan around the corners' mean; type 3 a streak between two points
 (q0 = p1 and width, q2 = p2; sides (p - eye) x (p1 - p2), half the width,
 the eye VU 16), type 7 a square by the environment matrix with its
 translation and a texture cell offset per particle (q2 z / w). The
@@ -293,8 +301,22 @@ renderer redoes it with its own passes (quarter resolution, separable
 blur, history texture). The 12 shifted copies blend by ALPHA 0x44 (a lerp,
 alpha 0x40 / 0x20 / 0x10 at 0x118c0fc / 10c / 11c), so the blur is
 normalized; the final add is full strength (colour 0x118c140, alpha
-0x118c14c). Natively: one blur round, scale 1 (SOTC_BLOOM_SCALE,
-SOTC_BLOOM_ROUNDS).
+0x118c14c).
+
+The chain as the GS runs it (traced sprite by sprite): mask in 336 (512 x
+448) -> 448 (256 x 256, bilinear) -> 480 (128) -> 488 (64); 510, the last
+frame's *blurred* result, drawn over 488 with alpha 0x118c12c (0x76:
+0.92); 510 = 488 blurred (a copy, then the 12 shifted lerps); 480 = 488
+blurred the same way at 128 x 128; 448 = 480 enlarged; added over 224
+(UV 0.5..256.5). Since the history is the blurred result, it is blurred
+again every frame: the glow keeps spreading over the sky and swells for a
+dozen frames when the sky comes into view (y = 0.92 B(y) + 0.08 m). The
+sequential lerps weigh the later taps more (+1 after -1), so the glow also
+drifts down and right; the lerps truncate. Natively (Metal, desktop GL)
+the same buffers and steps (`gsBloom`); SOTC_BLOOM_OLD=1 the earlier
+quarter-resolution approximation. At SOTC_BLOOM_SCALE=1 the added light
+measures within ~15% of the GS's (the PS2's bloom isolated with
+PS2X_GS_SKIP_TBP=14336).
 
 Model instance opacity (modelDisp, to the microcode at packet + 0xdc):
 1 - instance[0x91] (+0x244), times 1 - instance[0x92] (+0x248) when the
