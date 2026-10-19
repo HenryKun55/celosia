@@ -2,6 +2,9 @@
 #include "Dispatcher.h"
 #include "System.h"
 
+#include <mutex>
+#include <unordered_map>
+
 namespace ps2_syscalls
 {
     bool dispatchNumericSyscall(uint32_t syscallNumber, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -22,6 +25,23 @@ namespace ps2_syscalls
         case 0x04:
             ExitThread(rdram, ctx, runtime);
             return true;
+        // Adapted from LightVelox/sotc-vibe-pc (GPL-3.0): the PAL boot ELF
+        // installs EE exception vectors and expects the previous handler back.
+        case 0x0D:
+        case 0x0E:
+        {
+            static std::mutex vectorMutex;
+            static std::unordered_map<uint64_t, uint32_t> vectorHandlers;
+            const uint64_t key = (static_cast<uint64_t>(syscallNumber) << 32) | getRegU32(ctx, 4);
+            uint32_t previous = 0u;
+            {
+                std::lock_guard<std::mutex> lock(vectorMutex);
+                previous = vectorHandlers[key];
+                vectorHandlers[key] = getRegU32(ctx, 5);
+            }
+            setReturnU32(ctx, previous);
+            return true;
+        }
         case 0x10:
             AddIntcHandler(rdram, ctx, runtime);
             return true;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# celosia: static recompilation of Shadow of the Colossus (USA, SCUS-97472).
+# celosia: static recompilation of Shadow of the Colossus.
 #
 #   ./celosia setup --iso <SotC.iso|.zip>   extract the disc and build everything
 #   ./celosia run                           play
@@ -25,7 +25,11 @@ WORK=$BUILD/recomp             # recompiler inputs/outputs per stage
 CAPTURES=$BUILD/captures       # RAM dumps taken when each module starts
 LOGS=$ROOT/logs
 MEMCARDS=${CELOSIA_MEMCARDS:-$ROOT/memcards}   # Mcd001.ps2 / Mcd002.ps2 (PCSX2 format)
-BOOT=SCUS_974.72
+EDITION_FILE=$BUILD/edition
+USA_BOOT=SCUS_974.72
+PAL_BOOT=SCES_533.26
+BOOT=
+EDITION=
 RUNNER=$CMAKE_DIR/ps2xRuntime/ps2EntryRunner
 RECOMP=$CMAKE_DIR/ps2xRecomp/ps2_recomp
 MODULES="KERNEL MANAGER GAMECORE"   # XFF modules, in load order
@@ -43,19 +47,49 @@ check_tools() {
     need pkg-config "brew install pkg-config"
 }
 
+detect_disc() {
+    local usa=0 pal=0
+    [ -f "$DISC/$USA_BOOT" ] && usa=1
+    [ -f "$DISC/$PAL_BOOT" ] && pal=1
+    [ "$usa" -eq 0 ] || [ "$pal" -eq 0 ] || die "both USA and PAL boot files found in $DISC"
+    if [ "$usa" -eq 1 ]; then
+        BOOT=$USA_BOOT
+        EDITION=usa
+    elif [ "$pal" -eq 1 ]; then
+        BOOT=$PAL_BOOT
+        EDITION=pal
+    else
+        die "no supported boot file in $DISC (expected $USA_BOOT or $PAL_BOOT)"
+    fi
+}
+
 check_disc() {
-    [ -f "$DISC/$BOOT" ] || die "no $BOOT in $DISC (run: ./celosia setup --iso <path>)"
+    detect_disc
     local m
     for m in $MODULES; do
-        [ -f "$DISC/$m.XFF" ] || die "$DISC/$m.XFF missing: is this the USA release (SCUS-97472)?"
+        [ -f "$DISC/$m.XFF" ] || die "$DISC/$m.XFF missing: is this a supported release?"
     done
+}
+
+check_build_edition() {
+    [ ! -f "$EDITION_FILE" ] || [ "$(<"$EDITION_FILE")" = "$EDITION" ] ||
+        die "the current runner was built for $(<"$EDITION_FILE"), but $DISC is $EDITION; run ./celosia setup"
 }
 
 cmd_extract() {
     local iso=${1:-}
     [ -n "$iso" ] || die "usage: ./celosia extract <SotC.iso|.zip>"
     [ -f "$iso" ] || die "$iso not found"
-    if [ -f "$DISC/$BOOT" ]; then
+    if [ -f "$DISC/$USA_BOOT" ] || [ -f "$DISC/$PAL_BOOT" ]; then
+        detect_disc
+        case $(lower "$iso") in
+        *.iso)
+            bsdtar -tf "$iso" "$BOOT" >/dev/null 2>&1 ||
+                die "$iso does not match the $EDITION disc already extracted in $DISC"
+            ;;
+        *.zip) say "using the existing $EDITION disc (ZIP not re-extracted)" ;;
+        *) die "expected an ISO or ZIP: $iso" ;;
+        esac
         say "disc already extracted in $DISC"
         return
     fi
@@ -148,6 +182,22 @@ stage_game() {
     recompile "$dir"
 }
 
+# The PAL modules use a stable layout. Build a linked recompilation image from
+# the user's extracted files instead of bootstrapping it through RAM captures.
+# The linker/profile are adapted from LightVelox/sotc-vibe-pc; see
+# tools/pal/README.md for source and license details.
+stage_pal() {
+    local dir=$WORK/pal link=$WORK/pal/link
+    mkdir -p "$dir"
+    say "linking PAL SCES-53326 v1.00 modules"
+    python3 "$ROOT/tools/pal/sotc_link.py" \
+        --profile "$ROOT/game/pal/SCES-53326_v1.00.json" \
+        --files "$DISC" --out "$link" >"$LOGS/link-pal.log" 2>&1 ||
+        { tail -20 "$LOGS/link-pal.log"; die "PAL linking failed (log: logs/link-pal.log)"; }
+    cp "$ROOT/game/pal/sces.toml" "$dir/config.toml"
+    recompile "$dir"
+}
+
 # Runs the game until it jumps into code that is not recompiled yet (the next
 # module's entry) and saves guest RAM at that moment.
 capture() {
@@ -183,6 +233,13 @@ cmd_setup() {
     if [ -n "$iso" ]; then cmd_extract "$iso"; fi
     check_disc
     cmd_configure
+    if [ "$EDITION" = pal ]; then
+        stage_pal
+        printf '%s\n' "$EDITION" >"$EDITION_FILE"
+        say "PAL build complete (experimental; native USA renderer overrides stay disabled)"
+        say "run with: ./celosia run"
+        return
+    fi
     rm -rf "$CAPTURES"   # every capture depends on the stage before it
     stage_boot
     local m
@@ -191,11 +248,14 @@ cmd_setup() {
         stage_game
     done
     cmd_vu1
+    printf '%s\n' "$EDITION" >"$EDITION_FILE"
     say "done. Play with: ./celosia run"
 }
 
 # Compiles the VU1 microcode images collected in $VU1_DUMPS into C++.
 cmd_vu1() {
+    check_disc
+    check_build_edition
     if [ -z "$(ls "$VU1_DUMPS"/*.bin 2>/dev/null)" ]; then
         say "collecting VU1 microcode (40s scripted run)"
         cmd_autotest 40 >/dev/null
@@ -208,19 +268,32 @@ cmd_vu1() {
 }
 
 cmd_build() {
-    [ -d "$WORK/game" ] || die "nothing to build yet (run: ./celosia setup)"
+    check_disc
+    check_build_edition
+    local stage=game
+    [ "$EDITION" = pal ] && stage=pal
+    [ -d "$WORK/$stage" ] || die "nothing to build yet (run: ./celosia setup)"
     cmake "$CMAKE_DIR" >"$LOGS/configure.log" 2>&1
     build_target ps2EntryRunner
+    printf '%s\n' "$EDITION" >"$EDITION_FILE"
 }
 
 cmd_recompile() {
-    [ -d "$WORK/game" ] || die "nothing to recompile yet (run: ./celosia setup)"
-    stage_game
+    check_disc
+    if [ "$EDITION" = pal ]; then
+        [ -d "$WORK/pal" ] || die "nothing to recompile yet (run: ./celosia setup)"
+        stage_pal
+    else
+        [ -d "$WORK/game" ] || die "nothing to recompile yet (run: ./celosia setup)"
+        stage_game
+    fi
+    printf '%s\n' "$EDITION" >"$EDITION_FILE"
 }
 
 cmd_run() {
     [ -x "$RUNNER" ] || die "not built yet (run: ./celosia setup --iso <path>)"
     check_disc
+    check_build_edition
     mkdir -p "$LOGS" "$VU1_DUMPS"
     say "playing (log: logs/play.log)"
     cd "$ROOT"
@@ -231,6 +304,8 @@ cmd_run() {
 cmd_autotest() {
     local secs=${1:-40} pid
     [ -x "$RUNNER" ] || die "not built yet"
+    check_disc
+    check_build_edition
     mkdir -p "$LOGS" "$VU1_DUMPS"
     rm -rf "$ROOT/shots/run" && mkdir -p "$ROOT/shots/run"
     (cd "$ROOT" &&
@@ -260,6 +335,9 @@ cmd_clean() {
 # PS Vita build: ./celosia vita -> build/vita/ps2xRuntime/ps2EntryRunner.vpk
 # Install the VPK, then copy disc/ to ux0:data/celosia/disc/.
 cmd_vita() {
+    check_disc
+    check_build_edition
+    [ "$EDITION" = usa ] || die "the PAL build path is currently supported on macOS only"
     local VITAGL_REV=464876a
     export VITASDK=${VITASDK:-$HOME/vitasdk}
     [ -f "$VITASDK/share/vita.toolchain.cmake" ] || die "VitaSDK not found (set VITASDK)"

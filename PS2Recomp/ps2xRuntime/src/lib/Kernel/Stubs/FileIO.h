@@ -9,6 +9,7 @@ namespace ps2_stubs
     void sceFsSemExit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceFsSemInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sceFsSigSema(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sceGetstat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void close(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void fstat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void lseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

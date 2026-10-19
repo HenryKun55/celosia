@@ -2216,7 +2216,7 @@ namespace ps2recomp
         {
             return true;
         }
-        return ps2_runtime_calls::isStubName(function.name);
+        return m_config.autoStubByName && ps2_runtime_calls::isStubName(function.name);
     }
 
     bool PS2Recompiler::IsCorrectnessCriticalFunctionName(const std::string &name)

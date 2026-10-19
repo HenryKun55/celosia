@@ -1,6 +1,7 @@
 # Game data: never commit anything from the disc or derived from it.
 /disc/
-/iso/
+/iso/*
+!/iso/README.md
 *.iso
 *.zip
 *.XFF

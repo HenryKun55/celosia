@@ -65,6 +65,7 @@ namespace ps2recomp
             config.patchSyscalls = toml::find_or<bool>(general, "patch_syscalls", config.patchSyscalls);
             config.patchCop0 = toml::find_or<bool>(general, "patch_cop0", config.patchCop0);
             config.patchCache = toml::find_or<bool>(general, "patch_cache", config.patchCache);
+            config.autoStubByName = toml::find_or<bool>(general, "auto_stub_by_name", config.autoStubByName);
 
             if (general.contains("stubs") && general.at("stubs").is_array())
             {
