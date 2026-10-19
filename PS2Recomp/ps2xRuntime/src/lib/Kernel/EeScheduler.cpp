@@ -14,6 +14,7 @@
 #include <map>
 #include <tuple>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 
@@ -1334,6 +1335,16 @@ void EeScheduler::dispatchIrq(bool dmac, uint32_t cause)
         if (n == 1 || n % 600 == 0)
         {
             std::cerr << "[irq] dispatch " << (dmac ? "dmac" : "intc") << " cause=" << cause << " count=" << n << std::endl;
+        }
+        const char *palDiagnostics = std::getenv("PS2X_PAL_DIAGNOSTICS");
+        if (!dmac && cause == 9u && n % 6000u == 0u && palDiagnostics && palDiagnostics[0] == '1')
+        {
+            std::cerr << "[pal-threads] irq=" << n << " running=" << m_currentThreadId;
+            for (const auto &[id, thread] : m_threads)
+                std::cerr << " id=" << id << ":state=" << static_cast<unsigned>(thread.status)
+                          << ":wait=" << static_cast<unsigned>(thread.wait.reason)
+                          << ":pc=0x" << std::hex << thread.activeContext().pc << std::dec;
+            std::cerr << std::endl;
         }
     }
     const auto &handlers = dmac ? m_dmacHandlers : m_intcHandlers;

@@ -26,6 +26,7 @@ CAPTURES=$BUILD/captures       # RAM dumps taken when each module starts
 LOGS=$ROOT/logs
 MEMCARDS=${CELOSIA_MEMCARDS:-$ROOT/memcards}   # Mcd001.ps2 / Mcd002.ps2 (PCSX2 format)
 EDITION_FILE=$BUILD/edition
+ISO_FILE=$BUILD/iso-path
 USA_BOOT=SCUS_974.72
 PAL_BOOT=SCES_533.26
 BOOT=
@@ -78,6 +79,7 @@ check_build_edition() {
 
 cmd_extract() {
     local iso=${1:-}
+    local source=$iso
     [ -n "$iso" ] || die "usage: ./celosia extract <SotC.iso|.zip>"
     [ -f "$iso" ] || die "$iso not found"
     if [ -f "$DISC/$USA_BOOT" ] || [ -f "$DISC/$PAL_BOOT" ]; then
@@ -86,6 +88,8 @@ cmd_extract() {
         *.iso)
             bsdtar -tf "$iso" "$BOOT" >/dev/null 2>&1 ||
                 die "$iso does not match the $EDITION disc already extracted in $DISC"
+            mkdir -p "$BUILD"
+            printf '%s/%s\n' "$(cd "$(dirname "$iso")" && pwd -P)" "$(basename "$iso")" >"$ISO_FILE"
             ;;
         *.zip) say "using the existing $EDITION disc (ZIP not re-extracted)" ;;
         *) die "expected an ISO or ZIP: $iso" ;;
@@ -93,7 +97,7 @@ cmd_extract() {
         say "disc already extracted in $DISC"
         return
     fi
-    mkdir -p "$DISC"
+    mkdir -p "$DISC" "$BUILD"
     case $(lower "$iso") in
     *.zip)
         say "unpacking $(basename "$iso")"
@@ -108,6 +112,9 @@ cmd_extract() {
     bsdtar -xf "$iso" -C "$DISC"
     rm -rf "$BUILD/iso"
     check_disc
+    case $(lower "$source") in
+    *.iso) printf '%s/%s\n' "$(cd "$(dirname "$source")" && pwd -P)" "$(basename "$source")" >"$ISO_FILE" ;;
+    esac
 }
 
 cmd_configure() {
@@ -296,21 +303,44 @@ cmd_run() {
     check_build_edition
     mkdir -p "$LOGS" "$VU1_DUMPS"
     say "playing (log: logs/play.log)"
+    printf '[celosia] edition=%s boot=%s utc=%s\n' "$EDITION" "$BOOT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$LOGS/play.log"
     cd "$ROOT"
-    PS2X_MEMCARD_DIR=$MEMCARDS PS2X_VU1_DUMP_MISSING=${PS2X_VU1_DUMP_MISSING:-$VU1_DUMPS} exec "$RUNNER" "$DISC/$BOOT" "$@" >"$LOGS/play.log" 2>&1
+    local pal_diagnostics= cd_image=
+    if [ "$EDITION" = pal ]; then
+        pal_diagnostics=1
+        [ -f "$ISO_FILE" ] || die "PAL sector reads need the ISO path; run ./celosia extract <your PAL ISO>"
+        cd_image=$(<"$ISO_FILE")
+        [ -f "$cd_image" ] || die "PAL ISO no longer found at $cd_image; run ./celosia extract <your PAL ISO>"
+    fi
+    PS2X_CD_IMAGE=$cd_image PS2X_PAL_DIAGNOSTICS=$pal_diagnostics PS2X_MEMCARD_DIR=$MEMCARDS PS2X_VU1_DUMP_MISSING=${PS2X_VU1_DUMP_MISSING:-$VU1_DUMPS} exec "$RUNNER" "$DISC/$BOOT" "$@" >>"$LOGS/play.log" 2>&1
+}
+
+cmd_diagnose() {
+    [ -f "$LOGS/play.log" ] || die "no run log yet (run: ./celosia run)"
+    say "last run diagnostics (full log: logs/play.log)"
+    grep -E '^\[celosia\]|^\[main\]|^\[cd-image\]|ELF file loaded|^\[sceCdSearchFile|^\[pal-cd-|^\[pal-threads\]|^\[pal-xff\]|^\[guest-branch:missing-target\]|unimplemented syscall|failed|ERROR' "$LOGS/play.log" | tail -30 || true
+    grep -m 1 'sceCdRead unresolved' "$LOGS/play.log" || true
 }
 
 # Scripted run that saves screenshots: ./celosia autotest [seconds] [interval]
 cmd_autotest() {
-    local secs=${1:-40} pid
+    local secs=${1:-40} pid pal_diagnostics= cd_image=
     [ -x "$RUNNER" ] || die "not built yet"
     check_disc
     check_build_edition
+    if [ "$EDITION" = pal ]; then
+        pal_diagnostics=1
+        [ -f "$ISO_FILE" ] || die "PAL sector reads need the ISO path; run ./celosia extract <your PAL ISO>"
+        cd_image=$(<"$ISO_FILE")
+        [ -f "$cd_image" ] || die "PAL ISO no longer found at $cd_image; run ./celosia extract <your PAL ISO>"
+    fi
     mkdir -p "$LOGS" "$VU1_DUMPS"
     rm -rf "$ROOT/shots/run" && mkdir -p "$ROOT/shots/run"
     (cd "$ROOT" &&
         PS2X_INPUT_SCRIPT=${PS2X_INPUT_SCRIPT:-"11:DOWN:0.3;12:CROSS:0.3"} \
         PS2X_SNAPSHOT_DIR=shots/run PS2X_SNAPSHOT_SECONDS=${2:-5} \
+        PS2X_PAL_DIAGNOSTICS=$pal_diagnostics \
+        PS2X_CD_IMAGE=$cd_image \
         PS2X_VU1_DUMP_MISSING=$VU1_DUMPS PS2X_MEMCARD_DIR=${PS2X_MEMCARD_DIR:-$BUILD/autotest-memcards} \
         exec "$RUNNER" "$DISC/$BOOT") >"$LOGS/autotest.log" 2>&1 &
     pid=$!
@@ -386,6 +416,7 @@ Commands:
   setup [--iso PATH]   extract the disc (if given) and run the whole pipeline
   extract PATH         only extract an ISO (or a zip containing one)
   run [args]           play (new VU1 microcode is saved for `vu1`)
+  diagnose             summarize the last run's boot and PAL module diagnostics
   vu1                  recompile collected VU1 microcode and rebuild
   recompile            relink modules + recompile game code + rebuild
   build                rebuild the runner (after editing PS2Recomp sources)
@@ -400,6 +431,7 @@ setup) shift; cmd_setup "$@" ;;
 extract) shift; cmd_extract "$@" ;;
 configure) cmd_configure ;;
 run) shift; cmd_run "$@" ;;
+diagnose) cmd_diagnose ;;
 vu1) cmd_vu1 ;;
 recompile) cmd_recompile ;;
 build) cmd_build ;;

@@ -315,6 +315,15 @@ namespace ps2_stubs
 
         if (ok)
         {
+            if (const char *diagnostics = std::getenv("PS2X_PAL_DIAGNOSTICS"); diagnostics && diagnostics[0] == '1')
+            {
+                static uint32_t readCount = 0;
+                ++readCount;
+                if (readCount <= 16u || readCount % 1024u == 0u)
+                    std::cerr << "[pal-cd-read] count=" << readCount << " pc=0x" << std::hex << ctx->pc
+                              << " lbn=0x" << selected.lbn << " sectors=" << std::dec << selected.sectors
+                              << " buffer=0x" << std::hex << selected.buf << std::dec << std::endl;
+            }
             g_cdStreamingLbn = selected.lbn + selected.sectors;
             setReturnS32(ctx, 1); // command accepted/success
             return;
@@ -325,6 +334,14 @@ namespace ps2_stubs
 
     void sceCdSync(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (const char *diagnostics = std::getenv("PS2X_PAL_DIAGNOSTICS"); diagnostics && diagnostics[0] == '1')
+        {
+            static uint32_t syncCount = 0;
+            ++syncCount;
+            if (syncCount <= 8u || syncCount % 1024u == 0u)
+                std::cerr << "[pal-cd-sync] count=" << syncCount << " pc=0x" << std::hex << ctx->pc
+                          << " streaming_lbn=0x" << g_cdStreamingLbn << std::dec << std::endl;
+        }
         setReturnS32(ctx, 0); // 0 = completed/not busy
     }
 

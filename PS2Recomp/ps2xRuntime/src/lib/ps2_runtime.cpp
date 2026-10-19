@@ -1345,6 +1345,12 @@ void PS2Runtime::configureIoPathsFromElf(const std::string &elfPath)
         paths.mcRoot = paths.elfDirectory / "mc0";
     }
 
+    if (const char *image = std::getenv("PS2X_CD_IMAGE"); image && image[0] != '\0')
+    {
+        paths.cdImage = image;
+        RUNTIME_LOG("[cd-image] " << paths.cdImage.string() << std::endl);
+    }
+
     setIoPaths(paths);
 }
 
@@ -1499,6 +1505,65 @@ void PS2Runtime::resetMissingFunctionReportOnce()
     m_missingFunctionReported.store(false, std::memory_order_release);
 }
 
+// On PAL bring-up, record the XFF layout actually chosen by the game's loader.
+// The offline recompiler can only dispatch to the addresses in its link profile.
+static void logPalXffLayoutOnMissing(const uint8_t *rdram, uint32_t targetPc)
+{
+    const char *enabled = std::getenv("PS2X_PAL_DIAGNOSTICS");
+    if (!rdram || !enabled || enabled[0] != '1')
+        return;
+
+    const auto read32 = [rdram](uint32_t addr) {
+        uint32_t value = 0;
+        std::memcpy(&value, rdram + addr, sizeof(value));
+        return value;
+    };
+    for (uint32_t base = 0; base <= PS2_RAM_SIZE - 0x70u; base += 4u)
+    {
+        if (std::memcmp(rdram + base, "xff2", 4) != 0)
+            continue;
+        const uint32_t size = read32(base + 0x14u);
+        const uint32_t sectionCount = read32(base + 0x40u);
+        const uint32_t sectionHeaders = read32(base + 0x5cu);
+        const uint32_t nameIndices = read32(base + 0x68u);
+        const uint32_t names = read32(base + 0x6cu);
+        if (size < 0x70u || size > PS2_RAM_SIZE - base || sectionCount == 0 ||
+            sectionCount > 256 || sectionCount * 32u > size ||
+            sectionHeaders > size - sectionCount * 32u ||
+            nameIndices > size - sectionCount * 4u || names >= size)
+            continue;
+
+        uint32_t textAddr = 0, textSize = 0, bssAddr = 0;
+        for (uint32_t i = 0; i < sectionCount; ++i)
+        {
+            const uint32_t nameOffset = read32(base + nameIndices + i * 4u);
+            if (nameOffset > size - names - 1u)
+                continue;
+            const char *name = reinterpret_cast<const char *>(rdram + base + names + nameOffset);
+            const size_t remaining = size - names - nameOffset;
+            const void *end = std::memchr(name, 0, remaining);
+            if (!end)
+                continue;
+            const uint32_t address = read32(base + sectionHeaders + i * 32u);
+            const uint32_t length = read32(base + sectionHeaders + i * 32u + 8u);
+            if (std::strcmp(name, ".text") == 0)
+            {
+                textAddr = address;
+                textSize = length;
+            }
+            else if (std::strcmp(name, ".bss") == 0)
+                bssAddr = address;
+        }
+        const uint32_t entry = textAddr ? textAddr + read32(base + 0x4cu) : 0u;
+        const bool containsTarget = textAddr && targetPc >= textAddr && targetPc - textAddr < textSize;
+        std::cerr << "[pal-xff] base=0x" << std::hex << base
+                  << " size=0x" << size << " text=0x" << textAddr
+                  << " bss=0x" << bssAddr << " entry=0x" << entry
+                  << " target_in_text=" << (containsTarget ? "yes" : "no")
+                  << std::dec << std::endl;
+    }
+}
+
 void PS2Runtime::reportMissingFunction(uint8_t *rdram,
                                        R5900Context *ctx,
                                        uint32_t targetPc,
@@ -1651,6 +1716,7 @@ void PS2Runtime::reportMissingFunction(uint8_t *rdram,
         {
             std::lock_guard<std::mutex> lock(s_missingFunctionLogMutex);
             std::cerr << oss.str() << std::endl;
+            logPalXffLayoutOnMissing(rdram, targetPc);
         }
     }
 

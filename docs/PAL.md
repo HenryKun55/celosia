@@ -17,6 +17,7 @@ live elsewhere.
 ```sh
 ./celosia setup --iso "iso/Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It).iso"
 ./celosia run
+./celosia diagnose
 ```
 
 For an ISO at another location, replace the quoted path. The requirements in
@@ -30,16 +31,28 @@ extracted disc files stay under `disc/`.
 - The PAL v1.00 image used for testing matched the profile's boot and module
   hashes. Its EE recompilation completed, and the macOS ARM64 runner built.
 - A smoke test initialized Metal on an Apple M1, loaded the PAL boot ELF, and
-  found `MANAGER.XFF` on the extracted disc. The window remained black: a
-  subsequent indirect call into the dynamically loaded manager overlay has
-  no registered recompiled target. Gameplay is not verified or claimed.
+  progressed through the manager entry to find `GAMECORE.XFF` and `NICO.DAT`.
+  The first missing-code halt was caused by Celosia placing `MANAGER.XFF` at
+  a different address from the reference profile; that address is now adjusted
+  for this runtime. Connecting the user ISO resolved subsequent unmapped
+  sector reads. The remaining black-screen stall occurs after successful
+  `NICO.DAT` reads: the active thread stays in the thread manager while other
+  threads sleep or wait on semaphores. Gameplay is not verified or claimed.
 - Celosia's direct native renderer hooks and many runtime overrides are tied
   to USA addresses. They are not enabled for this PAL path. The PAL runner
   currently uses the generic Metal GS path; the USA performance, visual
   completeness, and PS Vita claims do not carry over.
 
 This is a build and boot-bring-up path, not a playable PAL release yet. Logs
-from a local run are written to `logs/play.log`.
+from a local run are written to `logs/play.log`; `./celosia diagnose` prints
+the significant events from the latest run. On the first unresolved guest
+call, PAL diagnostics record each loaded XFF's actual base, text, BSS and entry
+addresses, and whether the target falls inside that module's text. They also
+sample CD reads/synchronization and waiting thread states. To capture
+guest RAM for deeper local analysis, run with
+`PS2X_DUMP_RAM_ON_MISSING=build/pal-missing-ram.bin ./celosia run`; the dump is
+ignored by Git and must never be shared or committed because it contains game
+data.
 
 ## Source credit
 
