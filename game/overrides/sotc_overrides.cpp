@@ -909,6 +909,23 @@ namespace
             runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
         }
     }
+
+    void applySotcPalOverrides(PS2Runtime &runtime)
+    {
+        // Every other hook in this file is mapped to SCUS-97472 addresses.
+        // A function existing at the same address in SCES-53326 does not mean
+        // it has the same identity: installing the USA hooks on PAL produced
+        // invalid VIF1 chains and corrupted VU1 microcode. Keep the PAL path
+        // isolated until each address has been matched independently.
+        std::cerr << "[sotc:pal] USA-address native overrides disabled" << std::endl;
+
+        if (runtime.hasFunction(kGamecoreEntry))
+        {
+            g_gamecoreEntry = runtime.lookupFunction(kGamecoreEntry);
+            runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
+        }
+    }
 }
 
 PS2_REGISTER_GAME_OVERRIDE("Shadow of the Colossus (USA)", "SCUS_974.72", 0u, 0u, applySotcOverrides)
+PS2_REGISTER_GAME_OVERRIDE("Shadow of the Colossus (Europe/Australia)", "SCES_533.26", 0u, 0u, applySotcPalOverrides)

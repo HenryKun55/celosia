@@ -24,8 +24,8 @@
       "name": "MANAGER",
       "path": "MANAGER.XFF",
       "sha256": "2de4d80eed7ff6c89b34b587ee1ced8792921e2a7c80d7e92a4fbb1481f1461a",
-      "base": "0x010718C0",
-      "bss": "0x01223CC0"
+      "base": "0x0116BC40",
+      "bss": "0x0131E040"
     },
     {
       "name": "GAMECORE",
@@ -36,5 +36,5 @@
     }
   ],
   "undefined_import_stub": "0x001B28F8",
-  "provenance": "PAL structure and hashes from LightVelox/sotc-vibe-pc commit 9b9a04c; MANAGER base/bss adjusted to the addresses observed in Celosia's own macOS PAL boot; other module addresses are still from the reference PCSX2 title-screen profile"
+  "provenance": "module bases/bss and undefined-import stub from LightVelox/sotc-vibe-pc commit 9b9a04c (Docs/XFF_FORMAT.md); observed there in PCSX2 2.8.2 RAM at title screen (cold boot, fast boot)"
 }

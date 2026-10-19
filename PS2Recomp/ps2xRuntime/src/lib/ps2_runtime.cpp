@@ -2661,12 +2661,12 @@ bool PS2Runtime::eeCheckpointDue(uint32_t cycles) noexcept
     return m_eeScheduler->checkpointDue(cycles);
 }
 
-[[noreturn]] void PS2Runtime::eeWaitVSyncTicks(uint32_t ticks, uint32_t resumePc)
+[[noreturn]] void PS2Runtime::eeWaitVSyncTicks(uint32_t ticks, uint32_t resumePc, int fixedResult)
 {
     const uint64_t currentTick = m_eeScheduler->currentVSyncTick();
     const uint64_t waitTicks = std::max<uint64_t>(1u, ticks);
     m_eeScheduler->waitVSync(currentTick + waitTicks - 1u,
-                             0,
+                             fixedResult,
                              [resumePc](R5900Context &context)
                              {
                                  context.pc = resumePc;

@@ -31,17 +31,22 @@ extracted disc files stay under `disc/`.
 - The PAL v1.00 image used for testing matched the profile's boot and module
   hashes. Its EE recompilation completed, and the macOS ARM64 runner built.
 - A smoke test initialized Metal on an Apple M1, loaded the PAL boot ELF, and
-  progressed through the manager entry to find `GAMECORE.XFF` and `NICO.DAT`.
-  The first missing-code halt was caused by Celosia placing `MANAGER.XFF` at
-  a different address from the reference profile; that address is now adjusted
-  for this runtime. Connecting the user ISO resolved subsequent unmapped
-  sector reads. The remaining black-screen stall occurs after successful
-  `NICO.DAT` reads: the active thread stays in the thread manager while other
-  threads sleep or wait on semaphores. Gameplay is not verified or claimed.
+  progressed through the manager loader, found and loaded `GAMECORE.XFF`, and
+  began streaming `NICO.DAT`. The PAL loader needs the same three-field delay
+  after a successful file search used by the reference port so its graphics
+  thread allocates packet buffers before the XFF modules. Celosia preserves
+  the successful return value while that wait is scheduled; without that,
+  the loader treated every successful search as a failure and retried it.
+  The remaining result is a black screen after successful `NICO.DAT` reads;
+  gameplay is not verified or claimed.
 - Celosia's direct native renderer hooks and many runtime overrides are tied
-  to USA addresses. They are not enabled for this PAL path. The PAL runner
-  currently uses the generic Metal GS path; the USA performance, visual
-  completeness, and PS Vita claims do not carry over.
+  to USA addresses. A trace proved that applying them by numeric address to
+  PAL can replace unrelated functions and generate invalid VIF1 chains, which
+  in turn corrupt VU1 microcode. The PAL override registration therefore
+  installs only the verified `GAMECORE` entry hook and explicitly leaves all
+  USA-address hooks disabled. The PAL runner currently uses the generic Metal
+  GS path; the USA performance, visual completeness, and PS Vita claims do not
+  carry over.
 
 This is a build and boot-bring-up path, not a playable PAL release yet. Logs
 from a local run are written to `logs/play.log`; `./celosia diagnose` prints
@@ -53,6 +58,10 @@ guest RAM for deeper local analysis, run with
 `PS2X_DUMP_RAM_ON_MISSING=build/pal-missing-ram.bin ./celosia run`; the dump is
 ignored by Git and must never be shared or committed because it contains game
 data.
+
+For DMA/VIF investigation, `PS2X_TRACE_DMA=1 ./celosia run` records bounded
+VIF1 chain summaries in the same log. Do not attach `logs/play.log`, RAM dumps,
+or extracted files to bug reports without checking them for game data first.
 
 ## Source credit
 

@@ -312,7 +312,7 @@ cmd_run() {
         cd_image=$(<"$ISO_FILE")
         [ -f "$cd_image" ] || die "PAL ISO no longer found at $cd_image; run ./celosia extract <your PAL ISO>"
     fi
-    PS2X_CD_IMAGE=$cd_image PS2X_PAL_DIAGNOSTICS=$pal_diagnostics PS2X_MEMCARD_DIR=$MEMCARDS PS2X_VU1_DUMP_MISSING=${PS2X_VU1_DUMP_MISSING:-$VU1_DUMPS} exec "$RUNNER" "$DISC/$BOOT" "$@" >>"$LOGS/play.log" 2>&1
+    PS2X_PAL_RUNTIME=$pal_diagnostics PS2X_CD_IMAGE=$cd_image PS2X_PAL_DIAGNOSTICS=$pal_diagnostics PS2X_MEMCARD_DIR=$MEMCARDS PS2X_VU1_DUMP_MISSING=${PS2X_VU1_DUMP_MISSING:-$VU1_DUMPS} exec "$RUNNER" "$DISC/$BOOT" "$@" >>"$LOGS/play.log" 2>&1
 }
 
 cmd_diagnose() {
@@ -340,6 +340,7 @@ cmd_autotest() {
         PS2X_INPUT_SCRIPT=${PS2X_INPUT_SCRIPT:-"11:DOWN:0.3;12:CROSS:0.3"} \
         PS2X_SNAPSHOT_DIR=shots/run PS2X_SNAPSHOT_SECONDS=${2:-5} \
         PS2X_PAL_DIAGNOSTICS=$pal_diagnostics \
+        PS2X_PAL_RUNTIME=$pal_diagnostics \
         PS2X_CD_IMAGE=$cd_image \
         PS2X_VU1_DUMP_MISSING=$VU1_DUMPS PS2X_MEMCARD_DIR=${PS2X_MEMCARD_DIR:-$BUILD/autotest-memcards} \
         exec "$RUNNER" "$DISC/$BOOT") >"$LOGS/autotest.log" 2>&1 &

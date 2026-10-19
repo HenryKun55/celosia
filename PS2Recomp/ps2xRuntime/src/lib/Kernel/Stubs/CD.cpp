@@ -586,6 +586,7 @@ namespace ps2_stubs
 
     void sceCdSearchFile(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        const uint32_t resumePc = ctx->pc;
         uint32_t fileAddr = getRegU32(ctx, 4);
         uint32_t pathAddr = getRegU32(ctx, 5);
         const std::string path = readPs2CStringBounded(rdram, pathAddr, 260);
@@ -688,6 +689,14 @@ namespace ps2_stubs
                                                        << std::dec << std::endl);
         }
         setReturnS32(ctx, 1);
+
+        // The PAL loader races this call against the graphics-init thread.
+        // Give the latter three fields to allocate its packet buffers so the
+        // XFF modules land at their profiled addresses. Adapted from
+        // LightVelox/sotc-vibe-pc commit 9b9a04c (GPL-3.0).
+        const char *palRuntime = std::getenv("PS2X_PAL_RUNTIME");
+        if (runtime && palRuntime && palRuntime[0] == '1')
+            runtime->eeWaitVSyncTicks(3u, resumePc, 1);
     }
 
     void sceCdSeek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
