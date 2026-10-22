@@ -119,6 +119,7 @@ namespace native_renderer
             d.hazeSource = number("SOTC_HAZE_SOURCE", d.hazeSource);
             d.waterSource = number("SOTC_WATER_SOURCE", d.waterSource);
             d.frameLog = on("SOTC_FRAME_LOG");
+            d.subsysProf = on("SOTC_SUBSYS_PROF") && std::atoi(std::getenv("SOTC_SUBSYS_PROF")) != 0;
             d.fastHooks = !on("SOTC_NATIVE_SLOWHOOKS");
             if (on("SOTC_PACKET_QUICK"))
                 d.packetQuickCheck = std::atoi(std::getenv("SOTC_PACKET_QUICK")) != 0;
@@ -212,6 +213,8 @@ namespace native_renderer
             add(std::string("SOTC_ASYNC_BUILDS=") + (t.asyncBuilds ? "1" : "0"));
         if (t.frameLog)
             add("SOTC_FRAME_LOG=1");
+        if (t.subsysProf)
+            add("SOTC_SUBSYS_PROF=1");
         if (!t.fastHooks)
             add("SOTC_NATIVE_SLOWHOOKS=1");
         if (t.packetQuickCheck != d.packetQuickCheck)
@@ -365,6 +368,10 @@ namespace native_renderer
                     "Writes to the log every 60 frames where the time went (game, hooks, texture decoding, uploads, drawing, swap) and every slow frame.",
                     "Escreve no log a cada 60 quadros onde o tempo foi (jogo, ganchos, decodificação de texturas, envios, desenho, troca) e cada quadro lento.",
                     &Tuning::frameLog, "SOTC_FRAME_LOG");
+        debugToggle("dbg_subsys_prof", "Subsystem timing log", "Log de tempo por subsistema",
+                    "Writes to the log every 120 frames the game thread's time by subsystem (display walk, characters, AI, collision, camera, particles, the hooks' parts, each task's step), and once at start a probe of the memory and call costs. The functions are wrapped at start only when this is on then (or SOTC_SUBSYS_PROF=1); off at run time: paused.",
+                    "Escreve no log a cada 120 quadros o tempo da thread do jogo por subsistema (percurso de exibição, personagens, IA, colisão, câmera, partículas, as partes dos ganchos, o passo de cada tarefa) e uma vez no início uma sondagem dos custos de memória e de chamadas. As funções são embrulhadas no início só se isto estiver ligado então (ou SOTC_SUBSYS_PROF=1); desligado durante o jogo: pausado.",
+                    &Tuning::subsysProf, "SOTC_SUBSYS_PROF");
         debugToggle("dbg_fast_hooks", "Fast hooks", "Ganchos rápidos",
                     "Characters posed by the faster path and textures looked up once a frame. Off: the earlier code, to compare (the picture should not change).",
                     "Personagens posados pelo caminho mais rápido e texturas buscadas uma vez por quadro. Desligado: o código anterior, pra comparar (a imagem não deve mudar).",

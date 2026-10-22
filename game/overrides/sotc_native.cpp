@@ -30,6 +30,7 @@
 #include "runtime/gs/ps2_gs_psmt4.h"
 #include "runtime/gs/ps2_gs_psmt8.h"
 #include "runtime/ps2_stats.h"
+#include "sotc_prof.h"
 
 #include <algorithm>
 #include <map>
@@ -1699,6 +1700,7 @@ namespace sotc_native
         {
             endFrame();
             frameLog();
+            sotc_prof::frameTick(frame);
             native_renderer::beginFrame();
             g_frame = frame;
             gcovDump(frame);
@@ -3208,6 +3210,7 @@ namespace sotc_native
                 ctx->pc = GPR_U32(ctx, 31); // jr ra
         }
         HookTimer hookTimer;
+        SOTC_PROF_SCOPE(kHookModelDisp);
         if (!g_cameraContext)
             return;
 
@@ -3225,7 +3228,10 @@ namespace sotc_native
         if (check)
             modelDispCheck(rdram, ctx, runtime, instance, model);
         else if (!ps2Lists)
+        {
+            SOTC_PROF_SCOPE(kHookState);
             modelDispState(ctx, instance, model);
+        }
 
         const uint32_t header = word(word(instance) + 0x20u);
         static const uint32_t skipHeader = std::getenv("SOTC_NATIVE_SKIP") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_NATIVE_SKIP"), nullptr, 16)) : 0u; // debugging
@@ -3280,6 +3286,7 @@ namespace sotc_native
         static std::vector<uint8_t> partVisible;
         if (partCulled)
         {
+            SOTC_PROF_SCOPE(kHookPartTest);
             partVisible.clear();
             // The box (node +0 min, +0x10 max) through camera x model, VCLIP
             // against |w|: 1 every corner out past one plane, 2 all inside, 0 partly.
@@ -3333,12 +3340,17 @@ namespace sotc_native
         static std::vector<native_renderer::Vertex> vertices;
         static std::vector<Strip> strips;
         static VuPalette palette;
-        const bool hasPalette = readPalette(instance, palette);
+        bool hasPalette;
+        {
+            SOTC_PROF_SCOPE(kHookPalette);
+            hasPalette = readPalette(instance, palette);
+        }
         const bool fast = native_renderer::tuning().fastHooks;
         uint32_t paletteHandle = 0, paletteLo = 0, paletteHi = 0; // this instance's palette as last sent
         float projection[16];
         for (int i = 0; i < 16; ++i)
             projection[i] = real(g_cameraContext + 0x40u + i * 4u);
+        SOTC_PROF_SCOPE(kHookPackets);
         for (uint32_t k = 0; k < count; ++k)
         {
             const uint32_t pk = packets + k * 32u;
@@ -3353,7 +3365,11 @@ namespace sotc_native
             if (!surfaceDrawn(s))
                 continue;
             const uint32_t size = word(pk), data = word(pk + 16u);
-            const uint64_t id = packetId(data, size, fast);
+            uint64_t id;
+            {
+                SOTC_PROF_SCOPE(kHookPacketId);
+                id = packetId(data, size, fast);
+            }
             const bool changedInPlace = g_packetChangedInPlace;
             auto skinnedPacket = g_skinnedIds.count(id) ? g_skinnedPackets.find(id) : g_skinnedPackets.end();
             const bool twoPasses = word(s + 0x1Cu) == 2u;
@@ -3363,6 +3379,7 @@ namespace sotc_native
                 ; // on the worker: this packet is left out until it is taken up
             else if (needsBuild)
             {
+                SOTC_PROF_SCOPE(kHookBuild);
                 strips.clear();
                 readBatches(data, size, strips);
                 if (skinned(strips) && lit(strips))
@@ -3410,6 +3427,7 @@ namespace sotc_native
             uint32_t skinPalette = 0, skinPaletteCount = 0; // posed by the GPU: its palette
             if (skinnedPacket != g_skinnedPackets.end())
             {
+                SOTC_PROF_SCOPE(kHookSkin);
                 skinnedPacket->second.used = g_frame;
                 if (!hasPalette)
                     continue;

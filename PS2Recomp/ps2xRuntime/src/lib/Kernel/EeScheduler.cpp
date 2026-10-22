@@ -1,5 +1,6 @@
 #include "GuestKernelMemory.h"
 #include "runtime/ee_scheduler.h"
+#include "runtime/ee_dispatch_probe.h"
 
 #include "ps2_log.h"
 #include "ps2_runtime_macros.h"
@@ -16,6 +17,8 @@
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
+
+void (*g_eeDispatchProbe)(R5900Context *, int) = nullptr;
 
 namespace
 {
@@ -386,6 +389,8 @@ void EeScheduler::run()
             m_guestExecuting.store(true, std::memory_order_relaxed);
             m_unwinding = false;
             updateGate();
+            if (g_eeDispatchProbe)
+                g_eeDispatchProbe(&context, 0);
             function(m_rdram, &context, &m_runtime);
             m_guestExecuting.store(false, std::memory_order_relaxed);
             m_insideInterrupt = false;
@@ -401,6 +406,11 @@ void EeScheduler::run()
             m_running.store(false, std::memory_order_release);
             publishSnapshot();
             throw;
+        }
+        if (g_eeDispatchProbe)
+        {
+            const GuestThread *after = m_currentThreadId != 0 ? currentThread() : nullptr;
+            g_eeDispatchProbe(&context, after && &after->activeContext() == &context ? 1 : 2);
         }
 
         processPendingEvents();

@@ -66,6 +66,9 @@ namespace native_renderer
         // by default on the Vita).
         bool renderThread = false;
         bool frameLog = false;      // per-frame timing to the log (SOTC_FRAME_LOG; native_renderer::FrameCounters)
+        // The game thread's time by subsystem to the log (SOTC_SUBSYS_PROF;
+        // game/overrides/sotc_prof.cpp: wrapped at start only when on then).
+        bool subsysProf = false;
         // The game hooks' faster paths (skinned meshes posed once per vertex
         // and written in place, a texture's and a packet's id sampled once a
         // frame); off: the earlier code, to compare (SOTC_NATIVE_SLOWHOOKS).

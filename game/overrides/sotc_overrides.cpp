@@ -21,6 +21,7 @@
 
 void installSotcNative(PS2Runtime &runtime); // sotc_native.cpp
 #include "sotc_decomp.h"
+#include "sotc_prof.h"
 
 namespace
 {
@@ -908,6 +909,8 @@ namespace
             g_gamecoreEntry = runtime.lookupFunction(kGamecoreEntry);
             runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
         }
+        // Last: it wraps whatever is in the table by now (SOTC_SUBSYS_PROF).
+        sotc_prof::install(runtime);
     }
 }
 
