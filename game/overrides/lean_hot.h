@@ -1,4 +1,4 @@
-// Lean copies of the hot recompiled functions (lean_hot.cpp, SOTC_LEAN=1).
+// Lean copies of the hot recompiled functions (lean_hot.cpp, SOTC_LEAN; on by default on the Vita).
 #pragma once
 
 #include <cstdint>

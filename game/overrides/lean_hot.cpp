@@ -1,11 +1,13 @@
 // Lean copies of the hot recompiled functions: the same generated C++
-// compiled again with lean_macros.h (guest loads / stores with one compare
-// inline, the rest out of line), put in the function table in place of the
-// originals with SOTC_LEAN=1. An experiment to measure on the console what a
-// recompile with those macros everywhere would give, without one: the
-// generated code of the frame's ~1 100 functions is about half the size
-// (curveEval 52.8 -> 23.5 KB, ExecCharaGeometry 114 -> 58 KB on the Vita)
-// and does fewer instructions per guest load / store.
+// compiled a second time, put in the function table in place of the
+// originals (SOTC_LEAN, on by default on the Vita). They began as an
+// experiment for leaner guest loads / stores (one compare inline, the rest
+// out of line); those macros are now ps2_runtime_macros.h's for all the
+// generated code, so the copies do the same work as the originals. What is
+// left: the ~1 800 functions of a frame packed together in a few MB of text
+// (9 MB out of the Vita's 53 MB of text), and the direct calls between them
+// (tail jumps the recompiler made C++ calls) kept inside that block. On
+// the console SOTC_LEAN=2 measures whether that locality still pays.
 //
 // The set: game/lean_hot.txt (the functions called on the attract demo and
 // the route to the plain, from SOTC_CALL_COUNT_DUMP), turned into
@@ -20,7 +22,7 @@
 // originals by the difftest
 // (sotc_decomp.h; their entry slots keep the original for it).
 #include "lean_hot.h"
-#include "lean_macros.h"
+#include "ps2_runtime.h"
 #include "sotc_decomp.h"
 #include "sotc_prof.h"
 #include "runtime/native_tuning.h"
@@ -32,65 +34,6 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
-
-namespace ps2_lean
-{
-    uint8_t read8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
-    {
-        return Ps2IsSpecialAddress(a) ? runtime->Load8(rdram, ctx, a) : Ps2FastRead8(rdram, a);
-    }
-    uint16_t read16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
-    {
-        return Ps2IsSpecialAddress(a) ? runtime->Load16(rdram, ctx, a) : Ps2FastRead16(rdram, a);
-    }
-    uint32_t read32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
-    {
-        return Ps2IsSpecialAddress(a) ? runtime->Load32(rdram, ctx, a) : Ps2FastRead32(rdram, a);
-    }
-    uint64_t read64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
-    {
-        return Ps2IsSpecialAddress(a) ? runtime->Load64(rdram, ctx, a) : Ps2FastRead64(rdram, a);
-    }
-    __m128i read128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
-    {
-        return Ps2IsSpecialAddress(a) ? runtime->Load128(rdram, ctx, a) : Ps2FastRead128(rdram, a);
-    }
-    void write8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint8_t v)
-    {
-        if (Ps2IsSpecialAddress(a))
-            runtime->Store8(rdram, ctx, a, v);
-        else
-            Ps2FastWrite8(rdram, a, v);
-    }
-    void write16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint16_t v)
-    {
-        if (Ps2IsSpecialAddress(a))
-            runtime->Store16(rdram, ctx, a, v);
-        else
-            Ps2FastWrite16(rdram, a, v);
-    }
-    void write32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint32_t v)
-    {
-        if (Ps2IsSpecialAddress(a))
-            runtime->Store32(rdram, ctx, a, v);
-        else
-            Ps2FastWrite32(rdram, a, v);
-    }
-    void write64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint64_t v)
-    {
-        if (Ps2IsSpecialAddress(a))
-            runtime->Store64(rdram, ctx, a, v);
-        else
-            Ps2FastWrite64(rdram, a, v);
-    }
-    void write128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, __m128i v)
-    {
-        if (Ps2IsSpecialAddress(a))
-            runtime->Store128(rdram, ctx, a, v);
-        else
-            Ps2FastWrite128(rdram, a, v);
-    }
-}
 
 #if __has_include("lean/table.inc")
 #include <ps2_recompiled_functions.h>
@@ -131,10 +74,16 @@ namespace ps2_lean
 
     void install(PS2Runtime &runtime)
     {
+        // On by default on the Vita (SOTC_LEAN=0 turns them off), off on
+        // the Mac.
         const char *on = std::getenv("SOTC_LEAN");
-        if (!(on && std::atoi(on) != 0))
+#if defined(__vita__)
+        g_mode = on ? std::atoi(on) : 1;
+#else
+        g_mode = on ? std::atoi(on) : 0;
+#endif
+        if (g_mode == 0)
             return;
-        g_mode = std::atoi(on);
         if (const char *period = std::getenv("SOTC_LEAN_PERIOD"))
             g_period = std::max<uint64_t>(2u, std::strtoull(period, nullptr, 10));
 #ifndef SOTC_LEAN_TABLE

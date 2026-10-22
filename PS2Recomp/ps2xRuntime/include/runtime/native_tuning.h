@@ -70,8 +70,9 @@ namespace native_renderer
         // game/overrides/sotc_prof.cpp: wrapped at start only when on then).
         bool subsysProf = false;
         // The lean copies of the hot recompiled functions in the function
-        // table (game/overrides/lean_hot.cpp; built in only with SOTC_LEAN=1
-        // at start, this flips them at run time; SOTC_LEAN=2 alternates).
+        // table (game/overrides/lean_hot.cpp; put in at start when SOTC_LEAN
+        // is on, the Vita's default; this flips them at run time;
+        // SOTC_LEAN=2 alternates).
         bool leanCopies = true;
         // The game hooks' faster paths (skinned meshes posed once per vertex
         // and written in place, a texture's and a packet's id sampled once a

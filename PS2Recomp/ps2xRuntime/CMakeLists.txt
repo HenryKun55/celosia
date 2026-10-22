@@ -545,7 +545,8 @@ if(PS2X_ENABLE_RUNNER_UNITY_BUILD)
 endif()
 
 # Lean copies of hot recompiled functions (game/overrides/lean_*.cpp): they
-# redefine the memory macros, so each is a translation unit of its own.
+# rename the functions they hold (lean/renames.inc), so each is a
+# translation unit of its own.
 foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/lean_[^/]*\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
@@ -688,7 +689,7 @@ if(PS2X_IS_VITA)
     get_target_property(PS2X_RUNNER_SOURCES ps2EntryRunner SOURCES)
     foreach(PS2X_SOURCE IN LISTS PS2X_RUNNER_SOURCES)
         if(PS2X_SOURCE MATCHES "/overrides/lean_part[^/]*\\.cpp$")
-            # Recompiled code like the rest of it (the lean copies are an A/B).
+            # Recompiled code like the rest of it.
             set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "${PS2X_VITA_GAME_OPT}")
         elseif(PS2X_SOURCE MATCHES "/overrides/[^/]*\\.cpp$")
             set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "-O3")

@@ -502,8 +502,9 @@ bool PS2Memory::initialize(size_t ramSize)
     try
     {
         // Allocate main RAM
-        // A 16-byte tail past the end: code that reads RAM in place on one
-        // compare (game/overrides/lean_macros.h) may touch it on an access
+        // A 16-byte tail past the end: the guest load / store macros read
+        // RAM in place on one compare (ps2_runtime_macros.h READ* / WRITE*),
+        // they may touch it on an access
         // that starts in the last bytes (a guest access is aligned: never).
         m_rdram = new uint8_t[ramSize + 16u];
         std::memset(m_rdram, 0, ramSize + 16u);
@@ -3095,4 +3096,67 @@ bool PS2Memory::hostChannelBusy(uint32_t channelBase)
     const bool busy = (readIORegister(channelBase) & 0x100u) != 0u;
     t_hostIo = false;
     return busy;
+}
+
+// The out-of-line half of the guest load / store macros (ps2_runtime_macros.h
+// READ* / WRITE*): every address at or above 32 MB. The special ranges go to
+// the runtime; the rest (the uncached / kseg0 mirrors of main RAM) is main
+// RAM, masked.
+namespace ps2_guest_mem
+{
+    uint8_t read8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
+    {
+        return Ps2IsSpecialAddress(a) ? runtime->Load8(rdram, ctx, a) : Ps2FastRead8(rdram, a);
+    }
+    uint16_t read16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
+    {
+        return Ps2IsSpecialAddress(a) ? runtime->Load16(rdram, ctx, a) : Ps2FastRead16(rdram, a);
+    }
+    uint32_t read32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
+    {
+        return Ps2IsSpecialAddress(a) ? runtime->Load32(rdram, ctx, a) : Ps2FastRead32(rdram, a);
+    }
+    uint64_t read64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
+    {
+        return Ps2IsSpecialAddress(a) ? runtime->Load64(rdram, ctx, a) : Ps2FastRead64(rdram, a);
+    }
+    __m128i read128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
+    {
+        return Ps2IsSpecialAddress(a) ? runtime->Load128(rdram, ctx, a) : Ps2FastRead128(rdram, a);
+    }
+    void write8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint8_t v)
+    {
+        if (Ps2IsSpecialAddress(a))
+            return runtime->Store8(rdram, ctx, a, v);
+        trace<uint8_t>(rdram, a, v, "WRITE8", ctx);
+        Ps2FastWrite8(rdram, a, v);
+    }
+    void write16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint16_t v)
+    {
+        if (Ps2IsSpecialAddress(a))
+            return runtime->Store16(rdram, ctx, a, v);
+        trace<uint16_t>(rdram, a, v, "WRITE16", ctx);
+        Ps2FastWrite16(rdram, a, v);
+    }
+    void write32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint32_t v)
+    {
+        if (Ps2IsSpecialAddress(a))
+            return runtime->Store32(rdram, ctx, a, v);
+        trace<uint32_t>(rdram, a, v, "WRITE32", ctx);
+        Ps2FastWrite32(rdram, a, v);
+    }
+    void write64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint64_t v)
+    {
+        if (Ps2IsSpecialAddress(a))
+            return runtime->Store64(rdram, ctx, a, v);
+        trace<uint64_t>(rdram, a, v, "WRITE64", ctx);
+        Ps2FastWrite64(rdram, a, v);
+    }
+    void write128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, __m128i v)
+    {
+        if (Ps2IsSpecialAddress(a))
+            return runtime->Store128(rdram, ctx, a, v);
+        trace<__m128i>(rdram, a, v, "WRITE128", ctx);
+        Ps2FastWrite128(rdram, a, v);
+    }
 }

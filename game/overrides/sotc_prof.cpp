@@ -309,6 +309,12 @@ namespace sotc_prof
             // the display walk and what it calls
             {0x010F52C8u, "DispDispObjGroupModel"},
             {0x01097118u, "modelDisp"}, // modelDispHook (the game's part and ours)
+            // the walk's own callees (its self time on the console: 7.5-10 ms)
+            {0x010EED58u, "UpdateLayoutClassSimpleGeometry"},
+            {0x010F4FB8u, "dispSort_010F4FB8"},
+            {0x010F3B58u, "dispModel_010F3B58"}, // a class's disp callback (+0xd0), calls modelDisp
+            {0x010F3DE8u, "dispCb_010F3DE8"},
+            {0x010998B8u, "modelSetEnviroment"},
             {0x0109AB80u, "meshDisp"},
             {0x0109E0E8u, "shadowDisp"},
             {0x01099F38u, "ptclmanBuildVtxPacket"},
