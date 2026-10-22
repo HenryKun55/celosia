@@ -115,6 +115,24 @@ namespace native_renderer
         // camera cut) is not shown; the last one stays up instead, at most 3
         // frames in a row (SOTC_HOLD_INCOMPLETE=0/1; on by default on the Vita).
         bool holdIncomplete = false;
+        // OpenGL / Vita, the render thread's cost per draw:
+        // kept meshes packed into a few shared vertex buffers (attributes set
+        // once per buffer, not per mesh; SOTC_GL_POOLS=0/1, read when a mesh
+        // is uploaded);
+        bool glMeshPools = true;
+        // a run of draws with the same state and matrix whose meshes share a
+        // buffer drawn as one (a range, or indices made per frame;
+        // SOTC_GL_MERGE=0/1);
+        bool glMergeDraws = true;
+        // the plain world draws (textured or not, no mirror, refraction or
+        // copies) through programs that read only the textures they use (vitaGL
+        // sets every sampler of a program at each draw; SOTC_GL_LEAN=0/1);
+        bool glLeanPrograms = true;
+        // with glLeanPrograms: draws whose texture and vertex alphas cannot
+        // fall under the cut-out (0.02) through a variant without `discard`
+        // (the same picture; on the Vita's GPU a discard costs its hidden
+        // surface removal; SOTC_GL_NODISCARD=0/1).
+        bool glNoDiscard = true;
     };
 
     // The settings (made from the environment on first use). Inline: the

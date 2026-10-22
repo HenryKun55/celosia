@@ -136,6 +136,10 @@ namespace native_renderer
                 d.holdIncomplete = std::atoi(std::getenv("SOTC_HOLD_INCOMPLETE")) != 0;
             if (on("SOTC_ASYNC_BUILDS"))
                 d.asyncBuilds = std::atoi(std::getenv("SOTC_ASYNC_BUILDS")) != 0;
+            for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
+                                             {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard}})
+                if (on(name))
+                    d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
                 d.midFrameRedraw = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_GL_REDRAW")), 0, 2));
             if (const char *h = std::getenv("SOTC_HIDE_LAYERS")) // n,n,n
@@ -198,6 +202,10 @@ namespace native_renderer
             add(std::string("SOTC_RENDER_THREAD=") + (t.renderThread ? "1" : "0"));
         if (t.warmShaders != d.warmShaders)
             add(std::string("SOTC_GL_WARM=") + (t.warmShaders ? "1" : "0"));
+        for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
+                                         {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard}})
+            if (t.*flag != d.*flag)
+                add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)
             add(std::string("SOTC_HOLD_INCOMPLETE=") + (t.holdIncomplete ? "1" : "0"));
         if (t.asyncBuilds != d.asyncBuilds)
@@ -389,6 +397,22 @@ namespace native_renderer
                     "OpenGL / Vita: each shader drawn once with every blend state when the renderer starts, so their first use in the game does not stall (takes effect at the next start).",
                     "OpenGL / Vita: cada shader desenhado uma vez com cada modo de mistura quando o renderizador começa, pra que o primeiro uso no jogo não trave (vale a partir do próximo início).",
                     &Tuning::warmShaders, "SOTC_GL_WARM");
+        debugToggle("dbg_gl_pools", "Shared mesh buffers", "Buffers de malha compartilhados",
+                    "OpenGL / Vita: models' meshes packed into a few large buffers, set up once each instead of once per mesh (applies to meshes uploaded after the change).",
+                    "OpenGL / Vita: as malhas dos modelos guardadas em poucos buffers grandes, configurados uma vez cada em vez de uma vez por malha (vale para as malhas enviadas depois da mudança).",
+                    &Tuning::glMeshPools, "SOTC_GL_POOLS");
+        debugToggle("dbg_gl_merge", "Merge draws", "Juntar desenhos",
+                    "OpenGL / Vita: consecutive draws with the same texture, blending and matrix drawn as one (the picture does not change).",
+                    "OpenGL / Vita: desenhos seguidos com a mesma textura, mistura e matriz desenhados como um só (a imagem não muda).",
+                    &Tuning::glMergeDraws, "SOTC_GL_MERGE");
+        debugToggle("dbg_gl_lean", "Lean shaders", "Shaders enxutos",
+                    "OpenGL / Vita: plain world draws through shaders that read only the textures they use (the picture does not change).",
+                    "OpenGL / Vita: desenhos comuns do mundo com shaders que leem só as texturas que usam (a imagem não muda).",
+                    &Tuning::glLeanPrograms, "SOTC_GL_LEAN");
+        debugToggle("dbg_gl_nodiscard", "Opaque shader variant", "Variante opaca do shader",
+                    "OpenGL / Vita, with lean shaders: draws that cannot have a cut-out pixel use a shader without the cut-out test (faster on the Vita's GPU; the picture does not change).",
+                    "OpenGL / Vita, com shaders enxutos: desenhos que não podem ter pixel recortado usam um shader sem o teste de recorte (mais rápido na GPU do Vita; a imagem não muda).",
+                    &Tuning::glNoDiscard, "SOTC_GL_NODISCARD");
         static char labels[32][2][24];
         for (int i = 0; i < 32; ++i)
         {
@@ -414,7 +438,8 @@ namespace native_renderer
             if (key == "msaa" || key == "effect_detail")
                 item.backends = 1;
             if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw" ||
-                key == "dbg_gpu_skin" || key == "dbg_render_thread")
+                key == "dbg_gpu_skin" || key == "dbg_render_thread" || key == "dbg_gl_pools" || key == "dbg_gl_merge" || key == "dbg_gl_lean" ||
+                key == "dbg_gl_nodiscard")
                 item.backends = 2;
         }
         return v;
