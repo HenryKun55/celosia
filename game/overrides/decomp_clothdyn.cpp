@@ -213,5 +213,5 @@ namespace decomp_clothdyn
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x01137858u, clothConstrain, decomp_clothdyn::constrain);
-SOTC_DECOMP_AB_FUNCTION(0x01137640u, clothVelocity, decomp_clothdyn::velocity);
+SOTC_DECOMP_FUNCTION(0x01137858u, clothConstrain, decomp_clothdyn::constrain);
+SOTC_DECOMP_FUNCTION(0x01137640u, clothVelocity, decomp_clothdyn::velocity);

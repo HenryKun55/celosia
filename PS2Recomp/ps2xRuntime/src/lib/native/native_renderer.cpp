@@ -1005,6 +1005,18 @@ namespace native_renderer
         if (backend())
             g_backend->beginFrame();
     }
+    // The draw dump's hash of a matrix / the lights (their bits).
+    uint64_t dumpHash(const float *v, int n)
+    {
+        uint64_t h = 0xcbf29ce484222325ull;
+        for (int i = 0; i < n; ++i)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v[i], 4);
+            h = (h ^ b) * 0x100000001b3ull;
+        }
+        return h;
+    }
     void draw(uint64_t mesh, const float clip[16], const DrawState &state)
     {
         ++g_uploads.draws;
@@ -1013,11 +1025,13 @@ namespace native_renderer
             const DrawState &s = state;
             std::fprintf(g_dumpFile,
                          "order %2u mesh %016llx tex %016llx blend %d opacity %.3f screen %d bg %d fogged %d overlay %d writeZ %d lit %d clamp %u "
-                         "shadowVol %d mirrorSrc %d mirrorSample %d refract %d screenCopy %d prev %d tint %.3f %.3f %.3f %.3f uvOff %.3f %.3f lod %.2f/%.2f/%.2f\n",
+                         "shadowVol %d mirrorSrc %d mirrorSample %d refract %d screenCopy %d prev %d tint %.3f %.3f %.3f %.3f uvOff %.3f %.3f lod %.2f/%.2f/%.2f "
+                         "noZ %d clip %016llx light %016llx skin %u/%u\n",
                          s.order, (unsigned long long)mesh, (unsigned long long)s.texture, (int)s.blend, s.opacity, s.screen, s.background, s.fogged,
                          s.overlay, s.writeDepth, s.lit, s.clamp, s.shadowVolume, s.reflectionSource, s.reflectionSample, s.refractionSample,
                          s.screenCopy, s.previousFrame, s.reflectionTint[0], s.reflectionTint[1], s.reflectionTint[2], s.reflectionTint[3],
-                         s.uvOffset[0], s.uvOffset[1], s.lodK, s.lodScale, s.maxLod);
+                         s.uvOffset[0], s.uvOffset[1], s.lodK, s.lodScale, s.maxLod, s.noDepthWrite, (unsigned long long)dumpHash(clip, 16),
+                         (unsigned long long)(s.lit || s.fresnel ? dumpHash(s.light, 32) : 0ull), s.skinPalette ? 1u : 0u, s.skinPaletteCount);
         }
         // Its mesh or texture still on the worker (buildAsync): left out.
         if (!asyncBuilds().pending.empty() && (asyncPending(mesh) || (state.texture && asyncPending(state.texture))))

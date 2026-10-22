@@ -1470,11 +1470,11 @@ namespace decomp_light
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x010F4A18u, objectLight_010F4A18, decomp_light::objectLight);
-SOTC_DECOMP_AB_FUNCTION(0x010F4FB8u, lightPass_010F4FB8, decomp_light::lightPass);
-SOTC_DECOMP_AB_FUNCTION(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatrices);
-SOTC_DECOMP_AB_FUNCTION(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightMan);
-SOTC_DECOMP_AB_FUNCTION(0x010F8360u, blendLights_010F8360, decomp_light::blendLights);
-SOTC_DECOMP_AB_FUNCTION(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLight);
-SOTC_DECOMP_AB_FUNCTION(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPos);
-SOTC_DECOMP_AB_FUNCTION(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCube);
+SOTC_DECOMP_FUNCTION(0x010F4A18u, objectLight_010F4A18, decomp_light::objectLight);
+SOTC_DECOMP_FUNCTION(0x010F4FB8u, lightPass_010F4FB8, decomp_light::lightPass);
+SOTC_DECOMP_FUNCTION(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatrices);
+SOTC_DECOMP_FUNCTION(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightMan);
+SOTC_DECOMP_FUNCTION(0x010F8360u, blendLights_010F8360, decomp_light::blendLights);
+SOTC_DECOMP_FUNCTION(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLight);
+SOTC_DECOMP_FUNCTION(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPos);
+SOTC_DECOMP_FUNCTION(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCube);

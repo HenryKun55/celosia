@@ -102,6 +102,7 @@ What a native function has to keep, learned the hard way:
 | decomp_pointsort.cpp | execPointListSort (0x142da48) | 300 (route), 0 mismatches | the path points within a radius, selection-sorted (1.3% at the altar); getPointDataByAreaIdx stays a guest call |
 | decomp_skeleton.cpp | skeletonPose: the bone's VU0 block, the quaternion normalisation, MultiCurrentQuaternion, iosTransCurrentMatrix / iosMulCurrentMatrixR with each operand clamped once (vu::*N, the rows once for the four columns) | 87 300 (route, EVERY=20) + 17 900 (attract demo), 0 mismatches | ~210 -> ~90 clamps (ps2VuNormalize) a bone |
 | decomp_clothdyn.cpp | 01137858 (the rows' length constraint), 01137640 (the velocities; type 1 cloths go on in the recompiled code from 0x1137728 with the prologue's frame) | attract 1 100 + 5 600, route 2 700 + 6 900, 0 mismatches | under GetClothDynamics (in ExecCharaGeometry). 01137858's type 1 path stays recompiled. RSQRT as build/runner has it (ps2VuRsqrt with the status flags, not recomp/game/output's older ps2VuRsqrtQ) |
+| decomp_prefetch.cpp | ClipLayoutObjModel, DispLayoutObjModel: the recompiled functions, with the next object's lines prefetched | route 23 900 + 9 600, attract 4 700 + 2 600 (EVERY=20), 0 mismatches | see "The display walk's memory misses" below |
 | decomp_light.cpp | the light pass: manager_sub_010F4FB8 (its three walks of the sort list), 010F4A18, ExecGlobalLightMan, 010F8360, 010F5F60, SetWorkFromGlobalLight, GetInverseMatrixFromQuaternionPos, GetRateInOutCubeVolumeWithInverseMatrix | attract 800-6 500 each, route 300-6 700 each, 0 mismatches | see "The light pass" below |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
@@ -139,8 +140,8 @@ PS2Memory::readN (the scratchpad is not main RAM).
   one DRAM miss per tag and VIFcode, no hardware prefetch) reads the next
   tag before walking the current tag's data and prefetches that data's
   first two lines (PS2X_DMA_PREFETCH=0: off).
-- **SOTC_AB=<frames>** alternates this round's set (SOTC_DECOMP_AB_FUNCTION
-  and the two fast paths) with the old code; [prof] lines end in "ab: new |
+- **SOTC_AB=<frames>** alternated that round's set (SOTC_DECOMP_AB_FUNCTION
+  and the two fast paths) with the old code (now the next round's, below); [prof] lines end in "ab: new |
   old | mixed". 480 leaves three clean 120-frame windows out of four.
   SOTC_SUBSYS_PROF_MIN=<ms> lowers the report's cut (Mac: 0.0005).
 
@@ -153,6 +154,98 @@ Recompiler levers seen on the way (not done): build/runner (what is
 compiled) differs from recomp/game/output (older: pc writes, other RSQRT
 macro), always read build/runner; GPRs / VU registers live in ctx memory,
 so every guest store (char aliasing) forces reloads.
+
+## The display walk's memory misses (2026-10-22, evening)
+
+The console's heavy-scene profile (build/agent-scratch/console-light):
+hook.packets ~10 ms self, hook.state 3-4 ms, hook.packetId 3 ms,
+modelClipSolid 2.4 ms self for ~200 calls (12 us a call; 0.17 us on the
+Mac): 20-70x the Mac's time where the rest of the game is ~20x. That is
+DRAM misses (~250 ns, no useful hardware prefetch on the A9): the walk
+touches every object's instance, header, packet list, part tree and
+surfaces once a frame, one line after the other. SOTC_HOOK_STATS=1 counts
+what modelDispHook walks (the plain, per frame: ~100 instances, ~4 000
+packets, ~3 200 draws over ~440 surfaces and ~200 textures).
+
+- **Textures** (sotc_native.cpp decodedTexture): every texture's 64 + 16
+  word sample (~80 misses, ~20 us on the console) ran once a frame for
+  each of ~200 textures. Now a texture drawn the frame before and never
+  seen rewritten is taken as it was; the full sample one frame in 16 (by
+  address), as packetId does (SOTC_TEX_QUICK=0: off).
+- **Packets** (packetId): the 32-word sample (32 misses) one frame in
+  48-63 instead of 16, a 4-word check on the 16-frame beat (a packet
+  rewritten in place is still caught within 16 frames). The memo's tags
+  apart from its entries (one line looked at, not 3-4), prefetched for
+  the next packet.
+- **Surfaces** (SurfaceInfo): a surface's state (texture keys, blends,
+  clamps, layers, LOD, scroll row address) worked out once a frame, not
+  per draw; the flags tests against the game's globals, the row's values
+  and the LOD's K product stay per draw (SOTC_SURFACE_MEMO=0: off).
+- **Prefetch** (g_prefetch, SOTC_HOOK_PREFETCH=0: off): the order of the
+  last frame's modelDisp calls and each model's shape (packet count, part
+  tree size, first surfaces) say what the next draw reads; queued and
+  asked for a few lines per packet while the current one runs; the part
+  tree and the packet list ahead of modelDispState's walk.
+- **decomp_prefetch.cpp**: ClipLayoutObjModel / DispLayoutObjModel
+  wrapped: the lines the last frame's next call read (object, layout
+  class, instance, header, LOD record, matrix, part root) asked for, then
+  the recompiled function (SOTC_OBJ_PREFETCH=0: off).
+
+Checks: SOTC_R2_CHECK=1 compares the kept surface state with the reads it
+replaces at every draw and the quick texture / packet answers with their
+full samples: route 4.9 M surface draws, 0 mismatches, 0 stale textures;
+packets kept while changed 28 (the old policy: 41, the same check);
+attract demo 0 / 0 / 0. SOTC_MODELDISP_CHECK=1: 190 000 checks, 0.
+SOTC_DRAW_DUMP_FRAMES=f,... (SOTC_DRAW_DUMP_DIR) writes those frames'
+draw lists (now with the matrix and light hashes); two runs are not
+frame-identical, so the in-process checks are the proof.
+
+SOTC_AB now alternates this round's set: the two wrappers and the hooks'
+new paths (sotc_decomp::abNew, read once a frame). The light pass and
+the cloth passes are plain decompiled functions again; the scratchpad /
+DMA fast paths stay on (SOTC_AB_FASTPATHS=1 alternates them as before).
+
+Calibrated Vita3K (240 MHz, below), attract demo frames 600-4800, the
+same VPK with the new paths on / off: hook.packets 2.49 -> 2.18 ms,
+modelDisp 3.37 -> 3.21, hook.state 0.24 -> 0.36 (the prefetch
+bookkeeping; Vita3K's PLD does nothing), the frame unchanged (48.4 / 48.4).
+The misses these remove are the console's: read the console's AB.
+Mac route clock: 1.000x.
+
+## Vita3K calibration (2026-10-22)
+
+Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
+than the console (its host has caches and a memory system the Cortex-A9
+does not). Throttled to **MHZ=240 CORES=3** (`MHZ=240 CORES=3
+tools/vita3k.sh <s>`) it matches the console as a whole:
+
+| attract demo, frames 600-4800, 18 windows | console | Vita3K 240 MHz |
+|---|---|---|
+| frame (wall) | 49.4 ms | 49.2 ms |
+| execScript | 43.9 | 44.1 |
+| DispDispObjGroupModel (self) | 15.7 (4.5) | 16.4 (5.3) |
+| ExecCharaGeometry (self) | 10.4 (5.1) | 10.5 (5.2) |
+| modelDisp / hook.packets (self) | 4.5 / 3.4 (2.8) | 3.1 / 2.3 (1.8) |
+| doit_game_camera (self) | 2.5 (1.75) | 1.9 (1.05) |
+| doit_particle_manager / particleUpdate | 3.4 / 2.1 | 4.2 / 2.7 |
+| dispSort_010F4FB8 (the light pass, old code) | 2.4 | 3.4 |
+| iosDmaSendSChainPath1 | 1.36 | 1.97 |
+
+Procedure: the same VPK on both (build/agent-scratch/celosia-allean.vpk,
+the console log build/agent-scratch/console-allean/err.txt), env.txt
+`SOTC_LEAN=2 SOTC_LEAN_PERIOD=240 SOTC_SUBSYS_PROF=1`, the attract demo
+left to run (~260 s of Vita3K reach frame 4800), the [prof] windows of a
+frame range averaged (build/agent-scratch/lean_range.py err.txt 600 4800
+any). 240 MHz matched at the first try (frames 600-3000: execScript 45.8
+vs 45.7, frame 50.7 vs 50.5), so no bisection was needed.
+
+Where it still disagrees: our native code that walks guest memory
+(hook.packets, modelDisp: the packet / surface / texture reads, one DRAM
+miss each on the console) and the camera run ~1.4x slower on the console
+than in throttled Vita3K; float-heavy code (particles, the old light pass,
+the DMA chain walk) runs ~1.3x slower in Vita3K (its JIT's FPU / NEON).
+A memory-latency fix shows less in Vita3K than on the console; a compute
+fix shows more.
 
 ## Collision (2026-10-21)
 

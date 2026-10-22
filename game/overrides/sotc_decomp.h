@@ -60,6 +60,9 @@ namespace sotc_decomp
     // ps2_fast_paths) goes off or back on; "[ab] frame F: new | old" at each
     // change, and the [prof] lines say which ran ("ab: new | old | mixed").
     void abTick(uint64_t frame);
+    // SOTC_AB's state: true while the new set runs (always, without SOTC_AB).
+    // Native hooks with a new path ask it (sotc_native.cpp).
+    bool abNew();
 
     // The recompiled function a decompiled one replaced (for a native
     // function's rare cases left to the original code), nullptr if none.

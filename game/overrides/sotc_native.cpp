@@ -76,6 +76,36 @@ namespace sotc_native
     };
 
     const uint8_t *g_ram = nullptr;
+    // This round's fast paths (2026-10-22 evening), on unless SOTC_AB has the
+    // old set running (sotc_decomp::abNew) or SOTC_NATIVE_R2=0; set once a
+    // frame (syncFrame). Each part has a switch of its own too.
+    bool g_r2 = true;
+    bool g_quickTextures = true; // decodedTexture: no sample for a texture drawn the frame before (SOTC_TEX_QUICK=0: off)
+    bool g_surfaceMemo = true;   // modelDispHook: a surface's state worked out once a frame (SOTC_SURFACE_MEMO=0: off)
+    bool g_prefetch = true;      // modelDispState / modelDispHook: guest lines asked for ahead (SOTC_HOOK_PREFETCH=0: off)
+    // SOTC_R2_CHECK=1 (debugging): the new paths checked against the old ones
+    // at every use (the quick texture against its full sample, each surface's
+    // kept state against the reads it replaces); counts every 600 frames.
+    struct R2Check
+    {
+        bool on = std::getenv("SOTC_R2_CHECK") != nullptr;
+        uint64_t texQuick = 0, texStale = 0, surfaces = 0, surfaceMismatches = 0, packetQuick = 0, packetStale = 0;
+        void note(const char *what, bool bad)
+        {
+            if (!bad)
+                return;
+            ++surfaceMismatches;
+            static int told = 0;
+            if (told++ < 40)
+                std::fprintf(stderr, "[r2-check] mismatch: %s\n", what);
+        }
+    };
+    R2Check &r2Check()
+    {
+        static R2Check c;
+        return c;
+    }
+    inline void prefetchGuest(uint32_t addr) { __builtin_prefetch(g_ram + (addr & 0x1FFFFE0u)); }
     uint32_t word(uint32_t addr)
     {
         uint32_t v;
@@ -87,6 +117,20 @@ namespace sotc_native
         float v;
         std::memcpy(&v, g_ram + (addr & 0x1FFFFFCu), 4);
         return v;
+    }
+
+    // SOTC_HOOK_STATS=1 (debugging): what modelDispHook walked, every 120 frames.
+    struct HookStats
+    {
+        bool on = std::getenv("SOTC_HOOK_STATS") != nullptr;
+        uint64_t instances = 0, packets = 0, lodPackets = 0, draws = 0, textures = 0, decoded = 0, idSame = 0, idPrev = 0, idQuick = 0, idSampled = 0,
+                 idHashed = 0, nodes = 0, surfaces = 0, surfaceHits = 0;
+        std::set<uint32_t> headers, surfaceSet, textureSet;
+    };
+    HookStats &hookStats()
+    {
+        static HookStats s;
+        return s;
     }
 
     // A vertex as the batch gives it: model space, or bind pose with up to
@@ -396,8 +440,12 @@ namespace sotc_native
         if (!native_renderer::tuning().fastHooks)
             return decodedTexture(header);
         TextureMemo &memo = g_textureMemo[(header ^ (header >> 9)) & 255u];
+        if (HookStats &hs = hookStats(); hs.on)
+            ++hs.textures, hs.textureSet.insert(header);
         if (memo.header == header && memo.frame == g_frame)
             return memo.key;
+        if (HookStats &hs = hookStats(); hs.on)
+            ++hs.decoded;
         const uint64_t key = decodedTexture(header);
         memo = {header, g_frame, key};
         return key;
@@ -606,9 +654,12 @@ namespace sotc_native
         const uint32_t format = word(header + 0x1Cu), psm = format & 0x3Fu;
         const uint32_t width = 1u << ((format >> 16) & 0xFu), height = 1u << ((format >> 20) & 0xFu);
         const uint32_t pixelBytes = psm == 0x14u ? width * height / 2u : width * height;
-        const uint64_t sampled = sample(header + word(header + 0x14u), pixelBytes, 64u) ^
-                                 sample(header + word(header + 0x18u), psm == 0x14u ? 64u : 1024u, 16u) * 31u ^ format;
-        uint64_t key = sampled;
+        const auto sampleNow = [&]
+        {
+            return sample(header + word(header + 0x14u), pixelBytes, 64u) ^ sample(header + word(header + 0x18u), psm == 0x14u ? 64u : 1024u, 16u) * 31u ^
+                   format;
+        };
+        uint64_t key = 0;
         bool changedInPlace = false;
         if (native_renderer::tuning().fastHooks)
         {
@@ -618,16 +669,39 @@ namespace sotc_native
             // textures in memory after an area loads).
             struct ContentMemo
             {
-                uint32_t address = 0;
-                uint64_t frame = ~0ull, sampled = 0, key = 0;
+                uint32_t address = 0, format = 0;
+                uint64_t frame = ~0ull, sampled = 0, key = 0, sampledAt = 0;
+                bool rewritten = false; // seen changed in place: sampled at every call
             };
             static WayMemo<ContentMemo, 512> memos;
             bool found = false;
             ContentMemo &memo = memos.find(header, (header >> 4) ^ (header >> 13), found);
-            if (found && memo.sampled == sampled)
+            // The sample is 64 words spread over the pixels and 16 over the
+            // palette: ~80 cache misses (the Vita: ~20 us) for each texture
+            // every frame. As packetId: a texture drawn the frame before,
+            // never seen rewritten in place, is taken as it was; the full
+            // sample comes round one frame in 16 (by address).
+            if (found && g_quickTextures && !memo.rewritten && memo.format == format && memo.frame + 1u >= g_frame && g_frame - memo.sampledAt < 16u &&
+                ((g_frame + (header >> 5)) & 15u) != 0u)
             {
                 key = memo.key;
                 memo.frame = g_frame;
+                if (R2Check &c = r2Check(); c.on)
+                {
+                    ++c.texQuick;
+                    if (sampleNow() != memo.sampled)
+                    {
+                        if (c.texStale++ < 20)
+                            std::fprintf(stderr, "[r2-check] texture %08x changed, kept its key (frame %llu)\n", header, (unsigned long long)g_frame);
+                    }
+                }
+            }
+            else if (const uint64_t sampled = sampleNow(); found && memo.sampled == sampled)
+            {
+                key = memo.key;
+                memo.frame = g_frame;
+                memo.sampledAt = g_frame;
+                memo.format = format;
             }
             else
             {
@@ -641,9 +715,11 @@ namespace sotc_native
                 uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
                 h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ g_ram[(header + 0x1Fu) & 0x1FFFFFFu]);
                 key = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
-                memo = {header, g_frame, sampled, key};
+                memo = {header, format, g_frame, sampled, key, g_frame, found && (memo.rewritten || changedInPlace)};
             }
         }
+        else
+            key = sampleNow();
         if (native_renderer::hasTexture(key))
             return key;
         if ((psm != 0x00u && psm != 0x13u && psm != 0x14u) || width > 1024u || height > 1024u)
@@ -832,12 +908,58 @@ namespace sotc_native
     // only when the packet is new there; the same packet drawn again in a
     // frame (instances) takes the id it had. Without fast hooks: the address
     // and size, and the sample (another area loaded in its place makes new ids).
-    struct PacketMemo
+    // What a draw of a packet drawn the frame before reads is in its first
+    // 32 bytes (one cache line on the Vita).
+    struct alignas(64) PacketMemo
     {
         uint32_t address = 0, size = 0;
-        uint64_t frame = ~0ull, sample = 0, id = 0;
-        uint64_t quick = 0, sampledAt = 0; // four words; the frame of the last full sample
-        bool rewritten = false;            // seen changed in place
+        uint64_t frame = ~0ull, id = 0;
+        uint32_t sampledAt = 0;  // the frame of the last full sample (its low 32 bits)
+        bool rewritten = false;  // seen changed in place
+        uint64_t sample = 0, quick = 0; // 32 words; four words
+    };
+    // The memo's sets: four ways, the addresses apart from the entries (a set's
+    // four tags in 16 bytes: one cache line looked at, not the four entries'
+    // 3-4), so the next packet's lookup can be prefetched.
+    template <uint32_t Sets>
+    struct PacketMemoTable
+    {
+        struct alignas(16) Tags
+        {
+            uint32_t address[4] = {};
+        };
+        Tags tags[Sets];
+        PacketMemo entries[Sets][4];
+        static uint32_t set(uint32_t address) { return ((address >> 4) ^ (address >> 15)) & (Sets - 1u); }
+        PacketMemo &find(uint32_t address, bool &found)
+        {
+            const uint32_t at = set(address);
+            Tags &t = tags[at];
+            for (int i = 0; i < 4; ++i)
+                if (t.address[i] == address && entries[at][i].address == address)
+                {
+                    found = true;
+                    return entries[at][i];
+                }
+            found = false;
+            int oldest = 0; // the way used longest ago (~0: never used, first)
+            for (int i = 1; i < 4; ++i)
+                if (entries[at][i].frame + 1u < entries[at][oldest].frame + 1u)
+                    oldest = i;
+            t.address[oldest] = address; // the caller fills the entry
+            return entries[at][oldest];
+        }
+        // The tag line, and the entry's first line when the tag is there already.
+        void prefetch(uint32_t address, bool entry) const
+        {
+            const uint32_t at = set(address);
+            const Tags &t = tags[at];
+            __builtin_prefetch(&t);
+            if (entry)
+                for (int i = 0; i < 4; ++i)
+                    if (t.address[i] == address)
+                        __builtin_prefetch(&entries[at][i]);
+        }
     };
     // Four words of a packet, spread over it (the quick check).
     inline uint64_t quickSample(uint32_t data, uint32_t size)
@@ -848,7 +970,7 @@ namespace sotc_native
             h = (h ^ word(data + (size >= 8u ? std::min(step * i, size - 4u) : 0u))) * 0x100000001b3ull;
         return h;
     }
-    WayMemo<PacketMemo, 2048> g_packetMemo;
+    PacketMemoTable<2048> g_packetMemo;
     // The last packetId whose bytes changed where they are (same address and
     // size, another sample): packets the game rewrites in place (every frame,
     // some of them) are built at once, not on the async worker, which would
@@ -860,39 +982,78 @@ namespace sotc_native
         if (!fast)
             return ((static_cast<uint64_t>(size) << 32) | data) ^ (sample(data, size, 32u) & 0x7FFF000000000000ull);
         bool found = false;
-        PacketMemo &memo = g_packetMemo.find(data, (data >> 4) ^ (data >> 15), found);
+        PacketMemo &memo = g_packetMemo.find(data, found);
         found = found && memo.size == size;
+        HookStats &hs = hookStats();
         if (found && memo.frame == g_frame)
+        {
+            hs.idSame += hs.on;
             return memo.id;
+        }
+        // This round (g_r2): the 32-word sample (32 cache misses) only one
+        // frame in 48-63; on the other frames in 16 four words (a packet
+        // rewritten in place is still caught within 16 frames).
+        const bool stagger = ((g_frame + (data >> 5)) & 15u) == 0u;
+        const uint32_t age = static_cast<uint32_t>(g_frame) - memo.sampledAt;
+        if (g_r2 && found && !memo.rewritten && native_renderer::tuning().packetQuickCheck && !(stagger && age >= 48u))
+        {
+            if ((memo.frame + 1u == g_frame && !stagger) || quickSample(data, size) == memo.quick)
+            {
+                (memo.frame + 1u == g_frame ? hs.idPrev : hs.idQuick) += hs.on;
+                memo.frame = g_frame;
+                if (R2Check &c = r2Check(); c.on)
+                {
+                    ++c.packetQuick;
+                    if (sample(data, size, 32u) != memo.sample && c.packetStale++ < 20)
+                        std::fprintf(stderr, "[r2-check] packet %08x changed, kept its id (frame %llu)\n", data, (unsigned long long)g_frame);
+                }
+                return memo.id;
+            }
+        }
         // Never rewritten in place: four words, the full sample one frame in
         // 16 (by address, so not all on the same frame).
-        if (found && !memo.rewritten && native_renderer::tuning().packetQuickCheck && g_frame - memo.sampledAt < 16u &&
-            ((g_frame + (data >> 5)) & 15u) != 0u)
+        else if (!g_r2 && found && !memo.rewritten && native_renderer::tuning().packetQuickCheck && age < 16u && !stagger)
         {
             // Drawn the frame before too: taken as it was (the full sample
             // comes round within 16 frames). Back after a while: four words.
             if (memo.frame + 1u == g_frame || quickSample(data, size) == memo.quick)
             {
+                (memo.frame + 1u == g_frame ? hs.idPrev : hs.idQuick) += hs.on;
                 memo.frame = g_frame;
+                if (R2Check &c = r2Check(); c.on)
+                {
+                    ++c.packetQuick;
+                    if (sample(data, size, 32u) != memo.sample && c.packetStale++ < 20)
+                        std::fprintf(stderr, "[r2-check] packet %08x changed, kept its id (frame %llu)\n", data, (unsigned long long)g_frame);
+                }
                 return memo.id;
             }
         }
         const uint64_t sampled = sample(data, size, 32u);
+        hs.idSampled += hs.on;
         if (found && memo.sample == sampled)
         {
             memo.frame = g_frame;
-            memo.sampledAt = g_frame;
+            memo.sampledAt = static_cast<uint32_t>(g_frame);
             memo.quick = quickSample(data, size);
             return memo.id;
         }
         // Drawn in the last two frames and changed: rewritten in place
         // (animated). Long unused: another packet loaded there (async is fine).
         g_packetChangedInPlace = found && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
+        hs.idHashed += hs.on;
         // Bit 59 set, 60-63 clear: apart from the per-frame meshes' ids
         // (bits 60, 62, 63 and a count) and the second pass's (bit 61 flipped).
         const uint64_t id = (contentHash(data, size, 0x9E3779B97F4A7C15ull ^ size) & 0x07FFFFFFFFFFFFFFull) | (1ull << 59);
         const bool rewritten = found && (memo.rewritten || g_packetChangedInPlace);
-        memo = {data, size, g_frame, sampled, id, quickSample(data, size), g_frame, rewritten};
+        memo.address = data;
+        memo.size = size;
+        memo.frame = g_frame;
+        memo.id = id;
+        memo.sampledAt = static_cast<uint32_t>(g_frame);
+        memo.rewritten = rewritten;
+        memo.sample = sampled;
+        memo.quick = quickSample(data, size);
         return id;
     }
 
@@ -1046,6 +1207,126 @@ namespace sotc_native
                 default: return native_renderer::Blend::Normal;
                 }
         return native_renderer::Blend::Normal;
+    }
+
+    // A surface's draw state as modelDispHook works it out, kept for the
+    // frame (a scene draws ~3 000 packets a frame over ~450 surfaces): the
+    // surface record (5 cache lines), the texture table, the texture object
+    // and its NTO2 header are read once a frame per surface, not per draw.
+    // Read per draw still: the flags' tests against the game's globals
+    // (surfaceDrawn), the scroll row's values, the LOD's K scale.
+    struct SurfaceInfo
+    {
+        uint32_t s = 0, header = 0;
+        uint64_t frame = ~0ull;
+        uint64_t flags = 0;   // +0x18 (64 bits)
+        uint32_t texMode = 0; // +0x1c
+        bool full = false;    // the rest below made (at the first draw that gets that far)
+        uint8_t layer[2] = {}; // surfaceLayer, not fading / fading
+        uint8_t clamp = 0, clamp2 = 0;
+        native_renderer::Blend blend = native_renderer::Blend::Normal, blend2 = native_renderer::Blend::Normal;
+        uint32_t scroll = 0; // the first texture's scroll row (two 16-bit values), 0: none
+        uint64_t texture = 0, texture2 = 0;
+        struct Lod
+        {
+            bool on = false;
+            float maxLod = 0.0f, lodScale = 1.0f;
+            int32_t k = 0; // NTO2 +0x90, times *0x118c180 per draw
+        } lod[2];
+    };
+    SurfaceInfo g_surfaceInfo[1024];
+    // surfaceLod's reads, kept (the K product made per draw: applyLod).
+    SurfaceInfo::Lod surfaceLodInfo(uint32_t header, uint32_t s, uint32_t field)
+    {
+        SurfaceInfo::Lod l;
+        const uint32_t index = word(s + field);
+        if (index >= word(header + 0x44u))
+            return l;
+        const uint32_t object = word(word(header + 0x40u) + index * 0x20u + 0x10u);
+        const uint32_t nto2 = object ? word(object + 0x20u) : 0u;
+        if (!nto2 || word(nto2) != 0x324F544Eu)
+            return l;
+        const uint32_t levels = std::clamp((word(nto2 + 0x1Cu) >> 12) & 0xFu, 1u, 7u);
+        if (levels < 2u || word(nto2 + 0x78u) < 2u)
+            return l;
+        l.on = true;
+        l.maxLod = static_cast<float>(levels - 1u);
+        l.lodScale = static_cast<float>(1u << (word(nto2 + 0x94u) & 3u));
+        l.k = static_cast<int32_t>(word(nto2 + 0x90u));
+        return l;
+    }
+    void applyLod(const SurfaceInfo::Lod &l, native_renderer::DrawState &state)
+    {
+        if (!l.on)
+            return;
+        state.maxLod = l.maxLod;
+        state.lodScale = l.lodScale;
+        const int32_t k = static_cast<int32_t>(static_cast<float>(l.k) * real(0x0118C180u));
+        state.lodK = static_cast<float>((k << 20) >> 20) / 16.0f; // 12-bit signed, 7.4
+    }
+    // surfaceRow's reads: the row pair's address.
+    uint32_t surfaceScroll(uint32_t header, uint32_t s)
+    {
+        const uint32_t index = word(s + 0x2Cu);
+        if (index >= word(header + 0x44u))
+            return 0;
+        const uint32_t object = word(word(header + 0x40u) + index * 0x20u + 0x10u);
+        const uint32_t nto2 = object ? word(object + 0x20u) : 0u;
+        return nto2 ? word(nto2 + 0xCu) : 0u;
+    }
+    inline uint32_t surfaceSlot(uint32_t s) { return ((s >> 5) * 0x9E3779B1u) >> 22; }
+    // The flags and texture mode (what every packet asks first).
+    SurfaceInfo &surfaceInfo(uint32_t header, uint32_t s)
+    {
+        SurfaceInfo &i = g_surfaceInfo[surfaceSlot(s)];
+        if (i.s == s && i.header == header && i.frame == g_frame)
+            return i;
+        i.s = s;
+        i.header = header;
+        i.frame = g_frame;
+        std::memcpy(&i.flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+        i.texMode = word(s + 0x1Cu);
+        i.full = false;
+        i.layer[0] = static_cast<uint8_t>(surfaceLayer(header, s, false));
+        i.layer[1] = static_cast<uint8_t>(surfaceLayer(header, s, true));
+        return i;
+    }
+    // surfaceDrawn from the kept flags.
+    bool surfaceDrawnFlags(uint64_t flags)
+    {
+        const uint32_t boss = word(0x1186290u);
+        if ((flags >> 29) & 1u)
+            return false;
+        if ((flags >> 17) & 1u)
+            return (boss & 1u) != 0;
+        if (((flags >> 24) & 1u) && !(boss & 2u))
+            return false;
+        return !(((flags >> 26) & 1u) && word(0x1186328u) != 0u);
+    }
+    // The rest, at the first draw of the surface this frame.
+    const SurfaceInfo &surfaceInfoFull(SurfaceInfo &i, uint32_t surface)
+    {
+        if (i.full)
+            return i;
+        i.full = true;
+        i.texture = surfaceTexture(i.header, surface, 0x2Cu);
+        i.blend = surfaceBlend(i.s, 0x42u);
+        i.clamp = surfaceClamp(i.s, 0x08u);
+        i.lod[0] = surfaceLodInfo(i.header, i.s, 0x2Cu);
+        i.scroll = surfaceScroll(i.header, i.s);
+        if (i.texMode == 2u)
+        {
+            i.texture2 = surfaceTexture(i.header, surface, 0x3Cu);
+            i.blend2 = surfaceBlend(i.s, 0x43u);
+            i.clamp2 = surfaceClamp(i.s, 0x09u);
+            i.lod[1] = surfaceLodInfo(i.header, i.s, 0x3Cu);
+        }
+        else
+        {
+            i.texture2 = 0;
+            i.lod[1] = {};
+        }
+        return i;
     }
 
     // Skinned parts: their instance chain (instance + 0xc: a NEXT tag past
@@ -1693,6 +1974,7 @@ namespace sotc_native
 #endif
 
     // A frame of the game ends when the display list goes to the VIF1.
+    void newDrawOrder();
     void syncFrame(uint8_t *rdram)
     {
         g_ram = rdram;
@@ -1706,7 +1988,56 @@ namespace sotc_native
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);
             native_renderer::beginFrame();
+            // SOTC_DRAW_DUMP_FRAMES=f,f,... (debugging): those frames' draws to
+            // SOTC_DRAW_DUMP_DIR (default shots)/draws_<frame>.txt.
+            static const std::vector<uint64_t> dumpFrames = []
+            {
+                std::vector<uint64_t> out;
+                if (const char *env = std::getenv("SOTC_DRAW_DUMP_FRAMES"))
+                    for (const char *p = env; *p;)
+                    {
+                        out.push_back(std::strtoull(p, const_cast<char **>(&p), 10));
+                        if (*p)
+                            ++p;
+                    }
+                return out;
+            }();
+            if (std::find(dumpFrames.begin(), dumpFrames.end(), frame) != dumpFrames.end())
+            {
+                const char *dir = std::getenv("SOTC_DRAW_DUMP_DIR");
+                native_renderer::requestDrawDump(std::string(dir ? dir : "shots") + "/draws_" + std::to_string(frame) + ".txt");
+            }
+            if (HookStats &hs = hookStats(); hs.on && frame % 120u == 0u)
+            {
+                std::fprintf(stderr,
+                             "[hookstats] frame %llu /120: instances %llu headers %zu packets %llu lod %llu draws %llu tex %llu (distinct %zu) decoded %llu "
+                             "id same %llu prev %llu quick %llu sampled %llu hashed %llu nodes %llu surfaces %llu (distinct %zu)\n",
+                             (unsigned long long)frame, (unsigned long long)hs.instances, hs.headers.size(), (unsigned long long)hs.packets,
+                             (unsigned long long)hs.lodPackets, (unsigned long long)hs.draws, (unsigned long long)hs.textures, hs.textureSet.size(),
+                             (unsigned long long)hs.decoded, (unsigned long long)hs.idSame, (unsigned long long)hs.idPrev, (unsigned long long)hs.idQuick,
+                             (unsigned long long)hs.idSampled, (unsigned long long)hs.idHashed, (unsigned long long)hs.nodes, (unsigned long long)hs.surfaces,
+                             hs.surfaceSet.size());
+                const bool on = hs.on;
+                hs = HookStats();
+                hs.on = on;
+            }
+            if (HookStats &hs = hookStats(); hs.on)
+                hs.headers.clear(), hs.surfaceSet.clear(), hs.textureSet.clear(); // distinct per frame: summed below as sizes
             g_frame = frame;
+            newDrawOrder();
+            {
+                const auto envOn = [](const char *name)
+                {
+                    const char *v = std::getenv(name);
+                    return !v || std::atoi(v) != 0;
+                };
+                static const bool r2 = envOn("SOTC_NATIVE_R2"), quickTextures = envOn("SOTC_TEX_QUICK"), surfaceMemo = envOn("SOTC_SURFACE_MEMO"),
+                                  prefetch = envOn("SOTC_HOOK_PREFETCH");
+                g_r2 = r2 && sotc_decomp::abNew();
+                g_quickTextures = g_r2 && quickTextures;
+                g_surfaceMemo = g_r2 && surfaceMemo;
+                g_prefetch = g_r2 && prefetch;
+            }
             gcovDump(frame);
             g_frameDraws = 0;
             g_skinnedDraws = 0;
@@ -2832,6 +3163,105 @@ namespace sotc_native
         return _mm_or_si128(_mm_or_si128(lanes(a, 0), lanes(b, 2)), lanes(c, 4));
     }
 
+    // ---- Prefetching the guest lines a model's draw reads (g_prefetch) ----
+    //
+    // The Vita's Cortex-A9 has no useful hardware prefetch and a DRAM miss
+    // costs ~250 ns; a model's draw walks its instance, its header, its
+    // packet list (32 bytes a packet, every LOD), its part tree (0x30 a
+    // node, linked) and its surfaces, each line the first time a frame: one
+    // miss after the other (modelDispState ~35 us an instance). What a model
+    // looked like the last time (ModelShape, by header) and the order of the
+    // last frame's draws (g_calls) say what the next draw will read: asked
+    // for while this one runs (a few lines per packet), so the misses overlap.
+    struct ModelShape
+    {
+        uint32_t header = 0, packets = 0, packetCount = 0, table = 0, nodes = 0;
+        uint32_t surfaces[8] = {}; // the first distinct surfaces drawn (their flags' line)
+        uint32_t surfaceCount = 0;
+    };
+    ModelShape g_shapes[512];
+    inline ModelShape &modelShape(uint32_t header) { return g_shapes[((header >> 4) * 0x9E3779B1u) >> 23]; }
+    struct CallRecord
+    {
+        uint32_t instance, object, header, own;
+    };
+    std::vector<CallRecord> g_calls, g_lastCalls; // this frame's modelDisp calls, the last frame's
+    size_t g_callCursor = 0;                      // where this frame is in g_lastCalls
+    // A queue of lines to ask for, a few at a time (a PLD past the A9's
+    // line fill buffers waits for one: not all at once).
+    struct PrefetchQueue
+    {
+        uint32_t lines[192];
+        uint32_t head = 0, tail = 0;
+        void push(uint32_t addr)
+        {
+            if (tail < 192u)
+                lines[tail++] = addr;
+        }
+        void pushRange(uint32_t addr, uint32_t bytes, uint32_t maxLines)
+        {
+            for (uint32_t a = addr & ~31u, n = 0; a < addr + bytes && n < maxLines; a += 32u, ++n)
+                push(a);
+        }
+        void pump(uint32_t n)
+        {
+            for (; n && head < tail; --n)
+                prefetchGuest(lines[head++]);
+        }
+        void clear() { head = tail = 0; }
+    } g_prefetchQueue;
+    void newDrawOrder()
+    {
+        g_lastCalls.swap(g_calls);
+        g_calls.clear();
+        g_callCursor = 0;
+        g_prefetchQueue.clear();
+    }
+    // The next draw's lines (from the last frame's order), queued.
+    void queueNextDraw(uint32_t instance)
+    {
+        PrefetchQueue &q = g_prefetchQueue;
+        q.pump(8u); // the last one's: a few more now, the rest dropped
+        q.clear();
+        size_t at = g_callCursor;
+        if (at >= g_lastCalls.size() || g_lastCalls[at].instance != instance)
+        {
+            // Out of step: looked for a little ahead.
+            at = ~size_t(0);
+            for (size_t i = g_callCursor, end = std::min(g_lastCalls.size(), g_callCursor + 8u); i < end; ++i)
+                if (g_lastCalls[i].instance == instance)
+                {
+                    at = i;
+                    break;
+                }
+            if (at == ~size_t(0))
+                return;
+        }
+        g_callCursor = at + 1u;
+        if (g_callCursor >= g_lastCalls.size())
+            return;
+        const CallRecord &next = g_lastCalls[g_callCursor];
+        // First what the next draw reads first (a chain: instance, object, header).
+        prefetchGuest(next.instance);
+        prefetchGuest(next.instance + 0x240u);
+        prefetchGuest(next.instance + 0x260u);
+        prefetchGuest(next.object + 0x20u);
+        q.pushRange(next.header, 0x80u, 4u);
+        q.push(next.own + 0x10u);
+        q.push(next.own + 0x30u);
+        q.push(next.own + 0x50u);
+        q.push(next.own + 0x70u);
+        q.push(next.own + 0xD0u);
+        const ModelShape &shape = modelShape(next.header);
+        if (shape.header != next.header)
+            return;
+        q.pushRange(shape.packets, shape.packetCount * 32u, 64u);
+        if (shape.table)
+            q.pushRange(shape.table, shape.nodes * 0x30u, 64u);
+        for (uint32_t i = 0; i < shape.surfaceCount; ++i)
+            q.push(shape.surfaces[i] + 0x18u);
+    }
+
     void modelDispState(R5900Context *ctx, uint32_t instance, const float model[16])
     {
         const uint32_t header = word(word(instance) + 0x20u);
@@ -2844,6 +3274,28 @@ namespace sotc_native
         if (word(header + 0x1Cu) <= lod && flags18 != 0u)
             lod = word(header + 0x1Cu) - 1u;
         const uint32_t table = word(header + 0x30u + lod * 4u);
+        uint32_t maxNode = table; // the last node the walk reached (ModelShape)
+        struct ShapeNodes // kept whichever way the function returns
+        {
+            uint32_t header, table, &maxNode;
+            ~ShapeNodes()
+            {
+                if (!g_prefetch || !table)
+                    return;
+                ModelShape &shape = modelShape(header);
+                if (shape.header != header)
+                {
+                    shape = ModelShape();
+                    shape.header = header;
+                }
+                if (shape.table != table)
+                {
+                    shape.table = table;
+                    shape.nodes = 0;
+                }
+                shape.nodes = std::max(shape.nodes, (maxNode - table) / 0x30u + 1u);
+            }
+        } shapeNodes{header, partCulled ? table : 0u, maxNode};
         if (partCulled)
         {
             if (table == 0u)
@@ -2911,12 +3363,22 @@ namespace sotc_native
             {
                 if (depth > 64)
                     return;
+                maxNode = std::max(maxNode, node);
                 const uint32_t state = inherited ? inherited : test(node);
                 put(node + 0x2Cu, state);
                 for (uint32_t link : {0x20u, 0x24u})
                     if (word(node + link) != 0xFFFFFFFFu)
                         self(self, table + word(node + link) * 0x30u, state, depth + 1);
             };
+            if (g_prefetch)
+            {
+                // This model's part tree as it was: asked for at once (the
+                // walk below goes from node to node by their links).
+                const ModelShape &shape = modelShape(header);
+                if (shape.header == header && shape.table == table)
+                    for (uint32_t a = table & ~31u, n = 0; a < table + shape.nodes * 0x30u && n < 64u; a += 32u, ++n)
+                        prefetchGuest(a);
+            }
             const uint32_t root = test(table);
             put(table + 0x2Cu, root);
             if (root == 1u)
@@ -2951,13 +3413,44 @@ namespace sotc_native
         }
         const bool fading = 0.0f < real(instance + 0x244u);
         const uint32_t boss = word(0x1186290u), cache = word(0x118BFC8u);
-        for (uint32_t pk = word(header + 0x60u); word(pk) != 0u; pk += 32u)
+        const uint32_t packets = word(header + 0x60u), surfaces = word(header + 0x50u);
+        ModelShape *shape = nullptr;
+        if (g_prefetch)
         {
+            shape = &modelShape(header);
+            if (shape->header != header)
+            {
+                *shape = ModelShape();
+                shape->header = header;
+            }
+            if (shape->packets == packets)
+                for (uint32_t a = packets & ~31u, n = 0; a < packets + shape->packetCount * 32u && n < 8u; a += 32u, ++n)
+                    prefetchGuest(a); // the first lines at once, the rest as the walk goes
+            shape->packets = packets;
+            shape->surfaceCount = 0;
+        }
+        const bool memo = g_surfaceMemo && native_renderer::tuning().fastHooks;
+        uint32_t walked = 0;
+        for (uint32_t pk = packets; word(pk) != 0u; pk += 32u)
+        {
+            ++walked;
+            if (shape)
+            {
+                prefetchGuest(pk + 8u * 32u);
+                g_prefetchQueue.pump(2u); // the next draw's lines (queueNextDraw)
+            }
             if (word(pk + 4u) != lod)
                 continue;
-            const uint32_t s = word(pk + 8u) * 0x120u + word(header + 0x50u);
+            const uint32_t s = word(pk + 8u) * 0x120u + surfaces;
+            if (shape && shape->surfaceCount < 8u &&
+                std::find(shape->surfaces, shape->surfaces + shape->surfaceCount, s) == shape->surfaces + shape->surfaceCount)
+                shape->surfaces[shape->surfaceCount++] = s;
+            SurfaceInfo *info = memo ? &surfaceInfo(header, s) : nullptr;
             uint64_t flags;
-            std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+            if (info)
+                flags = info->flags;
+            else
+                std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
             if ((flags >> 29) & 1u)
                 continue;
             if (partCulled && word(pk + 12u) != 0xFFFFFFFFu)
@@ -2976,8 +3469,10 @@ namespace sotc_native
             }
             if (((flags >> 26) & 1u) && word(0x1186328u) != 0u)
                 continue;
-            put(cache + surfaceLayer(header, s, fading) * 4u, s);
+            put(cache + (info ? info->layer[fading ? 1 : 0] : surfaceLayer(header, s, fading)) * 4u, s);
         }
+        if (shape)
+            shape->packetCount = walked;
     }
 
     // SOTC_MODELDISP_CHECK=1 (debugging): modelDispState against the
@@ -3217,6 +3712,12 @@ namespace sotc_native
         SOTC_PROF_SCOPE(kHookModelDisp);
         if (!g_cameraContext)
             return;
+        if (g_prefetch)
+        {
+            queueNextDraw(instance);
+            const uint32_t object = word(instance);
+            g_calls.push_back({instance, object, word(object + 0x20u), word(instance + 0xCu)});
+        }
 
         float camera[16], clip[16];
         for (int i = 0; i < 16; ++i)
@@ -3350,24 +3851,47 @@ namespace sotc_native
             hasPalette = readPalette(instance, palette);
         }
         const bool fast = native_renderer::tuning().fastHooks;
+        const bool memo = fast && g_surfaceMemo;
         uint32_t paletteHandle = 0, paletteLo = 0, paletteHi = 0; // this instance's palette as last sent
         float projection[16];
         for (int i = 0; i < 16; ++i)
             projection[i] = real(g_cameraContext + 0x40u + i * 4u);
         SOTC_PROF_SCOPE(kHookPackets);
+        HookStats &hs = hookStats();
+        if (hs.on)
+            ++hs.instances, hs.headers.insert(header);
         for (uint32_t k = 0; k < count; ++k)
         {
             const uint32_t pk = packets + k * 32u;
             if (word(pk) == 0u)
                 break;
+            hs.packets += hs.on;
+            if (g_prefetch)
+            {
+                // The next packets' memo lines (the tags two ahead, the entry
+                // and the surface's state one ahead), the next draw's lines.
+                const uint32_t next = pk + 32u;
+                if (word(next) != 0u)
+                {
+                    if (word(next + 32u) != 0u)
+                        g_packetMemo.prefetch(word(next + 48u), false);
+                    g_packetMemo.prefetch(word(next + 16u), true);
+                    __builtin_prefetch(&g_surfaceInfo[surfaceSlot(word(header + 0x50u) + word(next + 8u) * 0x120u)]);
+                }
+                g_prefetchQueue.pump(2u);
+            }
             if (word(pk + 4u) != lod)
                 continue;
+            hs.lodPackets += hs.on;
             const uint32_t part = word(pk + 12u);
             if (partCulled && part != 0xFFFFFFFFu && part < partVisible.size() && partVisible[part] == 1u)
                 continue;
             const uint32_t surface = word(pk + 8u), s = word(header + 0x50u) + surface * 0x120u;
-            if (!surfaceDrawn(s))
+            SurfaceInfo *info = memo ? &surfaceInfo(header, s) : nullptr;
+            if (info ? !surfaceDrawnFlags(info->flags) : !surfaceDrawn(s))
                 continue;
+            if (hs.on)
+                ++hs.surfaces, hs.surfaceSet.insert(s);
             const uint32_t size = word(pk), data = word(pk + 16u);
             uint64_t id;
             {
@@ -3376,7 +3900,7 @@ namespace sotc_native
             }
             const bool changedInPlace = g_packetChangedInPlace;
             auto skinnedPacket = g_skinnedIds.count(id) ? g_skinnedPackets.find(id) : g_skinnedPackets.end();
-            const bool twoPasses = word(s + 0x1Cu) == 2u;
+            const bool twoPasses = (info ? info->texMode : word(s + 0x1Cu)) == 2u;
             const bool needsBuild = skinnedPacket == g_skinnedPackets.end() &&
                                     (!native_renderer::hasMesh(id) || (twoPasses && !native_renderer::hasMesh(id ^ (1ull << 61))));
             if (needsBuild && !changedInPlace && buildPacketAsync(id, data, size, twoPasses))
@@ -3511,7 +4035,7 @@ namespace sotc_native
             // seen in a mirror, drawn by the game into a buffer of its own with
             // the camera context's +0x520 matrix and sampled by the reflecting
             // surfaces (layers 14/15). Never on the screen; not rendered yet.
-            const uint32_t layer = surfaceLayer(header, s, fading);
+            const uint32_t layer = info ? info->layer[fading ? 1 : 0] : surfaceLayer(header, s, fading);
             const int logLayer = env.logLayer;
             if (static_cast<int>(layer) == logLayer)
             {
@@ -3537,14 +4061,20 @@ namespace sotc_native
             native_renderer::DrawState state;
             state.skinPalette = skinPalette;
             state.skinPaletteCount = skinPaletteCount;
-            state.texture = surfaceTexture(header, surface);
-            state.blend = surfaceBlend(s);
-            state.clamp = surfaceClamp(s);
+            const SurfaceInfo *full = info ? &surfaceInfoFull(*info, surface) : nullptr;
+            state.texture = full ? full->texture : surfaceTexture(header, surface);
+            state.blend = full ? full->blend : surfaceBlend(s);
+            state.clamp = full ? full->clamp : surfaceClamp(s);
             state.order = layer; // surfaceLayer above (pure)
             state.opacity = opacity;
             const bool noMips = !native_renderer::tuning().mipmaps;
             if (!noMips)
-                surfaceLod(header, surface, state);
+            {
+                if (full)
+                    applyLod(full->lod[0], state);
+                else
+                    surfaceLod(header, surface, state);
+            }
             if (logPasses && state.maxLod > 0.0f)
             {
                 static std::set<uint64_t> told;
@@ -3552,11 +4082,74 @@ namespace sotc_native
                     std::fprintf(stderr, "[mip] header %08x surface %u levels %g L x%g K %g\n", header, surface, state.maxLod + 1.0f, state.lodScale, state.lodK);
             }
             const bool noRow = !native_renderer::tuning().textureScroll;
-            if (!noRow && surfaceRow(header, surface, state.uvOffset) && logPasses)
+            if (full && !logPasses)
+            {
+                if (!noRow && full->scroll)
+                {
+                    uint32_t pair;
+                    std::memcpy(&pair, g_ram + (full->scroll & 0x1FFFFFCu), 4);
+                    state.uvOffset[0] = static_cast<float>(static_cast<int32_t>(pair & 0xFFFFu)) / 4096.0f;
+                    state.uvOffset[1] = static_cast<float>(static_cast<int32_t>(word(full->scroll + 4u) & 0xFFFFu)) / 4096.0f;
+                }
+            }
+            else if (!noRow && surfaceRow(header, surface, state.uvOffset) && logPasses)
             {
                 static std::set<uint64_t> told;
                 if (told.insert((static_cast<uint64_t>(header) << 16) | surface).second)
                     std::fprintf(stderr, "[row] header %08x surface %u layer %u offset %g %g\n", header, surface, surfaceLayer(header, s, fading), state.uvOffset[0], state.uvOffset[1]);
+            }
+            if (R2Check &c = r2Check(); c.on && !full && g_frame % 600u == 0u)
+            {
+                static uint64_t lastFrame = 0;
+                if (lastFrame != g_frame)
+                {
+                    lastFrame = g_frame;
+                    std::fprintf(stderr, "[r2-check] frame %llu (old paths): %llu quick packets, %llu stale\n", (unsigned long long)g_frame,
+                                 (unsigned long long)c.packetQuick, (unsigned long long)c.packetStale);
+                }
+            }
+            if (R2Check &c = r2Check(); c.on && full)
+            {
+                ++c.surfaces;
+                native_renderer::DrawState ref;
+                surfaceLod(header, surface, ref);
+                native_renderer::DrawState mine;
+                applyLod(full->lod[0], mine);
+                float row[2] = {0.0f, 0.0f};
+                surfaceRow(header, surface, row);
+                uint64_t f;
+                std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+                c.note("texture", surfaceTexture(header, surface) != full->texture);
+                c.note("blend", surfaceBlend(s) != full->blend);
+                c.note("clamp", surfaceClamp(s) != full->clamp);
+                c.note("layer", surfaceLayer(header, s, fading) != layer);
+                c.note("lod", std::memcmp(&ref.lodK, &mine.lodK, 4) || ref.lodScale != mine.lodScale || ref.maxLod != mine.maxLod);
+                c.note("row", !noRow && (row[0] != state.uvOffset[0] || row[1] != state.uvOffset[1]));
+                c.note("flags", f != full->flags || word(s + 0x1Cu) != full->texMode);
+                c.note("drawn", !surfaceDrawn(s));
+                if (full->texMode == 2u)
+                {
+                    native_renderer::DrawState ref2, mine2;
+                    surfaceLod(header, surface, ref2, 0x3Cu);
+                    applyLod(full->lod[1], mine2);
+                    c.note("texture2", surfaceTexture(header, surface, 0x3Cu) != full->texture2);
+                    c.note("blend2", surfaceBlend(s, 0x43u) != full->blend2);
+                    c.note("clamp2", surfaceClamp(s, 0x09u) != full->clamp2);
+                    c.note("lod2", std::memcmp(&ref2.lodK, &mine2.lodK, 4) || ref2.lodScale != mine2.lodScale || ref2.maxLod != mine2.maxLod);
+                }
+                if (g_frame % 600u == 0u)
+                {
+                    static uint64_t lastFrame = 0;
+                    if (lastFrame != g_frame)
+                    {
+                        lastFrame = g_frame;
+                        std::fprintf(stderr, "[r2-check] frame %llu: %llu surface draws checked, %llu mismatches; %llu quick textures, %llu stale; "
+                                     "%llu quick packets, %llu stale\n",
+                                     (unsigned long long)g_frame, (unsigned long long)c.surfaces, (unsigned long long)c.surfaceMismatches,
+                                     (unsigned long long)c.texQuick, (unsigned long long)c.texStale, (unsigned long long)c.packetQuick,
+                                     (unsigned long long)c.packetStale);
+                    }
+                }
             }
             const int idFrom = env.idFrom; // SOTC_NATIVE_IDCOLOR
             if (idFrom && (idFrom == 1 || static_cast<int>(state.order) >= idFrom) && state.blend != native_renderer::Blend::Additive) // glows keep their look
@@ -3600,26 +4193,32 @@ namespace sotc_native
             // Reflecting surfaces (the water): the world's TEST (0x5140b: AREF 0x40,
             // AFAIL FB_ONLY) keeps their colour but not their Z, their vertex alpha
             // being 0x20; the splash rings drawn after on the surface stay visible.
-            if ((word(s + 0x18u) & 0x2200u) == 0x2200u)
+            if (((full ? static_cast<uint32_t>(full->flags) : word(s + 0x18u)) & 0x2200u) == 0x2200u)
                 state.noDepthWrite = true;
-            const bool twoTextures = word(s + 0x1Cu) == 2u && !posed && !state.debugColour;
+            const bool twoTextures = (full ? full->texMode : word(s + 0x1Cu)) == 2u && !posed && !state.debugColour;
             if (twoTextures)
                 state.writeDepth = true;
             native_renderer::draw(mesh, transform, state);
             ++g_frameDraws;
             ++g_modelDraws;
+            hs.draws += hs.on;
             if (twoTextures)
             {
                 // The microcode draws the batch again with the second texture
                 // and coordinates, blended by ALPHA_2 (context 2).
                 native_renderer::DrawState second = state;
-                second.texture = surfaceTexture(header, surface, 0x3Cu);
+                second.texture = full ? full->texture2 : surfaceTexture(header, surface, 0x3Cu);
                 second.uvOffset[0] = second.uvOffset[1] = 0.0f; // the second pair takes ROW z / w (0)
                 second.maxLod = 0.0f;
                 if (!noMips)
-                    surfaceLod(header, surface, second, 0x3Cu);
-                second.blend = surfaceBlend(s, 0x43u);
-                second.clamp = surfaceClamp(s, 0x09u);
+                {
+                    if (full)
+                        applyLod(full->lod[1], second);
+                    else
+                        surfaceLod(header, surface, second, 0x3Cu);
+                }
+                second.blend = full ? full->blend2 : surfaceBlend(s, 0x43u);
+                second.clamp = full ? full->clamp2 : surfaceClamp(s, 0x09u);
                 second.writeDepth = false;
                 second.overlay = true;
                 native_renderer::draw(id ^ (1ull << 61), transform, second);
@@ -3633,7 +4232,10 @@ namespace sotc_native
             // surfaces with bit 25 go to layer 14 instead (unrippled mirror,
             // ALPHA 0x8000000064: written as is).
             uint64_t sflags;
-            std::memcpy(&sflags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+            if (full)
+                sflags = full->flags;
+            else
+                std::memcpy(&sflags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
             const bool layer14 = ((sflags >> 25) & 1u) != 0;
             if ((layer14 || (sflags & 0x2200u) == 0x2200u) && !noReflect && !state.debugColour)
             {

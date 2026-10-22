@@ -283,9 +283,11 @@ namespace sotc_decomp
         };
         std::vector<AbEntry> g_ab;
         uint64_t g_abPeriod = 0;
-        bool g_abNew = true, g_abSpr = true, g_abPrefetch = true;
+        bool g_abNew = true, g_abSpr = true, g_abPrefetch = true, g_abFastPaths = false;
         PS2Runtime *g_abRuntime = nullptr;
     }
+
+    bool abNew() { return g_abNew; }
 
     void abTick(uint64_t frame)
     {
@@ -306,8 +308,13 @@ namespace sotc_decomp
             else
                 sotc_prof::remapWrapped(from, to);
         }
-        ps2_fast_paths::g_sprFast = on && g_abSpr;
-        ps2_fast_paths::g_dmaPrefetch = on && g_abPrefetch;
+        // The scratchpad and DMA fast paths (2026-10-22's round) stay on:
+        // SOTC_AB_FASTPATHS=1 alternates them too.
+        if (g_abFastPaths)
+        {
+            ps2_fast_paths::g_sprFast = on && g_abSpr;
+            ps2_fast_paths::g_dmaPrefetch = on && g_abPrefetch;
+        }
         sotc_prof::noteAb(on);
         std::fprintf(stderr, "[ab] frame %llu: %s\n", static_cast<unsigned long long>(frame), on ? "new" : "old");
     }
@@ -346,8 +353,9 @@ namespace sotc_decomp
             g_abRuntime = &runtime;
             g_abSpr = ps2_fast_paths::g_sprFast;
             g_abPrefetch = ps2_fast_paths::g_dmaPrefetch;
+            g_abFastPaths = std::getenv("SOTC_AB_FASTPATHS") && std::atoi(std::getenv("SOTC_AB_FASTPATHS")) != 0;
             sotc_prof::noteAb(true);
-            std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions and the runtime's fast paths alternate every " << g_abPeriod << " frames" << std::endl;
+            std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : " and the native hooks' new paths") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;

@@ -5,8 +5,13 @@
 # Usage: tools/vita3k.sh [seconds]
 #   no argument: install build/vita/.../ps2EntryRunner.vpk and play
 #   seconds:     run that long in the background, then stop (logs stay)
-# Env: MHZ / CORES (real Vita speed: MHZ=444 CORES=3), PROF=<file> (profile),
+# Env: MHZ / CORES (the Vita's clock: MHZ=444 CORES=3), PROF=<file> (profile),
 #      NOINSTALL=1 (keep the installed app).
+#      For timing close to the real console use MHZ=240 CORES=3 (calibrated
+#      2026-10-22 on the attract demo against a console run of the same VPK:
+#      execScript and the frame within 1%; see docs/decomp.md, "Vita3K
+#      calibration"). Memory-bound code still runs faster there than on the
+#      console, compute-bound code slower.
 # Logs: $CELOSIA_VITA3K/fs/ux0/data/celosia/{log,err}.txt
 cd "$(dirname "$0")/.."
 V3="${CELOSIA_VITA3K:-$(cd .. && pwd)/vita3k-celosia}"
