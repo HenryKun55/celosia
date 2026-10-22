@@ -31,6 +31,7 @@
 #include "runtime/gs/ps2_gs_psmt8.h"
 #include "runtime/ps2_stats.h"
 #include "sotc_prof.h"
+#include "sotc_decomp.h"
 #include "lean_hot.h"
 
 #include <algorithm>
@@ -1703,6 +1704,7 @@ namespace sotc_native
             frameLog();
             sotc_prof::frameTick(frame);
             ps2_lean::frameTick(frame);
+            sotc_decomp::abTick(frame);
             native_renderer::beginFrame();
             g_frame = frame;
             gcovDump(frame);

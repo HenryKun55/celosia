@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include "runtime/ps2_memory.h"
+#include "runtime/ps2_fast_paths.h"
 #include "runtime/ps2_address.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/gs_async_backend.h"
@@ -1921,6 +1922,25 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                             break;
                         }
 
+                        // The walk reads each tag and the VIFcodes of its data
+                        // one after another, each a DRAM miss on the Vita (~250
+                        // ns, no hardware prefetch): the next tag is read now
+                        // and its data's first lines asked for, so they arrive
+                        // while this tag's data is walked.
+                        if (walker && !endChain && ps2_fast_paths::g_dmaPrefetch && tagAddr < PS2_RAM_SIZE - 16u)
+                        {
+                            uint64_t next;
+                            std::memcpy(&next, m_rdram + tagAddr, 8);
+                            const uint32_t nextId = static_cast<uint32_t>((next >> 28) & 0x7u);
+                            const uint32_t nextData = (nextId == 3u || nextId == 4u || nextId == 0u) ? static_cast<uint32_t>((next >> 32) & 0x7FFFFFFFu) : tagAddr + 16u;
+                            if ((next & 0xFFFFu) != 0u && nextData < PS2_RAM_SIZE - 128u)
+                            {
+                                __builtin_prefetch(m_rdram + nextData);
+                                __builtin_prefetch(m_rdram + nextData + 64u);
+                            }
+                            __builtin_prefetch(m_rdram + tagAddr + 64u);
+                        }
+
                         if (transferTagData)
                             appendVifTagData(currentTagAddr);
 
@@ -3098,34 +3118,88 @@ bool PS2Memory::hostChannelBusy(uint32_t channelBase)
     return busy;
 }
 
+namespace ps2_fast_paths
+{
+    bool g_sprFast = []
+    {
+        const char *env = std::getenv("PS2X_SPR_FAST");
+        return !env || std::atoi(env) != 0;
+    }();
+    bool g_dmaPrefetch = []
+    {
+        const char *env = std::getenv("PS2X_DMA_PREFETCH");
+        return !env || std::atoi(env) != 0;
+    }();
+}
+
 // The out-of-line half of the guest load / store macros (ps2_runtime_macros.h
 // READ* / WRITE*): every address at or above 32 MB. The special ranges go to
 // the runtime; the rest (the uncached / kseg0 mirrors of main RAM) is main
 // RAM, masked.
 namespace ps2_guest_mem
 {
+    // The scratchpad (0x70000000, 16 KB) straight from here: an aligned
+    // access there went through PS2Runtime::LoadN / StoreN and
+    // PS2Memory::readN / writeN (the GS / IO / mirror tests, the address
+    // translation, the range check) to end in the same load or store.
+    // SotC's display walk keeps its light work there (LoopExecPreLightColMan
+    // copies it in for the frame). PS2X_SPR_FAST=0: the long way, as before.
+    namespace
+    {
+        template <uint32_t N>
+        PS2_FORCE_INLINE uint8_t *spr(PS2Runtime *runtime, uint32_t a)
+        {
+            const uint32_t offset = a - PS2_SCRATCHPAD_BASE;
+            if (PS2_EXPECT(offset < PS2_SCRATCHPAD_SIZE && (offset & (N - 1u)) == 0u && ps2_fast_paths::g_sprFast, 1))
+                return runtime->memory().getScratchpad() + offset;
+            return nullptr;
+        }
+        template <typename T>
+        PS2_FORCE_INLINE T sprLoad(const uint8_t *p)
+        {
+            T v;
+            std::memcpy(&v, p, sizeof(T));
+            return v;
+        }
+    }
+
     uint8_t read8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
+        if (const uint8_t *p = spr<1>(runtime, a))
+            return *p;
         return Ps2IsSpecialAddress(a) ? runtime->Load8(rdram, ctx, a) : Ps2FastRead8(rdram, a);
     }
     uint16_t read16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
+        if (const uint8_t *p = spr<2>(runtime, a))
+            return sprLoad<uint16_t>(p);
         return Ps2IsSpecialAddress(a) ? runtime->Load16(rdram, ctx, a) : Ps2FastRead16(rdram, a);
     }
     uint32_t read32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
+        if (const uint8_t *p = spr<4>(runtime, a))
+            return sprLoad<uint32_t>(p);
         return Ps2IsSpecialAddress(a) ? runtime->Load32(rdram, ctx, a) : Ps2FastRead32(rdram, a);
     }
     uint64_t read64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
+        if (const uint8_t *p = spr<8>(runtime, a))
+            return sprLoad<uint64_t>(p);
         return Ps2IsSpecialAddress(a) ? runtime->Load64(rdram, ctx, a) : Ps2FastRead64(rdram, a);
     }
     __m128i read128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
+        if (const uint8_t *p = spr<16>(runtime, a))
+            return sprLoad<__m128i>(p);
         return Ps2IsSpecialAddress(a) ? runtime->Load128(rdram, ctx, a) : Ps2FastRead128(rdram, a);
     }
     void write8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint8_t v)
     {
+        if (uint8_t *p = spr<1>(runtime, a))
+        {
+            *p = v;
+            return;
+        }
         if (Ps2IsSpecialAddress(a))
             return runtime->Store8(rdram, ctx, a, v);
         trace<uint8_t>(rdram, a, v, "WRITE8", ctx);
@@ -3133,6 +3207,11 @@ namespace ps2_guest_mem
     }
     void write16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint16_t v)
     {
+        if (uint8_t *p = spr<2>(runtime, a))
+        {
+            std::memcpy(p, &v, sizeof(v));
+            return;
+        }
         if (Ps2IsSpecialAddress(a))
             return runtime->Store16(rdram, ctx, a, v);
         trace<uint16_t>(rdram, a, v, "WRITE16", ctx);
@@ -3140,6 +3219,11 @@ namespace ps2_guest_mem
     }
     void write32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint32_t v)
     {
+        if (uint8_t *p = spr<4>(runtime, a))
+        {
+            std::memcpy(p, &v, sizeof(v));
+            return;
+        }
         if (Ps2IsSpecialAddress(a))
             return runtime->Store32(rdram, ctx, a, v);
         trace<uint32_t>(rdram, a, v, "WRITE32", ctx);
@@ -3147,6 +3231,11 @@ namespace ps2_guest_mem
     }
     void write64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint64_t v)
     {
+        if (uint8_t *p = spr<8>(runtime, a))
+        {
+            std::memcpy(p, &v, sizeof(v));
+            return;
+        }
         if (Ps2IsSpecialAddress(a))
             return runtime->Store64(rdram, ctx, a, v);
         trace<uint64_t>(rdram, a, v, "WRITE64", ctx);
@@ -3154,6 +3243,11 @@ namespace ps2_guest_mem
     }
     void write128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, __m128i v)
     {
+        if (uint8_t *p = spr<16>(runtime, a))
+        {
+            std::memcpy(p, &v, sizeof(v));
+            return;
+        }
         if (Ps2IsSpecialAddress(a))
             return runtime->Store128(rdram, ctx, a, v);
         trace<__m128i>(rdram, a, v, "WRITE128", ctx);

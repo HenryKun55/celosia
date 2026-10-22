@@ -101,6 +101,8 @@ What a native function has to keep, learned the hard way:
 | decomp_collision.cpp | the segment test: ClipCollisionDirectCallBack (0x112d590), the tree's node visitor and sides (01131C80, 0112C610, 0112C498), the leaf (0112BE58), ClipCollisionDB (the plane, the crossing, the triangle), GetCollisionDBSurfBoundary, getLayoutClassCollisionIndepSurfBoundary, GetCollisionDBAttributeAdr; ClipCollisionDB's keep variant (0111C078, its first test); the sphere finder's leaf (01115798 / 01115A50) and CheckCollisionFinderExistData; the id filters (CameraVisibility, CameraLeave, 010D41E0, 011292B0, pathJudgeFunc, 01434C00) | route (EVERY=100-200, parents left recompiled for the children): ClipCollisionDB 21 700, leaf 2 400, node / sides 10 500, DirectCallBack 600, keep 5 900, finder leaf 1 300, filters 300-3 500 each; attract demo: see below; 0 mismatches | the shrine altar's collision family, ~29 ms of the throttled Vita3K frame: see "Collision" below |
 | decomp_pointsort.cpp | execPointListSort (0x142da48) | 300 (route), 0 mismatches | the path points within a radius, selection-sorted (1.3% at the altar); getPointDataByAreaIdx stays a guest call |
 | decomp_skeleton.cpp | skeletonPose: the bone's VU0 block, the quaternion normalisation, MultiCurrentQuaternion, iosTransCurrentMatrix / iosMulCurrentMatrixR with each operand clamped once (vu::*N, the rows once for the four columns) | 87 300 (route, EVERY=20) + 17 900 (attract demo), 0 mismatches | ~210 -> ~90 clamps (ps2VuNormalize) a bone |
+| decomp_clothdyn.cpp | 01137858 (the rows' length constraint), 01137640 (the velocities; type 1 cloths go on in the recompiled code from 0x1137728 with the prologue's frame) | attract 1 100 + 5 600, route 2 700 + 6 900, 0 mismatches | under GetClothDynamics (in ExecCharaGeometry). 01137858's type 1 path stays recompiled. RSQRT as build/runner has it (ps2VuRsqrt with the status flags, not recomp/game/output's older ps2VuRsqrtQ) |
+| decomp_light.cpp | the light pass: manager_sub_010F4FB8 (its three walks of the sort list), 010F4A18, ExecGlobalLightMan, 010F8360, 010F5F60, SetWorkFromGlobalLight, GetInverseMatrixFromQuaternionPos, GetRateInOutCubeVolumeWithInverseMatrix | attract 800-6 500 each, route 300-6 700 each, 0 mismatches | see "The light pass" below |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -108,6 +110,49 @@ and that code writes values that differ between two runs of the same code
 (SOTC_DIFFTEST_CONTROL=1, the recompiled code in both legs) gives the same
 mismatches at the same addresses at the same rate (17 000 checks, ~700
 each); every register (all 128 bits, FPU, hi / lo / sa) matched in all.
+
+## The light pass and the scratchpad (2026-10-22)
+
+The console's "dispSort_010F4FB8" (2.75 ms self in the attract demo) is
+not a sort: it is DispDispObjGroupModel's light pass. LoopExecPreLightColMan
+copies the light work area into the scratchpad, then every lit object's
++0xe0 callback (CalcLightLayoutObj -> SetGeoDispClassLightColMan) runs
+ExecGlobalLightMan (the global lights in range, their volume, sorted and
+blended by 010F8360), SetWorkFromGlobalLight, ExecGameLight and 010F5F60
+(the object's normal and colour light matrices); then 010F4A18 per layout
+object (its lights in camera space). Every access to the work area went
+through the generated code's out-of-line path to PS2Runtime::LoadN /
+PS2Memory::readN (the scratchpad is not main RAM).
+
+- **decomp_light.cpp** does that chain natively; leaf helpers (GetLayoutClass,
+  GetNextSortObj, iosCalcFColorToBrightness, iosCopyMatrix,
+  iosTransposeMatrix, iosInverseMatrix, iosMakeNormal/LightColorMatrix,
+  GetDirColorFromWorkLight, getSpecularity, GetCharacterClass, memset)
+  inline; getAmbientColorC, GetRateInOutElliptical..., ExecGameLight, the
+  camera context and the +0xe0 callbacks stay guest calls from the
+  original's frame. A native parent calls a native child through the table
+  (callGuest) when that child can fall back to the recompiled code: a
+  recompiled function called directly can return early at a checkpoint.
+- **ps2_memory.cpp ps2_guest_mem**: aligned scratchpad loads / stores are done
+  right there (PS2X_SPR_FAST=0: the long way); for all generated code.
+- **The VIF1 chain walk** (iosDmaSendSChainPath1, 1.45 ms on the console,
+  one DRAM miss per tag and VIFcode, no hardware prefetch) reads the next
+  tag before walking the current tag's data and prefetches that data's
+  first two lines (PS2X_DMA_PREFETCH=0: off).
+- **SOTC_AB=<frames>** alternates this round's set (SOTC_DECOMP_AB_FUNCTION
+  and the two fast paths) with the old code; [prof] lines end in "ab: new |
+  old | mixed". 480 leaves three clean 120-frame windows out of four.
+  SOTC_SUBSYS_PROF_MIN=<ms> lowers the report's cut (Mac: 0.0005).
+
+Throttled Vita3K (444 MHz, 3 cores), attract demo, SOTC_AB=480, 36 windows
+each: dispSort 1.69 -> 1.06 ms, ExecCharaGeometry 5.49 -> 5.08 (cloth),
+execScript 23.8 -> 22.7 ms. Mac: ExecGlobalLightMan 2x, the pass -25%.
+Mac route: the plain, game clock 1.002x (last 12 windows; 0.998 before).
+
+Recompiler levers seen on the way (not done): build/runner (what is
+compiled) differs from recomp/game/output (older: pc writes, other RSQRT
+macro), always read build/runner; GPRs / VU registers live in ctx memory,
+so every guest store (char aliasing) forces reloads.
 
 ## Collision (2026-10-21)
 

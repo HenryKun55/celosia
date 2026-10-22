@@ -37,6 +37,9 @@ namespace sotc_decomp
         // code is run once and not to its return (a sleep returns to the
         // other context, which goes on for a frame or more).
         bool switches = false, once = false;
+        // Part of SOTC_AB's "new" set (sotc_decomp.cpp: alternated with the
+        // recompiled code, with the runtime's fast paths, for an A/B in one run).
+        bool ab = false;
     };
 
     std::vector<Function> &registry();
@@ -44,14 +47,19 @@ namespace sotc_decomp
     struct Registrar
     {
         Registrar(uint32_t address, const char *name, PS2Runtime::RecompiledFunction native, bool returnsFloat = false, bool switches = false,
-                  bool once = false)
+                  bool once = false, bool ab = false)
         {
-            registry().push_back({address, name, native, returnsFloat, switches, once});
+            registry().push_back({address, name, native, returnsFloat, switches, once, ab});
         }
     };
 
     // Puts the registered functions in place (and the checks SOTC_DIFFTEST asks for).
     void install(PS2Runtime &runtime);
+    // SOTC_AB=<frames>: every that many game frames the "new" set (the
+    // functions registered with SOTC_DECOMP_AB_FUNCTION, the runtime's
+    // ps2_fast_paths) goes off or back on; "[ab] frame F: new | old" at each
+    // change, and the [prof] lines say which ran ("ab: new | old | mixed").
+    void abTick(uint64_t frame);
 
     // The recompiled function a decompiled one replaced (for a native
     // function's rare cases left to the original code), nullptr if none.
@@ -121,6 +129,9 @@ namespace sotc_decomp
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn}
+// One of SOTC_AB's new set (this round's functions).
+#define SOTC_DECOMP_AB_FUNCTION(address, name, fn) \
+    static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, false, false, true}
 #define SOTC_DECOMP_FLOAT_FUNCTION(address, name, fn) \
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, true}
 // A context switch that returns to its caller after a round trip (wake).

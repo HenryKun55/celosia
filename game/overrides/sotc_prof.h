@@ -66,6 +66,8 @@ namespace sotc_prof
     // SOTC_LEAN=2's state now (lean copies or originals): the [prof] lines
     // end with it ("mixed": it changed inside that window).
     void noteLean(bool lean);
+    // SOTC_AB's state (sotc_decomp.cpp), for the report like SOTC_LEAN=2's.
+    void noteAb(bool on);
 }
 
 #define SOTC_PROF_SCOPE(hook) const ::sotc_prof::Scope sotc_prof_scope_##hook{::sotc_prof::hook}

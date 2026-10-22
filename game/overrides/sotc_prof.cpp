@@ -14,7 +14,7 @@
 // I inclusive and S self ms per frame, C calls per frame, E calls that left
 // early (a checkpoint or a sub-thread's sleep unwinding through it, a guest
 // thread switch): their time is partial. Sorted by inclusive time; under
-// 0.05 ms left out. "task tTT @entry": tools/addr2sym.py names the entry.
+// 0.05 ms (SOTC_SUBSYS_PROF_MIN) left out. "task tTT @entry": tools/addr2sym.py names the entry.
 //
 // With it, once at start, [probe] lines: the timer's own cost, memory
 // latency (pointer chase, 64-byte steps in random order) over 16 KB .. 64
@@ -467,6 +467,7 @@ namespace sotc_prof
         // SOTC_LEAN=2's state over the window (lean_hot.cpp): -1 none, 0
         // originals, 1 lean copies, 2 both (a change inside it).
         int g_leanWindow = -1, g_leanNow = -1;
+        int g_abWindow = -1, g_abNow = -1; // SOTC_AB likewise: 0 old, 1 new, 2 both
 
         void report(uint64_t frame, uint64_t now)
         {
@@ -488,12 +489,15 @@ namespace sotc_prof
                           static_cast<unsigned long long>(frame), (now - g_tick0) * perFrame, inProbes * perFrame, calls / frames, g_timerUs, g_depth,
                           static_cast<unsigned long long>(g_overflow));
             line += buf;
+            // SOTC_SUBSYS_PROF_MIN=<ms>: the cut (0.05; lower on the Mac, ~35x faster).
+            static const double minMs = std::getenv("SOTC_SUBSYS_PROF_MIN") ? std::atof(std::getenv("SOTC_SUBSYS_PROF_MIN")) : 0.05;
+            const bool fine = minMs < 0.01;
             for (int i : order)
             {
                 const Probe &p = g_probes[i];
-                if (p.incl * perFrame < 0.05)
+                if (p.incl * perFrame < minMs)
                     continue;
-                std::snprintf(buf, sizeof(buf), " | %s %.2f/%.2f x%.1f", p.name, p.incl * perFrame, p.self * perFrame, p.calls / frames);
+                std::snprintf(buf, sizeof(buf), fine ? " | %s %.4f/%.4f x%.1f" : " | %s %.2f/%.2f x%.1f", p.name, p.incl * perFrame, p.self * perFrame, p.calls / frames);
                 line += buf;
                 if (p.escapes)
                 {
@@ -512,8 +516,21 @@ namespace sotc_prof
                 line += std::string(" | lean: ") + states[g_leanWindow];
             }
             g_leanWindow = g_leanNow;
+            if (g_abWindow >= 0)
+            {
+                static const char *const states[] = {"old", "new", "mixed"};
+                line += std::string(" | ab: ") + states[g_abWindow];
+            }
+            g_abWindow = g_abNow;
             std::fprintf(stderr, "%s\n", line.c_str());
         }
+    }
+
+    void noteAb(bool on)
+    {
+        const int now = on ? 1 : 0;
+        g_abWindow = g_abWindow < 0 ? now : (g_abWindow == now ? now : 2);
+        g_abNow = now;
     }
 
     void noteLean(bool lean)

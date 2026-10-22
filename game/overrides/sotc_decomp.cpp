@@ -3,6 +3,8 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/ps2_fast_paths.h"
+#include "sotc_prof.h"
 
 #include <algorithm>
 #include <array>
@@ -272,6 +274,44 @@ namespace sotc_decomp
         return it == g_recompiled.end() ? nullptr : it->second;
     }
 
+    namespace
+    {
+        struct AbEntry
+        {
+            uint32_t address;
+            PS2Runtime::RecompiledFunction native, recompiled;
+        };
+        std::vector<AbEntry> g_ab;
+        uint64_t g_abPeriod = 0;
+        bool g_abNew = true, g_abSpr = true, g_abPrefetch = true;
+        PS2Runtime *g_abRuntime = nullptr;
+    }
+
+    void abTick(uint64_t frame)
+    {
+        if (!g_abPeriod)
+            return;
+        const bool on = (frame / g_abPeriod) % 2u == 0u;
+        if (on == g_abNew)
+            return;
+        g_abNew = on;
+        for (const AbEntry &e : g_ab)
+        {
+            if (!e.recompiled)
+                continue;
+            const PS2Runtime::RecompiledFunction from = on ? e.recompiled : e.native, to = on ? e.native : e.recompiled;
+            // In the table, or behind a SOTC_SUBSYS_PROF wrapper.
+            if (g_abRuntime->lookupFunction(e.address) == from)
+                g_abRuntime->registerFunction(e.address, to);
+            else
+                sotc_prof::remapWrapped(from, to);
+        }
+        ps2_fast_paths::g_sprFast = on && g_abSpr;
+        ps2_fast_paths::g_dmaPrefetch = on && g_abPrefetch;
+        sotc_prof::noteAb(on);
+        std::fprintf(stderr, "[ab] frame %llu: %s\n", static_cast<unsigned long long>(frame), on ? "new" : "old");
+    }
+
     void install(PS2Runtime &runtime)
     {
         if (const char *on = std::getenv("SOTC_DECOMP"); on && std::atoi(on) == 0)
@@ -293,8 +333,21 @@ namespace sotc_decomp
                 ++checked;
             }
             else
+            {
                 runtime.registerFunction(f.address, f.native);
+                if (f.ab)
+                    g_ab.push_back({f.address, f.native, runtime.lookupFunction(f.address) == f.native ? g_recompiled[f.address] : nullptr});
+            }
             ++replaced;
+        }
+        if (const char *ab = std::getenv("SOTC_AB"))
+        {
+            g_abPeriod = std::max<uint64_t>(2u, std::strtoull(ab, nullptr, 10));
+            g_abRuntime = &runtime;
+            g_abSpr = ps2_fast_paths::g_sprFast;
+            g_abPrefetch = ps2_fast_paths::g_dmaPrefetch;
+            sotc_prof::noteAb(true);
+            std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions and the runtime's fast paths alternate every " << g_abPeriod << " frames" << std::endl;
         }
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;
