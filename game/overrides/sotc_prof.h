@@ -12,6 +12,7 @@
 #include <cstdint>
 
 class PS2Runtime;
+struct R5900Context;
 
 namespace sotc_prof
 {
@@ -58,6 +59,13 @@ namespace sotc_prof
     void install(PS2Runtime &runtime);
     // A game frame ended (sotc_native syncFrame): the report every 120.
     void frameTick(uint64_t frame);
+    // A wrapped function's inner call from one function to another (the
+    // lean copies' A/B, lean_hot.cpp).
+    using GuestFn = void (*)(uint8_t *, R5900Context *, PS2Runtime *);
+    void remapWrapped(GuestFn from, GuestFn to);
+    // SOTC_LEAN=2's state now (lean copies or originals): the [prof] lines
+    // end with it ("mixed": it changed inside that window).
+    void noteLean(bool lean);
 }
 
 #define SOTC_PROF_SCOPE(hook) const ::sotc_prof::Scope sotc_prof_scope_##hook{::sotc_prof::hook}

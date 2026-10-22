@@ -502,8 +502,11 @@ bool PS2Memory::initialize(size_t ramSize)
     try
     {
         // Allocate main RAM
-        m_rdram = new uint8_t[ramSize];
-        std::memset(m_rdram, 0, ramSize);
+        // A 16-byte tail past the end: code that reads RAM in place on one
+        // compare (game/overrides/lean_macros.h) may touch it on an access
+        // that starts in the last bytes (a guest access is aligned: never).
+        m_rdram = new uint8_t[ramSize + 16u];
+        std::memset(m_rdram, 0, ramSize + 16u);
 
         // Allocate scratchpad
         m_scratchpad = new uint8_t[PS2_SCRATCHPAD_SIZE];

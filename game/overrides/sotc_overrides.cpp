@@ -8,6 +8,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "game_overrides.h"
+#include "lean_hot.h"
 #include "runtime/ee_scheduler.h"
 #include "ps2x/iop/iop_subsystem.h"
 #include "runtime/ps2_stats.h"
@@ -847,6 +848,8 @@ namespace
 
     void applySotcOverrides(PS2Runtime &runtime)
     {
+        // First: the hooks below wrap whatever is in the table, lean or not.
+        ps2_lean::install(runtime);
         if (runtime.hasFunction(0x001AFFD8u) && runtime.hasFunction(0x001B00F0u) && runtime.hasFunction(0x001B0328u))
         {
             g_mallocAlign = runtime.lookupFunction(0x001AFFD8u);
@@ -909,6 +912,7 @@ namespace
             g_gamecoreEntry = runtime.lookupFunction(kGamecoreEntry);
             runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
         }
+        ps2_lean::afterOverrides(runtime);
         // Last: it wraps whatever is in the table by now (SOTC_SUBSYS_PROF).
         sotc_prof::install(runtime);
     }

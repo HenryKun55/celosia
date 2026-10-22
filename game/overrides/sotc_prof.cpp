@@ -458,6 +458,10 @@ namespace sotc_prof
             }
         }
 
+        // SOTC_LEAN=2's state over the window (lean_hot.cpp): -1 none, 0
+        // originals, 1 lean copies, 2 both (a change inside it).
+        int g_leanWindow = -1, g_leanNow = -1;
+
         void report(uint64_t frame, uint64_t now)
         {
             const double frames = static_cast<double>(frame - g_frame0);
@@ -496,12 +500,177 @@ namespace sotc_prof
                     line += buf;
                 }
             }
+            if (g_leanWindow >= 0)
+            {
+                static const char *const states[] = {"originals", "lean", "mixed"};
+                line += std::string(" | lean: ") + states[g_leanWindow];
+            }
+            g_leanWindow = g_leanNow;
             std::fprintf(stderr, "%s\n", line.c_str());
+        }
+    }
+
+    void noteLean(bool lean)
+    {
+        const int now = lean ? 1 : 0;
+        g_leanWindow = g_leanWindow < 0 ? now : (g_leanWindow == now ? now : 2);
+        g_leanNow = now;
+    }
+
+    // ---- guest calls counted (SOTC_CALL_COUNT=1) ------------------------------
+    // Every function in the table goes behind one thunk that finds the real
+    // one by ctx->pc (the dispatch sets it to the target before the call: the
+    // generated jal / jalr / j, the scheduler) in a compact hash, counts, and
+    // tail-calls it. Per frame: calls, distinct functions, the distinct 32-byte
+    // lines and 4 KB pages of the function table those lookups touched (a
+    // line not in cache costs a DRAM miss, ~250 ns on the Vita), and the
+    // scheduler's dispatches. SOTC_CALL_COUNT_DUMP=<file>: every count per
+    // function (address count), rewritten at each report.
+    namespace calls
+    {
+        struct Entry
+        {
+            uint32_t address = 0u;
+            uint32_t stamp = 0u;
+            uint64_t count = 0u;
+            PS2Runtime::RecompiledFunction fn = nullptr;
+        };
+        constexpr uint32_t kBits = 17u, kSize = 1u << kBits;
+        Entry *g_entries = nullptr;
+        bool g_installed = false;
+        uint32_t g_stamp = 1u;
+        uint64_t g_calls = 0u, g_distinct = 0u, g_lines = 0u, g_pages = 0u, g_dispatches = 0u, g_misses = 0u;
+        std::vector<uint32_t> g_lineStamp, g_pageStamp;
+        void (*g_innerProbe)(R5900Context *, int) = nullptr;
+        uint64_t g_frame0 = 0u, g_tick0 = 0u;
+        const char *g_dump = nullptr;
+
+        inline uint32_t hash(uint32_t a) { return ((a >> 2) * 0x9E3779B1u) >> (32u - kBits); }
+
+        Entry *find(uint32_t address)
+        {
+            for (uint32_t i = hash(address);; i = (i + 1u) & (kSize - 1u))
+            {
+                Entry &e = g_entries[i];
+                if (e.address == address)
+                    return &e;
+                if (!e.address)
+                    return nullptr;
+            }
+        }
+
+        void thunk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            Entry *e = find(ctx->pc);
+            if (__builtin_expect(!e, 0))
+            {
+                ++g_misses;
+                std::fprintf(stderr, "[calls] no function for pc %08x (called with another pc)\n", ctx->pc);
+                std::abort();
+            }
+            ++g_calls;
+            ++e->count;
+            if (e->stamp != g_stamp)
+            {
+                e->stamp = g_stamp;
+                ++g_distinct;
+                const uint32_t slot = (e->address - g_ps2RecompiledFunctionTableBase) >> 2;
+                if (g_lineStamp[slot >> 3] != g_stamp) // 8 slots of 4 bytes: a 32-byte line
+                {
+                    g_lineStamp[slot >> 3] = g_stamp;
+                    ++g_lines;
+                }
+                if (g_pageStamp[slot >> 10] != g_stamp)
+                {
+                    g_pageStamp[slot >> 10] = g_stamp;
+                    ++g_pages;
+                }
+            }
+            return e->fn(rdram, ctx, runtime);
+        }
+
+        void dispatchProbe(R5900Context *ctx, int phase)
+        {
+            if (phase == 0)
+                ++g_dispatches;
+            if (g_innerProbe)
+                g_innerProbe(ctx, phase);
+        }
+
+        void install(PS2Runtime &runtime)
+        {
+            const char *env = std::getenv("SOTC_CALL_COUNT");
+            if (!(env && std::atoi(env) != 0))
+                return;
+            g_entries = new Entry[kSize];
+            g_lineStamp.assign((g_ps2RecompiledFunctionTableSlotCount >> 3) + 1u, 0u);
+            g_pageStamp.assign((g_ps2RecompiledFunctionTableSlotCount >> 10) + 1u, 0u);
+            uint32_t n = 0u;
+            for (uint32_t slot = 0; slot < g_ps2RecompiledFunctionTableSlotCount; ++slot)
+            {
+                PS2Runtime::RecompiledFunction fn = g_ps2RecompiledFunctionTable[slot];
+                if (!fn)
+                    continue;
+                const uint32_t address = g_ps2RecompiledFunctionTableBase + (slot << 2);
+                if (n + 1u >= kSize * 3u / 4u)
+                {
+                    std::fprintf(stderr, "[calls] more than %u functions: not all counted\n", n);
+                    break;
+                }
+                uint32_t i = hash(address);
+                while (g_entries[i].address)
+                    i = (i + 1u) & (kSize - 1u);
+                g_entries[i].address = address;
+                g_entries[i].fn = fn;
+                g_ps2RecompiledFunctionTable[slot] = &thunk;
+                ++n;
+            }
+            g_innerProbe = g_eeDispatchProbe;
+            g_eeDispatchProbe = dispatchProbe;
+            g_dump = std::getenv("SOTC_CALL_COUNT_DUMP");
+            g_installed = true;
+            std::fprintf(stderr, "[calls] %u functions counted behind one thunk\n", n);
+        }
+
+        void frameTick(uint64_t frame)
+        {
+            if (!g_installed)
+                return;
+            ++g_stamp; // distinct: per game frame
+            if (!g_frame0)
+            {
+                g_frame0 = frame;
+                g_tick0 = ticks();
+                g_calls = g_distinct = g_lines = g_pages = g_dispatches = 0u;
+                return;
+            }
+            if (frame < g_frame0 + 120u)
+                return;
+            const double frames = static_cast<double>(frame - g_frame0);
+            const uint64_t now = ticks();
+            std::fprintf(stderr,
+                         "[calls] frame %llu: %.1f ms/frame wall, %.0f guest calls/frame, %.0f distinct functions, %.0f table lines (32 B), %.0f table pages (4 KB), %.0f "
+                         "scheduler dispatches\n",
+                         static_cast<unsigned long long>(frame), (now - g_tick0) / (frames * kTicksPerMs), g_calls / frames, g_distinct / frames, g_lines / frames,
+                         g_pages / frames, g_dispatches / frames);
+            if (g_dump)
+                if (FILE *out = std::fopen(g_dump, "w"))
+                {
+                    std::fprintf(out, "# frame %llu: address calls (since start)\n", static_cast<unsigned long long>(frame));
+                    for (uint32_t i = 0; i < kSize; ++i)
+                        if (g_entries[i].count)
+                            std::fprintf(out, "%08x %llu\n", g_entries[i].address, static_cast<unsigned long long>(g_entries[i].count));
+                    std::fclose(out);
+                }
+            g_calls = g_distinct = g_lines = g_pages = g_dispatches = 0u;
+            g_frame0 = frame;
+            g_tick0 = now;
         }
     }
 
     void frameTick(uint64_t frame)
     {
+        calls::frameTick(frame);
         if (!g_installed)
             return;
         g_frameNow = frame;
@@ -897,11 +1066,24 @@ namespace sotc_prof
         }
     }
 
+    void remapWrapped(GuestFn from, GuestFn to)
+    {
+        for (Wrapped &w : g_wrapped)
+            if (w.inner == from)
+                w.inner = to;
+        for (PS2Runtime::RecompiledFunction *f : {&g_wake, &g_start})
+            if (*f == from)
+                *f = to;
+    }
+
     void install(PS2Runtime &runtime)
     {
         const char *env = std::getenv("SOTC_SUBSYS_PROF");
         if (!(env && std::atoi(env) != 0) && !native_renderer::tuning().subsysProf)
+        {
+            calls::install(runtime);
             return;
+        }
         // The probe first: the tiny functions as generated, nothing wrapped yet.
         machineProbe(runtime);
         for (int h = 0; h < kHookCount; ++h)
@@ -913,5 +1095,6 @@ namespace sotc_prof
         wrapAll(runtime);
         g_eeDispatchProbe = dispatchProbe;
         g_installed = true;
+        calls::install(runtime);
     }
 }

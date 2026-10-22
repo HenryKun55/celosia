@@ -372,6 +372,10 @@ namespace native_renderer
                     "Writes to the log every 120 frames the game thread's time by subsystem (display walk, characters, AI, collision, camera, particles, the hooks' parts, each task's step), and once at start a probe of the memory and call costs. The functions are wrapped at start only when this is on then (or SOTC_SUBSYS_PROF=1); off at run time: paused.",
                     "Escreve no log a cada 120 quadros o tempo da thread do jogo por subsistema (percurso de exibição, personagens, IA, colisão, câmera, partículas, as partes dos ganchos, o passo de cada tarefa) e uma vez no início uma sondagem dos custos de memória e de chamadas. As funções são embrulhadas no início só se isto estiver ligado então (ou SOTC_SUBSYS_PROF=1); desligado durante o jogo: pausado.",
                     &Tuning::subsysProf, "SOTC_SUBSYS_PROF");
+        debugToggle("dbg_lean", "Lean hot code", "Código quente enxuto",
+                    "With SOTC_LEAN=1 in env.txt: the ~1 850 hottest game functions run from copies with cheaper memory reads and writes (half the code). Off: the original copies, to compare speed (the picture should not change).",
+                    "Com SOTC_LEAN=1 no env.txt: as ~1 850 funções mais quentes do jogo rodam de cópias com leituras e escritas de memória mais baratas (metade do código). Desligado: as cópias originais, pra comparar a velocidade (a imagem não deve mudar).",
+                    &Tuning::leanCopies);
         debugToggle("dbg_fast_hooks", "Fast hooks", "Ganchos rápidos",
                     "Characters posed by the faster path and textures looked up once a frame. Off: the earlier code, to compare (the picture should not change).",
                     "Personagens posados pelo caminho mais rápido e texturas buscadas uma vez por quadro. Desligado: o código anterior, pra comparar (a imagem não deve mudar).",
