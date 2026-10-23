@@ -1,0 +1,15 @@
+# Function starts tools/build_elf.py keeps whatever its merge of false
+# splits says (one hex address a line). Read only from here: the override
+# sources' hex literals no longer pin anything (docs/decomp.md, "Relink
+# warning"). Adding or removing a line changes the function split and needs a
+# recompile plus the attract demo past frame 900.
+#
+# The overrides' return-address ranges (sotc_native.cpp) assume these
+# functions' bounds:
+001c2dd0  # loading indicator lines, {0x1C2DD0, 0x1C30D0}
+0109c610  # refractionEnd under water, ra in [0x109C610, 0x109CD28)
+010f3fb0  # the heat haze strips, ra in [0x10F3FB0, 0x10F4890)
+0134b490  # subtitles sprite, {0x134B490, 0x134B6F8} (keeps 0x134B3E8 too)
+
+# Registered by an override but merged on purpose (!: no warning):
+!001c9e4c  # isysSleepSubThread, a label inside isysWakeupSubThread's function

@@ -52,6 +52,32 @@ def write_elf(path, entry, sections):
     open(path, "wb").write(out)
 
 
+def load_pinned(path):
+    """Addresses (hex, one a line, # comments) kept as function starts, and
+    the ones marked !hex: registered but left merged on purpose (no warning)."""
+    out, quiet = set(), set()
+    if path.exists():
+        for line in path.read_text().splitlines():
+            line = line.split("#", 1)[0].strip()
+            if line.startswith("!"):
+                quiet.add(int(line[1:], 16))
+            elif line:
+                out.add(int(line, 16))
+    return out, quiet
+
+
+def registered_addresses(root):
+    """Addresses the overrides register a function at (SOTC_DECOMP_*FUNCTION,
+    registerFunction): each should be a function start, else calls through
+    the function table reach it but gotos inside its owner do not."""
+    pat = re.compile(r"\b(?:SOTC_DECOMP_\w*FUNCTION|registerFunction)\s*\(\s*0x([0-9A-Fa-f]{6,8})u?\b")
+    out = {}
+    for src in sorted((root / "game/overrides").glob("*.cpp")):
+        for h in pat.findall(src.read_text(errors="ignore")):
+            out[int(h, 16)] = src.name
+    return out
+
+
 def main(out_dir, boot_path, boot_syms, mods):
     boot = Elf(boot_path)
     sections = []
@@ -61,10 +87,14 @@ def main(out_dir, boot_path, boot_syms, mods):
             sections.append((s["name"], s["addr"], s["size"], data, s["flags"]))
 
     # Addresses the hand-written overrides hook or replace stay function
-    # starts: a goto inside a merged function would go past the hook.
-    pinned = set()
-    for src in sorted((pathlib.Path(__file__).resolve().parent.parent / "game/overrides").glob("*.cpp")):
-        pinned |= {int(h, 16) for h in re.findall(r"\b0x([0-9A-Fa-f]{6,8})u?\b", src.read_text(errors="ignore"))}
+    # starts: a goto inside a merged function would go past the hook. They
+    # come from a fixed list (game/pinned_starts.txt), not from the override
+    # sources: every hex literal there (comments, switch cases on jump-table
+    # targets, profiler tables) used to pin, so editing an override changed
+    # the split (2026-10-23: curveEval's cases became functions and the
+    # attract demo hung). Changing the list changes the split on purpose.
+    root = pathlib.Path(__file__).resolve().parent.parent
+    pinned, quiet = load_pinned(root / "game/pinned_starts.txt")
     merged = []
 
     # boot ELF function map from heuristics
@@ -152,6 +182,10 @@ def main(out_dir, boot_path, boot_syms, mods):
         for a in sorted(set(merged)):
             f.write(f"{a:08x}\n")
     print(f"{len(set(merged))} false splits merged")
+    for a, src in sorted(registered_addresses(root).items()):
+        if a in set(merged) and a not in seen and a not in quiet:
+            print(f"warning: {src} registers 0x{a:08x}, merged into the function around it: "
+                  f"add it to game/pinned_starts.txt if gotos must reach the override")
     with open(f"{out_dir}/symbols.txt", "w") as f:
         for a, n in sorted(syms):
             f.write(f"{a} {n}\n")

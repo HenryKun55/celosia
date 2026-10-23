@@ -109,6 +109,10 @@ What a native function has to keep, learned the hard way:
 | decomp_bridle.cpp | gamecore_sub_013978E8, gamecore_sub_013976B8 (the horse's rein cloths against its body: three cylinders / the head's) | attract 600 + 600, route 400 + 400, 0 mismatches | iosTransMatrixF / 01B96D0 stay guest calls |
 | decomp_skinpal.cpp | manager_sub_010F3CF0 (a skinned model's matrix palette) | attract 1 500, route 800, 0 mismatches | the palette loop natively, then the recompiled code from 0x10f3df0 |
 | decomp_texreset.cpp | manager_sub_010AB618 (the texture list's transfer reset) | attract 1 300, route 1 100, 0 mismatches | ~1 000 nodes a frame |
+| decomp_texframe.cpp | texReset (the frame start's texture reset: LOD scale, slot arrays, the list walk with texAnim) | attract 400, route 400, 0 mismatches | see "Round 6" |
+| decomp_group.cpp | isysGroupForNext, isysGroupForNextForce, InitLayoutObjMatrix | attract 13 000 / 1 900 / 400, route 62 300 / 45 800 / 400, 0 mismatches | the group iterator inline in the frame start's matrix flip |
+| decomp_dl.cpp | AddSortObj, iosDlChainTailCurrent | attract 22 800 / 121 500, route 3 600 / 89 200 (SOTC_NATIVE=1, EVERY=5), 0 mismatches | the sort buckets' insert, the display list's tail packet |
+| decomp_wind.cpp | manager_sub_01145F78 (the wind zones at a point, sorted by priority) | attract 3 300, route 1 300 (SOTC_NATIVE=1), 0 mismatches | the three weight functions stay guest calls |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -138,17 +142,38 @@ native's source file, else from keywords in the symbol name, so the many
 bare `manager_sub_*` functions still recompiled fall in "Other". First
 count, HEAD 14b3e13 + round 5 (off): 4.24% by code size, 4.42% by function
 count, 34.1% by calls (SOTC_CALL_COUNT dumps of the attract demo and route).
-Run it again after every round and commit both files.
+Round 6: 4.31% by code size, 4.50% by function count (406), 39.6% by calls
+(the same call dumps), 2.15% of the game's own code. Run it again after
+every round and commit both files. (A function an override hooks counts as
+native too: iosDlPushLayer / iosDlPopLayer are sotc_native.cpp's hooks
+around the recompiled code.)
 
-**Relink warning.** `./celosia recompile` relinks (tools/build_elf.py) before
-recompiling. On 2026-10-23 a relink from the same SOTC.elf gave a different
-split: curveEval's jump-table cases (0x10AC700...) and others became
-separate functions, and the attract demo hung at game frame ~370 in the game's
-own part-tree walk (manager_sub_01099A08). The known-good inputs and output
-were restored from build/agent-scratch/r5/stage-off; the relink's files are in
-build/agent-scratch/relink-oct23. Until the cause is found, recompile with
-the recompiler directly in build/recomp/game (not `./celosia recompile`), and
-always run the attract demo past frame 900 after a recompile.
+**Relink warning (fixed in round 6).** `./celosia recompile` relinks
+(tools/build_elf.py) before recompiling. On 2026-10-23 a relink from the same
+SOTC.elf gave a different split: curveEval's jump-table cases (0x10AC700...)
+and others became separate functions, and the attract demo hung at game frame
+~370 in the game's own part-tree walk (manager_sub_01099A08). The cause: the
+merge of false splits kept as function starts ("pinned") every 6-8 digit hex
+literal found anywhere in game/overrides/*.cpp, comments and profiler tables
+included. Round 3's decomp_curve.cpp names curveEval's cases in a `switch`
+(0x010AC700, 0x010AC8A8 ...), sotc_prof.cpp names 0x010F3B58 / 0x010F3DE8 /
+0x013C9180, decomp_clothdyn.cpp's comment 0x1137960: each pinned a start
+that the merge had folded away before, so the split followed the override
+sources, not the ELF. The inputs were otherwise identical (SOTC.elf,
+scus_symbols.txt, the captures, dynamic_imm.txt, boot_functions.csv). Now
+build_elf.py pins only game/pinned_starts.txt: the four starts the good split
+depends on (sotc_native.cpp's return-address ranges), found by relinking with
+nothing pinned and diffing against the good split; `!addr` lines are
+registered addresses merged on purpose (isysSleepSubThread). It warns when an
+override registers (SOTC_DECOMP_*FUNCTION, registerFunction) an address the
+merge folded away. Proof: build_elf.py + gen_config.py into a scratch
+directory gave SOTC.elf, functions.csv, merged_entries.txt, symbols.txt,
+boot_functions.csv and dynamic_imm.txt identical to
+build/agent-scratch/r5/stage-off; config.toml differs only by gen_config's
+explicit `register_cache = false` (the recompiler's default); the recompiler's
+output from it is identical file for file (diff -r empty) to stage-off's and
+to build/recomp/game/output. Still run the attract demo past frame 900 after
+any recompile.
 
 ## The light pass and the scratchpad (2026-10-22)
 
@@ -519,6 +544,86 @@ callee-saved registers (s0-s7, sp: the callee preserves them; needs a proof
 that every callee does, coroutine switches do not), keeping sign-extended
 registers as 32-bit locals outright, and the FPU / VU0 state (fcr31,
 vu0_vf / ACC / Q) in locals the same way.
+
+## Round 6: the relink, the frame's waits, small hot leaves (2026-10-23)
+
+**The relink** (above, "Relink warning"): build_elf.py pinned every hex
+literal of the override sources; now game/pinned_starts.txt. A relink from the
+same inputs gives the known-good split byte for byte, and the recompiler's
+output from it is identical to build/recomp/game/output.
+
+**Waiting on the vblank.** The [prof] line now ends its header with the game
+thread's waits (ps2_load's count: the scheduler's idle and pacing waits, a
+guest thread blocked until the next VBlank or timer) and the guest VBlanks a
+frame: `wait W ms, V vblanks/frame`. Calibrated Vita3K, attract demo frames
+600-4800: wait 0.1-0.2 ms a frame (0.45 averaged over the whole run, the
+loads included), 2.17 VBlanks a frame at 39 ms; the route (Vita3K,
+the same input script as the Mac's, the save copied onto the card for the
+run): 0.0-0.3 ms in 3D. The frame is all work. The game does not lock to
+VBlanks either: windows at 28.9 ms run at 1.73 VBlanks a frame (game time
+steps by the clock: the T0 overflow accumulator), so any cut shows directly.
+To hold 2 VBlanks (33.3 ms) the work has to drop by ~5.8 ms on the attract
+demo (39.1 -> 33.3) and ~12.7 ms on the route's walk from the altar (46.0).
+
+**The leaves.** A VITA3K_PROFILE sample of the attract demo (game thread,
+before this round; build/agent-scratch/r6/v3k-before-prof-named.txt) ranks
+the recompiled functions by their own time: manager_sub_0108D730 (glVertex:
+immediate-mode vertices with VU0 clipping, 1.41%), ExecCharaGeometry 1.10%,
+DispDispObjGroupModel 0.86%, 010F3FB0 (strips) 0.76%, 010C7B28 0.70%,
+reflectionBegin 0.64%, 013B8DC8 0.63%, modelClipSolid 0.60%, texReset 0.59%,
+010C6238 0.58%, isysAddGroupWithLinkParam / UpdateLayoutClassSimpleGeometry
+0.57%, 01145F78 / iosDlChainTailCurrent 0.55%, 0113B928 0.51%,
+isysGroupForFirst 0.50%, isysGroupForNext 0.48%, iosDlPopLayer 0.41%,
+iosDlPushLayer 0.37%, AddSortObj 0.35%. Flat: nothing above 1.5%.
+
+- **decomp_texframe.cpp** texReset (graphFrameInit, once a frame): the
+  slot arrays cleared with memset, the ~330-node texture list walked natively
+  (four dependent loads a node), texAnim (native) called per node from it.
+- **decomp_group.cpp** isysGroupForNext / isysGroupForNextForce (every group
+  walk: ~260 + ~190 calls a frame on the route) and InitLayoutObjMatrix (the
+  layout objects' double-buffered matrix flip, the iterator and
+  GetLayoutClass's plain cases inline).
+- **decomp_dl.cpp** AddSortObj (the display sort's bucket insert, ~25-60
+  calls a frame) and iosDlChainTailCurrent (a DMA tag behind the current
+  layer's tail, ~75-130 calls a frame).
+- **decomp_wind.cpp** manager_sub_01145F78: the wind zones at a point (80
+  slots, the zones sorted by priority); the zones' weight functions stay
+  guest calls.
+- Not done: iosDlPushLayer / iosDlPopLayer. sotc_native.cpp hooks them for the
+  native renderer's layer stack, and sotc_decomp::install runs after the
+  hooks, so a registered native replaces the hook (the first build of this
+  round did, unnoticed by the difftest: the hook's state is host-side). Any
+  address an override hooks needs the hook to call the native instead.
+- Left for the next round: glVertex (the biggest leaf, a state machine over
+  the primitive type with VU0 clip flags and Q divisions), the strips
+  (010F3FB0), 010C7B28 / 010C6238 (character), reflectionBegin.
+
+Checks (Mac, EVERY=20; AddSortObj / the tail / the wind also with
+SOTC_NATIVE=1 as on the Vita, EVERY=5, where AddSortObj runs ~25-60 times a
+frame): attract demo and route to frame 4800, 0 mismatches (counts in the
+table above). Mac route: game clock 0.998x and, final binary, 0.997x (last 12 windows; a run while the host was loaded gave 0.76x and is not counted). Attract demo past frame 1500 (Mac), to 7900 (Vita3K).
+
+Calibrated Vita3K (MHZ=240 CORES=3), one run per side (this round's prof
+change in both VPKs; before: HEAD ed10257's code), env SOTC_SUBSYS_PROF=1:
+
+| ms / frame | before | after |
+|---|---|---|
+| attract 600-4800: frame (wall) | 39.4 | 39.1 |
+| execScript | 34.18 | 33.87 |
+| task 0x1346318 (frame start) self | 1.38 | 1.28 |
+| DispDispObjGroupModel (self) | 12.60 (4.47) | 12.60 (4.37) |
+| ExecCharaGeometry (self) | 6.37 (3.34) | 6.38 (3.22) |
+| doit_game_camera (self) | 2.05 (1.46) | 1.63 (0.98) |
+| route 1900-3400 (the walk from the altar): frame | 46.3 | 46.0 |
+| route 600-4800: frame | 38.7 | 38.4 |
+
+Under 1%, about the run-to-run spread of one run per side (particleUpdate
+alone moved 2.35 -> 2.69 between the runs with the same code): these are
+small leaves, ~0.2 ms each before, and a native leaf called from recompiled
+code still pays the table call. The frame's 6 ms to 2 VBlanks will not come
+from leaves this size; the next lever is a whole subsystem natively from its
+top (the display walk's DispDispObjGroupModel loop with its callees, the
+character's ExecCharaGeometry body), as the collision work (2026-10-21) did for the segment test.
 
 ## Vita3K calibration (2026-10-22)
 

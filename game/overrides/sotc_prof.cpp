@@ -31,6 +31,8 @@
 #include "runtime/native_tuning.h"
 #include "runtime/native_renderer.h"
 #include "runtime/ee_dispatch_probe.h"
+#include "runtime/ps2_stats.h"
+#include "runtime/ps2_thread_load.h"
 
 #include <algorithm>
 #include <array>
@@ -454,6 +456,10 @@ namespace sotc_prof
 
         // ---- the report ----------------------------------------------------
         uint64_t g_frame0 = 0, g_tick0 = 0;
+        // The game thread's waits (ps2_load: the scheduler's idle / pacing
+        // waits, a guest thread blocked until the next VBlank or timer) and
+        // the guest VBlanks over the window: "wait W ms, V vblanks/frame".
+        uint64_t g_wait0 = 0, g_vblank0 = 0;
 
         void resetCounts()
         {
@@ -489,6 +495,12 @@ namespace sotc_prof
                           static_cast<unsigned long long>(frame), (now - g_tick0) * perFrame, inProbes * perFrame, calls / frames, g_timerUs, g_depth,
                           static_cast<unsigned long long>(g_overflow));
             line += buf;
+            {
+                const uint64_t wait = ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed);
+                const uint64_t vb = ps2_stats::vblanks.load(std::memory_order_relaxed);
+                std::snprintf(buf, sizeof(buf), ", wait %.2f ms, %.2f vblanks/frame", (wait - g_wait0) / 1000.0 / frames, (vb - g_vblank0) / frames);
+                line += buf;
+            }
             // SOTC_SUBSYS_PROF_MIN=<ms>: the cut (0.05; lower on the Mac, ~35x faster).
             static const double minMs = std::getenv("SOTC_SUBSYS_PROF_MIN") ? std::atof(std::getenv("SOTC_SUBSYS_PROF_MIN")) : 0.05;
             const bool fine = minMs < 0.01;
@@ -706,6 +718,8 @@ namespace sotc_prof
             resetCounts();
             g_frame0 = frame;
             g_tick0 = now;
+            g_wait0 = ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed);
+            g_vblank0 = ps2_stats::vblanks.load(std::memory_order_relaxed);
             return;
         }
         if (!on)
@@ -725,6 +739,8 @@ namespace sotc_prof
             }
         g_frame0 = frame;
         g_tick0 = now;
+        g_wait0 = ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed);
+        g_vblank0 = ps2_stats::vblanks.load(std::memory_order_relaxed);
     }
 
     // ---- the one-shot probe -----------------------------------------------

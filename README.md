@@ -128,9 +128,9 @@ for byte, on the same machine state (`SOTC_DIFFTEST`). It is a functional
 decomp, not a matching one. The workflow (guest profiler, Ghidra scripts,
 difftest) is in [docs/decomp.md](docs/decomp.md).
 
-Progress (2026-10-23): **4.2%** of the MIPS code (399 of 9,024 functions, the
-SDK / libc pieces the runtime implements included; 2.1% of the game's own
-code), but **34%** of the guest calls already land in native code: the
+Progress (2026-10-23, round 6): **4.3%** of the MIPS code (406 of 9,024 functions, the
+SDK / libc pieces the runtime implements included; 2.15% of the game's own
+code), but **40%** of the guest calls already land in native code: the
 rewrites go after the hottest functions first. Every native function is
 listed in [docs/decomp_status.json](docs/decomp_status.json)
 (`tools/decomp_status.py` recounts it).

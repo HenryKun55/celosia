@@ -1,39 +1,39 @@
 {
  "updated": "2026-10-23",
- "commit": "14b3e13",
+ "commit": "ed10257",
  "summary": {
   "by_functions": {
-   "native": 399,
+   "native": 406,
    "partial": 0,
    "total": 9024,
-   "percent": 4.42
+   "percent": 4.5
   },
   "by_code_size": {
-   "native": 111264,
+   "native": 113064,
    "partial": 0,
    "total": 2625144,
-   "percent": 4.24
+   "percent": 4.31
   },
   "by_calls": {
-   "native": 95374339,
+   "native": 110594723,
    "partial": 0,
    "total": 279490744,
-   "percent": 34.12
+   "percent": 39.57
   },
   "game_code_by_size": {
-   "native": 46088,
+   "native": 47456,
    "total": 2208056,
-   "percent": 2.09
+   "percent": 2.15
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
    "functions": 2134,
-   "native_functions": 307,
+   "native_functions": 310,
    "bytes": 407084,
-   "native_bytes": 55172,
+   "native_bytes": 55604,
    "partial_functions": 0,
-   "percent": 13.55
+   "percent": 13.66
   },
   "Math": {
    "functions": 126,
@@ -52,12 +52,12 @@
    "percent": 4.39
   },
   "Display and models": {
-   "functions": 982,
-   "native_functions": 32,
-   "bytes": 255348,
-   "native_bytes": 20920,
+   "functions": 981,
+   "native_functions": 34,
+   "bytes": 253140,
+   "native_bytes": 19496,
    "partial_functions": 0,
-   "percent": 8.19
+   "percent": 7.7
   },
   "System and memory": {
    "functions": 231,
@@ -68,12 +68,12 @@
    "percent": 4.96
   },
   "Other game code": {
-   "functions": 2890,
-   "native_functions": 2,
-   "bytes": 1278676,
-   "native_bytes": 840,
+   "functions": 2891,
+   "native_functions": 4,
+   "bytes": 1280884,
+   "native_bytes": 3632,
    "partial_functions": 0,
-   "percent": 0.07
+   "percent": 0.28
   },
   "Camera": {
    "functions": 284,
@@ -414,6 +414,14 @@
    "source": "game/overrides/sotc_native.cpp"
   },
   {
+   "address": "0x001bfe88",
+   "name": "iosDlChainTailCurrent",
+   "bytes": 200,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_dl.cpp"
+  },
+  {
    "address": "0x001c0210",
    "name": "iosDlPushLayer",
    "bytes": 184,
@@ -468,6 +476,22 @@
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x001c76d0",
+   "name": "isysGroupForNext",
+   "bytes": 136,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_group.cpp"
+  },
+  {
+   "address": "0x001c7758",
+   "name": "isysGroupForNextForce",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_group.cpp"
   },
   {
    "address": "0x001c9a40",
@@ -531,7 +555,7 @@
    "bytes": 24,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "source": "game/overrides/decomp_texframe.cpp"
   },
   {
    "address": "0x01097118",
@@ -594,8 +618,8 @@
    "name": "manager_sub_010A9EA8",
    "bytes": 2208,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/decomp_texanim.cpp"
+   "area": "Other game code",
+   "source": "game/overrides/decomp_texframe.cpp"
   },
   {
    "address": "0x010aad48",
@@ -604,6 +628,14 @@
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x010ab2a0",
+   "name": "texReset",
+   "bytes": 264,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_texframe.cpp"
   },
   {
    "address": "0x010ab618",
@@ -718,6 +750,14 @@
    "source": "game/overrides/sotc_prof.cpp"
   },
   {
+   "address": "0x010f5820",
+   "name": "InitLayoutObjMatrix",
+   "bytes": 256,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_group.cpp"
+  },
+  {
    "address": "0x010f5920",
    "name": "DispLayoutObjModel",
    "bytes": 272,
@@ -756,6 +796,14 @@
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/decomp_light.cpp"
+  },
+  {
+   "address": "0x0110dc20",
+   "name": "AddSortObj",
+   "bytes": 264,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_dl.cpp"
   },
   {
    "address": "0x0110dd28",
@@ -956,6 +1004,14 @@
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_ptcldraw.cpp"
+  },
+  {
+   "address": "0x01145f78",
+   "name": "manager_sub_01145F78",
+   "bytes": 584,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_wind.cpp"
   },
   {
    "address": "0x01147bd0",
