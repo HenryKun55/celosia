@@ -4,6 +4,7 @@
 #include "ps2recomp/instructions.h"
 #include "ps2recomp/r5900_decoder.h"
 #include "ps2recomp/recompiler_reporter.h"
+#include "ps2recomp/register_cache.h"
 #include "ps2recomp/types.h"
 
 #include <algorithm>
@@ -87,6 +88,9 @@ namespace ps2recomp
         ss << "#ifdef PS2_FUNCTION_LOG_TRACKER\n";
         ss << "    PS_LOG_ENTRY(\"" << sanitizedName << "\");\n";
         ss << "#endif\n";
+        // Everything from here to the closing brace is the body the register
+        // cache rewrites (CodeGenerator::m_registerCache).
+        const size_t bodyStart = ss.str().size();
         ss << "\n";
         if (!resumeTargets.empty())
         {
@@ -242,6 +246,14 @@ namespace ps2recomp
             ss << "    runtime->jumpGuest(rdram, ctx, ctx->pc);\n";
         }
 
+        if (cg.m_registerCache)
+        {
+            const std::string all = ss.str();
+            RegisterCacheOptions options;
+            options.fprs = cg.m_registerCacheFprs;
+            options.sext = cg.m_registerCacheSext;
+            return all.substr(0, bodyStart) + applyRegisterCache(all.substr(bodyStart), options) + "}\n";
+        }
         ss << "}\n";
         return ss.str();
     }

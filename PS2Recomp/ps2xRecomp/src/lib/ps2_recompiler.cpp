@@ -3,6 +3,8 @@
 #include "ps2recomp/types.h"
 #include "ps2recomp/elf_parser.h"
 #include "ps2recomp/r5900_decoder.h"
+#include "ps2recomp/register_cache.h"
+#include <cstdlib>
 #include "ps2_runtime_calls.h"
 #include <iostream>
 #include <fstream>
@@ -1041,6 +1043,17 @@ namespace ps2recomp
             m_codeGenerator->setBootstrapInfo(m_bootstrapInfo);
             m_codeGenerator->setConfiguredJumpTables(m_config.jumpTables);
             m_codeGenerator->setEmitInstructionComments(true);
+            {
+                const char *rc = std::getenv("PS2X_RECOMP_REGCACHE");
+                const char *rcf = std::getenv("PS2X_RECOMP_REGCACHE_FPR");
+                m_codeGenerator->m_registerCache = rc ? std::strcmp(rc, "0") != 0 : m_config.registerCache;
+                m_codeGenerator->m_registerCacheFprs = !(rcf && std::strcmp(rcf, "0") == 0);
+                const char *rcs = std::getenv("PS2X_RECOMP_REGCACHE_SEXT");
+                m_codeGenerator->m_registerCacheSext = !(rcs && std::strcmp(rcs, "0") == 0);
+                std::cout << "register cache: " << (m_codeGenerator->m_registerCache ? "on" : "off")
+                          << (m_codeGenerator->m_registerCache && !m_codeGenerator->m_registerCacheFprs ? " (GPRs only)" : "")
+                          << std::endl;
+            }
 
             fs::create_directories(m_config.outputPath);
 
@@ -1786,6 +1799,10 @@ namespace ps2recomp
 
             m_decodedFunctions.clear();
 
+            if (m_codeGenerator->m_registerCache)
+            {
+                std::cout << registerCacheReport() << std::endl;
+            }
             std::string registerFunctions = m_codeGenerator->generateFunctionRegistration(m_functions, m_generatedStubs);
             m_generatedStubs.clear();
 

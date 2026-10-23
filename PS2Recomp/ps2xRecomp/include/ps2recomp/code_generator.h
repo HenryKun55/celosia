@@ -81,6 +81,15 @@ namespace ps2recomp
         // PS2X_RECOMP_ALL_PC=1 (at recompile time) stores it before every
         // instruction, as before.
         bool m_allPcStores = std::getenv("PS2X_RECOMP_ALL_PC") != nullptr;
+        // Guest GPRs / FPRs in host locals within each function, written back
+        // to ctx before anything that can read it (register_cache.cpp).
+        // config [general] register_cache = false, or PS2X_RECOMP_REGCACHE=0
+        // at recompile time, generates the old code (every access on ctx);
+        // PS2X_RECOMP_REGCACHE_FPR=0 keeps the FPRs on ctx;
+        // PS2X_RECOMP_REGCACHE_SEXT=0 drops the sign-extension tracking.
+        bool m_registerCache = true;
+        bool m_registerCacheFprs = true;
+        bool m_registerCacheSext = true;
         // Whether translated code can read ctx->pc (it calls into the
         // runtime other than for a memory access, or throws).
         static bool codeReadsPc(const std::string &code);

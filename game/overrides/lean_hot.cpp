@@ -148,6 +148,11 @@ namespace ps2_lean
                 continue;
             if (checkedAt.count(g_ps2RecompiledFunctionTableBase + (slot << 2)))
                 continue; // the difftest puts it in place, checked
+            // SOTC_LEAN_CHECK_ONLY=1: the lean copies only in the checks, the
+            // originals everywhere else.
+            static const bool checkOnly = std::getenv("SOTC_LEAN_CHECK_ONLY") != nullptr;
+            if (checkOnly)
+                continue;
             g_slots.push_back({slot, fn, it->second});
             fn = it->second;
             ++slots;

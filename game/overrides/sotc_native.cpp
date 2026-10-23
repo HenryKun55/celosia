@@ -3359,10 +3359,14 @@ namespace sotc_native
             const auto put = [](uint32_t addr, uint32_t value) { std::memcpy(const_cast<uint8_t *>(g_ram) + (addr & 0x1FFFFFCu), &value, 4); };
             // manager_sub_01099A08: a node takes its parent's result unless
             // that is 0 (partly inside), then it is tested; written at +0x2c.
+            // Each node once in a real tree (at most 4096): the budget stops a
+            // table with shared or looping links from walking exponentially.
+            uint32_t budget = 4096u;
             const auto visit = [&](auto &&self, uint32_t node, uint32_t inherited, int depth) -> void
             {
-                if (depth > 64)
+                if (depth > 64 || budget == 0u)
                     return;
+                --budget;
                 maxNode = std::max(maxNode, node);
                 const uint32_t state = inherited ? inherited : test(node);
                 put(node + 0x2Cu, state);
@@ -3819,10 +3823,15 @@ namespace sotc_native
             // manager_sub_01099A08: a node takes its parent's result unless
             // that is 0 (partly inside), then it is tested; +0x20 / +0x24 the
             // two nodes under it.
+            // A tree has at most 4096 nodes (index < 4096), each reached once:
+            // the budget stops a table that is not (shared or looping links,
+            // e.g. a model still being loaded) from walking exponentially.
+            uint32_t budget = 4096u;
             const auto visit = [&](auto &&self, uint32_t index, uint32_t inherited, int depth) -> void
             {
-                if (index >= 4096u || depth > 64)
+                if (index >= 4096u || depth > 64 || budget == 0u)
                     return;
+                --budget;
                 const uint32_t node = table + index * 0x30u;
                 const uint32_t state = inherited ? inherited : test(node);
                 if (partVisible.size() <= index)

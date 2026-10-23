@@ -117,6 +117,39 @@ and that code writes values that differ between two runs of the same code
 mismatches at the same addresses at the same rate (17 000 checks, ~700
 each); every register (all 128 bits, FPU, hi / lo / sa) matched in all.
 
+## Progress count (2026-10-23)
+
+`tools/decomp_status.py` counts what is native, from 0 to 100%, like
+docs/port_status.json does for the hardware. The functions are the
+recompiler's (build/runner/register_functions.cpp), sized from
+build/recomp/game/functions.csv. Native means the runtime implements it
+(ps2_recompiled_stubs.h) or an override replaces its table entry: a Mac run
+with `PS2X_REPLACED_DUMP=<file> PS2X_EXIT_AT_FRAME=<n>` (default env, no
+profiler or difftest wrappers) writes those addresses at exit.
+
+    PS2X_REPLACED_DUMP=$PWD/build/agent-scratch/replaced.txt \
+      build/agent-scratch/r5/attract.sh build/agent-scratch/ds 1200
+    tools/decomp_status.py --replaced build/agent-scratch/replaced.txt \
+      --calls build/calls_attract.txt build/calls_route.txt
+
+It writes docs/decomp_status.json (summary, areas, every native function
+with its source file) and docs/decomp_status.svg. Areas come from the
+native's source file, else from keywords in the symbol name, so the many
+bare `manager_sub_*` functions still recompiled fall in "Other". First
+count, HEAD 14b3e13 + round 5 (off): 4.24% by code size, 4.42% by function
+count, 34.1% by calls (SOTC_CALL_COUNT dumps of the attract demo and route).
+Run it again after every round and commit both files.
+
+**Relink warning.** `./celosia recompile` relinks (tools/build_elf.py) before
+recompiling. On 2026-10-23 a relink from the same SOTC.elf gave a different
+split: curveEval's jump-table cases (0x10AC700...) and others became
+separate functions, and the attract demo hung at game frame ~370 in the game's
+own part-tree walk (manager_sub_01099A08). The known-good inputs and output
+were restored from build/agent-scratch/r5/stage-off; the relink's files are in
+build/agent-scratch/relink-oct23. Until the cause is found, recompile with
+the recompiler directly in build/recomp/game (not `./celosia recompile`), and
+always run the attract demo past frame 900 after a recompile.
+
 ## The light pass and the scratchpad (2026-10-22)
 
 The console's "dispSort_010F4FB8" (2.75 ms self in the attract demo) is
@@ -358,6 +391,134 @@ per side (HEAD 11f953c's VPK, then this one), env SOTC_SUBSYS_PROF=1:
 
 Vita3K runs float code ~1.3x slower than the console (above): the console
 may gain less.
+
+## Round 5: guest registers in host locals (2026-10-23)
+
+The recompiler lever the earlier rounds pointed at: the generated code kept
+every GPR / FPR in the R5900Context (GPR_U32(ctx, n), SET_GPR_S32(ctx, n,
+v), ctx->f[n]); ctx escapes and guest memory is char data, so the host
+compiler reloaded registers after guest stores and stored every result.
+
+**ps2xRecomp register_cache.cpp** rewrites each generated function body (a
+pass after FunctionEmitter, on the emitted text) so the registers live in
+host locals for the whole function: rc_<n> (the low 64 bits; ctx keeps the
+high half, GPR_VEC / SET_GPR_VEC merge) and rf_<n>.
+
+- A *barrier* is any line that hands ctx to something else: callGuest /
+  jumpGuest / dispatchGuestBranch, direct C++ calls, syscalls and stubs,
+  runtime helpers taking ctx (VU0 microprograms, SignalException, getRegU32
+  ...), throw. Before it the dirty locals are stored, the line itself stays
+  the old code, after it every local is stale. Guest memory accesses are not
+  barriers (their slow path never touches GPRs / FPRs; thread switches are
+  thrown only from syscalls).
+- Loads are lazy (where a register is first read, nothing on entry; an entry
+  at a mid-function label finds every local stale); stores happen at
+  barriers, returns and on the edges that need them.
+- Two forward analyses over the body's labels / gotos / blocks, to a fixed
+  point: *dirty* (may differ from ctx; over-approximated, storing an in-sync
+  local is harmless) and *stale* (not loaded: a valid local may be dropped,
+  a dirty one never). A loop head keeps dirty what its back edges bring, its
+  entry edge stores the rest once (the prologue's sp / s-registers no longer
+  stored at every call in the loop); another label keeps what every edge
+  into it holds dirty, an edge holding more stores it. Resume entries (the
+  switch on ctx->pc) go through trampolines at the end of the function that
+  load what the label needs. Checkpoint returns share one cold exit.
+- *Sign extension*: a must analysis of the GPRs whose local is a
+  sign-extended 32-bit value (32-bit results, byte / half loads, moves,
+  andi / ori / and / or / xor of such, slt); their 64-bit reads and stores
+  come from the low half (RC_U64X), so GCC can drop the high half (a second
+  ARMv7 register per guest register). Nothing is known at a resume entry.
+- Anything unexpected (a statement in a call's failure block, a label in a
+  block, a multi-line statement ...) leaves the function as the old code: 2
+  of 8 790 functions (PMULTUW's two-line translation).
+
+Switch: `[general] register_cache = false` in the stage's config.toml
+(tools/gen_config.py writes `true`) or `PS2X_RECOMP_REGCACHE=0` at recompile
+time gives the old generator's output byte for byte (checked: diff -r empty);
+`PS2X_RECOMP_REGCACHE_FPR=0` keeps the FPRs on ctx,
+`PS2X_RECOMP_REGCACHE_SEXT=0` drops the sign tracking,
+`PS2X_RECOMP_REGCACHE_DEBUG=1` names the functions kept old. The recompiler
+log ends with the static counts. After `./celosia recompile`, run
+tools/gen_lean.py again (CCACHE_RECACHE=1 for the lean parts).
+
+Static counts (all functions): the old code's ctx register accesses 728 697
+reads + 409 253 writes; with the cache 230 840 loads + 443 743 stores
+(stores are sunk to barriers / returns / edges and so duplicated per path:
+fewer are executed, more are written down), sign extension known at 59 198
+64-bit reads and 218 364 stores. Vita text 48.1 -> 50.5 MB (+5%), Mac
+__text 56.3 -> 61.2 MB.
+
+Two bugs found on the way, worth knowing for any change here:
+
+- **A conditional write** (MOVN / MOVZ: `if (rt != 0) SET_GPR_VEC(...)` in
+  one line) was taken as a write: with lazy loads the local could stay
+  unloaded and the next store wrote host stack garbage into v0. The game
+  still ran; it hung on the memory card format at boot only under
+  SOTC_DIFFTEST=isysSleepSubThread (the garbage was what the native sleep had
+  left on the host stack; SOTC_DIFFTEST_CONTROL=1 passed). Found by bisecting
+  the generated files between old and new output (iosMcFormat), then
+  `clang -Wconditional-uninitialized` over all output: 74 such reads, now 0.
+  Keep that clang check in the loop.
+- **Resume entries are not this function's checkpoints only**:
+  isysSleepSubThread is a label inside isysWakeupSubThread's function and
+  returns into the other coroutine with whole 64-bit registers; taking them
+  as sign extended there broke the sleep's difftest. Nothing is assumed at a
+  resume entry.
+
+Checks (Mac): SOTC_DIFFTEST=all, EVERY=200: attract demo 50 functions,
+87 200 checks, route 50 functions, 85 100 checks, 0 mismatches but
+isysWakeupSubThread's known noise. The old generator against the new one:
+the lean copies built from the old output (build/agent-scratch/r5/lean_old.sh)
+checked against the new originals with SOTC_LEAN_CHECK (64 a run) and every
+register compared (SOTC_DIFFTEST_ALLREGS=1, new; SOTC_LEAN_CHECK_ONLY=1 keeps
+the lean copies out of the rest of the run, new), attract demo to frame 1800:
+1 692 of the 1 847 hot functions in 27 runs. Every mismatch is either a check
+whose "recompiled" leg is a hook (sotc_native overrides: the DMA copies, the
+CPU rap counter, gsReg ...), a kernel wrapper that cannot run twice
+(isceGsPutIMR), or the state noise SOTC_DIFFTEST_CONTROL=1 reproduces with
+the new code in both legs (0x14656xx / 0x15b8bc0, pad and frame timers: the
+same functions, the same addresses). Two runs (entries 548-640: iosWakeupThread,
+iosCallBackThreadMgr ...) hang because the check runs thread calls twice;
+they hang in CONTROL mode too. Mac route
+with the same input script: the same places at the same frames as HEAD
+(altar, shrine stairs, the plain with Agro), game clock 0.994x (HEAD 0.993x
+in the same conditions, last 12 windows). Vita3K boots into the attract demo
+with the same picture.
+
+Calibrated Vita3K (MHZ=240 CORES=3), attract demo frames 600-4800, env
+SOTC_SUBSYS_PROF=1, one run per side (HEAD's VPK twice: 39.3 / 39.3):
+
+| ms / frame | HEAD 14b3e13 | register cache |
+|---|---|---|
+| frame (wall) | 39.3 | 39.0 |
+| execScript | 34.1 | 33.9 |
+| ExecCharaGeometry (self) | 6.44 (3.30) | 6.38 (3.27) |
+| DispDispObjGroupModel (self) | 12.67 (4.49) | 12.48 (4.35) |
+
+Small. The intermediate builds say why: with every register loaded on entry
+and reloaded after each call (first version) the game ran 3.5% *slower*
+(40.7 ms): the reloads lengthen live ranges, GCC spills, and a loop with a
+call re-stored the prologue's registers at every call. Lazy loads brought it
+to 39.6, the loop-entry stores and sign tracking to 39.0. Profile
+(VITA3K_PROFILE, game thread, the whole run): the recompiled functions
+41.2% -> 40.2% of HEAD's samples (-2.4% of their time); the rest unchanged. On the Cortex-A9 an L1 load
+or store to ctx is cheap and GCC already forwarded stores to loads where no
+guest store came between (most of the old code's ctx traffic was stores,
+which the store buffer absorbs); what the cache removes is mostly that.
+Vita3K's JIT pays for each guest memory access, so the console should not
+gain more than this; possibly less (5% more text).
+
+Build: a full Vita rebuild with the cache took 22 min wall (11 900 s CPU,
+10 cores); its critical path is unity_244 (~19 min), which holds the 5 MB
+register_functions.cpp: the function table, the same file byte for byte
+with or without the cache (the next slowest batch ~2.5 min). The recompiler
+pass itself adds ~1 s.
+
+What could still pay at this level: fewer stores at calls for the
+callee-saved registers (s0-s7, sp: the callee preserves them; needs a proof
+that every callee does, coroutine switches do not), keeping sign-extended
+registers as 32-bit locals outright, and the FPU / VU0 state (fcr31,
+vu0_vf / ACC / Q) in locals the same way.
 
 ## Vita3K calibration (2026-10-22)
 

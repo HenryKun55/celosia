@@ -61,6 +61,10 @@ single_file_output = false
 patch_syscalls = false
 patch_cop0 = true
 patch_cache = true
+# Guest registers in host locals within each function (ps2xRecomp
+# register_cache.cpp). Off: under 1% faster in calibrated Vita3K for +5% code
+# (round 5, docs/decomp.md); true to use it.
+register_cache = false
 stubs = [
 {stub_lines}]
 skip = []

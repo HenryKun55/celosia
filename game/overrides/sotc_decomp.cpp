@@ -140,7 +140,11 @@ namespace sotc_decomp
                     bad = true;
                     break;
                 }
-            if (!bad && c.function->switches)
+            // SOTC_DIFFTEST_ALLREGS=1: every register for every function (two
+            // generators' code for the same function: SOTC_LEAN_CHECK with the
+            // lean copies from the other generator).
+            static const bool allRegs = std::getenv("SOTC_DIFFTEST_ALLREGS") != nullptr;
+            if (!bad && (c.function->switches || allRegs))
             {
                 // Every register: the other context's set was loaded.
                 for (int r = 0; r < 32 && !bad; ++r)

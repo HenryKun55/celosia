@@ -1414,4 +1414,41 @@ static PS2_FORCE_INLINE void Ps2SetGprLow64(R5900Context *ctx, int reg, __m128i 
             ctx_ptr->r[reg_idx] = (val);   \
     } while (0)
 
+// Guest registers in host locals (the recompiler's register cache,
+// ps2xRecomp register_cache.cpp): a function's GPRs live in uint64_t locals
+// rc_<n> (the low 64 bits; ctx keeps the high half), its FPRs in float
+// locals rf_<n>; ctx is written back before anything that can read it.
+// Same conversions as GPR_* / SET_GPR_* above.
+#define RC_U32(l) (static_cast<uint32_t>(l))
+#define RC_S32(l) (static_cast<int32_t>(static_cast<uint32_t>(l)))
+#define RC_U64(l) (static_cast<uint64_t>(l))
+#define RC_S64(l) (static_cast<int64_t>(static_cast<uint64_t>(l)))
+#define RC_SET_U32(l, val) ((void)((l) = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(val)))))
+#define RC_SET_S32(l, val) ((void)((l) = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(val)))))
+#define RC_SET_ZE32(l, val) ((void)((l) = static_cast<uint64_t>(static_cast<uint32_t>(val))))
+#define RC_SET_U64(l, val) ((void)((l) = static_cast<uint64_t>(val)))
+#define RC_SET_S64(l, val) RC_SET_U64(l, val)
+// A GPR the recompiler knows holds a sign-extended 32-bit value: its 64-bit
+// value made from the low half (the high half of the local is then dead).
+#define RC_U64X(l) (static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(static_cast<uint32_t>(l)))))
+#define RC_S64X(l) (static_cast<int64_t>(static_cast<int32_t>(static_cast<uint32_t>(l))))
+// A write to $zero: the value is still evaluated (a load can have effects).
+#define RC_SET_ZERO(val) ((void)(val))
+
+// The 128-bit register: ctx's high half, the local's low half.
+static PS2_FORCE_INLINE __m128i Ps2GprVecWithLow(__m128i v, uint64_t low)
+{
+    std::memcpy(&v, &low, sizeof(low));
+    return v;
+}
+#define RC_VEC(ctx_ptr, reg_idx, l) Ps2GprVecWithLow((ctx_ptr)->r[reg_idx], (l))
+#define RC_VECX(ctx_ptr, reg_idx, l) Ps2GprVecWithLow((ctx_ptr)->r[reg_idx], RC_U64X(l))
+#define RC_SET_VEC(ctx_ptr, reg_idx, l, val)      \
+    do                                            \
+    {                                             \
+        const __m128i _rcv = (val);               \
+        (ctx_ptr)->r[reg_idx] = _rcv;             \
+        (l) = Ps2GprU64((ctx_ptr), (reg_idx));    \
+    } while (0)
+
 #endif // PS2_RUNTIME_MACROS_H

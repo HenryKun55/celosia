@@ -1388,6 +1388,44 @@ namespace
     }
 }
 
+namespace
+{
+    // PS2X_REPLACED_DUMP=<file>: at PS2X_EXIT_AT_FRAME, the guest addresses
+    // whose generated function was replaced by native code (and still is),
+    // one hex address a line, for the decomp progress count
+    // (tools/decomp_status.py).
+    struct ReplacedLog
+    {
+        const char *path = std::getenv("PS2X_REPLACED_DUMP");
+        std::map<uint32_t, PS2Runtime::RecompiledFunction> originals;
+        void dump() const
+        {
+            if (!path)
+                return;
+            if (FILE *f = std::fopen(path, "w"))
+            {
+                for (const auto &[address, original] : originals)
+                {
+                    uint32_t slot = 0u;
+                    if (generatedFunctionTableSlot(address, slot) && g_ps2RecompiledFunctionTable[slot] != original)
+                        std::fprintf(f, "%08x\n", address);
+                }
+                std::fclose(f);
+            }
+        }
+    };
+    ReplacedLog &replacedLog()
+    {
+        static ReplacedLog log;
+        return log;
+    }
+}
+
+void ps2DumpReplacedFunctions()
+{
+    replacedLog().dump();
+}
+
 bool PS2Runtime::replaceFunction(uint32_t address, RecompiledFunction func)
 {
     uint32_t slot = 0u;
@@ -1400,6 +1438,8 @@ bool PS2Runtime::replaceFunction(uint32_t address, RecompiledFunction func)
         return false;
     }
 
+    if (ReplacedLog &log = replacedLog(); log.path)
+        log.originals.emplace(address, g_ps2RecompiledFunctionTable[slot]);
     g_ps2RecompiledFunctionTable[slot] = func;
     return true;
 }
@@ -3394,6 +3434,8 @@ void PS2Runtime::run()
                 std::fprintf(stderr, "[exit] game frame %llu reached\n", static_cast<unsigned long long>(gameFrame));
                 extern void ps2DumpMmioCensus();
                 ps2DumpMmioCensus();
+                extern void ps2DumpReplacedFunctions();
+                ps2DumpReplacedFunctions();
                 std::fflush(nullptr);
                 std::_Exit(0);
             }
