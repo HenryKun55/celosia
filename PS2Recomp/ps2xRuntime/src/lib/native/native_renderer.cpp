@@ -896,8 +896,27 @@ namespace native_renderer
         bool on = std::getenv("SOTC_NATIVE_LOG_UPLOADS") != nullptr;
         uint64_t frames = 0, staticMeshes = 0, staticBytes = 0, frameMeshes = 0, frameBytes = 0, textures = 0, textureBytes = 0, draws = 0;
     } g_uploads;
+    std::vector<uint64_t> *g_drawTap = nullptr;
+    Vertex *g_tapFrameMesh = nullptr;
+    void setDrawTap(std::vector<uint64_t> *tap) { g_drawTap = tap; }
+    // SOTC_DIFFTEST_DRAWS=2: the per-frame meshes' vertices and the skin
+    // palettes too (some are made once a frame: only the first leg has them).
+    bool tapMeshes()
+    {
+        static const bool on = std::getenv("SOTC_DIFFTEST_DRAWS") && std::atoi(std::getenv("SOTC_DIFFTEST_DRAWS")) >= 2;
+        return on;
+    }
+    uint64_t tapHash(uint64_t h, const void *p, size_t n)
+    {
+        const uint8_t *b = static_cast<const uint8_t *>(p);
+        for (size_t i = 0; i < n; ++i)
+            h = (h ^ b[i]) * 0x100000001b3ull;
+        return h;
+    }
     void uploadMesh(uint64_t id, const Vertex *vertices, uint32_t count, bool perFrame)
     {
+        if (g_drawTap && perFrame && tapMeshes())
+            g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, vertices, static_cast<size_t>(count) * sizeof(Vertex)));
         if (g_uploads.on)
         {
             (perFrame ? g_uploads.frameMeshes : g_uploads.staticMeshes) += 1;
@@ -917,7 +936,12 @@ namespace native_renderer
         ++c.meshUploads;
         c.meshBytes += static_cast<uint64_t>(count) * sizeof(Vertex);
     }
-    Vertex *frameMesh(uint32_t count) { return backend() ? g_backend->frameMesh(count) : nullptr; }
+    Vertex *frameMesh(uint32_t count)
+    {
+        Vertex *v = backend() ? g_backend->frameMesh(count) : nullptr;
+        g_tapFrameMesh = v;
+        return v;
+    }
     uint32_t *frameMeshIndices(uint32_t count, uint32_t &base)
     {
         base = 0;
@@ -925,6 +949,8 @@ namespace native_renderer
     }
     void commitFrameMesh(uint64_t id, uint32_t count, uint32_t indexCount)
     {
+        if (g_drawTap && g_tapFrameMesh && tapMeshes())
+            g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, g_tapFrameMesh, static_cast<size_t>(count) * sizeof(Vertex)));
         const uint64_t bytes = static_cast<uint64_t>(count) * sizeof(Vertex) + static_cast<uint64_t>(indexCount) * 4u;
         if (g_uploads.on)
         {
@@ -956,7 +982,12 @@ namespace native_renderer
             c.meshBytes += static_cast<uint64_t>(count) * sizeof(SkinVertex) + static_cast<uint64_t>(indexCount) * 4u;
         }
     }
-    uint32_t framePalette(const float *qwords, uint32_t count) { return backend() ? g_backend->framePalette(qwords, count) : 0u; }
+    uint32_t framePalette(const float *qwords, uint32_t count)
+    {
+        if (g_drawTap && tapMeshes())
+            g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, qwords, static_cast<size_t>(count) * 16u));
+        return backend() ? g_backend->framePalette(qwords, count) : 0u;
+    }
     void cancelFrameMesh()
     {
         if (backend())
@@ -1017,8 +1048,50 @@ namespace native_renderer
         }
         return h;
     }
+    void tapDraw(uint64_t mesh, const float clip[16], const DrawState &s)
+    {
+        // 2D draws are batched and flushed by the next draw of a frame, wherever
+        // that falls (their content comes from guest packets, which a difftest
+        // compares itself): the 3D draws only, unless =2.
+        if (s.screen && !tapMeshes())
+            return;
+        uint64_t h = 0xcbf29ce484222325ull;
+        // A per-frame mesh's id is a family tag (top byte) and a frame counter
+        // (the skinned draws 1 << 63, the particles 1 << 58 ...): the tag only
+        // (=2: its vertices were hashed at its commit). Packet ids are hashes.
+        const uint64_t id = (mesh & 0x00FFFFFFFF000000ull) == 0u ? (mesh & 0xFF00000000000000ull) : mesh;
+        h = tapHash(h, &id, 8);
+        h = tapHash(h, &s.texture, 8);
+        const uint32_t ints[] = {s.clamp, static_cast<uint32_t>(s.blend), s.order, s.background, s.fogged, s.writeDepth, s.noDepthWrite, s.overlay, s.screen,
+                                 s.screenDepthTest, s.shadowVolume, s.reflectionSource, s.reflectionSample, s.refractionSample, s.fresnel, s.screenCopy,
+                                 s.previousFrame, s.skinPaletteCount, s.skinPalette != 0u, s.lit};
+        h = tapHash(h, ints, sizeof(ints));
+        const float floats[] = {s.opacity, s.uvOffset[0], s.uvOffset[1], s.lodK, s.lodScale, s.maxLod, s.shadow, s.reflectionTint[0], s.reflectionTint[1],
+                                s.reflectionTint[2], s.reflectionTint[3], s.mirrorRipple[0], s.mirrorRipple[1]};
+        h = tapHash(h, floats, sizeof(floats));
+        h = tapHash(h, clip, 64);
+        if (s.lit || s.fresnel)
+            h = tapHash(h, s.light, sizeof(s.light));
+        g_drawTap->push_back(h);
+        // SOTC_DIFFTEST_DRAWS_LOG=1: the first draws of each leg, readable (debugging the tap).
+        // =<n>: the draws from the n-th on.
+        static const long logFrom = std::getenv("SOTC_DIFFTEST_DRAWS_LOG") ? std::atol(std::getenv("SOTC_DIFFTEST_DRAWS_LOG")) : -1;
+        if (logFrom >= 0 && g_drawTap->size() >= static_cast<size_t>(logFrom) && g_drawTap->size() < static_cast<size_t>(logFrom) + 4u)
+        {
+            uint64_t ch = tapHash(0xcbf29ce484222325ull, clip, 64), lh = tapHash(0xcbf29ce484222325ull, s.light, sizeof(s.light));
+            std::fprintf(stderr, "[tap %p #%zu] mesh %016llx tex %016llx order %u blend %d op %08x clip %016llx light %016llx lit %d fres %d scr %d uv %g %g lod %g %g %g tint %g %g %g %g skin %u/%u flags %d%d%d%d%d%d%d%d%d%d%d%d\n",
+                         (void *)g_drawTap, g_drawTap->size(), (unsigned long long)mesh, (unsigned long long)s.texture, s.order, (int)s.blend,
+                         *reinterpret_cast<const uint32_t *>(&s.opacity), (unsigned long long)ch, (unsigned long long)lh, s.lit, s.fresnel, s.screen,
+                         s.uvOffset[0], s.uvOffset[1], s.lodK, s.lodScale, s.maxLod, s.reflectionTint[0], s.reflectionTint[1], s.reflectionTint[2],
+                         s.reflectionTint[3], s.skinPalette, s.skinPaletteCount, s.clamp, s.background, s.fogged, s.writeDepth, s.noDepthWrite, s.overlay,
+                         s.screenDepthTest, s.shadowVolume, s.reflectionSource, s.reflectionSample, s.refractionSample, s.screenCopy);
+        }
+    }
+
     void draw(uint64_t mesh, const float clip[16], const DrawState &state)
     {
+        if (g_drawTap)
+            tapDraw(mesh, clip, state);
         ++g_uploads.draws;
         if (g_dumpFile)
         {

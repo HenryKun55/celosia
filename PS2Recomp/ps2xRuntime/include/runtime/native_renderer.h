@@ -275,6 +275,12 @@ namespace native_renderer
         float light[32] = {};
     };
     void draw(uint64_t mesh, const float clip[16], const DrawState &state);
+    // Testing (SOTC_DIFFTEST_DRAWS): while a tap is set, every 3D draw (its
+    // mesh, state, matrix and lights) is hashed into it, for two runs of the
+    // same game code to be compared draw by draw (=2: 2D draws, per-frame
+    // meshes by their vertices and skin palettes by their matrices too, some
+    // made once a frame: only a first leg has them). nullptr: off.
+    void setDrawTap(std::vector<uint64_t> *tap);
     // The next whole frame's draws, one line each, to `path` (F8 in the runtime).
     void requestDrawDump(const std::string &path);
     // SotC's zFog: before layer `order`, every pixel blends towards the

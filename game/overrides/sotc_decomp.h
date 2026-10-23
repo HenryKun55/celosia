@@ -14,6 +14,8 @@
 // compared; the caller-saved scratch registers may differ. Every call is
 // checked until SOTC_DIFFTEST_FIRST (default 200) calls, then one in
 // SOTC_DIFFTEST_EVERY (default 1000): a check copies 32 MB twice.
+// SOTC_DIFFTEST_DRAWS=1 also compares the native renderer's 3D draws of the
+// two legs (native_renderer::setDrawTap; with SOTC_ASYNC_BUILDS=0).
 #pragma once
 
 #include "ps2_runtime.h"

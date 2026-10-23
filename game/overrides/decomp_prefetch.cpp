@@ -11,12 +11,12 @@
 // modelClipSolid took ~12 us a call (0.17 us on the Mac). The objects come in
 // the same order every frame (the group, the sort list), so the lines the
 // last frame's next call read (kept by address) are asked for (PLD) before
-// the recompiled function runs; the function itself is the recompiled one,
-// unchanged. A prefetch never changes what is read: wrong guesses cost a
-// line fill and nothing else.
+// the function runs. A prefetch never changes what is read: wrong guesses
+// cost a line fill and nothing else.
 //
-// Plain decompiled functions since 2026-10-22's third round (SOTC_AB no
-// longer alternates them); SOTC_OBJ_PREFETCH=0 leaves the prefetch out.
+// Since round 7 the two functions are native (decomp_walk.cpp), which asks
+// for the lines here (aheadClip / aheadDisp) before its own reads;
+// SOTC_OBJ_PREFETCH=0 leaves the prefetch out.
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -29,8 +29,6 @@
 
 namespace decomp_prefetch
 {
-    constexpr uint32_t kClip = 0x010F4890u, kDisp = 0x010F5920u;
-
     struct Ram
     {
         const uint8_t *rdram;
@@ -171,27 +169,22 @@ namespace decomp_prefetch
             __builtin_prefetch(rdram + (r.lines[i] & PS2_RAM_MASK));
     }
 
-    void run(Sequence &seq, uint32_t address, uint32_t object, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void note(Sequence &seq, uint32_t object, const uint8_t *rdram)
     {
-        if (enabled())
+        if (!enabled())
+            return;
+        const Ram m{rdram};
+        if (const Record *next = seq.next(ps2_stats::vif1Chains.load(std::memory_order_relaxed), object))
+            ask(rdram, *next);
+        if (seq.now.size() < 4096u)
         {
-            const Ram m{rdram};
-            if (const Record *next = seq.next(ps2_stats::vif1Chains.load(std::memory_order_relaxed), object))
-                ask(rdram, *next);
-            if (seq.now.size() < 4096u)
-            {
-                seq.now.emplace_back();
-                objectLines(m, object, seq.now.back());
-            }
+            seq.now.emplace_back();
+            objectLines(m, object, seq.now.back());
         }
-        return sotc_decomp::recompiled(address)(rdram, ctx, runtime);
     }
 
-    // ClipLayoutObjModel(object)
-    void clip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { run(g_clip, kClip, GPR_U32(ctx, 4), rdram, ctx, runtime); }
-    // DispLayoutObjModel(camera, object)
-    void disp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { run(g_disp, kDisp, GPR_U32(ctx, 5), rdram, ctx, runtime); }
+    // Called by the native walk (decomp_walk.cpp) at the start of its
+    // ClipLayoutObjModel / DispLayoutObjModel.
+    void aheadClip(const uint8_t *rdram, uint32_t object) { note(g_clip, object, rdram); }
+    void aheadDisp(const uint8_t *rdram, uint32_t object) { note(g_disp, object, rdram); }
 }
-
-SOTC_DECOMP_FUNCTION(0x010F4890u, ClipLayoutObjModel, decomp_prefetch::clip);
-SOTC_DECOMP_FUNCTION(0x010F5920u, DispLayoutObjModel, decomp_prefetch::disp);

@@ -1,29 +1,29 @@
 {
  "updated": "2026-10-23",
- "commit": "ed10257",
+ "commit": "fce6b0c",
  "summary": {
   "by_functions": {
-   "native": 406,
+   "native": 412,
    "partial": 0,
    "total": 9024,
-   "percent": 4.5
+   "percent": 4.57
   },
   "by_code_size": {
-   "native": 113064,
+   "native": 118480,
    "partial": 0,
    "total": 2625144,
-   "percent": 4.31
+   "percent": 4.51
   },
   "by_calls": {
-   "native": 110594723,
+   "native": 112552669,
    "partial": 0,
    "total": 279490744,
-   "percent": 39.57
+   "percent": 40.27
   },
   "game_code_by_size": {
-   "native": 47456,
+   "native": 52872,
    "total": 2208056,
-   "percent": 2.15
+   "percent": 2.39
   }
  },
  "areas": {
@@ -44,20 +44,20 @@
    "percent": 9.84
   },
   "Characters and motion": {
-   "functions": 1209,
-   "native_functions": 20,
-   "bytes": 279544,
-   "native_bytes": 12280,
+   "functions": 1208,
+   "native_functions": 19,
+   "bytes": 279088,
+   "native_bytes": 11824,
    "partial_functions": 0,
-   "percent": 4.39
+   "percent": 4.24
   },
   "Display and models": {
-   "functions": 981,
-   "native_functions": 34,
-   "bytes": 253140,
-   "native_bytes": 19496,
+   "functions": 980,
+   "native_functions": 36,
+   "bytes": 252708,
+   "native_bytes": 21608,
    "partial_functions": 0,
-   "percent": 7.7
+   "percent": 8.55
   },
   "System and memory": {
    "functions": 231,
@@ -68,12 +68,12 @@
    "percent": 4.96
   },
   "Other game code": {
-   "functions": 2891,
-   "native_functions": 4,
-   "bytes": 1280884,
-   "native_bytes": 3632,
+   "functions": 2893,
+   "native_functions": 9,
+   "bytes": 1281772,
+   "native_bytes": 7392,
    "partial_functions": 0,
-   "percent": 0.28
+   "percent": 0.58
   },
   "Camera": {
    "functions": 284,
@@ -547,7 +547,23 @@
    "bytes": 240,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x0108d730",
+   "name": "manager_sub_0108D730",
+   "bytes": 1880,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x0108ebc0",
+   "name": "glVertex3fv",
+   "bytes": 72,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x0108f518",
@@ -563,15 +579,23 @@
    "bytes": 3696,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x01098840",
+   "name": "modelClipSolid",
+   "bytes": 1152,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x01099c50",
    "name": "manager_sub_01099C50",
    "bytes": 432,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/decomp_modelclip.cpp"
+   "area": "Other game code",
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x01099e00",
@@ -611,7 +635,7 @@
    "bytes": 424,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x010a9ea8",
@@ -718,12 +742,28 @@
    "source": "game/overrides/decomp_layout.cpp"
   },
   {
+   "address": "0x010f3a08",
+   "name": "manager_sub_010F3A08",
+   "bytes": 744,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
    "address": "0x010f3cf0",
    "name": "manager_sub_010F3CF0",
    "bytes": 456,
    "status": "native",
-   "area": "Characters and motion",
-   "source": "game/overrides/decomp_skinpal.cpp"
+   "area": "Other game code",
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x010f3eb8",
+   "name": "manager_sub_010F3EB8",
+   "bytes": 248,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x010f4890",
@@ -731,7 +771,7 @@
    "bytes": 392,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x010f4a18",
@@ -747,7 +787,15 @@
    "bytes": 784,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/sotc_prof.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x010f52c8",
+   "name": "DispDispObjGroupModel",
+   "bytes": 1320,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x010f5820",
@@ -763,7 +811,7 @@
    "bytes": 272,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_prefetch.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x010f5f60",
@@ -803,7 +851,7 @@
    "bytes": 264,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_dl.cpp"
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x0110dd28",

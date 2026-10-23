@@ -102,7 +102,7 @@ What a native function has to keep, learned the hard way:
 | decomp_pointsort.cpp | execPointListSort (0x142da48) | 300 (route), 0 mismatches | the path points within a radius, selection-sorted (1.3% at the altar); getPointDataByAreaIdx stays a guest call |
 | decomp_skeleton.cpp | skeletonPose: the bone's VU0 block, the quaternion normalisation, MultiCurrentQuaternion, iosTransCurrentMatrix / iosMulCurrentMatrixR with each operand clamped once (vu::*N, the rows once for the four columns) | 87 300 (route, EVERY=20) + 17 900 (attract demo), 0 mismatches | ~210 -> ~90 clamps (ps2VuNormalize) a bone |
 | decomp_clothdyn.cpp | 01137858 (the rows' length constraint), 01137640 (the velocities; type 1 cloths go on in the recompiled code from 0x1137728 with the prologue's frame) | attract 1 100 + 5 600, route 2 700 + 6 900, 0 mismatches | under GetClothDynamics (in ExecCharaGeometry). 01137858's type 1 path stays recompiled. RSQRT as build/runner has it (ps2VuRsqrt with the status flags, not recomp/game/output's older ps2VuRsqrtQ) |
-| decomp_prefetch.cpp | ClipLayoutObjModel, DispLayoutObjModel: the recompiled functions, with the next object's lines prefetched | route 23 900 + 9 600, attract 4 700 + 2 600 (EVERY=20), 0 mismatches | see "The display walk's memory misses" below |
+| decomp_prefetch.cpp | (round 2: ClipLayoutObjModel / DispLayoutObjModel wrapped, the next object's lines prefetched; since round 7 the lines are asked for from decomp_walk.cpp's natives) | route 23 900 + 9 600, attract 4 700 + 2 600 (EVERY=20), 0 mismatches | see "The display walk's memory misses" below |
 | decomp_light.cpp | the light pass: manager_sub_010F4FB8 (its three walks of the sort list), 010F4A18, ExecGlobalLightMan, 010F8360, 010F5F60, SetWorkFromGlobalLight, GetInverseMatrixFromQuaternionPos, GetRateInOutCubeVolumeWithInverseMatrix | attract 800-6 500 each, route 300-6 700 each, 0 mismatches | see "The light pass" below |
 | decomp_curve.cpp | manager_sub_010AC6C8 (curveEval: a motion channel's key), manager_sub_010B81F8 (a motion's keys, curveEval called natively) | attract 80 800 + 2 100, route 86 300 + 1 600, 0 mismatches | formats 0, 3-9, 12, 13 natively (all the attract demo and the route use); 1, 2, 10, 11, 14 recompiled (SOTC_CURVE_STATS=1 counts them). See "Round 3" below |
 | decomp_quat.cpp | GetQuaternionByAxisDirZY, GetDifferencialQuaternionWithNoRegularize, SetQuaternionByAxisRotateVWithNoRegularize, GetEulerYXZFromQuaternion, iosGetATan2fExact, atan2f / __ieee754_atan2f, atanf | attract 4 500-32 900 each, route 2 500-28 600 each, 0 mismatches | each natively into the next (newlib's atanf / atan2f ported with the FPU_* ops); asinf stays a guest call |
@@ -113,6 +113,8 @@ What a native function has to keep, learned the hard way:
 | decomp_group.cpp | isysGroupForNext, isysGroupForNextForce, InitLayoutObjMatrix | attract 13 000 / 1 900 / 400, route 62 300 / 45 800 / 400, 0 mismatches | the group iterator inline in the frame start's matrix flip |
 | decomp_dl.cpp | AddSortObj, iosDlChainTailCurrent | attract 22 800 / 121 500, route 3 600 / 89 200 (SOTC_NATIVE=1, EVERY=5), 0 mismatches | the sort buckets' insert, the display list's tail packet |
 | decomp_wind.cpp | manager_sub_01145F78 (the wind zones at a point, sorted by priority) | attract 3 300, route 1 300 (SOTC_NATIVE=1), 0 mismatches | the three weight functions stay guest calls |
+| decomp_walk.cpp | DispDispObjGroupModel (the display walk from its top), ClipLayoutObjModel, modelClipSolid (clipByMinMaxCube inline), DispLayoutObjModel (DispCloth inline), 010F3A08 (solidDisp), 010F3EB8 (the heat haze strips, glColor4f / glTexCoord2f / glVertex3fv / iosgluGetViewCoordPosition inline), 0108D730 (glVertex's kick), glVertex3fv | walk: attract 1 200, route 1 100 (SOTC_NATIVE=1, EVERY=5, to frame 4800), with the native renderer's draws compared too; children (walk recompiled): attract 2 900-41 500 each, route 2 200-43 900 each; 0 mismatches | see "Round 7" below |
+| decomp_ptcldraw.cpp | particleDraw's loop: 01142030 (the fade) inline, iosGetSinCosf called straight (round 7) | attract 4 200, route 17 700 (SOTC_NATIVE=1), 0 mismatches | no guest call a particle |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -143,7 +145,10 @@ bare `manager_sub_*` functions still recompiled fall in "Other". First
 count, HEAD 14b3e13 + round 5 (off): 4.24% by code size, 4.42% by function
 count, 34.1% by calls (SOTC_CALL_COUNT dumps of the attract demo and route).
 Round 6: 4.31% by code size, 4.50% by function count (406), 39.6% by calls
-(the same call dumps), 2.15% of the game's own code. Run it again after
+(the same call dumps), 2.15% of the game's own code. Round 7: 4.51% by code
+size, 4.57% by function count (412), 40.3% by calls, 2.39% of the game's
+own code (010F3FB0, the haze strips' second half, is native too but counts
+as recompiled: only 010F3EB8's entry is in the table). Run it again after
 every round and commit both files. (A function an override hooks counts as
 native too: iosDlPushLayer / iosDlPopLayer are sotc_native.cpp's hooks
 around the recompiled code.)
@@ -624,6 +629,164 @@ code still pays the table call. The frame's 6 ms to 2 VBlanks will not come
 from leaves this size; the next lever is a whole subsystem natively from its
 top (the display walk's DispDispObjGroupModel loop with its callees, the
 character's ExecCharaGeometry body), as the collision work (2026-10-21) did for the segment test.
+
+## Round 7: the display walk natively from its top (2026-10-23, evening)
+
+Round 6 showed a flat profile, so this round takes a whole subsystem natively
+from its top, as the collision work did: the display walk,
+DispDispObjGroupModel (12.6 ms of the calibrated attract frame, 4.4 ms of it
+in unprobed callees). A Vita3K run with probes on its callees (SOTC_SUBSYS_PROF_EXTRA,
+build/agent-scratch/r7/r7-head-probe-err.txt) split it: modelDisp (the native
+hook) 3.2, the particle display (doit_particle_geodisp) 3.9, the light pass
+1.2, the heat haze strips (010F3EB8) 1.3 for 2.3 calls a frame,
+CalcLightLayoutObj 0.8, cloth 1.0, modelClipSolid 0.5, the walk's own
+recompiled code and the clip / draw callbacks ~0.6.
+
+**decomp_walk.cpp** (see its header):
+
+- DispDispObjGroupModel: the group loop (the billboard and camera-link VU0
+  blocks, the clip / visibility / sort-key logic, the copy into the second
+  sort list, the draw loop) natively. GetLayoutClass's plain cases,
+  GetCharacterClass, GetGeoDispClass, GetLayoutDispObjGroup, isysGroupForNext
+  and the sort lists (ClearSortList, GetFirstSortObj, GetNextSortObj) inline;
+  the class callbacks (+0xd8 / +0xdc / +0xd4 / +0xd0 / +0xcc0) are guest
+  calls, or straight C++ calls when they are this file's natives
+  (G::callNative: only when the table holds the native, so a difftest
+  check, SOTC_DECOMP_SKIP, SOTC_AB's old half or a profiler probe on the
+  child still sees every call).
+- ClipLayoutObjModel, modelClipSolid (the far cull, the LOD level with its
+  hysteresis, clipByMinMaxCube's VU0 CLIP of the root box inline),
+  DispLayoutObjModel (DispCloth inline), 010F3A08 (the parts' matrices).
+- The heat haze (010F3EB8 / 010F3FB0): the segments' bone inverses and
+  screen tests natively, glColor4f, glTexCoord2f, glVertex3fv's own part
+  (0108D358) and iosgluGetViewCoordPosition inline; 0108D730 (glVertex's
+  kick: the vertex through view / screen / clip matrices, CLIP flags, RGBAQ,
+  ST / UV, XYZ2 / XYZ3 by the primitive's clip state into the GIF packet)
+  native and registered, with glVertex3fv, for every other gl* user.
+- decomp_ptcldraw.cpp: the particle loop's two guest calls a particle
+  (01142030, the fade, inline; iosGetSinCosf called straight).
+- decomp_prefetch.cpp no longer registers anything: the natives ask it for
+  the next object's lines (aheadClip / aheadDisp).
+
+Guest calls keep the context as the recompiled code has it at that call:
+the callee-saved registers, the prologue's saves in the frame, f20-f28 where
+the original holds values there. A guest callee that blocks (isysObjWaitSema
+is a real semaphore) throws to the scheduler; the thread then goes on in
+the recompiled function at that call's return label, which finds what it
+expects. The relocated jals into the boot ELF read their target from the
+code. Rare cases (a pointer outside main RAM, a jump-table entry the code
+does not know) go to the recompiled code at a loop head or a return label
+with its registers set, or from the entry before anything is written.
+
+One bug the difftest caught: a haze segment skipped by its distance test
+leaves f0 = r_b^2 (the dividend), not the quotient (1 581 mismatches in
+3 900 checks, all on f0).
+
+**A picture check that does not need two identical runs.** Two runs are not
+frame-identical (the draw dumps of two runs of the same code differ), so
+SOTC_DIFFTEST_DRAWS=1 compares the native renderer's output inside each
+check: native_renderer::setDrawTap hashes every 3D draw (mesh, the whole
+DrawState, the matrix, the lights) of each leg and the two lists are
+compared (per-frame mesh ids, a tag and a counter, by their tag; 2D draws
+are batched and flushed wherever the next draw falls, so they are left out:
+their content is guest packets, which the memory compare covers; =2 adds
+them, the per-frame meshes' vertices and the skin palettes, with the
+expected noise of once-a-frame uploads). The control (SOTC_DIFFTEST_CONTROL=1)
+gives 0 of 100; the walk, SOTC_NATIVE=1, SOTC_ASYNC_BUILDS=0, EVERY=5 to
+frame 4800: attract 1 200 checks / 239 667 draws, route 1 100 checks /
+1 029 614 draws, 0 differ.
+
+Checks (Mac, 0 mismatches each): the walk whole (its children native inside
+it), SOTC_NATIVE=1, attract and route to frame 4800, 1 200 / 1 100 checks;
+the children with the walk recompiled (EVERY=10, to 4800): attract
+ClipLayoutObjModel 23 300, DispLayoutObjModel 17 100, modelClipSolid 21 200,
+solidDisp 15 700, the haze 2 900, glVertex's kick 41 500, particleDraw 3 600;
+route (SOTC_NATIVE=1) 43 900 / 19 000 / 42 400 / 18 800 / 2 200 / 39 700 /
+9 300; glVertex3fv 26 300 (the haze left recompiled, its caller); the haze
+and particleDraw also in both renderer modes. Mac route game clock 1.005x
+(last 12 windows). Attract demo to frame 4800.
+
+Calibrated Vita3K (MHZ=240 CORES=3), env SOTC_SUBSYS_PROF=1, one run per
+side, HEAD fce6b0c's VPK (build/agent-scratch/celosia-r6.vpk) then this one
+(celosia-r7.vpk), the host otherwise idle; the route with the Mac's save on
+the card and the same input script (build/agent-scratch/r7/v3k_ab.sh). The
+first HEAD route run took another path through the game from frame ~1440
+(100 ms windows from 4440: another scene) and was run again; the second
+follows the same timeline as this round's run window for window (and round
+6's log: the load at 2280-2520, the walk from 3000).
+
+| ms / frame | before | after |
+|---|---|---|
+| attract 600-4800: frame (wall) | 39.16 | 38.33 |
+| execScript | 33.98 | 33.07 |
+| DispDispObjGroupModel (self) | 12.60 (4.44) | 11.74 (3.69) |
+| particleDraw (self) | 2.20 (1.18) | 2.08 (1.03) |
+| route 1900-3400 (the walk from the altar, three load windows in it): frame | 46.03 | 45.48 |
+| DispDispObjGroupModel (self) | 14.05 (4.04) | 13.35 (3.34) |
+| route 3000-4800 (3D only): frame | 39.78 | 38.99 |
+| DispDispObjGroupModel (self) | 13.06 (4.51) | 12.12 (3.76) |
+| route 600-4800: frame | 38.31 | 37.88 |
+
+The steps on the way (single attract runs, the same procedure): the walk,
+the callbacks and modelClipSolid 39.1 -> 38.87 (DispDispObjGroupModel
+12.60 -> 12.28); the haze strips natively 38.65 (12.05); the particle
+loop's inlines and glVertex's kick 38.37 (11.75).
+
+About 0.8 ms (2%) on the attract demo and 0.6-0.8 ms on the route: the
+walk's own recompiled code, its clip / draw callbacks and the haze were ~2
+ms of the 12.6 and run ~2x faster natively, which is what native code gave
+in every earlier round. The frame is still ~5 ms (attract) and ~12 ms
+(route walk) from 2 VBlanks: the time under the walk is in the native hook
+(modelDisp 3.1 / 6.8 ms on the route), the particle display and the light
+pass, already native or host code, and spread over the rest of the frame
+(ExecCharaGeometry 6.4-9.2, particle update 2.7, camera 1.7, the DMA chain
+walk 2.0).
+
+Where the walk's time is now (wip VITA3K_PROFILE, build/agent-scratch/r7/v3k-wip2-top.txt):
+the native hook (modelDispHook 3.5% of the samples, modelDispState, packetId,
+surfaceInfo), the particle display (ptclVtxHook 1.2%, particleDraw's
+recompiled tail, the per-emitter 0113B610 / 0113AAE0 recompiled), the light
+pass natives, iosDlLockObj -> isysAddGroupWithLinkParam (a group insert with
+the thread-id lock, 0.5%, once per drawn object), UpdateLayoutClassSimpleGeometry
+(0.5%, 42 calls), CalcLightLayoutObj (0.35%), iosDlPushLayer / PopLayer
+(sotc_native's hooks, 0.6%), reflectionBegin (0.5%). The profiler itself:
+SOTC_SUBSYS_PROF's clock reads (sceKernelGetProcessTimeWide 6.3% of the
+samples, closeAt / Timed / the TLS lookups ~3% more) are in every number of
+these tables, before and after alike.
+
+**The rest of the walk (plan):**
+
+1. The particle display from doit_particle_geodisp down: 0113AAE0 (the
+   emitter list), 0113B610 (per emitter: camera distance, LOD, 0113B928),
+   particleDraw's tail from 0x113eafc (the matrix and the ptclman packet
+   builders, which sotc_native hooks: call the hooks, never replace them) and
+   ptclVtxHook's host side: ~3.9 ms of the attract frame, the biggest piece
+   left under the walk.
+2. modelDispHook's packet loop (host code, 1.6 ms attract / 4.1 ms route of
+   self time): a per-instance list of the packets it drew last frame (LOD,
+   part, surface, id), rebuilt only when the header / LOD / part visibility
+   change, instead of the packet walk, packetId and the memo lookups each
+   frame; this is the route's largest single item.
+3. iosDlLockObj with isysAddGroupWithLinkParam natively (its thread-id lock
+   is held by the walk already: the owner check is a counter there), and
+   CalcLightLayoutObj's matrix work (SetGeoDispClassLightColMan's callees are
+   native already).
+4. UpdateLayoutClassSimpleGeometry (the billboard / link objects' geometry,
+   42 calls a frame).
+5. (This round's second target, not started.) ExecCharaGeometry's body
+   (0x10bf8f0, 3 944 bytes, ~28 callees): its own recompiled code is ~1% of
+   the samples (0.4 ms); its 3.3 ms of probe "self" time are its unprobed
+   callees (010C7B28, 010C6238, 010C4CA8, 010C6A88 ...), each 0.5% or less:
+   the body natively pays only with those callees natively under it.
+
+The hook hazard (round 6): none of this round's addresses is one
+sotc_native.cpp hooks; what it hooks on the way (modelDisp,
+iosgluGetCameraContext, shadowDisp, meshDisp, glEnd, iosDlPushLayer /
+PopLayer, the ptclman builders) the natives reach through the function
+table with the original's return address (glEnd's hook tells the haze from
+other gl* users by it). SOTC_STRIPS_DEBUG=1 checks the inline
+iosgluGetViewCoordPosition against the guest one at every haze point
+(debugging; it calls both).
 
 ## Vita3K calibration (2026-10-22)
 

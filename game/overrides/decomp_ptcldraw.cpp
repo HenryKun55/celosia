@@ -11,7 +11,8 @@
 //
 // Natively: the prologue (its frame as the recompiled code writes it) and
 // the particle loop, the recompiled code's FPU / VU operations in the same
-// order; 01142030 and iosGetSinCosf stay guest calls. The rest (the
+// order; 01142030 (the fade) inline and iosGetSinCosf (decomp_math.cpp)
+// called straight (round 7: two guest calls a particle before). The rest (the
 // matrix, the packets, the epilogue) is the recompiled code from its label
 // 0x113eafc, entered with the registers and frame it expects there.
 #include "sotc_decomp.h"
@@ -20,6 +21,11 @@
 #include "runtime/ps2_memory.h"
 
 #include <cstring>
+
+namespace decomp_math
+{
+    void getSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
 
 namespace decomp_ptcldraw
 {
@@ -145,8 +151,28 @@ namespace decomp_ptcldraw
                     ram.putf(s1 + 0x10u, FPU_MUL_S(r70, ram.f32(s0 + 0x68u)));
                     ram.putf(s1 + 0x14u, FPU_MUL_S(r74, ram.f32(s0 + 0x70u)));
                     ram.putf(s1 + 0x18u, FPU_MUL_S(r78, ram.f32(s0 + 0x78u)));
+                    // 01142030 (the particle's fade: its life +0x44 against
+                    // the fade-in end +0x58 and the fade-out start +0x5c), inline.
                     SET_GPR_U32(ctx, 4, s0);
-                    call(0x01142030u, 0x0113EA88u);
+                    {
+                        const float life = ram.f32(s0 + 0x44u);
+                        float fade;
+                        if (FPU_C_OLT_S(life, ram.f32(s0 + 0x58u)))
+                            fade = FPU_MUL_S(life, ram.f32(s0 + 0x60u));
+                        else
+                        {
+                            const float out = ram.f32(s0 + 0x5Cu);
+                            ctx->f[1] = out;
+                            fade = one;
+                            if (!FPU_C_OLT_S(life, out))
+                            {
+                                ctx->f[1] = ram.f32(s0 + 0x64u);
+                                fade = FPU_MUL_S(FPU_SUB_S(ram.f32(s0 + 0x40u), life), ctx->f[1]);
+                            }
+                        }
+                        ctx->f[2] = life;
+                        ctx->f[0] = fade;
+                    }
                     const float alpha = FPU_MUL_S(FPU_MUL_S(ram.f32(s2 + 0x140u), ram.f32(s0 + 0x54u)), ctx->f[0]);
                     ram.putf(s1 + 0x1Cu, alpha);
                     const uint32_t c = (s1 + 0x10u) & ~0xFu;
@@ -161,7 +187,17 @@ namespace decomp_ptcldraw
                     ++s5;
                     s3 += 0x30u;
                     ctx->f[12] = f12;
-                    call(sotc_decomp::jalTarget(rdram, 0x0113EAC4u), 0x0113EACCu); // iosGetSinCosf
+                    // iosGetSinCosf: straight to decomp_math's when the table holds it.
+                    {
+                        const uint32_t target = sotc_decomp::jalTarget(rdram, 0x0113EAC4u);
+                        if (target == 0x001BDDB0u && runtime->guestFunctionAt(target) == &decomp_math::getSinCos)
+                        {
+                            SET_GPR_U32(ctx, 31, 0x0113EACCu);
+                            decomp_math::getSinCos(rdram, ctx, runtime);
+                        }
+                        else
+                            call(target, 0x0113EACCu);
+                    }
                     count = ram.u32(s2 + 0x124u);
                     ++s6;
                 }

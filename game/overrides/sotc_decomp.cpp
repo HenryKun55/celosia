@@ -5,6 +5,7 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_fast_paths.h"
 #include "sotc_prof.h"
+#include "runtime/native_renderer.h"
 
 #include <algorithm>
 #include <array>
@@ -105,6 +106,14 @@ namespace sotc_decomp
             const R5900Context input = *ctx;
 
             ++depth;
+            // SOTC_DIFFTEST_DRAWS=1: the native renderer's draws of each leg
+            // (native_renderer::setDrawTap) compared too.
+            static const bool draws = std::getenv("SOTC_DIFFTEST_DRAWS") != nullptr;
+            static std::vector<uint64_t> drawsNative, drawsRecompiled;
+            drawsNative.clear();
+            drawsRecompiled.clear();
+            if (draws)
+                native_renderer::setDrawTap(&drawsNative);
             // SOTC_DIFFTEST_CONTROL=1: the recompiled code in both runs, for
             // the mismatches that come from the state, not the rewrite (a
             // function whose result depends on the clock, interrupts).
@@ -122,12 +131,33 @@ namespace sotc_decomp
             std::memcpy(rdram, before.ram.data(), PS2_RAM_SIZE);
             std::memcpy(scratch, before.scratch.data(), PS2_SCRATCHPAD_SIZE);
             *ctx = input;
+            if (draws)
+                native_renderer::setDrawTap(&drawsRecompiled);
             if (c.function->once)
                 c.recompiled(rdram, ctx, runtime);
             else
                 runToReturn(rdram, ctx, runtime, c.recompiled);
             --depth;
             c.checks.fetch_add(1, std::memory_order_relaxed);
+            if (draws)
+            {
+                native_renderer::setDrawTap(nullptr);
+                static std::atomic<uint64_t> drawChecks{0}, drawMismatches{0}, drawCount{0};
+                const bool same = drawsNative == drawsRecompiled;
+                drawCount += drawsRecompiled.size();
+                const uint64_t n = ++drawChecks, bad = drawMismatches += same ? 0u : 1u;
+                if (!same)
+                {
+                    size_t i = 0;
+                    while (i < drawsNative.size() && i < drawsRecompiled.size() && drawsNative[i] == drawsRecompiled[i])
+                        ++i;
+                    std::fprintf(stderr, "[difftest] %s DRAWS MISMATCH: native %zu recompiled %zu entries, first difference at %zu\n", c.function->name,
+                                 drawsNative.size(), drawsRecompiled.size(), i);
+                }
+                if (n == 1u || n % 100u == 0u)
+                    std::fprintf(stderr, "[difftest] %s: draws compared in %llu checks (%llu entries), %llu differ\n", c.function->name,
+                                 (unsigned long long)n, (unsigned long long)drawCount.load(), (unsigned long long)bad);
+            }
 
             bool bad = false;
             for (int r : kCompared)
