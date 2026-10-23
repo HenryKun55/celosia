@@ -280,6 +280,85 @@ PS2_V* round to nearest while the scalar FPU_* truncate as the EE does; the
 Mac's NEON truncates both. Native and recompiled agree on each platform
 (the same intrinsics), which is what the difftest proves.
 
+## Round 4: the macros themselves (2026-10-22, late night)
+
+A global lever: the generated code's VU0 ops for all ~16 000 recompiled
+functions (and the natives' vu::*N), in ps2_runtime_macros.h. Each PS2_V* op
+ran ps2VuNormalize (11 NEON ops) on both operands and the result; on the
+Vita sse2neon also built every `_mm_set_epi32` mask through a stack array
+(spilled, reloaded, then `vshr` in `_mm_blendv_ps`) and every lane broadcast
+`_mm_shuffle_ps(v, v, 0x55)` as a two-register vtbl from the literal pool.
+iosApplyRotMatrix's VU0 block: 213 -> 84 NEON instructions.
+
+- **ps2VuNormalizeFast** (every platform): Inf / NaN -> signed FLT_MAX as two
+  integer minimums on the pattern (signed min 0x7F7FFFFF clamps the
+  positives, unsigned min 0xFF7FFFFF the negatives), then a zero exponent
+  keeps only the sign: 5 ops. The same function: all 2^32 patterns.
+- **ARMv7 (PS2X_VU_NEON_A32)**: Advanced SIMD always runs with the standard
+  FPSCR value (flush-to-zero in and out, a zero of the same sign, default
+  NaN, round to nearest). A denormal operand is read as the signed zero the
+  normalisation would have made, and a result is never denormal; operands
+  clamped and finite give no NaN. So PS2_VADD / VSUB / VMUL (and
+  ps2VuResult, vu::mulN / addN / subN) only clamp Inf / NaN: 2 ops an
+  operand and 2 for the result. AArch64 / x86 keep the full
+  normalisation (FZ there is the thread's FPCR / MXCSR).
+- **sse2neon on GCC ARMv7**: `_mm_set_epi32` a vector literal (constant masks
+  fold), `_mm_blendv_ps` from the mask's sign bits with constant masks folded
+  (all ones is b), broadcast shuffles as `vdup` per operand combined so that
+  `x ^ x` folds when both are the same register (the generated code always
+  shuffles a register with itself). GCC 15 miscompiles
+  `vcombine_f32(vdup_lane_f32(..), ..)` (the high half dropped): avoided.
+- **FPU** (kept off, switches only): the add's operand alignment without
+  branches (PS2X_FPU_ALIGN=1 a 64-entry mask table, =2 shifts) and a
+  branchless compare key (PS2X_FPU_FAST_CMP=1) are exact (every exponent
+  pair; all 2^32 keys) but ran slower in calibrated Vita3K (adds 104.8 ->
+  114.9 / 135.6 ns, compares 78.7 -> 96.1 ns): the branches stay.
+- **PS2X_VU_MACROS_OLD=1** (compile time) builds the old macros.
+
+**Checks**: ps2_macro_selftest.cpp (`PS2X_MACRO_SELFTEST=<millions>[x]`, on
+the game thread before the game; build/agent-scratch/r4/host_test.cpp on the
+Mac) compares every changed form with the old one: every pair of 4 096 edge
+patterns (all exponents x mantissas 0 / 1 / 2 / half / all ones ..., both
+signs) then random pairs (uniform, edge exponents, exponents near the other
+operand, products at the overflow / denormal borders). Mac: normalisation
+and compare key all 2^32, VADD / VSUB / VMUL / vu::*N 4.0 G lanes each (RZ +
+FZ) and 1.2 G (default mode), alignment every exponent pair, FPU add / sub
+4.0 G each: 0 mismatches. Calibrated Vita3K (the ARMv7 forms): 4 M random
++ the edge pairs per op (33 M lanes each), the shuffles (all 256 imm), the
+blends, set_epi32: 0 mismatches. NaN + NaN of two signs in an FPU add can
+come out with either NaN's sign: which one the hardware passes on follows
+the register order the compiler picked for `a + b` (FPSCR DN is 0 on the
+Vita), free for old and new code alike. SOTC_DIFFTEST=all over the Mac
+attract demo (EVERY=200): 50 functions, 39 200 checks, 0 mismatches but
+isysWakeupSubThread's known noise. Mac route: game clock 1.000x (last 12
+windows). The attract demo's draw dumps differ as much between two runs of
+the old binary as between old and new (not deterministic): no evidence.
+
+**Rounding** (the self-test's report): the game thread's FPSCR on the Vita
+is 0x01c00000 (RZ, FZ, DN 0): the scalar FPU_* ops truncate as the EE does,
+but PS2_V* (NEON) round to nearest: on random normal operands 50% of the
+VU0 products and 47% of the sums differ in the last bit from the scalar RZ
+result (0% on the Mac, whose NEON follows FPCR). Native and recompiled code
+agree on each platform. Truncating on the Vita would take a TwoSum-style
+error term an add and a Dekker product a mul (no FMA on the A9's VFPv3),
+~10-17 extra ops an op: not done.
+
+Calibrated Vita3K (MHZ=240 CORES=3), attract demo frames 600-4800, one run
+per side (HEAD 11f953c's VPK, then this one), env SOTC_SUBSYS_PROF=1:
+
+| ms / frame | before | after |
+|---|---|---|
+| frame (wall) | 45.4 | 39.3 |
+| execScript | 40.1 | 34.1 |
+| ExecCharaGeometry (self) | 9.47 (4.60) | 6.41 (3.29) |
+| DispDispObjGroupModel (self) | 14.4 (5.08) | 12.7 (4.50) |
+| doit_particle_geodisp | 4.14 | 3.89 |
+| skeletonPose | 1.43 | 0.98 |
+| dispSort_010F4FB8 | 1.42 | 1.19 |
+
+Vita3K runs float code ~1.3x slower than the console (above): the console
+may gain less.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

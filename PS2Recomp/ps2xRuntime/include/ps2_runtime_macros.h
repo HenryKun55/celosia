@@ -162,7 +162,93 @@ static PS2_FORCE_INLINE uint32_t ps2_plzcw32(uint32_t x)
 // VU floats have no denormals, infinities or NaNs: denormals read and
 // produce signed zero, Inf/NaN read as signed FLT_MAX and overflow clamps to
 // signed FLT_MAX. Without this, NaN spreads through game math (bone matrices).
-static PS2_FORCE_INLINE __m128 ps2VuNormalize(__m128 v)
+//
+// PS2X_VU_MACROS_OLD=1 (compile time, e.g. CELOSIA_CMAKE_ARGS=
+// -DCMAKE_CXX_FLAGS=-DPS2X_VU_MACROS_OLD=1) builds the generated code with the
+// macros as they were before 2026-10-22 (ps2VuNormalizeRef three times an
+// op, sse2neon's shuffle / blend). The new ones give the same bits for every
+// input (see the notes at ps2VuNormalizeFast and ps2VuClampNF; checked by
+// ps2_macro_selftest.cpp, PS2X_MACRO_SELFTEST=<millions>).
+#ifndef PS2X_VU_MACROS_OLD
+#define PS2X_VU_MACROS_OLD 0
+#endif
+// ARMv7 Advanced SIMD (the Vita): its arithmetic always runs with the
+// "standard FPSCR value" whatever FPSCR says: flush-to-zero on inputs and
+// results (a zero of the same sign), default NaN, round to nearest.
+#if defined(__arm__) && !defined(__aarch64__) && defined(__ARM_NEON) && defined(USE_SSE2NEON)
+#define PS2X_VU_NEON_A32 1
+#else
+#define PS2X_VU_NEON_A32 0
+#endif
+
+#if PS2X_VU_NEON_A32 && !PS2X_VU_MACROS_OLD && defined(__GNUC__) && !defined(__clang__)
+// GCC (ARMv7) with sse2neon: _mm_blendv_ps shifted the generated code's
+// constant masks at run time (vshr, the mask spilled to the stack and read
+// back) and blended an all-ones mask; _mm_shuffle_ps made each lane
+// broadcast a two-register vtbl with its table from the literal pool. The
+// same lane selections: the mask's sign bits (a constant mask folds; all
+// ones is b, all zeros a), and a broadcast shuffle as one vdup per operand
+// (the generated code shuffles a register with itself, so the two vdups are
+// one). The other shuffles stay sse2neon's; _mm_set_epi32 a vector literal. Avoid vcombine of vdup_lane
+// here: GCC 15 dropped the high half of vcombine_f32(vdup_lane_f32(..), ..).
+static PS2_FORCE_INLINE __m128 ps2BlendvPs(__m128 a, __m128 b, __m128 mask)
+{
+    const int32x4_t m = vreinterpretq_s32_m128(mask) >> 31;
+    if (__builtin_constant_p(m[0]) && __builtin_constant_p(m[1]) && __builtin_constant_p(m[2]) && __builtin_constant_p(m[3]))
+    {
+        if ((m[0] & m[1] & m[2] & m[3]) == -1)
+            return b;
+        if ((m[0] | m[1] | m[2] | m[3]) == 0)
+            return a;
+    }
+    return vreinterpretq_m128_f32(vbslq_f32(vreinterpretq_u32_s32(m), vreinterpretq_f32_m128(b), vreinterpretq_f32_m128(a)));
+}
+#define _mm_blendv_ps(a, b, mask) ps2BlendvPs((a), (b), (mask))
+// sse2neon's _mm_set_epi32 went through a stack array and vld1q (opaque to
+// GCC): the generated code's constant blend masks were built at run time.
+static PS2_FORCE_INLINE __m128i ps2SetEpi32(int i3, int i2, int i1, int i0)
+{
+    const int32x4_t v = {i0, i1, i2, i3};
+    return vreinterpretq_m128i_s32(v);
+}
+#define _mm_set_epi32(i3, i2, i1, i0) ps2SetEpi32((i3), (i2), (i1), (i0))
+
+template <int L>
+static PS2_FORCE_INLINE uint32x4_t ps2DupLane(float32x4_t v)
+{
+    if constexpr (L < 2)
+        return vreinterpretq_u32_f32(vdupq_lane_f32(vget_low_f32(v), L & 1));
+    else
+        return vreinterpretq_u32_f32(vdupq_lane_f32(vget_high_f32(v), L & 1));
+}
+template <int Imm>
+static PS2_FORCE_INLINE __m128 ps2ShufflePs(__m128 a, __m128 b)
+{
+    constexpr int i0 = Imm & 3, i1 = (Imm >> 2) & 3, i2 = (Imm >> 4) & 3, i3 = (Imm >> 6) & 3;
+    const float32x4_t fa = vreinterpretq_f32_m128(a);
+    const float32x4_t fb = vreinterpretq_f32_m128(b);
+    if constexpr (i0 == i1 && i2 == i3)
+    {
+        // x's low half, y's high half; written so that x ^ x folds away
+        // when they are the same vector (a select or __builtin_shuffle of
+        // the two stayed a vbit / vtbl).
+        const uint32x4_t x = ps2DupLane<i0>(fa);
+        const uint32x4_t y = ps2DupLane<i2>(fb);
+        const uint32x4_t lo = {~0u, ~0u, 0u, 0u};
+        const uint32x4_t r = y ^ ((x ^ y) & lo);
+        return vreinterpretq_m128_u32(r);
+    }
+    else
+    {
+        const float32x4_t r = __builtin_shuffle(fa, fb, (uint32x4_t){i0, i1, i2 + 4, i3 + 4});
+        return vreinterpretq_m128_f32(r);
+    }
+}
+#undef _mm_shuffle_ps
+#define _mm_shuffle_ps(a, b, imm) ps2ShufflePs<(imm)>((a), (b))
+#endif
+
+static PS2_FORCE_INLINE __m128 ps2VuNormalizeRef(__m128 v)
 {
     const __m128i bits = _mm_castps_si128(v);
     const __m128i sign = _mm_and_si128(bits, _mm_set1_epi32(static_cast<int>(0x80000000u)));
@@ -174,6 +260,85 @@ static PS2_FORCE_INLINE __m128 ps2VuNormalize(__m128 v)
     result = _mm_or_si128(_mm_andnot_si128(isMaxExp, result), _mm_and_si128(isMaxExp, clamped));
     return _mm_castsi128_ps(result);
 }
+
+// Inf / NaN -> signed FLT_MAX, everything else as it is, in two integer
+// minimums on the bit pattern: as a signed integer a positive float's
+// pattern above 0x7F7FFFFF is +Inf / NaN (negative floats are negative
+// integers, left alone); as an unsigned integer a negative float's pattern
+// above 0xFF7FFFFF is -Inf / NaN (positive floats are below 0x80000000).
+static PS2_FORCE_INLINE __m128i ps2VuClampNFBits(__m128i bits)
+{
+#if defined(__ARM_NEON) && defined(USE_SSE2NEON)
+    const int32x4_t s = vminq_s32(vreinterpretq_s32_m128i(bits), vdupq_n_s32(0x7F7FFFFF));
+    return vreinterpretq_m128i_u32(vminq_u32(vreinterpretq_u32_s32(s), vdupq_n_u32(0xFF7FFFFFu)));
+#else
+    return _mm_min_epu32(_mm_min_epi32(bits, _mm_set1_epi32(0x7F7FFFFF)), _mm_set1_epi32(static_cast<int>(0xFF7FFFFFu)));
+#endif
+}
+static PS2_FORCE_INLINE __m128 ps2VuClampNF(__m128 v)
+{
+    return _mm_castsi128_ps(ps2VuClampNFBits(_mm_castps_si128(v)));
+}
+// ps2VuNormalizeRef in five operations instead of eleven: the clamp above,
+// then a zero exponent keeps only the sign. The same function (all 2^32
+// lane values compared, ps2_macro_selftest.cpp).
+static PS2_FORCE_INLINE __m128 ps2VuNormalizeFast(__m128 v)
+{
+#if defined(__ARM_NEON) && defined(USE_SSE2NEON)
+    const uint32x4_t bits = vreinterpretq_u32_m128(v);
+    const uint32x4_t c = vreinterpretq_u32_m128i(ps2VuClampNFBits(vreinterpretq_m128i_u32(bits)));
+    const uint32x4_t keep = vorrq_u32(vtstq_u32(bits, vdupq_n_u32(0x7F800000u)), vdupq_n_u32(0x80000000u));
+    return vreinterpretq_m128_u32(vandq_u32(c, keep));
+#else
+    const __m128i bits = _mm_castps_si128(v);
+    const __m128i zeroExp = _mm_cmpeq_epi32(_mm_and_si128(bits, _mm_set1_epi32(0x7F800000)), _mm_setzero_si128());
+    return _mm_castsi128_ps(_mm_andnot_si128(_mm_and_si128(zeroExp, _mm_set1_epi32(0x7FFFFFFF)), ps2VuClampNFBits(bits)));
+#endif
+}
+static PS2_FORCE_INLINE __m128 ps2VuNormalize(__m128 v)
+{
+#if PS2X_VU_MACROS_OLD
+    return ps2VuNormalizeRef(v);
+#else
+    return ps2VuNormalizeFast(v);
+#endif
+}
+// What a VU0 add / sub / mul needs of its operands and its result.
+// ARMv7 NEON: a denormal operand is read as a zero of its sign by the
+// arithmetic itself (what ps2VuNormalizeRef makes of it), and the result is
+// never denormal (flushed); Inf / NaN are all that is left to clamp. Inputs
+// clamped and finite cannot give NaN (no Inf - Inf, no 0 x Inf), so the
+// result's clamp is the same two minimums. Elsewhere (AArch64, x86: FZ is the
+// thread's FPCR / MXCSR, not guaranteed) the whole normalisation.
+static PS2_FORCE_INLINE __m128 ps2VuOperand(__m128 v)
+{
+#if PS2X_VU_MACROS_OLD
+    return ps2VuNormalizeRef(v);
+#elif PS2X_VU_NEON_A32
+    return ps2VuClampNF(v);
+#else
+    return ps2VuNormalizeFast(v);
+#endif
+}
+static PS2_FORCE_INLINE __m128 ps2VuAdd(__m128 a, __m128 b)
+{
+    return ps2VuOperand(_mm_add_ps(ps2VuOperand(a), ps2VuOperand(b)));
+}
+static PS2_FORCE_INLINE __m128 ps2VuSub(__m128 a, __m128 b)
+{
+    return ps2VuOperand(_mm_sub_ps(ps2VuOperand(a), ps2VuOperand(b)));
+}
+static PS2_FORCE_INLINE __m128 ps2VuMul(__m128 a, __m128 b)
+{
+    return ps2VuOperand(_mm_mul_ps(ps2VuOperand(a), ps2VuOperand(b)));
+}
+// The result of an op on normalised operands, normalised (natives that
+// clamp once: vu::mulN / addN / subN).
+static PS2_FORCE_INLINE __m128 ps2VuResult(__m128 v)
+{
+    return ps2VuOperand(v);
+}
+
 static PS2_FORCE_INLINE float ps2VuNormalizeScalar(float v)
 {
     return _mm_cvtss_f32(ps2VuNormalize(_mm_set1_ps(v)));
@@ -210,9 +375,13 @@ static PS2_FORCE_INLINE uint32_t ps2VuClipFlags(__m128 fsv, __m128 ftv)
     return flags;
 }
 
-#define PS2_VADD(a, b) ps2VuNormalize(_mm_add_ps(ps2VuNormalize((__m128)(a)), ps2VuNormalize((__m128)(b))))
-#define PS2_VSUB(a, b) ps2VuNormalize(_mm_sub_ps(ps2VuNormalize((__m128)(a)), ps2VuNormalize((__m128)(b))))
-#define PS2_VMUL(a, b) ps2VuNormalize(_mm_mul_ps(ps2VuNormalize((__m128)(a)), ps2VuNormalize((__m128)(b))))
+// The old definitions (ps2VuNormalizeRef): the self-test's reference.
+#define PS2_VADD_REF(a, b) ps2VuNormalizeRef(_mm_add_ps(ps2VuNormalizeRef((__m128)(a)), ps2VuNormalizeRef((__m128)(b))))
+#define PS2_VSUB_REF(a, b) ps2VuNormalizeRef(_mm_sub_ps(ps2VuNormalizeRef((__m128)(a)), ps2VuNormalizeRef((__m128)(b))))
+#define PS2_VMUL_REF(a, b) ps2VuNormalizeRef(_mm_mul_ps(ps2VuNormalizeRef((__m128)(a)), ps2VuNormalizeRef((__m128)(b))))
+#define PS2_VADD(a, b) ps2VuAdd((__m128)(a), (__m128)(b))
+#define PS2_VSUB(a, b) ps2VuSub((__m128)(a), (__m128)(b))
+#define PS2_VMUL(a, b) ps2VuMul((__m128)(a), (__m128)(b))
 #define PS2_VDIV(a, b) _mm_div_ps((__m128)(a), (__m128)(b))
 #define PS2_VMULQ(a, q) _mm_mul_ps((__m128)(a), _mm_set1_ps(q))
 #define PS2_VBLEND(a, b, mask) PS2_BLENDV_PS((__m128)(a), (__m128)(b), (__m128)(mask))
@@ -691,7 +860,7 @@ static PS2_FORCE_INLINE float ps2FpuClamp(float value)
     return value;
 }
 
-static PS2_FORCE_INLINE void ps2FpuAlignOperands(float &a, float &b)
+static PS2_FORCE_INLINE void ps2FpuAlignOperandsRef(float &a, float &b)
 {
     uint32_t ua;
     uint32_t ub;
@@ -708,6 +877,86 @@ static PS2_FORCE_INLINE void ps2FpuAlignOperands(float &a, float &b)
         ua &= 0xFFFFFFFFu << (-diff - 1);
     std::memcpy(&a, &ua, sizeof(a));
     std::memcpy(&b, &ub, sizeof(b));
+}
+
+// The same masks as ps2FpuAlignOperandsRef from a table indexed by the
+// exponent difference d saturated to -32..31 (the masks are constant past
+// +-25): no branches (the old code took two or three a call, on the sign of
+// d). b keeps its bits above bit d - 1 for 2 <= d <= 24, only its sign from
+// d >= 25; a likewise for -d. Checked for every d (ps2_macro_selftest.cpp).
+struct Ps2FpuAlignMasks
+{
+    uint32_t a[64];
+    uint32_t b[64];
+};
+static constexpr uint32_t ps2FpuAlignMaskFor(int d)
+{
+    return d >= 25 ? 0x80000000u : d > 0 ? (0xFFFFFFFFu << (d - 1)) : 0xFFFFFFFFu;
+}
+static constexpr Ps2FpuAlignMasks ps2FpuMakeAlignMasks()
+{
+    Ps2FpuAlignMasks m{};
+    for (int i = 0; i < 64; ++i)
+    {
+        m.b[i] = ps2FpuAlignMaskFor(i - 32);
+        m.a[i] = ps2FpuAlignMaskFor(32 - i);
+    }
+    return m;
+}
+inline constexpr Ps2FpuAlignMasks kPs2FpuAlignMasks = ps2FpuMakeAlignMasks();
+
+static PS2_FORCE_INLINE void ps2FpuAlignOperandsFast(float &a, float &b)
+{
+    uint32_t ua;
+    uint32_t ub;
+    std::memcpy(&ua, &a, sizeof(ua));
+    std::memcpy(&ub, &b, sizeof(ub));
+    int32_t d = static_cast<int32_t>((ua >> 23) & 0xFFu) - static_cast<int32_t>((ub >> 23) & 0xFFu);
+    d = d < -32 ? -32 : (d > 31 ? 31 : d);
+    ua &= kPs2FpuAlignMasks.a[d + 32];
+    ub &= kPs2FpuAlignMasks.b[d + 32];
+    std::memcpy(&a, &ua, sizeof(a));
+    std::memcpy(&b, &ub, sizeof(b));
+}
+
+// The same masks by shifts: the shift d - 1 saturated to 0..31, and 31
+// (sign only) from d >= 25 on. No branches, no memory.
+static PS2_FORCE_INLINE uint32_t ps2FpuAlignShiftMask(int32_t d)
+{
+    int32_t t = d - 1;
+    t = t < 0 ? 0 : (t > 31 ? 31 : t);
+    const uint32_t sh = static_cast<uint32_t>(t) | (static_cast<uint32_t>((24 - d) >> 31) & 31u);
+    return 0xFFFFFFFFu << sh;
+}
+static PS2_FORCE_INLINE void ps2FpuAlignOperandsShift(float &a, float &b)
+{
+    uint32_t ua;
+    uint32_t ub;
+    std::memcpy(&ua, &a, sizeof(ua));
+    std::memcpy(&ub, &b, sizeof(ub));
+    const int32_t d = static_cast<int32_t>((ua >> 23) & 0xFFu) - static_cast<int32_t>((ub >> 23) & 0xFFu);
+    ub &= ps2FpuAlignShiftMask(d);
+    ua &= ps2FpuAlignShiftMask(-d);
+    std::memcpy(&a, &ua, sizeof(a));
+    std::memcpy(&b, &ub, sizeof(b));
+}
+
+// PS2X_FPU_ALIGN: 0 the branches (default: in calibrated Vita3K the
+// self-test's adds ran no faster without them: a dependent chain 104.8 ns
+// with the branches, 114.9 the table, 135.6 the shifts; independent adds
+// 110.6 / 112.3 / 135.5), 1 the table, 2 the shifts. All three give the same bits (ps2_macro_selftest.cpp).
+#ifndef PS2X_FPU_ALIGN
+#define PS2X_FPU_ALIGN 0
+#endif
+static PS2_FORCE_INLINE void ps2FpuAlignOperands(float &a, float &b)
+{
+#if PS2X_VU_MACROS_OLD || PS2X_FPU_ALIGN == 0
+    ps2FpuAlignOperandsRef(a, b);
+#elif PS2X_FPU_ALIGN == 1
+    ps2FpuAlignOperandsFast(a, b);
+#else
+    ps2FpuAlignOperandsShift(a, b);
+#endif
 }
 
 static PS2_FORCE_INLINE float ps2FpuAdd(float a, float b)
@@ -737,12 +986,36 @@ static PS2_FORCE_INLINE uint32_t ps2FloatBits(float value)
     return bits;
 }
 
-static PS2_FORCE_INLINE uint32_t ps2FpuCompareKey(float value)
+static PS2_FORCE_INLINE uint32_t ps2FpuCompareKeyRef(float value)
 {
     uint32_t bits = ps2FloatBits(value);
     if ((bits & 0x7F800000u) == 0u)
         bits = 0u;
     return (bits & 0x80000000u) != 0u ? ~bits : bits ^ 0x80000000u;
+}
+// The same key without branches (GCC made two or three of each operand's):
+// a zero exponent reads as +0, then a negative pattern is inverted and a
+// positive one gets its sign bit set. Equal for all 2^32 patterns
+// (ps2_macro_selftest.cpp).
+static PS2_FORCE_INLINE uint32_t ps2FpuCompareKeyFast(float value)
+{
+    uint32_t bits = ps2FloatBits(value);
+    bits &= 0u - static_cast<uint32_t>((bits & 0x7F800000u) != 0u);
+    return bits ^ (static_cast<uint32_t>(static_cast<int32_t>(bits) >> 31) | 0x80000000u);
+}
+// PS2X_FPU_FAST_CMP=1: the branchless key in the generated code. Off by
+// default: in calibrated Vita3K the self-test's compares ran slower with it
+// (78.7 -> 96.1 ns a compare).
+#ifndef PS2X_FPU_FAST_CMP
+#define PS2X_FPU_FAST_CMP 0
+#endif
+static PS2_FORCE_INLINE uint32_t ps2FpuCompareKey(float value)
+{
+#if PS2X_VU_MACROS_OLD || !PS2X_FPU_FAST_CMP
+    return ps2FpuCompareKeyRef(value);
+#else
+    return ps2FpuCompareKeyFast(value);
+#endif
 }
 
 static PS2_FORCE_INLINE bool ps2FloatIsZero(float value)

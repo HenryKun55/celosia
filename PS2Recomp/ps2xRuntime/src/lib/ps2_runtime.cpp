@@ -2923,6 +2923,13 @@ void PS2Runtime::run()
         // Guest float code runs like the EE: round toward zero, no denormals.
         ps2SetEeFloatingPointMode();
         g_ps2FpuSetcsrNearest = std::getenv("PS2X_FPU_SETCSR") != nullptr && std::atoi(std::getenv("PS2X_FPU_SETCSR")) != 0;
+        // The VU0 / FPU macros against their old forms on this machine, in
+        // this float environment (ps2_macro_selftest.cpp).
+        if (const char *selftest = std::getenv("PS2X_MACRO_SELFTEST"))
+        {
+            extern int ps2MacroSelfTest(const char *spec);
+            ps2MacroSelfTest(selftest);
+        }
         try
         {
             m_eeScheduler->reset(m_memory.getRDRAM(), m_cpuContext);

@@ -102,9 +102,9 @@ namespace sotc_decomp
     namespace vu
     {
         inline __m128 clamp(__m128 v) { return ps2VuNormalize(v); }
-        inline __m128 mulN(__m128 a, __m128 b) { return ps2VuNormalize(_mm_mul_ps(a, b)); }
-        inline __m128 addN(__m128 a, __m128 b) { return ps2VuNormalize(_mm_add_ps(a, b)); }
-        inline __m128 subN(__m128 a, __m128 b) { return ps2VuNormalize(_mm_sub_ps(a, b)); }
+        inline __m128 mulN(__m128 a, __m128 b) { return ps2VuResult(_mm_mul_ps(a, b)); }
+        inline __m128 addN(__m128 a, __m128 b) { return ps2VuResult(_mm_add_ps(a, b)); }
+        inline __m128 subN(__m128 a, __m128 b) { return ps2VuResult(_mm_sub_ps(a, b)); }
         template <int L>
         inline __m128 lane(__m128 v) { return _mm_shuffle_ps(v, v, _MM_SHUFFLE(L, L, L, L)); }
         struct Rows
