@@ -104,6 +104,11 @@ What a native function has to keep, learned the hard way:
 | decomp_clothdyn.cpp | 01137858 (the rows' length constraint), 01137640 (the velocities; type 1 cloths go on in the recompiled code from 0x1137728 with the prologue's frame) | attract 1 100 + 5 600, route 2 700 + 6 900, 0 mismatches | under GetClothDynamics (in ExecCharaGeometry). 01137858's type 1 path stays recompiled. RSQRT as build/runner has it (ps2VuRsqrt with the status flags, not recomp/game/output's older ps2VuRsqrtQ) |
 | decomp_prefetch.cpp | ClipLayoutObjModel, DispLayoutObjModel: the recompiled functions, with the next object's lines prefetched | route 23 900 + 9 600, attract 4 700 + 2 600 (EVERY=20), 0 mismatches | see "The display walk's memory misses" below |
 | decomp_light.cpp | the light pass: manager_sub_010F4FB8 (its three walks of the sort list), 010F4A18, ExecGlobalLightMan, 010F8360, 010F5F60, SetWorkFromGlobalLight, GetInverseMatrixFromQuaternionPos, GetRateInOutCubeVolumeWithInverseMatrix | attract 800-6 500 each, route 300-6 700 each, 0 mismatches | see "The light pass" below |
+| decomp_curve.cpp | manager_sub_010AC6C8 (curveEval: a motion channel's key), manager_sub_010B81F8 (a motion's keys, curveEval called natively) | attract 80 800 + 2 100, route 86 300 + 1 600, 0 mismatches | formats 0, 3-9, 12, 13 natively (all the attract demo and the route use); 1, 2, 10, 11, 14 recompiled (SOTC_CURVE_STATS=1 counts them). See "Round 3" below |
+| decomp_quat.cpp | GetQuaternionByAxisDirZY, GetDifferencialQuaternionWithNoRegularize, SetQuaternionByAxisRotateVWithNoRegularize, GetEulerYXZFromQuaternion, iosGetATan2fExact, atan2f / __ieee754_atan2f, atanf | attract 4 500-32 900 each, route 2 500-28 600 each, 0 mismatches | each natively into the next (newlib's atanf / atan2f ported with the FPU_* ops); asinf stays a guest call |
+| decomp_bridle.cpp | gamecore_sub_013978E8, gamecore_sub_013976B8 (the horse's rein cloths against its body: three cylinders / the head's) | attract 600 + 600, route 400 + 400, 0 mismatches | iosTransMatrixF / 01B96D0 stay guest calls |
+| decomp_skinpal.cpp | manager_sub_010F3CF0 (a skinned model's matrix palette) | attract 1 500, route 800, 0 mismatches | the palette loop natively, then the recompiled code from 0x10f3df0 |
+| decomp_texreset.cpp | manager_sub_010AB618 (the texture list's transfer reset) | attract 1 300, route 1 100, 0 mismatches | ~1 000 nodes a frame |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -200,10 +205,11 @@ SOTC_DRAW_DUMP_FRAMES=f,... (SOTC_DRAW_DUMP_DIR) writes those frames'
 draw lists (now with the matrix and light hashes); two runs are not
 frame-identical, so the in-process checks are the proof.
 
-SOTC_AB now alternates this round's set: the two wrappers and the hooks'
-new paths (sotc_decomp::abNew, read once a frame). The light pass and
-the cloth passes are plain decompiled functions again; the scratchpad /
-DMA fast paths stay on (SOTC_AB_FASTPATHS=1 alternates them as before).
+SOTC_AB alternated that round's set: the two wrappers and the hooks' new
+paths (sotc_decomp::abNew, read once a frame; plain since round 3). The
+light pass and the cloth passes are plain decompiled functions again; the
+scratchpad / DMA fast paths stay on (SOTC_AB_FASTPATHS=1 alternates them
+as before).
 
 Calibrated Vita3K (240 MHz, below), attract demo frames 600-4800, the
 same VPK with the new paths on / off: hook.packets 2.49 -> 2.18 ms,
@@ -211,6 +217,68 @@ modelDisp 3.37 -> 3.21, hook.state 0.24 -> 0.36 (the prefetch
 bookkeeping; Vita3K's PLD does nothing), the frame unchanged (48.4 / 48.4).
 The misses these remove are the console's: read the console's AB.
 Mac route clock: 1.000x.
+
+## Round 3: the characters' math (2026-10-22, night)
+
+Measured first (calibrated Vita3K, SOTC_SUBSYS_PROF with probes on the
+children and a VITA3K_PROFILE sample of the game thread): with the r2
+probes in place ExecCharaGeometry's own time is ~1.4 ms, not ~4.5 (that was
+its unprobed children): GetCharaRootDynamics is 0.4 ms with all its physics
+(xzfit, swim, pendulum: under 0.05 ms each in the attract demo). The time
+is spread over the motion keys (curveEval and its callers ~1.6 ms), the
+quaternion helpers of the IK / expression nodes (GetQuaternionByAxisDirZY,
+GetEulerYXZFromQuaternion and newlib's atan2f / atanf under them, ~1.5 ms),
+the rein cloths, the matrix palettes and a texture list walk. The camera
+(doit_game_camera ~1.9 ms) is ~30 functions of 0.05-0.15 ms each: left.
+
+- **decomp_curve.cpp**: curveEval decodes one key of a channel (packed
+  9-bit quaternions with a VU0 sqrt for the fourth component, s16 keys,
+  axis-angle with iosGetSinCosf); 010B81F8 calls it for every channel of a
+  motion, now natively (no table call / runToReturn a key).
+- **decomp_quat.cpp**: the rotation helpers natively into each other;
+  atan2f / atanf transcribed from the recompiled newlib code (their pi is
+  0x40490fda, not 0x...db: the first difftest caught 2 900 mismatches in
+  the -x -y quadrant). Every VU0 operand clamped once and vu::mulN / addN
+  / subN after (each PS2_V* op clamps both operands and the result): the
+  native helpers went from ~30% faster than the recompiled code to
+  1.6-1.9x.
+- **decomp_bridle.cpp**, **decomp_skinpal.cpp**, **decomp_texreset.cpp**:
+  loops natively (matrix rows clamped once, vu::apply).
+- The r2 display-walk paths (the hooks' quick textures / packets, surface
+  memo, prefetch; decomp_prefetch's wrappers) are plain now, their
+  switches kept; SOTC_AB alternates this round's 14 functions.
+
+Native functions here call a recompiled fallback only as their last act
+(the generated code can return at a checkpoint before its end; a native
+parent that goes on after a child calls it through callGuest, as 010B81F8
+does for the curve formats it does not do itself).
+
+Calibrated Vita3K (MHZ=240 CORES=3), attract demo frames 600-4800, one run
+per side (HEAD e28f9de's VPK, then this one), the same probes:
+
+| ms / frame | before | after |
+|---|---|---|
+| frame (wall) | 48.4 | 45.8 |
+| execScript | 42.7 | 40.4 |
+| ExecCharaGeometry | 10.6 | 9.8 |
+| DispDispObjGroupModel (self) | 14.7 (3.85) | 14.4 (3.49) |
+| motion keys 010B81F8 (curveEval in it) | 1.57 | 0.52 |
+| GetQuaternionByAxisDirZY | 0.74 | 0.40 |
+| GetEulerYXZFromQuaternion | 0.71 | 0.44 |
+| texture list reset | 0.33 | 0.14 |
+| rein cloths (both) | 0.55 | 0.37 |
+
+Mac route: the plain, game clock 1.003x (last 12 windows).
+
+What is left is the emulation itself: the recompiled game spends its time
+in PS2_V* / FPU_* (three clamps a VU0 op, operand alignment an FPU add),
+and natively the same ops cost nearly the same; the clamp-once trick is
+the lever left inside the rules. A note from the way (from the ARMv7
+architecture, not checked on the console): Advanced SIMD ignores FPSCR's
+rounding mode (its standard FPSCR value rounds to nearest), so on the Vita
+PS2_V* round to nearest while the scalar FPU_* truncate as the EE does; the
+Mac's NEON truncates both. Native and recompiled agree on each platform
+(the same intrinsics), which is what the difftest proves.
 
 ## Vita3K calibration (2026-10-22)
 

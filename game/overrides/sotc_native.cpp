@@ -76,9 +76,9 @@ namespace sotc_native
     };
 
     const uint8_t *g_ram = nullptr;
-    // This round's fast paths (2026-10-22 evening), on unless SOTC_AB has the
-    // old set running (sotc_decomp::abNew) or SOTC_NATIVE_R2=0; set once a
-    // frame (syncFrame). Each part has a switch of its own too.
+    // The display walk's fast paths (2026-10-22 evening), on unless
+    // SOTC_NATIVE_R2=0 (no longer alternated by SOTC_AB); set once a frame
+    // (syncFrame). Each part has a switch of its own too.
     bool g_r2 = true;
     bool g_quickTextures = true; // decodedTexture: no sample for a texture drawn the frame before (SOTC_TEX_QUICK=0: off)
     bool g_surfaceMemo = true;   // modelDispHook: a surface's state worked out once a frame (SOTC_SURFACE_MEMO=0: off)
@@ -2033,7 +2033,7 @@ namespace sotc_native
                 };
                 static const bool r2 = envOn("SOTC_NATIVE_R2"), quickTextures = envOn("SOTC_TEX_QUICK"), surfaceMemo = envOn("SOTC_SURFACE_MEMO"),
                                   prefetch = envOn("SOTC_HOOK_PREFETCH");
-                g_r2 = r2 && sotc_decomp::abNew();
+                g_r2 = r2;
                 g_quickTextures = g_r2 && quickTextures;
                 g_surfaceMemo = g_r2 && surfaceMemo;
                 g_prefetch = g_r2 && prefetch;

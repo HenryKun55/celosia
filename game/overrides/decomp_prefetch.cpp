@@ -15,7 +15,8 @@
 // unchanged. A prefetch never changes what is read: wrong guesses cost a
 // line fill and nothing else.
 //
-// Both are in SOTC_AB's new set; SOTC_OBJ_PREFETCH=0 leaves them out.
+// Plain decompiled functions since 2026-10-22's third round (SOTC_AB no
+// longer alternates them); SOTC_OBJ_PREFETCH=0 leaves the prefetch out.
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -192,5 +193,5 @@ namespace decomp_prefetch
     void disp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { run(g_disp, kDisp, GPR_U32(ctx, 5), rdram, ctx, runtime); }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x010F4890u, ClipLayoutObjModel, decomp_prefetch::clip);
-SOTC_DECOMP_AB_FUNCTION(0x010F5920u, DispLayoutObjModel, decomp_prefetch::disp);
+SOTC_DECOMP_FUNCTION(0x010F4890u, ClipLayoutObjModel, decomp_prefetch::clip);
+SOTC_DECOMP_FUNCTION(0x010F5920u, DispLayoutObjModel, decomp_prefetch::disp);

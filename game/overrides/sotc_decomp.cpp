@@ -355,7 +355,7 @@ namespace sotc_decomp
             g_abPrefetch = ps2_fast_paths::g_dmaPrefetch;
             g_abFastPaths = std::getenv("SOTC_AB_FASTPATHS") && std::atoi(std::getenv("SOTC_AB_FASTPATHS")) != 0;
             sotc_prof::noteAb(true);
-            std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : " and the native hooks' new paths") << " alternate every " << g_abPeriod << " frames" << std::endl;
+            std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : "") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;
