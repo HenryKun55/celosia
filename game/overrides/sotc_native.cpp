@@ -83,6 +83,8 @@ namespace sotc_native
     bool g_quickTextures = true; // decodedTexture: no sample for a texture drawn the frame before (SOTC_TEX_QUICK=0: off)
     bool g_surfaceMemo = true;   // modelDispHook: a surface's state worked out once a frame (SOTC_SURFACE_MEMO=0: off)
     bool g_prefetch = true;      // modelDispState / modelDispHook: guest lines asked for ahead (SOTC_HOOK_PREFETCH=0: off)
+    bool g_planOn = true;        // modelDispHook: draw plans kept across frames (SOTC_PLAN=0: off)
+    uint32_t g_planVerify = 0;   // SOTC_PLAN_VERIFY=<n>: plan against the packet walk every n-th frame
     // SOTC_R2_CHECK=1 (debugging): the new paths checked against the old ones
     // at every use (the quick texture against its full sample, each surface's
     // kept state against the reads it replaces); counts every 600 frames.
@@ -100,10 +102,15 @@ namespace sotc_native
                 std::fprintf(stderr, "[r2-check] mismatch: %s\n", what);
         }
     };
-    R2Check &r2Check()
+    // Made at the first use (after the environment is read), then a plain
+    // pointer: a function-local static costs a guard check with a barrier
+    // (dmb) at every call on the Vita, and this is asked twice a draw.
+    R2Check *g_r2Check = nullptr;
+    inline R2Check &r2Check()
     {
-        static R2Check c;
-        return c;
+        if (!g_r2Check)
+            g_r2Check = new R2Check;
+        return *g_r2Check;
     }
     inline void prefetchGuest(uint32_t addr) { __builtin_prefetch(g_ram + (addr & 0x1FFFFE0u)); }
     uint32_t word(uint32_t addr)
@@ -127,10 +134,12 @@ namespace sotc_native
                  idHashed = 0, nodes = 0, surfaces = 0, surfaceHits = 0;
         std::set<uint32_t> headers, surfaceSet, textureSet;
     };
-    HookStats &hookStats()
+    HookStats *g_hookStats = nullptr; // as r2Check: no guard per call
+    inline HookStats &hookStats()
     {
-        static HookStats s;
-        return s;
+        if (!g_hookStats)
+            g_hookStats = new HookStats;
+        return *g_hookStats;
     }
 
     // A vertex as the batch gives it: model space, or bind pose with up to
@@ -976,15 +985,20 @@ namespace sotc_native
     // some of them) are built at once, not on the async worker, which would
     // leave them out of every frame.
     bool g_packetChangedInPlace = false;
+    // The last packetId's packet seen rewritten in place at some time (its
+    // memo's flag): a draw plan asks for that packet's id every frame.
+    bool g_packetRewritten = false;
     uint64_t packetId(uint32_t data, uint32_t size, bool fast)
     {
         g_packetChangedInPlace = false;
+        g_packetRewritten = false;
         if (!fast)
             return ((static_cast<uint64_t>(size) << 32) | data) ^ (sample(data, size, 32u) & 0x7FFF000000000000ull);
         bool found = false;
         PacketMemo &memo = g_packetMemo.find(data, found);
         found = found && memo.size == size;
         HookStats &hs = hookStats();
+        g_packetRewritten = found && memo.rewritten;
         if (found && memo.frame == g_frame)
         {
             hs.idSame += hs.on;
@@ -1052,6 +1066,7 @@ namespace sotc_native
         memo.id = id;
         memo.sampledAt = static_cast<uint32_t>(g_frame);
         memo.rewritten = rewritten;
+        g_packetRewritten = rewritten;
         memo.sample = sampled;
         memo.quick = quickSample(data, size);
         return id;
@@ -1652,6 +1667,207 @@ namespace sotc_native
     native_renderer::IdSet g_skinnedIds;                              // g_skinnedPackets' keys (most packets are not: no map lookup for them)
     uint64_t g_skinnedDraws = 0;                                       // this frame's skinned meshes
 
+    // ---- Draw plans (round 8) --------------------------------------------
+    //
+    // A model's packet list (header +0x60, 32 bytes a packet, every LOD one
+    // after the other) walked once, not twice a draw (modelDispState and the
+    // hook): for each (header, LOD) the packets of that LOD in their order
+    // with their part, surface and data, and what the hook found out about
+    // each (its id, skinned or not, its meshes there, lit). Kept across
+    // frames. What is still read per draw: the part tree's results, the
+    // surfaces' flags / textures / scroll (the per-frame surface memo), the
+    // instance's matrix, opacity, lights and palette.
+    //
+    // Invalidation: each frame a plan is used, the header's packet list and
+    // surface table pointers and the list's first packet are compared; one
+    // frame in 16 (by header) the whole list (size, LOD, surface, part, data
+    // of every packet) is hashed again; a header that moved (an area's heap
+    // compaction) or a LOD switch is another plan. A packet's id is taken
+    // again from packetId whenever packetId itself would look at the packet
+    // (not drawn the frame before, its stagger frame, or a packet seen
+    // rewritten in place: every frame), so the ids are packetId's.
+    // The meshes' presence is asked again after the backend lets meshes go
+    // (meshEvictions) and the skinned packets' after their sweep.
+    // SOTC_PLAN=0: off (the packet walk as before). SOTC_PLAN_VERIFY=<n>:
+    // every n-th frame each draw's packets go through both paths, the old
+    // one dry (hashed by the draw tap, not drawn), and the draw hashes are
+    // compared ([plan-verify] lines).
+    struct PlanPacket
+    {
+        uint32_t data = 0, size = 0, part = 0;
+        uint32_t surface = 0, s = 0, slot = 0; // the surface: index, record, g_surfaceInfo slot
+        uint64_t id = 0, idFrame = ~0ull;      // the packet's id, the frame it was last taken
+        SkinnedPacket *skinned = nullptr;
+        bool rewritten = false; // packetId saw it rewritten in place: asked every frame
+        bool resolved = false;  // skinned / ready / lit known for `id`
+        bool ready = false, readyTwo = false, lit = false;
+    };
+    struct ModelPlan
+    {
+        uint32_t header = 0, lod = 0, packets = 0, surfaces = 0, count = 0;
+        uint32_t first[5] = {};
+        uint64_t listHash = 0, checked = ~0ull, used = 0, meshEpoch = 0, skinEpoch = 0;
+        std::vector<PlanPacket> pk;
+    };
+    std::unordered_map<uint64_t, ModelPlan> g_plans;
+    int32_t g_planBudget = 0; // packets the frame's new plans may still walk (SOTC_PLAN_BUDGET, default 3000)
+    uint64_t g_skinnedEpoch = 0; // g_skinnedPackets lost an entry (their sweep)
+    struct PlanStats
+    {
+        uint64_t builds = 0, rebuilds = 0, uses = 0, asked = 0, trusted = 0, checks = 0, draws = 0, differ = 0, countDiffer = 0, ranges = 0, drawn = 0, merged = 0, deferred = 0;
+    } g_planStats;
+    // A run of one surface's packets of one draw, drawn as one (drawMulti):
+    // the state of its first packet, the meshes of all (round 8). The packets
+    // after the first are taken only when their draw would be the same: the
+    // same surface record (its flags, texture, layer ... this frame), lit or
+    // not alike, a plain mesh already there, one draw a packet (no second
+    // texture, no reflection passes). Flushed before any other draw.
+    struct PlanRun
+    {
+        uint32_t n = 0, s = 0;
+        bool lit = false;
+        const float *transform = nullptr;
+        native_renderer::DrawState state;
+        std::vector<uint64_t> ids;
+        void flush()
+        {
+            if (!n)
+                return;
+            native_renderer::drawMulti(ids.data(), n, transform, state);
+            g_planStats.ranges += n > 1u;
+            g_planStats.merged += n - 1u;
+            n = 0;
+            ids.clear();
+        }
+    } g_planRun;
+    bool g_planRuns = true; // SOTC_PLAN_RUNS=0: one draw a packet
+    bool g_planStatsOn = false; // SOTC_PLAN_STATS=1 (set once a frame: no guard per packet)
+    inline bool planStatsOn() { return g_planStatsOn; }
+    inline uint64_t planMix(uint64_t h, uint32_t v) { return (h ^ v) * 0x100000001b3ull; }
+    // The list's size / LOD / surface / part / data words, every packet.
+    uint64_t packetListHash(uint32_t packets, uint32_t &count)
+    {
+        uint64_t h = 0xcbf29ce484222325ull;
+        count = 0;
+        for (uint32_t pk = packets; count < 0x10000u; pk += 32u)
+        {
+            const uint32_t size = word(pk);
+            if (size == 0u)
+                break;
+            ++count;
+            for (uint32_t i = 0; i < 20u; i += 4u)
+                h = planMix(h, word(pk + i));
+        }
+        return h;
+    }
+    void buildPlan(ModelPlan &p, uint32_t header, uint32_t lod)
+    {
+        p.header = header;
+        p.lod = lod;
+        p.packets = word(header + 0x60u);
+        p.surfaces = word(header + 0x50u);
+        p.pk.clear();
+        uint64_t h = 0xcbf29ce484222325ull;
+        uint32_t count = 0;
+        for (uint32_t pk = p.packets; count < 0x10000u; pk += 32u)
+        {
+            const uint32_t size = word(pk);
+            if (size == 0u)
+                break;
+            ++count;
+            for (uint32_t i = 0; i < 20u; i += 4u)
+                h = planMix(h, word(pk + i));
+            if (word(pk + 4u) != lod)
+                continue;
+            PlanPacket e;
+            e.size = size;
+            e.surface = word(pk + 8u);
+            e.part = word(pk + 12u);
+            e.data = word(pk + 16u);
+            e.s = p.surfaces + e.surface * 0x120u;
+            e.slot = surfaceSlot(e.s);
+            p.pk.push_back(e);
+        }
+        p.count = count;
+        p.listHash = h;
+        for (uint32_t i = 0; i < 5u; ++i)
+            p.first[i] = word(p.packets + i * 4u);
+        p.meshEpoch = native_renderer::meshEvictions();
+        p.skinEpoch = g_skinnedEpoch;
+    }
+    // The plan of (header, LOD), checked once a frame; nullptr: none (LOD out of range).
+    ModelPlan *modelPlan(uint32_t header, uint32_t lod)
+    {
+        if (lod >= 8u)
+            return nullptr;
+        const auto [it, fresh] = g_plans.try_emplace((static_cast<uint64_t>(header) << 3) | lod);
+        ModelPlan &p = it->second;
+        p.used = g_frame;
+        // Builds spread over frames (an area load brings hundreds of new
+        // models at once): past this frame's budget of packets a model is
+        // drawn by the packet walk, its plan made at a later frame.
+        if ((fresh || p.checked != g_frame) && g_planBudget <= 0)
+        {
+            if (fresh)
+            {
+                g_plans.erase(it);
+                ++g_planStats.deferred;
+                return nullptr;
+            }
+        }
+        if (fresh)
+        {
+            buildPlan(p, header, lod);
+            g_planBudget -= static_cast<int32_t>(p.count) + 16;
+            p.checked = g_frame;
+            ++g_planStats.builds;
+            return &p;
+        }
+        if (p.checked == g_frame)
+            return &p;
+        p.checked = g_frame;
+        bool ok = p.packets == word(header + 0x60u) && p.surfaces == word(header + 0x50u);
+        for (uint32_t i = 0; ok && i < 5u; ++i)
+            ok = p.first[i] == word(p.packets + i * 4u);
+        if (ok && ((g_frame + (header >> 5)) & 15u) == 0u)
+        {
+            uint32_t count = 0;
+            ok = packetListHash(p.packets, count) == p.listHash && count == p.count;
+        }
+        if (!ok)
+        {
+            if (g_planBudget <= 0)
+            {
+                p.checked = ~0ull; // looked at again next time
+                ++g_planStats.deferred;
+                return nullptr;
+            }
+            buildPlan(p, header, lod);
+            g_planBudget -= static_cast<int32_t>(p.count) + 16;
+            ++g_planStats.rebuilds;
+            return &p;
+        }
+        const uint64_t evictions = native_renderer::meshEvictions();
+        if (p.meshEpoch != evictions || p.skinEpoch != g_skinnedEpoch)
+        {
+            p.meshEpoch = evictions;
+            p.skinEpoch = g_skinnedEpoch;
+            for (PlanPacket &e : p.pk)
+                e.resolved = false;
+        }
+        return &p;
+    }
+    // Plans no draw used for 10 s go (every 256 frames).
+    void sweepPlans()
+    {
+        for (auto it = g_plans.begin(); it != g_plans.end();)
+            if (it->second.used + 600u < g_frame)
+                it = g_plans.erase(it);
+            else
+                ++it;
+    }
+
+
     void flush2D();
 
     // zFog (0x10ac0a8, layer 4): after the opaque world (layers 2-3) it
@@ -2032,7 +2248,15 @@ namespace sotc_native
                     return !v || std::atoi(v) != 0;
                 };
                 static const bool r2 = envOn("SOTC_NATIVE_R2"), quickTextures = envOn("SOTC_TEX_QUICK"), surfaceMemo = envOn("SOTC_SURFACE_MEMO"),
-                                  prefetch = envOn("SOTC_HOOK_PREFETCH");
+                                  prefetch = envOn("SOTC_HOOK_PREFETCH"), plans = envOn("SOTC_PLAN"), planRuns = envOn("SOTC_PLAN_RUNS");
+                static const uint32_t verify = std::getenv("SOTC_PLAN_VERIFY") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_PLAN_VERIFY"))) : 0u;
+                g_planOn = plans;
+                static const int32_t budget = std::getenv("SOTC_PLAN_BUDGET") ? std::atoi(std::getenv("SOTC_PLAN_BUDGET")) : 3000;
+                g_planBudget = budget;
+                g_planRuns = planRuns;
+                static const bool planStats = std::getenv("SOTC_PLAN_STATS") != nullptr;
+                g_planStatsOn = planStats;
+                g_planVerify = verify;
                 g_r2 = r2;
                 g_quickTextures = g_r2 && quickTextures;
                 g_surfaceMemo = g_r2 && surfaceMemo;
@@ -2059,12 +2283,27 @@ namespace sotc_native
                     {
                         g_litPackets.erase(it->first);
                         g_skinnedIds.erase(it->first);
+                        ++g_skinnedEpoch; // the draw plans find their skinned packets again
                         g_skinnedPacketBytes -= it->second.bytes;
                         it = g_skinnedPackets.erase(it);
                     }
                     else
                         ++it;
             native_renderer::noteFrontendMemory(g_skinnedPacketBytes);
+            if (frame % 256u == 0u)
+                sweepPlans();
+            // SOTC_PLAN_STATS=1 / SOTC_PLAN_VERIFY: the draw plans, every 600 frames.
+            static const bool planStats = std::getenv("SOTC_PLAN_STATS") != nullptr;
+            if ((planStats || g_planVerify) && frame % 600u == 0u)
+            {
+                const PlanStats &ps = g_planStats;
+                std::fprintf(stderr, "[plan] frame %llu: packets drawn %llu (stats on), %llu runs drawn as one: %llu draws fewer\n", (unsigned long long)frame,
+                             (unsigned long long)ps.drawn, (unsigned long long)ps.ranges, (unsigned long long)ps.merged);
+                std::fprintf(stderr, "[plan] frame %llu: plans %zu built %llu rebuilt %llu deferred %llu uses %llu ids asked %llu kept %llu; verify %llu checks %llu draws, %llu differ (%llu counts)\n",
+                             (unsigned long long)frame, g_plans.size(), (unsigned long long)ps.builds, (unsigned long long)ps.rebuilds, (unsigned long long)ps.deferred,
+                             (unsigned long long)ps.uses, (unsigned long long)ps.asked, (unsigned long long)ps.trusted, (unsigned long long)ps.checks,
+                             (unsigned long long)ps.draws, (unsigned long long)ps.differ, (unsigned long long)ps.countDiffer);
+            }
         }
     }
 
@@ -3255,14 +3494,15 @@ namespace sotc_native
         const ModelShape &shape = modelShape(next.header);
         if (shape.header != next.header)
             return;
-        q.pushRange(shape.packets, shape.packetCount * 32u, 64u);
+        if (!g_planOn) // with the draw plans the packet list is not read
+            q.pushRange(shape.packets, shape.packetCount * 32u, 64u);
         if (shape.table)
             q.pushRange(shape.table, shape.nodes * 0x30u, 64u);
         for (uint32_t i = 0; i < shape.surfaceCount; ++i)
             q.push(shape.surfaces[i] + 0x18u);
     }
 
-    void modelDispState(R5900Context *ctx, uint32_t instance, const float model[16])
+    void modelDispState(R5900Context *ctx, uint32_t instance, const float model[16], const ModelPlan *plan = nullptr)
     {
         const uint32_t header = word(word(instance) + 0x20u);
         uint64_t lodWord;
@@ -3434,6 +3674,39 @@ namespace sotc_native
             shape->surfaceCount = 0;
         }
         const bool memo = g_surfaceMemo && native_renderer::tuning().fastHooks;
+        if (plan && memo && plan->header == header && plan->lod == lod && plan->packets == packets && plan->surfaces == surfaces)
+        {
+            // The plan's packets of this LOD, in the list's order: the same
+            // tests and writes as the walk below.
+            for (const PlanPacket &e : plan->pk)
+            {
+                const uint32_t s = e.s;
+                SurfaceInfo &info = g_surfaceInfo[e.slot];
+                if (!(info.s == s && info.header == header && info.frame == g_frame))
+                    surfaceInfo(header, s);
+                const uint64_t flags = info.flags;
+                if ((flags >> 29) & 1u)
+                    continue;
+                if (partCulled && e.part != 0xFFFFFFFFu)
+                {
+                    const uint32_t state = word(table + e.part * 0x30u + 0x2Cu);
+                    if (state != 0u && state != 2u)
+                        continue;
+                }
+                if ((flags >> 17) & 1u)
+                    continue;
+                if ((flags >> 24) & 1u)
+                {
+                    put(0x1186294u, 1u); // setShadowEffect
+                    if (!(boss & 2u))
+                        continue;
+                }
+                if (((flags >> 26) & 1u) && word(0x1186328u) != 0u)
+                    continue;
+                put(cache + info.layer[fading ? 1 : 0] * 4u, s);
+            }
+            return;
+        }
         uint32_t walked = 0;
         for (uint32_t pk = packets; word(pk) != 0u; pk += 32u)
         {
@@ -3734,12 +4007,27 @@ namespace sotc_native
                     sum += camera[k * 4 + r] * model[c * 4 + k];
                 clip[c * 4 + r] = sum;
             }
+        // The draw plan of the game's LOD (round 8): modelDispState's packet
+        // tests and the packet loop below go through it.
+        const bool planOn = g_planOn && !check && native_renderer::tuning().fastHooks && g_surfaceMemo && native_renderer::tuning().packetQuickCheck;
+        ModelPlan *gamePlan = nullptr;
+        if (planOn)
+        {
+            const uint32_t h = word(word(instance) + 0x20u);
+            uint64_t lw;
+            std::memcpy(&lw, rdram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+            uint32_t l = static_cast<uint32_t>((lw >> 40) & 7u);
+            if ((word(h + 0x18u) & 1u) && l >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
+                l = word(h + 0x1Cu) - 1u;
+            gamePlan = modelPlan(h, l);
+            ++g_planStats.uses;
+        }
         if (check)
             modelDispCheck(rdram, ctx, runtime, instance, model);
         else if (!ps2Lists)
         {
             SOTC_PROF_SCOPE(kHookState);
-            modelDispState(ctx, instance, model);
+            modelDispState(ctx, instance, model, gamePlan);
         }
 
         const uint32_t header = word(word(instance) + 0x20u);
@@ -3869,49 +4157,28 @@ namespace sotc_native
         HookStats &hs = hookStats();
         if (hs.on)
             ++hs.instances, hs.headers.insert(header);
-        for (uint32_t k = 0; k < count; ++k)
+        float lights[32];
+        bool haveLights = false;
+        // Runs (g_planRun) only without the per-packet debugging outputs.
+        const bool runs = g_planRuns && !env.logPasses && !env.logMat && env.logLayer < 0 && !r2Check().on;
+        // One packet's draws (both walks below).
+        const auto drawPacket = [&](uint32_t k, uint32_t surface, uint32_t s, SurfaceInfo *info, uint32_t size, uint32_t data, uint64_t id, bool changedInPlace,
+                                    PlanPacket *e)
         {
-            const uint32_t pk = packets + k * 32u;
-            if (word(pk) == 0u)
-                break;
-            hs.packets += hs.on;
-            if (g_prefetch)
+            // A plan's packet: what was found out about its id before.
+            const bool known = e && e->resolved;
+            SkinnedPacket *skinnedPacket = nullptr;
+            if (known)
+                skinnedPacket = e->skinned;
+            else if (g_skinnedIds.count(id))
             {
-                // The next packets' memo lines (the tags two ahead, the entry
-                // and the surface's state one ahead), the next draw's lines.
-                const uint32_t next = pk + 32u;
-                if (word(next) != 0u)
-                {
-                    if (word(next + 32u) != 0u)
-                        g_packetMemo.prefetch(word(next + 48u), false);
-                    g_packetMemo.prefetch(word(next + 16u), true);
-                    __builtin_prefetch(&g_surfaceInfo[surfaceSlot(word(header + 0x50u) + word(next + 8u) * 0x120u)]);
-                }
-                g_prefetchQueue.pump(2u);
+                const auto found = g_skinnedPackets.find(id);
+                if (found != g_skinnedPackets.end())
+                    skinnedPacket = &found->second;
             }
-            if (word(pk + 4u) != lod)
-                continue;
-            hs.lodPackets += hs.on;
-            const uint32_t part = word(pk + 12u);
-            if (partCulled && part != 0xFFFFFFFFu && part < partVisible.size() && partVisible[part] == 1u)
-                continue;
-            const uint32_t surface = word(pk + 8u), s = word(header + 0x50u) + surface * 0x120u;
-            SurfaceInfo *info = memo ? &surfaceInfo(header, s) : nullptr;
-            if (info ? !surfaceDrawnFlags(info->flags) : !surfaceDrawn(s))
-                continue;
-            if (hs.on)
-                ++hs.surfaces, hs.surfaceSet.insert(s);
-            const uint32_t size = word(pk), data = word(pk + 16u);
-            uint64_t id;
-            {
-                SOTC_PROF_SCOPE(kHookPacketId);
-                id = packetId(data, size, fast);
-            }
-            const bool changedInPlace = g_packetChangedInPlace;
-            auto skinnedPacket = g_skinnedIds.count(id) ? g_skinnedPackets.find(id) : g_skinnedPackets.end();
             const bool twoPasses = (info ? info->texMode : word(s + 0x1Cu)) == 2u;
-            const bool needsBuild = skinnedPacket == g_skinnedPackets.end() &&
-                                    (!native_renderer::hasMesh(id) || (twoPasses && !native_renderer::hasMesh(id ^ (1ull << 61))));
+            const bool needsBuild = !skinnedPacket && ((!(known && e->ready) && !native_renderer::hasMesh(id)) ||
+                                                       (twoPasses && !(known && e->readyTwo) && !native_renderer::hasMesh(id ^ (1ull << 61))));
             if (needsBuild && !changedInPlace && buildPacketAsync(id, data, size, twoPasses))
                 ; // on the worker: this packet is left out until it is taken up
             else if (needsBuild)
@@ -3925,14 +4192,14 @@ namespace sotc_native
                 {
                     try
                     {
-                        skinnedPacket = g_skinnedPackets.emplace(id, makeSkinnedPacket(std::move(strips))).first;
+                        skinnedPacket = &g_skinnedPackets.emplace(id, makeSkinnedPacket(std::move(strips))).first->second;
                         g_skinnedIds.insert(id);
                     }
                     catch (const std::bad_alloc &)
                     {
-                        continue; // no room in the heap: not drawn this time
+                        return; // no room in the heap: not drawn this time
                     }
-                    g_skinnedPacketBytes += skinnedPacket->second.bytes;
+                    g_skinnedPacketBytes += skinnedPacket->bytes;
                 }
                 else
                 {
@@ -3958,18 +4225,27 @@ namespace sotc_native
                     }
                 }
             }
+            if (e && (!e->resolved || (twoPasses && !e->readyTwo)))
+            {
+                // Known from now on (until the id changes, or meshes / skinned packets go).
+                e->skinned = skinnedPacket;
+                e->ready = skinnedPacket || native_renderer::meshKnown(id);
+                e->readyTwo = native_renderer::meshKnown(id ^ (1ull << 61));
+                e->lit = g_litPackets.count(id);
+                e->resolved = e->ready;
+            }
             uint64_t mesh = id;
             const float *transform = clip;
             bool posed = false;                         // skinned: camera space
             uint32_t skinPalette = 0, skinPaletteCount = 0; // posed by the GPU: its palette
-            if (skinnedPacket != g_skinnedPackets.end())
+            if (skinnedPacket)
             {
                 SOTC_PROF_SCOPE(kHookSkin);
-                skinnedPacket->second.used = g_frame;
+                skinnedPacket->used = g_frame;
                 if (!hasPalette)
-                    continue;
+                    return;
                 posed = true;
-                SkinnedPacket &packet = skinnedPacket->second;
+                SkinnedPacket &packet = *skinnedPacket;
                 if (fast && packet.gpu && native_renderer::gpuSkinning())
                 {
                     // Posed by the GPU: the bind pose kept under the packet's
@@ -3983,7 +4259,7 @@ namespace sotc_native
                         paletteHi = packet.hi;
                     }
                     if (!paletteHandle)
-                        continue;
+                        return;
                     skinPalette = paletteHandle;
                     skinPaletteCount = packet.hi - packet.lo;
                     transform = projection;
@@ -4003,7 +4279,7 @@ namespace sotc_native
                 else
                 {
                     vertices.clear();
-                    triangulate(skinnedPacket->second.strips, [](const BatchVertex &v, native_renderer::Vertex &o)
+                    triangulate(skinnedPacket->strips, [](const BatchVertex &v, native_renderer::Vertex &o)
                     {
                         o.x = o.y = o.z = o.nx = o.ny = o.nz = 0.0f;
                         for (uint32_t b = 0; b < v.bones; ++b)
@@ -4064,9 +4340,9 @@ namespace sotc_native
             }
             const bool noReflect = !native_renderer::tuning().reflections;
             if ((layer == 12u || layer == 13u) && noReflect)
-                continue;
+                return;
             if ((skipLayers >> (layer & 31u)) & 1u)
-                continue;
+                return;
             native_renderer::DrawState state;
             state.skinPalette = skinPalette;
             state.skinPaletteCount = skinPaletteCount;
@@ -4184,14 +4460,20 @@ namespace sotc_native
                                  real(ret + 16u), real(ret + 20u), real(ret + 28u), real(ret + 64u), real(ret + 36u), real(ret + 68u), real(ret + 72u), real(ret + 76u));
             }
             state.fogged = false; // zFog is a pass over the picture (layer 4), as the game does it
-            if (g_litPackets.count(id))
+            if (known ? e->lit : g_litPackets.count(id))
             {
                 // The instance's lights (its own 15 qwords, unpacked to VU1
-                // 0x3d8): the light matrix, then colours and ambient.
+                // 0x3d8): the light matrix, then colours and ambient; read
+                // once for the instance's draws.
                 state.lit = true;
-                const uint32_t own = word(instance + 0xCu);
-                for (uint32_t i = 0; i < 32u; ++i)
-                    state.light[i] = real(own + 0x10u + i * 4u);
+                if (!haveLights)
+                {
+                    const uint32_t own = word(instance + 0xCu);
+                    for (uint32_t i = 0; i < 32u; ++i)
+                        lights[i] = real(own + 0x10u + i * 4u);
+                    haveLights = true;
+                }
+                std::memcpy(state.light, lights, sizeof(lights));
                 if (posed) // skinned: its lights are in camera space
                 {
                     std::memcpy(g_viewLights, state.light, sizeof(g_viewLights));
@@ -4207,6 +4489,29 @@ namespace sotc_native
             const bool twoTextures = (full ? full->texMode : word(s + 0x1Cu)) == 2u && !posed && !state.debugColour;
             if (twoTextures)
                 state.writeDepth = true;
+            uint64_t sflags;
+            if (full)
+                sflags = full->flags;
+            else
+                std::memcpy(&sflags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+            const bool layer14 = ((sflags >> 25) & 1u) != 0;
+            const bool reflective = (layer14 || (sflags & 0x2200u) == 0x2200u) && !noReflect && !state.debugColour;
+            if (runs && e && e->resolved && !posed && !twoTextures && !reflective && info && info->texMode != 2u && mesh == id)
+            {
+                // The first packet of a run (planPackets adds the next ones).
+                g_planRun.flush();
+                g_planRun.n = 1;
+                g_planRun.s = s;
+                g_planRun.lit = state.lit;
+                g_planRun.transform = transform;
+                g_planRun.state = state;
+                g_planRun.ids.assign(1u, mesh);
+                ++g_frameDraws;
+                ++g_modelDraws;
+                hs.draws += hs.on;
+                return;
+            }
+            g_planRun.flush();
             native_renderer::draw(mesh, transform, state);
             ++g_frameDraws;
             ++g_modelDraws;
@@ -4240,13 +4545,7 @@ namespace sotc_native
             // layer 15 (microcode 1) over reflectionBegin's rippled mirror;
             // surfaces with bit 25 go to layer 14 instead (unrippled mirror,
             // ALPHA 0x8000000064: written as is).
-            uint64_t sflags;
-            if (full)
-                sflags = full->flags;
-            else
-                std::memcpy(&sflags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
-            const bool layer14 = ((sflags >> 25) & 1u) != 0;
-            if ((layer14 || (sflags & 0x2200u) == 0x2200u) && !noReflect && !state.debugColour)
+            if (reflective)
             {
                 const uint32_t rec = word(word(header + 0x14u) + 4u) + surface * 0x40u + 0x20u;
                 const uint32_t data = word(rec + 4u); // CALL target: its VU constants
@@ -4323,7 +4622,151 @@ namespace sotc_native
                     ++g_frameDraws;
                 }
             }
+        };
+        // The packet list as the game has it (no plan).
+        const auto walkPackets = [&]
+        {
+            for (uint32_t k = 0; k < count; ++k)
+            {
+                const uint32_t pk = packets + k * 32u;
+                if (word(pk) == 0u)
+                    break;
+                hs.packets += hs.on;
+                if (g_prefetch)
+                {
+                    // The next packets' memo lines (the tags two ahead, the entry
+                    // and the surface's state one ahead), the next draw's lines.
+                    const uint32_t next = pk + 32u;
+                    if (word(next) != 0u)
+                    {
+                        if (word(next + 32u) != 0u)
+                            g_packetMemo.prefetch(word(next + 48u), false);
+                        g_packetMemo.prefetch(word(next + 16u), true);
+                        __builtin_prefetch(&g_surfaceInfo[surfaceSlot(word(header + 0x50u) + word(next + 8u) * 0x120u)]);
+                    }
+                    g_prefetchQueue.pump(2u);
+                }
+                if (word(pk + 4u) != lod)
+                    continue;
+                hs.lodPackets += hs.on;
+                const uint32_t part = word(pk + 12u);
+                if (partCulled && part != 0xFFFFFFFFu && part < partVisible.size() && partVisible[part] == 1u)
+                    continue;
+                const uint32_t surface = word(pk + 8u), s = word(header + 0x50u) + surface * 0x120u;
+                SurfaceInfo *info = memo ? &surfaceInfo(header, s) : nullptr;
+                if (info ? !surfaceDrawnFlags(info->flags) : !surfaceDrawn(s))
+                    continue;
+                if (hs.on)
+                    ++hs.surfaces, hs.surfaceSet.insert(s);
+                const uint32_t size = word(pk), data = word(pk + 16u);
+                uint64_t id;
+                {
+                    SOTC_PROF_SCOPE(kHookPacketId);
+                    id = packetId(data, size, fast);
+                }
+                drawPacket(k, surface, s, info, size, data, id, g_packetChangedInPlace, nullptr);
+            }
+        };
+        // The plan's packets: the same tests, the id kept while packetId
+        // would keep it without looking (drawn the frame before, not its
+        // stagger frame, not rewritten in place).
+        ModelPlan *plan = planOn ? (lod == gameLod ? gamePlan : modelPlan(header, lod)) : nullptr;
+        const auto planPackets = [&]
+        {
+            const size_t n = plan->pk.size();
+            for (size_t k = 0; k < n; ++k)
+            {
+                PlanPacket &e = plan->pk[k];
+                if (hs.on)
+                    ++hs.packets, ++hs.lodPackets;
+                if (g_prefetch)
+                {
+                    if (k + 1u < n)
+                        __builtin_prefetch(&g_surfaceInfo[plan->pk[k + 1u].slot]);
+                    g_prefetchQueue.pump(2u);
+                }
+                if (partCulled && e.part != 0xFFFFFFFFu && e.part < partVisible.size() && partVisible[e.part] == 1u)
+                    continue;
+                SurfaceInfo *info = &g_surfaceInfo[e.slot];
+                if (!(info->s == e.s && info->header == header && info->frame == g_frame))
+                    info = &surfaceInfo(header, e.s);
+                if (!surfaceDrawnFlags(info->flags))
+                    continue;
+                if (hs.on)
+                    ++hs.surfaces, hs.surfaceSet.insert(e.s);
+                uint64_t id;
+                bool changedInPlace = false;
+                if (e.idFrame == g_frame || (!e.rewritten && e.idFrame + 1u == g_frame && ((g_frame + (e.data >> 5)) & 15u) != 0u))
+                {
+                    id = e.id;
+                    ++g_planStats.trusted;
+                }
+                else
+                {
+                    {
+                        SOTC_PROF_SCOPE(kHookPacketId);
+                        id = packetId(e.data, e.size, true);
+                    }
+                    changedInPlace = g_packetChangedInPlace;
+                    e.rewritten = g_packetRewritten;
+                    if (id != e.id)
+                    {
+                        e.id = id;
+                        e.resolved = false;
+                    }
+                    ++g_planStats.asked;
+                }
+                e.idFrame = g_frame;
+                if (g_planRun.n && runs && e.resolved && e.ready && !e.skinned && e.s == g_planRun.s && e.lit == g_planRun.lit && id == e.id && !changedInPlace)
+                {
+                    // The run's draw, for this packet's mesh too.
+                    g_planRun.ids.push_back(id);
+                    ++g_planRun.n;
+                    ++g_frameDraws;
+                    ++g_modelDraws;
+                    hs.draws += hs.on;
+                    if (planStatsOn())
+                        ++g_planStats.drawn;
+                    continue;
+                }
+                if (planStatsOn())
+                    ++g_planStats.drawn;
+                drawPacket(static_cast<uint32_t>(k), e.surface, e.s, info, e.size, e.data, id, changedInPlace, &e);
+            }
+            g_planRun.flush();
+        };
+        // SOTC_PLAN_VERIFY=<n>: every n-th frame the old walk too, dry, and
+        // the two lists of draw hashes compared.
+        const bool verify = plan && g_planVerify && g_frame % g_planVerify == 0u && !native_renderer::drawTap();
+        if (!verify)
+        {
+            if (plan)
+                planPackets();
+            else
+                walkPackets();
+            return;
         }
+        static std::vector<uint64_t> fromPlan, fromWalk;
+        fromPlan.clear();
+        fromWalk.clear();
+        native_renderer::setDrawTap(&fromPlan);
+        planPackets();
+        native_renderer::setDrawTap(&fromWalk);
+        native_renderer::setDrawTapOnly(true);
+        walkPackets();
+        native_renderer::setDrawTapOnly(false);
+        native_renderer::setDrawTap(nullptr);
+        PlanStats &ps = g_planStats;
+        ++ps.checks;
+        ps.draws += fromWalk.size();
+        size_t differ = fromPlan.size() != fromWalk.size() ? 1u : 0u;
+        ps.countDiffer += differ;
+        for (size_t i = 0; i < std::min(fromPlan.size(), fromWalk.size()); ++i)
+            differ += fromPlan[i] != fromWalk[i];
+        ps.differ += differ;
+        if (differ && ps.differ < 40u)
+            std::fprintf(stderr, "[plan-verify] frame %llu instance %08x header %08x lod %u: %zu draws (plan) / %zu (walk), %zu differ\n",
+                         (unsigned long long)g_frame, instance, header, lod, fromPlan.size(), fromWalk.size(), differ);
     }
 }
 

@@ -639,6 +639,7 @@ namespace
     public:
         CheckBackend(native_renderer::detail::Backend *shown, native_renderer::detail::Backend *other) : a(shown), b(other) {}
         bool hasMesh(uint64_t id) override { return a->hasMesh(id) && b->hasMesh(id); }
+        uint64_t meshEvictions() override { return a->meshEvictions() + b->meshEvictions(); }
         void uploadMesh(uint64_t id, const native_renderer::Vertex *v, uint32_t n, bool f) override { a->uploadMesh(id, v, n, f), b->uploadMesh(id, v, n, f); }
         bool hasTexture(uint64_t id) override { return a->hasTexture(id) && b->hasTexture(id); }
         void uploadTexture(uint64_t id, uint32_t w, uint32_t h, const uint8_t *p, uint32_t l) override { a->uploadTexture(id, w, h, p, l), b->uploadTexture(id, w, h, p, l); }
@@ -889,6 +890,8 @@ namespace native_renderer
     }
 
     bool hasMesh(uint64_t id) { return backend() && (g_backend->hasMesh(id) || asyncPending(id)); }
+    bool meshKnown(uint64_t id) { return backend() && g_backend->hasMesh(id); }
+    uint64_t meshEvictions() { return backend() ? g_backend->meshEvictions() : 0u; }
     // SOTC_NATIVE_LOG_UPLOADS=1: uploads per frame (meshes: static / per-frame
     // ones, the ids with a top bit set; textures), every 60 frames.
     struct UploadStats
@@ -898,7 +901,10 @@ namespace native_renderer
     } g_uploads;
     std::vector<uint64_t> *g_drawTap = nullptr;
     Vertex *g_tapFrameMesh = nullptr;
+    bool g_drawTapOnly = false;
     void setDrawTap(std::vector<uint64_t> *tap) { g_drawTap = tap; }
+    std::vector<uint64_t> *drawTap() { return g_drawTap; }
+    void setDrawTapOnly(bool only) { g_drawTapOnly = only; }
     // SOTC_DIFFTEST_DRAWS=2: the per-frame meshes' vertices and the skin
     // palettes too (some are made once a frame: only the first leg has them).
     bool tapMeshes()
@@ -1088,12 +1094,8 @@ namespace native_renderer
         }
     }
 
-    void draw(uint64_t mesh, const float clip[16], const DrawState &state)
+    void dumpDraw(uint64_t mesh, const float clip[16], const DrawState &state)
     {
-        if (g_drawTap)
-            tapDraw(mesh, clip, state);
-        ++g_uploads.draws;
-        if (g_dumpFile)
         {
             const DrawState &s = state;
             std::fprintf(g_dumpFile,
@@ -1106,6 +1108,18 @@ namespace native_renderer
                          s.uvOffset[0], s.uvOffset[1], s.lodK, s.lodScale, s.maxLod, s.noDepthWrite, (unsigned long long)dumpHash(clip, 16),
                          (unsigned long long)(s.lit || s.fresnel ? dumpHash(s.light, 32) : 0ull), s.skinPalette ? 1u : 0u, s.skinPaletteCount);
         }
+    }
+    void draw(uint64_t mesh, const float clip[16], const DrawState &state)
+    {
+        if (g_drawTap)
+        {
+            tapDraw(mesh, clip, state);
+            if (g_drawTapOnly)
+                return;
+        }
+        ++g_uploads.draws;
+        if (g_dumpFile)
+            dumpDraw(mesh, clip, state);
         // Its mesh or texture still on the worker (buildAsync): left out.
         if (!asyncBuilds().pending.empty() && (asyncPending(mesh) || (state.texture && asyncPending(state.texture))))
         {
@@ -1132,6 +1146,65 @@ namespace native_renderer
         if (backend())
             g_backend->draw(mesh, clip, state);
         ++frameCounters().draws;
+    }
+    void drawMulti(const uint64_t *meshes, uint32_t count, const float clip[16], const DrawState &state)
+    {
+        if (count == 1u)
+            return draw(meshes[0], clip, state);
+        if (g_drawTap)
+        {
+            for (uint32_t i = 0; i < count; ++i)
+                tapDraw(meshes[i], clip, state);
+            if (g_drawTapOnly)
+                return;
+        }
+        g_uploads.draws += count;
+        if (g_dumpFile)
+            for (uint32_t i = 0; i < count; ++i)
+                dumpDraw(meshes[i], clip, state);
+        // Held meshes (still on the worker) left out one by one, as draw()
+        // leaves them out; the texture is the same for all.
+        const bool texturePending = !asyncBuilds().pending.empty() && state.texture && asyncPending(state.texture);
+        if (texturePending)
+        {
+            frameCounters().heldDraws += count;
+            return;
+        }
+        static std::vector<uint64_t> kept;
+        const uint64_t *list = meshes;
+        uint32_t n = count;
+        if (!asyncBuilds().pending.empty())
+        {
+            kept.clear();
+            for (uint32_t i = 0; i < count; ++i)
+                if (asyncPending(meshes[i]))
+                    ++frameCounters().heldDraws;
+                else
+                    kept.push_back(meshes[i]);
+            list = kept.data();
+            n = static_cast<uint32_t>(kept.size());
+            if (n == 0u)
+                return;
+        }
+        const Tuning &t = tuning();
+        if (((t.hiddenLayers >> (state.order & 31u)) & 1u) || (state.screen ? !t.draw2D : !t.drawWorld) || (state.overlay && !t.overlays) ||
+            (state.blend == Blend::Additive && !t.additive) || (state.blend == Blend::Subtract && !t.subtract))
+            return;
+        if (!t.textures || !t.lighting)
+        {
+            DrawState s = state;
+            if (!t.textures)
+                s.texture = 0;
+            if (!t.lighting)
+                s.lit = false;
+            if (backend())
+                g_backend->drawMulti(list, n, clip, s);
+            frameCounters().draws += n;
+            return;
+        }
+        if (backend())
+            g_backend->drawMulti(list, n, clip, state);
+        frameCounters().draws += n;
     }
     void setFog(const Fog &fog)
     {

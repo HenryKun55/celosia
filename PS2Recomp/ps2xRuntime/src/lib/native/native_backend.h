@@ -16,6 +16,8 @@ namespace native_renderer::detail
     public:
         virtual ~Backend() = default;
         virtual bool hasMesh(uint64_t id) = 0;
+        // Meshes let go so far (native_renderer::meshEvictions); none by default.
+        virtual uint64_t meshEvictions() { return 0; }
         virtual void uploadMesh(uint64_t id, const Vertex *vertices, uint32_t count, bool perFrame) = 0;
         // native_renderer::frameMesh: by default a scratch buffer handed to
         // uploadMesh at the commit (the GL backend writes into its frame arena).
@@ -53,6 +55,12 @@ namespace native_renderer::detail
         virtual void uploadTexture(uint64_t id, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels) = 0;
         virtual void beginFrame() = 0;
         virtual void draw(uint64_t mesh, const float clip[16], const DrawState &state) = 0;
+        // Meshes drawn one after the other with one matrix and state (by default one draw each).
+        virtual void drawMulti(const uint64_t *meshes, uint32_t count, const float clip[16], const DrawState &state)
+        {
+            for (uint32_t i = 0; i < count; ++i)
+                draw(meshes[i], clip, state);
+        }
         virtual void setFog(const Fog &fog) = 0;
         virtual void setBloom(const Bloom &bloom) = 0;
         virtual void addScreenBlur(const ScreenBlur &blur) = 0;

@@ -1941,8 +1941,27 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                             __builtin_prefetch(m_rdram + tagAddr + 64u);
                         }
 
+                        // PS2X_DMA_DUMP=<n> (debugging): the n-th VIF1 chain's tags, one line
+                        // each (id, qwc, address, the tag's VIFcodes, the payload's first words).
+                        static const long dumpChain = std::getenv("PS2X_DMA_DUMP") ? std::atol(std::getenv("PS2X_DMA_DUMP")) : -1;
+                        if (dumpChain >= 0 && channelBase == 0x10009000u &&
+                            static_cast<long>(ps2_stats::vif1Chains.load(std::memory_order_relaxed)) == dumpChain)
+                        {
+                            uint32_t w[4] = {};
+                            if (hasPayload && dataAddr < PS2_RAM_SIZE - 16u)
+                                std::memcpy(w, m_rdram + dataAddr, 16);
+                            uint32_t up[2];
+                            std::memcpy(up, tp + 8, 8);
+                            std::fprintf(stderr, "[dma:tag] %08x id %u qwc %u addr %08x vif %08x %08x data %08x %08x %08x %08x\n", currentTagAddr, id, tagQwc, addr, up[0], up[1],
+                                         w[0], w[1], w[2], w[3]);
+                        }
                         if (transferTagData)
-                            appendVifTagData(currentTagAddr);
+                        {
+                            // The tag just read (tp): its VIFcode words, two NOPs
+                            // most of the time (a list's NEXT / CALL links).
+                            if (!(walker && ps2_fast_paths::g_dmaWalkFast && walker->feedTagWords(tp + 8)))
+                                appendVifTagData(currentTagAddr);
+                        }
 
                         if (hasPayload)
                             appendData(dataAddr, tagQwc);
@@ -1954,6 +1973,12 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 
                     if (channelBase == 0x10009000u)
                     {
+                        // PS2X_GIF_EVENT_LOG=1 (debugging): the GS events the scans found, every 600 chains.
+                        static const bool eventLog = std::getenv("PS2X_GIF_EVENT_LOG") != nullptr;
+                        if (eventLog && ps2_stats::vif1Chains.load(std::memory_order_relaxed) % 600u == 0u)
+                            std::fprintf(stderr, "[gif:events] chain %llu: signal %llu finish %llu label %llu\n",
+                                         (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)GifEventScanner::s_events[0],
+                                         (unsigned long long)GifEventScanner::s_events[1], (unsigned long long)GifEventScanner::s_events[2]);
                         ps2_stats::vif1Chains.fetch_add(1, std::memory_order_relaxed);
                         ps2_stats::frameKicked(ps2_stats::nowUs(), ps2_load::waitUs[ps2_load::kVu1].load(std::memory_order_relaxed));
                     }
@@ -3130,7 +3155,14 @@ namespace ps2_fast_paths
         const char *env = std::getenv("PS2X_DMA_PREFETCH");
         return !env || std::atoi(env) != 0;
     }();
+    bool g_dmaWalkFast = []
+    {
+        const char *env = std::getenv("PS2X_DMA_WALK_FAST");
+        return !env || std::atoi(env) != 0;
+    }();
 }
+
+bool GifEventScanner::fast() { return ps2_fast_paths::g_dmaWalkFast; }
 
 // The out-of-line half of the guest load / store macros (ps2_runtime_macros.h
 // READ* / WRITE*): every address at or above 32 MB. The special ranges go to

@@ -115,6 +115,7 @@ What a native function has to keep, learned the hard way:
 | decomp_wind.cpp | manager_sub_01145F78 (the wind zones at a point, sorted by priority) | attract 3 300, route 1 300 (SOTC_NATIVE=1), 0 mismatches | the three weight functions stay guest calls |
 | decomp_walk.cpp | DispDispObjGroupModel (the display walk from its top), ClipLayoutObjModel, modelClipSolid (clipByMinMaxCube inline), DispLayoutObjModel (DispCloth inline), 010F3A08 (solidDisp), 010F3EB8 (the heat haze strips, glColor4f / glTexCoord2f / glVertex3fv / iosgluGetViewCoordPosition inline), 0108D730 (glVertex's kick), glVertex3fv | walk: attract 1 200, route 1 100 (SOTC_NATIVE=1, EVERY=5, to frame 4800), with the native renderer's draws compared too; children (walk recompiled): attract 2 900-41 500 each, route 2 200-43 900 each; 0 mismatches | see "Round 7" below |
 | decomp_ptcldraw.cpp | particleDraw's loop: 01142030 (the fade) inline, iosGetSinCosf called straight (round 7) | attract 4 200, route 17 700 (SOTC_NATIVE=1), 0 mismatches | no guest call a particle |
+| decomp_ptclupdate.cpp | the particle step from its top: doit_particle_geodisp, 0113AAE0 (emitter list, dead emitters freed), 0113B610 (an emitter's frame), 0113B928 (its particles: types 2 / 3's local matrix, wind, particleUpdate called straight, new particles from the free list) | attract (EVERY=5) 5 500 / 1 400 / 6 600 / 8 000, route 27 000 / 27 000 / 32 400 / 38 900; also SOTC_NATIVE=2 (route, EVERY=10) 14 400 / 1 600 / 16 000 / 17 600; 0 mismatches | round 8; the VU0 blocks are the recompiled statements lifted onto locals |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -148,7 +149,9 @@ Round 6: 4.31% by code size, 4.50% by function count (406), 39.6% by calls
 (the same call dumps), 2.15% of the game's own code. Round 7: 4.51% by code
 size, 4.57% by function count (412), 40.3% by calls, 2.39% of the game's
 own code (010F3FB0, the haze strips' second half, is native too but counts
-as recompiled: only 010F3EB8's entry is in the table). Run it again after
+as recompiled: only 010F3EB8's entry is in the table). Round 8: 4.65% by code
+size, 4.61% by function count (416), 40.6% by calls, 2.55% of the game's own
+code. Run it again after
 every round and commit both files. (A function an override hooks counts as
 native too: iosDlPushLayer / iosDlPopLayer are sotc_native.cpp's hooks
 around the recompiled code.)
@@ -787,6 +790,165 @@ table with the original's return address (glEnd's hook tells the haze from
 other gl* users by it). SOTC_STRIPS_DEBUG=1 checks the inline
 iosgluGetViewCoordPosition against the guest one at every haze point
 (debugging; it calls both).
+
+## Round 8: draw plans, one draw a run, the DMA walk, the particle step (2026-10-24)
+
+**modelDispHook's packet loop as a cached plan** (sotc_native.cpp, "Draw
+plans"). For each (model header, LOD) a plan keeps that LOD's packets in the
+list's order (part, surface record, data, size) and what the hook found out
+about each: its id, skinned or not, its meshes there, lit. modelDispState and
+the packet loop go through it instead of walking the whole packet list (every
+LOD) twice a draw; the per-frame reads stay (the part tree's results, the
+surfaces' flags / texture / layer / scroll through the per-frame surface memo,
+the instance's matrix, opacity, lights, palette). Invalidation: each frame a
+plan is used its header's packet list and surface table pointers and the
+list's first packet are compared, one frame in 16 (by header) the whole list
+is hashed again; a moved header (an area's heap compaction) or a LOD switch is
+another plan; a packet's id is asked from packetId whenever packetId itself
+would look at the packet (not drawn the frame before, its own stagger frame,
+or seen rewritten in place: every frame), so the ids are packetId's; a mesh's
+presence is asked again after the backend lets meshes go
+(native_renderer::meshEvictions, new) and a skinned packet's after their
+sweep. Plans unused for 600 frames go. The instance's lights are read once
+for its draws (were 32 guest reads a lit draw). r2Check / hookStats were
+function-local statics (a guard with a barrier per call on the Vita, twice a
+draw): now plain pointers.
+
+**One draw a run** (native_renderer::drawMulti, new). Consecutive packets of
+one instance with the same surface record, lit alike, a plain mesh already
+there and one draw a packet (no second texture, no reflection pass) are drawn
+as one draw: the state made and copied once, the GL backend records one Draw
+with the other meshes in a side list and the render thread expands them in
+place before it plans the frame (its own merges then run as before; Metal and
+the check backend loop over draw()). Taps, the draw dump and the held /
+hidden tests see each mesh as its own draw. Route (Mac, to frame 4800):
+4.94 M packet draws, 3.49 M fewer draw records (~70%); attract 0.87 M, 0.29 M
+fewer. SOTC_PLAN_RUNS=0: one draw a packet.
+
+**Loads.** A plan is built the first time its model is drawn; an area load
+brings hundreds at once (639 plans at the route's load). New plans have a
+budget of 3000 packets a frame (SOTC_PLAN_BUDGET); past it the model is drawn
+by the packet walk as before and its plan made at a later frame (313 deferred
+over the route), so a load frame does at most HEAD's work plus the budget.
+
+**Checks of the cache.** SOTC_PLAN_VERIFY=<n>: every n-th frame each draw's
+packets go through the plan (drawn) and through the old walk (dry: hashed by
+the draw tap, native_renderer::setDrawTapOnly, not drawn) and the two lists of
+draw hashes (mesh, the whole DrawState, matrix, lights) are compared. Every
+frame (n = 1), SOTC_NATIVE=1, to frame 4800, with runs and the build budget
+on: route 185 634 instance checks / 5 366 931 draws, attract 141 857 /
+911 893, 0 differ. The GL multi-draw against single draws: SOTC_NATIVE_GL=check
+(Metal one draw a packet, GL drawMulti, pictures compared every 60 frames) on
+the route gives the same means with SOTC_PLAN_RUNS=1 and 0 (~0.003 per
+channel, one fade frame at 15). The walk's draw compare (SOTC_DIFFTEST=
+DispDispObjGroupModel SOTC_DIFFTEST_DRAWS=1 SOTC_ASYNC_BUILDS=0 EVERY=5, to
+frame 4800): attract 1 000 checks / 212 928 draws, route 1 000 / 1 251 602,
+0 differ, 0 mismatches; control (SOTC_DIFFTEST_CONTROL=1, attract to 2400)
+500 checks / 91 214 draws, 0 differ.
+
+**The DMA chain walk** (PS2X_DMA_WALK_FAST=0: off). With SOTC_NATIVE the VIF1
+chain is still walked every frame for its GS events: ~1 200 tags and ~3 500
+VIFcodes a frame in the attract demo, and the only event in it is one FINISH
+a frame (PS2X_GIF_EVENT_LOG=1: 2 998 FINISH in 3 000 chains, no SIGNAL or
+LABEL, with the fast paths on and off). ~680 of the tags are NEXT / CALL
+links with two NOP VIFcodes: Vif1Walker::feedTagWords takes those without the
+walker's loop (CODE / NUM set as the two NOPs leave them), and the GIF event
+scan reads an A+D-only PACKED block's register addresses in a tight loop.
+Vif1Walker::feed 3.7% -> 2.4% of the game thread (clean attract profile).
+PS2X_DMA_DUMP=<n> prints the n-th chain's tags (debugging).
+
+**The particle step from its top** (decomp_ptclupdate.cpp): doit_particle_geodisp,
+0113AAE0, 0113B610, 0113B928, each calling the next straight; particleUpdate
+called straight for each particle. The VU0 blocks (0113B928's matrices for
+types 2 / 3, 0113B610's camera distance and depth) are the recompiled
+statements lifted onto locals (build/agent-scratch/r8/tools/lift.py, from
+build/runner). All paths ran in the checks (SOTC_PTCL_STATS=1, attract:
+32 394 steps, 8 618 matrix blocks, 1 667 unit matrices, 34 dead emitters,
+224 new particles, 0 fallbacks). It gave almost nothing: in the clean attract
+profile the recompiled particle code went 2.67% -> 2.12% and the new natives
+are 0.51% (the guest calls under it stay: strcmp, the blend, the wind, the
+camera, 0113C1A8); under SOTC_SUBSYS_PROF doit_particle_geodisp's self time
+reads 1.24 -> 1.34 ms (each child goes through the profiler's wrapper).
+
+**Measuring.** SOTC_SUBSYS_PROF itself costs ~5 ms a frame in Vita3K (attract
+600-4800: 37.5 ms with it, 32.7 without, same VPK): the clock reads around
+every probed call. The [stats] lines (5 s windows, frames counted) give the
+frame time without it (build/agent-scratch/r8/tools/statfps.py); the console
+calibration of 2026-10-22 was made with the profiler on both sides. Without
+the profiler the scripted route is not reliable in Vita3K: the menu presses are
+timed in VBlanks and a faster game misses one (the attract demo starts, or
+another path); giving the presses as game frames, or repeating the last CROSS
+(r250), led elsewhere too. The route A/B below is with the profiler, as in
+round 7 (both runs followed the same timeline: the 3D after the load at frame
+2220 / 2231, window for window).
+
+Calibrated Vita3K (MHZ=240 CORES=3), one run per side, HEAD e51649c's VPK
+(celosia-r7.vpk) then this round's (celosia-r8.vpk), env SOTC_SUBSYS_PROF=1
+SOTC_FRAME_LOG=1 (frames over 50 ms logged), the route with the Mac's save and
+input script (build/agent-scratch/r8/v3k.sh), host idle (load 1.5-2.4):
+
+| ms / frame | HEAD | round 8 |
+|---|---|---|
+| attract 600-4800: frame (wall) | 38.8 | 37.5 |
+| execScript | 33.43 | 32.65 |
+| DispDispObjGroupModel (self) | 12.15 (3.70) | 11.25 (3.70) |
+| modelDisp | 3.41 | 2.51 |
+| iosDmaSendSChainPath1 | 2.04 | 1.63 |
+| attract 600-4800 without the profiler ([stats]) | 33.01 | 32.25 |
+| attract 4800-9600 without the profiler | 34.71 | 33.37 |
+| route 1900-3400 (the walk, three load windows): frame | 45.8 | 41.6 |
+| DispDispObjGroupModel (self) | 13.57 (3.32) | 10.02 (3.31) |
+| modelDisp (hook.packets self, packetId) | 6.94 (4.02, 1.15) | 3.52 (1.92, 0.11) |
+| route 3000-4800 (3D only): frame | 39.4 | 37.9 |
+| route 600-4800: frame | 38.2 | 35.0 |
+
+Loads (frames over 50 ms, SOTC_FRAME_LOG): route frames 2200-2800 (the load
+after the shrine) HEAD 299 such frames, 233 over 85 ms, 27.7 s in all, the
+worst 372.4 ms (frame 2522); round 8 297, 24 over 85 ms, 24.4 s, the worst
+340.0 ms (2529) (an earlier round 8 run: 301 / 29 / 24.8 s / 370.9). Route
+2800-4800: HEAD 30 frames over 50 ms, worst 66.9; round 8 32, worst 64.0. The
+whole runs' worst frames are the boot's (~580 ms) on both. Attract 600-4800:
+HEAD 75 over 50 ms (worst 224.2), round 8 69 (222.0). On the Mac (route,
+SOTC_FRAME_LOG_ALL=1, the same binary with the round's paths off:
+SOTC_PLAN=0 PS2X_DMA_WALK_FAST=0 SOTC_DECOMP_SKIP=ptcl*): frames 2100-2700
+mean 16.75 / 16.73 ms, worst 37.0 / 33.7 ms; 600-4800 worst 39.1 / 37.8 ms;
+the Mac runs at the display's 60 Hz, loads barely show there.
+
+Other checks: the particle natives' difftests above; Mac route game clock
+1.000x (last 12 windows); attract to frame 6000; pictures (route shots, native
+renderer, against the same binary with the round's paths off) the same scenes
+(the poses differ by a frame); consecutive frames: draw dumps of frames
+2440-2450 at the shrine in a normal run (no difftest; every other frame: a dump
+takes the next whole frame) keep their layer counts and light sets from dump
+to dump (1072-1100 draws, 7-8 distinct light sets); the flicker the user saw
+was with difftest windows open, and none shows here (the dumps do not hold the
+bloom's parameters).
+
+What is still slow on the route's walk (allprobes, round 8): ExecCharaGeometry
+9.0 (4.6 self), DispDispObjGroupModel's own 3.3, modelDisp 3.5, collision 1.5,
+particles 2.0 + 1.3, camera 2.3, the AI 1.6, the DMA walk 1.2; the frame is
+~8 ms from 2 VBlanks with the profiler, the attract demo is at 32.3 ms without
+it.
+
+**Not done this round:** iosDlLockObj -> isysAddGroupWithLinkParam,
+CalcLightLayoutObj, UpdateLayoutClassSimpleGeometry (target 3);
+the particle display side (0113ACB8 and the per-type writers), ptclVtxHook.
+
+**Round 9 (plan):**
+
+1. The load hitch (route 2200-2800: ~300 frames over 50 ms, ~240 of them over
+   70): what runs in those frames (a clean VITA3K_PROFILE of a run held in the
+   load; the frame log's hooks / upload columns) before any change.
+2. ExecCharaGeometry's body with its callees (010C7B28, 010C6238, 010C4CA8,
+   010C6A88...): the route walk's largest item (9 ms).
+3. The DMA walk without walking: the chain carries one FINISH a frame and the
+   VIF registers; the producers that remain (cloth meshDisp, shadows, particle
+   packets, microcode uploads, 2D) could leave their packets out as modelDisp
+   does (each checked for other side effects first).
+4. Target 3 of this round.
+5. A route script for Vita3K that does not depend on the game's speed (the
+   menu presses on game-state anchors, "@addr=value"), so clean runs can time
+   the route.
 
 ## Vita3K calibration (2026-10-22)
 

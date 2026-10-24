@@ -811,6 +811,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint64_t mesh;
         native_renderer::DrawState state;
         float clip[16];
+        // drawMulti: the meshes after `mesh` drawn with this state and matrix
+        // (extraMeshes[extraFirst ..], extraCount of them), each its own draw
+        // once the render thread has the frame (Renderer::expandDraws).
+        uint32_t extraFirst = 0, extraCount = 0;
     };
 
     // A colour target, with the framebuffer that draws into it (and its
@@ -953,6 +957,31 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 textureHeapBytes -= t.bytes;
         }
         std::vector<Draw> draws;
+        std::vector<uint64_t> extraMeshes; // drawMulti's meshes past each draw's first (Draw::extraFirst)
+        std::vector<Draw> expanded;        // expandDraws' room (the last frame's list)
+        // drawMulti's draws made one per mesh, in their place (the game thread
+        // recorded one draw for each run of meshes). Once a frame, first.
+        void expandDraws()
+        {
+            if (extraMeshes.empty())
+                return;
+            expanded.clear();
+            expanded.reserve(draws.size() + extraMeshes.size());
+            for (const Draw &d : draws)
+            {
+                expanded.push_back(d);
+                expanded.back().extraCount = 0;
+                for (uint32_t i = 0; i < d.extraCount; ++i)
+                {
+                    expanded.push_back(d);
+                    Draw &e = expanded.back();
+                    e.mesh = extraMeshes[d.extraFirst + i];
+                    e.extraCount = 0;
+                }
+            }
+            draws.swap(expanded);
+            extraMeshes.clear();
+        }
         std::vector<uint64_t> drawOrder; // layer << 32 | index: the draws in layer order, stable (sorting the draws themselves moved ~450 bytes each)
         // The draw loop's state as last set (pass() forgets it whenever
         // something else may have changed it): a call is made only for a
@@ -3284,6 +3313,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
 
         bool hasMesh(uint64_t id) override { return m_knownMeshes.count(id) != 0; }
+        uint64_t meshEvictions() override { return m_meshEvictions; }
         void uploadMesh(uint64_t id, const native_renderer::Vertex *vertices, uint32_t count, bool perFrame) override
         {
             if (perFrame && !noArena())
@@ -3390,6 +3420,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
         void beginFrame() override { clearFrame(); }
         void draw(uint64_t mesh, const float clip[16], const native_renderer::DrawState &state) override { m_rec.draws.emplace_back(mesh, clip, state); }
+        void drawMulti(const uint64_t *meshes, uint32_t count, const float clip[16], const native_renderer::DrawState &state) override
+        {
+            if (count == 0u)
+                return;
+            Draw &d = m_rec.draws.emplace_back(meshes[0], clip, state);
+            if (count == 1u)
+                return;
+            d.extraFirst = static_cast<uint32_t>(m_rec.extraMeshes.size());
+            d.extraCount = count - 1u;
+            m_rec.extraMeshes.insert(m_rec.extraMeshes.end(), meshes + 1, meshes + count);
+        }
         void setFog(const native_renderer::Fog &fog) override { m_rec.fog = fog; }
         void setBloom(const native_renderer::Bloom &bloom) override { m_rec.bloom = bloom; }
         void addScreenBlur(const native_renderer::ScreenBlur &blur) override { m_rec.blurs.push_back(blur); }
@@ -3412,6 +3453,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             r->stats = {};
             std::swap(r->draws, m_rec.draws);
+            std::swap(r->extraMeshes, m_rec.extraMeshes);
             std::swap(r->arena, m_rec.arena);
             std::swap(r->indexArena, m_rec.indexArena);
             std::swap(r->palettes, m_rec.palettes);
@@ -3486,6 +3528,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         struct Recording
         {
             std::vector<Draw> draws;
+            std::vector<uint64_t> extraMeshes; // drawMulti's (Draw::extraFirst)
             Renderer::Arena<native_renderer::Vertex> arena;
             Renderer::Arena<uint32_t> indexArena;
             std::vector<float> palettes;
@@ -3502,6 +3545,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void clearFrame()
         {
             m_rec.draws.clear();
+            m_rec.extraMeshes.clear();
             m_rec.arena.clear();
             m_rec.indexArena.clear();
             m_rec.palettes.clear();
@@ -3597,7 +3641,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             m_vertexPeak = std::max(m_vertexPeak, r->arena.size());
             m_indexPeak = std::max(m_indexPeak, r->indexArena.size());
-            m_drawPeak = std::max(m_drawPeak, r->draws.size());
+            m_drawPeak = std::max(m_drawPeak, r->draws.size() + r->extraMeshes.size());
             if (++m_trimFrames >= 600u)
             {
                 m_vertexPeakPrev = m_vertexPeak;
@@ -3699,6 +3743,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (d.state.texture)
                     m_keepTextures.insert(d.state.texture);
             }
+            for (const uint64_t mesh : r->extraMeshes) // drawMulti's, not expanded yet
+                m_keepMeshes.insert(mesh);
             for (const Renderer::Upload &u : r->uploads)
                 (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
             for (const Renderer::Upload &u : m_side) // flushed, not applied yet
@@ -3760,6 +3806,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     r->forget(*m);
                     r->meshes.erase(c.id);
                     m_knownMeshes.erase(c.id);
+                    ++m_meshEvictions;
                 }
             }
             // A scene that needs more than the budget: looked at again later
@@ -3835,6 +3882,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     const uint64_t start = native_renderer::nowUs(), present = r->stats.presentUs;
                     ++r->arenaFrame;
                     r->applyUploads();
+                    r->expandDraws();
                     if (!r->hold) // held: the last picture stays on screen
                     {
                         // SOTC_GL_SELFCHECK=N (debugging, with bloom and the
@@ -3861,6 +3909,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // The game thread's.
         Recording m_rec;
         native_renderer::IdSet m_knownMeshes, m_knownTextures; // what hasMesh / hasTexture answer
+        uint64_t m_meshEvictions = 0;                          // meshEvictions
         size_t m_pendingFirst = 0, m_pendingIndexFirst = 0;
         // Memory (see evictKept, flushUploads, trimRecording, logMemory).
         struct Candidate

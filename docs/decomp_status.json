@@ -1,29 +1,29 @@
 {
- "updated": "2026-10-23",
- "commit": "fce6b0c",
+ "updated": "2026-10-24",
+ "commit": "e51649c",
  "summary": {
   "by_functions": {
-   "native": 412,
+   "native": 416,
    "partial": 0,
    "total": 9024,
-   "percent": 4.57
+   "percent": 4.61
   },
   "by_code_size": {
-   "native": 118480,
+   "native": 121968,
    "partial": 0,
    "total": 2625144,
-   "percent": 4.51
+   "percent": 4.65
   },
   "by_calls": {
-   "native": 112552669,
+   "native": 113460285,
    "partial": 0,
    "total": 279490744,
-   "percent": 40.27
+   "percent": 40.6
   },
   "game_code_by_size": {
-   "native": 52872,
+   "native": 56360,
    "total": 2208056,
-   "percent": 2.39
+   "percent": 2.55
   }
  },
  "areas": {
@@ -52,9 +52,9 @@
    "percent": 4.24
   },
   "Display and models": {
-   "functions": 980,
+   "functions": 979,
    "native_functions": 36,
-   "bytes": 252708,
+   "bytes": 252660,
    "native_bytes": 21608,
    "partial_functions": 0,
    "percent": 8.55
@@ -68,9 +68,9 @@
    "percent": 4.96
   },
   "Other game code": {
-   "functions": 2893,
+   "functions": 2890,
    "native_functions": 9,
-   "bytes": 1281772,
+   "bytes": 1278332,
    "native_bytes": 7392,
    "partial_functions": 0,
    "percent": 0.58
@@ -92,12 +92,12 @@
    "percent": 0.0
   },
   "Particles and effects": {
-   "functions": 112,
-   "native_functions": 2,
-   "bytes": 24544,
-   "native_bytes": 2856,
+   "functions": 116,
+   "native_functions": 6,
+   "bytes": 28032,
+   "native_bytes": 6344,
    "partial_functions": 0,
-   "percent": 11.64
+   "percent": 22.63
   },
   "Collision and physics": {
    "functions": 321,
@@ -1038,6 +1038,30 @@
    "source": "game/overrides/decomp_cloth.cpp"
   },
   {
+   "address": "0x0113aae0",
+   "name": "manager_sub_0113AAE0",
+   "bytes": 472,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclupdate.cpp"
+  },
+  {
+   "address": "0x0113b610",
+   "name": "manager_sub_0113B610",
+   "bytes": 792,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclupdate.cpp"
+  },
+  {
+   "address": "0x0113b928",
+   "name": "manager_sub_0113B928",
+   "bytes": 2176,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclupdate.cpp"
+  },
+  {
    "address": "0x0113ca58",
    "name": "manager_sub_0113CA58",
    "bytes": 2088,
@@ -1052,6 +1076,14 @@
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_ptcldraw.cpp"
+  },
+  {
+   "address": "0x0113f500",
+   "name": "doit_particle_geodisp",
+   "bytes": 48,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclupdate.cpp"
   },
   {
    "address": "0x01145f78",

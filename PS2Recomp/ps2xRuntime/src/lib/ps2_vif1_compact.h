@@ -70,6 +70,19 @@ public:
     Vif1Walker(VIFRegisters &regs, GifEventScanner &direct, const Path3Mask &mask)
         : m_regs(regs), m_direct(direct), m_mask(mask) {}
     void feed(const uint8_t *data, uint32_t bytes);
+    // feed() of a DMA tag's two VIFcode words when both are NOP and no
+    // code's data is pending: what the two NOPs do (CODE / NUM 0), no walk.
+    bool feedTagWords(const uint8_t *words)
+    {
+        uint64_t w;
+        std::memcpy(&w, words, 8);
+        if (w != 0u || m_skip != 0u || m_gif != 0u || m_want != 0u)
+            return false;
+        m_regs.code = 0u;
+        m_regs.num = 0u;
+        m_bytes += 8u;
+        return true;
+    }
     // Adds the counters (MSCAL / MSCNT, UNPACK, bytes) to ps2_stats once.
     void finish();
 

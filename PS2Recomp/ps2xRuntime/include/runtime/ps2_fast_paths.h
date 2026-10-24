@@ -7,10 +7,15 @@
 //    StoreN and PS2Memory (PS2X_SPR_FAST=0: the long way);
 //  - g_dmaPrefetch: the VIF1 chain walk prefetches the next DMA tag and the
 //    start of its data while it walks the current one (PS2X_DMA_PREFETCH=0:
-//    none).
+//    none);
+//  - g_dmaWalkFast (2026-10-23, round 8): the VIF1 chain walk takes a DMA
+//    tag's two NOP VIFcodes without the walker's loop, and the GIF event
+//    scan reads an A+D-only PACKED block's register addresses in a tight
+//    loop (PS2X_DMA_WALK_FAST=0: the general paths).
 // Kept out of ps2_memory.h: every generated file includes that one.
 namespace ps2_fast_paths
 {
     extern bool g_sprFast;
     extern bool g_dmaPrefetch;
+    extern bool g_dmaWalkFast;
 }

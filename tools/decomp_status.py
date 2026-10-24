@@ -55,7 +55,7 @@ LIB_AREA = 'Boot ELF, SDK and libc'
 SOURCE_AREAS = [
     (r'decomp_(bridle|chara|cloth|clothdyn|clothstep|curve|quat|skeleton|skinpal)\.cpp', 'Characters and motion'),
     (r'decomp_(layout|light|modelclip|pointsort|prefetch|sortlist|texanim|texreset)\.cpp|sotc_native\.cpp', 'Display and models'),
-    (r'decomp_(particles|ptcldraw)\.cpp', 'Particles and effects'),
+    (r'decomp_(particles|ptcldraw|ptclupdate)\.cpp', 'Particles and effects'),
     (r'decomp_collision\.cpp', 'Collision and physics'),
     (r'decomp_(math|softfloat)\.cpp', 'Math'),
     (r'decomp_(gctick|subthread|time|keyboard)\.cpp', 'System and memory'),

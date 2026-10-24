@@ -144,6 +144,11 @@ namespace native_renderer
     void setPresentHook(std::function<void(uint32_t texture, uint32_t width, uint32_t height)> hook);
 
     bool hasMesh(uint64_t id);
+    // The backend has this mesh now (not just a build of it on the worker).
+    bool meshKnown(uint64_t id);
+    // Counts the meshes the backend has let go (its cache budget): a frontend
+    // that remembers meshKnown answers asks again when this changes.
+    uint64_t meshEvictions();
     // A triangle list, kept on the GPU under `id` until the renderer goes.
     // perFrame: made again every frame (skinned, 2D, particles...): kept only
     // for this frame (one shared buffer per frame on GL).
@@ -275,12 +280,21 @@ namespace native_renderer
         float light[32] = {};
     };
     void draw(uint64_t mesh, const float clip[16], const DrawState &state);
+    // The same as draw() for each of `count` meshes in turn, all with this
+    // matrix and state, recorded as one draw (a model's packets of one
+    // surface: the state made and copied once). Taps, the draw dump and the
+    // held / hidden tests see each mesh as its own draw.
+    void drawMulti(const uint64_t *meshes, uint32_t count, const float clip[16], const DrawState &state);
     // Testing (SOTC_DIFFTEST_DRAWS): while a tap is set, every 3D draw (its
     // mesh, state, matrix and lights) is hashed into it, for two runs of the
     // same game code to be compared draw by draw (=2: 2D draws, per-frame
     // meshes by their vertices and skin palettes by their matrices too, some
     // made once a frame: only a first leg has them). nullptr: off.
     void setDrawTap(std::vector<uint64_t> *tap);
+    std::vector<uint64_t> *drawTap();
+    // With a tap set: draws are hashed into it and not drawn (a dry run of
+    // the same draws, e.g. SOTC_PLAN_VERIFY's reference leg).
+    void setDrawTapOnly(bool only);
     // The next whole frame's draws, one line each, to `path` (F8 in the runtime).
     void requestDrawDump(const std::string &path);
     // SotC's zFog: before layer `order`, every pixel blends towards the

@@ -39,6 +39,26 @@ public:
                 pos += n * 16u;
                 continue;
             }
+            // A PACKED block of A+D only (the GS register lists: most of what
+            // is scanned): each qword's register address, in a tight loop.
+            if (m_remaining != 0u && m_nreg == 1u && (m_regs & 0xFu) == 0xEu && fast())
+            {
+                const uint32_t n = std::min<uint32_t>(m_remaining, (bytes - pos) / 16u);
+                for (uint32_t i = 0; i < n; ++i)
+                {
+                    const uint8_t address = data[pos + i * 16u + 8u];
+                    if (address >= 0x60u && address <= 0x62u)
+                    {
+                        uint64_t lo;
+                        std::memcpy(&lo, data + pos + i * 16u, 8);
+                        ++s_events[address - 0x60u];
+                        m_write(address, lo);
+                    }
+                }
+                m_remaining -= n;
+                pos += n * 16u;
+                continue;
+            }
             qword(data + pos);
             pos += 16u;
         }
@@ -49,7 +69,11 @@ public:
         }
     }
 
+    // SIGNAL / FINISH / LABEL writes seen (PS2X_GIF_EVENT_LOG, debugging).
+    static inline uint64_t s_events[3] = {};
+
 private:
+    static bool fast(); // ps2_fast_paths::g_dmaWalkFast (ps2_memory.cpp)
     void qword(const uint8_t *q)
     {
         uint64_t lo, hi;
@@ -81,7 +105,10 @@ private:
         {
             const uint8_t address = static_cast<uint8_t>(hi & 0xFFu);
             if (address >= 0x60u && address <= 0x62u)
+            {
+                ++s_events[address - 0x60u];
                 m_write(address, lo);
+            }
         }
     }
 
