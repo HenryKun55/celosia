@@ -4,11 +4,27 @@
   "type": "recomp",
   "project": "celosia",
   "status": "in-progress",
-  "targets": ["macOS"],
+  "targets": [
+    "macOS",
+    "PS Vita"
+  ],
   "toolchain": "PS2Recomp",
-  "original": { "region": "USA", "serial": "SCUS-97472" },
-  "approach": "Static recompilation of the EE code with PS2Recomp, and a native Metal renderer fed at the game's own draw calls (models, skinning, lighting, fog, bloom, 2D)",
-  "notes": "Runs on macOS through static recompilation. The PS2 hardware is being replaced step by step: the native renderer (SOTC_NATIVE=1) draws the game from its own model, texture and sprite data with Metal, without the VIF/VU1/GS path. PS Vita is the long-term target.",
-  "tags": ["native-renderer", "metal", "vita"],
-  "maintainers": [{ "name": "HenryKun55", "link": "https://github.com/HenryKun55" }]
+  "original": {
+    "region": "USA",
+    "serial": "SCUS-97472"
+  },
+  "approach": "Static recompilation of the EE code with PS2Recomp, a native renderer (Metal on macOS, OpenGL ES on PS Vita) fed at the game's own draw calls (models, skinning, lighting, fog, bloom, 2D), and a functional decompilation of the hot game code into native C++",
+  "notes": "Runs on macOS and PS Vita through static recompilation. The PS2 hardware is being replaced step by step: the native renderer (SOTC_NATIVE=1) draws the game from its own model, texture and sprite data without the VIF/VU1/GS path, and the hot game code is being decompiled to native C++ for Vita speed (progress in docs/decomp_status.json).",
+  "tags": [
+    "native-renderer",
+    "metal",
+    "vita",
+    "decompilation"
+  ],
+  "maintainers": [
+    {
+      "name": "HenryKun55",
+      "link": "https://github.com/HenryKun55"
+    }
+  ]
 }

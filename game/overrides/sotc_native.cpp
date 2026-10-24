@@ -30,6 +30,7 @@
 #include "runtime/gs/ps2_gs_psmt4.h"
 #include "runtime/gs/ps2_gs_psmt8.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_thread_load.h"
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
 #include "lean_hot.h"
@@ -2084,20 +2085,35 @@ namespace sotc_native
             uint64_t draws = 0, targets = 0, texUploads = 0, texBytes = 0, meshUploads = 0, meshBytes = 0;
         };
         static Sum sum;
+        // The game thread's scheduler waits (idle, VBlank pacing, a guest
+        // thread blocked), the disc reads, the guest VBlanks: this frame's.
+        struct Mark
+        {
+            uint64_t wait, cdUs, cdBytes, cdReads, vblanks;
+        };
+        const Mark mark{ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed), ps2_stats::cdReadUs.load(std::memory_order_relaxed),
+                        ps2_stats::cdReadBytes.load(std::memory_order_relaxed), ps2_stats::cdReads.load(std::memory_order_relaxed),
+                        ps2_stats::vblanks.load(std::memory_order_relaxed)};
+        static Mark lastMark = mark;
         if (last)
         {
             const uint64_t period = now - last;
             if (period > 50000u)
-                std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u\n",
+                std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u"
+                                     " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
-                             c.asyncJobs, c.asyncDone, c.heldDraws);
+                             c.asyncJobs, c.asyncDone, c.heldDraws, (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
+                             (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0,
+                             (unsigned long long)(mark.vblanks - lastMark.vblanks));
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
             static const bool all = std::getenv("SOTC_FRAME_LOG_ALL") != nullptr;
             if (all && period <= 50000u)
-                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u\n",
+                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
-                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws);
+                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws,
+                             (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0, (unsigned long long)(mark.cdReads - lastMark.cdReads),
+                             (mark.cdBytes - lastMark.cdBytes) / 1024.0, (unsigned long long)(mark.vblanks - lastMark.vblanks));
             ++sum.frames;
             sum.period += period;
             sum.worst = std::max(sum.worst, period);
@@ -2132,6 +2148,7 @@ namespace sotc_native
             }
         }
         last = now;
+        lastMark = mark;
         c = {};
     }
 

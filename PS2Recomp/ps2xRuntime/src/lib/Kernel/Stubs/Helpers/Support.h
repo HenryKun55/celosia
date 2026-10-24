@@ -1,3 +1,4 @@
+#include "runtime/ps2_stats.h"
 #include <mutex>
 #include <vector>
 #if defined(PLATFORM_VITA)
@@ -428,7 +429,21 @@ namespace
         return true;
     }
 
+    bool readHostRangeTimed(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount);
     bool readHostRange(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount)
+    {
+        const ps2_stats::TimeInto timed{ps2_stats::cdReadUs};
+        ps2_stats::cdReadBytes.fetch_add(byteCount, std::memory_order_relaxed);
+        ps2_stats::cdReads.fetch_add(1u, std::memory_order_relaxed);
+        // PS2X_CD_LOG=1: every read ("[cd] frame F vblank V <file> <offset> <bytes>"; debugging).
+        static const bool log = std::getenv("PS2X_CD_LOG") != nullptr;
+        if (log)
+            std::fprintf(stderr, "[cd] frame %llu vblank %llu %s %llu %zu\n", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed),
+                         (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), path.filename().string().c_str(),
+                         (unsigned long long)offsetBytes, byteCount);
+        return readHostRangeTimed(path, offsetBytes, dst, byteCount);
+    }
+    bool readHostRangeTimed(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount)
     {
         if (!dst)
         {
