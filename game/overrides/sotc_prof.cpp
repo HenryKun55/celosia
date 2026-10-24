@@ -31,7 +31,6 @@
 #include "runtime/native_tuning.h"
 #include "runtime/native_renderer.h"
 #include "runtime/ee_dispatch_probe.h"
-#include "runtime/ee_scheduler.h"
 #include "runtime/ps2_stats.h"
 #include "runtime/ps2_thread_load.h"
 
@@ -50,13 +49,6 @@
 
 #ifdef PLATFORM_VITA
 #include <psp2/kernel/processmgr.h>
-#endif
-#if defined(__APPLE__) && defined(__aarch64__)
-#include <dlfcn.h>
-#include <mach-o/dyld.h>
-#include <mach/mach.h>
-#include <pthread.h>
-#include <thread>
 #endif
 
 namespace sotc_prof
@@ -83,7 +75,6 @@ namespace sotc_prof
             char name[40] = {};
             uint64_t incl = 0, self = 0, calls = 0;
             uint64_t escapes = 0, forced = 0; // left early; closed without being seen returning
-            uint64_t fIncl = 0, fSelf = 0, fCalls = 0; // this game frame (SOTC_SUBSYS_PROF_SLOW)
             uint32_t active = 0;              // open calls (recursion: inclusive counted once)
         };
         std::array<Probe, kMaxProbes> g_probes;
@@ -161,16 +152,10 @@ namespace sotc_prof
             const Frame f = g_stack[i];
             const uint64_t elapsed = f.acc + (f.paused ? 0u : now - f.start);
             Probe &p = g_probes[f.probe];
-            const uint64_t self = elapsed > f.child ? elapsed - f.child : 0u;
-            p.self += self;
-            p.fSelf += self;
+            p.self += elapsed > f.child ? elapsed - f.child : 0u;
             if (--p.active == 0u)
-            {
                 p.incl += elapsed;
-                p.fIncl += elapsed;
-            }
             ++p.calls;
-            ++p.fCalls;
             if (forced)
                 ++p.forced;
             for (int j = i; j + 1 < g_depth; ++j)
@@ -553,52 +538,6 @@ namespace sotc_prof
         }
     }
 
-    namespace detail
-    {
-        // SOTC_SUBSYS_PROF_SLOW=<ms>: each game frame longer than that on a
-        // line of its own, its probes by inclusive time (load hitches):
-        //   [prof-slow] frame F: W ms wall, P in probes, wait S ms | name I/S xC | ...
-        // (the open calls' time is not in it until they close).
-        void slowFrame(uint64_t frame, uint64_t now)
-        {
-            static const double limitMs = std::getenv("SOTC_SUBSYS_PROF_SLOW") ? std::atof(std::getenv("SOTC_SUBSYS_PROF_SLOW")) : 0.0;
-            static uint64_t last = 0, lastWait = 0;
-            const uint64_t wait = ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed);
-            const double wallMs = last ? (now - last) / kTicksPerMs : 0.0;
-            if (limitMs > 0.0 && last && wallMs > limitMs)
-            {
-                std::vector<int> order;
-                uint64_t inProbes = 0;
-                for (int i = 0; i < g_probeCount; ++i)
-                {
-                    inProbes += g_probes[i].fSelf;
-                    if (g_probes[i].fCalls)
-                        order.push_back(i);
-                }
-                std::sort(order.begin(), order.end(), [](int a, int b) { return g_probes[a].fIncl > g_probes[b].fIncl; });
-                std::string line;
-                char buf[160];
-                std::snprintf(buf, sizeof(buf), "[prof-slow] frame %llu: %.1f ms wall, %.1f in probes, wait %.1f ms",
-                              static_cast<unsigned long long>(frame), wallMs, inProbes / kTicksPerMs, (wait - lastWait) / 1000.0);
-                line += buf;
-                int shown = 0;
-                for (int i : order)
-                {
-                    const Probe &p = g_probes[i];
-                    if (p.fIncl / kTicksPerMs < 0.3 || ++shown > 30)
-                        continue;
-                    std::snprintf(buf, sizeof(buf), " | %s %.1f/%.1f x%llu", p.name, p.fIncl / kTicksPerMs, p.fSelf / kTicksPerMs, static_cast<unsigned long long>(p.fCalls));
-                    line += buf;
-                }
-                std::fprintf(stderr, "%s\n", line.c_str());
-            }
-            for (int i = 0; i < g_probeCount; ++i)
-                g_probes[i].fIncl = g_probes[i].fSelf = g_probes[i].fCalls = 0u;
-            last = now;
-            lastWait = wait;
-        }
-    }
-
     void noteAb(bool on)
     {
         const int now = on ? 1 : 0;
@@ -785,7 +724,6 @@ namespace sotc_prof
         }
         if (!on)
             return;
-        slowFrame(frame, now);
         if (frame < g_frame0 + 120u)
             return;
         report(frame, now);
@@ -1167,141 +1105,6 @@ namespace sotc_prof
         }
     }
 
-#if defined(__APPLE__) && defined(__aarch64__)
-    // ---- the host sampler (Mac, SOTC_HOST_PROF=<file>) -----------------------
-    // 1000 times a second each named thread of the process (the game thread,
-    // the render thread, the build workers...) is stopped and its pc and
-    // frame-pointer chain (24 deep) written with the game frame then: lines
-    // "F thread pc pc ...", after a "slide" line (the main image's ASLR
-    // slide). SOTC_HOST_PROF_FRAMES=lo-hi: only those game frames.
-    // build/agent-scratch/r9/tools/hostprof.py names them (per frame, per
-    // thread, inclusive). Debugging only: a loaded run's per-frame truth on
-    // the host, waits included (the leaf is a kernel wait).
-    namespace hostprof
-    {
-        PS2Runtime *g_runtime = nullptr;
-        void start(const char *path)
-        {
-            uint64_t lo = 0, hi = ~0ull;
-            if (const char *r = std::getenv("SOTC_HOST_PROF_FRAMES"))
-            {
-                char *end = nullptr;
-                lo = std::strtoull(r, &end, 10);
-                if (end && *end == '-')
-                    hi = std::strtoull(end + 1, nullptr, 10);
-            }
-            FILE *f = std::fopen(path, "w");
-            if (!f)
-                return;
-            std::fprintf(f, "slide %llx\n", static_cast<unsigned long long>(_dyld_get_image_vmaddr_slide(0)));
-            std::thread([f, lo, hi]()
-                        {
-                pthread_setname_np("HostSampler");
-                const mach_port_t self = mach_thread_self();
-                std::unordered_map<mach_port_t, std::string> names;
-                std::unordered_map<uint64_t, std::string> libNames;
-                uint64_t n = 0;
-                while (true)
-                {
-                    std::this_thread::sleep_for(std::chrono::microseconds(1000));
-                    const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
-                    if (frame < lo || frame > hi)
-                    {
-                        if (frame > hi)
-                        {
-                            std::fflush(f);
-                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                        }
-                        continue;
-                    }
-                    thread_act_array_t threads = nullptr;
-                    mach_msg_type_number_t count = 0;
-                    if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS)
-                        continue;
-                    for (mach_msg_type_number_t i = 0; i < count; ++i)
-                    {
-                        const mach_port_t t = threads[i];
-                        if (t == self)
-                            continue;
-                        auto it = names.find(t);
-                        if (it == names.end() || (n & 1023u) == 0u)
-                        {
-                            char name[64] = {};
-                            if (pthread_t p = pthread_from_mach_thread_np(t))
-                                pthread_getname_np(p, name, sizeof(name));
-                            it = names.insert_or_assign(t, std::string(name)).first;
-                        }
-                        if (it->second.empty())
-                            continue;
-                        pthread_t p = pthread_from_mach_thread_np(t);
-                        if (!p)
-                            continue;
-                        const uintptr_t stackHi = reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(p));
-                        const uintptr_t stackLo = stackHi - pthread_get_stacksize_np(p);
-                        if (thread_suspend(t) != KERN_SUCCESS)
-                            continue;
-                        arm_thread_state64_t st;
-                        mach_msg_type_number_t sc = ARM_THREAD_STATE64_COUNT;
-                        uint64_t pcs[24];
-                        int depth = 0;
-                        if (thread_get_state(t, ARM_THREAD_STATE64, reinterpret_cast<thread_state_t>(&st), &sc) == KERN_SUCCESS)
-                        {
-                            pcs[depth++] = arm_thread_state64_get_pc(st);
-                            pcs[depth++] = arm_thread_state64_get_lr(st);
-                            uintptr_t fp = arm_thread_state64_get_fp(st);
-                            while (depth < 24 && fp >= stackLo && fp + 16 <= stackHi && (fp & 7u) == 0u)
-                            {
-                                const uintptr_t *rec = reinterpret_cast<const uintptr_t *>(fp);
-                                const uintptr_t next = rec[0], lr = rec[1];
-                                if (!lr)
-                                    break;
-                                pcs[depth++] = lr;
-                                if (next <= fp)
-                                    break;
-                                fp = next;
-                            }
-                        }
-                        thread_resume(t);
-                        // The leaf's symbol when it is outside the main image (libc, the kernel's waits).
-                        const char *leaf = "";
-                        if (depth)
-                        {
-                            const uint64_t pc0 = pcs[0] & 0x0000FFFFFFFFFFFFull;
-                            auto lit = libNames.find(pc0);
-                            if (lit == libNames.end())
-                            {
-                                Dl_info info{};
-                                std::string nm;
-                                if (dladdr(reinterpret_cast<void *>(pc0), &info) && info.dli_fname && !std::strstr(info.dli_fname, "ps2EntryRunner"))
-                                    nm = info.dli_sname ? info.dli_sname : "?";
-                                lit = libNames.emplace(pc0, nm).first;
-                            }
-                            leaf = lit->second.c_str();
-                        }
-                        // The game thread: the guest thread it runs then.
-                        int guest = -1;
-                        if (g_runtime && it->second == "GameThread")
-                            guest = g_runtime->eeScheduler().currentThreadId();
-                        if (guest >= 0)
-                            std::fprintf(f, "%llu %s/t%d%s%s", static_cast<unsigned long long>(frame), it->second.c_str(), guest, *leaf ? " @" : "", leaf);
-                        else
-                            std::fprintf(f, "%llu %s%s%s", static_cast<unsigned long long>(frame), it->second.c_str(), *leaf ? " @" : "", leaf);
-                        for (int d = 0; d < depth; ++d)
-                            std::fprintf(f, " %llx", static_cast<unsigned long long>(pcs[d] & 0x0000FFFFFFFFFFFFull));
-                        std::fputc('\n', f);
-                    }
-                    for (mach_msg_type_number_t i = 0; i < count; ++i)
-                        mach_port_deallocate(mach_task_self(), threads[i]);
-                    vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads), count * sizeof(thread_act_t));
-                    if ((++n & 255u) == 0u)
-                        std::fflush(f);
-                } })
-                .detach();
-            std::fprintf(stderr, "[hostprof] sampling to %s, frames %llu-%llu\n", path, static_cast<unsigned long long>(lo), static_cast<unsigned long long>(hi));
-        }
-    }
-#endif
-
     void remapWrapped(GuestFn from, GuestFn to)
     {
         for (Wrapped &w : g_wrapped)
@@ -1314,13 +1117,6 @@ namespace sotc_prof
 
     void install(PS2Runtime &runtime)
     {
-#if defined(__APPLE__) && defined(__aarch64__)
-        if (const char *path = std::getenv("SOTC_HOST_PROF"))
-        {
-            hostprof::g_runtime = &runtime;
-            hostprof::start(path);
-        }
-#endif
         const char *env = std::getenv("SOTC_SUBSYS_PROF");
         if (!(env && std::atoi(env) != 0) && !native_renderer::tuning().subsysProf)
         {

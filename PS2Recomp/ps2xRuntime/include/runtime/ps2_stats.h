@@ -49,8 +49,6 @@ namespace ps2_stats
         uint64_t start = nowUs();
         ~TimeInto() { total.fetch_add(nowUs() - start, std::memory_order_relaxed); }
     };
-    // Disc reads (sceCdRead / the stream's reads into memory): host time, bytes, calls.
-    inline std::atomic<uint64_t> cdReadUs{0}, cdReadBytes{0}, cdReads{0};
     inline std::atomic<uint64_t> tlVu1Us{0}, tlVu1IdleUs{0}, tlGsUs{0}, tlRestUs{0}, tlFrames{0};
     // At a kick: account the frame that the previous kick started.
     inline void frameKicked(uint64_t now, uint64_t vu1IdleNow)
