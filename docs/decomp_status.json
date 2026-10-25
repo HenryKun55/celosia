@@ -1,47 +1,47 @@
 {
  "updated": "2026-10-25",
- "commit": "70bdc6c",
+ "commit": "d44f871",
  "summary": {
   "by_functions": {
-   "native": 419,
+   "native": 423,
    "partial": 0,
    "total": 9024,
-   "percent": 4.64
-  },
-  "by_code_size": {
-   "native": 123136,
-   "partial": 0,
-   "total": 2625144,
    "percent": 4.69
   },
+  "by_code_size": {
+   "native": 124200,
+   "partial": 0,
+   "total": 2625144,
+   "percent": 4.73
+  },
   "by_calls": {
-   "native": 114321195,
+   "native": 116190482,
    "partial": 0,
    "total": 279490744,
-   "percent": 40.9
+   "percent": 41.57
   },
   "game_code_by_size": {
-   "native": 56360,
+   "native": 56856,
    "total": 2208056,
-   "percent": 2.55
+   "percent": 2.57
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
-   "functions": 2134,
+   "functions": 2132,
    "native_functions": 313,
-   "bytes": 407084,
+   "bytes": 406516,
    "native_bytes": 56772,
    "partial_functions": 0,
-   "percent": 13.95
+   "percent": 13.97
   },
   "Math": {
-   "functions": 126,
-   "native_functions": 13,
-   "bytes": 24676,
-   "native_bytes": 2428,
+   "functions": 128,
+   "native_functions": 15,
+   "bytes": 25244,
+   "native_bytes": 2996,
    "partial_functions": 0,
-   "percent": 9.84
+   "percent": 11.87
   },
   "Characters and motion": {
    "functions": 1208,
@@ -53,11 +53,11 @@
   },
   "Display and models": {
    "functions": 979,
-   "native_functions": 36,
+   "native_functions": 37,
    "bytes": 252660,
-   "native_bytes": 21608,
+   "native_bytes": 21800,
    "partial_functions": 0,
-   "percent": 8.55
+   "percent": 8.63
   },
   "System and memory": {
    "functions": 231,
@@ -68,9 +68,9 @@
    "percent": 4.96
   },
   "Other game code": {
-   "functions": 2890,
+   "functions": 2889,
    "native_functions": 9,
-   "bytes": 1278332,
+   "bytes": 1278028,
    "native_bytes": 7392,
    "partial_functions": 0,
    "percent": 0.58
@@ -100,12 +100,12 @@
    "percent": 22.63
   },
   "Collision and physics": {
-   "functions": 321,
-   "native_functions": 19,
-   "bytes": 105136,
-   "native_bytes": 13720,
+   "functions": 322,
+   "native_functions": 20,
+   "bytes": 105440,
+   "native_bytes": 14024,
    "partial_functions": 0,
-   "percent": 13.05
+   "percent": 13.3
   },
   "Script and events": {
    "functions": 633,
@@ -422,6 +422,22 @@
    "source": "game/overrides/decomp_math.cpp"
   },
   {
+   "address": "0x001bdf00",
+   "name": "iosGetSinf",
+   "bytes": 288,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
+   "address": "0x001be020",
+   "name": "iosGetCosf",
+   "bytes": 280,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
    "address": "0x001be458",
    "name": "iosGetATan2fExact",
    "bytes": 104,
@@ -684,6 +700,14 @@
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/decomp_texframe.cpp"
+  },
+  {
+   "address": "0x010ab3a8",
+   "name": "texSearchMopByName",
+   "bytes": 192,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_texsearch.cpp"
   },
   {
    "address": "0x010ab618",
@@ -961,6 +985,14 @@
    "address": "0x01125b30",
    "name": "GetCollisionDBAttributeAdr",
    "bytes": 272,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01128f38",
+   "name": "manager_sub_01128F38",
+   "bytes": 304,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"

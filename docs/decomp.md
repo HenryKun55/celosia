@@ -116,6 +116,9 @@ What a native function has to keep, learned the hard way:
 | decomp_walk.cpp | DispDispObjGroupModel (the display walk from its top), ClipLayoutObjModel, modelClipSolid (clipByMinMaxCube inline), DispLayoutObjModel (DispCloth inline), 010F3A08 (solidDisp), 010F3EB8 (the heat haze strips, glColor4f / glTexCoord2f / glVertex3fv / iosgluGetViewCoordPosition inline), 0108D730 (glVertex's kick), glVertex3fv | walk: attract 1 200, route 1 100 (SOTC_NATIVE=1, EVERY=5, to frame 4800), with the native renderer's draws compared too; children (walk recompiled): attract 2 900-41 500 each, route 2 200-43 900 each; 0 mismatches | see "Round 7" below |
 | decomp_ptcldraw.cpp | particleDraw's loop: 01142030 (the fade) inline, iosGetSinCosf called straight (round 7) | attract 4 200, route 17 700 (SOTC_NATIVE=1), 0 mismatches | no guest call a particle |
 | decomp_ptclupdate.cpp | the particle step from its top: doit_particle_geodisp, 0113AAE0 (emitter list, dead emitters freed), 0113B610 (an emitter's frame), 0113B928 (its particles: types 2 / 3's local matrix, wind, particleUpdate called straight, new particles from the free list) | attract (EVERY=5) 5 500 / 1 400 / 6 600 / 8 000, route 27 000 / 27 000 / 32 400 / 38 900; also SOTC_NATIVE=2 (route, EVERY=10) 14 400 / 1 600 / 16 000 / 17 600; 0 mismatches | round 8; the VU0 blocks are the recompiled statements lifted onto locals |
+| decomp_math.cpp | iosGetSinf, iosGetCosf (round 10) | route (EVERY=200, SOTC_NATIVE=1 / 2) 3 400 + 2 900 / 3 700 + 3 200 checks (640 000+ / 700 000+ calls), attract (=1 / 2) 1 100 + 400, 0 mismatches | the VU0 polynomial iosGetSinCosf shares; the player's life bar ~400 calls a frame, texAnim's waves |
+| decomp_texsearch.cpp | texSearchMopByName (round 10) | route 200, attract 1, 0 mismatches | the texture list walk with the names compared in place (was one guest strcmp a node) |
+| decomp_collision.cpp | the sphere finder's tree walk, manager_sub_01128F38 (round 10) | route SOTC_NATIVE=1 3 000 checks (297 500 calls), =2 1 200 (234 400), 0 mismatches; not called by the attract demo | low child by recursion, high by the loop; the finder's native leaves called straight |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -1195,6 +1198,200 @@ physics, AI). Plan below.
 5. The render thread's first frames in a new area (194-210 ms, 110 ms of it
    waiting for the GPU in Vita3K): check on the console whether it is
    Vita3K's own pipeline creation.
+
+## Round 10: the clock, and the route's walk outside (2026-10-25)
+
+**The game's time step.** GAMECORE's frame time (0x1465650, gamecore_sub_01345638
+each frame) comes from the EE timer, not from a VBlank count: iosGetTCount
+(0x1fd8a0, T0 overflows at the bus clock) minus the last frame's, through
+iosGetSecondFromTCount, scaled by +0x1a0 (the game speed): +0x180 is the
+world's step in seconds (doit_particle_manager, doit_wind_manager,
+doit_cameraman_manager and ~120 other readers take it; 0x14657e0 = +0x190
+another ~180). No clamp is applied where it is made; frameRateMode
+(0x14659e8, set only through a pointer, a debug switch) replaces it with a
+fixed 1/30 s. VBlanks themselves count only at 0x1e1314 (getVIntrCnt: the
+cutscenes' demo clock, getVIntrDiffTime, and the play-time counter
+0x1e133c). So SotC is a variable-step game on real (EE) time, as on the
+console when it drops frames; the frame log now prints the step ("dt", ms)
+beside "vb".
+
+The host clock's catch-up cap (EeScheduler::syncCyclesToHostClock) was 2
+VBlanks: on a 90 ms frame the game saw ~40 ms of time, so the world ran at
+0.4-0.7 of real time while the streamed sound runs at real time.
+
+**Checks of a larger cap** (all on this round's binary, cap by
+PS2X_HOST_CLOCK_MAX_LAG):
+
+- Mac, frames made slow on purpose (SOTC_FRAME_STALL_MS=70 from frame 1300,
+  ~86 ms frames, like the Vita's walk), the route (r10/route.sh with
+  SOTC_POS_LOG: the player's position by game time): cap 8 gives game/wall
+  1.00 and follows the fixed-step references (SOTC_FRAME_INTERVAL=2, a
+  steady 30 fps, and =5, a steady 12 fps: both real time) within 1-3 units
+  over the whole walk out of the shrine and across the plain to Agro; cap 2
+  gives 0.44 and another path (into a pillar of the shrine's gate, as the
+  unthrottled 60 fps Mac run also does); cap 4 0.82, its path leaves the
+  references at the plain. The path is chaotic in frame timing anyway: two
+  runs of the same configuration can differ (round 9's runs took a longer
+  way once in six). Nothing broke: no falls through the ground, no stuck
+  animation, the cutscene ("If thou should findst an altar...") at the same
+  game time in all the real-time runs (sheets r10/sheet-p1.png, sheet-p2.png).
+  The stall stops every guest thread (the loader too), so it does not
+  model cutscene streaming: the attract demo's cutscenes ran late under it,
+  on both caps; that is the stall, not the cap (the Vita3K runs below).
+- Calibrated Vita3K, the attract demo: the same demo, scene for scene, to
+  frame 12 000 (the draw-count profile on the game's clock,
+  r10/tools/gametime.py; the scene changes come at the same wall time and
+  frame, frame 4 360 / 6 038 / 6 838 against 4 390 / 6 065 / 6 854, and later
+  in VBlanks by up to ~600: HEAD's VBlanks ran at 0.94 of real time).
+- Calibrated Vita3K, the route: the real route plays (5 runs), game/wall
+  1.00 in every window.
+- Mac: route clock 0.9996-0.9999 (last 12 windows; the cap does not act at
+  60 fps), attract demo past frame 4800 (to 5 700).
+
+**Change:** the cap is 8 VBlanks (133 ms) by default, everywhere;
+PS2X_HOST_CLOCK_MAX_LAG=2 gives the old behaviour. Frames longer than 133
+ms (loads) still lose the rest. In a slow scene the game now takes fewer,
+bigger steps and keeps real-time speed; the sound stays with the picture.
+
+**The walk outside, ranked** (calibrated Vita3K, profiler on, the real
+route, frames 400-1600 after the @3d entry; cap 8, so ~4.9 VBlanks a
+frame; two runs with callee probes, SOTC_SUBSYS_PROF_EXTRA,
+r10/env-route-xprof*.txt; ms a frame, self / inclusive):
+
+| subsystem | self | incl |
+|---|---|---|
+| ExecCharaGeometry (12 characters a frame) | 1.2 (5.9 without its callees probed) | 21.4-21.8 |
+| .. GetCharaRootDynamics (its walking-mode callback xz and charrootdyn_*: ground, slide, landing, water) | 4.5 | 6.5 |
+| .. CalcNodeQuaternionWithIK / skeletonPose | 2.7 / 2.9 | 4.6 |
+| .. GetMotionMatrix, CalcRootFitting, Preprocess, 010C7B28 (x380), cloth | 0.4-1.5 each | 3.3 / 2.3 / 2.0 / 1.5 / 1.4 |
+| DispDispObjGroupModel (the display walk, native since round 7) | 6.3-6.5 | 19.3-19.8 |
+| .. modelDisp (hook.packets 3.0, hook.state 1.6, packetId 0.5) | 1.0 | 7.3-7.6 |
+| collision: ClipCollisionDirectCallBack (native), ClipCollisionDB x600, finders | 3.5-4.0 / 1.7-1.8 / 0.9+0.5 | ~9 |
+| the horse's script task (nico_horseRStart) | 1.6-1.8 | 10.9 |
+| the player's life bar task (013F8668's rings: 013F6B20 1.5, 7178 0.75, 75D0 0.7, 400 sin / cos) | 2.1-2.4 | 2.4-3.5 |
+| camera (doit_game_camera) | 2.0-2.2 | 4.5-4.7 |
+| the AI (CharaCtrlAIControl) | 1.8-2.4 | 2.6-3.1 |
+| the DMA chain walk, the light pass, particles | 2.0, 1.7-1.9, 2.0+3.0 | |
+
+What the outside adds to the attract demo's profile: the horse, the
+characters' root dynamics on uneven ground (the sphere finder and its
+skinned variant), the HUD's life bar, more collision.
+
+**Changes (natives, each with SOTC_DIFFTEST, 0 mismatches):**
+
+- iosGetSinf / iosGetCosf (decomp_math.cpp): the life bar's ~400 calls a
+  frame (0.95 ms of the frame in the probe run) and texAnim's waves.
+- texSearchMopByName (decomp_texsearch.cpp): the texture list walk without a
+  guest strcmp a node (rare: ~200 calls over the route).
+- The sphere finder's tree walk, manager_sub_01128F38 (decomp_collision.cpp:
+  1.0 ms self at 65 calls a frame in the probe run, recursive, a guest
+  call per leaf), its leaves (round 4's natives) called straight.
+
+They are small: the walk's cost is spread over whole subsystems (the
+characters' root dynamics, the horse's script, the HUD) that this round
+only mapped. The route A/B with the old cap (PS2X_HOST_CLOCK_MAX_LAG=2,
+the same frames as HEAD) is within noise (below).
+
+**Results.** Calibrated Vita3K (MHZ=240 CORES=3), host on AC power, one
+run a side, HEAD = celosia-r9.vpk (d44f871), round 10 = celosia-r10.vpk;
+the route with r9/route2.sh's input (r10/v3k.sh), windows on the game's
+clock in VBlanks after the @3d entry (r10/tools/vbwin.py: with the new cap
+a frame covers more game time, so frame windows would compare different
+places); frames over 50 / 85 / 120 ms, the worst; no profiler unless said.
+"r10 cap 2" is this round's VPK with PS2X_HOST_CLOCK_MAX_LAG=2 (the
+natives alone).
+
+| route window (VBlanks) | HEAD | r10 cap 2 | r10 |
+|---|---|---|---|
+| the save's load (-1000..0): mean ms, >50/85/120, worst | 35.2, 54/8/3, 293.7 | 34.1, 49/8/4, 293.4 | 34.0, 34/10/3, 297.2 |
+| the shrine (0..1000) | 52.9, 181/71/0, 119.1 | 53.1, 184/69/0, 119.3 | 47.8, 109/43/0, 113.2 |
+| the walk out and the area change (1000..4000) | 85.7, 1172/519/22, 211.7 | 85.2, 1182/502/22, 209.8 | 87.4, 573/279/24, 207.1 |
+| the plain (4000..6000) | 59.4, 846/0/0, 82.6 | 58.7, 845/1/0, 85.8 | 59.3, 563/0/0, 75.0 |
+| frames in 0..8000 (133 s of game time) | 3304 | 3319 | 2057 |
+| game time / wall time, 1000..4000 | 0.50 | 0.50 | 1.00 |
+| sound ahead of the picture over 0..8000 | 90.4 s | 89.7 s | 0.0 s |
+| VBlanks (game step) a frame, 1000..4000 | 2.56 (~42 ms) | 2.54 (41.6 ms) | 5.24 (85.8 ms) |
+
+The same with the profiler: the walk (1000..4000) 89.6 ms a frame HEAD,
+93.5 round 10 (>85 ms: 797 / 378, >120: 33 / 39, worst 214.6 / 228.1);
+game/wall 0.48 / 1.00. The frame indexes 400..1600 (round 9's window):
+HEAD 94.4 ms (profiler), 85.9 (clean); round 10 79.3 / 71.3, but those
+frames are further along the route with the new cap.
+
+With the larger step a frame of the walk costs about the same or slightly
+more (+0-4%: some work grows with the step), but the game covers the walk
+in about half the frames and half the wall time: the route's 133 s of game
+time take 2 057 frames instead of 3 304. Two runs of the route do not walk
+the same path (the stick presses are VBlank-timed and the world is
+chaotic in its frame timing), so a window's content differs a little from
+run to run; per-subsystem differences between the two caps are not
+attributable (one run had more characters on screen than the other).
+
+| attract demo | HEAD | round 10 |
+|---|---|---|
+| 600-4800, no profiler: mean ms (>50 / >85, worst) | 32.55 (18 / 0, 75.5) | 32.55 (24 / 0, 75.2) |
+| 4800-9600, no profiler (later scenes at those frames: the demo runs later in frames) | 34.09 (397 / 7, 190.9) | 32.23 (222 / 3, 159.5) |
+| 600-4800, profiler: frame / execScript-level probes | 37.57 / 34.87 | 37.53 / 34.77 |
+| DispDispObjGroupModel / ExecCharaGeometry (profiler) | 11.28 / 6.37 | 11.21 / 6.38 |
+| 4800-9600, profiler | 37.32 | 36.38 |
+| game / wall over 12 000 frames, sound ahead | 0.94, 21.2 s | 1.00, 0.8 s (1.1 s of it in frames 0-600, the boot; 600-12000: -0.3 s) |
+| plays to | frame 12 000+ | frame 12 000+ (the same demo) |
+
+**The dust report (not reproduced).** During this round's Vita3K run
+w2-route-xprof2 the user saw the dust kicked up by Wander running and by
+Agro galloping drawn as hard-edged red / grey translucent quads, fanned
+behind them. Looked for, without finding it: three calibrated Vita3K runs of
+the same VPK with screenshots of our window (tools/vita3k.sh SHOTS=, 1-2 s
+apart from the walk out to Agro's arrival: two clean, one with that run's
+probe env), and Mac runs with GS and native pictures of the same moments
+(PS2X_SNAPSHOT_FRAMES pairs, the native renderer through Metal and through
+its GL backend, SOTC_NATIVE_GL=1, which the Vita uses, at 60 fps and
+throttled with cap 8): no such quads, and no dust visible in the emulated
+picture at those moments either (the dust is brief; 1-2 s sampling can miss
+it). Not bisected (nothing to bisect without a reproduction). The quick
+texture path (decodedTexture: a texture drawn the frame before is not
+resampled for up to 15 frames) could show another texture's pixels after a
+garbage move puts a different texture at the same address: SOTC_R2_CHECK=1
+on the Mac route counted 0 stale quick textures (536 336 checks) but 2
+packets rewritten in place that kept their id. Open; a screenshot or the
+moment (scene, wall time) would let it be bisected with the switches listed
+in the request.
+
+**Measuring tools (new):** SOTC_FRAME_STALL_MS / _FROM (Mac: slow frames),
+SOTC_POS_LOG=<n> (player and camera position, VBlank and step every n
+frames), PS2X_EXIT_AT_VBLANK, SNAP entries of the input script saved by the
+Mac loop with the native renderer (snap_<n>.png / native_snap_<n>.png),
+tools/vita3k.sh SHOTS=<dir> SHOTS_FROM / SHOTS_EVERY (screenshots of our
+Vita3K window only, tools/winid.swift), r10/tools/ (poscmp.py, gametime.py,
+vbwin.py: windows on the game's clock, profrank.py: every probe of a frame
+range ranked, hostunder.py: Mac host samples under a function).
+
+**Round 11 (plan):**
+
+1. The character root dynamics from its top: GetCharaRootDynamics's
+   callback xz (0x10e7610, the walking mode) and its charrootdyn_* callees
+   (getCollisionDB, slidecollision, getLandingSurface, getWaterStatus,
+   getCompleteFitting...), with the sphere finder's top (01115F88) and the
+   skinned finder (01116958) under it: GetCharaRootDynamics was 6.5 ms of
+   the calibrated walk frame (4.5 of it unprobed callees), xz 6.7 with its
+   collision. The finder walk (this round) is its first piece.
+2. ExecCharaGeometry's other callees (CalcRootFitting 2.3, GetMotionMatrix
+   3.0-3.3, CalcNodeInterp, AddCharacterClassSubGeometries, 010C7B28 1.5 ms
+   at 380 calls a frame), then its body.
+3. The player's life bar (playerlifebar_script, ~2.1-2.4 ms a frame of
+   the walk even while the bar is invisible): 013F6B20 / 7178 / 75D0 draw
+   two 44-point rings with ~200 gsReg calls; natively, with the gsReg calls
+   kept (the native 2D hook needs them) or, as a game-specific shortcut,
+   the draws left out while the bar's alpha (*0x11f85b4) is 0 (the point
+   arrays they write must still be made: 78A8 / 7F38 read them).
+4. The horse's script task (nico_horseRStart, t09 @01390f48: 10-12 ms
+   inclusive on the plain; gamecore_sub_01390A90 1.8 ms self) and the
+   kites (t09 @013e4350, 1.9 ms self).
+5. Round 9's leftovers: packetId after a garbage move, heapMove and the
+   symbol search.
+6. The quick packet ids: SOTC_R2_CHECK=1 on the Mac route found 2 packets
+   rewritten in place that kept their id (frames 3043-3044, the area
+   change): one frame in 16 recovers them; check what they draw meanwhile.
 
 ## Vita3K calibration (2026-10-22)
 

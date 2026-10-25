@@ -3393,7 +3393,31 @@ void PS2Runtime::run()
             // PS2X_EXIT_AT_FRAME=<n>: leave once game frame n is shown (scripted
             // runs end when their route does, not after a fixed time).
             static const uint64_t exitAt = std::getenv("PS2X_EXIT_AT_FRAME") ? std::strtoull(std::getenv("PS2X_EXIT_AT_FRAME"), nullptr, 10) : 0u;
-            const bool exitNow = exitAt && gameFrame >= exitAt;
+            // PS2X_EXIT_AT_VBLANK=<n> (round 10): leave at guest VBlank n instead
+            // (runs whose frames take different game time end at one moment).
+            static const uint64_t exitAtVblank = std::getenv("PS2X_EXIT_AT_VBLANK") ? std::strtoull(std::getenv("PS2X_EXIT_AT_VBLANK"), nullptr, 10) : 0u;
+            const bool exitNow = (exitAt && gameFrame >= exitAt) ||
+                                 (exitAtVblank && ps2_stats::vblanks.load(std::memory_order_relaxed) >= exitAtVblank);
+            // An input script SNAP entry with no GS backend picture to take it
+            // (the native renderer shown, or drawn alone): saved here as
+            // snap_<entry>.png (and native_snap_<entry>.png).
+            const int snapRequest = ps2_stats::snapshotRequest.exchange(-1, std::memory_order_relaxed);
+            if (snapRequest >= 0)
+            {
+                Image shot = LoadImageFromTexture(shownTex);
+                ImageCrop(&shot, Rectangle{0.0f, 0.0f, static_cast<float>(presentWidth), static_cast<float>(presentHeight)});
+                ExportImage(shot, (std::string(snapshotDir) + "/snap_" + std::to_string(snapRequest) + ".png").c_str());
+                UnloadImage(shot);
+                std::vector<uint8_t> nativeRgba;
+                uint32_t nativeW = 0, nativeH = 0;
+                if (!native_renderer::shown() && native_renderer::latestFrame(nativeRgba, nativeW, nativeH))
+                {
+                    Image native{nativeRgba.data(), static_cast<int>(nativeW), static_cast<int>(nativeH), 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+                    ExportImage(native, (std::string(snapshotDir) + "/native_snap_" + std::to_string(snapRequest) + ".png").c_str());
+                }
+                std::fprintf(stderr, "[snap] entry %d at game frame %llu vblank %llu\n", snapRequest, (unsigned long long)gameFrame,
+                             (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed));
+            }
             bool frameShot = false;
             if (everyFrames && gameFrame >= nextFrameShot)
             {

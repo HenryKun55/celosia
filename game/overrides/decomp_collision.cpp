@@ -1760,6 +1760,106 @@ namespace decomp_collision
     }
 }
 
+
+// ---- the sphere finder's tree walk (round 10) --------------------------------
+// manager_sub_01128F38: the finder's walk of a collision tree (the nodes as
+// above: split, axis, low / high child or leaf), every leaf whose half-space
+// the query box meets handed to the leaf callback. a0 the box (+0 / +4 / +8 /
+// +0xc: its coordinate by axis; +0xc is also the margin: low side when
+// box[axis] <= split x scale + margin, high side when split x scale - margin
+// <= box[axis]), a1 the tree, a2 the node, a3 the leaf callback (the finder's
+// leaves 01115798 / 01115A50, native, are called straight when the table
+// holds them; anything else is a guest call), t0 the query (+0x10 the split
+// scale; it is a0 of the callback). The low child is walked by recursion,
+// the high one by the loop, as the original (whose frame, saved registers
+// only, is dead below the caller's sp). v0 and f0 are left as the original
+// leaves them: v0 the last callback's or recursion's, else box + axis x 4;
+// f0 the last compare's operand or the last callback's.
+namespace decomp_finderwalk
+{
+    using sotc_decomp::returnTo;
+    constexpr uint32_t kWalk = 0x01128F38u;
+
+    struct W
+    {
+        uint8_t *rdram;
+        R5900Context *ctx;
+        PS2Runtime *runtime;
+        uint32_t box, tree, callback, query;
+        uint32_t u32(uint32_t a) const { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFFu), 4); return v; }
+        float f32(uint32_t a) const { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFFu), 4); return v; }
+        void leaf(uint32_t index, uint32_t site, uint32_t sp) const
+        {
+            SET_GPR_U32(ctx, 4, query);
+            SET_GPR_U32(ctx, 5, tree);
+            SET_GPR_U32(ctx, 6, index);
+            const PS2Runtime::RecompiledFunction fn = runtime->guestFunctionAt(callback);
+            if ((callback == 0x01115798u && fn == decomp_collision::finderLeaf<true>) || (callback == 0x01115A50u && fn == decomp_collision::finderLeaf<false>))
+            {
+                SET_GPR_U32(ctx, 31, site + 8u);
+                SET_GPR_U32(ctx, 29, sp);
+                ctx->pc = callback;
+                fn(rdram, ctx, runtime);
+            }
+            else
+                decomp_collision::guestCall(rdram, ctx, runtime, callback, site + 8u, sp);
+        }
+        void walk(uint32_t node, uint32_t spIn) const
+        {
+            const uint32_t sp = spIn - 0x40u;
+            float f2 = f32(query + 0x10u);
+            const float margin = f32(box + 0xCu);
+            for (;;)
+            {
+                const uint32_t n = u32(tree + 8u) + node * 8u;
+                float f1 = f32(n);
+                const uint32_t word = u32(n + 4u);
+                const uint32_t axisAt = box + ((word & 3u) << 2);
+                SET_GPR_U32(ctx, 2, axisAt);
+                float f0 = FPU_ADD_S(FPU_MUL_S(f1, f2), margin);
+                const float coord = f32(axisAt);
+                if (FPU_C_OLE_S(coord, f0))
+                {
+                    if (((word >> 16) & 1u) == 0u)
+                    {
+                        // jal 0x1128f38 at 0x1128fec: the same box, tree, callback, query
+                        SET_GPR_U32(ctx, 31, 0x01128FF4u);
+                        walk((word >> 2) & 0x3FFFu, sp);
+                    }
+                    else
+                        leaf((word >> 2) & 0x3FFFu, 0x01128FC0u, sp);
+                    f1 = f32(n);
+                    f2 = f32(query + 0x10u);
+                }
+                f0 = FPU_SUB_S(FPU_MUL_S(f1, f2), margin);
+                ctx->f[0] = f0;
+                if (!FPU_C_OLE_S(f0, coord))
+                    return;
+                const uint32_t high = u32(n + 4u);
+                SET_GPR_U32(ctx, 2, high);
+                if (static_cast<int32_t>(high) < 0)
+                {
+                    leaf((high >> 17) & 0x3FFFu, 0x01129028u, sp);
+                    return;
+                }
+                SET_GPR_U32(ctx, 2, high >> 17);
+                node = (high >> 17) & 0x3FFFu;
+            }
+        }
+    };
+
+    void finderWalk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
+        const W w{rdram, ctx, runtime, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 7), GPR_U32(ctx, 8)};
+        w.walk(GPR_U32(ctx, 6), sp);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = ra;
+    }
+}
+
+SOTC_DECOMP_FUNCTION(0x01128F38u, collisionFinderWalk, decomp_finderwalk::finderWalk);
 SOTC_DECOMP_FUNCTION(0x0112D590u, ClipCollisionDirectCallBack, decomp_collision::directCallBack);
 SOTC_DECOMP_FUNCTION(0x0111B9F0u, ClipCollisionDB, decomp_collision::clipCollisionDB);
 SOTC_DECOMP_FUNCTION(0x01119248u, getLayoutClassCollisionIndepSurfBoundary, decomp_collision::indepSurfBoundary);

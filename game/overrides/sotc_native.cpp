@@ -46,7 +46,9 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <iostream>
+#include <thread>
 #include <set>
 #include <string>
 #include <sys/stat.h>
@@ -2096,26 +2098,32 @@ namespace sotc_native
                         ps2_stats::vblanks.load(std::memory_order_relaxed), ps2_stats::sprDmaUs.load(std::memory_order_relaxed),
                         ps2_stats::sprDmaBytes.load(std::memory_order_relaxed), ps2_stats::sprDmas.load(std::memory_order_relaxed)};
         static Mark lastMark = mark;
+        // The game's own step this frame (GAMECORE's frame time, 0x1465650:
+        // +0x180 seconds, from the EE timer T0): what its movement, physics
+        // and animation advance by (round 10, the clock).
+        float gameDt = 0.0f;
+        if (g_ram)
+            std::memcpy(&gameDt, g_ram + 0x014657D0u, 4);
         if (last)
         {
             const uint64_t period = now - last;
             if (period > 50000u)
                 std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u"
-                                     " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu spr %.1f (%llu, %.0f KB)\n",
+                                     " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB)\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
                              c.asyncJobs, c.asyncDone, c.heldDraws, (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
                              (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0,
-                             (unsigned long long)(mark.vblanks - lastMark.vblanks), (mark.sprUs - lastMark.sprUs) / 1000.0,
+                             (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
             static const bool all = std::getenv("SOTC_FRAME_LOG_ALL") != nullptr;
             if (all && period <= 50000u)
-                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu spr %.1f (%llu, %.0f KB)\n",
+                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB)\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws,
                              (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0, (unsigned long long)(mark.cdReads - lastMark.cdReads),
-                             (mark.cdBytes - lastMark.cdBytes) / 1024.0, (unsigned long long)(mark.vblanks - lastMark.vblanks),
+                             (mark.cdBytes - lastMark.cdBytes) / 1024.0, (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0,
                              (mark.sprUs - lastMark.sprUs) / 1000.0, (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0);
             ++sum.frames;
             sum.period += period;
@@ -2220,6 +2228,40 @@ namespace sotc_native
         {
             endFrame();
             frameLog();
+            // SOTC_FRAME_STALL_MS=<ms> (measuring, round 10): the game thread
+            // sleeps that long at each frame's end from frame
+            // SOTC_FRAME_STALL_FROM (default 0) on, so the Mac runs frames as
+            // slow as the Vita's (the host clock's catch-up, the game's step).
+            static const uint64_t stallMs = std::getenv("SOTC_FRAME_STALL_MS") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_MS"), nullptr, 10) : 0u;
+            static const uint64_t stallFrom = std::getenv("SOTC_FRAME_STALL_FROM") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_FROM"), nullptr, 10) : 0u;
+            if (stallMs && frame >= stallFrom)
+                std::this_thread::sleep_for(std::chrono::milliseconds(stallMs));
+            // SOTC_POS_LOG=<n> (measuring, round 10): every n game frames the
+            // guest VBlank, the game step and where the player and the camera
+            // are ([pos]): runs at other frame rates compared by game time.
+            static const uint64_t posEvery = std::getenv("SOTC_POS_LOG") ? std::strtoull(std::getenv("SOTC_POS_LOG"), nullptr, 10) : 0u;
+            if (posEvery && frame % posEvery == 0u)
+            {
+                auto w = [rdram](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+                auto f = [rdram](uint32_t a) { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+                float eye[3] = {0, 0, 0}, player[3] = {0, 0, 0};
+                if (g_cameraContext)
+                {
+                    const uint32_t m = g_cameraContext + 0x5A0u;
+                    for (int j = 0; j < 3; ++j)
+                        eye[j] = -(f(m + 48u) * f(m + j * 16u) + f(m + 52u) * f(m + j * 16u + 4u) + f(m + 56u) * f(m + j * 16u + 8u));
+                }
+                const uint32_t index = w(0x01465900u) & 0xFFFFu;
+                const uint32_t object = index ? w(0x0021B900u + index * 24u) : 0u;
+                if (object && object < 0x2000000u) // the player character (type 9): its position at +0x170
+                    for (int j = 0; j < 3; ++j)
+                        player[j] = f(object + 0x170u + j * 4u);
+                float dt;
+                std::memcpy(&dt, rdram + 0x014657D0u, 4);
+                std::fprintf(stderr, "[pos] frame %llu vb %llu dt %.1f player %.2f %.2f %.2f eye %.2f %.2f %.2f\n", (unsigned long long)frame,
+                             (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), dt * 1000.0f, player[0], player[1], player[2],
+                             eye[0], eye[1], eye[2]);
+            }
             sotc_prof::frameTick(frame);
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);

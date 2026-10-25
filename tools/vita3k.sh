@@ -6,7 +6,10 @@
 #   no argument: install build/vita/.../ps2EntryRunner.vpk and play
 #   seconds:     run that long in the background, then stop (logs stay)
 # Env: MHZ / CORES (the Vita's clock: MHZ=444 CORES=3), PROF=<file> (profile),
-#      NOINSTALL=1 (keep the installed app).
+#      NOINSTALL=1 (keep the installed app),
+#      SHOTS=<dir> SHOTS_FROM=<s> SHOTS_EVERY=<s> (timed runs: the Vita3K
+#      window saved every SHOTS_EVERY s from SHOTS_FROM s on, screencapture
+#      of this run's window only, tools/winid.swift).
 #      For timing close to the real console use MHZ=240 CORES=3 (calibrated
 #      2026-10-22 on the attract demo against a console run of the same VPK:
 #      execScript and the frame within 1%; see docs/decomp.md, "Vita3K
@@ -38,7 +41,21 @@ if [ -z "$1" ]; then
     run
 else
     run > "$V3/vita3k-stdout.txt" 2>&1 &
-    sleep "$1"
+    if [ -n "$SHOTS" ]; then
+        mkdir -p "$SHOTS"
+        swiftc -O tools/winid.swift -o "$SHOTS/.winid" 2>/dev/null
+        for ((t = 1; t <= $1; t++)); do
+            sleep 1
+            if [ "$t" -ge "${SHOTS_FROM:-0}" ] && [ $(((t - ${SHOTS_FROM:-0}) % ${SHOTS_EVERY:-10})) -eq 0 ]; then
+                pid=$(pgrep -f "$V3/config.yml -r CELO00001" | head -1)
+                w=$([ -n "$pid" ] && "$SHOTS/.winid" "$pid")
+                [ -f "$SHOTS/windows.txt" ] || "$SHOTS/.winid" "$pid" list > "$SHOTS/windows.txt"
+                [ -n "$w" ] && [ "$w" != 0 ] && screencapture -x -o -l"$w" "$SHOTS/t$(printf %04d "$t").png"
+            fi
+        done
+    else
+        sleep "$1"
+    fi
     pkill -f "$V3/config.yml -r CELO00001"
     for _ in 1 2 3 4 5; do pgrep -f "$V3/config.yml -r CELO00001" >/dev/null || break; sleep 1; done
     pkill -9 -f "$V3/config.yml -r CELO00001" # it can ignore SIGTERM

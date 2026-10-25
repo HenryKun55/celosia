@@ -2398,15 +2398,22 @@ void EeScheduler::syncCyclesToHostClock()
     if (hostCycles > m_eeCycle)
     {
         uint64_t lag = hostCycles - m_eeCycle;
-        // Never replay more than two frames at once; forget older lag instead.
-        // PS2X_HOST_CLOCK_MAX_LAG=<VBlanks> (measuring, round 9): another cap.
-        // With slow frames (the Vita) the lag past it is lost and the guest's
-        // clock falls behind real time (0.5-0.7x in calibrated Vita3K), while
-        // the streamed audio plays in real time.
+        // Never replay more than kDefaultMaxLagVBlanks frames at once; forget
+        // older lag instead (a stop in a debugger, a long load frame).
+        // The cap was 2 VBlanks until round 10: on slow frames (the Vita's
+        // 50-100 ms) the lag past it was lost and the guest's clock fell to
+        // 0.4-0.7x real time, while the streamed audio plays in real time and
+        // ran ahead of the picture. 8 (133 ms) keeps game time = real time
+        // for any frame up to that: SotC steps its world by the EE timer's
+        // elapsed time (GAMECORE 0x1465650 +0x180, from T0), as the console
+        // does when it drops frames, and its movement, physics and scripts
+        // follow that step (docs/decomp.md, "Round 10").
+        // PS2X_HOST_CLOCK_MAX_LAG=<VBlanks>: another cap (2: the old one).
         static const uint64_t maxLag = []
         {
+            constexpr uint64_t kDefaultMaxLagVBlanks = 8u;
             const char *env = std::getenv("PS2X_HOST_CLOCK_MAX_LAG");
-            const uint64_t vblanks = env ? std::strtoull(env, nullptr, 10) : 2u;
+            const uint64_t vblanks = env ? std::strtoull(env, nullptr, 10) : kDefaultMaxLagVBlanks;
             return std::max<uint64_t>(1u, vblanks) * kVBlankPeriodCycles;
         }();
         if (lag > maxLag)
