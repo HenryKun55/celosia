@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <vector>
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "game_overrides.h"
@@ -691,6 +692,52 @@ namespace
             // (dst, src, bytes): 16 KB at a time through the scratchpad.
             uint32_t dst = GPR_U32(ctx, 4), src = GPR_U32(ctx, 5), qwc = GPR_U32(ctx, 6) >> 4;
             uint8_t *spr = runtime->memory().getScratchpad();
+            // The heap's garbage pass moves blocks down with it (several MB a
+            // frame at an area change): one memmove when the chunks come to
+            // the same (the destination below the source, or apart), the
+            // scratchpad left as the chunks leave it (the last chunk, the one
+            // before it past that). The source is read before any write: a
+            // chunk's source is never one an earlier chunk's write reached
+            // then. SOTC_SPR_COPY_CHUNKED=1: the chunks (checking).
+            static const bool chunked = std::getenv("SOTC_SPR_COPY_CHUNKED") != nullptr;
+            const uint32_t total = qwc * 16u, srcOff = src & PS2_RAM_MASK, dstOff = dst & PS2_RAM_MASK;
+            if (!chunked && qwc > 0u && qwc < (PS2_RAM_SIZE >> 4) && srcOff + total <= PS2_RAM_SIZE && dstOff + total <= PS2_RAM_SIZE &&
+                (dstOff <= srcOff || dstOff >= srcOff + total))
+            {
+                const uint32_t chunks = (qwc + 0x3FFu) / 0x400u, last = (qwc - (chunks - 1u) * 0x400u) * 16u;
+                // SOTC_SPR_COPY_CHECK=1 (checking): the chunks on a copy of the range and the scratchpad, compared.
+                static const bool check = std::getenv("SOTC_SPR_COPY_CHECK") != nullptr;
+                const uint32_t lo = std::min(srcOff, dstOff), hi = std::max(srcOff, dstOff) + total;
+                std::vector<uint8_t> ram, pad;
+                if (check)
+                {
+                    ram.assign(rdram + lo, rdram + hi);
+                    pad.assign(spr, spr + 0x4000u);
+                    for (uint32_t q = qwc, s = srcOff - lo, d = dstOff - lo;; q -= 0x400u, s += 0x4000u, d += 0x4000u)
+                    {
+                        const uint32_t n = std::min(q, 0x400u) * 16u;
+                        std::memcpy(pad.data(), ram.data() + s, n);
+                        std::memcpy(ram.data() + d, pad.data(), n);
+                        if (q <= 0x400u)
+                            break;
+                    }
+                }
+                const uint8_t *from = rdram + srcOff;
+                if (chunks > 1u)
+                    std::memcpy(spr + last, from + (chunks - 2u) * 0x4000u + last, 0x4000u - last);
+                std::memcpy(spr, from + (chunks - 1u) * 0x4000u, last);
+                std::memmove(rdram + dstOff, from, total);
+                if (check)
+                {
+                    static uint64_t checks = 0, bad = 0;
+                    ++checks;
+                    if (std::memcmp(ram.data(), rdram + lo, hi - lo) != 0 || std::memcmp(pad.data(), spr, 0x4000u) != 0)
+                        ++bad;
+                    if ((checks & 1023u) == 0u || bad == 1u)
+                        std::fprintf(stderr, "[spr-copy] %llu checks, %llu differ\n", (unsigned long long)checks, (unsigned long long)bad);
+                }
+                return returnTo(ctx);
+            }
             while (true)
             {
                 const uint32_t n = std::min(qwc, 0x400u);

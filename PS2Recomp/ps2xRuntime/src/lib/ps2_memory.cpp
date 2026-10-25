@@ -2106,6 +2106,9 @@ bool PS2Memory::tryProcessScratchpadDma(uint32_t channelBase, uint32_t chcr)
     if (mainOffset > PS2_RAM_SIZE || byteCount > PS2_RAM_SIZE - mainOffset)
         return false;
 
+    const ps2_stats::TimeInto timed{ps2_stats::sprDmaUs};
+    ps2_stats::sprDmaBytes.fetch_add(byteCount, std::memory_order_relaxed);
+    ps2_stats::sprDmas.fetch_add(1u, std::memory_order_relaxed);
     const bool fromScratchpad = channelBase == kSprFromChannel;
     uint32_t scratchOffset = originalSadr;
     uint32_t bytesLeft = byteCount;
@@ -2987,6 +2990,8 @@ void PS2Memory::registerCodeRegion(uint32_t start, uint32_t end)
 
     m_codeRegions.push_back(region);
     RUNTIME_LOG("Registered code region: " << std::hex << start << " - " << end << std::dec);
+    if (std::getenv("PS2X_CODE_REGION_LOG"))
+        std::cerr << "[code-region] " << std::hex << start << " - " << end << std::dec << std::endl;
 }
 
 bool PS2Memory::isAddressInRegion(uint32_t address, const CodeRegion &region)

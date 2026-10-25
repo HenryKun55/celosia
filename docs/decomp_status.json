@@ -1,24 +1,24 @@
 {
- "updated": "2026-10-24",
- "commit": "e51649c",
+ "updated": "2026-10-25",
+ "commit": "70bdc6c",
  "summary": {
   "by_functions": {
-   "native": 416,
+   "native": 419,
    "partial": 0,
    "total": 9024,
-   "percent": 4.61
+   "percent": 4.64
   },
   "by_code_size": {
-   "native": 121968,
+   "native": 123136,
    "partial": 0,
    "total": 2625144,
-   "percent": 4.65
+   "percent": 4.69
   },
   "by_calls": {
-   "native": 113460285,
+   "native": 114321195,
    "partial": 0,
    "total": 279490744,
-   "percent": 40.6
+   "percent": 40.9
   },
   "game_code_by_size": {
    "native": 56360,
@@ -29,11 +29,11 @@
  "areas": {
   "Boot ELF, SDK and libc": {
    "functions": 2134,
-   "native_functions": 310,
+   "native_functions": 313,
    "bytes": 407084,
-   "native_bytes": 55604,
+   "native_bytes": 56772,
    "partial_functions": 0,
-   "percent": 13.66
+   "percent": 13.95
   },
   "Math": {
    "functions": 126,
@@ -117,6 +117,30 @@
   }
  },
  "native_functions": [
+  {
+   "address": "0x001000d0",
+   "name": "ResolveRelocation",
+   "bytes": 424,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_reloc.cpp"
+  },
+  {
+   "address": "0x00101518",
+   "name": "LoaderSysRelocateOnlineElfInfo",
+   "bytes": 464,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_reloc.cpp"
+  },
+  {
+   "address": "0x001016e8",
+   "name": "RelocateCode",
+   "bytes": 280,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_reloc.cpp"
+  },
   {
    "address": "0x00107a08",
    "name": "DelayThread",

@@ -3,6 +3,9 @@
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
 
+#include <condition_variable>
+#include <thread>
+
 namespace ps2_stubs
 {
     namespace
@@ -167,6 +170,181 @@ namespace ps2_stubs
             g_cdStreamingEndLbn = cdStreamingEndLbnForStart(lbn);
             resetCdStreamProduction(runtime);
         }
+
+        // ---- sceCdRead in the background (PS2X_CD_ASYNC=0: off) ----------
+        // On the console sceCdRead only starts the drive: the calling thread
+        // goes on, and blocks in sceCdSync(0) until the data is in memory,
+        // while the other EE threads run. Reading the host file inside
+        // sceCdRead instead held every guest thread for the whole read: SotC's
+        // loader thread (priority 43) streams an area in 32 KB reads, each
+        // read followed by sceCdSync(0), above the game loop (45), so a 4 MB
+        // load took one frame of 250 ms on the Vita's storage (25 MB/s).
+        // Here the read goes to a host worker; sceCdSync(0) blocks the guest
+        // thread that called it (an external wait the worker ends with
+        // ExternalWake), sceCdSync(1) answers busy until the data is there.
+        // The data is copied into guest memory on the EE executor when the
+        // wait ends (or by any CD call that could see it: the next read,
+        // sceCdGetError, sceCdStatus, ...), never by the worker, so no guest
+        // code sees a partly written buffer and the bytes are the same.
+        // PS2X_CD_LOG=2: each sceCdRead's data as it lands in guest memory
+        // ("[cd-data] <lbn> <bytes> <fnv64>"), on both paths (checking).
+        void logCdData(uint32_t lbn, const uint8_t *data, size_t bytes)
+        {
+            static const bool on = []
+            {
+                const char *env = std::getenv("PS2X_CD_LOG");
+                return env && std::atoi(env) >= 2;
+            }();
+            if (!on)
+                return;
+            uint64_t h = 1469598103934665603ull;
+            for (size_t i = 0; i < bytes; ++i)
+                h = (h ^ data[i]) * 1099511628211ull;
+            std::fprintf(stderr, "[cd-data] %u %zu %016llx\n", lbn, bytes, static_cast<unsigned long long>(h));
+        }
+
+        namespace cd_async
+        {
+            constexpr uint32_t kCdReadWaitType = 0x43445244u; // 'CDRD'
+            struct State
+            {
+                std::mutex mutex;
+                std::condition_variable cv;
+                bool started = false;
+                bool queued = false;  // a request for the worker
+                bool pending = false; // submitted, not yet copied into guest memory
+                bool hostDone = false, ok = false;
+                uint64_t token = 0;
+                std::filesystem::path path;
+                uint64_t offset = 0;
+                size_t bytes = 0;
+                uint32_t guestOffset = 0;
+                uint32_t lbn = 0;
+                bool toIop = false; // sceCdReadIOPm: guestOffset is an IOP address
+                int logThread = -1;
+                std::vector<uint8_t> buffer;
+                uint8_t *rdram = nullptr;
+                PS2Runtime *runtime = nullptr;
+            };
+            State &state()
+            {
+                static State *s = new State();
+                return *s;
+            }
+            bool enabled()
+            {
+                static const bool on = []
+                {
+                    const char *env = std::getenv("PS2X_CD_ASYNC");
+                    return !(env && std::atoi(env) == 0);
+                }();
+                return on;
+            }
+            void workerLoop()
+            {
+                State &s = state();
+                std::unique_lock lock(s.mutex);
+                while (true)
+                {
+                    s.cv.wait(lock, [&s] { return s.queued; });
+                    s.queued = false;
+                    const std::filesystem::path path = s.path;
+                    const uint64_t offset = s.offset;
+                    const size_t bytes = s.bytes;
+                    const uint64_t token = s.token;
+                    g_cdLogThread = s.logThread;
+                    if (s.buffer.size() < bytes)
+                        s.buffer.resize(bytes);
+                    uint8_t *dst = s.buffer.data();
+                    lock.unlock();
+                    const bool ok = readHostRange(path, offset, dst, bytes);
+                    lock.lock();
+                    s.ok = ok;
+                    s.hostDone = true;
+                    s.cv.notify_all();
+                    if (s.runtime)
+                        s.runtime->eeScheduler().postEvent(EeEvent{EeEventType::ExternalWake, kCdReadWaitType, token});
+                }
+            }
+            // The executor: wait for the worker (if it is still reading) and
+            // copy the data into guest memory. Nothing pending: nothing to do.
+            void finish()
+            {
+                State &s = state();
+                std::unique_lock lock(s.mutex);
+                if (!s.pending)
+                    return;
+                s.cv.wait(lock, [&s] { return s.hostDone; });
+                if (s.toIop)
+                {
+                    if (!s.ok || !s.runtime->writeIopMemory(s.guestOffset, s.buffer.data(), s.bytes))
+                        s.ok = false;
+                    g_lastCdError = s.ok ? 0 : -1;
+                    s.pending = false;
+                    logCdData(s.lbn, s.buffer.data(), s.bytes);
+                    return;
+                }
+                if (s.ok)
+                    std::memcpy(s.rdram + s.guestOffset, s.buffer.data(), s.bytes);
+                else
+                    std::memset(s.rdram + s.guestOffset, 0, s.bytes);
+                g_lastCdError = s.ok ? 0 : -1;
+                s.pending = false;
+                logCdData(s.lbn, s.rdram + s.guestOffset, s.bytes);
+            }
+            bool busy()
+            {
+                State &s = state();
+                std::lock_guard lock(s.mutex);
+                return s.pending && !s.hostDone;
+            }
+            bool pending()
+            {
+                State &s = state();
+                std::lock_guard lock(s.mutex);
+                return s.pending;
+            }
+            // Start a read of the whole range into rdram + guestOffset; false
+            // when it cannot go to the worker (the caller reads it inline).
+            bool submit(uint8_t *rdram, PS2Runtime *runtime, uint32_t lbn, uint32_t sectors, uint32_t guestOffset, size_t bytes, int logThread,
+                        bool toIop = false)
+            {
+                std::filesystem::path path;
+                uint64_t offset = 0;
+                if (!runtime || !resolveCdSectors(lbn, sectors, path, offset))
+                    return false;
+                finish();
+                State &s = state();
+                std::lock_guard lock(s.mutex);
+                if (!s.started)
+                {
+                    s.started = true;
+                    std::thread([] { workerLoop(); }).detach();
+                }
+                s.path = std::move(path);
+                s.offset = offset;
+                s.bytes = bytes;
+                s.guestOffset = guestOffset;
+                s.toIop = toIop;
+                s.lbn = lbn;
+                s.logThread = logThread;
+                s.rdram = rdram;
+                s.runtime = runtime;
+                s.hostDone = false;
+                s.ok = false;
+                s.pending = true;
+                s.queued = true;
+                ++s.token;
+                s.cv.notify_all();
+                return true;
+            }
+            uint64_t token()
+            {
+                State &s = state();
+                std::lock_guard lock(s.mutex);
+                return s.token;
+            }
+        }
     }
 
     CdDebugSnapshot getCdDebugSnapshot()
@@ -244,7 +422,22 @@ namespace ps2_stubs
         };
 
         CdReadArgs selected{a0, a1, a2, "a0/a1/a2"};
+        g_cdLogThread = runtime ? runtime->eeScheduler().currentThreadId() : -1;
+        if (cd_async::enabled() && isResolvableCdLbn(a0))
+        {
+            const uint32_t offset = a2 & PS2_RAM_MASK;
+            const size_t bytes = clampReadBytes(a1, offset);
+            if (bytes == 0u || cd_async::submit(rdram, runtime, a0, a1, offset, bytes, g_cdLogThread))
+            {
+                g_cdLogThread = -1;
+                g_cdStreamingLbn = a0 + a1;
+                setReturnS32(ctx, 1); // command accepted: sceCdSync waits for the data
+                return;
+            }
+        }
+        cd_async::finish();
         bool ok = tryRead(selected);
+        g_cdLogThread = -1;
 
         if (!ok)
         {
@@ -315,6 +508,8 @@ namespace ps2_stubs
 
         if (ok)
         {
+            const uint32_t offset = selected.buf & PS2_RAM_MASK;
+            logCdData(selected.lbn, rdram + offset, clampReadBytes(selected.sectors, offset));
             g_cdStreamingLbn = selected.lbn + selected.sectors;
             setReturnS32(ctx, 1); // command accepted/success
             return;
@@ -325,11 +520,35 @@ namespace ps2_stubs
 
     void sceCdSync(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Mode 0 waits for the command, mode 1 only asks (1 = busy).
+        const uint32_t mode = getRegU32(ctx, 4);
+        if (cd_async::pending())
+        {
+            if (cd_async::busy())
+            {
+                if ((mode & 1u) != 0u)
+                {
+                    setReturnS32(ctx, 1);
+                    return;
+                }
+                // Blocks this guest thread (does not return); the worker's
+                // ExternalWake readies it, and the data is copied then.
+                if (runtime)
+                    runtime->eeScheduler().waitExternal(EeWaitReason::External, cd_async::kCdReadWaitType, cd_async::token(),
+                                                        [](R5900Context &resumed)
+                                                        {
+                                                            cd_async::finish();
+                                                            setReturnS32(&resumed, 0);
+                                                        });
+            }
+            cd_async::finish();
+        }
         setReturnS32(ctx, 0); // 0 = completed/not busy
     }
 
     void sceCdGetError(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         setReturnS32(ctx, g_lastCdError);
     }
 
@@ -350,6 +569,7 @@ namespace ps2_stubs
 
     void sceCdBreak(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         setReturnS32(ctx, 1);
     }
 
@@ -370,6 +590,7 @@ namespace ps2_stubs
 
     void sceCdDiskReady(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         setReturnS32(ctx, 2);
     }
 
@@ -467,6 +688,7 @@ namespace ps2_stubs
 
     void sceCdReadChain(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         uint32_t chainAddr = getRegU32(ctx, 4);
         bool ok = true;
 
@@ -539,6 +761,7 @@ namespace ps2_stubs
 
     void sceCdReadIOPm(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         // Same as sceCdRead, but the destination is IOP memory.
         const uint32_t lbn = getRegU32(ctx, 4);
         const uint32_t sectors = getRegU32(ctx, 5);
@@ -551,6 +774,17 @@ namespace ps2_stubs
             return;
         }
 
+        g_cdLogThread = 1000 + runtime->eeScheduler().currentThreadId(); // PS2X_CD_LOG: sceCdReadIOPm (t1000 + its guest thread)
+        // In the background too (the sound streams' reads, iosIopRead: then
+        // sceCdSync(0)): the data goes into IOP memory when the wait ends.
+        if (cd_async::enabled() && isResolvableCdLbn(lbn) &&
+            cd_async::submit(rdram, runtime, lbn, sectors, iopAddr, bytes, g_cdLogThread, true))
+        {
+            g_cdLogThread = -1;
+            g_cdStreamingLbn = lbn + sectors;
+            setReturnS32(ctx, 1);
+            return;
+        }
         std::vector<uint8_t> buffer(bytes);
         if (!readCdSectors(lbn, sectors, buffer.data(), bytes) ||
             !runtime->writeIopMemory(iopAddr, buffer.data(), bytes))
@@ -562,6 +796,7 @@ namespace ps2_stubs
             return;
         }
 
+        logCdData(lbn, buffer.data(), bytes);
         g_lastCdError = 0;
         g_cdStreamingLbn = lbn + sectors;
         setReturnS32(ctx, 1);
@@ -569,6 +804,7 @@ namespace ps2_stubs
 
     void sceCdSearchFile(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         uint32_t fileAddr = getRegU32(ctx, 4);
         uint32_t pathAddr = getRegU32(ctx, 5);
         const std::string path = readPs2CStringBounded(rdram, pathAddr, 260);
@@ -686,11 +922,13 @@ namespace ps2_stubs
 
     void sceCdStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         setReturnS32(ctx, g_cdInitialized ? 6 : 0);
     }
 
     void sceCdStInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         const uint32_t bufferSectors = getRegU32(ctx, 4);
         const uint32_t bankCount = getRegU32(ctx, 5);
         const uint32_t bufferAddr = getRegU32(ctx, 6);
@@ -833,6 +1071,7 @@ namespace ps2_stubs
 
                 const uint32_t readLbn = g_cdStreamingLbn;
                 const size_t readBytes = static_cast<size_t>(sectors) * kCdSectorSize;
+                g_cdLogThread = -4; // PS2X_CD_LOG: the stream (sceCdStRead)
                 if (!readCdSectors(readLbn, sectors, rdram + offset, readBytes))
                 {
                     finishCdStRead(rdram, ctx, state, g_lastCdError);
@@ -877,6 +1116,7 @@ namespace ps2_stubs
 
     void sceCdStRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         const uint32_t requestedSectors = getRegU32(ctx, 4);
         const uint32_t buffer = getRegU32(ctx, 5);
         const uint32_t mode = getRegU32(ctx, 6);
@@ -956,6 +1196,7 @@ namespace ps2_stubs
 
     void sceCdStStart(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        cd_async::finish();
         const uint32_t lbn = getRegU32(ctx, 4);
         const uint32_t modeAddr = getRegU32(ctx, 5);
         uint8_t spindleControl = 0u;

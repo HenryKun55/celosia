@@ -46,7 +46,13 @@ namespace ps2x::iop::detail
             int32_t length = 0; // source loop length
             int32_t position = 0;
             int32_t half = 0, queuedHalf = 0;
+            // PS2X_SG2_STREAM_LOG: the half the voice was last seen in, and
+            // which halves got new data since the voice last left them.
+            int32_t seenHalf = 0;
+            bool fresh[3] = {false, false, false};
         };
+        uint64_t m_logRefills = 0, m_logStale = 0, m_logEntries = 0, m_logStatus = 0;
+        double m_logLast = 0.0;
         // Driver queue 0x78d8: 1 refill, 2 key on, 3 key off.
         struct StreamOp
         {

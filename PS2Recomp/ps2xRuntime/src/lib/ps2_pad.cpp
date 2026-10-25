@@ -204,7 +204,10 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
     // screen: the first VBlank with VU1 programs after 60 without any.
     // A fourth field "r<n>" presses again every n VBlanks until 3D comes
     // after a loading screen (a menu that shows up after a varying wait,
-    // e.g. the memory card's file list: "+150v:CROSS:8:r250").
+    // e.g. the memory card's file list: "+150v:CROSS:8:r250"); "r<n>@<addr>"
+    // until the word there changes from its value at the first press (a
+    // menu's confirm counter: the game took the press), "r<n>@<addr>=<v>"
+    // until it holds v; "taken" goes to the log then.
     struct ScriptEntry
     {
         double at = 0.0;        // start (seconds or frames), or VBlanks after the previous entry's start
@@ -221,8 +224,14 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         double startNow = 0.0;
         int state = 0;            // 0 waiting, 1 pressed, 2 done, 3 waiting to press again ("r<n>")
         uint64_t repeatEvery = 0, firstVblank = 0, nextVblank = 0;
+        // "r<n>@<addr>": pressed again every n VBlanks until the guest RAM word
+        // at addr is no longer what it held at the first press (the game took
+        // the press: a menu's confirm counter), instead of until 3D.
+        // "r<n>@<addr>=<value>": until the word holds that value.
+        bool repeatOnMemory = false, repeatUntilEqual = false;
+        uint32_t repeatAddress = 0, repeatValue = 0;
     };
-    static constexpr uint16_t kStickUp = 0xF001u, kStickDown = 0xF002u, kStickLeft = 0xF003u, kStickRight = 0xF004u, kSnap = 0xF005u;
+    static constexpr uint16_t kStickUp = 0xF001u, kStickDown = 0xF002u, kStickLeft = 0xF003u, kStickRight = 0xF004u, kSnap = 0xF005u, kRamDump = 0xF006u;
     static std::vector<ScriptEntry> script = []
     {
         std::vector<ScriptEntry> out;
@@ -233,7 +242,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             {"UP", PAD_UP}, {"DOWN", PAD_DOWN}, {"LEFT", PAD_LEFT}, {"RIGHT", PAD_RIGHT},
             {"CROSS", PAD_CROSS}, {"CIRCLE", PAD_CIRCLE}, {"SQUARE", PAD_SQUARE}, {"TRIANGLE", PAD_TRIANGLE},
             {"L1", PAD_L1}, {"L2", PAD_L2}, {"R1", PAD_R1}, {"R2", PAD_R2},
-            {"START", PAD_START}, {"SELECT", PAD_SELECT}, {"WAIT", 0}, {"SNAP", kSnap},
+            {"START", PAD_START}, {"SELECT", PAD_SELECT}, {"WAIT", 0}, {"SNAP", kSnap}, {"RAMDUMP", kRamDump},
             {"LS_UP", kStickUp}, {"LS_DOWN", kStickDown}, {"LS_LEFT", kStickLeft}, {"LS_RIGHT", kStickRight}};
         std::stringstream all(env);
         std::string item;
@@ -271,7 +280,21 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 e.vblankDuration = !dur.empty() && dur.back() == 'v';
                 e.duration = dur.empty() ? 0.2 : std::atof(dur.c_str());
                 if (!extra.empty() && extra[0] == 'r')
+                {
                     e.repeatEvery = std::strtoull(extra.c_str() + 1, nullptr, 10);
+                    const size_t atSign = extra.find('@');
+                    if (atSign != std::string::npos)
+                    {
+                        e.repeatOnMemory = true;
+                        e.repeatAddress = static_cast<uint32_t>(std::strtoul(extra.c_str() + atSign + 1, nullptr, 16));
+                        const size_t eq = extra.find('=', atSign);
+                        if (eq != std::string::npos)
+                        {
+                            e.repeatUntilEqual = true;
+                            e.repeatValue = static_cast<uint32_t>(std::strtoul(extra.c_str() + eq + 1, nullptr, 16));
+                        }
+                    }
+                }
                 out.push_back(e);
             }
         }
@@ -299,19 +322,54 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             seenPrograms = programs;
             seenVblank = vblank;
         }
+        // PS2X_INPUT_WATCH=<addr>[,<addr>...] (hex; debugging, finding
+        // anchors): each change of those guest RAM words, at the pad reads.
+        static std::vector<std::pair<uint32_t, uint32_t>> watch = []
+        {
+            std::vector<std::pair<uint32_t, uint32_t>> out;
+            if (const char *env = std::getenv("PS2X_INPUT_WATCH"))
+            {
+                std::stringstream all(env);
+                std::string item;
+                while (std::getline(all, item, ','))
+                    out.emplace_back(static_cast<uint32_t>(std::strtoul(item.c_str(), nullptr, 16)) & 0x1FFFFFCu, 0xFFFFFFFFu);
+            }
+            return out;
+        }();
+        for (auto &[address, seen] : watch)
+        {
+            uint32_t word = 0;
+            if (g_scriptRam)
+                std::memcpy(&word, g_scriptRam + address, sizeof(word));
+            if (word != seen)
+            {
+                std::fprintf(stderr, "[watch] %x = %x at frame %llu vblank %llu\n", address, word, (unsigned long long)frame, (unsigned long long)vblank);
+                seen = word;
+            }
+        }
         for (size_t i = 0; i < script.size(); ++i)
         {
             ScriptEntry &e = script[i];
+            auto ramWord = [](uint32_t address)
+            {
+                uint32_t word = 0;
+                if (g_scriptRam)
+                    std::memcpy(&word, g_scriptRam + (address & 0x1FFFFFCu), sizeof(word));
+                return word;
+            };
             if (e.state == 3)
             {
-                if (loadedAt > e.firstVblank)
+                if (e.repeatOnMemory ? (ramWord(e.repeatAddress) == e.repeatValue) == e.repeatUntilEqual : loadedAt > e.firstVblank)
+                {
                     e.state = 2;
+                    std::fprintf(stderr, "[input] entry %d taken at frame %llu vblank %llu\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank);
+                }
                 else if (vblank >= e.nextVblank)
                 {
                     e.state = 1;
                     e.startVblank = vblank;
                     e.startNow = now;
-                    std::fprintf(stderr, "[input] entry %zu pressed again at frame %llu vblank %llu\n", i, (unsigned long long)frame, (unsigned long long)vblank);
+                    std::fprintf(stderr, "[input] entry %d pressed again at frame %llu vblank %llu\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank);
                 }
             }
             if (e.state == 0)
@@ -355,9 +413,22 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 e.startVblank = vblank;
                 e.firstVblank = vblank;
                 e.startNow = now;
+                if (e.repeatOnMemory && !e.repeatUntilEqual)
+                    e.repeatValue = ramWord(e.repeatAddress);
                 if (e.mask == kSnap)
                     ps2_stats::snapshotRequest.store(static_cast<int>(i), std::memory_order_relaxed);
-                std::fprintf(stderr, "[input] entry %zu pressed at frame %llu vblank %llu\n", i, (unsigned long long)frame, (unsigned long long)vblank);
+                // RAMDUMP (debugging, finding anchors): guest RAM to <PS2X_SNAPSHOT_DIR>/ram_<entry>.bin.
+                if (e.mask == kRamDump && g_scriptRam)
+                {
+                    const char *dir = std::getenv("PS2X_SNAPSHOT_DIR");
+                    const std::string path = std::string(dir ? dir : ".") + "/ram_" + std::to_string(i) + ".bin";
+                    if (FILE *f = std::fopen(path.c_str(), "wb"))
+                    {
+                        std::fwrite(g_scriptRam, 1, 32u * 1024u * 1024u, f);
+                        std::fclose(f);
+                    }
+                }
+                std::fprintf(stderr, "[input] entry %d pressed at frame %llu vblank %llu\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank);
             }
             if (e.state != 1)
                 continue;
@@ -366,18 +437,19 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             if (over)
             {
                 e.state = 2;
-                if (e.repeatEvery && loadedAt <= e.firstVblank)
+                if (e.repeatEvery && (e.repeatOnMemory ? (ramWord(e.repeatAddress) == e.repeatValue) != e.repeatUntilEqual : loadedAt <= e.firstVblank))
                 {
                     e.state = 3;
                     e.nextVblank = e.startVblank + e.repeatEvery;
                 }
-                std::fprintf(stderr, "[input] entry %zu released at frame %llu vblank %llu\n", i, (unsigned long long)frame, (unsigned long long)vblank);
+                std::fprintf(stderr, "[input] entry %d released at frame %llu vblank %llu\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank);
                 continue;
             }
             switch (e.mask)
             {
             case 0:
             case kSnap:
+            case kRamDump:
                 break;
             case kStickUp: setStick(6, 7, 0, -1); break;
             case kStickDown: setStick(6, 7, 0, 1); break;

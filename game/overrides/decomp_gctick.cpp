@@ -25,6 +25,11 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/ps2_stats.h"
+#include "runtime/ee_scheduler.h"
+
+#include <cstdio>
+#include <cstdlib>
 
 #include <cstring>
 
@@ -123,8 +128,14 @@ namespace decomp_gctick
         call(sotc_decomp::jalTarget(rdram, 0x001AFEE8u), 0x001AFEF0u); // lock
         uint32_t s1 = (ram.u32(ram.u32(0x001E0BF4u) + 8u) & 0xFFFFFFu) << 2;
         SET_GPR_U32(ctx, 17, s1);
+        // SOTC_GC_LOG=1 (debugging): each call's blocks, moves and how it ended.
+        static const bool log = std::getenv("SOTC_GC_LOG") != nullptr;
+        uint32_t blocks = 0, moves = 0;
+        bool stopped = false;
+        const uint64_t cycle0 = runtime->eeScheduler().eeCycle();
         while (s1 != 0u)
         {
+            ++blocks;
             uint32_t go;
             if (callback == kTimeCheck)
                 go = timeCheck(ram, ctx, runtime, rdram, arg);
@@ -135,7 +146,10 @@ namespace decomp_gctick
                 go = GPR_U32(ctx, 2);
             }
             if (go == 0u)
+            {
+                stopped = true;
                 break;
+            }
             const uint32_t next = (ram.u32(s1 + 8u) & 0xFFFFFFu) << 2;
             SET_GPR_S32(ctx, 18, 0x00FFFFFF);
             if ((ram.u8(s1 + 0xFu) & 1u) || next == 0u || !(ram.u8(next + 0xFu) & 1u))
@@ -163,9 +177,14 @@ namespace decomp_gctick
             SET_GPR_U32(ctx, 4, handlerArg);
             if (handler != 0u)
                 call(handler << 2, 0x001AFF80u);
+            ++moves;
             s1 = (ram.u32(s1 + 8u) & 0xFFFFFFu) << 2;
             SET_GPR_U32(ctx, 17, s1);
         }
+        if (log && moves)
+            std::fprintf(stderr, "[gc] frame %llu blocks %u moves %u %s cycles %llu callback %08x\n",
+                         (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), blocks, moves,
+                         stopped ? "stopped by the clock" : "to the end", (unsigned long long)(runtime->eeScheduler().eeCycle() - cycle0), callback);
         for (int r = 0; r < 8; ++r)
             SET_GPR_U64(ctx, 16 + r, saved[r]);
         // j 0x107000 (unlock), as a tail call

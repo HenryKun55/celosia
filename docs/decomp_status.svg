@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" font-family="Helvetica, Arial, sans-serif">
 <rect width="100%" height="100%" fill="#1d1f24"/>
-<text x="12" y="28" font-size="20" fill="#f2f2f2">Decompiled: 4.7% of the code (2.5% of the game code), 416 of 9024 functions</text>
-<text x="12" y="50" font-size="13" fill="#b9bcc4">Tile area: MIPS code size. Green: native C++; red: still recompiled. 2026-10-24, e51649c</text>
+<text x="12" y="28" font-size="20" fill="#f2f2f2">Decompiled: 4.7% of the code (2.5% of the game code), 419 of 9024 functions</text>
+<text x="12" y="50" font-size="13" fill="#b9bcc4">Tile area: MIPS code size. Green: native C++; red: still recompiled. 2026-10-25, 70bdc6c</text>
 <rect x="0.0" y="64.0" width="467.5" height="456.0" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="1.0" y="516.4" width="465.5" height="2.6" fill="#2f9e5b"/>
 <text x="5.0" y="80.0" font-size="13" fill="#ffffff">Other game code</text>
 <text x="5.0" y="96.0" font-size="13" fill="#ffffff">0.6%  9/2890</text>
 <rect x="467.5" y="64.0" width="250.9" height="270.5" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="468.5" y="296.9" width="248.9" height="36.7" fill="#2f9e5b"/>
+<rect x="468.5" y="296.1" width="248.9" height="37.4" fill="#2f9e5b"/>
 <text x="472.5" y="80.0" font-size="13" fill="#ffffff">Boot ELF, SDK and libc</text>
-<text x="472.5" y="96.0" font-size="13" fill="#ffffff">13.7%  310/2134</text>
+<text x="472.5" y="96.0" font-size="13" fill="#ffffff">13.9%  313/2134</text>
 <rect x="467.5" y="334.5" width="250.9" height="185.5" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="468.5" y="511.2" width="248.9" height="7.8" fill="#2f9e5b"/>
 <text x="472.5" y="350.5" font-size="13" fill="#ffffff">Characters and motion</text>

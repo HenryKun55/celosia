@@ -1,3 +1,4 @@
+#include "runtime/ps2_stats.h"
 #include <mutex>
 #include <vector>
 #if defined(PLATFORM_VITA)
@@ -30,6 +31,7 @@ namespace
     uint64_t g_cdImageSizeBytes = 0;
     bool g_cdImageSizeValid = false;
     int32_t g_lastCdError = 0;
+    thread_local int g_cdLogThread = -1; // PS2X_CD_LOG: the guest thread of the read (sceCdRead sets it)
     uint32_t g_cdMode = 0;
     uint32_t g_cdStreamingLbn = 0;
     uint32_t g_cdStreamingEndLbn = 0xFFFFFFFFu;
@@ -428,7 +430,21 @@ namespace
         return true;
     }
 
+    bool readHostRangeTimed(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount);
     bool readHostRange(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount)
+    {
+        const ps2_stats::TimeInto timed{ps2_stats::cdReadUs};
+        ps2_stats::cdReadBytes.fetch_add(byteCount, std::memory_order_relaxed);
+        ps2_stats::cdReads.fetch_add(1u, std::memory_order_relaxed);
+        // PS2X_CD_LOG=1: every read ("[cd] frame F vblank V t<guest thread> <file> <offset> <bytes>"; debugging).
+        static const bool log = std::getenv("PS2X_CD_LOG") != nullptr;
+        if (log)
+            std::fprintf(stderr, "[cd] frame %llu vblank %llu t%d %s %llu %llu host %.1f\n", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed),
+                         (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), g_cdLogThread, path.filename().string().c_str(),
+                         (unsigned long long)offsetBytes, (unsigned long long)byteCount, ps2_stats::nowUs() / 1000.0);
+        return readHostRangeTimed(path, offsetBytes, dst, byteCount);
+    }
+    bool readHostRangeTimed(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount)
     {
         if (!dst)
         {
@@ -541,6 +557,34 @@ namespace
                   << " (no mapped file and no configured CD image)" << std::endl;
         g_lastCdError = -1;
         return false;
+    }
+
+    // readCdSectors' file lookup alone (on the EE executor), for a read done
+    // elsewhere (the async sceCdRead's worker reads the host range).
+    bool resolveCdSectors(uint32_t lbn, uint32_t sectors, std::filesystem::path &pathOut, uint64_t &offsetOut)
+    {
+        for (const auto &[key, entry] : g_cdFilesByKey)
+        {
+            const uint32_t endLbn = entry.baseLbn + entry.sectors;
+            if (lbn < entry.baseLbn || lbn >= endLbn)
+                continue;
+            pathOut = entry.hostPath;
+            offsetOut = static_cast<uint64_t>(lbn - entry.baseLbn) * kCdSectorSize;
+            return true;
+        }
+        const std::filesystem::path cdImage = getCdImagePath();
+        if (cdImage.empty())
+            return false;
+        uint64_t totalSectors = 0;
+        if (tryGetCdImageTotalSectors(totalSectors))
+        {
+            const uint64_t start = static_cast<uint64_t>(lbn);
+            if (start >= totalSectors || start + static_cast<uint64_t>(sectors) > totalSectors)
+                return false;
+        }
+        pathOut = cdImage;
+        offsetOut = static_cast<uint64_t>(lbn) * kCdSectorSize;
+        return true;
     }
 
     bool isResolvableCdLbn(uint32_t lbn)

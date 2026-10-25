@@ -2399,7 +2399,16 @@ void EeScheduler::syncCyclesToHostClock()
     {
         uint64_t lag = hostCycles - m_eeCycle;
         // Never replay more than two frames at once; forget older lag instead.
-        const uint64_t maxLag = 2u * kVBlankPeriodCycles;
+        // PS2X_HOST_CLOCK_MAX_LAG=<VBlanks> (measuring, round 9): another cap.
+        // With slow frames (the Vita) the lag past it is lost and the guest's
+        // clock falls behind real time (0.5-0.7x in calibrated Vita3K), while
+        // the streamed audio plays in real time.
+        static const uint64_t maxLag = []
+        {
+            const char *env = std::getenv("PS2X_HOST_CLOCK_MAX_LAG");
+            const uint64_t vblanks = env ? std::strtoull(env, nullptr, 10) : 2u;
+            return std::max<uint64_t>(1u, vblanks) * kVBlankPeriodCycles;
+        }();
         if (lag > maxLag)
         {
             m_hostClockBase += std::chrono::microseconds((lag - maxLag) * 1000000ull / kEeClockHz);

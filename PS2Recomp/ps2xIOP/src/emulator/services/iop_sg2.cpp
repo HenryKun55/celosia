@@ -3,6 +3,7 @@
 #include "emulator/core/iop_memory.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -385,6 +386,28 @@ namespace ps2x::iop::detail
             put(0xC0u + i * 4u, static_cast<uint32_t>(m_streams[i].position));
         streamTick();
         runStreamQueue();
+        // PS2X_SG2_STREAM_LOG=1 (measuring): every 5 s of host time, the
+        // status requests, refills, half changes and the stale ones (a voice
+        // that went on into a half with no new data: it plays old data again).
+        static const bool log = std::getenv("PS2X_SG2_STREAM_LOG") != nullptr;
+        if (log)
+        {
+            ++m_logStatus;
+            const double now = static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                       std::chrono::steady_clock::now().time_since_epoch())
+                                                       .count()) /
+                               1000.0;
+            if (m_logLast == 0.0)
+                m_logLast = now;
+            if (now - m_logLast >= 5.0)
+            {
+                std::fprintf(stderr, "[sg2-stream] %.1f s: %llu status, %llu refills, %llu half changes, %llu stale\n", now - m_logLast,
+                             (unsigned long long)m_logStatus, (unsigned long long)m_logRefills, (unsigned long long)m_logEntries,
+                             (unsigned long long)m_logStale);
+                m_logStatus = m_logRefills = m_logEntries = m_logStale = 0;
+                m_logLast = now;
+            }
+        }
     }
 
     // 0x2204: a streamed voice playing one half gets the other one refilled.
@@ -406,6 +429,15 @@ namespace ps2x::iop::detail
                 }
                 if (half + s.spuAddress < nax && nax < s.spuAddress + s.size)
                     s.half = 2;
+                if (s.half != s.seenHalf && (s.half == 1 || s.half == 2))
+                {
+                    // The voice went on into the other half: stale when it got no new data since it last played.
+                    ++m_logEntries;
+                    if (!s.fresh[s.half])
+                        ++m_logStale;
+                    s.fresh[s.half] = false;
+                    s.seenHalf = s.half;
+                }
                 if (s.half != s.queuedHalf)
                 {
                     queueStream(1, core * 24u + v, static_cast<uint32_t>(s.half), static_cast<uint32_t>(s.channels),
@@ -496,6 +528,9 @@ namespace ps2x::iop::detail
         staging[bytes - 0x10u + 1u] = half == 1u ? 3u : 2u;
         m_mixer.writeRam(op.arg[4], staging.data(), bytes);
         m_pendingAdvance = voice | 0x10000u;
+        ++m_logRefills;
+        if (voice < 48u)
+            m_streams[voice].fresh[half == 1u ? 2 : 1] = true;
     }
 
     // 0x1d38 / 0x1f64

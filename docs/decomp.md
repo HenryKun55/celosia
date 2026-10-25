@@ -950,6 +950,252 @@ the particle display side (0113ACB8 and the per-type writers), ptclVtxHook.
    menu presses on game-state anchors, "@addr=value"), so clean runs can time
    the route.
 
+## Round 9: loads and area changes (2026-10-25)
+
+**First: the Vita3K "route" of rounds 7 and 8 was not the route.** Its menu
+presses (timed in VBlanks) were never taken in Vita3K: the game stayed on the
+title menu (930 draws, frames 678-2178), played a scene of its own, then the
+attract demo. From frame ~2600 on, the "route" log is the attract demo's
+timeline shifted by ~2220 frames (r8/ab-r8-route-err.txt against
+ab-r8-attract-err.txt, window for window), and "route 2200-2800, the load
+after the shrine" was that scene and the demo's first load. The profiler
+made no difference to it. The round 8 route numbers above are attract-demo
+numbers.
+
+**The route input, keyed to game state** (build/agent-scratch/r9/route2.sh,
+route_in2.txt): 0x270bd4 counts the menus' confirms (1 START at the title
+menu, 2 and 3 the two CROSSes of the load menus; it goes to 4 by itself
+before the load dialog). PS2X_INPUT_SCRIPT's new "r<n>@<addr>=<v>" presses
+again every n VBlanks until the word holds v (ps2_pad.cpp; "r<n>@<addr>"
+until it changes), so each press repeats until the game took it:
+`300v:START:12:r120@270bd4=1;@270bd4=1:CROSS:8:r150@270bd4=2;@270bd4=2:CROSS:8:r150@270bd4=3;@270bd4=4:CROSS:8:r150;+90v@3:WAIT;@3d:WAIT;`
+then the round 5 walk, anchored on the @3d entry (5). The WAIT matters:
+"@3d" counts the quiet VBlanks from before its previous entry, and the
+long 2D menu let the load dialog's first VU1 program pass for 3D. On the
+Mac it follows round 5's route (@3d at VBlank 1288, 1286 before; the same
+scenes frame for frame); in calibrated Vita3K it takes 14 STARTs and 6
+CROSSes (the menus take presses much later there) and then plays the real
+route, with and without the profiler (5 runs). Compare runs from the @3d
+entry's frame (build/agent-scratch/r9/tools/slowcmp.py err.txt:<frame>).
+The round 8 VPK cannot play it (its pad script lacks the new keys): the
+route A/B below is this round's VPK with this round's changes switched off
+by env against on. PS2X_INPUT_WATCH=<addr>,... logs each change of guest
+words at the pad reads (finding anchors; 0x213300, the previous round 9
+attempt's anchor, is a counter, not a menu state).
+
+**What the real route costs in calibrated Vita3K** (no profiler, the
+frames from the @3d entry): -400..0 the load of the save (~60 frames over
+50 ms, worst ~300 ms); 0-400 the shrine (48 ms); 400-1600 the walk out and
+the area change to the outside, ~87 ms a frame for 1 200 frames (game
+thread ~82 ms: ExecCharaGeometry, the walk, the hooks; not loading); the
+outside's first frames (frames 3204-3230 of the first run) 140-225 ms;
+1600-2400 58 ms; then ~50 ms.
+
+**Where the load frames go** (SOTC_SUBSYS_PROF_SLOW=<ms>: each slow game
+frame's probes on a line; SOTC_FRAME_LOG's slow lines now also give the
+game thread's scheduler wait, the disc reads (time, count, KB), the
+VBlanks and the scratchpad DMA; build/agent-scratch/r9/tools/slowprobes.py
+and loadsum.py sum them):
+
+1. Disc reads on the game thread. The loader (guest thread 11, priority 43,
+   above the game loop's 45) streams an area in 32 KB reads (iosCdStRead:
+   sceCdRead + sceCdSync(0)). sceCdRead read the host file inline, so the
+   loader never blocked and the game loop waited for the whole burst: 146
+   reads, 4.6 MB, 245 ms in one frame of the title load (Vita3K models the
+   Vita's storage at 25 MB/s + 150 us an operation, io.cpp, the calling
+   thread blocked). The audio stream's 150-350 KB reads (sceCdReadIOPm,
+   every ~5 s) are 6-15 ms each, on the same thread (now in the background too, below).
+2. The heap's garbage pass (iosMallocGarbageTickProc, decomp_gctick.cpp) at
+   every area change: ~250 blocks moved a frame for 10-20 frames, 50-150 ms
+   a frame. Each move is a chunked copy through the scratchpad (0x1ad958,
+   already a host copy with SOTC_NATIVE) and, for the model / texture
+   modules, a relocation of the moved module (garbageNmoCallBack /
+   garbageNtoCallBack -> isysMoveModuleObj -> LoaderSysRelocateOnlineElfInfo,
+   isysResolveOneModuleObj -> RelocateCode -> ResolveRelocation: ~8 000
+   relocations a frame). Over 56 slow frames of the route: 4.2 s, of it the
+   copy 0.86, the relocation loops ~2.5 (with the probes' own cost on
+   468 000 ResolveRelocation calls). Its time check (2 123 463 T0 ticks of EE
+   time since the frame's start, 0x26d990) never stopped it: SOTC_GC_LOG=1
+   now prints each call's blocks, moves, EE cycles and how it ended (46 calls
+   with moves on the Mac route to frame 4800, 3 on the attract demo, all "to
+   the end").
+3. The native renderer's first draws of moved and new models: packetId hashes
+   a packet at an address it has not seen (each GC move gives ~2 400 packets
+   new addresses): hook.packetId 15-38 ms and hook.packets 30-60 ms a frame
+   at the area change.
+4. The render thread in the outside's first four frames (194-210 ms, with
+   110 ms of GPU wait in the first): no shader is made at run time (all at
+   init); Vita3K's own pipeline creation is the likely cause (not checked on
+   a console).
+5. The rest is the scenes' usual work (ExecCharaGeometry 9-24 ms, the walk,
+   CalcNodeQuaternionWithIK 40 ms in a character's first frame).
+
+**Changes:**
+
+- **sceCdRead in the background** (CD.cpp, PS2X_CD_ASYNC=0: off). A host
+  worker reads; sceCdSync(0) blocks the calling guest thread (an external
+  wait the worker's ExternalWake ends), sceCdSync(1) answers busy; the data
+  is copied into guest memory on the EE executor when the wait ends, or by
+  any CD call that could see it (the next read, sceCdGetError, sceCdStatus,
+  sceCdDiskReady, the stream calls...), never by the worker. As on the
+  console, the loader waits in sceCdSync while the game loop runs, and the
+  woken loader (higher priority) preempts it at the next checkpoint. Check:
+  PS2X_CD_LOG=2 hashes each read's data as it lands in guest memory; Mac
+  route to frame 3400, sync and async: the same 1 509 reads (LBN, size,
+  hash) in the same order. The load takes about the same time; the frames
+  around it run.
+- **The relocation natively** (decomp_reloc.cpp): ResolveRelocation,
+  RelocateCode, LoaderSysRelocateOnlineElfInfo (its two guest calls,
+  RelocateElfInfoHeader and DecodeSection, stay guest calls). The printing
+  cases (types 1, 3, 7.., a HI16 without LO16), a chained module and anything
+  outside main RAM go to the recompiled code (from the entry, at one
+  relocation's call, or at the module loop's head with its registers and
+  frame). No EE cycles charged (the garbage pass's clock never stopped it).
+- **The garbage pass's copy as one memmove** (sotc_overrides.cpp
+  copyViaSpr, SOTC_SPR_COPY_CHUNKED=1: the chunks): when the destination is
+  below the source or apart, the chunked copy through the scratchpad comes to
+  a memmove; the scratchpad is left as the chunks leave it (the last chunk,
+  the one before past it). SOTC_SPR_COPY_CHECK=1 runs the chunks on a copy
+  and compares: Mac route 3 072+ checks, 0 differ; attract demo none differ.
+- Measuring: PS2X_CD_LOG (=1 every read with frame, VBlank, guest thread;
+  =2 the data hashes), the frame log's new columns, SOTC_SUBSYS_PROF_SLOW,
+  SOTC_GC_LOG, PS2X_INPUT_WATCH, the pad script's RAMDUMP entry, and (from
+  the first round 9 attempt) SOTC_HOST_PROF=<file>, a Mac sampler of every
+  named host thread with the game frame (r9/tools/hostprof.py).
+
+- **The sound streams' reads in the background too** (sceCdReadIOPm, from
+  iosIopRead, then sceCdSync(0) as for sceCdRead): the data goes into IOP
+  memory on the executor when the wait ends. The streamed sound's reads vary
+  from run to run in both modes (they follow the sound's real-time
+  position); the other reads are the same (Mac route, PS2X_CD_LOG=2, two
+  sync runs and an async one: 1 470 non-sound reads identical).
+
+**Where the transition frames go after the changes** (calibrated Vita3K,
+profiler on, the outside's first frames): the garbage pass ~50 ms a frame
+(was 80-150), of it the copy (the game's own heap traffic, several MB a
+frame) ~12; hook.packets + packetId 45-60 ms (the moved models' packets at
+new addresses, hashed again: contentHash is a serial 64-bit multiply chain,
+slow on the A9); the scene's usual ~100 ms. Over the route's slow frames the
+garbage pass went 2 473 -> 1 352 ms (round 9 off / on, one run each); over
+56 / 47 slow frames with the callees probed, 4.2 s -> 1.4 s.
+
+**Results.** Calibrated Vita3K (MHZ=240 CORES=3), host on AC power, one run
+a side, back to back; the route with r9/route2.sh's input (5 runs of it
+followed the route; a 6th went a longer way through the altar room, the
+walk's presses being VBlank-timed, and was run again), frames counted from
+the @3d entry; attract and intro without input (the intro: New Game on a
+fresh card, frames from its first 3D frame). "off" is this round's VPK with
+PS2X_CD_ASYNC=0 SOTC_DECOMP_SKIP=ResolveRelocation,RelocateCode,LoaderSysRelocateOnlineElfInfo
+SOTC_SPR_COPY_CHUNKED=1 (the round 8 VPK cannot play the route); HEAD is
+celosia-r8.vpk. Frames over 50 / 85 / 120 ms, their total, the worst; no
+profiler unless said.
+
+| window | off / HEAD | round 9 |
+|---|---|---|
+| route, the save's load (-400..0) | 70 / 16 / 9, 6.1 s, worst 348 | 44 / 11 / 3, 3.7 s, worst 291 |
+| route, shrine to the outside (0..2400) | 1850 / 664 / 46, 146 s, worst 272 | 1848 / 620 / 25, 145 s, worst 214 |
+| route, the area change (740..1000) | 260 / 231 / 21, worst 272 | 260 / 216 / 21, worst 214 |
+| route -400..4400 | 2452 / 681 / 55, 181 s, worst 348 | 2599 / 631 / 28, 186 s, worst 291 |
+| route (profiler) -400..4400 | 4218 / 1147 / 69, worst 353 | 4230 / 1167 / 49, worst 285 |
+| intro, the load into it (-250..0) HEAD | 24 / 10 / 5, 2.4 s, worst 313 | 18 / 4 / 2, 1.5 s, worst 231 |
+| intro, the ride (0..5000) HEAD | 3558 / 21 / 2, worst 137 | 3630 / 10 / 0, worst 117 |
+| attract 600-4800 HEAD | 28 / 1 / 1, worst 219 | 36 / 0 / 0, worst 83 |
+| attract 4800-9600 HEAD | 340 / 8 / 2, worst 323 | 343 / 6 / 1, worst 157 |
+| attract (profiler) 600-4800 HEAD | 63 / 1 / 1, worst 237 | 68 / 0 / 0, worst 81 |
+
+Averages (round 8's): attract 600-4800 with the profiler, frame 37.62 ->
+37.67 ms, execScript 32.68 -> 32.75, DispDispObjGroupModel 11.28 -> 11.29;
+without it ([stats]) 32.56 -> 32.59, 4800-9600 33.68 -> 33.60; the route's
+walk (400..1600, profiler) 97.4 -> 95.7; the intro ride 53.5 -> 53.6. The
+averages do not move: what changed are the load and area-change frames
+(over 120 ms: route 55 -> 28, intro 2 -> 0; the worst frames 20-60% lower).
+The frames just over 50 ms count a little higher on some windows: the ~50 ms
+frames sit on the threshold (noise of one run a side).
+
+Checks: SOTC_DIFFTEST=ResolveRelocation,RelocateCode,LoaderSysRelocateOnlineElfInfo
+(EVERY=200, 100 on the intro) to frame 4800, 0 mismatches: route
+SOTC_NATIVE=2 3 400 / 200+ / 200+ checks (640 001 ResolveRelocation calls),
+route SOTC_NATIVE=1 3 200 / 200+ / 200+, attract both modes 1 300 / 200+ /
+200+, intro SOTC_NATIVE=1 4 400 / 200+ / 200+. SOTC_SPR_COPY_CHECK on the
+route and the attract demo: 0 differ. The disc data (PS2X_CD_LOG=2) sync
+against async: route (1 509 reads, then 1 470 non-sound with the sound
+streams async too), attract (728) and intro (1 256), identical. The garbage
+pass never stopped by its clock (SOTC_GC_LOG). Mac route game clock 1.001x /
+0.9998x (last 12 windows; with the first and the final binary); attract demo
+to frame 6000; pictures: route shots 2600-3500 (the walk out, the stairs, the
+temple cutscene) and the intro (bridge, cliff, tunnel, stairs) right, no
+missing or late meshes or textures (r9/sheet-mac-clock.png,
+sheet-intro-async.png).
+
+**Sound and the picture on the Vita** (the user's report: around
+transitions and cutscenes the sound runs ahead and never comes back):
+
+- (a) The sound runs on the host's clock: with SOTC_NATIVE=1 the host audio
+  thread pulls the mixer at 48 kHz (sound_mixer pull mode), and the streamed
+  voices keep up in real time (PS2X_SG2_STREAM_LOG=1: ~16 refills and as
+  many half changes per 5 s of host time in calibrated Vita3K, as on the
+  Mac at 60 fps, 0 halves played stale). The game runs on its own clock:
+  the guest VBlanks. A VBlank needs its EE-cycle deadline, and the host
+  clock's catch-up (EeScheduler::syncCyclesToHostClock, after GAMECORE) is
+  capped at 2 VBlank periods ("never replay more than two frames at once;
+  forget older lag"): a frame slower than that loses the rest. So the game
+  sees fewer VBlanks than real time and SotC, which moves by VBlank count,
+  plays slower than real time: game time / wall time (r9/tools/drift.py, the
+  frame log's "vb") 0.65-0.71 over the eagle ride (the sound ahead by 15-20 s
+  per 1 000 frames, 52 s over the first 3 000), 0.47-0.50 on the route's
+  walk and area change (51 s over 1 200 frames), 0.65 in the save's load.
+  It never comes back because nothing ties the two clocks.
+- (b) The streamed sound's reads (sceCdReadIOPm, 16-352 KB: 6-15 ms each in
+  Vita3K) and the area loads (sceCdRead, 32 KB) are both issued by guest
+  thread 11, the loader, one after the other, through the same host read
+  (readHostRange; on the Vita one mutex held across sceIoPread). Before this
+  round both held every guest thread; now both wait in sceCdSync on the
+  loader only. A load still waits behind a sound read and the reverse (same
+  thread), ~15 ms at most.
+- (c) The game reads the driver's status every frame (voice envelopes, the
+  streams' positions at +0xc0, the PCM position at +0x180); the streams'
+  feeding follows those. Nothing found that times a cutscene by the sound,
+  and the drift itself says the picture does not wait for it; a voice line
+  that must end before the game goes on would make the game wait less, not
+  skip. Not established beyond that (no wait on a sound semaphore was
+  looked for).
+- (d) The overlay's "game N fps" counts display lists (game frames) a
+  second of host time; "host M fps" is the raylib loop's rate, which with
+  SOTC_NATIVE runs apart from the game thread (the native renderer presents
+  each game frame itself): at a transition only the first drops.
+
+The fix is the clock, not the sound: PS2X_HOST_CLOCK_MAX_LAG=<VBlanks>
+(new, default 2 = as before) caps the catch-up. With 8, the intro in
+calibrated Vita3K keeps game time = real time (1.00 over 2 000 frames,
+against 0.69) at the same cost (53.5 ms a frame, worst 118 vs 113): the
+game steps ~3.2 VBlanks a frame, as the console does at that frame rate,
+and the sound stays with the picture. Not on by default: it changes the
+time step the game logic sees on slow frames (larger steps for movement,
+physics, AI). Plan below.
+
+**Round 10 (plan):**
+
+1. The clock: run the route and the attract demo with
+   PS2X_HOST_CLOCK_MAX_LAG=4 / 8 in calibrated Vita3K and look for what the
+   larger steps change (the route's path, collisions at the stairs, the
+   cutscenes' lengths in host time, the sound); the game was written for a
+   VBlank clock that never stops, so a cap of a few frames should be the
+   console's behaviour. Then the default for the Vita.
+2. packetId after a garbage move: a faster content hash (parallel lanes,
+   32-bit multiplies for the A9), or the moves told to the packet memo
+   (the bytes of a moved packet are the same unless a relocation wrote into
+   it: ResolveRelocation is native now and can say where it wrote): 45-60 ms
+   of each area-change frame.
+3. The garbage pass's rest natively: heapMove (0x1ae270), isysMoveModuleObj,
+   kernel_sub_001B4170 / 4760 (symbol search), DecodeSection; ~15 ms a frame
+   at an area change.
+4. Round 8's plan items 2-4 (ExecCharaGeometry's body, the DMA walk without
+   walking, iosDlLockObj / CalcLightLayoutObj): the route's walk is 87 ms a
+   frame of real game work, the largest cost left.
+5. The render thread's first frames in a new area (194-210 ms, 110 ms of it
+   waiting for the GPU in Vita3K): check on the console whether it is
+   Vita3K's own pipeline creation.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
