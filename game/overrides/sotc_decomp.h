@@ -46,6 +46,13 @@ namespace sotc_decomp
 
     std::vector<Function> &registry();
 
+    // Counts the heap's garbage moves (copyViaSpr, sotc_overrides.cpp: blocks
+    // moved down in RAM, MBs at an area change). The native hooks' memos by
+    // address (packetId, decodedTexture) take a packet or texture drawn the
+    // frame before as it was; after a move another one can be at that
+    // address, so a memo made before the last move samples again (round 11).
+    inline uint32_t g_guestMoveSerial = 0;
+
     struct Registrar
     {
         Registrar(uint32_t address, const char *name, PS2Runtime::RecompiledFunction native, bool returnsFloat = false, bool switches = false,

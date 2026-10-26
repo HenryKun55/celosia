@@ -1,79 +1,79 @@
 {
- "updated": "2026-10-25",
- "commit": "d44f871",
+ "updated": "2026-10-26",
+ "commit": "23595fb",
  "summary": {
   "by_functions": {
-   "native": 423,
+   "native": 446,
    "partial": 0,
    "total": 9024,
-   "percent": 4.69
+   "percent": 4.94
   },
   "by_code_size": {
-   "native": 124200,
+   "native": 137704,
    "partial": 0,
    "total": 2625144,
-   "percent": 4.73
+   "percent": 5.25
   },
   "by_calls": {
-   "native": 116190482,
+   "native": 143741107,
    "partial": 0,
    "total": 279490744,
-   "percent": 41.57
+   "percent": 51.43
   },
   "game_code_by_size": {
-   "native": 56856,
+   "native": 66640,
    "total": 2208056,
-   "percent": 2.57
+   "percent": 3.02
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
-   "functions": 2132,
-   "native_functions": 313,
-   "bytes": 406516,
-   "native_bytes": 56772,
+   "functions": 2126,
+   "native_functions": 320,
+   "bytes": 405068,
+   "native_bytes": 59044,
    "partial_functions": 0,
-   "percent": 13.97
+   "percent": 14.58
   },
   "Math": {
-   "functions": 128,
-   "native_functions": 15,
-   "bytes": 25244,
-   "native_bytes": 2996,
+   "functions": 133,
+   "native_functions": 21,
+   "bytes": 26604,
+   "native_bytes": 4444,
    "partial_functions": 0,
-   "percent": 11.87
+   "percent": 16.7
   },
   "Characters and motion": {
-   "functions": 1208,
-   "native_functions": 19,
-   "bytes": 279088,
-   "native_bytes": 11824,
+   "functions": 1210,
+   "native_functions": 23,
+   "bytes": 279320,
+   "native_bytes": 12216,
    "partial_functions": 0,
-   "percent": 4.24
+   "percent": 4.37
   },
   "Display and models": {
-   "functions": 979,
+   "functions": 977,
    "native_functions": 37,
-   "bytes": 252660,
-   "native_bytes": 21800,
+   "bytes": 252188,
+   "native_bytes": 21816,
    "partial_functions": 0,
-   "percent": 8.63
+   "percent": 8.65
   },
   "System and memory": {
-   "functions": 231,
+   "functions": 230,
    "native_functions": 4,
-   "bytes": 61456,
+   "bytes": 61168,
    "native_bytes": 3048,
    "partial_functions": 0,
-   "percent": 4.96
+   "percent": 4.98
   },
   "Other game code": {
    "functions": 2889,
-   "native_functions": 9,
+   "native_functions": 12,
    "bytes": 1278028,
-   "native_bytes": 7392,
+   "native_bytes": 15992,
    "partial_functions": 0,
-   "percent": 0.58
+   "percent": 1.25
   },
   "Camera": {
    "functions": 284,
@@ -100,17 +100,17 @@
    "percent": 22.63
   },
   "Collision and physics": {
-   "functions": 322,
-   "native_functions": 20,
-   "bytes": 105440,
-   "native_bytes": 14024,
+   "functions": 325,
+   "native_functions": 23,
+   "bytes": 106216,
+   "native_bytes": 14800,
    "partial_functions": 0,
-   "percent": 13.3
+   "percent": 13.93
   },
   "Script and events": {
-   "functions": 633,
+   "functions": 632,
    "native_functions": 0,
-   "bytes": 133408,
+   "bytes": 133248,
    "native_bytes": 0,
    "partial_functions": 0,
    "percent": 0.0
@@ -374,6 +374,14 @@
    "source": "game/overrides/sotc_overrides.cpp"
   },
   {
+   "address": "0x001b9148",
+   "name": "iosCopyMatrix",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
    "address": "0x001ba4d0",
    "name": "GetDifferencialQuaternionWithNoRegularize",
    "bytes": 448,
@@ -438,6 +446,14 @@
    "source": "game/overrides/decomp_math.cpp"
   },
   {
+   "address": "0x001be388",
+   "name": "iosGetACosfExact",
+   "bytes": 88,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
    "address": "0x001be458",
    "name": "iosGetATan2fExact",
    "bytes": 104,
@@ -460,6 +476,14 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_dl.cpp"
+  },
+  {
+   "address": "0x001c00c8",
+   "name": "iosDlLockObj",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_isys.cpp"
   },
   {
    "address": "0x001c0210",
@@ -518,6 +542,46 @@
    "source": "game/overrides/sotc_native.cpp"
   },
   {
+   "address": "0x001c6180",
+   "name": "kernel_sub_001C6180",
+   "bytes": 648,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_isys.cpp"
+  },
+  {
+   "address": "0x001c6408",
+   "name": "kernel_sub_001C6408",
+   "bytes": 328,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_isys.cpp"
+  },
+  {
+   "address": "0x001c6550",
+   "name": "isysAddGroupWithLinkParam",
+   "bytes": 608,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_isys.cpp"
+  },
+  {
+   "address": "0x001c7110",
+   "name": "isysGroupForFirst",
+   "bytes": 336,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_group.cpp"
+  },
+  {
+   "address": "0x001c7668",
+   "name": "isysAddGroupWithLinkParamNoWait",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_isys.cpp"
+  },
+  {
    "address": "0x001c76d0",
    "name": "isysGroupForNext",
    "bytes": 136,
@@ -529,6 +593,14 @@
    "address": "0x001c7758",
    "name": "isysGroupForNextForce",
    "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_group.cpp"
+  },
+  {
+   "address": "0x001c77b8",
+   "name": "isysGroupForExit",
+   "bytes": 216,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_group.cpp"
@@ -558,6 +630,14 @@
    "source": "game/overrides/decomp_quat.cpp"
   },
   {
+   "address": "0x001dd9c8",
+   "name": "acosf",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
    "address": "0x001dd9f8",
    "name": "atan2f",
    "bytes": 24,
@@ -566,12 +646,36 @@
    "source": "game/overrides/decomp_quat.cpp"
   },
   {
+   "address": "0x001dda40",
+   "name": "sqrtf",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
+   "address": "0x001ddd78",
+   "name": "ps2___ieee754_acosf",
+   "bytes": 1064,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
    "address": "0x001de540",
    "name": "ps2___ieee754_atan2f",
    "bytes": 480,
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_quat.cpp"
+  },
+  {
+   "address": "0x001df480",
+   "name": "ps2___ieee754_sqrtf",
+   "bytes": 208,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
   },
   {
    "address": "0x0108a780",
@@ -750,6 +854,38 @@
    "source": "game/overrides/decomp_skeleton.cpp"
   },
   {
+   "address": "0x010ba7a8",
+   "name": "GetAnimationClass",
+   "bytes": 112,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_chara.cpp"
+  },
+  {
+   "address": "0x010c0a70",
+   "name": "GetCharacterClass",
+   "bytes": 48,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_chara.cpp"
+  },
+  {
+   "address": "0x010c1a98",
+   "name": "regularizeMatAry",
+   "bytes": 88,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x010c7b28",
+   "name": "manager_sub_010C7B28",
+   "bytes": 7520,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_ctrldef.cpp"
+  },
+  {
    "address": "0x010cdd10",
    "name": "manager_sub_010CDD10",
    "bytes": 520,
@@ -778,8 +914,8 @@
    "name": "GetLayoutClass",
    "bytes": 144,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/decomp_layout.cpp"
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_chara.cpp"
   },
   {
    "address": "0x010f26d0",
@@ -990,6 +1126,22 @@
    "source": "game/overrides/decomp_collision.cpp"
   },
   {
+   "address": "0x01125cc0",
+   "name": "ClipCollisionFinderCallBack",
+   "bytes": 264,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01125dc8",
+   "name": "ClipCollisionFinder",
+   "bytes": 224,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
    "address": "0x01128f38",
    "name": "manager_sub_01128F38",
    "bytes": 304,
@@ -1150,6 +1302,14 @@
    "source": "game/overrides/decomp_wind.cpp"
   },
   {
+   "address": "0x01147798",
+   "name": "FlushModifiedManager",
+   "bytes": 288,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
    "address": "0x01147bd0",
    "name": "kbGetStatus",
    "bytes": 424,
@@ -1190,9 +1350,33 @@
    "source": "game/overrides/decomp_bridle.cpp"
   },
   {
+   "address": "0x013f8668",
+   "name": "gamecore_sub_013F8668",
+   "bytes": 752,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_lifebar.cpp"
+  },
+  {
+   "address": "0x013f8958",
+   "name": "gamecore_sub_013F8958",
+   "bytes": 328,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_lifebar.cpp"
+  },
+  {
    "address": "0x0142da48",
    "name": "execPointListSort",
    "bytes": 600,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_pointsort.cpp"
+  },
+  {
+   "address": "0x01433450",
+   "name": "getPointDataByAreaIdx",
+   "bytes": 160,
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/decomp_pointsort.cpp"

@@ -349,3 +349,32 @@ namespace decomp_skeleton
 }
 
 SOTC_DECOMP_FUNCTION(0x010B8590u, skeletonPose, decomp_skeleton::skeleton);
+namespace decomp_skeleton
+{
+    // regularizeMatAry (0x10c1a98, round 11): a1 quaternions at a0 each
+    // normalised in place, the VU0 block normalised() does (vf14 the
+    // quaternion, vf15 the result, Q). A negative count: the recompiled code.
+    void regularizeMatAry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const int32_t n = static_cast<int32_t>(GPR_U32(ctx, 5));
+        uint32_t a = GPR_U32(ctx, 4);
+        if (n < 0 || n > 0x10000 || a >= PS2_RAM_SIZE - 16u * static_cast<uint32_t>(n))
+            return sotc_decomp::recompiled(0x010C1A98u)(rdram, ctx, runtime);
+        for (int32_t i = 0; i < n; ++i, a += 16u)
+        {
+            const uint32_t at = a & ~0xFu;
+            __m128 v, vf15;
+            std::memcpy(&v, rdram + at, 16);
+            ctx->vu0_vf[14] = v;
+            const __m128 r = normalised(ctx, v, vf15);
+            ctx->vu0_vf[15] = r;
+            std::memcpy(rdram + at, &r, 16);
+        }
+        if (n > 0)
+            SET_GPR_S32(ctx, 3, -1);
+        SET_GPR_U32(ctx, 4, a);
+        SET_GPR_S32(ctx, 2, -1);
+        returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x010C1A98u, regularizeMatAry, decomp_skeleton::regularizeMatAry);

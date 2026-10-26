@@ -154,7 +154,8 @@ size, 4.57% by function count (412), 40.3% by calls, 2.39% of the game's
 own code (010F3FB0, the haze strips' second half, is native too but counts
 as recompiled: only 010F3EB8's entry is in the table). Round 8: 4.65% by code
 size, 4.61% by function count (416), 40.6% by calls, 2.55% of the game's own
-code. Run it again after
+code. Round 11: 5.25% by code size, 4.94% by function count (446), 51.4% by
+calls, 3.02% of the game's own code. Run it again after
 every round and commit both files. (A function an override hooks counts as
 native too: iosDlPushLayer / iosDlPopLayer are sotc_native.cpp's hooks
 around the recompiled code.)
@@ -1392,6 +1393,239 @@ range ranked, hostunder.py: Mac host samples under a function).
 6. The quick packet ids: SOTC_R2_CHECK=1 on the Mac route found 2 packets
    rewritten in place that kept their id (frames 3043-3044, the area
    change): one frame in 16 recovers them; check what they draw meanwhile.
+
+## Round 11: the characters' callees, the life bar, the condition checks (2026-10-26)
+
+**What the horse's task is.** t09 @01390f48 is nico_horseRStart: its per
+frame body is gamecore_sub_01395E20's loop, gamecore_sub_01390A90 (1.4-1.8
+ms self, its path and ray work) and then scrRunM(1), and scrRunM runs the
+object's own frame (gc_013CF258 -> gc_013CFBE0 -> ExecCharaGeometry) before
+it sleeps. So most of the task's 9-12 ms is Agro's ExecCharaGeometry (a Mac
+probe run, r11/mac-horseprof: the task 0.35 ms inclusive, its body 0.07, the
+rest scrRunM's ExecCharaGeometry; Agro alone is ~45% of all characters'
+geometry). Targets 1 and 2 of the plan are one subsystem.
+
+**Natives (each SOTC_DIFFTEST, 0 mismatches to frame 4 800 on the attract
+demo and the real route, SOTC_NATIVE=1 and =2; r11/dtF-*):**
+
+- The characters' collision and geometry leaves: ClipCollisionFinder /
+  ClipCollisionFinderCallBack (decomp_collision.cpp; the finder's candidate
+  loop, ClipCollisionDB natively), FlushModifiedManager, regularizeMatAry
+  (decomp_skeleton.cpp, CalcRootFitting's quaternions), iosCopyMatrix,
+  GetCharacterClass, GetLayoutClass, GetAnimationClass (decomp_chara.cpp),
+  getPointDataByAreaIdx (decomp_pointsort.cpp, the horse's path work).
+- The kernel's group links (decomp_isys.cpp): isysAddGroupWithLinkParam
+  (+ NoWait), kernel_sub_001C6180 / 001C6408 (a link in / out),
+  isysGroupForFirst, isysGroupForExit, iosDlLockObj. The per-thread
+  recursive lock natively when this thread owns it or the semaphore polls
+  free (SOTC_ISYS_STATS: 743 k nested, 957 k taken, 2 to the recompiled
+  code on the route); a wait goes to the recompiled code untouched.
+- The control definition's condition (manager_sub_010C7B28,
+  decomp_ctrldef.cpp, ~380 calls a frame, 1.2% of the Vita3K walk
+  recompiled): the 26 types that make ~90% of the route's calls
+  (SOTC_CTRLDEF_STATS), each as its code has it (f0 and fcr31's condition
+  bit as the case leaves them, GetGeometryPointerSurfaceAttribute as a guest
+  call, SearchSubAnimation inline); other types, or a jump table that is not
+  the expected one, run the recompiled function from its start.
+- libm (decomp_math.cpp): __ieee754_sqrtf / sqrtf (fdlibm's bit-by-bit root
+  is correctly rounded: the host's root, bit for bit, checked over every
+  positive normal float; the game thread runs round-toward-zero, so through
+  ps2FpuSqrtNearest, a first try with std::sqrt was 1 ulp low in 547 of 1 200
+  checks), __ieee754_acosf / acosf and iosGetACosfExact (which reaches acosf
+  by a tail jump), fdlibm's polynomial in the code's own order; every path
+  seen on the route (SOTC_ACOS_STATS: tiny 3 377, |x| < 0.5 8 683, x <= -0.5
+  8 900, x >= 0.5 129 040).
+- The wind zones' sorted insert (decomp_wind.cpp): one memmove for the
+  records that move up, not one call each (sceClibMemmove from windZones was
+  0.73% of the Vita3K walk).
+
+**The life bar (a game-specific shortcut).** gamecore_sub_013F8958 / 8668
+(decomp_lifebar.cpp), run every frame by playerlifebar_script's sub-thread
+also while the grip ring is invisible: with the ring's alpha (*0x11f85b4) 0
+and neither flash up, every primitive it draws has alpha 0, so only its
+state is made natively (the two scales, the pulse phase, 013F78A8's shrink
+history and b44, in the original's operations and order); the draws, the
+texture request and the layer push / pop are left out. What differs from
+the original then is only what those leave behind: that frame's display list
+packets, one group link taken and given back (iosDlLockObj) and one texture
+request. SOTC_LIFEBAR_CHECK=1 runs the recompiled function and compares the
+state blocks (0x1466b28..b80, 0x11f8520..8630): Mac route 2 800 hidden calls,
+0 differ (r11/lb-check3); shown ring: the recompiled code. SOTC_LIFEBAR_
+SHORTCUT=0 turns it off. Task t21 @013f93d8 (the life bar): 2.12 -> 0.32 ms.
+
+**The R2 check's stale packets (plan item 6).** The two packets that kept
+their old id at the area change are the heap's garbage moves: copyViaSpr
+moves blocks down by MBs, and packetId / decodedTexture take a packet or
+texture drawn the frame before by its address as it was, so another packet
+moved to that address kept the old id (until a sample 16-63 frames later).
+Now copyViaSpr counts the moves (sotc_decomp::g_guestMoveSerial) and a memo
+made before the last move samples again; a changed packet or texture after a
+move is not taken as "rewritten in place" (that built it synchronously and
+sampled it every frame after; the first w4 build showed a 230 ms hook frame
+for 48 such packets at once). Mac route to frame 6 600, SOTC_R2_CHECK=1: 0
+stale packets, 0 stale textures (round 10: 2 packets), 3 987 moves (bursts:
+~1 200 by the shrine, ~2 600 at the area change, ~640 at the plain); the
+hooks' mean on the calibrated Vita3K walk 6.9 -> 7.0 ms.
+
+**The dust (TASK 0, not reproduced).** The user's two Vita3K shots
+(r11/user-dust-wander.png, user-dust-agro.png, round 10's w2 build) show
+hard-edged quads, red and grey, with the streaks of the dust atlas's lower
+row (r11/tex323f30.png: the 512 x 256, 4 x 2 atlas at header 0x323f30)
+fanned behind Wander and Agro: the atlas drawn with the wrong colour /
+alpha, not the quads missing their texture. Tried: Mac runs dust1-5 at the
+moments of the shots, a debug VPK with SOTC_PTCL_DRAWLOG=1 in calibrated
+Vita3K (r11/d1-err.txt: 8 801 particle draws, the dust always the same
+texture key 07333e56b4cda497, blend 0, layer 18, its colours 0.34 / 0.31 /
+0.28), and round 10's own log of that run (r10/w2-route-xprof2-err.txt): 0
+draws with a missing texture over the run, so neither eviction nor an
+async decode left them untextured. The user's console run of round 10 drew
+the dust soft. The likeliest cause left is a texture taken by its address
+after a garbage move (the hazard fixed above: another texture's key kept for
+the dust's header, or the dust decoded from a half-moved palette); not
+proven, as nothing reproduced it. SOTC_PTCL_DRAWLOG stays (debugging).
+
+**The player's path.** Fixed 30 fps (SOTC_FRAME_INTERVAL=2, SOTC_POS_LOG=30),
+this round's natives off (SOTC_DECOMP_SKIP=<them>, SOTC_LIFEBAR_SHORTCUT=0)
+against on, the route to game frame 5 400: the same path within 1-3 units
+the whole way (r11/pc30-ref, pc30-new; the shots side by side,
+r11/sheet-pc30.png). Slow frames (SOTC_FRAME_STALL_MS=70 from 1 300, like the
+Vita): the path is chaotic in frame timing, as round 10 found: with the
+natives off two runs of three took the same way and the third another
+(r11/pos-ref, ref2, ref3), with them on two of three got out to the plain
+and one walked into the canyon wall the off runs did (pos-new1-3,
+r11/sheet-pos.png); before that point every run is within 1-5 units.
+
+**Mac:** route clock game/wall 1.00 in every window (r11/mac-route-clock2,
+on battery: ~19-32 ms frames); attract demo past frame 6 000 (shots
+r11/sheet-final-attract.png); the route's shots (r11/sheet-final-route.png).
+
+**Results.** Calibrated Vita3K (MHZ=240 CORES=3), the route with r9/route2.sh's
+input (r11/v3k.sh), windows in VBlanks after the @3d entry, frames over 50 /
+85 / 120 ms and the worst; HEAD = celosia-r10.vpk (23595fb), round 11 =
+celosia-r11.vpk (w5). HEAD h3 ran on battery (70%), h4 / w5 on AC power; w4 =
+round 11 before the garbage-move fix's second half (two runs).
+
+| route window (VBlanks) | HEAD h3 | HEAD h4 | r11 w5 | w4 (2 runs) |
+|---|---|---|---|---|
+| the save's load (-1000..0): mean ms, frames, >50/85/120, worst | 33.6, 500, 30/8/3, 285.7 | 33.9, 497, 34/10/3, 293.5 | 33.1, 507, 32/9/4, 264.9 | 33.1 / 33.1 |
+| the shrine (0..1000) | 47.4, 352, 110/37/0, 116.5 | 47.6, 352, 108/40/0, 115.6 | 46.2, 361, 102/12/0, 110.1 | 46.3 / 46.0 |
+| the walk out and the area change (1000..4000) | 88.6, 566, 566/281/27, 209.0 | 87.9, 570, 570/289/25, 214.2 | 84.1, 596, 596/204/25, 210.4 | 83.4 / 84.0 (worst 213.1 / 371.4) |
+| the plain (4000..6000) | 60.2, 553, 553/0/0, 81.8 | 58.4, 571, 571/0/0, 84.4 | 53.2, 627, 605/0/0, 77.6 | 53.9 / 54.2 |
+| game / wall, every window | 0.99-1.00 | 0.99-1.00 | 0.99-1.00 | 0.99-1.00 |
+
+With the profiler (SOTC_SUBSYS_PROF=1): the walk 93.7 -> 84.9 ms (>85:
+375 -> 264, >120: 37 -> 28, worst 210.7 / 218.7), the plain 63.8 -> 57.5, the
+shrine 87.2 -> 81.3. The walk's subsystems (frames 400-1600 after the @3d
+entry, ms a frame inclusive, HEAD h3 -> round 11 w5; wall 79.8 -> 73.0):
+
+| | HEAD | r11 |
+|---|---|---|
+| ExecCharaGeometry (12.3 characters a frame) | 21.0 | 17.8 |
+| .. CalcNodeQuaternionWithIK | 4.7 | 3.8 |
+| the horse's task (t09 @01390f48, mostly Agro's ExecCharaGeometry) | 11.6 | 9.3 |
+| the player's task (t09 @013b4218) | 7.6 | 6.6 |
+| the life bar (t21 @013f93d8) | 2.1 | 0.3 |
+| ClipCollisionFinder | 1.9 | 0.5 |
+| CharaCtrlAIControl / CharaCtrlPlayableControl | 2.4 / 1.7 | 1.9 / 1.4 |
+| DispDispObjGroupModel (unchanged code) | 19.4 | 19.6 |
+| ClipCollisionDirectCallBack (unchanged) | 3.8 | 3.9 |
+
+| attract demo | HEAD | round 11 |
+|---|---|---|
+| 600-4800, no profiler: mean ms (>50 / >85, worst) | 32.6 (22 / 0, 74.8) | 31.7 (9 / 0, 74.8) |
+| 4800-9600, no profiler | 32.3 (229 / 3, 156.7) | 31.6 (217 / 3, 157.0) |
+| 600-4800, profiler: frame; DispDispObjGroupModel / ExecCharaGeometry | 37.36; 11.19 / 6.36 | 36.48; 10.97 / 6.16 |
+| 4800-9600, profiler | 35.79 | 35.06 |
+| game / wall | 1.00 | 1.00 |
+
+So -4 to -9% a frame on the walk outside and the plain, -2.5% on the attract
+demo; the walk now takes ~5% more frames for the same game time.
+
+**The console against Vita3K.** The user's console run of round 10
+(console-r10/err.txt, SOTC_SUBSYS_PROF=1, frames 2882-3242: the walk outside
+with Agro, 95.2 ms a frame) against calibrated Vita3K of the same VPK on the
+route's walk (r11/h2-route-prof, frames 400-1600 after @3d, 77.9 ms; the two
+walks are not the same frames, so this is a rough match), inclusive (self):
+
+| | console | Vita3K | console / Vita3K |
+|---|---|---|---|
+| frame (profiler) | 95.2 | 77.9 | 1.22 |
+| DispDispObjGroupModel | 28.9 (7.2) | 19.0 (6.1) | 1.52 (1.18) |
+| modelDisp | 14.8 (6.8) | 7.4 (0.9) | 2.01 (7.5) |
+| hook.packets | 5.0 (4.0) | 3.9 (3.0) | 1.30 |
+| ExecCharaGeometry | 18.6 (9.1) | 19.6 (8.8) | 0.95 |
+| the horse's task | 9.4 | 10.9 | 0.86 |
+| CalcNodeQuaternionWithIK / skeletonPose | 3.5 / 2.7 | 4.5 / 3.0 | 0.78 / 0.90 |
+| ClipCollisionDirectCallBack | 3.2 | 3.6 | 0.90 |
+| doit_game_camera | 4.9 (3.0) | 4.0 (1.9) | 1.21 (1.55) |
+| iosGPFrameInit | 3.6 (1.4) | 2.2 (0.2) | 1.64 (7.6) |
+| iosMallocGarbageTickProc | 2.1 | 1.0 | 2.16 |
+| ptclmanBuildVtxPacket | 1.5 | 0.55 | 2.73 |
+| particleDraw / particleUpdate | 2.5 / 0.8 | 1.2 / 0.5 | 2.0 / 1.7 |
+| CharaCtrlAIControl | 1.7 | 2.5 | 0.67 |
+
+The characters (compute: skeleton, IK, collision, the condition checks) are
+as calibrated or a little cheaper on the console (0.7-0.95); what writes or
+walks a lot of memory is 1.5-7.5x dearer there: modelDisp's own part (6.8
+ms on the console, 0.9 in Vita3K: the code between the hook's probes, the
+meshes' and skinned vertices' writes into the renderer's buffers, which on
+the Vita are GPU-mapped memory), iosGPFrameInit (clears the packet
+buffers), the heap's garbage pass, the particles' vertex packets. Vita3K
+makes main memory and the GPU's memory as fast as the host's. The display
+walk is then the console's first cost (~29 ms of 95), not the characters,
+and a fix there shows ~1.5-2x more on the console than in Vita3K; a compute
+fix (this round's) a little less.
+
+**Decomp status (tools/decomp_status.py, r11/replaced.txt):** 5.25% of the
+MIPS code by size, 4.94% by functions (446 of 9 024), 51.4% by calls (the
+same call dumps as before), 3.02% of the game's own code.
+
+**Measuring tools (new):** SOTC_CTRLDEF_STATS, SOTC_ISYS_STATS,
+SOTC_ACOS_STATS, SOTC_LIFEBAR_CHECK / _SHORTCUT, SOTC_PTCL_DRAWLOG, the R2
+check's move count, tools/vita3k.sh PROF_SNAPS and tools/vita_profile.py
+--minus (a time window of one run's host profile), r11/tools/dtsum.py (a
+difftest log summed per function).
+
+**Not done:** ExecCharaGeometry's own body (1.2% of the walk recompiled, VU0
+macro math), GetCharaRootDynamics's callees (getCollisionDB, slidecollision,
+the skinned finder 01116958, 0111C810), getAmbientColorC, CalcNodeInterp;
+round 9's packetId-after-move item is the fix above; heapMove and the
+symbol search are untouched. __udivmoddi4 (0.76% of the Vita3K walk, callers
+not resolved: a leaf's lr) and contentHash (0.93%) are open host costs.
+
+**Round 12 (plan): sound continuity on the console.** On the console the
+sound stutters and voice clips start and stop midway (Vita3K does not show
+it: its disc is the host's SSD).
+
+1. Measure on the console first (one run, the user's): PS2X_CD_LOG=1 and
+   PS2X_SG2_STREAM_LOG=1 with SOTC_FRAME_LOG=1 over the walk out and the
+   area change: each read's size, wall time and thread, each stream refill
+   and half change, and whether a half played stale (the console's cd
+   column: 36.8 ms for 128 KB). A half played stale = starved stream.
+2. The likely cause (round 9, (b)): the streamed sound's reads
+   (sceCdReadIOPm, 16-352 KB) and the area loads (sceCdRead, 32 KB) both go
+   through guest thread 11, the loader, one after another, and through one
+   host read path (readHostRange; one mutex across sceIoPread on the
+   Vita). With ~0.3 ms/KB on the console a 352 KB sound read takes ~100 ms
+   and an area's run of 32 KB reads holds the next sound read for as long:
+   the voice runs dry. Fixes to try, in order: a host-side read-ahead for
+   the sound files (the streams are sequential: read the next 512 KB-1 MB
+   of the open stream on a host thread of its own, served from memory); the
+   sound reads before the area reads in the host read queue (a priority, not
+   a second guest thread: the guest order stays); a larger host buffer per
+   stream half.
+3. The mixer: check the host audio thread is not starved by the game thread
+   on the console (its core, its priority: the render thread has core 2 to
+   itself, the game the other two), the SPU2 mixer's buffer depth against
+   the console's frame time (the area-change frames run 150-300 ms), and
+   underruns counted (a counter in sound_mixer's pull).
+4. The area-change frames' hooks: 76-77 ms of hooks for ~800 mesh uploads in
+   one frame on the console. Spread the uploads (the async builds' budget a
+   frame, held draws), so a long frame does not also starve the sound
+   thread's core.
+5. Then the console's display walk (above): modelDisp's own part and the
+   renderer's buffer writes (write-combined memory: write whole cache lines,
+   no read-back), iosGPFrameInit's clears, the garbage pass.
 
 ## Vita3K calibration (2026-10-22)
 

@@ -113,3 +113,50 @@ namespace decomp_pointsort
 }
 
 SOTC_DECOMP_FUNCTION(0x0142DA48u, execPointListSort, decomp_pointsort::sort);
+
+// getPointDataByAreaIdx (0x1433450, round 11): the path's point table of
+// an area (a2: its id, searched in the current area set's list at
+// 0x12010c8 + 0x98 x *(a0 + 0x3c50), 0x24 bytes an entry, the id at
+// *(entry + 0) + 0x1c) and getPointData (0x1169d48, the j it ends with:
+// point a1 of that table, 0x30 bytes each after a 0x10-byte header, 0 when
+// out of range). v0 only.
+namespace decomp_pointdata
+{
+    void pointDataByArea(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        auto w = [rdram](uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 4);
+            return v;
+        };
+        const uint32_t a0 = GPR_U32(ctx, 4);
+        const uint64_t a2 = GPR_U64(ctx, 6);
+        if (a0 >= PS2_RAM_SIZE - 0x3C54u)
+            return sotc_decomp::recompiled(0x01433450u)(rdram, ctx, runtime);
+        const uint32_t set = 0x012010C8u + w(a0 + 0x3C50u) * 0x98u;
+        const int32_t count = static_cast<int32_t>(w(set + 0x90u));
+        uint32_t found = 0u;
+        for (int32_t i = 0; i < count; ++i)
+        {
+            const uint32_t entry = set + static_cast<uint32_t>(i) * 0x24u;
+            if (a2 == static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(w(w(entry) + 0x1Cu)))))
+            {
+                found = entry;
+                break;
+            }
+        }
+        uint64_t v0 = 0u;
+        if (found != 0u)
+        {
+            const uint32_t table = w(found + 4u);
+            const int64_t index = GPR_S64(ctx, 5);
+            if (table != 0u && index >= 0 &&
+                static_cast<uint64_t>(index) < static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(w(table)))))
+                v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(table + static_cast<uint32_t>(index) * 0x30u + 0x10u)));
+        }
+        SET_GPR_U64(ctx, 2, v0);
+        sotc_decomp::returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x01433450u, getPointDataByAreaIdx, decomp_pointdata::pointDataByArea);

@@ -684,6 +684,7 @@ namespace sotc_native
                 uint32_t address = 0, format = 0;
                 uint64_t frame = ~0ull, sampled = 0, key = 0, sampledAt = 0;
                 bool rewritten = false; // seen changed in place: sampled at every call
+                uint32_t moveSerial = 0; // sotc_decomp::g_guestMoveSerial at the last sample
             };
             static WayMemo<ContentMemo, 512> memos;
             bool found = false;
@@ -693,7 +694,7 @@ namespace sotc_native
             // every frame. As packetId: a texture drawn the frame before,
             // never seen rewritten in place, is taken as it was; the full
             // sample comes round one frame in 16 (by address).
-            if (found && g_quickTextures && !memo.rewritten && memo.format == format && memo.frame + 1u >= g_frame && g_frame - memo.sampledAt < 16u &&
+            if (found && g_quickTextures && !memo.rewritten && memo.moveSerial == sotc_decomp::g_guestMoveSerial && memo.format == format && memo.frame + 1u >= g_frame && g_frame - memo.sampledAt < 16u &&
                 ((g_frame + (header >> 5)) & 15u) != 0u)
             {
                 key = memo.key;
@@ -714,12 +715,14 @@ namespace sotc_native
                 memo.frame = g_frame;
                 memo.sampledAt = g_frame;
                 memo.format = format;
+                memo.moveSerial = sotc_decomp::g_guestMoveSerial;
             }
             else
             {
                 // Drawn in the last two frames and changed: rewritten where it is
                 // (animated), decoded at once, not on the worker.
-                changedInPlace = found && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
+                // (not after a garbage move: then another texture was moved there)
+                changedInPlace = found && memo.moveSerial == sotc_decomp::g_guestMoveSerial && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
                 uint32_t bytes = 0;
                 for (uint32_t level = 0, w = width, h = height, levels = std::clamp((format >> 12) & 0xFu, 1u, 7u); level < levels && w >= 1u && h >= 1u;
                      ++level, w /= 2u, h /= 2u)
@@ -727,7 +730,7 @@ namespace sotc_native
                 uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
                 h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ g_ram[(header + 0x1Fu) & 0x1FFFFFFu]);
                 key = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
-                memo = {header, format, g_frame, sampled, key, g_frame, found && (memo.rewritten || changedInPlace)};
+                memo = {header, format, g_frame, sampled, key, g_frame, found && (memo.rewritten || changedInPlace), sotc_decomp::g_guestMoveSerial};
             }
         }
         else
@@ -928,6 +931,7 @@ namespace sotc_native
         uint64_t frame = ~0ull, id = 0;
         uint32_t sampledAt = 0;  // the frame of the last full sample (its low 32 bits)
         bool rewritten = false;  // seen changed in place
+        uint16_t moveSerial = 0; // sotc_decomp::g_guestMoveSerial at the last sample (a garbage move since: sampled again)
         uint64_t sample = 0, quick = 0; // 32 words; four words
     };
     // The memo's sets: four ways, the addresses apart from the entries (a set's
@@ -1002,7 +1006,9 @@ namespace sotc_native
         found = found && memo.size == size;
         HookStats &hs = hookStats();
         g_packetRewritten = found && memo.rewritten;
-        if (found && memo.frame == g_frame)
+        const uint16_t moveSerial = static_cast<uint16_t>(sotc_decomp::g_guestMoveSerial);
+        const bool moved = found && memo.moveSerial != moveSerial;
+        if (found && memo.frame == g_frame && !moved)
         {
             hs.idSame += hs.on;
             return memo.id;
@@ -1012,7 +1018,7 @@ namespace sotc_native
         // rewritten in place is still caught within 16 frames).
         const bool stagger = ((g_frame + (data >> 5)) & 15u) == 0u;
         const uint32_t age = static_cast<uint32_t>(g_frame) - memo.sampledAt;
-        if (g_r2 && found && !memo.rewritten && native_renderer::tuning().packetQuickCheck && !(stagger && age >= 48u))
+        if (g_r2 && found && !moved && !memo.rewritten && native_renderer::tuning().packetQuickCheck && !(stagger && age >= 48u))
         {
             if ((memo.frame + 1u == g_frame && !stagger) || quickSample(data, size) == memo.quick)
             {
@@ -1029,7 +1035,7 @@ namespace sotc_native
         }
         // Never rewritten in place: four words, the full sample one frame in
         // 16 (by address, so not all on the same frame).
-        else if (!g_r2 && found && !memo.rewritten && native_renderer::tuning().packetQuickCheck && age < 16u && !stagger)
+        else if (!g_r2 && found && !moved && !memo.rewritten && native_renderer::tuning().packetQuickCheck && age < 16u && !stagger)
         {
             // Drawn the frame before too: taken as it was (the full sample
             // comes round within 16 frames). Back after a while: four words.
@@ -1052,12 +1058,14 @@ namespace sotc_native
         {
             memo.frame = g_frame;
             memo.sampledAt = static_cast<uint32_t>(g_frame);
+            memo.moveSerial = moveSerial;
             memo.quick = quickSample(data, size);
             return memo.id;
         }
         // Drawn in the last two frames and changed: rewritten in place
         // (animated). Long unused: another packet loaded there (async is fine).
-        g_packetChangedInPlace = found && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
+        // Not after a garbage move: then another packet was moved there.
+        g_packetChangedInPlace = !moved && found && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
         hs.idHashed += hs.on;
         // Bit 59 set, 60-63 clear: apart from the per-frame meshes' ids
         // (bits 60, 62, 63 and a count) and the second pass's (bit 61 flipped).
@@ -1069,6 +1077,7 @@ namespace sotc_native
         memo.id = id;
         memo.sampledAt = static_cast<uint32_t>(g_frame);
         memo.rewritten = rewritten;
+        memo.moveSerial = moveSerial;
         g_packetRewritten = rewritten;
         memo.sample = sampled;
         memo.quick = quickSample(data, size);
@@ -3328,6 +3337,26 @@ namespace sotc_native
             native_renderer::uploadMesh(mesh, tris.data(), static_cast<uint32_t>(tris.size()), true);
         native_renderer::DrawState state;
         state.texture = texture(header);
+        // SOTC_PTCL_DRAWLOG=1 (debugging, round 11's dust report): each type 7
+        // draw's header, texture, blend and its particles' colour / size / cell
+        // ranges; =2 every type.
+        static const bool drawLog = std::getenv("SOTC_PTCL_DRAWLOG") != nullptr;
+        if (drawLog && (e.type == 7u || std::getenv("SOTC_PTCL_DRAWLOG")[0] == '2'))
+        {
+            float lo[7], hi[7];
+            for (int k = 0; k < 7; ++k)
+                lo[k] = 1e30f, hi[k] = -1e30f;
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                const uint32_t q = a + i * 48u;
+                const float vals[7] = {real(q + 16u), real(q + 20u), real(q + 24u), real(q + 28u), real(q + 12u), real(q + 40u), real(q + 44u)};
+                for (int k = 0; k < 7; ++k)
+                    lo[k] = std::min(lo[k], vals[k]), hi[k] = std::max(hi[k], vals[k]);
+            }
+            std::fprintf(stderr, "[ptcldraw] f %llu type %u n %u blend %u hdr %08x layer %u tex %016llx vec %g %g r %g..%g g %g..%g b %g..%g a %g..%g sz %g..%g u %g..%g v %g..%g\n",
+                         (unsigned long long)g_frame, e.type, count, g_ptclBlend, header, layer, (unsigned long long)state.texture, e.vec[0], e.vec[1], lo[0], hi[0],
+                         lo[1], hi[1], lo[2], hi[2], lo[3], hi[3], lo[4], hi[4], lo[5], hi[5], lo[6], hi[6]);
+        }
         state.blend = g_ptclBlend == 1u ? native_renderer::Blend::Additive : (g_ptclBlend == 2u ? native_renderer::Blend::Subtract : native_renderer::Blend::Normal);
         state.order = layer;
         state.fogged = false;
@@ -4451,8 +4480,8 @@ namespace sotc_native
                 if (lastFrame != g_frame)
                 {
                     lastFrame = g_frame;
-                    std::fprintf(stderr, "[r2-check] frame %llu (old paths): %llu quick packets, %llu stale\n", (unsigned long long)g_frame,
-                                 (unsigned long long)c.packetQuick, (unsigned long long)c.packetStale);
+                    std::fprintf(stderr, "[r2-check] frame %llu (old paths): %llu quick packets, %llu stale; %u garbage moves\n", (unsigned long long)g_frame,
+                                 (unsigned long long)c.packetQuick, (unsigned long long)c.packetStale, sotc_decomp::g_guestMoveSerial);
                 }
             }
             if (R2Check &c = r2Check(); c.on && full)
@@ -4491,10 +4520,10 @@ namespace sotc_native
                     {
                         lastFrame = g_frame;
                         std::fprintf(stderr, "[r2-check] frame %llu: %llu surface draws checked, %llu mismatches; %llu quick textures, %llu stale; "
-                                     "%llu quick packets, %llu stale\n",
+                                     "%llu quick packets, %llu stale; %u garbage moves\n",
                                      (unsigned long long)g_frame, (unsigned long long)c.surfaces, (unsigned long long)c.surfaceMismatches,
                                      (unsigned long long)c.texQuick, (unsigned long long)c.texStale, (unsigned long long)c.packetQuick,
-                                     (unsigned long long)c.packetStale);
+                                     (unsigned long long)c.packetStale, sotc_decomp::g_guestMoveSerial);
                     }
                 }
             }

@@ -10,6 +10,9 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace decomp_math
@@ -278,3 +281,311 @@ namespace decomp_math
 
 SOTC_DECOMP_FLOAT_FUNCTION(0x001BDF00u, iosGetSinf, decomp_math::sinOrCos<false>);
 SOTC_DECOMP_FLOAT_FUNCTION(0x001BE020u, iosGetCosf, decomp_math::sinOrCos<true>);
+
+// iosCopyMatrix (0x1b9148, round 11): a 4x4 matrix copied, a1 to a0, rows
+// 3, 2, 1, 0 in that order (as its lq / sq pairs); outside main RAM: the
+// recompiled code.
+namespace decomp_copymatrix
+{
+    void copyMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t to = GPR_U32(ctx, 4) & ~0xFu, from = GPR_U32(ctx, 5) & ~0xFu;
+        if (to >= PS2_RAM_SIZE - 0x40u || from >= PS2_RAM_SIZE - 0x40u)
+            return sotc_decomp::recompiled(0x001B9148u)(rdram, ctx, runtime);
+        static constexpr int kReg[4] = {6, 7, 8, 9}; // a2, a3, t0, t1 hold rows 0..3 after it
+        for (int row = 3; row >= 0; --row)
+        {
+            __m128i v;
+            std::memcpy(&v, rdram + from + row * 16u, 16);
+            std::memcpy(rdram + to + row * 16u, &v, 16);
+            SET_GPR_VEC(ctx, kReg[row], v);
+        }
+        sotc_decomp::returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x001B9148u, iosCopyMatrix, decomp_copymatrix::copyMatrix);
+
+// __ieee754_sqrtf (0x1df480) and sqrtf (0x1dda40, its wrapper: a frame and a
+// j), round 11: fdlibm's bit-by-bit square root, correctly rounded (to
+// nearest even), so for a positive normal input it is IEEE's root, bit for
+// bit (checked over every positive normal float, 2^31 - 2^24 inputs; the
+// game thread runs round-toward-zero, so through ps2FpuSqrtNearest). v0 as
+// the code leaves it (its root's mantissa sum >> 1); zero and denormals
+// give f0 = f12, v0 0. Negative inputs and the exponent-255 patterns (the EE
+// has no infinities: the code takes them as numbers): the recompiled code.
+// acosf (0x1dd9c8) / __ieee754_acosf (0x1ddd78): fdlibm's polynomial in the
+// code's own operations and order (FPU_* and the EE divide), its sqrtf
+// natively; |x| > 1 (its 0 / 0): the recompiled code. 0.35% / 0.26% of the
+// calibrated Vita3K walk recompiled.
+namespace decomp_libm
+{
+    using sotc_decomp::returnTo;
+
+    inline float fb(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+    inline uint32_t bf(float f)
+    {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    }
+
+    // false: the recompiled code must run (negative, exponent 255).
+    bool sqrtCore(float x, float &out, uint32_t &v0)
+    {
+        const uint32_t b = bf(x);
+        if ((b & 0x7FFFFFFFu) <= 0x007FFFFFu)
+        {
+            out = x;
+            v0 = 0u;
+            return true;
+        }
+        if ((b >> 23) - 1u >= 0xFEu) // sign set, or exponent 0xff
+            return false;
+        const float r = ps2FpuSqrtNearest(x); // the game thread runs round-toward-zero
+        const int32_t k = ((static_cast<int32_t>(b) >> 23) - 0x7F) >> 1;
+        v0 = bf(r) - 0x3F000000u - (static_cast<uint32_t>(k) << 23);
+        out = r;
+        return true;
+    }
+
+    template <uint32_t Self>
+    void sqrtF(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        float r;
+        uint32_t v0;
+        if (!sqrtCore(ctx->f[12], r, v0))
+        {
+            ctx->pc = Self;
+            return sotc_decomp::recompiled(Self)(rdram, ctx, runtime);
+        }
+        ctx->f[0] = r;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+        returnTo(ctx);
+    }
+
+    template <uint32_t Self>
+    void acosF(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const float x = ctx->f[12];
+        const uint32_t a0 = bf(x), v1 = a0 & 0x7FFFFFFFu;
+        uint32_t fcr31 = ctx->fcr31;
+        float result;
+        int32_t v0;
+        auto C = fb;
+        if (v1 == 0x3F800000u)
+        {
+            result = static_cast<int32_t>(a0) > 0 ? fb(0u) : fb(0x40490FDAu);
+            v0 = 0x7FFFFFFF;
+        }
+        else if (v1 > 0x3F800000u)
+        {
+            ctx->pc = Self;
+            return sotc_decomp::recompiled(Self)(rdram, ctx, runtime);
+        }
+        else if (v1 <= 0x3EFFFFFFu)
+        {
+            if (v1 <= 0x23000000u)
+            {
+                result = fb(0x3FC90FDAu);
+                v0 = 0;
+            }
+            else
+            {
+                const float f11 = x, f21 = FPU_MUL_S(f11, f11);
+                float f1 = C(0x3811EF08u), f3 = C(0x3A4F7F04u), f7 = C(0xBD241146u), f2 = C(0x3D9DC62Du);
+                f1 = FPU_MUL_S(f21, f1);
+                float f0 = C(0xBF303360u);
+                f2 = FPU_MUL_S(f21, f2);
+                const float f6 = C(0x3E4E0AA8u), f4 = C(0x4001572Cu), f9 = C(0xBEA6B08Fu);
+                f1 = FPU_ADD_S(f1, f3);
+                f3 = C(0x3F800000u);
+                f2 = FPU_ADD_S(f2, f0);
+                f0 = C(0x33A22168u);
+                const float f5 = C(0xC019D138u), f8 = C(0x3E2AAAAAu);
+                f1 = FPU_MUL_S(f21, f1);
+                const float f10 = C(0x3FC90FDAu);
+                f2 = FPU_MUL_S(f21, f2);
+                f1 = FPU_ADD_S(f1, f7);
+                f2 = FPU_ADD_S(f2, f4);
+                f1 = FPU_MUL_S(f21, f1);
+                f2 = FPU_MUL_S(f21, f2);
+                f1 = FPU_ADD_S(f1, f6);
+                f2 = FPU_ADD_S(f2, f5);
+                f1 = FPU_MUL_S(f21, f1);
+                f2 = FPU_MUL_S(f21, f2);
+                f1 = FPU_ADD_S(f1, f9);
+                const float f22 = FPU_ADD_S(f2, f3);
+                f1 = FPU_MUL_S(f21, f1);
+                f1 = FPU_ADD_S(f1, f8);
+                const float f20 = FPU_MUL_S(f21, f1);
+                const float f12 = ps2FpuDivide(fcr31, f20, f22);
+                f1 = FPU_MUL_S(f11, f12);
+                f0 = FPU_SUB_S(f0, f1);
+                f0 = FPU_SUB_S(f11, f0);
+                result = FPU_SUB_S(f10, f0);
+                v0 = 1;
+            }
+        }
+        else if (static_cast<int32_t>(a0) < 0)
+        {
+            const float f11 = x, f10 = C(0x3F800000u);
+            float f3 = C(0x3F000000u);
+            float f2 = FPU_ADD_S(f11, f10);
+            float f0 = C(0x3811EF08u);
+            const float f5 = C(0x3A4F7F04u), f6 = C(0xBD241146u);
+            float f1 = C(0x3D9DC62Du);
+            const float f21 = FPU_MUL_S(f2, f3);
+            f2 = C(0x4001572Cu);
+            const float f4 = C(0xBF303360u), f7 = C(0x3E4E0AA8u), f9 = C(0xBEA6B08Fu);
+            f0 = FPU_MUL_S(f21, f0);
+            f3 = C(0xC019D138u);
+            f1 = FPU_MUL_S(f21, f1);
+            const float f8 = C(0x3E2AAAAAu);
+            f0 = FPU_ADD_S(f0, f5);
+            f1 = FPU_ADD_S(f1, f4);
+            f0 = FPU_MUL_S(f21, f0);
+            f1 = FPU_MUL_S(f21, f1);
+            f0 = FPU_ADD_S(f0, f6);
+            f1 = FPU_ADD_S(f1, f2);
+            f0 = FPU_MUL_S(f21, f0);
+            f1 = FPU_MUL_S(f21, f1);
+            f0 = FPU_ADD_S(f0, f7);
+            f1 = FPU_ADD_S(f1, f3);
+            f0 = FPU_MUL_S(f21, f0);
+            f1 = FPU_MUL_S(f21, f1);
+            f0 = FPU_ADD_S(f0, f9);
+            const float f22 = FPU_ADD_S(f1, f10);
+            f0 = FPU_MUL_S(f21, f0);
+            f0 = FPU_ADD_S(f0, f8);
+            const float f20 = FPU_MUL_S(f21, f0);
+            float s;
+            uint32_t sv0;
+            if (!sqrtCore(f21, s, sv0))
+            {
+                ctx->pc = Self;
+                return sotc_decomp::recompiled(Self)(rdram, ctx, runtime);
+            }
+            const float f13 = s;
+            f1 = C(0x33A22168u);
+            f2 = C(0x40490FDAu);
+            const float f12 = ps2FpuDivide(fcr31, f20, f22);
+            f0 = FPU_MUL_S(f12, f13);
+            f0 = FPU_SUB_S(f0, f1);
+            f0 = FPU_ADD_S(f13, f0);
+            f0 = FPU_ADD_S(f0, f0);
+            result = FPU_SUB_S(f2, f0);
+            v0 = static_cast<int32_t>(sv0);
+        }
+        else
+        {
+            float f20 = C(0x3F800000u);
+            float f1 = C(0x3F000000u);
+            float f0 = FPU_SUB_S(f20, x);
+            const float f21 = FPU_MUL_S(f0, f1);
+            float s;
+            uint32_t sv0;
+            if (!sqrtCore(f21, s, sv0))
+            {
+                ctx->pc = Self;
+                return sotc_decomp::recompiled(Self)(rdram, ctx, runtime);
+            }
+            const float f13 = s;
+            const float f11 = fb(bf(s) & 0xFFFFF000u);
+            float f3 = FPU_MUL_S(f11, f11);
+            f0 = C(0x3811EF08u);
+            float f5 = C(0x3A4F7F04u);
+            const float f9 = C(0xBD241146u);
+            f1 = C(0x3D9DC62Du);
+            f0 = FPU_MUL_S(f21, f0);
+            const float f4 = C(0xBF303360u);
+            f1 = FPU_MUL_S(f21, f1);
+            const float f8 = C(0x3E4E0AA8u), f7 = C(0x4001572Cu);
+            f3 = FPU_SUB_S(f21, f3);
+            const float f10 = C(0xBEA6B08Fu);
+            const float f2 = FPU_ADD_S(f13, f11);
+            f0 = FPU_ADD_S(f0, f5);
+            f5 = C(0x3E2AAAAAu);
+            f1 = FPU_ADD_S(f1, f4);
+            const float f6 = C(0xC019D138u);
+            f3 = ps2FpuDivide(fcr31, f3, f2);
+            f0 = FPU_MUL_S(f21, f0);
+            f1 = FPU_MUL_S(f21, f1);
+            f0 = FPU_ADD_S(f0, f9);
+            f1 = FPU_ADD_S(f1, f7);
+            f0 = FPU_MUL_S(f21, f0);
+            f1 = FPU_MUL_S(f21, f1);
+            f0 = FPU_ADD_S(f0, f8);
+            f1 = FPU_ADD_S(f1, f6);
+            f0 = FPU_MUL_S(f21, f0);
+            f1 = FPU_MUL_S(f21, f1);
+            f0 = FPU_ADD_S(f0, f10);
+            const float f22 = FPU_ADD_S(f1, f20);
+            f0 = FPU_MUL_S(f21, f0);
+            f0 = FPU_ADD_S(f0, f5);
+            f20 = FPU_MUL_S(f21, f0);
+            const float f12 = ps2FpuDivide(fcr31, f20, f22);
+            f0 = FPU_MUL_S(f12, f13);
+            f0 = FPU_ADD_S(f0, f3);
+            f0 = FPU_ADD_S(f11, f0);
+            result = FPU_ADD_S(f0, f0);
+            v0 = -0x1000;
+        }
+        // SOTC_ACOS_STATS=1 (checking): which of the paths ran, every 50 000 calls.
+        static const bool stats = std::getenv("SOTC_ACOS_STATS") != nullptr;
+        if (stats)
+        {
+            static uint64_t n[5] = {}, calls = 0;
+            ++n[v0 == 0x7FFFFFFF ? 0 : v0 == 0 ? 1 : v0 == 1 ? 2 : v0 == -0x1000 ? 4 : 3];
+            if (++calls % 50000u == 0u)
+                std::fprintf(stderr, "[acos] |x|=1 %llu tiny %llu small %llu negative %llu positive %llu\n", (unsigned long long)n[0],
+                             (unsigned long long)n[1], (unsigned long long)n[2], (unsigned long long)n[3], (unsigned long long)n[4]);
+        }
+        ctx->fcr31 = fcr31;
+        ctx->f[0] = result;
+        SET_GPR_S32(ctx, 2, v0);
+        returnTo(ctx);
+    }
+}
+
+SOTC_DECOMP_FLOAT_FUNCTION(0x001DF480u, __ieee754_sqrtf, decomp_libm::sqrtF<0x001DF480u>);
+SOTC_DECOMP_FLOAT_FUNCTION(0x001DDA40u, sqrtf, decomp_libm::sqrtF<0x001DDA40u>);
+SOTC_DECOMP_FLOAT_FUNCTION(0x001DDD78u, __ieee754_acosf, decomp_libm::acosF<0x001DDD78u>);
+SOTC_DECOMP_FLOAT_FUNCTION(0x001DD9C8u, acosf, decomp_libm::acosF<0x001DD9C8u>);
+
+// iosGetACosfExact (0x1be388): x clamped (1 and over: 0, -1 and under: pi)
+// then acosf, which it reaches by a tail jump (so its native is called here
+// directly; acosf's j into __ieee754_acosf likewise).
+namespace decomp_libm
+{
+    void acosExact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const float x = ctx->f[12], one = fb(0x3F800000u), minusOne = fb(0xBF800000u);
+        uint32_t fcr31 = ctx->fcr31;
+        auto cmp = [&](bool r)
+        {
+            fcr31 = r ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u);
+            return r;
+        };
+        if (cmp(FPU_C_OLE_S(one, x)))
+        {
+            ctx->fcr31 = fcr31;
+            ctx->f[0] = fb(0u);
+            return returnTo(ctx);
+        }
+        if (cmp(FPU_C_OLE_S(x, minusOne)))
+        {
+            ctx->fcr31 = fcr31;
+            ctx->f[0] = fb(0x40490FDAu);
+            return returnTo(ctx);
+        }
+        ctx->fcr31 = fcr31;
+        ctx->pc = 0x001DD9C8u;
+        acosF<0x001DD9C8u>(rdram, ctx, runtime);
+    }
+}
+SOTC_DECOMP_FLOAT_FUNCTION(0x001BE388u, iosGetACosfExact, decomp_libm::acosExact);

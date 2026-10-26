@@ -9,7 +9,9 @@
 #      NOINSTALL=1 (keep the installed app),
 #      SHOTS=<dir> SHOTS_FROM=<s> SHOTS_EVERY=<s> (timed runs: the Vita3K
 #      window saved every SHOTS_EVERY s from SHOTS_FROM s on, screencapture
-#      of this run's window only, tools/winid.swift).
+#      of this run's window only, tools/winid.swift),
+#      PROF_SNAPS="<s> <s> ..." (with PROF: the profile copied to <file>.<s> at
+#      those seconds; the difference of two is that time window's profile).
 #      For timing close to the real console use MHZ=240 CORES=3 (calibrated
 #      2026-10-22 on the attract demo against a console run of the same VPK:
 #      execScript and the frame within 1%; see docs/decomp.md, "Vita3K
@@ -41,12 +43,12 @@ if [ -z "$1" ]; then
     run
 else
     run > "$V3/vita3k-stdout.txt" 2>&1 &
-    if [ -n "$SHOTS" ]; then
-        mkdir -p "$SHOTS"
-        swiftc -O tools/winid.swift -o "$SHOTS/.winid" 2>/dev/null
+    if [ -n "$SHOTS" ] || [ -n "$PROF_SNAPS" ]; then
+        [ -n "$SHOTS" ] && mkdir -p "$SHOTS" && swiftc -O tools/winid.swift -o "$SHOTS/.winid" 2>/dev/null
         for ((t = 1; t <= $1; t++)); do
             sleep 1
-            if [ "$t" -ge "${SHOTS_FROM:-0}" ] && [ $(((t - ${SHOTS_FROM:-0}) % ${SHOTS_EVERY:-10})) -eq 0 ]; then
+            for s in $PROF_SNAPS; do [ "$t" -eq "$s" ] && [ -f "$PROF" ] && cp "$PROF" "$PROF.$t"; done
+            if [ -n "$SHOTS" ] && [ "$t" -ge "${SHOTS_FROM:-0}" ] && [ $(((t - ${SHOTS_FROM:-0}) % ${SHOTS_EVERY:-10})) -eq 0 ]; then
                 pid=$(pgrep -f "$V3/config.yml -r CELO00001" | head -1)
                 w=$([ -n "$pid" ] && "$SHOTS/.winid" "$pid")
                 [ -f "$SHOTS/windows.txt" ] || "$SHOTS/.winid" "$pid" list > "$SHOTS/windows.txt"

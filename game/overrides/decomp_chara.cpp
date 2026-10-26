@@ -194,3 +194,83 @@ namespace decomp_chara
 
 SOTC_DECOMP_FUNCTION(0x010CE558u, charaLinks, decomp_chara::charaLinks);
 SOTC_DECOMP_FUNCTION(0x010CDD10u, findRecord, decomp_chara::findRecord);
+
+// GetCharacterClass (0x10c0a70, round 11): a layout object's character
+// class, the object + 0x90 for types 9 and 0x16, else 0 (v0 only; ~0.2% of
+// the Vita's walk frame in the recompiled copy, called by every character
+// function).
+namespace decomp_characlass
+{
+    void getCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t object = GPR_U32(ctx, 4);
+        if (object + 8u >= PS2_RAM_SIZE)
+            return sotc_decomp::recompiled(0x010C0A70u)(rdram, ctx, runtime);
+        const uint8_t type = rdram[object + 8u];
+        SET_GPR_U64(ctx, 2, (type == 9u || type == 0x16u) ? static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(object + 0x90u))) : 0u);
+        sotc_decomp::returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x010C0A70u, GetCharacterClass, decomp_characlass::getCharacterClass);
+
+// GetLayoutClass (0x10f1a20) and GetAnimationClass (0x10ba7a8), round 11:
+// an object's layout / animation class by its type byte (+8). Layout: types
+// 9, 13, 22 the object + 0x90, 10 + 0x20, 11 (script), 17 (camera) and 19
+// (light) through other functions: the recompiled code; the rest 0 (its jump
+// table at 0x1194070 checked against those cases once, else always the
+// recompiled code). Animation: 9 and 22 the object + 0x250 (9 through
+// GetCharacterClass: + 0x90 + 0x1c0), 13 (script) the recompiled code, the
+// rest 0. v0 only.
+namespace decomp_classes
+{
+    inline uint32_t ramWord(const uint8_t *rdram, uint32_t a)
+    {
+        uint32_t v;
+        std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 4);
+        return v;
+    }
+    // The layout table's targets for types 9..22 (0: the recompiled code).
+    constexpr uint32_t kLayoutTargets[14] = {0x010F1A98u, 0x010F1A58u, 0x010F1A60u, 0x010F1AA0u, 0x010F1A98u, 0x010F1AA0u, 0x010F1AA0u,
+                                             0x010F1AA0u, 0x010F1A70u, 0x010F1AA0u, 0x010F1A88u, 0x010F1AA0u, 0x010F1AA0u, 0x010F1A98u};
+    void layoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static int tableOk = -1;
+        if (tableOk < 0)
+        {
+            tableOk = 1;
+            for (uint32_t i = 0; i < 14u; ++i)
+                if (ramWord(rdram, 0x01194070u + i * 4u) != kLayoutTargets[i])
+                    tableOk = 0;
+        }
+        const uint32_t object = GPR_U32(ctx, 4);
+        const uint32_t type = rdram[(object + 8u) & PS2_RAM_MASK];
+        uint32_t v0 = 0u;
+        if (type - 9u < 14u)
+        {
+            const uint32_t target = kLayoutTargets[type - 9u];
+            if (!tableOk || target == 0x010F1A60u || target == 0x010F1A70u || target == 0x010F1A88u)
+            {
+                ctx->pc = 0x010F1A20u;
+                return sotc_decomp::recompiled(0x010F1A20u)(rdram, ctx, runtime);
+            }
+            v0 = target == 0x010F1A98u ? object + 0x90u : (target == 0x010F1A58u ? object + 0x20u : 0u);
+        }
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void animationClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t object = GPR_U32(ctx, 4);
+        const uint32_t type = rdram[(object + 8u) & PS2_RAM_MASK];
+        if (type == 13u)
+        {
+            ctx->pc = 0x010BA7A8u;
+            return sotc_decomp::recompiled(0x010BA7A8u)(rdram, ctx, runtime);
+        }
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>((type == 9u || type == 0x16u) ? object + 0x250u : 0u));
+        sotc_decomp::returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x010F1A20u, GetLayoutClass, decomp_classes::layoutClass);
+SOTC_DECOMP_FUNCTION(0x010BA7A8u, GetAnimationClass, decomp_classes::animationClass);

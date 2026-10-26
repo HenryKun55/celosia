@@ -117,9 +117,9 @@ namespace decomp_wind
                 }
             if (at == -1)
                 at = n;
-            else
-                for (int32_t t = n - 1; t >= at; --t)
-                    std::memmove(rdram + kResults + static_cast<uint32_t>(t + 1) * 32u, rdram + kResults + static_cast<uint32_t>(t) * 32u, 32);
+            else // records at..n-1 up one, as the original's loop from the top leaves them (one move: round 11)
+                std::memmove(rdram + kResults + static_cast<uint32_t>(at + 1) * 32u, rdram + kResults + static_cast<uint32_t>(at) * 32u,
+                             static_cast<size_t>(n - at) * 32u);
             ++n;
             put(kResults + static_cast<uint32_t>(at) * 32u);
             ctx->f[0] = first;

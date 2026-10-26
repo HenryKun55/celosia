@@ -1758,6 +1758,100 @@ namespace decomp_collision
             call(g, 0x001C77B8u, 0x0112E140u, sp, {last, 0u}); // isysGroupForExit
         finish(static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(g.u32(sp + 0x1B4u)))));
     }
+
+    // ---- FlushModifiedManager (0x1147798), round 11 ---------------------------
+    // a0: a cache's modified list (+0 the count, +8 the flags base, +0xc the
+    // index size 1 / 2 / 4, +0x10 the indices): each listed flag byte
+    // cleared, the count zeroed. Another size (an error report): the
+    // recompiled code. v0 as the original leaves it (the last index, or the
+    // size test's value when the list is empty).
+    void flushModified(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const G g{rdram, ctx, runtime};
+        const uint32_t m = GPR_U32(ctx, 4);
+        const int32_t count = static_cast<int32_t>(g.u32(m));
+        if (count == 0)
+        {
+            SET_GPR_U64(ctx, 2, 2u);
+            return returnTo(ctx);
+        }
+        const uint32_t size = g.u32(m + 0xCu);
+        if (size != 1u && size != 2u && size != 4u)
+        {
+            ctx->pc = 0x01147798u;
+            return sotc_decomp::recompiled(0x01147798u)(rdram, ctx, runtime);
+        }
+        uint64_t v0 = size == 4u ? 4u : 1u;
+        uint32_t at = g.u32(m + 0x10u);
+        for (int32_t i = 0; i < count; ++i, at += size)
+        {
+            const uint32_t index = size == 1u ? g.u8(at) : (size == 2u ? g.u16(at) : g.u32(at));
+            v0 = size == 4u ? static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(index))) : index;
+            const uint32_t flag = g.u32(m + 8u) + index;
+            if (G::plain(flag, 1u))
+                rdram[flag] = 0u;
+            else
+                WRITE8(flag, 0u);
+        }
+        g.put32(m, 0u);
+        SET_GPR_U64(ctx, 2, v0);
+        returnTo(ctx);
+    }
+
+    // ---- ClipCollisionFinder (0x1125dc8) / ClipCollisionFinderCallBack (0x1125cc0), round 11
+    // The segment (a2, copied into the frame at sp + 0, the copy a2 of each
+    // test) against a finder's candidates (a3: +0 / +4 two counts, the
+    // smaller one used, +0xc the list, 8 bytes each: the surface id pair),
+    // ClipCollisionDB for each non-empty one (natively, clipDB); a hit puts
+    // the result's segment (a0 + 0x40) in the copy for the rest, the last
+    // hit's id pair into a0 + 0 / + 4, its address in v0 (0: none). The
+    // CallBack variant asks t0(id, t1) first (the id filters natively when
+    // known, else a guest call). A negative count goes to the recompiled
+    // code (nothing written yet). v0 / f0 as the original leaves them.
+    template <bool Filtered>
+    void finderClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        constexpr uint32_t self = Filtered ? 0x01125CC0u : 0x01125DC8u;
+        constexpr uint32_t frameSize = Filtered ? 0x60u : 0x50u;
+        constexpr uint32_t filterSite = 0x01125D34u, clipSite = Filtered ? 0x01125D50u : 0x01125E34u;
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - frameSize;
+        const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), a3 = GPR_U32(ctx, 7);
+        const uint32_t filter = GPR_U32(ctx, 8), user = GPR_U32(ctx, 9);
+        const int32_t c0 = static_cast<int32_t>(g.u32(a3)), c1 = static_cast<int32_t>(g.u32(a3 + 4u));
+        const int32_t n = c1 < c0 ? c1 : c0;
+        if (n < 0)
+        {
+            ctx->pc = self;
+            return sotc_decomp::recompiled(self)(rdram, ctx, runtime);
+        }
+        uint32_t best = 0u;
+        if (n != 0)
+        {
+            g.put(sp, g.q(a2));
+            uint32_t cand = g.u32(a3 + 0xCu);
+            for (int32_t k = 0; k < n; ++k, cand += 8u)
+            {
+                if (g.u32(cand) == 0u)
+                    continue;
+                if (Filtered && !directFilter(g, filter, cand, user, filterSite + 8u, sp))
+                    continue;
+                if (clipDB(g, a0, a1, sp, cand, clipSite + 8u, sp) == 0u)
+                    continue;
+                g.put(sp, g.q(a0 + 0x40u));
+                best = cand;
+            }
+            if (best != 0u)
+            {
+                g.put32(a0, g.u32(best));
+                g.put32(a0 + 4u, g.u32(best + 4u));
+            }
+        }
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(best))));
+        returnTo(ctx);
+    }
 }
 
 
@@ -1879,3 +1973,6 @@ SOTC_DECOMP_FUNCTION(0x0111C078u, clipCollisionKeep, decomp_collision::clipKeep)
 SOTC_DECOMP_FUNCTION(0x011193C8u, GetCollisionDBSurfBoundary, decomp_collision::surfBoundaryEntry);
 SOTC_DECOMP_FUNCTION(0x01123A58u, CollisionPlaneJudgeCallbackCameraVisibility, decomp_collision::cameraVisibilityEntry);
 SOTC_DECOMP_FUNCTION(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::attributeAdr);
+SOTC_DECOMP_FUNCTION(0x01125DC8u, ClipCollisionFinder, decomp_collision::finderClip<false>);
+SOTC_DECOMP_FUNCTION(0x01125CC0u, ClipCollisionFinderCallBack, decomp_collision::finderClip<true>);
+SOTC_DECOMP_FUNCTION(0x01147798u, FlushModifiedManager, decomp_collision::flushModified);
