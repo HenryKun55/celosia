@@ -119,6 +119,7 @@ What a native function has to keep, learned the hard way:
 | decomp_math.cpp | iosGetSinf, iosGetCosf (round 10) | route (EVERY=200, SOTC_NATIVE=1 / 2) 3 400 + 2 900 / 3 700 + 3 200 checks (640 000+ / 700 000+ calls), attract (=1 / 2) 1 100 + 400, 0 mismatches | the VU0 polynomial iosGetSinCosf shares; the player's life bar ~400 calls a frame, texAnim's waves |
 | decomp_texsearch.cpp | texSearchMopByName (round 10) | route 200, attract 1, 0 mismatches | the texture list walk with the names compared in place (was one guest strcmp a node) |
 | decomp_skinfinder.cpp | manager_sub_01116108 (the skinned collision finder's triangle corners, EntryModifiedManager inline; round 14) | route SOTC_NATIVE=1 7 800 checks (EVERY=20; 2 400 + 2 500 with EVERY=1 to frame 900, VU0 registers compared too), =2 6 500, attract 9 600; 0 mismatches | the original's stack frame is written too (see "Round 14") |
+| decomp_finder.cpp | manager_sub_01116958 (the skinned collision finder: parts, boundary surfaces and their planes, triangles; EntryModifiedManager inline; round 15) | route to frame 4 800: 8 900 checks (EVERY=20), VU0 registers and 0x800 bytes of the dead stack compared too; 24 400 checks of every call at fixed 30 fps to frame 1 500; 0 mismatches | written instruction for instruction from the MIPS (the recompiler's VU0 / FPU macros), its 0x190-byte frame and the saved registers at every call as the original has them (see "Round 15") |
 | decomp_collision.cpp | the sphere finder's tree walk, manager_sub_01128F38 (round 10) | route SOTC_NATIVE=1 3 000 checks (297 500 calls), =2 1 200 (234 400), 0 mismatches; not called by the attract demo | low child by recursion, high by the loop; the finder's native leaves called straight |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
@@ -2244,6 +2245,147 @@ r13's), r14/tools/profwin.py (a thread's top functions per PROF_SNAPS window).
 6. The console's GPU: its log shows present waits of 28-45 ms in the plain
    (the frame quantised to 50 / 67 ms): fill rate (bloom, screen passes) at
    960 x 544.
+
+## Round 15: the skinned finder, the path check's baseline, the flat profile (2026-10-27)
+
+The Mac was on battery at the start (33%), then on AC power and charging for
+the rest of the round (40% -> 93%); every Vita3K number below was measured
+while charging.
+
+**A native: the skinned collision finder** (decomp_finder.cpp,
+manager_sub_01116958, the caller of round 14's corners; Done table). Per part
+of a character's skinned collision mesh it takes the two points through the
+part's matrices, then the boundary surfaces (getLayoutClassCollisionIndepSurfBoundary,
+the plane made once by manager_sub_01114C70) or manager_sub_01115D00, then the
+triangles (the corners and a bounding sphere made once), each hit through the
+callbacks to EntryCollisionFinder. Written instruction for instruction from
+the MIPS: the VU0 operations are the recompiler's own macros on the VU0
+registers, the FPU ones the FPU_* macros, so vf4-vf10, vf14-vf18, vf29-vf31,
+ACC, Q, f0-f3, f12, f13, lo / hi and the compare bit end as the original
+leaves them. Its whole 0x190-byte frame is written as the original writes
+it, and at every call the saved registers and f20-f23 hold what the original
+has there (the callees save them into their own frames: round 14's lesson);
+the qmtc2s take the high halves of t0 / a0 / v0 from the context. The
+callees stay guest calls (callGuest), EntryModifiedManager inline.
+SOTC_FINDER_STATS=1 (new) counts the paths: on the route to frame 4 800 per
+131 072 calls 73 361 parts, 10 260 surfaces (168 planes made), 29 382
+manager_sub_01115D00 calls, 21 824 triangles (3 846 made), 3 461 entries.
+In the Vita3K profile of the plain it is 0.6% of the game thread (the
+recompiled function and its table calls were ~1%).
+
+**Checks.**
+- SOTC_DIFFTEST=skinFinder,skinFinderCorners with SOTC_DIFFTEST_VU0=1 and
+  SOTC_DIFFTEST_DEADSTACK=0x800 (new: that much of the dead stack below the
+  caller's sp compared too) on the route to frame 4 800 (FIRST=2000,
+  EVERY=20): 8 900 + 8 900 checks, 0 mismatches. Every call at fixed 30 fps
+  to frame 1 500: 24 400 checks, 0 mismatches.
+- **The path check's baseline was stale.** Against r14/pos-new3 every run of
+  this round's HEAD walks off the shrine's ledge at VBlank ~2 820: also with
+  the new native off (SOTC_DECOMP_SKIP=skinFinder), with every native off
+  (SOTC_DECOMP=0), and with round 14's switches off (SOTC_GC_BUDGET=0
+  SOTC_MOVE_REKEY=0 SOTC_FAST_HASH=0 PS2X_MIX_HANDOFF=0); with or without the
+  route's snapshots. pos-new3 was taken at 16:54, before round 14's last
+  builds (v10-v12, the loader instrumentation and the rest of that commit);
+  something in them moves the fixed-30 fps path by a few hundredths before
+  the ledge, enough to tip Wander over it. The emulated reference
+  (SOTC_DECOMP=0) takes the same fall, so this is not a native's
+  inexactness; which change it is was not bisected. The new references are
+  r15/pos-ref (HEAD, finder off, no snapshots, to frame 5 400) and
+  r15/pos-dec0 (everything recompiled, to frame 1 600).
+- Fixed-30 fps path (SOTC_FRAME_INTERVAL=2 SOTC_POS_LOG=30, compared by game
+  frame, r15/tools: posdiff.py with KEY=frame): finder on (r15/pos3) against
+  pos-ref: 178 points to frame 5 400 within 0.26 units; against pos-dec0
+  0.07; with snapshots (pos1 against pos-skip) 0.05 over 99 points. Two
+  emulated runs differ by as much (pos-dec0 against pos-ref: 0.19).
+- **EE cycles** (SOTC_DIFFTEST_CYCLES=1, new: the cycles each leg charges):
+  the recompiled finder charges ~260 cycles a call (8 a dispatch, 32 a loop
+  back edge), the native ~10. Charged the same way in the native (tried,
+  r15/pos2), the path moved 1.4 units from the reference; without, 0.05. Left
+  out, as for the other natives.
+
+**Frame timing (calibrated Vita3K, route2's input, r12/tools/vbwin.py; mean
+ms (fps), frames over 50 / 85 / 120, worst).** r14 = celosia-r14.vpk (222:
+r14/v12-222; 240 / 333: r14/v10-*), r15 = celosia-r15.vpk (r15/v2-*; v1-222
+is the same code without SOTC_FINDER_STATS).
+
+| route window | r14 222 | r15 222 | r15 222 (v1) | r14 240 | r15 240 | r14 333 | r15 333 |
+|---|---|---|---|---|---|---|---|
+| the save's load (-1000..0) | 36.0, 46/12/4, 274.7 | 35.7, 36/10/4, 292.8 | 35.8, 37/12/4, 304.6 | 33.2, 31/9/3, 310.3 | 33.3, 34/7/3, 284.2 | 26.3, 13/5/3, 286.1 | 25.3, 16/4/3, 261.6 |
+| the shrine (0..1000) | 50.3 (19.9 fps), 112/48/1, 127.4 | 50.5 (19.8), 112/53/0, 118.8 | 50.3 (19.9), 112/51/0, 117.1 | 46.6 (21.5), 108/14/0, 113.7 | 46.7 (21.4), 108/13/0, 108.3 | 33.3 (30.0), 85/0/0, 77.2 | 33.3 (30.0), 85/0/0, 77.1 |
+| the walk out and the area change (1000..4000) | 86.4 (11.6), 578/340/9, 163.3 | 86.6 (11.5), 577/338/7, 158.6 | 87.8 (11.4), 569/327/6, 164.1 | 79.0 (12.7), 633/150/3, 149.0 | 80.9 (12.4), 618/138/3, 151.9 | 57.5 (17.4), 734/7/1, 121.2 | 56.7 (17.6), 688/8/0, 116.6 |
+| the plain (4000..6000) | 60.3 (16.6), 553/0/0, 74.2 | 58.3 (17.2), 571/0/0, 74.0 | 58.5 (17.1), 570/0/0, 72.4 | 52.7 (19.0), 614/0/0, 73.5 | 55.2 (18.1), 604/0/0, 73.1 | 38.3 (26.1), 11/0/0, 57.0 | 38.0 (26.3), 7/0/0, 54.0 |
+
+Transitions (r12/tools/transition.py: mean / worst / frames > 120 of the 20
+frames from each cut, "after" the mean of frames 40-80 after it):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r14 222 (v12) | 35.5 / 169.0 / 1 | 119.0 / 163.3 / 8 | 92.6 | 275, 246 |
+| r15 222 | 34.8 / 157.7 / 1 | 118.0 / 158.6 / 4 | 92.2 | 293, 264 |
+| r15 222 (v1) | 34.2 / 155.9 / 1 | 118.7 / 164.1 / 4 | 92.0 | 305, 263 |
+| r14 240 | 31.9 / 149.2 / 1 | 107.6 / 149.0 / 3 | 85.9 | 310, 264 |
+| r15 240 | 32.1 / 151.9 / 1 | 107.5 / 151.9 / 3 | 84.3 | 284, 273 |
+| r14 333 | 25.4 / 123.9 / 1 | 82.6 / 121.2 / 1 | 59.5 | 286, 256 |
+| r15 333 | 26.9 / 122.3 / 1 | 83.2 / 116.6 / 0 | 60.2 | 262, 257 |
+
+Within the run-to-run noise (2-4%) everywhere: the plain at 222 is 58.3-58.5
+against round 14's 57.6-60.3, the 240 run's plain is on the slow side of it.
+Sound (r12/tools/au.py, 222): 0 late callbacks, 0 stale halves, 0 src-stale.
+
+**Why one native a round no longer shows.** The game thread's profile of the
+plain (VITA3K_PROFILE, 222 MHz, r15/hp1 seconds 340-420, r15/tools/profcat.py):
+recompiled ("lean") code 37.9%, natives 34.4%, the native renderer's hooks
+9.7%, the runtime 15.4%. The recompiled share is spread over hundreds of
+functions: the largest, ExecCharaGeometry's body, is 1.05%, then
+manager_sub_010CA230 0.74%, getAmbientColorC 0.65%, spriteNoTexFast 0.48%,
+reflectionBegin 0.45%; CalcNodeQuaternionWithIK is 0.33%,
+manager_sub_01117EA0 (the finder family) 0.25%. The largest natives:
+decomp_skeleton::bone 3.5%, modelDispHook 2.6%, collision leaf 2.5%,
+callGuest 2.1%, modelDispState 2.0%. At 58 ms a frame a 1% function is
+0.6 ms: the 20-30 fps goal at 222 (33-50 ms) needs 15-40% of the game
+thread, which is whole subsystems at once or a cheaper recompiled code path
+for all of them, not the next function.
+
+The cut frame (222, frame 2 600 of v1): 141 ms, hooks 58 (1 196 builds
+queued); the frame after 128 ms (hooks 26: 1 440 meshes up); the next is the
+worst, 164 ms of render (the first frame of the cutscene's 4 100 draws, the
+run copies made), then 89-95 ms of render a frame. Hashing the new packets on
+the worker (round 15 plan item 3) would take ~10 ms off the cut frame, not
+the worst frame; not done.
+
+**Measuring tools (new):** SOTC_DIFFTEST_DEADSTACK=<bytes>,
+SOTC_DIFFTEST_CYCLES=1, SOTC_FINDER_STATS=1; r15/v3k.sh (as r14's),
+r15/tools: posdiff.py (two [pos] logs, by VBlank or KEY=frame), profcat.py (a
+thread's profile window by recompiled / native / runtime, recompiled
+functions ranked).
+
+**Decomp status (tools/decomp_status.py, r15/replaced.txt):** 5.40% of the
+MIPS code by size, 4.96% by functions (448 of 9 024), 3.20% of the game's own
+code, 47.8% by calls (r12's call dumps).
+
+**Round 16 (plan): 20-30 fps at 222 MHz, no transition hitches.**
+
+1. The recompiled code as a whole (37.9% of the plain's game thread, no
+   function over 1%): measure what the generated code costs per guest
+   instruction on the A9 (ctx->pc stores, the 64-bit GPR copies, READ32's
+   range check, the VU0 macros' clamps) on two or three of the top lean
+   functions, and change the generator for all of them (e.g. pc only at
+   calls and checkpoints, GPRs in locals within a block). One change, every
+   function.
+2. The natives' own top: decomp_skeleton::bone (3.5%), the collision family
+   (leaf, directCallBack, clipDB, attributeAddress, boundary, low / high:
+   ~8%), modelDispHook / modelDispState (4.6%), callGuest (2.1%: natives
+   calling guest callbacks; a direct table call where the callee is known).
+3. The cutscene after the area change: render-bound at 89-95 ms (4 100
+   draws). Draw the world's runs through sceGxm directly (round 15's item 3,
+   not started): first a prototype that times one frame's runs both ways.
+4. The cut frame: the new packets' hash on the worker (~10 ms), the plan
+   builds spread.
+5. The path check: find which of round 14's last changes moved the fixed-30
+   fps path (bisect the commit's pieces against r14/pos-new3), and keep
+   r15/pos-ref as the reference.
+6. Carried over: the console's loader stall (env-r15-console.txt keeps the
+   [loader] lines), the colossus's death effect, the console's GPU fill rate.
 
 ## Vita3K calibration (2026-10-22)
 

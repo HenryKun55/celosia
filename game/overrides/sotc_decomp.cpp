@@ -119,10 +119,16 @@ namespace sotc_decomp
             // function whose result depends on the clock, interrupts).
             static const bool control = std::getenv("SOTC_DIFFTEST_CONTROL") != nullptr;
             const PS2Runtime::RecompiledFunction leg = control ? c.recompiled : c.function->native;
+            // SOTC_DIFFTEST_CYCLES=1 (checking, round 15): the EE cycles each
+            // leg charges (the game's time step comes from the EE clock).
+            static const bool cycles = std::getenv("SOTC_DIFFTEST_CYCLES") != nullptr;
+            static uint64_t cyclesNative = 0, cyclesRecompiled = 0;
+            const uint64_t clock0 = runtime->m_eeClock.cycle;
             if (c.function->once)
                 leg(rdram, ctx, runtime);
             else
                 runToReturn(rdram, ctx, runtime, leg);
+            const uint64_t clock1 = runtime->m_eeClock.cycle;
             const R5900Context nativeOut = *ctx;
             const R5900Context *native = &nativeOut;
             nativeAfter.ram.assign(rdram, rdram + PS2_RAM_SIZE);
@@ -138,6 +144,16 @@ namespace sotc_decomp
             else
                 runToReturn(rdram, ctx, runtime, c.recompiled);
             --depth;
+            if (cycles)
+            {
+                cyclesNative += clock1 - clock0;
+                cyclesRecompiled += runtime->m_eeClock.cycle - clock1;
+                // The recompiled leg's charge stays (the clock as without the check).
+                runtime->m_eeClock.cycle -= clock1 - clock0;
+                if ((c.checks.load(std::memory_order_relaxed) + 1u) % 100u == 0u)
+                    std::fprintf(stderr, "[difftest] %s: EE cycles native %llu recompiled %llu (all checks)\n", c.function->name,
+                                 (unsigned long long)cyclesNative, (unsigned long long)cyclesRecompiled);
+            }
             c.checks.fetch_add(1, std::memory_order_relaxed);
             if (draws)
             {
@@ -260,8 +276,16 @@ namespace sotc_decomp
             {
                 const R5900Context *in = &input;
                 const uint32_t sp = GPR_U32(in, 29) & (PS2_RAM_SIZE - 1u);
+                // SOTC_DIFFTEST_DEADSTACK=<bytes> (checking, round 15): that much
+                // of the dead stack right below sp compared too (the callee's
+                // frame and its callees' frames, which a caller may read later
+                // as uninitialised locals).
+                static const uint32_t deadChecked = std::getenv("SOTC_DIFFTEST_DEADSTACK")
+                                                        ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_DIFFTEST_DEADSTACK"), nullptr, 0))
+                                                        : 0u;
                 const uint32_t low = sp > kDeadStack ? sp - kDeadStack : 0u;
-                std::memcpy(nativeAfter.ram.data() + low, rdram + low, sp - low); // not compared
+                const uint32_t top = sp - std::min(deadChecked, sp - low);
+                std::memcpy(nativeAfter.ram.data() + low, rdram + low, top - low); // not compared
             }
             // SOTC_DIFFTEST_IGNORE=start-end,...: RAM ranges left out (bytes
             // that differ between two runs of the same code, e.g. what a

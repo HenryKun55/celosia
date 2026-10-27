@@ -1,39 +1,39 @@
 {
  "updated": "2026-10-27",
- "commit": "785a5e4",
+ "commit": "d2d8bb1",
  "summary": {
   "by_functions": {
-   "native": 447,
+   "native": 448,
    "partial": 0,
    "total": 9024,
-   "percent": 4.95
+   "percent": 4.96
   },
   "by_code_size": {
-   "native": 139128,
+   "native": 141664,
    "partial": 0,
    "total": 2625144,
-   "percent": 5.3
+   "percent": 5.4
   },
   "by_calls": {
-   "native": 79961402,
+   "native": 80110671,
    "partial": 0,
    "total": 167661665,
-   "percent": 47.69
+   "percent": 47.78
   },
   "game_code_by_size": {
-   "native": 68064,
+   "native": 70600,
    "total": 2208056,
-   "percent": 3.08
+   "percent": 3.2
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
-   "functions": 2126,
-   "native_functions": 320,
-   "bytes": 405068,
-   "native_bytes": 59044,
+   "functions": 2125,
+   "native_functions": 319,
+   "bytes": 404692,
+   "native_bytes": 58668,
    "partial_functions": 0,
-   "percent": 14.58
+   "percent": 14.5
   },
   "Math": {
    "functions": 133,
@@ -43,6 +43,14 @@
    "partial_functions": 0,
    "percent": 16.7
   },
+  "Display and models": {
+   "functions": 978,
+   "native_functions": 38,
+   "bytes": 252564,
+   "native_bytes": 22192,
+   "partial_functions": 0,
+   "percent": 8.79
+  },
   "Characters and motion": {
    "functions": 1210,
    "native_functions": 23,
@@ -50,14 +58,6 @@
    "native_bytes": 12216,
    "partial_functions": 0,
    "percent": 4.37
-  },
-  "Display and models": {
-   "functions": 977,
-   "native_functions": 37,
-   "bytes": 252188,
-   "native_bytes": 21816,
-   "partial_functions": 0,
-   "percent": 8.65
   },
   "System and memory": {
    "functions": 230,
@@ -69,11 +69,11 @@
   },
   "Other game code": {
    "functions": 2888,
-   "native_functions": 12,
+   "native_functions": 13,
    "bytes": 1276604,
-   "native_bytes": 15992,
+   "native_bytes": 18528,
    "partial_functions": 0,
-   "percent": 1.25
+   "percent": 1.45
   },
   "Camera": {
    "functions": 284,
@@ -354,8 +354,8 @@
    "name": "iosRecvMsg",
    "bytes": 376,
    "status": "native",
-   "area": "Boot ELF, SDK and libc",
-   "source": "game/overrides/sotc_overrides.cpp"
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
   },
   {
    "address": "0x001b2a18",
@@ -1076,6 +1076,14 @@
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01116958",
+   "name": "manager_sub_01116958",
+   "bytes": 2536,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_finder.cpp"
   },
   {
    "address": "0x01119248",
