@@ -53,6 +53,18 @@ namespace sotc_decomp
     // frame before as it was; after a move another one can be at that
     // address, so a memo made before the last move samples again (round 11).
     inline uint32_t g_guestMoveSerial = 0;
+    // The garbage pass's counts (decomp_gctick.cpp, round 14), read by the
+    // [loader] line's "gc" part (SOTC_FRAME_LOG / SOTC_AUDIO_LOG): calls,
+    // blocks looked at, moves, calls stopped by its clock (no block left to
+    // it), bytes moved (copyViaSpr), the time check's last / largest elapsed
+    // T0 ticks (2123463 is its limit, ~14.4 ms after the VBlank thread's tick).
+    struct GcStats
+    {
+        uint64_t calls = 0, blocks = 0, moves = 0, stopped = 0, stoppedAtOnce = 0, bytes = 0;
+        uint64_t budgetStops = 0, budgetGoes = 0; // the host-time budget's stops / blocks given past the clock
+        int64_t lastElapsed = 0, maxElapsed = 0;
+    };
+    inline GcStats g_gcStats;
     // The last garbage moves made as one memmove (round 13): [src, src + len)
     // now at dst, each with the serial it took. A memo by address made before
     // a move finds its packet or texture at the new address through these

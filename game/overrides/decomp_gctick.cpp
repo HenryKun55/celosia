@@ -27,7 +27,9 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_stats.h"
 #include "runtime/ee_scheduler.h"
+#include "runtime/native_renderer.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 
@@ -99,6 +101,8 @@ namespace decomp_gctick
         else
             f1 = static_cast<float>(e);
         const uint32_t on = (e >= 0 && e <= 2123463) ? 1u : 0u;
+        sotc_decomp::g_gcStats.lastElapsed = e;
+        sotc_decomp::g_gcStats.maxElapsed = std::max(sotc_decomp::g_gcStats.maxElapsed, e);
         ctx->f[1] = f1;
         ctx->f[0] = bits(0x4A01B31Fu);
         ctx->fcr31 = on ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
@@ -133,12 +137,47 @@ namespace decomp_gctick
         uint32_t blocks = 0, moves = 0;
         bool stopped = false;
         const uint64_t cycle0 = runtime->eeScheduler().eeCycle();
+        // The pass's host-time budget (round 14, a game-specific shortcut):
+        // its own clock check is in EE time since the VBlank thread's last
+        // tick, which on the Vita has little to do with the time it takes:
+        // in Vita3K an area change's pass ran 40-50 ms a frame unstopped,
+        // and a frame whose game code alone is past the 14.4 ms would give it
+        // nothing (the console's ~50 s loader stall after a colossus is
+        // suspected to be that: the [loader] line shows it). So with the time
+        // check as the callback, the pass stops after SOTC_GC_MAX_US of host
+        // time (default 6000; 0 = no limit) even when the clock would go on,
+        // and goes on for SOTC_GC_MIN_US (default 1500; 0 = off) even when
+        // the clock says stop. Both are what the original does on some
+        // frame: stopping is its clock's case, going on its forced case
+        // (0x1e131c). The heap's moves are the same moves, in the same order,
+        // spread over other frames. SOTC_GC_BUDGET=0: the clock alone.
+        static const bool budgetOn = !(std::getenv("SOTC_GC_BUDGET") && std::atoi(std::getenv("SOTC_GC_BUDGET")) == 0);
+        static const uint64_t maxUs = std::getenv("SOTC_GC_MAX_US") ? std::strtoull(std::getenv("SOTC_GC_MAX_US"), nullptr, 10) : 6000u;
+        static const uint64_t minUs = std::getenv("SOTC_GC_MIN_US") ? std::strtoull(std::getenv("SOTC_GC_MIN_US"), nullptr, 10) : 1500u;
+        const bool budget = budgetOn && callback == kTimeCheck;
+        const uint64_t host0 = budget ? native_renderer::nowUs() : 0u;
         while (s1 != 0u)
         {
             ++blocks;
             uint32_t go;
             if (callback == kTimeCheck)
+            {
                 go = timeCheck(ram, ctx, runtime, rdram, arg);
+                if (budget && ram.u32(0x001E131Cu) == 0u) // not a forced pass
+                {
+                    const uint64_t spent = native_renderer::nowUs() - host0;
+                    if (go && maxUs && spent >= maxUs)
+                    {
+                        go = 0u;
+                        ++sotc_decomp::g_gcStats.budgetStops;
+                    }
+                    else if (!go && minUs && spent < minUs)
+                    {
+                        go = 1u;
+                        ++sotc_decomp::g_gcStats.budgetGoes;
+                    }
+                }
+            }
             else
             {
                 SET_GPR_U32(ctx, 4, arg);
@@ -181,7 +220,13 @@ namespace decomp_gctick
             s1 = (ram.u32(s1 + 8u) & 0xFFFFFFu) << 2;
             SET_GPR_U32(ctx, 17, s1);
         }
-        if (log && moves)
+        sotc_decomp::GcStats &gs = sotc_decomp::g_gcStats;
+        ++gs.calls;
+        gs.blocks += blocks;
+        gs.moves += moves;
+        gs.stopped += stopped;
+        gs.stoppedAtOnce += stopped && blocks <= 1u;
+        if (log && (moves || stopped))
             std::fprintf(stderr, "[gc] frame %llu blocks %u moves %u %s cycles %llu callback %08x\n",
                          (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), blocks, moves,
                          stopped ? "stopped by the clock" : "to the end", (unsigned long long)(runtime->eeScheduler().eeCycle() - cycle0), callback);

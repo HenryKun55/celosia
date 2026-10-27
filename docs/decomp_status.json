@@ -1,29 +1,29 @@
 {
  "updated": "2026-10-27",
- "commit": "bb0bfd8",
+ "commit": "785a5e4",
  "summary": {
   "by_functions": {
-   "native": 446,
+   "native": 447,
    "partial": 0,
    "total": 9024,
-   "percent": 4.94
+   "percent": 4.95
   },
   "by_code_size": {
-   "native": 137704,
+   "native": 139128,
    "partial": 0,
    "total": 2625144,
-   "percent": 5.25
+   "percent": 5.3
   },
   "by_calls": {
-   "native": 79672470,
+   "native": 79961402,
    "partial": 0,
    "total": 167661665,
-   "percent": 47.52
+   "percent": 47.69
   },
   "game_code_by_size": {
-   "native": 66640,
+   "native": 68064,
    "total": 2208056,
-   "percent": 3.02
+   "percent": 3.08
   }
  },
  "areas": {
@@ -68,9 +68,9 @@
    "percent": 4.98
   },
   "Other game code": {
-   "functions": 2889,
+   "functions": 2888,
    "native_functions": 12,
-   "bytes": 1278028,
+   "bytes": 1276604,
    "native_bytes": 15992,
    "partial_functions": 0,
    "percent": 1.25
@@ -100,12 +100,12 @@
    "percent": 22.63
   },
   "Collision and physics": {
-   "functions": 325,
-   "native_functions": 23,
-   "bytes": 106216,
-   "native_bytes": 14800,
+   "functions": 326,
+   "native_functions": 24,
+   "bytes": 107640,
+   "native_bytes": 16224,
    "partial_functions": 0,
-   "percent": 13.93
+   "percent": 15.07
   },
   "Script and events": {
    "functions": 632,
@@ -1065,6 +1065,14 @@
    "address": "0x01115a50",
    "name": "manager_sub_01115A50",
    "bytes": 688,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01116108",
+   "name": "manager_sub_01116108",
+   "bytes": 1424,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"

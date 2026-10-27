@@ -118,6 +118,7 @@ What a native function has to keep, learned the hard way:
 | decomp_ptclupdate.cpp | the particle step from its top: doit_particle_geodisp, 0113AAE0 (emitter list, dead emitters freed), 0113B610 (an emitter's frame), 0113B928 (its particles: types 2 / 3's local matrix, wind, particleUpdate called straight, new particles from the free list) | attract (EVERY=5) 5 500 / 1 400 / 6 600 / 8 000, route 27 000 / 27 000 / 32 400 / 38 900; also SOTC_NATIVE=2 (route, EVERY=10) 14 400 / 1 600 / 16 000 / 17 600; 0 mismatches | round 8; the VU0 blocks are the recompiled statements lifted onto locals |
 | decomp_math.cpp | iosGetSinf, iosGetCosf (round 10) | route (EVERY=200, SOTC_NATIVE=1 / 2) 3 400 + 2 900 / 3 700 + 3 200 checks (640 000+ / 700 000+ calls), attract (=1 / 2) 1 100 + 400, 0 mismatches | the VU0 polynomial iosGetSinCosf shares; the player's life bar ~400 calls a frame, texAnim's waves |
 | decomp_texsearch.cpp | texSearchMopByName (round 10) | route 200, attract 1, 0 mismatches | the texture list walk with the names compared in place (was one guest strcmp a node) |
+| decomp_skinfinder.cpp | manager_sub_01116108 (the skinned collision finder's triangle corners, EntryModifiedManager inline; round 14) | route SOTC_NATIVE=1 7 800 checks (EVERY=20; 2 400 + 2 500 with EVERY=1 to frame 900, VU0 registers compared too), =2 6 500, attract 9 600; 0 mismatches | the original's stack frame is written too (see "Round 14") |
 | decomp_collision.cpp | the sphere finder's tree walk, manager_sub_01128F38 (round 10) | route SOTC_NATIVE=1 3 000 checks (297 500 calls), =2 1 200 (234 400), 0 mismatches; not called by the attract demo | low child by recursion, high by the loop; the finder's native leaves called straight |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
@@ -155,7 +156,9 @@ own code (010F3FB0, the haze strips' second half, is native too but counts
 as recompiled: only 010F3EB8's entry is in the table). Round 8: 4.65% by code
 size, 4.61% by function count (416), 40.6% by calls, 2.55% of the game's own
 code. Round 11: 5.25% by code size, 4.94% by function count (446), 51.4% by
-calls, 3.02% of the game's own code. Run it again after
+calls, 3.02% of the game's own code. Round 14: 5.30% by code size, 4.95% by
+function count (447), 47.7% by calls (round 12's call dumps), 3.08% of the
+game's own code. Run it again after
 every round and commit both files. (A function an override hooks counts as
 native too: iosDlPushLayer / iosDlPopLayer are sotc_native.cpp's hooks
 around the recompiled code.)
@@ -2036,6 +2039,211 @@ dump's runs), r13/sc.py (two SOTC_GL_SELFCHECK logs side by side).
    uniforms through one buffer. Or draw the world through sceGxm directly.
 5. The load frames (256-296 ms at 222) with SOTC_SUBSYS_PROF.
 6. The console: the display walk's memory cost (round 11), the driver's lock.
+
+## Round 14: the area change's game side, the loader stall, the driver's lock (2026-10-27)
+
+**Baselines first.** Round 13's undone runs, celosia-r13.vpk (HEAD 785a5e4),
+route2's input, r14/b13-333 and r14/b13-240 (420 s each): in the tables
+below. The Mac was on AC power and charging at the start of the round (28%
+-> 95%), then discharging from the middle of the round on (95% -> 42%); every
+number below was measured above 40%.
+
+**Where the transition frames go** (calibrated Vita3K 240 MHz,
+SOTC_SUBSYS_PROF=1 SOTC_SUBSYS_PROF_SLOW=90, r14/p13-240; then with
+SOTC_SUBSYS_PROF_EXTRA on the callees, r14/p2..p4; and VITA3K_PROFILE windows,
+r14/hp13 with r14/tools/profwin.py):
+- The cut frame (1 196 builds): hooks 85 ms = hook.packets self 59 (of it the
+  build queueing ~31: hook.queue, new), packetId 18-25 (the new packets'
+  content hash ~10, walkGuestMoves looking up ~1 600 new packets ~13).
+- The frames after it (3103-3109 in round 13): iosMallocGarbageTickProc
+  41-48 ms a frame (~250 garbage moves, 3-4 MB), packetId 25-31 ms (2 400
+  calls) and hook.packets self 21-23 ms: the moved packets hashed again. The
+  Mac (SOTC_HASH_STATS) showed why: 700-1 400 packets (1-1.6 MB) rehashed in
+  each of those frames although round 13 logs the moves. A packet moved into
+  the address another moved packet had just left took that one's memo first
+  (draws are not in heap order), so the walk back over the moves found few.
+- The load frames (the save's load, 250-310 ms): first frames of the
+  characters, ExecCharaGeometry's callees: CalcNodeQuaternionWithIK 38-41
+  ms (its per-node IK callbacks), CalcRootFitting 27-30, GetCharaRootDynamics
+  -> xz 68-94 ms (slidecollision 21 ms for two calls), CharaCtrlAIControl 15,
+  the life bar 12-20. The same functions cost 0.1-2 ms a frame after: this is
+  Vita3K compiling the code the first time it runs (dynarmic), not game work.
+  The console's log of round 13 (console-r13) has no such frames at the
+  save's load (one 491 ms frame in 20 000). Left alone.
+- After the cut the frames are render-bound: the cutscene's ~3 700 draws take
+  the render thread 80-90 ms at 222-240 MHz, the game thread waits for it in
+  modelDisp's syncFrame (modelDisp self 16-45 ms in those frames).
+
+**Changes:**
+1. **The garbage pass's host-time budget** (decomp_gctick.cpp, a game-specific
+   shortcut). Its clock check is EE time since the VBlank thread's last tick,
+   which on the Vita has little to do with what it costs: in Vita3K the area
+   change's passes ran 40-50 ms a frame unstopped. With the time check as the
+   callback it now stops after SOTC_GC_MAX_US of host time (6000) and goes on
+   for SOTC_GC_MIN_US (1500) when the clock alone would give it nothing; a
+   forced pass (0x1e131c) is left alone. Both are cases the original takes
+   (its clock's stop, its forced pass); the moves are the same moves in the
+   same order, spread over more frames. SOTC_GC_BUDGET=0: off. Area change at
+   240: the pass 6-7 ms a frame (was 41-48).
+2. **The packet memo carried across the moves** (sotc_native.cpp
+   rekeyPacketMemo). At the first packetId after new moves every memo whose
+   address a move's source holds goes to its destination (moves in order),
+   marked movedFrom; its next lookup takes the id when the 32 sampled words at
+   the new place match (sampleAt as if at the old address). With it the walk
+   back over the moves is off (SOTC_MOVE_WALK=1 puts it back). Mac route,
+   SOTC_MOVE_MEMO_CHECK=1: 16 384 carried ids hashed anew and compared, 0
+   differ; the area change's rehashed packets 700-1 400 -> ~300 a frame.
+   SOTC_MOVE_REKEY=0: off.
+3. **Builds queued as one object** (native_renderer AsyncWork, sotc_native
+   PacketWork): the job, its ids and both steps in one allocation, the
+   packet's bytes copied without zeroing first (was a shared_ptr, a vector of
+   ids and two std::functions). hook.queue 31 -> 13-16 ms on the cut frame.
+4. **A four-lane content hash** (contentHash, xxHash32's round on four 32-bit
+   lanes, a 64-bit finaliser; SOTC_FAST_HASH=0: the old one). The A9 has no
+   64-bit multiply; ids are only compared within a run. Mac pictures checked
+   (r14/mac-v5/sheet.png).
+5. **The driver's status request and the mixer's lock** (sound_mixer.h /
+   .cpp): the audio thread re-took the lock at once between its 16-frame
+   pieces, so the request often waited a whole 2 048-frame mix: 115-312 ms of
+   lock waits per 5 s on the game thread in calibrated Vita3K (2-6%; the
+   console's log: at most 32 ms). The request now says it is waiting, and the
+   audio thread lets it in before its next piece (at most 1 ms;
+   PS2X_MIX_HANDOFF=0: off). 222 MHz: 30-60 ms per 5 s. The sound counters
+   stay clean (0 late callbacks, 0 stale halves, 0 src-stale at 222 / 240).
+6. **vitaGL sets programs and textures only on a change** (celosia.patch:
+   vgl_set_vprog / vgl_set_fprog / vgl_set_ftex in the custom-shader draws,
+   every other setter and each sceGxmBeginScene invalidating). The
+   cutscene's render thread 82.9 -> 79.5 ms at 222 (61 frames); pictures
+   checked (r14/sheet-v10.png). SOTC_GL_PROG_CHECK=1 (new) counts draws whose
+   GL program differs from the backend's cache: 0. (The Vita3K profile names
+   _glDrawArrays_FixedFunctionIMPL as the caller of sceGxmDraw and
+   sceGxmSetVertexStream: wrong; the program is always bound and the FFP code
+   has no samples of its own. Its lr for HLE calls is not to be trusted.)
+7. **A native: the skinned finder's triangle corners** (decomp_skinfinder.cpp,
+   manager_sub_01116108 with EntryModifiedManager inline, ~0.9% of the plain's
+   game thread; Done table). The first version had 0 difftest mismatches and
+   still changed the path: on the Mac fixed-30 fps check Wander walked off the
+   ledge at VBlank ~2 880 (84 units off). The original's stack frame (a2, a3,
+   t2, the loop counter, the saved registers, t3 as a quadword in one case)
+   is read later as uninitialised locals by one of its ~35 callers; the
+   difftest does not compare the dead stack below sp. The native now writes
+   the frame as the original leaves it; path within 0.23 units over the route
+   (r14/pos-new3 against r13/pos-new). The difftest has SOTC_DIFFTEST_VU0=1
+   now (vf0-vf31 and ACC compared). The 0.1-0.2 units left are the EE cycles
+   the native does not charge (the game's time step comes from the EE timer):
+   the recompiled function in its place gives r13's path exactly.
+
+**The console's ~50 s loader stall** (console-r13, frames 18 147-19 424 after
+a colossus: the loader busy every frame, no disc reads, the stream halves
+replayed from stale sources). Reproduced once in Vita3K, by chance:
+r14/v10-333 frames 7 640-7 940 (the plain, 15.5 s), and it is in round 13's
+own runs too (r13/v1-240 frames 5 370-5 850, v2-240 from 7 845; not in the 8
+other route runs of this round). The new [loader] line (with the [audio] one:
+SOTC_FRAME_LOG or SOTC_AUDIO_LOG) caught it:
+- the running job (0x118fe34) is a type 0 (sheetFileLoadSegmentIndex) for
+  15.5 s;
+- the loader (t11) is asleep (wait reason Sleep) at 0x1b10dc, inside
+  iosSendMsg: a blocking send to a full message box (the sender sleeps on the
+  box's waiter list until a receive);
+- no disc read in flight, the garbage pass not stopped by its clock, the heap
+  not short of blocks;
+- the sound streams' jobs (type 7) wait behind it in the queue, hence the
+  stale halves.
+So the box's receiver stops receiving for that long. Which box and which
+thread was not caught: the message-box hooks (iosSendMsg / iosRecvMsg,
+installed with the log on) came after that run, and three more runs (one 600
+s at 333, frames to 16 485) did not stall. The line now also prints, while a
+job runs over 5 s: its words, every guest thread's status / wait reason / pc /
+ra, and for each box with a sleeping sender its count / capacity and its last
+receiver's state. The console run with env-r14-console.txt will show the
+receiver.
+
+**The colossus's death effect** (the user's console screenshot: a solid blue
+faceted surface; the black tendrils missing): not reached; no save near a
+colossus. Round 15 item.
+
+**Frame timing (calibrated Vita3K, route2's input, r12/tools/vbwin.py; mean
+ms (fps), frames over 50 / 85 / 120, worst).** HEAD = celosia-r13.vpk (222:
+round 13's r13/f-222; 240 and 333: r14/b13-*), r14 = celosia-r14.vpk (222:
+r14/v12-222; 240 / 333: r14/v10-*, the same code without the message-box
+hooks).
+
+| route window | HEAD 222 | r14 222 | HEAD 240 | r14 240 | HEAD 333 | r14 333 |
+|---|---|---|---|---|---|---|
+| the save's load (-1000..0) | 36.1, 39/11/5, 295.8 | 36.0, 46/12/4, 274.7 | 33.6, 32/8/3, 299.3 | 33.2, 31/9/3, 310.3 | 26.1, 23/5/3, 269.1 | 26.3, 13/5/3, 286.1 |
+| the shrine (0..1000) | 51.5 (19.4 fps), 117/51/1, 122.3 | 50.3 (19.9), 112/48/1, 127.4 | 47.3 (21.1), 108/32/0, 114.7 | 46.6 (21.5), 108/14/0, 113.7 | 33.2 (30.1), 87/0/0, 76.6 | 33.3 (30.0), 85/0/0, 77.2 |
+| the walk out and the area change (1000..4000) | 91.5 (10.9), 548/355/29, 247.3 | 86.4 (11.6), 578/340/9, 163.3 | 85.2 (11.7), 587/208/25, 195.8 | 79.0 (12.7), 633/150/3, 149.0 | 57.3 (17.5), 684/25/8, 148.8 | 57.5 (17.4), 734/7/1, 121.2 |
+| the plain (4000..6000) | 60.0 (16.7), 556/1/0, 98.4 | 60.3 (16.6), 553/0/0, 74.2 | 55.2 (18.1), 604/1/0, 89.7 | 52.7 (19.0), 614/0/0, 73.5 | 39.0 (25.6), 14/0/0, 57.3 | 38.3 (26.1), 11/0/0, 57.0 |
+
+Other 222 runs of this round's builds: the plain 57.6 (v9), 59.1 (v10), 60.3
+(v12); the shrine 50.3-50.5; the walk 86.4-88.3. Run to run ~2-4% on battery.
+
+Transitions (r12/tools/transition.py: mean / worst / frames > 120 of the 20
+frames from each cut, "after" the mean of frames 40-80 after it):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| HEAD 222 | 37.2 / 178.1 / 1 | 157.9 / 247.3 / 15 | 95.5 | 296, 256 |
+| r14 222 (v12) | 35.5 / 169.0 / 1 | 119.0 / 163.3 / 8 | 92.6 | 275, 246 |
+| r14 222 (v10) | 32.5 / 165.6 / 1 | 117.9 / 169.5 / 4 | 90.8 | 313, 265 |
+| HEAD 240 | 31.0 / 168.1 / 1 | 144.3 / 195.8 / 15 | 86.3 | 299, 258 |
+| r14 240 | 31.9 / 149.2 / 1 | 107.6 / 149.0 / 3 | 85.9 | 310, 264 |
+| HEAD 333 | 27.9 / 134.4 / 1 | 106.2 / 148.8 / 5 | 61.0 | 269, 250 |
+| r14 333 | 25.4 / 123.9 / 1 | 82.6 / 121.2 / 1 | 59.5 | 286, 256 |
+
+The area change's 20 frames are -25% (222 / 240), the worst frame -34% at
+222. Not yet the goal: the frames after the cut are the cutscene's render
+thread (~80-90 ms at 222), and the load frames are Vita3K's first-run JIT.
+
+**Checks.**
+- skinFinderCorners: SOTC_DIFFTEST to frame 4 800, route SOTC_NATIVE=1 7 800
+  checks (EVERY=20) and 2 400 + 2 500 checks of every call to frame 900 at
+  fixed 30 fps (the second with VU0 registers compared), SOTC_NATIVE=2 6 500,
+  attract demo (to frame 6 000) 9 600: 0 mismatches. SOTC_SKINFINDER_STATS
+  (new): both paths taken (plain corners 298 k, blended 96 k per 131 k calls).
+- Mac fixed-30 fps path (SOTC_FRAME_INTERVAL=2 SOTC_POS_LOG=30, to frame
+  5 400): 156 points within 0.23 units of r13/pos-new; the run with
+  SOTC_DECOMP_SKIP=skinFinderCorners gives r13's path (0.02).
+- The moved packets' ids: SOTC_MOVE_MEMO_CHECK=1, 0 of 16 384 differ.
+- Mac route and attract pictures: right (r14/mac-v5/sheet.png); Vita3K route
+  pictures with the vitaGL change: right (r14/sheet-v10.png).
+- Sound (r12/tools/au.py over 420 s): 222 / 240 / 333 0 late callbacks, 0
+  stale halves; src-stale 0 / 0 / 22 (the 333 run's 22 are the loader stall
+  above).
+
+**Decomp status (tools/decomp_status.py, r14/replaced.txt):** 5.30% of the
+MIPS code by size, 4.95% by functions (447 of 9 024), 3.08% of the game's own
+code, 47.7% by calls (r12's call dumps).
+
+**Measuring tools (new):** the [loader] line; profiler scopes hook.queue,
+hook.plan, hook.hash, hook.moves; SOTC_DIFFTEST_VU0; SOTC_GL_PROG_CHECK;
+SOTC_SKINFINDER_STATS; [hash] lines count the carried memos; r14/v3k.sh (as
+r13's), r14/tools/profwin.py (a thread's top functions per PROF_SNAPS window).
+
+**Round 15 (plan): 20-30 fps at 222 MHz, no transition hitches.**
+
+1. The console's loader stall: run celosia-r14.vpk on the console with
+   env-r14-console.txt through a colossus's death and read the [loader] lines
+   of the stall (the box, its receiver's state, every thread's). Then fix the
+   receiver's wait (likely a thread waiting on something the native path or
+   the clock delivers differently).
+2. The cutscene after the area change: render-bound at 80-90 ms (3 700 draws,
+   1 500 GL calls). Draw the world's runs through sceGxm directly (one vertex
+   stream, uniforms in one buffer), or merge more runs by state.
+3. The cut frame (~150 ms): hook.packets self ~20 ms and the 1 600 new
+   packets' hash (~10 ms): hash new packets on the worker (a provisional
+   address id until it is back), the plan builds spread.
+4. The shrine (50 ms) and the plain (58-60 ms) are game-thread bound and
+   flat: the skinned finder family next as one subsystem (01116958, 0111C810,
+   0111C078, 01118B88, 0116A0D4, 01117EA0: ~4% of the plain), then the IK
+   callbacks (CalcNodeQuaternionWithIK's per-node solvers) and
+   GetCharaRootDynamics -> xz. Every native writes the original's stack frame
+   (the lesson of item 7 above).
+5. The colossus's death effect (blue faceted surface, missing tendrils): a
+   save near a colossus, the emulated GS against the native picture.
+6. The console's GPU: its log shows present waits of 28-45 ms in the plain
+   (the frame quantised to 50 / 67 ms): fill rate (bloom, screen passes) at
+   960 x 544.
 
 ## Vita3K calibration (2026-10-22)
 

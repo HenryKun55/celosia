@@ -84,5 +84,7 @@ namespace ps2x::iop::audio_stats
     // memory and the others: count, the time from the request to the data
     // in guest memory (max), and from the host read's end to that (the
     // guest thread's wake: max, total).
+    // The disc read in flight (CD.cpp cd_async): its submit time (0: none), for the [loader] line.
+    inline std::atomic<uint64_t> cdPendingSinceUs{0}, cdPendingBytes{0};
     inline std::atomic<uint64_t> iopReads{0}, iopReadMaxUs{0}, iopReadUs{0}, otherReads{0}, otherReadMaxUs{0}, wakeMaxUs{0}, wakeUs{0}, cacheHits{0}, cacheBytes{0};
 }

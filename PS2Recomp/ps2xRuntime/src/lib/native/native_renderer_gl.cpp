@@ -943,6 +943,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         struct
         {
             uint64_t frames = 0, draws = 0, calls = 0, merged = 0, ranges = 0, indexed = 0, noDiscard = 0, bufferSwitches = 0;
+            uint64_t progOff = 0, progZero = 0; // SOTC_GL_PROG_CHECK=1: draws with another GL program bound than the cache says / none
         } drawStats; // SOTC_GL_DRAW_LOG: every 300 frames
         // What they hold (GPU memory: on the Vita vitaGL's pools, else the
         // newlib heap), kept as they change: the eviction budget and [gl:mem].
@@ -2243,10 +2244,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              live ? 100.0 * free / (live * double(kPoolVertices)) : 0.0, static_cast<unsigned>(meshes.size()), meshBytes / 1048576.0);
                 const double f = 300.0;
                 std::fprintf(stderr, "[gl:draws] per frame: draws %.0f, GL draw calls %.0f (all passes), merged away %.0f in %.0f ranges + %.0f run copies, "
-                                     "no-discard %.0f, vertex buffer switches %.0f | pools %u, run copies %u (%.0f KB)\n",
+                                     "no-discard %.0f, vertex buffer switches %.0f | pools %u, run copies %u (%.0f KB) | program off %.0f, none %.0f\n",
                              drawStats.draws / f, drawStats.calls / f, drawStats.merged / f, drawStats.ranges / f, drawStats.indexed / f,
                              drawStats.noDiscard / f, drawStats.bufferSwitches / f, static_cast<unsigned>(pools.size()), static_cast<unsigned>(runs.size()),
-                             runVertices * sizeof(native_renderer::Vertex) / 1024.0);
+                             runVertices * sizeof(native_renderer::Vertex) / 1024.0, drawStats.progOff / f, drawStats.progZero / f);
                 const uint64_t frames = drawStats.frames;
                 drawStats = {};
                 drawStats.frames = frames;
@@ -2813,6 +2814,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 }
                 ++drawStats.calls;
+                static const bool progCheck = std::getenv("SOTC_GL_PROG_CHECK") != nullptr;
+                if (progCheck)
+                {
+                    GLint cur = 0;
+                    glGetIntegerv(GL_CURRENT_PROGRAM, &cur);
+                    drawStats.progOff += static_cast<GLuint>(cur) != boundProgram;
+                    drawStats.progZero += cur == 0;
+                }
                 if (planned.run > 1)
                 {
                     drawStats.merged += planned.run - 1u;

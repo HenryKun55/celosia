@@ -38,13 +38,22 @@ namespace ps2x::iop::detail
         // tries the lock for a while before sleeping on it. The audio thread
         // holds it a mix piece at a time (~0.1 ms); a sleeping waiter's wake
         // took far longer than that in calibrated Vita3K (round 12).
+        // Round 14: it also says it is waiting (m_driverWaiting), and the
+        // audio thread, between its pieces, lets it in before taking the lock
+        // again (it re-took it at once, so the request often waited a whole
+        // 2 048-frame mix: 115-312 ms of lock waits per 5 s on the game thread
+        // in calibrated Vita3K, 2-6% of it). PS2X_MIX_HANDOFF=0: the old way.
         [[nodiscard]] std::unique_lock<std::mutex> holdSpinning()
         {
             std::unique_lock<std::mutex> lock(m_lock, std::try_to_lock);
+            if (lock.owns_lock())
+                return lock;
+            m_driverWaiting.fetch_add(1, std::memory_order_acq_rel);
             for (int i = 0; !lock.owns_lock() && i < 20000; ++i)
                 lock.try_lock();
             if (!lock.owns_lock())
                 lock.lock();
+            m_driverWaiting.fetch_sub(1, std::memory_order_acq_rel);
             return lock;
         }
         void reset();
@@ -171,6 +180,7 @@ namespace ps2x::iop::detail
         void pushOutput(const int16_t *frames, size_t count);
 
         std::mutex m_lock;
+        std::atomic<int> m_driverWaiting{0}; // holdSpinning callers waiting for m_lock
         std::vector<uint16_t> m_ram;
         std::array<Voice, 48> m_voices{};
         std::array<Core, 2> m_cores{};

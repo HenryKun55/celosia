@@ -789,10 +789,26 @@ namespace native_renderer
     // then, see the GL backend's hand-over).
     struct AsyncBuilds
     {
+        // A job: the AsyncWork, or (the std::function form) a FnWork around it.
+        struct FnWork final : AsyncWork
+        {
+            std::vector<uint64_t> more; // ids past the first two
+            std::function<void()> fnWork, fnFinish;
+            void work() override
+            {
+                if (fnWork)
+                    fnWork();
+            }
+            void finish() override
+            {
+                if (fnFinish)
+                    fnFinish();
+            }
+            const std::vector<uint64_t> *moreIds() const override { return &more; }
+        };
         struct Job
         {
-            std::vector<uint64_t> ids;
-            std::function<void()> work, finish;
+            AsyncWork *w = nullptr;
         };
         std::mutex mutex;
         std::condition_variable wake;
@@ -838,8 +854,8 @@ namespace native_renderer
                     job = std::move(todo.front());
                     todo.pop_front();
                 }
-                if (job.work)
-                    job.work();
+                if (job.w)
+                    job.w->work();
                 std::lock_guard<std::mutex> lock(mutex);
                 done.push_back(std::move(job));
             }
@@ -898,10 +914,14 @@ namespace native_renderer
             }
             for (Job &job : finished)
             {
-                for (uint64_t id : job.ids)
-                    pending.erase(id);
-                if (job.finish)
-                    job.finish();
+                AsyncWork *w = job.w;
+                for (uint32_t i = 0; i < w->idCount && i < 2u; ++i)
+                    pending.erase(w->ids[i]);
+                if (const std::vector<uint64_t> *more = w->moreIds())
+                    for (uint64_t id : *more)
+                        pending.erase(id);
+                w->finish();
+                delete w;
             }
             if (tuning().frameLog)
                 frameCounters().asyncDone += static_cast<uint32_t>(finished.size());
@@ -918,21 +938,43 @@ namespace native_renderer
     // Asked for every draw: a plain pointer once made (a function-local static
     // costs a guard check with a memory barrier at each call on the Vita).
     inline AsyncBuilds &asyncBuilds() { return g_asyncBuilds ? *g_asyncBuilds : asyncBuildsFirst(); }
-    bool buildAsync(std::vector<uint64_t> ids, std::function<void()> work, std::function<void()> finish)
+    bool buildAsync(AsyncWork *job)
     {
         if (!tuning().asyncBuilds || !backend())
+        {
+            delete job;
             return false;
+        }
         AsyncBuilds &a = asyncBuilds();
         a.start();
         ++a.queuedThisFrame;
-        for (uint64_t id : ids)
-            a.pending.insert(id);
-        a.staged.push_back({std::move(ids), std::move(work), std::move(finish)});
+        for (uint32_t i = 0; i < job->idCount && i < 2u; ++i)
+            a.pending.insert(job->ids[i]);
+        if (const std::vector<uint64_t> *more = job->moreIds())
+            for (uint64_t id : *more)
+                a.pending.insert(id);
+        a.staged.push_back({job});
         if (a.staged.size() >= 32u)
             a.flush();
         if (tuning().frameLog)
             ++frameCounters().asyncJobs;
         return true;
+    }
+    bool buildAsync(std::vector<uint64_t> ids, std::function<void()> work, std::function<void()> finish)
+    {
+        if (!tuning().asyncBuilds || !backend())
+            return false;
+        auto *job = new AsyncBuilds::FnWork();
+        for (uint64_t id : ids)
+        {
+            if (job->idCount < 2u)
+                job->ids[job->idCount++] = id;
+            else
+                job->more.push_back(id);
+        }
+        job->fnWork = std::move(work);
+        job->fnFinish = std::move(finish);
+        return buildAsync(job);
     }
     bool asyncBudgetLeft()
     {

@@ -442,6 +442,7 @@ namespace ps2_stubs
                 if (!s.pending)
                     return;
                 s.cv.wait(lock, [&s] { return s.hostDone; });
+                ps2x::iop::audio_stats::cdPendingSinceUs.store(0, std::memory_order_relaxed);
                 {
                     // audio_stats: request -> data in guest memory, and the
                     // guest side's part of it (host read done -> here).
@@ -514,6 +515,8 @@ namespace ps2_stubs
                 s.hostDone = false;
                 s.ok = false;
                 s.submitUs = ps2x::iop::audio_stats::nowUs();
+                ps2x::iop::audio_stats::cdPendingSinceUs.store(s.submitUs, std::memory_order_relaxed);
+                ps2x::iop::audio_stats::cdPendingBytes.store(bytes | (toIop ? (1ull << 63) : 0u), std::memory_order_relaxed);
                 s.pending = true;
                 s.queued = true;
                 ++s.token;

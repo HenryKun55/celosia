@@ -202,6 +202,25 @@ namespace sotc_decomp
                     bad = true;
                 }
             }
+            // SOTC_DIFFTEST_VU0=1 (checking, round 14): the VU0 registers too
+            // (vf0-vf31, ACC), which a caller may go on using.
+            static const bool vu0Regs = std::getenv("SOTC_DIFFTEST_VU0") != nullptr;
+            if (!bad && vu0Regs)
+            {
+                for (int i = 0; i < 32 && !bad; ++i)
+                    if (std::memcmp(&ctx->vu0_vf[i], &native->vu0_vf[i], 16) != 0)
+                    {
+                        char what[32];
+                        std::snprintf(what, sizeof(what), "vf%d", i);
+                        report(c, input, what);
+                        bad = true;
+                    }
+                if (!bad && std::memcmp(&ctx->vu0_acc, &native->vu0_acc, 16) != 0)
+                {
+                    report(c, input, "ACC");
+                    bad = true;
+                }
+            }
             if (!bad && std::memcmp(&ctx->f[0], &nativeOut.f[0], 4) != 0)
             {
                 char what[96];

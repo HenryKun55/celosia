@@ -1,7 +1,16 @@
 diff --git a/source/custom_shaders.c b/source/custom_shaders.c
-index 3b91d11..e1fad7b 100644
+index 3b91d11..bd9e878 100644
 --- a/source/custom_shaders.c
 +++ b/source/custom_shaders.c
+@@ -224,7 +224,7 @@ char vgl_file_cache_path[256];
+ 		p->blend_info.raw = blend_info.raw; \
+ 		rebuild_frag_shader(p->fshader->id, &p->fprog, (SceGxmProgram *)p->vshader->prog, is_fbo_float ? SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4 : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4); \
+ 	} \
+-	sceGxmSetFragmentProgram(gxm_context, p->fprog);
++	vgl_set_fprog(p->fprog);
+ 	
+ #define align_attributes(attributes, streams) \
+ 	if (p->has_unaligned_attrs) { \
 @@ -304,6 +304,7 @@ typedef struct {
  	void *vptr;
  	uniform_type type;
@@ -10,6 +19,105 @@ index 3b91d11..e1fad7b 100644
  } uniform;
  
  // Program status enum
+@@ -839,7 +840,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+ 				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
+ 				tex->overridden = GL_FALSE;
+ 			}
+-			sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++			vgl_set_ftex(i, &tex->gxm_tex);
+ #ifdef HAVE_GLSL_TEXTURE_SIZE
+ 			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
+ 			if (info) {
+@@ -900,7 +901,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+ 		SceGxmVertexStream *streams = layout_entry->stream;
+ 		vertex_layout_setup_ptrs(p, layout_entry->is_packed, lowest, highest - lowest, highest, ptrs);
+ 		p->vprog = layout_entry->vprog;
+-		sceGxmSetVertexProgram(gxm_context, p->vprog);
++		vgl_set_vprog(p->vprog);
+ 		upload_uniforms();
+ 		for (int j = 0; j < drawcount; j++) {
+ 			for (int i = 0; i < p->attr_num; i++) {
+@@ -1021,7 +1022,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+ #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
+ 	vertex_layout_cache_insert(p, VERTEX_LAYOUT_MULTI_DRAW, 0, is_packed, GL_FALSE, attributes, streams);
+ #endif
+-	sceGxmSetVertexProgram(gxm_context, p->vprog);
++	vgl_set_vprog(p->vprog);
+ 
+ 	// Uploading both fragment and vertex uniforms data
+ 	upload_uniforms();
+@@ -1097,7 +1098,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ 				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
+ 				tex->overridden = GL_FALSE;
+ 			}
+-			sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++			vgl_set_ftex(i, &tex->gxm_tex);
+ #ifdef HAVE_GLSL_TEXTURE_SIZE
+ 			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
+ 			if (info) {
+@@ -1158,7 +1159,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ 		void *ptrs[VERTEX_ATTRIBS_NUM];
+ 		vertex_layout_setup_ptrs(p, layout_entry->is_packed, first, count, count, ptrs);
+ 		p->vprog = layout_entry->vprog;
+-		sceGxmSetVertexProgram(gxm_context, p->vprog);
++		vgl_set_vprog(p->vprog);
+ 		upload_uniforms();
+ 		for (int i = 0; i < p->attr_num; i++) {
+ 			uint8_t attr_idx = p->attr_map[i];
+@@ -1302,7 +1303,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
+ 	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ARRAYS, layout_variant, is_packed, GL_FALSE, attributes, streams);
+ #endif
+-	sceGxmSetVertexProgram(gxm_context, p->vprog);
++	vgl_set_vprog(p->vprog);
+ 
+ 	// Uploading both fragment and vertex uniforms data
+ 	upload_uniforms();
+@@ -1383,7 +1384,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ 				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
+ 				tex->overridden = GL_FALSE;
+ 			}
+-			sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++			vgl_set_ftex(i, &tex->gxm_tex);
+ #ifdef HAVE_GLSL_TEXTURE_SIZE
+ 			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
+ 			if (info) {
+@@ -1463,7 +1464,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ 			void *ptrs[VERTEX_ATTRIBS_NUM];
+ 			vertex_layout_setup_ptrs(p, layout_entry->is_packed, 0, top_idx, top_idx, ptrs);
+ 			p->vprog = layout_entry->vprog;
+-			sceGxmSetVertexProgram(gxm_context, p->vprog);
++			vgl_set_vprog(p->vprog);
+ 			upload_uniforms();
+ 			for (int i = 0; i < p->attr_num; i++) {
+ 				uint8_t attr_idx = p->attr_map[i];
+@@ -1639,7 +1640,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
+ 	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ELEMENTS, (uint8_t)index_type, is_packed, is_full_vbo, attributes, streams);
+ #endif
+-	sceGxmSetVertexProgram(gxm_context, p->vprog);
++	vgl_set_vprog(p->vprog);
+ 
+ 	// Uploading both fragment and vertex uniforms data
+ 	upload_uniforms();
+@@ -1688,7 +1689,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
+ 	setup_frag_program();
+ 
+ 	// Setting up required vertex shader
+-	sceGxmSetVertexProgram(gxm_context, p->vprog);
++	vgl_set_vprog(p->vprog);
+ 
+ 	// Uploading textures on relative texture units
+ 	for (int i = 0; i < p->max_frag_texunit_idx; i++) {
+@@ -1699,7 +1700,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
+ #ifndef TEXTURES_SPEEDHACK
+ 			tex->last_frame = vgl_framecount;
+ #endif
+-			sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++			vgl_set_ftex(i, &tex->gxm_tex);
+ #ifdef HAVE_GLSL_TEXTURE_SIZE
+ 			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
+ 			if (info) {
 @@ -2521,6 +2522,7 @@ void glLinkProgram(GLuint progr) {
  				u->vptr = NULL;
  				u->fptr = (uint8_t *)p->unif_fbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
@@ -40,11 +148,142 @@ index 3b91d11..e1fad7b 100644
  		dirty_shader_frag_unifs = GL_TRUE; \
  	}
  
+diff --git a/source/draw.c b/source/draw.c
+index e9e6c8c..bafa804 100644
+--- a/source/draw.c
++++ b/source/draw.c
+@@ -595,7 +595,7 @@ void vglDrawObjects(GLenum mode, GLsizei count) {
+ #ifndef TEXTURES_SPEEDHACK
+ 			texture_slots[tex_unit->tex_id[0]].last_frame = vgl_framecount;
+ #endif
+-			sceGxmSetFragmentTexture(gxm_context, 0, &texture_slots[tex_unit->tex_id[0]].gxm_tex);
++			vgl_raw_set_ftex(gxm_context, 0, &texture_slots[tex_unit->tex_id[0]].gxm_tex);
+ 			sceGxmSetVertexStream(gxm_context, 1, texture_object);
+ 			if (ffp_vertex_num_params > 2)
+ 				sceGxmSetVertexStream(gxm_context, 2, color_object);
+diff --git a/source/ffp.c b/source/ffp.c
+index 11937c4..cbe951e 100644
+--- a/source/ffp.c
++++ b/source/ffp.c
+@@ -1180,8 +1180,8 @@ uint8_t reload_ffp_shaders(SceGxmVertexAttribute *attrs, SceGxmVertexStream *str
+ 		ffp_blend_info.raw = blend_info.raw;
+ 	}
+ 
+-	sceGxmSetVertexProgram(gxm_context, ffp_vertex_program_patched);
+-	sceGxmSetFragmentProgram(gxm_context, ffp_fragment_program_patched);
++	vgl_raw_set_vprog(gxm_context, ffp_vertex_program_patched);
++	vgl_raw_set_fprog(gxm_context, ffp_fragment_program_patched);
+ 
+ 	// Recalculating MVP matrix if necessary
+ 	if (mvp_modified) {
+@@ -1355,7 +1355,7 @@ void _glDrawArrays_FixedFunctionIMPL(GLint first, GLsizei count) {
+ 			vglSetTexMipmapCount(&tex->gxm_tex, tex->use_mips ? tex->mip_count : 0);
+ 			tex->overridden = GL_FALSE;
+ 		}
+-		sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++		vgl_raw_set_ftex(gxm_context, i, &tex->gxm_tex);
+ 	}
+ 	
+ 	// Preparing materials temp buffer if lights are enabled
+@@ -1494,7 +1494,7 @@ void _glMultiDrawArrays_FixedFunctionIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+ 			vglSetTexMipmapCount(&tex->gxm_tex, tex->use_mips ? tex->mip_count : 0);
+ 			tex->overridden = GL_FALSE;
+ 		}
+-		sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++		vgl_raw_set_ftex(gxm_context, i, &tex->gxm_tex);
+ 	}
+ 	
+ 	// Preparing materials temp buffer if lights are enabled
+@@ -1708,7 +1708,7 @@ void _glDrawElements_FixedFunctionIMPL(uint16_t *idx_buf, GLsizei count, uint32_
+ 			vglSetTexMipmapCount(&tex->gxm_tex, tex->use_mips ? tex->mip_count : 0);
+ 			tex->overridden = GL_FALSE;
+ 		}
+-		sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++		vgl_raw_set_ftex(gxm_context, i, &tex->gxm_tex);
+ 	}
+ 
+ 	// Preparing materials temp buffer if lights are enabled
+@@ -2777,7 +2777,7 @@ void glEnd(void) {
+ 				vglSetTexMipmapCount(&tex->gxm_tex, tex->use_mips ? tex->mip_count : 0);
+ 				tex->overridden = GL_FALSE;
+ 			}
+-			sceGxmSetFragmentTexture(gxm_context, i, &tex->gxm_tex);
++			vgl_raw_set_ftex(gxm_context, i, &tex->gxm_tex);
+ 		}
+ 	} else if (texture_units[0].state) { // Texturing usage
+ 		ffp_vertex_attrib_state = (1 << FFP_ATTRIB_POSITION) | (1 << FFP_ATTRIB_TEX0) | (1 << FFP_ATTRIB_COLOR);
+@@ -2809,7 +2809,7 @@ void glEnd(void) {
+ 			vglSetTexMipmapCount(&tex->gxm_tex, tex->use_mips ? tex->mip_count : 0);
+ 			tex->overridden = GL_FALSE;
+ 		}
+-		sceGxmSetFragmentTexture(gxm_context, 0, &tex->gxm_tex);
++		vgl_raw_set_ftex(gxm_context, 0, &tex->gxm_tex);
+ 	} else { // No texturing usage
+ 		ffp_vertex_attrib_state = (1 << FFP_ATTRIB_POSITION) | (1 << FFP_ATTRIB_COLOR);
+ 		if (zero_lights) {
+diff --git a/source/framebuffers.c b/source/framebuffers.c
+index 15e59ea..3b0d03b 100644
+--- a/source/framebuffers.c
++++ b/source/framebuffers.c
+@@ -840,11 +840,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+ 	sceGxmSetBackPolygonMode(gxm_context, SCE_GXM_POLYGON_MODE_TRIANGLE_FILL);
+ 
+ 	// Set framebuffer blit shader
+-	sceGxmSetVertexProgram(gxm_context, blit_vertex_program_patched);
++	vgl_raw_set_vprog(gxm_context, blit_vertex_program_patched);
+ 	if (is_fbo_float)
+-		sceGxmSetFragmentProgram(gxm_context, blit_fragment_program_float_patched);
++		vgl_raw_set_fprog(gxm_context, blit_fragment_program_float_patched);
+ 	else
+-		sceGxmSetFragmentProgram(gxm_context, blit_fragment_program_patched);
++		vgl_raw_set_fprog(gxm_context, blit_fragment_program_patched);
+ 	
+ 	// Set fragment texture to read framebuffer bound color attachment
+ 	framebuffer *read_fb = (framebuffer *)readFramebuffer;
+@@ -858,7 +858,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+ 		vglSetTexMinFilter(tex, SCE_GXM_TEXTURE_FILTER_POINT);
+ 		vglSetTexMipmapCount(tex, 0);
+ 	}
+-	sceGxmSetFragmentTexture(gxm_context, 0, tex);
++	vgl_raw_set_ftex(gxm_context, 0, tex);
+ 	
+ 	// Set stencil func to keep original data
+ 	sceGxmSetFrontStencilFunc(gxm_context,
 diff --git a/source/gxm.c b/source/gxm.c
-index 4cbb40b..9350aa6 100644
+index 4cbb40b..d1be632 100644
 --- a/source/gxm.c
 +++ b/source/gxm.c
-@@ -975,13 +975,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -69,6 +69,10 @@ static GLboolean needs_scene_reset = GL_TRUE; // Flag for when a scene reset is
+ static GLboolean scene_not_flushed = GL_FALSE; // Flag for when a scene had been forcibly flushed as last operation
+ 
+ SceGxmContext *gxm_context; // sceGxm context instance
++const SceGxmVertexProgram *vgl_cur_vprog = NULL; // celosia: see shared.h
++const SceGxmFragmentProgram *vgl_cur_fprog = NULL;
++uint32_t vgl_cur_ftex[16][4];
++uint32_t vgl_cur_ftex_valid = 0;
+ GLenum vgl_error = GL_NO_ERROR; // Error returned by glGetError
+ SceGxmShaderPatcher *gxm_shader_patcher; // sceGxmShaderPatcher shader patcher instance
+ GLboolean is_fbo_float = GL_FALSE; // Current framebuffer mode
+@@ -618,6 +622,7 @@ void scene_reset(void) {
+ 				shared_fb_info.vsync = vsync_interval;
+ 				gxm_back_buffer_index = (shared_fb_info.index + 1) % 2;
+ 			}
++			vgl_state_invalidate();
+ 			int r = sceGxmBeginScene(gxm_context, 0, gxm_render_target,
+ 				NULL, NULL,
+ 				gxm_sync_objects[gxm_back_buffer_index],
+@@ -668,8 +673,10 @@ void scene_reset(void) {
+ #ifdef RECYCLE_RENDERTARGETS
+ 			fbo_rt->last_frame = vgl_framecount;
+ #endif
++			vgl_state_invalidate();
+ 			int r = sceGxmBeginScene(gxm_context, 0, fbo_rt->rt,
+ #else
++			vgl_state_invalidate();
+ 			int r = sceGxmBeginScene(gxm_context, 0, active_write_fb->target,
+ #endif
+ 					NULL, NULL, NULL,
+@@ -975,13 +982,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  void glFinish(void) {
  	THREAD_SAFE()
  
@@ -64,6 +303,97 @@ index 4cbb40b..9350aa6 100644
  }
  
  void glReleaseShaderCompiler(void) {
+diff --git a/source/misc.c b/source/misc.c
+index 238f052..06a531b 100644
+--- a/source/misc.c
++++ b/source/misc.c
+@@ -670,8 +670,8 @@ void glClear(GLbitfield mask) {
+ 	sceGxmSetFrontPolygonMode(gxm_context, SCE_GXM_POLYGON_MODE_TRIANGLE_FILL);
+ 	sceGxmSetBackPolygonMode(gxm_context, SCE_GXM_POLYGON_MODE_TRIANGLE_FILL);
+ 
+-	sceGxmSetVertexProgram(gxm_context, clear_vertex_program_patched);
+-	sceGxmSetFragmentProgram(gxm_context, is_fbo_float ? clear_fragment_program_float_patched : clear_fragment_program_patched);
++	vgl_raw_set_vprog(gxm_context, clear_vertex_program_patched);
++	vgl_raw_set_fprog(gxm_context, is_fbo_float ? clear_fragment_program_float_patched : clear_fragment_program_patched);
+ 
+ 	sceGxmReserveVertexDefaultUniformBuffer(gxm_context, &vbuffer);
+ 	sceGxmSetUniformDataF(vbuffer, clear_position, 0, 4, &clear_vertices->x);
+diff --git a/source/shared.h b/source/shared.h
+index 167e4f2..17ea339 100644
+--- a/source/shared.h
++++ b/source/shared.h
+@@ -1024,6 +1024,56 @@ extern float fullscreen_y_scale;
+ extern float fullscreen_z_scale;
+ 
+ extern SceGxmContext *gxm_context; // sceGxm context instance
++
++// celosia: GXM state set only on a change (each draw set the vertex and
++// fragment programs and every fragment texture again: ~8% of the render
++// thread for ~1 500 draws a frame). Invalidated at each scene's start and
++// by any other path that sets them (vgl_raw_set_*).
++extern const SceGxmVertexProgram *vgl_cur_vprog;
++extern const SceGxmFragmentProgram *vgl_cur_fprog;
++extern uint32_t vgl_cur_ftex[16][4];
++extern uint32_t vgl_cur_ftex_valid;
++static inline __attribute__((always_inline)) void vgl_state_invalidate(void) {
++	vgl_cur_vprog = NULL;
++	vgl_cur_fprog = NULL;
++	vgl_cur_ftex_valid = 0;
++}
++static inline __attribute__((always_inline)) void vgl_set_vprog(const SceGxmVertexProgram *prog) {
++	if (vgl_cur_vprog != prog) {
++		vgl_cur_vprog = prog;
++		sceGxmSetVertexProgram(gxm_context, prog);
++	}
++}
++static inline __attribute__((always_inline)) void vgl_set_fprog(const SceGxmFragmentProgram *prog) {
++	if (vgl_cur_fprog != prog) {
++		vgl_cur_fprog = prog;
++		sceGxmSetFragmentProgram(gxm_context, prog);
++	}
++}
++static inline __attribute__((always_inline)) void vgl_set_ftex(int unit, const SceGxmTexture *tex) {
++	const uint32_t *w = (const uint32_t *)tex;
++	uint32_t *c = vgl_cur_ftex[unit & 15];
++	if (!(vgl_cur_ftex_valid & (1u << unit)) || c[0] != w[0] || c[1] != w[1] || c[2] != w[2] || c[3] != w[3]) {
++		c[0] = w[0];
++		c[1] = w[1];
++		c[2] = w[2];
++		c[3] = w[3];
++		vgl_cur_ftex_valid |= 1u << unit;
++		sceGxmSetFragmentTexture(gxm_context, unit, tex);
++	}
++}
++static inline __attribute__((always_inline)) void vgl_raw_set_vprog(SceGxmContext *ctx, const SceGxmVertexProgram *prog) {
++	vgl_cur_vprog = NULL;
++	sceGxmSetVertexProgram(ctx, prog);
++}
++static inline __attribute__((always_inline)) void vgl_raw_set_fprog(SceGxmContext *ctx, const SceGxmFragmentProgram *prog) {
++	vgl_cur_fprog = NULL;
++	sceGxmSetFragmentProgram(ctx, prog);
++}
++static inline __attribute__((always_inline)) int vgl_raw_set_ftex(SceGxmContext *ctx, unsigned int unit, const SceGxmTexture *tex) {
++	vgl_cur_ftex_valid &= ~(1u << unit);
++	return sceGxmSetFragmentTexture(ctx, unit, tex);
++}
+ extern GLenum vgl_error; // Error returned by glGetError
+ extern SceGxmDepthStencilSurface gxm_depth_stencil_surface; // Depth/Stencil surfaces setup for sceGxm
+ extern GLboolean system_app_mode; // Flag for system app mode usage
+diff --git a/source/tests.c b/source/tests.c
+index aad6b0e..d964742 100644
+--- a/source/tests.c
++++ b/source/tests.c
+@@ -254,8 +254,8 @@ void update_scissor_test() {
+ 	const float scissor_depth = 1.0f;
+ 
+ 	// Setting current vertex program to clear screen one and fragment program to scissor test one
+-	sceGxmSetVertexProgram(gxm_context, clear_vertex_program_patched);
+-	sceGxmSetFragmentProgram(gxm_context, scissor_test_fragment_program);
++	vgl_raw_set_vprog(gxm_context, clear_vertex_program_patched);
++	vgl_raw_set_fprog(gxm_context, scissor_test_fragment_program);
+ 
+ 	// Invalidating viewport and culling
+ 	invalidate_viewport();
 diff --git a/source/vgl.c b/source/vgl.c
 index 014e790..b427b31 100644
 --- a/source/vgl.c

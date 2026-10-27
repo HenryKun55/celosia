@@ -734,17 +734,28 @@ namespace ps2x::iop::detail
                 const char *env = std::getenv("PS2X_MIX_CHUNK");
                 return env ? std::clamp<uint32_t>(static_cast<uint32_t>(std::atoi(env)), 1u, kBlock) : 16u;
             }();
+            static const bool handoff = !(std::getenv("PS2X_MIX_HANDOFF") && std::atoi(std::getenv("PS2X_MIX_HANDOFF")) == 0);
             for (size_t done = 0; done < frames;)
             {
                 const uint32_t n = static_cast<uint32_t>(std::min<size_t>(frames - done, chunk));
                 static const bool timed = audio_stats::level() != 0;
                 const uint64_t asked = timed ? audio_stats::nowUs() : 0u;
-                auto lock = hold();
-                if (timed)
-                    audio_stats::raiseMax(audio_stats::lockWaitMaxUs, audio_stats::nowUs() - asked);
-                render(destination + done * 2u, n);
-                pushOutput(destination + done * 2u, n);
+                {
+                    auto lock = hold();
+                    if (timed)
+                        audio_stats::raiseMax(audio_stats::lockWaitMaxUs, audio_stats::nowUs() - asked);
+                    render(destination + done * 2u, n);
+                    pushOutput(destination + done * 2u, n);
+                }
                 done += n;
+                // A driver request waiting: it goes first (at most ~1 ms here).
+                if (handoff && done < frames && m_driverWaiting.load(std::memory_order_acquire) != 0)
+                {
+                    const uint64_t from = audio_stats::nowUs();
+                    while (m_driverWaiting.load(std::memory_order_acquire) != 0 && audio_stats::nowUs() - from < 1000u)
+                    {
+                    }
+                }
             }
             return frames;
         }

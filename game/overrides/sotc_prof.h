@@ -30,6 +30,10 @@ namespace sotc_prof
         kHookPacketId,  // packetId
         kHookBuild,     // a packet's mesh built on the game thread
         kHookSkin,      // a skinned packet posed (palette / CPU pose)
+        kHookQueue,     // a packet's build queued for the async worker (round 14)
+        kHookPlan,      // a draw plan made (buildPlan, round 14)
+        kHookHash,      // packetId's full content hash (round 14)
+        kHookMoves,     // packetId's garbage-move lookups and memo carry (round 14)
         kHookCount
     };
 

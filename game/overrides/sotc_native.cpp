@@ -32,6 +32,7 @@
 #include "runtime/ps2_stats.h"
 #include "ps2x/iop/audio_stats.h"
 #include "runtime/ps2_thread_load.h"
+#include "runtime/ee_scheduler.h"
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
 #include "lean_hot.h"
@@ -39,6 +40,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <new>
 #include <cmath>
 #if defined(__arm__) && defined(__ARM_NEON)
 #include <arm_neon.h>
@@ -401,9 +403,65 @@ namespace sotc_native
     // SOTC_HASH_STATS=1 (debugging, round 13): bytes hashed per frame, by packets / textures.
     uint64_t g_hashBytes[2] = {0, 0};
     uint64_t g_hashCalls[2] = {0, 0};
+    // Round 14: four 32-bit lanes (xxHash32's round: multiply, rotate,
+    // multiply), 16 bytes a step, the lanes independent: the Cortex-A9 has
+    // no 64-bit multiply and the old chain (one 64-bit multiply and a shift
+    // per 8 bytes, each on the last) ran ~3 cycles a byte in calibrated
+    // Vita3K (25 ms of an area change's cut frame for ~2 MB of new packets).
+    // The 128 bits of state end in a 64-bit finaliser. Ids are only compared
+    // within a run. SOTC_FAST_HASH=0: the old hash.
+    const bool g_fastHash = !std::getenv("SOTC_FAST_HASH") || std::atoi(std::getenv("SOTC_FAST_HASH")) != 0;
+    inline uint32_t rotl32(uint32_t v, int r) { return (v << r) | (v >> (32 - r)); }
+    uint64_t contentHashLanes(const uint8_t *p, uint32_t bytes, uint64_t h)
+    {
+        constexpr uint32_t P1 = 0x9E3779B1u, P2 = 0x85EBCA77u, P3 = 0xC2B2AE3Du, P4 = 0x27D4EB2Fu;
+        const uint32_t lo = static_cast<uint32_t>(h), hi = static_cast<uint32_t>(h >> 32);
+        uint32_t a = lo + P1 + P2, b = lo + P2, c = hi, d = hi - P1;
+        uint32_t i = 0;
+        for (; i + 16u <= bytes; i += 16u)
+        {
+            uint32_t w[4];
+            std::memcpy(w, p + i, 16);
+            a = rotl32(a + w[0] * P2, 13) * P1;
+            b = rotl32(b + w[1] * P2, 13) * P1;
+            c = rotl32(c + w[2] * P2, 13) * P1;
+            d = rotl32(d + w[3] * P2, 13) * P1;
+        }
+        uint32_t t = rotl32(a, 1) + rotl32(b, 7) + rotl32(c, 12) + rotl32(d, 18);
+        uint32_t u = rotl32(a, 3) ^ rotl32(b, 11) ^ rotl32(c, 19) ^ rotl32(d, 27);
+        t += bytes;
+        for (; i + 4u <= bytes; i += 4u)
+        {
+            uint32_t w;
+            std::memcpy(&w, p + i, 4);
+            t = rotl32(t + w * P3, 17) * P4;
+            u = rotl32(u ^ (w * P1), 15) * P2;
+        }
+        for (; i < bytes; ++i)
+        {
+            t = rotl32(t + p[i] * 0x165667B1u, 11) * P1;
+            u = rotl32(u ^ (p[i] * P3), 13) * P4;
+        }
+        uint64_t x = (static_cast<uint64_t>(u) << 32) | t;
+        x ^= x >> 33;
+        x *= 0xff51afd7ed558ccdull;
+        x ^= x >> 33;
+        x *= 0xc4ceb9fe1a85ec53ull;
+        x ^= x >> 33;
+        return x;
+    }
     uint64_t contentHash(uint32_t addr, uint32_t bytes, uint64_t h)
     {
         addr &= 0x1FFFFFCu;
+        if (g_fastHash)
+        {
+            if (addr + bytes <= 0x2000000u)
+                return contentHashLanes(g_ram + addr, bytes, h);
+            std::vector<uint8_t> copy(bytes);
+            for (uint32_t i = 0; i < bytes; ++i)
+                copy[i] = g_ram[(addr + i) & 0x1FFFFFFu];
+            return contentHashLanes(copy.data(), bytes, h);
+        }
         const auto mix = [&h](uint64_t v)
         {
             h = (h ^ v) * 0x100000001b3ull;
@@ -993,6 +1051,7 @@ namespace sotc_native
         bool rewritten = false;  // seen changed in place
         uint16_t moveSerial = 0; // sotc_decomp::g_guestMoveSerial at the last sample (a garbage move since: sampled again)
         uint64_t sample = 0, quick = 0; // 32 words; four words
+        uint32_t movedFrom = 0; // carried here from that address by the garbage moves (rekeyPacketMemo), not sampled here yet
     };
     // The memo's sets: four ways, the addresses apart from the entries (a set's
     // four tags in 16 bytes: one cache line looked at, not the four entries'
@@ -1056,6 +1115,105 @@ namespace sotc_native
         return h;
     }
     PacketMemoTable<2048> g_packetMemo;
+    // The garbage moves carried into the packet memo (round 14). An area
+    // change moves ~250 blocks a frame for 10-20 frames, and walkGuestMoves
+    // (at a lookup, a few moves back) found few of the moved packets: a
+    // packet moved into the address another moved packet had left took that
+    // one's memo first (the draw order is not the heap's), so 700-1 400
+    // packets (1-1.6 MB) were hashed again in each of those frames on the
+    // Mac route, 25-30 ms of hook.packetId a frame in calibrated Vita3K.
+    // Now at the first packetId after new moves every memo whose address a
+    // move's source holds goes to its destination (moves in their order),
+    // marked movedFrom: its next lookup takes its id when the 32 sampled
+    // words at the new place are the memo's (sampleAt as if at the old
+    // address), as walkGuestMoves does. SOTC_MOVE_REKEY=0: off.
+    bool g_moveRekey = !std::getenv("SOTC_MOVE_REKEY") || std::atoi(std::getenv("SOTC_MOVE_REKEY")) != 0;
+    uint32_t g_rekeyedAt = 0; // sotc_decomp::g_guestMoveCount carried in so far
+    uint64_t g_rekeyed = 0, g_rekeyHits = 0;
+    void rekeyPacketMemo()
+    {
+        namespace sd = sotc_decomp;
+        const uint32_t count = sd::g_guestMoveCount;
+        if (count == g_rekeyedAt)
+            return;
+        const uint32_t first = g_rekeyedAt;
+        g_rekeyedAt = count;
+        if (count - first > sd::kGuestMoves)
+            return; // the ring lost some: the lookups' sample checks catch the rest
+        struct M
+        {
+            uint32_t src, len, dst, order;
+        };
+        static std::vector<M> moves;
+        moves.clear();
+        for (uint32_t n = first; n != count; ++n)
+        {
+            const sd::GuestMove &m = sd::g_guestMoves[n & (sd::kGuestMoves - 1u)];
+            if (m.len)
+                moves.push_back({m.src, m.len, m.dst, n - first});
+        }
+        if (moves.empty())
+            return;
+        std::sort(moves.begin(), moves.end(), [](const M &a, const M &b) { return a.src != b.src ? a.src < b.src : a.order < b.order; });
+        uint32_t maxLen = 0;
+        for (const M &m : moves)
+            maxLen = std::max(maxLen, m.len);
+        // The move after `after` (in order) whose source holds addr, the first such; false: none.
+        const auto into = [&](uint32_t addr, uint32_t after, const M *&got)
+        {
+            auto it = std::upper_bound(moves.begin(), moves.end(), addr, [](uint32_t a, const M &m) { return a < m.src; });
+            got = nullptr;
+            for (int left = 16; left > 0 && it != moves.begin(); --left)
+            {
+                --it;
+                if (addr - it->src >= maxLen)
+                    break;
+                if (addr - it->src < it->len && it->order + 1u > after && (!got || it->order < got->order))
+                    got = &*it;
+            }
+            return got != nullptr;
+        };
+        struct Carried
+        {
+            PacketMemo memo;
+            uint32_t to;
+        };
+        static std::vector<Carried> carried;
+        carried.clear();
+        auto &t = g_packetMemo;
+        for (uint32_t set = 0; set < 2048u; ++set)
+            for (int w = 0; w < 4; ++w)
+            {
+                PacketMemo &e = t.entries[set][w];
+                if (t.tags[set].address[w] != e.address || e.address == 0u || e.frame == ~0ull)
+                    continue;
+                uint32_t at = e.address, after = 0;
+                const M *m = nullptr;
+                bool moved = false;
+                for (int step = 0; step < 8 && into(at & 0x1FFFFFFu, after, m); ++step)
+                {
+                    at = m->dst + ((at & 0x1FFFFFFu) - m->src);
+                    after = m->order + 1u;
+                    moved = true;
+                }
+                if (!moved)
+                    continue;
+                Carried c{e, at | (e.address & ~0x1FFFFFFu)};
+                if (!c.memo.movedFrom)
+                    c.memo.movedFrom = e.address; // the address its sample was taken at
+                carried.push_back(c);
+                t.tags[set].address[w] = 0u;
+                e.address = 0u;
+            }
+        for (Carried &c : carried)
+        {
+            bool found = false;
+            PacketMemo &e = t.find(c.to, found);
+            e = c.memo;
+            e.address = c.to;
+        }
+        g_rekeyed += carried.size();
+    }
     // The last packetId whose bytes changed where they are (same address and
     // size, another sample): packets the game rewrites in place (every frame,
     // some of them) are built at once, not on the async worker, which would
@@ -1070,6 +1228,11 @@ namespace sotc_native
         g_packetRewritten = false;
         if (!fast)
             return ((static_cast<uint64_t>(size) << 32) | data) ^ (sample(data, size, 32u) & 0x7FFF000000000000ull);
+        if (g_moveRekey && g_moveMemo && sotc_decomp::g_guestMoveCount != g_rekeyedAt)
+        {
+            SOTC_PROF_SCOPE(kHookMoves);
+            rekeyPacketMemo();
+        }
         bool found = false;
         PacketMemo &memo = g_packetMemo.find(data, found);
         found = found && memo.size == size;
@@ -1123,8 +1286,27 @@ namespace sotc_native
         }
         const uint64_t sampled = sample(data, size, 32u);
         hs.idSampled += hs.on;
-        if (found && memo.sample == sampled)
+        // Carried here by rekeyPacketMemo: its sample was taken at movedFrom.
+        const bool carriedHere = found && memo.movedFrom && !memo.rewritten && sampleAt(data, memo.movedFrom, size, 32u) == memo.sample;
+        if (carriedHere)
         {
+            ++g_rekeyHits;
+            static const bool moveCheck = std::getenv("SOTC_MOVE_MEMO_CHECK") != nullptr;
+            if (moveCheck)
+            {
+                static uint64_t checks = 0, bad = 0;
+                const uint64_t fresh = (contentHash(data, size, 0x9E3779B97F4A7C15ull ^ size) & 0x07FFFFFFFFFFFFFFull) | (1ull << 59);
+                ++checks;
+                bad += fresh != memo.id;
+                if ((checks & 4095u) == 0u || (fresh != memo.id && bad < 10u))
+                    std::fprintf(stderr, "[move-rekey] packets: %llu carried ids checked, %llu differ\n", (unsigned long long)checks, (unsigned long long)bad);
+            }
+        }
+        if (found)
+            memo.movedFrom = 0u;
+        if (found && (memo.sample == sampled || carriedHere))
+        {
+            memo.sample = sampled;
             memo.frame = g_frame;
             memo.sampledAt = static_cast<uint32_t>(g_frame);
             memo.moveSerial = moveSerial;
@@ -1134,8 +1316,14 @@ namespace sotc_native
         // Moved here by a garbage move (round 13): the memo at its old address,
         // sampled before that move and never seen rewritten, with the same 32
         // words here, gives its id (the move copied the bytes as they were).
-        if (g_moveMemo && (!found || moved))
+        // With the memos carried by rekeyPacketMemo the walk back over the
+        // moves finds little more (moves the ring lost, chunked copies) and
+        // costs ~8 us a new packet (an area change's cut frame: ~1 600 new
+        // packets, 13 ms in calibrated Vita3K): only with SOTC_MOVE_WALK=1.
+        static const bool walkToo = std::getenv("SOTC_MOVE_WALK") != nullptr;
+        if (g_moveMemo && (!found || moved) && (!g_moveRekey || walkToo))
         {
+            SOTC_PROF_SCOPE(kHookMoves);
             PacketMemo *from = nullptr;
             sotc_decomp::walkGuestMoves(data, [&](uint32_t old, uint32_t serial)
             {
@@ -1186,7 +1374,11 @@ namespace sotc_native
         // (bits 60, 62, 63 and a count) and the second pass's (bit 61 flipped).
         g_hashBytes[0] += size;
         ++g_hashCalls[0];
-        const uint64_t id = (contentHash(data, size, 0x9E3779B97F4A7C15ull ^ size) & 0x07FFFFFFFFFFFFFFull) | (1ull << 59);
+        uint64_t id;
+        {
+            SOTC_PROF_SCOPE(kHookHash);
+            id = (contentHash(data, size, 0x9E3779B97F4A7C15ull ^ size) & 0x07FFFFFFFFFFFFFFull) | (1ull << 59);
+        }
         const bool rewritten = found && (memo.rewritten || g_packetChangedInPlace);
         memo.address = data;
         memo.size = size;
@@ -2074,6 +2266,7 @@ namespace sotc_native
     }
     void buildPlan(ModelPlan &p, uint32_t header, uint32_t lod)
     {
+        SOTC_PROF_SCOPE(kHookPlan);
         p.header = header;
         p.lod = lod;
         p.packets = word(header + 0x60u);
@@ -2469,8 +2662,11 @@ namespace sotc_native
         }
         static const bool hashStats = std::getenv("SOTC_HASH_STATS") != nullptr;
         if (hashStats && g_hashBytes[0] + g_hashBytes[1] > 65536u)
-            std::fprintf(stderr, "[hash] frame %llu: packets %llu (%.0f KB), textures %llu (%.0f KB)\n", (unsigned long long)g_frame,
-                         (unsigned long long)g_hashCalls[0], g_hashBytes[0] / 1024.0, (unsigned long long)g_hashCalls[1], g_hashBytes[1] / 1024.0);
+            std::fprintf(stderr, "[hash] frame %llu: packets %llu (%.0f KB), textures %llu (%.0f KB); memos carried by moves %llu, ids kept %llu\n", (unsigned long long)g_frame,
+                         (unsigned long long)g_hashCalls[0], g_hashBytes[0] / 1024.0, (unsigned long long)g_hashCalls[1], g_hashBytes[1] / 1024.0,
+                         (unsigned long long)g_rekeyed, (unsigned long long)g_rekeyHits);
+        if (hashStats)
+            g_rekeyed = g_rekeyHits = 0;
         g_hashBytes[0] = g_hashBytes[1] = g_hashCalls[0] = g_hashCalls[1] = 0;
         last = now;
         lastMark = mark;
@@ -2485,6 +2681,223 @@ namespace sotc_native
     // streams' reads are type 7, queued on list 0 by sheetMgrAdpcmIntLoad;
     // the running job at 0x118fe34): how many are waiting, and how long a
     // stream read waited to start (first seen queued -> gone from the lists).
+    PS2Runtime *g_runtimeForLog = nullptr; // the [audio] line's thread and heap part
+    // The [loader] line (round 14, with the [audio] one): the console's ~50 s
+    // with the loader busy and no disc reads after a colossus (console-r13).
+    // Per frame: the running job (0x118fe34: its node, type +0) and how long
+    // it has run, guest thread 11's (the loader's) status by frame and its
+    // commonest pc / ra; every 5 s with the [audio] line: the garbage pass's
+    // counts (calls, stopped by its clock, moves, MB) and the heap the pass
+    // walks (0x1e0bf4: blocks, free bytes, the largest free block).
+    struct LoaderLog
+    {
+        uint32_t job = 0, jobType = 0;
+        uint64_t jobSince = 0, jobLongestUs = 0;
+        uint32_t longestJob = 0, longestType = 0;
+        uint64_t status[8] = {}; // thread 11's frames by EeThreadStatus (7: not found)
+        uint64_t reasons[8] = {}; // its waiting frames by EeWaitReason
+        std::unordered_map<uint64_t, uint32_t> where; // (pc << 32 | ra) -> frames
+        sotc_decomp::GcStats gc0;
+    };
+    LoaderLog g_loaderLog;
+    // The kernel's message boxes (iosSendMsg 0x1b0fc0 / iosRecvMsg 0x1b1138,
+    // hooked with the [loader] line on, round 14): a box is {+0 slots, +4
+    // capacity, +8 count, +0xc write index, ..., +0x18 waiting senders}; a
+    // blocking send (a2 = 1) to a full box sleeps the sender until a receive.
+    // The Vita3K 333 MHz route (r14/v10-333) shows the loader asleep 15 s in
+    // iosSendMsg with its job queue piling up, as the console's ~50 s.
+    struct MsgBox
+    {
+        uint64_t sends = 0, fullSends = 0, recvs = 0, emptyRecvs = 0, lastRecvUs = 0, lastFullUs = 0;
+        int lastSender = -1, lastReceiver = -1;
+        uint32_t lastMsg = 0;
+    };
+    std::unordered_map<uint32_t, MsgBox> g_msgBoxes;
+    PS2Runtime::RecompiledFunction g_sendMsg = nullptr, g_recvMsg = nullptr;
+    void sendMsgHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        g_ram = rdram; // (before the first frame too)
+        const uint32_t box = GPR_U32(ctx, 4);
+        if ((box & 0xFE000003u) == 0u && box)
+        {
+            MsgBox &b = g_msgBoxes[box];
+            ++b.sends;
+            b.lastSender = runtime->eeScheduler().currentThreadId();
+            b.lastMsg = GPR_U32(ctx, 5);
+            if (static_cast<int32_t>(word(box + 8u)) >= static_cast<int32_t>(word(box + 4u)))
+            {
+                ++b.fullSends;
+                b.lastFullUs = native_renderer::nowUs();
+            }
+        }
+        g_sendMsg(rdram, ctx, runtime);
+    }
+    void recvMsgHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        g_ram = rdram;
+        const uint32_t box = GPR_U32(ctx, 4);
+        if ((box & 0xFE000003u) == 0u && box)
+        {
+            MsgBox &b = g_msgBoxes[box];
+            ++b.recvs;
+            b.emptyRecvs += word(box + 8u) == 0u;
+            b.lastRecvUs = native_renderer::nowUs();
+            b.lastReceiver = runtime->eeScheduler().currentThreadId();
+        }
+        g_recvMsg(rdram, ctx, runtime);
+    }
+    void loaderFrame(uint64_t now)
+    {
+        LoaderLog &l = g_loaderLog;
+        const uint32_t job = word(0x118fe34u);
+        const uint32_t type = (job & 0xFE000003u) == 0u && job ? word(job) : 0u;
+        if (job != l.job || type != l.jobType)
+        {
+            l.job = job;
+            l.jobType = type;
+            l.jobSince = now;
+        }
+        if (job && now - l.jobSince > l.jobLongestUs)
+        {
+            l.jobLongestUs = now - l.jobSince;
+            l.longestJob = job;
+            l.longestType = type;
+        }
+        if (!g_runtimeForLog)
+            return;
+        const EeKernelSnapshot snap = g_runtimeForLog->eeScheduler().snapshot();
+        int found = 7;
+        for (const EeThreadSnapshot &t : snap.threads)
+            if (t.id == 11)
+            {
+                found = static_cast<int>(t.status) & 7;
+                if (t.status == EeThreadStatus::Waiting || t.status == EeThreadStatus::WaitingSuspended)
+                    ++l.reasons[static_cast<int>(t.waitReason) & 7];
+                if (job)
+                    ++l.where[(static_cast<uint64_t>(t.pc) << 32) | t.ra];
+                break;
+            }
+        ++l.status[found];
+    }
+    void loaderReport(uint64_t now)
+    {
+        LoaderLog &l = g_loaderLog;
+        std::string line = "[loader] frame " + std::to_string(g_frame);
+        char buf[320];
+        std::snprintf(buf, sizeof(buf), ": job %08x type %u for %.1f s, longest %08x type %u %.1f s | t11 run %llu ready %llu wait %llu (sema %llu flag %llu vsync %llu ext %llu sleep %llu) susp %llu dormant %llu none %llu",
+                      l.job, l.jobType, l.job ? (now - l.jobSince) / 1e6 : 0.0, l.longestJob, l.longestType, l.jobLongestUs / 1e6,
+                      (unsigned long long)l.status[0], (unsigned long long)l.status[1], (unsigned long long)(l.status[2] + l.status[3]),
+                      (unsigned long long)l.reasons[2], (unsigned long long)l.reasons[3], (unsigned long long)l.reasons[4], (unsigned long long)l.reasons[5],
+                      (unsigned long long)l.reasons[1], (unsigned long long)l.status[4], (unsigned long long)l.status[5], (unsigned long long)l.status[7]);
+        line += buf;
+        {
+            namespace as = ps2x::iop::audio_stats;
+            const uint64_t since = as::cdPendingSinceUs.load(std::memory_order_relaxed), b = as::cdPendingBytes.load(std::memory_order_relaxed);
+            if (since)
+            {
+                std::snprintf(buf, sizeof(buf), " | cd read in flight %.1f s (%llu KB%s)", now > since ? (now - since) / 1e6 : 0.0,
+                              (unsigned long long)((b & ~(1ull << 63)) >> 10), (b >> 63) ? " iop" : "");
+                line += buf;
+            }
+        }
+        std::vector<std::pair<uint32_t, uint64_t>> top;
+        for (const auto &[k, n] : l.where)
+            top.emplace_back(n, k);
+        std::sort(top.begin(), top.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+        for (size_t i = 0; i < top.size() && i < 3u; ++i)
+        {
+            std::snprintf(buf, sizeof(buf), " | pc %08x ra %08x x%u", static_cast<uint32_t>(top[i].second >> 32), static_cast<uint32_t>(top[i].second), top[i].first);
+            line += buf;
+        }
+        const sotc_decomp::GcStats &g = sotc_decomp::g_gcStats;
+        std::snprintf(buf, sizeof(buf), " | gc calls %llu stopped %llu (at once %llu, budget %llu, past clock %llu) blocks %llu moves %llu %.1f MB, elapsed last %lld max %lld",
+                      (unsigned long long)(g.calls - l.gc0.calls), (unsigned long long)(g.stopped - l.gc0.stopped),
+                      (unsigned long long)(g.stoppedAtOnce - l.gc0.stoppedAtOnce), (unsigned long long)(g.budgetStops - l.gc0.budgetStops),
+                      (unsigned long long)(g.budgetGoes - l.gc0.budgetGoes), (unsigned long long)(g.blocks - l.gc0.blocks),
+                      (unsigned long long)(g.moves - l.gc0.moves), (g.bytes - l.gc0.bytes) / 1048576.0, (long long)g.lastElapsed, (long long)g.maxElapsed);
+        line += buf;
+        // Message boxes full in this window, or full now.
+        for (auto &[box, b] : g_msgBoxes)
+        {
+            const int32_t count = static_cast<int32_t>(word(box + 8u)), cap = static_cast<int32_t>(word(box + 4u));
+            if (!b.fullSends && count < cap)
+                continue;
+            std::snprintf(buf, sizeof(buf), " | box %08x %d/%d waiting %08x: sends %llu (full %llu, last t%d msg %08x), recvs %llu (empty %llu, last t%d %.1f s ago)", box, count,
+                          cap, word(box + 0x18u), (unsigned long long)b.sends, (unsigned long long)b.fullSends, b.lastSender, b.lastMsg,
+                          (unsigned long long)b.recvs, (unsigned long long)b.emptyRecvs, b.lastReceiver, b.lastRecvUs ? (now - b.lastRecvUs) / 1e6 : -1.0);
+            line += buf;
+            // A sender asleep on it: who receives, and what that thread does.
+            if (word(box + 0x18u) != 0u && b.lastReceiver >= 0 && g_runtimeForLog)
+                for (const EeThreadSnapshot &t : g_runtimeForLog->eeScheduler().snapshot().threads)
+                    if (t.id == b.lastReceiver)
+                    {
+                        std::snprintf(buf, sizeof(buf), " (receiver t%d status %d wait %d id %d pc %08x ra %08x prio %d)", t.id, static_cast<int>(t.status),
+                                      static_cast<int>(t.waitReason), t.waitId, t.pc, t.ra, t.currentPriority);
+                        line += buf;
+                    }
+            b.sends = b.fullSends = b.recvs = b.emptyRecvs = 0;
+        }
+        // The pass's heap: its block list, as decomp_gctick walks it.
+        {
+            uint32_t b = (word(word(0x001E0BF4u) + 8u) & 0xFFFFFFu) << 2, blocks = 0, freeBlocks = 0, tail = 0;
+            uint64_t freeBytes = 0, largest = 0;
+            while (b != 0u && blocks < 65536u)
+            {
+                const uint32_t next = (word(b + 8u) & 0xFFFFFFu) << 2;
+                ++blocks;
+                if (!(g_ram[(b + 0xFu) & 0x1FFFFFFu] & 1u) && next != 0u)
+                {
+                    const uint64_t size = next > b ? next - b : b - next;
+                    ++freeBlocks;
+                    freeBytes += size;
+                    largest = std::max<uint64_t>(largest, size);
+                }
+                tail = b;
+                b = next;
+            }
+            std::snprintf(buf, sizeof(buf), " | heap blocks %u free %u (%.0f KB, largest %.0f KB), last %08x %s", blocks, freeBlocks, freeBytes / 1024.0,
+                          largest / 1024.0, tail, tail && (g_ram[(tail + 0xFu) & 0x1FFFFFFu] & 1u) ? "used" : "free");
+            line += buf;
+        }
+        // A job running over 5 s: its node's first 0x40 bytes and the loader's
+        // waits (once a report while it lasts).
+        if (l.job && (l.job & 0xFE000003u) == 0u && now - l.jobSince > 5000000u)
+        {
+            line += " | job words";
+            for (uint32_t i = 0; i < 0x40u; i += 4u)
+            {
+                std::snprintf(buf, sizeof(buf), " %08x", word(l.job + i));
+                line += buf;
+            }
+            if (g_runtimeForLog)
+            {
+                // Every thread (id:status/wait reason@pc,ra), the loader's in full below.
+                line += " | threads";
+                for (const EeThreadSnapshot &t : g_runtimeForLog->eeScheduler().snapshot().threads)
+                {
+                    std::snprintf(buf, sizeof(buf), " t%d:%d/%d@%08x,%08x", t.id, static_cast<int>(t.status), static_cast<int>(t.waitReason), t.pc, t.ra);
+                    line += buf;
+                }
+            }
+            if (g_runtimeForLog)
+                for (const EeThreadSnapshot &t : g_runtimeForLog->eeScheduler().snapshot().threads)
+                    if (t.id == 11)
+                    {
+                        std::snprintf(buf, sizeof(buf), " | t11 now status %d wait %d id %d pc %08x ra %08x sp %08x prio %d", static_cast<int>(t.status),
+                                      static_cast<int>(t.waitReason), t.waitId, t.pc, t.ra, t.sp, t.currentPriority);
+                        line += buf;
+                    }
+        }
+        std::fprintf(stderr, "%s\n", line.c_str());
+        const uint32_t job = l.job, type = l.jobType;
+        const uint64_t since = l.jobSince;
+        l = LoaderLog{};
+        l.job = job;
+        l.jobType = type;
+        l.jobSince = since;
+        l.gc0 = g;
+        sotc_decomp::g_gcStats.maxElapsed = 0;
+    }
     void audioLog()
     {
         namespace as = ps2x::iop::audio_stats;
@@ -2538,6 +2951,7 @@ namespace sotc_native
             if (word(0x118fe34u) != 0u)
                 ++busyFrames;
         }
+        loaderFrame(now);
         struct Totals
         {
             uint64_t status, gaps50, refills, halves, stale, staleSrc, stalls, stallUs, starts, stops, stopsStalled, keyOns, keyOffs, ends, retrig;
@@ -2593,6 +3007,7 @@ namespace sotc_native
                      mx(as::otherReadMaxUs), (d(&Totals::iopReads) + d(&Totals::otherReads)) ? d(&Totals::wakeUs) / 1000.0 / (d(&Totals::iopReads) + d(&Totals::otherReads)) : 0.0,
                      mx(as::wakeMaxUs), d(&Totals::cacheHits), d(&Totals::cacheBytes) / 1024.0, (unsigned long long)queueMax, (unsigned long long)adpcmMax,
                      (unsigned long long)adpcmJobs, adpcmJobs ? adpcmWaitUs / 1000.0 / adpcmJobs : 0.0, adpcmWaitMaxUs / 1000.0, (unsigned long long)busyFrames);
+        loaderReport(now);
         last = now;
         before = t;
         frames = queueMax = adpcmMax = adpcmWaitMaxUs = adpcmWaitUs = adpcmJobs = busyFrames = 0;
@@ -4393,50 +4808,28 @@ namespace sotc_native
     // from a copy of its bytes: read and triangulated there (a skinned one
     // made into its bind pose), taken up at a later frame's start. False:
     // no worker, build it here.
-    bool buildPacketAsync(uint64_t id, uint32_t data, uint32_t size, bool twoPasses)
+    // One object a build (round 14): the packet's bytes copied without
+    // zeroing first, the ids in place; was a shared_ptr, a vector of ids and
+    // two std::functions (~26 us a build in calibrated Vita3K at an area
+    // change's ~1 200).
+    struct PacketWork final : native_renderer::AsyncWork
     {
-        struct Job
-        {
-            std::vector<uint8_t> bytes;
-            uint32_t base = 0;
-            bool ok = false, skinned = false, lit = false;
-            std::vector<native_renderer::Vertex> vertices, second;
-            SkinnedPacket packet;
-        };
-        if (!native_renderer::tuning().asyncBuilds)
-            return false;
-        auto job = std::make_shared<Job>();
-        job->base = data & ~3u;
-        const uint32_t bytes = (data - job->base) + size + 64u; // and a little after (read as the game's would be)
-        try
-        {
-            job->bytes.resize(bytes);
-        }
-        catch (const std::bad_alloc &)
-        {
-            return false;
-        }
-        if ((job->base & 0x1FFFFFFu) + bytes <= 0x2000000u)
-            std::memcpy(job->bytes.data(), g_ram + (job->base & 0x1FFFFFFu), bytes);
-        else
-            for (uint32_t i = 0; i + 4u <= bytes; i += 4u)
-            {
-                const uint32_t v = word(job->base + i);
-                std::memcpy(&job->bytes[i], &v, 4);
-            }
-        std::vector<uint64_t> ids{id};
-        if (twoPasses)
-            ids.push_back(id ^ (1ull << 61));
-        const auto work = [job, data, size, twoPasses]
+        std::vector<uint8_t> bytes;
+        uint32_t base = 0, data = 0, size = 0;
+        uint64_t id = 0;
+        bool twoPasses = false, ok = false, isSkinned = false, isLit = false;
+        std::vector<native_renderer::Vertex> vertices, second;
+        SkinnedPacket packet;
+        void work() override
         {
             try
             {
                 std::vector<Strip> strips;
-                readBatchesFrom(CopyMem{job->base, &job->bytes}, data, size, strips);
-                job->skinned = skinned(strips);
-                job->lit = lit(strips);
-                if (job->skinned)
-                    job->packet = makeSkinnedPacket(std::move(strips));
+                readBatchesFrom(CopyMem{base, &bytes}, data, size, strips);
+                isSkinned = skinned(strips);
+                isLit = lit(strips);
+                if (isSkinned)
+                    packet = makeSkinnedPacket(std::move(strips));
                 else
                 {
                     const auto place = [](const BatchVertex &v, native_renderer::Vertex &o)
@@ -4448,39 +4841,79 @@ namespace sotc_native
                         o.ny = v.ny;
                         o.nz = v.nz;
                     };
-                    triangulate(strips, place, job->vertices);
+                    triangulate(strips, place, vertices);
                     if (twoPasses) // two textures: the second pass's mesh, with the second coordinates
-                        triangulate(strips, place, job->second, true);
+                        triangulate(strips, place, second, true);
                 }
-                job->ok = true;
+                ok = true;
             }
             catch (const std::bad_alloc &)
             {
-                job->ok = false; // asked for again at its next draw
+                ok = false; // asked for again at its next draw
             }
-            std::vector<uint8_t>().swap(job->bytes);
-        };
-        const auto finish = [job, id, twoPasses]
+            std::vector<uint8_t>().swap(bytes);
+        }
+        void finish() override
         {
-            if (!job->ok)
+            if (!ok)
                 return;
-            if (job->lit)
+            if (isLit)
                 g_litPackets.insert(id);
-            if (job->skinned)
+            if (isSkinned)
             {
                 if (g_skinnedPackets.find(id) == g_skinnedPackets.end())
                 {
-                    g_skinnedPacketBytes += job->packet.bytes;
-                    g_skinnedPackets.emplace(id, std::move(job->packet));
+                    g_skinnedPacketBytes += packet.bytes;
+                    g_skinnedPackets.emplace(id, std::move(packet));
                     g_skinnedIds.insert(id);
                 }
                 return;
             }
-            native_renderer::uploadMesh(id, job->vertices.data(), static_cast<uint32_t>(job->vertices.size()));
+            native_renderer::uploadMesh(id, vertices.data(), static_cast<uint32_t>(vertices.size()));
             if (twoPasses)
-                native_renderer::uploadMesh(id ^ (1ull << 61), job->second.data(), static_cast<uint32_t>(job->second.size()));
-        };
-        return native_renderer::buildAsync(std::move(ids), work, finish);
+                native_renderer::uploadMesh(id ^ (1ull << 61), second.data(), static_cast<uint32_t>(second.size()));
+        }
+    };
+    bool buildPacketAsync(uint64_t id, uint32_t data, uint32_t size, bool twoPasses)
+    {
+        if (!native_renderer::tuning().asyncBuilds)
+            return false;
+        PacketWork *job = new (std::nothrow) PacketWork();
+        if (!job)
+            return false;
+        job->base = data & ~3u;
+        job->data = data;
+        job->size = size;
+        job->id = id;
+        job->twoPasses = twoPasses;
+        const uint32_t bytes = (data - job->base) + size + 64u; // and a little after (read as the game's would be)
+        try
+        {
+            if ((job->base & 0x1FFFFFFu) + bytes <= 0x2000000u)
+            {
+                const uint8_t *from = g_ram + (job->base & 0x1FFFFFFu);
+                job->bytes.assign(from, from + bytes);
+            }
+            else
+            {
+                job->bytes.resize(bytes);
+                for (uint32_t i = 0; i + 4u <= bytes; i += 4u)
+                {
+                    const uint32_t v = word(job->base + i);
+                    std::memcpy(&job->bytes[i], &v, 4);
+                }
+            }
+        }
+        catch (const std::bad_alloc &)
+        {
+            delete job;
+            return false;
+        }
+        job->ids[0] = id;
+        job->idCount = 1;
+        if (twoPasses)
+            job->ids[job->idCount++] = id ^ (1ull << 61);
+        return native_renderer::buildAsync(job);
     }
 
     // modelDispHook's debugging switches, read once: a function-local static
@@ -4773,7 +5206,13 @@ namespace sotc_native
                 ++native_renderer::frameCounters().heldDraws;
                 return;
             }
-            if (needsBuild && !changedInPlace && buildPacketAsync(id, data, size, twoPasses))
+            bool queued = false;
+            if (needsBuild && !changedInPlace)
+            {
+                SOTC_PROF_SCOPE(kHookQueue);
+                queued = buildPacketAsync(id, data, size, twoPasses);
+            }
+            if (queued)
                 ; // on the worker: this packet is left out until it is taken up
             else if (needsBuild)
             {
@@ -5377,6 +5816,14 @@ void installSotcNative(PS2Runtime &runtime)
     {
         std::cerr << "[sotc:native] no native renderer on this platform" << std::endl;
         return;
+    }
+    g_runtimeForLog = &runtime;
+    if (ps2x::iop::audio_stats::level() && runtime.hasFunction(0x001B0FC0u) && runtime.hasFunction(0x001B1138u))
+    {
+        g_sendMsg = runtime.lookupFunction(0x001B0FC0u);
+        runtime.registerFunction(0x001B0FC0u, sendMsgHook);
+        g_recvMsg = runtime.lookupFunction(0x001B1138u);
+        runtime.registerFunction(0x001B1138u, recvMsgHook);
     }
     g_modelDisp = runtime.lookupFunction(kModelDisp);
     runtime.registerFunction(kModelDisp, modelDispHook);

@@ -1332,7 +1332,7 @@ namespace sotc_prof
         for (int h = 0; h < kHookCount; ++h)
         {
             static const char *const names[kHookCount] = {"hook.modelDisp", "hook.state", "hook.partTest", "hook.palette",
-                                                          "hook.packets", "hook.packetId", "hook.build", "hook.skin"};
+                                                          "hook.packets", "hook.packetId", "hook.build", "hook.skin", "hook.queue", "hook.plan", "hook.hash", "hook.moves"};
             newProbe(names[h]);
         }
         wrapAll(runtime);

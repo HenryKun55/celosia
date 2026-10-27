@@ -203,6 +203,21 @@ namespace native_renderer
     // left out. False (nothing run) when the tuning is off: the caller
     // builds it itself.
     bool buildAsync(std::vector<uint64_t> ids, std::function<void()> work, std::function<void()> finish);
+    // The same as one object (round 14: an area change queues ~1 200 packet
+    // builds in one frame, and the vector and two std::functions were three
+    // heap allocations each, ~26 us a build in calibrated Vita3K, ~90 us on
+    // the console): up to two ids in place, work() and finish() as above.
+    // Owned by the queue from here on (deleted after finish).
+    struct AsyncWork
+    {
+        uint64_t ids[2] = {0, 0};
+        uint32_t idCount = 0;
+        virtual ~AsyncWork() = default;
+        virtual void work() = 0;
+        virtual void finish() = 0;
+        virtual const std::vector<uint64_t> *moreIds() const { return nullptr; } // ids past the first two
+    };
+    bool buildAsync(AsyncWork *job);
     // Whether this frame may still queue a build (SOTC_ASYNC_BUDGET=<n> builds a
     // frame; no limit by default): a caller over it leaves the draw out (held)
     // and asks again the next frame.
