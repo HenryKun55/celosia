@@ -728,6 +728,7 @@ namespace
                     std::memcpy(spr + last, from + (chunks - 2u) * 0x4000u + last, 0x4000u - last);
                 std::memcpy(spr, from + (chunks - 1u) * 0x4000u, last);
                 std::memmove(rdram + dstOff, from, total);
+                sotc_decomp::noteGuestMove(srcOff, dstOff, total);
                 if (check)
                 {
                     static uint64_t checks = 0, bad = 0;

@@ -53,8 +53,8 @@ namespace ps2x::iop::detail
         // keep the PS2 encodings (that is what the game's data holds).
         void setVolume(int voice, uint16_t left, uint16_t right);
         void setPitch(int voice, uint16_t pitch);
-        void setAdsr1(int voice, uint16_t value) { m_voices[voice].adsr1 = value; }
-        void setAdsr2(int voice, uint16_t value) { m_voices[voice].adsr2 = value; }
+        void setAdsr1(int voice, uint16_t value) { m_voices[voice].adsr1 = value, m_voices[voice].envCycles = 0; }
+        void setAdsr2(int voice, uint16_t value) { m_voices[voice].adsr2 = value, m_voices[voice].envCycles = 0; }
         void setStart(int voice, uint32_t byteAddress) { m_voices[voice].start = toWords(byteAddress); }
         void setLoop(int voice, uint32_t byteAddress) { m_voices[voice].loop = toWords(byteAddress); }
         void setNext(int voice, uint32_t byteAddress) { m_voices[voice].next = toWords(byteAddress); }
@@ -119,6 +119,10 @@ namespace ps2x::iop::detail
             Phase phase = Phase::Off;
             int32_t level = 0;
             uint32_t envCounter = 0;
+            // tickEnvelope's samples per step in the phase as it is (0: not
+            // known, worked out at the next call). Anything that changes the
+            // phase, level or ADSR outside it sets 0.
+            uint32_t envCycles = 0;
             uint32_t counter = 0;
             int32_t prev1 = 0, prev2 = 0;
             std::array<int16_t, 28> block{};
@@ -159,6 +163,8 @@ namespace ps2x::iop::detail
         void decodeBlock(Voice &voice);
         int32_t nextSample(Voice &voice);
         void tickEnvelope(Voice &voice);
+        void tickEnvelopeStep(Voice &voice);
+        static uint32_t envelopeCycles(const Voice &voice);
         void mixVoice(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
         void reverb(Core &core, int32_t inL, int32_t inR, int32_t &outL, int32_t &outR);
         void render(int16_t *destination, uint32_t frames);

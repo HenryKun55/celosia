@@ -1876,6 +1876,167 @@ same runs as round 11's 51.4%.
      disc.
 6. Regenerate build/vu1rec (VU1 dumps, ./celosia vu1).
 
+## Round 13: the new area's draws, the build queue, the moved packets (2026-10-27)
+
+**What the 3 700 draws are.** A Mac draw dump (SOTC_DRAW_DUMP_FRAMES) of the
+route's area change: it is not two areas drawn at once. It is the tutorial
+cutscene in front of the shrine (r13/sheet-window.png), ~12 s (~120 frames in
+calibrated Vita3K), then back to ~900-1 100 draws in the plain. Of 3 702 draws:
+1 071 are layer 1 (the background: no depth test, painter's order, one
+matrix, 34 textures interleaved), 1 865 layer 2, 443 layer 3. Draws with the
+same state next to each other make 1 214 runs; 904 runs are single draws
+(another texture or matrix next to them). The GL backend already merges the
+runs (Mac GL: 1 243 GL calls for 3 700 draws), so merging alone cannot go
+much lower.
+
+Tried and dropped (kept in r13/native_renderer_gl.reorder-index.cpp):
+- sorting stretches of provably opaque draws by state inside a layer: few
+  draws may move (background, blending, cut-outs); 1 243 -> 1 203 calls, and
+  depth ties changed 10-60 pixels (SOTC_GL_SELFCHECK);
+- merged runs through cached 16-bit indices in one pool: the runs lie over
+  several pools (1 329 of 2 057 merged draws), so few index runs formed; split
+  at pools it got worse (1 695 calls).
+
+**Where the render thread's time goes** (VITA3K_PROFILE, the 3 700-draw
+window, 240 MHz): ~85% is per GL call. sceGxmDraw 22%, vitaGL's uniform
+copies (sceClibMemcpy) 12%, memcmp 10% (our uniform cache), sceGxmSetVertexStream
+8% (4 a draw), planFrame 6%, the vertex program lookup 5%, textures 3.5%.
+
+**Changes:**
+1. **vitaGL's vertex layout cache** (HAVE_VERTEX_LAYOUT_CACHE=1 in `./celosia
+   vita`; it was off): a draw with a recent program and layout skips the
+   attribute set-up and the vertex program lookup (sceClibMemcmp 3.9 ->
+   1.1%). celosia.patch also caches each uniform's GXM type at link time
+   (glUniform4fv asked sceGxmProgramParameterGetType every call, 2%).
+2. **The uniform cache compares inline** (native_renderer_gl.cpp uniform4).
+3. **Run copies from the first frame** (kRunFrames 4 -> 1;
+   SOTC_GL_RUN_FRAMES=<n>): after the cut the new area's runs were drawn one
+   by one until copied, 4 frames of 170-190 ms on the render thread. Now
+   170 for the first frame, then 88-99.
+4. **Moved packets keep their ids** (sotc_decomp.h noteGuestMove /
+   walkGuestMoves, packetId, decodedTexture; SOTC_MOVE_MEMO=0 turns it
+   off). SOTC_HASH_STATS=1 (new) showed the area change rehashing the same
+   ~2 300 packets (2.5 MB) and ~100 textures (0.7 MB) every 2-5 frames: the
+   heap's garbage moves (copyViaSpr) moved them and every memo by address
+   missed. The one-memmove moves are now logged (a 4 096-entry ring, indexed
+   by destination); a memo missed at the new address is looked up at the
+   old one, and its id is taken when its 32 sampled words match at the new
+   place (read as if still at the old address). SOTC_MOVE_MEMO_CHECK=1
+   hashes them anyway and compares: 0 of 12 288 packet ids and 0 of 512
+   texture keys differed on the Mac route. The lookup scans at most 8
+   moves back (a scan to the longest move's length cost ~100 ms a frame in
+   Vita3K, build v2); some moves are missed then and hashed as before.
+5. **The async build queue** (native_renderer.cpp AsyncBuilds): the pending
+   ids in an IdSet (no division per draw), the jobs handed to the worker 32
+   at a time and at the frame's end (one lock, one wake-up, not one each).
+6. **The mixer's envelope** (sound_mixer.cpp): between steps only a count
+   and a compare (envCycles; the full step and any sample where a phase can
+   end take the old path). r12/mixtest: test, test2 and test3 hashes
+   identical to HEAD's mixer.
+7. **nowUs on the Vita** from sceKernelGetProcessTimeWide (steady_clock's
+   ns -> us was a 64-bit division: ~8% of the sound thread with the audio
+   log on; also the frame log's clock reads).
+
+**Frame timing (calibrated Vita3K, route2's input, r12/tools/vbwin.py).**
+HEAD = celosia-r12.vpk (r12/w3 runs); r13 = celosia-r13.vpk (r13/f-222);
+"r13 240" is build v3 (r13 without change 3, env with SOTC_GL_DRAW_LOG):
+
+| route window | HEAD 222 | r13 222 | HEAD 240 | r13 240 (v3) | HEAD 333 |
+|---|---|---|---|---|---|
+| the save's load (-1000..0) | 37.3, 52/14/6, 290.1 | 36.1, 39/11/5, 295.8 | 34.5, 44/10/4, 323.1 | 33.6, 33/8/3, 282.9 | 23.5 |
+| the shrine (0..1000) | 52.5 (19.0 fps), 118/50/1, 129.0 | 51.5 (19.4), 117/51/1, 122.3 | 48.0, 110/29/0, 113.3 | 47.1, 106/19/0, 111.6 | 33.7 |
+| the walk out and the area change (1000..4000) | 93.3 (10.7), 537/362/31, 228.3 | 91.5 (10.9), 548/355/29, 247.3 | 86.7, 578/256/23, 214.3 | 84.3, 595/194/22, 216.3 | 60.0 |
+| the plain (4000..6000) | 61.3 (16.3), 544/6/0, 90.3 | 60.0 (16.7), 556/1/0, 98.4 | 55.1, 601/2/0, 102.0 | 54.5, 602/0/0, 82.1 | 39.4 |
+
+Transitions (r12/tools/transition.py: mean / worst / frames > 120 of the 20
+frames from the cut, "after" the mean of frames 40-80 after it):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| HEAD 222 | 37.8 / 183.4 / 2 | 164.1 / 228.3 / 15 | 105.7 | 290, 289 |
+| r13 222 | 37.2 / 178.1 / 1 | 157.9 / 247.3 / 15 | 95.5 | 296, 256 |
+| HEAD 240 | 34.3 / 178.6 / 1 | 152.2 / 214.3 / 15 | 96.1 | 323, 282 |
+| r13 240 (v3, kRunFrames 4) | 33.6 / 173.0 / 1 | 152.0 / 216.3 / 15 | 87.0 | 283, 257 |
+| r13 240 (v4, kRunFrames 1, 170 s run) | 31.6 / 168.7 / 1 | 146.2 / 185.6 / 15 | 86.5 | 269, 213 |
+
+The 333 MHz and the full 240 MHz runs of the final VPK were not made: the
+Mac was on battery (97% -> 27% over the round, never charging) and the round
+stopped measuring at 28%.
+
+What the area change costs now (r13 222, frames 3099-3109):
+- the cut frame: hooks 81.8 ms (HEAD 90.9) for 1 193 queued builds;
+- the next: 1 430 meshes taken up (hooks 21.6);
+- render 168, then 99, 93 ... 87 (HEAD 214, 194, 190, 149, then 92);
+- frames 3103-3109 stay 160-250 ms: hooks 45-69 ms and ~100 ms of game code
+  a frame (the area's streaming in, under the cutscene); the render thread
+  is no longer the limit there.
+
+**Vita3K's traps and the semaphore overflow** (the user's play log):
+- "Unhandled EXC_BAD_ACCESS at pc ..." comes from dynarmic's Mach handler
+  for a fault outside JIT code; Vita3K's signal handler then handles it. The
+  host pcs (r13/v2-240-stdout.txt, symbolised with the run's Vita3K slide)
+  are Vita3K's mspace_malloc / mspace_free (the HLE of sceClibMspace*,
+  which vitaGL's GPU memory allocator uses) and libsystem_platform's memmove
+  (the HLE sceClib memcpy / memset). They come in bursts at loads (~40-50 a
+  420 s route), when vitaGL allocates or fills memory in pages Vita3K still
+  protects for its texture cache ("write protected region was valid" is its
+  path for stale protection). Guest writes (ours, JIT code) are handled
+  quietly. Not a write into memory the GPU is using: the bone palettes
+  (rewriteFramePalette) are a CPU array sent by glUniform at the draw, and
+  pool ranges are reused 4 frames after they are let go. Riding Agro
+  streams the plain's pieces in, so the bursts repeat there. Cost: tens of
+  traps a run.
+- SCE_KERNEL_ERROR_SEMA_OVF: once a route run, ~100 s in, in HEAD r11
+  runs too (r12/h-attract-240, r12/ab-off-route with PS2X_SELF_WAKE off),
+  so not the counted VBlank wake-ups. Our code makes no kernel semaphores
+  (the EE's are EeScheduler objects); the call comes through newlib's
+  pthreads (pte, under std::mutex / condition_variable) or SDL. Not found
+  which; harmless so far.
+
+**Checks.**
+- Mac fixed-30 fps path (SOTC_FRAME_INTERVAL=2 SOTC_POS_LOG=30, to frame
+  5 400) against r12/pos-new: 157 points matched, worst 0.08 units.
+- No decomp natives added (no difftest); moved ids: SOTC_MOVE_MEMO_CHECK
+  above; mixer: r12/mixtest hashes.
+- VU1 code is back: emulated Mac runs (SOTC_NATIVE=2, PS2X_VU1_DUMP=build/vu1)
+  of the route, the attract demo and the intro saved all 17 images the old
+  build had and one more (17746d27); `PS2X_VU1_GEN=build/vu1:build/vu1rec`
+  wrote build/vu1rec (36 files). The eboot is 24.8 MB again (21.96 in r12);
+  the Vita build lists 285 unity units (the "510" of round 12 was the stale
+  Unity directory's file count, not CMake's list).
+
+**Decomp status:** unchanged (no new natives): 5.25% of the MIPS code,
+4.94% by functions (446 of 9 024), 3.02% of the game's own code, 47.5% by
+calls (r12's call dumps).
+
+**Measuring tools (new):** SOTC_HASH_STATS, SOTC_MOVE_MEMO_CHECK,
+SOTC_GL_RUN_FRAMES, r13/draws.py (frame log by windows), r13/runs.py (a draw
+dump's runs), r13/sc.py (two SOTC_GL_SELFCHECK logs side by side).
+
+**Round 14 (plan): 20-30 fps at 222 MHz, no transition hitches.**
+
+1. The walk and the plain are game-thread bound (91.5 and 60 ms at 222;
+   the render thread ~15-20 ms there). The flat profile has no single
+   target: decomp_skeleton::bone, collision (clipDB, finderLeaf, leaf,
+   attributeAddress), the display walk and the hooks, VIF register writes
+   (Vif1Walker::feed / writeIORegister ~3%: the display list kick), texAnim.
+   Next whole subsystems native from the top: ExecCharaGeometry's body,
+   the collision callers, the VIF kick's register path.
+2. The area change after the cut: frames 3103-3109 (160-250 ms) are game
+   code and hooks while the cutscene streams the area in. Profile them with
+   SOTC_SUBSYS_PROF (round 13 had no battery left for it); the hooks there
+   are plan builds (SOTC_PLAN_BUDGET 3 000 packets a frame) and the packet
+   walk of models without plans.
+3. The cut frame's 82 ms of hooks for 1 193 builds: copy, job and
+   std::functions per build; queue from a pre-pass or a pooled job.
+4. Render thread in the cutscene (3 700 draws, ~85 ms at 240): per-call
+   costs in vitaGL. Ideas: set the vertex / fragment programs and the
+   textures only on a change (vitaGL sets them every draw), one vertex
+   stream for packed layouts (4 sceGxmSetVertexStream a draw now),
+   uniforms through one buffer. Or draw the world through sceGxm directly.
+5. The load frames (256-296 ms at 222) with SOTC_SUBSYS_PROF.
+6. The console: the display walk's memory cost (round 11), the driver's lock.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

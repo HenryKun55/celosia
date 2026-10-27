@@ -268,16 +268,19 @@ cmd_vita() {
     # vitaGL built for this port: Z buffers kept across scenes (the GPU GS
     # renderer switches render targets mid-frame), at a pinned revision with
     # our patches. Rebuilt when the revision or the patches change.
+    # HAVE_VERTEX_LAYOUT_CACHE: a draw with the program and vertex layout of
+    # a recent one skips the attribute set-up and the vertex program lookup
+    # (round 13: ~6% of the render thread's time, every draw went that way).
     local vgl=$BUILD/vitagl-src
     local vglPatch=$ROOT/PS2Recomp/ps2xRuntime/platform/vita/vitagl/celosia.patch
-    local vglStamp="$VITAGL_REV sharklog nosplash $(shasum "$vglPatch" | cut -d' ' -f1)"
+    local vglStamp="$VITAGL_REV sharklog nosplash vlcache $(shasum "$vglPatch" | cut -d' ' -f1)"
     if [ ! -f "$vgl/libvitaGL.a" ] || [ "$(cat "$vgl/.celosia-stamp" 2>/dev/null)" != "$vglStamp" ]; then
         say "building vitaGL ($VITAGL_REV)"
         [ -d "$vgl/.git" ] || git clone -q https://github.com/Rinnegatamante/vitaGL "$vgl" || die "could not clone vitaGL"
         git -C "$vgl" checkout -q -f "$VITAGL_REV" || die "vitaGL revision $VITAGL_REV not found"
         git -C "$vgl" apply "$vglPatch" || die "could not apply $vglPatch"
         PATH="$VITASDK/bin:$PATH" make -C "$vgl" clean >/dev/null 2>&1
-        PATH="$VITASDK/bin:$PATH" make -C "$vgl" -j "$JOBS" NO_DEBUG=1 STORE_DEPTH_STENCIL=1 HAVE_SHARK_LOG=1 NO_SPLASHSCREEN=1 >"$LOGS/vitagl-build.log" 2>&1 ||
+        PATH="$VITASDK/bin:$PATH" make -C "$vgl" -j "$JOBS" NO_DEBUG=1 STORE_DEPTH_STENCIL=1 HAVE_SHARK_LOG=1 NO_SPLASHSCREEN=1 HAVE_VERTEX_LAYOUT_CACHE=1 >"$LOGS/vitagl-build.log" 2>&1 ||
             { tail -20 "$LOGS/vitagl-build.log"; die "vitaGL build failed (log: logs/vitagl-build.log)"; }
         echo "$vglStamp" >"$vgl/.celosia-stamp"
     fi

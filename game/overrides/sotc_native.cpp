@@ -84,6 +84,8 @@ namespace sotc_native
     // SOTC_NATIVE_R2=0 (no longer alternated by SOTC_AB); set once a frame
     // (syncFrame). Each part has a switch of its own too.
     bool g_r2 = true;
+    // SOTC_MOVE_MEMO=0: a packet / texture moved by a garbage move is hashed again (round 13).
+    bool g_moveMemo = !std::getenv("SOTC_MOVE_MEMO") || std::atoi(std::getenv("SOTC_MOVE_MEMO")) != 0;
     bool g_quickTextures = true; // decodedTexture: no sample for a texture drawn the frame before (SOTC_TEX_QUICK=0: off)
     bool g_surfaceMemo = true;   // modelDispHook: a surface's state worked out once a frame (SOTC_SURFACE_MEMO=0: off)
     bool g_prefetch = true;      // modelDispState / modelDispHook: guest lines asked for ahead (SOTC_HOOK_PREFETCH=0: off)
@@ -134,7 +136,7 @@ namespace sotc_native
     struct HookStats
     {
         bool on = std::getenv("SOTC_HOOK_STATS") != nullptr;
-        uint64_t instances = 0, packets = 0, lodPackets = 0, draws = 0, textures = 0, decoded = 0, idSame = 0, idPrev = 0, idQuick = 0, idSampled = 0,
+        uint64_t instances = 0, packets = 0, lodPackets = 0, draws = 0, textures = 0, decoded = 0, idSame = 0, idPrev = 0, idQuick = 0, idSampled = 0, idMoved = 0,
                  idHashed = 0, nodes = 0, surfaces = 0, surfaceHits = 0;
         std::set<uint32_t> headers, surfaceSet, textureSet;
     };
@@ -376,6 +378,15 @@ namespace sotc_native
     // An NTO2 texture (level 0) as RGBA8, on the GPU once under its header address.
     // The game streams data in and reuses memory when the area changes: what
     // is cached under an address is also keyed by a sample of its contents.
+    // sample() of the bytes at `addr` as if they were at `seed` (a moved packet).
+    uint64_t sampleAt(uint32_t addr, uint32_t seed, uint32_t bytes, uint32_t samples)
+    {
+        uint64_t h = 0xcbf29ce484222325ull ^ seed;
+        const uint32_t step = std::max<uint32_t>((bytes / samples) & ~3u, 4u);
+        for (uint32_t off = 0; off + 4u <= bytes; off += step)
+            h = (h ^ word(addr + off)) * 0x100000001b3ull;
+        return h;
+    }
     uint64_t sample(uint32_t addr, uint32_t bytes, uint32_t samples)
     {
         uint64_t h = 0xcbf29ce484222325ull ^ addr;
@@ -387,6 +398,9 @@ namespace sotc_native
 
     // A hash of every byte of guest memory from addr (word aligned) on, 8 at a
     // time (content ids: packetId, decodedTexture).
+    // SOTC_HASH_STATS=1 (debugging, round 13): bytes hashed per frame, by packets / textures.
+    uint64_t g_hashBytes[2] = {0, 0};
+    uint64_t g_hashCalls[2] = {0, 0};
     uint64_t contentHash(uint32_t addr, uint32_t bytes, uint64_t h)
     {
         addr &= 0x1FFFFFCu;
@@ -724,10 +738,54 @@ namespace sotc_native
                 // (animated), decoded at once, not on the worker.
                 // (not after a garbage move: then another texture was moved there)
                 changedInPlace = found && memo.moveSerial == sotc_decomp::g_guestMoveSerial && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
+                // Moved here by a garbage move (round 13, as packetId): the
+                // memo at the old header, sampled before the move, with the
+                // same samples here (read as if still there), gives its key.
+                if (g_moveMemo && !changedInPlace)
+                {
+                    uint64_t movedKey = 0;
+                    sotc_decomp::walkGuestMoves(header, [&](uint32_t old, uint32_t serial)
+                    {
+                        bool had = false;
+                        ContentMemo &o = memos.find(old, (old >> 4) ^ (old >> 13), had);
+                        if (!had || &o == &memo || o.rewritten || o.format != format || !(o.moveSerial < serial))
+                            return false;
+                        const uint64_t at = sampleAt(header + word(header + 0x14u), old + word(header + 0x14u), pixelBytes, 64u) ^
+                                            sampleAt(header + word(header + 0x18u), old + word(header + 0x18u), psm == 0x14u ? 64u : 1024u, 16u) * 31u ^ format;
+                        if (at != o.sampled)
+                            return false;
+                        movedKey = o.key;
+                        return true;
+                    });
+                    static const bool moveCheck = std::getenv("SOTC_MOVE_MEMO_CHECK") != nullptr;
+                    if (movedKey && moveCheck)
+                    {
+                        uint32_t bytes = 0;
+                        for (uint32_t level = 0, w = width, h = height, levels = std::clamp((format >> 12) & 0xFu, 1u, 7u); level < levels && w >= 1u && h >= 1u;
+                             ++level, w /= 2u, h /= 2u)
+                            bytes += psm == 0x00u ? w * h * 4u : (psm == 0x13u ? w * h : w * h / 2u);
+                        uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
+                        h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ g_ram[(header + 0x1Fu) & 0x1FFFFFFu]);
+                        const uint64_t fresh = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
+                        static uint64_t checks = 0, bad = 0;
+                        ++checks;
+                        bad += fresh != movedKey;
+                        if ((checks & 255u) == 0u || (fresh != movedKey && bad < 10u))
+                            std::fprintf(stderr, "[move-memo] textures: %llu moved keys checked, %llu differ\n", (unsigned long long)checks, (unsigned long long)bad);
+                    }
+                    if (movedKey)
+                    {
+                        key = movedKey;
+                        memo = {header, format, g_frame, sampled, key, g_frame, false, sotc_decomp::g_guestMoveSerial};
+                        goto haveKey;
+                    }
+                }
                 uint32_t bytes = 0;
                 for (uint32_t level = 0, w = width, h = height, levels = std::clamp((format >> 12) & 0xFu, 1u, 7u); level < levels && w >= 1u && h >= 1u;
                      ++level, w /= 2u, h /= 2u)
                     bytes += psm == 0x00u ? w * h * 4u : (psm == 0x13u ? w * h : w * h / 2u);
+                g_hashBytes[1] += bytes;
+                ++g_hashCalls[1];
                 uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
                 h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ g_ram[(header + 0x1Fu) & 0x1FFFFFFu]);
                 key = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
@@ -736,6 +794,7 @@ namespace sotc_native
         }
         else
             key = sampleNow();
+    haveKey:
         if (native_renderer::hasTexture(key))
             return key;
         if ((psm != 0x00u && psm != 0x13u && psm != 0x14u) || width > 1024u || height > 1024u)
@@ -966,6 +1025,15 @@ namespace sotc_native
             t.address[oldest] = address; // the caller fills the entry
             return entries[at][oldest];
         }
+        // The entry for this address if there is one (nothing taken on a miss).
+        PacketMemo *peek(uint32_t address)
+        {
+            const uint32_t at = set(address);
+            for (int i = 0; i < 4; ++i)
+                if (tags[at].address[i] == address && entries[at][i].address == address)
+                    return &entries[at][i];
+            return nullptr;
+        }
         // The tag line, and the entry's first line when the tag is there already.
         void prefetch(uint32_t address, bool entry) const
         {
@@ -1063,6 +1131,52 @@ namespace sotc_native
             memo.quick = quickSample(data, size);
             return memo.id;
         }
+        // Moved here by a garbage move (round 13): the memo at its old address,
+        // sampled before that move and never seen rewritten, with the same 32
+        // words here, gives its id (the move copied the bytes as they were).
+        if (g_moveMemo && (!found || moved))
+        {
+            PacketMemo *from = nullptr;
+            sotc_decomp::walkGuestMoves(data, [&](uint32_t old, uint32_t serial)
+            {
+                PacketMemo *o = g_packetMemo.peek(old);
+                if (!o || o == &memo || o->size != size || o->rewritten || static_cast<uint16_t>(serial - o->moveSerial) == 0u ||
+                    static_cast<uint16_t>(serial - o->moveSerial) > 0x8000u)
+                    return false;
+                if (sampleAt(data, old, size, 32u) != o->sample)
+                    return false;
+                from = o;
+                return true;
+            });
+            if (from)
+            {
+                hs.idMoved += hs.on;
+                const uint64_t id = from->id;
+                // SOTC_MOVE_MEMO_CHECK=1 (checking): the id hashed anew too, and compared.
+                static const bool moveCheck = std::getenv("SOTC_MOVE_MEMO_CHECK") != nullptr;
+                if (moveCheck)
+                {
+                    static uint64_t checks = 0, bad = 0;
+                    const uint64_t fresh = (contentHash(data, size, 0x9E3779B97F4A7C15ull ^ size) & 0x07FFFFFFFFFFFFFFull) | (1ull << 59);
+                    ++checks;
+                    bad += fresh != id;
+                    if ((checks & 4095u) == 0u || (fresh != id && bad < 10u))
+                        std::fprintf(stderr, "[move-memo] packets: %llu moved ids checked, %llu differ\n", (unsigned long long)checks, (unsigned long long)bad);
+                }
+                memo.address = data;
+                memo.size = size;
+                memo.frame = g_frame;
+                memo.id = id;
+                memo.sampledAt = static_cast<uint32_t>(g_frame);
+                memo.rewritten = false;
+                memo.moveSerial = moveSerial;
+                memo.sample = sampled;
+                memo.quick = quickSample(data, size);
+                g_packetChangedInPlace = false;
+                g_packetRewritten = false;
+                return id;
+            }
+        }
         // Drawn in the last two frames and changed: rewritten in place
         // (animated). Long unused: another packet loaded there (async is fine).
         // Not after a garbage move: then another packet was moved there.
@@ -1070,6 +1184,8 @@ namespace sotc_native
         hs.idHashed += hs.on;
         // Bit 59 set, 60-63 clear: apart from the per-frame meshes' ids
         // (bits 60, 62, 63 and a count) and the second pass's (bit 61 flipped).
+        g_hashBytes[0] += size;
+        ++g_hashCalls[0];
         const uint64_t id = (contentHash(data, size, 0x9E3779B97F4A7C15ull ^ size) & 0x07FFFFFFFFFFFFFFull) | (1ull << 59);
         const bool rewritten = found && (memo.rewritten || g_packetChangedInPlace);
         memo.address = data;
@@ -2351,6 +2467,11 @@ namespace sotc_native
                 sum = Sum{};
             }
         }
+        static const bool hashStats = std::getenv("SOTC_HASH_STATS") != nullptr;
+        if (hashStats && g_hashBytes[0] + g_hashBytes[1] > 65536u)
+            std::fprintf(stderr, "[hash] frame %llu: packets %llu (%.0f KB), textures %llu (%.0f KB)\n", (unsigned long long)g_frame,
+                         (unsigned long long)g_hashCalls[0], g_hashBytes[0] / 1024.0, (unsigned long long)g_hashCalls[1], g_hashBytes[1] / 1024.0);
+        g_hashBytes[0] = g_hashBytes[1] = g_hashCalls[0] = g_hashCalls[1] = 0;
         last = now;
         lastMark = mark;
         c = {};

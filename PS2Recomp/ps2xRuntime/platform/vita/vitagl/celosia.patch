@@ -1,3 +1,45 @@
+diff --git a/source/custom_shaders.c b/source/custom_shaders.c
+index 3b91d11..e1fad7b 100644
+--- a/source/custom_shaders.c
++++ b/source/custom_shaders.c
+@@ -304,6 +304,7 @@ typedef struct {
+ 	void *vptr;
+ 	uniform_type type;
+ 	uint8_t sampler_index;
++	SceGxmParameterType gxm_type; // celosia: sceGxmProgramParameterGetType(ptr), taken once at link
+ } uniform;
+ 
+ // Program status enum
+@@ -2521,6 +2522,7 @@ void glLinkProgram(GLuint progr) {
+ 				u->vptr = NULL;
+ 				u->fptr = (uint8_t *)p->unif_fbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
+ 				u->type = UNIFORM_DATA;
++				u->gxm_type = sceGxmProgramParameterGetType(param);
+ #ifdef HAVE_GLSL_TEXTURE_SIZE
+ 				u->sampler = NULL;
+ 				const char *pname = sceGxmProgramParameterGetName(param);
+@@ -2609,6 +2611,7 @@ void glLinkProgram(GLuint progr) {
+ 				u->ptr = param;
+ 				u->type = UNIFORM_DATA;
+ 				u->vptr = (uint8_t *)p->unif_vbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
++				u->gxm_type = sceGxmProgramParameterGetType(param);
+ 				u->fptr = get_uniform_alias_data_ptr(p->frag_uniforms, p->frag_uniforms_num, sceGxmProgramParameterGetName(param));
+ 			}
+ 			ptr += 4;
+@@ -2780,11 +2783,11 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
+ 
+ #define vgl_fill_uniform_data(p, type, size, count) \
+ 	if (u->vptr) { \
+-		vglSetUniformData(u->vptr, sceGxmProgramParameterGetType(u->ptr), offs, count, size, p, type); \
++		vglSetUniformData(u->vptr, u->gxm_type, offs, count, size, p, type); \
+ 		dirty_shader_vert_unifs = GL_TRUE; \
+ 	} \
+ 	if (u->fptr) { \
+-		vglSetUniformData(u->fptr, sceGxmProgramParameterGetType(u->ptr), offs, count, size, p, type); \
++		vglSetUniformData(u->fptr, u->gxm_type, offs, count, size, p, type); \
+ 		dirty_shader_frag_unifs = GL_TRUE; \
+ 	}
+ 
 diff --git a/source/gxm.c b/source/gxm.c
 index 4cbb40b..9350aa6 100644
 --- a/source/gxm.c

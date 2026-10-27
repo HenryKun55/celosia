@@ -21,6 +21,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -52,6 +53,107 @@ namespace sotc_decomp
     // frame before as it was; after a move another one can be at that
     // address, so a memo made before the last move samples again (round 11).
     inline uint32_t g_guestMoveSerial = 0;
+    // The last garbage moves made as one memmove (round 13): [src, src + len)
+    // now at dst, each with the serial it took. A memo by address made before
+    // a move finds its packet or texture at the new address through these
+    // (packetId, decodedTexture), so an area change's moves (the same ~2 000
+    // packets moved every few frames, hundreds of moves a frame) are not
+    // hashed again each time.
+    struct GuestMove
+    {
+        uint32_t src, dst, len, serial;
+    };
+    constexpr uint32_t kGuestMoves = 4096; // the ring's length (a power of two)
+    inline std::vector<GuestMove> g_guestMoves(kGuestMoves);
+    inline uint32_t g_guestMoveCount = 0; // moves made (the ring holds the last kGuestMoves)
+    inline void noteGuestMove(uint32_t src, uint32_t dst, uint32_t len)
+    {
+        g_guestMoves[g_guestMoveCount++ & (kGuestMoves - 1u)] = {src, dst, len, g_guestMoveSerial};
+    }
+    // The ring sorted by destination (made again when moves were added):
+    // move numbers (count - 1 - age), by dst.
+    struct GuestMoveIndex
+    {
+        std::vector<uint32_t> byDst; // move numbers
+        uint32_t builtAt = ~0u, maxLen = 0;
+        uint32_t first = 0; // the oldest move number the run of recorded serials reaches
+    };
+    inline GuestMoveIndex g_guestMoveIndex;
+    inline void buildGuestMoveIndex()
+    {
+        GuestMoveIndex &x = g_guestMoveIndex;
+        if (x.builtAt == g_guestMoveCount)
+            return;
+        x.builtAt = g_guestMoveCount;
+        const uint32_t n = std::min(g_guestMoveCount, kGuestMoves);
+        // Only the newest moves with serials one after the other (a chunked
+        // copy in between was not recorded: what came before it is not used).
+        uint32_t expect = g_guestMoveSerial, used = 0;
+        for (; used < n; ++used)
+        {
+            const GuestMove &m = g_guestMoves[(g_guestMoveCount - 1u - used) & (kGuestMoves - 1u)];
+            if (m.serial != expect)
+                break;
+            --expect;
+        }
+        x.first = g_guestMoveCount - used;
+        x.byDst.resize(used);
+        x.maxLen = 0;
+        for (uint32_t i = 0; i < used; ++i)
+        {
+            x.byDst[i] = x.first + i;
+            x.maxLen = std::max(x.maxLen, g_guestMoves[(x.first + i) & (kGuestMoves - 1u)].len);
+        }
+        std::sort(x.byDst.begin(), x.byDst.end(), [](uint32_t a, uint32_t b)
+        {
+            const GuestMove &ma = g_guestMoves[a & (kGuestMoves - 1u)], &mb = g_guestMoves[b & (kGuestMoves - 1u)];
+            return ma.dst != mb.dst ? ma.dst < mb.dst : a < b;
+        });
+    }
+    // The newest recorded move before move number `before` whose destination
+    // holds `addr` (false: none).
+    inline bool guestMoveInto(uint32_t addr, uint32_t before, uint32_t &number)
+    {
+        const GuestMoveIndex &x = g_guestMoveIndex;
+        // Moves with dst in (addr - maxLen, addr]: the last with dst <= addr, back.
+        auto it = std::upper_bound(x.byDst.begin(), x.byDst.end(), addr, [](uint32_t a, uint32_t n) { return a < g_guestMoves[n & (kGuestMoves - 1u)].dst; });
+        bool found = false;
+        // A few back only (round 13: a scan down to maxLen walked thousands
+        // a lookup once one move was MBs long, ~100 ms a frame on the Vita).
+        // A move missed here costs a hash, not a wrong id.
+        for (int left = 8; left > 0 && it != x.byDst.begin(); --left)
+        {
+            --it;
+            const GuestMove &m = g_guestMoves[*it & (kGuestMoves - 1u)];
+            if (addr - m.dst >= x.maxLen)
+                break; // dst too far below: no later one reaches
+            if (addr - m.dst < m.len && *it - x.first < before - x.first && (!found || *it - x.first > number - x.first))
+            {
+                number = *it;
+                found = true;
+            }
+        }
+        return found;
+    }
+    // Where `addr` was before each recorded move that brought it here, newest
+    // first: `f(oldAddress, moveSerial)` until it returns true (at most 8 moves back).
+    template <typename F>
+    inline bool walkGuestMoves(uint32_t addr, F &&f)
+    {
+        if (!g_guestMoveCount)
+            return false;
+        buildGuestMoveIndex();
+        uint32_t before = g_guestMoveCount, at = addr, number = 0;
+        for (int step = 0; step < 8 && guestMoveInto(at, before, number); ++step)
+        {
+            const GuestMove &m = g_guestMoves[number & (kGuestMoves - 1u)];
+            at = m.src + (at - m.dst);
+            if (f(at, m.serial))
+                return true;
+            before = number;
+        }
+        return false;
+    }
 
     struct Registrar
     {

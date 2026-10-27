@@ -927,10 +927,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t used = 0;
             uint32_t frames = 0; // frames in a row it was drawn (copied from kRunFrames on)
         };
-        // A run is copied once drawn kRunFrames frames in a row (a moving
-        // camera makes runs that do not last); the copies together hold at
-        // most kRunBudget vertices, the least recently drawn going first.
-        static constexpr uint32_t kRunFrames = 4;
+        // A run is copied once drawn kRunFrames frames in a row; the copies
+        // together hold at most kRunBudget vertices, the least recently drawn
+        // going first. Round 13: 1 (was 4, against runs a moving camera makes
+        // that do not last): after an area change the new area's runs were
+        // drawn one by one for 4 frames, the render thread 170-190 ms each
+        // against ~88 once copied (calibrated Vita3K, 240 MHz).
+        static constexpr uint32_t kRunFrames = 1;
         static constexpr uint64_t kRunBudget = 0x30000; // ~7 MB
         IdMap<RunCopy> runs;
         uint64_t runVertices = 0;
@@ -1023,8 +1026,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             float *last = m.last[slot];
             const size_t bytes = static_cast<size_t>(count) * 4u * sizeof(float);
-            if (m.lastCount[slot] == count && std::memcmp(last, v, bytes) == 0)
-                return;
+            if (m.lastCount[slot] == count)
+            {
+                // Word by word, inline (memcmp's library call was ~2.5% of the
+                // render thread on the Vita, round 13): bits, as memcmp.
+                const int n = count * 4;
+                int i = 0;
+                for (; i < n; ++i)
+                {
+                    uint32_t a, b;
+                    std::memcpy(&a, last + i, 4);
+                    std::memcpy(&b, v + i, 4);
+                    if (a != b)
+                        break;
+                }
+                if (i == n)
+                    return;
+            }
             std::memcpy(last, v, bytes);
             m.lastCount[slot] = count;
             glUniform4fv(m.location[slot], count, v);
@@ -2282,7 +2300,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         if (copy->used != arenaFrame) // (the same run twice in a frame counts once)
                             copy->frames = copy->used + 1u == arenaFrame ? copy->frames + 1u : 1u;
                         copy->used = arenaFrame;
-                        if (copy->pool < 0 && copy->frames >= kRunFrames && !copyRun(k, end, total, *copy))
+                        // SOTC_GL_RUN_FRAMES=<n>: frames in a row before the copy (kRunFrames).
+                        static const uint32_t runFrames = std::getenv("SOTC_GL_RUN_FRAMES") ? std::max(1, std::atoi(std::getenv("SOTC_GL_RUN_FRAMES"))) : kRunFrames;
+                        if (copy->pool < 0 && copy->frames >= runFrames && !copyRun(k, end, total, *copy))
                             copy->frames = 0; // no room: tried again later
                     }
                     if (!copy || copy->pool < 0 || copy->count != total)

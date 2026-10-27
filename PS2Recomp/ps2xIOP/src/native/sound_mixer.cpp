@@ -94,6 +94,7 @@ namespace ps2x::iop::detail
             voice.phase = Phase::Attack;
             voice.level = 0;
             voice.envCounter = 0;
+            voice.envCycles = 0;
             voice.counter = 0;
             voice.prev1 = voice.prev2 = 0;
             voice.history.fill(0);
@@ -112,6 +113,7 @@ namespace ps2x::iop::detail
             {
                 voice.phase = Phase::Release;
                 voice.envCounter = 0;
+                voice.envCycles = 0;
             }
         }
     }
@@ -254,6 +256,7 @@ namespace ps2x::iop::detail
                 {
                     voice.phase = Phase::Off;
                     voice.level = 0;
+                    voice.envCycles = 0;
                     audio_stats::dataEnds.fetch_add(1, std::memory_order_relaxed);
                 }
             }
@@ -265,7 +268,56 @@ namespace ps2x::iop::detail
         return sample;
     }
 
+    // Round 13: the samples between steps are a count and a compare (the
+    // envelope was ~25% of the sound thread, worked out every sample). The
+    // step itself, and any sample where the phase may end, take the full
+    // path below: the same levels at the same samples.
     void SoundMixer::tickEnvelope(Voice &voice)
+    {
+        if (voice.envCycles && voice.envCounter + 1u < voice.envCycles)
+        {
+            ++voice.envCounter;
+            return;
+        }
+        tickEnvelopeStep(voice);
+        voice.envCycles = envelopeCycles(voice);
+    }
+
+    uint32_t SoundMixer::envelopeCycles(const Voice &voice)
+    {
+        uint32_t rate = 0;
+        bool increase = false, exponential = false;
+        switch (voice.phase)
+        {
+        case Phase::Attack:
+            if (voice.level >= 0x7FFF)
+                return 0; // ends at the next call
+            rate = (voice.adsr1 >> 8u) & 0x7Fu, increase = true, exponential = (voice.adsr1 & 0x8000u) != 0u;
+            break;
+        case Phase::Decay:
+            if (voice.level <= (((voice.adsr1 & 0xFu) + 1) << 11))
+                return 0;
+            rate = ((voice.adsr1 >> 4u) & 0xFu) << 2u, increase = false, exponential = true;
+            break;
+        case Phase::Sustain:
+            rate = (voice.adsr2 >> 6u) & 0x7Fu, increase = (voice.adsr2 & 0x4000u) == 0u, exponential = (voice.adsr2 & 0x8000u) != 0u;
+            break;
+        case Phase::Release:
+            if (voice.level <= 0)
+                return 0;
+            rate = (voice.adsr2 & 0x1Fu) << 2u, increase = false, exponential = (voice.adsr2 & 0x20u) != 0u;
+            break;
+        case Phase::Off:
+            return 0;
+        }
+        const int32_t shift = static_cast<int32_t>(rate >> 2u);
+        uint32_t cycles = 1u << std::max(0, shift - 11);
+        if (exponential && increase && voice.level > 0x6000)
+            cycles *= 4u;
+        return cycles;
+    }
+
+    void SoundMixer::tickEnvelopeStep(Voice &voice)
     {
         // (The step's size is worked out only when the counter reaches it:
         // the same values as computing it every sample.)
@@ -346,7 +398,10 @@ namespace ps2x::iop::detail
             const float t = static_cast<float>(voice.counter) / 4096.0f;
             const float p0 = voice.history[0], p1 = voice.history[1], p2 = voice.history[2], p3 = voice.history[3];
             const float interpolated = p1 + 0.5f * t * (p2 - p0 + t * (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3 + t * (3.0f * (p1 - p2) + p3 - p0)));
-            tickEnvelope(voice);
+            if (voice.envCycles && voice.envCounter + 1u < voice.envCycles) // tickEnvelope's count, here
+                ++voice.envCounter;
+            else
+                tickEnvelope(voice);
             const int32_t sample = (clamp16(static_cast<int32_t>(interpolated)) * voice.level) >> 15;
             const int32_t left = (sample * voice.volL) >> 15, right = (sample * voice.volR) >> 15;
             if (dryL)

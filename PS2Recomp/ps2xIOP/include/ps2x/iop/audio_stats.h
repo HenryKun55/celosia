@@ -4,6 +4,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 
 // Sound continuity counters (round 12): cheap atomics bumped by the native
 // sound driver (iop_sg2.cpp), its mixer (sound_mixer.cpp), the host audio
@@ -15,6 +18,12 @@ namespace ps2x::iop::audio_stats
 {
     inline uint64_t nowUs()
     {
+#if defined(__vita__)
+        // Microseconds as the kernel keeps them (steady_clock's nanoseconds
+        // cut to microseconds took a 64-bit division, a library call on the
+        // Cortex-A9: ~8% of the sound thread with the log on, round 13).
+        return sceKernelGetProcessTimeWide();
+#endif
         return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
                                          .count());

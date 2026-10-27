@@ -23,6 +23,7 @@
 #include <thread>
 #include <unordered_set>
 #if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 #endif
@@ -775,6 +776,9 @@ namespace native_renderer
     }
     uint64_t nowUs()
     {
+#if defined(__vita__)
+        return sceKernelGetProcessTimeWide(); // no 64-bit division (see audio_stats::nowUs)
+#endif
         return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
     }
     std::atomic<uint64_t> g_frontSkinned{0};
@@ -795,7 +799,26 @@ namespace native_renderer
         std::deque<Job> todo;
         std::vector<Job> done;
         bool started = false;
-        std::unordered_set<uint64_t> pending; // the game thread's: ids of jobs not taken up yet
+        // The game thread's: ids of jobs not taken up yet (asked at every draw
+        // while builds are out: a flat set, no division per lookup).
+        IdSet pending;
+        bool anyPending() const { return pending.size() != 0u; }
+        // The game thread's: jobs made this frame not handed over yet (round
+        // 13: handed over 32 at a time and at the frame's end, one lock and
+        // one wake-up for them, not one each: an area change queues ~1 200).
+        std::vector<Job> staged;
+        void flush()
+        {
+            if (staged.empty())
+                return;
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                for (Job &job : staged)
+                    todo.push_back(std::move(job));
+            }
+            staged.clear();
+            wake.notify_one();
+        }
         std::vector<Job> finished;            // the game thread's (kept for its capacity)
 
         void loop()
@@ -859,7 +882,8 @@ namespace native_renderer
         void takeUp()
         {
             queuedThisFrame = 0;
-            if (pending.empty())
+            flush();
+            if (!anyPending())
                 return;
             {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -903,11 +927,9 @@ namespace native_renderer
         ++a.queuedThisFrame;
         for (uint64_t id : ids)
             a.pending.insert(id);
-        {
-            std::lock_guard<std::mutex> lock(a.mutex);
-            a.todo.push_back({std::move(ids), std::move(work), std::move(finish)});
-        }
-        a.wake.notify_one();
+        a.staged.push_back({std::move(ids), std::move(work), std::move(finish)});
+        if (a.staged.size() >= 32u)
+            a.flush();
         if (tuning().frameLog)
             ++frameCounters().asyncJobs;
         return true;
@@ -921,7 +943,7 @@ namespace native_renderer
     bool asyncPending(uint64_t id)
     {
         const AsyncBuilds &a = asyncBuilds();
-        return !a.pending.empty() && a.pending.count(id) != 0;
+        return a.anyPending() && a.pending.count(id);
     }
 
     bool hasMesh(uint64_t id) { return backend() && (g_backend->hasMesh(id) || asyncPending(id)); }
@@ -1161,7 +1183,7 @@ namespace native_renderer
         if (g_dumpFile)
             dumpDraw(mesh, clip, state);
         // Its mesh or texture still on the worker (buildAsync): left out.
-        if (!asyncBuilds().pending.empty() && (asyncPending(mesh) || (state.texture && asyncPending(state.texture))))
+        if (asyncBuilds().anyPending() && (asyncPending(mesh) || (state.texture && asyncPending(state.texture))))
         {
             ++frameCounters().heldDraws;
             return;
@@ -1204,7 +1226,7 @@ namespace native_renderer
                 dumpDraw(meshes[i], clip, state);
         // Held meshes (still on the worker) left out one by one, as draw()
         // leaves them out; the texture is the same for all.
-        const bool texturePending = !asyncBuilds().pending.empty() && state.texture && asyncPending(state.texture);
+        const bool texturePending = asyncBuilds().anyPending() && state.texture && asyncPending(state.texture);
         if (texturePending)
         {
             frameCounters().heldDraws += count;
@@ -1213,7 +1235,7 @@ namespace native_renderer
         static std::vector<uint64_t> kept;
         const uint64_t *list = meshes;
         uint32_t n = count;
-        if (!asyncBuilds().pending.empty())
+        if (asyncBuilds().anyPending())
         {
             kept.clear();
             for (uint32_t i = 0; i < count; ++i)
@@ -1273,6 +1295,8 @@ namespace native_renderer
     }
     void endFrame(uint32_t width, uint32_t height)
     {
+        if (g_asyncBuilds)
+            g_asyncBuilds->flush(); // this frame's builds start now
         // SOTC_QUALITY_CYCLE=N (comparing the quality settings on one scene,
         // e.g. the game paused): every N frames the next of these; the log
         // says which ([quality] lines).
