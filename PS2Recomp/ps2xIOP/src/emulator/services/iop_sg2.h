@@ -7,6 +7,8 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <unordered_map>
+#include <vector>
 
 namespace ps2x::iop::detail
 {
@@ -50,6 +52,8 @@ namespace ps2x::iop::detail
             // which halves got new data since the voice last left them.
             int32_t seenHalf = 0;
             bool fresh[3] = {false, false, false};
+            // audio_stats: paused by the game since (host us, 0: playing).
+            uint64_t stalledSince = 0;
         };
         uint64_t m_logRefills = 0, m_logStale = 0, m_logEntries = 0, m_logStatus = 0;
         double m_logLast = 0.0;
@@ -58,6 +62,7 @@ namespace ps2x::iop::detail
         {
             int32_t op = 0;
             uint32_t arg[6]{};
+            uint64_t queuedUs = 0; // audio_stats: refill wait
         };
         // sceSdEffectAttr per core (0x4c48).
         struct Effect
@@ -79,6 +84,8 @@ namespace ps2x::iop::detail
         void pcmStart(uint32_t buffer, uint32_t size);
         void pcmStop();
         void pcmRefill();
+        void countPitch(uint32_t mask0, uint32_t mask1, uint32_t rate);
+        void countStop(uint32_t mask0, uint32_t mask1);
 
         // libsd equivalents (parameter encodings as the driver passes them).
         void setParam(uint32_t param, uint16_t value);
@@ -109,5 +116,10 @@ namespace ps2x::iop::detail
         uint32_t m_pcmBuffer = 0, m_pcmSize = 0, m_pcmPosition = 0;
         bool m_pcmFirst = false, m_pcmOn = false;
         uint16_t m_pcmVolL = 0, m_pcmVolR = 0;
+        // audio_stats: the bytes last played from each stream source
+        // address (per voice) and each PCM block (stale data checks).
+        std::array<std::unordered_map<uint32_t, uint64_t>, 48> m_sourceHash{};
+        std::vector<uint64_t> m_pcmHash;
+        uint64_t m_lastStatusUs = 0;
     };
 }

@@ -34,6 +34,19 @@ namespace ps2x::iop::detail
         SoundMixer();
 
         [[nodiscard]] std::unique_lock<std::mutex> hold() { return std::unique_lock<std::mutex>(m_lock); }
+        // The driver's status request (the game thread, each sound tick):
+        // tries the lock for a while before sleeping on it. The audio thread
+        // holds it a mix piece at a time (~0.1 ms); a sleeping waiter's wake
+        // took far longer than that in calibrated Vita3K (round 12).
+        [[nodiscard]] std::unique_lock<std::mutex> holdSpinning()
+        {
+            std::unique_lock<std::mutex> lock(m_lock, std::try_to_lock);
+            for (int i = 0; !lock.owns_lock() && i < 20000; ++i)
+                lock.try_lock();
+            if (!lock.owns_lock())
+                lock.lock();
+            return lock;
+        }
         void reset();
 
         // Voices 0..47 (core = voice / 24). Volumes and envelope settings
@@ -86,6 +99,7 @@ namespace ps2x::iop::detail
         // Interleaved stereo frames for the host audio device (any thread).
         size_t readOutput(int16_t *destination, size_t frames);
         [[nodiscard]] static bool pullMode();
+        [[nodiscard]] static bool reverbFast();
 
     private:
         enum class Phase : uint8_t
@@ -129,6 +143,12 @@ namespace ps2x::iop::detail
             int32_t revInL = 0, revInR = 0;
             int32_t revOutL = 0, revOutR = 0, revPrevL = 0, revPrevR = 0;
             std::deque<std::array<int16_t, 2>> input;
+            // The reverb's 30 offsets, each wrapped into the work area once
+            // (reverb(): one compare per access instead of a modulo path);
+            // rebuilt when the area's size or the preset changes.
+            std::array<uint32_t, 30> revWrapped{};
+            uint32_t revWrappedSize = 0;
+            bool revWrappedDirty = true;
         };
 
         static constexpr uint32_t kRamWords = RamBytes / 2u;
@@ -139,7 +159,7 @@ namespace ps2x::iop::detail
         void decodeBlock(Voice &voice);
         int32_t nextSample(Voice &voice);
         void tickEnvelope(Voice &voice);
-        void mixVoice(Voice &voice, int32_t *left, int32_t *right, uint32_t frames);
+        void mixVoice(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
         void reverb(Core &core, int32_t inL, int32_t inR, int32_t &outL, int32_t &outR);
         void render(int16_t *destination, uint32_t frames);
         void pushOutput(const int16_t *frames, size_t count);

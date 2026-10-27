@@ -799,6 +799,38 @@ void EeScheduler::sleepCurrent()
 int EeScheduler::wakeupThread(int id, bool interruptSafe)
 {
     assertExecutor();
+    // iWakeupThread of the thread an interrupt stopped counts a wakeup, as
+    // on the console (only WakeupThread of oneself is illegal). SotC's
+    // VBlank thread (0x1c80a0: SleepThread, then the sound tick, the pads
+    // and the VBlank count) is woken by the VBlank handler: when a slow
+    // frame's catch-up delivers several VBlanks while that thread is running
+    // its tick, all but one were lost, so it ticked once a game frame instead
+    // of once a VBlank (round 12: 55 ticks for 300 VBlanks at ~90 ms frames).
+    // Its tick count paces the sound streams' disc reads (the stream manager
+    // issues them every 360 sound ticks) and the sequencer: the streams ran
+    // dry and replayed old data. PS2X_SELF_WAKE=0: the old behaviour.
+    static const bool selfWake = []
+    {
+        const char *env = std::getenv("PS2X_SELF_WAKE");
+        return !(env && std::atoi(env) == 0);
+    }();
+    if (id != 0 && id == m_currentThreadId && interruptSafe && selfWake)
+    {
+        if (GuestThread *self = thread(id))
+        {
+            ++self->wakeupCount;
+            static const bool log = std::getenv("PS2X_SELF_WAKE_LOG") != nullptr;
+            if (log)
+            {
+                static std::map<uint32_t, uint64_t> counts;
+                const uint64_t n = ++counts[self->entry];
+                if (n == 1 || n % 300 == 0)
+                    std::cerr << "[self-wake] thread " << id << " entry 0x" << std::hex << self->entry << std::dec << " count " << n << std::endl;
+            }
+            publishSnapshot();
+            return KE_OK;
+        }
+    }
     if (id == 0 || id == m_currentThreadId)
     {
         return KE_ILLEGAL_THID;

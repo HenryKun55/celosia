@@ -28,6 +28,7 @@
 #include "ps2_host_backend.h"
 #include "ps2_iop_host.h"
 #include "ps2x/iop/iop_subsystem.h"
+#include "ps2x/iop/audio_stats.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -925,10 +926,44 @@ namespace
 
     void spu2AudioCallback(void *buffer, unsigned int frames)
     {
+        namespace as = ps2x::iop::audio_stats;
+        // audio_stats: the gap since the last call (the device's period is
+        // frames / 48 kHz), late calls, the mix's own time.
+        static uint64_t lastCall = 0;
+        const uint64_t start = as::nowUs();
+        as::callbacks.fetch_add(1, std::memory_order_relaxed);
+        as::callbackFrames.fetch_add(frames, std::memory_order_relaxed);
+        if (lastCall)
+        {
+            const uint64_t gap = start - lastCall;
+            as::raiseMax(as::callbackGapMaxUs, gap);
+            if (gap * 48u > static_cast<uint64_t>(frames) * 1500u) // over 1.5 periods
+                as::callbacksLate.fetch_add(1, std::memory_order_relaxed);
+        }
+        lastCall = start;
+#if defined(PLATFORM_VITA)
+        // Once: the audio thread's priority and cores, as SDL left them
+        // (round 12: is the mix on a core of its own, above the game?).
+        static bool told = false;
+        if (!told)
+        {
+            told = true;
+            SceKernelThreadInfo info{};
+            info.size = sizeof(info);
+            if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0)
+                std::fprintf(stderr, "[audio] callback thread %s: priority %d (initial %d), cpu affinity 0x%x, %u frames a call\n", info.name,
+                             info.currentPriority, info.initPriority, static_cast<unsigned>(info.currentCpuAffinityMask), frames);
+        }
+#endif
         auto *out = static_cast<int16_t *>(buffer);
         size_t produced = 0;
         if (ps2x::iop::IopSubsystem *iop = g_spu2AudioSource.load(std::memory_order_acquire))
             produced = iop->readAudio(out, frames);
+        {
+            const uint64_t spent = as::nowUs() - start;
+            as::mixUs.fetch_add(spent, std::memory_order_relaxed);
+            as::raiseMax(as::mixMaxUs, spent);
+        }
         if (produced < frames)
             std::memset(out + produced * 2u, 0, (frames - produced) * 2u * sizeof(int16_t));
         const int volume = hostmenu::settings().volume.load(std::memory_order_relaxed);
@@ -1024,6 +1059,22 @@ bool PS2Runtime::initialize(const char *title)
         native_renderer::setGlContext([] {});
 #endif
         hostmenu::load();
+        // The device's buffer (frames, 48 kHz): SDL keeps two. 1024 (21 ms)
+        // everywhere until round 12; the Vita now 2048 (43 ms a buffer):
+        // the mix runs on a core the game and the render thread also use,
+        // and a callback late by more than one buffer is a gap in the
+        // sound. PS2X_AUDIO_FRAMES=<n> sets it (a multiple of 64).
+        const int audioFrames = []
+        {
+            if (const char *env = std::getenv("PS2X_AUDIO_FRAMES"))
+                return std::clamp(std::atoi(env) / 64 * 64, 256, 8192);
+#if defined(PLATFORM_VITA)
+            return 2048;
+#else
+            return 1024;
+#endif
+        }();
+        SetAudioStreamBufferSizeDefault(audioFrames); // the Vita's device takes it when opened
         InitAudioDevice();
         m_audioBackend.setAudioReady(IsAudioDeviceReady());
         // PS2X_NO_SPU2_AUDIO=1 keeps the SPU2 silent on the host.
@@ -1031,7 +1082,8 @@ bool PS2Runtime::initialize(const char *title)
         {
             static AudioStream spu2Stream{};
             g_spu2AudioSource.store(m_iopSubsystem.get(), std::memory_order_release);
-            SetAudioStreamBufferSizeDefault(1024);
+            SetAudioStreamBufferSizeDefault(audioFrames);
+            std::fprintf(stderr, "[audio] device buffer %d frames\n", audioFrames);
             spu2Stream = LoadAudioStream(48000, 16, 2);
             SetAudioStreamCallback(spu2Stream, spu2AudioCallback);
             PlayAudioStream(spu2Stream);
@@ -3419,7 +3471,9 @@ void PS2Runtime::run()
                              (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed));
             }
             bool frameShot = false;
-            if (everyFrames && gameFrame >= nextFrameShot)
+            // PS2X_SNAPSHOT_FROM=<frame> (with _FRAMES): none before that game frame.
+            static const uint64_t shotsFrom = std::getenv("PS2X_SNAPSHOT_FROM") ? std::strtoull(std::getenv("PS2X_SNAPSHOT_FROM"), nullptr, 10) : 0u;
+            if (everyFrames && gameFrame >= nextFrameShot && gameFrame >= shotsFrom)
             {
                 frameShot = true;
                 nextFrameShot = (gameFrame / everyFrames + 1u) * everyFrames;

@@ -185,6 +185,9 @@ namespace native_renderer
     bool gpuSkinning();
     void uploadSkinnedMesh(uint64_t id, const SkinVertex *vertices, uint32_t count, const uint32_t *indices, uint32_t indexCount);
     uint32_t framePalette(const float *qwords, uint32_t count); // 0: not kept
+    // The same palette (a handle of this frame's) with other matrices, before
+    // the frame is drawn (SotC: the matrices as the display list's DMA reads them).
+    void rewriteFramePalette(uint32_t handle, const float *qwords, uint32_t count);
 
     bool hasTexture(uint64_t id);
     // RGBA8 (alpha 0x80 = opaque, as the PS2's), kept on the GPU under `id`.
@@ -200,6 +203,10 @@ namespace native_renderer
     // left out. False (nothing run) when the tuning is off: the caller
     // builds it itself.
     bool buildAsync(std::vector<uint64_t> ids, std::function<void()> work, std::function<void()> finish);
+    // Whether this frame may still queue a build (SOTC_ASYNC_BUDGET=<n> builds a
+    // frame; no limit by default): a caller over it leaves the draw out (held)
+    // and asks again the next frame.
+    bool asyncBudgetLeft();
 
     // Draws of one frame: `clip` (column-major) takes model space to clip
     // space with x, y and w as the game's projection gives them (x/w, y/w in

@@ -55,6 +55,9 @@ namespace ps2_stats
     inline std::atomic<uint64_t> sprDmaUs{0}, sprDmaBytes{0}, sprDmas{0};
     inline std::atomic<uint64_t> tlVu1Us{0}, tlVu1IdleUs{0}, tlGsUs{0}, tlRestUs{0}, tlFrames{0};
     // At a kick: account the frame that the previous kick started.
+    // Called (when set) as each display list goes to the VIF1, on the game
+    // thread: the game's debugging checks (SOTC_STALE_CHECK).
+    inline void (*kickHook)() = nullptr;
     inline void frameKicked(uint64_t now, uint64_t vu1IdleNow)
     {
         const uint64_t kick = tlKickUs.load(std::memory_order_relaxed), finish = tlFinishUs.load(std::memory_order_relaxed);

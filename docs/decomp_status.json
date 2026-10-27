@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-26",
- "commit": "23595fb",
+ "updated": "2026-10-27",
+ "commit": "a7829ef",
  "summary": {
   "by_functions": {
    "native": 446,
@@ -15,10 +15,10 @@
    "percent": 5.25
   },
   "by_calls": {
-   "native": 143741107,
+   "native": 79672470,
    "partial": 0,
-   "total": 279490744,
-   "percent": 51.43
+   "total": 167661665,
+   "percent": 47.52
   },
   "game_code_by_size": {
    "native": 66640,

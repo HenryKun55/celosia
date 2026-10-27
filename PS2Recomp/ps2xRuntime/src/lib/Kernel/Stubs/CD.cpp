@@ -2,8 +2,16 @@
 #include "CD.h"
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
+#include "ps2x/iop/audio_stats.h"
 
 #include <condition_variable>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstring>
+#include <fstream>
 #include <thread>
 
 namespace ps2_stubs
@@ -188,7 +196,7 @@ namespace ps2_stubs
         // code sees a partly written buffer and the bytes are the same.
         // PS2X_CD_LOG=2: each sceCdRead's data as it lands in guest memory
         // ("[cd-data] <lbn> <bytes> <fnv64>"), on both paths (checking).
-        void logCdData(uint32_t lbn, const uint8_t *data, size_t bytes)
+        void logCdData(uint32_t lbn, const uint8_t *data, size_t bytes, bool toIop = false)
         {
             static const bool on = []
             {
@@ -200,7 +208,7 @@ namespace ps2_stubs
             uint64_t h = 1469598103934665603ull;
             for (size_t i = 0; i < bytes; ++i)
                 h = (h ^ data[i]) * 1099511628211ull;
-            std::fprintf(stderr, "[cd-data] %u %zu %016llx\n", lbn, bytes, static_cast<unsigned long long>(h));
+            std::fprintf(stderr, "[cd-data] %u %zu %016llx%s\n", lbn, bytes, static_cast<unsigned long long>(h), toIop ? " iop" : "");
         }
 
         namespace cd_async
@@ -222,6 +230,7 @@ namespace ps2_stubs
                 uint32_t lbn = 0;
                 bool toIop = false; // sceCdReadIOPm: guestOffset is an IOP address
                 int logThread = -1;
+                uint64_t submitUs = 0, doneUs = 0; // audio_stats
                 std::vector<uint8_t> buffer;
                 uint8_t *rdram = nullptr;
                 PS2Runtime *runtime = nullptr;
@@ -240,6 +249,147 @@ namespace ps2_stubs
                 }();
                 return on;
             }
+
+            // ---- Read-ahead for the sound streams (round 12) -------------
+            // The streams' reads into IOP memory (sceCdReadIOPm) walk the
+            // disc in order: each one starts where the last ended. After one,
+            // a host thread of its own reads the same length again from
+            // there (at most 512 KB, in 64 KB pieces, waiting while the
+            // worker reads: area loads go first), and the next request it
+            // covers is copied from memory by the worker instead of read.
+            // The bytes are the disc's either way (it is read-only); the
+            // guest sees the same request, wait and completion, sooner.
+            // PS2X_CD_READAHEAD=0: off. Its own file handles: no shared
+            // state with readHostRange (nor g_lastCdError).
+            struct AheadEntry
+            {
+                std::string path;
+                uint64_t offset = 0;
+                std::vector<uint8_t> data;
+                uint64_t used = 0;
+            };
+            struct Ahead
+            {
+                std::mutex mutex;
+                std::condition_variable cv;
+                bool started = false, queued = false;
+                std::string path;
+                uint64_t offset = 0;
+                size_t bytes = 0;
+                std::vector<AheadEntry> entries; // at most kAheadEntries
+                uint64_t clock = 0;
+                std::atomic<bool> workerReading{false};
+            };
+            constexpr size_t kAheadEntries = 4, kAheadMax = 512u * 1024u, kAheadPiece = 64u * 1024u;
+            Ahead &ahead()
+            {
+                static Ahead *a = new Ahead();
+                return *a;
+            }
+            bool aheadEnabled()
+            {
+                static const bool on = []
+                {
+                    const char *env = std::getenv("PS2X_CD_READAHEAD");
+                    return !(env && std::atoi(env) == 0);
+                }();
+                return on;
+            }
+            bool aheadPread(const std::string &path, uint64_t offset, uint8_t *dst, size_t bytes)
+            {
+#if defined(PLATFORM_VITA)
+                static std::vector<std::pair<std::string, SceUID>> files; // this thread's only
+                SceUID fd = -1;
+                for (const auto &[name, handle] : files)
+                    if (name == path)
+                        fd = handle;
+                if (fd < 0)
+                {
+                    fd = sceIoOpen(path.c_str(), SCE_O_RDONLY, 0);
+                    if (fd < 0)
+                        return false;
+                    files.emplace_back(path, fd);
+                }
+                return sceIoPread(fd, dst, static_cast<SceSize>(bytes), static_cast<SceOff>(offset)) == static_cast<int>(bytes);
+#else
+                std::ifstream file(path, std::ios::binary);
+                if (!file.is_open())
+                    return false;
+                file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+                file.read(reinterpret_cast<char *>(dst), static_cast<std::streamsize>(bytes));
+                return static_cast<size_t>(file.gcount()) == bytes;
+#endif
+            }
+            void aheadLoop()
+            {
+                Ahead &a = ahead();
+                for (;;)
+                {
+                    std::string path;
+                    uint64_t offset;
+                    size_t bytes;
+                    {
+                        std::unique_lock lock(a.mutex);
+                        a.cv.wait(lock, [&a] { return a.queued; });
+                        a.queued = false;
+                        path = a.path;
+                        offset = a.offset;
+                        bytes = a.bytes;
+                        bool have = false;
+                        for (const AheadEntry &e : a.entries)
+                            have |= e.path == path && e.offset <= offset && offset + bytes <= e.offset + e.data.size();
+                        if (have)
+                            continue;
+                    }
+                    std::vector<uint8_t> data(bytes);
+                    bool ok = true;
+                    for (size_t done = 0; ok && done < bytes; done += kAheadPiece)
+                    {
+                        while (a.workerReading.load(std::memory_order_acquire))
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        ok = aheadPread(path, offset + done, data.data() + done, std::min(kAheadPiece, bytes - done));
+                    }
+                    if (!ok)
+                        continue; // past the file's end, or an error: simply not cached
+                    std::lock_guard lock(a.mutex);
+                    AheadEntry entry{path, offset, std::move(data), ++a.clock};
+                    if (a.entries.size() < kAheadEntries)
+                        a.entries.push_back(std::move(entry));
+                    else
+                        *std::min_element(a.entries.begin(), a.entries.end(), [](const AheadEntry &x, const AheadEntry &y) { return x.used < y.used; }) =
+                            std::move(entry);
+                }
+            }
+            // The worker: a cached copy of the whole range, if there is one.
+            bool aheadTake(const std::string &path, uint64_t offset, uint8_t *dst, size_t bytes)
+            {
+                Ahead &a = ahead();
+                std::lock_guard lock(a.mutex);
+                for (AheadEntry &e : a.entries)
+                    if (e.path == path && e.offset <= offset && offset + bytes <= e.offset + e.data.size())
+                    {
+                        std::memcpy(dst, e.data.data() + (offset - e.offset), bytes);
+                        e.used = ++a.clock;
+                        return true;
+                    }
+                return false;
+            }
+            void aheadQueue(const std::string &path, uint64_t offset, size_t bytes)
+            {
+                Ahead &a = ahead();
+                std::lock_guard lock(a.mutex);
+                if (!a.started)
+                {
+                    a.started = true;
+                    std::thread([] { aheadLoop(); }).detach();
+                }
+                a.path = path;
+                a.offset = offset;
+                a.bytes = std::min(bytes, kAheadMax);
+                a.queued = true;
+                a.cv.notify_all();
+            }
+
             void workerLoop()
             {
                 State &s = state();
@@ -256,10 +406,27 @@ namespace ps2_stubs
                     if (s.buffer.size() < bytes)
                         s.buffer.resize(bytes);
                     uint8_t *dst = s.buffer.data();
+                    const bool toIop = s.toIop;
                     lock.unlock();
-                    const bool ok = readHostRange(path, offset, dst, bytes);
+                    bool ok;
+                    const std::string key = path.string();
+                    if (toIop && aheadEnabled() && aheadTake(key, offset, dst, bytes))
+                    {
+                        ok = true;
+                        ps2x::iop::audio_stats::cacheHits.fetch_add(1, std::memory_order_relaxed);
+                        ps2x::iop::audio_stats::cacheBytes.fetch_add(bytes, std::memory_order_relaxed);
+                    }
+                    else
+                    {
+                        ahead().workerReading.store(true, std::memory_order_release);
+                        ok = readHostRange(path, offset, dst, bytes);
+                        ahead().workerReading.store(false, std::memory_order_release);
+                    }
+                    if (ok && toIop && aheadEnabled())
+                        aheadQueue(key, offset + bytes, bytes);
                     lock.lock();
                     s.ok = ok;
+                    s.doneUs = ps2x::iop::audio_stats::nowUs();
                     s.hostDone = true;
                     s.cv.notify_all();
                     if (s.runtime)
@@ -275,13 +442,27 @@ namespace ps2_stubs
                 if (!s.pending)
                     return;
                 s.cv.wait(lock, [&s] { return s.hostDone; });
+                {
+                    // audio_stats: request -> data in guest memory, and the
+                    // guest side's part of it (host read done -> here).
+                    namespace as = ps2x::iop::audio_stats;
+                    const uint64_t now = as::nowUs(), total = now - s.submitUs, wake = now - std::min(now, s.doneUs);
+                    (s.toIop ? as::iopReads : as::otherReads).fetch_add(1, std::memory_order_relaxed);
+                    as::raiseMax(s.toIop ? as::iopReadMaxUs : as::otherReadMaxUs, total);
+                    if (s.toIop)
+                        as::iopReadUs.fetch_add(total, std::memory_order_relaxed);
+                    as::raiseMax(as::wakeMaxUs, wake);
+                    as::wakeUs.fetch_add(wake, std::memory_order_relaxed);
+                    if (s.toIop && as::level() >= 2)
+                        std::fprintf(stderr, "[audio-ev] %.1f iop-read %06x %zu lbn %u wait %.1f wake %.1f\n", now / 1000.0, s.guestOffset, s.bytes, s.lbn, total / 1000.0, wake / 1000.0);
+                }
                 if (s.toIop)
                 {
                     if (!s.ok || !s.runtime->writeIopMemory(s.guestOffset, s.buffer.data(), s.bytes))
                         s.ok = false;
                     g_lastCdError = s.ok ? 0 : -1;
                     s.pending = false;
-                    logCdData(s.lbn, s.buffer.data(), s.bytes);
+                    logCdData(s.lbn, s.buffer.data(), s.bytes, true);
                     return;
                 }
                 if (s.ok)
@@ -332,6 +513,7 @@ namespace ps2_stubs
                 s.runtime = runtime;
                 s.hostDone = false;
                 s.ok = false;
+                s.submitUs = ps2x::iop::audio_stats::nowUs();
                 s.pending = true;
                 s.queued = true;
                 ++s.token;
@@ -796,7 +978,7 @@ namespace ps2_stubs
             return;
         }
 
-        logCdData(lbn, buffer.data(), bytes);
+        logCdData(lbn, buffer.data(), bytes, true);
         g_lastCdError = 0;
         g_cdStreamingLbn = lbn + sectors;
         setReturnS32(ctx, 1);

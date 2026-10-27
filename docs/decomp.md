@@ -1627,6 +1627,255 @@ it: its disc is the host's SSD).
    renderer's buffer writes (write-combined memory: write whole cache lines,
    no read-back), iosGPFrameInit's clears, the garbage pass.
 
+## Round 12: the parts desync, sound continuity, the transitions (2026-10-27)
+
+**The parts desync (fixed).** The user's slowed Mac run (native Metal, ~11
+game fps, r12/user-parts-desync.png) drew Wander's body in one pose and his
+cape, hair and sword in another. To reproduce it deterministically, the route
+runs at a fixed 12 fps (SOTC_FRAME_INTERVAL=5) and takes pictures from input
+script SNAP entries every 5 VBlanks (r12/tools/route_snap5.txt). These are
+the same game state in every mode, so a SOTC_NATIVE=1 run can be compared
+picture for picture with the emulated GS picture of a SOTC_NATIVE=2 run (the
+GS picture is shown 2 frames later; aligned by the background).
+
+The cause is the bone palette. A skinned instance's chain (instance + 0xc)
+ends in a CALL to its palette's RET packet, and Wander's instances share one
+chain, which the game rewrites between their draws. The console's DMA reads
+it at the kick, after the whole display walk, so every instance on a shared
+chain is drawn with the last matrices written. The hook read the palette at
+each instance's draw, so a part drawn before the last write was posed from
+other matrices than the rest of the character. At 60 fps the two poses are
+one frame apart and look the same; at 11 fps they visibly differ. Evidence:
+- SOTC_STALE_CHECK=1 (new) hashes what each draw read and compares it at the
+  kick (ps2_stats::kickHook, new): matrices and cloth buffers never changed,
+  palettes did (483 of 4 028 instance palettes per 600 kicks on the route).
+- PS2X_DMA_DUMP of one list: the shared chain 01a6fc20 / 01a70520 is CALLed
+  by three instances, and the palette logged at their draws differed.
+- The exploratory checks (camera context, view matrices vs the VU's, cloth
+  buffer parity, feedback blur) all matched the console; their toggles are
+  removed again.
+
+**Fix (sotc_native.cpp skinAtKick):** each skinned draw is recorded with the
+palette it used. At the kick the chains are read again, and a draw whose
+palette changed is fixed up:
+- CPU-posed (Metal): posed again under the same per-frame mesh id (the later
+  upload wins);
+- GPU-posed (GL, the Vita): its frame palette is rewritten
+  (native_renderer::rewriteFramePalette, new backend call).
+
+That is ~11 parts a frame on the route (Metal: 6 762 re-posed over 600
+kicks; GL: 6 279 palettes rewritten). SOTC_SKIN_AT_KICK=0 turns it off.
+Sheets (top: emulated GS reference, middle: before, bottom: after):
+- r12/sheet-desync-fi5-ref-before-after.png (Metal);
+- r12/sheet-desync-gl-ref-before-after.png (GL);
+- r12/sheet-stall-before-after.png: SOTC_FRAME_STALL_MS=70 from frame 2650.
+  Top is before, with the sword floating off the hand; bottom is after. The
+  path is chaotic under the stall, so the frames are not the same moments.
+
+The previous round-12 agent's "m-route-stall-fix" was not this bug. It was
+the sound fix below (the VBlank thread's ticks, 60 -> 300 per 5 s).
+
+**Sound continuity, ranked.** The previous agent's counters were finished
+and checked. They print an "[audio]" and an "[audio-ticks]" line every 5 s
+with SOTC_FRAME_LOG=1 or SOTC_AUDIO_LOG=1 (ps2x/iop/audio_stats.h).
+r12/tools/au.py totals them. Calibrated Vita3K runs, "old" = this build with
+the round's switches off (PS2X_SELF_WAKE=0 PS2X_CD_READAHEAD=0
+PS2X_AUDIO_FRAMES=1024; route2's input):
+
+| | route 240 MHz old | route 240 r12 | intro 240 old | intro 240 r12 | route 200 old | route 200 r12 |
+|---|---|---|---|---|---|---|
+| driver status requests / guest VBlanks | 9 589 / 23 734 | 23 729 / 23 729 | 8 780 / 23 756 | 23 751 / 23 751 | 8 146 / 23 428 | 18 032 / 18 032 |
+| VBlank-thread ticks per 5 s (300 = every VBlank) | 121 | 300 | 111 | 300 | | 300 |
+| stream halves entered | 1 370 | 1 334 | 702 | 1 330 | 1 364 | 1 038 |
+| refills that replayed a source's old bytes (src-stale) | 236 | 0 | 96 | 0 | 349 | 0 |
+| refill wait max | 442 ms | 59 ms | 161 ms | 77 ms | 440 ms | 111 ms |
+| output callbacks late (> 1.5 periods) | 3 597 (1 024 frames) | 0 (2 048) | 13 | 0 | 3 449 | 0 |
+| mix max per callback | 15.7 ms | 32.6 ms | 7.0 | 14.5 | 21.0 | 35.3 (of a 43 ms period) |
+| streams paused by the game / stopped while paused | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| voice retriggers (key on while sounding) | 63 | 331 | 0 | 0 | 72 | 287 |
+
+Notes on the table:
+- The 200 MHz r12 run reached only frame 5 129 in its 420 s: 60 windows.
+- With the other fixes but a 1 024-frame buffer (r12/w1f1024b), 3 219
+  callbacks were late: the buffer length is a cause of its own.
+- Mac at 60 fps (volume 0): both clean (0 late, 0 stale). The read-ahead
+  served 18 of the route's 28 stream reads.
+
+1. **Clock coupling (the main cause).** When a slow frame's catch-up
+   delivered several VBlanks while the VBlank thread (0x1c80a0) was running
+   its tick, the scheduler dropped all but one of the iWakeupThread calls
+   (WakeupThread of the current thread was refused as illegal, including
+   from the interrupt handler). The thread then ticked once a game frame,
+   not once a VBlank: 40% of the VBlanks on the route, 37% on the intro.
+   Its tick paces the sound driver's status / command flush and the stream
+   manager's disc reads. The streams ran dry and replayed old halves (236
+   and 96 stale refills), and the stream position advanced at half speed
+   (the intro's 702 halves against 1 330). Fix (EeScheduler::wakeupThread):
+   iWakeupThread of the thread the interrupt stopped counts a wakeup, as on
+   the console. PS2X_SELF_WAKE=0 gives the old behaviour.
+2. **The output buffer.** 1 024 frames (21 ms) gave 3 200-3 600 late
+   callbacks on the route at 240 and 200 MHz. On the Vita it is now 2 048
+   (43 ms; PS2X_AUDIO_FRAMES=<n>). The audio thread is SDL's, at priority
+   64 (the highest user priority) on any core; that was measured, not
+   changed. The cost: one 2 048-frame mix takes up to 33 ms at 240 MHz and
+   35 ms at 200, so the margin at 200 is thin.
+3. **Disc reads.** Not seen in Vita3K, whose disc is the host's SSD:
+   - the stream reads into IOP memory took at most 31-50 ms;
+   - no stream was ever paused waiting for one;
+   - the ADPCM jobs waited at most 79-199 ms in the loader's queue.
+   For the console's disc (34-45 ms for 6-10 reads of 32 KB), the previous
+   agent's read-ahead for the stream reads is kept (CD.cpp): the next same
+   length is read on a host thread of its own while the worker is idle,
+   and served from memory. It is checked: with PS2X_CD_LOG=2 on the Mac
+   route to frame 4 800, async + read-ahead against sync, the 1 553
+   non-sound reads were identical in order and the 13 common sound requests
+   had identical bytes.
+4. **The mixer's cost.** ~1.4-1.6 s of every 5 s at 240 MHz (the voices
+   ~0.8, the two cores' sample loop ~0.6): ~30% of a core. The previous
+   agent's mixer changes were checked:
+   - one pass per voice into the sums, the envelope step computed only when
+     it is due, the reverb's offsets wrapped once (PS2X_REVERB_FAST=0 for
+     the old path);
+   - with these, the r12/mixtest hash test is bit-exact against the old
+     mixer on the realistic case (test3);
+   - the other two tests differ only through the 16-frame mix pieces
+     (PS2X_MIX_CHUNK=16, was 64), when voices play from the reverb's work
+     area; they are bit-exact with PS2X_MIX_CHUNK=64.
+   The clock reads of the stats now happen only while the log is on.
+5. **The driver's lock.** With the fix the status request runs on every
+   VBlank, and it waits for the mixer's lock ~0.5 ms each (100-200 ms per
+   5 s on the attract demo, ~3% of the game thread). A yield in the mix loop
+   for a waiting driver changed nothing in Vita3K and was reverted; a
+   command queue instead of the lock is in the round 13 plan.
+6. **The game cutting voices.** Retriggers (a key on of a voice still
+   sounding) rise from 63 to 331 at the right tick rate. They are the
+   game's own voice reuse, now running at its real rate.
+
+**Transitions.** Calibrated Vita3K, the route: r12/tools/transition.py
+finds the two cuts (the frame that queued the most async builds) and shows
+the 20 frames from each; "after" is the mean of frames 40-80 after it.
+
+| | cutscene cut (~1 440 builds): mean / worst / >120 | area change (~1 200 builds): mean / worst / >120, after | game-side load frames |
+|---|---|---|---|
+| HEAD 240 | 35.6 / 177.2 / 1 | 148.7 / 213.0 / 15, 95.1 | 332, 292 |
+| r12 240 | 34.3 / 178.6 / 1 | 152.2 / 214.3 / 15, 96.1 | 323, 282 |
+| r12 222 | 37.8 / 183.4 / 2 | 164.1 / 228.3 / 15, 105.7 | 290, 289 |
+| r12 333 | 27.9 / 139.1 / 1 | 112.4 / 157.6 / 10, 68.9 | 267, 236 |
+
+What the area change costs, frame by frame (r12/w1, frames 2846-2851):
+- 2846: the hooks queue 1 198 builds (92.7 ms of hooks, ~75 us a build).
+- 2847: 1 448 meshes (1.7 MB) and 20 textures are taken up.
+- 2848-2851: the render thread takes 214, 194, 190 and 149 ms for ~4 100
+  draws, then stays at 90-95 ms for ~3 700 draws (before the cut: 14 ms
+  for 500).
+- 2177-2178: the area load's two worst frames (280-330 ms) have no hook or
+  render time: game code.
+
+Spreading the builds was tried and is left off by default (the switches
+stay: SOTC_ASYNC_BUDGET=<builds a frame>, SOTC_TAKEUP_BUDGET=<jobs a frame>,
+SOTC_HOLD_FRAMES=<n>, native_renderer::asyncBudgetLeft):
+- 200 queued + 160 taken up a frame: the area change's frames stayed
+  160-220 ms for 10 frames. The held packets go through the hook walk again
+  every frame, so the transition took ~1.8 s instead of ~1.1 s.
+- 300 taken up a frame alone: 145.2 / 203.9 / 15, within noise of the
+  unbudgeted run. The render thread's first frames are not the uploads.
+So the transition frames are not under 50 ms at 222 MHz; see the plan.
+
+**Frame timing (calibrated Vita3K; route2's input, windows in VBlanks after
+the @3d entry, r12/tools/vbwin.py; mean ms (fps), frames over 50 / 85 /
+120 ms, worst).** HEAD = celosia-r11.vpk (a7829ef), r12 = celosia-r12.vpk
+(r12/w3).
+
+| route window | HEAD 240 | r12 240 | r12 222 | r12 333 | r12 200 |
+|---|---|---|---|---|---|
+| the save's load (-1000..0) | 33.4, 33/9/4, 332.5 | 34.5, 44/10/4, 323.1 | 37.3, 52/14/6, 290.1 | 23.5, 15/5/3, 267.1 | 40.9 |
+| the shrine (0..1000) | 46.0 (21.7 fps), 107/15/0, 110.3 | 48.0 (20.8), 110/29/0, 113.3 | 52.5 (19.0), 118/50/1, 129.0 | 33.7 (29.7), 83/0/0, 78.4 | 57.9 |
+| the walk out and the area change (1000..4000) | 84.3 (11.9), 594/200/23, 213.0 | 86.7 (11.5), 578/256/23, 214.3 | 93.3 (10.7), 537/362/31, 228.3 | 60.0 (16.7), 716/24/12, 157.6 | 106.2 |
+| the plain (4000..6000) | 54.4 (18.4), 612/0/0, 80.5 | 55.1 (18.1), 601/2/0, 102.0 | 61.3 (16.3), 544/6/0, 90.3 | 39.4 (25.4), 13/0/0, 54.5 | 72.6 |
+
+The round's cost on the route, at 240 MHz:
+- +1 to +4% (the shrine 46.0 -> 48.0, the walk 84.3 -> 86.7).
+- r12 with PS2X_SELF_WAKE=0: 47.0 / 83.8 / 54.9. So most of the cost is the
+  VBlank thread's real tick rate: 2.5x the sound ticks and status requests,
+  and their lock waits (item 5 above).
+- Two runs of one VPK differ by ~1-2% and sometimes take another path
+  (r12/w1f1024, the plain at 84 ms).
+- Another project's Vita3K instance was running during some of the runs
+  (w1, w1off, w1f1024b, h1).
+
+| attract demo (frame windows) | 600-4800 | 4800-9600 |
+|---|---|---|
+| HEAD 240 | 31.7 (31.5 fps), 11/0/0, 78.1 | 31.6, 204/3/1, 156.6 |
+| r12 240 | 34.4 (29.1), 208/4/1, 156.9 | 41.1, 1 336/152/47, 795.2 |
+| r12 240, PS2X_SELF_WAKE=0 | 32.8, 37/18/9, 328.0 | 32.2, 239/9/2, 161.0 |
+| r12 222 | 38.6 (25.9), 491/5/1, 167.5 | 41.5, 1 330/178/30, 365.9 |
+| r12 333 | 25.2 (39.7), 13/0/0, 67.1 | 22.9, 6/1/1, 125.0 |
+
+The attract windows are not the same content any more. The demo's
+cutscenes run on the VBlank thread's tick count (getVIntrCnt), which ran at
+57% of real time in HEAD (170 ticks per 5 s) and now at 100%. So the same
+frame indexes hold later scenes, with more loads (1 601 frames over 50 ms in
+the run against 239). Without the fix the cost is +3% (32.8 against 31.7).
+
+**Checks.**
+- No new decomp natives this round, so there was no difftest to run.
+- Mac (muted, battery then charging):
+  - the route at 60 fps keeps real time: 301 VBlanks per 5 s, frames 301;
+  - the attract demo runs past frame 6 000;
+  - the fixed-30 fps path check (SOTC_POS_LOG=30, r12/pos-new against
+    pos-ref with the round's switches off): the same path within 0.03 units
+    over the whole scripted route, to VBlank 7 740. After the input ends,
+    the idle Wander was moved ~40 units in the reference run only (Agro or
+    an idle event; chaotic, not investigated).
+- The build tree lost build/vu1 and build/vu1rec in the disk cleanup. The
+  existing unity objects still hold the recompiled VU1 code. The Vita build
+  re-ran CMake and now lists 284 unity units instead of 510, and its eboot
+  is 2.3 MB smaller. VU1 programs do not run with SOTC_NATIVE=1, so nothing
+  was seen missing; regenerating needs a VU1 dump run (./celosia vu1). The
+  Mac's emulated runs wrote no dumps.
+
+**Decomp status (tools/decomp_status.py):** 5.25% of the MIPS code by size,
+4.94% by functions (446 of 9 024), 3.02% of the game's own code (no new
+natives), 47.5% by calls. The old call dumps were lost in the cleanup; the
+new ones (attract and route to frame 4 800, r12/calls_*.txt) are not the
+same runs as round 11's 51.4%.
+
+**Measuring tools (new):**
+- r12/tools/route_snap5.txt (VBlank-anchored SNAP pictures), pairs.sh and
+  nat.sh;
+- vbwin.py, transition.py and slowframes.py (per-frame splits of the worst
+  frames), au.py;
+- SOTC_STALE_CHECK, SOTC_VIEW_CHECK, SOTC_HIDE_HEADER, SOTC_SKIN_KICK_LOG,
+  SOTC_FEEDBACK_LOG;
+- PS2X_SNAPSHOT_FROM.
+- env.txt on the Vita takes one KEY=VALUE per line: several on one line set
+  only the first (the round's first "off" runs had half their switches).
+
+**Round 13 (plan): 20-30 fps at 222 MHz, no transition hitches.**
+
+1. The new area's first frames on the render thread: 150-214 ms for
+   ~4 100 draws, then 90-95 ms for ~3 700 draws, against 14 ms for 500
+   before the cut. Profile the GL backend there (PROF with PROF_SNAPS
+   around the cut): first use of buffers and textures in vitaGL, the
+   upload apply, state changes. Then batch: 3 700 draws is 7x the area
+   before. Why are both areas' models drawn?
+2. Queueing the area change's builds: 1 200 builds cost ~92 ms of hooks
+   (~75 us each: the packet copy, a shared_ptr job, two std::functions, the
+   pending set, a lock). Make one pooled allocation per job, or queue from a
+   pre-pass. Spreading the builds only helps once a held packet no longer
+   costs a hook walk every frame (memo its id while held).
+3. The area load's game-side frames (280-330 ms, no hook or render time):
+   SOTC_SUBSYS_PROF over the load.
+4. The console's display walk memory cost (round 11: modelDisp self x7.5,
+   iosGPFrameInit x7.6 against Vita3K).
+5. Sound:
+   - the mixer at ~30% of a core at 240 MHz: NEON voices, the cores' loop;
+   - the driver's status request without the mixer's lock (a command
+     queue the mix applies between pieces: ~3% of the game thread now);
+   - a console run with r12/env-r12-console.txt for the read-ahead and the
+     disc.
+6. Regenerate build/vu1rec (VU1 dumps, ./celosia vu1).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

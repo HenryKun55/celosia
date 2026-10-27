@@ -1,6 +1,7 @@
 #include "iop_sg2.h"
 
 #include "emulator/core/iop_memory.h"
+#include "ps2x/iop/audio_stats.h"
 
 #include <algorithm>
 #include <chrono>
@@ -53,6 +54,22 @@ namespace ps2x::iop::detail
         {
             return static_cast<uint32_t>((voice / 24) | ((voice % 24) << 1)) & 0xFFFFu;
         }
+
+        uint64_t hashBytes(const uint8_t *data, size_t bytes)
+        {
+            uint64_t h = 1469598103934665603ull;
+            for (size_t i = 0; i < bytes; ++i)
+                h = (h ^ data[i]) * 1099511628211ull;
+            return h;
+        }
+
+        // SOTC_AUDIO_LOG=2: one line per stream event (host ms).
+        void audioEvent(const char *what, uint32_t mask0, uint32_t mask1, double ms = 0.0)
+        {
+            if (audio_stats::level() < 2)
+                return;
+            std::fprintf(stderr, "[audio-ev] %.1f %s %06x %06x %.1f\n", audio_stats::nowUs() / 1000.0, what, mask0 & 0xFFFFFFu, mask1 & 0xFFFFFFu, ms);
+        }
     }
 
     Sg2Driver::Sg2Driver(IopHost &host, IopMemory &memory)
@@ -103,6 +120,9 @@ namespace ps2x::iop::detail
         std::memset(m_coreVolumes, 0, sizeof(m_coreVolumes));
         std::memset(m_voiceVolumes, 0, sizeof(m_voiceVolumes));
         m_mixer.reset();
+        for (auto &map : m_sourceHash)
+            map.clear();
+        m_pcmHash.clear();
     }
 
     RpcResult Sg2Driver::handleRpc(const RpcRequest &request)
@@ -110,7 +130,26 @@ namespace ps2x::iop::detail
         RpcResult result;
         if (request.function == 0u)
         {
-            auto lock = m_mixer.hold();
+            {
+                const uint64_t now = audio_stats::nowUs();
+                audio_stats::status.fetch_add(1, std::memory_order_relaxed);
+                if (m_lastStatusUs)
+                {
+                    audio_stats::raiseMax(audio_stats::statusGapMaxUs, now - m_lastStatusUs);
+                    if (now - m_lastStatusUs > 50000u)
+                        audio_stats::statusGapsOver50.fetch_add(1, std::memory_order_relaxed);
+                }
+                m_lastStatusUs = now;
+            }
+            const uint64_t asked = audio_stats::nowUs();
+            auto lock = m_mixer.holdSpinning();
+            const uint64_t got = audio_stats::nowUs();
+            audio_stats::rpcLockUs.fetch_add(got - asked, std::memory_order_relaxed);
+            struct Done
+            {
+                uint64_t from;
+                ~Done() { audio_stats::rpcUs.fetch_add(audio_stats::nowUs() - from, std::memory_order_relaxed); }
+            } done{asked};
             std::vector<uint32_t> commands(request.send.size / 4u);
             if (!commands.empty() &&
                 m_host.readGuest(request.send.address, commands.data(), commands.size() * 4u))
@@ -191,10 +230,22 @@ namespace ps2x::iop::detail
             setParam((a & 0xFFFFu) | 0xA80u, static_cast<uint16_t>(c));
             break;
         case 0x07: // 0x1068: key on
+            for (uint32_t core = 0; core < 2u; ++core)
+                for (uint32_t v = 0; v < 24u; ++v)
+                    if (((core ? c : b) >> v) & 1u)
+                    {
+                        audio_stats::keyOns.fetch_add(1, std::memory_order_relaxed);
+                        if (m_mixer.envelope(static_cast<int>(core * 24u + v)) > 0x400u)
+                            audio_stats::retriggers.fetch_add(1, std::memory_order_relaxed);
+                    }
             setSwitch(0x1500u, b);
             setSwitch(0x1501u, c);
             break;
         case 0x08: // 0x10bc: key off
+            for (uint32_t core = 0; core < 2u; ++core)
+                for (uint32_t v = 0; v < 24u; ++v)
+                    if ((((core ? c : b) >> v) & 1u) && m_mixer.envelope(static_cast<int>(core * 24u + v)) != 0u)
+                        audio_stats::keyOffs.fetch_add(1, std::memory_order_relaxed);
             setSwitch(0x1600u, b);
             setSwitch(0x1601u, c);
             break;
@@ -309,6 +360,7 @@ namespace ps2x::iop::detail
             break;
         case 0x1B: // 0x3234: pitch from a rate in Hz for every voice in the masks
         {
+            countPitch(a, b, c);
             const uint16_t pitch = static_cast<uint16_t>((static_cast<int32_t>(c) << 12) / 48000);
             for (uint32_t core = 0; core < 2u; ++core)
                 for (uint32_t v = 0; v < 24u; ++v)
@@ -317,6 +369,8 @@ namespace ps2x::iop::detail
             break;
         }
         case 0x1C: // 0x3394: streamed voices start: fill the first half, then key on
+            audio_stats::streamStarts.fetch_add(1, std::memory_order_relaxed);
+            audioEvent("start", a, b);
             for (uint32_t core = 0; core < 2u; ++core)
                 for (uint32_t v = 0; v < 24u; ++v)
                     if (((core ? b : a) >> v) & 1u)
@@ -329,6 +383,7 @@ namespace ps2x::iop::detail
             queueStream(2, a, b);
             break;
         case 0x1D: // 0x3634: streamed voices stop
+            countStop(a, b);
             if (a != 0u || b != 0u)
                 queueStream(3, a, b);
             break;
@@ -433,8 +488,12 @@ namespace ps2x::iop::detail
                 {
                     // The voice went on into the other half: stale when it got no new data since it last played.
                     ++m_logEntries;
+                    audio_stats::halves.fetch_add(1, std::memory_order_relaxed);
                     if (!s.fresh[s.half])
+                    {
                         ++m_logStale;
+                        audio_stats::staleHalves.fetch_add(1, std::memory_order_relaxed);
+                    }
                     s.fresh[s.half] = false;
                     s.seenHalf = s.half;
                 }
@@ -492,6 +551,7 @@ namespace ps2x::iop::detail
         entry.arg[3] = a3;
         entry.arg[4] = a4;
         entry.arg[5] = a5;
+        entry.queuedUs = audio_stats::nowUs();
         m_opWrite = (m_opWrite + 1u) % m_streamOps.size();
     }
 
@@ -524,11 +584,38 @@ namespace ps2x::iop::detail
         uint32_t source = op.arg[3];
         for (uint32_t i = 0; i < bytes / chunk; ++i, source += 0x800u)
             (void)m_memory.readRam(source, staging.data() + i * chunk, chunk);
+        {
+            // audio_stats: the refill's wait in the queue, and whether this
+            // source had the same bytes the last time it was played.
+            audio_stats::raiseMax(audio_stats::refillWaitMaxUs, audio_stats::nowUs() - op.queuedUs);
+            if (voice < 48u)
+            {
+                const uint64_t h = hashBytes(staging.data(), bytes);
+                bool silent = true;
+                for (uint32_t i = 16u; i < bytes && silent; i += 64u)
+                    silent = staging[i] == 0u;
+                auto [it, fresh] = m_sourceHash[voice].try_emplace(op.arg[3], h);
+                if (!fresh)
+                {
+                    if (it->second == h && !silent)
+                    {
+                        audio_stats::staleSources.fetch_add(1, std::memory_order_relaxed);
+                        if (audio_stats::level() >= 2)
+                            std::fprintf(stderr, "[audio-ev] %.1f stale-src v%u half %u src %06x %u pos %d len %d\n", audio_stats::nowUs() / 1000.0, voice, half, op.arg[3], bytes,
+                                         m_streams[voice].position, m_streams[voice].length);
+                    }
+                    else if (audio_stats::level() >= 3)
+                        std::fprintf(stderr, "[audio-ev] %.1f refill v%u half %u src %06x %u\n", audio_stats::nowUs() / 1000.0, voice, half, op.arg[3], bytes);
+                    it->second = h;
+                }
+            }
+        }
         staging[1] = half == 1u ? 2u : 6u;
         staging[bytes - 0x10u + 1u] = half == 1u ? 3u : 2u;
         m_mixer.writeRam(op.arg[4], staging.data(), bytes);
         m_pendingAdvance = voice | 0x10000u;
         ++m_logRefills;
+        audio_stats::refills.fetch_add(1, std::memory_order_relaxed);
         if (voice < 48u)
             m_streams[voice].fresh[half == 1u ? 2 : 1] = true;
     }
@@ -598,6 +685,9 @@ namespace ps2x::iop::detail
         m_pcmSize = size;
         m_pcmPosition = 0;
         m_pcmFirst = true;
+        audio_stats::pcmStarts.fetch_add(1, std::memory_order_relaxed);
+        m_pcmHash.assign(size / 0x400u + 1u, 0u);
+        audioEvent("pcm-start", buffer, size);
         setParam(0xF80u, m_pcmVolL);
         setParam(0x1080u, m_pcmVolR);
         m_mixer.clearInput(0);
@@ -632,7 +722,90 @@ namespace ps2x::iop::detail
             m_pcmPosition = 0;
         uint8_t block[0x400];
         (void)m_memory.readRam(m_pcmBuffer + m_pcmPosition, block, sizeof(block));
+        {
+            // audio_stats: the same bytes as the last time this block played
+            // (the EE did not refill that part of the buffer in time).
+            audio_stats::pcmBlocks.fetch_add(1, std::memory_order_relaxed);
+            const uint64_t h = hashBytes(block, sizeof(block));
+            bool silent = true;
+            for (uint32_t i = 0; i < sizeof(block) && silent; i += 32u)
+                silent = block[i] == 0u && block[i + 1u] == 0u;
+            const uint32_t index = m_pcmPosition / 0x400u;
+            if (index < m_pcmHash.size())
+            {
+                if (m_pcmHash[index] == h && !silent)
+                    audio_stats::pcmStaleBlocks.fetch_add(1, std::memory_order_relaxed);
+                m_pcmHash[index] = h;
+            }
+        }
         m_mixer.pushInputBlock(0, block);
+    }
+
+    // audio_stats: a rate of 0 for a playing stream's voices is the game
+    // pausing it (its stream manager waits for a disc read, or the pause
+    // menu); another rate after it resumes it.
+    void Sg2Driver::countPitch(uint32_t mask0, uint32_t mask1, uint32_t rate)
+    {
+        const uint64_t now = audio_stats::nowUs();
+        bool paused = false, resumed = false;
+        double longest = 0.0;
+        for (uint32_t core = 0; core < 2u; ++core)
+            for (uint32_t v = 0; v < 24u; ++v)
+                if ((((core ? mask1 : mask0) >> v) & 1u))
+                {
+                    Stream &s = m_streams[core * 24u + v];
+                    if (rate == 0u && s.state != 0 && s.stalledSince == 0u)
+                    {
+                        s.stalledSince = now;
+                        paused = true;
+                    }
+                    else if (rate != 0u && s.stalledSince != 0u)
+                    {
+                        longest = std::max(longest, (now - s.stalledSince) / 1000.0);
+                        s.stalledSince = 0;
+                        resumed = true;
+                    }
+                }
+        if (paused)
+        {
+            audio_stats::stalls.fetch_add(1, std::memory_order_relaxed);
+            audioEvent("pause", mask0, mask1);
+        }
+        if (resumed)
+        {
+            const uint64_t us = static_cast<uint64_t>(longest * 1000.0);
+            audio_stats::stallUs.fetch_add(us, std::memory_order_relaxed);
+            audio_stats::raiseMax(audio_stats::stallMaxUs, us);
+            audioEvent("resume", mask0, mask1, longest);
+        }
+    }
+
+    void Sg2Driver::countStop(uint32_t mask0, uint32_t mask1)
+    {
+        const uint64_t now = audio_stats::nowUs();
+        bool stalled = false;
+        double longest = 0.0;
+        for (uint32_t core = 0; core < 2u; ++core)
+            for (uint32_t v = 0; v < 24u; ++v)
+                if ((((core ? mask1 : mask0) >> v) & 1u))
+                {
+                    Stream &s = m_streams[core * 24u + v];
+                    if (s.stalledSince != 0u)
+                    {
+                        longest = std::max(longest, (now - s.stalledSince) / 1000.0);
+                        s.stalledSince = 0;
+                        stalled = true;
+                    }
+                }
+        audio_stats::streamStops.fetch_add(1, std::memory_order_relaxed);
+        if (stalled)
+        {
+            audio_stats::stopsWhileStalled.fetch_add(1, std::memory_order_relaxed);
+            const uint64_t us = static_cast<uint64_t>(longest * 1000.0);
+            audio_stats::stallUs.fetch_add(us, std::memory_order_relaxed);
+            audio_stats::raiseMax(audio_stats::stallMaxUs, us);
+        }
+        audioEvent(stalled ? "stop-paused" : "stop", mask0, mask1, longest);
     }
 
     // Core volumes by libsd order: 0 master, 1 (R), 2 reverb return, 3, 4

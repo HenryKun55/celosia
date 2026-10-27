@@ -51,6 +51,8 @@ namespace native_renderer::detail
         virtual bool canSkin() { return false; }
         virtual void uploadSkinnedMesh(uint64_t, const SkinVertex *, uint32_t, const uint32_t *, uint32_t) {}
         virtual uint32_t framePalette(const float *, uint32_t) { return 0; }
+        // native_renderer::rewriteFramePalette: a palette of this frame given new matrices.
+        virtual void rewriteFramePalette(uint32_t, const float *, uint32_t) {}
         virtual bool hasTexture(uint64_t id) = 0;
         virtual void uploadTexture(uint64_t id, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels) = 0;
         virtual void beginFrame() = 0;

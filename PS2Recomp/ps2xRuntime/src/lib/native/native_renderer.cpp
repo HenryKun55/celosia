@@ -835,14 +835,42 @@ namespace native_renderer
             _pthread_stack_default_user = stackDefault;
 #endif
         }
-        // At a frame's start (game thread): what the worker made goes to the backend.
+        // At a frame's start (game thread): what the worker made goes to the
+        // backend; with SOTC_TAKEUP_BUDGET=<n>, at most n jobs a frame, the
+        // rest staying pending (their draws held) for the next frames, in
+        // order. Off by default: round 12 tried it (160, with
+        // SOTC_ASYNC_BUDGET=200) on an area change (~1 200 builds finished at
+        // once, 1.7 MB of meshes in one frame): in calibrated Vita3K the
+        // transition's frames stayed 160-220 ms (the held packets go through
+        // the hook every frame) and the transition took ~900 ms more than
+        // once, not less (docs/decomp.md, round 12).
+        static uint32_t takeUpBudget()
+        {
+            static const uint32_t budget = std::getenv("SOTC_TAKEUP_BUDGET") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_TAKEUP_BUDGET"))) : 0u;
+            return budget;
+        }
+        // Jobs a frame may queue (asyncBudgetLeft): SOTC_ASYNC_BUDGET, 0 = no limit.
+        static uint32_t queueBudget()
+        {
+            static const uint32_t budget = std::getenv("SOTC_ASYNC_BUDGET") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_ASYNC_BUDGET"))) : 0u;
+            return budget;
+        }
+        uint32_t queuedThisFrame = 0;
         void takeUp()
         {
+            queuedThisFrame = 0;
             if (pending.empty())
                 return;
             {
                 std::lock_guard<std::mutex> lock(mutex);
-                finished.swap(done);
+                const uint32_t budget = takeUpBudget();
+                if (!budget || done.size() <= budget)
+                    finished.swap(done);
+                else
+                {
+                    finished.assign(std::make_move_iterator(done.begin()), std::make_move_iterator(done.begin() + budget));
+                    done.erase(done.begin(), done.begin() + budget);
+                }
             }
             for (Job &job : finished)
             {
@@ -872,6 +900,7 @@ namespace native_renderer
             return false;
         AsyncBuilds &a = asyncBuilds();
         a.start();
+        ++a.queuedThisFrame;
         for (uint64_t id : ids)
             a.pending.insert(id);
         {
@@ -882,6 +911,12 @@ namespace native_renderer
         if (tuning().frameLog)
             ++frameCounters().asyncJobs;
         return true;
+    }
+    bool asyncBudgetLeft()
+    {
+        const AsyncBuilds &a = asyncBuilds();
+        const uint32_t budget = AsyncBuilds::queueBudget();
+        return !budget || a.queuedThisFrame < budget;
     }
     bool asyncPending(uint64_t id)
     {
@@ -993,6 +1028,11 @@ namespace native_renderer
         if (g_drawTap && tapMeshes())
             g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, qwords, static_cast<size_t>(count) * 16u));
         return backend() ? g_backend->framePalette(qwords, count) : 0u;
+    }
+    void rewriteFramePalette(uint32_t handle, const float *qwords, uint32_t count)
+    {
+        if (backend() && handle)
+            g_backend->rewriteFramePalette(handle, qwords, count);
     }
     void cancelFrameMesh()
     {
@@ -1272,7 +1312,9 @@ namespace native_renderer
         {
             static uint32_t heldRun = 0;
             const FrameCounters &c = frameCounters();
-            const bool hold = tuning().asyncBuilds && tuning().holdIncomplete && c.heldDraws * 8u > c.draws + c.heldDraws && heldRun < 3u;
+            // Up to SOTC_HOLD_FRAMES frames in a row (3).
+            static const uint32_t holdFrames = std::getenv("SOTC_HOLD_FRAMES") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_HOLD_FRAMES"))) : 3u;
+            const bool hold = tuning().asyncBuilds && tuning().holdIncomplete && c.heldDraws * 8u > c.draws + c.heldDraws && heldRun < holdFrames;
             heldRun = hold ? heldRun + 1u : 0u;
             if (hold && backend())
                 g_backend->holdFrame();

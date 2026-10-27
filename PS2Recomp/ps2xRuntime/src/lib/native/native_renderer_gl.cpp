@@ -3396,6 +3396,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             m_rec.palettes.insert(m_rec.palettes.end(), qwords, qwords + count * 4u);
             return static_cast<uint32_t>(at / 4u) + 1u;
         }
+        void rewriteFramePalette(uint32_t handle, const float *qwords, uint32_t count) override
+        {
+            const size_t at = static_cast<size_t>(handle - 1u) * 4u;
+            if (handle && at + static_cast<size_t>(count) * 4u <= m_rec.palettes.size())
+                std::memcpy(m_rec.palettes.data() + at, qwords, static_cast<size_t>(count) * 16u);
+        }
         bool hasTexture(uint64_t id) override { return m_knownTextures.count(id) != 0; }
         void uploadTexture(uint64_t key, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels) override
         {

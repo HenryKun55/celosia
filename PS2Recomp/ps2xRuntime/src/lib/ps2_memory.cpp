@@ -1979,6 +1979,8 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                             std::fprintf(stderr, "[gif:events] chain %llu: signal %llu finish %llu label %llu\n",
                                          (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)GifEventScanner::s_events[0],
                                          (unsigned long long)GifEventScanner::s_events[1], (unsigned long long)GifEventScanner::s_events[2]);
+                        if (ps2_stats::kickHook)
+                            ps2_stats::kickHook();
                         ps2_stats::vif1Chains.fetch_add(1, std::memory_order_relaxed);
                         ps2_stats::frameKicked(ps2_stats::nowUs(), ps2_load::waitUs[ps2_load::kVu1].load(std::memory_order_relaxed));
                     }
