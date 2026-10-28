@@ -692,6 +692,8 @@ namespace
         {
             // (dst, src, bytes): 16 KB at a time through the scratchpad.
             uint32_t dst = GPR_U32(ctx, 4), src = GPR_U32(ctx, 5), qwc = GPR_U32(ctx, 6) >> 4;
+            if (sotc_decomp::g_beforeGuestMove)
+                sotc_decomp::g_beforeGuestMove();
             ++sotc_decomp::g_guestMoveSerial; // the native hooks' memos sample again
             sotc_decomp::g_gcStats.bytes += qwc * 16u; // the garbage pass's budget counts these (decomp_gctick.cpp)
             uint8_t *spr = runtime->memory().getScratchpad();

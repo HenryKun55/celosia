@@ -53,6 +53,9 @@ namespace sotc_decomp
     // frame before as it was; after a move another one can be at that
     // address, so a memo made before the last move samples again (round 11).
     inline uint32_t g_guestMoveSerial = 0;
+    // Called before a garbage move (sotc_native: the model jobs on the worker
+    // use the memos by address; round 23).
+    inline void (*g_beforeGuestMove)() = nullptr;
     // The garbage pass's counts (decomp_gctick.cpp, round 14), read by the
     // [loader] line's "gc" part (SOTC_FRAME_LOG / SOTC_AUDIO_LOG): calls,
     // blocks looked at, moves, calls stopped by its clock (no block left to

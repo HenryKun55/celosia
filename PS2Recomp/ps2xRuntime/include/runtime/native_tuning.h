@@ -144,6 +144,11 @@ namespace native_renderer
         // is not ready is left out of a frame or two. On by default on the
         // Vita (SOTC_ASYNC_BUILDS=0/1).
         bool asyncBuilds = false;
+        // The model draws' host work (modelDispHook past the game's own
+        // results: packets, ids, palettes, skinning, the draws) on a worker
+        // thread of its own while the game thread goes on (round 23); the
+        // game sees nothing of it. On by default on the Vita (SOTC_HOOK_ASYNC=0/1).
+        bool hookWorker = false;
         // With asyncBuilds: a frame that had to leave out more than an eighth
         // of its draws (their meshes or textures still on the worker, at a
         // camera cut) is not shown; the last one stays up instead, at most 3

@@ -36,8 +36,12 @@
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
 #include "lean_hot.h"
+#include "ThreadNaming.h"
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <map>
 #include <memory>
 #include <new>
@@ -58,6 +62,10 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#if defined(__vita__)
+#include <psp2/kernel/threadmgr.h>
+extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
+#endif
 #include <vector>
 
 namespace sotc_native
@@ -80,6 +88,21 @@ namespace sotc_native
                 native_renderer::frameCounters().hookUs += native_renderer::nowUs() - start;
         }
     };
+
+    // The model jobs' worker (round 23, below at modelDispHook).
+    namespace hookjobs
+    {
+        extern bool g_on;
+        enum Site { k_zfog, k_frame, k_glend, k_gsreg_feedback, k_gsreg_refraction, k_gsreg_2d, k_meshdisp, k_shadowdisp, k_ptclenv, k_ptclvtx, k_screenblur, k_move, k_kick, kSites };
+        void join(Site site);
+        void frameEnd();
+        void frameStart();
+    }
+    inline void hookJoin(hookjobs::Site site)
+    {
+        if (hookjobs::g_on)
+            hookjobs::join(site);
+    }
 
     const uint8_t *g_ram = nullptr;
     // The display walk's fast paths (2026-10-22 evening), on unless
@@ -1571,6 +1594,8 @@ namespace sotc_native
         } lod[2];
     };
     SurfaceInfo g_surfaceInfo[1024];
+    // modelDispState's own while the model jobs run on the worker (round 23).
+    SurfaceInfo g_surfaceInfoSync[1024];
     // surfaceLod's reads, kept (the K product made per draw: applyLod).
     SurfaceInfo::Lod surfaceLodInfo(uint32_t header, uint32_t s, uint32_t field)
     {
@@ -1612,9 +1637,9 @@ namespace sotc_native
     }
     inline uint32_t surfaceSlot(uint32_t s) { return ((s >> 5) * 0x9E3779B1u) >> 22; }
     // The flags and texture mode (what every packet asks first).
-    SurfaceInfo &surfaceInfo(uint32_t header, uint32_t s)
+    SurfaceInfo &surfaceInfo(uint32_t header, uint32_t s, SurfaceInfo *memo = g_surfaceInfo)
     {
-        SurfaceInfo &i = g_surfaceInfo[surfaceSlot(s)];
+        SurfaceInfo &i = memo[surfaceSlot(s)];
         if (i.s == s && i.header == header && i.frame == g_frame)
             return i;
         i.s = s;
@@ -2419,6 +2444,7 @@ namespace sotc_native
 
     void zFogHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        hookJoin(hookjobs::k_zfog);
         g_ram = rdram;
         const int32_t slices = static_cast<int32_t>(word(0x118C46Cu));
         const float width = real(0x118C470u), margin = real(0x118C474u), farDistance = real(0x118C480u);
@@ -2642,6 +2668,7 @@ namespace sotc_native
         {
             uint64_t frames = 0, period = 0, worst = 0, hooks = 0, decode = 0, tex = 0, mesh = 0, render = 0, present = 0, wait = 0, blocked = 0, threaded = 0;
             uint64_t draws = 0, targets = 0, texUploads = 0, texBytes = 0, meshUploads = 0, meshBytes = 0;
+            uint64_t jobs = 0, join = 0;
         };
         static Sum sum;
         // The game thread's scheduler waits (idle, VBlank pacing, a guest
@@ -2666,21 +2693,22 @@ namespace sotc_native
             const uint64_t period = now - last;
             if (print && period > 50000u)
                 std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u"
-                                     " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB)\n",
+                                     " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
                              c.asyncJobs, c.asyncDone, c.heldDraws, (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
                              (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0,
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
-                             (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0);
+                             (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
             if (print && tune.frameLogAll && period <= 50000u)
-                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB)\n",
+                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws,
                              (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0, (unsigned long long)(mark.cdReads - lastMark.cdReads),
                              (mark.cdBytes - lastMark.cdBytes) / 1024.0, (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0,
-                             (mark.sprUs - lastMark.sprUs) / 1000.0, (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0);
+                             (mark.sprUs - lastMark.sprUs) / 1000.0, (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0,
+                             c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0);
             ++sum.frames;
             sum.period += period;
             sum.worst = std::max(sum.worst, period);
@@ -2696,6 +2724,8 @@ namespace sotc_native
             sum.threaded += c.renderThread ? 1u : 0u;
             // Without one (Metal) render and present were the game thread's.
             sum.blocked += c.waitUs ? c.waitUs : c.renderUs + c.presentUs;
+            sum.jobs += c.jobUs;
+            sum.join += c.joinUs;
             sum.draws += c.draws;
             sum.targets += c.targets;
             sum.texUploads += c.texUploads;
@@ -2708,11 +2738,12 @@ namespace sotc_native
             {
                 const double n = 60.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
                 std::fprintf(stderr, "[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
-                             "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB)\n",
+                             "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB) | jobs %.1f join %.1f\n",
                              (unsigned long long)g_frame, sum.period / n / 1000.0, n * 1e6 / static_cast<double>(sum.period), sum.worst / 1000.0, game, sum.hooks / n / 1000.0,
                              sum.decode / n / 1000.0, sum.tex / n / 1000.0, sum.mesh / n / 1000.0, sum.render / n / 1000.0, sum.present / n / 1000.0,
                              sum.wait / n / 1000.0, sum.threaded ? " (render thread)" : "",
-                             sum.draws / n, sum.targets / n, sum.texUploads / n, sum.texBytes / n / 1024.0, sum.meshUploads / n, sum.meshBytes / n / 1024.0);
+                             sum.draws / n, sum.targets / n, sum.texUploads / n, sum.texBytes / n / 1024.0, sum.meshUploads / n, sum.meshBytes / n / 1024.0,
+                             sum.jobs / n / 1000.0, sum.join / n / 1000.0);
                 sum = Sum{};
             }
             else if (sum.frames >= 60u)
@@ -2774,7 +2805,8 @@ namespace sotc_native
     PS2Runtime::RecompiledFunction g_sendMsg = nullptr, g_recvMsg = nullptr;
     void sendMsgHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        g_ram = rdram; // (before the first frame too)
+        if (g_ram != rdram) // (before the first frame too)
+            g_ram = rdram;
         const uint32_t box = GPR_U32(ctx, 4);
         if ((box & 0xFE000003u) == 0u && box)
         {
@@ -2792,7 +2824,8 @@ namespace sotc_native
     }
     void recvMsgHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        g_ram = rdram;
+        if (g_ram != rdram)
+            g_ram = rdram;
         const uint32_t box = GPR_U32(ctx, 4);
         if ((box & 0xFE000003u) == 0u && box)
         {
@@ -3125,15 +3158,323 @@ namespace sotc_native
     void gcovDump(uint64_t) {}
 #endif
 
+    // ---- The model draws off the game thread (round 23) ----------------------
+    //
+    // modelDispHook's host part after the game's own results (modelDispState,
+    // the part test): the packet walk, ids, builds, palettes, skinning, the
+    // draws. Nothing of it is seen by the game (no guest write, no register):
+    // it goes to a worker thread of its own as a job (ModelDispJob) and the
+    // game thread goes on. What it reads of guest memory is what the PS2's
+    // DMA reads at the display list's kick (the model's packets, surfaces,
+    // textures, the instance's chain: palette and lights), which the game
+    // leaves as it is until then; what the game changes from one draw to the
+    // next (the instance's opacity and LOD, the part tree's +0x2c results
+    // modelDispState writes for this instance, the camera context's
+    // matrices, the ripple globals) is taken at the hook, into the job.
+    // The jobs run in their order; the game thread waits for them (hookJoin)
+    // before anything else touches what they use: the other hooks that draw
+    // or read the jobs' state (2D, cloth, shadows, particles, effects, fog),
+    // a new frame (syncFrame), the kick (kickHook: skinAtKick reads their
+    // records), a garbage move (copyViaSpr: the memos by address). So the
+    // draws reach the renderer in the same order as before.
+    // modelDispState keeps a surface memo of its own (g_surfaceInfoSync) while
+    // jobs run; the prefetch queue stays the game thread's.
+    // SOTC_HOOK_ASYNC=0 / 1 (Debug "Model draws on a worker"; default on on
+    // the Vita, off on the Mac). Off whenever a debugging check runs (the
+    // draw taps, the subsystem profiler, the checks below, SOTC_DIFFTEST).
+    // SOTC_HOOK_ASYNC_VERIFY=1: each job's inputs hashed at the hook and again
+    // when it runs ([hookjob] line every 600 frames: jobs, inputs changed).
+    struct ModelPlan;
+    struct ModelDispJob
+    {
+        uint32_t instance = 0, matrix = 0, header = 0, table = 0, lod = 0, gameLod = 0;
+        bool fading = false, partCulled = false, planOn = false;
+        float opacity = 1.0f;
+        float clip[16] = {}, projection[16] = {};
+        float ripple[2] = {};
+        ModelPlan *plan = nullptr;
+        std::vector<uint8_t> partVisible;
+        // The instance's palette and lights as they are at the hook (as the
+        // hook read them before round 23: the draws are made with these;
+        // skinAtKick takes the kick's palette after, as before).
+        bool hasPalette = false, haveLights = false;
+        uint32_t paletteLo = 0, paletteHi = 0;
+        std::vector<float> palette; // qwords paletteLo..paletteHi
+        float lights[32] = {};
+        uint64_t inputs = 0; // SOTC_HOOK_ASYNC_VERIFY: the inputs' hash at the hook
+    };
+    void modelDispDraw(const ModelDispJob &job, bool onWorker);
+    uint64_t modelDispInputs(const ModelDispJob &job);
+    ModelDispJob g_syncJob; // the job when it runs at once
+    // The other hooks' host parts, as jobs too (they draw after the models'
+    // in the same order): cloth (meshDisp), shadow volumes (shadowDisp),
+    // particles (ptclVtx).
+    struct MeshDispJob
+    {
+        uint32_t object = 0, header = 0, layer = 0, rows = 0, columns = 0, buffer = 0;
+        float camera[16] = {};
+        std::vector<uint8_t> grid; // the current buffer's bytes at the hook (view matrix, vertices)
+    };
+    struct ShadowDispJob
+    {
+        uint32_t chain = 0, model = 0;
+        bool skinned = false;
+        float projection[16] = {};
+        float rigid[16] = {}, extrude[3] = {};
+        uint32_t paletteLo = 0, paletteHi = 0;
+        std::vector<float> palette; // the bone palette at the hook (skinned)
+    };
+    struct ParticleEnv;
+    struct PtclVtxJob
+    {
+        uint32_t count = 0, header = 0, layer = 0, blend = 0;
+        float camera[16] = {}, eye[3] = {};
+        std::vector<uint8_t> env;  // the ParticleEnv then (its bytes)
+        std::vector<float> data; // the particles (12 words each)
+    };
+    void meshDispDraw(const MeshDispJob &job);
+    void shadowDispDraw(const ShadowDispJob &job);
+    void ptclVtxDraw(const PtclVtxJob &job, const ParticleEnv &e);
+    enum : uint8_t
+    {
+        kJobModel,
+        kJobMesh,
+        kJobShadow,
+        kJobPtcl
+    };
+    struct HookJob
+    {
+        uint8_t kind = kJobModel;
+        ModelDispJob model;
+        MeshDispJob mesh;
+        ShadowDispJob shadow;
+        PtclVtxJob ptcl;
+    };
+    void runJob(HookJob &job);
+    // SOTC_HOOK_ASYNC_VERIFY: a hash of everything a job took at the hook
+    // (made at the hand-over and again when the worker takes it up: any
+    // difference is the job seeing other inputs than the hook's).
+    uint64_t jobCopyHash(const HookJob &job);
+
+    namespace hookjobs
+    {
+        bool g_on = false;  // this frame's jobs go to the worker (set by syncFrame)
+        bool g_verify = false; // SOTC_HOOK_ASYNC_VERIFY (read at the first frame: the Vita's env.txt comes after static init)
+        // Jobs outstanding at most (the game thread waits past it; an area
+        // change's cut frame has ~180). Each slot keeps its vectors' room.
+        constexpr uint32_t kRing = 512u;
+        HookJob g_ring[kRing];
+        uint64_t g_copyHash[kRing] = {};
+        uint64_t g_copyChecked = 0, g_copyDiffer = 0;
+
+        std::atomic<uint32_t> g_head{0}, g_tail{0}; // jobs handed over / done
+        std::mutex g_mutex;
+        std::condition_variable g_wake, g_done;
+        std::atomic<bool> g_sleeping{false}, g_joining{false};
+        bool g_started = false;
+        // The worker's: job time (and the verify counts), read by the game
+        // thread after a join.
+        uint64_t g_jobUs = 0, g_jobs = 0, g_changed = 0, g_changedPart[4] = {};
+        uint64_t g_joinUs = 0, g_joins = 0, g_waits = 0; // the game thread's
+        bool g_timing = false; // frameTiming() at the frame's start
+
+        void loop()
+        {
+            ThreadNaming::SetCurrentThreadName("HookWorker");
+#if defined(__vita__)
+            // Beside the BuildWorker: off core 0 (the game thread's first).
+            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+#endif
+            uint32_t tail = g_tail.load(std::memory_order_relaxed);
+            for (;;)
+            {
+                if (tail == g_head.load(std::memory_order_acquire))
+                {
+                    // A few hundred looks before sleeping: the display walk
+                    // hands a job over every few tens of microseconds.
+                    bool more = false;
+                    for (int spin = 0; spin < 256 && !more; ++spin)
+                        more = tail != g_head.load(std::memory_order_acquire);
+                    if (!more)
+                    {
+                        std::unique_lock<std::mutex> lock(g_mutex);
+                        g_sleeping.store(true, std::memory_order_seq_cst);
+                        if (g_joining.load(std::memory_order_seq_cst))
+                            g_done.notify_all();
+                        while (tail == g_head.load(std::memory_order_seq_cst))
+                            g_wake.wait_for(lock, std::chrono::milliseconds(1)); // (lost wake-ups: Vita3K)
+                        g_sleeping.store(false, std::memory_order_relaxed);
+                    }
+                    continue;
+                }
+                HookJob &job = g_ring[tail % kRing];
+                const uint64_t start = g_timing ? native_renderer::nowUs() : 0u;
+                if (g_verify)
+                {
+                    ++g_copyChecked;
+                    g_copyDiffer += jobCopyHash(job) != g_copyHash[tail % kRing] ? 1u : 0u;
+                }
+                if (g_verify && job.kind == kJobModel)
+                {
+                    const uint64_t now = modelDispInputs(job.model);
+                    if (now != job.model.inputs)
+                        ++g_changed;
+                    for (int k = 0; k < 4; ++k)
+                        g_changedPart[k] += ((now ^ job.model.inputs) >> (16 * k)) & 0xFFFFu ? 1u : 0u;
+                }
+                runJob(job);
+                if (start)
+                    g_jobUs += native_renderer::nowUs() - start;
+                ++g_jobs;
+                g_tail.store(++tail, std::memory_order_release);
+            }
+        }
+        void start()
+        {
+            if (g_started)
+                return;
+            g_started = true;
+#if defined(__vita__)
+            const unsigned int stackDefault = _pthread_stack_default_user;
+            _pthread_stack_default_user = 512u * 1024u; // the packet builds' strips / skinned packets
+#endif
+            std::thread(loop).detach();
+#if defined(__vita__)
+            _pthread_stack_default_user = stackDefault;
+#endif
+        }
+        inline bool pending() { return g_tail.load(std::memory_order_acquire) != g_head.load(std::memory_order_relaxed); }
+        // Joins that waited and their time, by where (SOTC_HOOK_ASYNC_VERIFY).
+        uint64_t g_siteWaits[kSites] = {}, g_siteUs[kSites] = {};
+        const char *const kSiteNames[kSites] = {"zfog", "frame", "glend", "gsreg-feedback", "gsreg-refraction", "gsreg-2d", "meshdisp", "shadowdisp", "ptclenv", "ptclvtx", "screenblur", "move", "kick"};
+        // Waits until every job handed over has run.
+        void join(Site site)
+        {
+            if (!pending())
+                return;
+            const uint64_t start = g_timing || g_verify ? native_renderer::nowUs() : 0u;
+            ++g_waits;
+            ++g_siteWaits[site];
+            struct SiteTime
+            {
+                Site site;
+                uint64_t start;
+                ~SiteTime()
+                {
+                    if (start)
+                        g_siteUs[site] += native_renderer::nowUs() - start;
+                }
+            } siteTime{site, start};
+            for (int spin = 0; spin < 512; ++spin)
+                if (!pending())
+                    goto done;
+            {
+                std::unique_lock<std::mutex> lock(g_mutex);
+                g_joining.store(true, std::memory_order_seq_cst);
+                while (pending())
+                {
+                    if (g_sleeping.load(std::memory_order_seq_cst))
+                        g_wake.notify_one();
+                    g_done.wait_for(lock, std::chrono::milliseconds(1));
+                }
+                g_joining.store(false, std::memory_order_relaxed);
+            }
+        done:
+            if (start)
+                g_joinUs += native_renderer::nowUs() - start;
+        }
+        // The next free job (waits while the ring is full).
+        HookJob &next()
+        {
+            const uint32_t head = g_head.load(std::memory_order_relaxed);
+            while (head - g_tail.load(std::memory_order_acquire) >= kRing)
+                std::this_thread::yield();
+            return g_ring[head % kRing];
+        }
+        void push()
+        {
+            if (g_verify)
+                g_copyHash[g_head.load(std::memory_order_relaxed) % kRing] = jobCopyHash(g_ring[g_head.load(std::memory_order_relaxed) % kRing]);
+            g_head.store(g_head.load(std::memory_order_relaxed) + 1u, std::memory_order_seq_cst);
+            if (g_sleeping.load(std::memory_order_seq_cst))
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_wake.notify_one();
+            }
+        }
+        // A frame's end (syncFrame, after its join): the jobs' and joins' time
+        // into the frame log's counters (hooks: the game thread's, joins
+        // included; jobs: the worker's).
+        void frameEnd()
+        {
+            native_renderer::FrameCounters &c = native_renderer::frameCounters();
+            c.hookUs += g_joinUs;
+            c.jobUs += g_jobUs;
+            c.joinUs += g_joinUs;
+            c.jobs += static_cast<uint32_t>(g_jobs);
+            g_jobUs = g_joinUs = g_jobs = 0;
+            static uint64_t frames = 0, changed = 0, jobs = 0;
+            jobs += c.jobs;
+            changed += g_changed;
+            g_changed = 0;
+            if (g_verify && frames % 600u == 599u)
+            {
+                std::string line;
+                char item[64];
+                for (int k = 0; k < kSites; ++k)
+                    if (g_siteWaits[k])
+                    {
+                        std::snprintf(item, sizeof(item), " %s %llu (%.1f ms)", kSiteNames[k], (unsigned long long)g_siteWaits[k], g_siteUs[k] / 1000.0);
+                        line += item;
+                    }
+                std::fprintf(stderr, "[hookjob] joins that waited, 600 frames:%s\n", line.c_str());
+                std::fill(g_siteWaits, g_siteWaits + kSites, 0u);
+                std::fill(g_siteUs, g_siteUs + kSites, 0u);
+            }
+            if (g_verify && ++frames % 600u == 0u)
+                std::fprintf(stderr, "[hookjob] %llu frames: %llu jobs on the worker, their inputs as taken at the hook: %llu checked, %llu differ | guest memory changed since the hook (not read by the jobs) in %llu (tags %llu lights %llu palette %llu lists %llu)\n",
+                             (unsigned long long)frames, (unsigned long long)jobs, (unsigned long long)g_copyChecked, (unsigned long long)g_copyDiffer,
+                             (unsigned long long)changed, (unsigned long long)g_changedPart[0],
+                             (unsigned long long)g_changedPart[1], (unsigned long long)g_changedPart[2], (unsigned long long)g_changedPart[3]);
+        }
+        // A frame's start: jobs on the worker this frame unless a check runs.
+        void frameStart()
+        {
+            static const bool checks = []
+            {
+                for (const char *name : {"SOTC_DIFFTEST", "SOTC_MODELDISP_CHECK", "SOTC_VIEW_CHECK", "SOTC_NATIVE_LOG", "SOTC_NATIVE_LOGMAT", "SOTC_LOG_LAYER",
+                                         "SOTC_NATIVE_IDCOLOR", "SOTC_STALE_CHECK", "SOTC_HOOK_STATS", "SOTC_R2_CHECK", "SOTC_PLAN_VERIFY", "SOTC_HIDE_HEADER"})
+                    if (std::getenv(name))
+                        return true;
+                return false;
+            }();
+            const native_renderer::Tuning &t = native_renderer::tuning();
+            // SOTC_HOOK_ASYNC_AB=<n> (measuring): on and off in turn, n frames each.
+            static const uint64_t ab = std::getenv("SOTC_HOOK_ASYNC_AB") ? std::strtoull(std::getenv("SOTC_HOOK_ASYNC_AB"), nullptr, 10) : 0u;
+            const bool abOn = !ab || (g_frame / ab) % 2u == 0u;
+            const bool on = t.hookWorker && abOn && !checks && !g_staleCheck && !hookStats().on && !g_planVerify && !native_renderer::drawTap() && !t.subsysProf &&
+                            !::sotc_prof::g_on;
+            static const bool verify = std::getenv("SOTC_HOOK_ASYNC_VERIFY") != nullptr;
+            g_verify = verify;
+            if (on)
+                start();
+            g_on = on;
+            g_timing = t.frameTiming();
+        }
+    }
+
     // A frame of the game ends when the display list goes to the VIF1.
     void newDrawOrder();
     void syncFrame(uint8_t *rdram)
     {
-        g_ram = rdram;
+        if (g_ram != rdram) // (read by the model jobs: written once)
+            g_ram = rdram;
 
         const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
         if (frame != g_frame)
         {
+            hookJoin(hookjobs::k_frame); // the frame's model jobs (round 23)
+            hookjobs::frameEnd();
             if (g_staleCheck)
             {
                 staleCompare("next frame");
@@ -3248,6 +3589,7 @@ namespace sotc_native
                 g_surfaceMemo = g_r2 && surfaceMemo;
                 g_prefetch = g_r2 && prefetch;
             }
+            hookjobs::frameStart();
             gcovDump(frame);
             g_frameDraws = 0;
             g_skinnedDraws = 0;
@@ -3581,6 +3923,7 @@ namespace sotc_native
     void glEndHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
+        hookJoin(hookjobs::k_glend); // the 2D draws after the model jobs before them
         static const bool off = std::getenv("SOTC_NATIVE_NOGL") != nullptr;
         const uint32_t start = word(0x01186398u), end = word(0x01186394u);
         // Not drawn here: bossDeathEffectBegin's fan goes to an off-screen buffer.
@@ -3633,6 +3976,7 @@ namespace sotc_native
             // feedbackBlur / feedbackBlur2 (layer 29): the display buffer, the
             // last frame shown, laid over the new one (FIX or vertex alpha).
             syncFrame(rdram);
+            hookJoin(hookjobs::k_gsreg_feedback);
             // SOTC_FEEDBACK_LOG=1 (debugging, round 12): the frames that use it.
             static const bool feedbackLog = std::getenv("SOTC_FEEDBACK_LOG") != nullptr;
             if (feedbackLog)
@@ -3661,6 +4005,7 @@ namespace sotc_native
             // screen at layer 19, its ST waving over refractionBegin's 256 x 256
             // copy of the picture so far.
             syncFrame(rdram);
+            hookJoin(hookjobs::k_gsreg_refraction);
             const uint32_t requested = g_requested;
             g_requested = kScreenCopy;
             feed2D(GPR_U32(ctx, 4) & 0xFFu, GPR_U64(ctx, 5));
@@ -3673,6 +4018,7 @@ namespace sotc_native
             if (ra < r.start || ra >= r.end)
                 continue;
             syncFrame(rdram);
+            hookJoin(hookjobs::k_gsreg_2d);
             feed2D(GPR_U32(ctx, 4) & 0xFFu, GPR_U64(ctx, 5));
             break;
         }
@@ -3681,7 +4027,8 @@ namespace sotc_native
 
     void texTransRequestHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        g_ram = rdram;
+        if (g_ram != rdram)
+            g_ram = rdram;
         const uint32_t resource = GPR_U32(ctx, 4);
         g_requested = resource ? word(resource + 0x20u) : 0u;
         g_texTransRequest(rdram, ctx, runtime);
@@ -3768,11 +4115,73 @@ namespace sotc_native
         HookTimer hookTimer;
         if (!g_cameraContext || g_ram[(object + 8u) & 0x1FFFFFFu] != '#')
             return;
-        const uint32_t base = object + 0x20u;
-        const uint32_t rows = word(base + 8u), columns = word(base + 12u);
-        const uint32_t buffer = word(base + (word(base + 16u) & 1u) * 4u);
-        if (rows < 2u || rows > 64u || columns < 2u || columns > 64u || !buffer)
+        // The rest on the worker after the model jobs (g_viewLights: the
+        // last skinned part's), or here.
+        MeshDispJob local;
+        MeshDispJob &job = hookjobs::g_on ? hookjobs::next().mesh : local;
+        job.object = object;
+        job.header = header;
+        job.layer = layer;
+        for (int i = 0; i < 16; ++i)
+            job.camera[i] = real(g_cameraContext + 0x5A0u + i * 4u);
+        {
+            // The grid as it is now: the current buffer's view matrix and
+            // vertices (the game simulates the cloth into the other buffer
+            // and turns them; read later, it drifted off the body).
+            const uint32_t base = object + 0x20u;
+            job.rows = word(base + 8u);
+            job.columns = word(base + 12u);
+            job.buffer = word(base + (word(base + 16u) & 1u) * 4u);
+            if (job.rows < 2u || job.rows > 64u || job.columns < 2u || job.columns > 64u || !job.buffer)
+                return;
+            const uint32_t bytes = 0xB0u + job.rows * (job.columns * 0x40u + 0x10u);
+            job.grid.resize(bytes);
+            for (uint32_t i = 0; i < bytes; i += 4u)
+            {
+                const uint32_t w = word(job.buffer + i);
+                std::memcpy(job.grid.data() + i, &w, 4);
+            }
+        }
+        if (!hookjobs::g_on)
+        {
+            meshDispDraw(job);
             return;
+        }
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobMesh;
+        hookjobs::push();
+    }
+
+    void meshDispDraw(const MeshDispJob &job)
+    {
+        const uint32_t object = job.object, header = job.header, layer = job.layer;
+        const uint32_t base = object + 0x20u;
+        const uint32_t rows = job.rows, columns = job.columns, buffer = job.buffer;
+        if (hookjobs::g_verify)
+        {
+            // What reading the buffer now (as round 23's first jobs did) would
+            // have given: the cloth drawn apart from the body when it differs.
+            static uint64_t grids = 0, moved = 0;
+            ++grids;
+            const uint32_t nowBuffer = word(base + (word(base + 16u) & 1u) * 4u);
+            bool same = nowBuffer == buffer;
+            for (uint32_t i = 0; same && i < job.grid.size(); i += 4u)
+            {
+                uint32_t w;
+                std::memcpy(&w, job.grid.data() + i, 4);
+                same = word(buffer + i) == w;
+            }
+            moved += same ? 0u : 1u;
+            if (grids % 2000u == 0u)
+                std::fprintf(stderr, "[hookjob] cloth grids %llu: %llu changed between the hook and the job (taken at the hook)\n", (unsigned long long)grids,
+                             (unsigned long long)moved);
+        }
+        // The buffer's words as taken at the hook (offsets from buffer).
+        const auto real = [&job, buffer](uint32_t a)
+        {
+            float v;
+            std::memcpy(&v, job.grid.data() + (a - buffer), 4);
+            return v;
+        };
         if (g_staleCheck)
         {
             const uint32_t bytes = 0xB0u + rows * (columns * 0x40u + 0x10u);
@@ -3836,9 +4245,7 @@ namespace sotc_native
                 }
             native_renderer::uploadMesh(mesh, tris.data(), static_cast<uint32_t>(tris.size()), true);
         }
-        float camera[16];
-        for (int i = 0; i < 16; ++i)
-            camera[i] = real(g_cameraContext + 0x5A0u + i * 4u);
+        const float *camera = job.camera;
         static const bool viewChecks = std::getenv("SOTC_VIEW_CHECK") != nullptr;
         if (viewChecks)
             viewCheck(1, camera, view);
@@ -3884,22 +4291,63 @@ namespace sotc_native
         static const bool idColours = std::getenv("SOTC_NATIVE_IDCOLOR") != nullptr;
         if (!shadows || idColours || !model || !g_cameraContext || ((word(chain) >> 28) & 7u) != 2u)
             return;
+        ShadowDispJob local;
+        ShadowDispJob &job = hookjobs::g_on ? hookjobs::next().shadow : local;
+        job.chain = chain;
+        job.model = model;
+        job.skinned = skinnedShadow;
+        for (int i = 0; i < 16; ++i)
+            job.projection[i] = real(g_cameraContext + 0x40u + i * 4u);
+        {
+            // The instance's matrix / palette and light rows as they are now.
+            const uint32_t ret = word(chain + 4u);
+            if (skinnedShadow)
+            {
+                static VuPalette now;
+                if (!readChainPalette(chain, now))
+                    return;
+                job.paletteLo = now.lo;
+                job.paletteHi = now.hi;
+                job.palette.assign(now.data() + now.lo * 4u, now.data() + std::max(now.lo, now.hi) * 4u);
+            }
+            else
+            {
+                if ((word(ret) & 0xFFFFu) != 5u) // one matrix: rigid
+                    return;
+                for (int i = 0; i < 16; ++i)
+                    job.rigid[i] = real(ret + 16u + i * 4u);
+            }
+            for (int i = 0; i < 3; ++i)
+                job.extrude[i] = real(chain + 16u * (i + 1) + 12u);
+        }
+        if (!hookjobs::g_on)
+        {
+            shadowDispDraw(job);
+            return;
+        }
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobShadow;
+        hookjobs::push();
+    }
+
+    void shadowDispDraw(const ShadowDispJob &job)
+    {
+        const uint32_t chain = job.chain, model = job.model;
+        const bool skinnedShadow = job.skinned;
         const uint32_t ret = word(chain + 4u);
+        (void)ret;
         static VuPalette palette;
         float m[16];
         if (skinnedShadow)
         {
-            if (!readChainPalette(chain, palette))
-                return;
+            if (palette.hi > palette.lo)
+                std::fill(palette.vu.begin() + palette.lo * 4u, palette.vu.begin() + palette.hi * 4u, 0.0f);
+            std::copy(job.palette.begin(), job.palette.end(), palette.vu.begin() + job.paletteLo * 4u);
+            palette.lo = job.paletteLo;
+            palette.hi = job.paletteHi;
         }
         else
-        {
-            if ((word(ret) & 0xFFFFu) != 5u) // one matrix: rigid
-                return;
-            for (int i = 0; i < 16; ++i)
-                m[i] = real(ret + 16u + i * 4u);
-        }
-        const float d[3] = {real(chain + 16u + 12u), real(chain + 32u + 12u), real(chain + 48u + 12u)};
+            std::memcpy(m, job.rigid, sizeof(m));
+        const float d[3] = {job.extrude[0], job.extrude[1], job.extrude[2]};
         const uint32_t tag = word(model + 0x1Cu);
         static std::vector<Strip> strips;
         strips.clear();
@@ -3985,9 +4433,7 @@ namespace sotc_native
             }
         if (g_volume.empty())
             return;
-        float projection[16];
-        for (int i = 0; i < 16; ++i)
-            projection[i] = real(g_cameraContext + 0x40u + i * 4u);
+        const float *projection = job.projection;
         const uint64_t mesh = (1ull << 59) | g_skinnedDraws++;
         native_renderer::uploadMesh(mesh, g_volume.data(), static_cast<uint32_t>(g_volume.size()), true);
         native_renderer::DrawState state;
@@ -4075,9 +4521,42 @@ namespace sotc_native
         g_ptclVtx(rdram, ctx, runtime);
         HookTimer hookTimer;
         const bool off = !native_renderer::tuning().particles;
-        const ParticleEnv &e = g_ptclEnvState;
-        if (off || !g_cameraContext || count == 0u || count > 4096u || (!(e.type >= 1u && e.type <= 5u) && e.type != 7u))
+        const ParticleEnv &env = g_ptclEnvState;
+        if (off || !g_cameraContext || count == 0u || count > 4096u || (!(env.type >= 1u && env.type <= 5u) && env.type != 7u))
             return;
+        // The particles, the environment, the camera as they are now (the
+        // particles' buffer is the game's to fill again).
+        static PtclVtxJob local;
+        PtclVtxJob &job = hookjobs::g_on ? hookjobs::next().ptcl : local;
+        job.count = count;
+        job.header = header;
+        job.layer = layer;
+        job.blend = g_ptclBlend;
+        for (int i = 0; i < 16; ++i)
+            job.camera[i] = real(g_cameraContext + 0x5A0u + i * 4u);
+        const uint32_t consts = word(0x118BFF4u) & 0x0FFFFFFFu;
+        for (int i = 0; i < 3; ++i)
+            job.eye[i] = consts ? real(consts + 0x100u + i * 4u) : 0.0f;
+        job.env.resize(sizeof(ParticleEnv));
+        std::memcpy(job.env.data(), &env, sizeof(ParticleEnv));
+        job.data.resize(count * 12u);
+        for (uint32_t i = 0; i < count * 12u; ++i)
+            job.data[i] = real(a + i * 4u);
+        if (!hookjobs::g_on)
+        {
+            ptclVtxDraw(job, env);
+            return;
+        }
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobPtcl;
+        hookjobs::push();
+    }
+
+    void ptclVtxDraw(const PtclVtxJob &job, const ParticleEnv &e)
+    {
+        const uint32_t count = job.count, header = job.header, layer = job.layer;
+        const uint32_t g_ptclBlend = job.blend; // (the one at the hook)
+        // The particles' words (12 each) as captured: rd(i * 48 + offset).
+        const auto rdq = [&job](uint32_t byte) { return job.data[byte >> 2]; };
         // Written straight into the frame's vertex buffer (at most 12 a particle).
         native_renderer::Vertex *room = native_renderer::tuning().fastHooks ? native_renderer::frameMesh(count * 12u) : nullptr;
         uint32_t written = 0;
@@ -4103,8 +4582,7 @@ namespace sotc_native
         };
         // Type 3 (streaks) side vectors: (p - eye) x (p1 - p2), half the width
         // long; the eye is VU 16, the 17th qword of the constants at *0x118bff4.
-        const uint32_t consts = word(0x118BFF4u) & 0x0FFFFFFFu;
-        const float eye[3] = {consts ? real(consts + 0x100u) : 0.0f, consts ? real(consts + 0x104u) : 0.0f, consts ? real(consts + 0x108u) : 0.0f};
+        const float *eye = job.eye;
         auto side = [&](const float *p, const float *d, float half, float out[3])
         {
             const float r[3] = {p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]};
@@ -4118,10 +4596,10 @@ namespace sotc_native
         };
         for (uint32_t i = 0; i < count; ++i)
         {
-            const uint32_t q = a + i * 48u;
-            const float p[3] = {real(q), real(q + 4u), real(q + 8u)};
-            const float sz = real(q + 12u) * 0.70710677f;
-            const float sn = real(q + 32u), cs = real(q + 36u);
+            const uint32_t q = i * 48u;
+            const float p[3] = {rdq(q), rdq(q + 4u), rdq(q + 8u)};
+            const float sz = rdq(q + 12u) * 0.70710677f;
+            const float sn = rdq(q + 32u), cs = rdq(q + 36u);
             float A[3], B[3];
             mul3(A, e.k[0] * sn * sz, e.k[1] * cs * sz, A);
             mul3(B, -cs * sz, e.k[1] * sn * sz, B);
@@ -4130,7 +4608,7 @@ namespace sotc_native
             // (uint8_t)clamp(x, 0, 255) without float compares (each a VFP
             // compare + flags transfer on the Vita): truncated to an int (NaN
             // gives 0 either way), then clamped as an int; the same bytes.
-            const float cr = real(q + 16u) * 255.0f, cg = real(q + 20u) * 255.0f, cb = real(q + 24u) * 255.0f;
+            const float cr = rdq(q + 16u) * 255.0f, cg = rdq(q + 20u) * 255.0f, cb = rdq(q + 24u) * 255.0f;
             auto byteOf = [](float x)
             {
 #if defined(__arm__) && defined(__ARM_NEON)
@@ -4140,7 +4618,7 @@ namespace sotc_native
 #endif
                 return static_cast<uint8_t>(i < 0 ? 0 : (i > 255 ? 255 : i));
             };
-            const uint8_t ca = byteOf(real(q + 28u) * 128.0f);
+            const uint8_t ca = byteOf(rdq(q + 28u) * 128.0f);
             auto col = [&](native_renderer::Vertex &o, float scale)
             {
                 o.r = byteOf(cr * scale);
@@ -4164,9 +4642,9 @@ namespace sotc_native
                 // A streak from p (q0, width in w) to p2 (q2): corners p +- a, p2 +- b.
                 // Type 5 (microcode 7 at 0xba8) is the same streak drawn as type
                 // 4's lit fan (routine 0xe48) around the corners' mean.
-                const float p2[3] = {real(q + 32u), real(q + 36u), real(q + 40u)};
+                const float p2[3] = {rdq(q + 32u), rdq(q + 36u), rdq(q + 40u)};
                 const float d[3] = {p[0] - p2[0], p[1] - p2[1], p[2] - p2[2]};
-                const float half = real(q + 12u) * 0.5f;
+                const float half = rdq(q + 12u) * 0.5f;
                 float sa[3], sb[3];
                 side(p, d, half, sa);
                 side(p2, d, half, sb);
@@ -4213,7 +4691,7 @@ namespace sotc_native
                 continue;
             }
             // Type 7: each particle's own texture cell offset (q2 z / w).
-            const float u0 = e.type == 7u ? real(q + 40u) : 0.0f, v0 = e.type == 7u ? real(q + 44u) : 0.0f;
+            const float u0 = e.type == 7u ? rdq(q + 40u) : 0.0f, v0 = e.type == 7u ? rdq(q + 44u) : 0.0f;
             const native_renderer::Vertex v16 = at(B, 1, u0, v0), v17 = at(A, 1, u0 + e.vec[0], v0), v18 = at(A, -1, u0, v0 + e.vec[1]),
                                           v19 = at(B, -1, u0 + e.vec[0], v0 + e.vec[1]);
             if (e.type == 4u)
@@ -4262,9 +4740,7 @@ namespace sotc_native
                 native_renderer::cancelFrameMesh();
             return;
         }
-        float camera[16];
-        for (int i = 0; i < 16; ++i)
-            camera[i] = real(g_cameraContext + 0x5A0u + i * 4u);
+        const float *camera = job.camera;
         const uint64_t mesh = (1ull << 58) | g_skinnedDraws++;
         if (room)
             native_renderer::commitFrameMesh(mesh, written);
@@ -4283,8 +4759,8 @@ namespace sotc_native
                 lo[k] = 1e30f, hi[k] = -1e30f;
             for (uint32_t i = 0; i < count; ++i)
             {
-                const uint32_t q = a + i * 48u;
-                const float vals[7] = {real(q + 16u), real(q + 20u), real(q + 24u), real(q + 28u), real(q + 12u), real(q + 40u), real(q + 44u)};
+                const uint32_t q = i * 48u;
+                const float vals[7] = {rdq(q + 16u), rdq(q + 20u), rdq(q + 24u), rdq(q + 28u), rdq(q + 12u), rdq(q + 40u), rdq(q + 44u)};
                 for (int k = 0; k < 7; ++k)
                     lo[k] = std::min(lo[k], vals[k]), hi[k] = std::max(hi[k], vals[k]);
             }
@@ -4305,6 +4781,7 @@ namespace sotc_native
     void screenBlurHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
+        hookJoin(hookjobs::k_screenblur);
         static int n = 0;
         if (std::getenv("SOTC_NATIVE_LOG") && n++ < 30)
             std::fprintf(stderr, "[sblur] frame %llu angle %g scale %g layer %u w %d a1 %d steps %d a3 %d t0 %d\n", (unsigned long long)g_frame, ctx->f[12], ctx->f[13],
@@ -4700,6 +5177,7 @@ namespace sotc_native
             shape->surfaceCount = 0;
         }
         const bool memo = g_surfaceMemo && native_renderer::tuning().fastHooks;
+        SurfaceInfo *const memoArr = hookjobs::g_on ? g_surfaceInfoSync : g_surfaceInfo; // (the jobs' own: g_surfaceInfo)
         if (plan && memo && plan->header == header && plan->lod == lod && plan->packets == packets && plan->surfaces == surfaces)
         {
             // The plan's packets of this LOD, in the list's order: the same
@@ -4707,9 +5185,9 @@ namespace sotc_native
             for (const PlanPacket &e : plan->pk)
             {
                 const uint32_t s = e.s;
-                SurfaceInfo &info = g_surfaceInfo[e.slot];
+                SurfaceInfo &info = memoArr[e.slot];
                 if (!(info.s == s && info.header == header && info.frame == g_frame))
-                    surfaceInfo(header, s);
+                    surfaceInfo(header, s, memoArr);
                 const uint64_t flags = info.flags;
                 if ((flags >> 29) & 1u)
                     continue;
@@ -4748,7 +5226,7 @@ namespace sotc_native
             if (shape && shape->surfaceCount < 8u &&
                 std::find(shape->surfaces, shape->surfaces + shape->surfaceCount, s) == shape->surfaces + shape->surfaceCount)
                 shape->surfaces[shape->surfaceCount++] = s;
-            SurfaceInfo *info = memo ? &surfaceInfo(header, s) : nullptr;
+            SurfaceInfo *info = memo ? &surfaceInfo(header, s, memoArr) : nullptr;
             uint64_t flags;
             if (info)
                 flags = info->flags;
@@ -5144,7 +5622,13 @@ namespace sotc_native
         const bool partCulled = (word(header + 0x18u) & 1u) == 0u && word(header + 0x54u) != 1u;
         if (partCulled && table == 0u)
             return; // modelDisp returns too (bVar4 stays set): nothing drawn
-        static std::vector<uint8_t> partVisible;
+        // The rest is the job's (on the worker when hookjobs::g_on): what it
+        // needs of this moment taken now.
+        HookJob *hookJob = hookjobs::g_on ? &hookjobs::next() : nullptr;
+        if (hookJob)
+            hookJob->kind = kJobModel;
+        ModelDispJob &job = hookJob ? hookJob->model : g_syncJob;
+        std::vector<uint8_t> &partVisible = job.partVisible;
         if (partCulled)
         {
             SOTC_PROF_SCOPE(kHookPartTest);
@@ -5201,6 +5685,144 @@ namespace sotc_native
                 if (word(table + link) != 0xFFFFFFFFu)
                     visit(visit, word(table + link), root, 1);
         }
+        job.instance = instance;
+        job.matrix = matrix;
+        job.header = header;
+        job.table = table;
+        job.lod = lod;
+        job.gameLod = gameLod;
+        job.fading = fading;
+        job.partCulled = partCulled;
+        job.opacity = opacity;
+        job.planOn = planOn;
+        job.plan = planOn ? (lod == gameLod ? gamePlan : modelPlan(header, lod)) : nullptr;
+        std::memcpy(job.clip, clip, sizeof(clip));
+        for (int i = 0; i < 16; ++i)
+            job.projection[i] = real(g_cameraContext + 0x40u + i * 4u);
+        job.ripple[0] = real(0x0118C030u);
+        job.ripple[1] = static_cast<float>(static_cast<int32_t>(word(0x01192090u)));
+        {
+            SOTC_PROF_SCOPE(kHookPalette);
+            static VuPalette now;
+            job.hasPalette = readPalette(instance, now);
+            job.paletteLo = now.lo;
+            job.paletteHi = now.hi;
+            if (job.hasPalette && now.hi > now.lo)
+                job.palette.assign(now.data() + now.lo * 4u, now.data() + now.hi * 4u);
+            else
+                job.palette.clear();
+            const uint32_t own = word(instance + 0xCu);
+            for (uint32_t i = 0; i < 32u; ++i)
+                job.lights[i] = real(own + 0x10u + i * 4u);
+        }
+        if (!hookjobs::g_on)
+        {
+            modelDispDraw(job, false);
+            return;
+        }
+        if (hookjobs::g_verify)
+            job.inputs = modelDispInputs(job);
+        hookjobs::push();
+    }
+
+    // The instance's inputs the job reads of guest memory (the verify hash):
+    // 4 bits, one per part that changed since the hook would be told apart
+    // by comparing parts: [0] the own packet's tags, [1] its lights, [2] the
+    // palette, [3] the model header's lists and the globals.
+    uint64_t modelDispInputs(const ModelDispJob &job)
+    {
+        uint64_t h[4] = {0xcbf29ce484222325ull, 0xcbf29ce484222325ull, 0xcbf29ce484222325ull, 0xcbf29ce484222325ull};
+        const auto mix = [&h](int k, uint32_t v) { h[k] = (h[k] ^ v) * 0x100000001b3ull; };
+        const uint32_t own = word(job.instance + 0xCu);
+        for (uint32_t a = own; a < own + 0x10u; a += 4u)
+            mix(0, word(a));
+        for (uint32_t a = own + 0x10u; a < own + 0x90u; a += 4u) // its lights
+            mix(1, word(a));
+        if (((word(own) >> 28) & 7u) == 2u)
+        {
+            const uint32_t ret = word(own + 4u); // the palette's packet
+            const uint32_t n = std::min<uint32_t>(word(ret) & 0xFFFFu, 64u);
+            for (uint32_t a = ret; a < ret + 16u + n * 16u; a += 4u)
+                mix(2, word(a));
+        }
+        mix(3, word(job.header + 0x60u));
+        mix(3, word(job.header + 0x50u));
+        mix(3, word(0x1186290u));
+        mix(3, word(0x1186328u));
+        // 16 bits of each part's hash
+        return (h[0] & 0xFFFFu) | ((h[1] & 0xFFFFu) << 16) | ((h[2] & 0xFFFFu) << 32) | ((h[3] & 0xFFFFu) << 48);
+    }
+
+    uint64_t jobCopyHash(const HookJob &job)
+    {
+        uint64_t h = 0xcbf29ce484222325ull ^ job.kind;
+        const auto bytes = [&h](const void *p, size_t n)
+        {
+            const uint8_t *b = static_cast<const uint8_t *>(p);
+            for (size_t i = 0; i < n; ++i)
+                h = (h ^ b[i]) * 0x100000001b3ull;
+        };
+        switch (job.kind)
+        {
+        case kJobModel:
+        {
+            const ModelDispJob &m = job.model;
+            bytes(&m.instance, sizeof(m.instance)), bytes(&m.header, 4), bytes(&m.lod, 4), bytes(&m.opacity, 4);
+            bytes(m.clip, sizeof(m.clip)), bytes(m.projection, sizeof(m.projection)), bytes(m.ripple, sizeof(m.ripple)), bytes(m.lights, sizeof(m.lights));
+            bytes(&m.hasPalette, 1), bytes(&m.paletteLo, 4), bytes(&m.paletteHi, 4);
+            bytes(m.palette.data(), m.palette.size() * sizeof(float));
+            if (m.partCulled)
+                bytes(m.partVisible.data(), m.partVisible.size());
+            break;
+        }
+        case kJobMesh:
+            bytes(&job.mesh.buffer, 4), bytes(&job.mesh.rows, 4), bytes(&job.mesh.columns, 4), bytes(job.mesh.camera, sizeof(job.mesh.camera));
+            bytes(job.mesh.grid.data(), job.mesh.grid.size());
+            break;
+        case kJobShadow:
+            bytes(job.shadow.projection, sizeof(job.shadow.projection)), bytes(job.shadow.rigid, sizeof(job.shadow.rigid)), bytes(job.shadow.extrude, 12);
+            bytes(job.shadow.palette.data(), job.shadow.palette.size() * sizeof(float));
+            break;
+        case kJobPtcl:
+            bytes(job.ptcl.camera, sizeof(job.ptcl.camera)), bytes(job.ptcl.eye, 12), bytes(job.ptcl.env.data(), job.ptcl.env.size());
+            bytes(job.ptcl.data.data(), job.ptcl.data.size() * sizeof(float));
+            break;
+        }
+        return h;
+    }
+
+    void runJob(HookJob &job)
+    {
+        switch (job.kind)
+        {
+        case kJobModel:
+            modelDispDraw(job.model, true);
+            break;
+        case kJobMesh:
+            meshDispDraw(job.mesh);
+            break;
+        case kJobShadow:
+            shadowDispDraw(job.shadow);
+            break;
+        case kJobPtcl:
+            ptclVtxDraw(job.ptcl, *reinterpret_cast<const ParticleEnv *>(job.ptcl.env.data()));
+            // A big batch's room let go (every slot keeps what it held:
+            // 512 slots of the largest batch would be tens of MB on the Vita).
+            if (job.ptcl.data.capacity() > 1024u)
+                std::vector<float>().swap(job.ptcl.data);
+            break;
+        }
+    }
+
+    void modelDispDraw(const ModelDispJob &job, const bool onWorker)
+    {
+        static const ModelDispEnv env;
+        const uint32_t instance = job.instance, matrix = job.matrix, header = job.header, table = job.table, lod = job.lod;
+        const bool fading = job.fading, partCulled = job.partCulled;
+        const float opacity = job.opacity;
+        const float *clip = job.clip, *projection = job.projection;
+        const std::vector<uint8_t> &partVisible = job.partVisible;
+        (void)matrix;
         // Its packet list ends at a packet of size 0 (32 bytes each), not at a count.
         const uint32_t packets = word(header + 0x60u), count = 0x10000u;
         static std::vector<native_renderer::Vertex> vertices;
@@ -5209,7 +5831,16 @@ namespace sotc_native
         bool hasPalette;
         {
             SOTC_PROF_SCOPE(kHookPalette);
-            hasPalette = readPalette(instance, palette);
+            // As at the hook (job.palette), into the VU memory picture.
+            hasPalette = job.hasPalette;
+            if (hasPalette)
+            {
+                if (palette.hi > palette.lo)
+                    std::fill(palette.vu.begin() + palette.lo * 4u, palette.vu.begin() + palette.hi * 4u, 0.0f);
+                std::copy(job.palette.begin(), job.palette.end(), palette.vu.begin() + job.paletteLo * 4u);
+                palette.lo = job.paletteLo;
+                palette.hi = job.paletteHi;
+            }
             if (g_staleCheck)
             {
                 staleRecord(matrix, 64u, instance, 0);
@@ -5235,9 +5866,6 @@ namespace sotc_native
             }
             return static_cast<uint32_t>(skinRecordIndex);
         };
-        float projection[16];
-        for (int i = 0; i < 16; ++i)
-            projection[i] = real(g_cameraContext + 0x40u + i * 4u);
         SOTC_PROF_SCOPE(kHookPackets);
         HookStats &hs = hookStats();
         if (hs.on)
@@ -5570,9 +6198,8 @@ namespace sotc_native
                 state.lit = true;
                 if (!haveLights)
                 {
-                    const uint32_t own = word(instance + 0xCu);
                     for (uint32_t i = 0; i < 32u; ++i)
-                        lights[i] = real(own + 0x10u + i * 4u);
+                        lights[i] = job.lights[i];
                     haveLights = true;
                 }
                 std::memcpy(state.light, lights, sizeof(lights));
@@ -5691,8 +6318,8 @@ namespace sotc_native
                 // bands of 8 rows, band i shifted by (sin(2 (12 i + t) x 24 pi / H)
                 // + 1) (0.8 x 8 i / H + 0.2) texels, t = *0x118c030 (+0.1 x the
                 // frame step), H = *0x1192090.
-                refl.mirrorRipple[0] = real(0x0118C030u);
-                refl.mirrorRipple[1] = static_cast<float>(static_cast<int32_t>(word(0x01192090u)));
+                refl.mirrorRipple[0] = job.ripple[0];
+                refl.mirrorRipple[1] = job.ripple[1];
                 if (layer14)
                 {
                     refl.mirrorRipple[1] = 0.0f;
@@ -5746,7 +6373,8 @@ namespace sotc_native
                         g_packetMemo.prefetch(word(next + 16u), true);
                         __builtin_prefetch(&g_surfaceInfo[surfaceSlot(word(header + 0x50u) + word(next + 8u) * 0x120u)]);
                     }
-                    g_prefetchQueue.pump(2u);
+                    if (!onWorker) // the game thread's queue
+                        g_prefetchQueue.pump(2u);
                 }
                 if (word(pk + 4u) != lod)
                     continue;
@@ -5772,7 +6400,7 @@ namespace sotc_native
         // The plan's packets: the same tests, the id kept while packetId
         // would keep it without looking (drawn the frame before, not its
         // stagger frame, not rewritten in place).
-        ModelPlan *plan = planOn ? (lod == gameLod ? gamePlan : modelPlan(header, lod)) : nullptr;
+        ModelPlan *plan = job.plan;
         const auto planPackets = [&]
         {
             const size_t n = plan->pk.size();
@@ -5785,7 +6413,8 @@ namespace sotc_native
                 {
                     if (k + 1u < n)
                         __builtin_prefetch(&g_surfaceInfo[plan->pk[k + 1u].slot]);
-                    g_prefetchQueue.pump(2u);
+                    if (!onWorker) // the game thread's queue
+                        g_prefetchQueue.pump(2u);
                 }
                 if (partCulled && e.part != 0xFFFFFFFFu && e.part < partVisible.size() && partVisible[e.part] == 1u)
                     continue;
@@ -5892,6 +6521,7 @@ void installSotcNative(PS2Runtime &runtime)
     }
     g_modelDisp = runtime.lookupFunction(kModelDisp);
     runtime.registerFunction(kModelDisp, modelDispHook);
+    sotc_decomp::g_beforeGuestMove = [] { sotc_native::hookJoin(hookjobs::k_move); }; // the jobs' memos by address
     g_getCameraContext = runtime.lookupFunction(kGetCameraContext);
     runtime.registerFunction(kGetCameraContext, getCameraContextHook);
     if (runtime.hasFunction(kGsReg) && runtime.hasFunction(kTexTransRequest) && runtime.hasFunction(kPushLayer) && runtime.hasFunction(kPopLayer))
@@ -5942,6 +6572,9 @@ void installSotcNative(PS2Runtime &runtime)
         // (skinAtKick), and the debugging checks.
         ps2_stats::kickHook = []
         {
+            // The frame's model jobs done before the game goes on to the next
+            // frame's logic (and skinAtKick reads their records).
+            sotc_native::hookJoin(hookjobs::k_kick);
             if (sotc_native::g_staleCheck)
             {
                 sotc_native::staleCompare("kick");

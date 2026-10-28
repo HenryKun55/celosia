@@ -1704,6 +1704,7 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                 }
                 else if (mode == 1)
                 {
+                    const uint64_t eventsAtStart = GifEventScanner::s_events[0] + GifEventScanner::s_events[1] + GifEventScanner::s_events[2];
                     uint32_t tagAddr = m_ioRegisters[channelBase + 0x30];
                     uint32_t asr0 = m_ioRegisters[channelBase + 0x40];
                     uint32_t asr1 = m_ioRegisters[channelBase + 0x50];
@@ -1975,6 +1976,17 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     {
                         // PS2X_GIF_EVENT_LOG=1 (debugging): the GS events the scans found, every 600 chains.
                         static const bool eventLog = std::getenv("PS2X_GIF_EVENT_LOG") != nullptr;
+                        if (eventLog)
+                        {
+                            // Round 23: which of them came from VIF1 chains (DIRECT).
+                            static uint64_t vif1Events = 0, vif1Chains = 0;
+                            const uint64_t now = GifEventScanner::s_events[0] + GifEventScanner::s_events[1] + GifEventScanner::s_events[2];
+                            vif1Events += now - eventsAtStart;
+                            vif1Chains += now != eventsAtStart;
+                            if (ps2_stats::vif1Chains.load(std::memory_order_relaxed) % 600u == 0u)
+                                std::fprintf(stderr, "[gif:events] VIF1 chains so far: %llu events in %llu chains\n", (unsigned long long)vif1Events,
+                                             (unsigned long long)vif1Chains);
+                        }
                         if (eventLog && ps2_stats::vif1Chains.load(std::memory_order_relaxed) % 600u == 0u)
                             std::fprintf(stderr, "[gif:events] chain %llu: signal %llu finish %llu label %llu\n",
                                          (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)GifEventScanner::s_events[0],

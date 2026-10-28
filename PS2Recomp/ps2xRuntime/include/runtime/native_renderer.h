@@ -423,6 +423,10 @@ namespace native_renderer
         // buildAsync: draws left out (their mesh or texture still on the
         // worker), jobs handed to it, and finished jobs taken up.
         uint32_t heldDraws = 0, asyncJobs = 0, asyncDone = 0;
+        // The model draws' jobs on a worker (round 23): its time on them, the
+        // game thread's waits for it (in hookUs too), the jobs.
+        uint64_t jobUs = 0, joinUs = 0;
+        uint32_t jobs = 0;
     };
     FrameCounters &frameCounters();
     uint64_t nowUs();

@@ -6,6 +6,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#define PS2X_MIX_NEON 1
+#endif
+
+// The interpolation's float arithmetic as written, one rounding per
+// operation (no fused multiply-add where the host has one): the scalar and
+// the vector paths below give the same bits (the Vita's VFPv3 has no FMA,
+// so GCC there cannot fuse; clang on the Mac would).
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
 
 namespace ps2x::iop::detail
 {
@@ -380,7 +392,7 @@ namespace ps2x::iop::detail
     // 4-point cubic interpolation, envelope, volume, added straight into its
     // core's dry / reverb sums (a null sum: not sent there). Stops adding
     // once it stops (round 12: one pass, not a block written and four read).
-    void SoundMixer::mixVoice(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames)
+    void SoundMixer::mixVoiceScalar(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames)
     {
         for (uint32_t i = 0; i < frames; ++i)
         {
@@ -404,6 +416,133 @@ namespace ps2x::iop::detail
                 tickEnvelope(voice);
             const int32_t sample = (clamp16(static_cast<int32_t>(interpolated)) * voice.level) >> 15;
             const int32_t left = (sample * voice.volL) >> 15, right = (sample * voice.volR) >> 15;
+            if (dryL)
+                dryL[i] += left;
+            if (dryR)
+                dryR[i] += right;
+            if (wetL)
+                wetL[i] += left;
+            if (wetR)
+                wetR[i] += right;
+        }
+    }
+
+    // Round 23: mixVoice in two passes over the block. First the voice's
+    // state sample by sample as before (the pitch counter, the ADPCM
+    // stream, the envelope), keeping each output sample's four history
+    // samples, counter and level; then the interpolation, envelope and
+    // volumes four samples at a time (NEON), the same operations in the
+    // same order (the same bits as mixVoiceScalar: PS2X_MIX_CHECK=1 runs
+    // both on copies and counts the blocks that differ; PS2X_MIX_NEON=0
+    // the scalar one).
+    void SoundMixer::mixVoice(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames)
+    {
+        static const bool vector = []
+        {
+            const char *v = std::getenv("PS2X_MIX_NEON");
+            return !(v && std::atoi(v) == 0);
+        }();
+        static const bool check = std::getenv("PS2X_MIX_CHECK") != nullptr;
+        if (!vector)
+        {
+            mixVoiceScalar(voice, dryL, dryR, wetL, wetR, frames);
+            return;
+        }
+        if (check)
+        {
+            // Both on copies of the voice and of the sums, compared.
+            static uint64_t blocks = 0, differ = 0;
+            Voice a = voice, b = voice;
+            int32_t sa[4][kBlock], sb[4][kBlock];
+            int32_t *const in[4] = {dryL, dryR, wetL, wetR};
+            for (int k = 0; k < 4; ++k)
+                for (uint32_t i = 0; i < frames; ++i)
+                    sa[k][i] = sb[k][i] = in[k] ? in[k][i] : 0;
+            mixVoiceScalar(a, in[0] ? sa[0] : nullptr, in[1] ? sa[1] : nullptr, in[2] ? sa[2] : nullptr, in[3] ? sa[3] : nullptr, frames);
+            mixVoiceBlock(b, in[0] ? sb[0] : nullptr, in[1] ? sb[1] : nullptr, in[2] ? sb[2] : nullptr, in[3] ? sb[3] : nullptr, frames);
+            ++blocks;
+            bool same = true;
+            for (int k = 0; k < 4; ++k)
+                same = same && std::memcmp(sa[k], sb[k], frames * sizeof(int32_t)) == 0;
+            if (!same || a.level != b.level || a.counter != b.counter || a.next != b.next || a.blockIndex != b.blockIndex ||
+                a.envCounter != b.envCounter || a.phase != b.phase || a.history != b.history)
+                ++differ;
+            if ((blocks & (blocks - 1u)) == 0u || blocks % 100000u == 0u)
+                std::fprintf(stderr, "[mix-check] %llu voice blocks, %llu differ\n", static_cast<unsigned long long>(blocks), static_cast<unsigned long long>(differ));
+        }
+        mixVoiceBlock(voice, dryL, dryR, wetL, wetR, frames);
+    }
+
+    void SoundMixer::mixVoiceBlock(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames)
+    {
+        // Pass 1: the state, per output sample.
+        alignas(16) int16_t h0[kBlock], h1[kBlock], h2[kBlock], h3[kBlock];
+        alignas(16) uint32_t count[kBlock];
+        alignas(16) int32_t level[kBlock];
+        uint32_t n = 0;
+        for (; n < frames; ++n)
+        {
+            if (voice.phase == Phase::Off)
+                break;
+            voice.counter += voice.pitch;
+            while (voice.counter >= 0x1000u && voice.phase != Phase::Off)
+            {
+                voice.counter -= 0x1000u;
+                voice.history[0] = voice.history[1];
+                voice.history[1] = voice.history[2];
+                voice.history[2] = voice.history[3];
+                voice.history[3] = static_cast<int16_t>(nextSample(voice));
+            }
+            h0[n] = voice.history[0];
+            h1[n] = voice.history[1];
+            h2[n] = voice.history[2];
+            h3[n] = voice.history[3];
+            count[n] = voice.counter;
+            if (voice.envCycles && voice.envCounter + 1u < voice.envCycles)
+                ++voice.envCounter;
+            else
+                tickEnvelope(voice);
+            level[n] = voice.level;
+        }
+        // Pass 2: the samples.
+        const int32_t volL = voice.volL, volR = voice.volR;
+        uint32_t i = 0;
+#if defined(PS2X_MIX_NEON)
+        const float32x4_t half = vdupq_n_f32(0.5f), two = vdupq_n_f32(2.0f), three = vdupq_n_f32(3.0f), four = vdupq_n_f32(4.0f), five = vdupq_n_f32(5.0f);
+        const float32x4_t inv4096 = vdupq_n_f32(1.0f / 4096.0f);
+        const int32x4_t lo16 = vdupq_n_s32(-32768), hi16 = vdupq_n_s32(32767);
+        for (; i + 4u <= n; i += 4u)
+        {
+            const float32x4_t p0 = vcvtq_f32_s32(vmovl_s16(vld1_s16(h0 + i))), p1 = vcvtq_f32_s32(vmovl_s16(vld1_s16(h1 + i)));
+            const float32x4_t p2 = vcvtq_f32_s32(vmovl_s16(vld1_s16(h2 + i))), p3 = vcvtq_f32_s32(vmovl_s16(vld1_s16(h3 + i)));
+            // t = counter / 4096 (a power of two: the same as the division)
+            const float32x4_t t = vmulq_f32(vcvtq_f32_u32(vld1q_u32(count + i)), inv4096);
+            // p1 + 0.5 t (p2 - p0 + t (2 p0 - 5 p1 + 4 p2 - p3 + t (3 (p1 - p2) + p3 - p0))), left to right
+            float32x4_t a = vsubq_f32(vaddq_f32(vmulq_f32(three, vsubq_f32(p1, p2)), p3), p0);
+            float32x4_t b = vsubq_f32(vaddq_f32(vsubq_f32(vmulq_f32(two, p0), vmulq_f32(five, p1)), vmulq_f32(four, p2)), p3);
+            b = vaddq_f32(b, vmulq_f32(t, a));
+            const float32x4_t c = vaddq_f32(vsubq_f32(p2, p0), vmulq_f32(t, b));
+            const float32x4_t r = vaddq_f32(p1, vmulq_f32(vmulq_f32(half, t), c));
+            const int32x4_t clamped = vminq_s32(vmaxq_s32(vcvtq_s32_f32(r), lo16), hi16);
+            const int32x4_t sample = vshrq_n_s32(vmulq_s32(clamped, vld1q_s32(level + i)), 15);
+            const int32x4_t left = vshrq_n_s32(vmulq_n_s32(sample, volL), 15), right = vshrq_n_s32(vmulq_n_s32(sample, volR), 15);
+            if (dryL)
+                vst1q_s32(dryL + i, vaddq_s32(vld1q_s32(dryL + i), left));
+            if (dryR)
+                vst1q_s32(dryR + i, vaddq_s32(vld1q_s32(dryR + i), right));
+            if (wetL)
+                vst1q_s32(wetL + i, vaddq_s32(vld1q_s32(wetL + i), left));
+            if (wetR)
+                vst1q_s32(wetR + i, vaddq_s32(vld1q_s32(wetR + i), right));
+        }
+#endif
+        for (; i < n; ++i)
+        {
+            const float t = static_cast<float>(count[i]) / 4096.0f;
+            const float p0 = h0[i], p1 = h1[i], p2 = h2[i], p3 = h3[i];
+            const float interpolated = p1 + 0.5f * t * (p2 - p0 + t * (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3 + t * (3.0f * (p1 - p2) + p3 - p0)));
+            const int32_t sample = (clamp16(static_cast<int32_t>(interpolated)) * level[i]) >> 15;
+            const int32_t left = (sample * volL) >> 15, right = (sample * volR) >> 15;
             if (dryL)
                 dryL[i] += left;
             if (dryR)

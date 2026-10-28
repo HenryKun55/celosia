@@ -66,6 +66,7 @@ namespace native_renderer
         // Textures decoded and meshes built on a worker (the game thread
         // stalled ~80 ms on them at a camera cut, throttled).
         d.asyncBuilds = true;
+        d.hookWorker = true;
         d.holdIncomplete = true;
         d.warmShaders = true;
 #endif
@@ -149,6 +150,8 @@ namespace native_renderer
                 d.holdIncomplete = std::atoi(std::getenv("SOTC_HOLD_INCOMPLETE")) != 0;
             if (on("SOTC_ASYNC_BUILDS"))
                 d.asyncBuilds = std::atoi(std::getenv("SOTC_ASYNC_BUILDS")) != 0;
+            if (on("SOTC_HOOK_ASYNC"))
+                d.hookWorker = std::atoi(std::getenv("SOTC_HOOK_ASYNC")) != 0;
             for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
                                              {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard}})
                 if (on(name))
@@ -223,6 +226,8 @@ namespace native_renderer
             add(std::string("SOTC_HOLD_INCOMPLETE=") + (t.holdIncomplete ? "1" : "0"));
         if (t.asyncBuilds != d.asyncBuilds)
             add(std::string("SOTC_ASYNC_BUILDS=") + (t.asyncBuilds ? "1" : "0"));
+        if (t.hookWorker != d.hookWorker)
+            add(std::string("SOTC_HOOK_ASYNC=") + (t.hookWorker ? "1" : "0"));
         if (t.frameLog)
             add("SOTC_FRAME_LOG=1");
         if (t.frameLogAll)
@@ -470,6 +475,10 @@ namespace native_renderer
                     "Textures decoded and model meshes built on a worker thread instead of in the game's own time (a camera cut or a new area no longer freezes the game for them); what is not ready yet is left out of a frame or two.",
                     "Texturas decodificadas e malhas de modelos montadas numa thread à parte em vez de no tempo do próprio jogo (um corte de câmera ou área nova não trava mais o jogo por elas); o que ainda não ficou pronto fica de fora por um ou dois quadros.",
                     &Tuning::asyncBuilds, "SOTC_ASYNC_BUILDS");
+        debugToggle("dbg_hook_worker", "Model draws on a worker", "Desenho dos modelos em outra thread",
+                    "The models' draws worked out (packets, palettes, skinning) on a thread of their own while the game goes on; the game sees nothing of it. Off: in the game's own time, as before round 23.",
+                    "Os desenhos dos modelos (pacotes, paletas, skinning) calculados numa thread própria enquanto o jogo continua; o jogo não vê nada disso. Desligado: no tempo do próprio jogo, como antes da rodada 23.",
+                    &Tuning::hookWorker, "SOTC_HOOK_ASYNC");
         debugToggle("dbg_hold_incomplete", "Hold incomplete frames", "Segurar quadros incompletos",
                     "With builds on a worker: a frame missing more than an eighth of its draws (still being built, at a camera cut) is not shown; the last one stays up (at most 3 frames).",
                     "Com montagem em outra thread: um quadro sem mais de um oitavo dos desenhos (ainda montando, num corte de câmera) não é mostrado; o anterior fica na tela (no máximo 3 quadros).",

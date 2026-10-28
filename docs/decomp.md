@@ -3494,6 +3494,202 @@ r22/pos-1, r22/title4.
 4. Carried: the cut frame, the area change's frames over 50 ms, the Metal
    bloom trail, the SOTC_NATIVE=1 drift.
 
+## Round 23: the model draws on a worker thread, the mixer in two passes (2026-10-28)
+
+The Mac started on AC power; about two hours in it switched to battery
+(97% and falling; every run was preceded by `pmset -g batt`; it never went
+below 40%). No sleep.
+
+**What Vita3K's clock counts.** The speed mode (VITA3K_CPU_MHZ, our Vita3K
+fork's dynarmic_cpu.cpp) bills every guest instruction as one tick at MHZ
+million a second per thread, whatever it is (a NEON op, a load, a
+multiply). HLE calls are billed apart (150 instructions a call, sceGxmDraw
+1 500 more, memcpy by bytes at 400 MB/s). At most VITA3K_CORES threads
+run at once: a thread holds a slot from one HLE call to the next. So in
+calibrated Vita3K a lever is fewer executed instructions on the game thread
+or work moved to another thread. The profiler's pc is where a 20 000-tick
+slice ended (a block's end): per-function shares are right to a block,
+per-pc ones are not instruction mixes.
+
+**Where the game thread's time is (r23/hp-base, celosia-r22.vpk, 222 MHz,
+plain, seconds 340-420).** The thread split of the whole process: game
+thread 1.0 core, the sound mixer's thread ~0.36-0.5 core (!), the render
+thread 0.3 (0.65 in the area after the shrine), the build worker bursts.
+On the game thread: natives 39.5%, lean 36.1%, runtime 13.5% (memcpy 1.6,
+Vif1Walker::feed 1.55 + writeIORegister 1.43: the display list's kick,
+memset 0.6, sceClibMemcpy / Memmove 0.6-1.2, the scheduler ~1, the IOP
+RPC's lock spin ~0.7, C++ unwinding of guest thread switches ~0.7), the
+renderer's hooks 8.6%. The walk out (r23/hp-base 80-100) is the same
+profile scaled ~1.6x (more of everything on screen). Nothing above 4%.
+
+**1. The model draws on a worker thread (sotc_native.cpp, `hookjobs`).**
+modelDispHook's host part after the game's own results (modelDispState,
+the part test) is not seen by the game: the packet walk, ids, builds,
+palettes, CPU skinning, the draw records. It goes into a job (a ring of
+512, `HookJob`) that a worker thread (HookWorker, cores 1-2 on the Vita)
+runs in order while the game thread goes on with the display walk. The
+same for the cloth (meshDisp), the shadow volumes (shadowDisp) and the
+particles (ptclVtx): their host parts are jobs too, so the draws reach the
+renderer in the same order as before. Everything the game can change
+between the hook and the job is taken at the hook, into the job: the
+instance's opacity and LOD, the part tree's +0x2c results, the camera
+context's matrices, the ripple globals, **the bone palette and the
+instance's lights, the cloth's current buffer (its view matrix and every
+grid vertex), the shadow's matrix / palette and light rows, the particles
+and their environment**. What the job still reads of guest memory is the
+model's own data (packets, surfaces, textures), which the PS2's DMA reads
+at the kick and the game leaves as it is until then. The game thread waits
+for the jobs (hookJoin) before the 2D draws (glEnd, gsReg's 2D ranges),
+zFog, screenBlur, a new frame (syncFrame), the kick (kickHook: skinAtKick
+reads the jobs' records, as before at the kick) and a garbage move
+(copyViaSpr: the memos by address; sotc_decomp::g_beforeGuestMove).
+modelDispState keeps a surface memo of its own (g_surfaceInfoSync) while
+jobs run; the prefetch queue stays the game thread's.
+   - **A bug found and fixed the same round (the user saw it in a WIP
+     run):** the first version read the cloth buffer and the palettes in
+     the job; Wander's cape and hair trailed behind his body on the plain
+     (round 12's class of desync). SOTC_HOOK_ASYNC_VERIFY=1 counts it: the
+     cloth grid had changed between the hook and the job in 98.5% of the
+     jobs (27 581 of 28 000, r23/v2-222; the game simulates the next step
+     into the other buffer and turns them), the palette in ~1%. Both are
+     taken at the hook now; the Vita3K pictures of Wander running on the
+     plain show the cape and hair on the body (r23/walk-wander.png, from
+     r23/shots-walk; standing: r23/wander-cmp.png).
+   - Switches: SOTC_HOOK_ASYNC=0/1 (Debug "Model draws on a worker", on by
+     default on the Vita, off on the Mac); off whenever a check runs (draw
+     taps, SOTC_DIFFTEST, the subsystem profiler, SOTC_MODELDISP_CHECK,
+     SOTC_VIEW_CHECK, the stale / R2 / plan checks, the native logs).
+     SOTC_HOOK_ASYNC_AB=<n>: on and off in turns of n frames (in-run A/B,
+     r23/ab.py). SOTC_HOOK_ASYNC_VERIFY=1: the inputs' hashes at the hook and
+     in the job, the cloth grids, and the joins that waited by site
+     ([hookjob] lines). Frame log: `| jobs <worker ms> (<n>) join <ms>` at the
+     end of each line (the join is in "hooks" too).
+   - Memory: the Vita heap peak 82.7 -> 83.1 MB (r22 / r23 222 runs); a big
+     particle batch's room is let go after its job.
+
+**2. The sound mixer in two passes (ps2xIOP sound_mixer.cpp).** mixVoice
+was ~40% of the mixer thread. Now the voice's state goes sample by sample
+as before (pitch counter, ADPCM stream, envelope), keeping each output
+sample's four history samples, counter and level, and the cubic
+interpolation, envelope and volumes run four samples at a time in NEON,
+the same operations in the same order (no fused multiply-add; clang's
+contraction is off in the file so the Mac's scalar path matches too).
+PS2X_MIX_CHECK=1 runs both on copies of the voice: **4.4 million voice
+blocks, 0 differ** (r23/mixcheck-222, calibrated Vita3K). PS2X_MIX_NEON=0:
+the scalar path. The mixer thread's instructions fell only ~4% (the state
+pass is most of it now); a run with the SPU2 off (PS2X_NO_SPU2_AUDIO=1,
+r23/noaudio-222) says the sound costs the game thread ~3% in Vita3K (the
+driver RPC's lock waits and the slots), so the mixer is a lever still.
+
+**In-run A/B of the worker (r23/ab2-222, SOTC_HOOK_ASYNC_AB=60, the first
+3 frames of each turn left out; same run, same route):**
+
+| route window | jobs on | jobs off | on - off |
+|---|---|---|---|
+| the plain (vb 4000-6000) | 50.8 ms (314) | 53.0 ms (296) | -4.2% |
+| later plain (vb 6000+) | 51.5 ms (2 479) | 56.5 ms (2 508) | -8.9% |
+| the walk out and the area change | 79.1 ms | 78.7 ms | +0.4% (noise) |
+
+(The shrine and the load windows are too short for this A/B: ±13% from one
+run to the next.) On the plain the hooks went from ~5 ms of the game thread
+to ~2.6 (their game-visible part and the joins); the worker's job time is
+0.6-0.7 ms a frame there. The walk out gains nothing: on the stairs the
+hooks are small and the game logic is the time (collision, characters);
+right after the area change the frame is the render thread's (render
+85-87 ms for ~3 700 recorded draws, ~1 600 GL calls in all passes;
+SOTC_GL_DRAW_LOG) and at the cut itself the jobs (~54 ms: 175 jobs, 1 200
+builds queued, new ids) run past the display walk and the game thread
+waits for them at the kick.
+
+**Host profile after (r23/hp-e, the plain, seconds 340-420, 222 MHz,
+before the cloth / palette fix):** hooks 8.6% -> **5.0%** of the game
+thread (modelDispState 2.5%, the part test 0.5%, modelDispHook's own 0.3%);
+the worker 5.5% of all samples (its idle loop and waits a quarter of that).
+Natives 41.5%, lean 37.9%, runtime 13.1% (Vif1Walker 1.8, writeIORegister
+1.6, memcpy 1.2): the same work in fewer frames' time.
+
+**Frame timing (calibrated Vita3K, route2's input, round 20's env; mean ms
+(fps), frames over 50 / 85 / 120, worst).** r22 = celosia-r22.vpk (round
+22's runs), r23 = celosia-r23.vpk (r23/g-222, r23/fin-240, r23/fin-333).
+
+| route window | r22 222 | r23 222 | r22 240 | r23 240 | r22 333 | r23 333 |
+|---|---|---|---|---|---|---|
+| the save's load | 32.4, 30/9/3, 250.5 | 32.3, 28/6/4, 246.9 | 29.5, 29/5/3, 243.6 | 30.4, 26/6/4, 240.6 | 22.8, 13/5/2, 210.5 | 22.0, 12/5/2, 205.4 |
+| the shrine | 46.6 (21.5), 113/17/0, 111.4 | **44.2 (22.6)**, 83/8/0, 108.5 | 43.0 (23.3), 86/7/0, 96.8 | **40.6 (24.6)**, 77/4/0, 100.4 | 30.7 (32.6), 91/0/0, 74.2 | 29.2 (34.2), 84/0/0, 74.9 |
+| the walk out and the area change | 79.4 (12.6), 629/197/4, 157.8 | **76.4 (13.1)**, 655/136/3, 159.4 | 74.4 (13.4), 672/68/3, 161.3 | **71.5 (14.0)**, 698/31/3, 147.5 | 52.2 (19.2), 622/3/0, 101.9 | 50.5 (19.8), 456/2/0, 104.0 |
+| the plain | 53.7 (18.6), 618/0/0, 69.7 | **50.8 (19.7)**, 386/0/0, 74.0 | 48.9 (20.4), 138/0/0, 73.6 | **46.3 (21.6)**, 82/0/0, 83.2 | 34.1 (29.3), 5/0/0, 53.0 | **32.0 (31.3)**, 13/0/0, 59.2 |
+
+(Before the cloth / palette fix, the same code otherwise, r23/r23-222, -240,
+-333: the plain 50.6 / 45.9 / 30.9 ms, the walk 74.5 / 70.6 / 50.1, the
+shrine 44.3 / 40.7 / 29.0: the captures at the hook cost a few tenths of a
+ms. Run-to-run noise of these windows is ±2%: the in-run A/B above is the
+measure of the worker's effect.)
+
+Transitions (r12/tools/transition.py):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r22 222 | 34.3 / 205.0 / 1 | 108.7 / 157.8 / 3 | 88.8 | 250, 246 |
+| r23 222 | 28.4 / 130.6 / 1 | 101.7 / 159.4 / 3 | 86.6 | 247, 234 |
+| r22 240 | 28.9 / 139.4 / 1 | 101.5 / 161.3 / 3 | 81.6 | 244, 228 |
+| r23 240 | 28.3 / 125.9 / 1 | 92.8 / 147.5 / 3 | 81.0 | 241, 230 |
+| r22 333 | 27.9 / 116.0 / 0 | 74.8 / 101.9 / 0 | 59.7 | 210, 197 |
+| r23 333 | 23.3 / 90.5 / 0 | 69.6 / 104.0 / 0 | 59.2 | 205, 189 |
+
+Sound (r12/tools/au.py, every r23 run): 0 late callbacks, 0 stale halves,
+0 src-stale.
+
+**Checks.**
+- No native's guest-visible behaviour changed (the jobs write no guest
+  memory and no register; modelDispState's results are the same with its
+  own surface memo); no generator change (the lean check was not rerun).
+- Mac fixed-30 fps path (route2, SOTC_NATIVE=2, SOTC_FRAME_INTERVAL=2,
+  SOTC_POS_LOG=30, to 5 400, with SOTC_HOOK_ASYNC=1; r23/pos-1, pos-2 (the
+  second with VERIFY: 359 580 jobs ran)): within **0.12 / 0.21** units of
+  r22/pos-1, 0.20 of each other (the noise band).
+- Pictures: Mac SOTC_NATIVE=2 route, the native picture against the
+  emulated one in each run (r23/pairdiff.py): mean difference 13.16 (jobs
+  off, r23/mac-sync2), 13.26-13.30 (on, r23/mac-async3 / async4), the same
+  scenes' differences frame by frame; Vita3K pictures r23/sheet-222.png,
+  r23/walk-sheet.png, r23/walk-wander.png.
+- Mixer: PS2X_MIX_CHECK above.
+
+**Files:** game/overrides/sotc_native.cpp (hookjobs, the job split of
+modelDisp / meshDisp / shadowDisp / ptclVtx, the joins, g_surfaceInfoSync,
+the frame log's job columns), sotc_decomp.h + sotc_overrides.cpp
+(g_beforeGuestMove), native_tuning.h + native_renderer.cpp (hookWorker,
+SOTC_HOOK_ASYNC, the Debug item), native_renderer.h (FrameCounters jobUs /
+joinUs / jobs), ps2xIOP sound_mixer.cpp / .h (mixVoiceBlock, the check),
+ps2_memory.cpp (PS2X_GIF_EVENT_LOG also counts the VIF1 chains' events:
+every frame's FINISH comes from the VIF1 chain's DIRECT, one per chain).
+Tools: r23/v3k.sh (r22's, restores the shader cache too), r23/cat.py (the
+busiest thread by category), r23/diffwin.py / diffwin2.py (two windows'
+ms per function), r23/ab.py (in-run A/B by frame turns), r23/pairdiff.py
+(native vs emulated per snapshot), r23/sheet.py, r23/vcc2.sh (any TU with
+the Vita lean command line).
+
+**Round 24 (plan).**
+1. The area after the shrine is the render thread's in Vita3K (~85 ms of
+   wall time at ~65% busy: ~1 600 GL calls, each sceGxmDraw + uniform
+   copies + stream / texture sets billed as HLE; the rest likely the host
+   GPU path, uncalibrated): fewer GL calls (merge across instances of a
+   model: per-draw matrices in a uniform array or pre-transformed batches),
+   fewer per-draw uniform uploads.
+2. The cut frame: the jobs (~54 ms) run past the display walk; spread the
+   new area's ids / builds over frames or let the worker run past the kick
+   for jobs that only read static model data.
+3. The VIF1 walk at the kick (Vif1Walker 1.8% + the tag walk 1.6%): its
+   only guest-visible output in gameplay is the frame's FINISH (one per
+   chain, from the chain's DIRECT); a speculative walk of the last
+   segment at the kick and the rest on a worker, checked.
+4. The sound: the mixer's state pass and the reverb (the mixer thread
+   ~0.4 core), and the driver RPC's lock waits on the game thread.
+5. The generator: $sp-relative guest accesses without the RAM range test
+   (25-50% of the hot functions' accesses; needs every guest stack in main
+   RAM, checked), ~1.5-2.5% of the game thread.
+6. Carried: modelDispState's part test into one walk with the hook's,
+   the fight's measurement, the Metal bloom trail.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

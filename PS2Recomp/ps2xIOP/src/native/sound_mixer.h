@@ -175,6 +175,8 @@ namespace ps2x::iop::detail
         void tickEnvelopeStep(Voice &voice);
         static uint32_t envelopeCycles(const Voice &voice);
         void mixVoice(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
+        void mixVoiceScalar(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
+        void mixVoiceBlock(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
         void reverb(Core &core, int32_t inL, int32_t inR, int32_t &outL, int32_t &outR);
         void render(int16_t *destination, uint32_t frames);
         void pushOutput(const int16_t *frames, size_t count);
