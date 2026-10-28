@@ -3395,6 +3395,12 @@ PresentationFrame GSCpuBackend::Present(const GSPresentationRequest &request)
     // display buffer out of local memory, only its size and place.
     if (native_renderer::shown())
     {
+#if defined(__vita__)
+        // The Vita puts the native picture on screen itself (its present
+        // hook); it keeps no CPU copy (latestFrame), so this went on to read
+        // and convert the whole display buffer for nothing (round 19).
+        return {};
+#endif
         const GSPmodeState pmode = decodePmode(request.pmode);
         const bool first = pmode.enableCrt1;
         const uint64_t dispfb = first ? request.dispfb1 : request.dispfb2, display = first ? request.display1 : request.display2;

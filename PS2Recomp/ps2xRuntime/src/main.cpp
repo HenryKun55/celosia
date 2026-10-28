@@ -1,5 +1,6 @@
 #include <memory>
 #include "ps2_runtime.h"
+#include "runtime/ps2_stats.h"
 #include "games_database.h"
 #if defined(PS2X_ENABLE_DEBUG_UI) && !defined(PLATFORM_VITA)
 #include "ps2_debug_panel.h"
@@ -200,6 +201,7 @@ int main(int argc, char *argv[])
         }
 
         // On the heap: the runtime is too large for small main-thread stacks (Vita).
+        ps2_stats::bootMark("main");
         std::cout << "[main] creating runtime (" << sizeof(PS2Runtime) << " bytes)" << std::endl;
         auto runtimeOwner = std::make_unique<PS2Runtime>();
         PS2Runtime &runtime = *runtimeOwner;
@@ -237,6 +239,7 @@ int main(int argc, char *argv[])
             return 1;
         }
 
+        ps2_stats::bootMark("ELF loaded");
         runtime.run();
 
 #ifdef _DEBUG

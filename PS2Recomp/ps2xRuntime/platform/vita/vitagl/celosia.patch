@@ -222,10 +222,38 @@ index 11937c4..cbe951e 100644
  		ffp_vertex_attrib_state = (1 << FFP_ATTRIB_POSITION) | (1 << FFP_ATTRIB_COLOR);
  		if (zero_lights) {
 diff --git a/source/framebuffers.c b/source/framebuffers.c
-index 15e59ea..3b0d03b 100644
+index 15e59ea..37a0989 100644
 --- a/source/framebuffers.c
 +++ b/source/framebuffers.c
-@@ -840,11 +840,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+@@ -281,6 +281,7 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
+ 			}
+ #ifndef DEPTH_STENCIL_HACK
+ 			if (fb->depthbuffer_ptr) {
++				if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
+ 				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+ 			}
+ #endif
+@@ -365,7 +366,8 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
+ 	// Discarding any previously bound hidden depth buffers
+ 	if (fb->depthbuffer_ptr) {
+ #ifndef DEPTH_STENCIL_HACK
+-		mark_as_dirty(fb->depthbuffer_ptr->depthData);
++		if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
++				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+ #endif
+ 	}
+ 	fb->depthbuffer_ptr = NULL;
+@@ -397,7 +399,8 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
+ 	// Discarding any previously bound hidden depth buffers
+ 	if (fb->depthbuffer_ptr) {
+ #ifndef DEPTH_STENCIL_HACK
+-		mark_as_dirty(fb->depthbuffer_ptr->depthData);
++		if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
++				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+ #endif
+ 		fb->depthbuffer_ptr = NULL;
+ 	}
+@@ -840,11 +843,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
  	sceGxmSetBackPolygonMode(gxm_context, SCE_GXM_POLYGON_MODE_TRIANGLE_FILL);
  
  	// Set framebuffer blit shader
@@ -240,7 +268,7 @@ index 15e59ea..3b0d03b 100644
  	
  	// Set fragment texture to read framebuffer bound color attachment
  	framebuffer *read_fb = (framebuffer *)readFramebuffer;
-@@ -858,7 +858,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+@@ -858,7 +861,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
  		vglSetTexMinFilter(tex, SCE_GXM_TEXTURE_FILTER_POINT);
  		vglSetTexMipmapCount(tex, 0);
  	}
@@ -249,6 +277,36 @@ index 15e59ea..3b0d03b 100644
  	
  	// Set stencil func to keep original data
  	sceGxmSetFrontStencilFunc(gxm_context,
+@@ -984,3 +987,29 @@ void glReadBuffer(GLenum mode) {
+ #endif
+ 	}
+ }
++
++// Celosia: dst draws on src's depth and stencil (the same surface, so what
++// one scene leaves the next one tests against); both of one size. 0 for src:
++// dst back to a depth buffer of its own. GL_FALSE while src has none yet.
++GLboolean vglFramebufferShareDepth(GLuint dst, GLuint src) {
++	framebuffer *d = (framebuffer *)dst;
++	if (!d)
++		return GL_FALSE;
++	if (!src) {
++		if (d->depthbuffer_ptr && d->depthbuffer_ptr != &d->depthbuffer) {
++			d->depthbuffer_ptr = NULL;
++			d->depthbuffer_state = DEPTHBUFFER_MISSING;
++		}
++		return GL_TRUE;
++	}
++	framebuffer *s = (framebuffer *)src;
++	if (!(s->depthbuffer_state & DEPTHBUFFER_READY) || !s->depthbuffer_ptr || s->width != d->width || s->height != d->height)
++		return GL_FALSE;
++	if (d->depthbuffer_ptr == s->depthbuffer_ptr)
++		return GL_TRUE;
++	if (d->depthbuffer_ptr == &d->depthbuffer)
++		mark_as_dirty(d->depthbuffer.depthData);
++	d->depthbuffer_ptr = s->depthbuffer_ptr;
++	d->depthbuffer_state = s->depthbuffer_state;
++	return GL_TRUE;
++}
 diff --git a/source/gxm.c b/source/gxm.c
 index 4cbb40b..d1be632 100644
 --- a/source/gxm.c
@@ -319,7 +377,7 @@ index 238f052..06a531b 100644
  	sceGxmReserveVertexDefaultUniformBuffer(gxm_context, &vbuffer);
  	sceGxmSetUniformDataF(vbuffer, clear_position, 0, 4, &clear_vertices->x);
 diff --git a/source/shared.h b/source/shared.h
-index 167e4f2..17ea339 100644
+index 167e4f2..91115eb 100644
 --- a/source/shared.h
 +++ b/source/shared.h
 @@ -1024,6 +1024,56 @@ extern float fullscreen_y_scale;
@@ -379,6 +437,14 @@ index 167e4f2..17ea339 100644
  extern GLenum vgl_error; // Error returned by glGetError
  extern SceGxmDepthStencilSurface gxm_depth_stencil_surface; // Depth/Stencil surfaces setup for sceGxm
  extern GLboolean system_app_mode; // Flag for system app mode usage
+@@ -1371,6 +1421,7 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
+ 			}
+ 			if (fb->depthbuffer_ptr) {
+ #ifndef DEPTH_STENCIL_HACK
++				if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
+ 				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+ #endif
+ 				fb->depthbuffer_ptr = NULL;
 diff --git a/source/tests.c b/source/tests.c
 index aad6b0e..d964742 100644
 --- a/source/tests.c
@@ -394,6 +460,20 @@ index aad6b0e..d964742 100644
  
  	// Invalidating viewport and culling
  	invalidate_viewport();
+diff --git a/source/textures.c b/source/textures.c
+index 7b5d704..8679e11 100644
+--- a/source/textures.c
++++ b/source/textures.c
+@@ -1827,7 +1827,8 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
+ 						if (fb) {
+ 							gpu_free_texture(&texture_slots[i]);
+ 							if (fb->depthbuffer_ptr) {
+-								mark_as_dirty(fb->depthbuffer_ptr->depthData);
++								if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
++				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+ 								fb->depthbuffer_ptr = NULL;
+ 								fb->depthbuffer_state = DEPTHBUFFER_MISSING;
+ 							}
 diff --git a/source/vgl.c b/source/vgl.c
 index 014e790..b427b31 100644
 --- a/source/vgl.c
@@ -405,3 +485,15 @@ index 014e790..b427b31 100644
 -	shark_set_shader_association_path(path);
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
+diff --git a/source/vitaGL.h b/source/vitaGL.h
+index eeec610..5acad3d 100644
+--- a/source/vitaGL.h
++++ b/source/vitaGL.h
+@@ -1259,6 +1259,7 @@ void vglSetShaderAssociationPath(const char *path);
+ 
+ // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
+ void vglSetShaderCachePath(const char *path);
++GLboolean vglFramebufferShareDepth(GLuint dst, GLuint src);
+ 
+ // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
+ void vglSetTextureCacheFrequency(GLuint freq);

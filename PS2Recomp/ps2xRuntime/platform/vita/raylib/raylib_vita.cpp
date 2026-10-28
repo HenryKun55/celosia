@@ -6,6 +6,11 @@
 #include <SDL2/SDL.h>
 #include <vitaGL.h>
 #include <psp2/ctrl.h>
+#include <psp2/appmgr.h>
+#include <psp2/io/dirent.h>
+#include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/power.h>
 #include <psp2/touch.h>
@@ -27,6 +32,101 @@ std::recursive_mutex &ps2xVitaGlMutex()
 {
     static std::recursive_mutex mutex;
     return mutex;
+}
+
+// The boot's timeline (as ps2_stats::bootMark: the process clock).
+static void bootMark(const char *what)
+{
+    std::fprintf(stderr, "[boot] %.3f s %s\n", static_cast<double>(sceKernelGetProcessTimeWide()) / 1e6, what);
+}
+
+// The shader cache's seed (round 19): vitaGL (HAVE_SHADER_CACHE) keeps each
+// compiled shader in ux0:data/shader_cache/<title id>/v2/{v,f}/XX/<hash>.gxp
+// and loads it instead of compiling the same source again. The VPK can carry
+// such a cache (app0:shader_cache/{v,f}/XX/..., copied from a Vita3K run's
+// tree, PS2X_VITA_SHADER_SEED): its files are copied where missing, so that
+// the first boot on a console skips libshacccg too (~20 s of the boot in
+// calibrated Vita3K). A source changed since the seed was made has another
+// hash: compiled and cached as before.
+// vitaGL's own root reads the title id into 12 bytes without room for its
+// end (Vita3K: "CELO00001n"): the root is given here instead.
+static char g_shaderCacheRoot[128];
+static void shaderCacheRoot()
+{
+    char titleId[256] = {};
+    if (sceAppMgrAppParamGetString(0, 12, titleId, sizeof(titleId)) < 0 || !titleId[0])
+        std::strcpy(titleId, "CELO00001");
+    titleId[9] = '\0'; // title ids are 9 characters
+    std::snprintf(g_shaderCacheRoot, sizeof(g_shaderCacheRoot), "ux0:data/shader_cache/%s", titleId);
+    vglSetShaderCachePath(g_shaderCacheRoot);
+}
+static void seedShaderCache()
+{
+    char root[160];
+    std::snprintf(root, sizeof(root), "%s/v2", g_shaderCacheRoot);
+    unsigned copied = 0, kept = 0;
+    std::vector<char> buffer;
+    for (const char *kind : {"v", "f"})
+    {
+        char from[160];
+        std::snprintf(from, sizeof(from), "app0:shader_cache/%s", kind);
+        const SceUID dirs = sceIoDopen(from);
+        if (dirs < 0)
+            continue;
+        SceIoDirent sub{};
+        while (sceIoDread(dirs, &sub) > 0)
+        {
+            if (sub.d_name[0] == '.')
+                continue;
+            char subFrom[256];
+            std::snprintf(subFrom, sizeof(subFrom), "%s/%s", from, sub.d_name);
+            const SceUID files = sceIoDopen(subFrom);
+            if (files < 0)
+                continue;
+            SceIoDirent file{};
+            while (sceIoDread(files, &file) > 0)
+            {
+                if (file.d_name[0] == '.')
+                    continue;
+                char src[320], dst[320];
+                std::snprintf(src, sizeof(src), "%s/%s", subFrom, file.d_name);
+                std::snprintf(dst, sizeof(dst), "%s/%s/%s/%s", root, kind, sub.d_name, file.d_name);
+                SceIoStat st{};
+                if (sceIoGetstat(dst, &st) >= 0)
+                {
+                    ++kept;
+                    continue;
+                }
+                const SceUID in = sceIoOpen(src, SCE_O_RDONLY, 0);
+                if (in < 0)
+                    continue;
+                const SceOff size = sceIoLseek(in, 0, SCE_SEEK_END);
+                sceIoLseek(in, 0, SCE_SEEK_SET);
+                buffer.resize(static_cast<size_t>(size > 0 ? size : 0));
+                const int got = size > 0 ? sceIoRead(in, buffer.data(), static_cast<SceSize>(size)) : 0;
+                sceIoClose(in);
+                if (got != size)
+                    continue;
+                // Written under another name and renamed: a boot cut short
+                // leaves no half file for vitaGL to load.
+                char part[330];
+                std::snprintf(part, sizeof(part), "%s.part", dst);
+                const SceUID out = sceIoOpen(part, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+                if (out < 0)
+                    continue;
+                const int put = sceIoWrite(out, buffer.data(), static_cast<SceSize>(size));
+                sceIoClose(out);
+                if (put == size && sceIoRename(part, dst) >= 0)
+                    ++copied;
+                else
+                    sceIoRemove(part);
+            }
+            sceIoDclose(files);
+        }
+        sceIoDclose(dirs);
+    }
+    if (copied || kept)
+        std::fprintf(stderr, "[vita] shader cache seed: %u copied, %u already there\n", copied, kept);
 }
 
 namespace
@@ -129,8 +229,10 @@ void InitWindow(int, int, const char *)
     scePowerSetGpuXbarClockFrequency(166);
     std::fprintf(stderr, "[vita] clocks: cpu %d MHz, bus %d, gpu %d, xbar %d\n", scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
                  scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
+    bootMark("window: clocks set");
     if (SDL_Init(SDL_INIT_AUDIO) != 0)
         std::fprintf(stderr, "[vita] SDL_Init failed: %s\n", SDL_GetError());
+    bootMark("window: SDL up");
     // Shaders are compiled at run time (libshacccg); fast math is fine here.
     vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 1, 1);
     // Some framebuffers get several scenes a frame (the small copies of the
@@ -141,8 +243,12 @@ void InitWindow(int, int, const char *)
     // threads (game, VU1, GS, GIF, audio) get their stacks from that RAM too,
     // so leave it plenty. GPU memory (CDRAM) is all vitaGL's.
     // Returns whether it had to fall back to a smaller resolution, not success.
+    shaderCacheRoot();
     vglInitWithCustomThreshold(4 * 1024 * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
                                SCE_GXM_MULTISAMPLE_NONE);
+    bootMark("window: vitaGL up");
+    seedShaderCache(); // vitaGL made the cache's folders
+    bootMark("window: shader cache seeded");
     g_glReady = true;
     glViewport(0, 0, width, height);
     glMatrixMode(GL_PROJECTION);
@@ -216,6 +322,12 @@ void EndDrawing(void)
 {
     if (g_glReady)
         vglSwapBuffers(GL_FALSE);
+    static bool firstShown = false;
+    if (!firstShown)
+    {
+        firstShown = true;
+        bootMark("first picture on screen");
+    }
     ps2xVitaGlMutex().unlock();
     // Logs go to files on ux0: keep them current in case the app is killed.
     std::fflush(stdout);

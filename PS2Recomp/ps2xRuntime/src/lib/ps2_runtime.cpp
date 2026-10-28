@@ -52,6 +52,23 @@
 // See ps2FpuDivideNearest (ps2_runtime_macros.h).
 bool g_ps2FpuSetcsrNearest = false;
 
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
+double ps2_stats::bootSeconds()
+{
+#if defined(__vita__)
+    // The process's own clock: from its launch, the module load included.
+    return static_cast<double>(sceKernelGetProcessTimeWide()) / 1e6;
+#else
+    return ps2_stats::sinceStart();
+#endif
+}
+void ps2_stats::bootMark(const char *what)
+{
+    std::fprintf(stderr, "[boot] %.3f s %s\n", bootSeconds(), what);
+}
+
 namespace ps2_stubs
 {
     void resetSifState();
@@ -1058,6 +1075,7 @@ bool PS2Runtime::initialize(const char *title)
         GSHwBackend::setContextProvider([] {});
         native_renderer::setGlContext([] {});
 #endif
+        ps2_stats::bootMark("window and renderers up");
         hostmenu::load();
         // The device's buffer (frames, 48 kHz): SDL keeps two. 1024 (21 ms)
         // everywhere until round 12; the Vita now 2048 (43 ms a buffer):
@@ -1090,6 +1108,7 @@ bool PS2Runtime::initialize(const char *title)
         }
 #endif
         SetTargetFPS(60);
+        ps2_stats::bootMark("sound up");
         if (m_debugUiInitCallback)
         {
             m_debugUiInitCallback(*this, m_debugUiUserData);
@@ -2936,6 +2955,14 @@ void PS2Runtime::run()
             }
             hostmenu::draw(GetScreenWidth(), GetScreenHeight());
             EndDrawing();
+#if !defined(__vita__)
+            static bool firstShown = false;
+            if (!firstShown)
+            {
+                firstShown = true;
+                ps2_stats::bootMark("first picture on screen");
+            }
+#endif
     };
 #if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
     // The GS thread puts its frames on screen as soon as they are ready (one
@@ -3134,7 +3161,16 @@ void PS2Runtime::run()
         });
         uint32_t presentWidth = FB_WIDTH;
         uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
+#if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
+        // The Vita shows the native picture from the render thread (its
+        // present hook): the GS's display read out of local memory and
+        // uploaded here every refresh went nowhere (round 19: ~12% of the
+        // CPU during the boot, the GS thread and this one).
+        if (!native_renderer::shown())
+            UploadFrame(frameTex, this, presentWidth, presentHeight);
+#else
         UploadFrame(frameTex, this, presentWidth, presentHeight);
+#endif
 #if !(defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM))
         // The native renderer's picture at its own size (it may draw larger
         // than the PS2's 512 x 448), filtered: not through the GS's display.

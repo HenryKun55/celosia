@@ -25,6 +25,17 @@ namespace ps2_stats
     inline std::atomic<uint64_t> vblanks{0};    // guest VBlanks, ever (the game's own clock)
     inline std::atomic<int> snapshotRequest{-1}; // PS2X_INPUT_SCRIPT SNAP entry waiting for a picture
 
+    // The boot's timeline: seconds since the process started (the clock
+    // starts with the static initialisers, before main) and "[boot] <s> <what>"
+    // lines at its steps (round 19: the console's boot to the title menu).
+    inline const std::chrono::steady_clock::time_point processStart = std::chrono::steady_clock::now();
+    inline double sinceStart()
+    {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - processStart).count();
+    }
+    double bootSeconds();             // ps2_runtime.cpp (the Vita: the process clock)
+    void bootMark(const char *what); // ps2_runtime.cpp
+
     // Frame timeline (host microseconds), one frame from a VIF1 DMA kick
     // (the game hands its frame over) to the next: vu1 = kick -> the VU1
     // thread's last job done, gs = that -> GS FINISH (the GIF/GS tail),

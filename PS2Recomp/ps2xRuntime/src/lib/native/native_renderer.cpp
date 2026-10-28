@@ -4,6 +4,7 @@
 #include "native_backend.h"
 #include "runtime/native_tuning.h"
 #include "ThreadNaming.h"
+#include "runtime/ps2_stats.h"
 
 #include <algorithm>
 #include <atomic>
@@ -724,7 +725,9 @@ namespace
             g_tried = true;
             if (wantGl() && g_glMakeCurrent)
             {
+                ps2_stats::bootMark("native renderer: building");
                 g_backend = native_renderer::detail::createGlBackend(g_glMakeCurrent);
+                ps2_stats::bootMark("native renderer: built");
                 std::cerr << "[native] OpenGL renderer " << (g_backend ? "up" : "failed") << std::endl;
                 const char *mode = std::getenv("SOTC_NATIVE_GL");
                 if (g_backend && mode && std::string(mode) == "check")

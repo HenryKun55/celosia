@@ -343,7 +343,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 std::memcpy(&word, g_scriptRam + address, sizeof(word));
             if (word != seen)
             {
-                std::fprintf(stderr, "[watch] %x = %x at frame %llu vblank %llu\n", address, word, (unsigned long long)frame, (unsigned long long)vblank);
+                std::fprintf(stderr, "[watch] %x = %x at frame %llu vblank %llu t=%.2f s\n", address, word, (unsigned long long)frame, (unsigned long long)vblank, ps2_stats::bootSeconds());
                 seen = word;
             }
         }
@@ -362,7 +362,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 if (e.repeatOnMemory ? (ramWord(e.repeatAddress) == e.repeatValue) == e.repeatUntilEqual : loadedAt > e.firstVblank)
                 {
                     e.state = 2;
-                    std::fprintf(stderr, "[input] entry %d taken at frame %llu vblank %llu\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank);
+                    std::fprintf(stderr, "[input] entry %d taken at frame %llu vblank %llu t=%.2f s\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank, ps2_stats::bootSeconds());
                 }
                 else if (vblank >= e.nextVblank)
                 {

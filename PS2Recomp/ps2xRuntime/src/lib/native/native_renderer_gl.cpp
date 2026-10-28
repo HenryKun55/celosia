@@ -602,6 +602,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     return float4(0.0, 0.0, 0.0, uA.x);
 #elif MODE == 9
     return float4(0.0, 0.0, 0.0, saturate(tex2D(uSrc, uv).r * uA.x));
+#elif MODE == 13
+    // Plain copy, alpha kept, shifted by uA.xy (the glow layer's reductions).
+    return tex2D(uSrc, uv + uA.xy);
+#elif MODE == 14
+    // The glow layer over the picture: rgb x uA.rgb, alpha x uA.a.
+    float4 g = tex2D(uSrc, uv);
+    return saturate(float4(g.rgb * uA.rgb, g.a * uA.a));
 #elif MODE == 11
     // 4 x 4 reduction of the bloom mask in the picture's alpha, in the mask colour uB.rgb.
     float2 base = floor(uv / uSize.xy / 4.0) * 4.0 + 0.5;
@@ -830,7 +837,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint mainProgram = 0, quadProgram = 0;
         GLuint skinProgram = 0; // the main program posing a skinned mesh's bind pose first (0: not built)
 #if defined(PS2X_NATIVE_VITA)
-        GLuint quadPrograms[12] = {}; // by mode (8 and 11: the bloom mask's, see kQuadFragment)
+        GLuint quadPrograms[15] = {}; // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused)
 #endif
         GLuint quadBuffer = 0, blurBuffer = 0, vao = 0;
         // Uniform locations by (program, name): the names are string literals,
@@ -853,6 +860,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target prefix[3], hazeSmall;
         Target shownFrame[2]; // what the host shows, alternately (the GPU draws later: never the target being drawn)
         int shownIndex = 0;
+        Target glowPrefix; // Vita3K: the picture below layer 8, apart (the glow layer's depth)
         Target glowLayer, glowSmall[4]; // bossDeathEffect: layer 8 apart (on the picture's depth); 256, 128, 64, 64
         Target bloomTex[3];
         bool bloomHistory = false;
@@ -1225,7 +1233,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void useQuad(int mode)
         {
 #if defined(PS2X_NATIVE_VITA)
-            if (mode >= 0 && mode < 12 && quadPrograms[mode])
+            if (mode >= 0 && mode < 15 && quadPrograms[mode])
                 quadProgram = quadPrograms[mode];
 #else
             (void)mode;
@@ -1310,7 +1318,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const GLuint mainVertex = compile(GL_VERTEX_SHADER, kMainVertex);
             mainProgram = program(mainVertex, kMainFragment, {"aPos", "aNormal", "aColor", "aUV"});
 #if defined(PS2X_NATIVE_VITA)
-            for (int mode : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
+            for (int mode : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14})
             {
                 const std::string source = "#define MODE " + std::to_string(mode) + "\n" + kQuadFragment;
                 quadPrograms[mode] = program(mode == 3 ? kQuadVertexTurned : (mode == 8 ? kQuadVertexDepth : kQuadVertex), source.c_str(), {"aPos"});
@@ -1615,6 +1623,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             for (Target &t : prefix)
                 if (t.texture)
                     makeTarget(t, w, h, true);
+            if (glowPrefix.texture)
+                makeTarget(glowPrefix, w, h, true);
             makeTarget(refractionHalf, 128, 128, false);
             for (Target &t : bloomTex)
                 makeTarget(t, std::max(w / 4u, 1u), std::max(h / 4u, 1u), false);
@@ -2918,8 +2928,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // bossDeathEffect (layer 8): the layer drawn apart into a buffer cleared
         // to nothing, reduced to 256, 128, 64 and blurred, back to 256; laid
         // over the picture sharp (amountA) and blurred (amountB), in the tint.
-        auto doGlow = [&]
+        // The glow layer drawn on the depth of `depthOf` (the picture, or in
+        // Vita3K the picture below layer 8 drawn again apart, see the
+        // mid-frame redraw below), reduced and blurred.
+        bool glowBuilt = false;
+        auto buildGlow = [&](Target &depthOf) -> bool
         {
+#if defined(PS2X_NATIVE_VITA)
+            bindTarget(depthOf); // drawn into this frame: its depth exists
+            if (!vglFramebufferShareDepth(glowLayer.fbo, depthOf.fbo))
+                return false;
+#else
+            (void)depthOf;
+#endif
             pass(glowLayer, false, glow.order, glow.order + 1u, true, false, true);
             auto reduce = [&](const Target &from, const Target &to, float shift)
             {
@@ -2943,6 +2964,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     reduce(glowSmall[2], glowSmall[1], 0.0f);
                 }
                 reduce(glowSmall[1], glowSmall[0], 0.0f);
+            }
+            return true;
+        };
+        auto doGlow = [&]
+        {
+            if (!glowBuilt && !buildGlow(color))
+            {
+                pass(color, false, glow.order, glow.order + 1u, true); // as before round 19: plainly
+                return;
             }
             const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
             for (const auto &[source, amount] : layers)
@@ -3050,9 +3080,39 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // reduced and blurred after the frame, and that glow is added here,
         // at the bloom's layer, the next frame (under the 2D drawn later, as
         // the PS2 adds it: one frame late, under the game's own 98% history).
+        // SOTC_BLOOM_SAMEFRAME=0: round 18's order (the glow of frame n added
+        // in frame n + 1). By default (round 19) the mask is reduced, blurred
+        // and mixed with the history at the bloom's layer and added there,
+        // the same frame, as the PS2's chain does: the glow no longer trails
+        // the camera by a frame (one more split of the picture's scene).
+        // Not where the picture is drawn again for mid-frame effects (Vita3K:
+        // taken up again after drawing elsewhere, it came back as an older
+        // frame): there the glow stays one frame late.
+        static const bool bloomSameFrameOn = !std::getenv("SOTC_BLOOM_SAMEFRAME") || std::atoi(std::getenv("SOTC_BLOOM_SAMEFRAME")) != 0;
+        const float redrawSetting = native_renderer::tuning().midFrameRedraw;
+        const bool bloomSameFrame = bloomSameFrameOn && !(redrawSetting >= 1.5f ? native_renderer::inEmulator() : redrawSetting >= 0.5f);
+        // The mask (alpha) reduced 4 x 4 in the mask colour, blurred, over
+        // last frame's at the game's temporal share: bloomTex[2].
+        auto bloomReduce = [&]
+        {
+            useQuad(11);
+            const float texel[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
+            glUniform4fv(uniform(false, "uSize"), 1, texel);
+            const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
+            bindTexture(0, color.texture);
+            quad(bloomTex[0], 11, QuadBlend::None, nullptr, maskColour);
+            const int rounds = std::clamp(static_cast<int>(native_renderer::tuning().bloomRounds + 0.5f), 1, 8);
+            blur(rounds, native_renderer::tuning().bloomSpread);
+            const float amount[4] = {bloomHistory ? 1.0f - bloom.temporal : 1.0f, 0, 0, 0};
+            bindTexture(0, bloomTex[0].texture);
+            bindTexture(1, bloomTex[2].texture);
+            quad(bloomTex[1], 2, QuadBlend::None, amount);
+            std::swap(bloomTex[1], bloomTex[2]);
+            bloomHistory = true;
+        };
         auto bloomMask = [&]
         {
-            if (bloomHistory)
+            if (bloomHistory && !bloomSameFrame)
             {
                 // Strength x 0.46: this glow is the narrow one the Mac had
                 // before the GS chain (its strength was set by eye then).
@@ -3090,8 +3150,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glUniform4fv(uniform(false, "uQuad"), 1, q);
                 glDrawArrays(GL_TRIANGLES, 0, 3);
             }
-            keepAlpha = true;
             glDepthFunc(GL_LEQUAL);
+            if (bloomSameFrame)
+            {
+                bloomReduce();
+                const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3] * 0.46f};
+                bindTexture(0, bloomTex[2].texture);
+                quad(color, 10, QuadBlend::Add, nullptr, colour);
+                glEnable(GL_DEPTH_TEST); // as the frame's pass left it
+                glDepthFunc(GL_LEQUAL);
+                return;
+            }
+            keepAlpha = true;
         };
         struct Event
         {
@@ -3112,7 +3182,35 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             events.push_back({9u, -4});
         if (screenCopyOrder)
             events.push_back({screenCopyOrder, -4});
-#if !defined(PS2X_NATIVE_VITA) // vitaGL framebuffers cannot share the picture's depth
+#if defined(PS2X_NATIVE_VITA)
+        // The Vita: the glow layer shares the picture's depth through our
+        // vitaGL's vglFramebufferShareDepth (round 19; before, layer 8 was
+        // drawn plainly into the picture: the dead colossus in its raw
+        // vertex colours, the sigils without their halo). Only when layer 8
+        // has draws this frame: each use splits the picture's scene.
+        // SOTC_GLOW_VITA: 0 round 18's plain layer 8; 1 (default) apart on the
+        // console, plain in Vita3K; 2 apart in Vita3K too. Vita3K loses the
+        // picture taken up again after drawing elsewhere, so there the glow
+        // needs the picture below layer 8 drawn a second time (the mid-frame
+        // redraw below): the right picture, but a cost the console does not
+        // have, which would skew the calibrated timing (the shrine has
+        // layer 8 draws in most frames).
+        static const int glowMode = std::getenv("SOTC_GLOW_VITA") ? std::atoi(std::getenv("SOTC_GLOW_VITA")) : 1;
+        const float glowRedraw = native_renderer::tuning().midFrameRedraw;
+        const bool glowRedraws = glowRedraw >= 1.5f ? native_renderer::inEmulator() : glowRedraw >= 0.5f;
+        if (glow.enabled && (glowMode >= 2 || (glowMode == 1 && !glowRedraws)))
+        {
+            bool layerDrawn = false;
+            for (const Draw &d : draws)
+                if (d.state.order == glow.order)
+                {
+                    layerDrawn = true;
+                    break;
+                }
+            if (layerDrawn)
+                events.push_back({glow.order, -2});
+        }
+#else
         if (glow.enabled)
             events.push_back({glow.order, -2});
 #endif
@@ -3133,7 +3231,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::string line;
             for (const Event &ev : events)
                 line += " " + std::to_string(ev.order) + ":" + std::to_string(ev.blur);
-            std::fprintf(stderr, "[gl:events] frame %llu draws %u%s\n", (unsigned long long)arenaFrame, static_cast<unsigned>(draws.size()), line.c_str());
+            unsigned layer8 = 0;
+            for (const Draw &d : draws)
+                layer8 += d.state.order == 8u ? 1u : 0u;
+            std::fprintf(stderr, "[gl:events] frame %llu draws %u layer8 %u glow %d%s\n", (unsigned long long)arenaFrame, static_cast<unsigned>(draws.size()), layer8,
+                         glow.enabled ? 1 : 0, line.c_str());
         }
         // Mid-frame redraw (Tuning midFrameRedraw; the Vita's default): an
         // effect that reads the picture so far (water refraction, heat haze,
@@ -3151,6 +3253,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             int k = 0, last = -1;
             uint32_t lastOrder = ~0u;
             static const bool share = !std::getenv("SOTC_GL_REDRAW_NOSHARE");
+#if defined(PS2X_NATIVE_VITA)
+            // The glow layer (round 19): the picture below layer 8 drawn
+            // apart, the layer on its depth, so that the picture is not
+            // taken up again after it (lost in Vita3K).
+            for (const Event &ev : events)
+                if (ev.blur == -2)
+                {
+                    if (!glowPrefix.texture)
+                        makeTarget(glowPrefix, w, h, true);
+                    boundFbo = ~0u;
+                    pass(glowPrefix, false, 0, ev.order, false);
+                    glowBuilt = buildGlow(glowPrefix);
+                    break;
+                }
+#endif
             for (Event &ev : events)
             {
                 const bool water = ev.blur == -4 && haveRefraction && ev.order == 9u && waterFrom != 2;
@@ -3228,25 +3345,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const bool bloomAdd = keepAlpha;
         keepAlpha = false;
         if (bloomAdd)
-        {
-            // The mask (alpha) reduced 4 x 4 in the mask colour, blurred,
-            // over last frame's at the game's temporal share (bloomTex[2]),
-            // added by the next frame's bloomMask.
-            useQuad(11);
-            const float texel[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
-            glUniform4fv(uniform(false, "uSize"), 1, texel);
-            const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
-            bindTexture(0, color.texture);
-            quad(bloomTex[0], 11, QuadBlend::None, nullptr, maskColour);
-            const int rounds = std::clamp(static_cast<int>(native_renderer::tuning().bloomRounds + 0.5f), 1, 8);
-            blur(rounds, native_renderer::tuning().bloomSpread);
-            const float amount[4] = {bloomHistory ? 1.0f - bloom.temporal : 1.0f, 0, 0, 0};
-            bindTexture(0, bloomTex[0].texture);
-            bindTexture(1, bloomTex[2].texture);
-            quad(bloomTex[1], 2, QuadBlend::None, amount);
-            std::swap(bloomTex[1], bloomTex[2]);
-            bloomHistory = true;
-        }
+            bloomReduce(); // round 18's order: added by the next frame's bloomMask
         copy(colorPlain, previous);
 
 

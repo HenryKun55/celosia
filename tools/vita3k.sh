@@ -12,6 +12,10 @@
 #      of this run's window only, tools/winid.swift),
 #      PROF_SNAPS="<s> <s> ..." (with PROF: the profile copied to <file>.<s> at
 #      those seconds; the difference of two is that time window's profile).
+#      SEED=1: after the run, the shaders vitaGL compiled and cached
+#      (fs/ux0/data/shader_cache/CELO00001/v2) copied to build/vita-shader-seed,
+#      which the next ./celosia vita packs into the VPK (the console's first
+#      boot then compiles none; Vita3K runs the real libshacccg).
 #      For timing close to the real console use MHZ=240 CORES=3 (calibrated
 #      2026-10-22 on the attract demo against a console run of the same VPK:
 #      execScript and the frame within 1%; see docs/decomp.md, "Vita3K
@@ -62,4 +66,10 @@ else
     for _ in 1 2 3 4 5; do pgrep -f "$V3/config.yml -r CELO00001" >/dev/null || break; sleep 1; done
     pkill -9 -f "$V3/config.yml -r CELO00001" # it can ignore SIGTERM
     echo "logs: $FS/ux0/data/celosia/err.txt"
+fi
+if [ -n "$SEED" ] && [ -d "$FS/ux0/data/shader_cache/CELO00001/v2" ]; then
+    rm -rf build/vita-shader-seed && mkdir -p build/vita-shader-seed
+    cp -R "$FS/ux0/data/shader_cache/CELO00001/v2/." build/vita-shader-seed/
+    find build/vita-shader-seed -name '*.part' -delete
+    echo "shader seed: $(find build/vita-shader-seed -name '*.gxp' | wc -l | tr -d ' ') shaders in build/vita-shader-seed"
 fi

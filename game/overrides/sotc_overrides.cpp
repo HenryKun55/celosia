@@ -45,6 +45,7 @@ namespace
             g_gamecoreEntered = true;
             runtime->eeScheduler().enableHostClockSync();
             std::cerr << "[sotc] GAMECORE entered; host clock sync enabled" << std::endl;
+            ps2_stats::bootMark("GAMECORE entered");
             // With SOTC_NATIVE the IOP runs no code from the start (the boot's
             // layout made deterministic by heapHook); PS2X_NATIVE_IOP_BOOT=0
             // keeps the IRXs for the boot, the emulated IOP stopping here.

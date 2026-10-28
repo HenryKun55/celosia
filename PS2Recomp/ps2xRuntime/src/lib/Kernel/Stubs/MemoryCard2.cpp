@@ -73,6 +73,11 @@ namespace ps2_stubs
         {
             std::filesystem::path path;
             std::fstream file;
+            // The whole image in memory (round 19): reads are copies, writes
+            // go to both. Read a page at a time through the file, the
+            // console's card check before the title menu took ~10 s
+            // (one seek and read for each of thousands of pages).
+            std::vector<uint8_t> image;
             bool newCard = true; // reported once by CheckNewCard after insertion
         };
 
@@ -131,6 +136,10 @@ namespace ps2_stubs
             }
             if (std::filesystem::file_size(card.path, ec) < kCardBytes)
                 std::cerr << "[mc2] warning: " << card.path << " is not an 8 MB card image" << std::endl;
+            card.image.assign(kCardBytes, 0xFF);
+            card.file.seekg(0);
+            card.file.read(reinterpret_cast<char *>(card.image.data()), kCardBytes);
+            card.file.clear(); // a short image: the rest reads as erased
             std::cerr << "[mc2] slot " << port + 1 << ": " << card.path << std::endl;
             return &card;
         }
@@ -146,18 +155,10 @@ namespace ps2_stubs
         {
             if (page >= kCardPages || count > kCardPages - page)
                 return false;
-            uint8_t raw[kRawPageSize];
+            if (card.image.size() < kCardBytes)
+                return false;
             for (uint32_t i = 0; i < count; ++i)
-            {
-                card.file.seekg(static_cast<std::streamoff>(page + i) * kRawPageSize);
-                card.file.read(reinterpret_cast<char *>(raw), kRawPageSize);
-                if (!card.file)
-                {
-                    card.file.clear();
-                    return false;
-                }
-                std::memcpy(out + i * kPageSize, raw, kPageSize);
-            }
+                std::memcpy(out + i * kPageSize, card.image.data() + static_cast<size_t>(page + i) * kRawPageSize, kPageSize);
             return true;
         }
 
@@ -165,16 +166,20 @@ namespace ps2_stubs
         {
             if (page >= kCardPages || count > kCardPages - page)
                 return false;
-            uint8_t raw[kRawPageSize];
+            if (card.image.size() < kCardBytes)
+                return false;
+            uint8_t *const first = card.image.data() + static_cast<size_t>(page) * kRawPageSize;
             for (uint32_t i = 0; i < count; ++i)
             {
+                uint8_t *raw = first + static_cast<size_t>(i) * kRawPageSize;
                 std::memcpy(raw, data + i * kPageSize, kPageSize);
                 std::memset(raw + kPageSize, 0, kSpareSize);
                 for (uint32_t c = 0; c < kPageSize / 128; ++c)
                     computeChunkEcc(raw + c * 128, raw + kPageSize + c * 3);
-                card.file.seekp(static_cast<std::streamoff>(page + i) * kRawPageSize);
-                card.file.write(reinterpret_cast<const char *>(raw), kRawPageSize);
             }
+            // The pages are one run in the image: one write.
+            card.file.seekp(static_cast<std::streamoff>(page) * kRawPageSize);
+            card.file.write(reinterpret_cast<const char *>(first), static_cast<std::streamsize>(count) * kRawPageSize);
             card.file.flush();
             if (!card.file)
             {
@@ -451,6 +456,8 @@ namespace ps2_stubs
         if (ok)
         {
             const std::vector<uint8_t> erased(kPagesPerBlock * kRawPageSize, 0xFF);
+            if (card->image.size() >= kCardBytes)
+                std::memcpy(card->image.data() + static_cast<size_t>(block) * kPagesPerBlock * kRawPageSize, erased.data(), erased.size());
             card->file.seekp(static_cast<std::streamoff>(block) * kPagesPerBlock * kRawPageSize);
             card->file.write(reinterpret_cast<const char *>(erased.data()), erased.size());
             card->file.flush();

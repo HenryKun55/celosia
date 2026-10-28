@@ -631,6 +631,19 @@ if(PS2X_IS_VITA)
             endif()
         endforeach()
 
+        # The shader cache's seed (round 19, raylib_vita.cpp's seedShaderCache):
+        # a vitaGL shader cache ({v,f}/XX/<hash>.gxp, from a Vita3K run's
+        # ux0:data/shader_cache/<title id>/v2) packed as app0:shader_cache.
+        set(PS2X_VITA_SHADER_SEED "${CMAKE_BINARY_DIR}/../vita-shader-seed" CACHE PATH "vitaGL shader cache to pack into the VPK (missing: none)")
+        if(EXISTS "${PS2X_VITA_SHADER_SEED}")
+            file(GLOB_RECURSE PS2X_VITA_SEED_FILES RELATIVE "${PS2X_VITA_SHADER_SEED}" "${PS2X_VITA_SHADER_SEED}/*.gxp")
+            foreach(PS2X_VITA_SEED_FILE IN LISTS PS2X_VITA_SEED_FILES)
+                list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_VITA_SHADER_SEED}/${PS2X_VITA_SEED_FILE}" "shader_cache/${PS2X_VITA_SEED_FILE}")
+            endforeach()
+            list(LENGTH PS2X_VITA_SEED_FILES PS2X_VITA_SEED_COUNT)
+            message(STATUS "VPK: ${PS2X_VITA_SEED_COUNT} seeded shaders from ${PS2X_VITA_SHADER_SEED}")
+        endif()
+
         vita_create_self(eboot.bin ps2EntryRunner UNSAFE)
         vita_create_vpk(ps2EntryRunner.vpk ${PS2X_VITA_TITLEID} eboot.bin
             VERSION ${PS2X_VITA_VERSION}

@@ -121,6 +121,7 @@ What a native function has to keep, learned the hard way:
 | decomp_skinfinder.cpp | manager_sub_01116108 (the skinned collision finder's triangle corners, EntryModifiedManager inline; round 14) | route SOTC_NATIVE=1 7 800 checks (EVERY=20; 2 400 + 2 500 with EVERY=1 to frame 900, VU0 registers compared too), =2 6 500, attract 9 600; 0 mismatches | the original's stack frame is written too (see "Round 14") |
 | decomp_finder.cpp | manager_sub_01116958 (the skinned collision finder: parts, boundary surfaces and their planes, triangles; EntryModifiedManager inline; round 15) | route to frame 4 800: 8 900 checks (EVERY=20), VU0 registers and 0x800 bytes of the dead stack compared too; 24 400 checks of every call at fixed 30 fps to frame 1 500; 0 mismatches | written instruction for instruction from the MIPS (the recompiler's VU0 / FPU macros), its 0x190-byte frame and the saved registers at every call as the original has them (see "Round 15") |
 | decomp_collision.cpp | the sphere finder's tree walk, manager_sub_01128F38 (round 10) | route SOTC_NATIVE=1 3 000 checks (297 500 calls), =2 1 200 (234 400), 0 mismatches; not called by the attract demo | low child by recursion, high by the loop; the finder's native leaves called straight |
+| decomp_mcfat.cpp | 0x11c7d8 (libmc2's free-cluster count, round 19) | 1 check (title / load menus, the route), 0 mismatches | ~8 000 FAT entries over libmc2's two caches; a cache miss or an error goes to the recompiled 0x11c3b0 for that entry |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -2883,6 +2884,195 @@ Speed:
 Good news in the same log: no 45-60 s loader stall this time (the longest
 loader job 8.4 s, once); sound 0 stale, 0 late, 34 src-stale over 298
 windows.
+
+## Round 19: the boot, the glow layer on the Vita, the bloom's frame (2026-10-28)
+
+**Boot to the title menu** (measured as the first menu confirm sound, the
+word 0x270bd4 that sndSepTickProc counts, with START pressed for 4 frames
+every 20 VBlanks from VBlank 60: `r19/env-boot.txt`; times from the
+process's launch, `[boot]` lines, new: `ps2_stats::bootMark`, the Vita on
+sceKernelGetProcessTimeWide, `[watch]` / `[input]` lines now say t=):
+
+| | first picture | GAMECORE | menu |
+|---|---|---|---|
+| Mac, native (SOTC_NATIVE=1) | 0.25 s | 0.37 s | 10.6 s (VBlank 621) |
+| Mac, emulated GS (SOTC_NATIVE=2, the PS2 reference) | 0.23 s | 0.34 s | 10.5 s (VBlank 621) |
+| Vita3K 240, round 18's code (r19/marks2) | 21.2 s | 23.3 s | 47.9 s (VBlank 1 412) |
+| Vita3K 240, round 19, first boot (seeded cache) | 1.3 s | 3.4 s | 20.7 s (VBlank 1 016) |
+| Vita3K 240, round 19, next boots | 1.3 s | 3.2-3.4 s | 18.9-24.9 s (VBlank 915-1 267, 4 runs) |
+| Vita3K 222, round 19 | 1.35 s | 3.5 s | 21.8 s (VBlank 1 072) |
+| Vita3K 333, round 19 | 1.2 s | 3.1 s | 16.2 s (VBlank 770) |
+
+(SOTC_NATIVE=0 did not reach GAMECORE in 60 s on the Mac this round: the
+emulated IOP boot; not looked into.) Round 18's code at 222 / 333 was not
+measured (the Mac's lid was closed before those runs: clamshell sleep stops
+the timed runs, `pmset -g log`).
+
+What the time was:
+1. **Shaders compiled at start, ~20 s before the first picture.** The GS
+   renderer's two programs (GSHwBackend::setContextProvider, 7.0 s in
+   calibrated Vita3K) and the native renderer's ~26 shaders (13.0 s), all
+   through libshacccg on the main thread, every boot. vitaGL is now built
+   with HAVE_SHADER_CACHE (celosia: the stamp says "shadercache"): each
+   compiled shader is kept in ux0:data/shader_cache/CELO00001/v2 by its
+   source's hash. vitaGL's own root reads the title id into 12 bytes with
+   no room for its end (Vita3K: "CELO00001n"): raylib_vita.cpp gives the
+   root (vglSetShaderCachePath) before vglInit. The VPK carries a **seed**
+   of that cache (app0:shader_cache, 28 shaders, 120 KB, from
+   build/vita-shader-seed: `SEED=1 tools/vita3k.sh <s>` copies a run's
+   cache there, CMake packs it, PS2X_VITA_SHADER_SEED): copied to ux0 where
+   missing at start (`[vita] shader cache seed: 28 copied`), so the
+   console's first boot compiles nothing either. Vita3K runs the real
+   libshacccg module, so its output is the console's. A shader whose source
+   changed has another hash and is compiled (and cached) as before; the
+   seed is only remade when the shaders change.
+2. **The memory card, page by page** (the title menu waits for the card
+   check; with an empty card the menu came at VBlank 910 instead of
+   1 400-2 000): libmc2 reads ~13 MB of pages before the menu (PS2X_TRACE_MC2:
+   12 549 ReadPage calls), each one an fstream seek + read on the Vita's
+   file system. MemoryCard2.cpp now keeps the 8.6 MB image in memory (one
+   read at open), reads are copies, writes go to both (one write per call,
+   the pages are one run), erases too. Menu at VBlank 1 400-2 000 ->
+   915-1 267.
+3. **The GS's display read out for nothing**: with the native picture shown
+   the Vita's main loop still latched the GS presentation each refresh
+   (UploadFrame) and GSCpuBackend::Present, finding no CPU copy of the
+   native picture there (latestFrame), went on to snapshot local memory and
+   convert the display buffer (CopyFrameToHostRgba): 12% of all CPU samples
+   in the boot's first 18 s. Both skipped on the Vita while the native
+   picture is shown (ps2_runtime.cpp, gs_cpu_backend.cpp).
+4. **libmc2's free-cluster count** (0x11c7d8, decomp_mcfat.cpp): ~8 000 FAT
+   entries through two guest calls each, natively over the same two caches
+   (a cache miss or an error goes to the recompiled 0x11c3b0 for that entry).
+   Called once on the route; SOTC_DIFFTEST: 1 check, 0 mismatches (title and
+   load menus, and in the route's difftest below).
+
+What is left (Vita 915-1 267 VBlanks after launch against the Mac's 621):
+the logos run slower (frame 436 at VBlank ~549 against ~440: the loads'
+symbol hashing, MakeStrHashValue / isysSearchSymbol / sheetMgrResolve,
+SeamlessStageLoadComplete) and libmc2's card thread only runs in the game
+thread's idle time, which the intro's 20-26 ms frames leave little of: its
+reads come in small bursts over ~150 frames where the Mac does them in one
+(r19/b6mc: 31, 86, 24 reads a 60-frame window). The profile of that window
+(r19/prof-intro.txt.17 minus .9) is flat; EeScheduler::run's memcpy 3.9%
+and C++ unwinding (search_EIT_table, _Unwind_VRS_Pop, ~2%) are the
+scheduler's.
+
+**The console log's "audio jump" (frame 817 to 1 789) was not one**: the 5 s
+[audio] windows are all there (817, 958, 1 101, ...), the log interleaves
+threads and `grep '^\[audio\]'` missed the lines that do not start a row.
+Nothing stalled there; the user was on the title (frames 600-800: 145 draws,
+50 ms frames, the GPU's present 46 ms).
+
+**The glow layer on the Vita** (the dead colossus in cyan / green / blue,
+the sigils' weak glow, most likely the missing tendrils): bossDeathEffect's
+layer 8 (surfaces with flags 17 / 24, "boss effect") is drawn apart into a
+buffer of its own on the picture's depth, reduced, blurred and laid over the
+picture sharp and blurred in a tint (0x11862b0, amounts 0x11862c4 /
+0x11862c0). On the Vita that composite was never done ("vitaGL framebuffers
+cannot share the picture's depth"): layer 8 went into the picture plainly,
+so a layer meant to be tinted and blurred showed its raw vertex colours
+(the dead colossus) and the glows had no halo. Now:
+- our vitaGL has `vglFramebufferShareDepth(dst, src)` (celosia.patch): dst's
+  scenes use src's depth / stencil surface (the same one, both of one size;
+  the free paths leave a shared surface alone);
+- native_renderer_gl.cpp (Vita) builds the glow layer on the picture's
+  depth, reduces it 256 / 128 / 64 with the CG quad modes 13 and 14 (new on
+  the Vita) and lays it over at layer 8, only in frames where layer 8 has
+  draws (each use splits the picture's scene);
+- Vita3K loses a picture taken up again after drawing elsewhere (the reason
+  for the mid-frame redraw): there the glow is built on the picture below
+  layer 8 drawn again apart (glowPrefix), the right picture at the cost of
+  that redraw. That cost is the emulator's, not the console's, so by default
+  Vita3K keeps round 18's plain layer 8 and the timing stays comparable:
+  `SOTC_GLOW_VITA=2` draws it apart in Vita3K too, `=0` turns it off on the
+  console.
+Checked in the shrine's wake-up after colossus 2 (the user's card, which
+plays it on load: the shadow figures around Wander, the idol's light), in
+Vita3K with SOTC_GLOW_VITA=2 against =0 and against the Mac's GL backend
+(which has had the composite since 2026-10-16, matched to the GS then):
+apart, the figures are dark, blurred and see-through as on the Mac; plain,
+they were solid black (~/Downloads/celosia-r19-glow-vita3k-after-top-before-bottom.png,
+celosia-r19-glow-mac-reference.png). The dead colossus itself, the sigils
+in a fight and the tendrils could not be reached on the Mac (no save at a
+colossus); they are layer 8 surfaces by the same flags, so the same
+composite should give them their PS2 look: to be confirmed on the console.
+
+**The bloom a frame late on the Vita**: the Vita's bloom (no depth
+textures) writes its mask into the picture's alpha at the bloom's layer,
+and reduced, blurred and mixed it with the history only after the frame:
+the glow of frame n was added in frame n + 1, on top of the game's own
+temporal mix (the history's share 0x118c12c / 128). The GS and the Mac's
+Metal chain add it the same frame. Now it is reduced and added at the
+bloom's layer, the same frame (one more split of the picture's scene a
+frame; `SOTC_BLOOM_SAMEFRAME=0` gives round 18's order). In Vita3K (where
+the picture taken up again comes back as an older frame: the intro went
+flat grey in the first try) it keeps round 18's order. The lag the game's
+own history gives (the glow eases in over ~12 frames) is the PS2's and
+stays. Not seen on the console yet.
+
+**Frame timing (calibrated Vita3K, route2's input, round 18's env; mean ms
+(fps), frames over 50 / 85 / 120, worst).** r18 = celosia-r18.vpk (round
+18's runs), r19 = r19/celosia-r19-b7.vpk (round 19 without the final
+SOTC_GLOW_VITA default: the glow drawn apart with the redraw in Vita3K).
+
+| route window | r18 222 | r19 222 | r18 240 | r19 240 | r18 333 | r19 333 |
+|---|---|---|---|---|---|---|
+| the save's load | 32.6, 28/9/3, 242.1 | 32.5, 33/8/4, 225.3 | 30.7, 32/6/3, 240.0 | 30.0, 28/6/3, 230.9 | 24.5, 12/4/3, 202.5 | 24.2, 11/5/2, 198.3 |
+| the shrine | 47.0 (21.3), 111/21/0, 112.7 | 47.1 (21.2), 109/25/0, 112.7 | 43.4 (23.0), 96/6/0, 105.9 | 43.4 (23.0), 95/8/0, 107.8 | 31.0 (32.3), 92/0/0, 74.3 | 31.0 (32.3), 89/0/0, 72.5 |
+| the walk out and the area change | 82.0 (12.2), 610/213/3, 154.5 | 85.1 (11.8), 587/222/4, 175.3 | 76.5 (13.1), 653/81/2, 159.4 | 76.3 (13.1), 651/137/1, 166.6 | 53.8 (18.6), 695/3/0, 112.5 | 55.8 (17.9), 671/4/1, 128.6 |
+| the plain | 54.9 (18.2), 607/0/0, 69.6 | 56.2 (17.8), 593/0/0, 72.5 | 48.2 (20.7), 172/0/0, 69.8 | 50.2 (19.9), 289/0/0, 63.2 | 35.5 (28.2), 7/0/0, 53.0 | 36.5 (27.4), 13/0/0, 54.7 |
+
+Transitions (r12/tools/transition.py):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r18 222 | 33.6 / 167.6 / 1 | 109.3 / 154.5 / 3 | 87.5 | 242, 238 |
+| r19 222 | 32.0 / 160.5 / 1 | 115.1 / 175.3 / 3 | 107.4 | 225, 219 |
+| r18 240 | 31.1 / 167.5 / 1 | 103.3 / 159.4 / 2 | 81.5 | 240, 231 |
+| r19 240 | 29.5 / 143.2 / 1 | 107.5 / 166.6 / 1 | 99.8 | 231, 230 |
+| r18 333 | 26.3 / 144.2 / 1 | 73.8 / 112.5 / 0 | 59.2 | 202, 192 |
+| r19 333 | 26.7 / 114.5 / 0 | 80.6 / 128.6 / 1 | 73.5 | 198, 182 |
+
+The loads are shorter (worst frame 242 -> 225 at 222) and the cut's worst
+frame lower, but the walk out is 2-4% slower and the 40-80 frames after the
+area change 15-25% slower in b7. The suspect is the glow layer's redraw
+(Vita3K only: the picture below layer 8 drawn twice wherever layer 8 has
+draws); the A/B run (SOTC_GLOW_VITA=0) was lost to the Mac's sleep, so the
+final VPK (celosia-r19.vpk) leaves the redraw off in Vita3K by default,
+unmeasured. Round 20 measures it first.
+
+**Checks.**
+- SOTC_DIFFTEST=all EVERY=200 on the route to frame 4 800 (r19/dt-route,
+  r9/route2.sh): 57 functions, 162 601 checks, 0 mismatches but
+  gamecore_sub_013F8668 (the life bar's v0, as since round 16);
+  mcFatCountFree 1 check, 0 mismatches.
+- Mac fixed-30 fps path (route2, SOTC_FRAME_INTERVAL=2 SOTC_POS_LOG=30, to
+  5 400, r19/pos-1): 178 points, within 1.53 units of r16/pos-ref2 and 0.54
+  of r18/pos-w1: the noise band. The save loads from the in-memory card
+  image as before.
+- No generator or lean change: the lean check was not rerun.
+
+**Tools (new):** r19/v3k.sh (r18's, kinds boot / console: the user's card),
+r19/macboot.sh (Mac boot to the menu, muted, the user's card in a scratch
+dir), r19/env-boot.txt, r19/env-load.txt (loads the card's save: the
+wake-up with layer 8), SOTC_GL_EVENT_LOG now prints layer 8's draws.
+
+**Round 20 (plan).**
+1. The A/B lost this round: celosia-r19.vpk with SOTC_GLOW_VITA=2 against
+   the default at 222, and round 18's VPK again (the noise of the walk out
+   and of the 40-80 frames after the area change).
+2. The console: the boot (first and next), the dead colossus, a fight's
+   sigils, the tendrils, the title's bloom against the camera. If the scene
+   splits cost on the console (the bloom's, every frame with bloom), make
+   the bloom's add a target of its own instead of taking the picture up
+   again (copy, then draw the 2D on the copy).
+3. Boot, what is left: the card thread starved by the intro's frames (a
+   priority, or libmc2's directory reads natively), the loads' symbol
+   hashing (MakeStrHashValue / isysSearchSymbol / sheetMgrResolve), the
+   scheduler's context copies.
+4. Speed, carried over: ExecCharaGeometry's and DispDispObjGroupModel's
+   self time, the cut frame, the area change's frames over 50 ms at 222.
 
 ## Vita3K calibration (2026-10-22)
 
