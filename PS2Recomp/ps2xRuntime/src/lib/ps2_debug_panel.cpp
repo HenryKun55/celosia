@@ -2224,7 +2224,12 @@ namespace
                 if (!applies)
                     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.55f);
                 bool itemChanged = false;
-                if (item.toggle)
+                if (item.action)
+                {
+                    if (ImGui::Button(item.label))
+                        item.action();
+                }
+                else if (item.toggle)
                     itemChanged = ImGui::Checkbox(item.label, &(t.*item.toggle));
                 else if (item.mask)
                 {

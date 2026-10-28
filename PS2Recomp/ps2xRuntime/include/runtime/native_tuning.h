@@ -66,6 +66,32 @@ namespace native_renderer
         // by default on the Vita).
         bool renderThread = false;
         bool frameLog = false;      // per-frame timing to the log (SOTC_FRAME_LOG; native_renderer::FrameCounters)
+        bool frameLogAll = false;   // with frameLog: every frame on a line of its own (SOTC_FRAME_LOG_ALL)
+        // The performance overlay (round 20): fps, the frame's split as the
+        // frame log has it (averaged over ~0.5 s), the worst frame of the
+        // last ~4 s and a frame-time graph, drawn over the picture by the
+        // host (ps2_runtime.cpp drawHostFrame). Collects the frame log's
+        // counters while on (frameTiming()); off: no cost.
+        bool perfOverlay = false;
+        // The sound continuity log (ps2x::iop::audio_stats::level):
+        // 0 off, 1 the [audio] / [loader] lines every 5 s, 2 also each stream
+        // event (SOTC_AUDIO_LOG; default 1 with SOTC_FRAME_LOG). The [loader]
+        // line's message-box part needs it on at start.
+        float audioLog = 0.0f;
+        // The Vita's glow layer (round 19, SOTC_GLOW_VITA): 0 layer 8 drawn
+        // plainly into the picture (round 18); 1 composited apart on the
+        // console, plain in Vita3K (where it needs the picture below layer 8
+        // drawn again); 2 apart in Vita3K too.
+        float glowVita = 1.0f;
+        // The Vita's bloom added at its layer the same frame (round 19,
+        // SOTC_BLOOM_SAMEFRAME); off: the glow of frame n added in frame
+        // n + 1 (round 18). Always the old order where the picture is drawn
+        // again for mid-frame effects (Vita3K).
+        bool bloomSameFrame = true;
+        // With holdIncomplete: at most this many frames held in a row (SOTC_HOLD_FRAMES).
+        float holdFrames = 3.0f;
+        // The counters behind the frame log and the overlay are collected.
+        bool frameTiming() const { return frameLog || perfOverlay; }
         // The game thread's time by subsystem to the log (SOTC_SUBSYS_PROF;
         // game/overrides/sotc_prof.cpp: wrapped at start only when on then).
         bool subsysProf = false;
@@ -172,7 +198,30 @@ namespace native_renderer
         bool debug = false;             // listed in the Debug group
         bool quality = false;           // listed in the Quality group
         uint8_t backends = 3;           // bit 0: Metal, bit 1: OpenGL (the Vita) - where it changes anything
+        // An action instead of a value (the Debug group's "Mark"): run on
+        // Cross / left / right, never saved; its value text from `actionText`.
+        void (*action)() = nullptr;
+        std::string (*actionText)(bool portuguese) = nullptr;
     };
+    // The Debug group's "Mark" (round 20): a "[mark] <n> frame <f>" line to
+    // the log (err.txt on the Vita), to find a moment again ("aqui travou").
+    void writeMark();
+    int markCount();
+
+    // The performance overlay's numbers (Tuning::perfOverlay): filled at
+    // each game frame's end by the game's frame log code, read by the host's
+    // overlay (another thread: perfSnapshot copies under a lock).
+    struct PerfStats
+    {
+        float fps = 0, frameMs = 0, gameMs = 0, hooksMs = 0, renderMs = 0, waitMs = 0, presentMs = 0, worstMs = 0;
+        float draws = 0;
+        uint64_t frame = 0;
+        bool renderThread = false;
+        static constexpr int kHistory = 120;
+        float history[kHistory] = {}; // the last frames' times, ms, oldest first
+    };
+    void perfPublish(const PerfStats &stats);
+    bool perfSnapshot(PerfStats &out); // false before the first
     const std::vector<TuningItem> &tuningItems();
     // The item's value as text ("On", "0.46", "3x"), in Portuguese when asked.
     std::string tuningValueText(const TuningItem &item, bool portuguese = false);

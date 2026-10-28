@@ -738,7 +738,7 @@ namespace ps2x::iop::detail
             for (size_t done = 0; done < frames;)
             {
                 const uint32_t n = static_cast<uint32_t>(std::min<size_t>(frames - done, chunk));
-                static const bool timed = audio_stats::level() != 0;
+                const bool timed = audio_stats::level() != 0;
                 const uint64_t asked = timed ? audio_stats::nowUs() : 0u;
                 {
                     auto lock = hold();

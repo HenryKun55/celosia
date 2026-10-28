@@ -5,6 +5,7 @@
 #include "runtime/native_tuning.h"
 #include "ThreadNaming.h"
 #include "runtime/ps2_stats.h"
+#include "ps2x/iop/audio_stats.h"
 
 #include <algorithm>
 #include <atomic>
@@ -121,6 +122,15 @@ namespace native_renderer
             d.hazeSource = number("SOTC_HAZE_SOURCE", d.hazeSource);
             d.waterSource = number("SOTC_WATER_SOURCE", d.waterSource);
             d.frameLog = on("SOTC_FRAME_LOG");
+            d.frameLogAll = on("SOTC_FRAME_LOG_ALL");
+            d.perfOverlay = on("SOTC_PERF_OVERLAY") && std::atoi(std::getenv("SOTC_PERF_OVERLAY")) != 0;
+            d.audioLog = static_cast<float>(std::clamp(ps2x::iop::audio_stats::levelFromEnv(), 0, 2));
+            if (on("SOTC_GLOW_VITA"))
+                d.glowVita = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_GLOW_VITA")), 0, 2));
+            if (on("SOTC_BLOOM_SAMEFRAME"))
+                d.bloomSameFrame = std::atoi(std::getenv("SOTC_BLOOM_SAMEFRAME")) != 0;
+            if (on("SOTC_HOLD_FRAMES"))
+                d.holdFrames = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_HOLD_FRAMES")), 0, 8));
             d.subsysProf = on("SOTC_SUBSYS_PROF") && std::atoi(std::getenv("SOTC_SUBSYS_PROF")) != 0;
             d.fastHooks = !on("SOTC_NATIVE_SLOWHOOKS");
             if (on("SOTC_PACKET_QUICK"))
@@ -215,6 +225,18 @@ namespace native_renderer
             add(std::string("SOTC_ASYNC_BUILDS=") + (t.asyncBuilds ? "1" : "0"));
         if (t.frameLog)
             add("SOTC_FRAME_LOG=1");
+        if (t.frameLogAll)
+            add("SOTC_FRAME_LOG_ALL=1");
+        if (t.perfOverlay)
+            add("SOTC_PERF_OVERLAY=1");
+        if (static_cast<int>(t.audioLog + 0.5f) != (t.frameLog ? 1 : 0))
+            add("SOTC_AUDIO_LOG=" + number(t.audioLog));
+        if (t.glowVita != d.glowVita)
+            add("SOTC_GLOW_VITA=" + number(t.glowVita));
+        if (t.bloomSameFrame != d.bloomSameFrame)
+            add(std::string("SOTC_BLOOM_SAMEFRAME=") + (t.bloomSameFrame ? "1" : "0"));
+        if (t.holdFrames != d.holdFrames)
+            add("SOTC_HOLD_FRAMES=" + number(t.holdFrames));
         if (t.subsysProf)
             add("SOTC_SUBSYS_PROF=1");
         if (!t.fastHooks)
@@ -324,6 +346,50 @@ namespace native_renderer
             item.debug = true;
             v.push_back(item);
         };
+        // Round 20: the switches to flip on the console without a reboot,
+        // first in the Debug group.
+        {
+            TuningItem item{"dbg_mark", "Mark this moment", "Marcar este momento",
+                            "Writes \"[mark] <n> frame <f>\" to the log (err.txt on the Vita), to find this moment in it later (a hitch, a glitch).",
+                            "Escreve \"[mark] <n> frame <f>\" no log (err.txt no Vita), pra achar este momento depois (um travamento, um defeito).",
+                            nullptr, nullptr, 0, 1, 1, nullptr};
+            item.action = writeMark;
+            item.actionText = [](bool pt) { return std::string(pt ? "X: marcar" : "X: mark") + (markCount() ? " (" + std::to_string(markCount()) + ")" : ""); };
+            item.debug = true;
+            v.push_back(item);
+        }
+        debugToggle("dbg_perf_overlay", "Performance overlay", "Painel de desempenho",
+                    "Over the picture, with the menu closed: fps, the frame's time split (game, hooks, render thread, wait, present) averaged over half a second, the worst frame of the last 4 s and a graph of the last 120 frames (the line: 33 ms). Costs nothing when off.",
+                    "Sobre a imagem, com o menu fechado: fps, o tempo do quadro dividido (jogo, ganchos, thread de render, espera, apresentação) na média de meio segundo, o pior quadro dos últimos 4 s e um gráfico dos últimos 120 quadros (a linha: 33 ms). Não custa nada desligado.",
+                    &Tuning::perfOverlay, "SOTC_PERF_OVERLAY");
+        debugToggle("dbg_frame_log", "Frame timing log", "Log de tempo por quadro",
+                    "Writes to the log every 60 frames where the time went (game, hooks, texture decoding, uploads, drawing, swap) and every slow frame.",
+                    "Escreve no log a cada 60 quadros onde o tempo foi (jogo, ganchos, decodificação de texturas, envios, desenho, troca) e cada quadro lento.",
+                    &Tuning::frameLog, "SOTC_FRAME_LOG");
+        debugToggle("dbg_frame_log_all", "Log every frame", "Log de cada quadro",
+                    "With the frame timing log: every frame on a line of its own, not only the slow ones (a lot of text: for a short moment).",
+                    "Com o log de tempo por quadro: cada quadro numa linha própria, não só os lentos (muito texto: para um momento curto).",
+                    &Tuning::frameLogAll, "SOTC_FRAME_LOG_ALL");
+        {
+            TuningItem item{"dbg_audio_log", "Sound log", "Log de som",
+                            "0 off; 1 every 5 s an [audio] line (streams, voices, disc reads, the mixer) and a [loader] line; 2 also each stream event. The [loader] line's message boxes only when on at start.",
+                            "0 desligado; 1 a cada 5 s uma linha [audio] (streams, vozes, leituras do disco, o mixer) e uma [loader]; 2 também cada evento de stream. As caixas de mensagem da linha [loader] só se ligado no início.",
+                            nullptr, &Tuning::audioLog, 0.0f, 2.0f, 1.0f, "SOTC_AUDIO_LOG"};
+            item.debug = true;
+            v.push_back(item);
+        }
+        {
+            TuningItem item{"dbg_glow_vita", "Glow layer (Vita)", "Camada de glow (Vita)",
+                            "OpenGL / Vita: the glow layer (layer 8: the dead colossus, the sigils, the shrine's shadow figures). Plain: drawn into the picture as is (round 18). Auto: blurred and tinted apart on the console, plain in Vita3K. Always: apart in Vita3K too (it draws the picture below layer 8 twice there).",
+                            "OpenGL / Vita: a camada de glow (camada 8: o colosso morto, os sigilos, as sombras do santuário). Simples: desenhada direto na imagem (rodada 18). Auto: borrada e tingida à parte no console, simples no Vita3K. Sempre: à parte no Vita3K também (lá desenha duas vezes a imagem abaixo da camada 8).",
+                            nullptr, &Tuning::glowVita, 0.0f, 2.0f, 1.0f, "SOTC_GLOW_VITA"};
+            item.debug = true;
+            v.push_back(item);
+        }
+        debugToggle("dbg_bloom_sameframe", "Bloom in the same frame", "Bloom no mesmo quadro",
+                    "OpenGL / Vita: the bloom's glow added in the frame it was made from (as the PS2). Off: one frame late (round 18; one less split of the frame). Always late where the picture is redrawn for copies (Vita3K).",
+                    "OpenGL / Vita: o brilho do bloom somado no mesmo quadro de onde saiu (como no PS2). Desligado: um quadro atrasado (rodada 18; uma divisão a menos do quadro). Sempre atrasado onde a imagem é redesenhada para cópias (Vita3K).",
+                    &Tuning::bloomSameFrame, "SOTC_BLOOM_SAMEFRAME");
         debugToggle("dbg_show_native", "Show native picture", "Mostrar imagem nativa",
                     "Off: the emulated PS2 picture of the same moment (F9 flips it), to compare the two.",
                     "Desligado: a imagem emulada do PS2 no mesmo instante (F9 alterna), pra comparar as duas.", &Tuning::showNative);
@@ -366,10 +432,6 @@ namespace native_renderer
         debugToggle("dbg_mips", "Mipmaps", "Mipmaps", "Smaller textures far away.", "Texturas menores ao longe.", &Tuning::mipmaps, "SOTC_NATIVE_NOMIPS");
         debugToggle("dbg_scroll", "Texture scrolling", "Rolagem de textura", "Water and cloth textures that move.", "Texturas que se movem (água, tecido).",
                     &Tuning::textureScroll, "SOTC_NATIVE_NOROW");
-        debugToggle("dbg_frame_log", "Frame timing log", "Log de tempo por quadro",
-                    "Writes to the log every 60 frames where the time went (game, hooks, texture decoding, uploads, drawing, swap) and every slow frame.",
-                    "Escreve no log a cada 60 quadros onde o tempo foi (jogo, ganchos, decodificação de texturas, envios, desenho, troca) e cada quadro lento.",
-                    &Tuning::frameLog, "SOTC_FRAME_LOG");
         debugToggle("dbg_subsys_prof", "Subsystem timing log", "Log de tempo por subsistema",
                     "Writes to the log every 120 frames the game thread's time by subsystem (display walk, characters, AI, collision, camera, particles, the hooks' parts, each task's step), and once at start a probe of the memory and call costs. The functions are wrapped at start only when this is on then (or SOTC_SUBSYS_PROF=1); off at run time: paused.",
                     "Escreve no log a cada 120 quadros o tempo da thread do jogo por subsistema (percurso de exibição, personagens, IA, colisão, câmera, partículas, as partes dos ganchos, o passo de cada tarefa) e uma vez no início uma sondagem dos custos de memória e de chamadas. As funções são embrulhadas no início só se isto estiver ligado então (ou SOTC_SUBSYS_PROF=1); desligado durante o jogo: pausado.",
@@ -406,6 +468,14 @@ namespace native_renderer
                     "With builds on a worker: a frame missing more than an eighth of its draws (still being built, at a camera cut) is not shown; the last one stays up (at most 3 frames).",
                     "Com montagem em outra thread: um quadro sem mais de um oitavo dos desenhos (ainda montando, num corte de câmera) não é mostrado; o anterior fica na tela (no máximo 3 quadros).",
                     &Tuning::holdIncomplete, "SOTC_HOLD_INCOMPLETE");
+        {
+            TuningItem item{"dbg_hold_frames", "Frames held at most", "Quadros segurados no máximo",
+                            "With hold incomplete frames: how many frames in a row the last picture may stay up (3).",
+                            "Com segurar quadros incompletos: quantos quadros seguidos a imagem anterior pode ficar na tela (3).",
+                            nullptr, &Tuning::holdFrames, 0.0f, 8.0f, 1.0f, "SOTC_HOLD_FRAMES"};
+            item.debug = true;
+            v.push_back(item);
+        }
         debugToggle("dbg_warm_shaders", "Warm shaders at start", "Preparar shaders no início",
                     "OpenGL / Vita: each shader drawn once with every blend state when the renderer starts, so their first use in the game does not stall (takes effect at the next start).",
                     "OpenGL / Vita: cada shader desenhado uma vez com cada modo de mistura quando o renderizador começa, pra que o primeiro uso no jogo não trave (vale a partir do próximo início).",
@@ -450,7 +520,7 @@ namespace native_renderer
                            key == "effect_detail";
             if (key == "msaa" || key == "effect_detail")
                 item.backends = 1;
-            if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw" ||
+            if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw_mode" || key == "dbg_glow_vita" || key == "dbg_bloom_sameframe" ||
                 key == "dbg_gpu_skin" || key == "dbg_render_thread" || key == "dbg_gl_pools" || key == "dbg_gl_merge" || key == "dbg_gl_lean" ||
                 key == "dbg_gl_nodiscard")
                 item.backends = 2;
@@ -494,6 +564,10 @@ namespace native_renderer
             static const char *detailPt[] = {"Escolha do jogo", "Mais fino", "Máximo"};
             static const char *effectEn[] = {"PS2", "High", "Very high"};
             static const char *effectPt[] = {"PS2", "Alto", "Muito alto"};
+            static const char *glowEn[] = {"Plain", "Auto", "Always"};
+            static const char *glowPt[] = {"Simples", "Auto", "Sempre"};
+            static const char *audioEn[] = {"Off", "Summary", "Summary + events"};
+            static const char *audioPt[] = {"Desligado", "Resumo", "Resumo + eventos"};
             static const char *sourceEn[] = {"small copy", "full copy", "last frame"};
             static const char *sourcePt[] = {"cópia pequena", "cópia inteira", "quadro anterior"};
             if (item.number == &Tuning::preset)
@@ -506,6 +580,10 @@ namespace native_renderer
                 return {3, detailEn, detailPt};
             if (item.number == &Tuning::effectDetail)
                 return {3, effectEn, effectPt};
+            if (item.number == &Tuning::glowVita)
+                return {3, glowEn, glowPt};
+            if (item.number == &Tuning::audioLog)
+                return {3, audioEn, audioPt};
             if (item.number == &Tuning::hazeSource || item.number == &Tuning::waterSource)
                 return {3, sourceEn, sourcePt};
             return {0, nullptr, nullptr};
@@ -542,6 +620,8 @@ namespace native_renderer
     std::string tuningValueText(const TuningItem &item, bool portuguese)
     {
         const Tuning &t = tuning();
+        if (item.action)
+            return item.actionText ? item.actionText(portuguese) : "";
         if (item.toggle)
             return t.*item.toggle ? "On" : "Off";
         if (item.mask)
@@ -580,6 +660,11 @@ namespace native_renderer
     void tuningStep(const TuningItem &item, int dir)
     {
         Tuning &t = tuning();
+        if (item.action)
+        {
+            item.action();
+            return;
+        }
         if (item.toggle)
         {
             t.*item.toggle = !(t.*item.toggle);
@@ -604,12 +689,44 @@ namespace native_renderer
         t.preset = static_cast<float>(matchingPreset(t));
     }
 
+    namespace
+    {
+        std::atomic<int> g_marks{0};
+        std::mutex g_perfMutex;
+        PerfStats g_perf;
+        bool g_perfSet = false;
+    }
+    void writeMark()
+    {
+        const int n = g_marks.fetch_add(1, std::memory_order_relaxed) + 1;
+        std::fprintf(stderr, "[mark] %d frame %llu vblank %llu t=%.2f\n", n, static_cast<unsigned long long>(ps2_stats::vif1Chains.load(std::memory_order_relaxed)),
+                     static_cast<unsigned long long>(ps2_stats::vblanks.load(std::memory_order_relaxed)), static_cast<double>(nowUs()) / 1e6);
+        std::fflush(stderr);
+    }
+    int markCount() { return g_marks.load(std::memory_order_relaxed); }
+    void perfPublish(const PerfStats &stats)
+    {
+        std::lock_guard<std::mutex> lock(g_perfMutex);
+        g_perf = stats;
+        g_perfSet = true;
+    }
+    bool perfSnapshot(PerfStats &out)
+    {
+        std::lock_guard<std::mutex> lock(g_perfMutex);
+        if (!g_perfSet)
+            return false;
+        out = g_perf;
+        return true;
+    }
+
     bool tuningRestore(const char *key, float value)
     {
         for (const TuningItem &item : tuningItems())
         {
             if (std::strcmp(item.key, key) != 0)
                 continue;
+            if (item.action)
+                return true; // (never saved)
             if (item.env && std::getenv(item.env))
                 return false;
             if (item.toggle)
@@ -926,7 +1043,7 @@ namespace native_renderer
                 w->finish();
                 delete w;
             }
-            if (tuning().frameLog)
+            if (tuning().frameTiming())
                 frameCounters().asyncDone += static_cast<uint32_t>(finished.size());
             finished.clear();
         }
@@ -959,7 +1076,7 @@ namespace native_renderer
         a.staged.push_back({job});
         if (a.staged.size() >= 32u)
             a.flush();
-        if (tuning().frameLog)
+        if (tuning().frameTiming())
             ++frameCounters().asyncJobs;
         return true;
     }
@@ -1032,7 +1149,7 @@ namespace native_renderer
         }
         if (!backend())
             return;
-        if (!tuning().frameLog)
+        if (!tuning().frameTiming())
         {
             g_backend->uploadMesh(id, vertices, count, perFrame);
             return;
@@ -1068,7 +1185,7 @@ namespace native_renderer
         if (!backend())
             return;
         g_backend->commitFrameMesh(id, count, indexCount);
-        if (tuning().frameLog)
+        if (tuning().frameTiming())
         {
             FrameCounters &c = frameCounters();
             ++c.meshUploads;
@@ -1080,7 +1197,7 @@ namespace native_renderer
     {
         if (!backend())
             return;
-        const uint64_t start = tuning().frameLog ? nowUs() : 0u;
+        const uint64_t start = tuning().frameTiming() ? nowUs() : 0u;
         g_backend->uploadSkinnedMesh(id, vertices, count, indices, indexCount);
         if (start)
         {
@@ -1116,7 +1233,7 @@ namespace native_renderer
         }
         if (!backend())
             return;
-        if (!tuning().frameLog)
+        if (!tuning().frameTiming())
         {
             g_backend->uploadTexture(id, width, height, rgba, levels);
             return;
@@ -1382,7 +1499,7 @@ namespace native_renderer
             static uint32_t heldRun = 0;
             const FrameCounters &c = frameCounters();
             // Up to SOTC_HOLD_FRAMES frames in a row (3).
-            static const uint32_t holdFrames = std::getenv("SOTC_HOLD_FRAMES") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_HOLD_FRAMES"))) : 3u;
+            const uint32_t holdFrames = static_cast<uint32_t>(tuning().holdFrames + 0.5f);
             const bool hold = tuning().asyncBuilds && tuning().holdIncomplete && c.heldDraws * 8u > c.draws + c.heldDraws && heldRun < holdFrames;
             heldRun = hold ? heldRun + 1u : 0u;
             if (hold && backend())
@@ -1390,7 +1507,7 @@ namespace native_renderer
         }
         if (backend())
         {
-            if (tuning().frameLog && !g_backend->timesItself())
+            if (tuning().frameTiming() && !g_backend->timesItself())
             {
                 // The backend adds its present (swap) time itself: the rest is render.
                 FrameCounters &c = frameCounters();

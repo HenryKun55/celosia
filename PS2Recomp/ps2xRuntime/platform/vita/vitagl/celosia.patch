@@ -1,5 +1,5 @@
 diff --git a/source/custom_shaders.c b/source/custom_shaders.c
-index 3b91d11..bd9e878 100644
+index 3b91d11..1a0b1e8 100644
 --- a/source/custom_shaders.c
 +++ b/source/custom_shaders.c
 @@ -224,7 +224,7 @@ char vgl_file_cache_path[256];
@@ -19,7 +19,34 @@ index 3b91d11..bd9e878 100644
  } uniform;
  
  // Program status enum
-@@ -839,7 +840,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+@@ -773,11 +774,26 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
+ 	shark_clear_output();
+ #ifdef HAVE_SHADER_CACHE
+ 	SceUID f = sceIoOpen(cache_fname, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777);
++	if (f < 0) {
++		// celosia: its subfolder (XX) made now, not at vglInit
++		char dir[256];
++		strncpy(dir, cache_fname, sizeof(dir) - 1);
++		dir[sizeof(dir) - 1] = 0;
++		char *slash = strrchr(dir, '/');
++		if (slash) {
++			*slash = 0;
++			sceIoMkdir(dir, 0777);
++		}
++		f = sceIoOpen(cache_fname, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777);
++	}
++	if (f < 0)
++		goto cache_done;
+ 	size_t sz;
+ 	void *buf = serialize_shader(NULL, &sz, s, save_bindings);
+ 	sceIoWrite(f, buf, sz);
+ 	sceIoClose(f);
+ 	vgl_free(buf);
++cache_done:;
+ #endif
+ }
+ 
+@@ -839,7 +855,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
  				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
  				tex->overridden = GL_FALSE;
  			}
@@ -28,7 +55,7 @@ index 3b91d11..bd9e878 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -900,7 +901,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+@@ -900,7 +916,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
  		SceGxmVertexStream *streams = layout_entry->stream;
  		vertex_layout_setup_ptrs(p, layout_entry->is_packed, lowest, highest - lowest, highest, ptrs);
  		p->vprog = layout_entry->vprog;
@@ -37,7 +64,7 @@ index 3b91d11..bd9e878 100644
  		upload_uniforms();
  		for (int j = 0; j < drawcount; j++) {
  			for (int i = 0; i < p->attr_num; i++) {
-@@ -1021,7 +1022,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+@@ -1021,7 +1037,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	vertex_layout_cache_insert(p, VERTEX_LAYOUT_MULTI_DRAW, 0, is_packed, GL_FALSE, attributes, streams);
  #endif
@@ -46,7 +73,7 @@ index 3b91d11..bd9e878 100644
  
  	// Uploading both fragment and vertex uniforms data
  	upload_uniforms();
-@@ -1097,7 +1098,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+@@ -1097,7 +1113,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
  				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
  				tex->overridden = GL_FALSE;
  			}
@@ -55,7 +82,7 @@ index 3b91d11..bd9e878 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -1158,7 +1159,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+@@ -1158,7 +1174,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
  		void *ptrs[VERTEX_ATTRIBS_NUM];
  		vertex_layout_setup_ptrs(p, layout_entry->is_packed, first, count, count, ptrs);
  		p->vprog = layout_entry->vprog;
@@ -64,7 +91,7 @@ index 3b91d11..bd9e878 100644
  		upload_uniforms();
  		for (int i = 0; i < p->attr_num; i++) {
  			uint8_t attr_idx = p->attr_map[i];
-@@ -1302,7 +1303,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+@@ -1302,7 +1318,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ARRAYS, layout_variant, is_packed, GL_FALSE, attributes, streams);
  #endif
@@ -73,7 +100,7 @@ index 3b91d11..bd9e878 100644
  
  	// Uploading both fragment and vertex uniforms data
  	upload_uniforms();
-@@ -1383,7 +1384,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1383,7 +1399,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
  				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
  				tex->overridden = GL_FALSE;
  			}
@@ -82,7 +109,7 @@ index 3b91d11..bd9e878 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -1463,7 +1464,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1463,7 +1479,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
  			void *ptrs[VERTEX_ATTRIBS_NUM];
  			vertex_layout_setup_ptrs(p, layout_entry->is_packed, 0, top_idx, top_idx, ptrs);
  			p->vprog = layout_entry->vprog;
@@ -91,7 +118,7 @@ index 3b91d11..bd9e878 100644
  			upload_uniforms();
  			for (int i = 0; i < p->attr_num; i++) {
  				uint8_t attr_idx = p->attr_map[i];
-@@ -1639,7 +1640,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1639,7 +1655,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ELEMENTS, (uint8_t)index_type, is_packed, is_full_vbo, attributes, streams);
  #endif
@@ -100,7 +127,7 @@ index 3b91d11..bd9e878 100644
  
  	// Uploading both fragment and vertex uniforms data
  	upload_uniforms();
-@@ -1688,7 +1689,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
+@@ -1688,7 +1704,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
  	setup_frag_program();
  
  	// Setting up required vertex shader
@@ -109,7 +136,7 @@ index 3b91d11..bd9e878 100644
  
  	// Uploading textures on relative texture units
  	for (int i = 0; i < p->max_frag_texunit_idx; i++) {
-@@ -1699,7 +1700,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
+@@ -1699,7 +1715,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
  #ifndef TEXTURES_SPEEDHACK
  			tex->last_frame = vgl_framecount;
  #endif
@@ -118,7 +145,7 @@ index 3b91d11..bd9e878 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -2521,6 +2522,7 @@ void glLinkProgram(GLuint progr) {
+@@ -2521,6 +2537,7 @@ void glLinkProgram(GLuint progr) {
  				u->vptr = NULL;
  				u->fptr = (uint8_t *)p->unif_fbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
  				u->type = UNIFORM_DATA;
@@ -126,7 +153,7 @@ index 3b91d11..bd9e878 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  				u->sampler = NULL;
  				const char *pname = sceGxmProgramParameterGetName(param);
-@@ -2609,6 +2611,7 @@ void glLinkProgram(GLuint progr) {
+@@ -2609,6 +2626,7 @@ void glLinkProgram(GLuint progr) {
  				u->ptr = param;
  				u->type = UNIFORM_DATA;
  				u->vptr = (uint8_t *)p->unif_vbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
@@ -134,7 +161,7 @@ index 3b91d11..bd9e878 100644
  				u->fptr = get_uniform_alias_data_ptr(p->frag_uniforms, p->frag_uniforms_num, sceGxmProgramParameterGetName(param));
  			}
  			ptr += 4;
-@@ -2780,11 +2783,11 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
+@@ -2780,11 +2798,11 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
  
  #define vgl_fill_uniform_data(p, type, size, count) \
  	if (u->vptr) { \
@@ -475,10 +502,97 @@ index 7b5d704..8679e11 100644
  								fb->depthbuffer_state = DEPTHBUFFER_MISSING;
  							}
 diff --git a/source/vgl.c b/source/vgl.c
-index 014e790..b427b31 100644
+index 014e790..0c6c201 100644
 --- a/source/vgl.c
 +++ b/source/vgl.c
-@@ -786,5 +786,5 @@ void vglSetShaderCachePath(const char *path) {
+@@ -170,6 +170,10 @@ void vglUseVramForUSSE(GLboolean usage) {
+ 	use_vram_for_usse = usage;
+ }
+ 
++// celosia: the boot's timeline inside vglInit ([boot] lines); the
++// application defines it (raylib_vita.cpp), a no-op otherwise.
++__attribute__((weak)) void vglBootMark(const char *what) { (void)what; }
++
+ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_pool_size, int cdram_pool_size, int phycont_pool_size, int cdlg_pool_size, SceGxmMultisampleMode msaa) {
+ 	// Check if vitaGL has been already inited
+ 	if (vgl_inited) {
+@@ -206,24 +210,14 @@ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_p
+ 	sceIoMkdir(vgl_shader_cache_path, 0777);
+ 	sprintf(fname, "%s/v", vgl_shader_cache_path);
+ 	sceIoMkdir(fname, 0777);
+-	char dirname[256];
+-	sprintf(dirname, "%s/00", fname);
+-	GLboolean skip_creation = sceIoMkdir(dirname, 0777) != 0;
+-	if (!skip_creation) {
+-		for (int i = 1; i <= 0xFF; i++) {
+-			sprintf(dirname, "%s/%02X", fname, i);
+-			sceIoMkdir(dirname, 0777);
+-		}
+-	}
+ 	sprintf(fname, "%s/f", vgl_shader_cache_path);
+ 	sceIoMkdir(fname, 0777);
+-	if (!skip_creation) {
+-		for (int i = 0; i <= 0xFF; i++) {
+-			sprintf(dirname, "%s/%02X", fname, i);
+-			sceIoMkdir(dirname, 0777);
+-		}
+-	}
++	// celosia: the 512 subfolders (v/00..FF, f/00..FF) are made when a
++	// shader is first written into one (custom_shaders.c), not all here:
++	// on the console's memory card each mkdir is slow (r19's first boot:
++	// 51 s between SDL and vitaGL being up).
+ #endif
++	vglBootMark("vitaGL: cache folders");
+ 	// Check if framebuffer size is valid
+ 	GLboolean res_fallback = GL_FALSE;
+ 	int max_w = width, max_h = height;
+@@ -260,12 +254,15 @@ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_p
+ 
+ 	// Initializing sceGxm
+ 	init_gxm();
++	vglBootMark("vitaGL: gxm");
+ 
+ 	// Initializing memory heaps for CDRAM and RAM memory (both standard and physically contiguous)
+ 	vgl_mem_init(ram_pool_size, cdram_pool_size, phycont_pool_size, cdlg_pool_size);
++	vglBootMark("vitaGL: memory pools");
+ 
+ 	// Initializing sceGxm context
+ 	init_gxm_context(&gxm_context, VGL_CONTEXT_MAIN);
++	vglBootMark("vitaGL: gxm context");
+ 
+ 	// Creating render target for the display
+ 	create_display_render_target();
+@@ -275,9 +272,11 @@ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_p
+ 
+ 	// Creating depth and stencil surfaces for the display
+ 	init_display_depth_stencil_surfaces();
++	vglBootMark("vitaGL: display surfaces");
+ 
+ 	// Starting a sceGxmShaderPatcher instance
+ 	start_shader_patcher();
++	vglBootMark("vitaGL: shader patcher");
+ 
+ 	// Setting up default blending state
+ 	change_blend_mask();
+@@ -433,6 +432,7 @@ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_p
+ 		default_quads_idx_ptr[i * 6 + 5] = i * 4 + 3;
+ 	}
+ 
++	vglBootMark("vitaGL: programs and pools");
+ 	// Init vertex pool for immediate mode support
+ 	legacy_pool_size = pool_size;
+ 
+@@ -502,7 +502,9 @@ GLboolean vglInitWithCustomSizes(int pool_size, int width, int height, int ram_p
+ 
+ GLboolean vglInitWithCustomThreshold(int pool_size, int width, int height, int ram_threshold, int cdram_threshold, int phycont_threshold, int cdlg_threshold, SceGxmMultisampleMode msaa) {
+ 	// Initializing sceGxm
++	vglBootMark("vitaGL: init");
+ 	init_gxm();
++	vglBootMark("vitaGL: gxm (first)");
+ 
+ 	// Getting max allocatable CDRAM and RAM memory
+ 	if (system_app_mode) {
+@@ -786,5 +788,5 @@ void vglSetShaderCachePath(const char *path) {
  }
  
  void vglSetShaderAssociationPath(const char *path) {
@@ -486,13 +600,15 @@ index 014e790..b427b31 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..5acad3d 100644
+index eeec610..2de2c8e 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1259,6 +1259,7 @@ void vglSetShaderAssociationPath(const char *path);
+@@ -1259,6 +1259,9 @@ void vglSetShaderAssociationPath(const char *path);
  
  // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
  void vglSetShaderCachePath(const char *path);
++// celosia: called at each step of vglInit (weak no-op unless the application defines it).
++void vglBootMark(const char *what);
 +GLboolean vglFramebufferShareDepth(GLuint dst, GLuint src);
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.

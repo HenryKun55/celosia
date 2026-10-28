@@ -576,7 +576,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     c += (tex2D(uSrc, uv + uA.xy * 3.0) + tex2D(uSrc, uv - uA.xy * 3.0)) * 0.05;
     return c;
 #elif MODE == 2
-    return lerp(tex2D(uSrc2, uv), tex2D(uSrc, uv), uA.xxxx);
+    // The bloom's temporal step as the GS does it (round 20): Cd + ((Cs - Cd)
+    // x the history's share) truncated in 8 bits, Cd this frame's, Cs the
+    // history (uSrc2), uA.x this frame's share. A plain lerp rounded to 8
+    // bits left the history stuck up to ~20 levels away from the picture
+    // (98% history: the change of a step rounds to nothing): the glow trailed
+    // the camera for seconds after it stopped (the title menu, console r19).
+    float3 cd = floor(tex2D(uSrc, uv).rgb * 255.0 + 0.5), cs = floor(tex2D(uSrc2, uv).rgb * 255.0 + 0.5);
+    return float4((cd + floor((cs - cd) * (1.0 - uA.x))) / 255.0, 1.0);
 #elif MODE == 3
     return float4(tex2D(uSrc, uv).rgb, uA.x);
 #elif MODE == 4
@@ -3088,7 +3095,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Not where the picture is drawn again for mid-frame effects (Vita3K:
         // taken up again after drawing elsewhere, it came back as an older
         // frame): there the glow stays one frame late.
-        static const bool bloomSameFrameOn = !std::getenv("SOTC_BLOOM_SAMEFRAME") || std::atoi(std::getenv("SOTC_BLOOM_SAMEFRAME")) != 0;
+        const bool bloomSameFrameOn = native_renderer::tuning().bloomSameFrame; // (the debug menu flips it live, round 20)
         const float redrawSetting = native_renderer::tuning().midFrameRedraw;
         const bool bloomSameFrame = bloomSameFrameOn && !(redrawSetting >= 1.5f ? native_renderer::inEmulator() : redrawSetting >= 0.5f);
         // The mask (alpha) reduced 4 x 4 in the mask colour, blurred, over
@@ -3195,7 +3202,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // redraw below): the right picture, but a cost the console does not
         // have, which would skew the calibrated timing (the shrine has
         // layer 8 draws in most frames).
-        static const int glowMode = std::getenv("SOTC_GLOW_VITA") ? std::atoi(std::getenv("SOTC_GLOW_VITA")) : 1;
+        const int glowMode = static_cast<int>(native_renderer::tuning().glowVita + 0.5f); // (live, round 20)
         const float glowRedraw = native_renderer::tuning().midFrameRedraw;
         const bool glowRedraws = glowRedraw >= 1.5f ? native_renderer::inEmulator() : glowRedraw >= 0.5f;
         if (glow.enabled && (glowMode >= 2 || (glowMode == 1 && !glowRedraws)))
@@ -3357,7 +3364,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             copy(colorPlain, shownFrame[shownIndex]);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = boundProgram = ~0u;
-            const bool timed = native_renderer::tuning().frameLog;
+            const bool timed = native_renderer::tuning().frameTiming();
             const uint64_t start = timed ? native_renderer::nowUs() : 0u;
             hook(shownFrame[shownIndex].texture, w, h);
             if (timed)
@@ -3572,7 +3579,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void setDepthOfField(const native_renderer::DepthOfField &dof) override { m_rec.dof = dof; }
         void endFrame(uint32_t width, uint32_t height) override
         {
-            const bool timed = native_renderer::tuning().frameLog;
+            const bool timed = native_renderer::tuning().frameTiming();
             const uint64_t start = timed ? native_renderer::nowUs() : 0u;
             std::unique_lock<std::mutex> lock(m_mutex);
             waitIdle(lock);

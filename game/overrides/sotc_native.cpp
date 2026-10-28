@@ -73,7 +73,7 @@ namespace sotc_native
     // native hooks' own time (after the recompiled call they wrap).
     struct HookTimer
     {
-        uint64_t start = native_renderer::tuning().frameLog ? native_renderer::nowUs() : 0u;
+        uint64_t start = native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
         ~HookTimer()
         {
             if (start)
@@ -864,7 +864,7 @@ namespace sotc_native
                              g_ram[(header + 0x1Fu) & 0x1FFFFFFu] & 1u);
             return 0;
         }
-        const uint64_t decodeStart = native_renderer::tuning().frameLog ? native_renderer::nowUs() : 0u;
+        const uint64_t decodeStart = native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
         auto src = std::make_shared<TexSource>();
         if (!texSource(header, *src))
             return 0; // no room: asked for again at the next draw
@@ -2566,6 +2566,57 @@ namespace sotc_native
         g_cameraContext = GPR_U32(ctx, 2);
     }
 
+    // The performance overlay's numbers (round 20, Tuning::perfOverlay):
+    // the frame log's split averaged over ~0.5 s of frames, the worst frame of
+    // the last ~4 s and the last 120 frame times, handed to the host's
+    // overlay (native_renderer::perfPublish) every ~0.5 s.
+    void perfOverlayFrame(uint64_t period, const native_renderer::FrameCounters &c)
+    {
+        struct Window
+        {
+            uint64_t frames = 0, period = 0, hooks = 0, render = 0, present = 0, wait = 0, blocked = 0, draws = 0;
+            bool threaded = false;
+        };
+        static Window w;
+        static native_renderer::PerfStats out;
+        static uint64_t worst[8] = {}; // the worst frame of each ~0.5 s window
+        static unsigned worstAt = 0;
+        constexpr int kH = native_renderer::PerfStats::kHistory;
+        std::memmove(out.history, out.history + 1, sizeof(float) * (kH - 1));
+        out.history[kH - 1] = period / 1000.0f;
+        ++w.frames;
+        w.period += period;
+        w.hooks += c.hookUs;
+        w.render += c.renderUs;
+        w.present += c.presentUs;
+        w.wait += c.waitUs;
+        w.blocked += c.waitUs ? c.waitUs : c.renderUs + c.presentUs;
+        w.draws += c.draws;
+        w.threaded |= c.renderThread;
+        worst[worstAt] = std::max(worst[worstAt], period);
+        if (w.period < 500000u)
+            return;
+        const double n = static_cast<double>(w.frames);
+        out.fps = static_cast<float>(n * 1e6 / static_cast<double>(w.period));
+        out.frameMs = static_cast<float>(w.period / n / 1000.0);
+        out.gameMs = static_cast<float>((static_cast<double>(w.period) - w.hooks - w.blocked) / n / 1000.0);
+        out.hooksMs = static_cast<float>(w.hooks / n / 1000.0);
+        out.renderMs = static_cast<float>(w.render / n / 1000.0);
+        out.presentMs = static_cast<float>(w.present / n / 1000.0);
+        out.waitMs = static_cast<float>(w.wait / n / 1000.0);
+        out.draws = static_cast<float>(w.draws / n);
+        out.renderThread = w.threaded;
+        out.frame = g_frame;
+        uint64_t worstAll = 0;
+        for (uint64_t x : worst)
+            worstAll = std::max(worstAll, x);
+        out.worstMs = worstAll / 1000.0f;
+        worstAt = (worstAt + 1u) % 8u;
+        worst[worstAt] = 0;
+        native_renderer::perfPublish(out);
+        w = Window{};
+    }
+
     // The frame timing log: every 60 frames the average and the slowest
     // frame (ms), split into the game's own work (what is left), the native
     // hooks (decoding and uploads included), the backend's CPU side and the
@@ -2577,12 +2628,16 @@ namespace sotc_native
         native_renderer::FrameCounters &c = native_renderer::frameCounters();
         static uint64_t last = 0;
         const uint64_t now = native_renderer::nowUs();
-        if (!native_renderer::tuning().frameLog)
+        // The log's printing (frameLog) and the overlay (perfOverlay) share
+        // the counters; with both off nothing is collected.
+        const native_renderer::Tuning &tune = native_renderer::tuning();
+        if (!tune.frameTiming())
         {
             last = 0;
             c = {};
             return;
         }
+        const bool print = tune.frameLog;
         struct Sum
         {
             uint64_t frames = 0, period = 0, worst = 0, hooks = 0, decode = 0, tex = 0, mesh = 0, render = 0, present = 0, wait = 0, blocked = 0, threaded = 0;
@@ -2609,7 +2664,7 @@ namespace sotc_native
         if (last)
         {
             const uint64_t period = now - last;
-            if (period > 50000u)
+            if (print && period > 50000u)
                 std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB)\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
@@ -2619,8 +2674,7 @@ namespace sotc_native
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
-            static const bool all = std::getenv("SOTC_FRAME_LOG_ALL") != nullptr;
-            if (all && period <= 50000u)
+            if (print && tune.frameLogAll && period <= 50000u)
                 std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB)\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws,
@@ -2648,7 +2702,9 @@ namespace sotc_native
             sum.texBytes += c.texBytes;
             sum.meshUploads += c.meshUploads;
             sum.meshBytes += c.meshBytes;
-            if (sum.frames == 60u)
+            if (tune.perfOverlay)
+                perfOverlayFrame(period, c);
+            if (sum.frames == 60u && print)
             {
                 const double n = 60.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
                 std::fprintf(stderr, "[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
@@ -2659,6 +2715,8 @@ namespace sotc_native
                              sum.draws / n, sum.targets / n, sum.texUploads / n, sum.texBytes / n / 1024.0, sum.meshUploads / n, sum.meshBytes / n / 1024.0);
                 sum = Sum{};
             }
+            else if (sum.frames >= 60u)
+                sum = Sum{};
         }
         static const bool hashStats = std::getenv("SOTC_HASH_STATS") != nullptr;
         if (hashStats && g_hashBytes[0] + g_hashBytes[1] > 65536u)
@@ -3086,6 +3144,13 @@ namespace sotc_native
             g_skinRecords.clear();
             g_skinDrawList.clear();
             frameLog();
+            // The debug menu's "Sound log" (round 20): audio_stats' level
+            // follows it at each frame's end.
+            {
+                const int level = static_cast<int>(native_renderer::tuning().audioLog + 0.5f);
+                if (level != ps2x::iop::audio_stats::level())
+                    ps2x::iop::audio_stats::setLevel(level);
+            }
             audioLog();
             // SOTC_FRAME_STALL_MS=<ms> (measuring, round 10): the game thread
             // sleeps that long at each frame's end from frame

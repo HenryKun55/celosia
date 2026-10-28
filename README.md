@@ -56,7 +56,18 @@ captures each module (see below).
 ### Settings
 
 - **F1** (Select twice on the Vita): the player menu. Video, sound,
-  language, in Portuguese or English.
+  language, in Portuguese or English. L1 / R1: tab, up / down: item,
+  X or left / right: change, Triangle: help, O or Select: close (the game
+  gets no pad input while it is open). Its **Debug** tab (R1 three times)
+  changes the developer switches live, without editing `env.txt` or
+  rebooting (`env.txt` still sets where they start): **Mark this moment**
+  writes `[mark] <n> frame <f>` to the log (`err.txt` on the Vita) to find
+  a moment later; **Performance overlay** shows fps, the frame's time split
+  (game, hooks, render thread, wait, present), the worst frame of the last
+  4 s and a frame-time graph with the menu closed (`SOTC_PERF_OVERLAY=1`);
+  the frame and sound logs (`SOTC_FRAME_LOG`, `SOTC_FRAME_LOG_ALL`,
+  `SOTC_AUDIO_LOG`), the Vita's glow layer (`SOTC_GLOW_VITA`), the bloom's
+  frame (`SOTC_BLOOM_SAMEFRAME`), and the renderer's other switches.
 - **F10** (Mac): the native renderer's panel. Resolution (× 512×448), bloom
   strength, fog amount and every effect on/off, changed live. "Print to log"
   gives the setting as `SOTC_*` variables that set it at start. The table is

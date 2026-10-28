@@ -35,6 +35,9 @@ namespace hostmenu
     void update();
     // Draws the menu when open; call inside BeginDrawing/EndDrawing.
     void draw(int screenWidth, int screenHeight);
+    // The performance overlay (Debug "Performance overlay", round 20): with
+    // the menu closed; nothing when off.
+    void drawPerfOverlay(int screenWidth, int screenHeight);
     bool isOpen();
     // True while the menu owns the controller (open, or a button pressed in
     // it is still held): the game sees no input then.

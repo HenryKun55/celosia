@@ -40,6 +40,13 @@ static void bootMark(const char *what)
     std::fprintf(stderr, "[boot] %.3f s %s\n", static_cast<double>(sceKernelGetProcessTimeWide()) / 1e6, what);
 }
 
+// vitaGL's own steps inside vglInit (our patch calls it; round 20: the
+// console's first r19 boot spent 51 s between "SDL up" and "vitaGL up").
+extern "C" void vglBootMark(const char *what)
+{
+    bootMark(what);
+}
+
 // The shader cache's seed (round 19): vitaGL (HAVE_SHADER_CACHE) keeps each
 // compiled shader in ux0:data/shader_cache/<title id>/v2/{v,f}/XX/<hash>.gxp
 // and loads it instead of compiling the same source again. The VPK can carry
@@ -109,6 +116,10 @@ static void seedShaderCache()
                     continue;
                 // Written under another name and renamed: a boot cut short
                 // leaves no half file for vitaGL to load.
+                // The subfolder (vitaGL no longer makes all 512 at start).
+                char dir[320];
+                std::snprintf(dir, sizeof(dir), "%s/%s/%s", root, kind, sub.d_name);
+                sceIoMkdir(dir, 0777);
                 char part[330];
                 std::snprintf(part, sizeof(part), "%s.part", dst);
                 const SceUID out = sceIoOpen(part, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
@@ -235,6 +246,7 @@ void InitWindow(int, int, const char *)
     bootMark("window: SDL up");
     // Shaders are compiled at run time (libshacccg); fast math is fine here.
     vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 1, 1);
+    bootMark("window: shader compiler set up");
     // Some framebuffers get several scenes a frame (the small copies of the
     // picture, the bloom's): GXM sizes a render target for this many scenes
     // a frame (vitaGL's default for framebuffers: 1).
@@ -244,6 +256,14 @@ void InitWindow(int, int, const char *)
     // so leave it plenty. GPU memory (CDRAM) is all vitaGL's.
     // Returns whether it had to fall back to a smaller resolution, not success.
     shaderCacheRoot();
+    {
+        SceKernelFreeMemorySizeInfo info{};
+        info.size = sizeof(info);
+        sceKernelGetFreeMemorySize(&info);
+        std::fprintf(stderr, "[vita] free memory before vitaGL: user %.1f MB, cdram %.1f MB, phycont %.1f MB\n", info.size_user / 1048576.0,
+                     info.size_cdram / 1048576.0, info.size_phycont / 1048576.0);
+    }
+    bootMark("window: shader cache root");
     vglInitWithCustomThreshold(4 * 1024 * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
                                SCE_GXM_MULTISAMPLE_NONE);
     bootMark("window: vitaGL up");

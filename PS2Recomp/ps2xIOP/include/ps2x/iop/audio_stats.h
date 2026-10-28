@@ -36,17 +36,27 @@ namespace ps2x::iop::audio_stats
         }
     }
     // SOTC_AUDIO_LOG: 0 off, 1 the summary line, 2 also each stream event.
+    // The start value from the environment; setLevel changes it at run time
+    // (the debug menu's "Sound log", round 20).
+    inline int levelFromEnv()
+    {
+        if (const char *v = std::getenv("SOTC_AUDIO_LOG"))
+            return std::atoi(v);
+        const char *f = std::getenv("SOTC_FRAME_LOG");
+        return f && std::atoi(f) != 0 ? 1 : 0;
+    }
+    inline std::atomic<int> g_level{-1}; // -1: not read yet
     inline int level()
     {
-        static const int value = []
+        int value = g_level.load(std::memory_order_relaxed);
+        if (value < 0)
         {
-            if (const char *v = std::getenv("SOTC_AUDIO_LOG"))
-                return std::atoi(v);
-            const char *f = std::getenv("SOTC_FRAME_LOG");
-            return f && std::atoi(f) != 0 ? 1 : 0;
-        }();
+            value = levelFromEnv();
+            g_level.store(value, std::memory_order_relaxed);
+        }
         return value;
     }
+    inline void setLevel(int value) { g_level.store(value < 0 ? 0 : value, std::memory_order_relaxed); }
 
     // The driver: status requests (one per sound tick of the game's VBlank
     // thread) and the host time between two of them.

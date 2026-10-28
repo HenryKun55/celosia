@@ -281,6 +281,8 @@ namespace
         const native_renderer::Tuning &t = native_renderer::tuning();
         for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
         {
+            if (item.action)
+                continue; // (the Debug group's "Mark": nothing to keep)
             double value = 0.0;
             if (item.toggle)
                 value = t.*item.toggle ? 1.0 : 0.0;
@@ -527,6 +529,52 @@ void update()
         change(id, -1);
     if (pressed(kTriangle))
         g_help = true;
+}
+
+void drawPerfOverlay(int screenWidth, int screenHeight)
+{
+    if (!native_renderer::tuning().perfOverlay || g_open)
+        return;
+    native_renderer::PerfStats p;
+    const bool pt = portuguese();
+    const int size = std::max(10, screenHeight / 34 / 2 * 2); // 16 px on the Vita
+    const int x = 8, y = 8, lineH = size + 3;
+    const int graphW = native_renderer::PerfStats::kHistory * 2, graphH = size * 4;
+    int boxW = std::max(graphW, size * 19) + 12;
+    if (!native_renderer::perfSnapshot(p))
+    {
+        DrawRectangle(x, y, boxW, lineH + 8, Color{0, 0, 0, 170});
+        DrawText(pt ? "desempenho: esperando o jogo..." : "performance: waiting for the game...", x + 6, y + 4, size, Color{220, 220, 220, 255});
+        return;
+    }
+    char l1[96], l2[96], l3[96];
+    std::snprintf(l1, sizeof(l1), "%.1f fps  %.1f ms  %s %.0f", p.fps, p.frameMs, pt ? "pior" : "worst", p.worstMs);
+    std::snprintf(l2, sizeof(l2), "%s %.1f  %s %.1f  %s %.1f", pt ? "jogo" : "game", p.gameMs, pt ? "ganchos" : "hooks", p.hooksMs, pt ? "espera" : "wait",
+                  p.waitMs);
+    std::snprintf(l3, sizeof(l3), "%s %.1f  present %.1f  draws %.0f", p.renderThread ? "render (thr)" : "render", p.renderMs, p.presentMs, p.draws);
+    const int boxH = lineH * 3 + graphH + 14;
+    for (const char *l : {l1, l2, l3})
+        boxW = std::max(boxW, MeasureText(l, size) + 12);
+    DrawRectangle(x, y, boxW, boxH, Color{0, 0, 0, 170});
+    const Color good{120, 255, 120, 255}, mid{255, 210, 90, 255}, bad{255, 100, 90, 255}, text{225, 228, 230, 255};
+    const Color headline = p.frameMs <= 34.0f ? good : (p.frameMs <= 50.0f ? mid : bad);
+    DrawText(l1, x + 6, y + 4, size, headline);
+    DrawText(l2, x + 6, y + 4 + lineH, size, text);
+    DrawText(l3, x + 6, y + 4 + lineH * 2, size, text);
+    // The last 120 frames, 0 to 100 ms; the line at 33 ms (30 fps), the dim one at 50.
+    const int gx = x + 6, gy = y + 8 + lineH * 3, gh = graphH - 4;
+    auto yOf = [&](float ms) { return gy + gh - static_cast<int>(std::min(ms, 100.0f) / 100.0f * static_cast<float>(gh)); };
+    for (int i = 0; i < native_renderer::PerfStats::kHistory; ++i)
+    {
+        const float ms = p.history[i];
+        if (ms <= 0.0f)
+            continue;
+        const int top = yOf(ms);
+        DrawRectangle(gx + i * 2, top, 2, gy + gh - top, ms <= 34.0f ? good : (ms <= 50.0f ? mid : bad));
+    }
+    DrawRectangle(gx, yOf(33.3f), graphW, 1, Color{255, 255, 255, 140});
+    DrawRectangle(gx, yOf(50.0f), graphW, 1, Color{255, 255, 255, 60});
+    (void)screenWidth;
 }
 
 void draw(int screenWidth, int screenHeight)

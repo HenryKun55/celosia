@@ -3074,6 +3074,163 @@ wake-up with layer 8), SOTC_GL_EVENT_LOG now prints layer 8's draws.
 4. Speed, carried over: ExecCharaGeometry's and DispDispObjGroupModel's
    self time, the cut frame, the area change's frames over 50 ms at 222.
 
+## Round 20: the console's boot, the live debug menu, the A/B (2026-10-28)
+
+**The console's 51 s before the first picture** (console-r19/err.txt:
+`[boot] 0.709 s window: SDL up` -> `52.092 s window: vitaGL up`). Between
+those two marks only vglInitWithCustomThreshold runs. With HAVE_SHADER_CACHE
+(new in round 19) vitaGL makes the cache's 512 subfolders (v/00..FF,
+f/00..FF) at init the first time the cache exists, one sceIoMkdir each; the
+console's log is that first boot ("shader cache seed: 28 copied, 0 already
+there"). At ~100 ms a mkdir on the memory card's file system that is the
+51 s (in Vita3K: nothing). Our vitaGL patch (celosia.patch) now makes only
+v/ and f/ at init and a subfolder when a shader is first written into it
+(custom_shaders.c, on a failed open); the seed copy (raylib_vita.cpp) makes
+the subfolders of the files it copies (31 folders instead of 514 on a first
+boot in Vita3K). Not proven on the console: the next console run says. The
+window init also has finer `[boot]` marks now, inside vglInit through a weak
+`vglBootMark` our patch calls (vitaGL: init, gxm, cache folders, memory
+pools, gxm context, display surfaces, shader patcher, programs and pools)
+and the free memory before it (`[vita] free memory before vitaGL`). Vita3K
+240, first boot (cache removed): vglInit 0.20 s in all, menu at 18.6 s
+(r20/b2first-240). The shaders were never the console's problem: it warmed
+242 draws in 13.5 ms with the seed. (A second boot of r19 on the console
+would already skip the folders; r17's slow menu, before the cache, was the
+shaders compiled at start.)
+
+**The live debug menu** (the user's: flip switches on the console without
+editing env.txt and rebooting). The player menu (Select twice / F1) already
+had a Debug tab built from `native_renderer::tuningItems()`; the new items
+go there, first in the tab, in Portuguese and English; env.txt still sets
+each one's start value (an env variable wins over the saved settings.cfg,
+as for every item). Controls: Select twice opens (F1 on the Mac), L1 / R1
+change tabs (Debug: R1 three times from Video), up / down choose, X or
+left / right change, Triangle help, O or Select close; the game gets no pad
+input while it is open. Closed it costs nothing beyond reading the pad.
+New items (all checked to be renderer-, presentation- or log-only, read
+each frame):
+- **Mark this moment** (`dbg_mark`, an action, never saved): writes
+  `[mark] <n> frame <f> vblank <v> t=<s>` to the log (err.txt) and flushes
+  it; the item shows the count. Vita3K: two marks written from the menu
+  (r20/menu-240-err.txt).
+- **Performance overlay** (`SOTC_PERF_OVERLAY`): drawn with the menu
+  closed, top left, by the host (host_menu.cpp drawPerfOverlay, in
+  drawHostFrame): fps and mean frame ms over ~0.5 s, the worst frame of the
+  last ~4 s ("pior"), game / hooks / wait, render (render thread) / present,
+  draws, and the last 120 frame times as bars (green <= 34 ms, yellow <= 50,
+  red), lines at 33 and 50 ms. It collects the frame log's counters
+  (`Tuning::frameTiming()` = frame log or overlay; every `tuning().frameLog`
+  gate became that) without printing; the game thread hands the numbers to
+  the host under a lock every ~0.5 s (`perfPublish` / `perfSnapshot`).
+- **Frame timing log** (SOTC_FRAME_LOG, moved up) and **Log every frame**
+  (SOTC_FRAME_LOG_ALL, was a static read).
+- **Sound log** (SOTC_AUDIO_LOG 0 / 1 / 2): `audio_stats::level()` is an
+  atomic now (`setLevel`), following the item at each frame's end; the
+  mixer's `timed` flag is read per call (was static). The [loader] line's
+  message-box hooks are put in only when it is on at start.
+- **Glow layer (Vita)** (SOTC_GLOW_VITA 0 plain / 1 auto / 2 always): was a
+  static read in the GL backend; the decision is made per frame and the
+  glow's targets are made when first used, so it flips cleanly.
+- **Bloom in the same frame** (SOTC_BLOOM_SAMEFRAME): per frame too.
+- **Frames held at most** (SOTC_HOLD_FRAMES, under Hold incomplete frames).
+- Bloom on / off already was the Effects item "Bloom" (SOTC_BLOOM_SCALE=0),
+  live: the hook reads it each frame.
+Left env-only (they change the game's own work or caches built at start):
+SOTC_FAST_HASH, SOTC_MOVE_MEMO / SOTC_MOVE_REKEY (packet and texture ids:
+flipping mid-game would mix two key schemes in the caches), SOTC_GC_BUDGET
+and the decomp / lean switches other than the existing "Lean hot code"
+(game logic exactness), PS2X_SELF_WAKE, PS2X_EE_CLOCK64,
+PS2X_RECOMP_REGCACHE (scheduler, clock, generated code), PS2X_MIX_HANDOFF
+(the mixer's threads), SOTC_TAKEUP_BUDGET / SOTC_ASYNC_BUDGET (rejected in
+round 12), SOTC_GL_MERGE_MODE / SOTC_GL_FLUSH_WAIT / SOTC_GL_RUN_FRAMES
+(debugging only). Existing items on the r19 Vita path: all read per frame
+(render thread, merge, lean shaders, pools for new meshes, redraw mode,
+layers, lean hot code at the frame tick); "Warm shaders" and "Subsystem
+timing log" act at the next start, as their help says. "Show native
+picture" off shows the GS's picture, which is mostly empty with the PS2
+display lists off (the default) - as before. A small fix: the "Redraw for
+copies" item is marked OpenGL-only (the list checked an older key). The
+Mac's F10 panel shows the mark as a button.
+Screenshots: ~/Downloads/celosia-r20-menu-vita3k.png (the Debug tab, after
+two marks), celosia-r20-overlay-vita3k.png (the shrine, 240 MHz; that build
+let the third line run past the box, widened since).
+
+**The title's bloom trailing the camera (console r19)**. Mac, the title
+menu's pan (r20 scratch: presses to VBlank 600, then idle, SOTC_NATIVE=2,
+every frame 500-850): the GS picture settles ~20 frames after the camera
+stops (frame ~600); with the native bloom off the native picture settles
+at the same frame, with it on its mean keeps falling for ~100 more frames
+(183.7 -> 179.3): the native bloom's history is the slow part. The GS's
+temporal step is Cd + ((Cs - Cd) x 125 >> 7), truncated: a falling glow
+drops at least one level a frame. The Vita's step was a float lerp rounded
+to 8 bits, where at 98% history a difference under ~20 levels rounds to no
+change: the history stays stuck away from the picture and drifts for
+seconds. The Vita's quad mode 2 (Cg) now does the GS's truncated step in
+8 bits. Not checked on the console. The Mac's Metal chain already does the
+truncated step and still trails (the numbers above); not found this round.
+
+**The A/B lost in round 19** (calibrated Vita3K, route2 input, round 18's
+env): the final r19 VPK, whose Vita3K default leaves the glow redraw off,
+against round 18 at 222: the walk out 82.3 ms against 82.0 (b7, with the
+redraw: 85.1), the 40-80 frames after the area change 88.0 against 87.5
+(b7: 107.4); round 19's partial SOTC_GLOW_VITA=0 run had 87.7 there. The
+slowdown was the glow layer's redraw in Vita3K (the picture below layer 8
+drawn twice), which the console does not do; nothing else.
+
+**Frame timing, round 20 (celosia-r20.vpk, the same runs as round 19's
+table; mean ms (fps), frames over 50 / 85 / 120, worst).**
+
+| route window | r18 222 | r20 222 | r18 240 | r20 240 | r18 333 | r20 333 |
+|---|---|---|---|---|---|---|
+| the save's load | 32.6, 28/9/3, 242.1 | 32.8, 30/6/3, 249.6 | 30.7, 32/6/3, 240.0 | 28.9, 25/6/4, 251.3 | 24.5, 12/4/3, 202.5 | 23.4, 14/4/3, 225.9 |
+| the shrine | 47.0 (21.3), 111/21/0, 112.7 | 47.0 (21.3), 110/22/0, 111.8 | 43.4 (23.0), 96/6/0, 105.9 | 43.4 (23.0), 95/6/0, 102.1 | 31.0 (32.3), 92/0/0, 74.3 | 31.1 (32.2), 90/0/0, 73.6 |
+| the walk out and the area change | 82.0 (12.2), 610/213/3, 154.5 | 82.7 (12.1), 605/229/3, 170.3 | 76.5 (13.1), 653/81/2, 159.4 | 73.9 (13.5), 671/76/2, 144.9 | 53.8 (18.6), 695/3/0, 112.5 | 54.0 (18.5), 727/4/0, 105.9 |
+| the plain | 54.9 (18.2), 607/0/0, 69.6 | 54.4 (18.4), 613/0/0, 70.3 | 48.2 (20.7), 172/0/0, 69.8 | 49.4 (20.2), 182/0/0, 63.7 | 35.5 (28.2), 7/0/0, 53.0 | 35.3 (28.3), 5/0/0, 53.2 |
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r18 222 | 33.6 / 167.6 / 1 | 109.3 / 154.5 / 3 | 87.5 | 242, 238 |
+| r19 final 222 | 32.6 / 159.8 / 1 | 107.0 / 158.9 / 3 | 88.0 | 229, 226 |
+| r20 222 | 32.2 / 150.8 / 1 | 108.3 / 170.3 / 3 | 88.3 | 250, 242 |
+| r18 240 | 31.1 / 167.5 / 1 | 103.3 / 159.4 / 2 | 81.5 | 240, 231 |
+| r20 240 | 31.4 / 139.0 / 2 | 101.7 / 144.9 / 2 | 81.8 | 251, 235 |
+| r18 333 | 26.3 / 144.2 / 1 | 73.8 / 112.5 / 0 | 59.2 | 202, 192 |
+| r20 333 | 27.9 / 148.7 / 1 | 74.5 / 105.9 / 0 | 59.4 | 226, 221 |
+
+Round 20 changes no game-thread work by default, and the tables show it:
+r20 sits on round 18 within the runs' noise (the load's worst frame moves
+±20 ms run to run).
+
+**Checks.** No game logic changed (the new code is the menu, the overlay,
+the logs' switches, the GL backend's per-frame reads, the Vita bloom
+shader, vitaGL's init). Mac fixed-30 fps path (route2, SOTC_FRAME_INTERVAL=2
+SOTC_POS_LOG=30, to 5 400, SOTC_NATIVE=2 as round 19, r20/pos-2): within
+0.20 units of r19/pos-1 and 0.35 of r16/pos-ref2 on the points the
+comparison pairs (32-33: poscmp pairs points within 2 VBlanks). A run with
+SOTC_NATIVE=1 (r20/pos-1) drifted up to 20.8 units from vb 2 880: not
+looked into; it may be the native picture's different host timing (the
+game's step follows the EE timer) rather than this round's code, to be
+checked against a round 19 NATIVE=1 run. No difftest: no decompiled or
+game-side function changed.
+
+**Not done this round** (the Mac on battery throughout): ExecCharaGeometry's
+body natively, the colossus fights' frame (13-16 fps on the console), the
+Metal bloom's trail.
+
+**Tools (new):** r20/v3k.sh (r19's, logs to r20/), r20/env-menu.txt
+(PS2X_SETTINGS_OPEN=3: the menu open on the Debug tab at start),
+r20/env-overlay.txt; Vita3K keys from the shell for menu tests:
+`osascript -e 'tell application "System Events" to keystroke "x"'` with
+the Vita3K window in front (X = Cross).
+
+**Round 21 (plan).**
+1. The console: the boot marks of r20's first boot (is the 51 s gone?),
+   the title's bloom, the menu and the overlay; the overlay's numbers in a
+   colossus fight.
+2. Speed above all: ExecCharaGeometry's body, the colossus fights' frame,
+   the area change's frames at 222.
+3. The Metal bloom's trail on the Mac (same title pan, GS against native).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

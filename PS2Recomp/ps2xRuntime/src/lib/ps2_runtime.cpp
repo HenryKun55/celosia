@@ -2953,6 +2953,7 @@ void PS2Runtime::run()
             {
                 m_debugUiDrawCallback(*this, m_debugUiUserData);
             }
+            hostmenu::drawPerfOverlay(GetScreenWidth(), GetScreenHeight());
             hostmenu::draw(GetScreenWidth(), GetScreenHeight());
             EndDrawing();
 #if !defined(__vita__)
