@@ -1462,7 +1462,7 @@ static PS2_FORCE_INLINE __m128i Ps2GprVecWithLow(__m128i v, uint64_t low)
     {                                             \
         const __m128i _rcv = (val);               \
         (ctx_ptr)->r[reg_idx] = _rcv;             \
-        (l) = Ps2GprU64((ctx_ptr), (reg_idx));    \
+        std::memcpy(&(l), &_rcv, sizeof(uint64_t)); \
     } while (0)
 
 #endif // PS2_RUNTIME_MACROS_H

@@ -17,6 +17,17 @@ namespace ps2recomp
         // Track which GPRs hold sign-extended 32-bit values (their 64-bit
         // reads and stores then come from the low half).
         bool sext = true;
+        // Round 18: the locals live within a basic block only. Every label
+        // is a sync point (the edges into it store what is dirty; nothing
+        // is valid after it), so a local's live range ends at its block and
+        // the host compiler does not spill whole-function live ranges (the
+        // reason round 5's whole-function form gained under 1%). False: the
+        // whole function (round 5).
+        bool blockScope = true;
+        // Round 18: a write is stored to ctx right after its statement
+        // (the local stays valid for later reads): no stores sunk to the
+        // block's edges, the same stores as the old code, fewer loads.
+        bool writeThrough = true;
     };
 
     std::string applyRegisterCache(const std::string &body, const RegisterCacheOptions &options);

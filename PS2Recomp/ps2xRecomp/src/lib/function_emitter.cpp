@@ -270,6 +270,8 @@ namespace ps2recomp
             RegisterCacheOptions options;
             options.fprs = cg.m_registerCacheFprs;
             options.sext = cg.m_registerCacheSext;
+            options.blockScope = cg.m_registerCacheBlock;
+            options.writeThrough = cg.m_registerCacheWriteThrough;
             return all.substr(0, bodyStart) + applyRegisterCache(all.substr(bodyStart), options) + "}\n";
         }
         ss << "}\n";

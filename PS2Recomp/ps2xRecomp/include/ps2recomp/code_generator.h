@@ -90,13 +90,20 @@ namespace ps2recomp
         bool m_registerCache = true;
         bool m_registerCacheFprs = true;
         bool m_registerCacheSext = true;
-        // Round 16's leaner calls (without the register cache, whose pass
-        // parses the old forms): JAL / JALR / J through PS2_CALL_GUEST /
+        // PS2X_RECOMP_REGCACHE_SCOPE=function: round 5's whole-function
+        // locals; default (block): within a basic block (round 18).
+        bool m_registerCacheBlock = true;
+        // PS2X_RECOMP_REGCACHE_WT=0: writes stay in the locals until a
+        // barrier / edge / return (round 5); default: stored at the write.
+        bool m_registerCacheWriteThrough = true;
+        // Round 16's leaner calls: JAL / JALR / J through PS2_CALL_GUEST /
         // PS2_JUMP_GUEST (the table's bounds as constants), and a function's
         // entry tests ctx->pc against its own start before the resume
         // switch. PS2X_RECOMP_LEAN_CALLS=0 at recompile time: the old code.
+        // Since round 18 the register cache parses these forms too (the
+        // macros are barriers, register_cache.cpp).
         bool m_leanCalls = !(std::getenv("PS2X_RECOMP_LEAN_CALLS") && std::getenv("PS2X_RECOMP_LEAN_CALLS")[0] == '0');
-        bool leanCalls() const { return m_leanCalls && !m_registerCache; }
+        bool leanCalls() const { return m_leanCalls; }
         // The function table's bounds (FunctionTableEmitter::emit).
         uint32_t m_tableBase = 0u;
         uint32_t m_tableSlots = 0u;

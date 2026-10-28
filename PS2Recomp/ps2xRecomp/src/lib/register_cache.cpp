@@ -36,6 +36,18 @@
 //   ARMv7 registers otherwise). Nothing is known at a resume entry (a
 //   coroutine switch, isysSleepSubThread, resumes with full 64-bit values).
 //
+// Round 18's defaults (RegisterCacheOptions): the locals live within a basic
+// block (every label a sync point: what an edge holds dirty is stored on it,
+// nothing is valid after the label) and writes are stored to ctx right after
+// their statement (write-through: the locals only save loads). Round 5's
+// whole-function, stores-sunk form made GCC keep values live across the
+// memory accesses' out-of-line slow paths and spill them to the host stack
+// (more memory traffic than the ctx accesses it replaced, on the Vita).
+// Round 16's call macros (PS2_CALL_GUEST / _KNOWN, PS2_JUMP_GUEST) are
+// barriers. A 128-bit read of a register whose local is not dirty reads ctx
+// (no merge of the local into ctx's high half); a 128-bit write leaves its
+// local in sync, not dirty.
+//
 // Guest memory accesses (READ* / WRITE*) pass ctx to the out-of-line slow
 // path, which never reads or writes GPRs / FPRs (address errors set COP0
 // state; thread switches are thrown only from syscalls), so they are not
@@ -108,6 +120,9 @@ namespace ps2recomp
             bool rawReturn = false; // a return right after a barrier
             uint64_t writes = 0;
             uint64_t reads = 0;
+            // SET_GPR_VEC writes (unconditional): ctx and the local both
+            // written, the local left in sync (not dirty). Round 18.
+            uint64_t cleanWrites = 0;
             uint64_t touched = 0;   // Open: reads | writes of the whole block
             // Sign extension (GPRs): writes whose value is a sign-extended 32-bit
             // one, and writes that are one when their sources are.
@@ -253,6 +268,8 @@ namespace ps2recomp
             std::vector<uint64_t> inKnown, backKnown;
             uint64_t checkpointKnown = ~0ull;
             bool sext = true;
+            bool blockScope = false;   // every label a sync point (round 18)
+            bool writeThrough = false; // stores at the write (round 18)
             uint64_t sextReadCount = 0, sextStores = 0;
             // The checkpoint returns (cold) share one exit storing the union
             // of their dirty sets (sites where one of those is stale store
@@ -264,9 +281,33 @@ namespace ps2recomp
             uint64_t barriers = 0, flushStores = 0, loads = 0;
         };
 
+        // Macros that pass ctx on without naming it (ps2_runtime_macros.h):
+        // round 16's calls and jumps. The guest memory macros (READ* /
+        // WRITE*) hide ctx too, but their slow path never reads or writes a
+        // GPR / FPR (see the top of this file).
+        const char *const kHiddenCtxMacros[] = {"PS2_CALL_GUEST", "PS2_CALL_GUEST_KNOWN", "PS2_JUMP_GUEST"};
+
+        bool hasIdent(const std::string &code, const char *name)
+        {
+            const size_t n = std::strlen(name);
+            size_t pos = 0;
+            while ((pos = code.find(name, pos)) != std::string::npos)
+            {
+                if ((pos == 0 || !isIdent(code[pos - 1])) && (pos + n >= code.size() || !isIdent(code[pos + n])))
+                    return true;
+                pos += n;
+            }
+            return false;
+        }
+
         // Whether the code hands ctx to anything but the GPR macros (and FPU_SET_ACC).
         bool isBarrier(const std::string &code)
         {
+            for (const char *name : kHiddenCtxMacros)
+            {
+                if (hasIdent(code, name))
+                    return true;
+            }
             for (size_t i = 0; i + 3 <= code.size(); ++i)
             {
                 if (code.compare(i, 5, "throw") == 0 && (i == 0 || !isIdent(code[i - 1])) &&
@@ -306,7 +347,7 @@ namespace ps2recomp
         }
 
         // Rewrites a non-barrier line onto the locals; collects writes.
-        std::string rewriteLine(Body &body, const std::string &text, uint64_t &writes, uint64_t &reads)
+        std::string rewriteLine(Body &body, const std::string &text, uint64_t &writes, uint64_t &reads, uint64_t *cleanWrites = nullptr)
         {
             std::string out;
             out.reserve(text.size() + 16);
@@ -482,6 +523,8 @@ namespace ps2recomp
             if (vecWrites & writes)
                 throw Fail{"SET_GPR_VEC and SET_GPR of one register in a line"};
             writes |= vecWrites;
+            if (cleanWrites)
+                *cleanWrites = vecWrites;
             return out;
         }
 
@@ -690,6 +733,30 @@ namespace ps2recomp
             }
         }
 
+        // 128-bit reads of registers whose local is not dirty (round 18):
+        // ctx holds the whole register, so read it there instead of merging
+        // the local's low half into ctx's (NEON <-> core moves on the Vita).
+        void vecReads(Body &body, std::string &text, uint64_t dirty)
+        {
+            for (int r = 1; r < 32; ++r)
+            {
+                if (dirty & (1ull << r))
+                    continue;
+                const std::string n = std::to_string(r);
+                const std::string forms[] = {"RC_VEC(ctx, " + n + ", rc_" + n + ")", "RC_VECX(ctx, " + n + ", rc_" + n + ")"};
+                const std::string to = "GPR_VEC(ctx, " + n + ")";
+                for (const std::string &from : forms)
+                {
+                    size_t pos = 0;
+                    while ((pos = text.find(from, pos)) != std::string::npos)
+                    {
+                        text.replace(pos, from.size(), to);
+                        pos += to.size();
+                    }
+                }
+            }
+        }
+
         void parse(Body &body, const std::string &text)
         {
             std::istringstream in(text);
@@ -756,12 +823,15 @@ namespace ps2recomp
                     ++body.barriers;
                     continue;
                 }
-                line.rewritten = rewriteLine(body, line.text, line.writes, line.reads);
+                line.rewritten = rewriteLine(body, line.text, line.writes, line.reads, &line.cleanWrites);
                 // A write under a condition in the line (MOVN / MOVZ:
                 // "if (rt != 0) SET_GPR_VEC(...)") may not happen: the local
                 // must hold the register before it, as for a read.
                 if (hasIfToken(line.code))
+                {
                     line.reads |= line.writes;
+                    line.cleanWrites = 0; // may not happen: the local keeps its state
+                }
                 if (body.sext)
                     classifyWrites(line);
                 size_t pos = 0;
@@ -1098,6 +1168,14 @@ namespace ps2recomp
                     inDirty[l] = body.hasBack[l] ? body.backDirty[l] : (fwdSeen[l] ? fwdDirty[l] : 0);
                     inStale[l] = (fwdStale[l] | body.backStale[l]) & ~inDirty[l];
                     inKnown[l] = fwdKnown[l] & body.backKnown[l] & ~inStale[l] & (body.sext ? ~0ull : 0);
+                    if (body.blockScope)
+                    {
+                        // A sync point: the edges store what they hold dirty,
+                        // the block loads what it reads.
+                        inDirty[l] = 0;
+                        inStale[l] = ~0ull;
+                        inKnown[l] = 0;
+                    }
                     if (inDirty[l] != body.inDirty[l] || inStale[l] != body.inStale[l] || inKnown[l] != body.inKnown[l])
                     {
                         if (emit)
@@ -1189,7 +1267,9 @@ namespace ps2recomp
                         if (emit)
                             sextReads(body, line.rewritten, line.multiWrite ? before & ~line.writes : before);
                         stale &= ~line.writes;
-                        dirty |= line.writes;
+                        if (emit)
+                            vecReads(body, line.rewritten, dirty | line.writes);
+                        dirty = (dirty | line.writes) & ~line.cleanWrites;
                         known = knownAfter(line, before);
                         gotos(idx, line, false, before & known);
                         FrameState f = frame(line.bareOpen ? Frame::Bare : Frame::Cond);
@@ -1288,7 +1368,16 @@ namespace ps2recomp
                         if (emit)
                             sextReads(body, line.rewritten, line.multiWrite ? before & ~line.writes : before);
                         stale &= ~(line.reads | line.writes);
-                        dirty |= line.writes;
+                        if (emit)
+                            vecReads(body, line.rewritten, dirty | line.writes);
+                        // Write-through (round 18): a plain statement's writes
+                        // go to ctx right after it; the locals stay valid for
+                        // the reads that follow, nothing is left dirty.
+                        const uint64_t through = (body.writeThrough && line.gotos.empty() &&
+                                                  line.code.find("return") == std::string::npos && !hasIfToken(line.code))
+                                                     ? line.writes & ~line.cleanWrites
+                                                     : 0;
+                        dirty = (dirty | line.writes) & ~line.cleanWrites & ~through;
                         known = knownAfter(line, before);
                         // Inside the line (a goto or return before or after its
                         // write): what is known both before and after.
@@ -1320,6 +1409,8 @@ namespace ps2recomp
                         else
                         {
                             put(line.rewritten);
+                            if (emit && through)
+                                put(indent + flushCode(body, through, known, true));
                         }
                         if (line.code == "return;" ||
                             (line.gotos.size() == 1 && line.code == "goto " + body.labelNames[line.gotos[0]] + ";"))
@@ -1351,6 +1442,8 @@ namespace ps2recomp
         Body body;
         body.fprs = options.fprs;
         body.sext = options.sext;
+        body.blockScope = options.blockScope;
+        body.writeThrough = options.writeThrough;
         std::vector<std::string> out;
         try
         {

@@ -128,7 +128,7 @@ for byte, on the same machine state (`SOTC_DIFFTEST`). It is a functional
 decomp, not a matching one. The workflow (guest profiler, Ghidra scripts,
 difftest) is in [docs/decomp.md](docs/decomp.md).
 
-Progress (2026-10-28, round 17): **4.96%** of the MIPS code (448 of 9,024 functions, the
+Progress (2026-10-28, round 18): **4.96%** of the MIPS code (448 of 9,024 functions, the
 SDK / libc pieces the runtime implements included; 3.2% of the game's own
 code), but **48%** of the guest calls already land in native code (call
 counts of the attract demo and the route to frame 4 800): the

@@ -2684,6 +2684,206 @@ AC power: the Vita build alone costs ~30% of the battery.
 6. Carried over: the console's loader stall, the colossus's death effect,
    the console's GPU fill rate.
 
+## Round 18: the register cache again, within blocks (2026-10-28)
+
+The Mac started on battery at 19%: the generator was read and the first
+change written before any build; everything below was built and measured on
+AC power (the battery charging from 15%).
+
+**The register cache was already there** (round 5, ps2xRecomp
+register_cache.cpp: GPRs / FPRs in host locals, lazy loads, sign-extension
+tracking), off since round 5 (0.8% for +5% text). Since round 16, turning it
+on also turned round 16's call forms off (`leanCalls()` was
+`m_leanCalls && !m_registerCache`): the pass did not know PS2_CALL_GUEST /
+PS2_CALL_GUEST_KNOWN / PS2_JUMP_GUEST, which pass ctx on without naming it,
+and would have taken the calls for plain statements (no store before them).
+Changes (ps2xRecomp register_cache.cpp / .h, code_generator.h,
+function_emitter.cpp, ps2_recompiler.cpp; ps2_runtime_macros.h's RC_SET_VEC;
+tools/gen_config.py):
+1. Those three macros are barriers (the dirty locals are stored before them,
+   every local is stale after them). They are the only macros in the
+   runtime's headers that use ctx without taking it, besides READ* / WRITE*
+   (whose slow path never touches a GPR / FPR: not barriers, as in round 5).
+   The cache now runs with round 16's calls and entry test.
+2. **Round 5's form costs more than it saves on the Vita.** The hot set to
+   Vita assembly (r18/asmcmp.sh: the 12 hottest lean functions, r16/armc.sh):
+   round 17 20 211 instructions, 4 640 memory instructions, 479 of them on
+   the host stack; round 5's whole-function locals (r18/rc-new) +6.6% / +17%,
+   2-3x the stack traffic (getAmbientColorC 4 620 -> 5 125 instructions,
+   1 118 -> 1 569 memory). GCC cannot rematerialise a local from ctx, the
+   locals stay live across the memory accesses' out-of-line slow paths (calls
+   that clobber r0-r3 / r12 / the NEON registers), and ARMv7 has 8
+   callee-saved registers, 3 taken by rdram / ctx / runtime and a uint64_t
+   local needing two: they spill.
+3. **Block scope** (default; `PS2X_RECOMP_REGCACHE_SCOPE=function` for round
+   5's): every label is a sync point (the edges into it store what they hold
+   dirty, nothing is valid after it), so a local lives within its block.
+4. **Write-through** (default; `PS2X_RECOMP_REGCACHE_WT=0` for stores sunk to
+   barriers / edges / returns): a statement's writes are stored to ctx right
+   after it and the local stays valid for later reads. The same stores as the
+   old code (no edge copies: the sunk stores were duplicated on every branch
+   out of a block, FlushModifiedManager 588 -> 822 instructions), fewer loads.
+5. 128-bit accesses (lq / sq, MMI): a read of a register whose local is not
+   dirty reads ctx->r[n] (it was merged from the local's low half into ctx's
+   high half: NEON <-> core moves), a write leaves the local in sync, not
+   dirty (it was stored again at the next flush), and RC_SET_VEC takes the
+   local from the value, not by reading ctx back (iosCopyMatrix 180 -> 124).
+With 3-5 the hot set is 20 213 instructions / 4 703 memory (round 17 20 211 /
+4 640), still 1 077 on the stack: the same size, the ctx loads after guest
+stores traded for spills. FPRs in locals stay on (GPRs only,
+`PS2X_RECOMP_REGCACHE_FPR=0`, was better on manager_sub_010AC6C8, worse on
+manager_sub_010A9EA8 and ClipCollisionDB).
+
+**SET_GPR's high halves:** with the cache a write's high half is not computed
+unless a 64-bit read needs it (the sign-extension analysis); the store to ctx
+is the whole register wherever ctx can be observed (a callee's prologue saves
+s-registers with sd, which reads the high half), so no separate high-half
+pass was written: on the Vita a sign-extended store is one strd of (lo,
+lo >> 31), the same count as a str plus one asr.
+
+Switch: `[general] register_cache` in the stage's config.toml (gen_config.py
+now writes `true`; build/recomp/game/config.toml has it) or
+`PS2X_RECOMP_REGCACHE=0 / 1` at recompile time. Checked: with it off the
+output is round 17's byte for byte (r18/rc-off against r18/rc-r17, diff -r
+empty); with the config's `true` and no env it is r18/rc-wtb's (diff -r
+empty). Static counts (recomp.log): 8 790 functions, 2 kept the old code
+(PMULTUW's two-line translation, as in round 5). clang
+`-Wconditional-uninitialized -Wsometimes-uninitialized -Wuninitialized` over
+every generated file (r18/uninit.sh): 0 warnings.
+
+**Checks.**
+- Old generator against the new one (round 16's method): lean copies from
+  round 17's output (r18/rc-r17, r18/lean_old.sh) against the new originals,
+  SOTC_LEAN=1 SOTC_LEAN_CHECK in batches of 64 (entries 0-384),
+  SOTC_LEAN_CHECK_ONLY=1, ALLREGS, VU0, EVERY=50, route2 to frame 3 000
+  (r18/lcheck.sh, r18/lc-*): 286 functions called, 425 201 checks, 1 095
+  mismatches, all in round 16's three: manager_sub_01102638 (467; the pad /
+  frame timers, SOTC_DIFFTEST_CONTROL=1 with the new code in both legs: 97),
+  ExecAnimeTableInfo (28; CONTROL 29) and iosResetCpuRapCounter (600; its
+  check is void, an override sits in the slot: the same r2 values as
+  r16/lcr-256). Note for this check: the Mac needs SOTC_LEAN=1 (round 18's
+  first six batches ran without it and checked nothing).
+- Natives: SOTC_DIFFTEST=all EVERY=200 on the route to frame 4 800
+  (r18/dt-route): 57 functions, 157 900 checks, 0 mismatches but
+  gamecore_sub_013F8668 (the life bar's v0, as since round 16).
+- Mac fixed-30 fps path (route2, SOTC_FRAME_INTERVAL=2 SOTC_POS_LOG=30, to
+  5 400, r18/pos-w1): within 1.93 units of r16/pos-ref2, 2.22 of r17/pos-c1,
+  3.14 of pos-ref1 (the references differ by 2.05 from each other; r17 was
+  2.44 from pos-ref1): the noise band, until the replay mode exists.
+- Attract demo to frame 6 000 on a quiet Mac: round 17's binary (r18/bin-r17,
+  r18/att-r17), the first cache build (att-rc1) and the final one (att-wtb)
+  show the same scenes in the same order, a few seconds apart at the cuts.
+  **Round 17's attract offset is not the busy Mac:** round 17's binary on a
+  quiet Mac runs ahead of r16/att-g1 the same way r17/att-c1 did
+  (r18/att-sheet3.png); whatever moved the demo's pace came with round 17's
+  build, not with host load. The scenes are the same; the replay mode will
+  say whether it is noise.
+- Sound (r12/tools/au.py, every r18 run): 0 late callbacks, 0 stale halves,
+  0 src-stale.
+
+**Frame timing (calibrated Vita3K, route2's input, r12/tools/vbwin.py; mean
+ms (fps), frames over 50 / 85 / 120, worst).** r17 = celosia-r17.vpk (222:
+r17/c1, c2; 240 / 333: r18/r17-240, r17-333, run this round), r18 =
+celosia-r18.vpk (r18/wtb-222, wtb2-222, wtb-240, wtb-333).
+
+| route window | r17 222 (c1 / c2) | r18 222 (two runs) | r17 240 | r18 240 | r17 333 | r18 333 |
+|---|---|---|---|---|---|---|
+| the save's load | 33.2 / 33.1 | 32.6 / 32.7 | 31.0, 30/5/2, 241.4 | 30.7, 32/6/3, 240.0 | 24.9, 12/4/3, 235.4 | 24.5, 12/4/3, 202.5 |
+| the shrine | 47.4 / 47.5 (21.1 fps) | 47.0 / 47.2 (21.2), 111/21/0, 112.7 | 44.1 (22.7), 103/7/0, 104.9 | 43.4 (23.0), 96/6/0, 105.9 | 31.4 (31.8), 90/0/0, 74.6 | 31.0 (32.3), 92/0/0, 74.3 |
+| the walk out and the area change | 83.3 / 83.4 (12.0) | 82.0 / 82.7 (12.1), 610/213/3, 154.5 | 76.8 (13.0), 652/96/3, 167.7 | 76.5 (13.1), 653/81/2, 159.4 | 53.1 (18.8), 675/3/0, 113.7 | 53.8 (18.6), 695/3/0, 112.5 |
+| the plain | 55.7 / 54.8 (18.1) | 54.9 / 54.2 (18.3), 607/0/0, 69.6 | 50.9 (19.6), 369/0/0, 69.4 | 48.2 (20.7), 172/0/0, 69.8 | 36.7 (27.2), 8/0/0, 53.1 | 35.5 (28.2), 7/0/0, 53.0 |
+
+Transitions (r12/tools/transition.py: mean / worst / frames > 120 of the 20
+frames from each cut, "after" the mean of frames 40-80 after it):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r17 222 (c1) | 30.4 / 154.8 / 1 | 110.4 / 167.2 / 3 | 88.4 | 265, 249 |
+| r17 222 (c2) | 32.0 / 178.6 / 1 | 110.1 / 170.6 / 3 | 88.8 | 247, 246 |
+| r18 222 | 33.6 / 167.6 / 1 | 109.3 / 154.5 / 3 | 87.5 | 242, 238 |
+| r18 222 (2) | 33.1 / 172.4 / 1 | 109.0 / 158.5 / 3 | 87.7 | 245, 242 |
+| r17 240 | (not found by the tool) | 106.9 / 167.7 / 3 | 81.0 | 241, 231 |
+| r18 240 | 31.1 / 167.5 / 1 | 103.3 / 159.4 / 2 | 81.5 | 240, 231 |
+| r17 333 | 25.1 / 120.3 / 1 | 76.7 / 113.7 / 0 | 59.5 | 235, 216 |
+| r18 333 | 26.3 / 144.2 / 1 | 73.8 / 112.5 / 0 | 59.2 | 202, 192 |
+
+1-2% at 222 (shrine -0.6%, walk -1.3%, plain -1.0%; the area change's 20
+frames -1.1%, its worst frame 167-171 -> 155-159), more at 240 (plain
+-5%, the area change -3%), within the noise at 333. The register traffic is
+not the lever the plan hoped: on this target the slow paths' calls decide
+what can stay in registers, and the profile below shows where the time is.
+
+**The plain's profile at 222** (SOTC_SUBSYS_PROF=1, r18/prof-222, last
+window, ms / frame inclusive / self, calls): 56 ms wall, execScript 50.3;
+DispDispObjGroupModel 14.5 / 5.5; ExecCharaGeometry 14.1 / 6.8 (x10);
+CalcNodeQuaternionWithIK 3.5 / 2.1; skeletonPose 2.6 (native bone math,
+x36); ClipCollisionDirectCallBack 3.8 (x13); doit_game_camera 5.0 / 2.0;
+modelDisp 5.1 with hook.modelDisp 4.7 / 0.4 and hook.state 1.5;
+hook.packets 2.4 / 1.9; iosDmaSendSChainPath1 2.2; GetMotionMatrix 3.0 / 0.4;
+dispSort_010F4FB8 (the light pass) 1.3; texAnim 1.2 (x302); cloth 1.1.
+
+**Decomp status (tools/decomp_status.py, r18/replaced.txt = r17's: no new
+natives):** 5.40% of the MIPS code by size, 4.96% by functions (448 of
+9 024), 3.20% of the game's own code, 47.8% by calls.
+
+**Measuring tools (new):** r18/regen.sh (the recompiler over a copy of the
+stage, env as given; "install" puts it in build/runner and reruns
+gen_lean.py), r18/asmcmp.sh (the hottest lean functions to Vita assembly per
+generator variant), r18/uninit.sh (round 5's clang check), r18/lcheck.sh,
+r18/lean_old.sh, r18/v3k.sh and r18/batch1.sh (refuse at 30% battery or
+below).
+
+**Round 19 (plan).** Speed (20-30 fps at 222, no frame over ~50 ms in a
+transition) and, from the user's console run of celosia-r17.vpk (colossus 2
+killed; build/agent-scratch/console-r17/err.txt, screenshots
+~/Downloads/vita-2026-10-28-*.jpg; their memcard with saves at / after
+colossi 1-2 is build/agent-scratch/console-r17/memcards/Mcd001.ps2: copy it
+to a scratch card dir, never over memcards/ or the Vita3K tree's own card),
+fidelity. Compare every fidelity item against the emulated GS
+(SOTC_NATIVE=0 or 2) on the Mac first.
+
+High priority:
+1. **Every wait must pass smoothly: boot to the main menu.** On the console
+   the menu takes very long to appear (the user moved the camera while
+   waiting, which is how they saw item 6). err.txt: the first ~15 s the
+   loader is busy (~700 CD reads, max 375 ms) with 50-95 ms frames; then the
+   5 s [audio] windows jump from frame 817 to frame 1 789 (~1 000 frames
+   without a window; the log there is interleaved across threads, so first
+   find whether the logger went quiet or its lines were lost, and whether
+   that is the wait). Measure boot-to-menu on the Mac and in Vita3K at 240
+   (MHZ=240 is calibrated to the console's 444 MHz, it is not the clock)
+   against the PS2 (the emulated GS path or known timings), find what
+   dominates (disc reads, decompression, shader / texture warm-up, async
+   build floods, an FMV / title wait) and fix it.
+2. **The dead colossus drawn as a solid cyan / green / blue gradient**, no
+   texture (012804, 012810), after death while it lies on the ground: a
+   dissolve / death pass drawn without its texture, or a vertex colour /
+   alpha channel shown as colour. Reach it with the console card.
+3. **The bloom lags the camera** (most visible in the title menu: the light
+   behind the mountain trails the camera): a glow target from a previous
+   frame sampled, a feedback buffer not re-projected, or a frame-delayed
+   copy.
+Medium:
+4. **The black tendrils that enter Wander after a kill are missing** (the
+   black blood spray is fine).
+5. **The colossus's glowing sigils glow much less** than on the PS2.
+Speed:
+6. The natives' and the hooks' top from the profile above: ExecCharaGeometry's
+   self 6.8 ms and DispDispObjGroupModel's self 5.5 (still recompiled: the
+   biggest single targets), CalcNodeQuaternionWithIK 2.1, doit_game_camera
+   2.0, ClipCollisionDirectCallBack 3.8, skeletonPose 2.6, hook.packets 1.9,
+   iosDmaSendSChainPath1 2.2.
+7. The register cache's remaining lever: the slow paths' calls. A Vita-only
+   trampoline for the out-of-line READ / WRITE paths that saves r1-r3 / r12
+   and d0-d7 / d16-d31 itself (an inline-asm call clobbering only r0 / lr)
+   would let GCC keep locals in caller-saved registers across them; measure
+   with r18/asmcmp.sh first (stack traffic 1 077 vs round 17's 479).
+8. Carried over: the cut frame (155-213 ms, one frame), the replay mode for
+   the path check, the console's GPU fill rate.
+Good news in the same log: no 45-60 s loader stall this time (the longest
+loader job 8.4 s, once); sound 0 stale, 0 late, 34 src-stale over 298
+windows.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

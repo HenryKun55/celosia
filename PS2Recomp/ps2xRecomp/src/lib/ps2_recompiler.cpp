@@ -1050,8 +1050,14 @@ namespace ps2recomp
                 m_codeGenerator->m_registerCacheFprs = !(rcf && std::strcmp(rcf, "0") == 0);
                 const char *rcs = std::getenv("PS2X_RECOMP_REGCACHE_SEXT");
                 m_codeGenerator->m_registerCacheSext = !(rcs && std::strcmp(rcs, "0") == 0);
+                const char *rcScope = std::getenv("PS2X_RECOMP_REGCACHE_SCOPE");
+                m_codeGenerator->m_registerCacheBlock = !(rcScope && std::strcmp(rcScope, "function") == 0);
+                const char *rcWt = std::getenv("PS2X_RECOMP_REGCACHE_WT");
+                m_codeGenerator->m_registerCacheWriteThrough = !(rcWt && std::strcmp(rcWt, "0") == 0);
                 std::cout << "register cache: " << (m_codeGenerator->m_registerCache ? "on" : "off")
                           << (m_codeGenerator->m_registerCache && !m_codeGenerator->m_registerCacheFprs ? " (GPRs only)" : "")
+                          << (m_codeGenerator->m_registerCache ? (m_codeGenerator->m_registerCacheBlock ? ", within blocks" : ", whole functions") : "")
+                          << (m_codeGenerator->m_registerCache && m_codeGenerator->m_registerCacheWriteThrough ? ", write-through" : "")
                           << std::endl;
             }
 
