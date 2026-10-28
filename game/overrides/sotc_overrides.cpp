@@ -692,6 +692,7 @@ namespace
             // (dst, src, bytes): 16 KB at a time through the scratchpad.
             uint32_t dst = GPR_U32(ctx, 4), src = GPR_U32(ctx, 5), qwc = GPR_U32(ctx, 6) >> 4;
             ++sotc_decomp::g_guestMoveSerial; // the native hooks' memos sample again
+            sotc_decomp::g_gcStats.bytes += qwc * 16u; // the garbage pass's budget counts these (decomp_gctick.cpp)
             uint8_t *spr = runtime->memory().getScratchpad();
             // The heap's garbage pass moves blocks down with it (several MB a
             // frame at an area change): one memmove when the chunks come to
@@ -729,7 +730,6 @@ namespace
                 std::memcpy(spr, from + (chunks - 1u) * 0x4000u, last);
                 std::memmove(rdram + dstOff, from, total);
                 sotc_decomp::noteGuestMove(srcOff, dstOff, total);
-                sotc_decomp::g_gcStats.bytes += total;
                 if (check)
                 {
                     static uint64_t checks = 0, bad = 0;

@@ -1817,6 +1817,22 @@ namespace ps2recomp
                 m_reporter.progress(msg.str());
             }
 
+            {
+                // The table's bounds as constants for generated code
+                // (PS2_CALL_GUEST, ps2_runtime_macros.h), included by
+                // ps2_recompiled_functions.h.
+                std::stringstream table;
+                table << "#pragma once\n";
+                table << "// The function table's bounds (register_functions.cpp), as constants.\n";
+                table << "#define PS2X_RECOMP_TABLE_BASE 0x" << std::hex << m_codeGenerator->m_tableBase << "u\n";
+                table << "#define PS2X_RECOMP_TABLE_SLOTS " << std::dec << m_codeGenerator->m_tableSlots << "u\n";
+                fs::path tablePath = fs::path(m_config.outputPath) / "ps2_recompiled_table.h";
+                if (!writeToFile(tablePath.string(), table.str()))
+                {
+                    throw std::runtime_error("Failed to write the function table header: " + tablePath.string());
+                }
+            }
+
             if (!generateStubHeader())
             {
                 throw std::runtime_error("Failed to generate stub header");
@@ -1894,7 +1910,8 @@ namespace ps2recomp
             ss << "#ifndef PS2_RECOMPILED_FUNCTIONS_H\n";
             ss << "#define PS2_RECOMPILED_FUNCTIONS_H\n\n";
 
-            ss << "#include <cstdint>\n\n";
+            ss << "#include <cstdint>\n";
+            ss << "#include \"ps2_recompiled_table.h\"\n\n";
             ss << "struct R5900Context;\n";
             ss << "class PS2Runtime;\n\n";
 

@@ -441,6 +441,9 @@ public:
     EeClock m_eeClock;
     // Below this host stack address, calls and jumps no longer nest: they
     // return to the scheduler, which runs them from the bottom of the stack.
+    // With PS2X_DIRECT_DISPATCH=0 it is the top of the address space (every
+    // call takes the slow path, which looks at m_directDispatch): one test
+    // for both on the fast path (round 16).
     uintptr_t m_hostStackFloor = 0;
     uint32_t m_guestJumpSerial = 0; // guest jumps taken (see dispatchGuestBranch)
     bool m_directDispatch = true;   // PS2X_DIRECT_DISPATCH=0: every transfer through dispatchGuestBranch / the scheduler
@@ -451,6 +454,18 @@ public:
     inline bool callGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
                           uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     inline void jumpGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target);
+    // The same with the callee already looked up (generated code since
+    // round 16: PS2_CALL_GUEST / PS2_JUMP_GUEST in ps2_runtime_macros.h look
+    // it up with the table's base and size as constants, so a JAL's slot is
+    // a constant address).
+    template <uint32_t Base, uint32_t Slots>
+    static inline RecompiledFunction guestFunctionIn(uint32_t target) noexcept;
+    inline bool callGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
+                            uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
+    inline void jumpGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target);
+    inline bool callGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, uint32_t target,
+                               uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
+    void jumpGuestSlow(RecompiledFunction fn);
     bool callGuestSlow(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
                        uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     bool finishGuestCall(R5900Context *ctx, uint32_t entryPc, uint32_t returnPc, uint32_t jumpSerial);
@@ -619,11 +634,9 @@ extern PS2Runtime::RecompiledFunction g_ps2RecompiledFunctionTable[];
 __attribute__((always_inline)) inline bool PS2Runtime::eeCheckpointDue(uint32_t cycles) noexcept
 {
     m_eeClock.cycle += cycles;
-    // The relaxed load as a builtin: generated code is built with -Os,
-    // where std::atomic's load stays an out-of-line call.
-    if (__builtin_expect(m_eeClock.cycle < m_eeClock.gate &&
-                             !__atomic_load_n(reinterpret_cast<const bool *>(&m_eeClock.pending), __ATOMIC_RELAXED),
-                         1))
+    // A flagged checkpoint has the gate at 0 (EeScheduler::flagCheckpoint):
+    // one compare (round 16; the pending flag was read here too).
+    if (__builtin_expect(m_eeClock.cycle < m_eeClock.gate, 1))
         return false;
     return eeCheckpointSlow();
 }
@@ -634,20 +647,34 @@ __attribute__((always_inline)) inline PS2Runtime::RecompiledFunction PS2Runtime:
     return ((target & 3u) == 0u && slot < g_ps2RecompiledFunctionTableSlotCount) ? g_ps2RecompiledFunctionTable[slot] : nullptr;
 }
 
+template <uint32_t Base, uint32_t Slots>
+__attribute__((always_inline)) inline PS2Runtime::RecompiledFunction PS2Runtime::guestFunctionIn(uint32_t target) noexcept
+{
+    const uint32_t slot = (target - Base) >> 2;
+    return ((target & 3u) == 0u && slot < Slots) ? g_ps2RecompiledFunctionTable[slot] : nullptr;
+}
+
+// The host stack's depth. GCC 14+ reads sp (__builtin_stack_address); the
+// frame address made every generated function on the Vita set up a frame
+// pointer (r7 taken from the register allocator) for this one compare.
 __attribute__((always_inline)) inline bool PS2Runtime::hostStackDeep() const noexcept
 {
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+    return reinterpret_cast<uintptr_t>(__builtin_stack_address()) < m_hostStackFloor;
+#else
     return reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) < m_hostStackFloor;
+#endif
 }
 
 // Generated code's JAL / JALR: the callee runs as a host call through the
 // function table (overrides included) after a checkpoint. Inline: no call
 // into the runtime on the way (the Vita reaches it through a veneer).
-__attribute__((always_inline)) inline bool PS2Runtime::callGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
-                                                                 uint32_t sourcePc, GuestBranchKind kind, const char *debugName)
+__attribute__((always_inline)) inline bool PS2Runtime::callGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target,
+                                                                   uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName)
 {
-    const RecompiledFunction fn = guestFunctionAt(target);
     ctx->pc = target;
-    if (__builtin_expect(!fn || !m_directDispatch || hostStackDeep(), 0))
+    // m_hostStackFloor holds !m_directDispatch too (callGuestSlow tells them apart).
+    if (__builtin_expect(!fn || hostStackDeep(), 0))
         return callGuestSlow(rdram, ctx, target, returnPc, sourcePc, kind, debugName);
     if (eeCheckpointDue(kEeDispatchCycles))
         return false;
@@ -658,24 +685,55 @@ __attribute__((always_inline)) inline bool PS2Runtime::callGuest(uint8_t *rdram,
     return finishGuestCall(ctx, target, returnPc, jumpSerial);
 }
 
+// callGuestFn with the function the recompiler sees at the target: called
+// directly (a bl, not a blx through a register) while the slot holds it.
+__attribute__((always_inline)) inline bool PS2Runtime::callGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx,
+                                                                      uint32_t target, uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind,
+                                                                      const char *debugName)
+{
+    ctx->pc = target;
+    if (__builtin_expect(!fn || hostStackDeep(), 0))
+        return callGuestSlow(rdram, ctx, target, returnPc, sourcePc, kind, debugName);
+    if (eeCheckpointDue(kEeDispatchCycles))
+        return false;
+    const uint32_t jumpSerial = m_guestJumpSerial;
+    if (__builtin_expect(fn == known, 1))
+        known(rdram, ctx, this);
+    else
+        fn(rdram, ctx, this);
+    if (__builtin_expect(ctx->pc == returnPc && !m_eeClock.unwinding, 1))
+        return true;
+    return finishGuestCall(ctx, target, returnPc, jumpSerial);
+}
+
+__attribute__((always_inline)) inline bool PS2Runtime::callGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
+                                                                 uint32_t sourcePc, GuestBranchKind kind, const char *debugName)
+{
+    return callGuestFn(guestFunctionAt(target), rdram, ctx, target, returnPc, sourcePc, kind, debugName);
+}
+
 // A jump out of a generated function (J / JR to another function, a branch
 // or fall-through past its end): the target runs nested when it can, else
 // ctx->pc is left on it for the scheduler. The caller returns either way.
 // Jumps can loop (J and JR between two functions): past the host stack
 // budget they unwind to the scheduler.
-__attribute__((always_inline)) inline void PS2Runtime::jumpGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target)
+__attribute__((always_inline)) inline void PS2Runtime::jumpGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target)
 {
     ctx->pc = target;
     ++m_guestJumpSerial;
-    const RecompiledFunction fn = guestFunctionAt(target);
-    if (__builtin_expect(!fn || !m_directDispatch, 0) || eeCheckpointDue(kEeDispatchCycles))
-        return;
-    if (__builtin_expect(hostStackDeep(), 0))
+    if (__builtin_expect(!fn || hostStackDeep(), 0))
     {
-        m_eeClock.unwinding = true;
+        jumpGuestSlow(fn); // no function, PS2X_DIRECT_DISPATCH=0, or the stack's floor
         return;
     }
+    if (eeCheckpointDue(kEeDispatchCycles))
+        return;
     fn(rdram, ctx, this);
+}
+
+__attribute__((always_inline)) inline void PS2Runtime::jumpGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target)
+{
+    jumpGuestFn(guestFunctionAt(target), rdram, ctx, target);
 }
 
 

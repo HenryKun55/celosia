@@ -1858,6 +1858,18 @@ bool PS2Runtime::callGuestSlow(uint8_t *rdram, R5900Context *ctx, uint32_t targe
     return false;
 }
 
+void PS2Runtime::jumpGuestSlow(RecompiledFunction fn)
+{
+    // jumpGuestFn's cases off its fast path, in the order it had them: no
+    // function or the fast paths off (ctx->pc left on the target for the
+    // scheduler), then the checkpoint, then the host stack's floor.
+    if (!fn || !m_directDispatch)
+        return;
+    if (eeCheckpointDue(kEeDispatchCycles))
+        return;
+    m_eeClock.unwinding = true;
+}
+
 bool PS2Runtime::finishGuestCall(R5900Context *ctx, uint32_t entryPc, uint32_t returnPc, uint32_t jumpSerial)
 {
     // While unwinding to the scheduler, ctx->pc is where the deepest pending

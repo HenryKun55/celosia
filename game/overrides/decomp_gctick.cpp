@@ -27,7 +27,6 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_stats.h"
 #include "runtime/ee_scheduler.h"
-#include "runtime/native_renderer.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -137,25 +136,29 @@ namespace decomp_gctick
         uint32_t blocks = 0, moves = 0;
         bool stopped = false;
         const uint64_t cycle0 = runtime->eeScheduler().eeCycle();
-        // The pass's host-time budget (round 14, a game-specific shortcut):
-        // its own clock check is in EE time since the VBlank thread's last
-        // tick, which on the Vita has little to do with the time it takes:
+        // The pass's budget (round 14, a game-specific shortcut): its own
+        // clock check is in EE time since the VBlank thread's last tick,
+        // which on the Vita has little to do with the time the pass takes:
         // in Vita3K an area change's pass ran 40-50 ms a frame unstopped,
         // and a frame whose game code alone is past the 14.4 ms would give it
-        // nothing (the console's ~50 s loader stall after a colossus is
-        // suspected to be that: the [loader] line shows it). So with the time
-        // check as the callback, the pass stops after SOTC_GC_MAX_US of host
-        // time (default 6000; 0 = no limit) even when the clock would go on,
-        // and goes on for SOTC_GC_MIN_US (default 1500; 0 = off) even when
-        // the clock says stop. Both are what the original does on some
-        // frame: stopping is its clock's case, going on its forced case
-        // (0x1e131c). The heap's moves are the same moves, in the same order,
-        // spread over other frames. SOTC_GC_BUDGET=0: the clock alone.
+        // nothing. So with the time check as the callback, the pass stops
+        // after SOTC_GC_MAX_KB of work (default 512) even when the clock
+        // would go on, and goes on up to SOTC_GC_MIN_KB (default 128; 0 =
+        // off) even when the clock says stop. Both are what the original
+        // does on some frame: stopping is its clock's case, going on its
+        // forced case (0x1e131c). The heap's moves are the same moves, in
+        // the same order, spread over other frames.
+        // Round 16: the work is counted in guest terms (the bytes the moves
+        // copied, plus 256 a block looked at), not host time as in round 14:
+        // with host time the heap's layout from frame to frame followed the
+        // host's speed. Vita3K at 240 MHz moves ~85 KB a ms (round 14's
+        // area change: 3-4 MB in 41-48 ms), so 512 KB is about round 14's 6
+        // ms and 128 KB its 1.5. SOTC_GC_BUDGET=0: the clock alone.
         static const bool budgetOn = !(std::getenv("SOTC_GC_BUDGET") && std::atoi(std::getenv("SOTC_GC_BUDGET")) == 0);
-        static const uint64_t maxUs = std::getenv("SOTC_GC_MAX_US") ? std::strtoull(std::getenv("SOTC_GC_MAX_US"), nullptr, 10) : 6000u;
-        static const uint64_t minUs = std::getenv("SOTC_GC_MIN_US") ? std::strtoull(std::getenv("SOTC_GC_MIN_US"), nullptr, 10) : 1500u;
+        static const uint64_t maxWork = (std::getenv("SOTC_GC_MAX_KB") ? std::strtoull(std::getenv("SOTC_GC_MAX_KB"), nullptr, 10) : 512u) * 1024u;
+        static const uint64_t minWork = (std::getenv("SOTC_GC_MIN_KB") ? std::strtoull(std::getenv("SOTC_GC_MIN_KB"), nullptr, 10) : 128u) * 1024u;
         const bool budget = budgetOn && callback == kTimeCheck;
-        const uint64_t host0 = budget ? native_renderer::nowUs() : 0u;
+        const uint64_t bytes0 = sotc_decomp::g_gcStats.bytes;
         while (s1 != 0u)
         {
             ++blocks;
@@ -165,13 +168,13 @@ namespace decomp_gctick
                 go = timeCheck(ram, ctx, runtime, rdram, arg);
                 if (budget && ram.u32(0x001E131Cu) == 0u) // not a forced pass
                 {
-                    const uint64_t spent = native_renderer::nowUs() - host0;
-                    if (go && maxUs && spent >= maxUs)
+                    const uint64_t spent = (sotc_decomp::g_gcStats.bytes - bytes0) + 256u * blocks;
+                    if (go && maxWork && spent >= maxWork)
                     {
                         go = 0u;
                         ++sotc_decomp::g_gcStats.budgetStops;
                     }
-                    else if (!go && minUs && spent < minUs)
+                    else if (!go && minWork && spent < minWork)
                     {
                         go = 1u;
                         ++sotc_decomp::g_gcStats.budgetGoes;

@@ -90,6 +90,16 @@ namespace ps2recomp
         bool m_registerCache = true;
         bool m_registerCacheFprs = true;
         bool m_registerCacheSext = true;
+        // Round 16's leaner calls (without the register cache, whose pass
+        // parses the old forms): JAL / JALR / J through PS2_CALL_GUEST /
+        // PS2_JUMP_GUEST (the table's bounds as constants), and a function's
+        // entry tests ctx->pc against its own start before the resume
+        // switch. PS2X_RECOMP_LEAN_CALLS=0 at recompile time: the old code.
+        bool m_leanCalls = !(std::getenv("PS2X_RECOMP_LEAN_CALLS") && std::getenv("PS2X_RECOMP_LEAN_CALLS")[0] == '0');
+        bool leanCalls() const { return m_leanCalls && !m_registerCache; }
+        // The function table's bounds (FunctionTableEmitter::emit).
+        uint32_t m_tableBase = 0u;
+        uint32_t m_tableSlots = 0u;
         // Whether translated code can read ctx->pc (it calls into the
         // runtime other than for a memory access, or throws).
         static bool codeReadsPc(const std::string &code);

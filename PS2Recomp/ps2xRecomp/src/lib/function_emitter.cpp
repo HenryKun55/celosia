@@ -92,7 +92,22 @@ namespace ps2recomp
         // cache rewrites (CodeGenerator::m_registerCache).
         const size_t bodyStart = ss.str().size();
         ss << "\n";
-        if (!resumeTargets.empty())
+        if (!resumeTargets.empty() && cg.leanCalls())
+        {
+            // The usual entry (a call: ctx->pc is the start) skips the resume
+            // switch and the start's store (round 16).
+            ss << "    if (__builtin_expect(ctx->pc != 0x" << std::hex << function.start << std::dec << "u, 0)) {\n";
+            ss << "        switch (ctx->pc) {\n";
+            for (uint32_t target : resumeTargets)
+            {
+                ss << "            case 0x" << std::hex << target << "u: goto label_" << target << ";\n"
+                   << std::dec;
+            }
+            ss << "            default: ctx->pc = 0x" << std::hex << function.start << std::dec << "u; break;\n";
+            ss << "        }\n";
+            ss << "    }\n\n";
+        }
+        else if (!resumeTargets.empty())
         {
             ss << "    switch (ctx->pc) {\n";
             for (uint32_t target : resumeTargets)
@@ -103,9 +118,12 @@ namespace ps2recomp
             ss << "        default: break;\n";
             ss << "    }\n\n";
         }
-        ss << "    ctx->pc = 0x" << std::hex << function.start << "u;\n"
-           << std::dec;
-        ss << "\n";
+        if (resumeTargets.empty() || !cg.leanCalls())
+        {
+            ss << "    ctx->pc = 0x" << std::hex << function.start << "u;\n"
+               << std::dec;
+            ss << "\n";
+        }
 
         bool lastInstructionWasControlFlow = false;
 

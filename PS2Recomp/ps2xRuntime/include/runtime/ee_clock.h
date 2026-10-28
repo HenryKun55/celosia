@@ -17,8 +17,10 @@ struct EeClock
     uint64_t cycle = 0;
     uint64_t gate = 0;
     // Events posted from other threads, a stop, a preemption: return to the
-    // scheduler at the next checkpoint. Read relaxed (a plain load on ARM);
-    // the work itself is taken under the scheduler's event mutex.
+    // scheduler at the next checkpoint. Setting it also sets `gate` to 0
+    // (EeScheduler::flagCheckpoint), so the checkpoint compares only the
+    // cycle; the scheduler reads it relaxed, the work itself is taken under
+    // its event mutex.
     std::atomic<bool> pending{false};
     static_assert(sizeof(std::atomic<bool>) == sizeof(bool), "read as a plain bool by PS2Runtime::eeCheckpointDue");
     // Set when a checkpoint asks generated code to return to the scheduler.

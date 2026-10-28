@@ -281,6 +281,7 @@ public:
     [[nodiscard]] bool checkpointDue(uint32_t cycles = kGeneratedCheckpointCycles) noexcept;
     // The part of a checkpoint past the clock's gate (see EeClock).
     [[nodiscard]] bool checkpointSlow() noexcept;
+    void flagCheckpoint() noexcept;
     void accountCycles(uint32_t cycles) noexcept;
     // Hand the cycles run since the last checkpoint that reached the
     // scheduler to the EE timers and the IOP (on the executor thread only:

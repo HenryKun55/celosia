@@ -144,6 +144,8 @@ namespace ps2recomp
             tableEnd = (entries.back().first + 4u + 3u) & ~3u;
             slotCount = (tableEnd - tableBase) >> 2;
         }
+        m_codeGenerator.m_tableBase = tableBase;
+        m_codeGenerator.m_tableSlots = slotCount;
 
         std::stringstream ss;
         ss << "#include \"ps2_runtime.h\"\n";

@@ -650,6 +650,19 @@ namespace ps2_guest_mem
             ps2_guest_mem::fn(rdram, ctx, runtime, _addr, _val);  \
     } while (0)
 
+// Generated code's calls and jumps (round 16). The recompiler writes the
+// function table's base and size as PS2X_RECOMP_TABLE_BASE / _SLOTS into
+// ps2_recompiled_functions.h, so the lookup folds: a JAL's slot is a
+// constant address, a JALR's range check two immediates (it was two loads
+// of the table's extern bounds per call).
+#define PS2_GUEST_FN(target) PS2Runtime::guestFunctionIn<PS2X_RECOMP_TABLE_BASE, PS2X_RECOMP_TABLE_SLOTS>(target)
+#define PS2_CALL_GUEST(target, returnPc, sourcePc, kind, name) \
+    runtime->callGuestFn(PS2_GUEST_FN(target), rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
+#define PS2_JUMP_GUEST(target) runtime->jumpGuestFn(PS2_GUEST_FN(target), rdram, ctx, (target))
+// A JAL to a generated function: a direct call while its slot holds it.
+#define PS2_CALL_GUEST_KNOWN(target, function, returnPc, sourcePc, kind, name) \
+    runtime->callGuestKnown(PS2_GUEST_FN(target), &function, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
+
 #define READ8(addr) PS2_GUEST_READ(uint8_t, read8, addr)
 #define READ16(addr) PS2_GUEST_READ(uint16_t, read16, addr)
 #define READ32(addr) PS2_GUEST_READ(uint32_t, read32, addr)
@@ -1369,22 +1382,23 @@ static PS2_FORCE_INLINE float ps2VuRsqrtQ(float fs, float ft)
 // vector type each access moved the value between the NEON and the ARM
 // registers (a stall on the Vita's Cortex-A9) and a 32-bit write read and
 // wrote back the whole 128-bit register.
+// Through may_alias types with the register's alignment (round 16): the
+// same accesses as memcpy, but GCC knows they are aligned, so on the Vita a
+// 64-bit register is one ldrd / strd, not two unaligned word accesses.
+typedef uint32_t __attribute__((may_alias, aligned(16))) Ps2GprWord;
+typedef uint64_t __attribute__((may_alias, aligned(16))) Ps2GprDword;
 static PS2_FORCE_INLINE uint32_t Ps2GprU32(const R5900Context *ctx, int reg)
 {
-    uint32_t v;
-    std::memcpy(&v, &ctx->r[reg], sizeof(v));
-    return v;
+    return *reinterpret_cast<const Ps2GprWord *>(&ctx->r[reg]);
 }
 static PS2_FORCE_INLINE uint64_t Ps2GprU64(const R5900Context *ctx, int reg)
 {
-    uint64_t v;
-    std::memcpy(&v, &ctx->r[reg], sizeof(v));
-    return v;
+    return *reinterpret_cast<const Ps2GprDword *>(&ctx->r[reg]);
 }
 static PS2_FORCE_INLINE void Ps2SetGpr64(R5900Context *ctx, int reg, uint64_t v)
 {
     if (reg != 0)
-        std::memcpy(&ctx->r[reg], &v, sizeof(v));
+        *reinterpret_cast<Ps2GprDword *>(&ctx->r[reg]) = v;
 }
 
 #define GPR_U32(ctx_ptr, reg_idx) ((reg_idx == 0) ? 0U : Ps2GprU32((ctx_ptr), (reg_idx)))

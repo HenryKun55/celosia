@@ -2387,6 +2387,193 @@ code, 47.8% by calls (r12's call dumps).
 6. Carried over: the console's loader stall (env-r15-console.txt keeps the
    [loader] lines), the colossus's death effect, the console's GPU fill rate.
 
+## Round 16: the path check's noise, cheaper calls in all generated code (2026-10-27, night)
+
+The Mac was on AC power and charged (100%) for the first half of the round;
+it went to battery during the 240 / 333 runs (81% -> 70%). Every number
+below was measured above 70%.
+
+**The path "regression" is not one.** Round 15 found every HEAD run walking
+off the shrine's ledge at VBlank ~2 820 in the Mac fixed-30 fps check, where
+round 14's r14/pos-new3 stopped at the edge. Bisected (r16/pos-*):
+- Two runs of the same HEAD binary (pos-h1, pos-h2) differ from frame 1 350
+  on (the walk's start): 0.05-0.19 units before the ledge, up to 1.8 after.
+  The fixed-30 path is not deterministic run to run.
+- Round 13's runtime and overrides (785a5e4's sources for every file round
+  14 / 15 changed, the same generated code; r16/bin-r13, pos-r13a / b) take
+  the same fall in 2 of 2 runs. So nothing in round 14's code moved the path;
+  pos-new3 (and r13/pos-new, r14/pos-skip) were runs on the right side of a
+  tipping point the run-to-run noise crosses.
+- The noise is the host clock: after GAMECORE's entry the EE clock is pulled
+  by real time (EeScheduler::syncCyclesToHostClock), so where in a frame the
+  game reads its timer (its time step) follows host speed. SOTC_GC_BUDGET=0
+  (pos-gc0a / b) leaves it as noisy (diverge at frame 1 380). Without host
+  sync (PS2X_NO_HOST_SYNC=1, pos-nsa / b) it is still not deterministic: the
+  CD reads, the render thread's FINISH and the sound driver complete in host
+  time, and their completions land at different EE cycles (frame 300 at VBlank
+  540 / 541 already). A deterministic replay would need every external
+  completion delivered at a fixed cycle distance from its request: round 17
+  plan, not done.
+- **The garbage pass's budget in guest terms** (decomp_gctick.cpp; that host
+  time decided the heap's layout from frame to frame was a real defect even
+  though it is not the cause): it now counts the bytes the moves copied (the
+  copy hook counts every move, sotc_overrides.cpp copyViaSpr) plus 256 a
+  block looked at: stop at SOTC_GC_MAX_KB (512, about round 14's 6 ms at
+  Vita3K's ~85 KB / ms), go on to SOTC_GC_MIN_KB (128) when the clock says
+  stop; SOTC_GC_BUDGET=0 the clock alone, as before. The area change's 20
+  frames below are no worse than with the host-time budget.
+- New references, the final build, to frame 5 400 (no snapshots): r16/pos-ref1
+  and pos-ref2 (they differ by 2.0 units at most, the noise; both fall at the
+  ledge as every run since round 13's code does). A path within ~2 units of
+  them is "the same path" until the replay mode exists.
+
+**What generated code costs per call** (the Vita's GCC, -O2, one generated
+file to assembly: r16/armc.sh). A JAL was ~55 ARM instructions on top of
+the callee: the callee's entry switch over its resume labels (a binary search,
+~20 instructions, before the usual entry), the table's bounds loaded from two
+extern globals and range-checked, m_directDispatch and the host stack's floor
+tested (the floor through __builtin_frame_address, which made every
+generated function keep a frame pointer in r7), a 64-bit EE-clock add plus
+the pending flag's load, and the call through a register (blx). The route
+does ~24 500 guest calls a frame (r12's call counts). Changes, in the
+recompiler (ps2xRecomp) and the runtime's inline helpers, all generated
+functions regenerated:
+1. **Entry:** `if (ctx->pc != start) { switch ... default: ctx->pc = start; }`:
+   a call (pc = the start) skips the switch and the start's store (6 068
+   functions).
+2. **The table's bounds as constants** (PS2X_RECOMP_TABLE_BASE / _SLOTS in
+   the new generated ps2_recompiled_table.h, included by
+   ps2_recompiled_functions.h; PS2_CALL_GUEST / PS2_JUMP_GUEST in
+   ps2_runtime_macros.h): a JAL's slot is a constant address (one load), a
+   JALR's range check two immediates.
+3. **Direct calls while the slot holds the function** (PS2_CALL_GUEST_KNOWN,
+   PS2Runtime::callGuestKnown): `fn == &name ? name() : fn()`, a bl instead
+   of a blx. The slot is still what decides (hooks, natives and the lean
+   copies replace slots; the lean TUs' renames make `&name` the lean one).
+   Also for the linker-bound JALs whose target is read from the live
+   instruction word (dynamic immediates): the function the ELF's word names
+   is the speculated one. 34 727 sites.
+4. **One floor test:** with PS2X_DIRECT_DISPATCH=0 the host stack's floor is
+   the top of memory, so callGuestFn / jumpGuestFn test only `!fn || deep`
+   (callGuestSlow / the new jumpGuestSlow tell the cases apart, in the old
+   order). The depth is read with __builtin_stack_address (GCC 14+): no frame
+   pointer in generated code on the Vita.
+5. **The pending flag in the gate** (EeScheduler::flagCheckpoint): setting
+   the flag also sets the clock's gate to 0, so a checkpoint is the cycle add
+   and one compare; updateGate re-reads the flag after setting the gate
+   (seq_cst fences on both sides: either it sees the flag or the poster's 0
+   lands after its gate).
+6. **GPR accesses through aligned may_alias types** (Ps2GprU32 / U64 /
+   SetGpr64; were memcpy): GCC knows ctx->r[] is aligned, a 64-bit register
+   is one ldrd / strd.
+PS2X_RECOMP_LEAN_CALLS=0 at recompile time gives the old forms of 1-3 (the
+register cache, still off, keeps them too); register_functions.cpp is the
+same file byte for byte. getAmbientColorC on the Vita: 4 838 -> 4 581
+instructions (-5.3%), a call ~55 -> ~35; the Vita ELF 85.5 -> 84.5 MB.
+Tried and dropped: __restrict on rdram / ctx (no change: the reloads after a
+guest store come from the out-of-line slow path joining back, which takes
+ctx), aligned 64-bit guest loads / stores (Thumb-2 strd has no reg+reg form:
+the same count).
+
+**The Vita3K profile cannot rank instructions.** In r15/hp1 42% of
+lean_ExecCharaGeometry's samples sit on the instruction after one call's
+return: dynarmic writes the guest pc at block exits, so samples land where
+the dispatcher last ran (r16/pcmap.py). Function-level shares carry some of
+that too; the flat profile of round 15 may be flatter than the truth.
+
+**Checks.**
+- The old generator against the new one (round 5's method): the lean copies
+  built from round 15's output (r16/rc0, r16/lean_old.sh) against the new
+  originals, SOTC_LEAN_CHECK in batches of 64 with SOTC_LEAN_CHECK_ONLY=1,
+  SOTC_DIFFTEST_ALLREGS=1, SOTC_DIFFTEST_VU0=1, EVERY=50, on the route to
+  frame 3 000: the 384 hottest entries, 290 functions called, ~380 000 checks.
+  0 mismatches except three that SOTC_DIFFTEST_CONTROL=1 (the new code in
+  both legs) reproduces: manager_sub_01102638 (the pad / frame timers at
+  0x14656xx / 0x15b8bc0, round 5's noise), ExecAnimeTableInfo (f1) and
+  iosResetCpuRapCounter (a counter). Repeated for the last generator change
+  (the linker-bound JALs), entries 0-192: 0 mismatches.
+- Natives: SOTC_DIFFTEST=all EVERY=200 on the route to frame 4 800: 57
+  functions, 156 800 checks, 0 mismatches but gamecore_sub_013F8668 (the life
+  bar's shortcut leaves v0 as it is; HEAD's binary: 198 of 200 the same way).
+- Mac fixed-30 fps path: the new build within 0.1-0.33 units of HEAD's runs
+  to frame 3 600 and within the run-to-run noise after (r16/pos-g1, pos-ref1 /
+  2).
+- Attract demo to frame 6 000 (r16/att-g1, att-g2): the same scenes and
+  pictures as HEAD's binary (r16/att-sheet*.png; the cuts' timing differs as
+  between any two runs). Route pictures in Vita3K: the route ran to the plain
+  at every clock.
+- Sound (r12/tools/au.py, 222): 0 late callbacks, 0 stale halves, 0
+  src-stale.
+
+**Frame timing (calibrated Vita3K, route2's input, r12/tools/vbwin.py; mean
+ms (fps), frames over 50 / 85 / 120, worst).** r15 = celosia-r15.vpk (r15/v2-*),
+r16 = celosia-r16.vpk (r16/g2-*; g1-222 is the build before the linker-bound
+JALs).
+
+| route window | r15 222 | r16 222 | r16 222 (g1) | r15 240 | r16 240 | r15 333 | r16 333 |
+|---|---|---|---|---|---|---|---|
+| the save's load (-1000..0) | 35.7, 36/10/4, 292.8 | 33.6, 31/8/3, 253.3 | 33.1, 31/8/4, 252.6 | 33.3, 34/7/3, 284.2 | 31.7, 27/7/3, 266.4 | 25.3, 16/4/3, 261.6 | 25.0, 12/6/2, 237.8 |
+| the shrine (0..1000) | 50.5 (19.8 fps), 112/53/0, 118.8 | 47.8 (20.9), 111/27/0, 115.1 | 47.7 (21.0), 109/31/0, 117.3 | 46.7 (21.4), 108/13/0, 108.3 | 44.2 (22.6), 98/7/0, 106.9 | 33.3 (30.0), 85/0/0, 77.1 | 31.6 (31.6), 89/0/0, 69.8 |
+| the walk out and the area change (1000..4000) | 86.6 (11.5), 577/338/7, 158.6 | 84.1 (11.9), 595/261/5, 166.7 | 83.7 (11.9), 598/259/3, 171.0 | 80.9 (12.4), 618/138/3, 151.9 | 77.2 (13.0), 648/100/4, 163.4 | 56.7 (17.6), 688/8/0, 116.6 | 53.6 (18.7), 676/3/0, 115.6 |
+| the plain (4000..6000) | 58.3 (17.2), 571/0/0, 74.0 | 54.4 (18.4), 613/0/0, 72.4 | 54.9 (18.2), 608/0/0, 72.1 | 55.2 (18.1), 604/0/0, 73.1 | 53.7 (18.6), 621/0/0, 71.5 | 38.0 (26.3), 7/0/0, 54.0 | 35.4 (28.2), 6/0/0, 52.5 |
+
+Transitions (r12/tools/transition.py: mean / worst / frames > 120 of the 20
+frames from each cut, "after" the mean of frames 40-80 after it):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r15 222 | 34.8 / 157.7 / 1 | 118.0 / 158.6 / 4 | 92.2 | 293, 264 |
+| r16 222 | 34.9 / 213.0 / 1 | 112.0 / 166.7 / 4 | 88.5 | 253, 249 |
+| r16 222 (g1) | 31.2 / 168.3 / 1 | 110.5 / 171.0 / 3 | 88.5 | 253, 242 |
+| r15 240 | 32.1 / 151.9 / 1 | 107.5 / 151.9 / 3 | 84.3 | 284, 273 |
+| r16 240 | 33.9 / 204.8 / 1 | 104.3 / 163.4 / 3 | 81.9 | 266, 245 |
+| r15 333 | 26.9 / 122.3 / 1 | 83.2 / 116.6 / 0 | 60.2 | 262, 257 |
+| r16 333 | 25.2 / 118.8 / 0 | 78.0 / 115.6 / 0 | 59.5 | 238, 220 |
+
+The steady windows are 3-7% faster at every clock (the plain at 222 58.3 ->
+54.4, the shrine 50.5 -> 47.8; 333's shrine and plain now above 30 fps /
+28 fps). The area change's 20 frames -4 to -6%. The cut's single worst frame
+is worse at 222 / 240 in the final build (157.7 -> 213.0, 151.9 -> 204.8; g1
+had 168.3), one frame: the first frame of the cutscene's draws; whether that is
+the new text's first-run JIT in Vita3K or noise was not separated (one run
+each).
+
+**Decomp status (tools/decomp_status.py, r16/replaced.txt: the same as
+round 15's, no new natives):** 5.40% of the MIPS code by size, 4.96% by
+functions (448 of 9 024), 3.20% of the game's own code, 47.8% by calls.
+
+**Measuring tools (new):** r16/posd.py (two [pos] logs frame by frame),
+r16/armc.sh (a generated file to Vita assembly), r16/pcmap.py (a profile
+window's samples per instruction of one function), r16/lean_old.sh (lean
+copies from another generator's output, for the old-vs-new check),
+r16/dtsum.py (difftest totals), r16/attract.sh, r16/shotdiff.py,
+r16/sheet.py, r16/v3k.sh (as r15's).
+
+**Round 17 (plan): 20-30 fps at 222 MHz, no transition hitches.**
+
+1. The rest of the call path, measured per piece on the plain at 222 (each a
+   Vita build of ~20 min): the EE clock as a 32-bit countdown (the
+   checkpoint's 64-bit add / compare is still ~10 instructions at every call
+   and loop back edge; needs every scheduler read of m_eeCycle to fold the
+   countdown first: ~25 places in EeScheduler.cpp plus the difftest's cycle
+   accounting); the post-call `ctx->pc == returnPc && !unwinding` (2 loads);
+   SET_GPR's high half for 32-bit results (the store of the sign word can
+   go only where no later 64-bit read can see it, in this function or any
+   callee: a whole-program analysis, not started).
+2. The cut frame's single worst frame (213 ms at 222 in r16, 158 in r15):
+   two more runs of each VPK to tell noise from the new text's first-run JIT.
+3. A deterministic replay mode for the path check (external completions at
+   fixed cycle offsets, no host clock sync), so exactness checks of the
+   codegen and the natives can compare whole paths bit for bit.
+4. The natives' own top (decomp_skeleton::bone 3.5%, the collision family
+   ~8%, modelDispHook / modelDispState 4.6%), with the caveat above about the
+   profile's attribution: time them with SOTC_SUBSYS_PROF scopes, not the
+   sample profile.
+5. The cutscene after the area change (render-bound, 89 ms at 222) and the
+   cut frame's hash on the worker: carried over from round 15.
+6. Carried over: the console's loader stall, the colossus's death effect,
+   the console's GPU fill rate.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

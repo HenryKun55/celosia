@@ -207,6 +207,20 @@ namespace ps2recomp
         // Calls run as host calls through the function table (an inline
         // checkpoint, no scheduler round trip); jumps out of the function run
         // nested when they can (PS2Runtime::callGuest / jumpGuest).
+        if ((runtimeKind == "DirectCall" || runtimeKind == "IndirectCall") && m_gen.leanCalls())
+        {
+            m_ss << fmt::format("{}if (!PS2_CALL_GUEST({}, 0x{:X}u, 0x{:X}u, {}, \"{}\")) {{\n",
+                                indent, targetExpression, returnPc, sourcePc, runtimeKind, debugName);
+            m_ss << fmt::format("{}    return;\n", indent);
+            m_ss << fmt::format("{}}}\n", indent);
+            return;
+        }
+        if ((runtimeKind == "IndirectJump" || runtimeKind == "DirectJump") && m_gen.leanCalls())
+        {
+            m_ss << fmt::format("{}PS2_JUMP_GUEST({});\n", indent, targetExpression);
+            m_ss << fmt::format("{}return;\n", indent);
+            return;
+        }
         if (runtimeKind == "DirectCall" || runtimeKind == "IndirectCall")
         {
             m_ss << fmt::format(
@@ -257,6 +271,22 @@ namespace ps2recomp
     void ControlFlowEmitter::emitExternalJumpDispatch(uint32_t target, StaticBranchKind kind, std::string_view indent)
     {
         const bool isCall = kind == StaticBranchKind::Call;
+        // A JAL to a generated function: the table's slot is still what runs
+        // (hooks and natives replace slots), but when it holds that function
+        // the call is a direct one (PS2_CALL_GUEST_KNOWN), not through a
+        // register (round 16).
+        if (isCall && m_gen.leanCalls())
+        {
+            const std::string functionName = m_gen.getFunctionName(target);
+            if (!functionName.empty())
+            {
+                m_ss << fmt::format("{}if (!PS2_CALL_GUEST_KNOWN(0x{:X}u, {}, 0x{:X}u, 0x{:X}u, DirectCall, \"JAL\")) {{\n",
+                                    indent, target, functionName, fallthroughPc(), branchPc());
+                m_ss << fmt::format("{}    return;\n", indent);
+                m_ss << fmt::format("{}}}\n", indent);
+                return;
+            }
+        }
         emitRuntimeBranchDispatch(fmt::format("0x{:X}u", target),
                                   branchPc(),
                                   isCall ? fallthroughPc() : 0u,
@@ -365,7 +395,19 @@ namespace ps2recomp
             }
             emitDelaySlot("        ");
             m_ss << "        ctx->pc = jumpTarget;\n";
-            if (kind == StaticBranchKind::Call)
+            // The word as the ELF has it (the captured, linked image) names a
+            // generated function: a direct call while the live word still
+            // finds that function in the table (round 16).
+            const uint32_t imageTarget = buildAbsoluteJumpTarget(m_branchInst.address, m_branchInst.target);
+            const std::string imageFunction = m_gen.leanCalls() ? m_gen.getFunctionName(imageTarget) : std::string();
+            if (kind == StaticBranchKind::Call && !imageFunction.empty())
+            {
+                m_ss << fmt::format("        if (!PS2_CALL_GUEST_KNOWN(jumpTarget, {}, 0x{:X}u, 0x{:X}u, IndirectCall, \"JALR\")) {{\n",
+                                    imageFunction, fallthroughPc(), branchPc());
+                m_ss << "            return;\n";
+                m_ss << "        }\n";
+            }
+            else if (kind == StaticBranchKind::Call)
             {
                 emitExternalRegisterCallDispatch("jumpTarget", "        ");
             }
@@ -559,7 +601,8 @@ namespace ps2recomp
             }
             else
             {
-                m_ss << fmt::format("            runtime->jumpGuest(rdram, ctx, 0x{:X}u);\n", target);
+                m_ss << (m_gen.leanCalls() ? fmt::format("            PS2_JUMP_GUEST(0x{:X}u);\n", target)
+                                           : fmt::format("            runtime->jumpGuest(rdram, ctx, 0x{:X}u);\n", target));
                 m_ss << "            return;\n";
             }
             m_ss << "        }\n";
@@ -580,7 +623,8 @@ namespace ps2recomp
             }
             else
             {
-                m_ss << fmt::format("            runtime->jumpGuest(rdram, ctx, 0x{:X}u);\n", target);
+                m_ss << (m_gen.leanCalls() ? fmt::format("            PS2_JUMP_GUEST(0x{:X}u);\n", target)
+                                           : fmt::format("            runtime->jumpGuest(rdram, ctx, 0x{:X}u);\n", target));
                 m_ss << "            return;\n";
             }
             m_ss << "        }\n";
