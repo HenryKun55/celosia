@@ -354,7 +354,13 @@ namespace native_renderer
                             "Escreve \"[mark] <n> frame <f>\" no log (err.txt no Vita), pra achar este momento depois (um travamento, um defeito).",
                             nullptr, nullptr, 0, 1, 1, nullptr};
             item.action = writeMark;
-            item.actionText = [](bool pt) { return std::string(pt ? "X: marcar" : "X: mark") + (markCount() ? " (" + std::to_string(markCount()) + ")" : ""); };
+            item.actionText = [](bool pt)
+            {
+                const int n = markCount();
+                if (pt)
+                    return std::string("X: marcar (") + std::to_string(n) + (n == 1 ? " marca no log)" : " marcas no log)");
+                return std::string("X: mark (") + std::to_string(n) + (n == 1 ? " mark in the log)" : " marks in the log)");
+            };
             item.debug = true;
             v.push_back(item);
         }

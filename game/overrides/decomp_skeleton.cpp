@@ -236,7 +236,7 @@ namespace decomp_skeleton
         return vf15;
     }
 
-    void bone(const Ctx &g, uint32_t i, uint32_t matrices, uint32_t quats, uint32_t skeleton, uint32_t locals, uint32_t scale, uint32_t sp0)
+    void bone(const Ctx g, uint32_t i, uint32_t matrices, uint32_t quats, uint32_t skeleton, uint32_t locals, uint32_t scale, uint32_t sp0)
     {
         R5900Context *ctx = g.ctx;
         const uint32_t sp = sp0 - 0xB0u;

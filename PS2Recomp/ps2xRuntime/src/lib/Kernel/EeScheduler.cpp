@@ -105,6 +105,8 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_threadCacheId = -1;
     m_threadCache = nullptr;
     m_semaphores.clear();
+    m_semaphoreCacheId = -1;
+    m_semaphoreCache = nullptr;
     m_eventFlags.clear();
     m_alarms.clear();
     m_intcHandlers.clear();
@@ -1052,6 +1054,8 @@ int EeScheduler::deleteSemaphore(int id, bool interruptSafe)
     }
     std::deque<int> waiters = std::move(it->second.waiters);
     m_semaphores.erase(it);
+    m_semaphoreCacheId = -1;
+    m_semaphoreCache = nullptr;
     for (const int threadId : waiters)
     {
         if (GuestThread *waiter = thread(threadId))
@@ -1641,14 +1645,19 @@ const GuestThread *EeScheduler::thread(int id) const
 
 EeSemaphore *EeScheduler::semaphore(int id)
 {
+    if (id == m_semaphoreCacheId && m_semaphoreCache)
+        return m_semaphoreCache;
     auto it = m_semaphores.find(id);
-    return it == m_semaphores.end() ? nullptr : &it->second;
+    if (it == m_semaphores.end())
+        return nullptr;
+    m_semaphoreCacheId = id;
+    m_semaphoreCache = &it->second;
+    return m_semaphoreCache;
 }
 
 const EeSemaphore *EeScheduler::semaphore(int id) const
 {
-    auto it = m_semaphores.find(id);
-    return it == m_semaphores.end() ? nullptr : &it->second;
+    return const_cast<EeScheduler *>(this)->semaphore(id);
 }
 
 EeEventFlag *EeScheduler::eventFlag(int id)

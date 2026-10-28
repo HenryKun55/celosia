@@ -61,14 +61,14 @@ namespace decomp_clothstep
 
     // A bone's matrix (four rows at m) applied to v (vmulax / vmadday /
     // vmaddaz / vmaddw; acc: ACC after the third).
-    __m128 apply(const Ram &ram, uint32_t m, __m128 v, __m128 &acc)
+    __m128 apply(const Ram ram, uint32_t m, __m128 v, __m128 &acc)
     {
         const __m128 rows[4] = {ram.q(m), ram.q(m + 0x10u), ram.q(m + 0x20u), ram.q(m + 0x30u)};
         return sotc_decomp::vu::apply(sotc_decomp::vu::clampRows(rows), v, &acc);
     }
 
     // A pin: sum over a list (count at +0, entries at +4: bone index, then the offset at +16, 32 bytes each).
-    __m128 pin(const Ram &ram, uint32_t list, uint32_t bones, __m128 &acc, __m128 &vf13)
+    __m128 pin(const Ram ram, uint32_t list, uint32_t bones, __m128 &acc, __m128 &vf13)
     {
         int32_t n = static_cast<int32_t>(ram.u32(list));
         uint32_t e = ram.u32(list + 4u);

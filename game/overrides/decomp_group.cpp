@@ -62,7 +62,7 @@ namespace decomp_group
     };
 
     // isysGroupForNext on `entry`; false: something outside main RAM (nothing written).
-    bool next(const Ram &m, uint32_t entry, NextRegs &r)
+    bool next(const Ram m, uint32_t entry, NextRegs &r)
     {
         if (!Ram::ok(entry, 0x10u))
             return false;

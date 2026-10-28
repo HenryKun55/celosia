@@ -3313,6 +3313,187 @@ the probes slow the frame by ~15-30%).
 4. Carried over: the cut frame, the area change's frames over 50 ms, the
    Metal bloom trail, the SOTC_NATIVE=1 drift from vb 2 880.
 
+## Round 22: the natives' host code, the collision leaf (2026-10-28)
+
+The Mac was on AC power and charging the whole round (19% -> 91%); no sleep.
+
+**The Vita3K host profile changes the plan.** Round 21's subsystem numbers
+came from SOTC_SUBSYS_PROF's probes, which cost ~0.6 us a call and count a
+native callee as the caller's own time. The host profile (VITA3K_PROFILE,
+222 MHz, route, seconds 340-420: the plain, r22/hp-base.txt with
+celosia-r20.vpk) splits the game thread as: **natives 37.3%**, recompiled
+(lean) 35.1%, runtime ("other") 15.3%, the renderer's hooks 9.9%,
+non-lean recompiled 2.3%. Round 21's plan item 1 (GetCharaRootDynamics'
+ground mode xz and its charrootdyn_* helpers, the IK callbacks) is small in
+it: the whole charrootdyn / GetCharaRootDynamics / xz family's own code is
+**0.35%**, the IK callbacks (nico_IK_leg*, character_ikcolattrfilter,
+nico_gazeHeadIK4) ~0.5%, CalcNodeQuaternionWithIK 0.31%. Their probe time
+was the collision natives they call (ClipCollisionFinderWithKeep, the
+finders, the leaf). Natives of them would save a fraction of 1%: not done.
+The levers are the natives' own host code and the runtime.
+
+Top of the base profile (% of the game thread, plain at 222): decomp_skeleton::bone
+3.63 (+ normalised 1.17), the collision family **~11** (leaf 3.32,
+directCallBack 1.84, clipDB 1.49, low 0.75, boundary 0.74, high 0.72,
+attributeAddress 0.63, cylinder 0.41, node 0.35, the rest under 0.33 each),
+modelDispHook 2.69 + modelDispState 2.21, callGuest 2.19, memcpy 1.74,
+Vif1Walker::feed 1.60, writeIORegister 1.50, texAnim 1.40, the software
+integer division (.udivsi3) 0.62.
+
+**Changes (all exact; no generator change, no new native):**
+1. **Memory structs by value** (decomp_collision, decomp_walk, decomp_quat,
+   decomp_skeleton, decomp_clothstep, decomp_bridle, decomp_group,
+   decomp_prefetch, decomp_skinfinder, decomp_gctick): the natives passed
+   their `G` / `Ram` / `Ctx` (rdram, ctx, runtime) as `const &`. A byte
+   store through rdram may alias anything, a G in memory too, so GCC
+   reloaded rdram (and ctx) from the struct after every guest store: in
+   decomp_collision.o 397 such reloads. By value, with G's slow paths
+   static (taking the pointers, not `this`), the struct never has an
+   address and stays in registers: 106.
+2. **The collision leaf (0x112be58)**:
+   - getLayoutClassCollisionIndepSurfBoundary's cached case inline: the
+     class's flag / table pointers read once per guest-run epoch (as the
+     function's own cache), the call only when not cached.
+   - The cylinder test's radial part first in plain floats: c is clamped
+     (finite) and with finite squares FPU_MUL_S is the plain product;
+     FPU_ADD_S's operand alignment truncates the smaller square by under
+     2^-22 of the sum, so a plain x^2 + y^2 above r^2 (1 + 2^-19) is above
+     it the PS2's way too (a zero / denormal r^2 compares as +0, which no
+     sum is below). Then f0 = y^2 as the original leaves it; anything else
+     (non-finite, near the edge) takes the exact FPU_* path. Same in
+     `cylinder()` for directCallBack's object / part / surface tests (not
+     its sum-in-f0 variant).
+   - The surface's frame words (sp + 0x20 its boundary with w = 1,
+     sp + 0x30 that through the cylinder's matrix) are only read by guest
+     code (the surface filter) and are dead after the leaf: written before
+     the calls past the cylinder test and after the loop, as the last
+     iteration left them, not every iteration.
+3. **isysGroupForNext inline in ClipCollisionDirectCallBack** (as
+   decomp_walk.cpp does: only v0 and memory are seen after it; a chain
+   outside main RAM keeps the guest call).
+4. **sotc_decomp::recompiled()**: the natives' fallbacks looked their
+   recompiled function up in an unordered_map (prime-modulo hashing: a
+   software division on the Vita, 70% of .udivsi3's samples). Now an
+   open-addressed power-of-two table built at install (read-only after).
+   **EeScheduler::semaphore()** keeps the last one found (the other 29%),
+   as thread() already did; cleared on erase / reset.
+5. **A crash fixed**: SOTC_DECOMP_SKIP of a function another native falls
+   back to (getLayoutClassCollisionIndepSurfBoundary) crashed at boot
+   (recompiled() had no entry for a skipped function): skipped functions
+   are kept in the lookup now.
+6. Debug only: SOTC_COLLISION_STATS counts directCallBack's objects and its
+   object filters.
+
+**Profile after** (r22/hp-a.txt, the same window, celosia-r22-a.vpk = this
+round's code): natives 36.4%; the collision family **9.35%** (leaf
+**1.68**, directCallBack 2.00 with the group step inline, clipDB 1.44,
+attributeAddress 0.68, low 0.51, cylinder 0.50, high 0.50, finderLeaf 0.45,
+node 0.23, boundary 0.21), .udivsi3 0.23. Not changed this round:
+bone 3.80 + normalised 1.05, modelDispHook 2.99 + modelDispState 2.39,
+callGuest 2.01, memcpy 1.72, Vif1Walker::feed 1.70, writeIORegister 1.50,
+texAnim 1.49.
+
+**Frame timing (calibrated Vita3K, route2's input, round 20's env; mean ms
+(fps), frames over 50 / 85 / 120, worst).** r20 = celosia-r20.vpk (round
+20's runs), r22 = celosia-r22.vpk (r22/r22-222, -240, -333).
+
+| route window | r20 222 | r22 222 | r20 240 | r22 240 | r20 333 | r22 333 |
+|---|---|---|---|---|---|---|
+| the save's load | 32.8, 30/6/3, 249.6 | 32.4, 30/9/3, 250.5 | 28.9, 25/6/4, 251.3 | 29.5, 29/5/3, 243.6 | 23.4, 14/4/3, 225.9 | 22.8, 13/5/2, 210.5 |
+| the shrine | 47.0 (21.3), 110/22/0, 111.8 | 46.6 (21.5), 113/17/0, 111.4 | 43.4 (23.0), 95/6/0, 102.1 | 43.0 (23.3), 86/7/0, 96.8 | 31.1 (32.2), 90/0/0, 73.6 | 30.7 (32.6), 91/0/0, 74.2 |
+| the walk out and the area change | 82.7 (12.1), 605/229/3, 170.3 | **79.4 (12.6)**, 629/197/4, 157.8 | 73.9 (13.5), 671/76/2, 144.9 | 74.4 (13.4), 672/68/3, 161.3 | 54.0 (18.5), 727/4/0, 105.9 | **52.2 (19.2)**, 622/3/0, 101.9 |
+| the plain | 54.4 (18.4), 613/0/0, 70.3 | 53.7 (18.6), 618/0/0, 69.7 | 49.4 (20.2), 182/0/0, 63.7 | 48.9 (20.4), 138/0/0, 73.6 | 35.3 (28.3), 5/0/0, 53.2 | 34.1 (29.3), 5/0/0, 53.0 |
+
+Transitions (r12/tools/transition.py):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r20 222 | 32.2 / 150.8 / 1 | 108.3 / 170.3 / 3 | 88.3 | 250, 242 |
+| r22 222 | 34.3 / 205.0 / 1 | 108.7 / 157.8 / 3 | 88.8 | 250, 246 |
+| r20 240 | 31.4 / 139.0 / 2 | 101.7 / 144.9 / 2 | 81.8 | 251, 235 |
+| r22 240 | 28.9 / 139.4 / 1 | 101.5 / 161.3 / 3 | 81.6 | 244, 228 |
+| r20 333 | 27.9 / 148.7 / 1 | 74.5 / 105.9 / 0 | 59.4 | 226, 221 |
+| r22 333 | 27.9 / 116.0 / 0 | 74.8 / 101.9 / 0 | 59.7 | 210, 197 |
+
+The walk out (collision-heavy: the camera's visibility segments and the
+character's probes on the stairs) is 4% faster at 222 and 3% at 333, the
+plain 1-3%; 240 sits within the noise (±2%). The cut and the area change are
+the hooks / render thread's (the builds), unchanged: as in round 20, their
+worst frames move ±20-50 ms run to run. Sound (r12/tools/au.py): 0 late
+callbacks, 0 stale halves, 0 src-stale.
+
+**Checks.**
+- The collision chain against recompiled children (route to frame 4 800,
+  EVERY=10; SOTC_DECOMP_SKIP=collisionLeaf, collisionLow, collisionHigh,
+  ClipCollisionDB, getLayoutClassCollisionIndepSurfBoundary, isysGroupForNext,
+  GetCollisionDBSurfBoundary, so the recompiled leg runs the recompiled tree
+  and the native leg this round's inline code; r22/dt-coll2):
+  ClipCollisionDirectCallBack 6 000 checks, collisionNode 178 200,
+  ClipCollisionFinder 4 600, ClipCollisionFinderCallBack 4 600,
+  clipCollisionKeep 48 000: **0 mismatches**.
+- The natives whose structs went by value (SOTC_NATIVE=1, EVERY=20,
+  r22/dt-walk): DispDispObjGroupModel 400, ClipLayoutObjModel 23 100,
+  DispLayoutObjModel 10 700, solidDisp 10 000, modelClipSolid 21 200,
+  hazeStrips 500, bridleCollide / Head 600 + 600, clothStep 6 800,
+  skeletonPose 88 600, skinFinder 5 300, skinFinderCorners 11 700,
+  isysGroupForNext 153 300, isysGroupForNextForce 24 700,
+  InitLayoutObjMatrix 400, GetQuaternionByAxisDirZY 8 100,
+  GetEulerYXZFromQuaternion 4 100, atanf 24 300, iosGetATan2fExact 28 300:
+  0 mismatches; iosMallocGarbageTickProc 2 of 400: round 14's budget
+  shortcut (SOTC_GC_BUDGET, which stops / continues the pass where the
+  clock would not, by design); with SOTC_GC_BUDGET=0 1 100 checks, 0
+  mismatches (r22/dt-gc). SOTC_DIFFTEST=all EVERY=200 (the first 64
+  registered, r22/dt-all): 0 but gamecore_sub_013F8668 (the life bar's v0,
+  as since round 16).
+- Mac fixed-30 fps path (route2, SOTC_NATIVE=2, SOTC_FRAME_INTERVAL=2
+  SOTC_POS_LOG=30, to 5 400, r22/pos-1): within **0.03** units of
+  r20/pos-2 (38 points), 0.20 of r19/pos-1, 0.35 of r16/pos-ref2.
+- No generator or lean change: the lean check was not rerun.
+
+**The console's two notes (r20 run).**
+- "Marcar este momento" counted into the 70s for a few presses: the menu's
+  pressed() was an edge already, but an action also fired on left / right,
+  and the left stick as a d-pad had no hysteresis (a stick resting near 0.6
+  gave a press a frame). Now an action fires on X only, once per press, not
+  again within 0.3 s; the stick is on past 0.6 and off below 0.4. The item
+  reads "X: marcar (3 marcas no log)" / "X: mark (3 marks in the log)".
+- Agro missing at the start of the title's scene: on the Mac the emulated
+  GS (SOTC_NATIVE=2's reference) and the native picture show the same thing
+  (r22/title4/sheet.png): after ~45 s on the title the attract demo starts
+  with Wander alone on the shrine's stairs, and Agro walks in a few seconds
+  later, in both pictures in the same frames. That is the demo itself, not
+  a model built late; Wander "looking odd" is likely the demo's dim first
+  shots. Not reproduced as a native-only difference.
+
+**Not done this round:** natives of xz / the IK callbacks /
+ExecCharaGeometryPreprocess / CalcRootFitting (the host profile puts them
+under 1% together, see above); the display walk's host code; the fight's
+measurement (the console card's saves are all at the shrine: colossus 3 is
+a long ride, not scriptable blind; a position poke needs the arena's
+coordinates); the cut frame.
+
+**Files (new):** r22/v3k.sh (r21's, logs to r22/), r22/vcc.sh (one TU
+compiled with the Vita build's command line, for assembly counts),
+r22/fsize.sh (instruction counts per function), r22/pcs.py (a window's
+samples per pc in an address range) and r22/lrof.py (the callers, by lr, of
+the functions matching a name), both from two profile copies, r22/hp-base*, r22/hp-a*, r22/dt-*,
+r22/pos-1, r22/title4.
+
+**Round 23 (plan).**
+1. The natives' host code, by the host profile: skeleton::bone +
+   normalised (4.9%), modelDispHook / modelDispState (5.4%), what is left
+   of collision (9.4%: clipDB's plane distances, directCallBack's per-object
+   path, attributeAddress), texAnim 1.5%. The method: r22/vcc.sh + fsize.sh
+   on the Vita assembly, per-pc samples, exact shortcuts like the leaf's.
+2. The runtime's 15%: Vif1Walker::feed + writeIORegister (3.2%, the display
+   list's kick), memcpy (1.7%, callers outside the symbol table: find them),
+   sceClibMemcpy in EeScheduler::run (0.7%).
+3. The fight: ask the user for a console run with SOTC_POS_LOG=30 and a
+   "mark" at colossus 3 (gives the arena's coordinates for a Vita3K
+   position poke), or the overlay's numbers there.
+4. Carried: the cut frame, the area change's frames over 50 ms, the Metal
+   bloom trail, the SOTC_NATIVE=1 drift.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

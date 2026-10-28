@@ -67,7 +67,7 @@ namespace decomp_gctick
 
     // kernel_sub_001C81B0(a0): 1 to go on. Leaves v0, v1, a0, f0, f1 and
     // the condition bit as the recompiled code does.
-    uint32_t timeCheck(const Ram &ram, R5900Context *ctx, PS2Runtime *runtime, uint8_t *rdram, uint32_t a0)
+    uint32_t timeCheck(const Ram ram, R5900Context *ctx, PS2Runtime *runtime, uint8_t *rdram, uint32_t a0)
     {
         if (ram.u32(0x001E131Cu) != 0u)
         {

@@ -334,10 +334,14 @@ namespace
         const int pad = 0;
         if (IsGamepadAvailable(pad))
         {
-            g_down[kUp] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_UP) || GetGamepadAxisMovement(pad, GAMEPAD_AXIS_LEFT_Y) < -0.6f;
-            g_down[kDown] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_DOWN) || GetGamepadAxisMovement(pad, GAMEPAD_AXIS_LEFT_Y) > 0.6f;
-            g_down[kLeft] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_LEFT) || GetGamepadAxisMovement(pad, GAMEPAD_AXIS_LEFT_X) < -0.6f;
-            g_down[kRight] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_RIGHT) || GetGamepadAxisMovement(pad, GAMEPAD_AXIS_LEFT_X) > 0.6f;
+            // The stick as a d-pad with hysteresis: on past 0.6, off below
+            // 0.4 (a stick resting near the threshold gave a press a frame).
+            const float lx = GetGamepadAxisMovement(pad, GAMEPAD_AXIS_LEFT_X), ly = GetGamepadAxisMovement(pad, GAMEPAD_AXIS_LEFT_Y);
+            auto stick = [](bool was, float v) { return v > (was ? 0.4f : 0.6f); };
+            g_down[kUp] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_UP) || stick(g_prev[kUp], -ly);
+            g_down[kDown] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_DOWN) || stick(g_prev[kDown], ly);
+            g_down[kLeft] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_LEFT) || stick(g_prev[kLeft], -lx);
+            g_down[kRight] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_LEFT_FACE_RIGHT) || stick(g_prev[kRight], lx);
             g_down[kCross] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_RIGHT_FACE_DOWN);
             g_down[kCircle] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT);
             g_down[kTriangle] = IsGamepadButtonDown(pad, GAMEPAD_BUTTON_RIGHT_FACE_UP);
@@ -508,7 +512,22 @@ void update()
     if (isTuningTab(g_tab))
     {
         g_tabNow = g_tab;
-        const int dir = (pressed(kCross) || pressed(kRight)) ? 1 : (pressed(kLeft) ? -1 : 0);
+        int dir = (pressed(kCross) || pressed(kRight)) ? 1 : (pressed(kLeft) ? -1 : 0);
+        {
+            // An action (Mark this moment) fires once per press of X only:
+            // not on left / right (the stick near its threshold toggled
+            // kRight on and off: the console's count ran into the 70s), and
+            // not again within 0.3 s.
+            const int k = tuningIndex(g_item);
+            if (k >= 0 && native_renderer::tuningItems()[k].action)
+            {
+                static double last = -1.0;
+                const double now = GetTime();
+                dir = (pressed(kCross) && (last < 0.0 || now - last >= 0.3)) ? 1 : 0;
+                if (dir != 0)
+                    last = now;
+            }
+        }
         if (dir != 0)
         {
             const int k = tuningIndex(g_item);

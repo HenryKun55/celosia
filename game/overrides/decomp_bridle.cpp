@@ -99,7 +99,7 @@ namespace decomp_bridle
     {
         uint32_t rowsAt, rows, cols, params;
         bool ok = false;
-        Grid(const Ram &ram, uint32_t cloth)
+        Grid(const Ram ram, uint32_t cloth)
         {
             if (!inRam(cloth, 0x10u))
                 return;

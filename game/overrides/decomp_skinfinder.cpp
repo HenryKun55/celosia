@@ -71,7 +71,7 @@ namespace decomp_skinfinder
     };
 
     // EntryModifiedManager(manager, index).
-    inline void entry(const Ram &ram, uint32_t manager, uint32_t index)
+    inline void entry(const Ram ram, uint32_t manager, uint32_t index)
     {
         const uint32_t count = ram.u32(manager);
         const int32_t type = static_cast<int32_t>(ram.u32(manager + 0xCu));
@@ -93,7 +93,7 @@ namespace decomp_skinfinder
 
     // The vertex (bone, vertex) made in its manager's cache if not done
     // yet; its cache entry's address.
-    inline uint32_t vertexIn(const Ram &ram, uint32_t managers, uint32_t matrices, uint32_t lists, uint32_t bone, uint32_t vertex, Last &last)
+    inline uint32_t vertexIn(const Ram ram, uint32_t managers, uint32_t matrices, uint32_t lists, uint32_t bone, uint32_t vertex, Last &last)
     {
         const uint32_t manager = managers + bone * 0x60u;
         const uint32_t dst = ram.u32(manager + 0x14u) + vertex * 16u;

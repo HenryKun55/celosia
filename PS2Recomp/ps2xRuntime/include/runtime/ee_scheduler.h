@@ -452,6 +452,11 @@ private:
     void loadGlobalVu0(R5900Context &ctx);
     void flushVu0Owner();
     std::unordered_map<int, EeSemaphore> m_semaphores;
+    // semaphore(): the last one found (round 22: the map's prime-modulo
+    // hash is a software division on the Vita, ~0.2% of the game thread).
+    // Node pointers are stable; cleared where an entry is erased.
+    mutable int m_semaphoreCacheId = -1;
+    mutable EeSemaphore *m_semaphoreCache = nullptr;
     std::unordered_map<int, EeEventFlag> m_eventFlags;
     std::unordered_map<int, EeAlarm> m_alarms;
     std::unordered_map<int, EeIrqHandler> m_intcHandlers;

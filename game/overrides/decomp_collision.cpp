@@ -36,6 +36,7 @@
 #include "runtime/ps2_memory.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -59,7 +60,7 @@ namespace decomp_collision
     // SOTC_COLLISION_STATS=1: how often each path runs (stderr, every 600 leaf calls x 100).
     struct Stats
     {
-        std::atomic<uint64_t> clip{0}, clipSlow{0}, boundary{0}, boundarySlow{0}, leaf{0}, surfaces{0}, cylinder{0}, finder{0}, finderSlow{0}, clipPlane{0}, clipCross{0}, keep{0}, keepSlow{0}, direct{0}, directTree{0}, directSkinned{0}, vertices{0}, verticesGuest{0}, surfFilter{0}, idFilter{0}, idFilterNative{0};
+        std::atomic<uint64_t> clip{0}, clipSlow{0}, boundary{0}, boundarySlow{0}, leaf{0}, surfaces{0}, cylinder{0}, finder{0}, finderSlow{0}, clipPlane{0}, clipCross{0}, keep{0}, keepSlow{0}, direct{0}, directObjects{0}, directTree{0}, directSkinned{0}, vertices{0}, verticesGuest{0}, surfFilter{0}, idFilter{0}, idFilterNative{0};
         std::atomic<uint32_t> lastSurfFilter{0}, lastIdFilter{0};
     };
     Stats g_stats;
@@ -102,6 +103,8 @@ namespace decomp_collision
                      g_stats.lastSurfFilter.load(), (unsigned long long)g_stats.idFilter.load(), (unsigned long long)g_stats.idFilterNative.load(), g_stats.lastIdFilter.load());
         std::fprintf(stderr, "[collision] ClipCollisionDB planes made %llu, crossings %llu\n", (unsigned long long)g_stats.clipPlane.load(), (unsigned long long)g_stats.clipCross.load());
         std::fprintf(stderr, "[collision] vertices %llu (guest %llu)\n", (unsigned long long)g_stats.vertices.load(), (unsigned long long)g_stats.verticesGuest.load());
+        std::fprintf(stderr, "[collision] direct %llu objects %llu tree %llu skinned %llu\n", (unsigned long long)g_stats.direct.load(), (unsigned long long)g_stats.directObjects.load(),
+                     (unsigned long long)g_stats.directTree.load(), (unsigned long long)g_stats.directSkinned.load());
         std::fprintf(stderr, "[collision] keep %llu (recompiled %llu)\n", (unsigned long long)g_stats.keep.load(), (unsigned long long)g_stats.keepSlow.load());
         std::fprintf(stderr, "[collision] finder leaves %llu (recompiled %llu)\n", (unsigned long long)g_stats.finder.load(), (unsigned long long)g_stats.finderSlow.load());
     }
@@ -137,13 +140,24 @@ namespace decomp_collision
 
         // Main RAM (below 32 MB) directly; anything else through the runtime.
         static bool plain(uint32_t a, uint32_t size) { return a < 0x02000000u - size; }
-        __attribute__((noinline)) uint32_t slow32(uint32_t a) const { return READ32(a); }
-        __attribute__((noinline)) uint16_t slow16(uint32_t a) const { return READ16(a); }
-        __attribute__((noinline)) uint8_t slow8(uint32_t a) const { return READ8(a); }
-        __attribute__((noinline)) __m128 slow128(uint32_t a) const { return _mm_castsi128_ps(READ128(a)); }
-        __attribute__((noinline)) void slowPut(uint32_t a, __m128 v) const { WRITE128(a, _mm_castps_si128(v)); }
-        __attribute__((noinline)) void slowPut32(uint32_t a, uint32_t v) const { WRITE32(a, v); }
-        __attribute__((noinline)) void slowPut64(uint32_t a, uint64_t v) const { WRITE64(a, v); }
+        // The slow paths take the pointers by value, not `this`: with G passed
+        // by value its address never escapes, so GCC keeps rdram / ctx in
+        // registers instead of reloading them after every guest store (a byte
+        // store may alias anything, a G in memory included). Round 22.
+        __attribute__((noinline)) static uint32_t slow32At(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return READ32(a); }
+        __attribute__((noinline)) static uint16_t slow16At(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return READ16(a); }
+        __attribute__((noinline)) static uint8_t slow8At(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return READ8(a); }
+        __attribute__((noinline)) static __m128 slow128At(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return _mm_castsi128_ps(READ128(a)); }
+        __attribute__((noinline)) static void slowPutAt(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, __m128 v) { WRITE128(a, _mm_castps_si128(v)); }
+        __attribute__((noinline)) static void slowPut32At(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint32_t v) { WRITE32(a, v); }
+        __attribute__((noinline)) static void slowPut64At(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint64_t v) { WRITE64(a, v); }
+        uint32_t slow32(uint32_t a) const { return slow32At(rdram, ctx, runtime, a); }
+        uint16_t slow16(uint32_t a) const { return slow16At(rdram, ctx, runtime, a); }
+        uint8_t slow8(uint32_t a) const { return slow8At(rdram, ctx, runtime, a); }
+        __m128 slow128(uint32_t a) const { return slow128At(rdram, ctx, runtime, a); }
+        void slowPut(uint32_t a, __m128 v) const { slowPutAt(rdram, ctx, runtime, a, v); }
+        void slowPut32(uint32_t a, uint32_t v) const { slowPut32At(rdram, ctx, runtime, a, v); }
+        void slowPut64(uint32_t a, uint64_t v) const { slowPut64At(rdram, ctx, runtime, a, v); }
         inline __attribute__((always_inline)) uint32_t u32(uint32_t a) const
         {
             if (__builtin_expect(plain(a, 4u), 1))
@@ -210,7 +224,7 @@ namespace decomp_collision
 
     // GetLayoutClass (0x10f1a20) without a call: false for the types it
     // computes by a call (the caller goes to its recompiled code).
-    inline bool layoutClass(const G &g, uint32_t object, uint32_t &out)
+    inline bool layoutClass(const G g, uint32_t object, uint32_t &out)
     {
         const uint32_t index = static_cast<uint32_t>(g.u8(object + 8u)) - 9u;
         if (index >= 0xEu)
@@ -231,14 +245,14 @@ namespace decomp_collision
     }
 
     // vmulax / vmadday / vmaddaz / vmaddw.xyzw: v by the four rows at m.
-    inline __m128 transform(const G &g, uint32_t m, __m128 v)
+    inline __m128 transform(const G g, uint32_t m, __m128 v)
     {
         const sotc_decomp::vu::Rows rows{{sotc_decomp::vu::clamp(g.q(m)), sotc_decomp::vu::clamp(g.q(m + 0x10u)), sotc_decomp::vu::clamp(g.q(m + 0x20u)),
                                           sotc_decomp::vu::clamp(g.q(m + 0x30u))}};
         return sotc_decomp::vu::apply(rows, v);
     }
 
-    uint32_t boundary(const G &g, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp);
+    uint32_t boundary(const G g, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp);
 
     constexpr uint32_t kVerticesIndep = 0x01114C70u; // a surface's three vertices in world space (cached)
     constexpr uint32_t kVertices = 0x01116108u;      // the same for a skinned surface
@@ -246,7 +260,7 @@ namespace decomp_collision
     constexpr uint32_t kSurfBoundary = 0x011193C8u;
 
     // A guest call with a0-a3 and t0-t3 (registers 4-11) set.
-    void call(const G &g, uint32_t target, uint32_t ra, uint32_t sp, std::initializer_list<uint32_t> args)
+    void call(const G g, uint32_t target, uint32_t ra, uint32_t sp, std::initializer_list<uint32_t> args)
     {
         int r = 4;
         for (uint32_t a : args)
@@ -260,7 +274,7 @@ namespace decomp_collision
     // manager_sub_01114C70 when the three vertices are cached (world space,
     // this frame): out[0..2] their addresses, idx[0..2] their indices (when
     // idx is not 0). Otherwise the guest function (nothing written before).
-    void verticesIndep(const G &g, uint32_t out, uint32_t idx, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp)
+    void verticesIndep(const G g, uint32_t out, uint32_t idx, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp)
     {
         COLL_STAT(vertices);
         const uint32_t record = g.u32(g.u32(g.u32(cls + 0x184u) + 0x20u) + 8u) + index * 0x90u;
@@ -302,7 +316,7 @@ namespace decomp_collision
     // The surface's plane from its three vertices (pointers at verts), as the
     // game makes it when not cached: the unit normal of (v0 - v1) x (v1 - v2),
     // w = -n.v0, written at slot.
-    void plane(const G &g, uint32_t verts, uint32_t slot)
+    void plane(const G g, uint32_t verts, uint32_t slot)
     {
         R5900Context *ctx = g.ctx;
         const __m128 vf0 = ctx->vu0_vf[0];
@@ -328,7 +342,7 @@ namespace decomp_collision
     // GetCollisionDBSurfBoundary (0x11193c8): a0 the result (center, radius
     // squared), a1 the surface's id. Not cached (a skinned surface): the
     // recompiled code (nothing written before).
-    uint64_t surfBoundary(const G &g, uint32_t out, uint32_t id, uint32_t ra, uint32_t spIn)
+    uint64_t surfBoundary(const G g, uint32_t out, uint32_t id, uint32_t ra, uint32_t spIn)
     {
         R5900Context *ctx = g.ctx;
         const uint32_t sp = spIn - 0x40u;
@@ -391,7 +405,7 @@ namespace decomp_collision
     // a plane or boundary not cached yet and EntryModifiedManager are guest
     // calls; a layout class GetLayoutClass computes by a call: the recompiled
     // code from the start.
-    uint64_t clipDB(const G &g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t ra, uint32_t spIn)
+    uint64_t clipDB(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t ra, uint32_t spIn)
     {
         R5900Context *ctx = g.ctx;
         COLL_STAT(clip);
@@ -680,7 +694,7 @@ namespace decomp_collision
     // ---- getLayoutClassCollisionIndepSurfBoundary (0x1119248) ---------------
     // a0 the layout class, a1 the index, a2 the surface: its boundary (center,
     // radius) in world space, cached. Not cached yet: the recompiled code.
-    uint32_t boundary(const G &g, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp)
+    uint32_t boundary(const G g, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp)
     {
         COLL_STAT(boundary);
         static struct
@@ -715,8 +729,8 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
-    bool cameraVisibility(const G &g, uint32_t id, uint64_t &out);
-    bool idFilter(const G &g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out);
+    bool cameraVisibility(const G g, uint32_t id, uint64_t &out);
+    bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out);
 
     // ---- the leaf (0x112be58) -----------------------------------------------
     struct Seg
@@ -724,7 +738,7 @@ namespace decomp_collision
         uint32_t a0, a3, t1; // result, tree, parameters
     };
 
-    uint64_t leaf(const G &g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)
+    uint64_t leaf(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)
     {
         R5900Context *ctx = g.ctx;
         COLL_STAT(leaf);
@@ -750,14 +764,51 @@ namespace decomp_collision
         vu::Rows rows{};
         uint32_t rowsAt = 0xFFFFFFFFu;
         uint64_t rowsRuns = 0;
+        // The surface's frame words (sp + 0x20: its boundary with w = 1,
+        // sp + 0x30: that through the cylinder's matrix) are only read by
+        // guest code (the surface filter) and are dead once the leaf
+        // returns: they are written before the calls past the cylinder test
+        // and after the loop, as the last iteration left them (round 22).
+        __m128 frameBound = _mm_setzero_ps(), frameCyl = _mm_setzero_ps();
+        bool framePending = false;
+        auto flushFrame = [&]()
+        {
+            if (framePending)
+            {
+                g.put(sp + 0x20u, frameBound);
+                g.put(sp + 0x30u, frameCyl);
+                framePending = false;
+            }
+        };
+        const __m128 wOne = _mm_castsi128_ps(_mm_set_epi32(0x3F800000, 0, 0, 0));
+        uint64_t bEpoch = ~0ull;
+        uint32_t bClsAt = 0u, bFlags = 0u, bTable = 0u;
         for (; count != 0u; --count, ids += 2u)
         {
             COLL_STAT(surfaces);
-            const uint32_t bnd = boundary(g, g.u32(p + 4u), 0u, g.u16(ids), raBoundary, sp);
-            g.f0(one);
-            g.put(sp + 0x20u, g.q(bnd));
-            g.put32(sp + 0x2Cu, 0x3F800000u);
-            const float f4 = g.f32(p + 8u), f3 = g.f32(bnd + 0xCu);
+            // boundary()'s cached case inline (index 0): the class's table
+            // pointers read again whenever guest code ran (round 22).
+            const uint32_t bCls = g.u32(p + 4u), surface = g.u16(ids);
+            if (bEpoch != g_guestRuns || bClsAt != bCls)
+            {
+                const uint32_t t2 = g.u32(g.u32(bCls + 0x174u) + 0x24u) + 0x48u;
+                bFlags = g.u32(t2 + 8u);
+                bTable = g.u32(t2 + 0x14u);
+                bClsAt = bCls;
+                bEpoch = g_guestRuns;
+            }
+            uint32_t bnd;
+            if (g.u8(bFlags + surface) != 0u)
+            {
+                COLL_STAT(boundary);
+                bnd = bTable + surface * 16u;
+            }
+            else
+                bnd = boundary(g, bCls, 0u, surface, raBoundary, sp);
+            const __m128 bq = g.q(bnd);
+            const __m128 bound = setLane3(bq, wOne);
+            const float f4 = g.f32(p + 8u);
+            const float f3 = g.f32(bnd + 0xCu);
             // The cylinder's matrix, clamped once while no guest code ran
             // (only guest code could change it here).
             const uint32_t m2 = g.u32(p + 0x10u);
@@ -767,10 +818,28 @@ namespace decomp_collision
                 rowsAt = m2;
                 rowsRuns = g_guestRuns;
             }
-            const __m128 c = vu::apply(rows, g.q(sp + 0x20u));
-            g.put(sp + 0x30u, c);
+            const __m128 c = vu::apply(rows, bound);
+            frameBound = bound;
+            frameCyl = c;
+            framePending = true;
             float c4[4];
             std::memcpy(c4, &c, 16);
+            // x^2 + y^2 against r^2 in plain floats first: c is clamped
+            // (finite), and with finite squares FPU_MUL_S is the plain
+            // product; FPU_ADD_S's operand alignment truncates the smaller
+            // square by under 2^-22 of the sum, so a plain sum above
+            // r^2 (1 + 2^-19) is above it the PS2's way too (a zero or
+            // denormal r^2 compares as +0, which no sum is below). Then f0
+            // is y^2, as the original leaves it.
+            {
+                const float px = c4[0] * c4[0], py = c4[1] * c4[1], r2p = f3 * f3;
+                const float sp2 = px + py;
+                if (__builtin_expect(std::isfinite(sp2) && std::isfinite(r2p) && sp2 > r2p * 1.0000019f, 1))
+                {
+                    g.f0(py);
+                    continue;
+                }
+            }
             float f1 = c4[0];
             const float f2 = FPU_MUL_S(f3, f3);
             float f0 = c4[1];
@@ -791,6 +860,7 @@ namespace decomp_collision
             g.f0(f0);
             if (!inside)
                 continue;
+            flushFrame();
             COLL_STAT(cylinder);
             if (const uint32_t filter = g.u32(p + 0x1Cu); filter != 0u)
             {
@@ -853,14 +923,15 @@ namespace decomp_collision
             g.put32(s.a0 + 4u, idHi);
             g.put(sp + 0x10u, point);
         }
+        flushFrame();
         return hit;
     }
 
     // ---- the node visitor and its sides ---------------------------------------
-    uint64_t node(const G &g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn);
+    uint64_t node(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn);
 
     // vmulax.xyz ACC = a * t; vmaddw.xyz a = ACC + b * (1 - t): w stays a's.
-    inline __m128 lerp(const G &g, __m128 a, __m128 b, float t)
+    inline __m128 lerp(const G g, __m128 a, __m128 b, float t)
     {
         const __m128 vf7 = _mm_set1_ps(t);
         const __m128 vf8 = PS2_VSUB(g.ctx->vu0_vf[0], lane<0>(vf7));
@@ -870,7 +941,7 @@ namespace decomp_collision
     }
 
     // 0x112c498: the low side of the node at t0 (coordinates <= split x scale).
-    uint64_t low(const G &g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    uint64_t low(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
         const uint32_t sp = spIn - 0x30u;
         const uint32_t t3 = g.u32(t0 + 4u);
@@ -909,7 +980,7 @@ namespace decomp_collision
     }
 
     // 0x112c610: the high side (coordinates >= split x scale).
-    uint64_t high(const G &g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    uint64_t high(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
         const uint32_t sp = spIn - 0x30u;
         const uint32_t t3 = g.u32(t0 + 4u);
@@ -948,7 +1019,7 @@ namespace decomp_collision
     }
 
     // 0x1131c80: the side the segment starts in first, the other if no hit.
-    uint64_t node(const G &g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    uint64_t node(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
         const uint32_t sp = spIn - 0x40u;
         const uint32_t axis = (g.u32(t0 + 4u) & 3u) * 4u;
@@ -959,7 +1030,7 @@ namespace decomp_collision
         return (low(g, s, a1, a2, t0, sp) != 0u || high(g, s, a1, a2, t0, sp) != 0u) ? 1u : 0u;
     }
 
-    template <uint64_t (*F)(const G &, const Seg &, uint32_t, uint32_t, uint32_t, uint32_t)>
+    template <uint64_t (*F)(const G, const Seg &, uint32_t, uint32_t, uint32_t, uint32_t)>
     void entry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const G g{rdram, ctx, runtime};
@@ -979,7 +1050,7 @@ namespace decomp_collision
     // CheckCollisionFinderExistData (0x112a478): a0 the finder (+0 / +4 two
     // counts, the smaller one bounds the list, +0xc the list: 8-byte ids),
     // a1 the first index, a2 the surface: 1 if an id from a1 on has it.
-    uint64_t finderHas(const G &g, uint32_t finder, int32_t first, uint64_t surface)
+    uint64_t finderHas(const G g, uint32_t finder, int32_t first, uint64_t surface)
     {
         const int32_t a = static_cast<int32_t>(g.u32(finder + 4u)), b = static_cast<int32_t>(g.u32(finder));
         const int32_t end = a < b ? a : b;
@@ -1132,7 +1203,7 @@ namespace decomp_collision
 
     // ---- GetCollisionDBAttributeAdr (0x1125b30) -------------------------------
     // a0 the surface's id: the address of its attribute record.
-    bool attributeAddress(const G &g, uint32_t id, uint32_t &out)
+    bool attributeAddress(const G g, uint32_t id, uint32_t &out)
     {
         const uint32_t w0 = g.u32(id), w1 = g.u32(id + 4u);
         uint32_t cls;
@@ -1179,7 +1250,7 @@ namespace decomp_collision
     // CollisionPlaneJudgeCallbackCameraVisibility (0x1123a58), the camera's
     // id filter: 0 for the surfaces whose attribute bits say the camera sees
     // through them.
-    bool cameraVisibility(const G &g, uint32_t id, uint64_t &out)
+    bool cameraVisibility(const G g, uint32_t id, uint64_t &out)
     {
         uint32_t record;
         if (!attributeAddress(g, id, record))
@@ -1203,7 +1274,7 @@ namespace decomp_collision
         return true;
     }
 
-    uint64_t attributeBits(const G &g, uint32_t record)
+    uint64_t attributeBits(const G g, uint32_t record)
     {
         uint8_t *rdram = g.rdram;
         R5900Context *ctx = g.ctx;
@@ -1212,7 +1283,7 @@ namespace decomp_collision
     }
 
     // CollisionPlaneJudgeCallbackCameraLeave (0x1123c60): 1 for the surfaces of one kind.
-    bool cameraLeave(const G &g, uint32_t id, uint64_t &out)
+    bool cameraLeave(const G g, uint32_t id, uint64_t &out)
     {
         uint32_t record;
         if (!attributeAddress(g, id, record))
@@ -1224,7 +1295,7 @@ namespace decomp_collision
     // manager_sub_010D41E0, the character's id filter: a1 the probe's
     // switches (+0x00.. +0x20 which kinds pass). The two kinds that ask for
     // the surface's plane (0x64 / 0x68) go to the recompiled code.
-    bool charaSurface(const G &g, uint32_t id, uint32_t p, uint64_t &out)
+    bool charaSurface(const G g, uint32_t id, uint32_t p, uint64_t &out)
     {
         uint32_t record;
         if (!attributeAddress(g, id, record))
@@ -1267,7 +1338,7 @@ namespace decomp_collision
     }
 
     // gamecore_sub_01434C00: another id filter by the attribute bits.
-    bool gamecoreSurface(const G &g, uint32_t id, uint64_t &out)
+    bool gamecoreSurface(const G g, uint32_t id, uint64_t &out)
     {
         uint32_t record;
         if (!attributeAddress(g, id, record))
@@ -1290,7 +1361,7 @@ namespace decomp_collision
     }
 
     // manager_sub_011292B0: every surface but one kind (0x280000000).
-    bool notKind28(const G &g, uint32_t id, uint64_t &out)
+    bool notKind28(const G g, uint32_t id, uint64_t &out)
     {
         uint32_t record;
         if (!attributeAddress(g, id, record))
@@ -1300,7 +1371,7 @@ namespace decomp_collision
     }
 
     // pathJudgeFunc (0x14336a0): the surfaces a path may cross.
-    bool pathJudge(const G &g, uint32_t id, uint64_t &out)
+    bool pathJudge(const G g, uint32_t id, uint64_t &out)
     {
         uint32_t record;
         if (!attributeAddress(g, id, record))
@@ -1326,7 +1397,7 @@ namespace decomp_collision
                        kPathJudge = 0x014336A0u;
 
     // An id filter run natively when it is one of the above (false: run it as guest code).
-    bool idFilter(const G &g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out)
+    bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out)
     {
         switch (filter)
         {
@@ -1381,7 +1452,7 @@ namespace decomp_collision
     // skinned surfaces. A hit shortens the segment for the rest.
     constexpr uint32_t kDirectCallBack = 0x0112D590u;
 
-    void putf(const G &g, uint32_t a, float f)
+    void putf(const G g, uint32_t a, float f)
     {
         uint32_t bits;
         std::memcpy(&bits, &f, 4);
@@ -1389,7 +1460,7 @@ namespace decomp_collision
     }
 
     // GetLayoutClass natively, or as a guest call when it calls out.
-    uint32_t layoutClassAny(const G &g, uint32_t object, uint32_t ra, uint32_t sp)
+    uint32_t layoutClassAny(const G g, uint32_t object, uint32_t ra, uint32_t sp)
     {
         uint32_t cls;
         if (layoutClass(g, object, cls))
@@ -1399,10 +1470,21 @@ namespace decomp_collision
     }
 
     // The boundary cylinder test (x^2 + y^2 < r^2, -r < z < length + r), f0 as left.
-    bool cylinder(const G &g, __m128 c, float r, float length, bool sumInF0)
+    bool cylinder(const G g, __m128 c, float r, float length, bool sumInF0)
     {
         float v[4];
         std::memcpy(v, &c, 16);
+        // The plain-float rejection of the leaf (see there): c is clamped.
+        if (!sumInF0)
+        {
+            const float px = v[0] * v[0], py = v[1] * v[1], r2p = r * r;
+            const float sp2 = px + py;
+            if (__builtin_expect(std::isfinite(sp2) && std::isfinite(r2p) && sp2 > r2p * 1.0000019f, 1))
+            {
+                g.f0(py);
+                return false;
+            }
+        }
         const float r2 = FPU_MUL_S(r, r);
         const float x2 = FPU_MUL_S(v[0], v[0]), y2 = FPU_MUL_S(v[1], v[1]);
         const float sum = sumInF0 ? FPU_ADD_S(x2, y2) : FPU_ADD_S(x2, y2);
@@ -1422,7 +1504,7 @@ namespace decomp_collision
     }
 
     // The matrix at m by the one at by: by x each of m's rows.
-    void matrixProduct(const G &g, uint32_t out, uint32_t by, uint32_t m)
+    void matrixProduct(const G g, uint32_t out, uint32_t by, uint32_t m)
     {
         const vu::Rows rows{{vu::clamp(g.q(by)), vu::clamp(g.q(by + 0x10u)), vu::clamp(g.q(by + 0x20u)), vu::clamp(g.q(by + 0x30u))}};
         __m128 r[4];
@@ -1432,13 +1514,55 @@ namespace decomp_collision
             g.put(out + i * 0x10u, r[i]);
     }
 
-    bool directFilter(const G &g, uint32_t filter, uint32_t id, uint32_t user, uint32_t ra, uint32_t sp)
+    bool directFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint32_t ra, uint32_t sp)
     {
         uint64_t pass;
         if (idFilter(g, filter, id, user, pass))
             return pass != 0u;
         call(g, filter, ra, sp, {id, user});
         return GPR_U64(g.ctx, 2) != 0u;
+    }
+
+    // isysGroupForNext (0x1c76d0, decomp_group.cpp's): the next entry of the
+    // chain not being deleted whose object is not hidden, the iteration
+    // counts moved on; false (nothing written) when something is outside
+    // main RAM: the guest call.
+    bool groupNext(const G g, uint32_t entry, uint32_t &result)
+    {
+        constexpr uint32_t kEntries = 0x0021B900u;
+        auto ok = [](uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a; };
+        if (!ok(entry, 0x10u))
+            return false;
+        const uint32_t current = g.u32(entry);
+        uint32_t index = g.u16(entry + 0xEu);
+        for (uint32_t steps = 0;; ++steps)
+        {
+            if (index == 0u)
+            {
+                result = 0u;
+                return true;
+            }
+            const uint32_t e = kEntries + index * 24u;
+            if (!ok(e, 0x10u) || steps > 0x10000u)
+                return false;
+            if (g.u8(e + 0xCu) != 0u)
+            {
+                index = g.u16(e + 0xEu);
+                continue;
+            }
+            const uint32_t object = g.u32(e);
+            if (!ok(object, 0xCu) || !ok(current, 0xAu))
+                return false;
+            if ((g.u16(object + 0xAu) & 1u) != 0u)
+            {
+                index = g.u16(e + 0xEu);
+                continue;
+            }
+            g.rdram[current + 9u] = static_cast<uint8_t>(g.rdram[current + 9u] - 1u);
+            g.rdram[object + 9u] = static_cast<uint8_t>(g.rdram[object + 9u] + 1u);
+            result = e;
+            return true;
+        }
     }
 
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -1476,8 +1600,11 @@ namespace decomp_collision
             g.put32(sp + 0x1B8u, object);
             bool objectHit = false;
             bool tested = true;
+            COLL_STAT(directObjects);
             if (const uint32_t filter = g.u32(sp + 0x1A4u); filter != 0u)
             {
+                if (g_statsOn)
+                    countGuestFilter(filter | 2u);
                 call(g, filter, 0x0112D654u, sp, {object, user});
                 tested = GPR_U64(ctx, 2) != 0u;
             }
@@ -1751,8 +1878,17 @@ namespace decomp_collision
                 g.put32(sp + 0x1B4u, 1u);
                 g.put(sp + 0x80u, g.q(s5 + 0x40u));
             }
-            call(g, 0x001C76D0u, 0x0112E11Cu, sp, {g.u32(sp + 0x1BCu), 0u}); // isysGroupForNext
-            g.put32(sp + 0x1BCu, GPR_U32(ctx, 2));
+            // isysGroupForNext (decomp_group.cpp), inline as in decomp_walk.cpp:
+            // only v0 and memory are seen after it (round 22).
+            uint32_t nextEntry;
+            if (groupNext(g, g.u32(sp + 0x1BCu), nextEntry))
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(nextEntry));
+            else
+            {
+                call(g, 0x001C76D0u, 0x0112E11Cu, sp, {g.u32(sp + 0x1BCu), 0u}); // isysGroupForNext
+                nextEntry = GPR_U32(ctx, 2);
+            }
+            g.put32(sp + 0x1BCu, nextEntry);
         }
         if (const uint32_t last = g.u32(sp + 0x1B8u); last != 0u)
             call(g, 0x001C77B8u, 0x0112E140u, sp, {last, 0u}); // isysGroupForExit

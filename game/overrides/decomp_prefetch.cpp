@@ -47,7 +47,7 @@ namespace decomp_prefetch
     };
 
     // GetLayoutClass (decomp_layout.cpp) for the cases it answers natively; 0 otherwise.
-    uint32_t layoutClass(const Ram &m, uint32_t object)
+    uint32_t layoutClass(const Ram m, uint32_t object)
     {
         const uint32_t index = static_cast<uint32_t>(m.rdram[(object + 8u) & PS2_RAM_MASK]) - 9u;
         if (index >= 0xEu)
@@ -75,7 +75,7 @@ namespace decomp_prefetch
 
     // The common part: the object, its layout class, the instance, the
     // model header and its LOD record (+8), the matrix (+0x15c).
-    void objectLines(const Ram &m, uint32_t object, Record &r)
+    void objectLines(const Ram m, uint32_t object, Record &r)
     {
         r.object = object;
         r.count = 0;

@@ -47,6 +47,32 @@ namespace sotc_decomp
         };
         std::array<Checked, kMaxChecked> g_checked;
         std::unordered_map<uint32_t, PS2Runtime::RecompiledFunction> g_recompiled;
+        // recompiled()'s lookups, read-only once install() has run: open
+        // addressing on a power-of-two table (the map's prime modulo is a
+        // software division on the Vita: ~0.4% of the game thread, round 22).
+        struct RecompiledSlot
+        {
+            uint32_t address = 0;
+            PS2Runtime::RecompiledFunction fn = nullptr;
+        };
+        std::vector<RecompiledSlot> g_recompiledTable;
+        uint32_t g_recompiledMask = 0;
+        inline uint32_t recompiledHash(uint32_t a) { return (a >> 2) * 2654435761u; }
+        void buildRecompiledTable()
+        {
+            uint32_t size = 64;
+            while (size < g_recompiled.size() * 4u)
+                size <<= 1;
+            g_recompiledTable.assign(size, RecompiledSlot{});
+            g_recompiledMask = size - 1u;
+            for (const auto &[address, fn] : g_recompiled)
+            {
+                uint32_t i = recompiledHash(address) & g_recompiledMask;
+                while (g_recompiledTable[i].address != 0u)
+                    i = (i + 1u) & g_recompiledMask;
+                g_recompiledTable[i] = {address, fn};
+            }
+        }
 
         // The registers a caller may rely on after the call.
         // (v1 too would be for 128-bit returns, which none of these has.)
@@ -348,6 +374,17 @@ namespace sotc_decomp
 
     PS2Runtime::RecompiledFunction recompiled(uint32_t address)
     {
+        if (g_recompiledMask != 0u && address != 0u)
+        {
+            for (uint32_t i = recompiledHash(address) & g_recompiledMask;; i = (i + 1u) & g_recompiledMask)
+            {
+                const RecompiledSlot &slot = g_recompiledTable[i];
+                if (slot.address == address)
+                    return slot.fn;
+                if (slot.address == 0u)
+                    return nullptr;
+            }
+        }
         const auto it = g_recompiled.find(address);
         return it == g_recompiled.end() ? nullptr : it->second;
     }
@@ -407,9 +444,13 @@ namespace sotc_decomp
         int replaced = 0, checked = 0;
         for (const Function &f : registry())
         {
-            if (!runtime.hasFunction(f.address) || listed(skip, f.name))
+            if (!runtime.hasFunction(f.address))
                 continue;
+            // Kept for a skipped one too: other natives reach the recompiled
+            // code through recompiled() (a skipped boundary crashed them).
             g_recompiled.emplace(f.address, runtime.lookupFunction(f.address));
+            if (listed(skip, f.name))
+                continue;
             if (listed(test, f.name) && checked < kMaxChecked)
             {
                 g_checked[checked].function = &f;
@@ -435,6 +476,7 @@ namespace sotc_decomp
             sotc_prof::noteAb(true);
             std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : "") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }
+        buildRecompiledTable();
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;
     }

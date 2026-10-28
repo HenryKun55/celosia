@@ -176,7 +176,7 @@ namespace decomp_quat
     // atanf (0x1dd538): f0, v0 as it leaves it.
     float atanfN(State &s, float x, uint32_t &v0)
     {
-        const Ram &ram = s.ram;
+        const Ram ram = s.ram;
         const uint32_t s1 = bitsOf(x);
         const int32_t ix = static_cast<int32_t>(s1 & 0x7FFFFFFFu);
         float f13 = x, f0, f1, f2;
@@ -364,7 +364,7 @@ namespace decomp_quat
     }
 
     // iosGetTableSin / iosGetTableCos: the quarter-wave table, v0 = index x 4.
-    float tableWave(const Ram &ram, int32_t a, uint32_t &v0)
+    float tableWave(const Ram ram, int32_t a, uint32_t &v0)
     {
         if (a < 0)
             a = static_cast<int32_t>(0u - static_cast<uint32_t>(a));
@@ -378,11 +378,11 @@ namespace decomp_quat
         const float f = ram.f32(kSinTable + v0);
         return negative ? neg(f) : f;
     }
-    float tableSin(const Ram &ram, uint32_t a0, uint32_t &v0)
+    float tableSin(const Ram ram, uint32_t a0, uint32_t &v0)
     {
         return tableWave(ram, static_cast<int32_t>((a0 << 16) + 0xC0000000u) >> 16, v0);
     }
-    float tableCos(const Ram &ram, uint32_t a0, uint32_t &v0) { return tableWave(ram, static_cast<int32_t>(a0 << 16) >> 16, v0); }
+    float tableCos(const Ram ram, uint32_t a0, uint32_t &v0) { return tableWave(ram, static_cast<int32_t>(a0 << 16) >> 16, v0); }
 
     // SetQuaternionByAxisRotateVWithNoRegularize(out, angle, axis): the
     // quaternion (written to out when `write`: else returned only), f0, v0.
@@ -406,7 +406,7 @@ namespace decomp_quat
     void diffQuatN(State &s, uint32_t out, uint32_t from, uint32_t to, uint32_t axis, uint32_t frame)
     {
         R5900Context *ctx = s.ctx;
-        const Ram &ram = s.ram;
+        const Ram ram = s.ram;
         const __m128 vf0 = s.vf0();
         __m128 &vf5 = s.w(5), &vf6 = s.w(6), &vf7 = s.w(7);
         __m128 &acc = s.a();

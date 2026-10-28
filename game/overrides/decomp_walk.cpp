@@ -239,7 +239,7 @@ namespace decomp_walk
     };
 
     // GetLayoutClass (decomp_layout.cpp) for its plain cases; a guest call for the others.
-    uint32_t layoutClass(const G &g, uint32_t object, uint32_t site, uint32_t sp)
+    uint32_t layoutClass(const G g, uint32_t object, uint32_t site, uint32_t sp)
     {
         const uint32_t index = static_cast<uint32_t>(g.m.u8(object + 8u)) - 9u;
         if (index >= 0xEu)
@@ -256,23 +256,23 @@ namespace decomp_walk
         return g.v0();
     }
     // GetCharacterClass (0x10c0a70): types 9 and 0x16.
-    inline uint32_t characterClass(const Ram &m, uint32_t object)
+    inline uint32_t characterClass(const Ram m, uint32_t object)
     {
         const uint8_t type = m.u8(object + 8u);
         return (type == 9u || type == 0x16u) ? object + 0x90u : 0u;
     }
     // GetGeoDispClass (0x10ed688): type 0x24.
-    inline uint32_t geoDispClass(const Ram &m, uint32_t object) { return m.u8(object + 8u) == 0x24u ? object + 0x20u : 0u; }
+    inline uint32_t geoDispClass(const Ram m, uint32_t object) { return m.u8(object + 8u) == 0x24u ? object + 0x20u : 0u; }
 
     // The sort lists (decomp_sortlist.cpp's GetNextSortObj / ClearSortList, GetFirstSortObj).
-    void clearSortList(const Ram &m, uint32_t list)
+    void clearSortList(const Ram m, uint32_t list)
     {
         if (0 < m.s32(list + 4u))
             for (int32_t i = 0; i < m.s32(list + 4u); ++i)
                 m.put32(m.u32(list) + static_cast<uint32_t>(i) * 4u, 0u);
         m.put32(list + 0x10u, 0u);
     }
-    uint32_t firstSortObj(const Ram &m, uint32_t list)
+    uint32_t firstSortObj(const Ram m, uint32_t list)
     {
         const int32_t count = m.s32(list + 4u);
         if (count <= 0)
@@ -289,7 +289,7 @@ namespace decomp_walk
         }
         return result;
     }
-    uint32_t nextSortObj(const Ram &m, uint32_t list, uint32_t current)
+    uint32_t nextSortObj(const Ram m, uint32_t list, uint32_t current)
     {
         if (current == 0u)
             return firstSortObj(m, list);
@@ -316,7 +316,7 @@ namespace decomp_walk
     // not being deleted whose object is not hidden, the iteration counts
     // moved on; false when something is outside main RAM (nothing written).
     constexpr uint32_t kEntries = 0x0021B900u;
-    bool groupNext(const Ram &m, uint32_t entry, uint32_t &result)
+    bool groupNext(const Ram m, uint32_t entry, uint32_t &result)
     {
         if (!Ram::ok(entry, 0x10u))
             return false;
@@ -372,7 +372,7 @@ namespace decomp_walk
     // corners and the registers are as it leaves them when it runs to the
     // end (when it stops early, VU0 holds more corners than it would: VU0 is
     // scratch to its callers).
-    uint32_t clipByMinMaxCube(R5900Context *ctx, const Ram &m, uint32_t lo, uint32_t hi, uint32_t mat)
+    uint32_t clipByMinMaxCube(R5900Context *ctx, const Ram m, uint32_t lo, uint32_t hi, uint32_t mat)
     {
         __m128 *vf = ctx->vu0_vf;
         const __m128 vf0 = vf[0];
@@ -425,7 +425,7 @@ namespace decomp_walk
     // the distance, then with the hysteresis +0x24 around the current level:
     // a coarser level only past its threshold + h, a finer one only below
     // the threshold - h.
-    float lodByDistance(const Ram &m, uint32_t record, float d, int32_t current)
+    float lodByDistance(const Ram m, uint32_t record, float d, int32_t current)
     {
         const float t1 = m.f32(record + 0x18u), t2 = m.f32(record + 0x1Cu), t3 = m.f32(record + 0x20u), h = m.f32(record + 0x24u);
         float f12;
@@ -466,7 +466,7 @@ namespace decomp_walk
     void modelClipSolid(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0xB0u;
         const uint32_t s2 = GPR_U32(ctx, 4), s3 = GPR_U32(ctx, 5);
         if (!Ram::ok(sp, 0xB0u) || !Ram::ok(s2, 0x260u) || !Ram::ok(s3, 0x40u) || !Ram::ok(m.u32(s2), 0x24u))
@@ -687,7 +687,7 @@ namespace decomp_walk
     void clipLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x20u;
         const uint32_t object = GPR_U32(ctx, 4);
         if (!Ram::ok(sp, 0x20u) || !Ram::ok(object, 0x10u))
@@ -804,7 +804,7 @@ namespace decomp_walk
     void solidDisp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x60u;
         const uint32_t s1 = GPR_U32(ctx, 5);
         if (!Ram::ok(sp, 0x60u) || !Ram::ok(s1, 0x1B8u) || !Ram::ok(m.u32(s1 + 0x144u), 0x290u))
@@ -999,7 +999,7 @@ namespace decomp_walk
     constexpr uint32_t kGlLoadMatrixf = 0x0108ED78u, kScreenCopy = 0x010F37C8u, kGlZOffset = 0x0108F3B0u;
 
     // glColor4f (0x108e8b8): r, g, b x 255 and a x 128, each clamped to 0..255.
-    void glColor4f(R5900Context *ctx, const Ram &m, float r, float gr, float b, float a)
+    void glColor4f(R5900Context *ctx, const Ram m, float r, float gr, float b, float a)
     {
         const float f2 = 255.0f;
         m.putf(kGl + 0x90u, FPU_MUL_S(r, 255.0f));
@@ -1022,7 +1022,7 @@ namespace decomp_walk
         ctx->f[0] = f0;
     }
     // glTexCoord2f (0x108e9c8): (s, t, 1, 0).
-    void glTexCoord2f(R5900Context *ctx, const Ram &m, float s, float t)
+    void glTexCoord2f(R5900Context *ctx, const Ram m, float s, float t)
     {
         m.putf(kGl + 0xA0u, s);
         m.putf(kGl + 0xA4u, t);
@@ -1034,9 +1034,9 @@ namespace decomp_walk
     // bits 0, 1 and 3 of the state say so; its texture coordinates), the
     // position into the vertex ring, then 0108D730 (a guest call: the tail
     // jump, from our frame).
-    void glVertex3fv(const G &g, uint32_t vertex, uint32_t site, uint32_t sp)
+    void glVertex3fv(const G g, uint32_t vertex, uint32_t site, uint32_t sp)
     {
-        const Ram &m = g.m;
+        const Ram m = g.m;
         R5900Context *ctx = g.ctx;
         uint64_t state = (m.u64(kGl + 0x1B0u) & ~9ull) | 8u;
         m.put64(kGl + 0x1B0u, state);
@@ -1117,7 +1117,7 @@ namespace decomp_walk
     void glVertexKick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x90u;
         const uint32_t index = GPR_U32(ctx, 4);
         const uint32_t camera = m.u32(kGl);
@@ -1387,7 +1387,7 @@ namespace decomp_walk
     // iosgluGetViewCoordPosition (0x108f678; out, point): the point through
     // the current view (the stack at 0x1214ee0) and the camera's +0x660,
     // divided by w, x / y less 2048.
-    void viewCoord(R5900Context *ctx, const Ram &m, uint32_t out, uint32_t point)
+    void viewCoord(R5900Context *ctx, const Ram m, uint32_t out, uint32_t point)
     {
         const __m128 vf0 = ctx->vu0_vf[0];
         const uint32_t view = kViewStack + (m.u32(kViewIndex) << 6), cam = m.u32(kGl) + 0x660u;
@@ -1424,7 +1424,7 @@ namespace decomp_walk
     void strips(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x1F0u;
         const uint32_t cameraClass = GPR_U32(ctx, 4), chara = GPR_U32(ctx, 5), lc = GPR_U32(ctx, 6);
         if (!Ram::ok(sp, 0x1F0u) || !Ram::ok(chara, 0x1144u) || !Ram::ok(lc, 0x170u) || !Ram::ok(cameraClass, 0x170u) ||
@@ -1761,7 +1761,7 @@ namespace decomp_walk
     void dispLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x20u;
         const uint32_t object = GPR_U32(ctx, 5), camera = GPR_U32(ctx, 4);
         if (!Ram::ok(sp, 0x20u) || !Ram::ok(object, 0x10u))
@@ -1872,7 +1872,7 @@ namespace decomp_walk
     void dispDispObjGroupModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
-        const Ram &m = g.m;
+        const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x80u;
         if (!Ram::ok(sp, 0x80u))
             return sotc_decomp::recompiled(kWalk)(rdram, ctx, runtime);
