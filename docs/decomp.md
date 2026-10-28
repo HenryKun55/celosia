@@ -3231,6 +3231,88 @@ the Vita3K window in front (X = Cross).
    the area change's frames at 222.
 3. The Metal bloom's trail on the Mac (same title pan, GS against native).
 
+## Round 21: where ExecCharaGeometry's "self" goes (2026-10-28)
+
+The Mac was on battery the whole round (34% at the start, 19% after the
+third Mac run; no sleep): three measurements, then reading and writing
+only. No game code changed, no build, no VPK: celosia-r20.vpk is still
+the current one.
+
+**ExecCharaGeometry's 6.8 ms "self" is not its body.** The subsystem
+profiler counts every callee it does not wrap as the caller's own time.
+With ExecCharaGeometry's 30 callees wrapped (SOTC_SUBSYS_PROF_EXTRA,
+calibrated Vita3K at 222 on the route, celosia-r20.vpk, r21/profx-222;
+25 windows from frame 3 700, ms / frame inclusive / self):
+
+| function | inclusive | self | calls |
+|---|---|---|---|
+| ExecCharaGeometry (the body itself) | 17.2 | **0.86** | 9.0 |
+| GetCharaRootDynamics (0x10d9fc0) | 4.83 | 3.32 | 4.2 |
+| CalcNodeQuaternionWithIK | 3.97 | 2.36 | 9.0 |
+| GetMotionMatrix | 2.8 | 0.33 | 18 |
+| CalcRootFitting | 1.73 | 0.95 | 9.0 |
+| ExecCharaGeometryPreprocess | 1.48 | 1.01 | 9.0 |
+| GetClothDynamics | 1.41 | 0.85 | 7.0 |
+| UpdateLayoutClassGeometry (native) | 0.91 | 0.91 | 9.1 |
+| manager_sub_010BC4F0 | 0.91 | 0.84 | 9.0 |
+| AddCharacterClassSubGeometries | 0.46 | 0.38 | 13 |
+
+The body's two bone loops (the quaternion normalisation, the bone matrix
+products under bit 3 of +0x1bc) and its VU0 blocks are 0.86 ms for nine
+characters: a native body would save part of that, not 6.8 ms. The probes
+cost ~0.6 us a call (4 800 calls a frame with the extras: the frame went
+57 -> 66-76 ms), so the small callees' numbers are high by that.
+
+Below them, on the Mac (SOTC_SUBSYS_PROF_MIN=0.001, r21/mac-prof3, us per
+frame self; the Mac's recompiled code runs ~33x faster than Vita3K at
+222, CalcNodeQuaternionWithIK 0.11 against 3.97 ms):
+- GetCharaRootDynamics: its own 24 us of 105; under it xz (0x10e7610, the
+  ground mode, Wander and Agro, 2 calls) 80 us inclusive and 10.5 self,
+  spread over ~30 callees: charrootdyn_getCollisionDB 20.7, the probed
+  collision finders 13.6, GetGeometryPointerPosition 7.0 (x32),
+  slidecollision 6.7, addSlideElement 6.1, getWaterStatus / getGPPlaneInfo
+  4 each, the rest under 3.5. Flat again.
+- CalcNodeQuaternionWithIK: 66 of 119 self; manager_sub_010C32E8 31 us is
+  only a jalr to the character's IK callback (+0x11f8): the time is in the
+  callbacks (per character class, not identified yet).
+- ClipCollisionDirectCallBack (native since 2026-10-21) is the largest
+  single self on the route at 222: 5.23 ms for 15.7 calls (0.33 ms a call).
+
+**DispDispObjGroupModel's 5.5 ms self is native code** (decomp_walk.cpp,
+round 7: the walk, ClipLayoutObjModel, modelClipSolid, DispLayoutObjModel,
+010F3A08 inline). 5.66 ms at 222 is our own C++ (plus the guest callees it
+calls without a probe: modelClipSkin, the skin palette, 01097F88). Making
+it faster is host-code work (memory access, the per-object guest calls),
+measured with the Vita3K host profile, not a new decomp.
+
+**Not done this round** (battery): a native, the fight's measurement, the
+cut frame, the area change, the Metal bloom trail, the NATIVE=1 drift. No
+Vita3K timing tables: nothing changed since round 20's.
+
+**Files:** build/agent-scratch/r21/ (v3k.sh: r20's, logs to r21/;
+env-prof-extra.txt: the route's profile with ExecCharaGeometry's callees
+wrapped, names padded; profx-222-*; mac-prof, mac-prof2, mac-prof3);
+build/agent-scratch/env-r21-console.txt (SOTC_FRAME_LOG, SOTC_AUDIO_LOG) and
+env-r21-console-fightprof.txt (the same with SOTC_SUBSYS_PROF and the
+extras: a fight's profile from the console itself, with celosia-r20.vpk;
+the probes slow the frame by ~15-30%).
+
+**Round 22 (plan).**
+1. On AC first. The colossus fight: the user's console run with
+   env-r21-console-fightprof.txt gives the fight's profile on the real
+   machine; in Vita3K, a route from the console card's shrine save to
+   colossus 3 (input script) or a position poke.
+2. Whole subsystems, by the table above: the root dynamics' ground mode
+   (xz with getCollisionDB, the slide and plane helpers: one native unit,
+   0x10e7610 and its charrootdyn_* callees), the IK callbacks under
+   CalcNodeQuaternionWithIK (find them: +0x11f8 of the character class),
+   ExecCharaGeometryPreprocess / CalcRootFitting, then ExecCharaGeometry's
+   body with them inline.
+3. Host-side: ClipCollisionDirectCallBack (0.33 ms a call at 222) and the
+   display walk's 5.7 ms in the Vita3K host profile (VITA3K_PROFILE).
+4. Carried over: the cut frame, the area change's frames over 50 ms, the
+   Metal bloom trail, the SOTC_NATIVE=1 drift from vb 2 880.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
