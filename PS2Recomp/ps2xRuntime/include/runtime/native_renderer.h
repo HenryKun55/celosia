@@ -395,6 +395,9 @@ namespace native_renderer
     };
     void setDepthOfField(const DepthOfField &dof);
     void endFrame(uint32_t width, uint32_t height);
+    // Returns once every frame handed to a backend's own thread is drawn
+    // (the recorder's replay reads each picture back right after).
+    void finishFrames();
 
     // Shown instead of the emulated picture (the emulator's present path asks).
     void setShown(bool shown);

@@ -3,6 +3,7 @@
 // the GL path against Metal); the Vita: OpenGL (vitaGL); elsewhere none.
 #include "native_backend.h"
 #include "runtime/native_tuning.h"
+#include "runtime/native_recorder.h"
 #include "ThreadNaming.h"
 #include "runtime/ps2_stats.h"
 #include "ps2x/iop/audio_stats.h"
@@ -77,7 +78,7 @@ namespace native_renderer
     static void qualityFromEnv(Tuning &d)
     {
         auto number = [](const char *name, float fallback) { return std::getenv(name) ? static_cast<float>(std::atof(std::getenv(name))) : fallback; };
-        d.renderScale = number("SOTC_RENDER_SCALE", d.renderScale);
+        d.renderScale = std::clamp(number("SOTC_RENDER_SCALE", d.renderScale), kMinRenderScale, kMaxRenderScale);
         if (std::getenv("SOTC_MSAA")) // samples: 1/2/4/8
         {
             const int samples = std::atoi(std::getenv("SOTC_MSAA"));
@@ -263,6 +264,13 @@ namespace native_renderer
         return out.empty() ? "(the defaults)" : out;
     }
 
+#if defined(__vita__)
+#define PS2X_VITA_SCALE_NOTE_EN " On the Vita the resolution goes up to 2x (High and Ultra draw at 2x there: more does not fit in its memory)."
+#define PS2X_VITA_SCALE_NOTE_PT " No Vita a resolução vai até 2x (Alto e Ultra desenham em 2x lá: mais que isso não cabe na memória dele)."
+#else
+#define PS2X_VITA_SCALE_NOTE_EN ""
+#define PS2X_VITA_SCALE_NOTE_PT ""
+#endif
     const std::vector<TuningItem> &tuningItems()
     {
         static const std::vector<TuningItem> items = []
@@ -271,15 +279,20 @@ namespace native_renderer
             {"quality_preset", "Graphics preset", "Predefinição gráfica",
              "Sets resolution, anti-aliasing, texture filtering, model detail and effect detail at once. Low: half resolution (faster). "
              "Medium: the PS2's 512 x 448 (the Vita's default). High: 3x (the Mac's default). Ultra: 4x, 4x MSAA, 16x anisotropic, finest models, "
-             "high effect detail (Mac). Changing any of those makes it Custom.",
+             "high effect detail (Mac). Changing any of those makes it Custom." PS2X_VITA_SCALE_NOTE_EN,
              "Ajusta resolução, anti-aliasing, filtro de texturas, detalhe dos modelos e dos efeitos de uma vez. Baixo: metade da resolução (mais rápido). "
              "Médio: os 512 x 448 do PS2 (o padrão do Vita). Alto: 3x (o padrão do Mac). Ultra: 4x, MSAA 4x, anisotrópico 16x, modelos mais detalhados, "
-             "efeitos em alto detalhe (Mac). Mudar qualquer um deles vira Personalizado.",
+             "efeitos em alto detalhe (Mac). Mudar qualquer um deles vira Personalizado." PS2X_VITA_SCALE_NOTE_PT,
              nullptr, &Tuning::preset, 0.0f, 4.0f, 1.0f, "SOTC_PRESET"},
             {"render_scale", "Resolution", "Resolução",
+#if defined(__vita__)
+             "The picture is drawn at 512 x 448 times this: 0.5 is faster, 1 is the PS2's, 1.5 and 2 are sharper. At most 2 on the Vita (more does not fit in its memory).",
+             "A imagem é desenhada em 512 x 448 vezes este valor: 0,5 é mais rápido, 1 é a do PS2, 1,5 e 2 ficam mais nítidas. No máximo 2 no Vita (mais que isso não cabe na memória dele).",
+#else
              "The picture is drawn at 512 x 448 times this: 0.5 is faster, 1 is the PS2's, 2 to 4 are sharper.",
              "A imagem é desenhada em 512 x 448 vezes este valor: 0,5 é mais rápido, 1 é a do PS2, 2 a 4 ficam mais nítidas.",
-             nullptr, &Tuning::renderScale, 0.5f, 4.0f, 0.5f, "SOTC_RENDER_SCALE"},
+#endif
+             nullptr, &Tuning::renderScale, kMinRenderScale, kMaxRenderScale, 0.5f, "SOTC_RENDER_SCALE"},
             {"msaa", "Anti-aliasing (MSAA)", "Anti-aliasing (MSAA)",
              "Metal (Mac) only: smooths the edges of the 3D models with 2, 4 or 8 samples a pixel (as many as the GPU has). Costs GPU memory and time, more at a high resolution. "
              "OpenGL / Vita: not available.",
@@ -353,6 +366,26 @@ namespace native_renderer
         };
         // Round 20: the switches to flip on the console without a reboot,
         // first in the Debug group.
+        {
+            // The scene recorder (round 25), first in the Debug tab: one click,
+            // then everything the renderer gets goes to disk from when the
+            // menu closes.
+            TuningItem item{"dbg_record", "Record scene", "Gravar cena",
+                            "X: on, and recording starts when this menu closes (REC in the corner). Everything the renderer draws goes to "
+                            "ux0:data/celosia/rec/<date> (logs/rec on the Mac): each frame's draw list and timing, the pad, and every few frames "
+                            "the whole frame, to be drawn again on the Mac (tools/rec.py). It goes on through cutscenes and area changes and stops "
+                            "on X again, after 15 minutes, at 700 MB or when the card is nearly full. The game may run a little slower while it records.",
+                            "X: liga, e a gravação começa quando este menu fecha (REC no canto). Tudo o que o renderizador desenha vai para "
+                            "ux0:data/celosia/rec/<data> (logs/rec no Mac): a lista de desenho e o tempo de cada quadro, o controle, e a cada "
+                            "poucos quadros o quadro inteiro, pra ser desenhado de novo no Mac (tools/rec.py). Continua por cutscenes e trocas de "
+                            "área e para com X de novo, depois de 15 minutos, em 700 MB ou com o cartão quase cheio. O jogo pode ficar um pouco "
+                            "mais lento enquanto grava.",
+                            nullptr, nullptr, 0, 1, 1, nullptr};
+            item.action = native_recorder::toggle;
+            item.actionText = native_recorder::statusText;
+            item.debug = true;
+            v.push_back(item);
+        }
         {
             TuningItem item{"dbg_mark", "Mark this moment", "Marcar este momento",
                             "Writes \"[mark] <n> frame <f>\" to the log (err.txt on the Vita), to find this moment in it later (a hitch, a glitch).",
@@ -610,7 +643,7 @@ namespace native_renderer
         if (preset < 0 || preset >= kPresetCustom)
             return;
         const PresetValues &p = kPresets[preset];
-        t.renderScale = p.renderScale;
+        t.renderScale = std::clamp(p.renderScale, kMinRenderScale, kMaxRenderScale); // the Vita: at most 2x (kMaxRenderScale)
         t.msaa = p.msaa;
         t.textureFilter = p.textureFilter;
         t.modelDetail = p.modelDetail;
@@ -618,15 +651,22 @@ namespace native_renderer
         t.preset = static_cast<float>(preset);
     }
 
+    static bool presetMatches(const Tuning &t, int i)
+    {
+        const PresetValues &p = kPresets[i];
+        return t.renderScale == std::clamp(p.renderScale, kMinRenderScale, kMaxRenderScale) && t.msaa == p.msaa && t.textureFilter == p.textureFilter &&
+               t.modelDetail == p.modelDetail && t.effectDetail == p.effectDetail;
+    }
     int matchingPreset(const Tuning &t)
     {
+        // The one picked last when it still matches (should two presets
+        // ever have the same values on a platform, cycling still moves on).
+        const int last = static_cast<int>(t.preset + 0.5f);
+        if (last >= 0 && last < kPresetCustom && presetMatches(t, last))
+            return last;
         for (int i = 0; i < kPresetCustom; ++i)
-        {
-            const PresetValues &p = kPresets[i];
-            if (t.renderScale == p.renderScale && t.msaa == p.msaa && t.textureFilter == p.textureFilter && t.modelDetail == p.modelDetail &&
-                t.effectDetail == p.effectDetail)
+            if (presetMatches(t, i))
                 return i;
-        }
         return kPresetCustom;
     }
 
@@ -1123,9 +1163,12 @@ namespace native_renderer
         return a.anyPending() && a.pending.count(id);
     }
 
-    bool hasMesh(uint64_t id) { return backend() && (g_backend->hasMesh(id) || asyncPending(id)); }
-    bool meshKnown(uint64_t id) { return backend() && g_backend->hasMesh(id); }
-    uint64_t meshEvictions() { return backend() ? g_backend->meshEvictions() : 0u; }
+    // While the scene recorder records, what it has not got yet is "not
+    // there": the hooks build and upload it again, and it is recorded.
+    inline bool recorded(uint64_t id) { return !native_recorder::active() || native_recorder::front::known(id); }
+    bool hasMesh(uint64_t id) { return backend() && ((g_backend->hasMesh(id) && recorded(id)) || asyncPending(id)); }
+    bool meshKnown(uint64_t id) { return backend() && g_backend->hasMesh(id) && recorded(id); }
+    uint64_t meshEvictions() { return (backend() ? g_backend->meshEvictions() : 0u) + native_recorder::front::epoch(); }
     // SOTC_NATIVE_LOG_UPLOADS=1: uploads per frame (meshes: static / per-frame
     // ones, the ids with a top bit set; textures), every 60 frames.
     struct UploadStats
@@ -1162,6 +1205,8 @@ namespace native_renderer
             (perFrame ? g_uploads.frameMeshes : g_uploads.staticMeshes) += 1;
             (perFrame ? g_uploads.frameBytes : g_uploads.staticBytes) += static_cast<uint64_t>(count) * sizeof(Vertex);
         }
+        if (native_recorder::active())
+            native_recorder::front::mesh(id, vertices, count, perFrame);
         if (!backend())
             return;
         if (!tuning().frameTiming())
@@ -1180,12 +1225,17 @@ namespace native_renderer
     {
         Vertex *v = backend() ? g_backend->frameMesh(count) : nullptr;
         g_tapFrameMesh = v;
+        if (native_recorder::active())
+            native_recorder::front::frameMeshRoom(v, nullptr, 0);
         return v;
     }
     uint32_t *frameMeshIndices(uint32_t count, uint32_t &base)
     {
         base = 0;
-        return backend() ? g_backend->frameMeshIndices(count, base) : nullptr;
+        uint32_t *indices = backend() ? g_backend->frameMeshIndices(count, base) : nullptr;
+        if (native_recorder::active() && indices)
+            native_recorder::front::frameMeshRoom(nullptr, indices, base);
+        return indices;
     }
     void commitFrameMesh(uint64_t id, uint32_t count, uint32_t indexCount)
     {
@@ -1197,6 +1247,8 @@ namespace native_renderer
             g_uploads.frameMeshes += 1;
             g_uploads.frameBytes += bytes;
         }
+        if (native_recorder::active())
+            native_recorder::front::commitFrameMesh(id, count, indexCount);
         if (!backend())
             return;
         g_backend->commitFrameMesh(id, count, indexCount);
@@ -1210,6 +1262,8 @@ namespace native_renderer
     bool gpuSkinning() { return tuning().gpuSkinning && backend() && g_backend->canSkin(); }
     void uploadSkinnedMesh(uint64_t id, const SkinVertex *vertices, uint32_t count, const uint32_t *indices, uint32_t indexCount)
     {
+        if (native_recorder::active())
+            native_recorder::front::skinnedMesh(id, vertices, count, indices, indexCount);
         if (!backend())
             return;
         const uint64_t start = tuning().frameTiming() ? nowUs() : 0u;
@@ -1226,10 +1280,15 @@ namespace native_renderer
     {
         if (g_drawTap && tapMeshes())
             g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, qwords, static_cast<size_t>(count) * 16u));
-        return backend() ? g_backend->framePalette(qwords, count) : 0u;
+        const uint32_t handle = backend() ? g_backend->framePalette(qwords, count) : 0u;
+        if (native_recorder::active())
+            native_recorder::front::palette(handle, qwords, count, false);
+        return handle;
     }
     void rewriteFramePalette(uint32_t handle, const float *qwords, uint32_t count)
     {
+        if (native_recorder::active())
+            native_recorder::front::palette(handle, qwords, count, true);
         if (backend() && handle)
             g_backend->rewriteFramePalette(handle, qwords, count);
     }
@@ -1238,7 +1297,7 @@ namespace native_renderer
         if (backend())
             g_backend->cancelFrameMesh();
     }
-    bool hasTexture(uint64_t id) { return backend() && (g_backend->hasTexture(id) || asyncPending(id)); }
+    bool hasTexture(uint64_t id) { return backend() && ((g_backend->hasTexture(id) && recorded(id)) || asyncPending(id)); }
     void uploadTexture(uint64_t id, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels)
     {
         if (g_uploads.on)
@@ -1246,6 +1305,8 @@ namespace native_renderer
             ++g_uploads.textures;
             g_uploads.textureBytes += static_cast<uint64_t>(width) * height * 4u;
         }
+        if (native_recorder::active())
+            native_recorder::front::texture(id, width, height, rgba, levels);
         if (!backend())
             return;
         if (!tuning().frameTiming())
@@ -1277,6 +1338,8 @@ namespace native_renderer
             g_dumpFile = std::fopen(g_dumpPath.c_str(), "w");
             g_dumpState = 2;
         }
+        if (native_recorder::active())
+            native_recorder::front::beginFrame();
         asyncBuilds().takeUp();
         if (backend())
             g_backend->beginFrame();
@@ -1363,13 +1426,21 @@ namespace native_renderer
         if (asyncBuilds().anyPending() && (asyncPending(mesh) || (state.texture && asyncPending(state.texture))))
         {
             ++frameCounters().heldDraws;
+            if (native_recorder::active())
+                native_recorder::front::draw(&mesh, 1, clip, state, 1);
             return;
         }
         // The menus' Debug group: what is drawn at all.
         const Tuning &t = tuning();
         if (((t.hiddenLayers >> (state.order & 31u)) & 1u) || (state.screen ? !t.draw2D : !t.drawWorld) || (state.overlay && !t.overlays) ||
             (state.blend == Blend::Additive && !t.additive) || (state.blend == Blend::Subtract && !t.subtract))
+        {
+            if (native_recorder::active())
+                native_recorder::front::draw(&mesh, 1, clip, state, 2);
             return;
+        }
+        if (native_recorder::active())
+            native_recorder::front::draw(&mesh, 1, clip, state, 0);
         if (!t.textures || !t.lighting)
         {
             DrawState s = state;
@@ -1407,6 +1478,8 @@ namespace native_renderer
         if (texturePending)
         {
             frameCounters().heldDraws += count;
+            if (native_recorder::active())
+                native_recorder::front::draw(meshes, count, clip, state, 1);
             return;
         }
         static std::vector<uint64_t> kept;
@@ -1422,13 +1495,29 @@ namespace native_renderer
                     kept.push_back(meshes[i]);
             list = kept.data();
             n = static_cast<uint32_t>(kept.size());
+            if (native_recorder::active() && n < count)
+            {
+                // the held ones (fate 1), apart
+                static std::vector<uint64_t> held;
+                held.clear();
+                for (uint32_t i = 0; i < count; ++i)
+                    if (asyncPending(meshes[i]))
+                        held.push_back(meshes[i]);
+                native_recorder::front::draw(held.data(), static_cast<uint32_t>(held.size()), clip, state, 1);
+            }
             if (n == 0u)
                 return;
         }
         const Tuning &t = tuning();
         if (((t.hiddenLayers >> (state.order & 31u)) & 1u) || (state.screen ? !t.draw2D : !t.drawWorld) || (state.overlay && !t.overlays) ||
             (state.blend == Blend::Additive && !t.additive) || (state.blend == Blend::Subtract && !t.subtract))
+        {
+            if (native_recorder::active())
+                native_recorder::front::draw(list, n, clip, state, 2);
             return;
+        }
+        if (native_recorder::active())
+            native_recorder::front::draw(list, n, clip, state, 0);
         if (!t.textures || !t.lighting)
         {
             DrawState s = state;
@@ -1447,26 +1536,36 @@ namespace native_renderer
     }
     void setFog(const Fog &fog)
     {
+        if (native_recorder::active())
+            native_recorder::front::fog(fog);
         if (backend())
             g_backend->setFog(fog);
     }
     void setBloom(const Bloom &bloom)
     {
+        if (native_recorder::active())
+            native_recorder::front::bloom(bloom);
         if (backend())
             g_backend->setBloom(bloom);
     }
     void addScreenBlur(const ScreenBlur &blur)
     {
+        if (native_recorder::active())
+            native_recorder::front::blur(blur);
         if (backend())
             g_backend->addScreenBlur(blur);
     }
     void setGlowComposite(const GlowComposite &glow)
     {
+        if (native_recorder::active())
+            native_recorder::front::glow(glow);
         if (backend())
             g_backend->setGlowComposite(glow);
     }
     void setDepthOfField(const DepthOfField &dof)
     {
+        if (native_recorder::active())
+            native_recorder::front::dof(dof);
         if (backend())
             g_backend->setDepthOfField(dof);
     }
@@ -1502,6 +1601,23 @@ namespace native_renderer
                 std::fprintf(stderr, "[quality] frame %llu: %s\n", static_cast<unsigned long long>(frames - 1u), names[i]);
             }
         }
+        // SOTC_SCALE_CYCLE=N (testing a live resolution change, round 25):
+        // every N frames the next render scale of 0.5, 1, 1.5, 2 (up to
+        // kMaxRenderScale), as the menu's Resolution item sets it.
+        static const int scaleCycle = std::getenv("SOTC_SCALE_CYCLE") ? std::atoi(std::getenv("SOTC_SCALE_CYCLE")) : 0;
+        if (scaleCycle > 0)
+        {
+            static uint64_t frames = 0;
+            static int next = 0;
+            if (++frames % static_cast<uint64_t>(scaleCycle) == 0u)
+            {
+                static const float scales[] = {0.5f, 1.0f, 1.5f, 2.0f, 1.5f, 1.0f};
+                Tuning &t = tuning();
+                t.renderScale = std::clamp(scales[next++ % 6], kMinRenderScale, kMaxRenderScale);
+                t.preset = static_cast<float>(matchingPreset(t));
+                std::fprintf(stderr, "[scale-cycle] frame %llu: render scale %g\n", static_cast<unsigned long long>(frames), t.renderScale);
+            }
+        }
         if (g_dumpFile)
         {
             std::fclose(g_dumpFile);
@@ -1519,6 +1635,8 @@ namespace native_renderer
             heldRun = hold ? heldRun + 1u : 0u;
             if (hold && backend())
                 g_backend->holdFrame();
+            if (native_recorder::active())
+                native_recorder::front::endFrame(width, height, hold);
         }
         if (backend())
         {
@@ -1541,6 +1659,11 @@ namespace native_renderer
                          u.textures / 60.0, u.textureBytes / 60.0 / 1024.0, u.draws / 60.0);
             u.staticMeshes = u.staticBytes = u.frameMeshes = u.frameBytes = u.textures = u.textureBytes = u.draws = 0;
         }
+    }
+    void finishFrames()
+    {
+        if (g_backend)
+            g_backend->finishFrames();
     }
     void setShown(bool shown) { g_shown.store(shown, std::memory_order_relaxed); }
     bool shown() { return g_shown.load(std::memory_order_relaxed); }

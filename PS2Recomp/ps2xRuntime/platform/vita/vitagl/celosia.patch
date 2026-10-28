@@ -335,7 +335,7 @@ index 15e59ea..37a0989 100644
 +	return GL_TRUE;
 +}
 diff --git a/source/gxm.c b/source/gxm.c
-index 4cbb40b..d1be632 100644
+index 4cbb40b..5b6b7ee 100644
 --- a/source/gxm.c
 +++ b/source/gxm.c
 @@ -69,6 +69,10 @@ static GLboolean needs_scene_reset = GL_TRUE; // Flag for when a scene reset is
@@ -349,7 +349,44 @@ index 4cbb40b..d1be632 100644
  GLenum vgl_error = GL_NO_ERROR; // Error returned by glGetError
  SceGxmShaderPatcher *gxm_shader_patcher; // sceGxmShaderPatcher shader patcher instance
  GLboolean is_fbo_float = GL_FALSE; // Current framebuffer mode
-@@ -618,6 +622,7 @@ void scene_reset(void) {
+@@ -305,6 +309,36 @@ int garbage_collector(unsigned int args, void *arg) {
+ #endif
+ }
+ 
++// Celosia: everything marked for deletion freed now, not 4 frames later.
++// Only after glFinish (the GPU idle): a renderer that remakes its render
++// targets at another size (a live resolution change) otherwise holds the old
++// and the new ones at once for 4 frames, which the Vita's memory may not.
++void vglCollectGarbageNow(void) {
++#ifndef HAVE_SINGLE_THREADED_GC
++	// The collector thread idle, nothing queued for it.
++	sceKernelWaitSema(gc_mutex[1], FRAME_PURGE_FREQ, NULL);
++#endif
++	for (int l = 0; l < FRAME_PURGE_FREQ; l++) {
++		for (int i = 0; i < FRAME_PURGE_LIST_SIZE; i++) {
++			if (!frame_purge_list[l][i])
++				break;
++			vgl_free(frame_purge_list[l][i]);
++			frame_purge_list[l][i] = NULL;
++		}
++		for (int i = 0; i < FRAME_PURGE_RENDERTARGETS_LIST_SIZE; i++) {
++			if (!frame_rt_purge_list[l][i])
++				break;
++			sceGxmDestroyRenderTarget(frame_rt_purge_list[l][i]);
++			frame_rt_purge_list[l][i] = NULL;
++		}
++	}
++	frame_elem_purge_idx = 0;
++	frame_rt_purge_idx = 0;
++#ifndef HAVE_SINGLE_THREADED_GC
++	sceKernelSignalSema(gc_mutex[1], FRAME_PURGE_FREQ);
++#endif
++}
++
+ GLboolean start_shader_compiler(void) {
+ 	shark_set_allocators(vglMalloc, vglFree);
+ 	is_shark_online = shark_init(NULL) >= 0;
+@@ -618,6 +652,7 @@ void scene_reset(void) {
  				shared_fb_info.vsync = vsync_interval;
  				gxm_back_buffer_index = (shared_fb_info.index + 1) % 2;
  			}
@@ -357,7 +394,7 @@ index 4cbb40b..d1be632 100644
  			int r = sceGxmBeginScene(gxm_context, 0, gxm_render_target,
  				NULL, NULL,
  				gxm_sync_objects[gxm_back_buffer_index],
-@@ -668,8 +673,10 @@ void scene_reset(void) {
+@@ -668,8 +703,10 @@ void scene_reset(void) {
  #ifdef RECYCLE_RENDERTARGETS
  			fbo_rt->last_frame = vgl_framecount;
  #endif
@@ -368,7 +405,7 @@ index 4cbb40b..d1be632 100644
  			int r = sceGxmBeginScene(gxm_context, 0, active_write_fb->target,
  #endif
  					NULL, NULL, NULL,
-@@ -975,13 +982,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -975,13 +1012,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  void glFinish(void) {
  	THREAD_SAFE()
  
@@ -600,16 +637,17 @@ index 014e790..0c6c201 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..2de2c8e 100644
+index eeec610..b18ec22 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1259,6 +1259,9 @@ void vglSetShaderAssociationPath(const char *path);
+@@ -1259,6 +1259,10 @@ void vglSetShaderAssociationPath(const char *path);
  
  // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
  void vglSetShaderCachePath(const char *path);
 +// celosia: called at each step of vglInit (weak no-op unless the application defines it).
 +void vglBootMark(const char *what);
 +GLboolean vglFramebufferShareDepth(GLuint dst, GLuint src);
++void vglCollectGarbageNow(void); // celosia: after glFinish, frees what is marked for deletion at once
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
  void vglSetTextureCacheFrequency(GLuint freq);

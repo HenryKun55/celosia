@@ -11,6 +11,7 @@
 #include <filesystem>
 #include "runtime/native_tuning.h"
 #include "runtime/host_menu.h"
+#include "runtime/native_recorder.h"
 #include "runtime/gs/gs_direct_frame.h"
 #include "ps2_log.h"
 #include "ps2_stubs.h"
@@ -1077,6 +1078,25 @@ bool PS2Runtime::initialize(const char *title)
 #endif
         ps2_stats::bootMark("window and renderers up");
         hostmenu::load();
+        // SOTC_REC_REPLAY=<recording> (round 25): the scene recorder's full
+        // captures drawn again by this build's renderer, to PNGs; no game.
+        if (native_recorder::replayRequested())
+        {
+            const int code = native_recorder::runReplay();
+            std::fflush(nullptr);
+            std::_Exit(code);
+        }
+        // The scene recorder's guest pc / ra samples (PS2X_PROFILE's source).
+        native_recorder::setSampler([](void *user, uint32_t &pc, uint32_t &ra)
+                                    {
+                                        auto *self = static_cast<PS2Runtime *>(user);
+                                        const R5900Context *context = self->m_eeScheduler ? self->m_eeScheduler->profileContext() : nullptr;
+                                        if (!context)
+                                            return false;
+                                        pc = context->pc;
+                                        ra = static_cast<uint32_t>(_mm_extract_epi32(context->r[31], 0));
+                                        return true; },
+                                    this);
         // The device's buffer (frames, 48 kHz): SDL keeps two. 1024 (21 ms)
         // everywhere until round 12; the Vita now 2048 (43 ms a buffer):
         // the mix runs on a core the game and the render thread also use,

@@ -68,6 +68,17 @@ captures each module (see below).
   the frame and sound logs (`SOTC_FRAME_LOG`, `SOTC_FRAME_LOG_ALL`,
   `SOTC_AUDIO_LOG`), the Vita's glow layer (`SOTC_GLOW_VITA`), the bloom's
   frame (`SOTC_BLOOM_SAMEFRAME`), and the renderer's other switches.
+  **Record scene** ("Gravar cena"): X once, close the menu, play; a "REC"
+  marker shows while everything the native renderer draws is written to
+  `ux0:data/celosia/rec/<date_time>/` (`logs/rec/` on the Mac): each
+  frame's draw list, effect settings, timing split, the pad and sampled
+  guest pcs, and every 10-60 frames the whole frame (matrices, states,
+  vertices, palettes, textures), through cutscenes and area changes. X
+  again stops it (or 15 min / 700 MB / a nearly full card).
+  `tools/rec.py` lists a recording, prints a frame's draws, exports its
+  textures and draws its full captures again with this build's renderer
+  to PNG (whole, without the glow composite, layer by layer); see
+  [docs/decomp.md](docs/decomp.md), round 25.
 - **F10** (Mac): the native renderer's panel. Resolution (× 512×448), bloom
   strength, fog amount and every effect on/off, changed live. "Print to log"
   gives the setting as `SOTC_*` variables that set it at start. The table is
@@ -196,6 +207,8 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 - `ghidra.sh`: Ghidra headless scripts;
 - `guest_profile.py` and `vita_profile.py`: the guest and Vita3K profilers;
 - `vita3k.sh`: a separate Vita3K tree for testing.
+- `rec.py`: reads a scene recording (Debug "Record scene") and draws its
+  frames again (`SOTC_REC_REPLAY`).
 
 ## Layout
 

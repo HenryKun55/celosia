@@ -24,6 +24,8 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/native_tuning.h"
+#include "runtime/native_recorder.h"
+#include "runtime/host_menu.h"
 #include "runtime/native_renderer.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/ps2_gs_psmct32.h"
@@ -912,6 +914,14 @@ namespace sotc_native
         }
         // SOTC_TEXDUMP_DIR=<dir> (debugging): level 0 of every decoded texture, raw RGBA.
         static const char *dumpDir = std::getenv("SOTC_TEXDUMP_DIR");
+        if (native_recorder::active())
+        {
+            // The scene recorder keeps each texture's PS2 source with it (the
+            // CLUT's words hashed: 16 or 256 entries of 32 bits).
+            const uint32_t clutBytes = psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u);
+            const uint64_t clut = clutBytes ? contentHash(header + word(header + 0x18u), clutBytes, 0xC1u) : 0u;
+            native_recorder::textureSource(key, header, psm, width, height, format, clut);
+        }
         const auto finish = [key, width, height, header, psm](const std::vector<uint8_t> &rgba, uint32_t decoded)
         {
             if (dumpDir)
@@ -2580,7 +2590,7 @@ namespace sotc_native
         g_bloomRan = false;
         // Drawn larger than the PS2's 512 x 448 (F10 / SOTC_RENDER_SCALE): the
         // geometry has no resolution; the effects measure in PS2 pixels.
-        const float scale = std::clamp(native_renderer::tuning().renderScale, 0.5f, 4.0f);
+        const float scale = std::clamp(native_renderer::tuning().renderScale, native_renderer::kMinRenderScale, native_renderer::kMaxRenderScale);
         native_renderer::endFrame(static_cast<uint32_t>(512.0f * scale + 0.5f), static_cast<uint32_t>(448.0f * scale + 0.5f));
         static const bool show = std::atoi(std::getenv("SOTC_NATIVE")) != 2; // 2: draw, keep the emulated picture
         native_renderer::setShown(show && native_renderer::tuning().showNative && g_frameDraws != 0);
@@ -2661,6 +2671,10 @@ namespace sotc_native
         {
             last = 0;
             c = {};
+            // The scene recorder armed (it starts here when the menu closes).
+            native_recorder::FrameInfo info;
+            info.gameFrame = g_frame;
+            native_recorder::frameInfo(info, hostmenu::isOpen());
             return;
         }
         const bool print = tune.frameLog;
@@ -2757,6 +2771,27 @@ namespace sotc_native
         if (hashStats)
             g_rekeyed = g_rekeyHits = 0;
         g_hashBytes[0] = g_hashBytes[1] = g_hashCalls[0] = g_hashCalls[1] = 0;
+        {
+            // The scene recorder (round 25): this frame's split, as the log has it.
+            native_recorder::FrameInfo info;
+            info.gameFrame = g_frame;
+            info.vblank = mark.vblanks;
+            info.timeUs = now;
+            info.periodUs = last ? now - last : 0u;
+            info.hookUs = c.hookUs, info.decodeUs = c.decodeUs, info.texUs = c.texUs, info.meshUs = c.meshUs, info.renderUs = c.renderUs;
+            info.presentUs = c.presentUs, info.waitUs = c.waitUs, info.jobUs = c.jobUs, info.joinUs = c.joinUs;
+            info.draws = c.draws, info.targets = c.targets, info.texUploads = c.texUploads, info.meshUploads = c.meshUploads, info.heldDraws = c.heldDraws;
+            info.asyncJobs = c.asyncJobs, info.asyncDone = c.asyncDone, info.jobs = c.jobs, info.texBytes = c.texBytes, info.meshBytes = c.meshBytes;
+            info.schedWaitUs = mark.wait - lastMark.wait, info.cdUs = mark.cdUs - lastMark.cdUs, info.cdBytes = mark.cdBytes - lastMark.cdBytes;
+            info.cdReads = mark.cdReads - lastMark.cdReads, info.vblanks = mark.vblanks - lastMark.vblanks;
+            info.gameDt = gameDt;
+            info.renderThread = c.renderThread;
+            // bossDeathEffect 0x1186290..0x11862cc, depthOfField 0x11862d0..0x11862ec
+            if (g_ram)
+                for (uint32_t i = 0; i < 24u; ++i)
+                    std::memcpy(&info.guestWords[i], g_ram + 0x1186290u + i * 4u, 4);
+            native_recorder::frameInfo(info, hostmenu::isOpen());
+        }
         last = now;
         lastMark = mark;
         c = {};
@@ -3518,6 +3553,9 @@ namespace sotc_native
                     ps2x::iop::audio_stats::setLevel(level);
             }
             audioLog();
+            // The idle thread's turn once a frame (round 25, sotc_overrides.cpp).
+            if (g_runtimeForLog)
+                sotc_decomp::idleTurn(rdram, g_runtimeForLog);
             // SOTC_FRAME_STALL_MS=<ms> (measuring, round 10): the game thread
             // sleeps that long at each frame's end from frame
             // SOTC_FRAME_STALL_FROM (default 0) on, so the Mac runs frames as

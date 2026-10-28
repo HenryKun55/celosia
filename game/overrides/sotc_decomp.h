@@ -56,6 +56,9 @@ namespace sotc_decomp
     // Called before a garbage move (sotc_native: the model jobs on the worker
     // use the memos by address; round 23).
     inline void (*g_beforeGuestMove)() = nullptr;
+    // The idle thread's turn (round 25, sotc_overrides.cpp): called at each
+    // game frame's end on the game thread.
+    void idleTurn(uint8_t *rdram, PS2Runtime *runtime);
     // The garbage pass's counts (decomp_gctick.cpp, round 14), read by the
     // [loader] line's "gc" part (SOTC_FRAME_LOG / SOTC_AUDIO_LOG): calls,
     // blocks looked at, moves, calls stopped by its clock (no block left to

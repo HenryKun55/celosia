@@ -468,3 +468,15 @@ namespace ps2_stubs
         traceCall("BlockErase", ctx);
     }
 }
+
+// The scene recorder (native_recorder.cpp): the card image as it is now
+// (the in-memory copy), saved with a recording.
+bool ps2McSnapshot(int port, std::vector<uint8_t> &out)
+{
+    std::lock_guard<std::mutex> lock(ps2_stubs::g_mutex);
+    ps2_stubs::Card *card = ps2_stubs::cardForPort(port);
+    if (!card || card->image.empty())
+        return false;
+    out = card->image;
+    return true;
+}

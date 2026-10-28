@@ -1,4 +1,5 @@
 #include "runtime/host_menu.h"
+#include "runtime/native_recorder.h"
 #include "runtime/native_tuning.h"
 
 #include "raylib.h"
@@ -618,6 +619,22 @@ void update()
 
 void drawPerfOverlay(int screenWidth, int screenHeight)
 {
+    // The scene recorder's marker (Debug "Record scene"), top right.
+    if (!g_open)
+    {
+        bool recording = false;
+        const std::string rec = native_recorder::markerText(portuguese(), recording);
+        if (!rec.empty())
+        {
+            const int size = std::max(10, screenHeight / 34 / 2 * 2);
+            const int w = MeasureText(rec.c_str(), size) + size + 16, x = screenWidth - w - 8, y = 8;
+            DrawRectangle(x, y, w, size + 8, Color{0, 0, 0, 170});
+            const bool blink = recording && (static_cast<int>(GetTime() * 2.0) & 1) == 0;
+            const int dot = size * 2 / 3;
+            DrawRectangle(x + 6 + (size - dot) / 2, y + 4 + (size - dot) / 2, dot, dot, blink || !recording ? Color{230, 40, 40, 255} : Color{120, 20, 20, 255});
+            DrawText(rec.c_str(), x + size + 10, y + 4, size, Color{240, 240, 240, 255});
+        }
+    }
     if (!native_renderer::tuning().perfOverlay || g_open)
         return;
     native_renderer::PerfStats p;

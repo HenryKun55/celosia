@@ -12,6 +12,7 @@
 // and stencil (nothing to attach); no depth textures, so the passes that read
 // depth (bloom mask, depth of field) are left out there for now.
 #include "native_backend.h"
+#include "runtime/native_recorder.h"
 #include "runtime/native_tuning.h"
 
 #if defined(__APPLE__) || (defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM))
@@ -1607,6 +1608,42 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             if (color.texture && width == w && height == h)
                 return;
+#if defined(PS2X_NATIVE_VITA)
+            if (color.texture)
+            {
+                // A new render scale, live (round 25: the console crashed on
+                // it). vitaGL frees a texture's memory at once, not after the
+                // GPU is done with it, when the texture was not *sampled* in
+                // the last 4 frames (gpu_free_texture_data: tex->last_frame
+                // only moves when a shader samples it, not when it is drawn
+                // into): targets only drawn into (or sampled now and then)
+                // went back to the pool while frames still in flight drew into
+                // them, and the new, larger targets were made in that memory.
+                // Wait for the GPU first: then every old target is idle.
+                glFinish();
+                std::fprintf(stderr, "[native:gl] picture %ux%u -> %ux%u (render scale changed)\n", width, height, w, h);
+                // Then the picture-sized targets go first and their memory
+                // comes back at once (our vitaGL's vglCollectGarbageNow: else
+                // 4 frames later), so a larger picture never needs the old
+                // and the new targets at the same time (2x: ~60 MB of them).
+                auto release = [](Target &t, bool ownTexture = true)
+                {
+                    if (t.fbo)
+                        glDeleteFramebuffers(1, &t.fbo);
+                    if (ownTexture && t.texture)
+                        glDeleteTextures(1, &t.texture);
+                    if (ownTexture && t.depth)
+                        glDeleteTextures(1, &t.depth);
+                    t = Target{};
+                };
+                release(colorPlain, false); // (color's texture)
+                for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &reflection,
+                                  &prefix[0], &prefix[1], &prefix[2], &glowPrefix, &bloomTex[0], &bloomTex[1], &bloomTex[2]})
+                    release(*t);
+                boundFbo = boundProgram = ~0u;
+                vglCollectGarbageNow();
+            }
+#endif
             makeTarget(color, w, h, true);
             makeTarget(background, w, h, true);
             makeTarget(snapshot, w, h, false);
@@ -2946,7 +2983,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         auto glowLog = [&]
         {
             static uint64_t lastLog = 0;
-            if (!native_renderer::tuning().frameLog || arenaFrame < lastLog + 120u)
+            const bool recording = native_recorder::active(); // the scene recorder: every frame with layer 8 draws
+            if (!recording && (!native_renderer::tuning().frameLog || arenaFrame < lastLog + 120u))
                 return;
             unsigned n = 0, textured = 0, blends[4] = {};
             for (const Draw &d : draws)
@@ -2958,11 +2996,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
             if (!n)
                 return;
+            char line[320];
+            std::snprintf(line, sizeof(line), "[gl:glow] frame %llu: layer %u %u draws (%u textured; blends %u %u %u %u) %s | tint %.3f %.3f %.3f amounts %.3f %.3f rounds %d | glow mode %.0f redraw %.0f emulator %d",
+                          (unsigned long long)arenaFrame, glow.order, n, textured, blends[0], blends[1], blends[2], blends[3], glowHow ? glowHow : "not reached",
+                          glow.tint[0], glow.tint[1], glow.tint[2], glow.amountA, glow.amountB, glow.rounds, native_renderer::tuning().glowVita,
+                          native_renderer::tuning().midFrameRedraw, native_renderer::inEmulator() ? 1 : 0);
+            if (recording)
+                native_recorder::backendNote(arenaFrame, line);
+            if (!native_renderer::tuning().frameLog || arenaFrame < lastLog + 120u)
+                return;
             lastLog = arenaFrame;
-            std::fprintf(stderr, "[gl:glow] frame %llu: layer %u %u draws (%u textured; blends %u %u %u %u) %s | tint %.3f %.3f %.3f amounts %.3f %.3f rounds %d | glow mode %.0f redraw %.0f\n",
-                         (unsigned long long)arenaFrame, glow.order, n, textured, blends[0], blends[1], blends[2], blends[3], glowHow ? glowHow : "not reached",
-                         glow.tint[0], glow.tint[1], glow.tint[2], glow.amountA, glow.amountB, glow.rounds, native_renderer::tuning().glowVita,
-                         native_renderer::tuning().midFrameRedraw);
+            std::fprintf(stderr, "%s\n", line);
         };
         auto buildGlow = [&](Target &depthOf) -> bool
         {
@@ -3247,6 +3291,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
             if (layerDrawn)
                 events.push_back({glow.order, -2});
+        }
+        else
+        {
+            // Layer 8 drawn plainly into the picture: why (the frame log's
+            // [gl:glow] line and the scene recorder's note).
+            glowHow = !glow.enabled ? "plain: the glow composite is off this frame"
+                      : glowMode == 0 ? "plain: SOTC_GLOW_VITA=0"
+                                      : "plain: emulator (SOTC_GLOW_VITA=2 draws it apart)";
+            glowLog();
         }
 #else
         if (glow.enabled)

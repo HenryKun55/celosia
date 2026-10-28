@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include "runtime/host_menu.h"
+#include "runtime/native_recorder.h"
 #include <map>
 #include <sstream>
 #include <string>
@@ -58,7 +59,10 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
     uint16_t btns = 0xFFFFu;
     constexpr int kGamepad = 0;
     if (hostmenu::inputBlocked())
+    {
+        native_recorder::padRead(data); // (the scene recorder: what the game read)
         return true; // the settings menu owns the controller: nothing pressed
+    }
     const bool useGamepad = IsGamepadAvailable(kGamepad);
     auto clearBit = [&btns](uint16_t mask)
     { btns &= ~mask; };
@@ -462,5 +466,6 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
 
     data[2] = static_cast<uint8_t>(btns & 0xFF);
     data[3] = static_cast<uint8_t>(btns >> 8);
+    native_recorder::padRead(data); // (the scene recorder: what the game read)
     return true;
 }

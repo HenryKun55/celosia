@@ -3836,6 +3836,194 @@ env-r24-console.txt, env-r24-console-fightprof.txt.
 4. Carried: the render thread's GL calls after the shrine, the cut frame,
    the VIF1 walk at the kick, the mixer's state pass.
 
+## Round 25: the scene recorder, the live resolution change, the idle thread's turn (2026-10-28)
+
+The Mac started on battery at 20% and discharging: code only until it was
+on AC (about an hour in); every build and run after that on AC. No sleep.
+
+**1. The resolution changed live crashed the console** (console-r24: 4x,
+then Low 0.5x; three crash dumps, the log ends with normal frames). Two
+causes in the GL backend's ensureTargets on the Vita:
+- vitaGL frees a texture's memory *at once*, not after the GPU is done with
+  it, when the texture was not sampled in the last 4 frames
+  (gpu_free_texture_data: `tex->last_frame` only moves when a shader samples
+  the texture, not when it is drawn into). Render targets that are only
+  drawn into, or sampled now and then (glowLayer, shadowMask, reflection,
+  the shown copies...), went back to the pool while frames still in flight
+  drew into them, and the new, larger targets were made in that memory.
+- the memory of the ones that were sampled comes back only 4 frames later
+  (the garbage collector's ring): for a moment the old and the new targets
+  are held at once (2x: ~48 MB of picture-sized targets, 1x ~12 MB).
+Now a resize on the Vita does `glFinish`, deletes every picture-sized
+target first and calls `vglCollectGarbageNow()` (new in our vitaGL patch,
+celosia.patch: everything marked for deletion freed now, the collector
+thread idle; only valid with the GPU idle), then makes the new ones. The
+Vita's render scale goes from 0.5x to 2x (`kMaxRenderScale`, native_tuning.h:
+the item's range, the presets (High and Ultra draw at 2x there), settings.cfg
+and SOTC_RENDER_SCALE are clamped to it); the Mac keeps 4x. Checked in
+calibrated Vita3K with `SOTC_SCALE_CYCLE=60` (new: the next of 0.5, 1, 1.5,
+2, 1.5, 1 every 60 frames) in the console card's wake-up cutscene and the
+shrine with the hook worker on and the glow drawn apart (SOTC_GLOW_VITA=2):
+99-103 resizes in 300 s, no crash, pictures right at every scale
+(r25/scale1, scale2, shots-scale2-sheet.png); and `SOTC_QUALITY_CYCLE=200`
+on the route (presets, MSAA, texture filter, model / effect detail live, 48
+changes, 18 resizes, through the walk out and the area change: r25/qual1).
+MSAA and effect detail are Metal-only (no effect on the Vita); the texture
+filter is set per draw; model detail only picks other meshes: none of them
+remakes targets. Vita3K's [vita:mem] vgl numbers do not move (its pools are
+not the console's), so whether 2x fits in a heavy area of the console is not
+measured: the shrine at 1x had ~48 MB of vitaGL's 96 MB free on the console
+(console-r24), 2x takes ~36 MB more. The console's next run with 2x says.
+
+**2. The scene recorder** (Debug "Gravar cena" / "Record scene", the first
+item of the Debug tab; runtime/native_recorder.h, native_recorder.cpp). X
+arms it, closing the menu starts it, X again stops it (or 15 min, 700 MB, a
+card with < 64 MB free; SOTC_REC_MAX_MIN / _MAX_S / _MAX_MB). A "REC 1:23
+45 MB" marker shows top right while it records ("REC: fechar o menu" while
+armed). It records at the native renderer's front, so whatever the hooks
+and natives make is what is kept:
+- **assets** (assets_NNN.bin): every mesh, skinned mesh and texture as
+  uploaded (RGBA8 with mips), once per id and content. Meshes and textures
+  the renderer already had when recording started are made to come again:
+  while recording, hasMesh / meshKnown / hasTexture answer "not there" for
+  ids the recording has not got, and meshEvictions() adds the recorder's
+  epoch so the draw plans ask again. With each texture its PS2 source
+  (`textureSource`: header, PSM, size, TEX format, CLUT hash).
+- **each frame** (frames_NNN.bin): every draw as it reached the front (layer,
+  blend, state flags, texture, first mesh and count, vertices and their
+  colour range, opacity, skin palette size; fate: drawn, held on the build
+  worker, hidden by Debug), the fog / bloom / blur / glow composite / depth
+  of field settings, the frame log's split (game, hooks, render, present,
+  wait, jobs, uploads, the scheduler's waits, disc reads, VBlanks, the game's
+  dt), 24 guest words from bossDeathEffect (0x1186290..) and depthOfField, the
+  pad as the game read it at each read (VBlank, frame, 8 bytes), guest pc /
+  ra sampled 500 times a second (a thread of its own), and the GL backend's
+  `[gl:glow]` decision for each frame with layer 8 draws (apart / plain and
+  why, tint, amounts, emulator).
+- **full captures** (full_<frame>.bin): every 60 frames, every 10 while
+  layer 8 has draws or the glow composite is on, the whole call stream of
+  the frame: matrices, the full DrawState of each draw, the per-frame
+  meshes' vertices and indices, the skin palettes (and their rewrite at the
+  kick), the effects. A ring: past 250 MB (SOTC_REC_FULL_MB) the oldest go.
+  None is started while the writer is more than 24 MB behind.
+- info.txt (platform, backend, every tuning item, the limits, the start and
+  why it stopped) and mc_slot1.ps2 (the card as it was at the start).
+Blocks are zlib level 1, written by a writer thread (cores 1-2 on the Vita);
+past 48 MB queued the game waits. No guest memory or register is written:
+it reads what the renderer gets, and the forced uploads read guest memory
+only. SOTC_REC_AT=<game frame> arms it at that frame (scripted runs);
+SOTC_REC_DIR another folder.
+
+Sizes: Mac, the route from frame 600 to 5 400 (4 812 frames, layer 8 in
+4 457): 116 MB (assets 6 MB, frames 28 MB, 453 full captures 71 MB, card 8
+MB). Vita3K 240, the wake-up and the shrine, 240 s: 66 MB (4 338 frames,
+333 full); the route 200 s: 48 MB. Layer 8 has draws in almost every frame
+(the shrine, the plain): the full captures come every 10 frames. A 5-minute
+fight at ~10 fps: ~3 000 frames, ~60-100 MB. Sound with it on (Vita3K, r12
+au.py): 0 late callbacks, 0 stale halves, 0 src-stale in every run.
+
+**tools/rec.py**: `list` (summary, full captures, layer 8 runs, bytes),
+`frames` (a line a frame: the split, draws, held, layer 8, the glow
+settings and note), `draws <frame>` (the per-draw table with each texture's
+PSM and header; `-v`: the full capture's states, matrices, the per-frame
+meshes' colour range), `textures <frame>` (PNG of each texture drawn),
+`render <frame,...|all>` (runs this build's runner with SOTC_REC_REPLAY:
+the assets up to that frame uploaded, the frame's calls replayed twice for
+the bloom history and the feedback, then read back: frame_N.png,
+_noglow.png (the composite off: layer 8 as Vita3K and round 18 draw it),
+_layerNN.png (one layer, no fog / bloom / blur), _layer08_plain.png, and
+with `--modes upto` the picture up to each layer; OpenGL by default, the
+Vita's backend and the only one with GPU skinning, which the Vita's
+recordings need; `--metal`), `profile` (the sampled pcs named from
+functions.csv) and `pad` (the reads that changed).
+Checked: a Mac recording of the wake-up, frame 515, replayed by GL and
+Metal, matches the live picture of that frame (r25/rec1-replay-sheet.png);
+a Vita3K recording, frame 816, replayed on the Mac, matches the Vita3K
+screenshot of that moment in content and geometry, the figures black with
+the composite off as Vita3K draws them, dark and see-through with it
+(~/Downloads/celosia-r25-rec-vita3k-vs-replay.png). The replay draws with
+the Mac's GL path: the Vita-only parts (the glow on the shared depth, the
+bloom in the picture's alpha) are not replayed; a recording made on the
+console shows what the console's frame was given, and the note says what
+its backend did with layer 8. In the wake-up the shadow figures' layer 8
+vertices are (46, 105, 102, 128), cyan: drawn without the composite, layer
+8's raw colours are the dead colossus's cyan blobs.
+The menu loop in Vita3K: the menu open on the Debug tab at start
+(PS2X_SETTINGS_OPEN=3), X then O (keys held 0.3 s with osascript key down /
+up; a plain keystroke is too short for the menu): `[rec] armed`, recording
+at game frame 608, stopped by its limit, pulled from Vita3K's ux0 (r25/menu4).
+Limits: the guest pc only moves at dispatched calls, so time in natives and
+lean code shows as the hook that called them (modelDisp 78% on the Mac
+route): `profile` is coarse; SOTC_SUBSYS_PROF in the same run gives the
+[prof] split. A replay of the recorded pad from mc_slot1.ps2 is not a
+reproduction: the game's step follows the EE timer, which follows host
+time (the recording's per-frame dt shows it), and a recording starts
+mid-game, not at the card's load; with SOTC_FRAME_INTERVAL=2 on the Mac the
+route is near-deterministic, but a Vita3K / console session at 10-20 fps is
+not. It would need the recording to start at the title and a fixed-step
+replay, and would still drift.
+
+**3. The loader stall (round 24's item 1): the idle thread's turn.** Box
+0x1fc870 is SotC's idle queue (sotc_overrides.cpp): a bufferless box (+0
+slots 0, capacity 0). iosSendMsg (0x1b0fc0) to it puts the sender on the
+box's sender list (+0x18, linked through the threads' +0x28) and sleeps;
+iosRecvMsg (0x1b1138) on a box with no slots takes the whole sender list,
+clears it and wakes each sender through the callback thread
+(iosCallBackThreadMgr -> 0x1b1340 -> iosWakeupThread); the sender sees +0
+still 0 and returns. The only receiver is the idle thread (KERNEL 0x1ad270,
+t5, priority 125, the lowest), which runs only when every other thread
+waits. So the loader's type 0 job waits for the EE to be idle; on the PS2
+that is every frame (the game waits for the VBlank and the GS). In the
+console's r23 log t5 had polled 10 times in 5 s ("last t5 3.1 s ago") with
+t11 on its sender list: the ~100 ms frames of a fight / after an area load
+leave no idle time. Now at each game frame's end (syncFrame), when a sender
+waits there, the box has no slots and no receive in progress, the kernel's
+message semaphore (0x1e0be8) is free and the idle thread did not poll once
+during that frame, the poll's effect is done from the hook
+(`sotc_decomp::idleTurn`: the list taken and cleared, each sender's
+WakeupThread). A frame where the idle thread polled is not touched, so a
+run with idle time is the same: the Mac's fixed-30 route never triggers it.
+`[idle-turn]` lines count it; SOTC_IDLE_TURN=0 turns it off. Vita3K did not
+reproduce the 16 s stall (240 MHz: longest job 0.9-1.0 s; 150 MHz on the
+route: 1.4 s with and without, the turn fired 4 times at boot): only the
+console says whether it is gone.
+
+**Checks.**
+- Mac fixed-30 fps path (route2, SOTC_NATIVE=2, SOTC_FRAME_INTERVAL=2,
+  SOTC_POS_LOG=30, to 5 400): recording off (r25/pos-off) within 0.09 units
+  of r24/pos-1, recording on from frame 600 (r25/pos-on, 4 812 frames
+  recorded) within 0.01 of r24/pos-1 (25 points each, poscmp); on against
+  off 1.88 at their pairs one VBlank apart (the walk in one VBlank: the
+  noise band). No `[idle-turn]` in either.
+- No native's guest-visible code changed (no difftest); no generator change.
+
+**Files:** runtime/native_recorder.h, src/lib/native/native_recorder.cpp
+(new), native_renderer.cpp (the recorder's calls at the front, the forced
+uploads, the Debug item first in the tab, kMaxRenderScale, SOTC_SCALE_CYCLE,
+finishFrames), native_renderer.h, native_tuning.h (kMin/kMaxRenderScale,
+Tuning::recording), native_renderer_gl.cpp (the Vita resize, [gl:glow] notes
+for every frame while recording and for the plain case), celosia.patch
+(vglCollectGarbageNow), host_menu.cpp (the REC marker), ps2_pad.cpp (the
+pad reads), ps2_runtime.cpp (the replay entry, the pc sampler),
+MemoryCard2.cpp (ps2McSnapshot), CMakeLists.txt (the source, zlib),
+game/overrides/sotc_native.cpp (frame info, texture sources, the idle
+turn's call), sotc_overrides.cpp / sotc_decomp.h (idleTurn), tools/rec.py.
+Tools: r25/v3k.sh (r24's; pulls a recording out of Vita3K's ux0 to
+r25/<name>-rec and removes it there), r25/macrec.sh (the console card's
+save on the Mac, SOTC_REC_DIR in the run's folder). Deliverables:
+build/agent-scratch/celosia-r25.vpk (shader seed: 42 files),
+env-r25-console.txt.
+
+**Round 26 (plan).**
+1. The user's recording of a kill (console or Vita3K 200 MHz): `rec.py
+   frames` for the layer 8 runs and the glow notes, `draws -v` at the dead
+   colossus and the tendrils, `render` with and without the composite; the
+   tint / channel fix from that.
+2. The console: 2x live (memory in a heavy area), the idle turn's
+   `[idle-turn]` lines and the [loader] line after an area load.
+3. The fight's profile from the recording's frame split, then the biggest
+   cut.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

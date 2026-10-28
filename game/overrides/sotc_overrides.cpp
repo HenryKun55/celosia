@@ -483,9 +483,11 @@ namespace
     constexpr uint32_t kIdleQueue = 0x001FC870u;
     PS2Runtime::RecompiledFunction g_iosRecvMsg = nullptr;
 
+    uint64_t g_idlePolls = 0; // the idle thread's polls (the game thread's)
     void iosRecvMsgHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const bool idlePoll = GPR_U32(ctx, 4) == kIdleQueue && GPR_U32(ctx, 6) == 0u;
+        g_idlePolls += idlePoll ? 1u : 0u;
         g_iosRecvMsg(rdram, ctx, runtime);
         if (idlePoll)
             runtime->eeScheduler().idleWait();
@@ -972,3 +974,64 @@ namespace
 }
 
 PS2_REGISTER_GAME_OVERRIDE("Shadow of the Colossus (USA)", "SCUS_974.72", 0u, 0u, applySotcOverrides)
+
+// The idle thread's turn once a game frame (round 25: the console's loader
+// stall). A thread that waits for the EE to be idle (the loader, t11, in a
+// type 0 job) sends to the bufferless idle queue 0x1fc870 and sleeps on its
+// sender list (box +0x18, linked through the threads' +0x28); only a
+// receive on that queue wakes it, and the only receiver is the idle thread
+// (KERNEL 0x1ad270, priority 125, the lowest), which runs only when every
+// other thread waits. On the PS2 that is every frame: the game waits for
+// the VBlank and the GS. On the console, where a fight or the frames after
+// an area load take ~100 ms of EE time each, some thread is always ready:
+// the idle thread polled 10 times in 5 s and the loader slept 16 s, and the
+// sword's sound stream, queued behind its job, replayed old data
+// (docs/decomp.md, round 24). So at a game frame's end, when a sender waits
+// there and the idle thread has not polled once during that frame, its poll's
+// effect is done here as iosRecvMsg on a bufferless box does it (0x1b1240:
+// the sender list taken and cleared, each sender woken by iosWakeupThread,
+// 0x1b1340, through the callback thread): the sender's iosSendMsg then sees
+// the box's +0 still 0 and returns, as after a real poll. A frame in which the
+// idle thread did poll is left alone, so a run with idle time (the Mac at
+// 30 / 60 fps) is not changed. Only while the kernel semaphore at
+// 0x1e0be8 is free (nothing is inside a message call). SOTC_IDLE_TURN=0:
+// off; the [idle-turn] lines count it.
+void sotc_decomp::idleTurn(uint8_t *rdram, PS2Runtime *runtime)
+{
+    static const bool on = []
+    {
+        const char *v = std::getenv("SOTC_IDLE_TURN");
+        return !(v && std::atoi(v) == 0) && !std::getenv("SOTC_IDLE_SPIN");
+    }();
+    static uint64_t lastPolls = 0;
+    const uint64_t polls = g_idlePolls;
+    const bool polled = polls != lastPolls;
+    lastPolls = polls;
+    if (!on || polled || !g_iosRecvMsg)
+        return;
+    auto word = [rdram](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+    if (word(kIdleQueue) != 0u || word(kIdleQueue + 0x18u) == 0u || word(kIdleQueue + 0x14u) != 0u)
+        return; // a buffer (not the idle queue's shape), no sender, or a receive in progress
+    // The kernel's message semaphore (WaitSema'd by iosSendMsg / iosRecvMsg): free.
+    const int sema = static_cast<int>(word(0x1E0BE8u));
+    EeScheduler &scheduler = runtime->eeScheduler();
+    const EeSemaphore *kernelSema = scheduler.semaphore(sema);
+    if (!kernelSema || kernelSema->count <= 0)
+        return;
+    uint32_t sender = word(kIdleQueue + 0x18u);
+    std::memset(rdram + kIdleQueue + 0x18u, 0, 4);
+    static uint64_t turns = 0, woken = 0;
+    ++turns;
+    for (int guard = 0; sender && sender < 0x2000000u && guard < 64; ++guard)
+    {
+        const uint32_t next = word(sender + 0x28u);
+        const int id = static_cast<int>(word(sender + 4u));
+        if (scheduler.wakeupThread(id, false) >= 0)
+            ++woken;
+        sender = next;
+    }
+    if (turns <= 4u || turns % 100u == 0u)
+        std::fprintf(stderr, "[idle-turn] %llu: the idle thread had no turn this frame; its poll woke %llu waiting senders so far\n",
+                     (unsigned long long)turns, (unsigned long long)woken);
+}
+

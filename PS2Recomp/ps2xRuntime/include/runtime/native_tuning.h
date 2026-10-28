@@ -91,7 +91,10 @@ namespace native_renderer
         // With holdIncomplete: at most this many frames held in a row (SOTC_HOLD_FRAMES).
         float holdFrames = 3.0f;
         // The counters behind the frame log and the overlay are collected.
-        bool frameTiming() const { return frameLog || perfOverlay; }
+        // Set by the scene recorder while it records (Debug "Record scene",
+        // runtime/native_recorder.h): it keeps the frame log's counters.
+        bool recording = false;
+        bool frameTiming() const { return frameLog || perfOverlay || recording; }
         // The game thread's time by subsystem to the log (SOTC_SUBSYS_PROF;
         // game/overrides/sotc_prof.cpp: wrapped at start only when on then).
         bool subsysProf = false;
@@ -245,6 +248,15 @@ namespace native_renderer
     // "Metal" or "OpenGL".
     const char *backendName();
 
+    // The render scale's range. The Vita: 0.5x to 2x (4x does not fit in
+    // its memory; the presets, settings.cfg and SOTC_RENDER_SCALE are
+    // clamped to it). The Mac: up to 4x.
+    constexpr float kMinRenderScale = 0.5f;
+#if defined(__vita__)
+    constexpr float kMaxRenderScale = 2.0f;
+#else
+    constexpr float kMaxRenderScale = 4.0f;
+#endif
     enum Preset
     {
         kPresetLow,
