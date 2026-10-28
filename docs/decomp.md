@@ -2574,6 +2574,116 @@ r16/sheet.py, r16/v3k.sh (as r15's).
 6. Carried over: the console's loader stall, the colossus's death effect,
    the console's GPU fill rate.
 
+## Round 17: the 32-bit EE clock, the cut frame's noise (2026-10-28)
+
+The Mac was on battery for the whole round (62% -> 20%); one Mac build, one
+Vita build (~25 min, which took the battery from 58% to 27%) and two Vita3K
+runs at 222 fit. The round stopped at 20% by the battery rule: no 240 / 333
+runs, no SOTC_SUBSYS_PROF run, plan items 1b / 1c / 2 / 4 not started.
+
+**The EE clock as a 32-bit counter** (ee_clock.h, ps2_runtime.h's
+eeCheckpointDue, EeScheduler.cpp, ps2_memory.cpp, sotc_decomp.cpp). Generated
+code's checkpoint was a 64-bit add and a 64-bit compare against the gate at
+every call and loop back edge. Now EeClock keeps a 64-bit base (`cycle`), a
+32-bit `run` charged since the base and a 32-bit `limit` (the gate counted
+from the base): the checkpoint is `run += n; run < limit` (EeClock::charge;
+on the Vita ldr, ldr, adds, cmp, str, bls). The clock is cycle + run
+(EeClock::now(); the scheduler's ~22 reads of m_eeCycle are eeNow()).
+updateGate folds run into the base before setting the limit (EeClock::fold /
+setGate, the limit capped at 0x7FFF0000 so a charge cannot wrap run past it);
+every path back into generated code goes through updateGate (the dispatch,
+checkpointSlow's slice and deadline paths, renewTimeSlice), so run stays
+small. Not a down-counter: other threads close the gate (flagCheckpoint,
+the timer flush: EeClock::closeGate writes limit = 0) and never write run,
+so round 16's flag-in-the-gate protocol (seq_cst fences, the flag re-read
+after setting the gate) holds unchanged; a down-counter that a poster zeroes
+would lose either the poster's write or the cycles. accountCycles adds to
+the base (the clock moves the same). The difftest's cycle rewind
+(SOTC_DIFFTEST_CYCLES) rewinds the base and closes the gate. Build with
+`-DPS2X_EE_CLOCK64=1` for round 16's form (one 64-bit cycle, a 64-bit gate).
+getAmbientColorC to Vita assembly (r16/armc.sh, counted the same way both
+times): 4 680 -> 4 620 instructions (-1.3%); the generator's output is the
+same text, only the inline helper changed.
+
+**Not done, from plan item 1:** the post-call `ctx->pc == returnPc &&
+!unwinding` (the unwinding flag cannot be dropped: an unwinding pc can equal
+an outer frame's return pc in recursion; folding it into pc's low bit would
+touch every reader of ctx->pc while unwinding); SET_GPR's high halves (a
+whole-program analysis).
+
+**Checks.**
+- Mac fixed-30 fps path (route2, SOTC_FRAME_INTERVAL=2 SOTC_POS_LOG=30, no
+  snapshots, to frame 5 400; r17/pos-c1): within 0.50 units of r16/pos-ref2
+  over all 178 points, 2.44 of pos-ref1 (the two references differ by 2.05:
+  the noise).
+- Attract demo to frame 6 000 (r17/att-c1): ran to the end; the pictures
+  run ahead of r16's att-g1 / g2 by a few hundred frames, but that run shared
+  the Mac with the Vita build (3:28 against 2:22 wall): under host clock sync
+  a slower host means more EE time a game frame and the demo advances faster
+  by game frame. Not repeated on a quiet Mac (battery); the route's pictures
+  in Vita3K and the Mac path are the check this round.
+- The natives' list is the same (r17/replaced.txt = r16's); no difftest run
+  (no native changed). No SOTC_LEAN_CHECK: the generator is unchanged.
+- Sound (r12/tools/au.py, both 222 runs): 0 late callbacks, 0 stale halves,
+  0 src-stale.
+
+**Frame timing (calibrated Vita3K, route2's input, r12/tools/vbwin.py; mean
+ms (fps), frames over 50 / 85 / 120, worst).** r16 = celosia-r16.vpk
+(r16/g2-222), r17 = celosia-r17.vpk (r17/c1-222, c2-222: the same VPK twice).
+
+| route window | r16 222 | r17 222 (c1) | r17 222 (c2) |
+|---|---|---|---|
+| the save's load (-1000..0) | 33.6, 31/8/3, 253.3 | 33.2, 34/7/3, 265.2 | 33.1, 31/7/3, 246.7 |
+| the shrine (0..1000) | 47.8 (20.9 fps), 111/27/0, 115.1 | 47.4 (21.1), 110/22/0, 112.7 | 47.5 (21.1), 113/23/0, 113.0 |
+| the walk out and the area change (1000..4000) | 84.1 (11.9), 595/261/5, 166.7 | 83.3 (12.0), 601/247/4, 167.2 | 83.4 (12.0), 600/253/4, 170.6 |
+| the plain (4000..6000) | 54.4 (18.4), 613/0/0, 72.4 | 55.7 (18.0), 598/0/0, 71.2 | 54.8 (18.2), 608/0/0, 71.6 |
+
+Transitions (r12/tools/transition.py):
+
+| | cutscene cut | area change | after | load frames |
+|---|---|---|---|---|
+| r16 222 | 34.9 / 213.0 / 1 | 112.0 / 166.7 / 4 | 88.5 | 253, 249 |
+| r16 222 (g1) | 31.2 / 168.3 / 1 | 110.5 / 171.0 / 3 | 88.5 | 253, 242 |
+| r17 222 (c1) | 30.4 / 154.8 / 1 | 110.4 / 167.2 / 3 | 88.4 | 265, 249 |
+| r17 222 (c2) | 32.0 / 178.6 / 1 | 110.1 / 170.6 / 3 | 88.8 | 247, 246 |
+
+The 32-bit clock is inside the noise at 222 (shrine -0.6%, walk -0.9%,
+plain +0.7 / +2.4%). **The cut's single worst frame is noise:** the same VPK
+gives 154.8 and 178.6, r16's two builds 168.3 and 213.0; it is one frame
+(the first frame of the cutscene's draws) spread over 155-213 ms run to run,
+not a regression of round 16's text. 240 and 333 were not run this round
+(battery); round 16's numbers there stand.
+
+**Decomp status (tools/decomp_status.py, r17/replaced.txt: no new natives):**
+5.40% of the MIPS code by size, 4.96% by functions (448 of 9 024), 3.20% of
+the game's own code, 47.8% by calls.
+
+**Measuring tools (new):** r17/v3k.sh (as r16's, refuses at 20% battery or
+below), r17/armc64.sh (r16/armc.sh with -DPS2X_EE_CLOCK64=1).
+
+**Round 18 (plan): 20-30 fps at 222 MHz, no transition hitches.** Start on
+AC power: the Vita build alone costs ~30% of the battery.
+
+1. 240 / 333 runs of celosia-r17.vpk (not done this round), and the attract
+   demo to frame 6 000 on a quiet Mac against r16/att-g1 / g2.
+2. The natives' own top, timed with SOTC_SUBSYS_PROF (one 222 run of the
+   plain first): decomp_skeleton::bone (3.5% in the sample profile), the
+   collision family (~8%), modelDispHook / modelDispState (4.6%), callGuest
+   (2.1%: a direct call where the native knows the callee).
+3. The steady windows need 15-40% of the game thread; the call path is
+   nearly spent (the clock gave ~1%). The next generator-wide lever is the
+   register traffic: SET_GPR's high halves where no 64-bit read follows
+   (start with a per-function proof: no callee, no 64-bit use of the
+   register before its next write), and GPRs in locals within a block (the
+   register cache, still off).
+4. The cut frame (155-213 ms, one frame): the first frame of the cutscene's
+   4 100 draws; the run copies made ahead, the new packets' hash on the
+   worker.
+5. The replay mode for the path check (external completions at fixed cycle
+   offsets, no host sync), carried over.
+6. Carried over: the console's loader stall, the colossus's death effect,
+   the console's GPU fill rate.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

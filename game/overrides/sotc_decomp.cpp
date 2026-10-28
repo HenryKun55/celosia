@@ -123,12 +123,12 @@ namespace sotc_decomp
             // leg charges (the game's time step comes from the EE clock).
             static const bool cycles = std::getenv("SOTC_DIFFTEST_CYCLES") != nullptr;
             static uint64_t cyclesNative = 0, cyclesRecompiled = 0;
-            const uint64_t clock0 = runtime->m_eeClock.cycle;
+            const uint64_t clock0 = runtime->m_eeClock.now();
             if (c.function->once)
                 leg(rdram, ctx, runtime);
             else
                 runToReturn(rdram, ctx, runtime, leg);
-            const uint64_t clock1 = runtime->m_eeClock.cycle;
+            const uint64_t clock1 = runtime->m_eeClock.now();
             const R5900Context nativeOut = *ctx;
             const R5900Context *native = &nativeOut;
             nativeAfter.ram.assign(rdram, rdram + PS2_RAM_SIZE);
@@ -147,9 +147,10 @@ namespace sotc_decomp
             if (cycles)
             {
                 cyclesNative += clock1 - clock0;
-                cyclesRecompiled += runtime->m_eeClock.cycle - clock1;
+                cyclesRecompiled += runtime->m_eeClock.now() - clock1;
                 // The recompiled leg's charge stays (the clock as without the check).
-                runtime->m_eeClock.cycle -= clock1 - clock0;
+                runtime->m_eeClock.cycle -= clock1 - clock0; // the base: the clock moves the same
+                runtime->m_eeClock.closeGate();                // the gate counted again from it
                 if ((c.checks.load(std::memory_order_relaxed) + 1u) % 100u == 0u)
                     std::fprintf(stderr, "[difftest] %s: EE cycles native %llu recompiled %llu (all checks)\n", c.function->name,
                                  (unsigned long long)cyclesNative, (unsigned long long)cyclesRecompiled);

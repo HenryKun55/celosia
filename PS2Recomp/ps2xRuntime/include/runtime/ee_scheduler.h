@@ -366,7 +366,7 @@ public:
     [[nodiscard]] int currentThreadId() const noexcept;
     [[nodiscard]] R5900Context *currentContext();
     [[nodiscard]] uint8_t *rdram() const noexcept;
-    [[nodiscard]] uint64_t eeCycle() const noexcept { return m_eeCycle; } // the EE clock (cycles)
+    [[nodiscard]] uint64_t eeCycle() const noexcept { return m_clock.now(); } // the EE clock (cycles)
     // The guest context being executed, null while the executor waits (for
     // a sampling profiler on another thread: its pc / ra are read racily).
     [[nodiscard]] const R5900Context *profileContext() const noexcept { return m_profileContext.load(std::memory_order_relaxed); }
@@ -479,7 +479,8 @@ private:
     // (EeClock: the cycle count, the gate, the pending and unwinding flags).
     bool &m_unwinding;
     uint32_t m_pendingEeTimerInterrupts = 0;
-    uint64_t &m_eeCycle;
+    EeClock &m_clock;
+    [[nodiscard]] uint64_t eeNow() const noexcept { return m_clock.now(); }
     uint64_t m_accountedCycle = 0; // the EE timers and the IOP have seen the cycles up to here
     bool m_gateEnabled = true;     // PS2X_EE_GATE=0: every checkpoint goes through the scheduler
     std::chrono::steady_clock::time_point m_hostClockBase{};

@@ -86,7 +86,7 @@ namespace
 EeScheduler::EeScheduler(PS2Runtime &runtime)
     : m_runtime(runtime),
       m_unwinding(runtime.m_eeClock.unwinding),
-      m_eeCycle(runtime.m_eeClock.cycle),
+      m_clock(runtime.m_eeClock),
       m_checkpointPending(runtime.m_eeClock.pending)
 {
 }
@@ -127,9 +127,8 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_timeSliceExpired = false;
     m_insideInterrupt = false;
     m_pendingEeTimerInterrupts = 0u;
-    m_eeCycle = 0u;
+    m_clock.reset();
     m_accountedCycle = 0u;
-    m_runtime.m_eeClock.gate = 0u;
     m_unwinding = false;
     // A/B switches for the dispatch fast paths (read here: on the Vita the
     // environment comes from env.txt, loaded after the runtime is built).
@@ -177,7 +176,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     main.status = EeThreadStatus::Ready;
     m_threads.emplace(main.id, std::move(main));
     m_readyQueues[0].push_back(kMainThreadId);
-    scheduleEvent(m_eeCycle + kVBlankPeriodCycles,
+    scheduleEvent(eeNow() + kVBlankPeriodCycles,
                   std::chrono::steady_clock::now() + kVBlankPeriod,
                   EeEvent{EeEventType::VBlankStart, 0, 0});
     publishSnapshot();
@@ -478,14 +477,14 @@ bool EeScheduler::checkpointSlow() noexcept
     }
 
     const uint64_t nextEventCycle = m_nextDeadlineCycle.load(std::memory_order_relaxed);
-    if (nextEventCycle != 0u && m_eeCycle >= nextEventCycle)
+    if (nextEventCycle != 0u && eeNow() >= nextEventCycle)
     {
         flagCheckpoint();
         m_unwinding = true;
         return true;
     }
 
-    if (m_eeCycle < m_sliceEndCycle)
+    if (eeNow() < m_sliceEndCycle)
     {
         updateGate();
         return false;
@@ -506,19 +505,19 @@ bool EeScheduler::checkpointSlow() noexcept
 
 void EeScheduler::accountCycles(uint32_t cycles) noexcept
 {
-    m_eeCycle += std::max<uint64_t>(1u, cycles);
+    m_clock.cycle += std::max<uint64_t>(1u, cycles); // the base: the clock moves the same
     syncAccounting();
     updateGate();
 }
 
 void EeScheduler::syncAccounting() noexcept
 {
-    const uint64_t elapsed = m_eeCycle - m_accountedCycle;
+    const uint64_t elapsed = eeNow() - m_accountedCycle;
     if (elapsed == 0u || std::this_thread::get_id() != m_executorThread)
     {
         return;
     }
-    m_accountedCycle = m_eeCycle;
+    m_accountedCycle = eeNow();
     m_pendingEeTimerInterrupts |= m_runtime.memory().advanceEeTimers(elapsed);
     m_runtime.advanceIopEeCycles(elapsed);
     if (m_pendingEeTimerInterrupts != 0u)
@@ -538,14 +537,15 @@ void EeScheduler::flagCheckpoint() noexcept
 {
     m_checkpointPending.store(true, std::memory_order_release);
     std::atomic_thread_fence(std::memory_order_seq_cst);
-    __atomic_store_n(&m_runtime.m_eeClock.gate, uint64_t{0}, __ATOMIC_RELAXED);
+    m_clock.closeGate();
 }
 
 void EeScheduler::updateGate() noexcept
 {
+    m_clock.fold();
     if (!m_gateEnabled)
     {
-        m_runtime.m_eeClock.gate = 0u;
+        m_clock.closeGate();
         return;
     }
     // The nearest of: the next EE timer flush or IOP batch (counted from the
@@ -556,12 +556,12 @@ void EeScheduler::updateGate() noexcept
     {
         gate = std::min(gate, nextEventCycle);
     }
-    m_runtime.m_eeClock.gate = std::min(gate, m_sliceEndCycle);
+    m_clock.setGate(std::min(gate, m_sliceEndCycle));
     // The pending flag lives in the gate (flagCheckpoint): one posted while
     // the gate was being set is seen here (the fences order the two sides).
     std::atomic_thread_fence(std::memory_order_seq_cst);
     if (m_checkpointPending.load(std::memory_order_relaxed))
-        m_runtime.m_eeClock.gate = 0u;
+        m_clock.closeGate();
 }
 
 bool EeScheduler::isExecutingGuest() const noexcept
@@ -1275,7 +1275,7 @@ int EeScheduler::setAlarm(uint16_t ticks,
     }
     m_alarms.emplace(id, EeAlarm{id, ticks, handler, argument, gp, sp});
     const uint64_t tickCount = ticks == 0u ? 1u : static_cast<uint64_t>(ticks);
-    scheduleEvent(m_eeCycle + tickCount * kAlarmTickCycles,
+    scheduleEvent(eeNow() + tickCount * kAlarmTickCycles,
                   std::chrono::steady_clock::now() + std::chrono::microseconds(tickCount * kAlarmTickMicroseconds),
                   EeEvent{EeEventType::Alarm, static_cast<uint32_t>(id), 0});
     return id;
@@ -1614,7 +1614,7 @@ void EeScheduler::completeExternalWait(uint32_t type, uint64_t token, int result
     constexpr uint32_t kDelayWaitType = 0x44454C59u; // 'DELY'
     const uint64_t token = m_nextDelayToken++;
     const uint64_t cycles = std::max<uint64_t>(1u, static_cast<uint64_t>(microseconds) * kEeClockHz / 1000000u);
-    scheduleEvent(m_eeCycle + cycles, std::chrono::steady_clock::now() + std::chrono::microseconds(microseconds),
+    scheduleEvent(eeNow() + cycles, std::chrono::steady_clock::now() + std::chrono::microseconds(microseconds),
                   EeEvent{EeEventType::ExternalWake, kDelayWaitType, token});
     waitExternal(EeWaitReason::External, kDelayWaitType, token, std::move(completion));
 }
@@ -1766,12 +1766,12 @@ void EeScheduler::publishSnapshot()
 {
     constexpr uint64_t kSnapshotIntervalCycles = 294912000ull / 100ull; // 10 ms of EE time
     if (!m_snapshotWanted.exchange(false, std::memory_order_relaxed) &&
-        m_eeCycle - m_snapshotCycle < kSnapshotIntervalCycles)
+        eeNow() - m_snapshotCycle < kSnapshotIntervalCycles)
         return;
-    m_snapshotCycle = m_eeCycle;
+    m_snapshotCycle = eeNow();
     EeKernelSnapshot next{};
     next.sequence = ++m_snapshotSequence;
-    next.eeCycle = m_eeCycle;
+    next.eeCycle = eeNow();
     next.sliceEndCycle = m_sliceEndCycle;
     next.nextEventCycle = m_nextDeadlineCycle.load(std::memory_order_acquire);
     next.runningThreadId = m_currentThreadId;
@@ -2061,7 +2061,7 @@ void EeScheduler::processPendingEvents()
     // the work is taken under m_eventMutex below.
     const uint64_t nextEventCycle = m_nextDeadlineCycle.load(std::memory_order_relaxed);
     if (!m_checkpointPending.load(std::memory_order_relaxed) && m_pendingEeTimerInterrupts == 0u &&
-        (nextEventCycle == 0u || m_eeCycle < nextEventCycle))
+        (nextEventCycle == 0u || eeNow() < nextEventCycle))
     {
         applyPendingPreemption();
         return;
@@ -2089,7 +2089,7 @@ void EeScheduler::processPendingEvents()
     {
         std::lock_guard lock(m_eventMutex);
         const uint64_t nextEventCycle = m_nextDeadlineCycle.load(std::memory_order_acquire);
-        const bool cycleEventDue = nextEventCycle != 0u && m_eeCycle >= nextEventCycle;
+        const bool cycleEventDue = nextEventCycle != 0u && eeNow() >= nextEventCycle;
         const bool pendingWork = !m_events.empty() || cycleEventDue || m_stopRequested.load(std::memory_order_acquire);
         if (pendingWork)
             flagCheckpoint();
@@ -2109,7 +2109,7 @@ void EeScheduler::processDueDeadlines()
             std::unique_lock lock(m_eventMutex);
             for (const ScheduledEvent &item : m_deadlines)
             {
-                if (item.deadlineCycle <= m_eeCycle &&
+                if (item.deadlineCycle <= eeNow() &&
                     (pacingDeadline == std::chrono::steady_clock::time_point{} ||
                      item.hostDeadline < pacingDeadline))
                 {
@@ -2142,7 +2142,7 @@ void EeScheduler::processDueDeadlines()
             const auto pacedNow = std::chrono::steady_clock::now();
             auto firstFuture = std::partition(m_deadlines.begin(), m_deadlines.end(),
                                               [this, pacedNow](const ScheduledEvent &item)
-                                              { return item.deadlineCycle <= m_eeCycle &&
+                                              { return item.deadlineCycle <= eeNow() &&
                                                        item.hostDeadline <= pacedNow; });
             due.insert(due.end(),
                        std::make_move_iterator(m_deadlines.begin()),
@@ -2368,7 +2368,7 @@ void EeScheduler::waitForEvent()
         const auto timerHostDeadline = std::chrono::steady_clock::now() + eeCyclesToHostDuration(timerCycles);
         if (timerHostDeadline < hostDeadline)
         {
-            deadlineCycle = m_eeCycle + timerCycles;
+            deadlineCycle = eeNow() + timerCycles;
             hostDeadline = timerHostDeadline;
         }
     }
@@ -2382,7 +2382,7 @@ void EeScheduler::waitForEvent()
     }();
     if (!signaled)
     {
-        const uint64_t elapsed = deadlineCycle > m_eeCycle ? deadlineCycle - m_eeCycle : 0u;
+        const uint64_t elapsed = deadlineCycle > eeNow() ? deadlineCycle - eeNow() : 0u;
         lock.unlock();
         uint64_t remaining = elapsed;
         while (remaining > 0u)
@@ -2453,9 +2453,9 @@ void EeScheduler::syncCyclesToHostClock()
     const auto elapsed = std::chrono::steady_clock::now() - m_hostClockBase;
     const uint64_t hostCycles = microsecondsToEeCycles(static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()));
-    if (hostCycles > m_eeCycle)
+    if (hostCycles > eeNow())
     {
-        uint64_t lag = hostCycles - m_eeCycle;
+        uint64_t lag = hostCycles - eeNow();
         // Never replay more than kDefaultMaxLagVBlanks frames at once; forget
         // older lag instead (a stop in a debugger, a long load frame).
         // The cap was 2 VBlanks until round 10: on slow frames (the Vita's
@@ -2507,7 +2507,7 @@ void EeScheduler::idleWait()
         auto until = now + std::chrono::milliseconds(1);
         for (const ScheduledEvent &item : m_deadlines)
         {
-            if (item.deadlineCycle <= m_eeCycle)
+            if (item.deadlineCycle <= eeNow())
                 return;
             if (item.hostDeadline > now)
                 until = std::min(until, item.hostDeadline);
@@ -2528,13 +2528,13 @@ void EeScheduler::enableHostClockSync()
         return;
     // Start counting real time from the current emulated time.
     m_hostClockBase = std::chrono::steady_clock::now() -
-                      std::chrono::microseconds(m_eeCycle * 1000000ull / kEeClockHz);
+                      std::chrono::microseconds(eeNow() * 1000000ull / kEeClockHz);
     m_hostClockSync = true;
 }
 
 void EeScheduler::renewTimeSlice()
 {
-    m_sliceEndCycle = m_eeCycle + kDefaultTimeSliceCycles;
+    m_sliceEndCycle = eeNow() + kDefaultTimeSliceCycles;
     m_timeSliceExpired = false;
     updateGate();
 }

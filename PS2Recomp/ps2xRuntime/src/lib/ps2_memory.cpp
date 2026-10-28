@@ -585,7 +585,7 @@ uint32_t PS2Memory::flushEeTimers() noexcept
         mask |= advanceEeTimersNow(cycles);
     m_timerBudget = cyclesUntilNextEeTimerInterruptNow();
     if (m_eeClock)
-        m_eeClock->gate = 0u;
+        m_eeClock->closeGate();
     return mask;
 }
 

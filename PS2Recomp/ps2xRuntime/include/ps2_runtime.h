@@ -633,10 +633,10 @@ extern PS2Runtime::RecompiledFunction g_ps2RecompiledFunctionTable[];
 
 __attribute__((always_inline)) inline bool PS2Runtime::eeCheckpointDue(uint32_t cycles) noexcept
 {
-    m_eeClock.cycle += cycles;
-    // A flagged checkpoint has the gate at 0 (EeScheduler::flagCheckpoint):
-    // one compare (round 16; the pending flag was read here too).
-    if (__builtin_expect(m_eeClock.cycle < m_eeClock.gate, 1))
+    // A flagged checkpoint has the gate closed (EeScheduler::flagCheckpoint):
+    // one compare (round 16; the pending flag was read here too). Round 17:
+    // a 32-bit add and compare (EeClock::charge).
+    if (__builtin_expect(m_eeClock.charge(cycles), 1))
         return false;
     return eeCheckpointSlow();
 }
