@@ -35,6 +35,27 @@ namespace
 #endif
     constexpr double kDoubleTapSeconds = 0.35;
 
+    // An item set by its variable at start (env / env.txt) is not the
+    // player's choice: save() keeps the file's own value for it (or leaves it
+    // out) unless it was changed in the menu since (round 24: env.txt's
+    // SOTC_SUBSYS_PROF=1 of one console run went into settings.cfg at the
+    // first menu change and stayed on in every later run, which also kept
+    // the model draws' worker off).
+    struct KeptValue
+    {
+        std::string key;
+        double value;
+    };
+    std::vector<KeptValue> g_fileValues;  // as read from the file at start
+    std::vector<KeptValue> g_startValues; // every item's value after load()
+    const KeptValue *findKept(const std::vector<KeptValue> &v, const char *key)
+    {
+        for (const KeptValue &k : v)
+            if (k.key == key)
+                return &k;
+        return nullptr;
+    }
+
     // ---- Text -------------------------------------------------------------
 
     bool portuguese()
@@ -271,25 +292,43 @@ namespace
 
     // ---- Persistence --------------------------------------------------------
 
+    double itemValue(const native_renderer::TuningItem &item)
+    {
+        const native_renderer::Tuning &t = native_renderer::tuning();
+        if (item.toggle)
+            return t.*item.toggle ? 1.0 : 0.0;
+        if (item.mask) // hidden layers: 1 = hidden
+            return ((t.*item.mask >> item.bit) & 1u) ? 1.0 : 0.0;
+        if (item.number)
+            return static_cast<double>(t.*item.number);
+        return 0.0;
+    }
+
     void save()
     {
         FILE *f = std::fopen(kSettingsPath, "w");
         if (!f)
             return;
+        std::fprintf(f, "settings_version=24\n");
         std::fprintf(f, "exact_alpha=%d\nshow_fps=%d\nscreen=%d\nvolume=%d\nlanguage=%d\n", g_settings.exactAlpha ? 1 : 0,
                      g_settings.showFps ? 1 : 0, g_settings.screenMode.load(), g_settings.volume.load(), g_settings.language.load());
-        const native_renderer::Tuning &t = native_renderer::tuning();
         for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
         {
             if (item.action)
                 continue; // (the Debug group's "Mark": nothing to keep)
-            double value = 0.0;
-            if (item.toggle)
-                value = t.*item.toggle ? 1.0 : 0.0;
-            else if (item.mask) // hidden layers: 1 = hidden
-                value = ((t.*item.mask >> item.bit) & 1u) ? 1.0 : 0.0;
-            else
-                value = static_cast<double>(t.*item.number);
+            double value = itemValue(item);
+            if (item.env && std::getenv(item.env))
+            {
+                // Set by its variable at start: saved only once changed here.
+                const KeptValue *start = findKept(g_startValues, item.key);
+                if (start && start->value == value)
+                {
+                    const KeptValue *file = findKept(g_fileValues, item.key);
+                    if (!file)
+                        continue;
+                    value = file->value;
+                }
+            }
             std::fprintf(f, "%s=%g\n", item.key, value);
         }
         std::fclose(f);
@@ -430,14 +469,39 @@ void load()
         g_open = true;
         g_tab = std::clamp(std::atoi(open), 0, kTabCount - 1);
     }
+    struct StartValues
+    {
+        ~StartValues()
+        {
+            g_startValues.clear();
+            for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
+                if (!item.action)
+                    g_startValues.push_back({item.key, itemValue(item)});
+        }
+    } startValues; // taken when load() returns, whichever way
+    g_fileValues.clear();
     FILE *f = std::fopen(kSettingsPath, "r");
     if (!f)
         return;
     char key[64];
     float number = 0.0f;
     while (std::fscanf(f, " %63[^=]=%f", key, &number) == 2)
+        g_fileValues.push_back({key, static_cast<double>(number)});
+    std::fclose(f);
+    // A file from before round 24 (no settings_version) may hold a
+    // measuring switch that came from env.txt, not from the player: the
+    // subsystem profiler is not taken from it (it slows the game and keeps
+    // the model draws' worker off).
+    const bool old = !findKept(g_fileValues, "settings_version");
+    if (old)
+        std::fprintf(stderr, "[settings] %s is from before round 24: dbg_subsys_prof in it ignored\n", kSettingsPath);
+    for (const KeptValue &kv : g_fileValues)
     {
+        const char *key = kv.key.c_str();
+        const float number = static_cast<float>(kv.value);
         const int value = static_cast<int>(number);
+        if (old && !std::strcmp(key, "dbg_subsys_prof"))
+            continue;
         if (native_renderer::tuningRestore(key, number))
             continue;
         if (!std::strcmp(key, "exact_alpha")) g_settings.exactAlpha = value != 0;
@@ -446,7 +510,9 @@ void load()
         else if (!std::strcmp(key, "volume")) g_settings.volume = std::clamp(value, 0, 10);
         else if (!std::strcmp(key, "language")) g_settings.language = std::clamp(value, 0, 2);
     }
-    std::fclose(f);
+    if (old) // (written as the file of this round on its next save)
+        g_fileValues.erase(std::remove_if(g_fileValues.begin(), g_fileValues.end(), [](const KeptValue &k) { return k.key == "dbg_subsys_prof"; }),
+                           g_fileValues.end());
 }
 
 bool isOpen() { return g_open; }

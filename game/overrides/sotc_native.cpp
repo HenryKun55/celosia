@@ -3281,9 +3281,13 @@ namespace sotc_native
         void loop()
         {
             ThreadNaming::SetCurrentThreadName("HookWorker");
+            ::sotc_prof::t_offGameThread = true; // (the subsystem profiler's scopes are the game thread's)
 #if defined(__vita__)
             // Beside the BuildWorker: off core 0 (the game thread's first).
-            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+            const int affinity = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+            std::fprintf(stderr, "[hookjob] worker thread running (cores 1-2: %s)\n", affinity < 0 ? "refused" : "ok");
+#else
+            std::fprintf(stderr, "[hookjob] worker thread running\n");
 #endif
             uint32_t tail = g_tail.load(std::memory_order_relaxed);
             for (;;)
@@ -3452,8 +3456,29 @@ namespace sotc_native
             // SOTC_HOOK_ASYNC_AB=<n> (measuring): on and off in turn, n frames each.
             static const uint64_t ab = std::getenv("SOTC_HOOK_ASYNC_AB") ? std::strtoull(std::getenv("SOTC_HOOK_ASYNC_AB"), nullptr, 10) : 0u;
             const bool abOn = !ab || (g_frame / ab) % 2u == 0u;
-            const bool on = t.hookWorker && abOn && !checks && !g_staleCheck && !hookStats().on && !g_planVerify && !native_renderer::drawTap() && !t.subsysProf &&
-                            !::sotc_prof::g_on;
+            // (Round 24: the subsystem profiler no longer turns it off: its
+            // scopes are not timed on the worker, t_offGameThread. On the
+            // console in round 23 a settings.cfg that kept env.txt's
+            // SOTC_SUBSYS_PROF=1 of an earlier run had it off all game.)
+            const char *why = !t.hookWorker ? "off by SOTC_HOOK_ASYNC / settings.cfg dbg_hook_worker"
+                              : checks       ? "off: a debugging check runs (SOTC_DIFFTEST, SOTC_MODELDISP_CHECK, SOTC_VIEW_CHECK, a native log, ...)"
+                              : g_staleCheck ? "off: SOTC_STALE_CHECK"
+                              : hookStats().on ? "off: SOTC_HOOK_STATS"
+                              : g_planVerify ? "off: SOTC_PLAN_VERIFY"
+                              : native_renderer::drawTap() ? "off: a draw tap"
+                                                           : nullptr;
+            const bool on = !why && abOn;
+            // Said once at the first frame and again whenever it changes
+            // (not for the A/B's turns).
+            static int said = -1;
+            if (static_cast<int>(!why) != said)
+            {
+                said = static_cast<int>(!why);
+                std::fprintf(stderr, "[hookjob] model draws on a worker: %s (frame %llu%s%s)\n", why ? why : "on", (unsigned long long)g_frame,
+                             t.subsysProf || ::sotc_prof::g_on ? ", subsystem profiler on: the hooks' scopes count the game thread's part only" : "",
+                             ab ? ", SOTC_HOOK_ASYNC_AB: on and off in turns" : "");
+                std::fflush(stderr);
+            }
             static const bool verify = std::getenv("SOTC_HOOK_ASYNC_VERIFY") != nullptr;
             g_verify = verify;
             if (on)

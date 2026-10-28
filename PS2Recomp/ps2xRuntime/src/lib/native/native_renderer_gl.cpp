@@ -2939,12 +2939,40 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Vita3K the picture below layer 8 drawn again apart, see the
         // mid-frame redraw below), reduced and blurred.
         bool glowBuilt = false;
+        // The frame log's [gl:glow] line (round 24: the dead colossus's
+        // coloured blobs on the console): how layer 8 went, every 120 frames
+        // that have layer 8 draws.
+        const char *glowHow = nullptr;
+        auto glowLog = [&]
+        {
+            static uint64_t lastLog = 0;
+            if (!native_renderer::tuning().frameLog || arenaFrame < lastLog + 120u)
+                return;
+            unsigned n = 0, textured = 0, blends[4] = {};
+            for (const Draw &d : draws)
+                if (d.state.order == glow.order)
+                {
+                    ++n;
+                    textured += d.state.texture ? 1u : 0u;
+                    ++blends[std::min<unsigned>(static_cast<unsigned>(d.state.blend), 3u)];
+                }
+            if (!n)
+                return;
+            lastLog = arenaFrame;
+            std::fprintf(stderr, "[gl:glow] frame %llu: layer %u %u draws (%u textured; blends %u %u %u %u) %s | tint %.3f %.3f %.3f amounts %.3f %.3f rounds %d | glow mode %.0f redraw %.0f\n",
+                         (unsigned long long)arenaFrame, glow.order, n, textured, blends[0], blends[1], blends[2], blends[3], glowHow ? glowHow : "not reached",
+                         glow.tint[0], glow.tint[1], glow.tint[2], glow.amountA, glow.amountB, glow.rounds, native_renderer::tuning().glowVita,
+                         native_renderer::tuning().midFrameRedraw);
+        };
         auto buildGlow = [&](Target &depthOf) -> bool
         {
 #if defined(PS2X_NATIVE_VITA)
             bindTarget(depthOf); // drawn into this frame: its depth exists
             if (!vglFramebufferShareDepth(glowLayer.fbo, depthOf.fbo))
+            {
+                glowHow = "plain: the picture's depth could not be shared";
                 return false;
+            }
 #else
             (void)depthOf;
 #endif
@@ -2979,8 +3007,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (!glowBuilt && !buildGlow(color))
             {
                 pass(color, false, glow.order, glow.order + 1u, true); // as before round 19: plainly
+                glowLog();
                 return;
             }
+            glowHow = glowBuilt ? "apart (on the picture drawn again)" : "apart (on the picture's depth)";
+            glowLog();
             const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
             for (const auto &[source, amount] : layers)
             {

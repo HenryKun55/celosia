@@ -3690,6 +3690,152 @@ the Vita lean command line).
 6. Carried: modelDispState's part test into one walk with the hook's,
    the fight's measurement, the Metal bloom trail.
 
+## Round 24: the worker kept off by an old settings file, the fight's profile, the sword's sound (2026-10-28)
+
+The Mac was on battery the whole round (33% -> 22%, `pmset -g batt` before
+every build and run; no sleep). Runs stopped at 22%: no Vita3K route tables
+this round (see "Timing" below).
+
+**1. The hook worker never ran on the console: the settings file.** The
+console's settings.cfg (saved by r20 at 13:41, console-r23/settings.cfg) has
+`dbg_subsys_prof=1`. It came from round 21's env-r21-console-fightprof.txt
+(SOTC_SUBSYS_PROF=1): host_menu's save() wrote every item's *current* value,
+env-set ones included, so the first menu change of that run (a "mark")
+stored the profiler as the player's choice, and every later run had it on
+with an env.txt that no longer asked for it. The profiler on (a) wraps 63
+functions (~0.7 us a probe, ~2 500 calls a frame in a fight: ~3.5 ms) and
+(b) turned the round 23 worker off (hookjobs::frameStart: `!t.subsysProf`).
+Hence r23's "jobs 0.0 join 0.0" and its [prof] lines. There was no
+`dbg_hook_worker` key (absence = the Vita's default, on): not a cause.
+Reproduced in Vita3K with that exact file: celosia-r23.vpk ->
+`[prof] 63 functions wrapped`, `jobs 0.0` (r24/set240-r23-err.txt);
+celosia-r24.vpk -> profiler not wrapped, worker on, `jobs 0.5-0.7`
+(r24/set240-err.txt). Fixes:
+- host_menu.cpp: an item set by its variable at start is saved only if it
+  was changed in the menu since (otherwise the file's own value is kept, or
+  the key left out). Files get `settings_version=24`; from an older file
+  `dbg_subsys_prof` is ignored (`[settings] ... from before round 24:
+  dbg_subsys_prof in it ignored`), so the console's file stops slowing the game
+  without the user touching it.
+- The worker no longer turns off for the subsystem profiler: the profiler's
+  scopes are skipped on the worker (`sotc_prof::t_offGameThread`, a
+  thread_local read only when the profiler is on; its stack is the game
+  thread's). With both on, hook.* count the game thread's part; the jobs are
+  the frame log's `jobs` column. Checked in Vita3K with the console's file and
+  the fight profile env (r24/fp240-err.txt: 96 wrapped, worker on, running).
+- Boot log, once and again on any change: `[hookjob] model draws on a worker:
+  on (frame 2)` or `off: <reason>` (SOTC_HOOK_ASYNC / settings, a check, a
+  draw tap, ...), plus `[hookjob] worker thread running (cores 1-2: ok)` from
+  the thread itself (the affinity call's result on the hardware).
+
+**2. The fights (~10 fps, frames 3 600-11 200 of the r23 console log).** The
+r23 run *is* a console fight profile (the stale profiler, 63 functions).
+Averaged over its 62 [prof] windows (r24/profagg.py; ms / frame, wall 89.7):
+
+| function | self | inclusive | calls |
+|---|---|---|---|
+| ExecCharaGeometry | 11.29 | 18.16 | 4.3 |
+| DispDispObjGroupModel (native walk) | 7.36 | 27.97 | 1.0 |
+| modelDisp (guest, around the hook) | 6.60 | 15.25 | 43 |
+| hook.packets | 4.12 | 5.72 | 43 |
+| ClipCollisionDirectCallBack | 3.59 | 3.59 | 14 |
+| doit_particle_geodisp | 3.09 | 4.56 | 74 |
+| doit_game_camera | 2.95 | 5.29 | 1 |
+| iosDmaSendSChainPath1 (the kick) | 2.63 | 2.63 | 1 |
+| CalcNodeQuaternionWithIK | 2.44 | 3.65 | 4.3 |
+| skeletonPose | 1.92 | 1.92 | 25 |
+| hook.state | 1.76 | 1.76 | 43 |
+| dispSort_010F4FB8 | 1.67 | 1.67 | 1 |
+| hook.modelDisp (all of the hook) | 0.65 | **8.65** | 43 |
+
+Against the r20 console profile on the plain (frames 6 800-8 000, the round
+21 callees wrapped: ExecCharaGeometry's self 0.76 of 12.2 for 6.8
+characters), the fight's ExecCharaGeometry self is 11.3 ms for 4.3 calls:
+the colossus's skeleton goes through callees r23 did not wrap (r21's list:
+root dynamics, IK callbacks, root fitting, cloth, motion matrices). The
+hooks' 8.65 ms is what the worker takes off the game thread (on the plain in
+Vita3K the worker halved the hooks' game-thread time) and the profiler's own
+~3.5 ms goes with the file fix: the expected console fight is ~75-78 ms,
+still the game thread's. No Vita3K fight measurement: the user's new card
+loads the shrine's wake-up after the kill (r24/load2: the shadow figures
+and the idol falling, as round 19's card), not a fight. For the next console
+run: env-r24-console-fightprof.txt (the r21 callee list, now with the worker
+on) gives the colossus's split on the real machine.
+
+**3. The sword's sound "freezing" (r23 frames ~4 760-5 040).** Not the mixer
+(0 late callbacks, 0 stale halves) and not the disc. In those windows the
+loader (t11) runs one type 0 job (sheetFileLoadSegmentIndex, 0x1222338) for
+**15.9 s**, asleep in iosSendMsg (0x1b10dc) on box 0x1fc870 (its line reads
+count 0 / capacity 0, sender list 0x1ff528; the main thread t5, priority
+125, polls it 10-18 times a window and finds it empty); the sound stream's
+own disc reads queue behind that job (`cd iop 6`, then `0` for 10 s while
+30 halves a window play): the stream's IOP ring is not refilled and the
+driver replays its old contents (src-stale 16 and 24): the repeated chunk is
+the "freeze". It is round 14's console loader stall again (also after an
+area load, the console only), now with the box and the threads in the line.
+The Mac at 60 fps raising the sword on the plain for 20 s (r24/sw1, volume 0,
+SOTC_AUDIO_LOG=2) has no long job, refills 30 a window with 2-3 stream
+reads, 0 src-stale. iosRecvMsg (read this round): a receive of an empty
+box does not wake a waiting sender (only a receive that takes a message
+does, or one on a deleted box, slots 0); a send to a full box sleeps and
+retries. A box of capacity 0 can never be sent to, so t11 waits for some
+other wake-up. Not fixed: the waker and why the box reads 0 / 0 (deleted
+and created again? created with 0?) are not known; a forced wake-up would
+change the game's threads. Round 25 item 1.
+
+**4. The dead colossus's coloured blobs, the missing tendrils.** Not
+reproduced: neither card reaches a colossus (the new card's save is the
+shrine wake-up). Reading the Vita path: on the console the glow layer is
+composited (settings dbg_glow_vita=1, dbg_redraw_mode=2, inEmulator false:
+apart), and the blobs are blurred, which the plain layer 8 is not: the
+composite runs and lays layer 8's raw vertex colours (cyan / green / blue,
+round 19's "solid gradient") times the tint. Either the tint read at the
+hook is not the GS's for that scene, or the layer's alpha / colour channel
+is not what the GS's sprite uses there. The frame log now has a
+`[gl:glow]` line every 120 frames that have layer 8 draws (the number of
+draws, textured, blend modes, apart / plain and why, the tint, amounts and
+rounds): the next console kill gives the numbers. To check by eye then:
+Debug "hide layer 8" on and off at the dead colossus (if the blobs go, it is
+layer 8). No before / after pictures this round.
+
+**Timing.** Nothing on the game thread changed by default in Vita3K (its
+settings file never had the profiler), so r23's tables stand; no 222 / 240 /
+333 route runs (battery). The console's gain is the worker and the profiler
+going away: ~12 ms a fight frame by the table above, to be measured on the
+console.
+
+**Checks.**
+- Mac fixed-30 fps path (route2, SOTC_NATIVE=2, SOTC_FRAME_INTERVAL=2,
+  SOTC_POS_LOG=30, to 5 400, r24/pos-1): within **0.09** units of r23/pos-1
+  (25 points paired).
+- No native's guest-visible code changed (no difftest needed); no generator
+  change (no lean check). The worker's jobs are unchanged; what changed is
+  when it is on.
+
+**Files:** PS2Recomp/ps2xRuntime/src/lib/host_menu.cpp (env-set items not
+saved, settings_version, the old file's profiler ignored),
+game/overrides/sotc_prof.h / .cpp (t_offGameThread), game/overrides/
+sotc_native.cpp (the worker's on / off line and reason, the thread's line,
+not off for the profiler), PS2Recomp/ps2xRuntime/src/lib/native/
+native_renderer_gl.cpp ([gl:glow]). Tools: r24/v3k.sh (r23's; SETTINGS=<file>
+puts that settings.cfg in for the run; refuses at 20%), r24/macload.sh (the
+console card's save on the Mac), r24/macsword.sh (the route, then Circle
+held), r24/profagg.py ([prof] windows averaged), r24/sheet.py.
+Deliverables: build/agent-scratch/celosia-r24.vpk (shader seed: 42 files),
+env-r24-console.txt, env-r24-console-fightprof.txt.
+
+**Round 25 (plan).**
+1. The loader stall: hook iosCreateMsgBox / iosDeleteMsgBox (or log box
+   0x1fc870's +0 / +0x14 and every WakeupThread of t11) to find who should
+   wake the loader and why the box reads 0 / 0; then a fix that the PS2's
+   timing would also give (likely the main thread's step that receives it).
+2. The console's fight profile with env-r24-console-fightprof.txt (worker
+   on): the colossus's ExecCharaGeometry callees, then the biggest as a
+   native or host-side cut.
+3. The [gl:glow] numbers from a console kill; the tint / channel fix.
+4. Carried: the render thread's GL calls after the shrine, the cut frame,
+   the VIF1 walk at the kick, the mixer's state pass.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

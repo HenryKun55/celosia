@@ -62,6 +62,7 @@
 namespace sotc_prof
 {
     bool g_on = false;
+    thread_local bool t_offGameThread = false;
 
 #ifdef PLATFORM_VITA
     // Microseconds (a system call; its cost is in the [probe] line).

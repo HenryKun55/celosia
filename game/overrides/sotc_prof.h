@@ -18,6 +18,11 @@ namespace sotc_prof
 {
     // Timing on (installed and the tuning toggle on).
     extern bool g_on;
+    // Set on threads other than the game thread that run hook code (the
+    // model draws' worker, round 24): their scopes are not timed (the
+    // probes' stack is the game thread's; the worker's time is the frame
+    // log's "jobs" column).
+    extern thread_local bool t_offGameThread;
 
     // Scopes in our hooks (sotc_native.cpp).
     enum Hook : int
@@ -47,7 +52,7 @@ namespace sotc_prof
         uint32_t serial = 0;
         explicit Scope(int hook)
         {
-            if (g_on)
+            if (g_on && !t_offGameThread)
                 serial = enter(hook, ticks());
         }
         ~Scope()
