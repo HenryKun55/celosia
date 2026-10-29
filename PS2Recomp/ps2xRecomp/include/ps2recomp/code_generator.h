@@ -103,6 +103,10 @@ namespace ps2recomp
         // edges agree on (register_cache.h, joinForward).
         // PS2X_RECOMP_REGCACHE_JOIN=0: every label a sync point (round 18).
         bool m_registerCacheJoin = !(std::getenv("PS2X_RECOMP_REGCACHE_JOIN") && std::getenv("PS2X_RECOMP_REGCACHE_JOIN")[0] == '0');
+        // Round 31: the same across guest memory accesses of 8-64 bits (their
+        // slow paths keep every register on the Vita, PS2X_GUEST_MEM_TRAMP in
+        // ps2_runtime_macros.h). PS2X_RECOMP_REGCACHE_JOIN_MEM=0: round 30's rule.
+        bool m_registerCacheJoinMem = !(std::getenv("PS2X_RECOMP_REGCACHE_JOIN_MEM") && std::getenv("PS2X_RECOMP_REGCACHE_JOIN_MEM")[0] == '0');
         bool m_registerCacheDeadStores = !(std::getenv("PS2X_RECOMP_REGCACHE_DSE") && std::getenv("PS2X_RECOMP_REGCACHE_DSE")[0] == '0');
         // Round 16's leaner calls: JAL / JALR / J through PS2_CALL_GUEST /
         // PS2_JUMP_GUEST (the table's bounds as constants), and a function's

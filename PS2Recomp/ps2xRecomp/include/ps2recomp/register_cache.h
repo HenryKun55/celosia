@@ -39,6 +39,12 @@ namespace ps2recomp
         // (a kept local is live across no call: nothing to spill).
         // PS2X_RECOMP_REGCACHE_JOIN=0: every label a sync point (round 18).
         bool joinForward = false;
+        // Round 31: joinForward's span may hold guest memory accesses of 8 to
+        // 64 bits (READ8..READ64, WRITE8..WRITE64; not 128): on the Vita their
+        // slow path saves every register itself (PS2X_GUEST_MEM_TRAMP), so a
+        // local kept across one is not spilled.
+        // PS2X_RECOMP_REGCACHE_JOIN_MEM=0: off (round 30's rule).
+        bool joinMem = false;
     };
 
     std::string applyRegisterCache(const std::string &body, const RegisterCacheOptions &options);

@@ -5066,6 +5066,263 @@ is off by default and there is no Debug item.
    stays under its work.
 
 
+## Round 31: the DMA chain walk, the slow paths that keep every register, the 2D functions' join (2026-10-29)
+
+On AC power the whole round. Item 1 (the console) is the user's; item 4
+(track B with a write log) was not started: items 2 and 3 took the round.
+
+**The walk window at 222 first** (calibrated Vita3K, CORES=3, celosia-r30.vpk,
+SOTC_SUBSYS_PROF=1 plus the host profile, seconds 180-300; r31/hpbase*,
+r31/subsys.py, r31/hp-base-180-300.txt). By SOTC_SUBSYS_PROF's self time,
+ms a frame over the walk + area change: ExecCharaGeometry 10.2 (generated
+code, rounds 29-30's subject), DispDispObjGroupModel 7.2, the collision
+callback 3.4, **iosDmaSendSChainPath1 3.2**, skeletonPose 3.2, then nothing
+above 2.8. By the host profile the top is flat: decomp_skeleton 4.1%, the
+collision leaf 2.9%, then **Vif1Walker::feed 1.5% + writeIORegister's chain
+loop 1.4%**: the DMA walk is the largest single exact item that is not
+generated code, so it stayed the target.
+
+What the chain is with the native renderer drawing (SOTC_NATIVE=1, Mac,
+PS2X_DMA_DUMP): ~1 400-2 200 tags a chain (modelDisp's packets left the chain
+in round 13; SOTC_NATIVE=2's chains still have them, ~11 700 tags), most of
+them NEXT (id 2, 29%) and CALL (id 5, 22%) tags with no payload, the CALL
+targets RET packets of 7-13 qwords: FLUSH + DIRECT, an A+D register list
+for the GS (path 2); about 50 a chain are object packets (STCYCL, UNPACK,
+MSCNT). The DIRECT data is what the GIF event scanner reads, so a packet's
+"VIFcodes only" are not enough to know it raises no SIGNAL / FINISH / LABEL.
+
+**1. The chain walk's own loop (runtime, exact, PS2X_DMA_WALK2=0: round
+30's).** PS2Memory::walkVif1Chain takes every chain the walker walks with TTE
+on (all of SotC's with the native renderer drawing):
+- main RAM tags and payloads read in place: an address below 32 MB is main
+  RAM in translateAddress (not the scratchpad, not a mirror, no TLB), so the
+  three translateAddress calls, the isScratchpad tests, loadScalar's range
+  check (an out-of-line call) and the payload lambda per tag go; anything
+  else takes the general path as before (the scratchpad, the wrap at the
+  region's end, a TLB miss ending the chain);
+- Vif1Walker::feed with the walk's state in locals: VIFRegisters and the
+  walker may alias as far as GCC knows, so every VIFcode reloaded m_skip /
+  m_gif / m_want and stored CODE / NUM. They are kept in registers and
+  stored back before anything else can look (the DIRECT scanner's GS writes,
+  the MSKPATH3 callback, the return); INT is ORed in at those points, which
+  commutes with what the codes do to STAT's other bits.
+
+**2. The packet cache (runtime, exact, off by default: PS2X_DMA_CACHE=1).**
+At a CALL whose target packet (the tags up to the RET back to this level;
+NEXT / CNT / REF inside, no CALL, no IRQ bit) was walked before from a clean
+walker and an idle DIRECT scanner with the same CYCLE, and every byte that
+walk read (the tags, VIFcodes, DIRECT data, STMASK / STROW / STCOL data; not
+the UNPACK / MPG data, which the walker never reads) is unchanged, the walk's
+effect is replayed: the codes with an effect beyond CODE / NUM / INT (STCYCL,
+OFFSET, BASE, ITOP, STMOD, MSKPATH3, MARK, MSCAL / MSCALF / MSCNT, STMASK /
+STROW / STCOL) in order, the last code's CODE / NUM, INT, the counters, then
+the RET. A packet is kept only if it raised no GS event and ended clean.
+Exact by construction (the walk is a function of those bytes and that
+state), and checked: **SOTC_DMACACHE_CHECK=1** walks each chain first
+without the cache on copies (VIF1 registers, GS events with their values,
+MSKPATH3 calls, collected) and then for real, and compares the registers,
+the events, the mask calls, TADR / ASR0 / ASR1 / ASP / the last tag and the
+walker's counters: the Mac route with SOTC_NATIVE=1 to frame 5 400,
+**5 400 chains, 0 mismatches** (r31/chk2, chk3, chk4: each cache version).
+It replays ~66% of the CALL targets (1.23 M of 1.87 M), ~1.9 M tags.
+
+It is slower than the walk it replaces in Vita3K, in three versions:
+
+| 222, two runs each | shrine | walk + area | plain (draws) |
+|---|---|---|---|
+| walk2 without the cache | 42.1, 42.3 | 73.6, 73.2 | 47.5 (895), 48.4 (945) |
+| cache v1 (unordered_map, memcmp) | 44.3 | 78.2 | 50.5 (900) |
+| cache v2 (word compare, no allocation per packet) | 42.9, 42.6 | 75.1, 75.5 | 48.8 (928), 48.4 (920) |
+| cache v3 (direct-mapped, no division) | 42.6, 42.5 | 74.6, 74.7 | 48.4 (909), 50.9 (940) |
+
+v1's host profile (r31/hp-new-180-300.txt) had newlib's byte-by-byte memcmp
+at 3.0% and the map's software modulo (__aeabi_uidivmod) at 0.7%. Without
+them it still costs ~1.2 ms on the walk: a third of the CALL targets change
+every frame (~130 a chain are stored again), and a hit reads its DIRECT
+data twice (RAM and the copy) where the walk read it once. Vita3K does not
+model the A9's dependent misses, which is what a hit removes; the console
+may differ, but nothing measured says it gains. Kept in the source with its
+check, off. The first version also ran the Vita out of heap (r31/first:
+oom.txt at 156 MB, the cache bounded at 16 384 packets, not bytes); the
+cache now has a 4 MB budget of its own and the Vita's heap stays at ~85-90 MB.
+
+**3. The guest memory slow paths keep every register (Vita, exact, plan
+item 3).** Round 30 kept the register cache's locals across a forward label
+only when nothing between its first goto and it could make GCC spill them,
+so a guest memory access ended the span: its slow path (an address at or
+above 32 MB: I/O, the scratchpad, the mirrors) is an AAPCS call, which
+clobbers r0-r3, ip, lr, d0-d7 and d16-d31, and every value live across it
+goes to a callee-saved register or the stack. Now on the Vita the slow
+paths of the 8-64-bit READ / WRITE macros are an inline asm call (movw / movt
+lr; blx lr) to a trampoline (ps2gm_tramp_*, ps2_memory.cpp) that saves
+r0-r3 (all but the result), ip, d0-d7 and d16-d31, realigns sp to 8 (the
+caller may be a leaf as far as GCC knows), puts the C arguments in place
+(rdram and the runtime from g_ps2gmRdram / g_ps2gmRuntime, set at start; a
+store's value on the stack) and calls the same slow path; the asm clobbers
+only lr, the flags and memory. EHABI unwind directives (.save / .setfp /
+.vsave) let a C++ exception pass through. The 128-bit ones stay plain
+calls. `-DPS2X_GUEST_MEM_TRAMP=0`: plain calls. Then the generator's rule:
+**PS2X_RECOMP_REGCACHE_JOIN_MEM** (default on; =0 gives round 30's output
+byte for byte, r31/off: 9 080 files, 0 differ) lets those spans hold READ8
+.. READ64 / WRITE8 .. WRITE64 (not 128); 1 980 files change.
+
+Vita assembly of the 40 hottest lean functions (r31/asmcmp.sh, GCC -O2,
+cortex-a9; r31/armc.sh takes EXTRA flags):
+
+| generated code / macros | instructions | memory | vmov core <-> VFP | calls |
+|---|---|---|---|---|
+| round 30, plain slow calls | 47 402 | 10 719 | 834 | 1 793 |
+| round 30, trampoline | 46 259 | 9 437 | 846 | 1 802 |
+| round 31 (JOIN_MEM), trampoline | **44 709** | **9 263** | 848 | 1 753 |
+| round 31 (JOIN_MEM), plain slow calls (rejected) | 46 025 | 10 984 | 824 | 1 743 |
+
+The trampoline alone removes 12% of the memory instructions (the spills
+around the slow calls); with the wider joins -5.7% instructions and -13.6%
+memory instructions. Without the trampoline the wider joins spill (+2.5%
+memory), as round 30 found. In Vita3K (the four-way chain, r31/chain222.sh:
+"off" = this VPK with PS2X_DMA_WALK2=0 SOTC_GSREG_ASYNC=0, so item 3 alone)
+against round 30 at 222: shrine 42.6 / 42.6 against 42.7 / 42.8, walk 73.8 /
+73.6 against 73.6 / 74.1, plain 47.6 / 47.7 against 49.0 / 48.0 (~-0.1, ~0,
+~-0.85 ms). Memory instructions and time both drop, so it stays; the A9
+pays for stores and stack traffic that Vita3K's JIT on the host barely
+sees, so the console may gain more.
+
+**4. The 2D functions' writes without the join (render side, SOTC_GSREG_ASYNC=0:
+off; from the console recording).** The user's console recording of round
+30 (console-r30/rec/2026-10-29_135128, tools/rec.py profile) has gsReg at
+7.3% of the game thread (fadeScreen 51%, manager_sub_010A3460 35%): nearly
+all of it gsRegHook's hookJoin, the game thread waiting for the model jobs
+of round 23 at every GS register write of a 2D function. Those writes now go
+through flush2D as glEnd's have since round 28: an untextured batch flushed
+while model jobs are pending is a job after them; a textured one waits for
+them first (texture() decodes on the game thread). The renderer gets the
+same draws in the same order (flush2D was the only place the batch is drawn,
+and the frame's end joins before endFrame's flush). Not measurable in
+Vita3K, where the 2D joins are ~0.1 ms (walk: join 0.51-0.61 base, 0.51-0.55
+new); its effect is for the console to show.
+
+**Exactness.**
+- Generator: `PS2X_RECOMP_REGCACHE_JOIN_MEM=0` gives round 30's output byte
+  for byte (r31/off, 9 080 files, 0 differ); the default output (r31/new) is
+  r31/jm's. No local read before it is set: the 1 980 changed files through
+  clang -fsyntax-only -Wconditional-uninitialized -Wsometimes-uninitialized
+  (r31/uninit.sh, r31/uninit.txt): 0 warnings.
+- Old generator against new (rounds 29-30's method; r31/lean_old.sh,
+  r31/lcheck.sh, r31/lc-*): lean copies from round 30's output, originals
+  from this round's, SOTC_LEAN_CHECK in batches of 64, ALLREGS, VU0,
+  EVERY=50, to frame 3 000: 289 functions called, 425 203 checks, 734
+  mismatches, all known ones: iosResetCpuRapCounter 600 (void: an override),
+  manager_sub_01102638 97 (the pad / frame timers), ExecAnimeTableInfo 35
+  (round 18's), gsReg 2 (void: an override). All six batches reached frame
+  3 000.
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r31/dt-all): 57 functions, 165 801 checks, 0 mismatches except gamecore_sub_013F8668 (158, the life bar's v0, as since round 16).
+- The packet cache: SOTC_DMACACHE_CHECK, 0 mismatches in 5 400 chains (above).
+- The trampoline: the same C function with the same arguments; only the
+  calling convention changes (the Mac, which keeps plain calls, cannot check
+  it; the Vita3K runs are the evidence that nothing breaks).
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, the r24 card copy,
+  r31/posbase.sh; base = round 30's Mac binary, new = this round's; base,
+  new, base, new on an idle Mac): the two HEAD runs within 1.08 of each other,
+  the two new runs within 0.19, new against base 2.08 / 3.13. The distance
+  follows the vblank offset an earlier load leaves (from frame 2 700 on:
+  base1 2 vblanks behind the new runs, base2 1, base1 / base2 1 apart: 3.1,
+  2.05 and 1.06 units), as in rounds 29-30. **Vblanks at frame 5 400**: base
+  10 742 / 10 741, new 10 740 / 10 740: the loads are not longer.
+- Macro selftest: no macro's arithmetic changed (the READ / WRITE macros'
+  fast paths are the same; only the slow call's convention on the Vita).
+
+**Frame timing.** Calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s, game frame ms with draws on the plain. Base is celosia-r30.vpk, new
+is this round's (the cache off). The runs alternated base / new (222:
+r31/chain222.sh with the four configurations, then r31/chain3.sh; 240 / 333:
+r31/chain4.sh, the final VPK).
+
+| window | 222 base | 222 new | 240 base | 240 new | 333 base | 333 new |
+|---|---|---|---|---|---|---|
+| shrine | 42.7, 42.8 | **42.1, 42.3** (42.1, 42.3) | 39.1, 39.1 | **38.8, 38.9** | 28.0, 28.1 | 28.0, 27.8 |
+| walk + area change | 73.6, 74.1 | 73.6, 73.2 (73.2, 73.6) | 68.5, 68.1 | **66.4, 66.2** | 48.4, 48.6 | 48.1, 48.4 |
+| plain (draws) | 49.0 (909), 48.0 (909) | 47.5 (895), 48.4 (945) (47.8 (910), 48.7 (895)) | 43.9 (909), 44.9 (904) | 45.5 (942), 43.8 (943) | 29.9 (715), 29.9 (744) | 30.2 (710), 32.3 (944) |
+| walk: hooks / render | 3.8-3.9 / 34.3-34.6 | 3.7-3.9 / 34.0-34.8 | 3.4-3.7 / 32.1 | 3.5-3.6 / 32.0 | 2.4-2.5 / 22.2-22.3 | 2.4 / 22.3-22.9 |
+
+(222 new: the "nc" runs, this VPK's configuration; in brackets the second
+pair, alternated with the cache runs.)
+- 222: shrine -0.5 ms, walk -0.4 ms, plain -0.5 ms at the same draws (~1%).
+- 240: shrine -0.25, **walk -2.0 ms (-2.9%)**, plain the same at ~35 more draws.
+- 333: nothing beyond the noise.
+- **One stall, not reproduced.** new-333a stopped at second ~271 (frame
+  9 516, standing in the plain after the route's input ended): no frame,
+  sound or loader line after it until the run was stopped at 420 s, no
+  crash or out-of-memory report. Three more runs of the same VPK at 333
+  (r31/hang-333r1..3) and the other 16 runs of this round's code ran to the
+  end; no run of rounds 26-30 stopped like it. Cause unknown; the runtime
+  parts can be switched off one by one (SOTC_GSREG_ASYNC=0,
+  PS2X_DMA_WALK2=0) if the console shows it (round 32, item 1).
+- Sound (au.py): 0 late callbacks, 0 stale halves, 0 src-stale in every run but nc-222d (10 late callbacks, the area change). Config, settings, card and shader cache
+  restored after every run ("restored ok" in every log).
+
+**Decomp status:** unchanged (no new natives): 5.41% of the MIPS code by
+size.
+
+**Switches** (README): `PS2X_DMA_WALK2=0`, `PS2X_DMA_CACHE=1`,
+`SOTC_DMACACHE_CHECK=1`, `PS2X_DMA_STATS=1`, `SOTC_GSREG_ASYNC=0` (runtime env);
+`PS2X_RECOMP_REGCACHE_JOIN_MEM=0` (recompiler env; gives round 30's output);
+`-DPS2X_GUEST_MEM_TRAMP=0` (C++ flags, Vita). All exact; the one that is
+off (the packet cache) is off for speed, so there is no Debug item.
+
+Note on the Mac toolchain: during the round `xcode-select` came to point at
+Xcode 26.3 (clang 17), while every object in build/cmake was made by the
+Command Line Tools' clang 21; the ThinLTO link then fails. The round's Mac
+builds ran with `DEVELOPER_DIR=/Library/Developer/CommandLineTools` (nothing
+changed in the system setting).
+
+**Files:**
+- PS2Recomp/ps2xRuntime/src/lib/ps2_memory.cpp: walkVif1Chain, the packet
+  cache, SOTC_DMACACHE_CHECK, PS2X_DMA_STATS, g_dmaWalk2 / g_dmaCache, the
+  trampolines and g_ps2gmRdram / g_ps2gmRuntime;
+- PS2Recomp/ps2xRuntime/src/lib/ps2_vif1_interpreter.cpp: Vif1Walker::feedT
+  (locals, the record), replay, feedOld (round 30's);
+- PS2Recomp/ps2xRuntime/src/lib/ps2_vif1_compact.h: Record, replay, clean,
+  cycle; PS2Recomp/ps2xRuntime/src/lib/ps2_gif_events.h: idle();
+- PS2Recomp/ps2xRuntime/include/runtime/ps2_memory.h: Vif1ChainState,
+  walkVif1Chain; include/runtime/ps2_fast_paths.h: the two flags;
+- PS2Recomp/ps2xRuntime/include/ps2_runtime_macros.h: PS2X_GUEST_MEM_TRAMP,
+  the *_slow wrappers;
+- PS2Recomp/ps2xRuntime/src/lib/ps2_runtime.cpp: the globals set at start;
+- PS2Recomp/ps2xRecomp/src/lib/register_cache.cpp,
+  include/ps2recomp/register_cache.h, include/ps2recomp/code_generator.h,
+  src/lib/function_emitter.cpp: joinMem / PS2X_RECOMP_REGCACHE_JOIN_MEM;
+- game/overrides/sotc_native.cpp: gsRegHook's 2D writes through g_2dDefer;
+- README.md, docs/decomp.md.
+- Tools: r31/subsys.py (SOTC_SUBSYS_PROF by window), r31/vbtotal.py (the
+  route's vblanks at its last [pos] line), r31/armc.sh + r31/asmcmp.sh
+  (EXTRA flags, SUF tags), r31/uninit.sh (a file list), r31/chain222.sh,
+  r31/chain2.sh, r31/chain3.sh, r31/chain4.sh, r31/v3k.sh, r31/posbase.sh,
+  r31/regen.sh, r31/lcheck.sh, r31/lean_old.sh, r31/dt.sh.
+- Deliverables: build/agent-scratch/celosia-r31.vpk (shader seed: 42
+  files), env-r31-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
+
+**Round 32 (plan).**
+1. The console, with this VPK: SOTC_GSREG_ASYNC=1 against =0 in the same
+   place (gsReg was 7.3% of the game thread in round 30's recording, the
+   join's wait); rounds 28-31's A9-side changes (the NEON chains, the
+   generator's, the trampolines' stack traffic) against celosia-r27.vpk.
+2. modelDisp's host code on the console: 16.1% of the game thread there
+   (all from manager_sub_010F3B58), and the calibration says native code
+   walking guest memory runs ~1.4x slower on the console than in Vita3K.
+   Count its guest reads per draw (the instance -> object -> header chain,
+   the surface table, the packet heads), prefetch the next instance's chain
+   (queueNextDraw does the first level), and keep what the draw plans
+   already know in contiguous host arrays instead of reading it again from
+   guest RAM each frame.
+3. The remaining joins of gsReg (feedback / refraction, layer 29 and 19),
+   by the same console measurement.
+4. GetMotionMatrix's callee manager_sub_010B8590 (2.5% on the console).
+5. The DMA walk on the console (3.5%): the packet cache with
+   PS2X_DMA_CACHE=1 against =0 there (it loses ~1.2 ms in Vita3K, which
+   does not model the A9's misses).
+6. Track B with a write log (this round's item 4), only with 1-2 done.
+
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

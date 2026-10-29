@@ -3,6 +3,7 @@
 #include "runtime/gs/gs_frontend.h"
 #include <cstdio>
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_fast_paths.h"
 // Based on Blackline Interactive implementation
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_vu1_native.h"
@@ -417,6 +418,278 @@ void Vif1Compactor::feed(const uint8_t *data, uint32_t bytes)
 }
 
 void Vif1Walker::feed(const uint8_t *data, uint32_t bytes)
+{
+    if (!ps2_fast_paths::g_dmaWalk2)
+        feedOld(data, bytes);
+    else if (m_rec)
+        feedT<true>(data, bytes);
+    else
+        feedT<false>(data, bytes);
+}
+
+// Round 31: as feedOld, with the walk's state (data pending, the code and
+// NUM registers, INT) in locals: VIFRegisters and this walker may alias as
+// far as the compiler knows, so every code reloaded m_skip / m_gif / m_want
+// and stored CODE / NUM. The locals go back before anything else can look
+// (the DIRECT scanner's GS writes, the MSKPATH3 callback, the return), and
+// INT commutes with what the codes do to the other STAT bits.
+template <bool Rec>
+void Vif1Walker::feedT(const uint8_t *data, uint32_t bytes)
+{
+    m_bytes += bytes;
+    if constexpr (Rec)
+        m_rec->bytes += bytes;
+    VIFRegisters &r = m_regs;
+    uint32_t skip = m_skip, gif = m_gif;
+    uint32_t code = 0, num = 0, intBit = 0;
+    bool codeSet = false;
+    auto sync = [&]()
+    {
+        if (codeSet)
+        {
+            r.code = code;
+            r.num = num;
+            codeSet = false;
+        }
+        r.stat |= intBit;
+        intBit = 0;
+    };
+    uint32_t pos = 0;
+    while (pos < bytes)
+    {
+        if (skip != 0u)
+        {
+            const uint32_t n = std::min(skip, bytes - pos);
+            skip -= n;
+            pos += n;
+            continue;
+        }
+        if (gif != 0u)
+        {
+            const uint32_t n = std::min(gif, bytes - pos);
+            if constexpr (Rec)
+                m_rec->add(data + pos, n);
+            sync();
+            m_direct.feed(data + pos, n);
+            gif -= n;
+            pos += n;
+            continue;
+        }
+        if (m_want != 0u)
+        {
+            const uint32_t n = std::min(m_want - m_have, bytes - pos);
+            std::memcpy(m_data + m_have, data + pos, n);
+            if constexpr (Rec)
+                m_rec->add(data + pos, n);
+            m_have += n;
+            pos += n;
+            if (m_have < m_want)
+                continue;
+            if (m_dataOp == VIF_STMASK)
+                std::memcpy(&r.mask, m_data, 4);
+            else if (m_dataOp == VIF_STROW)
+                std::memcpy(r.row, m_data, 16);
+            else
+                std::memcpy(r.col, m_data, 16);
+            if constexpr (Rec)
+            {
+                uint32_t w[4];
+                std::memcpy(w, m_data, m_want);
+                m_rec->ops.insert(m_rec->ops.end(), w, w + m_want / 4u);
+            }
+            m_want = m_have = 0;
+            continue;
+        }
+        if (pos + 4u > bytes)
+            break;
+        uint32_t cmd;
+        std::memcpy(&cmd, data + pos, 4);
+        if constexpr (Rec)
+            m_rec->add(data + pos, 4u);
+        pos += 4u;
+        const uint8_t opcode = (cmd >> 24) & 0x7Fu;
+        const uint16_t imm = cmd & 0xFFFFu;
+        const uint8_t n8 = (cmd >> 16) & 0xFFu;
+        code = cmd;
+        num = n8;
+        codeSet = true;
+        intBit |= cmd & 0x80000000u ? (1u << 11) : 0u;
+        if ((opcode & 0x60u) == 0x60u)
+        {
+            static constexpr uint8_t kBytesPerVector[16] = {4, 2, 1, 1, 8, 4, 2, 1, 12, 6, 3, 2, 16, 8, 4, 2};
+            ++m_unpack;
+            if constexpr (Rec)
+                ++m_rec->unpack;
+            const uint32_t cl = r.cycle & 0xFFu, wl = (r.cycle >> 8) & 0xFFu;
+            if (wl <= cl || wl <= 1u)
+                skip = ((n8 == 0u ? 256u : n8) * kBytesPerVector[opcode & 0xFu] + 3u) & ~3u;
+            else
+                skip = unpackDataBytes(opcode, n8, r.cycle);
+            continue;
+        }
+        switch (opcode)
+        {
+        case VIF_STCYCL:
+            r.cycle = imm;
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_OFFSET:
+            r.ofst = imm & 0x3FFu;
+            r.tops = r.base & 0x3FFu;
+            r.stat &= ~(1u << 7);
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_BASE:
+            r.base = imm & 0x3FFu;
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_ITOP:
+            r.itops = imm & 0x3FFu;
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_STMOD:
+            r.mode = imm & 3u;
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_MSKPATH3:
+            sync();
+            m_skip = skip;
+            m_gif = gif;
+            m_mask((imm & 0x8000u) != 0u);
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_MARK:
+            r.mark = imm;
+            r.stat |= (1u << 6);
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_MSCAL:
+        case VIF_MSCALF:
+        case VIF_MSCNT:
+            mscal(r);
+            ++(opcode == VIF_MSCNT ? m_mscnt : m_mscal);
+            if constexpr (Rec)
+            {
+                m_rec->ops.push_back(cmd);
+                ++(opcode == VIF_MSCNT ? m_rec->mscnt : m_rec->mscal);
+            }
+            break;
+        case VIF_STMASK:
+            m_dataOp = opcode;
+            m_want = 4u;
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_STROW:
+        case VIF_STCOL:
+            m_dataOp = opcode;
+            m_want = 16u;
+            if constexpr (Rec)
+                m_rec->ops.push_back(cmd);
+            break;
+        case VIF_MPG:
+            skip = (n8 == 0u ? 256u : n8) * 8u;
+            break;
+        case VIF_DIRECT:
+        case VIF_DIRECTHL:
+            gif = (imm == 0u ? 65536u : imm) * 16u;
+            break;
+        default:
+            break;
+        }
+    }
+    if constexpr (Rec)
+    {
+        if (codeSet)
+        {
+            m_rec->anyCode = true;
+            m_rec->code = code;
+            m_rec->num = num;
+        }
+        if (intBit)
+            m_rec->intSeen = true;
+    }
+    sync();
+    m_skip = skip;
+    m_gif = gif;
+}
+
+template void Vif1Walker::feedT<false>(const uint8_t *, uint32_t);
+template void Vif1Walker::feedT<true>(const uint8_t *, uint32_t);
+
+void Vif1Walker::replay(const Record &rec)
+{
+    VIFRegisters &r = m_regs;
+    // INT and the code registers commute with the ops (other STAT bits, other
+    // registers); MSKPATH3's callback gets them first, as in feedT.
+    if (rec.intSeen)
+        r.stat |= (1u << 11);
+    if (rec.anyCode)
+    {
+        r.code = rec.code;
+        r.num = rec.num;
+    }
+    const uint32_t *op = rec.ops.data(), *end = op + rec.ops.size();
+    while (op != end)
+    {
+        const uint32_t cmd = *op++;
+        const uint8_t opcode = (cmd >> 24) & 0x7Fu;
+        const uint16_t imm = cmd & 0xFFFFu;
+        switch (opcode)
+        {
+        case VIF_STCYCL:
+            r.cycle = imm;
+            break;
+        case VIF_OFFSET:
+            r.ofst = imm & 0x3FFu;
+            r.tops = r.base & 0x3FFu;
+            r.stat &= ~(1u << 7);
+            break;
+        case VIF_BASE:
+            r.base = imm & 0x3FFu;
+            break;
+        case VIF_ITOP:
+            r.itops = imm & 0x3FFu;
+            break;
+        case VIF_STMOD:
+            r.mode = imm & 3u;
+            break;
+        case VIF_MSKPATH3:
+            m_mask((imm & 0x8000u) != 0u);
+            break;
+        case VIF_MARK:
+            r.mark = imm;
+            r.stat |= (1u << 6);
+            break;
+        case VIF_MSCAL:
+        case VIF_MSCALF:
+        case VIF_MSCNT:
+            mscal(r);
+            break;
+        case VIF_STMASK:
+            std::memcpy(&r.mask, op, 4);
+            op += 1;
+            break;
+        default: // STROW / STCOL
+            std::memcpy(opcode == VIF_STROW ? r.row : r.col, op, 16);
+            op += 4;
+            break;
+        }
+    }
+    m_mscal += rec.mscal;
+    m_mscnt += rec.mscnt;
+    m_unpack += rec.unpack;
+    m_bytes += rec.bytes;
+}
+
+void Vif1Walker::feedOld(const uint8_t *data, uint32_t bytes)
 {
     m_bytes += bytes;
     VIFRegisters &r = m_regs;

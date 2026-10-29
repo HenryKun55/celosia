@@ -69,6 +69,10 @@ public:
         }
     }
 
+    // Between GIF packets with nothing buffered (round 31's packet cache:
+    // the other fields are set again by the next GIF tag).
+    [[nodiscard]] bool idle() const { return m_partial == 0u && m_remaining == 0u; }
+
     // SIGNAL / FINISH / LABEL writes seen (PS2X_GIF_EVENT_LOG, debugging).
     static inline uint64_t s_events[3] = {};
 

@@ -86,7 +86,53 @@ public:
     // Adds the counters (MSCAL / MSCNT, UNPACK, bytes) to ps2_stats once.
     void finish();
 
+    // Round 31, the packet cache (PS2Memory::walkVif1Chain): while a Record
+    // is set, feed() notes every byte it reads that decides what it does (the
+    // VIFcodes, DIRECT data and STMASK / STROW / STCOL data, as guest address
+    // ranges; UNPACK / MPG data is stepped over unread) and the codes whose
+    // effect is more than CODE / NUM / INT, in order (ops: the code word,
+    // then an STMASK / STROW / STCOL's data words).
+    struct Record
+    {
+        const uint8_t *base = nullptr; // main RAM: the ranges are offsets in it
+        std::vector<std::pair<uint32_t, uint32_t>> ranges;
+        std::vector<uint32_t> ops;
+        bool bad = false, anyCode = false, intSeen = false;
+        uint32_t code = 0, num = 0;
+        uint32_t mscal = 0, mscnt = 0, unpack = 0;
+        uint64_t bytes = 0;
+        void add(const uint8_t *p, uint32_t n)
+        {
+            const uint32_t a = static_cast<uint32_t>(p - base);
+            if (!ranges.empty() && ranges.back().first + ranges.back().second == a)
+                ranges.back().second += n;
+            else
+                ranges.emplace_back(a, n);
+        }
+    };
+    void record(Record *rec) { m_rec = rec; }
+    [[nodiscard]] uint32_t cycle() const { return m_regs.cycle; }
+    // No code's data pending (a packet can start or end here).
+    [[nodiscard]] bool clean() const { return m_skip == 0u && m_gif == 0u && m_want == 0u; }
+    // What feed() would have done for a record's bytes: the ops in order
+    // (each as feed() does it), the last code's CODE / NUM, INT, the counters.
+    void replay(const Record &rec);
+    // The counters, for PS2X_DMA_CACHE_CHECK's comparison.
+    [[nodiscard]] uint64_t countersHash() const { return m_bytes * 1000003ull + m_mscal * 7919ull + m_mscnt * 104729ull + m_unpack; }
+
 private:
+    template <bool Rec>
+    void feedT(const uint8_t *data, uint32_t bytes);
+    void feedOld(const uint8_t *data, uint32_t bytes); // round 30's (PS2X_DMA_WALK2=0)
+    static void mscal(VIFRegisters &r)
+    {
+        r.top = r.tops & 0x3FFu;
+        r.itop = r.itops & 0x3FFu;
+        const bool dbf = (r.stat & (1u << 7)) != 0u;
+        r.tops = (dbf ? r.base : r.base + r.ofst) & 0x3FFu;
+        r.stat ^= (1u << 7);
+    }
+    Record *m_rec = nullptr;
     VIFRegisters &m_regs;
     GifEventScanner &m_direct;
     const Path3Mask &m_mask;

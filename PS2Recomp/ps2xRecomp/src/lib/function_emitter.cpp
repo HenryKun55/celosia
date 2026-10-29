@@ -480,6 +480,7 @@ namespace ps2recomp
             options.writeThrough = cg.m_registerCacheWriteThrough;
             options.deadStores = cg.m_registerCacheDeadStores;
             options.joinForward = cg.m_registerCacheJoin;
+            options.joinMem = cg.m_registerCacheJoinMem;
             return all.substr(0, bodyStart) + applyRegisterCache(all.substr(bodyStart), options) + "}\n";
         }
         ss << "}\n";

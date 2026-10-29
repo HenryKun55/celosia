@@ -4334,13 +4334,24 @@ namespace sotc_native
             g_gsReg(rdram, ctx, runtime);
             return;
         }
+        // Round 31: the 2D functions' writes as glEnd's (round 28): an
+        // untextured batch flushed while model jobs are pending goes to the
+        // worker as a job after them, a textured one waits for them first
+        // (flush2D); the renderer gets the draws in the same order. The
+        // console's recording of round 30 had gsReg at 7.3% of the game
+        // thread (fadeScreen 51%), nearly all of it this join's wait.
+        // SOTC_GSREG_ASYNC=0: the join at every write, as before.
+        static const bool async2d = !std::getenv("SOTC_GSREG_ASYNC") || std::atoi(std::getenv("SOTC_GSREG_ASYNC")) != 0;
         for (const Range &r : k2D)
         {
             if (ra < r.start || ra >= r.end)
                 continue;
             syncFrame(rdram);
-            hookJoin(hookjobs::k_gsreg_2d);
+            if (!async2d)
+                hookJoin(hookjobs::k_gsreg_2d);
+            g_2dDefer = async2d;
             feed2D(GPR_U32(ctx, 4) & 0xFFu, GPR_U64(ctx, 5));
+            g_2dDefer = false;
             break;
         }
         g_gsReg(rdram, ctx, runtime);

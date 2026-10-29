@@ -569,6 +569,14 @@ public:
 
     std::array<EeTimer, 4> m_eeTimers{};
     bool tryProcessScratchpadDma(uint32_t channelBase, uint32_t chcr);
+    // Round 31: the VIF1 chain's tag loop with the walker (TTE on), as the
+    // general loop in writeIORegister does it (ps2_memory.cpp).
+    struct Vif1ChainState
+    {
+        uint32_t tagAddr, asr0, asr1, asp, lastTagUpper;
+        int tags;
+    };
+    void walkVif1Chain(class Vif1Walker &walker, class GifEventScanner &gif, Vif1ChainState &st, bool tie, bool useCache);
     void completeDmacChannel(uint32_t channelBase, uint32_t cause);
     void queueCompletedDmacCause(uint32_t cause);
 };

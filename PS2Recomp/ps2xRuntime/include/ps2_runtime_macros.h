@@ -683,10 +683,78 @@ namespace ps2_guest_mem
     }
 }
 
+// Round 31: on the Vita the 8-64-bit slow paths are called through a
+// trampoline (ps2gm_tramp_*, ps2_memory.cpp) that saves every register the
+// call would clobber (r0-r3, ip, d0-d7, d16-d31) and restores them, so the
+// generated code keeps its values in registers across a guest access instead
+// of spilling them around an opaque call. The slow path itself is the same
+// function (exact). The inline asm passes the address in r0, ctx in r1 and a
+// store's value in r2 (low) / r3 (high); the trampoline takes rdram and the
+// runtime from g_ps2gmRdram / g_ps2gmRuntime (set at start). Only lr and the
+// flags are clobbered (and memory). -DPS2X_GUEST_MEM_TRAMP=0: plain calls.
+#ifndef PS2X_GUEST_MEM_TRAMP
+#if defined(__vita__) && defined(__thumb2__)
+#define PS2X_GUEST_MEM_TRAMP 1
+#else
+#define PS2X_GUEST_MEM_TRAMP 0
+#endif
+#endif
+
+namespace ps2_guest_mem
+{
+#if PS2X_GUEST_MEM_TRAMP
+#define PS2_GM_CALL(name) "movw lr, #:lower16:ps2gm_tramp_" #name "\n\tmovt lr, #:upper16:ps2gm_tramp_" #name "\n\tblx lr"
+#define PS2_GM_TRAMP_READ(T, name)                                                                         \
+    static PS2_FORCE_INLINE T name##_slow(uint8_t *, R5900Context *ctx, PS2Runtime *, uint32_t a)        \
+    {                                                                                                    \
+        register uint32_t r0 asm("r0") = a;                                                              \
+        register R5900Context *r1 asm("r1") = ctx;                                                       \
+        asm volatile(PS2_GM_CALL(name) : "+r"(r0) : "r"(r1) : "lr", "cc", "memory");                      \
+        return static_cast<T>(r0);                                                                       \
+    }
+#define PS2_GM_TRAMP_WRITE(T, name)                                                                      \
+    static PS2_FORCE_INLINE void name##_slow(uint8_t *, R5900Context *ctx, PS2Runtime *, uint32_t a, T v) \
+    {                                                                                                    \
+        register uint32_t r0 asm("r0") = a;                                                              \
+        register R5900Context *r1 asm("r1") = ctx;                                                       \
+        register uint32_t r2 asm("r2") = static_cast<uint32_t>(v);                                       \
+        register uint32_t r3 asm("r3") = static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32);          \
+        asm volatile(PS2_GM_CALL(name) : : "r"(r0), "r"(r1), "r"(r2), "r"(r3) : "lr", "cc", "memory");    \
+    }
+    PS2_GM_TRAMP_READ(uint8_t, read8)
+    PS2_GM_TRAMP_READ(uint16_t, read16)
+    PS2_GM_TRAMP_READ(uint32_t, read32)
+    static PS2_FORCE_INLINE uint64_t read64_slow(uint8_t *, R5900Context *ctx, PS2Runtime *, uint32_t a)
+    {
+        register uint32_t r0 asm("r0") = a;
+        register uint32_t r1 asm("r1") = reinterpret_cast<uint32_t>(ctx);
+        asm volatile(PS2_GM_CALL(read64) : "+r"(r0), "+r"(r1) : : "lr", "cc", "memory");
+        return (static_cast<uint64_t>(r1) << 32) | r0;
+    }
+    PS2_GM_TRAMP_WRITE(uint8_t, write8)
+    PS2_GM_TRAMP_WRITE(uint16_t, write16)
+    PS2_GM_TRAMP_WRITE(uint32_t, write32)
+    PS2_GM_TRAMP_WRITE(uint64_t, write64)
+#undef PS2_GM_TRAMP_READ
+#undef PS2_GM_TRAMP_WRITE
+#else
+    static PS2_FORCE_INLINE uint8_t read8_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return read8(rdram, ctx, runtime, a); }
+    static PS2_FORCE_INLINE uint16_t read16_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return read16(rdram, ctx, runtime, a); }
+    static PS2_FORCE_INLINE uint32_t read32_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return read32(rdram, ctx, runtime, a); }
+    static PS2_FORCE_INLINE uint64_t read64_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return read64(rdram, ctx, runtime, a); }
+    static PS2_FORCE_INLINE void write8_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint8_t v) { write8(rdram, ctx, runtime, a, v); }
+    static PS2_FORCE_INLINE void write16_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint16_t v) { write16(rdram, ctx, runtime, a, v); }
+    static PS2_FORCE_INLINE void write32_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint32_t v) { write32(rdram, ctx, runtime, a, v); }
+    static PS2_FORCE_INLINE void write64_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint64_t v) { write64(rdram, ctx, runtime, a, v); }
+#endif
+    static PS2_FORCE_INLINE __m128i read128_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a) { return read128(rdram, ctx, runtime, a); }
+    static PS2_FORCE_INLINE void write128_slow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, __m128i v) { write128(rdram, ctx, runtime, a, v); }
+}
+
 #define PS2_GUEST_READ(T, fn, addr) ([&]() -> T {                                                          \
     const uint32_t _addr = (uint32_t)(addr);                                                               \
     return PS2_EXPECT(_addr < PS2_RAM_SIZE, 1) ? ps2_guest_mem::load<T>(rdram, _addr)                      \
-                                               : ps2_guest_mem::fn(rdram, ctx, runtime, _addr); }())
+                                               : ps2_guest_mem::fn##_slow(rdram, ctx, runtime, _addr); }())
 #define PS2_GUEST_WRITE(T, fn, op, addr, val)                     \
     do                                                            \
     {                                                             \
@@ -698,7 +766,7 @@ namespace ps2_guest_mem
             ps2_guest_mem::store<T>(rdram, _addr, _val);          \
         }                                                         \
         else                                                      \
-            ps2_guest_mem::fn(rdram, ctx, runtime, _addr, _val);  \
+            ps2_guest_mem::fn##_slow(rdram, ctx, runtime, _addr, _val); \
     } while (0)
 
 // Generated code's calls and jumps (round 16). The recompiler writes the

@@ -23,6 +23,7 @@
 #include "ps2_gif_events.h"
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace
 {
@@ -1405,6 +1406,124 @@ namespace
     }
 }
 
+namespace
+{
+    // Round 31's packet cache: what one CALL target's packet did, by the
+    // target's address (PS2Memory::walkVif1Chain).
+    struct Vif1Packet
+    {
+        Vif1Walker::Record rec;
+        std::vector<uint8_t> bytes; // the ranges' contents, in order
+        uint32_t cycle = 0;         // CYCLE at the start (UNPACK sizes)
+        uint32_t lastTagUpper = 0;
+        int tags = 0;
+        uint64_t lastChain = 0; // the walk that last stored or replayed it
+    };
+    // Direct-mapped by the target's address (no division: the Vita's
+    // unordered_map paid a software modulo per lookup); a packet whose slot
+    // another one takes is walked again next time.
+    constexpr uint32_t kVif1PacketSlots = 4096u;
+    struct Vif1PacketSlot
+    {
+        uint32_t key = ~0u;
+        Vif1Packet p;
+    };
+    std::vector<Vif1PacketSlot> g_vif1Packets;
+    constexpr size_t kVif1PacketBudget = 4u << 20;
+    size_t g_vif1PacketBytes = 0, g_vif1PacketCount = 0;
+    uint64_t g_vif1Walks = 0; // walkVif1Chain calls with the cache
+    PS2_FORCE_INLINE uint32_t vif1PacketSlot(uint32_t key) { return ((key >> 4) * 2654435761u) >> 20; }
+    size_t vif1PacketSize(const Vif1Packet &p)
+    {
+        return p.rec.ranges.capacity() * sizeof(p.rec.ranges[0]) + p.rec.ops.capacity() * 4u + p.bytes.capacity();
+    }
+    Vif1Packet *vif1PacketFind(uint32_t key)
+    {
+        if (g_vif1Packets.empty())
+            return nullptr;
+        Vif1PacketSlot &s = g_vif1Packets[vif1PacketSlot(key)];
+        return s.key == key ? &s.p : nullptr;
+    }
+    void vif1PacketErase(uint32_t key)
+    {
+        if (g_vif1Packets.empty())
+            return;
+        Vif1PacketSlot &s = g_vif1Packets[vif1PacketSlot(key)];
+        if (s.key == key)
+        {
+            s.key = ~0u;
+            --g_vif1PacketCount;
+        }
+    }
+    // The slot for key (taken over from whatever was there), its vectors'
+    // capacity kept for the new packet.
+    Vif1Packet &vif1PacketTake(uint32_t key)
+    {
+        if (g_vif1Packets.empty())
+            g_vif1Packets.resize(kVif1PacketSlots);
+        Vif1PacketSlot &s = g_vif1Packets[vif1PacketSlot(key)];
+        if (s.key == ~0u)
+            ++g_vif1PacketCount;
+        s.key = key;
+        return s.p;
+    }
+    struct Vif1PacketStats
+    {
+        uint64_t calls = 0, hits = 0, stored = 0, bad = 0, misses = 0, tags = 0, hitTags = 0, clears = 0;
+    } g_vif1PacketStats;
+
+    // The ranges are whole words at word addresses (tags, VIFcodes, DIRECT
+    // qwords, STMASK / STROW / STCOL words): compared 16 bytes at a time
+    // (the Vita's newlib memcmp goes byte by byte: 3% of the game thread).
+    PS2_FORCE_INLINE bool sameBytes(const uint8_t *a, const uint8_t *b, uint32_t n)
+    {
+        while (n >= 16u)
+        {
+            uint64_t x0, x1, y0, y1;
+            std::memcpy(&x0, a, 8);
+            std::memcpy(&x1, a + 8, 8);
+            std::memcpy(&y0, b, 8);
+            std::memcpy(&y1, b + 8, 8);
+            if (((x0 ^ y0) | (x1 ^ y1)) != 0u)
+                return false;
+            a += 16;
+            b += 16;
+            n -= 16u;
+        }
+        while (n >= 4u)
+        {
+            uint32_t x, y;
+            std::memcpy(&x, a, 4);
+            std::memcpy(&y, b, 4);
+            if (x != y)
+                return false;
+            a += 4;
+            b += 4;
+            n -= 4u;
+        }
+        return n == 0u || std::memcmp(a, b, n) == 0;
+    }
+
+    bool vif1PacketMatches(const uint8_t *rdram, const Vif1Packet &p)
+    {
+        const uint8_t *b = p.bytes.data();
+        for (const auto &[a, n] : p.rec.ranges)
+        {
+            if (!sameBytes(rdram + a, b, n))
+                return false;
+            b += n;
+        }
+        return true;
+    }
+
+    // PS2X_DMA_STATS=1: the walk's counts every 600 chains.
+    bool dmaStats()
+    {
+        static const bool on = std::getenv("PS2X_DMA_STATS") && std::atoi(std::getenv("PS2X_DMA_STATS")) != 0;
+        return on;
+    }
+}
+
 bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 {
     g_mmioCensus.count(address, true);
@@ -1818,6 +1937,80 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     int tagsProcessed = 0;
                     uint32_t lastTagUpper = (chcr >> 16) & 0xFFFFu;
 
+                    // Round 31: the walker's chains through walkVif1Chain
+                    // (PS2X_DMA_WALK2=0: this loop). SOTC_DMACACHE_CHECK=1:
+                    // each chain walked first without the packet cache on
+                    // copies (VIF1 registers, GS events and MSKPATH3 calls
+                    // collected), then for real with it, and the two compared.
+                    static const bool dumping = std::getenv("PS2X_DMA_DUMP") != nullptr;
+                    static const bool cacheCheck = std::getenv("SOTC_DMACACHE_CHECK") && std::atoi(std::getenv("SOTC_DMACACHE_CHECK")) != 0;
+                    const bool walk2 = walker && transferTagData && channelBase == 0x10009000u && ps2_fast_paths::g_dmaWalk2 && !dumping;
+                    if (walk2)
+                    {
+                        Vif1ChainState st{tagAddr, asr0, asr1, asp, lastTagUpper, 0};
+                        if (!cacheCheck)
+                            walkVif1Chain(*walker, gifEvents, st, tieEnabled, ps2_fast_paths::g_dmaCache);
+                        else
+                        {
+                            using Events = std::vector<std::pair<uint8_t, uint64_t>>;
+                            Events refEvents, realEvents;
+                            std::vector<bool> refMasks, realMasks;
+                            VIFRegisters refRegs = vif1_regs;
+                            uint64_t savedEvents[3];
+                            std::memcpy(savedEvents, GifEventScanner::s_events, sizeof(savedEvents));
+                            const GifEventScanner::WriteFn refWrite = [&](uint8_t reg, uint64_t v) { refEvents.emplace_back(reg, v); };
+                            const Vif1Walker::Path3Mask refMask = [&](bool m) { refMasks.push_back(m); };
+                            GifEventScanner refScan(refWrite);
+                            Vif1Walker refWalker(refRegs, refScan, refMask);
+                            Vif1ChainState ref = st;
+                            walkVif1Chain(refWalker, refScan, ref, tieEnabled, false);
+                            std::memcpy(GifEventScanner::s_events, savedEvents, sizeof(savedEvents));
+                            const GifEventScanner::WriteFn realWrite = [&](uint8_t reg, uint64_t v)
+                            {
+                                realEvents.emplace_back(reg, v);
+                                if (m_gsEventWrite)
+                                    m_gsEventWrite(reg, v);
+                            };
+                            const Vif1Walker::Path3Mask realMask = [&](bool m)
+                            {
+                                realMasks.push_back(m);
+                                path3Mask(m);
+                            };
+                            GifEventScanner realScan(realWrite);
+                            Vif1Walker realWalker(vif1_regs, realScan, realMask);
+                            walkVif1Chain(realWalker, realScan, st, tieEnabled, ps2_fast_paths::g_dmaCache);
+                            const bool same = std::memcmp(&refRegs, &vif1_regs, sizeof(VIFRegisters)) == 0 && refEvents == realEvents && refMasks == realMasks &&
+                                              ref.tagAddr == st.tagAddr && ref.asr0 == st.asr0 && ref.asr1 == st.asr1 && ref.asp == st.asp &&
+                                              ref.lastTagUpper == st.lastTagUpper && ref.tags == st.tags && refWalker.countersHash() == realWalker.countersHash() &&
+                                              refScan.idle() == realScan.idle();
+                            realWalker.finish();
+                            static uint64_t checked = 0, mismatches = 0, events = 0;
+                            ++checked;
+                            events += realEvents.size();
+                            if (!same && mismatches++ < 20)
+                                std::fprintf(stderr, "[dmacache] chain %llu MISMATCH: tags %d / %d, end %08x / %08x, code %08x / %08x, stat %08x / %08x, top %x / %x, events %zu / %zu\n",
+                                             (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), ref.tags, st.tags, ref.tagAddr, st.tagAddr,
+                                             refRegs.code, vif1_regs.code, refRegs.stat, vif1_regs.stat, refRegs.top, vif1_regs.top, refEvents.size(), realEvents.size());
+                            if (checked % 600u == 0u)
+                                std::fprintf(stderr, "[dmacache] check: %llu chains compared, %llu mismatches, %llu GS events\n", (unsigned long long)checked,
+                                             (unsigned long long)mismatches, (unsigned long long)events);
+                        }
+                        tagAddr = st.tagAddr;
+                        asr0 = st.asr0;
+                        asr1 = st.asr1;
+                        asp = st.asp;
+                        lastTagUpper = st.lastTagUpper;
+                        tagsProcessed = st.tags;
+                        if (dmaStats() && ps2_stats::vif1Chains.load(std::memory_order_relaxed) % 600u == 0u)
+                        {
+                            const auto &k = g_vif1PacketStats;
+                            std::fprintf(stderr, "[dmastats] chain %llu: %llu tags walked, %llu CALLs looked up, %llu replayed (%llu tags), %llu walked, %llu not kept, %llu stored, %zu packets (%zu KB, %llu clears)\n",
+                                         (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)k.tags, (unsigned long long)k.calls,
+                                         (unsigned long long)k.hits, (unsigned long long)k.hitTags, (unsigned long long)k.misses, (unsigned long long)k.bad,
+                                         (unsigned long long)k.stored, g_vif1PacketCount, g_vif1PacketBytes >> 10, (unsigned long long)k.clears);
+                        }
+                    }
+                    else
                     while (tagsProcessed < kMaxChainTags)
                     {
                         const uint32_t currentTagAddr = tagAddr;
@@ -3121,6 +3314,334 @@ void PS2Memory::clearModifiedFlag(uint32_t address, uint32_t size)
     }
 }
 
+// Round 31: the VIF1 chain's tag loop when the walker takes the chain and
+// TTE is on (every chain SotC sends with the native renderer drawing).
+// The same tags in the same order as the general loop in writeIORegister,
+// with:
+// - main RAM tags and payloads read in place (an address below 32 MB is
+//   main RAM in translateAddress, and the range tests are the same); any
+//   other address goes the general way (translateAddress, the scratchpad,
+//   the wrap at the region's end);
+// - the packet cache (useCache): at a CALL whose target packet (the tags up
+//   to the RET back to this level, NEXT / CNT / REF only) was walked before
+//   with the same CYCLE, from a clean walker and an idle DIRECT scanner, and
+//   every byte that walk read (tags, VIFcodes, DIRECT data; not the UNPACK /
+//   MPG data, which the walker never reads) is the same, the walk's effect
+//   is replayed (Vif1Walker::replay) instead of walking it again. A packet
+//   is kept only when its codes are NOP / FLUSH* / UNPACK / MSCAL / MSCALF /
+//   MSCNT / MPG / DIRECT, it raised no GS event, no tag has the IRQ bit, and
+//   it ends clean. Those codes' effects depend on CYCLE (kept) and on BASE /
+//   OFST / ITOPS / TOPS / DBF, which no kept code changes but MSCAL, which
+//   replay() runs in order: the result is the walk's.
+void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1ChainState &st, bool tie, bool useCache)
+{
+    const int kMaxChainTags = 1 << 20;
+    if (useCache)
+        ++g_vif1Walks;
+    // One record reused (its vectors keep their capacity: no allocation per
+    // packet; only the cached walk records).
+    static Vif1Walker::Record rec;
+    bool recording = false;
+    uint32_t recKey = 0, recCycle = 0;
+    int recTags0 = 0;
+    uint64_t recEvents0 = 0;
+    auto events = []()
+    { return GifEventScanner::s_events[0] + GifEventScanner::s_events[1] + GifEventScanner::s_events[2]; };
+    auto stopRecording = [&]()
+    {
+        walker.record(nullptr);
+        recording = false;
+    };
+    // A payload or tag word range outside main RAM: the general path.
+    auto feedGeneral = [&](uint32_t srcAddr, uint32_t bytes)
+    {
+        const bool scratch = isScratchpad(srcAddr);
+        uint32_t src = translateAddress(srcAddr);
+        const uint8_t *base = scratch ? m_scratchpad : m_rdram;
+        const uint32_t maxSz = scratch ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE;
+        while (bytes > 0)
+        {
+            if (src >= maxSz)
+                src = 0;
+            uint32_t chunk = bytes;
+            if (src + chunk > maxSz)
+                chunk = maxSz - src;
+            if (chunk == 0)
+                break;
+            walker.feed(base + src, chunk);
+            bytes -= chunk;
+            src += chunk;
+        }
+    };
+
+    while (st.tags < kMaxChainTags)
+    {
+        const uint32_t tagAddr = st.tagAddr;
+        const uint8_t *tp;
+        bool inRam = tagAddr <= PS2_RAM_SIZE - 16u;
+        if (PS2_EXPECT(inRam, 1))
+            tp = m_rdram + tagAddr;
+        else
+        {
+            const bool tagInSPR = isScratchpad(tagAddr);
+            uint32_t physTag = 0;
+            try
+            {
+                physTag = translateAddress(tagAddr);
+            }
+            catch (...)
+            {
+                break;
+            }
+            const uint8_t *tagBase = tagInSPR ? m_scratchpad : m_rdram;
+            const uint32_t tagMax = tagInSPR ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE;
+            if (physTag + 16 > tagMax)
+                break;
+            tp = tagBase + physTag;
+        }
+        uint64_t tag;
+        std::memcpy(&tag, tp, 8);
+        const uint16_t tagQwc = static_cast<uint16_t>(tag & 0xFFFF);
+        const uint32_t id = static_cast<uint32_t>((tag >> 28) & 0x7);
+        const bool irq = ((tag >> 31) & 0x1ull) != 0ull;
+        const uint32_t addr = static_cast<uint32_t>((tag >> 32) & 0x7FFFFFFF);
+        st.lastTagUpper = static_cast<uint32_t>((tag >> 16) & 0xFFFFu);
+        ++st.tags;
+        if (recording)
+        {
+            if (!inRam || irq || id == 0u || id == 5u || id == 7u)
+                rec.bad = true;
+            else
+                rec.add(tp, 8u);
+        }
+
+        uint32_t dataAddr = 0;
+        bool hasPayload = tagQwc > 0;
+        bool endChain = false;
+        bool callTarget = false, ret = false;
+        const uint32_t aspBefore = st.asp;
+        switch (id)
+        {
+        case 0:
+            dataAddr = addr;
+            st.tagAddr = tagAddr + 16;
+            endChain = true;
+            break;
+        case 1:
+            dataAddr = tagAddr + 16;
+            st.tagAddr = dataAddr + static_cast<uint32_t>(tagQwc) * 16u;
+            break;
+        case 2:
+            dataAddr = tagAddr + 16;
+            st.tagAddr = addr;
+            break;
+        case 3:
+        case 4:
+            dataAddr = addr;
+            st.tagAddr = tagAddr + 16;
+            break;
+        case 5:
+            dataAddr = tagAddr + 16;
+            {
+                const uint32_t retAddr = dataAddr + static_cast<uint32_t>(tagQwc) * 16u;
+                if (st.asp == 0u)
+                {
+                    st.asr0 = retAddr;
+                    st.asp = 1u;
+                }
+                else if (st.asp == 1u)
+                {
+                    st.asr1 = retAddr;
+                    st.asp = 2u;
+                }
+            }
+            st.tagAddr = addr;
+            callTarget = aspBefore < 2u;
+            break;
+        case 6:
+            dataAddr = tagAddr + 16;
+            if (st.asp == 2u)
+            {
+                st.tagAddr = st.asr1;
+                st.asp = 1u;
+            }
+            else if (st.asp == 1u)
+            {
+                st.tagAddr = st.asr0;
+                st.asp = 0u;
+            }
+            else
+            {
+                endChain = true;
+            }
+            ret = !endChain;
+            break;
+        case 7:
+            dataAddr = tagAddr + 16;
+            endChain = true;
+            break;
+        default:
+            hasPayload = false;
+            endChain = true;
+            break;
+        }
+
+        // As the general loop: the next tag read now, its data's first lines asked for.
+        if (!endChain && ps2_fast_paths::g_dmaPrefetch && st.tagAddr < PS2_RAM_SIZE - 16u)
+        {
+            uint64_t next;
+            std::memcpy(&next, m_rdram + st.tagAddr, 8);
+            const uint32_t nextId = static_cast<uint32_t>((next >> 28) & 0x7u);
+            const uint32_t nextData = (nextId == 3u || nextId == 4u || nextId == 0u) ? static_cast<uint32_t>((next >> 32) & 0x7FFFFFFFu) : st.tagAddr + 16u;
+            if ((next & 0xFFFFu) != 0u && nextData < PS2_RAM_SIZE - 128u)
+            {
+                __builtin_prefetch(m_rdram + nextData);
+                __builtin_prefetch(m_rdram + nextData + 64u);
+            }
+            __builtin_prefetch(m_rdram + st.tagAddr + 64u);
+        }
+
+        // The tag's two VIFcodes (TTE), then its payload.
+        if (ps2_fast_paths::g_dmaWalkFast && walker.feedTagWords(tp + 8))
+        {
+            if (recording)
+            {
+                rec.add(tp + 8, 8u);
+                rec.anyCode = true;
+                rec.code = 0u;
+                rec.num = 0u;
+                rec.bytes += 8u;
+            }
+        }
+        else if (PS2_EXPECT(inRam, 1))
+            walker.feed(tp + 8, 8u);
+        else
+        {
+            if (recording)
+                rec.bad = true;
+            walker.feed(tp + 8, 8u);
+        }
+        if (hasPayload)
+        {
+            const uint32_t bytes = static_cast<uint32_t>(tagQwc) * 16u;
+            if (PS2_EXPECT(dataAddr < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - dataAddr, 1))
+                walker.feed(m_rdram + dataAddr, bytes);
+            else
+            {
+                if (recording)
+                    rec.bad = true;
+                feedGeneral(dataAddr, bytes);
+            }
+        }
+        if (irq && tie)
+            endChain = true;
+        if (endChain)
+            break;
+
+        if (recording && ret)
+        {
+            // The packet's RET: back at the CALL's level (no CALL inside it).
+            stopRecording();
+            if (!rec.bad && walker.clean() && gif.idle() && events() == recEvents0)
+            {
+                if (g_vif1PacketBytes > kVif1PacketBudget)
+                {
+                    // Over budget (the slots' vectors): all of them freed.
+                    std::vector<Vif1PacketSlot>().swap(g_vif1Packets);
+                    g_vif1PacketBytes = 0;
+                    g_vif1PacketCount = 0;
+                    ++g_vif1PacketStats.clears;
+                }
+                Vif1Packet &p = vif1PacketTake(recKey);
+                g_vif1PacketBytes -= vif1PacketSize(p);
+                p.cycle = recCycle;
+                p.tags = st.tags - recTags0;
+                p.lastTagUpper = st.lastTagUpper;
+                p.lastChain = g_vif1Walks;
+                size_t total = 0;
+                for (const auto &[a, n] : rec.ranges)
+                    total += n;
+                p.bytes.resize(total);
+                uint8_t *out = p.bytes.data();
+                for (const auto &[a, n] : rec.ranges)
+                {
+                    std::memcpy(out, m_rdram + a, n);
+                    out += n;
+                }
+                p.rec.ranges.assign(rec.ranges.begin(), rec.ranges.end());
+                p.rec.ops.assign(rec.ops.begin(), rec.ops.end());
+                p.rec.base = rec.base;
+                p.rec.bad = false;
+                p.rec.anyCode = rec.anyCode;
+                p.rec.intSeen = rec.intSeen;
+                p.rec.code = rec.code;
+                p.rec.num = rec.num;
+                p.rec.mscal = rec.mscal;
+                p.rec.mscnt = rec.mscnt;
+                p.rec.unpack = rec.unpack;
+                p.rec.bytes = rec.bytes;
+                g_vif1PacketBytes += vif1PacketSize(p);
+                ++g_vif1PacketStats.stored;
+            }
+            else
+            {
+                g_vif1PacketStats.bad += rec.bad;
+                vif1PacketErase(recKey);
+            }
+        }
+        else if (recording && rec.bad)
+        {
+            stopRecording();
+            ++g_vif1PacketStats.bad;
+            vif1PacketErase(recKey);
+        }
+
+        if (callTarget && useCache && !recording && st.tagAddr <= PS2_RAM_SIZE - 16u && walker.clean() && gif.idle())
+        {
+            ++g_vif1PacketStats.calls;
+            Vif1Packet *hit = vif1PacketFind(st.tagAddr);
+            if (hit && hit->cycle == walker.cycle() && st.tags + hit->tags < kMaxChainTags && vif1PacketMatches(m_rdram, *hit))
+            {
+                // Replayed: the packet's effect, then its RET.
+                Vif1Packet &p = *hit;
+                p.lastChain = g_vif1Walks;
+                walker.replay(p.rec);
+                st.tags += p.tags;
+                st.lastTagUpper = p.lastTagUpper;
+                if (st.asp == 2u)
+                {
+                    st.tagAddr = st.asr1;
+                    st.asp = 1u;
+                }
+                else
+                {
+                    st.tagAddr = st.asr0;
+                    st.asp = 0u;
+                }
+                ++g_vif1PacketStats.hits;
+                g_vif1PacketStats.hitTags += p.tags;
+                continue;
+            }
+            ++g_vif1PacketStats.misses;
+            rec.ranges.clear();
+            rec.ops.clear();
+            rec.bad = rec.anyCode = rec.intSeen = false;
+            rec.code = rec.num = rec.mscal = rec.mscnt = rec.unpack = 0u;
+            rec.bytes = 0u;
+            rec.base = m_rdram;
+            recKey = st.tagAddr;
+            recCycle = walker.cycle();
+            recTags0 = st.tags;
+            recEvents0 = events();
+            recording = true;
+            walker.record(&rec);
+        }
+    }
+    if (recording)
+        stopRecording();
+    g_vif1PacketStats.tags += static_cast<uint64_t>(st.tags);
+}
+
 void PS2Memory::hostDmaStart(uint32_t channelBase, uint32_t chcr, uint32_t madr, uint32_t qwc, uint32_t tadr)
 {
     t_hostIo = true;
@@ -3178,6 +3699,17 @@ namespace ps2_fast_paths
     {
         const char *env = std::getenv("PS2X_DMA_WALK_FAST");
         return !env || std::atoi(env) != 0;
+    }();    bool g_dmaWalk2 = []
+    {
+        const char *env = std::getenv("PS2X_DMA_WALK2");
+        return !env || std::atoi(env) != 0;
+    }();
+    // Off by default (round 31): exact, but slower than the walk it
+    // replaces in calibrated Vita3K (walk + area change +1.2 ms at 222).
+    bool g_dmaCache = []
+    {
+        const char *env = std::getenv("PS2X_DMA_CACHE");
+        return env && std::atoi(env) != 0;
     }();
 }
 
@@ -3305,3 +3837,66 @@ namespace ps2_guest_mem
         Ps2FastWrite128(rdram, a, v);
     }
 }
+
+// Round 31: the Vita trampolines of the 8-64-bit slow paths
+// (PS2X_GUEST_MEM_TRAMP, ps2_runtime_macros.h). Each saves what an AAPCS
+// call clobbers (r0-r3 but the result, ip, d0-d7, d16-d31), puts the C
+// arguments in place (rdram and the runtime from these globals, a store's
+// value on the stack) and calls the same slow path as the plain macros. The
+// unwind directives let a C++ exception from the slow path pass through.
+extern "C"
+{
+    uint8_t *g_ps2gmRdram = nullptr;
+    PS2Runtime *g_ps2gmRuntime = nullptr;
+#if PS2X_GUEST_MEM_TRAMP
+    uint8_t (*ps2gm_fn_read8)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t) = &ps2_guest_mem::read8;
+    uint16_t (*ps2gm_fn_read16)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t) = &ps2_guest_mem::read16;
+    uint32_t (*ps2gm_fn_read32)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t) = &ps2_guest_mem::read32;
+    uint64_t (*ps2gm_fn_read64)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t) = &ps2_guest_mem::read64;
+    void (*ps2gm_fn_write8)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t, uint8_t) = &ps2_guest_mem::write8;
+    void (*ps2gm_fn_write16)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t, uint16_t) = &ps2_guest_mem::write16;
+    void (*ps2gm_fn_write32)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t, uint32_t) = &ps2_guest_mem::write32;
+    void (*ps2gm_fn_write64)(uint8_t *, R5900Context *, PS2Runtime *, uint32_t, uint64_t) = &ps2_guest_mem::write64;
+#endif
+}
+
+#if PS2X_GUEST_MEM_TRAMP
+#define PS2GM_LOAD(reg, sym) "movw " #reg ", #:lower16:" #sym "\n\tmovt " #reg ", #:upper16:" #sym "\n\tldr " #reg ", [" #reg "]\n\t"
+#define PS2GM_TRAMP_HEAD(name)                                     \
+    ".pushsection .text.ps2gm_tramp_" #name ",\"ax\",%progbits\n\t" \
+    ".syntax unified\n\t.thumb\n\t.align 2\n\t"                   \
+    ".global ps2gm_tramp_" #name "\n\t"                            \
+    ".type ps2gm_tramp_" #name ", %function\n\t"                   \
+    ".thumb_func\n"                                                \
+    "ps2gm_tramp_" #name ":\n\t"                                   \
+    ".fnstart\n\t"
+#define PS2GM_TRAMP_TAIL(name) ".fnend\n\t.size ps2gm_tramp_" #name ", .-ps2gm_tramp_" #name "\n\t.popsection\n"
+// The caller's sp may be 4 mod 8 (the call is an asm statement, so GCC sees
+// a leaf function): r4 keeps it, sp is rounded down to 8 for the C call
+// (.setfp tells the unwinder where the core registers are).
+#define PS2GM_ALIGN_SAVE_VFP "mov r4, sp\n\t.setfp r4, sp\n\tbic ip, r4, #7\n\tmov sp, ip\n\t" \
+    "vpush {d0-d7}\n\t.vsave {d0-d7}\n\tvpush {d16-d31}\n\t.vsave {d16-d31}\n\t"
+#define PS2GM_RESTORE_VFP "vpop {d16-d31}\n\tvpop {d0-d7}\n\tmov sp, r4\n\t"
+// in: r0 = address, r1 = ctx; out: r0. Keeps r1-r3, ip and the VFP registers.
+#define PS2GM_TRAMP_READ(name)                                              \
+    asm(PS2GM_TRAMP_HEAD(name) "push {r1, r2, r3, r4, ip, lr}\n\t.save {r1, r2, r3, r4, ip, lr}\n\t" \
+        PS2GM_ALIGN_SAVE_VFP "mov r3, r0\n\t" PS2GM_LOAD(r0, g_ps2gmRdram) PS2GM_LOAD(r2, g_ps2gmRuntime) \
+        PS2GM_LOAD(ip, ps2gm_fn_##name) "blx ip\n\t" PS2GM_RESTORE_VFP "pop {r1, r2, r3, r4, ip, pc}\n\t" PS2GM_TRAMP_TAIL(name));
+// in: r0 = address, r1 = ctx, r2 / r3 = the value (low / high). Keeps r0-r3, ip and the VFP registers.
+#define PS2GM_TRAMP_WRITE(name)                                             \
+    asm(PS2GM_TRAMP_HEAD(name) "push {r0, r1, r2, r3, r4, ip, lr}\n\t.save {r0, r1, r2, r3, r4, ip, lr}\n\t" \
+        PS2GM_ALIGN_SAVE_VFP "sub sp, sp, #8\n\t.pad #8\n\tstrd r2, r3, [sp]\n\tmov r3, r0\n\t" \
+        PS2GM_LOAD(r0, g_ps2gmRdram) PS2GM_LOAD(r2, g_ps2gmRuntime) PS2GM_LOAD(ip, ps2gm_fn_##name) \
+        "blx ip\n\tadd sp, sp, #8\n\t" PS2GM_RESTORE_VFP "pop {r0, r1, r2, r3, r4, ip, pc}\n\t" PS2GM_TRAMP_TAIL(name));
+PS2GM_TRAMP_READ(read8)
+PS2GM_TRAMP_READ(read16)
+PS2GM_TRAMP_READ(read32)
+// in: r0 = address, r1 = ctx; out: r0 / r1. Keeps r2, r3, ip and the VFP registers.
+asm(PS2GM_TRAMP_HEAD(read64) "push {r2, r3, r4, ip, lr}\n\t.save {r2, r3, r4, ip, lr}\n\t" PS2GM_ALIGN_SAVE_VFP
+    "mov r3, r0\n\t" PS2GM_LOAD(r0, g_ps2gmRdram) PS2GM_LOAD(r2, g_ps2gmRuntime) PS2GM_LOAD(ip, ps2gm_fn_read64)
+    "blx ip\n\t" PS2GM_RESTORE_VFP "pop {r2, r3, r4, ip, pc}\n\t" PS2GM_TRAMP_TAIL(read64));
+PS2GM_TRAMP_WRITE(write8)
+PS2GM_TRAMP_WRITE(write16)
+PS2GM_TRAMP_WRITE(write32)
+PS2GM_TRAMP_WRITE(write64)
+#endif

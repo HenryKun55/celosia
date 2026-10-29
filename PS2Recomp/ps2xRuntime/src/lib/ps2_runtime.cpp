@@ -56,6 +56,9 @@ bool g_ps2FpuSetcsrNearest = false;
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
 #endif
+// Round 31: the guest memory slow paths' trampolines (ps2_memory.cpp).
+extern "C" uint8_t *g_ps2gmRdram;
+extern "C" PS2Runtime *g_ps2gmRuntime;
 double ps2_stats::bootSeconds()
 {
 #if defined(__vita__)
@@ -1014,6 +1017,9 @@ bool PS2Runtime::initialize(const char *title)
             std::cerr << "Failed to initialize PS2 memory" << std::endl;
             return false;
         }
+        // Round 31: the guest memory slow paths' Vita trampolines take these.
+        g_ps2gmRdram = m_memory.getRDRAM();
+        g_ps2gmRuntime = this;
 
         if (!syncCoreSubsystems())
         {

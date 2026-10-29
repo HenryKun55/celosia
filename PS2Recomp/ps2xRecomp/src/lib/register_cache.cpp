@@ -276,6 +276,7 @@ namespace ps2recomp
             // to it and it (a local kept there is live across no call, the
             // slow paths' included: nothing for GCC to spill).
             std::vector<char> joinable;
+            bool joinMem = false;      // round 31: spans may hold 8-64-bit guest accesses
             bool writeThrough = false; // stores at the write (round 18)
             bool deadStores = false;   // no store for a write overwritten later in the run (round 29)
             uint64_t deadStoreCount = 0;
@@ -295,6 +296,26 @@ namespace ps2recomp
         // WRITE*) hide ctx too, but their slow path never reads or writes a
         // GPR / FPR (see the top of this file).
         const char *const kHiddenCtxMacros[] = {"PS2_CALL_GUEST", "PS2_CALL_GUEST_KNOWN", "PS2_JUMP_GUEST"};
+
+        // Round 31: every READ / WRITE in the line is one of the 8-64-bit
+        // guest memory macros (READ8 / 16 / 32 / 64, WRITE8 / 16 / 32 / 64),
+        // whose Vita slow path keeps every register (PS2X_GUEST_MEM_TRAMP).
+        bool memOnlyNarrow(const std::string &code)
+        {
+            for (const char *w : {"READ", "WRITE"})
+            {
+                const size_t n = std::strlen(w);
+                for (size_t pos = code.find(w); pos != std::string::npos; pos = code.find(w, pos + n))
+                {
+                    if (pos > 0 && isIdent(code[pos - 1]))
+                        return false;
+                    const std::string rest = code.substr(pos + n, 3);
+                    if (!(rest.rfind("8(", 0) == 0 || rest.rfind("16(", 0) == 0 || rest.rfind("32(", 0) == 0 || rest.rfind("64(", 0) == 0))
+                        return false;
+                }
+            }
+            return true;
+        }
 
         bool hasIdent(const std::string &code, const char *name)
         {
@@ -915,7 +936,8 @@ namespace ps2recomp
                     for (size_t i = first[g]; i < body.labelLine[g] && ok; ++i)
                     {
                         const Line &l = body.lines[i];
-                        if (l.barrier || l.code.find("READ") != std::string::npos || l.code.find("WRITE") != std::string::npos ||
+                        const bool mem = l.code.find("READ") != std::string::npos || l.code.find("WRITE") != std::string::npos;
+                        if (l.barrier || (mem && !(body.joinMem && memOnlyNarrow(l.code))) ||
                             l.code.find("switch") != std::string::npos || l.code.find("return") != std::string::npos ||
                             l.code.find("runtime") != std::string::npos)
                             ok = false;
@@ -1511,6 +1533,7 @@ namespace ps2recomp
         body.sext = options.sext;
         body.blockScope = options.blockScope;
         body.joinForward = options.joinForward;
+        body.joinMem = options.joinMem;
         body.writeThrough = options.writeThrough;
         body.deadStores = options.deadStores;
         std::vector<std::string> out;
