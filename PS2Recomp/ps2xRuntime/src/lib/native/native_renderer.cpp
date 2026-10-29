@@ -153,6 +153,8 @@ namespace native_renderer
                 d.asyncBuilds = std::atoi(std::getenv("SOTC_ASYNC_BUILDS")) != 0;
             if (on("SOTC_HOOK_ASYNC"))
                 d.hookWorker = std::atoi(std::getenv("SOTC_HOOK_ASYNC")) != 0;
+            if (on("SOTC_EE_TRUST"))
+                d.trustFinite = std::atoi(std::getenv("SOTC_EE_TRUST")) != 0;
             for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
                                              {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard}})
                 if (on(name))
@@ -229,6 +231,8 @@ namespace native_renderer
             add(std::string("SOTC_ASYNC_BUILDS=") + (t.asyncBuilds ? "1" : "0"));
         if (t.hookWorker != d.hookWorker)
             add(std::string("SOTC_HOOK_ASYNC=") + (t.hookWorker ? "1" : "0"));
+        if (t.trustFinite != d.trustFinite)
+            add(std::string("SOTC_EE_TRUST=") + (t.trustFinite ? "1" : "0"));
         if (t.frameLog)
             add("SOTC_FRAME_LOG=1");
         if (t.frameLogAll)
@@ -484,6 +488,10 @@ namespace native_renderer
                     "On the Vita by default (SOTC_LEAN=0 in env.txt: never): the ~1 850 hottest game functions run from copies packed together in memory. Off: the original copies, to compare speed (the picture should not change).",
                     "No Vita por padrão (SOTC_LEAN=0 no env.txt: nunca): as ~1 850 funções mais quentes do jogo rodam de cópias juntas na memória. Desligado: as cópias originais, pra comparar a velocidade (a imagem não deve mudar).",
                     &Tuning::leanCopies);
+        debugToggle("dbg_ee_trust", "Plain floats (lean code)", "Floats simples (código enxuto)",
+                    "With lean hot code: its second copy, with plain floats: the PS2 float emulation leaves out the operand clamps of each VU0 / FPU add, subtract and multiply and the PS2 adder's operand alignment (results can differ in the last bit). ~3% faster; not exact, so off by default.",
+                    "Com código quente enxuto: a segunda cópia, com floats simples: a emulação de float do PS2 deixa de limitar os operandos de cada soma, subtração e multiplicação VU0 / FPU e de alinhar os operandos como o somador do PS2 (resultados podem diferir no último bit). ~3% mais rápido; não exato, por isso desligado por padrão.",
+                    &Tuning::trustFinite, "SOTC_EE_TRUST");
         debugToggle("dbg_fast_hooks", "Fast hooks", "Ganchos rápidos",
                     "Characters posed by the faster path and textures looked up once a frame. Off: the earlier code, to compare (the picture should not change).",
                     "Personagens posados pelo caminho mais rápido e texturas buscadas uma vez por quadro. Desligado: o código anterior, pra comparar (a imagem não deve mudar).",

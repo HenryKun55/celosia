@@ -554,6 +554,11 @@ foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/lean_[^/]*\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
+    # The second set (lean_part_tN.cpp) defines PS2X_EE_TRUST_FINITE before
+    # ps2_runtime_macros.h: not with the precompiled header, which has it 0.
+    if(PS2X_SOURCE MATCHES "/overrides/lean_part_t[0-9]+\\.cpp$")
+        set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    endif()
 endforeach()
 
 if(PS2X_ENABLE_RUNNER_PCH)

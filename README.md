@@ -198,6 +198,8 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | `PS2X_VU1_NOREC=1` / `PS2X_VU1_REC_VERIFY=1` | interpret VU1 / cross-check the recompiled VU1 against the interpreter |
 | `PS2X_WATCH_WRITE=start:end` | log guest stores to an address range |
 | `PS2X_DUMP_RAM_AT_SECONDS=n` + `PS2X_DUMP_RAM_PATH` | save guest RAM |
+| `SOTC_EE_TRUST=1` (Debug "Plain floats") | Vita: the lean hot code's second copy with plain floats (no PS2 operand clamps or adder alignment; ~3% faster, not exact, off by default); `SOTC_EE_TRUST_AB=n` alternates every n frames |
+| `SOTC_SKELETON_FAST=0` / `SOTC_SKELETON_FAST_AB=n` | the skeleton pose's round 25 path instead of the register-local one (exact either way) |
 
 `tools/` also has analysis helpers: `addr2sym.py`, `callers.py`, `xref.py`
 (symbols and call graph), `vudis.py` (VU disassembler), `gsdecode.py`,

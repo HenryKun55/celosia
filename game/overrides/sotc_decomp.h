@@ -56,6 +56,8 @@ namespace sotc_decomp
     // Called before a garbage move (sotc_native: the model jobs on the worker
     // use the memos by address; round 23).
     inline void (*g_beforeGuestMove)() = nullptr;
+    // The game frame (sotc_native syncFrame), for in-run A/B switches.
+    inline uint64_t g_gameFrame = 0;
     // The idle thread's turn (round 25, sotc_overrides.cpp): called at each
     // game frame's end on the game thread.
     void idleTurn(uint8_t *rdram, PS2Runtime *runtime);

@@ -4024,6 +4024,163 @@ env-r25-console.txt.
 3. The fight's profile from the recording's frame split, then the biggest
    cut.
 
+## Round 26: the pose on host locals, the clamps that are identities, plain floats as a switch (2026-10-28)
+
+The Mac was on AC power the whole round apart from a pause (87-100%); a
+pause stopped the round once (the user's meeting), the Vita3K tree was
+restored by hand after the run it killed. No sleep.
+
+**Where the game thread is (r26/hp-base, celosia-r25.vpk, 222 MHz, plain,
+seconds 340-420).** Natives 38.8%, lean 37.2%, runtime 12.9%, hooks 8.4%
+(round 23's split). Top single items: decomp_skeleton::bone 3.75 + its
+normalised 1.13, modelDispState 2.50 + its part test 1.60, callGuest 2.15
+(39% of it modelClipSolid's guest calls, 22% the particle emitters'), the
+collision leaf 1.99, Vif1Walker::feed 1.64 + writeIORegister 1.52 (the kick),
+texAnim 1.47. Lean functions that hold any VU0 / FPU add, subtract or
+multiply are 16.9% of the game thread (of 36.2% lean): the PS2 float
+emulation is a fraction of that, not the 10-20% research-ports.md guessed.
+The attract demo (r26/att-sheet.png) is the intro and Agro on the plains: no
+colossus, so the fight is still not measurable in Vita3K.
+
+**1. skeletonPose on host locals (decomp_skeleton.cpp, `Fast`).** The same
+operations in the same order as round 6's bone(), but the context's VU0
+registers and the GPRs the pose writes are a local copy (written back once,
+as the last bone leaves them), the recursion a loop over a frame stack (so
+the copy never has its address taken), the nine helper call sites checked
+once a call instead of once a bone, and the clamps that are identities left
+out: a VU0 result is finite and (NEON flushes) never denormal, so clamping
+it again changes no bit. Left out: the current matrix's rows when they are
+the last bone's iosMulCurrentMatrixR results (and when a pop restores rows
+pushed clean, while fewer than 60 matrices are pushed: past that the VU0
+matrix stack could wrap), the operands of the five column products (vf8 is
+a product and 1.0; vf14..vf16 and vf0 as stored at sp are blends of results
+and of vf0's lanes), vf0 itself when its bits are its clamp's. Anything
+else (a call site naming another function, the quaternion stack's reset
+case through the guest) takes round 6's path. SOTC_SKELETON_FAST=0: the old
+path; SOTC_SKELETON_FAST_AB=<n>: the two in turns.
+In-run A/B, 222 (r26/skelab2, the copy alone): the host profile splits
+bone()+normalised 2.9% against the fast path's 2.73% (the copy's ctx stores
+were not the cost: the arithmetic is); with the clamps out (r26/skelab3)
+-0.2 to -2.2% of the frame by window (late plain -0.2%, the windows of
+that run -2.1 to -2.2%).
+
+**2. modelDispState's part test.** Its results normalised by
+ps2VuResult (the clamp only: on the Vita's NEON a result is never denormal,
+the same bits as ps2VuNormalize; the Mac keeps the full normalisation), the
+node's corners read as operands only (ps2VuOperand). The camera x model
+product (vuTransform, scalar) now four rows at a time in NEON, the
+recompiled modelDisp's own PS2_VMUL / PS2_VADD lane by lane.
+SOTC_MODELDISP_CHECK=1 (against the recompiled modelDisp): Mac route 180 000
+checks, 0 mismatched values; calibrated Vita3K 240 (r26/mdc-b) 120 000
+checks, 0 (celosia-r25.vpk the same, r26/mdc-r25: 140 000, 0).
+
+**3. Plain floats as a switch: the lean copies' second set.** game/overrides/
+lean_part_t0..11.cpp compile the same ~1 850 hot functions again as
+leant_<name> (lean_part.h: PS2X_LEAN_TRUST, renames_trust.inc /
+decls_trust.inc from tools/gen_lean.py) with PS2X_EE_TRUST_FINITE
+(ps2_runtime_macros.h): level 1 leaves out the VU0 macro operands' clamps
+(only the result's stays: finite operands can still overflow in NEON) and
+the FPU's result clamp (the game thread rounds toward zero: a finite sum or
+product overflows to FLT_MAX, not Inf); level 2 (the build's) also leaves
+out the PS2 adder's operand alignment (plain host adds, ico-pc's policy).
+SOTC_EE_TRUST=1 / Debug "Plain floats (lean code)" puts the second set in
+the table slots instead of the lean copies (lean_hot.cpp frameTick; at run
+time, no reboot); SOTC_EE_TRUST_AB=<n> alternates. Off by default; nothing
+of it runs then (no flag test in the generated code). Cost: +6.8 MB of text
+(49.4 -> 56.3 MB; the console had ~89-93 MB of user memory free after
+start, console-r24). The lean TUs of the second set skip the precompiled
+header on the Mac (it has PS2X_EE_TRUST_FINITE at 0).
+- Level 1 is exact for every finite operand: Mac route, SOTC_LEAN_CHECK of
+  the 123 hottest lean functions with float ops (r26/trust-a, trust-b,
+  EVERY=20): 324 100 checks, mismatches only in ExecCharaGeometry and
+  iosPadTickProc, which mismatch the same way with the exact lean copies
+  (r26/dt-base0: 28 of 2 400 and 494 of 500, the guest stack's words at
+  0x270c00-0x2711ff and the pad tick's timer float; with level 1 38 and 494,
+  the same addresses). In-run A/B at 222 (r26/trustab2): -0.6 to -1.4%.
+- Level 2: SOTC_LEAN_CHECK (r26/dt-trust2-a, 60 functions): 5 043 of 212 800
+  checks differ in 17 functions (last-bit differences: motion interpolation,
+  IK, cloth tension, the small animals' AI), as expected. Fixed-30 route
+  (Mac, r26/pos-trust2): within 0.02 units of r24/pos-1 and 0.12 of this
+  round's exact build: inside the noise band, but not exact, so off. In-run
+  A/B at 222 (r26/trustab3): -1.4% on the plain window, -3.1% over the late
+  plain (2 700 frames a side); the whole route with it on (trust-222)
+  against r25: -3.2 to -3.7% by window.
+
+**The route took another path today.** Every Vita3K route run of this round
+but the first (r25's profile run) took the walk out without the area
+change, r25's VPK included (r26/r25-222, -240, -333: no second cut in
+transition.py): the route's timing in Vita3K moves Wander another way, so
+the "walk out" and "plain" windows are not the round 23 ones. Compare
+same-path runs only (the table below; the r25 rows are this round's runs
+of celosia-r25.vpk, same path).
+
+**Frame timing (calibrated Vita3K, route2's input; mean ms; game frame,
+hooks / render / jobs as the frame log's columns).**
+
+| window | r25 222 | r26 222 | r26 222 + plain floats | r25 240 | r26 240 | r25 333 | r26 333 |
+|---|---|---|---|---|---|---|---|
+| the save's load | 32.2 | 32.1 | 26.2 | 28.8 | 30.6 | 22.0 | 23.9 |
+| the shrine | 40.4 (h 2.5 r 12.0) | **39.9** (h 2.1 r 12.1) | **38.9** | 37.4 | **36.7** | 26.7 | **26.3** |
+| the walk out (no area change) | 50.9 (h 2.8 r 14.4) | **50.3** (h 2.5 r 14.3) | **49.2** | 46.9 | **46.4** | 33.7 | **33.3** |
+| later (vb 4000-6000) | 78.0 (h 4.0 r 21.5) | 77.9 (h 3.7 r 21.5) | **75.5** | 72.2 | **71.3** | 51.7 | **51.3** |
+
+Default build against r25: -1.2 / -1.2 / -0.1% at 222, -1.9 / -1.1 / -1.2%
+at 240, -1.5 / -1.2 / -0.8% at 333 (noise ±2% a window). With plain floats
+on: -3.7 / -3.3 / -3.2% at 222. The hooks' game-thread part is down 0.3-0.4
+ms everywhere (the part test). The load window is the boot's, noisy.
+Transitions: the wake-up cut 30.3 / 132.4 worst (r26 222) against 29.4 /
+121.0 (r25 222). Sound (au.py, every run): 0 late callbacks, 0 stale
+halves, 0 src-stale.
+
+**Exactness.**
+- skeletonPose (Mac route, SOTC_DIFFTEST=skeletonPose,regularizeMatAry,
+  EVERY=20, both versions of the fast path, r26/dt-skel, dt-skel2): 80 900
+  and 81 200 checks, 0 mismatches. In Vita3K the difftest's two 32 MB RAM
+  snapshots a check stall the boot (r26/dtskel-v3k): not used there.
+- Fixed-30 route (Mac, route2, SOTC_NATIVE=2, SOTC_FRAME_INTERVAL=2,
+  SOTC_POS_LOG=30, to 5 400): the exact build (r26/pos-exact2) within 0.02
+  units of r24/pos-1 (r25/pos-off was 0.09); the plain floats 0.02 (above).
+- modelDispState: SOTC_MODELDISP_CHECK above (Mac and Vita3K).
+- No generator change (the lean check was not rerun beyond the above).
+
+**Not done / looked at:**
+- The render thread's profile in Vita3K (sceClibMemcpy 20% of it, from
+  vitaGL's fixed-function draw path, with only the present quad and the FPS
+  text drawn that way): a thread is sampled where it waits for a core slot
+  too (round 23's billing), so its HLE calls' shares are not costs. Not
+  changed.
+- The kick's VIF1 walk (3.2%): its compact walker is already one pass over
+  the VIFcodes; cutting it needs the chain's FINISH without the walk.
+
+**Files:** game/overrides/decomp_skeleton.cpp (Fast, SOTC_SKELETON_FAST,
+_AB), sotc_native.cpp (the part test's clamps, vuTransform in NEON,
+sotc_decomp::g_gameFrame), sotc_decomp.h (g_gameFrame), lean_hot.cpp (the
+second set's table, SOTC_EE_TRUST, _AB, its SOTC_LEAN_CHECK), lean_part.h
+(PS2X_LEAN_TRUST, PS2X_LEAN_TRUST_LEVEL), lean_part_t0..11.cpp (new),
+tools/gen_lean.py (decls_trust.inc, renames_trust.inc),
+PS2Recomp/ps2xRuntime/include/ps2_runtime_macros.h (PS2X_EE_TRUST_FINITE
+1 / 2; the default build's macros unchanged), runtime/native_tuning.h
+(trustFinite), src/lib/native/native_renderer.cpp (SOTC_EE_TRUST, the Debug
+item), CMakeLists.txt (no PCH for the second set), README.md. Tools: r26/v3k.sh
+(r25's, logs to r26/), r26/thr.py (each thread's top functions), r26/split.py
+(per-window frame / hooks / render / jobs). Deliverables:
+build/agent-scratch/celosia-r26.vpk (shader seed: 42 files),
+env-r26-console.txt (SOTC_FRAME_LOG, SOTC_AUDIO_LOG).
+
+**Round 27 (plan).**
+1. The console: celosia-r26.vpk with plain floats on and off (Debug item,
+   no reboot) in a fight: the console's share of the float emulation may be
+   larger than Vita3K's (VFP <-> core register moves stall the A9).
+2. The generator: a VU0 register written by a VU0 result in the same block
+   needs no operand clamp (the identity above): exact, all the generated
+   code, not only the hot copies (16.9% of the game thread has float ops).
+3. The fight's profile (env-r24-console-fightprof.txt on the console):
+   ExecCharaGeometry's 11.3 ms self in a fight is in callees the plain does
+   not run much; without it the colossus's cost cannot be targeted.
+4. A route anchored on positions rather than VBlanks (the path changed
+   today with no code change), or the fixed-30 frame interval in Vita3K too
+   for path-stable timing.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

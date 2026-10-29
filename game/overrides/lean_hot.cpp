@@ -55,6 +55,21 @@ namespace
 #undef LEAN_ENTRY
 }
 #define SOTC_LEAN_TABLE 1
+// The second set (round 26, lean_part_tN.cpp): leant_<name>, in kLean's order.
+#if __has_include("lean/decls_trust.inc")
+#define LEAN_ENTRY(address, lean, original, name, checkable) void leant_##original(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+#include "lean/table.inc"
+#undef LEAN_ENTRY
+namespace
+{
+#define LEAN_ENTRY(address, lean, original, name, checkable) &leant_##original,
+    const PS2Runtime::RecompiledFunction kLeanTrust[] = {
+#include "lean/table.inc"
+    };
+#undef LEAN_ENTRY
+}
+#define SOTC_LEAN_TRUST_TABLE 1
+#endif
 #endif
 
 namespace ps2_lean
@@ -64,12 +79,25 @@ namespace ps2_lean
         struct Slot
         {
             uint32_t slot;
-            PS2Runtime::RecompiledFunction original, lean;
+            PS2Runtime::RecompiledFunction original, lean, trust; // trust: leant_ (or lean without that set)
         };
         std::vector<Slot> g_slots; // the table slots put on the lean copies
         int g_mode = 0;            // SOTC_LEAN: 1 on, 2 alternating
         uint64_t g_period = 240u;  // SOTC_LEAN_PERIOD (game frames), mode 2
         bool g_leanNow = true;
+        // SOTC_EE_TRUST (round 26): the second set in the slots instead of
+        // the lean copies (native_renderer Tuning::trustFinite, the Debug
+        // item); SOTC_EE_TRUST_AB=<n>: on and off in turns of n game frames.
+        bool g_trustNow = false;
+        uint64_t g_trustAb = 0u;
+    }
+    bool trustAvailable()
+    {
+#ifdef SOTC_LEAN_TRUST_TABLE
+        return true;
+#else
+        return false;
+#endif
     }
 
     void install(PS2Runtime &runtime)
@@ -91,6 +119,20 @@ namespace ps2_lean
         std::fprintf(stderr, "[lean] SOTC_LEAN: no lean copies in this build (tools/gen_lean.py, then rebuild)\n");
 #else
         constexpr size_t kCount = sizeof(kLean) / sizeof(kLean[0]);
+        if (const char *ab = std::getenv("SOTC_EE_TRUST_AB"))
+            g_trustAb = std::strtoull(ab, nullptr, 10);
+        // SOTC_LEAN_CHECK with SOTC_EE_TRUST=1: the second set is what is
+        // checked against the originals.
+        const char *trustEnv = std::getenv("SOTC_EE_TRUST");
+        const bool checkTrust = trustEnv && std::atoi(trustEnv) != 0;
+        auto trustOf = [&](size_t i)
+        {
+#ifdef SOTC_LEAN_TRUST_TABLE
+            return kLeanTrust[i];
+#else
+            return kLean[i].lean;
+#endif
+        };
         // SOTC_LEAN_CHECK: entries left to the difftest.
         std::vector<bool> checked(kCount, false);
         if (const char *check = std::getenv("SOTC_LEAN_CHECK"))
@@ -123,16 +165,16 @@ namespace ps2_lean
                     continue;
                 checked[i] = true;
                 ++picked;
-                sotc_decomp::registry().push_back({kLean[i].address, kLean[i].name, kLean[i].lean});
+                sotc_decomp::registry().push_back({kLean[i].address, kLean[i].name, checkTrust ? trustOf(i) : kLean[i].lean});
                 names += (names.empty() ? "" : ",") + std::string(kLean[i].name);
             }
             setenv("SOTC_DIFFTEST", names.c_str(), 1);
             std::fprintf(stderr, "[lean] %d lean functions checked against the originals (SOTC_DIFFTEST)\n", picked);
         }
-        std::unordered_map<PS2Runtime::RecompiledFunction, PS2Runtime::RecompiledFunction> byOriginal;
+        std::unordered_map<PS2Runtime::RecompiledFunction, size_t> byOriginal;
         byOriginal.reserve(kCount * 2u);
         for (size_t i = 0; i < kCount; ++i)
-            byOriginal.emplace(kLean[i].original, kLean[i].lean);
+            byOriginal.emplace(kLean[i].original, i);
         std::unordered_map<uint32_t, size_t> checkedAt;
         for (size_t i = 0; i < kCount; ++i)
             if (checked[i])
@@ -153,13 +195,13 @@ namespace ps2_lean
             static const bool checkOnly = std::getenv("SOTC_LEAN_CHECK_ONLY") != nullptr;
             if (checkOnly)
                 continue;
-            g_slots.push_back({slot, fn, it->second});
-            fn = it->second;
+            g_slots.push_back({slot, fn, kLean[it->second].lean, trustOf(it->second)});
+            fn = kLean[it->second].lean;
             ++slots;
         }
         sotc_prof::noteLean(true);
-        std::fprintf(stderr, "[lean] %u lean functions in place (%u table slots)%s\n", static_cast<unsigned>(kCount), slots,
-                     g_mode == 2 ? ", alternating with the originals" : "");
+        std::fprintf(stderr, "[lean] %u lean functions in place (%u table slots)%s; second set (SOTC_EE_TRUST) %s\n", static_cast<unsigned>(kCount), slots,
+                     g_mode == 2 ? ", alternating with the originals" : "", trustAvailable() ? "built" : "not built");
 #endif
     }
 
@@ -177,21 +219,25 @@ namespace ps2_lean
             return;
         const bool lean = g_mode == 2 ? (frame / g_period) % 2u == 0u // the frame counter can skip numbers
                                       : native_renderer::tuning().leanCopies;
-        if (lean == g_leanNow)
+        const bool trust = trustAvailable() && (g_trustAb ? (frame / g_trustAb) % 2u == 0u : native_renderer::tuning().trustFinite);
+        if (lean == g_leanNow && trust == g_trustNow)
             return;
-        g_leanNow = lean;
+        const auto pick = [](const Slot &s, bool l, bool t) { return !l ? s.original : (t ? s.trust : s.lean); };
         for (const Slot &s : g_slots)
         {
             // Only where it still is: a hook or a decompiled function put
             // there since (heap, idle, sotc_native, decomp_*) stays.
             PS2Runtime::RecompiledFunction &fn = g_ps2RecompiledFunctionTable[s.slot];
-            if (fn == (lean ? s.original : s.lean))
-                fn = lean ? s.lean : s.original;
+            const PS2Runtime::RecompiledFunction from = pick(s, g_leanNow, g_trustNow), to = pick(s, lean, trust);
+            if (fn == from)
+                fn = to;
+            sotc_prof::remapWrapped(from, to);
         }
-        for (const Slot &s : g_slots)
-            sotc_prof::remapWrapped(lean ? s.original : s.lean, lean ? s.lean : s.original);
+        g_leanNow = lean;
+        g_trustNow = trust;
         sotc_prof::noteLean(lean);
-        std::fprintf(stderr, "[lean] frame %llu: %s\n", static_cast<unsigned long long>(frame), lean ? "lean copies" : "originals");
+        std::fprintf(stderr, "[lean] frame %llu: %s\n", static_cast<unsigned long long>(frame),
+                     !lean ? "originals" : (trust ? "lean copies, trusted floats (SOTC_EE_TRUST)" : "lean copies"));
     }
 
     void afterOverrides(PS2Runtime &runtime)

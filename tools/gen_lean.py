@@ -7,6 +7,9 @@ SOTC_CALL_COUNT_DUMP files with --from). This writes, under build/runner/lean/
   decls.inc     the lean functions' declarations
   renames.inc   #define <name> lean_<name> for each (direct calls between
                 lean functions stay lean)
+  decls_trust.inc, renames_trust.inc  the same for the second set
+                (leant_<name>, game/overrides/lean_part_tN.cpp: compiled with
+                PS2X_EE_TRUST_FINITE, SOTC_EE_TRUST picks it)
   table.inc     LEAN_ENTRY(address, lean_<name>, <name>, "<name>", checkable)
                 lines (checkable: no syscall inside, for SOTC_LEAN_CHECK)
   partN.inc     the #includes of the recompiled sources, split over the
@@ -98,6 +101,13 @@ def main():
     with open(os.path.join(OUT, 'renames.inc'), 'w') as out:
         for _, n, _ in names:
             out.write('#define %s lean_%s\n' % (n, n))
+    # The second set (round 26, lean_part_tN.cpp, PS2X_EE_TRUST_FINITE): leant_<name>.
+    with open(os.path.join(OUT, 'decls_trust.inc'), 'w') as out:
+        for _, n, _ in names:
+            out.write('void leant_%s%s;\n' % (n, sig))
+    with open(os.path.join(OUT, 'renames_trust.inc'), 'w') as out:
+        for _, n, _ in names:
+            out.write('#define %s leant_%s\n' % (n, n))
     with open(os.path.join(OUT, 'table.inc'), 'w') as out:
         for a, n, sys_ in names:
             out.write('LEAN_ENTRY(0x%08xu, lean_%s, %s, "%s", %s)\n' % (a, n, n, n, 'false' if sys_ else 'true'))

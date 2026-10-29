@@ -3591,6 +3591,7 @@ namespace sotc_native
                              eye[0], eye[1], eye[2]);
             }
             sotc_prof::frameTick(frame);
+            sotc_decomp::g_gameFrame = frame;
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);
             native_renderer::beginFrame();
@@ -5107,11 +5108,22 @@ namespace sotc_native
             if (table == 0u)
                 return;
             // camera context +0x5a0 x the model matrix, on VU0.
-            float camera[16], clip[16];
-            for (int i = 0; i < 16; ++i)
-                camera[i] = vuNorm(real(g_cameraContext + 0x5A0u + i * 4u));
+            // Round 26: as vectors, the way the recompiled code's PS2_VMUL /
+            // PS2_VADD do it (vuTransform's operations lane by lane; on the
+            // Vita in NEON like them, where the scalar version rounded in the
+            // game thread's VFP mode instead).
+            float clip[16];
+            __m128 camera[4];
+            for (int i = 0; i < 4; ++i)
+                camera[i] = ps2VuNormalize(_mm_loadu_ps(reinterpret_cast<const float *>(g_ram + ((g_cameraContext + 0x5A0u + i * 16u) & 0x1FFFFFCu))));
             for (int c = 0; c < 4; ++c)
-                vuTransform(camera, vuNorm(model[c * 4]), vuNorm(model[c * 4 + 1]), vuNorm(model[c * 4 + 2]), vuNorm(model[c * 4 + 3]), clip + c * 4);
+            {
+                const __m128 m = ps2VuNormalize(_mm_loadu_ps(model + c * 4));
+                const __m128 a = ps2VuNormalize(_mm_add_ps(ps2VuNormalize(_mm_mul_ps(camera[0], _mm_shuffle_ps(m, m, 0x00))),
+                                                           ps2VuNormalize(_mm_mul_ps(camera[1], _mm_shuffle_ps(m, m, 0x55)))));
+                const __m128 b = ps2VuNormalize(_mm_add_ps(a, ps2VuNormalize(_mm_mul_ps(camera[2], _mm_shuffle_ps(m, m, 0xAA)))));
+                _mm_storeu_ps(clip + c * 4, ps2VuNormalize(_mm_add_ps(b, ps2VuNormalize(_mm_mul_ps(camera[3], _mm_shuffle_ps(m, m, 0xFF))))));
+            }
             // modelDisp / manager_sub_01099A08: the box's eight corners in this
             // order through vclipw, the CLIP register (24 bits, the last four
             // judgements) read after each: all of them sharing a plane -> 1
@@ -5122,23 +5134,27 @@ namespace sotc_native
             // each through the same clamp: ps2VuNormalize is vuNorm by lane),
             // the products by each corner's x, y and z made once for the box.
             const __m128 col0 = _mm_loadu_ps(clip), col1 = _mm_loadu_ps(clip + 4), col2 = _mm_loadu_ps(clip + 8), col3 = _mm_loadu_ps(clip + 12);
-            const __m128 byW = ps2VuNormalize(_mm_mul_ps(col3, _mm_set1_ps(1.0f)));
+            // Round 26: an arithmetic result is normalised by ps2VuResult (on
+            // the Vita's NEON the result is never denormal: the clamp alone,
+            // the same bits as ps2VuNormalize), the node's corners read as
+            // operands only (ps2VuOperand: NEON reads a denormal as zero).
+            const __m128 byW = ps2VuResult(_mm_mul_ps(col3, _mm_set1_ps(1.0f)));
             const auto test = [&](uint32_t node) -> uint32_t
             {
                 static constexpr uint8_t kCorners[8] = {0, 6, 5, 3, 4, 2, 1, 7}; // bit 0 x, 1 y, 2 z: max
                 // the node's min (x, y, z at +0) and max (+0x10), clamped
-                const __m128 lo = ps2VuNormalize(_mm_loadu_ps(reinterpret_cast<const float *>(g_ram + (node & 0x1FFFFFCu)))),
-                             hi = ps2VuNormalize(_mm_loadu_ps(reinterpret_cast<const float *>(g_ram + ((node + 0x10u) & 0x1FFFFFCu))));
-                const __m128 byX[2] = {ps2VuNormalize(_mm_mul_ps(col0, _mm_shuffle_ps(lo, lo, 0x00))), ps2VuNormalize(_mm_mul_ps(col0, _mm_shuffle_ps(hi, hi, 0x00)))};
-                const __m128 byY[2] = {ps2VuNormalize(_mm_mul_ps(col1, _mm_shuffle_ps(lo, lo, 0x55))), ps2VuNormalize(_mm_mul_ps(col1, _mm_shuffle_ps(hi, hi, 0x55)))};
-                const __m128 byZ[2] = {ps2VuNormalize(_mm_mul_ps(col2, _mm_shuffle_ps(lo, lo, 0xAA))), ps2VuNormalize(_mm_mul_ps(col2, _mm_shuffle_ps(hi, hi, 0xAA)))};
+                const __m128 lo = ps2VuOperand(_mm_loadu_ps(reinterpret_cast<const float *>(g_ram + (node & 0x1FFFFFCu)))),
+                             hi = ps2VuOperand(_mm_loadu_ps(reinterpret_cast<const float *>(g_ram + ((node + 0x10u) & 0x1FFFFFCu))));
+                const __m128 byX[2] = {ps2VuResult(_mm_mul_ps(col0, _mm_shuffle_ps(lo, lo, 0x00))), ps2VuResult(_mm_mul_ps(col0, _mm_shuffle_ps(hi, hi, 0x00)))};
+                const __m128 byY[2] = {ps2VuResult(_mm_mul_ps(col1, _mm_shuffle_ps(lo, lo, 0x55))), ps2VuResult(_mm_mul_ps(col1, _mm_shuffle_ps(hi, hi, 0x55)))};
+                const __m128 byZ[2] = {ps2VuResult(_mm_mul_ps(col2, _mm_shuffle_ps(lo, lo, 0xAA))), ps2VuResult(_mm_mul_ps(col2, _mm_shuffle_ps(hi, hi, 0xAA)))};
                 __m128 v[8];
                 for (int k = 0; k < 8; ++k)
                 {
                     const uint8_t corner = kCorners[k];
-                    v[k] = ps2VuNormalize(_mm_add_ps(byX[corner & 1], byY[(corner >> 1) & 1]));
-                    v[k] = ps2VuNormalize(_mm_add_ps(v[k], byZ[(corner >> 2) & 1]));
-                    v[k] = ps2VuNormalize(_mm_add_ps(v[k], byW));
+                    v[k] = ps2VuResult(_mm_add_ps(byX[corner & 1], byY[(corner >> 1) & 1]));
+                    v[k] = ps2VuResult(_mm_add_ps(v[k], byZ[(corner >> 2) & 1]));
+                    v[k] = ps2VuResult(_mm_add_ps(v[k], byW));
                 }
                 // The corners' judgements f[3..10], after the register's last
                 // three (f[0..2]); the register after corner k holds f[k..k+3]

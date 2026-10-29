@@ -320,17 +320,31 @@ static PS2_FORCE_INLINE __m128 ps2VuOperand(__m128 v)
     return ps2VuNormalizeFast(v);
 #endif
 }
+// PS2X_EE_TRUST_FINITE (round 26; set per translation unit, the lean
+// copies' second set, lean_part.h): the operands are not clamped, only the
+// result. For finite operands (exponent below 255) the operand clamp is the
+// identity, so the result is the same bits; only an operand whose pattern is
+// Inf / NaN (a PS2 float of exponent 255) gives another result. The result
+// clamp stays: finite operands can still overflow to Inf in NEON.
+#ifndef PS2X_EE_TRUST_FINITE
+#define PS2X_EE_TRUST_FINITE 0
+#endif
+#if PS2X_EE_TRUST_FINITE && !PS2X_VU_MACROS_OLD
+#define PS2X_VU_IN(v) (v)
+#else
+#define PS2X_VU_IN(v) ps2VuOperand(v)
+#endif
 static PS2_FORCE_INLINE __m128 ps2VuAdd(__m128 a, __m128 b)
 {
-    return ps2VuOperand(_mm_add_ps(ps2VuOperand(a), ps2VuOperand(b)));
+    return ps2VuOperand(_mm_add_ps(PS2X_VU_IN(a), PS2X_VU_IN(b)));
 }
 static PS2_FORCE_INLINE __m128 ps2VuSub(__m128 a, __m128 b)
 {
-    return ps2VuOperand(_mm_sub_ps(ps2VuOperand(a), ps2VuOperand(b)));
+    return ps2VuOperand(_mm_sub_ps(PS2X_VU_IN(a), PS2X_VU_IN(b)));
 }
 static PS2_FORCE_INLINE __m128 ps2VuMul(__m128 a, __m128 b)
 {
-    return ps2VuOperand(_mm_mul_ps(ps2VuOperand(a), ps2VuOperand(b)));
+    return ps2VuOperand(_mm_mul_ps(PS2X_VU_IN(a), PS2X_VU_IN(b)));
 }
 // The result of an op on normalised operands, normalised (natives that
 // clamp once: vu::mulN / addN / subN).
@@ -972,16 +986,32 @@ static PS2_FORCE_INLINE void ps2FpuAlignOperands(float &a, float &b)
 #endif
 }
 
+// With PS2X_EE_TRUST_FINITE the result's clamp goes: the game thread rounds
+// toward zero, so a sum / product of finite floats overflows to FLT_MAX,
+// never to Inf; the clamp only acts on an Inf / NaN operand.
+#if defined(PS2X_EE_TRUST_FINITE) && PS2X_EE_TRUST_FINITE
+#define PS2X_FPU_OUT(v) (v)
+#else
+#define PS2X_FPU_OUT(v) ps2FpuClamp(v)
+#endif
+// PS2X_EE_TRUST_FINITE >= 2: plain host adds too (no PS2 operand
+// alignment: a result can be one unit in the last place apart when the
+// operands' signs differ), as ico-pc's port does its game arithmetic.
+#if defined(PS2X_EE_TRUST_FINITE) && PS2X_EE_TRUST_FINITE >= 2
+#define PS2X_FPU_ALIGN_IN(a, b) ((void)0)
+#else
+#define PS2X_FPU_ALIGN_IN(a, b) ps2FpuAlignOperands(a, b)
+#endif
 static PS2_FORCE_INLINE float ps2FpuAdd(float a, float b)
 {
-    ps2FpuAlignOperands(a, b);
-    return ps2FpuClamp(a + b);
+    PS2X_FPU_ALIGN_IN(a, b);
+    return PS2X_FPU_OUT(a + b);
 }
 
 static PS2_FORCE_INLINE float ps2FpuSub(float a, float b)
 {
-    ps2FpuAlignOperands(a, b);
-    return ps2FpuClamp(a - b);
+    PS2X_FPU_ALIGN_IN(a, b);
+    return PS2X_FPU_OUT(a - b);
 }
 
 static PS2_FORCE_INLINE float ps2SignedFloatMax(uint32_t signSource)
@@ -1212,7 +1242,7 @@ static PS2_FORCE_INLINE void ps2SetEeFloatingPointMode()
 #define FPU_SET_ACC(ctx, res) (ctx->f_acc = res)
 #define FPU_ADD_S(a, b) ps2FpuAdd((float)(a), (float)(b))
 #define FPU_SUB_S(a, b) ps2FpuSub((float)(a), (float)(b))
-#define FPU_MUL_S(a, b) ps2FpuClamp((float)(a) * (float)(b))
+#define FPU_MUL_S(a, b) PS2X_FPU_OUT((float)(a) * (float)(b))
 #define FPU_DIV_S(a, b) ps2FpuClamp((float)(a) / (float)(b))
 #define FPU_SQRT_S(a) ps2FpuClamp(std::sqrt(std::fabs((float)(a))))
 #define FPU_ABS_S(a) fabsf((float)(a))

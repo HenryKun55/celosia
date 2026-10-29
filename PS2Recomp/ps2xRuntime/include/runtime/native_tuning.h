@@ -103,6 +103,13 @@ namespace native_renderer
         // is on, the Vita's default; this flips them at run time;
         // SOTC_LEAN=2 alternates).
         bool leanCopies = true;
+        // With the lean copies: their second set (round 26), compiled with
+        // PS2X_EE_TRUST_FINITE=2: the VU0 macro and FPU operands taken as
+        // finite (not clamped; only results that can overflow are) and the
+        // FPU adds plain host adds (no PS2 operand alignment): results can be
+        // one unit in the last place apart. Not exact: off by default
+        // (SOTC_EE_TRUST=0/1; SOTC_EE_TRUST_AB=<n> alternates).
+        bool trustFinite = false;
         // The game hooks' faster paths (skinned meshes posed once per vertex
         // and written in place, a texture's and a packet's id sampled once a
         // frame); off: the earlier code, to compare (SOTC_NATIVE_SLOWHOOKS).
