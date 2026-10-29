@@ -47,7 +47,12 @@ namespace decomp_modelclip
         const __m128 x = _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1)), y = _mm_castsi128_ps(_mm_set_epi32(0, 0, -1, 0)),
                      z = _mm_castsi128_ps(_mm_set_epi32(0, -1, 0, 0)), w = _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0)),
                      xyz = _mm_castsi128_ps(_mm_set_epi32(0, -1, -1, -1)), yzw = _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, 0));
-        __m128 *vf = ctx->vu0_vf;
+        // Round 28: the VU0 registers on locals, written back once at the end
+        // (they were stored into the context and read back right away: a
+        // store-to-load stall each on the Cortex-A9, ~60% of its samples).
+        __m128 vf[29];
+        vf[0] = ctx->vu0_vf[0];
+        vf[26] = ctx->vu0_vf[26];
         const __m128 vf0 = vf[0];
         const uint32_t t2 = t0 + 0x140u, t1 = t0 + 0x1E0u, v0 = t0 + 0x5A0u, t0b = t0 + 0x1A0u;
         ctx->cop0_status &= ~0x10000u; // di
@@ -105,6 +110,10 @@ namespace decomp_modelclip
             std::memcpy(&ctx->f[0], &a3out, 4);
         }
         ctx->vu0_acc = acc;
+        for (int i = 1; i <= 14; ++i)
+            ctx->vu0_vf[i] = vf[i];
+        for (int i = 20; i <= 28; ++i)
+            ctx->vu0_vf[i] = vf[i];
         ctx->cop0_status |= 0x10000u; // ei
         if ((v1 & 0x3Fu) == 0u)
         {

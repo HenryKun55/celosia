@@ -1,27 +1,27 @@
 {
- "updated": "2026-10-28",
- "commit": "8bef421",
+ "updated": "2026-10-29",
+ "commit": "9a154f0",
  "summary": {
   "by_functions": {
-   "native": 448,
+   "native": 450,
    "partial": 0,
    "total": 9024,
-   "percent": 4.96
+   "percent": 4.99
   },
   "by_code_size": {
-   "native": 141664,
+   "native": 142040,
    "partial": 0,
    "total": 2625144,
-   "percent": 5.4
+   "percent": 5.41
   },
   "by_calls": {
-   "native": 80110671,
+   "native": 80344241,
    "partial": 0,
    "total": 167661665,
-   "percent": 47.78
+   "percent": 47.92
   },
   "game_code_by_size": {
-   "native": 70600,
+   "native": 70760,
    "total": 2208056,
    "percent": 3.2
   }
@@ -29,11 +29,11 @@
  "areas": {
   "Boot ELF, SDK and libc": {
    "functions": 2125,
-   "native_functions": 319,
+   "native_functions": 320,
    "bytes": 404692,
-   "native_bytes": 58668,
+   "native_bytes": 58884,
    "partial_functions": 0,
-   "percent": 14.5
+   "percent": 14.55
   },
   "Math": {
    "functions": 133,
@@ -101,11 +101,11 @@
   },
   "Collision and physics": {
    "functions": 326,
-   "native_functions": 24,
+   "native_functions": 25,
    "bytes": 107640,
-   "native_bytes": 16224,
+   "native_bytes": 16384,
    "partial_functions": 0,
-   "percent": 15.07
+   "percent": 15.22
   },
   "Script and events": {
    "functions": 632,
@@ -180,6 +180,14 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_overrides.cpp"
+  },
+  {
+   "address": "0x0011c7d8",
+   "name": "sub_0011C7D8",
+   "bytes": 216,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_mcfat.cpp"
   },
   {
    "address": "0x00124b90",
@@ -1169,6 +1177,14 @@
    "address": "0x011292b0",
    "name": "manager_sub_011292B0",
    "bytes": 64,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x0112a250",
+   "name": "EntryCollisionFinder",
+   "bytes": 160,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"

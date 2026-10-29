@@ -3275,12 +3275,21 @@ namespace sotc_native
     void meshDispDraw(const MeshDispJob &job);
     void shadowDispDraw(const ShadowDispJob &job);
     void ptclVtxDraw(const PtclVtxJob &job, const ParticleEnv &e);
+    // Round 28: a 2D batch of glEnd's immediate path (no texture), drawn on
+    // the worker after the jobs before it instead of a join (flush2D).
+    struct Draw2DJob
+    {
+        std::vector<native_renderer::Vertex> batch;
+        native_renderer::DrawState state;
+    };
+    void draw2DRun(Draw2DJob &job);
     enum : uint8_t
     {
         kJobModel,
         kJobMesh,
         kJobShadow,
-        kJobPtcl
+        kJobPtcl,
+        kJob2D
     };
     struct HookJob
     {
@@ -3289,6 +3298,7 @@ namespace sotc_native
         MeshDispJob mesh;
         ShadowDispJob shadow;
         PtclVtxJob ptcl;
+        Draw2DJob draw2d;
     };
     void runJob(HookJob &job);
     // SOTC_HOOK_ASYNC_VERIFY: a hash of everything a job took at the hook
@@ -3755,6 +3765,9 @@ namespace sotc_native
         uint32_t batchHeader = 0, batchLayer = 0;
     } g_2d;
 
+    // glEnd's pairs being fed (round 28; SOTC_GLEND_ASYNC=0: off, glEnd waits for the jobs first as before).
+    bool g_2dDefer = false;
+
     void flush2D()
     {
         Assembler &a = g_2d;
@@ -3770,13 +3783,22 @@ namespace sotc_native
             a.batchKey = ~0ull;
             return;
         }
-        const uint64_t mesh = (1ull << 62) | g_skinnedDraws++;
-        native_renderer::uploadMesh(mesh, a.batch.data(), static_cast<uint32_t>(a.batch.size()), true);
         native_renderer::DrawState state;
         state.screen = true;
         state.screenCopy = a.batchHeader == kScreenCopy && (a.batchPrim & 0x10u);
         state.previousFrame = a.batchHeader == kPreviousFrame && (a.batchPrim & 0x10u);
-        state.texture = (a.batchPrim & 0x10u) && !state.screenCopy && !state.previousFrame ? texture(a.batchHeader) : 0;
+        const bool textured = (a.batchPrim & 0x10u) && !state.screenCopy && !state.previousFrame;
+        // Round 28: glEnd's batches (g_2dDefer) with model jobs still on the
+        // worker go there as a job of their own, after them, instead of the
+        // game thread waiting for them (the fight's heat haze: ~7 ms of
+        // joins a frame, round 27's recording); a textured one (texture()
+        // decodes on the game thread, as the jobs' own textures) waits for
+        // them first, as glEnd did. Either way the renderer gets the draws in
+        // the order it got them before.
+        const bool deferred = g_2dDefer && !textured && hookjobs::g_on && hookjobs::pending();
+        if (!deferred && g_2dDefer)
+            hookJoin(hookjobs::k_glend);
+        state.texture = textured ? texture(a.batchHeader) : 0;
         const uint32_t mode = static_cast<uint32_t>(a.batchAlpha & 0xFFu);
         // SOTC_LOG_2D_ALPHA=1: the distinct ALPHA / PRIM pairs of the 2D draws.
         static const bool logAlpha = std::getenv("SOTC_LOG_2D_ALPHA") != nullptr;
@@ -3795,10 +3817,35 @@ namespace sotc_native
         // (x w, y w, w) -> clip (x w, y w, -, w): the backends take depth from w.
         static const float fromDepth[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};
         state.screenDepthTest = state.screenCopy;
+        if (deferred)
+        {
+            HookJob &job = hookjobs::next();
+            job.kind = kJob2D;
+            job.draw2d.batch.swap(a.batch);
+            job.draw2d.state = state;
+            hookjobs::push();
+            a.batch.clear();
+            a.batchKey = ~0ull;
+            return;
+        }
+        const uint64_t mesh = (1ull << 62) | g_skinnedDraws++;
+        native_renderer::uploadMesh(mesh, a.batch.data(), static_cast<uint32_t>(a.batch.size()), true);
         native_renderer::draw(mesh, state.screenDepthTest ? fromDepth : identity, state);
         ++g_frameDraws;
         a.batch.clear();
         a.batchKey = ~0ull;
+    }
+
+    // The worker's half of a deferred 2D batch: what flush2D does with it.
+    void draw2DRun(Draw2DJob &job)
+    {
+        static const float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+        static const float fromDepth[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0};
+        const uint64_t mesh = (1ull << 62) | g_skinnedDraws++;
+        native_renderer::uploadMesh(mesh, job.batch.data(), static_cast<uint32_t>(job.batch.size()), true);
+        native_renderer::draw(mesh, job.state.screenDepthTest ? fromDepth : identity, job.state);
+        ++g_frameDraws;
+        job.batch.clear();
     }
 
     void emit2D(const native_renderer::Vertex &v0, const native_renderer::Vertex &v1, const native_renderer::Vertex &v2)
@@ -4188,7 +4235,12 @@ namespace sotc_native
     void glEndHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
-        hookJoin(hookjobs::k_glend); // the 2D draws after the model jobs before them
+        // The 2D draws after the model jobs before them: flush2D waits for
+        // them, or queues an untextured batch behind them (round 28).
+        // (read here: the Vita's env.txt comes after static init)
+        static const bool async = !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0;
+        if (!async)
+            hookJoin(hookjobs::k_glend);
         static const bool off = std::getenv("SOTC_NATIVE_NOGL") != nullptr;
         const uint32_t start = word(0x01186398u), end = word(0x01186394u);
         // Not drawn here: bossDeathEffectBegin's fan goes to an off-screen buffer.
@@ -4212,12 +4264,14 @@ namespace sotc_native
                 if (seen.insert((static_cast<uint64_t>(GPR_U32(ctx, 31)) << 8) | layer).second)
                     std::fprintf(stderr, "[gl] ra %08x layer %u qwords %u\n", GPR_U32(ctx, 31), layer, (end - start) / 16u - 2u);
             }
+            g_2dDefer = async;
             for (uint32_t q = start + 0x20u; q + 16u <= end; q += 16u)
             {
                 uint64_t value;
                 std::memcpy(&value, g_ram + (q & 0x1FFFFF0u), 8);
                 feed2D(word(q + 8u) & 0xFFu, value);
             }
+            g_2dDefer = false;
         }
         g_requested = requested;
         g_glEnd(rdram, ctx, runtime);
@@ -6139,6 +6193,9 @@ namespace sotc_native
             bytes(job.ptcl.camera, sizeof(job.ptcl.camera)), bytes(job.ptcl.eye, 12), bytes(job.ptcl.env.data(), job.ptcl.env.size());
             bytes(job.ptcl.data.data(), job.ptcl.data.size() * sizeof(float));
             break;
+        case kJob2D:
+            bytes(job.draw2d.batch.data(), job.draw2d.batch.size() * sizeof(native_renderer::Vertex));
+            break;
         }
         return h;
     }
@@ -6155,6 +6212,9 @@ namespace sotc_native
             break;
         case kJobShadow:
             shadowDispDraw(job.shadow);
+            break;
+        case kJob2D:
+            draw2DRun(job.draw2d);
             break;
         case kJobPtcl:
             ptclVtxDraw(job.ptcl, *reinterpret_cast<const ParticleEnv *>(job.ptcl.env.data()));

@@ -220,6 +220,8 @@ namespace decomp_collision
                 slowPut64(a, v);
         }
         void f0(float v) const { ctx->f[0] = v; }
+        // A cache line asked for ahead of its use (no fault, no effect on guest state).
+        void prefetch(uint32_t a) const { __builtin_prefetch(rdram + (a & 0x1FFFFFFu)); }
     };
 
     // GetLayoutClass (0x10f1a20) without a call: false for the types it
@@ -244,15 +246,178 @@ namespace decomp_collision
         return true;
     }
 
-    // vmulax / vmadday / vmaddaz / vmaddw.xyzw: v by the four rows at m.
-    inline __m128 transform(const G g, uint32_t m, __m128 v)
-    {
-        const sotc_decomp::vu::Rows rows{{sotc_decomp::vu::clamp(g.q(m)), sotc_decomp::vu::clamp(g.q(m + 0x10u)), sotc_decomp::vu::clamp(g.q(m + 0x20u)),
-                                          sotc_decomp::vu::clamp(g.q(m + 0x30u))}};
-        return sotc_decomp::vu::apply(rows, v);
-    }
-
     uint32_t boundary(const G g, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp);
+
+#if PS2X_VU_NEON_A32
+    // ---- round 28: VU0 chains without their clamps, on the Vita ---------------
+    // On ARMv7 NEON a VU0 add / sub / mul (vu::*N, PS2_V*) is the NEON op
+    // (flush-to-zero in and out, round to nearest) and the result's clamp
+    // (Inf / NaN -> +-FLT_MAX); the operand normalisation only turns a
+    // denormal into the zero NEON reads it as anyway, and Inf / NaN into
+    // +-FLT_MAX. With every input finite and below 2^61 in magnitude no
+    // product of two (< 2^122), sum of four such (< 2^124) or difference
+    // (< 2^62) reaches Inf, so every clamp in these chains is the identity:
+    // the plain NEON ops give the same bits. The magnitude test is folded
+    // into the one result that goes to a core register, so a test costs one
+    // NEON -> ARM move instead of a stall per clamp and per VFP compare (the
+    // leaf's x^2 + y^2 test was 21% of its samples, a NEON result read by
+    // the VFP; round 28's host profile). Not on x86 / AArch64, where the
+    // runtime's VU ops also normalise denormals (MXCSR / FPCR not assumed).
+    namespace fast
+    {
+        inline float32x4_t f(__m128 v) { return vreinterpretq_f32_m128(v); }
+        inline __m128 m(float32x4_t v) { return vreinterpretq_m128_f32(v); }
+        // All lanes finite and below 2^61 in magnitude (NaN: no).
+        inline uint32x4_t smallMask(float32x4_t v) { return vcaltq_f32(v, vdupq_n_f32(0x1p61f)); }
+        inline uint32x2_t all(uint32x4_t v)
+        {
+            const uint32x2_t a = vand_u32(vget_low_u32(v), vget_high_u32(v));
+            return vand_u32(a, vrev64_u32(a));
+        }
+        inline bool allSmall(const vu::Rows &r)
+        {
+            const uint32x4_t s = vandq_u32(vandq_u32(smallMask(f(r.r[0])), smallMask(f(r.r[1]))), vandq_u32(smallMask(f(r.r[2])), smallMask(f(r.r[3]))));
+            return vget_lane_u32(all(s), 0) != 0u;
+        }
+        // vu::apply(rows, v) without the clamps (the rows small); small: all of
+        // v's lanes small (else the result is not used).
+        inline __m128 applySmall(const vu::Rows &a, __m128 v, uint32x2_t &small)
+        {
+            const float32x4_t x = f(v);
+            const float32x2_t lo = vget_low_f32(x), hi = vget_high_f32(x);
+            float32x4_t t = vmulq_lane_f32(f(a.r[0]), lo, 0);
+            t = vaddq_f32(t, vmulq_lane_f32(f(a.r[1]), lo, 1));
+            t = vaddq_f32(t, vmulq_lane_f32(f(a.r[2]), hi, 0));
+            t = vaddq_f32(t, vmulq_lane_f32(f(a.r[3]), hi, 1));
+            small = all(smallMask(x));
+            return m(t);
+        }
+        // The leaf's plain rejection (x^2 + y^2 > r^2 (1 + 2^-19), r the
+        // boundary's w, the sum finite; see the leaf) in NEON, with small;
+        // c.y to *cy (f0 = c.y^2 when it says no).
+        inline bool cylinderOutside(__m128 c, __m128 boundary, uint32x2_t small, float *cy)
+        {
+            const float32x2_t lo = vget_low_f32(f(c));
+            vst1_lane_f32(cy, lo, 1);
+            const float32x2_t sq = vmul_f32(lo, lo);
+            const float32x2_t sum = vpadd_f32(sq, sq);
+            const float32x2_t r = vdup_lane_f32(vget_high_f32(f(boundary)), 1);
+            const float32x2_t r2k = vmul_f32(vmul_f32(r, r), vdup_n_f32(1.0000019f));
+            uint32x2_t out = vand_u32(vcgt_f32(sum, r2k), vclt_f32(sum, vdup_n_f32(__builtin_inff())));
+            return vget_lane_u32(vand_u32(out, small), 0) != 0u;
+        }
+        // clipDB's two plane distances, n . p + n.w for p = a and b, as
+        // vu::addN(vu::addN(vu::addN(vu::addN(vf0.x, n.x p.x), n.y p.y), n.z p.z), n.w)
+        // on lane 0: the bits of d(a) low, d(b) high; small false (and the
+        // bits unused) unless n, a, b and vf0 are all small.
+        inline uint64_t planeDistances(__m128 n, __m128 vf0, __m128 a, __m128 b, bool &small)
+        {
+            const float32x4_t nn = f(n);
+            const float32x4_t pa = vmulq_f32(nn, f(a)), pb = vmulq_f32(nn, f(b));
+            const float32x2x2_t xy = vtrn_f32(vget_low_f32(pa), vget_low_f32(pb));
+            const float32x2x2_t zw = vtrn_f32(vget_high_f32(pa), vget_high_f32(pb));
+            float32x2_t d = vadd_f32(vdup_lane_f32(vget_low_f32(f(vf0)), 0), xy.val[0]);
+            d = vadd_f32(d, xy.val[1]);
+            d = vadd_f32(d, zw.val[0]);
+            d = vadd_f32(d, vdup_lane_f32(vget_high_f32(nn), 1));
+            const uint32x4_t s = vandq_u32(vandq_u32(smallMask(nn), smallMask(f(vf0))), vandq_u32(smallMask(f(a)), smallMask(f(b))));
+            const uint64_t bits = vget_lane_u64(vreinterpret_u64_f32(d), 0);
+            small = vget_lane_u32(all(s), 0) != 0u;
+            return bits;
+        }
+        // The finder leaf's squared distance, (b - c)^2 summed over x, y, z
+        // as PS2_VADD(PS2_VADD(sq, sq.y), sq.z) on lane 0, its bits; small as above.
+        inline uint32_t squaredDistance(__m128 b, __m128 c, bool &small)
+        {
+            const float32x4_t d = vsubq_f32(f(b), f(c));
+            const float32x4_t sq = vmulq_f32(d, d);
+            const float32x2_t lo = vget_low_f32(sq);
+            float32x2_t s = vadd_f32(lo, vdup_lane_f32(lo, 1));
+            s = vadd_f32(s, vget_high_f32(sq));
+            const uint32x2_t ok = all(vandq_u32(smallMask(f(b)), smallMask(f(c))));
+            const uint64_t both = vget_lane_u64(vreinterpret_u64_u32(vzip_u32(vreinterpret_u32_f32(s), ok).val[0]), 0);
+            small = (both >> 32) != 0u;
+            return static_cast<uint32_t>(both);
+        }
+        // vu::apply(rows, v) when the rows and v are small (one NEON -> ARM
+        // move for the test; the chain then has no clamps).
+        inline __m128 transformSmallImpl(const vu::Rows &rows, __m128 v, bool &small)
+        {
+            const uint32x4_t s = vandq_u32(vandq_u32(vandq_u32(smallMask(f(rows.r[0])), smallMask(f(rows.r[1]))), vandq_u32(smallMask(f(rows.r[2])), smallMask(f(rows.r[3])))),
+                                           smallMask(f(v)));
+            small = vget_lane_u32(all(s), 0) != 0u;
+            uint32x2_t unused;
+            return applySmall(rows, v, unused);
+        }
+        // FPU_C_OLT_S(x, 0) / FPU_C_OLT_S(0, x) on x's bits (ps2FpuCompareKey:
+        // a zero exponent is +0).
+        inline bool belowZero(uint32_t bits) { return (bits & 0x80000000u) != 0u && (bits & 0x7F800000u) != 0u; }
+        inline bool aboveZero(uint32_t bits) { return (bits & 0x80000000u) == 0u && (bits & 0x7F800000u) != 0u; }
+        inline uint32_t key(uint32_t bits)
+        {
+            if ((bits & 0x7F800000u) == 0u)
+                bits = 0u;
+            return (bits & 0x80000000u) != 0u ? ~bits : bits ^ 0x80000000u;
+        }
+        inline float asFloat(uint32_t bits)
+        {
+            float v;
+            std::memcpy(&v, &bits, 4);
+            return v;
+        }
+        inline bool same(__m128 a, __m128 b) { return std::memcmp(&a, &b, 16) == 0; }
+
+        // SOTC_COLLISION_FASTCHECK=1: every fast result also made the exact
+        // way (the clamped chains these replace) and compared, counted
+        // (stderr every 100 000 checks of a kind and at each mismatch). The
+        // difftest's RAM snapshots do not fit Vita3K (round 26); this
+        // checks the NEON paths where they run.
+        // (read at the first use: the Vita's env.txt comes after static init)
+        int g_checkState = -1;
+        inline bool checkOn()
+        {
+            if (__builtin_expect(g_checkState < 0, 0))
+                g_checkState = std::getenv("SOTC_COLLISION_FASTCHECK") != nullptr ? 1 : 0;
+            return g_checkState != 0;
+        }
+        struct Check
+        {
+            const char *name;
+            std::atomic<uint64_t> checks{0}, bad{0}, slow{0};
+        };
+        Check g_leafCheck{"leaf"}, g_clipCheck{"clipDB"}, g_finderCheck{"finderLeaf"}, g_transformCheck{"transform"};
+        inline void count(Check &c, bool ok)
+        {
+            const uint64_t n = c.checks.fetch_add(1, std::memory_order_relaxed) + 1u;
+            if (!ok)
+                c.bad.fetch_add(1, std::memory_order_relaxed);
+            if (!ok || n % 100000u == 0u)
+                std::fprintf(stderr, "[fastcheck] %s: %llu checks, %llu mismatches, %llu not small\n", c.name, (unsigned long long)n,
+                             (unsigned long long)c.bad.load(), (unsigned long long)c.slow.load());
+        }
+    }
+#endif
+
+    // vmulax / vmadday / vmaddaz / vmaddw.xyzw: v by the four rows at m.
+    inline __attribute__((always_inline)) __m128 transform(const G g, uint32_t m, __m128 v)
+    {
+        const vu::Rows rows{{vu::clamp(g.q(m)), vu::clamp(g.q(m + 0x10u)), vu::clamp(g.q(m + 0x20u)), vu::clamp(g.q(m + 0x30u))}};
+#if PS2X_VU_NEON_A32
+        // Round 28: the chain without its clamps when nothing is large (fast::).
+        bool small;
+        const __m128 r = fast::transformSmallImpl(rows, v, small);
+        if (__builtin_expect(fast::checkOn(), 0))
+        {
+            if (!small)
+                fast::g_transformCheck.slow.fetch_add(1, std::memory_order_relaxed);
+            else
+                fast::count(fast::g_transformCheck, fast::same(r, vu::apply(rows, v)));
+        }
+        if (__builtin_expect(small, 1))
+            return r;
+#endif
+        return vu::apply(rows, v);
+    }
 
     constexpr uint32_t kVerticesIndep = 0x01114C70u; // a surface's three vertices in world space (cached)
     constexpr uint32_t kVertices = 0x01116108u;      // the same for a skinned surface
@@ -481,13 +646,43 @@ namespace decomp_collision
             return x(vu::addN(d, lane<3>(n)));
         };
         const float zero = 0.0f;
-        const float d0 = distance(a1);
-        g.f0(zero);
-        if (FPU_C_OLT_S(d0, zero))
-            return 0u;
-        const float d1 = distance(a2);
-        if (FPU_C_OLT_S(zero, d1))
-            return 0u;
+        float d0, d1;
+#if PS2X_VU_NEON_A32
+        bool small;
+        const uint64_t dBits = fast::planeDistances(n, vf0c, g.q(a1), g.q(a2), small);
+        if (__builtin_expect(fast::checkOn(), 0))
+        {
+            if (!small)
+                fast::g_clipCheck.slow.fetch_add(1, std::memory_order_relaxed);
+            else
+            {
+                const float e0 = distance(a1), e1 = distance(a2);
+                uint32_t b0, b1;
+                std::memcpy(&b0, &e0, 4);
+                std::memcpy(&b1, &e1, 4);
+                fast::count(fast::g_clipCheck, b0 == static_cast<uint32_t>(dBits) && b1 == static_cast<uint32_t>(dBits >> 32) &&
+                                                   fast::belowZero(b0) == FPU_C_OLT_S(e0, zero) && fast::aboveZero(b1) == FPU_C_OLT_S(zero, e1));
+            }
+        }
+        if (__builtin_expect(small, 1))
+        {
+            g.f0(zero);
+            if (fast::belowZero(static_cast<uint32_t>(dBits)) || fast::aboveZero(static_cast<uint32_t>(dBits >> 32)))
+                return 0u;
+            d0 = fast::asFloat(static_cast<uint32_t>(dBits));
+            d1 = fast::asFloat(static_cast<uint32_t>(dBits >> 32));
+        }
+        else
+#endif
+        {
+            d0 = distance(a1);
+            g.f0(zero);
+            if (FPU_C_OLT_S(d0, zero))
+                return 0u;
+            d1 = distance(a2);
+            if (FPU_C_OLT_S(zero, d1))
+                return 0u;
+        }
         // The crossing point (sp): p0 itself when the two distances are within 0.0005.
         COLL_STAT(clipCross);
         const float span = FPU_SUB_S(d1, d0);
@@ -781,6 +976,10 @@ namespace decomp_collision
             }
         };
         const __m128 wOne = _mm_castsi128_ps(_mm_set_epi32(0x3F800000, 0, 0, 0));
+#if PS2X_VU_NEON_A32
+        bool rowsSmall = false, lastFast = false;
+        float lastCy = 0.0f; // the last fast rejection's c.y: f0 = c.y^2 if it was the last surface
+#endif
         uint64_t bEpoch = ~0ull;
         uint32_t bClsAt = 0u, bFlags = 0u, bTable = 0u;
         for (; count != 0u; --count, ids += 2u)
@@ -817,8 +1016,51 @@ namespace decomp_collision
                 rows = {{vu::clamp(g.q(m2)), vu::clamp(g.q(m2 + 0x10u)), vu::clamp(g.q(m2 + 0x20u)), vu::clamp(g.q(m2 + 0x30u))}};
                 rowsAt = m2;
                 rowsRuns = g_guestRuns;
+#if PS2X_VU_NEON_A32
+                rowsSmall = fast::allSmall(rows);
+#endif
             }
+#if PS2X_VU_NEON_A32
+            // Round 28: the cylinder's transform and its x^2 + y^2 rejection
+            // in NEON alone (see fast::cylinderOutside): no lane goes through
+            // the VFP or a core register unless the test says no.
+            __m128 c;
+            if (rowsSmall)
+            {
+                uint32x2_t small;
+                c = fast::applySmall(rows, bound, small);
+                const bool outside = fast::cylinderOutside(c, bq, small, &lastCy);
+                if (__builtin_expect(fast::checkOn(), 0))
+                {
+                    if (vget_lane_u32(small, 0) == 0u)
+                        fast::g_leafCheck.slow.fetch_add(1, std::memory_order_relaxed);
+                    else
+                    {
+                        // The exact transform, then the original's x^2 + y^2 < r^2 (FPU_*).
+                        const __m128 ce = vu::apply(rows, bound);
+                        float e4[4];
+                        std::memcpy(e4, &ce, 16);
+                        const bool inCircle = FPU_C_OLT_S(FPU_ADD_S(FPU_MUL_S(e4[0], e4[0]), FPU_MUL_S(e4[1], e4[1])), FPU_MUL_S(f3, f3));
+                        fast::count(fast::g_leafCheck, fast::same(ce, c) && !(outside && inCircle) && (!outside || lastCy == e4[1]));
+                    }
+                }
+                if (__builtin_expect(outside, 1))
+                {
+                    frameBound = bound;
+                    frameCyl = c;
+                    framePending = true;
+                    lastFast = true;
+                    continue;
+                }
+                if (vget_lane_u32(small, 0) == 0u)
+                    c = vu::apply(rows, bound);
+            }
+            else
+                c = vu::apply(rows, bound);
+            lastFast = false;
+#else
             const __m128 c = vu::apply(rows, bound);
+#endif
             frameBound = bound;
             frameCyl = c;
             framePending = true;
@@ -923,6 +1165,10 @@ namespace decomp_collision
             g.put32(s.a0 + 4u, idHi);
             g.put(sp + 0x10u, point);
         }
+#if PS2X_VU_NEON_A32
+        if (lastFast)
+            g.f0(lastCy * lastCy); // as the plain rejection below leaves it
+#endif
         flushFrame();
         return hit;
     }
@@ -945,6 +1191,8 @@ namespace decomp_collision
     {
         const uint32_t sp = spIn - 0x30u;
         const uint32_t t3 = g.u32(t0 + 4u);
+        // Round 28: the child's node (or leaf word) asked for before the split test.
+        g.prefetch(((t3 >> 16) & 1u) ? g.u32(s.a3 + 4u) + ((t3 >> 2) & 0x3FFFu) * 4u : g.u32(s.a3 + 8u) + ((t3 >> 2) & 0x3FFFu) * 8u);
         const float split = FPU_MUL_S(g.f32(t0), g.f32(s.t1 + 0x14u));
         const uint32_t axis = (t3 & 3u) * 4u;
         const float f1 = g.f32(a1 + axis);
@@ -984,6 +1232,7 @@ namespace decomp_collision
     {
         const uint32_t sp = spIn - 0x30u;
         const uint32_t t3 = g.u32(t0 + 4u);
+        g.prefetch(static_cast<int32_t>(t3) < 0 ? g.u32(s.a3 + 4u) + ((t3 >> 17) & 0x3FFFu) * 4u : g.u32(s.a3 + 8u) + ((t3 >> 17) & 0x3FFFu) * 8u);
         const float split = FPU_MUL_S(g.f32(t0), g.f32(s.t1 + 0x14u));
         const uint32_t axis = (t3 & 3u) * 4u;
         const float f1 = g.f32(a1 + axis);
@@ -1068,6 +1317,51 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
+    // EntryCollisionFinder (0x112a250), round 28: a0 the finder (+0 the
+    // count, +4 the capacity, +0xc the ids, 8 bytes each, +0x10 the links,
+    // 12 bytes each), a1 the object, a2 the surface word. Below the
+    // capacity: the id pair stored, its link (InitTwoWayLink: +8 the id's
+    // address, +0 / +4 cleared) put first after the head at the object's
+    // layout class (+0x174, +0x10; AddTwoWayLinkNext). The count goes up in
+    // either case; v0 the new count (the original's addiu, sign-extended). A
+    // layout class GetLayoutClass computes by a call: the recompiled code
+    // (nothing written yet).
+    constexpr uint32_t kEntryFinder = 0x0112A250u;
+    void entryFinder(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const G g{rdram, ctx, runtime};
+        const uint32_t finder = GPR_U32(ctx, 4), object = GPR_U32(ctx, 5), word = GPR_U32(ctx, 6);
+        int32_t count = static_cast<int32_t>(g.u32(finder));
+        if (count < static_cast<int32_t>(g.u32(finder + 4u)))
+        {
+            uint32_t cls;
+            if (!layoutClass(g, object, cls))
+            {
+                ctx->pc = kEntryFinder;
+                return sotc_decomp::recompiled(kEntryFinder)(rdram, ctx, runtime);
+            }
+            const uint32_t n = static_cast<uint32_t>(count);
+            const uint32_t id = g.u32(finder + 0xCu) + n * 8u;
+            const uint32_t link = g.u32(finder + 0x10u) + n * 12u;
+            g.put32(id + 4u, word);
+            g.put32(id, object);
+            g.put32(link + 8u, id);
+            g.put32(link + 4u, 0u);
+            g.put32(link, 0u);
+            const uint32_t head = g.u32(cls + 0x174u) + 0x10u;
+            g.put32(link, head);
+            g.put32(link + 4u, g.u32(head + 4u));
+            if (const uint32_t next = g.u32(head + 4u); next != 0u)
+                g.put32(next, link);
+            g.put32(head + 4u, link);
+            count = static_cast<int32_t>(g.u32(finder));
+        }
+        const int32_t v0 = static_cast<int32_t>(static_cast<uint32_t>(count) + 1u);
+        g.put32(finder, static_cast<uint32_t>(v0));
+        SET_GPR_S32(ctx, 2, v0);
+        returnTo(ctx);
+    }
+
     // The finder's leaf, 0x1115798 (byte count, first id above it) and
     // 0x1115a50 (u16 count, u16 first id): a0 the query (+0 the finder, +4
     // the object's id, +8 its layout class, +0xc / +0x30 the filters' words,
@@ -1125,12 +1419,43 @@ namespace decomp_collision
             float f0 = FPU_ADD_S(g.f32(bnd + 0xCu), radius);
             f0 = FPU_MUL_S(f0, f0);
             const __m128 c = g.q(center);
-            __m128 sq = PS2_VSUB(g.q(bnd), c);
-            sq = PS2_VMUL(sq, sq);
-            const __m128 d = PS2_VADD(PS2_VADD(sq, lane<1>(sq)), lane<2>(sq));
             g.f0(f0);
-            if (!FPU_C_OLT_S(x(d), f0))
-                continue;
+#if PS2X_VU_NEON_A32
+            // Round 28: the squared distance without its clamps (fast::), one
+            // NEON -> ARM move, the compare on the bits.
+            bool small;
+            const uint32_t dBits = fast::squaredDistance(g.q(bnd), c, small);
+            if (__builtin_expect(fast::checkOn(), 0))
+            {
+                if (!small)
+                    fast::g_finderCheck.slow.fetch_add(1, std::memory_order_relaxed);
+                else
+                {
+                    __m128 sq = PS2_VSUB(g.q(bnd), c);
+                    sq = PS2_VMUL(sq, sq);
+                    const float de = x(PS2_VADD(PS2_VADD(sq, lane<1>(sq)), lane<2>(sq)));
+                    uint32_t be, fb;
+                    std::memcpy(&be, &de, 4);
+                    std::memcpy(&fb, &f0, 4);
+                    fast::count(fast::g_finderCheck, be == dBits && (fast::key(dBits) < fast::key(fb)) == FPU_C_OLT_S(de, f0));
+                }
+            }
+            if (__builtin_expect(small, 1))
+            {
+                uint32_t f0Bits;
+                std::memcpy(&f0Bits, &f0, 4);
+                if (!(fast::key(dBits) < fast::key(f0Bits)))
+                    continue;
+            }
+            else
+#endif
+            {
+                __m128 sq = PS2_VSUB(g.q(bnd), c);
+                sq = PS2_VMUL(sq, sq);
+                const __m128 d = PS2_VADD(PS2_VADD(sq, lane<1>(sq)), lane<2>(sq));
+                if (!FPU_C_OLT_S(x(d), f0))
+                    continue;
+            }
             if (const uint32_t filter = g.u32(p + 0x28u); filter != 0u)
             {
                 SET_GPR_U32(ctx, 4, bnd);
@@ -2112,3 +2437,4 @@ SOTC_DECOMP_FUNCTION(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::
 SOTC_DECOMP_FUNCTION(0x01125DC8u, ClipCollisionFinder, decomp_collision::finderClip<false>);
 SOTC_DECOMP_FUNCTION(0x01125CC0u, ClipCollisionFinderCallBack, decomp_collision::finderClip<true>);
 SOTC_DECOMP_FUNCTION(0x01147798u, FlushModifiedManager, decomp_collision::flushModified);
+SOTC_DECOMP_FUNCTION(0x0112A250u, EntryCollisionFinder, decomp_collision::entryFinder);

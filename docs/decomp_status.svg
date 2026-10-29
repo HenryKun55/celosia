@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" font-family="Helvetica, Arial, sans-serif">
 <rect width="100%" height="100%" fill="#1d1f24"/>
-<text x="12" y="28" font-size="20" fill="#f2f2f2">Decompiled: 5.4% of the code (3.2% of the game code), 448 of 9024 functions</text>
-<text x="12" y="50" font-size="13" fill="#b9bcc4">Tile area: MIPS code size. Green: native C++; red: still recompiled. 2026-10-28, 8bef421</text>
+<text x="12" y="28" font-size="20" fill="#f2f2f2">Decompiled: 5.4% of the code (3.2% of the game code), 450 of 9024 functions</text>
+<text x="12" y="50" font-size="13" fill="#b9bcc4">Tile area: MIPS code size. Green: native C++; red: still recompiled. 2026-10-29, 9a154f0</text>
 <rect x="0.0" y="64.0" width="466.8" height="456.0" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="1.0" y="512.4" width="464.8" height="6.6" fill="#2f9e5b"/>
 <text x="5.0" y="80.0" font-size="13" fill="#ffffff">Other game code</text>
 <text x="5.0" y="96.0" font-size="13" fill="#ffffff">1.5%  13/2888</text>
 <rect x="466.8" y="64.0" width="250.1" height="269.8" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="467.8" y="294.0" width="248.1" height="38.8" fill="#2f9e5b"/>
+<rect x="467.8" y="293.8" width="248.1" height="39.0" fill="#2f9e5b"/>
 <text x="471.8" y="80.0" font-size="13" fill="#ffffff">Boot ELF, SDK and libc</text>
-<text x="471.8" y="96.0" font-size="13" fill="#ffffff">14.5%  319/2125</text>
+<text x="471.8" y="96.0" font-size="13" fill="#ffffff">14.6%  320/2125</text>
 <rect x="466.8" y="333.8" width="250.1" height="186.2" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="467.8" y="510.9" width="248.1" height="8.1" fill="#2f9e5b"/>
 <text x="471.8" y="349.8" font-size="13" fill="#ffffff">Characters and motion</text>
@@ -23,10 +23,10 @@
 <text x="722.0" y="253.3" font-size="13" fill="#ffffff">Script and events</text>
 <text x="722.0" y="269.3" font-size="13" fill="#ffffff">0.0%  0/632</text>
 <rect x="851.4" y="237.3" width="108.6" height="165.3" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="852.4" y="377.0" width="106.6" height="24.6" fill="#2f9e5b"/>
+<rect x="852.4" y="376.8" width="106.6" height="24.9" fill="#2f9e5b"/>
 <text x="856.4" y="253.3" font-size="10" fill="#ffffff">Collision and</text>
 <text x="856.4" y="266.3" font-size="10" fill="#ffffff">physics</text>
-<text x="856.4" y="279.3" font-size="10" fill="#ffffff">15.1%  24/326</text>
+<text x="856.4" y="279.3" font-size="10" fill="#ffffff">15.2%  25/326</text>
 <rect x="717.0" y="402.6" width="86.9" height="117.4" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="718.0" y="513.2" width="84.9" height="5.8" fill="#2f9e5b"/>
 <text x="722.0" y="418.6" font-size="10" fill="#ffffff">System and</text>

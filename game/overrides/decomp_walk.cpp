@@ -471,6 +471,10 @@ namespace decomp_walk
         const uint32_t s2 = GPR_U32(ctx, 4), s3 = GPR_U32(ctx, 5);
         if (!Ram::ok(sp, 0xB0u) || !Ram::ok(s2, 0x260u) || !Ram::ok(s3, 0x40u) || !Ram::ok(m.u32(s2), 0x24u))
             return fallback(rdram, ctx, runtime, kClipSolid);
+        // Round 28: the model matrix's two lines, read last (the root box's
+        // product), asked for now: they missed the cache there.
+        __builtin_prefetch(rdram + s3);
+        __builtin_prefetch(rdram + s3 + 0x20u);
         const uint64_t in16 = GPR_U64(ctx, 16), in17 = GPR_U64(ctx, 17), in18 = GPR_U64(ctx, 18), in19 = GPR_U64(ctx, 19), in20 = GPR_U64(ctx, 20);
         m.put64(sp + 0x80u, in18);
         m.put64(sp + 0x78u, in17);

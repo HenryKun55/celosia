@@ -122,6 +122,7 @@ What a native function has to keep, learned the hard way:
 | decomp_finder.cpp | manager_sub_01116958 (the skinned collision finder: parts, boundary surfaces and their planes, triangles; EntryModifiedManager inline; round 15) | route to frame 4 800: 8 900 checks (EVERY=20), VU0 registers and 0x800 bytes of the dead stack compared too; 24 400 checks of every call at fixed 30 fps to frame 1 500; 0 mismatches | written instruction for instruction from the MIPS (the recompiler's VU0 / FPU macros), its 0x190-byte frame and the saved registers at every call as the original has them (see "Round 15") |
 | decomp_collision.cpp | the sphere finder's tree walk, manager_sub_01128F38 (round 10) | route SOTC_NATIVE=1 3 000 checks (297 500 calls), =2 1 200 (234 400), 0 mismatches; not called by the attract demo | low child by recursion, high by the loop; the finder's native leaves called straight |
 | decomp_mcfat.cpp | 0x11c7d8 (libmc2's free-cluster count, round 19) | 1 check (title / load menus, the route), 0 mismatches | ~8 000 FAT entries over libmc2's two caches; a cache miss or an error goes to the recompiled 0x11c3b0 for that entry |
+| decomp_collision.cpp | EntryCollisionFinder (0x112a250, round 28: InitTwoWayLink / GetLayoutClass / AddTwoWayLinkNext inline) | route (Mac, EVERY=20) 8 100 checks, 0 mismatches | the finder leaves' new entries; a class GetLayoutClass computes by a call goes to the recompiled code |
 
 The wake is a round trip: the check runs the sub-thread until it sleeps,
 and that code writes values that differ between two runs of the same code
@@ -4372,6 +4373,227 @@ Only the debug switches (SOTC_FORCE_BOSSFAN*) write guest memory.
 5. A kill on the console or in a recording made with this build, to confirm
    the mask and the tendrils on real frames, with the centre and the
    buffer matrix the hooks now use.
+
+## Round 28: the collision natives' NEON chains, EntryCollisionFinder, glEnd without the join (2026-10-29)
+
+The Mac was on AC power the whole round (100%, charged). Starting point:
+round 27's fight recording (rec-analysis/report.md, section 3: the game
+thread ~116 of 129 ms; in the sampled pcs the collision side ~16%).
+
+**What the fight's pcs are.** Every function in that list was already
+native: DirectCallBack, the finder leaves 01115798 / 01115A50, Finder /
+FinderCallBack, modelClipSolid / ClipLayoutObjModel, the leaf 0112BE58. A
+native leaves ctx->pc at its own address (or at the return site of its last
+guest call), so the recorder's sampler bills the native's host time to it.
+The other names in that part of the list are labels inside natives, where
+the recompiler split the original: 0112DAE0 (1.39%) is
+ClipCollisionDirectCallBack's return sites after its guest calls, 011159A8
+(1.22%) the finder leaf's after EntryCollisionFinder, 01128FD8 the finder
+walk's, 01116DA0 (0.74%) the skinned finder's. So the work was the
+natives' host code, plus the guest calls they still make.
+
+**The base host profile** (VITA3K_PROFILE, calibrated Vita3K 222 MHz, the
+route on the r24 card, seconds 180-300 = the walk out and the area change;
+r28/hp-base*): the collision natives 12.8% of the game thread (leaf 3.70,
+clipDB 1.93, directCallBack 1.72, low 0.96, high 0.94, attributeAddress
+0.75, cylinder 0.43, node 0.42, finderLeaf 0.26, ...), the model clip 1.7%
+(modelClipPoint 0.73, modelClipSolid 0.36, clipByMinMaxCube 0.34). By pc
+(r22/pcs.py):
+- the leaf: 21% of its samples on the VFP compare after its x^2 + y^2 test,
+  a NEON result moved to a core register and then read by the VFP;
+- clipDB: 21% on the two plane distances' moves to a core register, after
+  a chain of four VU0 adds with two clamps (vmin.s32 / vmin.u32) each;
+- directCallBack: its transforms' clamp chains;
+- modelClipPoint: 61% on two loads of VU0 registers it had just stored into
+  the context (store-to-load);
+- high / low: the node word's load (a cache miss).
+
+**1. The VU0 chains without their clamps (Vita only, exact).** On ARMv7
+NEON (PS2X_VU_NEON_A32) a VU0 add / sub / mul is the NEON op
+(flush-to-zero in and out, round to nearest) plus the result's clamp (Inf /
+NaN -> +-FLT_MAX); the operand normalisation only makes a denormal the
+zero NEON reads it as. With every input finite and below 2^61 no product
+(< 2^122), sum of four (< 2^124) or difference (< 2^62) reaches Inf, so
+every clamp in those chains is the identity. decomp_collision.cpp's `fast::`
+does the chain on plain NEON and folds the magnitude test (vacgt) into the
+one value that goes to a core register; anything larger takes the old
+code. Where:
+- the leaf: the cylinder's transform and the x^2 + y^2 > r^2 (1 + 2^-19)
+  rejection in NEON (one move); f0 = c.y^2 is written once, after the loop,
+  when the last surface was rejected that way (every other path writes f0
+  itself first);
+- clipDB: both plane distances in one NEON pass, the two sign tests on
+  their bits (ps2FpuCompareKey's rules: a zero exponent is +0);
+- the finder leaf (01115798 / 01115A50): the squared distance, the compare
+  on the bits;
+- transform() (directCallBack's object / part / surface boundaries, clipDB's
+  hit point): the chain without clamps after the test.
+x86 / AArch64 (the Mac) keep the old code: there the runtime's VU ops also
+normalise denormals (MXCSR / FPCR not assumed), so the Mac difftest does not
+see these paths.
+
+**Checked where they run:** the difftest's two 32 MB snapshots do not fit
+Vita3K (round 26), so `SOTC_COLLISION_FASTCHECK=1` makes every fast result
+the old way too and compares the bits (and the decision), counted in
+`[fastcheck]` lines (calibrated Vita3K, the route, r28/fc2, fc3, fc4):
+
+| path | checks (fc2, 420 s / fc4 = the final VPK, 300 s) | mismatches | inputs too large (old code) |
+|---|---|---|---|
+| leaf (transform + rejection) | 8 800 000 / 8 700 000 | 0 | 0 |
+| clipDB (two distances) | 6 100 000 / 4 900 000 | 0 | 73 / 12 |
+| finder leaf (squared distance) | 2 800 000 / 1 400 000 | 0 | 0 |
+| transform() | (fc3) 6 400 000 / 7 200 000 | 0 | 50 |
+
+**2. EntryCollisionFinder (0x112a250) native** (the finder leaves' and the
+skinned finder's new entries, a guest call each): the id pair and its link
+written (InitTwoWayLink), the link put after the head at the object's
+layout class + 0x174 + 0x10 (AddTwoWayLinkNext), the count up, v0 the new
+count; a class GetLayoutClass computes by a call goes to the recompiled
+code first. Mac route, SOTC_DIFFTEST=EntryCollisionFinder (EVERY=20, to
+frame 4 800, r28/dt-mac1): 8 100 checks of 152 000 calls, 0 mismatches.
+
+**3. Smaller host-code changes (exact):**
+- modelClipPoint: the VU0 registers on locals, written back to the context
+  once at the end (the same values);
+- modelClipSolid: the model matrix's lines prefetched at entry;
+- the tree's low / high sides: the child's node (or leaf word) prefetched
+  before the split test.
+Mac route, SOTC_DIFFTEST (EVERY=20, r28/dt-mac1, dt-mac2): modelClipPoint
+26 700, modelClipSolid 22 600, ClipLayoutObjModel 24 300, collisionLow
+2 600, collisionHigh 2 500 checks: 0 mismatches.
+
+**4. glEnd without the join (plan item 2).** The fight's glEnd samples
+(5.4%) were mostly glEndHook's hookJoin: the heat haze's strips
+(010F3FB0) come in the middle of the display walk, and each glEnd waited
+for every model job handed to the worker so far (the recording's join
+column: 7.4 ms a frame). Now glEndHook does not join; flush2D, when it runs
+inside glEnd's feed with jobs pending and the batch has no texture (the
+haze samples the screen copy, the fills are untextured), hands the batch to
+the worker as a job of its own (kJob2D: upload + draw there, the mesh id
+taken in the worker's order), behind the jobs before it. A textured batch
+still joins first (texture() decodes on the game thread). The renderer gets
+the same draws in the same order. SOTC_GLEND_ASYNC=0 goes back.
+- Mac route, SOTC_NATIVE=1 SOTC_HOOK_ASYNC=1 SOTC_HOOK_ASYNC_VERIFY=1
+  (r28/gl-0, gl-0b off, gl-1 on): the glend joins that waited, 1 000 ms
+  over the route, are gone (3 ms); the gsreg-2d join that follows takes
+  part of it (886 -> 1 387 ms); all joins 1 886 -> 1 390 ms (-26%).
+- Pictures (r28/picdiff.py, 160 frames): before the paths part (frames
+  0-28) the three runs differ by 0-489 pixels a frame, the on / off pair no
+  more than the two off runs; after it, off against off differs as much as
+  off against on (115 / 118 frames over 1 000 pixels): within the route's
+  own run-to-run noise.
+- Calibrated Vita3K: the walk's join 1.41 -> 0.56 ms (222), 1.17 -> 0.47
+  (240), 0.63 -> 0.24 (333); its hooks 4.7 -> 3.8, 4.2 -> 3.6, 2.9 -> 2.4 ms.
+
+**Frame timing** (calibrated Vita3K, CORES=3, the route on the r24 card,
+round 27's windows, game frame ms; r28/split2.py; base = HEAD 9a154f0's
+VPK, new = this round's, run in turns; draws = the window's mean draw
+count, which follows where the camera looks on the plain):
+
+| window | 222 base (two runs) | 222 new / final | 240 base (two runs) | 240 new (two runs) | 333 base | 333 new |
+|---|---|---|---|---|---|---|
+| shrine | 43.8, 43.6 | 43.9 / **43.7** | 40.4, 40.3 | 40.5, 40.5 | 28.9 | 28.9 |
+| walk + area change | 76.4, 76.4 | 76.4 / **76.5** | 70.0, 69.9 | 68.3, 70.5 | 51.4 | **50.0** |
+| plain (draws) | 50.1 (895), 50.4 (903) | 51.5 (930) / **49.4 (889)** | 44.0 (740), 46.4 (899) | 47.3 (897), 48.3 (935) | 37.6 (883) | 32.7 (744) |
+| walk's join / hooks | 1.41 / 4.7 | 0.56 / 3.8; 0.62 / 3.9 | 1.17 / 4.2 | 0.47 / 3.6 | 0.63 / 2.9 | 0.24 / 2.4 |
+
+new = r28/new2.vpk, final = celosia-r28.vpk (the same code with transform()
+inlined again). 240 with SOTC_GLEND_ASYNC=0 (r28/newg0-240): 40.6 / 69.0 /
+46.9 (935). Worst frame of the walk 152.7 / 149.9 (base 222) against 146.1
+/ 141.0; frames over 120 ms 3 / 2 against 1 / 3.
+
+The windows do not move beyond their noise (two runs of the same VPK at 240
+are 0.1 / 0.1 / 2.4 ms apart, the plain's draw count 740 against 899):
+the shrine and the walk the same at 222 and 240, the walk -2.7% at 333 (one
+run each), the plain following its draw count (at ~890 draws: 50.1 / 50.4
+against 49.4 at 222). The join time saved does not show in the frame: the
+game thread waits for the worker at the next 2D draw or the frame's end
+instead (the jobs are on the route's critical path).
+
+**The collision share** (SOTC_SUBSYS_PROF=1, 222, the collision probes'
+self time summed, ms a frame; r28/collprof.py, r28/pbase-222, pnew-222):
+
+| window | base | new |
+|---|---|---|
+| shrine | 2.01 (7.3% of execScript) | 2.15 (7.6%) |
+| walk + area change | 5.64 (7.8%) | 5.70 (7.9%) |
+| plain | 5.45 (10.6%) | 5.38 (10.6%) |
+
+And the host profile over seconds 100-380 (r28/hp-base, hp-new; r28/family.py):
+the collision natives 11.67% -> 12.22% of the game thread, the model clip
+1.76% -> 1.81%; the leaf 3.06 -> 2.87, clipDB 1.84 -> 1.83, directCallBack
+1.70 -> 0.87 + transform 0.82 (it was inlined before; the final VPK inlines
+it again), attributeAddress (not changed) 0.70 -> 0.93, finderLeaf 0.29 ->
+0.55. Three windows of the same run differ by up to 3 points (9.8 / 12.8 /
+11.9%), so these are noise: in Vita3K the NEON chains save nothing that
+shows. Vita3K runs ARM code through its JIT on the host; a NEON -> ARM move
+does not stall there the way it does on the Cortex-A9, and NEON clamps cost
+the host little. What the A9 gains is not measured (no console runs).
+
+**The fight.** Not reachable: no save near a colossus on the Mac or in
+Vita3K. Estimate from the recording's attribution (game thread 116 ms):
+- the collision side ~16% (~18.6 ms): with no measurable change on the
+  route in Vita3K, ~0 there; on the A9, where the removed moves / clamps
+  are pipeline stalls, perhaps 5-10% of it (1-2 ms), unmeasured;
+- glEnd's joins ~6 ms a frame: the route shows about half of a join's wait
+  moves to the next 2D join; if the fight's is like it, 2-3 ms a frame,
+  more if the haze sits early in the walk.
+
+**Exactness.**
+- HEAD baseline on the Mac (fixed-30 route, SOTC_NATIVE=2,
+  SOTC_FRAME_INTERVAL=2, SOTC_POS_LOG=30, to 5 400, r27/route-card-r24.ps2
+  copied, r28/route2.sh): two runs of HEAD (r28/pos-base, pos-base2) are up
+  to 2.17 units apart (frames 1 350-3 400, the stairs and the walk), and
+  pos-base 1.0 from r27/pos-2: the noise band on HEAD is ~2 units, wider
+  than round 27's 0.01 (its two runs happened to agree).
+- This round (r28/pos-new): 1.82 from pos-base, 0.49 from pos-base2: inside
+  the band.
+- Difftest counts and the fast-path checks above: 0 mismatches.
+- Sound (r12/tools/au.py, every timing run): 0 late callbacks, 0 stale
+  halves, 0 src-stale.
+
+**Decomp status** (tools/decomp_status.py, r28/replaced.txt, r12's call
+dumps): 5.41% of the MIPS code by size, 4.99% by functions (450 of 9 024;
+EntryCollisionFinder and round 19's 0x11c7d8 new since round 18's count),
+3.20% of the game's own code, 47.9% by calls. docs/decomp_status.json /
+.svg updated.
+
+**Switches (debugging, env only):** SOTC_GLEND_ASYNC=0 (glEnd joins first,
+as before), SOTC_COLLISION_FASTCHECK=1 (the fast paths checked against the
+old code, [fastcheck] lines). Both read at first use (the Vita's env.txt
+comes after static init). Nothing is off by default; nothing changes what
+the game computes.
+
+**Files:**
+- game/overrides/decomp_collision.cpp: `fast::` (the NEON chains, the
+  checks), the leaf, clipDB, the finder leaf, transform(), the prefetches in
+  low / high, EntryCollisionFinder.
+- game/overrides/decomp_modelclip.cpp: VU0 registers on locals.
+- game/overrides/decomp_walk.cpp: modelClipSolid's prefetch.
+- game/overrides/sotc_native.cpp: kJob2D, flush2D's deferral, glEndHook.
+- docs/decomp.md, docs/decomp_status.json, docs/decomp_status.svg.
+- Tools: r28/route2.sh, r28/v3k.sh, r28/chain.sh, r28/split2.py (windows
+  with joins, draws, held frames, worst), r28/collprof.py (SOTC_SUBSYS_PROF
+  by window), r28/family.py (a host profile's collision share),
+  r28/picdiff.py.
+- Deliverables: build/agent-scratch/celosia-r28.vpk (shader seed: 42
+  files), env-r28-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
+
+**Round 29 (plan).**
+1. Measure the NEON chains on the console, or drop them: a console run of
+   celosia-r28.vpk against r27's (the walk out, the plain) is the only way
+   to see an A9 pipeline effect Vita3K does not model. (The user asked for
+   no console runs: then decide by an A9 cycle model of the two leaf loops,
+   e.g. counted from the Vita assembly with r22/vcc.sh.)
+2. The 2D joins: the gsreg-2d join (once a frame, now taking what glEnd
+   waited) for untextured sprites the same way; textured ones need
+   texture()'s decode safe beside the worker's.
+3. The DMA chain walk (iosDmaSendSChainPath1 / Vif1Walker::feed +
+   writeIORegister, 3.3% of the walk): skip chains the native renderer
+   took.
+4. modelDisp / 010F3B58 and what is left of the skeleton pose.
+5. The fight: a save near a colossus for the Mac / Vita3K, or a recording
+   from the console with this build, to measure items 1-2 where they count.
 
 ## Vita3K calibration (2026-10-22)
 
