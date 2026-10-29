@@ -1,5 +1,6 @@
 #include "ps2recomp/Emitters/function_emitter.h"
 #include "ps2recomp/code_generator.h"
+#include "ps2recomp/float_known.h"
 #include "ps2recomp/gif_dma_kick_analyzer.h"
 #include "ps2recomp/instructions.h"
 #include "ps2recomp/r5900_decoder.h"
@@ -126,6 +127,8 @@ namespace ps2recomp
         }
 
         bool lastInstructionWasControlFlow = false;
+        // Round 29: VU0 / FPU provenance along straight-line runs.
+        FloatKnownState floatKnown(cg.m_vuKnown, cg.m_fpuKnown);
 
         for (size_t i = 0; i < instructions.size(); ++i)
         {
@@ -135,6 +138,7 @@ namespace ps2recomp
             if (internalTargets.contains(inst.address))
             {
                 constantRegisters.clear();
+                floatKnown.reset();
                 ss << "label_" << std::hex << inst.address << std::dec << ":\n";
             }
 
@@ -153,6 +157,7 @@ namespace ps2recomp
             {
                 if (inst.hasDelaySlot)
                 {
+                    floatKnown.reset();
                     const bool hasDecodedDelaySlot =
                         i + 1 < instructions.size() &&
                         instructions[i + 1].address == inst.address + 4u;
@@ -207,6 +212,7 @@ namespace ps2recomp
 
                     if (gifDmaKickPlan.suppresses(i))
                     {
+                        floatKnown.reset();
                         const size_t slot = gifDmaKickPlan.slotFor(i);
                         emitGifDmaCapture(ss, gifDmaKickPlan, slot, "    ");
 
@@ -223,7 +229,18 @@ namespace ps2recomp
                     }
 
                     const MemoryAccessHint memoryHint = resolveMemoryAccessHint(inst, constantRegisters);
-                    const std::string code = cg.translateInstruction(inst, memoryHint);
+                    const std::string code = floatKnown.apply(cg.translateInstruction(inst, memoryHint));
+                    if (inst.opcode == OPCODE_COP1 && inst.rs == COP1_MT)
+                    {
+                        // MTC1 of a known GPR: $zero, or the LUI right before it
+                        // (no label between and not a delay slot: the LUI ran).
+                        if (inst.rt == 0)
+                            floatKnown.fprFromConstant(static_cast<int>(inst.rd), 0u);
+                        else if (i > 0 && instructions[i - 1].opcode == OPCODE_LUI && instructions[i - 1].rt == inst.rt &&
+                                 instructions[i - 1].address + 4u == inst.address && !internalTargets.contains(inst.address) &&
+                                 !(i >= 2 && instructions[i - 2].hasDelaySlot))
+                            floatKnown.fprFromConstant(static_cast<int>(inst.rd), static_cast<uint32_t>(instructions[i - 1].immediate) << 16);
+                    }
                     if (cg.m_allPcStores || CodeGenerator::codeReadsPc(code))
                     {
                         ss << "    ctx->pc = 0x" << std::hex << inst.address << "u;\n"
@@ -272,6 +289,7 @@ namespace ps2recomp
             options.sext = cg.m_registerCacheSext;
             options.blockScope = cg.m_registerCacheBlock;
             options.writeThrough = cg.m_registerCacheWriteThrough;
+            options.deadStores = cg.m_registerCacheDeadStores;
             return all.substr(0, bodyStart) + applyRegisterCache(all.substr(bodyStart), options) + "}\n";
         }
         ss << "}\n";

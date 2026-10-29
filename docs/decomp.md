@@ -4595,6 +4595,215 @@ the game computes.
 5. The fight: a save near a colossus for the Mac / Vita3K, or a recording
    from the console with this build, to measure items 1-2 where they count.
 
+## Round 29: the generated code itself (VU0 operands, FPU clamps and alignment, dead stores) (2026-10-29)
+
+The Mac was on AC power the whole round (100%, charged). Rounds 21-28 sped
+up single natives by 0-2% each while ~95% of the game thread's code by size
+is still recompiled and the profile is flat (no function above 5%). This
+round changes the generator and the runtime macros, so every generated
+function gets faster at once. Every change gives the same bits as before;
+each has a switch that brings back round 28's form.
+
+**1. VU0 operands already normalised (generator, float_known.cpp).** A VU0
+add / sub / mul (PS2_VADD / VSUB / VMUL) normalises both operands and its
+result with ps2VuOperand. On the Vita that is Inf / NaN -> +-FLT_MAX (two
+vmin each); on the Mac it also flushes denormals to signed zero. The
+function is idempotent, so an operand lane that already holds such a result
+needs nothing. The emitter now tracks, lane by lane (4 bits per vf register
+and for ACC), which lanes hold an op's normalised result along a
+straight-line run:
+- an op's result lanes (its dest mask) become known;
+- a blend, move or broadcast copies the state with the bits;
+- vf0 is 0, 0, 0, 1 (the report counts writes to it: 0 in the whole
+  program);
+- any other write (loads, QMTC2, MAX / MINI, ITOF / FTOI, VRNEXT, ...) makes
+  its lanes unknown;
+- everything is forgotten at labels, branches, every guest memory access,
+  call, jump, syscall and runtime helper. A store can start a VU0
+  microprogram through VIF0, and a call can bring any VU0 state.
+
+An op needs only the lanes its dest mask keeps (the ops work lane by lane).
+So an operand counts as known when all of those lanes are known, after the
+broadcast's lane selection. The madd forms' `mul_res` is always known.
+Known operands become PS2_VADD_K(ka, kb, a, b) & co. (ps2_runtime_macros.h,
+templates that skip the operand's normalisation). Static counts
+(recomp.log): 44 424 VU0 ops, **53 802 of 88 848 operands known (61%)**,
+23 162 instructions rewritten.
+
+**2. FPU clamps on finite operands (generator).** FPU_ADD_S / SUB_S / MUL_S
+clamp an Inf / NaN result to +-FLT_MAX. With both operands finite, and the
+game thread's round toward zero, a sum or product overflows to +-FLT_MAX,
+never to Inf, so the clamp is the identity. FPU_ADD_SF / SUB_SF / MUL_SF
+leave it out. These count as finite:
+- the result of an FPU add / sub / mul / div / sqrt / rsqrt;
+- CVT.S.W;
+- a MOV / NEG / ABS of a finite register;
+- MTC1 from $zero, or from the LUI right before it (no label or delay slot
+  between).
+
+FPRs are forgotten at labels, branches, calls and helpers. Guest memory
+accesses never touch FPRs, which the register cache relies on as well. Only
+**1 539 of 10 610 FPU ops** qualify (most operands come from lwc1). The
+rounding mode is checked: in Vita3K the selftest reads FPSCR 01c00000
+(RMode 3 = toward zero, FZ 1).
+
+**3. The PS2 adder's alignment only where it can change the sum (runtime
+macro, plan item 2).** When the magnitudes add (two operands of the same
+sign added, or of opposite signs subtracted), truncation gives the same
+float with or without the alignment. The proof is in the comment at
+ps2FpuAdd: the dropped bits r are under half a unit of the larger operand's
+last place, and [|a| + |b'|, |a| + |b'| + u/2) holds no multiple of the
+result's unit and no binade or overflow boundary. So ps2FpuAdd / Sub align
+only when the signs say the magnitudes subtract. The natives' ps2FpuAdd uses
+the same path. `-DPS2X_FPU_ALIGN_FAST=0` brings back the old form. This
+depends on round toward zero, the only mode generated code runs in.
+
+**4. Write-through stores that a later write overwrites (register cache,
+plan item 3).** Since round 18 each write is stored to ctx right after its
+statement. GCC drops a store that a later one overwrites, except across a
+guest memory access: its slow path is an opaque call taking ctx. Now a
+write that a later plain, unconditional statement of the same run
+overwrites (before any label, block, barrier, goto, return or if) is not
+stored: it stays dirty in its local until the later write stores. The slow
+paths never read GPRs or FPRs (round 5 / 18's rule), and nothing dirty
+reaches an edge, so this is round 18's own machinery. Static: **65 454 of
+404 081 stores left out**.
+
+**Vita assembly of the 40 hottest lean functions** (r29/asmcmp.sh, GCC
+-O2, cortex-a9; each column adds one change; all with the new header):
+
+| generated code | instructions | memory | vmin (VU0 clamps) | vmov core <-> VFP |
+|---|---|---|---|---|
+| round 28 | 49 657 | 11 622 | 1 091 | 869 |
+| + VU0 / FPU provenance | 48 990 | 11 653 | 649 | 847 |
+| + dead stores | **47 679 (-4.0%)** | **10 722 (-7.7%)** | 647 | 843 |
+
+**Exactness.**
+- Generator switches: with `PS2X_RECOMP_VUKNOWN=0 PS2X_RECOMP_FPUKNOWN=0
+  PS2X_RECOMP_REGCACHE_DSE=0` the output (r29/off) is round 28's
+  build/runner byte for byte (9 080 files, cmp: 0 differ).
+- Old generator against new (round 18's method). The lean copies were built
+  from round 28's output with round 28's FPU adds (every add aligned; a
+  check-only lean_part.h, since reverted). The originals came from the new
+  output and macros. SOTC_LEAN_CHECK in batches of 64 (entries 0-384),
+  ALLREGS, VU0, EVERY=50, the route to frame 3 000 (r29/lcheck.sh,
+  r29/lc-*): **290 functions called, 377 305 checks, 500 mismatches, all
+  known ones**:
+  - iosResetCpuRapCounter 400 (its check is void: an override is there);
+  - manager_sub_01102638 97 (the pad / frame timers: round 18's CONTROL
+    count, 97);
+  - gsReg 2 (void: an override is there);
+  - ExecAnimeTableInfo 1 (round 16's).
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r29/dt-all): 57
+  functions, 157 401 checks, 0 mismatches except gamecore_sub_013F8668
+  (the life bar's v0, as since round 16).
+- Macro selftest (PS2X_MACRO_SELFTEST): 0 mismatches on the Mac (4 M,
+  r29/selftest-mac) and in calibrated Vita3K (1 M, NEON A32 forms, round
+  toward zero; r29/selftest2-err.txt). New checks:
+  - FPU_ADD_SF / SUB_SF / MUL_SF on finite pairs against the aligned,
+    clamped old forms;
+  - PS2_V*_K on normalised operands against the old macros;
+  - FPU_ADD_S / SUB_S, now the fast path, against
+    ps2FpuAlignOperandsRef + clamp (edge pairs and random pairs).
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, r24 card copy,
+  r29/posbase.sh; distances excluding the load frames where the player
+  reads 0, 0, 0; r29/posmax.py).
+  - The HEAD baselines: pos-base1 is within 1.38 units of r28/pos-base.
+    pos-base2 took another path at the stairs (85 units off from every run,
+    128 frames over 0.5), which is the route's own timing noise: same
+    binary, no build running.
+  - This round: pos-new1 is within 0.21 of r28/pos-base and 1.45 of
+    pos-base1; pos-new2 is within 2.10 of r28/pos-base2 and 3.11 of
+    pos-base1.
+  - Inside the band (round 28: two HEAD runs 2.17 apart).
+- Sound (au.py, every timing run): 0 late callbacks, 0 stale halves, 0
+  src-stale.
+
+**Frame timing.** Calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s. Game frame ms, with draws on the plain. Base is celosia-r28.vpk, new
+is this round's; the runs alternated base / new (r29/chain.sh,
+r28/split2.py).
+
+| window | 222 base (two runs) | 222 new (two runs) | 240 base | 240 new | 333 base | 333 new |
+|---|---|---|---|---|---|---|
+| shrine | 43.8, 43.7 | **42.6, 42.9** | 40.3, 40.4 | **39.4, 39.4** | 28.8, 29.0 | **28.2, 28.2** |
+| walk + area change | 75.8, 76.3 | **74.4, 74.1** | 68.5, 68.4 | 68.8, 68.5 | 51.7 (1 788 draws), 50.0 | **48.8, 49.0** |
+| plain (draws) | 50.2 (911), 51.5 (930) | 50.3 (909), **48.7 (900)** | 46.4 (940), 45.8 (915) | **45.8 (901), 44.6 (924)** | 37.0 (870), 31.3 (712) | 30.1 (712), 32.4 (943) |
+| walk: hooks / render | 3.8 / 34.6-35.1 | 3.8-3.9 / 34.5-34.7 | 3.5 / 32.0 | 3.5 / 32.3 | 2.5-2.6 / 22.6-25.0 | 2.5 / 22.6-22.9 |
+
+- The shrine is -2.2 to -2.7% at every clock. Each pair of runs is within
+  0.3 ms, the change about 1 ms, so this is beyond the noise.
+- The walk is -2.4% at 222 and -2% at 333 (against the base run with the
+  same draws). At 240 it does not move.
+- The plain follows its draw count. At ~900-930 draws, 222 gives 50.2 /
+  51.5 against 50.3 / 48.7, and 240 gives 45.8 against 44.6.
+- Worst frame of the walk at 222: 149.7 / 144.6 against 140.3 / 144.3.
+  Frames over 120 ms: 2 / 3 against 3 / 2.
+
+This is the first round since 18 with a gain at every clock. It is small
+because generated code is about half of the game thread (round 26: lean
+37%) and the change removes ~4% of its instructions. On the A9 the removed
+vmin chains and VFP <-> core moves (the alignment's) are pipeline stalls,
+which Vita3K does not model, so the console may gain more (unmeasured: no
+console runs).
+
+**Not done:**
+- The DMA chain walk (plan item 3 / candidate 4);
+- the console measurement of round 28's NEON chains (plan item 1).
+- The loop back edge's `ctx->pc` store (4 447 sites). It could move into
+  the checkpoint's slow path, but runtime->Load32 / Store32 on I/O addresses
+  take ctx and may read pc (idle-loop detection), so that is not provably
+  exact. Left for round 30 after a check of those readers.
+
+**Decomp status:** unchanged (no new natives): 5.41% of the MIPS code by
+size.
+
+**Switches** (README): `PS2X_RECOMP_VUKNOWN=0`, `PS2X_RECOMP_FPUKNOWN=0`,
+`PS2X_RECOMP_REGCACHE_DSE=0` (recompiler env; all three at 0 give round
+28's output) and `-DPS2X_FPU_ALIGN_FAST=0` (C++ flags). They are exact
+either way, so nothing is off by default and there is no Debug item.
+
+**Files:**
+- PS2Recomp/ps2xRecomp/include/ps2recomp/float_known.h and
+  src/lib/float_known.cpp (new): the VU0 / FPU provenance;
+- src/lib/function_emitter.cpp: the pass per instruction, resets at labels,
+  branches and kick captures, MTC1 constants;
+- include/ps2recomp/code_generator.h: m_vuKnown, m_fpuKnown,
+  m_registerCacheDeadStores;
+- src/lib/register_cache.cpp and include/ps2recomp/register_cache.h:
+  deadStores, overwrittenAhead;
+- src/lib/ps2_recompiler.cpp: the report line;
+- PS2Recomp/ps2xRuntime/include/ps2_runtime_macros.h: ps2VuAddK / SubK /
+  MulK, PS2_V*_K, PS2X_FPU_ALIGN_FAST, ps2FpuAddFinite / SubFinite,
+  FPU_*_SF;
+- PS2Recomp/ps2xRuntime/src/lib/ps2_macro_selftest.cpp: 3c, 3d;
+- README.md, docs/decomp.md.
+- Tools: r29/regen.sh, r29/asmcmp.sh, r29/lean_old.sh, r29/lcheck.sh,
+  r29/route2.sh, r29/posbase.sh, r29/posmax.py, r29/v3k.sh,
+  r29/chain.sh.
+- Deliverables: build/agent-scratch/celosia-r29.vpk (shader seed: 42
+  files), env-r29-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
+
+**Round 30 (plan).**
+1. More of the same in the generator, measured the same way
+   (r29/asmcmp.sh first):
+   - carry the provenance across labels that have a single predecessor
+     (the fallthrough of a forward branch), and across guest loads, once
+     the I/O read paths are shown never to start VU0 code;
+   - the loop back edge's pc store, after checking the I/O readers of
+     ctx->pc;
+   - lwc1 / lqc2 values known finite when the address is a constant table
+     in the ELF's read-only data.
+2. The register cache's remaining stack traffic (round 18: the locals live
+   across the slow paths' calls). A Vita-only trampoline for the
+   out-of-line READ / WRITE paths that saves the caller-saved registers
+   itself.
+3. The DMA chain walk (iosDmaSendSChainPath1 / Vif1Walker::feed +
+   writeIORegister, 3.3-3.4%): skip chains whose packets the native
+   renderer took.
+4. Carried over: the console check of the NEON chains and of this round's
+   generator (the A9's VFP <-> core stalls), the 2D joins, the fight's save.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

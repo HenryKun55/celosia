@@ -492,6 +492,73 @@ namespace ps2_macro_selftest
             bad += t.c.bad;
         }
 
+        // 3c. round 29's forms. FPU_*_SF (no result clamp) on finite operands
+        // against the old FPU_ADD_S / FPU_SUB_S / FPU_MUL_S (aligned, clamped):
+        // they hold in round toward zero only (this thread's mode).
+        {
+            struct
+            {
+                Counter c;
+                FpuOp fNew, fRef;
+            } fin[] = {{{"FPU_ADD_SF (finite)"}, [](float a, float b) { return FPU_ADD_SF(a, b); }, fAddRef},
+                       {{"FPU_SUB_SF (finite)"}, [](float a, float b) { return FPU_SUB_SF(a, b); }, fSubRef},
+                       {{"FPU_MUL_SF (finite)"}, [](float a, float b) { return FPU_MUL_SF(a, b); }, [](float a, float b) { return ps2FpuClamp(a * b); }}};
+            auto finite = [](uint32_t x) { return (x & 0x7F800000u) != 0x7F800000u; };
+            for (auto &t : fin)
+            {
+                for (int i = 0; i < ne; ++i)
+                    for (int j = 0; j < ne; ++j)
+                        if (finite(edge[i]) && finite(edge[j]))
+                            checkFpu(t.c, t.fNew, t.fRef, edge[i], edge[j]);
+                Rng r{0x5851F42D4C957F2Dull ^ reinterpret_cast<uintptr_t>(t.c.name)};
+                for (uint64_t i = 0; i < millions * 4000000ull; ++i)
+                {
+                    const uint32_t a = pick(r, r.next());
+                    const uint32_t b = pick(r, a);
+                    if (finite(a) && finite(b))
+                        checkFpu(t.c, t.fNew, t.fRef, a, b);
+                }
+                t.c.print();
+                bad += t.c.bad;
+            }
+        }
+        // 3d. PS2_V*_K: an operand that is a VU0 result already (what
+        // ps2VuOperand makes of anything) skips the normalisation; the same
+        // bits as PS2_V* and the old macros.
+        {
+            struct
+            {
+                Counter c;
+                VuOp fNew, fRef;
+            } kn[] = {{{"PS2_VADD_K(1, 0)"}, [](__m128 a, __m128 b) { return PS2_VADD_K(1, 0, ps2VuOperand(a), b); }, [](__m128 a, __m128 b) { return PS2_VADD_REF(ps2VuOperand(a), b); }},
+                      {{"PS2_VADD_K(0, 1)"}, [](__m128 a, __m128 b) { return PS2_VADD_K(0, 1, a, ps2VuOperand(b)); }, [](__m128 a, __m128 b) { return PS2_VADD_REF(a, ps2VuOperand(b)); }},
+                      {{"PS2_VSUB_K(1, 1)"}, [](__m128 a, __m128 b) { return PS2_VSUB_K(1, 1, ps2VuOperand(a), ps2VuOperand(b)); }, [](__m128 a, __m128 b) { return PS2_VSUB_REF(ps2VuOperand(a), ps2VuOperand(b)); }},
+                      {{"PS2_VMUL_K(1, 1)"}, [](__m128 a, __m128 b) { return PS2_VMUL_K(1, 1, ps2VuOperand(a), ps2VuOperand(b)); }, [](__m128 a, __m128 b) { return PS2_VMUL_REF(ps2VuOperand(a), ps2VuOperand(b)); }},
+                      {{"PS2_VMUL_K(0, 1) of a result"}, [](__m128 a, __m128 b) { return PS2_VMUL_K(0, 1, a, PS2_VADD(b, b)); }, [](__m128 a, __m128 b) { return PS2_VMUL_REF(a, PS2_VADD_REF(b, b)); }}};
+            for (auto &t : kn)
+            {
+                for (int i = 0; i < ne; ++i)
+                    for (int j = 0; j < ne; j += 4)
+                    {
+                        const uint32_t a[4] = {edge[i], edge[i], edge[i], edge[i]};
+                        checkVu(t.c, t.fNew, t.fRef, a, &edge[j]);
+                    }
+                Rng r{0x2545F4914F6CDD1Dull ^ reinterpret_cast<uintptr_t>(t.c.name)};
+                for (uint64_t i = 0; i < millions * 1000000ull; ++i)
+                {
+                    uint32_t a[4], b[4];
+                    for (int l = 0; l < 4; ++l)
+                    {
+                        a[l] = pick(r, r.next());
+                        b[l] = pick(r, a[l]);
+                    }
+                    checkVu(t.c, t.fNew, t.fRef, a, b);
+                }
+                t.c.print();
+                bad += t.c.bad;
+            }
+        }
+
 #if PS2X_VU_NEON_A32 && !PS2X_VU_MACROS_OLD && defined(__GNUC__) && !defined(__clang__)
         {
             Rng r{0x123456789ull};

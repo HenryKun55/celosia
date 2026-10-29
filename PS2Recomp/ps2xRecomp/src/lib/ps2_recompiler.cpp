@@ -4,6 +4,7 @@
 #include "ps2recomp/elf_parser.h"
 #include "ps2recomp/r5900_decoder.h"
 #include "ps2recomp/register_cache.h"
+#include "ps2recomp/float_known.h"
 #include <cstdlib>
 #include "ps2_runtime_calls.h"
 #include <iostream>
@@ -1808,6 +1809,10 @@ namespace ps2recomp
             if (m_codeGenerator->m_registerCache)
             {
                 std::cout << registerCacheReport() << std::endl;
+            }
+            if (m_codeGenerator->m_vuKnown || m_codeGenerator->m_fpuKnown)
+            {
+                std::cout << floatKnownReport() << std::endl;
             }
             std::string registerFunctions = m_codeGenerator->generateFunctionRegistration(m_functions, m_generatedStubs);
             m_generatedStubs.clear();

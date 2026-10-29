@@ -96,6 +96,9 @@ namespace ps2recomp
         // PS2X_RECOMP_REGCACHE_WT=0: writes stay in the locals until a
         // barrier / edge / return (round 5); default: stored at the write.
         bool m_registerCacheWriteThrough = true;
+        // PS2X_RECOMP_REGCACHE_DSE=0: every write-through store kept (round
+        // 18); default: none for a write overwritten later in the run.
+        bool m_registerCacheDeadStores = !(std::getenv("PS2X_RECOMP_REGCACHE_DSE") && std::getenv("PS2X_RECOMP_REGCACHE_DSE")[0] == '0');
         // Round 16's leaner calls: JAL / JALR / J through PS2_CALL_GUEST /
         // PS2_JUMP_GUEST (the table's bounds as constants), and a function's
         // entry tests ctx->pc against its own start before the resume
@@ -104,6 +107,14 @@ namespace ps2recomp
         // macros are barriers, register_cache.cpp).
         bool m_leanCalls = !(std::getenv("PS2X_RECOMP_LEAN_CALLS") && std::getenv("PS2X_RECOMP_LEAN_CALLS")[0] == '0');
         bool leanCalls() const { return m_leanCalls; }
+        // Round 29 (float_known.cpp): VU0 add / sub / mul operands known to
+        // be normalised already skip ps2VuOperand (PS2_VADD_K & co.), FPU
+        // add / sub / mul of finite operands skip the result's clamp
+        // (FPU_ADD_SF & co.). The same bits. PS2X_RECOMP_VUKNOWN=0 /
+        // PS2X_RECOMP_FPUKNOWN=0 at recompile time: the old forms (both 0:
+        // round 28's output byte for byte).
+        bool m_vuKnown = !(std::getenv("PS2X_RECOMP_VUKNOWN") && std::getenv("PS2X_RECOMP_VUKNOWN")[0] == '0');
+        bool m_fpuKnown = !(std::getenv("PS2X_RECOMP_FPUKNOWN") && std::getenv("PS2X_RECOMP_FPUKNOWN")[0] == '0');
         // The function table's bounds (FunctionTableEmitter::emit).
         uint32_t m_tableBase = 0u;
         uint32_t m_tableSlots = 0u;

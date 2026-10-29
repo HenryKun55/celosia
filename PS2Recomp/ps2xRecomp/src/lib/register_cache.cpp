@@ -94,6 +94,7 @@ namespace ps2recomp
         std::atomic<uint64_t> g_loads{0};
         std::atomic<uint64_t> g_sextReads{0};
         std::atomic<uint64_t> g_sextStores{0};
+        std::atomic<uint64_t> g_deadStores{0};
 
         constexpr uint64_t kFprBase = 32;
 
@@ -270,6 +271,8 @@ namespace ps2recomp
             bool sext = true;
             bool blockScope = false;   // every label a sync point (round 18)
             bool writeThrough = false; // stores at the write (round 18)
+            bool deadStores = false;   // no store for a write overwritten later in the run (round 29)
+            uint64_t deadStoreCount = 0;
             uint64_t sextReadCount = 0, sextStores = 0;
             // The checkpoint returns (cold) share one exit storing the union
             // of their dirty sets (sites where one of those is stale store
@@ -1013,6 +1016,27 @@ namespace ps2recomp
                 inKnown.assign(n, ~0ull);
             }
 
+            // The registers a plain, unconditional statement after line idx
+            // writes before the straight run ends (a label, a block, a
+            // barrier, a goto / return / if, at most 64 statements on).
+            uint64_t overwrittenAhead(size_t idx) const
+            {
+                uint64_t kill = 0;
+                int n = 0;
+                for (size_t j = idx + 1; j < body.lines.size() && n < 64; ++j)
+                {
+                    const Line &l = body.lines[j];
+                    if (l.kind == Kind::Blank)
+                        continue;
+                    if (l.kind != Kind::Stmt || l.barrier || !l.gotos.empty() || l.code.find("return") != std::string::npos ||
+                        hasIfToken(l.code))
+                        break;
+                    kill |= l.writes;
+                    ++n;
+                }
+                return kill;
+            }
+
             FrameState frame(Frame kind)
             {
                 FrameState f{kind, dirty, stale, reachable};
@@ -1373,10 +1397,24 @@ namespace ps2recomp
                         // Write-through (round 18): a plain statement's writes
                         // go to ctx right after it; the locals stay valid for
                         // the reads that follow, nothing is left dirty.
-                        const uint64_t through = (body.writeThrough && line.gotos.empty() &&
-                                                  line.code.find("return") == std::string::npos && !hasIfToken(line.code))
-                                                     ? line.writes & ~line.cleanWrites
-                                                     : 0;
+                        uint64_t through = (body.writeThrough && line.gotos.empty() &&
+                                            line.code.find("return") == std::string::npos && !hasIfToken(line.code))
+                                               ? line.writes & ~line.cleanWrites
+                                               : 0;
+                        // Round 29: no store for a write that a later plain
+                        // statement of the same straight run overwrites (that
+                        // one stores; the local stays valid and dirty until
+                        // then). The host compiler drops such stores itself
+                        // except across a guest memory access, whose slow
+                        // path is an opaque call taking ctx (it never reads
+                        // GPRs / FPRs, see the top of this file).
+                        if (through && body.deadStores)
+                        {
+                            const uint64_t dead = through & overwrittenAhead(idx);
+                            through &= ~dead;
+                            if (emit)
+                                body.deadStoreCount += static_cast<uint64_t>(__builtin_popcountll(dead));
+                        }
                         dirty = (dirty | line.writes) & ~line.cleanWrites & ~through;
                         known = knownAfter(line, before);
                         // Inside the line (a goto or return before or after its
@@ -1444,6 +1482,7 @@ namespace ps2recomp
         body.sext = options.sext;
         body.blockScope = options.blockScope;
         body.writeThrough = options.writeThrough;
+        body.deadStores = options.deadStores;
         std::vector<std::string> out;
         try
         {
@@ -1516,6 +1555,7 @@ namespace ps2recomp
         g_loads += body.loads;
         g_sextReads += body.sextReadCount;
         g_sextStores += body.sextStores;
+        g_deadStores += body.deadStoreCount;
         return result;
     }
 
@@ -1528,7 +1568,7 @@ namespace ps2recomp
           << g_fprReads.load() << " FPR reads, " << g_fprWrites.load() << " FPR writes; "
           << g_barriers.load() << " barriers; added " << g_loads.load() << " loads, " << g_flushStores.load()
           << " stores; sign extension known at " << g_sextReads.load() << " 64-bit reads and " << g_sextStores.load()
-          << " stores (static counts)";
+          << " stores; " << g_deadStores.load() << " write-through stores left out (overwritten later in the run) (static counts)";
         return s.str();
     }
 }

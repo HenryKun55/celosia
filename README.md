@@ -201,6 +201,19 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | `SOTC_EE_TRUST=1` (Debug "Plain floats") | Vita: the lean hot code's second copy with plain floats (no PS2 operand clamps or adder alignment; ~3% faster, not exact, off by default); `SOTC_EE_TRUST_AB=n` alternates every n frames |
 | `SOTC_SKELETON_FAST=0` / `SOTC_SKELETON_FAST_AB=n` | the skeleton pose's round 25 path instead of the register-local one (exact either way) |
 
+Recompile-time and build-time switches for the generated code (round 29;
+each gives the same results, they only bring back the older, slower form):
+
+| Switch | Effect |
+| --- | --- |
+| `PS2X_RECOMP_VUKNOWN=0` (recompiler env) | VU0 add / sub / mul normalise every operand again (default: not the ones already normalised by an earlier VU0 op in the same straight-line run) |
+| `PS2X_RECOMP_FPUKNOWN=0` (recompiler env) | FPU add / sub / mul clamp every result again (default: not when both operands are known finite) |
+| `PS2X_RECOMP_REGCACHE_DSE=0` (recompiler env) | every register write stored to the context at once (default: no store for a write that a later statement of the same run overwrites) |
+| `-DPS2X_FPU_ALIGN_FAST=0` (C++ flags) | the PS2 adder's operand alignment on every FPU add (default: only when the magnitudes subtract) |
+
+With the three recompiler switches at 0 the generated code is round 28's byte
+for byte.
+
 `tools/` also has analysis helpers: `addr2sym.py`, `callers.py`, `xref.py`
 (symbols and call graph), `vudis.py` (VU disassembler), `gsdecode.py`,
 `dmawalk.py`, `xffinfo.py`. Also:

@@ -346,6 +346,40 @@ static PS2_FORCE_INLINE __m128 ps2VuMul(__m128 a, __m128 b)
 {
     return ps2VuOperand(_mm_mul_ps(PS2X_VU_IN(a), PS2X_VU_IN(b)));
 }
+// Round 29: the same ops with an operand the recompiler knows is already
+// what PS2X_VU_IN makes of it (KA / KB = 1: a VU0 add / sub / mul result of
+// the same straight-line run, a lane-wise blend or broadcast of such lanes,
+// vf0's 0, 0, 0, 1; register_cache.h's vuKnownPass). ps2VuOperand is
+// idempotent (ps2VuClampNF and ps2VuNormalizeFast / Ref each map their
+// output to itself), so leaving it out on such an operand gives the same
+// bits on every host. PS2X_RECOMP_VUKNOWN=0 at recompile time: the old forms.
+template <int KA, int KB>
+static PS2_FORCE_INLINE __m128 ps2VuAddK(__m128 a, __m128 b)
+{
+    if constexpr (KA == 0)
+        a = PS2X_VU_IN(a);
+    if constexpr (KB == 0)
+        b = PS2X_VU_IN(b);
+    return ps2VuOperand(_mm_add_ps(a, b));
+}
+template <int KA, int KB>
+static PS2_FORCE_INLINE __m128 ps2VuSubK(__m128 a, __m128 b)
+{
+    if constexpr (KA == 0)
+        a = PS2X_VU_IN(a);
+    if constexpr (KB == 0)
+        b = PS2X_VU_IN(b);
+    return ps2VuOperand(_mm_sub_ps(a, b));
+}
+template <int KA, int KB>
+static PS2_FORCE_INLINE __m128 ps2VuMulK(__m128 a, __m128 b)
+{
+    if constexpr (KA == 0)
+        a = PS2X_VU_IN(a);
+    if constexpr (KB == 0)
+        b = PS2X_VU_IN(b);
+    return ps2VuOperand(_mm_mul_ps(a, b));
+}
 // The result of an op on normalised operands, normalised (natives that
 // clamp once: vu::mulN / addN / subN).
 static PS2_FORCE_INLINE __m128 ps2VuResult(__m128 v)
@@ -396,6 +430,9 @@ static PS2_FORCE_INLINE uint32_t ps2VuClipFlags(__m128 fsv, __m128 ftv)
 #define PS2_VADD(a, b) ps2VuAdd((__m128)(a), (__m128)(b))
 #define PS2_VSUB(a, b) ps2VuSub((__m128)(a), (__m128)(b))
 #define PS2_VMUL(a, b) ps2VuMul((__m128)(a), (__m128)(b))
+#define PS2_VADD_K(ka, kb, a, b) ps2VuAddK<ka, kb>((__m128)(a), (__m128)(b))
+#define PS2_VSUB_K(ka, kb, a, b) ps2VuSubK<ka, kb>((__m128)(a), (__m128)(b))
+#define PS2_VMUL_K(ka, kb, a, b) ps2VuMulK<ka, kb>((__m128)(a), (__m128)(b))
 #define PS2_VDIV(a, b) _mm_div_ps((__m128)(a), (__m128)(b))
 #define PS2_VMULQ(a, q) _mm_mul_ps((__m128)(a), _mm_set1_ps(q))
 #define PS2_VBLEND(a, b, mask) PS2_BLENDV_PS((__m128)(a), (__m128)(b), (__m128)(mask))
@@ -1002,16 +1039,78 @@ static PS2_FORCE_INLINE void ps2FpuAlignOperands(float &a, float &b)
 #else
 #define PS2X_FPU_ALIGN_IN(a, b) ps2FpuAlignOperands(a, b)
 #endif
+// Round 29: the alignment only where it can change the sum. When the
+// magnitudes add (an add of two operands of the same sign, a subtract of two
+// of opposite signs) the game thread's round toward zero gives the same
+// result with or without it: say |a| >= |b|, exponent difference d >= 2 (the
+// masks are all ones for d <= 1). The mask keeps b's bits down to half a
+// unit of a's last place (u / 2), so b = b' + r with b' a multiple of u / 2
+// and 0 <= r < u / 2; |a| + |b'| is a multiple of u / 2 and the exact sum
+// lies in [|a| + |b'|, |a| + |b'| + u / 2), which holds no other multiple of
+// u / 2, hence no multiple of the result's unit (u or 2u) and no binade or
+// overflow boundary (2^k, 2^128): truncation gives the same float. An
+// operand of exponent 0 is read as zero either way (flush to zero), one of
+// exponent 255 is never the one masked (it has the larger exponent; both 255:
+// d = 0). Only when the magnitudes subtract does the dropped r move the
+// truncated result, and only then the alignment runs. Depends on the
+// rounding mode: the game thread's (ps2SetEeFloatingPointMode), the only one
+// that runs generated code. Checked by ps2_macro_selftest.cpp in that mode
+// (FPU_ADD_S / FPU_SUB_S against ps2FpuAlignOperandsRef + clamp).
+// PS2X_FPU_ALIGN_FAST=0 at compile time: every add aligned, as before.
+#ifndef PS2X_FPU_ALIGN_FAST
+#define PS2X_FPU_ALIGN_FAST 1
+#endif
+static PS2_FORCE_INLINE bool ps2FpuSignsDiffer(float a, float b)
+{
+    uint32_t ua, ub;
+    std::memcpy(&ua, &a, sizeof(ua));
+    std::memcpy(&ub, &b, sizeof(ub));
+    return static_cast<int32_t>(ua ^ ub) < 0;
+}
+#if PS2X_FPU_ALIGN_FAST && !PS2X_VU_MACROS_OLD
+#define PS2X_FPU_ALIGN_ADD(a, b)       \
+    do                                 \
+    {                                  \
+        if (ps2FpuSignsDiffer(a, b))   \
+            PS2X_FPU_ALIGN_IN(a, b);   \
+    } while (0)
+#define PS2X_FPU_ALIGN_SUB(a, b)       \
+    do                                 \
+    {                                  \
+        if (!ps2FpuSignsDiffer(a, b))  \
+            PS2X_FPU_ALIGN_IN(a, b);   \
+    } while (0)
+#else
+#define PS2X_FPU_ALIGN_ADD(a, b) PS2X_FPU_ALIGN_IN(a, b)
+#define PS2X_FPU_ALIGN_SUB(a, b) PS2X_FPU_ALIGN_IN(a, b)
+#endif
 static PS2_FORCE_INLINE float ps2FpuAdd(float a, float b)
 {
-    PS2X_FPU_ALIGN_IN(a, b);
+    PS2X_FPU_ALIGN_ADD(a, b);
     return PS2X_FPU_OUT(a + b);
 }
 
 static PS2_FORCE_INLINE float ps2FpuSub(float a, float b)
 {
-    PS2X_FPU_ALIGN_IN(a, b);
+    PS2X_FPU_ALIGN_SUB(a, b);
     return PS2X_FPU_OUT(a - b);
+}
+// Round 29: FPU ops whose operands the recompiler knows are finite (an FPU
+// add / sub / mul / div / sqrt result, a conversion from an integer, a move /
+// negation / absolute value of such; register_cache.h's fpuFinitePass). In
+// round toward zero a sum or product of finite floats overflows to +-FLT_MAX,
+// never to Inf, so the result's clamp (Inf / NaN -> +-FLT_MAX) is the
+// identity and is left out. PS2X_RECOMP_FPUKNOWN=0 at recompile time: the
+// old forms.
+static PS2_FORCE_INLINE float ps2FpuAddFinite(float a, float b)
+{
+    PS2X_FPU_ALIGN_ADD(a, b);
+    return a + b;
+}
+static PS2_FORCE_INLINE float ps2FpuSubFinite(float a, float b)
+{
+    PS2X_FPU_ALIGN_SUB(a, b);
+    return a - b;
 }
 
 static PS2_FORCE_INLINE float ps2SignedFloatMax(uint32_t signSource)
@@ -1243,6 +1342,9 @@ static PS2_FORCE_INLINE void ps2SetEeFloatingPointMode()
 #define FPU_ADD_S(a, b) ps2FpuAdd((float)(a), (float)(b))
 #define FPU_SUB_S(a, b) ps2FpuSub((float)(a), (float)(b))
 #define FPU_MUL_S(a, b) PS2X_FPU_OUT((float)(a) * (float)(b))
+#define FPU_ADD_SF(a, b) ps2FpuAddFinite((float)(a), (float)(b))
+#define FPU_SUB_SF(a, b) ps2FpuSubFinite((float)(a), (float)(b))
+#define FPU_MUL_SF(a, b) ((float)(a) * (float)(b))
 #define FPU_DIV_S(a, b) ps2FpuClamp((float)(a) / (float)(b))
 #define FPU_SQRT_S(a) ps2FpuClamp(std::sqrt(std::fabs((float)(a))))
 #define FPU_ABS_S(a) fabsf((float)(a))

@@ -28,6 +28,11 @@ namespace ps2recomp
         // (the local stays valid for later reads): no stores sunk to the
         // block's edges, the same stores as the old code, fewer loads.
         bool writeThrough = true;
+        // Round 29: with write-through, a write that a later unconditional
+        // statement of the same straight run overwrites (before any label,
+        // block, barrier, goto, return or if) is not stored: the later one
+        // stores. PS2X_RECOMP_REGCACHE_DSE=0: every write stored (round 18).
+        bool deadStores = true;
     };
 
     std::string applyRegisterCache(const std::string &body, const RegisterCacheOptions &options);
