@@ -186,7 +186,7 @@
   "status": "native",
   "since": "2026-10-15",
   "commit": "299159f",
-  "note": "glEnd's A+D packet read into the 2D path; the bird's heat-haze strips sample the screen copy 0x10f37c8 makes at their layer; bossDeathEffect's fan left out (overwritten on the GS before it is read)"
+  "note": "glEnd's A+D packet read into the 2D path; the bird's heat-haze strips sample the screen copy 0x10f37c8 makes at their layer; bossDeathEffectBegin's fan rasterised on the host into the death mask (round 27)"
  },
  {
   "map": "renderer",
@@ -292,9 +292,9 @@
   "area": "Effects",
   "feature": "Colossus death effect",
   "status": "native",
-  "since": "2026-10-16",
+  "since": "2026-10-29",
   "commit": "",
-  "note": "bossDeathEffect's layer-8 composite native; the fan bit 0 draws into the 256 x 256 buffer that End's first copy overwrites whole before anything reads it (GS trace with SOTC_FORCE_BOSSFAN): no effect on the picture, left out"
+  "note": "bossDeathEffect's layer-8 composite native; round 27: the fan (bit 0) draws a 256 x 256 mask that the flag-17 surfaces sample (setBossEffectTexture) between Begin and End's copies (the old note that it has no effect looked at a scene without them): built on the host from the fan's packet (GS-exact to ~11 texels of 18 000), the surfaces black inside the growing disc; meshDisp grids by projection x their own matrix (the tendrils)"
  },
  {
   "map": "hardware",
@@ -429,7 +429,7 @@
   "status": "native",
   "since": "2026-10-16",
   "commit": "",
-  "note": "as the GS: layer 8 drawn apart on the scene's depth, reduced 256/128/64 and blurred, laid over sharp (0x11862c4) and blurred (0x11862c0) in the tint; on by default (SOTC_NATIVE_NOGLOW); Metal and Mac GL, not on the Vita yet (vitaGL framebuffers cannot share the depth)"
+  "note": "as the GS: layer 8 drawn apart on the scene's depth, reduced 256/128/64 and blurred, laid over sharp (0x11862c4) and blurred (0x11862c0) in the tint; on by default (SOTC_NATIVE_NOGLOW); Metal and Mac GL; the Vita since round 19 (vglFramebufferShareDepth); in Vita3K plain, at the composite's coverage since round 27"
  },
  {
   "map": "hardware",

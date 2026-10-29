@@ -12,7 +12,9 @@ assets_NNN.bin, frames_NNN.bin, full_<frame>.bin, mc_slot1.ps2.
   tools/rec.py textures <rec> <frame> [--layer L] [--out DIR]   the frame's textures as PNG
   tools/rec.py render <rec> <frame|all> [--modes full,noglow,layers,upto] [--metal] [--warm 2] [--out DIR]
                                                   draws full captures again with this build's renderer
-                                                  (OpenGL, the Vita's backend, by default) to PNGs
+                                                  (OpenGL, the Vita's backend, by default) to PNGs;
+                                                  --fix-bossmask TEX,U,V / --fix-meshdisp: round 27's
+                                                  fixes previewed on a recording made before them
   tools/rec.py profile <rec> [--from N] [--to N] [--top 30]   the sampled guest pc / ra, named
   tools/rec.py pad    <rec> [--from N] [--to N]   the pad as the game read it (changes only)
 
@@ -391,6 +393,14 @@ def cmd_render(a):
                SOTC_REC_WARM=str(a.warm), PS2X_NO_SPU2_AUDIO='1', SOTC_NATIVE='1')
     if not a.metal:
         env['SOTC_NATIVE_GL'] = '1'  # the Vita's backend (and GPU skinning, which the Vita's skinned draws need)
+    if a.fix_bossmask:
+        # round 27's preview for older recordings: that texture's draws get the
+        # death mask, its radius each frame from the recorded 0x1186298
+        fr = Frames(a.rec).frames
+        radius = ','.join('%d:%g' % (k, struct.unpack('<f', struct.pack('<I', f['info']['guest'][2]))[0]) for k, f in sorted(fr.items()) if f['info'])
+        env.update(SOTC_REC_FIX_BOSSMASK=a.fix_bossmask, SOTC_REC_FIX_RADIUS=radius)
+    if a.fix_meshdisp:
+        env['SOTC_REC_FIX_MESHDISP'] = '1'
     disc = os.environ.get('CELOSIA_DISC', os.path.join(ROOT, 'disc'))
     cmd = [runner(), os.path.join(disc, 'SCUS_974.72')]
     print('running', ' '.join(cmd), '(replay of %s, frames %s)' % (a.rec, frames))
@@ -471,6 +481,8 @@ def main():
     s = sub.add_parser('textures'); s.add_argument('rec'); s.add_argument('frame', type=int); s.add_argument('--layer', type=int); s.add_argument('--out')
     s = sub.add_parser('render'); s.add_argument('rec'); s.add_argument('frame'); s.add_argument('--modes', default='full,noglow,layers')
     s.add_argument('--metal', action='store_true'); s.add_argument('--warm', type=int, default=2); s.add_argument('--out')
+    s.add_argument('--fix-bossmask', help='TEX,U,V: preview of round 27 on an older recording (that texture -> the death mask at centre U,V)')
+    s.add_argument('--fix-meshdisp', action='store_true', help="preview of round 27: layer 18's meshDisp grids by the frame's projection")
     a = p.parse_args()
     return {'list': cmd_list, 'frames': cmd_frames, 'draws': cmd_draws, 'textures': cmd_textures, 'render': cmd_render, 'profile': cmd_profile,
             'pad': cmd_pad}[a.cmd](a)

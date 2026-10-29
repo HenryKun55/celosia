@@ -426,6 +426,10 @@ namespace native_renderer
         // buildAsync: draws left out (their mesh or texture still on the
         // worker), jobs handed to it, and finished jobs taken up.
         uint32_t heldDraws = 0, asyncJobs = 0, asyncDone = 0;
+        // Of the held draws, those of the world's rigid surfaces (layers 1-3,
+        // 3D): a frame without some of them shows holes (round 27: held).
+        uint32_t heldTerrain = 0;
+        uint32_t heldPicture = 0; // 1: endFrame kept the last picture up (holdIncomplete)
         // The model draws' jobs on a worker (round 23): its time on them, the
         // game thread's waits for it (in hookUs too), the jobs.
         uint64_t jobUs = 0, joinUs = 0;

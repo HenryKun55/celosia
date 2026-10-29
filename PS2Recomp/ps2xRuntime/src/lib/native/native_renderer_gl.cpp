@@ -3299,6 +3299,22 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glowHow = !glow.enabled ? "plain: the glow composite is off this frame"
                       : glowMode == 0 ? "plain: SOTC_GLOW_VITA=0"
                                       : "plain: emulator (SOTC_GLOW_VITA=2 draws it apart)";
+            // Round 27: in Vita3K (the composite left out for the timing's
+            // sake) the layer's blended draws at the composite's coverage,
+            // 1 - (1 - A) (1 - B) of the sharp and blurred copies laid over
+            // the picture, rather than at full: the dead colossus's black mask
+            // and the shadow figures dark and see-through, not solid black
+            // (the blur and the tint are left out). SOTC_GLOW_PLAIN_FADE=0: as
+            // round 26.
+            static const bool fade = !std::getenv("SOTC_GLOW_PLAIN_FADE") || std::atoi(std::getenv("SOTC_GLOW_PLAIN_FADE")) != 0;
+            if (fade && glow.enabled && glowMode == 1)
+            {
+                const float coverage = 1.0f - (1.0f - std::clamp(glow.amountA, 0.0f, 1.0f)) * (1.0f - std::clamp(glow.amountB, 0.0f, 1.0f));
+                for (Draw &d : draws)
+                    if (d.state.order == glow.order && d.state.blend == native_renderer::Blend::Normal)
+                        d.state.opacity *= coverage;
+                glowHow = "plain: emulator, blended draws at the composite's coverage (SOTC_GLOW_VITA=2 draws it apart)";
+            }
             glowLog();
         }
 #else
@@ -3949,10 +3965,34 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // over (its draws and uploads) keeps what it uses, and the game
         // thread's list of what is here loses the rest before it records the
         // next frame. The GL objects go on the render thread.
+        // Round 27: the budget's and the pressure's ages in time too. In
+        // frames alone, at a fight's 8-20 fps, 30 frames were 1.5-4 s: the
+        // terrain behind the camera went and came back as holes (held builds)
+        // when the camera turned. Now a candidate must also be unused for
+        // kPressureMs / kBudgetMs; near the heap's limit (half way from
+        // m_heapHigh to m_heapLimit) the frame ages alone, as before.
+        static constexpr uint32_t kFrameTimes = 4096;
+        uint64_t m_frameTimes[kFrameTimes] = {};
+        // The newest frame handed over at least `ms` ago (0: none that old).
+        uint64_t frameBefore(uint64_t frame, uint64_t now, uint64_t ms) const
+        {
+            const uint64_t limit = std::min<uint64_t>(frame, kFrameTimes - 1u);
+            for (uint64_t back = 1; back <= limit; ++back)
+            {
+                const uint64_t f = frame - back, t = m_frameTimes[f % kFrameTimes];
+                if (t && now - t >= ms * 1000u)
+                    return f;
+            }
+            return frame > kFrameTimes ? frame - kFrameTimes : 0u; // older than the times kept
+        }
         void evictKept()
         {
             constexpr uint64_t kEvery = 256, kUnused = 1800, kBudgetAge = 120, kPressureAge = 30, kHeapEvery = 16;
+            static const uint64_t kPressureMs = std::getenv("SOTC_GL_PRESSURE_MS") ? static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("SOTC_GL_PRESSURE_MS")))) : 8000u;
+            static const uint64_t kBudgetMs = std::getenv("SOTC_GL_BUDGET_MS") ? static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("SOTC_GL_BUDGET_MS")))) : 20000u;
             const uint64_t frame = r->arenaFrame + 1u; // the frame handed over
+            const uint64_t nowTime = native_renderer::nowUs();
+            m_frameTimes[frame % kFrameTimes] = nowTime;
             if (m_heapHigh && frame % kHeapEvery == 0)
                 m_heap = heapUsed();
             const bool aging = frame % kEvery == 0 && frame >= kUnused;
@@ -3975,8 +4015,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             for (const Renderer::Upload &u : m_side) // flushed, not applied yet
                 (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
             const uint64_t agedBefore = aging ? frame - kUnused : 0u;
-            const uint64_t pressureBefore = pressure && frame > kPressureAge ? frame - kPressureAge : 0u;
-            const uint64_t budgetBefore = overBudget && frame > kBudgetAge ? frame - kBudgetAge : 0u;
+            const bool critical = pressure && m_heapLimit > m_heapHigh && m_heap > m_heapHigh + (m_heapLimit - m_heapHigh) / 2u;
+            uint64_t pressureBefore = pressure && frame > kPressureAge ? frame - kPressureAge : 0u;
+            uint64_t budgetBefore = overBudget && frame > kBudgetAge ? frame - kBudgetAge : 0u;
+            if (pressureBefore && !critical)
+                pressureBefore = std::min(pressureBefore, frameBefore(frame, nowTime, kPressureMs));
+            if (budgetBefore)
+                budgetBefore = std::min(budgetBefore, frameBefore(frame, nowTime, kBudgetMs));
             const uint64_t oldest = std::max({agedBefore, pressureBefore, budgetBefore});
             m_candidates.clear();
             r->meshes.forEach([&](uint64_t id, const Mesh &m)

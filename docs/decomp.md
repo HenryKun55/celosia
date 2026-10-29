@@ -4181,6 +4181,198 @@ env-r26-console.txt (SOTC_FRAME_LOG, SOTC_AUDIO_LOG).
    today with no code change), or the fixed-30 frame interval in Vita3K too
    for path-stable timing.
 
+## Round 27: the death mask, the tendrils' matrix, terrain never shown with holes (2026-10-29)
+
+The Mac was on AC power the whole round (100%). The starting point was the
+analysis of the user's two recordings (build/agent-scratch/rec-analysis/
+report.md: 034748 the fight, 040320 the colossus's death, Vita3K 200 MHz).
+The user saw bugs 1 and 2 on the Mac's Metal build too, so they are in the
+shared native code.
+
+**1. The dead colossus was a white / cyan / yellow blob (the death mask).**
+While getNowBossEffect (0x1186290) has bit 0 set, modelDisp skips the
+texture transfer for the surfaces with flag bit 17. It calls
+setBossEffectTexture (0x1085400) instead, which sets:
+- TEX0_1/2: TBP getFrameBufferSizeTBP() + (W x H) >> 6, TBW 4, CT32,
+  256 x 256, TCC 1, MODULATE;
+- TEX1 0x60 (linear, no mips);
+- ALPHA 0x44 FIX 0x80 (normal blending);
+- TEST 0x51003.
+
+bossDeathEffectBegin (0x1085640) fills that buffer earlier in layer 8:
+- FRAME FBP getFrameBufferSizeFBP() + (W x H) >> 11, FBW 4;
+- XYOFFSET 1920, SCISSOR 0..255;
+- a clear to 0 (spriteNoTexFast);
+- then a 16-segment glBegin(6) fan of glColor (0, 0, 0, 1.0), centred on
+  (real 0x1214740, real 0x1214744) x 256 - 128, rim 256 x real(0x1186298).
+  The radius grows by real(0x118629C) x dt and is clamped to 1. The GL path
+  lands the centre at pixel (u x 256, v x 256).
+
+So those surfaces are black, with the vertex alpha inside a growing disc in
+their UV space and 0 outside it. End's composite then lays them over the
+picture, blurred and tinted: the dark smoke. We had bound the model's own
+placeholder T8 texture instead (06e678d6b615ce55), and its raw colours went
+through the composite.
+
+**Round 16's note was wrong.** It said "the fan has no effect" (commit
+50034e7, port_status). Its GS trace was a scene with no flag-17 surface.
+End's first copy does overwrite the buffer, but only after the models have
+sampled it. port_status.json is corrected.
+
+The fix (sotc_native.cpp):
+- glEnd from inside Begin (the offScreen case, which was skipped) now
+  rasterises the fan's own GIF packet into a 256 x 256 host RGBA texture:
+  XYZ2 - 1920, fan / strip / list, the kick vertex's colour, pixel centres
+  at +0.5. It is re-uploaded only when the packet's words change, under one
+  of four ids in turn (0x0200B055000000nn): bounded memory, and the frame
+  still in flight keeps its own copy.
+- The flag-17 surface draws (and the second pass, context 2) get that
+  texture, Normal blending, no LOD and no ROW scroll.
+- No mask made this frame or the last: the draw is left out (an empty mask
+  shows nothing).
+- SOTC_BOSSMASK=0 goes back to round 26; SOTC_BOSSMASK_LOG / _DUMP=<dir>
+  log and dump each mask.
+
+Checked against the emulated GS on the Mac:
+- SOTC_FORCE_BOSSFAN=<r> (round 16's switch) plus SOTC_FORCE_BOSSFAN_CENTRE=u,v
+  (new) at the shrine wake-up, with PS2X_GS_GPU=0 and PS2X_GS_FAN_DUMP=<dir>
+  (new, gs_cpu_backend.cpp: the buffer's alpha after the fan, as the
+  software GS left it).
+- r 0.30 at (0.30, 0.70): 11 of 18 057 texels differ, all on the rim.
+- r 0.84 at (0.62, 0.41), clipped by the scissor: 0 of 65 509 differ.
+- The centre at 0 gives a quarter disc at texel (0, 0), the same in both:
+  no flip.
+- ~/Downloads/celosia-r27-deathmask-host-vs-gs.png, r27/fan4, fan5.
+
+**2. The black tendrils after the kill were missing.** The tendrils are
+meshDisp grids on layer 18 whose vertices are in camera space. We drew every
+grid with the camera's world-to-clip (+0x5A0), which put all of them behind
+the eye. The VU1 uses the projection (camera +0x40) x the buffer's own
+matrix (+0x40 of the buffer). The fix:
+- the hook keeps the projection;
+- meshDispDraw makes projection x view;
+- if that differs from +0x5A0 by more than 1e-3 (relative), it is used.
+  Otherwise +0x5A0 stays, the same bits as round 26.
+
+On the route, Wander's cape and every other grid kept +0x5A0
+(SOTC_MESHDISP_LOG: 56 000 grids, 0 by their own view), so they are
+unchanged. SOTC_MESHDISP_VIEW=0 goes back to round 26. The report's
+"second grid path" (:4600 / :4807) is ptclVtx: particles in world space,
+correct as they were.
+
+**Previews on the death recording.** A replay runs no hooks, so it cannot
+run the fixes. tools/rec.py render has two new options:
+- `--fix-bossmask TEX,U,V`: the replay gives that texture's draws a 16-gon
+  mask whose radius each frame comes from the recorded 0x1186298. The centre
+  is not recorded, so it is given (0.5, 0.5 here).
+- `--fix-meshdisp`: layer 18's grids by the frame's projection (a
+  GPU-skinned draw's matrix) x the identity. The buffer matrix is not
+  recorded, so this is approximate.
+
+On 040320 frames 161-281 (~/Downloads/celosia-r27-death-before-after-1/2.png):
+- the rainbow blob is gone;
+- the body darkens in the blurred composite where the disc covers it;
+- the tendrils come in as black ribbons converging on Wander (frames
+  181-241).
+
+Not verified on real frames of a kill: no save at a colossus on the Mac or
+in Vita3K. The next recording from a kill (it records the mask's uploads)
+or a console kill says.
+
+**3. Terrain holes and late vertices in the fight.** Four changes:
+- native_renderer.cpp, the hold rule. The picture is also held when any
+  draw of layers 1-3 (3D, not skinned) is still on the worker, for up to
+  SOTC_HOLD_TERRAIN_MS (1500 ms; 0 turns it off). Before, only an eighth of
+  the draws missing held it, for 3 frames at most.
+  FrameCounters.heldTerrain / heldPicture are in the [frame] lines.
+- sotc_native.cpp: terrain packets (layers 1-3) are built where they are
+  drawn, up to SOTC_TERRAIN_BUILD_US (2500 us) of game time a frame; the
+  rest go to the worker as before.
+- native_renderer_gl.cpp evictKept: the budget and pressure ages are also
+  in time (SOTC_GL_BUDGET_MS 20 000, SOTC_GL_PRESSURE_MS 8 000). Near the
+  heap's limit, half way from m_heapHigh to m_heapLimit, the frame ages
+  apply alone, as before.
+- The recorder artefact: a draw whose id is pending only because the
+  recorder asked for it again (the backend has the same content) is drawn,
+  not held.
+
+Calibrated Vita3K 222, the route on the r24 card (r27/new222 against
+old222: the same VPK with SOTC_HOLD_TERRAIN_MS=0 SOTC_TERRAIN_BUILD_US=0,
+which is round 26's behaviour). r27/holds.py counts shown frames with
+terrain missing:
+
+| run | frames shown with terrain missing | pictures held | longest held run |
+|---|---|---|---|
+| old222 (round 26 rules) | 212 | 27 | 3 frames |
+| new222 | 0 | 69 | 12 frames (349 ms, at the boot's first 3D) |
+
+new222's other held runs are 2-5 frames, mostly in the walk and the area
+change. Frame timing by window (r26/split.py, game frame ms):
+
+| run | shrine | walk + area | plain |
+|---|---|---|---|
+| new222 | 43.6 | 75.9 | 51.6 |
+| old222 | 43.8 | 76.4 | 50.7 |
+
+Worst frame 245.8 / 226.0 ms, 6 / 6 frames over 120 ms: no new spikes
+(noise is about ±2% a window). The fight itself could not be run (no
+colossus save).
+
+**4. Vita3K's plain layer 8.** In Vita3K the composite is left out for the
+timing's sake (glowRedraws == inEmulator). Layer 8's Normal draws are now
+drawn at the composite's coverage, 1 - (1 - A)(1 - B), not at full
+(SOTC_GLOW_PLAIN_FADE=0 goes back to round 26). Without the blur and the
+tint, the death's black mask (A 0, B 0.82) is 82% instead of solid. On the
+route the amounts are 0.23 / 1.25 (coverage 1): no visible change
+(r27/fade-sheet.png). Not seen at a kill.
+
+**Exactness.** The fixed-30 route on the Mac (SOTC_NATIVE=2,
+SOTC_FRAME_INTERVAL=2, SOTC_POS_LOG=30, to 5 400; r27/route2.sh with
+MC=<card>), r27/pos-2: within 0.01 units of r26/pos-exact2 and 0.10 of
+r24/pos-1.
+
+**memcards/Mcd001.ps2 was changed on 2026-10-29 at 01:21** (not by this
+round). With the new card, Wander starts elsewhere at frame 1 140
+(r27/pos-1, 42 units off, not a code effect). The route checks now use the
+r24 card (r27/route-card-r24.ps2, md5 0be8364455ab12cfb2b08f16c8a61e72), in
+r27/route2.sh and r27/v3k.sh.
+
+No generated code or guest-visible native changed; no difftest was needed.
+Only the debug switches (SOTC_FORCE_BOSSFAN*) write guest memory.
+
+**Files:**
+- game/overrides/sotc_native.cpp: the mask, the flag-17 draws,
+  meshDisp's matrix, the terrain builds, the [frame] fields,
+  SOTC_FORCE_BOSSFAN_CENTRE.
+- PS2Recomp/ps2xRuntime/include/runtime/native_renderer.h: heldTerrain,
+  heldPicture.
+- PS2Recomp/ps2xRuntime/src/lib/native/native_renderer.cpp: the hold rule,
+  pending ids the backend has.
+- native_renderer_gl.cpp: the eviction ages in time, the plain layer 8's
+  coverage.
+- native_recorder.cpp: the replay's previews.
+- gs_cpu_backend.cpp: PS2X_GS_FAN_DUMP.
+- tools/rec.py: --fix-bossmask, --fix-meshdisp.
+- docs/port_status.json.
+- Tools: r27/route2.sh, r27/v3k.sh, r27/holds.py, r27/sheet.py.
+- Deliverables: build/agent-scratch/celosia-r27.vpk (shader seed: 42
+  files), env-r27-console.txt.
+
+**Round 28 (plan): the decomp chain, from the fight's profile.**
+1. The collision finder side, about 16% of the fight's game thread:
+   - the leaf 01115798 / 01115A50;
+   - Finder / FinderCallBack;
+   - modelClipSolid / ClipLayoutObjModel (its guest calls are 39% of
+     callGuest).
+   Exact against the difftest, and the fixed-30 route.
+2. glEnd's immediate path from 010F3FB0 (5.5%): batch its A+D pairs into one
+   2D draw list a layer instead of feeding them one by one.
+3. The DMA chain walk (iosDmaSendSChainPath1, 3.4%).
+4. modelDisp / 010F3B58 (and the skeleton pose 010B8590 left after round 26).
+5. A kill on the console or in a recording made with this build, to confirm
+   the mask and the tendrils on real frames, with the centre and the
+   buffer matrix the hooks now use.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

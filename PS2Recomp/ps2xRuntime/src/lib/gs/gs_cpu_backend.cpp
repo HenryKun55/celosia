@@ -695,6 +695,39 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
     if (!m_vram || batch.vertexCount == 0u)
         return;
     ps2_stats::gsPrims[static_cast<uint32_t>(batch.state.prim.type) & 7u].fetch_add(1, std::memory_order_relaxed);
+    // PS2X_GS_FAN_DUMP=<dir> (debugging, round 27): a triangle fan into a
+    // 256-wide target (FBW 4) scissored to 256 x 256 (SotC's
+    // bossDeathEffectBegin mask): at the next other draw, that target's
+    // 256 x 256 CT32 alpha as the GS left it, as a PGM (alpha != 0: 255).
+    static const char *fanDump = std::getenv("PS2X_GS_FAN_DUMP");
+    if (fanDump)
+    {
+        static int armedFbp = -1, dumps = 0;
+        const auto &c = batch.state.context;
+        const bool fan = batch.state.prim.type == GS_PRIM_TRIFAN && c.frame.fbw == 4u && batch.vertices[0].r == 0u && batch.vertices[0].a == 128u;
+        if (fan && dumps < 50)
+            std::fprintf(stderr, "[gs:fan] fbp %u fbw %u sc %u %u ofs %u %u n %u v0 %.2f %.2f v1 %.2f %.2f rgba %u %u %u %u alpha %llx test %llx\n", c.frame.fbp, c.frame.fbw, c.scissor.x1, c.scissor.y1, c.xyoffset.ofx >> 4, c.xyoffset.ofy >> 4, batch.vertexCount, batch.vertices[0].x,
+                         batch.vertices[0].y, batch.vertices[1].x, batch.vertices[1].y, batch.vertices[0].r, batch.vertices[0].g, batch.vertices[0].b, batch.vertices[0].a,
+                         (unsigned long long)c.alpha, (unsigned long long)c.test);
+        if (!fan && armedFbp >= 0 && dumps < 50)
+        {
+            flushPendingUnlocked("FanDump");
+            finishPendingUnlocked();
+            char path[512];
+            std::snprintf(path, sizeof(path), "%s/gsfan_%03d_fbp%d.pgm", fanDump, dumps++, armedFbp);
+            if (FILE *f = std::fopen(path, "wb"))
+            {
+                std::fprintf(f, "P5 256 256 255\n");
+                for (uint32_t y = 0; y < 256u; ++y)
+                    for (uint32_t x = 0; x < 256u; ++x)
+                        std::fputc((ReadVramUnlocked(0u, static_cast<uint32_t>(armedFbp) * 32u, 4u, x, y) >> 24) ? 255 : 0, f);
+                std::fclose(f);
+            }
+            armedFbp = -1;
+        }
+        if (fan)
+            armedFbp = static_cast<int>(c.frame.fbp);
+    }
     // PS2X_GS_SKIP_TBP=<tbp0>: debugging aid, drop textured draws from that address.
     static const long skipTbp = std::getenv("PS2X_GS_SKIP_TBP") ? std::atol(std::getenv("PS2X_GS_SKIP_TBP")) : -1;
     if (skipTbp >= 0 && batch.state.prim.tme && batch.state.context.tex0.tbp0 == static_cast<uint32_t>(skipTbp))

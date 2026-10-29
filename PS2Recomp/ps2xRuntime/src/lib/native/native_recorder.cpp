@@ -20,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1325,9 +1326,68 @@ namespace native_recorder
         }
     }
 
+    namespace replay
+    {
+        // Round 27, previews for recordings made before the fixes (the fixes
+        // are in the game's hooks, which a replay does not run):
+        // SOTC_REC_FIX_BOSSMASK=<texture hex>,<u>,<v> and
+        // SOTC_REC_FIX_RADIUS=<frame>:<r>,...: the draws with that texture get
+        // bossDeathEffectBegin's mask instead (a 16-gon of radius 256 r
+        // around (u, v) x 256, alpha 0x80 inside, normal blending, no mips),
+        // as the hook now gives the flag-17 surfaces (the centre is not in
+        // the recording: given). SOTC_REC_FIX_MESHDISP=1: layer 18's meshDisp
+        // grids (mesh ids (1 << 60) | n) drawn with the frame's projection
+        // (a GPU-skinned draw's matrix) instead of their recorded +0x5A0
+        // matrix (approximate: their buffer's own matrix is not recorded and
+        // is taken as the identity).
+        void bossDisc(float u, float v, float r, std::vector<uint8_t> &rgba)
+        {
+            rgba.assign(256u * 256u * 4u, 0u);
+            float px[17], py[17];
+            for (int i = 0; i <= 16; ++i)
+            {
+                const float a = static_cast<float>(i % 16) * 3.14159274f * 2.0f * 0.0625f;
+                px[i] = u * 256.0f + std::cos(a) * 256.0f * r;
+                py[i] = v * 256.0f + std::sin(a) * 256.0f * r;
+            }
+            for (int y = 0; y < 256; ++y)
+                for (int x = 0; x < 256; ++x)
+                {
+                    const float sx = static_cast<float>(x) + 0.5f, sy = static_cast<float>(y) + 0.5f;
+                    bool inside = true;
+                    for (int i = 0; i < 16 && inside; ++i)
+                        inside = (px[i + 1] - px[i]) * (sy - py[i]) - (py[i + 1] - py[i]) * (sx - px[i]) >= 0.0f;
+                    if (inside)
+                        rgba[(static_cast<size_t>(y) * 256u + x) * 4u + 3u] = 0x80u;
+                }
+        }
+    }
+
     int runReplay()
     {
         using namespace replay;
+        uint64_t fixTexture = 0;
+        float fixU = 0.5f, fixV = 0.5f;
+        std::unordered_map<uint64_t, float> fixRadius;
+        if (const char *e = std::getenv("SOTC_REC_FIX_BOSSMASK"))
+        {
+            fixTexture = std::strtoull(e, nullptr, 16);
+            if (const char *c = std::strchr(e, ','))
+                std::sscanf(c + 1, "%f,%f", &fixU, &fixV);
+            if (const char *r = std::getenv("SOTC_REC_FIX_RADIUS"))
+                for (const char *p = r; *p;)
+                {
+                    char *next = nullptr;
+                    const uint64_t f = std::strtoull(p, &next, 10);
+                    if (!next || *next != ':')
+                        break;
+                    fixRadius[f] = std::strtof(next + 1, &next);
+                    p = next;
+                    while (*p == ',')
+                        ++p;
+                }
+        }
+        const bool fixMeshDisp = std::getenv("SOTC_REC_FIX_MESHDISP") && std::atoi(std::getenv("SOTC_REC_FIX_MESHDISP")) != 0;
         const std::string dir = std::getenv("SOTC_REC_REPLAY");
         const std::string out = std::getenv("SOTC_REC_OUT") ? std::getenv("SOTC_REC_OUT") : dir + "/png";
         const std::string modes = std::getenv("SOTC_REC_MODES") ? std::getenv("SOTC_REC_MODES") : "full,noglow,layers";
@@ -1433,6 +1493,42 @@ namespace native_recorder
                 continue;
             }
             const std::vector<uint8_t> &d = full[0].data;
+            uint64_t fixMask = 0;
+            if (fixTexture)
+            {
+                const auto it = fixRadius.find(frame);
+                std::vector<uint8_t> mask;
+                bossDisc(fixU, fixV, it != fixRadius.end() ? it->second : 0.0f, mask);
+                fixMask = 0x0200B05500000000ull | (frame & 0xFFFFu);
+                native_renderer::uploadTexture(fixMask, 256u, 256u, mask.data(), 1u);
+            }
+            float fixProjection[16] = {};
+            bool haveProjection = false;
+            if (fixMeshDisp)
+            {
+                Reader r{d.data(), d.data() + d.size()};
+                while (r.p + 8 <= r.end && !haveProjection)
+                {
+                    const uint32_t type = r.get<uint32_t>(), size = r.get<uint32_t>();
+                    if (type == rFullDraw)
+                    {
+                        Reader b{r.p, r.p + size};
+                        const uint32_t n = b.get<uint32_t>();
+                        b.get<uint8_t>();
+                        b.p += static_cast<size_t>(n) * 8u;
+                        float clip[16];
+                        std::memcpy(clip, b.p, 64);
+                        b.p += 64;
+                        const native_renderer::DrawState st = getState(b);
+                        if (st.skinPalette && !st.screen)
+                        {
+                            std::memcpy(fixProjection, clip, 64);
+                            haveProjection = true;
+                        }
+                    }
+                    r.p += size;
+                }
+            }
             std::vector<uint32_t> layers;
             {
                 Reader r{d.data(), d.data() + d.size()};
@@ -1511,6 +1607,15 @@ namespace native_recorder
                             native_renderer::DrawState s = getState(b);
                             if (s.skinPalette)
                                 s.skinPalette = palettes.count(s.skinPalette) ? palettes[s.skinPalette] : 0u;
+                            if (fixMask && s.texture == fixTexture)
+                            {
+                                s.texture = fixMask;
+                                s.blend = native_renderer::Blend::Normal;
+                                s.maxLod = 0.0f;
+                                s.uvOffset[0] = s.uvOffset[1] = 0.0f;
+                            }
+                            if (haveProjection && s.order == 18u && n && (meshes[0] >> 60) == 1u)
+                                std::memcpy(clip, fixProjection, 64);
                             if (fate == 1)
                                 break; // held on the worker: not drawn then either
                             native_renderer::drawMulti(meshes.data(), n, clip, s);

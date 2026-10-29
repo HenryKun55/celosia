@@ -1419,6 +1419,13 @@ namespace native_renderer
                          (unsigned long long)(s.lit || s.fresnel ? dumpHash(s.light, 32) : 0ull), s.skinPalette ? 1u : 0u, s.skinPaletteCount);
         }
     }
+    // A draw of the world's rigid surfaces (the sky and the terrain's layers).
+    inline bool terrainDraw(const DrawState &s) { return s.order >= 1u && s.order <= 3u && !s.screen && !s.skinPalette; }
+    // Still on the worker, and not in the backend already: a build the scene
+    // recorder asked for again (hasMesh says no for what it has not got) is
+    // of the same content (ids hash it), so the backend's copy is drawn.
+    inline bool heldMesh(uint64_t id) { return asyncPending(id) && !(native_recorder::active() && backend() && g_backend->hasMesh(id)); }
+    inline bool heldTexture(uint64_t id) { return id && asyncPending(id) && !(native_recorder::active() && backend() && g_backend->hasTexture(id)); }
     void draw(uint64_t mesh, const float clip[16], const DrawState &state)
     {
         if (g_drawTap)
@@ -1431,9 +1438,11 @@ namespace native_renderer
         if (g_dumpFile)
             dumpDraw(mesh, clip, state);
         // Its mesh or texture still on the worker (buildAsync): left out.
-        if (asyncBuilds().anyPending() && (asyncPending(mesh) || (state.texture && asyncPending(state.texture))))
+        if (asyncBuilds().anyPending() && (heldMesh(mesh) || heldTexture(state.texture)))
         {
             ++frameCounters().heldDraws;
+            if (terrainDraw(state))
+                ++frameCounters().heldTerrain;
             if (native_recorder::active())
                 native_recorder::front::draw(&mesh, 1, clip, state, 1);
             return;
@@ -1482,10 +1491,12 @@ namespace native_renderer
                 dumpDraw(meshes[i], clip, state);
         // Held meshes (still on the worker) left out one by one, as draw()
         // leaves them out; the texture is the same for all.
-        const bool texturePending = asyncBuilds().anyPending() && state.texture && asyncPending(state.texture);
+        const bool texturePending = asyncBuilds().anyPending() && heldTexture(state.texture);
         if (texturePending)
         {
             frameCounters().heldDraws += count;
+            if (terrainDraw(state))
+                frameCounters().heldTerrain += count;
             if (native_recorder::active())
                 native_recorder::front::draw(meshes, count, clip, state, 1);
             return;
@@ -1496,9 +1507,13 @@ namespace native_renderer
         if (asyncBuilds().anyPending())
         {
             kept.clear();
+            const bool terrain = terrainDraw(state);
             for (uint32_t i = 0; i < count; ++i)
-                if (asyncPending(meshes[i]))
+                if (heldMesh(meshes[i]))
+                {
                     ++frameCounters().heldDraws;
+                    frameCounters().heldTerrain += terrain ? 1u : 0u;
+                }
                 else
                     kept.push_back(meshes[i]);
             list = kept.data();
@@ -1509,7 +1524,7 @@ namespace native_renderer
                 static std::vector<uint64_t> held;
                 held.clear();
                 for (uint32_t i = 0; i < count; ++i)
-                    if (asyncPending(meshes[i]))
+                    if (heldMesh(meshes[i]))
                         held.push_back(meshes[i]);
                 native_recorder::front::draw(held.data(), static_cast<uint32_t>(held.size()), clip, state, 1);
             }
@@ -1636,11 +1651,27 @@ namespace native_renderer
         // picture stays up rather than one with holes (holdIncomplete).
         {
             static uint32_t heldRun = 0;
-            const FrameCounters &c = frameCounters();
-            // Up to SOTC_HOLD_FRAMES frames in a row (3).
+            static uint64_t heldSince = 0;
+            FrameCounters &c = frameCounters();
+            // Up to SOTC_HOLD_FRAMES frames in a row (3) when an eighth of the
+            // draws are missing. Round 27: also when any of the terrain's
+            // (layers 1-3) is, for up to SOTC_HOLD_TERRAIN_MS (1500 ms; 0: not) in a
+            // row: at 8-20 fps a fight's disc burst (650-870 builds) kept 1-2
+            // frames with a few terrain packets missing, under the eighth,
+            // and they were shown with holes. Past that time the frame is
+            // shown as it is (a worker that never catches up must not freeze
+            // the picture).
+            static const uint64_t terrainMs = std::getenv("SOTC_HOLD_TERRAIN_MS") ? static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("SOTC_HOLD_TERRAIN_MS")))) : 1500u;
             const uint32_t holdFrames = static_cast<uint32_t>(tuning().holdFrames + 0.5f);
-            const bool hold = tuning().asyncBuilds && tuning().holdIncomplete && c.heldDraws * 8u > c.draws + c.heldDraws && heldRun < holdFrames;
+            const uint64_t now = nowUs();
+            const bool on = tuning().asyncBuilds && tuning().holdIncomplete;
+            const bool many = c.heldDraws * 8u > c.draws + c.heldDraws && heldRun < holdFrames;
+            const bool terrain = terrainMs && c.heldTerrain != 0u && (heldRun == 0u || now - heldSince < terrainMs * 1000u);
+            const bool hold = on && (many || terrain);
+            if (hold && heldRun == 0u)
+                heldSince = now;
             heldRun = hold ? heldRun + 1u : 0u;
+            frameCounters().heldPicture = hold ? 1u : 0u;
             if (hold && backend())
                 g_backend->holdFrame();
             if (native_recorder::active())

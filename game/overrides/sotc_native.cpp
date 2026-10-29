@@ -2683,6 +2683,7 @@ namespace sotc_native
             uint64_t frames = 0, period = 0, worst = 0, hooks = 0, decode = 0, tex = 0, mesh = 0, render = 0, present = 0, wait = 0, blocked = 0, threaded = 0;
             uint64_t draws = 0, targets = 0, texUploads = 0, texBytes = 0, meshUploads = 0, meshBytes = 0;
             uint64_t jobs = 0, join = 0;
+            uint64_t held = 0, heldTerrain = 0, heldPictures = 0;
         };
         static Sum sum;
         // The game thread's scheduler waits (idle, VBlank pacing, a guest
@@ -2706,19 +2707,19 @@ namespace sotc_native
         {
             const uint64_t period = now - last;
             if (print && period > 50000u)
-                std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u"
+                std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
-                             c.asyncJobs, c.asyncDone, c.heldDraws, (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
+                             c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "", (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
                              (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0,
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
             if (print && tune.frameLogAll && period <= 50000u)
-                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f\n",
+                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
-                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws,
+                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
                              (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0, (unsigned long long)(mark.cdReads - lastMark.cdReads),
                              (mark.cdBytes - lastMark.cdBytes) / 1024.0, (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0,
                              (mark.sprUs - lastMark.sprUs) / 1000.0, (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0,
@@ -2746,18 +2747,22 @@ namespace sotc_native
             sum.texBytes += c.texBytes;
             sum.meshUploads += c.meshUploads;
             sum.meshBytes += c.meshBytes;
+            sum.held += c.heldDraws;
+            sum.heldTerrain += c.heldTerrain;
+            sum.heldPictures += c.heldPicture;
             if (tune.perfOverlay)
                 perfOverlayFrame(period, c);
             if (sum.frames == 60u && print)
             {
                 const double n = 60.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
                 std::fprintf(stderr, "[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
-                             "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB) | jobs %.1f join %.1f\n",
+                             "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB) | jobs %.1f join %.1f | held %llu (terrain %llu) pictures held %llu\n",
                              (unsigned long long)g_frame, sum.period / n / 1000.0, n * 1e6 / static_cast<double>(sum.period), sum.worst / 1000.0, game, sum.hooks / n / 1000.0,
                              sum.decode / n / 1000.0, sum.tex / n / 1000.0, sum.mesh / n / 1000.0, sum.render / n / 1000.0, sum.present / n / 1000.0,
                              sum.wait / n / 1000.0, sum.threaded ? " (render thread)" : "",
                              sum.draws / n, sum.targets / n, sum.texUploads / n, sum.texBytes / n / 1024.0, sum.meshUploads / n, sum.meshBytes / n / 1024.0,
-                             sum.jobs / n / 1000.0, sum.join / n / 1000.0);
+                             sum.jobs / n / 1000.0, sum.join / n / 1000.0, (unsigned long long)sum.held, (unsigned long long)sum.heldTerrain,
+                             (unsigned long long)sum.heldPictures);
                 sum = Sum{};
             }
             else if (sum.frames >= 60u)
@@ -3247,7 +3252,7 @@ namespace sotc_native
     struct MeshDispJob
     {
         uint32_t object = 0, header = 0, layer = 0, rows = 0, columns = 0, buffer = 0;
-        float camera[16] = {};
+        float camera[16] = {}, projection[16] = {};
         std::vector<uint8_t> grid; // the current buffer's bytes at the hook (view matrix, vertices)
     };
     struct ShadowDispJob
@@ -3976,6 +3981,202 @@ namespace sotc_native
         }
     }
 
+    // ---- bossDeathEffectBegin's mask (round 27) ---------------------------
+    //
+    // While getNowBossEffect (0x1186290) has bit 0, bossDeathEffectBegin
+    // (0x1085640) draws, in layer 8, into a 256 x 256 CT32 buffer (FRAME FBP
+    // getFrameBufferSizeFBP() + (W x H) >> 11, FBW 4, XYOFFSET 1920, SCISSOR
+    // 0..255): the buffer cleared to 0 (spriteNoTexFast, colour 0), then a
+    // 16-segment fan of glColor (0, 0, 0, 1.0) = RGBA (0, 0, 0, 0x80), its
+    // centre (real 0x1214740, real 0x1214744) x 256 - 128 and its rim at
+    // 256 x real(0x1186298) around it (glVertex2f; TEST ATST NEVER, AFAIL
+    // FB_ONLY: every pixel written, ALPHA 0x44 FIX 0x80: Cs). modelDisp then
+    // gives the surfaces with flag bit 17 setBossEffectTexture (0x1085400)
+    // instead of their own texture: TEX0 that buffer (TBP
+    // getFrameBufferSizeTBP() + (W x H) >> 6, TBW 4, CT32, 256 x 256, TCC 1,
+    // TFX MODULATE), TEX1 0x60 (linear, no mips), ALPHA 0x44 FIX 0x80
+    // (normal blending), TEST 0x51003 (no alpha cut, Z GEQUAL), the same for
+    // context 2. So those surfaces are black, their alpha the vertex alpha
+    // inside the growing disc and 0 outside it. bossDeathEffectEnd's copies
+    // reuse the buffer after the models (round 16's note that the fan has no
+    // effect looked at a scene with no bit-17 surface).
+    // Here the fan's GIF packet (glEnd from inside bossDeathEffectBegin,
+    // XYZ2 in screen space) is rasterised into a host RGBA texture as the GS
+    // would fill the buffer, uploaded when it changes, under one of four
+    // ids in turn (bounded memory; the frame still in flight keeps its own).
+    struct BossMask
+    {
+        std::atomic<uint64_t> id{0};      // the texture the bit-17 surfaces use (0: none)
+        std::atomic<uint64_t> frame{~0ull}; // the game frame it was made in
+        uint64_t hash = 0;
+        uint32_t slot = 0;
+        std::vector<uint8_t> rgba;
+    };
+    BossMask g_bossMask;
+    constexpr uint64_t kBossMaskId = 0x0200B05500000000ull; // bit 57: apart from the texture keys (bit 58) and the meshes (59-63)
+    // SOTC_BOSSMASK=0: the bit-17 surfaces keep their own texture (round 26's picture).
+    bool bossMaskOn()
+    {
+        static const bool on = !std::getenv("SOTC_BOSSMASK") || std::atoi(std::getenv("SOTC_BOSSMASK")) != 0;
+        return on;
+    }
+
+    // The packet's (value, register) qwords from `start` + 0x20 to `end`, as
+    // the GS would draw them into the 256 x 256 buffer (XYOFFSET 1920,
+    // scissor 0..255, every pixel written): triangles, strips and fans, the
+    // kick vertex's colour (flat; the fan's are all one), sampled at the
+    // pixels' centres (x + 0.5, y + 0.5): the emulated GS's coverage (round
+    // 27, PS2X_GS_FAN_DUMP: 18 057 texels, ~20 differ on the rim).
+    void rasteriseBossFan(uint32_t start, uint32_t end, std::vector<uint8_t> &rgba)
+    {
+        constexpr int kSize = 256;
+        rgba.assign(static_cast<size_t>(kSize) * kSize * 4u, 0u);
+        struct V
+        {
+            float x, y;
+            uint32_t rgba;
+        };
+        V ring[3];
+        uint32_t n = 0, prim = 0, colour = 0;
+        const auto triangle = [&rgba](const V &a, const V &b, const V &c, uint32_t col)
+        {
+            // Edge functions, made counter-clockwise; top-left rule for ties.
+            float area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if (area == 0.0f)
+                return;
+            const V *p0 = &a, *p1 = &b, *p2 = &c;
+            if (area < 0.0f)
+                std::swap(p1, p2), area = -area;
+            const int x0 = std::max(0, static_cast<int>(std::floor(std::min({a.x, b.x, c.x}))));
+            const int x1 = std::min(kSize - 1, static_cast<int>(std::ceil(std::max({a.x, b.x, c.x}))));
+            const int y0 = std::max(0, static_cast<int>(std::floor(std::min({a.y, b.y, c.y}))));
+            const int y1 = std::min(kSize - 1, static_cast<int>(std::ceil(std::max({a.y, b.y, c.y}))));
+            const V *e[3][2] = {{p0, p1}, {p1, p2}, {p2, p0}};
+            for (int y = y0; y <= y1; ++y)
+                for (int x = x0; x <= x1; ++x)
+                {
+                    bool inside = true;
+                    for (int k = 0; k < 3 && inside; ++k)
+                    {
+                        const V &s = *e[k][0], &t = *e[k][1];
+                        const float w = (t.x - s.x) * (static_cast<float>(y) + 0.5f - s.y) - (t.y - s.y) * (static_cast<float>(x) + 0.5f - s.x);
+                        // A pixel on an edge belongs to one of the two triangles sharing it.
+                        const bool owns = (t.y > s.y) || (t.y == s.y && t.x < s.x);
+                        inside = w > 0.0f || (w == 0.0f && owns);
+                    }
+                    if (inside)
+                        std::memcpy(&rgba[(static_cast<size_t>(y) * kSize + x) * 4u], &col, 4);
+                }
+        };
+        for (uint32_t q = start + 0x20u; q + 16u <= end; q += 16u)
+        {
+            uint64_t value;
+            std::memcpy(&value, g_ram + (q & 0x1FFFFF0u), 8);
+            const uint32_t reg = word(q + 8u) & 0xFFu;
+            if (reg == 0x00u)
+            {
+                prim = static_cast<uint32_t>(value) & 7u;
+                n = 0;
+            }
+            else if (reg == 0x01u)
+            {
+                const uint32_t r = static_cast<uint32_t>(value) & 0xFFu, g = (static_cast<uint32_t>(value) >> 8) & 0xFFu, b = (static_cast<uint32_t>(value) >> 16) & 0xFFu,
+                               a = (static_cast<uint32_t>(value) >> 24) & 0xFFu;
+                colour = r | (g << 8) | (b << 16) | (a << 24);
+            }
+            else if (reg == 0x04u || reg == 0x05u || reg == 0x0Cu || reg == 0x0Du)
+            {
+                const bool kick = reg == 0x04u || reg == 0x05u;
+                V v{static_cast<float>(value & 0xFFFFu) / 16.0f - 1920.0f, static_cast<float>((value >> 16) & 0xFFFFu) / 16.0f - 1920.0f, colour};
+                if (prim == 5u) // fan: ring[0] the centre
+                {
+                    if (n < 2u)
+                        ring[n] = v;
+                    else
+                    {
+                        ring[2] = v;
+                        if (kick)
+                            triangle(ring[0], ring[1], ring[2], colour);
+                        ring[1] = v;
+                    }
+                }
+                else if (prim == 4u) // strip
+                {
+                    if (n < 2u)
+                        ring[n] = v;
+                    else
+                    {
+                        ring[2] = v;
+                        if (kick)
+                            triangle(ring[0], ring[1], ring[2], colour);
+                        ring[0] = ring[1];
+                        ring[1] = ring[2];
+                    }
+                }
+                else if (prim == 3u) // list
+                {
+                    ring[n % 3u] = v;
+                    if (n % 3u == 2u && kick)
+                        triangle(ring[0], ring[1], ring[2], colour);
+                }
+                ++n;
+            }
+        }
+    }
+
+    // glEnd called by bossDeathEffectBegin: the fan's mask for this frame.
+    void captureBossFan(uint32_t start, uint32_t end)
+    {
+        if (!bossMaskOn() || !start || end <= start + 0x20u || end - start >= 0x10000u)
+            return;
+        BossMask &m = g_bossMask;
+        // The packet's words are what the mask depends on (vertices, colours).
+        uint64_t h = 0xcbf29ce484222325ull;
+        for (uint32_t q = start + 0x20u; q + 4u <= end; q += 4u)
+            h = (h ^ word(q)) * 0x100000001b3ull;
+        if (h != m.hash || !m.id.load(std::memory_order_relaxed) || !native_renderer::hasTexture(m.id.load(std::memory_order_relaxed)))
+        {
+            rasteriseBossFan(start, end, m.rgba);
+            m.hash = h;
+            m.slot = (m.slot + 1u) & 3u;
+            const uint64_t id = kBossMaskId | m.slot;
+            native_renderer::uploadTexture(id, 256u, 256u, m.rgba.data(), 1u);
+            m.id.store(id, std::memory_order_relaxed);
+            static const bool log = std::getenv("SOTC_BOSSMASK_LOG") != nullptr;
+            if (log)
+            {
+                uint32_t covered = 0;
+                for (size_t i = 3; i < m.rgba.size(); i += 4u)
+                    covered += m.rgba[i] != 0u;
+                std::fprintf(stderr, "[bossmask] frame %llu id %016llx radius %g centre %g %g texels %u (%u qwords)\n", (unsigned long long)g_frame,
+                             (unsigned long long)id, real(0x01186298u), real(0x01214740u), real(0x01214744u), covered, (end - start) / 16u - 2u);
+                // SOTC_BOSSMASK_DUMP=<dir>: each new mask as a PPM of its alpha.
+                if (const char *dir = std::getenv("SOTC_BOSSMASK_DUMP"))
+                {
+                    char path[512];
+                    std::snprintf(path, sizeof(path), "%s/bossmask_%06llu.pgm", dir, (unsigned long long)g_frame);
+                    if (FILE *f = std::fopen(path, "wb"))
+                    {
+                        std::fprintf(f, "P5 256 256 255\n");
+                        for (size_t i = 3; i < m.rgba.size(); i += 4u)
+                            std::fputc(m.rgba[i] ? 255 : 0, f);
+                        std::fclose(f);
+                    }
+                }
+            }
+        }
+        m.frame.store(g_frame, std::memory_order_relaxed);
+    }
+    // The mask for this frame's bit-17 surfaces: made this frame or the last
+    // (0: none; the draw is left out, as an empty mask would show nothing).
+    uint64_t bossMaskTexture()
+    {
+        const uint64_t frame = g_bossMask.frame.load(std::memory_order_relaxed);
+        if (frame == ~0ull || frame + 1u < g_frame)
+            return 0;
+        return g_bossMask.id.load(std::memory_order_relaxed);
+    }
+
     // The gl* immediate API (glBeginWithDlLayerNo .. glEnd) builds a GIF
     // packet on the CPU: at *0x1186398 a DMA tag, a GIF tag (+0x10, A+D),
     // then (value, register) pairs up to *0x1186394: TEST, PRIM, and per
@@ -3993,6 +4194,8 @@ namespace sotc_native
         // Not drawn here: bossDeathEffectBegin's fan goes to an off-screen buffer.
         const uint32_t ra = GPR_U32(ctx, 31);
         const bool offScreen = ra >= 0x01085640u && ra < 0x01085E40u;
+        if (offScreen)
+            captureBossFan(start, end);
         // 0x10f3fb0's strips (the heat haze behind the bird) sample the copy
         // of the screen 0x10f37c8 made in their layer (UV in its 256 x 256 texels).
         const bool haze = ra >= 0x010F3FB0u && ra < 0x010F4890u;
@@ -4141,6 +4344,13 @@ namespace sotc_native
             std::memcpy(rdram + 0x1186298u, &fan, 4);
             const float none = 0.0f;
             std::memcpy(rdram + 0x118629Cu, &none, 4);
+            // SOTC_FORCE_BOSSFAN_CENTRE=u,v (testing, round 27): the fan's centre too.
+            if (const char *centre = std::getenv("SOTC_FORCE_BOSSFAN_CENTRE"))
+            {
+                float uv[2] = {0.0f, 0.0f};
+                if (std::sscanf(centre, "%f,%f", &uv[0], &uv[1]) == 2)
+                    std::memcpy(rdram + 0x1214740u, uv, 8);
+            }
         }
         g_layers.push_back(GPR_U32(ctx, 4));
         g_pushLayer(rdram, ctx, runtime);
@@ -4187,7 +4397,10 @@ namespace sotc_native
         job.header = header;
         job.layer = layer;
         for (int i = 0; i < 16; ++i)
+        {
             job.camera[i] = real(g_cameraContext + 0x5A0u + i * 4u);
+            job.projection[i] = real(g_cameraContext + 0x40u + i * 4u);
+        }
         {
             // The grid as it is now: the current buffer's view matrix and
             // vertices (the game simulates the cloth into the other buffer
@@ -4309,10 +4522,47 @@ namespace sotc_native
                 }
             native_renderer::uploadMesh(mesh, tris.data(), static_cast<uint32_t>(tris.size()), true);
         }
+        // The VU1 takes the grid by the projection (camera +0x40) x the
+        // buffer's own matrix. For a cape that is the world-to-camera
+        // matrix, and the product is the camera's world-to-clip (+0x5A0)
+        // up to rounding: then +0x5A0 as before (the same bits as the body's
+        // draws). The death's tendrils (layer 18) hold camera-space vertices
+        // under another matrix: +0x5A0 put every vertex behind the eye.
+        // SOTC_MESHDISP_VIEW=0: +0x5A0 always (round 26).
+        static const bool ownView = !std::getenv("SOTC_MESHDISP_VIEW") || std::atoi(std::getenv("SOTC_MESHDISP_VIEW")) != 0;
         const float *camera = job.camera;
+        float product[16];
+        if (ownView)
+        {
+            float diff = 0.0f, scale = 1e-6f;
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; ++k)
+                        sum += job.projection[k * 4 + r] * view[c * 4 + k];
+                    product[c * 4 + r] = sum;
+                    diff = std::max(diff, std::fabs(sum - job.camera[c * 4 + r]));
+                    scale = std::max(scale, std::fabs(sum));
+                }
+            if (diff > scale * 1e-3f)
+                camera = product;
+            static const bool log = std::getenv("SOTC_MESHDISP_LOG") != nullptr;
+            if (log)
+            {
+                static uint64_t grids = 0, own = 0;
+                ++grids;
+                own += camera == product;
+                if (camera == product && own < 20u)
+                    std::fprintf(stderr, "[meshdisp] frame %llu layer %u object %08x rows %u columns %u: own view (diff %g of %g)\n", (unsigned long long)g_frame, layer, object,
+                                 rows, columns, diff, scale);
+                if (grids % 2000u == 0u)
+                    std::fprintf(stderr, "[meshdisp] %llu grids, %llu by their own view\n", (unsigned long long)grids, (unsigned long long)own);
+            }
+        }
         static const bool viewChecks = std::getenv("SOTC_VIEW_CHECK") != nullptr;
         if (viewChecks)
-            viewCheck(1, camera, view);
+            viewCheck(1, job.camera, view);
         native_renderer::DrawState state;
         state.texture = texture(header);
         state.order = layer;
@@ -5426,6 +5676,29 @@ namespace sotc_native
         ctx->pc = GPR_U32(ctx, 31); // jr ra
     }
 
+    // The terrain's packets built where they are drawn (round 27): at most
+    // SOTC_TERRAIN_BUILD_US (2500) microseconds of it a game frame, the rest
+    // on the worker as before. 0: all on the worker (round 26).
+    struct TerrainBuilds
+    {
+        std::atomic<uint64_t> frame{~0ull};
+        std::atomic<uint64_t> spentUs{0};
+    };
+    TerrainBuilds g_terrainBuilds;
+    bool terrainBuildBudgetLeft()
+    {
+        static const uint64_t budget = std::getenv("SOTC_TERRAIN_BUILD_US") ? static_cast<uint64_t>(std::max(0, std::atoi(std::getenv("SOTC_TERRAIN_BUILD_US")))) : 2500u;
+        if (!budget)
+            return false;
+        if (g_terrainBuilds.frame.load(std::memory_order_relaxed) != g_frame)
+        {
+            g_terrainBuilds.frame.store(g_frame, std::memory_order_relaxed);
+            g_terrainBuilds.spentUs.store(0, std::memory_order_relaxed);
+        }
+        return g_terrainBuilds.spentUs.load(std::memory_order_relaxed) < budget;
+    }
+    void terrainBuildSpent(uint64_t us) { g_terrainBuilds.spentUs.fetch_add(us, std::memory_order_relaxed); }
+
     // A model packet's mesh made on the async worker (native_renderer::buildAsync)
     // from a copy of its bytes: read and triangulated there (a skinned one
     // made into its bind pose), taken up at a later frame's start. False:
@@ -5971,15 +6244,27 @@ namespace sotc_native
             const bool twoPasses = (info ? info->texMode : word(s + 0x1Cu)) == 2u;
             const bool needsBuild = !skinnedPacket && ((!(known && e->ready) && !native_renderer::hasMesh(id)) ||
                                                        (twoPasses && !(known && e->readyTwo) && !native_renderer::hasMesh(id ^ (1ull << 61))));
-            if (needsBuild && !changedInPlace && native_renderer::tuning().asyncBuilds && !native_renderer::asyncBudgetLeft())
+            // Round 27: the terrain's packets (layers 1-3) are built here, up
+            // to a time budget a frame, rather than on the worker: a few of them
+            // missing held the whole picture (or, before, showed holes).
+            bool here = false;
+            if (needsBuild && !changedInPlace && native_renderer::tuning().asyncBuilds)
             {
-                // This frame's builds are spent (round 12, the area change):
-                // left out like a draw still on the worker, built next frame.
-                ++native_renderer::frameCounters().heldDraws;
-                return;
+                const uint32_t l = info ? info->layer[fading ? 1 : 0] : surfaceLayer(header, s, fading);
+                here = l >= 1u && l <= 3u && terrainBuildBudgetLeft();
+                if (!here && !native_renderer::asyncBudgetLeft())
+                {
+                    // This frame's builds are spent (round 12, the area change):
+                    // left out like a draw still on the worker, built next frame.
+                    ++native_renderer::frameCounters().heldDraws;
+                    if (l >= 1u && l <= 3u)
+                        ++native_renderer::frameCounters().heldTerrain;
+                    return;
+                }
             }
+            const uint64_t buildStart = here ? native_renderer::nowUs() : 0u;
             bool queued = false;
-            if (needsBuild && !changedInPlace)
+            if (needsBuild && !changedInPlace && !here)
             {
                 SOTC_PROF_SCOPE(kHookQueue);
                 queued = buildPacketAsync(id, data, size, twoPasses);
@@ -6029,6 +6314,8 @@ namespace sotc_native
                         native_renderer::uploadMesh(id ^ (1ull << 61), vertices.data(), static_cast<uint32_t>(vertices.size()));
                     }
                 }
+                if (here)
+                    terrainBuildSpent(native_renderer::nowUs() - buildStart);
             }
             if (e && (!e->resolved || (twoPasses && !e->readyTwo)))
             {
@@ -6258,6 +6545,26 @@ namespace sotc_native
                                  static_cast<int>(surfaceBlend(s)), static_cast<unsigned long long>(state.texture), surface, word(s + 0x18u));
             }
             state.background = state.order == 1u;            // the sky
+            // Flag bit 17 (drawn only while 0x1186290 bit 0 is set): modelDisp
+            // binds bossDeathEffectBegin's mask instead (setBossEffectTexture):
+            // no texture transfer, so no ROW scroll; TEX1 linear without mips,
+            // ALPHA 0x44 (normal), TEST without the alpha cut.
+            uint64_t bossMask = 0;
+            if (bossMaskOn() && (((full ? full->flags : [&] { uint64_t f; std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8); return f; }()) >> 17) & 1u))
+            {
+                bossMask = bossMaskTexture();
+                if (!bossMask)
+                    return;
+                if (!state.debugColour)
+                {
+                    state.texture = bossMask;
+                    state.blend = native_renderer::Blend::Normal;
+                }
+                state.maxLod = 0.0f;
+                state.lodK = 0.0f;
+                state.lodScale = 1.0f;
+                state.uvOffset[0] = state.uvOffset[1] = 0.0f;
+            }
             const bool logMat = env.logMat;
             if (logMat && k == 0u)
             {
@@ -6341,6 +6648,13 @@ namespace sotc_native
                 }
                 second.blend = full ? full->blend2 : surfaceBlend(s, 0x43u);
                 second.clamp = full ? full->clamp2 : surfaceClamp(s, 0x09u);
+                if (bossMask)
+                {
+                    // context 2 gets the same mask, ALPHA_2 0x44, TEX1_2 0x60
+                    second.texture = bossMask;
+                    second.blend = native_renderer::Blend::Normal;
+                    second.maxLod = 0.0f;
+                }
                 second.writeDepth = false;
                 second.overlay = true;
                 native_renderer::draw(id ^ (1ull << 61), transform, second);
