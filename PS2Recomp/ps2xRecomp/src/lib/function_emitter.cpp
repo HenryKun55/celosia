@@ -9,6 +9,7 @@
 #include "ps2recomp/types.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -33,10 +34,117 @@ namespace ps2recomp
     {
     }
 
+    namespace
+    {
+        // "goto label_<hex>;" in text: the label's address, or false.
+        bool nextGoto(const std::string &text, size_t &pos, uint32_t &target)
+        {
+            static const std::string kGoto = "goto label_";
+            while ((pos = text.find(kGoto, pos)) != std::string::npos)
+            {
+                size_t q = pos + kGoto.size();
+                pos = q;
+                uint32_t v = 0;
+                size_t digits = 0;
+                while (q < text.size() && std::isxdigit(static_cast<unsigned char>(text[q])) && !std::isupper(static_cast<unsigned char>(text[q])))
+                {
+                    v = v * 16u + static_cast<uint32_t>(std::isdigit(static_cast<unsigned char>(text[q])) ? text[q] - '0' : text[q] - 'a' + 10);
+                    ++q;
+                    ++digits;
+                }
+                if (digits == 0 || q >= text.size() || text[q] != ';')
+                    continue;
+                target = v;
+                return true;
+            }
+            return false;
+        }
+
+        // A branch whose edges carry the provenance (round 30): conditional
+        // branches without a link, B, J and JR (a jump table's cases). The
+        // state on every edge out of it and on its fall-through is what is
+        // known both before it and after its delay slot.
+        bool carriesFloatState(const Instruction &inst)
+        {
+            switch (inst.opcode)
+            {
+            case OPCODE_BEQ:
+            case OPCODE_BNE:
+            case OPCODE_BLEZ:
+            case OPCODE_BGTZ:
+            case OPCODE_BEQL:
+            case OPCODE_BNEL:
+            case OPCODE_BLEZL:
+            case OPCODE_BGTZL:
+            case OPCODE_J:
+                return true;
+            case OPCODE_REGIMM:
+                return inst.rt == REGIMM_BLTZ || inst.rt == REGIMM_BGEZ || inst.rt == REGIMM_BLTZL || inst.rt == REGIMM_BGEZL;
+            case OPCODE_COP1:
+                return inst.rs == COP1_BC;
+            case OPCODE_SPECIAL:
+                return inst.function == SPECIAL_JR;
+            default:
+                return false;
+            }
+        }
+
+        // Unconditional transfers: nothing falls through.
+        bool noFallThrough(const Instruction &inst)
+        {
+            return inst.opcode == OPCODE_J || (inst.opcode == OPCODE_SPECIAL && inst.function == SPECIAL_JR) ||
+                   (inst.opcode == OPCODE_BEQ && inst.rs == 0 && inst.rt == 0);
+        }
+    }
+
     std::string FunctionEmitter::emit(
         const Function &function,
         const std::vector<Instruction> &instructions,
         bool useHeaders)
+    {
+        CodeGenerator &cg = m_codeGenerator;
+        if (!cg.m_floatJoin || !(cg.m_vuKnown || cg.m_fpuKnown))
+            return emitPass(function, instructions, useHeaders, false, nullptr, nullptr);
+        // Round 30: a first pass (no provenance, no register cache) for the
+        // gotos to each label: how many there are and how many come before
+        // the label. A label whose gotos all come before it and are all
+        // branch edges the second pass sees takes what its edges agree on.
+        const std::string first = emitPass(function, instructions, useHeaders, true, nullptr, nullptr);
+        GotoCounts before, all;
+        std::unordered_map<uint32_t, size_t> labelAt;
+        for (size_t pos = first.find("label_"); pos != std::string::npos; pos = first.find("label_", pos + 6))
+        {
+            size_t q = pos + 6;
+            uint32_t v = 0;
+            size_t digits = 0;
+            while (q < first.size() && std::isxdigit(static_cast<unsigned char>(first[q])) && !std::isupper(static_cast<unsigned char>(first[q])))
+            {
+                v = v * 16u + static_cast<uint32_t>(std::isdigit(static_cast<unsigned char>(first[q])) ? first[q] - '0' : first[q] - 'a' + 10);
+                ++q;
+                ++digits;
+            }
+            if (digits != 0 && q < first.size() && first[q] == ':' && (pos == 0 || first[pos - 1] == '\n') && !labelAt.count(v))
+                labelAt[v] = pos;
+        }
+        size_t pos = 0;
+        uint32_t target = 0;
+        while (nextGoto(first, pos, target))
+        {
+            ++all[target];
+            auto it = labelAt.find(target);
+            if (it != labelAt.end() && pos < it->second)
+                ++before[target];
+        }
+        return emitPass(function, instructions, useHeaders, false, &before, &all);
+    }
+
+    std::string FunctionEmitter::emitPass(
+        const Function &function,
+        const std::vector<Instruction> &instructions,
+        bool useHeaders,
+        bool firstPass,
+        const GotoCounts *gotosBefore,
+        const GotoCounts *gotosAll)
     {
         CodeGenerator &cg = m_codeGenerator;
         std::stringstream ss;
@@ -128,7 +236,34 @@ namespace ps2recomp
 
         bool lastInstructionWasControlFlow = false;
         // Round 29: VU0 / FPU provenance along straight-line runs.
-        FloatKnownState floatKnown(cg.m_vuKnown, cg.m_fpuKnown);
+        FloatKnownState floatKnown(cg.m_vuKnown && !firstPass, cg.m_fpuKnown && !firstPass);
+        floatKnown.setLoadsKeepVu(cg.m_vuLoads);
+        // Round 30: the state each label's forward branch edges bring (what
+        // they all know), the edges counted; a label is poisoned by an edge
+        // whose state is not known.
+        const bool carry = gotosBefore != nullptr && gotosAll != nullptr && floatKnown.enabled();
+        std::unordered_map<uint32_t, FloatKnownState> edgeState;
+        std::unordered_map<uint32_t, int> edgesSeen;
+        std::unordered_set<uint32_t> poisoned;
+        auto recordEdges = [&](const std::string &text, const FloatKnownState *state)
+        {
+            size_t pos = 0;
+            uint32_t target = 0;
+            while (nextGoto(text, pos, target))
+            {
+                ++edgesSeen[target];
+                if (!state)
+                {
+                    poisoned.insert(target);
+                    continue;
+                }
+                auto it = edgeState.find(target);
+                if (it == edgeState.end())
+                    edgeState.emplace(target, *state);
+                else
+                    it->second.intersect(*state);
+            }
+        };
 
         for (size_t i = 0; i < instructions.size(); ++i)
         {
@@ -138,7 +273,30 @@ namespace ps2recomp
             if (internalTargets.contains(inst.address))
             {
                 constantRegisters.clear();
-                floatKnown.reset();
+                // A label whose gotos all came before it from branches seen
+                // here: the fall-through's state and its edges' agree.
+                bool joined = false;
+                if (carry && !poisoned.contains(inst.address))
+                {
+                    const auto all = gotosAll->find(inst.address);
+                    const auto before = gotosBefore->find(inst.address);
+                    const int nAll = all == gotosAll->end() ? 0 : all->second;
+                    const int nBefore = before == gotosBefore->end() ? 0 : before->second;
+                    const auto seen = edgesSeen.find(inst.address);
+                    const int nSeen = seen == edgesSeen.end() ? 0 : seen->second;
+                    if (nAll == nBefore && nSeen == nAll)
+                    {
+                        const auto e = edgeState.find(inst.address);
+                        if (e != edgeState.end())
+                            floatKnown.intersect(e->second);
+                        else if (nAll != 0)
+                            floatKnown.reset();
+                        joined = true;
+                        floatKnown.countJoin(nAll != 0);
+                    }
+                }
+                if (!joined)
+                    floatKnown.reset();
                 ss << "label_" << std::hex << inst.address << std::dec << ":\n";
             }
 
@@ -157,6 +315,9 @@ namespace ps2recomp
             {
                 if (inst.hasDelaySlot)
                 {
+                    // Round 30: the state before the branch (nothing if its
+                    // delay slot has a label of its own).
+                    FloatKnownState beforeBranch = floatKnown;
                     floatKnown.reset();
                     const bool hasDecodedDelaySlot =
                         i + 1 < instructions.size() &&
@@ -179,22 +340,50 @@ namespace ps2recomp
                         ss << "label_" << std::hex << delaySlot->address << std::dec << ":\n";
                     }
 
+                    const bool delayLabel = hasDecodedDelaySlot && internalTargets.contains(delaySlot->address);
                     if (gifDmaKickPlan.valid &&
                         gifDmaKickPlan.completesInDelaySlot &&
                         gifDmaKickPlan.branchIndex == i &&
                         hasDecodedDelaySlot)
                     {
-                        ss << cg.handleBranchDelaySlots(
+                        const std::string text = cg.handleBranchDelaySlots(
                             inst,
                             *delaySlot,
                             function,
                             analysisResult,
                             gifDmaDelaySlotOverride(*delaySlot, gifDmaKickPlan, cg.m_emitInstructionComments));
+                        if (carry)
+                            recordEdges(text, nullptr);
+                        ss << text;
                         gifDmaKickPlan = {};
                     }
                     else
                     {
-                        ss << cg.handleBranchDelaySlots(inst, *delaySlot, function, analysisResult);
+                        const std::string text = cg.handleBranchDelaySlots(inst, *delaySlot, function, analysisResult);
+                        // Round 30: the edges' state, what is known before
+                        // the branch and after its delay slot both (a likely
+                        // branch's fall-through skips the slot). Any call,
+                        // jump or helper in the text: nothing.
+                        bool carried = false;
+                        if (carry && carriesFloatState(inst) && !delayLabel)
+                        {
+                            FloatKnownState afterSlot = beforeBranch;
+                            (void)afterSlot.apply(cg.translateInstruction(*delaySlot));
+                            afterSlot.intersect(beforeBranch);
+                            if (!FloatKnownState::hasTransfer(text))
+                            {
+                                recordEdges(text, &afterSlot);
+                                if (!noFallThrough(inst))
+                                {
+                                    floatKnown = afterSlot;
+                                    floatKnown.countBranch();
+                                }
+                                carried = true;
+                            }
+                        }
+                        if (carry && !carried)
+                            recordEdges(text, nullptr);
+                        ss << text;
                     }
 
                     if (hasDecodedDelaySlot)
@@ -281,7 +470,7 @@ namespace ps2recomp
             ss << "    runtime->jumpGuest(rdram, ctx, ctx->pc);\n";
         }
 
-        if (cg.m_registerCache)
+        if (cg.m_registerCache && !firstPass)
         {
             const std::string all = ss.str();
             RegisterCacheOptions options;
@@ -290,6 +479,7 @@ namespace ps2recomp
             options.blockScope = cg.m_registerCacheBlock;
             options.writeThrough = cg.m_registerCacheWriteThrough;
             options.deadStores = cg.m_registerCacheDeadStores;
+            options.joinForward = cg.m_registerCacheJoin;
             return all.substr(0, bodyStart) + applyRegisterCache(all.substr(bodyStart), options) + "}\n";
         }
         ss << "}\n";

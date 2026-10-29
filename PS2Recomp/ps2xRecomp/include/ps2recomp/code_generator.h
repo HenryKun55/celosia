@@ -98,6 +98,11 @@ namespace ps2recomp
         bool m_registerCacheWriteThrough = true;
         // PS2X_RECOMP_REGCACHE_DSE=0: every write-through store kept (round
         // 18); default: none for a write overwritten later in the run.
+        // Round 30: a label without a back edge, with no guest memory access
+        // or barrier between its first goto and it, keeps the locals its
+        // edges agree on (register_cache.h, joinForward).
+        // PS2X_RECOMP_REGCACHE_JOIN=0: every label a sync point (round 18).
+        bool m_registerCacheJoin = !(std::getenv("PS2X_RECOMP_REGCACHE_JOIN") && std::getenv("PS2X_RECOMP_REGCACHE_JOIN")[0] == '0');
         bool m_registerCacheDeadStores = !(std::getenv("PS2X_RECOMP_REGCACHE_DSE") && std::getenv("PS2X_RECOMP_REGCACHE_DSE")[0] == '0');
         // Round 16's leaner calls: JAL / JALR / J through PS2_CALL_GUEST /
         // PS2_JUMP_GUEST (the table's bounds as constants), and a function's
@@ -115,6 +120,19 @@ namespace ps2recomp
         // round 28's output byte for byte).
         bool m_vuKnown = !(std::getenv("PS2X_RECOMP_VUKNOWN") && std::getenv("PS2X_RECOMP_VUKNOWN")[0] == '0');
         bool m_fpuKnown = !(std::getenv("PS2X_RECOMP_FPUKNOWN") && std::getenv("PS2X_RECOMP_FPUKNOWN")[0] == '0');
+        // Round 30: a loop's back edge stores ctx->pc only when its
+        // checkpoint is taken (PS2_CHECKPOINT_DUE_AT). PS2X_RECOMP_LOOP_PC=0
+        // at recompile time: the store before the test (round 29).
+        bool m_lazyLoopPc = !(std::getenv("PS2X_RECOMP_LOOP_PC") && std::getenv("PS2X_RECOMP_LOOP_PC")[0] == '0');
+        // Round 30: the provenance carried across forward branches and the
+        // labels all of whose gotos come before them (what the edges and the
+        // fall-through agree on). PS2X_RECOMP_FLOAT_JOIN=0: forgotten at
+        // every label and branch (round 29).
+        bool m_floatJoin = !(std::getenv("PS2X_RECOMP_FLOAT_JOIN") && std::getenv("PS2X_RECOMP_FLOAT_JOIN")[0] == '0');
+        // Round 30: guest loads keep the VU0 provenance (only stores, which
+        // can kick VIF0, forget it). PS2X_RECOMP_VU_LOADS=0: every guest
+        // memory access forgets it (round 29).
+        bool m_vuLoads = !(std::getenv("PS2X_RECOMP_VU_LOADS") && std::getenv("PS2X_RECOMP_VU_LOADS")[0] == '0');
         // The function table's bounds (FunctionTableEmitter::emit).
         uint32_t m_tableBase = 0u;
         uint32_t m_tableSlots = 0u;

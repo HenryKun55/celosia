@@ -448,6 +448,12 @@ public:
     uint32_t m_guestJumpSerial = 0; // guest jumps taken (see dispatchGuestBranch)
     bool m_directDispatch = true;   // PS2X_DIRECT_DISPATCH=0: every transfer through dispatchGuestBranch / the scheduler
     inline bool eeCheckpointDue(uint32_t cycles = 32u) noexcept;
+    // Round 30: a loop's back edge (PS2_CHECKPOINT_DUE_AT): ctx->pc is set to
+    // the loop's head only when the checkpoint is taken (the scheduler
+    // resumes there). On the fast path nothing reads it: plain instructions
+    // and guest memory accesses never get a pc store (CodeGenerator::
+    // codeReadsPc), anything that reads it stores its own first.
+    inline bool eeCheckpointDueAt(R5900Context *ctx, uint32_t pc, uint32_t cycles = 32u) noexcept;
     bool eeCheckpointSlow() noexcept;
     inline RecompiledFunction guestFunctionAt(uint32_t target) const noexcept;
     inline bool hostStackDeep() const noexcept;
@@ -638,6 +644,14 @@ __attribute__((always_inline)) inline bool PS2Runtime::eeCheckpointDue(uint32_t 
     // a 32-bit add and compare (EeClock::charge).
     if (__builtin_expect(m_eeClock.charge(cycles), 1))
         return false;
+    return eeCheckpointSlow();
+}
+
+__attribute__((always_inline)) inline bool PS2Runtime::eeCheckpointDueAt(R5900Context *ctx, uint32_t pc, uint32_t cycles) noexcept
+{
+    if (__builtin_expect(m_eeClock.charge(cycles), 1))
+        return false;
+    ctx->pc = pc;
     return eeCheckpointSlow();
 }
 

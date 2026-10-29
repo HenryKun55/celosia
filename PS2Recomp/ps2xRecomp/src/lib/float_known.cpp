@@ -18,6 +18,7 @@
 //   VFTOI / ITOF, VRNEXT, ...) makes its lanes unknown;
 // - everything is forgotten at labels and branches (the emitter's reset())
 //   and at any guest memory access, call, jump, syscall or runtime helper
+//   (round 30: loads no longer; PS2X_RECOMP_VU_LOADS=0 for round 29's rule)
 //   (a store can start a VU0 microprogram through VIF0, a call or a thread
 //   switch can bring any VU0 state).
 //
@@ -59,6 +60,9 @@ namespace ps2recomp
         std::atomic<uint64_t> g_fpuOps{0};
         std::atomic<uint64_t> g_fpuFinite{0};
         std::atomic<uint64_t> g_fpuConstants{0};
+        std::atomic<uint64_t> g_joinsEdges{0};
+        std::atomic<uint64_t> g_joinsFall{0};
+        std::atomic<uint64_t> g_branchesKept{0};
 
         std::string trim(std::string_view s)
         {
@@ -188,6 +192,37 @@ namespace ps2recomp
         m_fprFinite = 0;
         m_faccFinite = false;
     }
+
+    void FloatKnownState::intersect(const FloatKnownState &other)
+    {
+        for (int r = 0; r < 32; ++r)
+            m_vf[r] &= other.m_vf[r];
+        m_acc &= other.m_acc;
+        m_fprFinite &= other.m_fprFinite;
+        m_faccFinite = m_faccFinite && other.m_faccFinite;
+    }
+
+    bool FloatKnownState::hasTransfer(const std::string &text)
+    {
+        static const char *const kTransfers[] = {"PS2_CALL", "callGuest", "dispatchGuestBranch", "throw", "yscall", "xception",
+                                                 "handleBreak", "ps2_syscalls", "ps2_stubs", "Vu0", "VU0", "runtime->jumpGuest(rdram, ctx, ctx->pc)"};
+        for (const char *t : kTransfers)
+        {
+            if (text.find(t) != std::string::npos)
+                return true;
+        }
+        // A runtime helper other than the jumps out and the checkpoint.
+        for (size_t at = text.find("runtime->"); at != std::string::npos; at = text.find("runtime->", at + 9u))
+        {
+            const std::string_view rest(text.data() + at + 9u, text.size() - at - 9u);
+            if (rest.rfind("jumpGuest(", 0) != 0 && rest.rfind("eeCheckpointDue", 0) != 0)
+                return true;
+        }
+        return false;
+    }
+
+    void FloatKnownState::countJoin(bool withEdges) { ++(withEdges ? g_joinsEdges : g_joinsFall); }
+    void FloatKnownState::countBranch() { ++g_branchesKept; }
 
     void FloatKnownState::fprFromConstant(int fpr, uint32_t bits)
     {
@@ -520,7 +555,11 @@ namespace ps2recomp
             barrier = barrier || hasToken(code, t);
         bool vuBarrier = barrier;
         for (const char *t : kVuBarriers)
+        {
+            if (m_loadsKeepVu && std::strcmp(t, "READ") == 0)
+                continue;
             vuBarrier = vuBarrier || hasToken(code, t);
+        }
         if (barrier)
         {
             forgetWrites(code);
@@ -562,7 +601,8 @@ namespace ps2recomp
         s << "float provenance: VU0 ops " << g_vuOps.load() << ", operands known " << g_vuKnown.load() << " of "
           << g_vuOperands.load() << " (" << g_vuRewritten.load() << " instructions rewritten), vf0 writes "
           << g_vf0Writes.load() << "; FPU ops " << g_fpuOps.load() << ", finite operands (no clamp) " << g_fpuFinite.load()
-          << "; MTC1 of a known constant " << g_fpuConstants.load();
+          << "; MTC1 of a known constant " << g_fpuConstants.load() << "; labels joined " << g_joinsEdges.load()
+          << " (+ " << g_joinsFall.load() << " with no goto), branches kept " << g_branchesKept.load();
         return s.str();
     }
 }

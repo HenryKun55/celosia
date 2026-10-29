@@ -183,11 +183,22 @@ namespace ps2recomp
 
     void ControlFlowEmitter::emitInternalTarget(uint32_t target, uint32_t sourcePc, std::string_view indent)
     {
-        if (m_gen.m_allPcStores || (target <= sourcePc && !isCallLikeEdge()))
+        const bool backEdge = target <= sourcePc && !isCallLikeEdge();
+        // Round 30: the back edge's pc store inside the checkpoint's slow
+        // path (PS2_CHECKPOINT_DUE_AT); PS2X_RECOMP_LOOP_PC=0 (or
+        // PS2X_RECOMP_ALL_PC=1): stored before the test, as before.
+        const bool lazyPc = backEdge && m_gen.m_lazyLoopPc && !m_gen.m_allPcStores;
+        if (m_gen.m_allPcStores || (backEdge && !lazyPc))
         {
             m_ss << fmt::format("{}ctx->pc = 0x{:X}u;\n", indent, target);
         }
-        if (target <= sourcePc && !isCallLikeEdge())
+        if (lazyPc)
+        {
+            m_ss << fmt::format("{}if (PS2_CHECKPOINT_DUE_AT(0x{:X}u)) {{\n", indent, target);
+            m_ss << fmt::format("{}    return;\n", indent);
+            m_ss << fmt::format("{}}}\n", indent);
+        }
+        else if (backEdge)
         {
             m_ss << fmt::format("{}if (runtime->eeCheckpointDue()) {{\n", indent);
             m_ss << fmt::format("{}    return;\n", indent);

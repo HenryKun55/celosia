@@ -33,6 +33,12 @@ namespace ps2recomp
         // block, barrier, goto, return or if) is not stored: the later one
         // stores. PS2X_RECOMP_REGCACHE_DSE=0: every write stored (round 18).
         bool deadStores = true;
+        // Round 30 (with blockScope): a label with no back edge and no guest
+        // memory access, barrier, switch, return or runtime call between its
+        // first goto and it keeps the locals every edge into it holds valid
+        // (a kept local is live across no call: nothing to spill).
+        // PS2X_RECOMP_REGCACHE_JOIN=0: every label a sync point (round 18).
+        bool joinForward = false;
     };
 
     std::string applyRegisterCache(const std::string &body, const RegisterCacheOptions &options);

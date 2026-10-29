@@ -4804,6 +4804,268 @@ either way, so nothing is off by default and there is no Debug item.
 4. Carried over: the console check of the NEON chains and of this round's
    generator (the A9's VFP <-> core stalls), the 2D joins, the fight's save.
 
+## Round 30: loops without the pc store, provenance across joins and loads, the register cache's short joins (2026-10-29)
+
+The Mac was on battery for most of the round (95% -> 39%), then plugged in
+for the Vita build's second half and every Vita3K run. The generator
+changes were written and checked statically first; the Vita build was
+paused on battery so that the Mac checks came first.
+
+**1. A loop's back edge stores ctx->pc only when its checkpoint is taken
+(generator + runtime, round 29's "not done" item).** Round 29 left the
+store in because I/O loads take ctx. They do, but the generator has not
+stored pc before plain instructions and guest memory accesses since round
+16 (CodeGenerator::codeReadsPc: "read ctx->pc only to report an address
+error (approximate there)"), so what an I/O access sees in pc was never the
+instruction's own. The readers of ctx->pc, by what can run between a back
+edge and the next store:
+- the checkpoint's slow path (EeScheduler::checkpointSlow, a thread switch,
+  the resume switch at the function's entry): gets the store first now
+  (PS2Runtime::eeCheckpointDueAt sets it before eeCheckpointSlow);
+- calls, jumps, syscalls, handleBreak / traps, VU0 microprograms and
+  anything codeReadsPc flags: each stores its own pc before it;
+- the guest memory slow paths (ps2_guest_mem::read* / write* ->
+  PS2Runtime::LoadN / StoreN): pc only in SignalException for an address
+  error (cop0 EPC), already approximate; PS2Memory never sees ctx;
+- the debug thread list and the profilers' samples (not gameplay): pc stays
+  inside the same function (its entry or the last call's return).
+`if (PS2_CHECKPOINT_DUE_AT(0x...u)) return;` replaces
+`ctx->pc = 0x...u; if (runtime->eeCheckpointDue()) return;` at the 4 447
+back edges. The register cache knows both forms as a checkpoint.
+`PS2X_RECOMP_LOOP_PC=0` (or PS2X_RECOMP_ALL_PC=1): the old form.
+
+**2. The VU0 / FPU provenance across forward branches and joins
+(float_known, function_emitter, plan item 1).** Round 29 forgot everything
+at every label and branch. Now:
+- a conditional branch without a link (and B, J, JR's jump-table cases):
+  every edge out of it and its fall-through get what is known both before it
+  and after its delay slot (a likely branch's fall-through skips the slot);
+  a branch whose text has a call, a helper, a syscall or a throw gives
+  nothing;
+- a label keeps the intersection of its fall-through and its edges only
+  when all of its gotos come before it and the second pass saw each one at
+  a branch it handles. The emitter runs a first pass (no provenance, no
+  register cache) and counts each label's gotos in that text and how many
+  come before the label; a goto from anything else (the resume switch, a
+  back edge, a GIF DMA kick) leaves the label forgetting, as before;
+- a label inside a delay slot, and the GIF kick's branches, forget.
+`PS2X_RECOMP_FLOAT_JOIN=0`: round 29's rule.
+
+**3. Guest loads keep the VU0 provenance (plan item 1).** No read path runs
+VU0 code: PS2Memory::read8..read128 and readIORegister read RAM, the
+scratchpad, VU memory, the GS privileged registers and the I/O registers;
+they sync the VU1 worker and the EE timers (latched interrupts, delivered
+at a checkpoint) and nothing else. Only stores can start a VU0 microprogram
+(a VIF0 kick), so only WRITE* forgets now. A load into a vf register (lqc2)
+still makes its lanes unknown. `PS2X_RECOMP_VU_LOADS=0`: every access
+forgets.
+
+**4. The register cache's short joins (register_cache, plan item 1's GPR
+side).** Round 18 made every label a sync point because round 5's
+whole-function locals spilled: a local kept live across the memory slow
+paths' calls. Round 30 keeps the locals at a label only when nothing can
+make GCC spill them: no back edge, and no guest memory access, barrier,
+switch, return or runtime call between its first goto and the label. There
+the round-5 machinery applies (what every edge holds valid stays valid; a
+resume entry's trampoline loads what the label needs). Tried first without
+the span rule (every forward-only label): -0.7% instructions but **+14%
+memory instructions** (spills), like round 18 found. With the rule: no
+extra memory traffic. `PS2X_RECOMP_REGCACHE_JOIN=0`: every label a sync
+point.
+
+Static counts (recomp.log):
+
+| | round 29 | round 30 |
+|---|---|---|
+| VU0 operands known | 53 802 of 88 848 (61%) | 57 446 of 88 852 (65%) |
+| FPU ops without the clamp | 1 539 | 1 677 |
+| labels joined (provenance) | 0 | 26 012 |
+| register cache loads added | 201 737 | 194 954 |
+| sign extension known at 64-bit reads | 51 165 | 55 053 |
+
+**Vita assembly of the 40 hottest lean functions** (r30/asmcmp.sh, GCC
+-O2, cortex-a9; each row adds one change):
+
+| generated code | instructions | memory | vmin | vmov core <-> VFP |
+|---|---|---|---|---|
+| round 29 | 47 679 | 10 722 | 647 | 843 |
+| + lazy loop pc | 47 701 | 10 736 | 647 | 843 |
+| + provenance joins and loads | 47 532 | 10 715 | 639 | 835 |
+| + register cache short joins | **47 402** | 10 719 | 639 | 834 |
+| (every forward label, rejected) | 47 322 | 12 250 | 641 | 842 |
+
+The lazy pc adds static instructions (the store moves into each
+checkpoint's cold path) and removes one store per loop iteration on the
+fast path, which a static count does not show.
+
+Not done (tried and dropped):
+- the known-slot-first call order (callGuestKnown testing fn == known
+  before the null test): 2 instructions a call on the fast path, but GCC
+  inlined a second callGuestFn for the other path (GetLayoutClass 437 ->
+  513 instructions); reverted;
+- the sp-relative accesses' range test: 19% of the hot set's 1 485 guest
+  accesses, 2 instructions each, needs a per-function proof or copy: ~1%,
+  not worth the code size;
+- lwc1 from read-only tables: the ELF's read-only data is writable on the
+  PS2, so a value there is not provably the file's.
+
+**Track B: the idle cores (nothing shipped).** The task was to find
+game-thread work whose inputs and outputs are disjoint from what runs
+alongside it. Nothing provably so was found; the time went to the
+generator.
+- **The DMA chain walk** (iosDmaSendSChainPath1 -> hostDmaStart: the tag
+  loop in PS2Memory::writeIORegister 1.56% + Vif1Walker::feed 1.66% of the
+  plain at 222, r28/hp-new). Its outputs are the VIF1 registers (read only
+  through VIF1 MMIO, which syncs first), the GS CSR SIGNAL / FINISH bits,
+  the MSKPATH3 toggles and the channel's registers. dmaSendPath1 calls
+  drainCompletedDmacHandlers right after the kick: the channel's handler
+  and the GS interrupt (from those CSR bits) run before the game's next
+  instruction, so the join would be at once. Its inputs are the tags and
+  VIFcodes in guest RAM, and the transfer completes at the kick in this
+  model (CHCR.STR reads 0), so the game may rebuild or reuse the list right
+  away. modelDisp's packets left the chain in round 13 already; skipping
+  more of it needs knowing a packet has no DIRECT SIGNAL / FINISH / LABEL
+  or register code without walking it.
+- **The skeleton pose** (decomp_skeleton, 4.2%): siblings push and pop the
+  VU0 matrix stack and use guest stack frames at the same addresses; the
+  memory the sequential walk leaves is the union of the deepest remnants.
+  Subtrees on two cores would write the same bytes.
+- **modelDispState / surfaceInfo** (2.1%): the parts' camera test results
+  go to guest RAM that the game reads next; the rest of the hooks is on the
+  round 23 worker already.
+- Any split inside one native also pays a thread hand-off (tens of us on
+  the Vita) on a core the hook worker and the mixer share.
+
+**Exactness.**
+- Generator switches: with `PS2X_RECOMP_LOOP_PC=0 PS2X_RECOMP_FLOAT_JOIN=0
+  PS2X_RECOMP_VU_LOADS=0 PS2X_RECOMP_REGCACHE_JOIN=0` the output (r30/off)
+  is round 29's build/runner byte for byte (9 080 files, 0 differ). The
+  round's output changes 3 159 files.
+- No local read before it is set: the 3 159 changed files through clang
+  -fsyntax-only -Wconditional-uninitialized -Wsometimes-uninitialized
+  (r30/uninit.txt): 0 warnings.
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r30/dt-all, r30/dt.sh):
+  57 functions, 159 101 checks, 0 mismatches except gamecore_sub_013F8668
+  (128, the life bar's v0, as since round 16).
+- Old generator against new (round 29's method): lean copies from round
+  29's output (r30/off, r30/lean_old.sh), originals from this round's,
+  SOTC_LEAN_CHECK in batches of 64, ALLREGS, VU0, EVERY=50, the route to
+  frame 3 000 (r30/lcheck.sh, r30/lc-*): 287 functions called,
+  290 305 checks, 567 mismatches, all known ones:
+  - iosResetCpuRapCounter 300 (void: an override is there);
+  - manager_sub_01102638 254 (the pad / frame timers; with
+    SOTC_DIFFTEST_CONTROL=1, both legs recompiled, 210 in the same window:
+    r30/lcc-192);
+  - ExecAnimeTableInfo 11 (round 18: 28, CONTROL 29);
+  - gsReg 2 (void: an override is there).
+  The batches ran beside the Vita build: four hit the 600 s limit before
+  frame 3 000 (64-127 at 2 401, 192-255 at 1 200, 256-319 at 2 400,
+  320-383 at 605).
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, the r24 card copy,
+  r30/posbase.sh). The route has two paths at the stairs (round 29), and
+  on the path through the walk at frames 2 730-3 330 a constant offset
+  that follows the area load's length in vblanks (wall-clock loader
+  timing), then every run converges to within ~0.3:
+  - HEAD baselines: pos-base2 and pos-base3 within 0.58; pos-base1 took
+    the other stairs path (84 units, as r29's pos-base2, within 2.30 of
+    it).
+  - This round, on an idle Mac: pos-new4 within 1.81 of pos-base3 and 2.21
+    of pos-base2 (r29: two HEAD runs 2.17 apart); pos-new3 took the other
+    stairs path, within 4.66 of pos-base1 there (its load 69 vblanks
+    longer; 0.11 from frame 3 360 on).
+  - pos-new1 / pos-new2 ran while the Vita build and the difftest loaded
+    the Mac: their loads took 132 and ~800 vblanks longer and the walk
+    followed (8.4, and pos-new2 another route); not counted.
+  The offset tracks the load's vblanks across all runs of rounds 29-30
+  (r29/pos-new1 -13 vblanks: 1.0; pos-new4 +32: 1.8; pos-new3 +69 on the
+  other path: 4.7; pos-new1 +132: 8.4).
+- Macro selftest: no macro's arithmetic changed this round (the new one is
+  PS2_CHECKPOINT_DUE_AT); the Mac selftest (PS2X_MACRO_SELFTEST=4, r30/selftest-mac) gives 0 mismatches. Not rerun in Vita3K this round.
+
+**Frame timing.** Calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s. Game frame ms, with draws on the plain. Base is celosia-r29.vpk, new
+is this round's; the runs alternated base / new (r30/chain1.sh,
+r28/split2.py). The Mac was plugged in from the 222 runs on.
+
+| window | 222 base (two runs) | 222 new (two runs) | 240 base | 240 new | 333 base | 333 new |
+|---|---|---|---|---|---|---|
+| shrine | 42.7, 42.6 | **42.5, 42.3** | 39.7, 39.5 | **39.2, 39.3** | 28.2, 28.2 | 28.2, 28.0 |
+| walk + area change | 74.3, 74.2 | **72.5, 73.4** | 68.9, 68.5 | 68.1, 68.6 | 48.0, 48.0 | 48.5, 49.2 |
+| plain (draws) | 51.1 (926), 50.2 (933) | 50.2 (939), **47.5 (908)** | 44.1 (917), 46.6 (914) | 43.3 (963), 45.1 (923) | 31.7 (917), 32.0 (922) | 31.0 (730), 32.9 (932) |
+| walk: hooks / render | 3.8-3.9 / 34.6-34.7 | 3.9-4.0 / 33.9-34.8 | 3.5-3.6 / 31.9-32.0 | 3.5-3.6 / 31.9-32.1 | 2.5 / 23.2-23.3 | 2.5 / 22.2-23.0 |
+
+- 222 (the main check): the walk -1.3 ms on average (-1.7%, -2.4 / -1.1
+  against the run before each), the shrine -0.25 ms (-0.6%), the plain
+  -0.9 ms at ~935 draws and 47.5 ms at 908 (the base's two runs are 0.9
+  apart at the same draws).
+- 240: the shrine -0.35 ms, the walk -0.35 ms, the plain -0.8 / -1.5 ms
+  (one run with 963 draws).
+- 333: nothing beyond the noise; the walk +0.5 / +1.2 ms against the base,
+  whose two runs are equal. The game thread's share of the frame is
+  smallest there.
+- Sound (au.py, every run): 0 late callbacks, 0 stale halves, 0 src-stale.
+  Config, settings, card and shader cache restored after every run ("restored
+  ok" all 12).
+
+This is a smaller step than round 29's (~1-2% at 222 / 240): the four
+changes remove ~0.6% of the hot set's instructions plus a store per loop
+iteration. Vita3K does not model the A9's pipeline stalls on the removed
+vmin chains or the stores' bandwidth, so the console may gain differently
+(unmeasured: no console runs).
+
+**Decomp status:** unchanged (no new natives): 5.41% of the MIPS code by
+size.
+
+**Switches** (README): `PS2X_RECOMP_LOOP_PC=0`, `PS2X_RECOMP_FLOAT_JOIN=0`,
+`PS2X_RECOMP_VU_LOADS=0`, `PS2X_RECOMP_REGCACHE_JOIN=0` (recompiler env;
+all four at 0 give round 29's output byte for byte). All exact, so nothing
+is off by default and there is no Debug item.
+
+**Files:**
+- PS2Recomp/ps2xRecomp/src/lib/control_flow_emitter.cpp: the back edge's
+  PS2_CHECKPOINT_DUE_AT;
+- PS2Recomp/ps2xRecomp/src/lib/function_emitter.cpp and
+  include/ps2recomp/Emitters/function_emitter.h: the first pass (gotos per
+  label), the edges' states, the joins;
+- PS2Recomp/ps2xRecomp/src/lib/float_known.cpp and
+  include/ps2recomp/float_known.h: intersect, hasTransfer, loads keep VU0,
+  the report's join counts;
+- PS2Recomp/ps2xRecomp/src/lib/register_cache.cpp and
+  include/ps2recomp/register_cache.h: joinForward, joinable;
+- PS2Recomp/ps2xRecomp/include/ps2recomp/code_generator.h: m_lazyLoopPc,
+  m_floatJoin, m_vuLoads, m_registerCacheJoin;
+- PS2Recomp/ps2xRuntime/include/ps2_runtime.h: eeCheckpointDueAt;
+- PS2Recomp/ps2xRuntime/include/ps2_runtime_macros.h: PS2_CHECKPOINT_DUE_AT;
+- README.md, docs/decomp.md.
+- Tools: r30/regen.sh, r30/asmcmp.sh (8 files at a time, a calls column),
+  r30/lean_old.sh, r30/lcheck.sh, r30/lcheck_control.sh, r30/dt.sh,
+  r30/route2.sh, r30/posbase.sh, r30/posmax.py, r30/v3k.sh,
+  r30/chain1.sh.
+- Deliverables: build/agent-scratch/celosia-r30.vpk (shader seed: 42
+  files), env-r30-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
+
+
+**Round 31 (plan).**
+1. Measure this round on AC power: celosia-r29.vpk against this round's
+   VPK, calibrated Vita3K 222 / 240 / 333, CORES=3, r30/chain.sh (two runs
+   a side, alternated), then the console check of rounds 28-30 (the A9's
+   VFP <-> core stalls and the removed per-iteration stores).
+2. The DMA chain walk on the game thread, same thread, exact: the tag
+   loop's per-tag overhead (translateAddress, the scratchpad tests, the
+   lambda per payload) and a cache of "this CALL target's packet has only
+   UNPACK / MSCAL / NOP codes" keyed by the packet's address and a hash of
+   its VIFcodes (not of its data), checked on the Mac against the full walk
+   (vif1_regs and GS events compared per chain).
+3. The register cache: the short-join rule widened to spans with guest
+   memory accesses whose slow paths save the live locals themselves (round
+   29 plan item 2's Vita trampoline), measured with r30/asmcmp.sh's memory
+   column.
+4. Track B again only with a write log: a native that runs a subtree or a
+   batch on the third core into a private buffer, merged in program order
+   at the join (the skeleton's siblings), if its hand-off cost on the Vita
+   stays under its work.
+
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

@@ -714,6 +714,10 @@ namespace ps2_guest_mem
 #define PS2_CALL_GUEST_KNOWN(target, function, returnPc, sourcePc, kind, name) \
     runtime->callGuestKnown(PS2_GUEST_FN(target), &function, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
 
+// A loop's back edge (round 30): the checkpoint, ctx->pc stored only when
+// it is taken (PS2Runtime::eeCheckpointDueAt).
+#define PS2_CHECKPOINT_DUE_AT(pc) runtime->eeCheckpointDueAt(ctx, (pc))
+
 #define READ8(addr) PS2_GUEST_READ(uint8_t, read8, addr)
 #define READ16(addr) PS2_GUEST_READ(uint16_t, read16, addr)
 #define READ32(addr) PS2_GUEST_READ(uint32_t, read32, addr)

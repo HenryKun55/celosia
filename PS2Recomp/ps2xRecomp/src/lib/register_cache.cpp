@@ -270,6 +270,12 @@ namespace ps2recomp
             uint64_t checkpointKnown = ~0ull;
             bool sext = true;
             bool blockScope = false;   // every label a sync point (round 18)
+            bool joinForward = false;  // round 30: but labels without a back edge
+            // Round 30: labels that keep their edges' locals: no back edge,
+            // and no guest memory access or barrier between the first goto
+            // to it and it (a local kept there is live across no call, the
+            // slow paths' included: nothing for GCC to spill).
+            std::vector<char> joinable;
             bool writeThrough = false; // stores at the write (round 18)
             bool deadStores = false;   // no store for a write overwritten later in the run (round 29)
             uint64_t deadStoreCount = 0;
@@ -894,6 +900,29 @@ namespace ps2recomp
             }
             body.inKnown.assign(n, ~0ull);
             body.backKnown.assign(n, ~0ull);
+            body.joinable.assign(n, 0);
+            if (body.joinForward)
+            {
+                std::vector<size_t> first(n, SIZE_MAX);
+                for (size_t i = 0; i < body.lines.size(); ++i)
+                    for (int g : body.lines[i].gotos)
+                        first[g] = std::min(first[g], i);
+                for (size_t g = 0; g < n; ++g)
+                {
+                    if (body.hasBack[g] || first[g] == SIZE_MAX)
+                        continue;
+                    bool ok = true;
+                    for (size_t i = first[g]; i < body.labelLine[g] && ok; ++i)
+                    {
+                        const Line &l = body.lines[i];
+                        if (l.barrier || l.code.find("READ") != std::string::npos || l.code.find("WRITE") != std::string::npos ||
+                            l.code.find("switch") != std::string::npos || l.code.find("return") != std::string::npos ||
+                            l.code.find("runtime") != std::string::npos)
+                            ok = false;
+                    }
+                    body.joinable[g] = ok;
+                }
+            }
         }
 
         std::string indentOf(const std::string &text)
@@ -1192,7 +1221,7 @@ namespace ps2recomp
                     inDirty[l] = body.hasBack[l] ? body.backDirty[l] : (fwdSeen[l] ? fwdDirty[l] : 0);
                     inStale[l] = (fwdStale[l] | body.backStale[l]) & ~inDirty[l];
                     inKnown[l] = fwdKnown[l] & body.backKnown[l] & ~inStale[l] & (body.sext ? ~0ull : 0);
-                    if (body.blockScope)
+                    if (body.blockScope && !(body.joinForward && body.joinable[l]))
                     {
                         // A sync point: the edges store what they hold dirty,
                         // the block loads what it reads.
@@ -1297,7 +1326,7 @@ namespace ps2recomp
                         known = knownAfter(line, before);
                         gotos(idx, line, false, before & known);
                         FrameState f = frame(line.bareOpen ? Frame::Bare : Frame::Cond);
-                        f.checkpoint = line.code.find("eeCheckpointDue()") != std::string::npos;
+                        f.checkpoint = line.code.find("eeCheckpointDue()") != std::string::npos || line.code.find("PS2_CHECKPOINT_DUE_AT(") != std::string::npos;
                         f.resume = startsWith(line.code, "switch (ctx->pc)");
                         stack.push_back(f);
                         put(line.rewritten);
@@ -1481,6 +1510,7 @@ namespace ps2recomp
         body.fprs = options.fprs;
         body.sext = options.sext;
         body.blockScope = options.blockScope;
+        body.joinForward = options.joinForward;
         body.writeThrough = options.writeThrough;
         body.deadStores = options.deadStores;
         std::vector<std::string> out;
