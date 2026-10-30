@@ -3,144 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="color-scheme" content="light dark">
 <title>Celosia Progress</title>
 <meta name="description" content="How far the Shadow of the Colossus PS2 port to macOS and PS Vita has come: the recompilation, the native renderer and the decompilation, measured each round.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
-<style>
-/* Layout: one reading column; the two parts of the port (recomp, decomp) as
-   chapters, each opening with its figures, then its maps, then its detail. */
-:root {
-  --bg: #eef0ee;          /* fog over stone */
-  --panel: #f8f9f7;
-  --ink: #1b2120;
-  --ink-2: #4b5552;
-  --ink-3: #737c79;
-  --line: #d3d8d5;
-  --native: #3f7a4f;      /* moss: native code */
-  --native-ink: #ffffff;
-  --mips: #a9b1ad;        /* weathered stone: recompiled MIPS */
-  --mips-ink: #1b2120;
-  --runtime: #b8892c;     /* lichen ochre: runtime */
-  --runtime-ink: #1b2120;
-  --accent: #2f5d74;      /* dusk sky over the Forbidden Land */
-  --tip: #ffffff;
-  --display: "IBM Plex Sans Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
-  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --step--1: 0.8125rem; --step-0: 1rem; --step-1: 1.25rem; --step-2: 1.75rem; --step-3: 2.75rem;
-  --r: 6px;
-}
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #141917; --panel: #1c2220; --ink: #e8ecea; --ink-2: #b4bdb9; --ink-3: #8a9490; --line: #2f3734;
-  --native: #5fa06f; --native-ink: #0f1513; --mips: #56605c; --mips-ink: #e8ecea; --runtime: #d0a248; --runtime-ink: #141917;
-  --accent: #7fb2cc; --tip: #232a28; color-scheme: dark; } }
-:root[data-theme="dark"] {
-  --bg: #141917; --panel: #1c2220; --ink: #e8ecea; --ink-2: #b4bdb9; --ink-3: #8a9490; --line: #2f3734;
-  --native: #5fa06f; --native-ink: #0f1513; --mips: #56605c; --mips-ink: #e8ecea; --runtime: #d0a248; --runtime-ink: #141917;
-  --accent: #7fb2cc; --tip: #232a28; color-scheme: dark; }
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 400 var(--step-0)/1.55 var(--body); }
-.wrap { max-width: 68rem; margin: 0 auto; padding-inline: max(16px, 4vw); padding-block: 2.5rem 4rem; display: grid; gap: 3.5rem; }
-a { color: var(--accent); }
-a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: 0.005em; text-wrap: balance; margin: 0; }
-h1 { font-size: var(--step-3); line-height: 1.05; }
-h2 { font-size: var(--step-2); line-height: 1.15; }
-h3 { font-size: var(--step-1); line-height: 1.25; }
-p { margin: 0; max-width: 68ch; }
-.muted { color: var(--ink-2); }
-.small { font-size: var(--step--1); color: var(--ink-2); }
-.eyebrow { font: 600 var(--step--1)/1.2 var(--display); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); }
-.mono { font-family: var(--mono); font-size: 0.92em; }
-.num { font-variant-numeric: tabular-nums; }
-
-header.top { display: grid; gap: 1rem; }
-header.top nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; font: 500 var(--step--1)/1.2 var(--display); text-transform: uppercase; letter-spacing: 0.1em; }
-header.top nav a { text-decoration: none; color: var(--ink-2); border-bottom: 1px solid var(--line); padding-bottom: 2px; }
-header.top nav a:hover { color: var(--ink); border-color: var(--ink); }
-
-.lede { display: grid; gap: 1.25rem; }
-.split { display: grid; gap: 0.6rem; }
-.split-bar { display: flex; height: 2.75rem; border-radius: var(--r); overflow: hidden; gap: 2px; background: var(--bg); }
-.split-bar > div { display: flex; align-items: center; padding-inline: 0.6rem; font: 600 var(--step--1)/1 var(--display); white-space: nowrap; overflow: hidden; min-width: 0; }
-.k-native { background: var(--native); color: var(--native-ink); }
-.k-mips { background: var(--mips); color: var(--mips-ink); }
-.k-runtime { background: var(--runtime); color: var(--runtime-ink); }
-.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; font-size: var(--step--1); color: var(--ink-2); }
-.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
-.legend i { width: 0.8rem; height: 0.8rem; border-radius: 2px; display: inline-block; }
-
-.chapter { display: grid; gap: 1.75rem; }
-.chapter-head { display: grid; gap: 0.6rem; border-top: 2px solid var(--ink); padding-top: 1rem; }
-.chapter-head .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1rem; justify-content: space-between; }
-.state { font: 600 var(--step--1)/1 var(--display); text-transform: uppercase; letter-spacing: 0.1em; padding: 0.35rem 0.6rem; border-radius: 999px; border: 1.5px solid currentColor; }
-.state.done { color: var(--native); }
-.state.going { color: var(--runtime); }
-
-.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-.fig { background: var(--panel); padding: 1rem 1.1rem; display: grid; gap: 0.3rem; align-content: start; }
-.fig .v { font: 600 var(--step-3)/1 var(--display); font-variant-numeric: tabular-nums; }
-.fig .v small { font-size: 0.45em; font-weight: 500; color: var(--ink-2); margin-left: 0.15em; }
-.fig .l { font-size: var(--step--1); color: var(--ink-2); line-height: 1.35; }
-
-.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1.5rem; }
-.block { display: grid; gap: 0.75rem; min-width: 0; align-content: start; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 1.1rem; display: grid; gap: 0.75rem; min-width: 0; }
-.map { position: relative; width: 100%; }
-.map svg { display: block; width: 100%; height: auto; }
-.tip { position: absolute; pointer-events: none; background: var(--tip); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r); padding: 0.45rem 0.6rem; font-size: var(--step--1); line-height: 1.4; max-width: 17rem; box-shadow: 0 4px 16px rgb(0 0 0 / 0.12); z-index: 3; }
-.tip b { font-weight: 600; }
-.tip .t { color: var(--ink-2); }
-
-.crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; min-height: 2rem; font-size: var(--step--1); color: var(--ink-2); }
-.crumb button { font: 600 var(--step--1)/1 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 0.4rem 0.75rem; cursor: pointer; }
-.crumb button:hover { border-color: var(--ink-3); }
-.crumb b { color: var(--ink); font-family: var(--display); font-size: var(--step-0); }
-.map g.click { cursor: pointer; }
-.map g.click:hover > rect:first-child { stroke: var(--ink); }
-.explain { display: grid; gap: 0.5rem; }
-.explain p { color: var(--ink-2); }
-.callout { border-left: 3px solid var(--native); padding: 0.2rem 0 0.2rem 0.9rem; display: grid; gap: 0.35rem; }
-
-.table-box { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
-table { width: 100%; border-collapse: collapse; font-size: var(--step--1); }
-th { text-align: left; font: 600 var(--step--1)/1.2 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
-td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-tr:last-child td { border-bottom: 0; }
-td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.meter { display: inline-block; width: 5rem; height: 0.45rem; background: var(--line); border-radius: 2px; vertical-align: middle; margin-right: 0.4rem; overflow: hidden; }
-.meter > i { display: block; height: 100%; }
-.chip { display: inline-block; font: 500 0.72rem/1.4 var(--display); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 0.4rem; border-radius: 3px; white-space: nowrap; }
-
-.rounds { display: grid; gap: 0; border-left: 2px solid var(--line); margin-left: 0.35rem; }
-.round { position: relative; padding: 0 0 1.1rem 1.25rem; display: grid; gap: 0.2rem; }
-.round::before { content: ""; position: absolute; left: -0.45rem; top: 0.35rem; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--panel); border: 2px solid var(--accent); }
-.round.now::before { background: var(--runtime); border-color: var(--runtime); }
-.round .h { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: baseline; }
-.round .h b { font: 600 var(--step-1)/1.2 var(--display); }
-.round p { color: var(--ink-2); }
-.round .res { color: var(--ink); font-size: var(--step--1); }
-
-.chart { position: relative; }
-.chart svg { display: block; width: 100%; height: auto; }
-.chart text { fill: var(--ink-2); font: 400 11px var(--body); }
-.empty { color: var(--ink-2); font-style: italic; }
-footer { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; gap: 0.4rem; }
-@media (prefers-reduced-motion: no-preference) { .split-bar > div { transition: flex-basis 0.6s ease; } }
-</style>
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-<div class="wrap">
-
-<header class="top">
-  <span class="eyebrow">Celosia · Shadow of the Colossus (PS2) on macOS and PS Vita</span>
-  <h1>Port progress</h1>
-  <p class="muted">The game already runs from start to end on both machines. It got there in two steps. The <b>recompilation</b> turned all of the PS2's MIPS code into C++ that compiles for ARM and x86, and replaced the PS2 hardware it talked to. The <b>decompilation</b>, still going, rewrites that machine-translated code by hand as readable native code, which is what makes it fast enough on the Vita.</p>
-  <nav aria-label="Sections"><a href="#recomp">Recompilation</a><a href="#decomp">Decompilation</a><a href="#targets">Next targets</a><a href="#rounds">Rounds</a><a href="https://github.com/HenryKun55/celosia">Repository</a></nav>
+<header class="hero">
+  <img class="hero-img" src="img/forest-agro-640.webp" srcset="img/forest-agro-640.webp 640w, img/forest-agro-1200.webp 1200w" sizes="100vw" width="1200" height="675" alt="Wander rides Agro through a foggy forest, light falling between the trees" fetchpriority="high" decoding="async">
+  <div class="hero-in">
+    <span class="eyebrow on-dark">Celosia · Shadow of the Colossus (PS2) on macOS and PS Vita</span>
+    <h1>Port progress</h1>
+    <p>The game already runs from start to end on both machines. It got there in two steps. The <b>recompilation</b> turned all of the PS2's MIPS code into C++ that compiles for ARM and x86, and replaced the PS2 hardware it talked to. The <b>decompilation</b>, still going, rewrites that machine-translated code by hand as readable native code, which is what makes it fast enough on the Vita.</p>
+    <nav aria-label="Sections"><a href="#recomp">Recompilation</a><a href="#decomp">Decompilation</a><a href="#targets">Next targets</a><a href="#rounds">Rounds</a><a href="#land">The Forbidden Land</a><a href="https://github.com/HenryKun55/celosia">Repository</a></nav>
+  </div>
 </header>
+
+<div class="wrap">
 
 <section class="lede" aria-labelledby="lede-h">
   <span class="eyebrow" id="lede-h">Where the Vita spends the game's frame</span>
@@ -153,6 +37,10 @@ footer { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; ga
 
 <!-- ============ RECOMP ============ -->
 <section class="chapter" id="recomp" aria-labelledby="recomp-h">
+  <figure class="banner">
+    <img src="img/shrine-idols-640.webp" srcset="img/shrine-idols-640.webp 640w, img/shrine-idols-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="482" alt="The hall of the Shrine of Worship, lined with the sixteen idols" loading="lazy" decoding="async">
+    <figcaption>The Shrine of Worship: one idol for each colossus. The recompilation is the same kind of complete map, every function of the game accounted for.</figcaption>
+  </figure>
   <div class="chapter-head">
     <div class="row"><h2 id="recomp-h">Recompilation</h2><span class="state done">Complete</span></div>
     <p class="muted">PS2Recomp reads the game's executables and writes every MIPS function out as C++. Nothing is interpreted at run time. The PS2's graphics chip, vector units, DMA and sound processor were then replaced, piece by piece, by native code that draws with Metal on the Mac and with the Vita's GPU.</p>
@@ -175,6 +63,10 @@ footer { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; ga
 
 <!-- ============ DECOMP ============ -->
 <section class="chapter" id="decomp" aria-labelledby="decomp-h">
+  <figure class="banner">
+    <img src="img/valus-sword-beam-640.webp" srcset="img/valus-sword-beam-640.webp 640w, img/valus-sword-beam-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="482" alt="Valus, the first colossus, seen from below as the sword’s light beam rises beside it" loading="lazy" decoding="async">
+    <figcaption>Valus, the first colossus. Raised to the light, the sword points at the next one; the profiler does the same for the next function to rewrite.</figcaption>
+  </figure>
   <div class="chapter-head">
     <div class="row"><h2 id="decomp-h">Decompilation</h2><span class="state going">In progress</span></div>
     <p class="muted">Recompiled code is correct but slow: every guest register lives in memory, every float goes through PS2 rounding rules, and every call goes through a table. A decompiled function is written by hand as plain C++, then proven equal to the recompiled one on the same machine state before it replaces it. The hottest functions go first, so a small share of the code already carries a large share of the time.</p>
@@ -216,12 +108,16 @@ footer { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; ga
     <h3>Over time</h3>
     <p class="small">Each point is one measurement. The time share is measured from round 32 on; the call share switched to a larger call sample on 2026-10-27, which explains its dip.</p>
     <div class="panel"><div class="chart" id="hist-chart"></div>
-      <div class="legend"><span><i style="background:var(--native)"></i>Game thread time native</span><span><i style="background:var(--accent)"></i>Calls native</span><span><i style="background:var(--runtime)"></i>Code native (by size)</span></div>
+      <div class="legend"><span><i class="k-native"></i>Game thread time native</span><span><i class="k-accent"></i>Calls native</span><span><i class="k-runtime"></i>Code native (by size)</span></div>
     </div>
   </div>
 </section>
 
 <section class="chapter" id="targets" aria-labelledby="targets-h">
+  <figure class="banner">
+    <img src="img/kuromori-arena-640.webp" srcset="img/kuromori-arena-640.webp 640w, img/kuromori-arena-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="675" alt="Wander draws his bow at a lizard colossus clinging to the wall of a ruined arena" loading="lazy" decoding="async">
+    <figcaption>Aim first, then climb. Each round picks its targets from a profile before any code changes.</figcaption>
+  </figure>
   <div class="chapter-head">
     <div class="row"><h2 id="targets-h">Next targets</h2></div>
     <p class="muted">The recompiled functions that cost the game thread the most, from the same profile. They are spread thin: no single one is above two percent, so the gains now come from rewriting whole subsystems. The address is the function's place in the PS2 executable.</p>
@@ -234,6 +130,10 @@ footer { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; ga
 </section>
 
 <section class="chapter" id="rounds" aria-labelledby="rounds-h">
+  <figure class="banner">
+    <img src="img/phalanx-sandstorm-640.webp" srcset="img/phalanx-sandstorm-640.webp 640w, img/phalanx-sandstorm-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="675" alt="Wander on Agro in a desert sandstorm, the flying colossus Phalanx behind them" loading="lazy" decoding="async">
+    <figcaption>Phalanx over the desert. A long ride, one round at a time.</figcaption>
+  </figure>
   <div class="chapter-head">
     <div class="row"><h2 id="rounds-h">Rounds</h2></div>
     <p class="muted">Work happens in rounds: one target, a change that must keep the game exactly the same, a measurement. Console figures come from the real PS Vita; the others from a Vita3K tuned to match it.</p>
@@ -241,277 +141,27 @@ footer { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; ga
   <div class="rounds" id="round-list"></div>
 </section>
 
+<section class="chapter" id="land" aria-labelledby="land-h">
+  <div class="chapter-head">
+    <div class="row"><h2 id="land-h">The Forbidden Land</h2></div>
+    <p class="muted">What all of this is for: Fumito Ueda and Team Ico’s 2005 game, playable natively on a Mac and in the hand on a PS Vita.</p>
+  </div>
+  <div class="gallery">
+    <figure><img src="img/keyart-640.webp" srcset="img/keyart-640.webp 640w, img/keyart-750.webp 750w" sizes="(min-width: 50rem) 22rem, 100vw" width="750" height="1000" alt="The cover art: a colossus strides through a canyon, Wander and Agro at its feet" loading="lazy" decoding="async"><figcaption>The 2005 cover art.</figcaption></figure>
+    <figure><img src="img/avion-640.webp" srcset="img/avion-640.webp 640w, img/avion-750.webp 750w" sizes="(min-width: 50rem) 22rem, 100vw" width="750" height="1000" alt="Avion, the bird colossus, flying beside the sword’s light beam" loading="lazy" decoding="async"><figcaption>Avion, the thirteenth colossus.</figcaption></figure>
+    <figure><img src="img/gaius-lake-640.webp" srcset="img/gaius-lake-640.webp 640w, img/gaius-lake-1200.webp 1200w" sizes="(min-width: 50rem) 33rem, 100vw" width="1200" height="675" alt="Wander swims toward a moss-covered colossus rising out of a lake" loading="lazy" decoding="async"><figcaption>A colossus rises from the lake.</figcaption></figure>
+    <figure><img src="img/shrine-altar-640.webp" srcset="img/shrine-altar-640.webp 640w, img/shrine-altar-1200.webp 1200w" sizes="(min-width: 50rem) 68rem, 100vw" width="1200" height="482" alt="The altar room of the Shrine of Worship, light through hazy arched windows" loading="lazy" decoding="async"><figcaption>The altar of the shrine, where the game begins.</figcaption></figure>
+  </div>
+</section>
+
 <footer class="small">
   <span>Data: <a href="https://github.com/HenryKun55/celosia/tree/main/docs">docs/</a> in the repository: <span class="mono">decomp_tree.json</span>, <span class="mono">decomp_history.json</span>, <span class="mono">decomp_status.json</span>, <span class="mono">port_status.json</span>, <span class="mono">rounds.json</span>. Written by <span class="mono">tools/decomp_status.py</span>, <span class="mono">tools/decomp_tree.py</span> and <span class="mono">tools/decomp_history.py</span>.</span>
   <span id="foot-updated"></span>
+  <span>Shadow of the Colossus © Sony Computer Entertainment, developed by Team Ico. The cover art and the Avion render are 2005 promotional art; the other images are Sony’s 2010 press screenshots of the PS3 collection. Celosia is a fan project, not affiliated with or endorsed by Sony. No game data is distributed: you need your own copy of the game.</span>
 </footer>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
-<script>
-(() => {
-  const RUNTIME = 'Runtime (DMA walk, memory, scheduler)';
-  const KIND = { native: 'Native code', recompiled: 'Recompiled MIPS', runtime: 'Runtime' };
-  const kindVar = (k) => k === 'native' ? 'var(--native)' : k === 'runtime' ? 'var(--runtime)' : 'var(--mips)';
-  const inkVar = (k) => k === 'native' ? 'var(--native-ink)' : k === 'runtime' ? 'var(--runtime-ink)' : 'var(--mips-ink)';
-  const pct = (v, d = 1) => (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toFixed(d) + '%';
-  const $ = (id) => document.getElementById(id);
-  const areaName = (a) => a === 'Other game code' ? 'Game code, names not identified yet' : a === RUNTIME ? 'Runtime' : a;
-  const load = (f) => fetch(f).then((r) => { if (!r.ok) throw new Error(f + ': ' + r.status); return r.json(); });
-
-  function tipFor(el) {
-    let t = el.querySelector('.tip');
-    if (!t) { t = document.createElement('div'); t.className = 'tip'; t.hidden = true; el.appendChild(t); }
-    return t;
-  }
-  function placeTip(el, tip, ev) {
-    const box = el.getBoundingClientRect();
-    const x = ev.clientX - box.left, y = ev.clientY - box.top;
-    tip.hidden = false;
-    const tw = tip.offsetWidth, th = tip.offsetHeight;
-    tip.style.left = Math.max(0, Math.min(x + 14, box.width - tw)) + 'px';
-    tip.style.top = Math.max(0, Math.min(y + 14, box.height - th)) + 'px';
-  }
-  function setTip(tip, lines) {
-    tip.textContent = '';
-    lines.forEach(([cls, text], i) => { const d = document.createElement(i === 0 ? 'b' : 'div'); if (cls) d.className = cls; d.textContent = text; tip.appendChild(d); if (i === 0) tip.appendChild(document.createElement('br')); });
-  }
-  function fitText(node, text, room) {
-    node.textContent = text;
-    if (room < 18) { node.textContent = ''; return; }
-    let t = text;
-    while (t.length > 1 && node.getComputedTextLength() > room) { t = t.slice(0, -1); node.textContent = t + '…'; }
-  }
-
-  // Treemap: groups (areas) of leaves sized by value. Clicking a group (or a
-  // leaf of it) opens opts.drill(group) as its own map; the crumb goes back.
-  function treemap(el, groups, opts) {
-    const crumb = $(el.id + '-crumb');
-    const state = el._zoom || null;
-    el.textContent = ''; if (crumb) crumb.textContent = '';
-    const w = Math.max(280, el.clientWidth), h = Math.round(Math.max(260, Math.min(w * (opts.ratio || 0.7), 520)));
-    const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${w} ${h}`).attr('role', 'img').attr('aria-label', opts.label);
-    const tip = tipFor(el);
-    const drilled = state && opts.drill ? opts.drill(state) : null;
-    if (crumb) {
-      if (drilled) {
-        const back = document.createElement('button'); back.type = 'button'; back.textContent = '‹ All areas';
-        back.addEventListener('click', () => { el._zoom = null; treemap(el, groups, opts); });
-        crumb.appendChild(back);
-        const t = document.createElement('b'); t.textContent = areaName(state); crumb.appendChild(t);
-        const sum = document.createElement('span'); sum.textContent = opts.summary ? opts.summary(state) : ''; crumb.appendChild(sum);
-      } else {
-        const sp = document.createElement('span'); sp.textContent = opts.hint || 'Click an area to open it.'; crumb.appendChild(sp);
-      }
-    }
-    if (drilled) {
-      const items = drilled.filter((i) => i.value > 0);
-      const total = d3.sum(items, (i) => i.value) || 1;
-      const root = d3.hierarchy({ children: items }).sum((d) => d.value || 0).sort((a, b) => b.value - a.value);
-      d3.treemap().size([w, h]).padding(2).round(true)(root);
-      const leaf = svg.selectAll('g').data(root.leaves()).join('g');
-      leaf.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => Math.max(0, d.x1 - d.x0)).attr('height', (d) => Math.max(0, d.y1 - d.y0))
-        .attr('rx', 2).attr('fill', (d) => opts.color(d.data)).attr('opacity', (d) => d.data.more ? 0.7 : 1);
-      leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 15).attr('font-size', 11).attr('font-weight', 600).attr('font-family', 'var(--body)').attr('fill', (d) => opts.ink(d.data))
-        .each(function (d) { if (d.y1 - d.y0 < 18) { this.textContent = ''; return; } fitText(this, opts.itemTop ? opts.itemTop(d.data) : (100 * d.value / total).toFixed(1) + '%', d.x1 - d.x0 - 10); });
-      leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 29).attr('font-size', 10).attr('font-family', 'var(--mono)').attr('fill', (d) => opts.ink(d.data))
-        .each(function (d) { if (d.y1 - d.y0 < 34) { this.textContent = ''; return; } fitText(this, opts.itemName(d.data), d.x1 - d.x0 - 10); });
-      leaf.on('pointermove', (ev, d) => { setTip(tip, opts.itemTip(d.data, d.value, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
-      return;
-    }
-    const root = d3.hierarchy({ children: groups.map((g) => ({ name: g.name, children: g.items.filter((i) => i.value > 0) })).filter((g) => g.children.length) })
-      .sum((d) => d.value || 0).sort((a, b) => b.value - a.value);
-    d3.treemap().size([w, h]).paddingOuter(2).paddingTop(19).paddingInner(2).round(true)(root);
-    const total = root.value || 1;
-    const open = (name) => { if (!opts.drill || !opts.drill(name)) return; tip.hidden = true; el._zoom = name; treemap(el, groups, opts); };
-    const g = svg.selectAll('g.a').data(root.children || []).join('g').attr('class', opts.drill ? 'a click' : 'a')
-      .attr('tabindex', opts.drill ? 0 : null).attr('role', opts.drill ? 'button' : null).attr('aria-label', (d) => 'Open ' + areaName(d.data.name))
-      .on('click', (ev, d) => open(d.data.name)).on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(d.data.name); } });
-    g.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => d.x1 - d.x0).attr('height', (d) => d.y1 - d.y0)
-      .attr('rx', 3).attr('fill', 'var(--bg)').attr('stroke', 'var(--line)');
-    g.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 14).attr('fill', 'var(--ink)')
-      .attr('font-family', 'var(--display)').attr('font-weight', 600).attr('font-size', 12)
-      .each(function (d) { fitText(this, areaName(d.data.name) + '  ' + opts.fmt(d.value, total), d.x1 - d.x0 - 10); });
-    const leaf = g.selectAll('g.l').data((d) => d.children).join('g');
-    leaf.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => Math.max(0, d.x1 - d.x0)).attr('height', (d) => Math.max(0, d.y1 - d.y0))
-      .attr('rx', 2).attr('fill', (d) => opts.color(d.data));
-    leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 15).attr('font-size', 11).attr('font-weight', 600).attr('font-family', 'var(--body)')
-      .attr('fill', (d) => opts.ink(d.data))
-      .each(function (d) { if (d.y1 - d.y0 < 18) { this.textContent = ''; return; } fitText(this, opts.leafLabel(d.data, d.value, d.parent.value, total), d.x1 - d.x0 - 10); });
-    leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 29).attr('font-size', 10).attr('font-family', 'var(--body)')
-      .attr('fill', (d) => opts.ink(d.data))
-      .each(function (d) { if (!opts.leafSub || d.y1 - d.y0 < 34) { this.textContent = ''; return; } fitText(this, opts.leafSub(d.data, d.value, d.parent.value, total), d.x1 - d.x0 - 10); });
-    leaf.on('pointermove', (ev, d) => { setTip(tip, opts.tip(d, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
-  }
-
-  function drawLede(tree) {
-    const sum = (k) => d3.sum(tree.rows.filter((r) => r.kind === k), (r) => r.time);
-    const parts = [['native', sum('native'), 'k-native', 'native'], ['recompiled', sum('recompiled'), 'k-mips', 'MIPS'], ['runtime', sum('runtime'), 'k-runtime', 'runtime']];
-    const bar = $('lede-bar'); bar.textContent = '';
-    for (const [, v, cls, name] of parts) { const d = document.createElement('div'); d.className = cls; d.style.flex = `0 0 calc(${v}% - 2px)`; d.textContent = `${v.toFixed(1)}% ${name}`; d.title = d.textContent; bar.appendChild(d); }
-    $('lede-note').textContent = `Share of the Vita game thread's instructions in a profile of round ${String(tree.label).replace(/^r/, '')}'s build on the usual route (Vita3K at 222 MHz, 180-300 s). The game thread is what limits the frame rate: on the console it needs 50-62 ms a frame, and a steady 20 fps needs 50.`;
-  }
-
-  function drawRecomp(status, port) {
-    $('rc-fn').textContent = d3.format(',')(status.summary.by_functions.total);
-    $('rc-mb').innerHTML = ''; $('rc-mb').append((status.summary.by_code_size.total / 1048576).toFixed(1)); const s = document.createElement('small'); s.textContent = 'MB'; $('rc-mb').append(s);
-    for (const map of ['renderer', 'hardware']) {
-      const rows = port.filter((r) => r.map === map);
-      const done = rows.filter((r) => r.status === 'native').length, part = rows.filter((r) => r.status === 'partial').length;
-      const el = $(map === 'renderer' ? 'rc-r' : 'rc-h'); el.textContent = ''; el.append(String(done)); const sm = document.createElement('small'); sm.textContent = '/ ' + rows.length; el.append(sm);
-      const groups = [...d3.group(rows, (r) => r.area)].map(([name, items]) => ({ name, items: items.map((r) => ({ ...r, value: 1 })) }));
-      treemap($('map-' + map), groups, {
-        label: map + ' features', ratio: 0.62,
-        fmt: (v) => v + (v === 1 ? ' feature' : ' features'),
-        color: (r) => r.status === 'native' ? 'var(--native)' : r.status === 'partial' ? 'var(--runtime)' : 'var(--mips)',
-        ink: (r) => r.status === 'native' ? 'var(--native-ink)' : 'var(--mips-ink)',
-        leafLabel: (r) => r.feature,
-        hint: 'Click an area to list its features.',
-        drill: (area) => rows.filter((r) => r.area === area).map((r) => ({ ...r, value: 1 })),
-        summary: (area) => { const a = rows.filter((r) => r.area === area); return a.filter((r) => r.status === 'native').length + ' of ' + a.length + ' native (' + pct(100 * a.filter((r) => r.status === 'native').length / a.length, 0) + ')'; },
-        itemTop: (r) => r.feature,
-        itemName: (r) => (r.status === 'native' ? 'native' : r.status) + (r.since ? ' since ' + r.since.slice(5) : ''),
-        itemTip: (r) => [[null, r.feature], ['t', r.area + ' · ' + (r.status === 'native' ? 'Native' : r.status)], ['', r.note || ''], ['t', 'Working since ' + (r.since || '?') + (r.commit ? ' · ' + r.commit : '')]],
-        tip: (d) => [[null, d.data.feature], ['t', d.data.area + ' · ' + (d.data.status === 'native' ? 'Native' : d.data.status)], ['', d.data.note || ''], ['t', 'Working since ' + (d.data.since || '?') + (d.data.commit ? ' · ' + d.data.commit : '')]],
-      });
-      if (done + part < rows.length) $('rc-left').querySelector('b').textContent = (rows.length - done) + ' features still to port.';
-    }
-  }
-
-  function drawDecomp(tree, status, hist) {
-    const sum = (k, f) => d3.sum(tree.rows.filter((r) => r.kind === k), (r) => r[f]);
-    $('dc-time').textContent = pct(sum('native', 'time'));
-    $('dc-mips').textContent = pct(sum('recompiled', 'time'));
-    $('dc-calls').textContent = pct(status.summary.by_calls.percent);
-    $('dc-code').textContent = pct(status.summary.by_code_size.percent);
-    $('dc-fns').textContent = d3.format(',')(status.summary.by_functions.native) + ' of ' + d3.format(',')(status.summary.by_functions.total);
-    const byArea = d3.group(tree.rows, (r) => r.area);
-    const groups = (field) => [...byArea].map(([name, items]) => ({ name, items: items.map((r) => ({ ...r, value: r[field] })) }));
-    const common = {
-      color: (r) => kindVar(r.kind), ink: (r) => inkVar(r.kind),
-      fmt: (v, t) => (100 * v / t).toFixed(1) + '%',
-    };
-    const fnList = (area, key) => ((tree.functions || {})[area] || {})[key];
-    const shortFn = (n) => n.split(' @ ')[0].replace(/^(decomp_\w+|sotc_\w+)::/, '');
-    const areaSummary = (area) => { const a = (status.areas || {})[area]; const tn = d3.sum(tree.rows.filter((r) => r.area === area && r.kind === 'native'), (r) => r.time), tr = d3.sum(tree.rows.filter((r) => r.area === area && r.kind === 'recompiled'), (r) => r.time);
-      return (a ? pct(a.percent) + ' of the code native (' + a.native_functions + ' of ' + d3.format(',')(a.functions) + ' functions) · ' : '') + 'game thread time ' + pct(tn) + ' native, ' + pct(tr) + ' MIPS'; };
-    const kindShort = { native: 'Native', recompiled: 'MIPS', runtime: 'Runtime' };
-    treemap($('tree-code'), groups('bytes'), { ...common, label: 'Code size by area',
-      hint: 'Click an area to open its functions, sized by their MIPS code.',
-      leafLabel: (r, v, pv) => kindShort[r.kind] + ' ' + (100 * v / pv).toFixed(1) + '%',
-      leafSub: (r) => d3.format(',')(r.functions) + ' functions',
-      drill: (area) => { const l = fnList(area, 'code'); return l && l.length ? l.map((f) => ({ ...f, value: f.bytes })) : null; },
-      summary: areaSummary,
-      itemName: (f) => shortFn(f.name),
-      itemTip: (f, v, t) => [[null, f.name.split(' @ ')[0]], ['t', f.more ? 'Smaller functions, together' : (f.name.split(' @ ')[1] ? 'PS2 address ' + f.name.split(' @ ')[1] : '')], ['', KIND[f.kind] + ' · ' + (f.bytes / 1024).toFixed(1) + ' KB of MIPS'], ['t', (100 * v / t).toFixed(1) + '% of this area']],
-      tip: (d, t) => [[null, areaName(d.data.area)], ['', KIND[d.data.kind] + ': ' + (d.data.bytes / 1024).toFixed(0) + ' KB, ' + (100 * d.value / t).toFixed(1) + '% of all code'], ['t', d3.format(',')(d.data.functions) + ' functions'], ['t', 'Game thread time: ' + pct(d.data.time)]] });
-    treemap($('tree-time'), groups('time'), { ...common, label: 'Game thread time by area',
-      hint: 'Click an area to see which functions take its time.',
-      leafLabel: (r, v, pv) => kindShort[r.kind] + ' ' + (100 * v / pv).toFixed(1) + '%',
-      leafSub: (r, v) => v.toFixed(1) + '% of the frame',
-      drill: (area) => { const l = fnList(area, 'time'); return l && l.length ? l.map((f) => ({ ...f, value: f.time })) : null; },
-      summary: areaSummary,
-      itemName: (f) => shortFn(f.name),
-      itemTip: (f, v, t) => [[null, f.name.split(' @ ')[0]], ['t', f.more ? 'Smaller functions, together' : (f.name.split(' @ ')[1] ? 'PS2 address ' + f.name.split(' @ ')[1] : 'Host code')], ['', KIND[f.kind] + ' · ' + pct(f.time, 2) + ' of the game thread'], ['t', (100 * v / t).toFixed(1) + '% of this area']],
-      tip: (d) => [[null, areaName(d.data.area)], ['', KIND[d.data.kind] + ': ' + pct(d.data.time) + ' of the game thread'], ['t', d.data.functions ? d3.format(',')(d.data.functions) + ' functions, ' + (d.data.bytes / 1024).toFixed(0) + ' KB of MIPS' : 'Host code around the game']] });
-
-    // area table
-    const tb = $('area-table').querySelector('tbody'); tb.textContent = '';
-    const areas = [...byArea].map(([name, items]) => {
-      const g = (k, f) => d3.sum(items.filter((r) => r.kind === k), (r) => r[f]);
-      return { name, nb: g('native', 'bytes'), rb: g('recompiled', 'bytes'), nf: g('native', 'functions'), rf: g('recompiled', 'functions'), nt: g('native', 'time'), rt: g('recompiled', 'time'), ut: g('runtime', 'time') };
-    }).sort((a, b) => (a.name === RUNTIME) - (b.name === RUNTIME) || (b.nt + b.rt) - (a.nt + a.rt));
-    for (const a of areas) {
-      const tr = document.createElement('tr');
-      const td = (text, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; if (text instanceof Node) c.appendChild(text); else c.textContent = text; tr.appendChild(c); return c; };
-      td(areaName(a.name));
-      if (a.name === RUNTIME) { td(''); td(''); td(''); td(pct(a.ut) + ' runtime', 'r'); tb.appendChild(tr); continue; }
-      const size = a.nb + a.rb, share = size ? 100 * a.nb / size : 0;
-      const m = document.createElement('span'); const meter = document.createElement('span'); meter.className = 'meter'; const fill = document.createElement('i'); fill.style.width = share + '%'; fill.style.background = 'var(--native)'; meter.appendChild(fill); m.appendChild(meter); m.append(pct(share));
-      td(m, 'r'); td(a.nf + ' / ' + d3.format(',')(a.nf + a.rf), 'r'); td(pct(a.nt), 'r'); td(pct(a.rt), 'r');
-      tb.appendChild(tr);
-    }
-
-    // top functions
-    const fill = (id, kind, withArea) => {
-      const body = $(id).querySelector('tbody'); body.textContent = '';
-      const rows = tree.top.filter((t) => t.kind === kind).slice(0, kind === 'recompiled' ? 20 : 10);
-      for (const t of rows) {
-        const tr = document.createElement('tr');
-        const c1 = document.createElement('td'); const parts = t.name.split(' @ ');
-        const nm = document.createElement('span'); nm.textContent = parts[0]; c1.appendChild(nm);
-        if (parts[1]) { const ad = document.createElement('span'); ad.className = 'mono small'; ad.textContent = '  ' + parts[1]; c1.appendChild(ad); }
-        tr.appendChild(c1);
-        if (withArea) { const c2 = document.createElement('td'); c2.className = 'small'; c2.textContent = areaName(t.area); tr.appendChild(c2); }
-        const c3 = document.createElement('td'); c3.className = 'r'; c3.textContent = pct(t.time, 2); tr.appendChild(c3);
-        body.appendChild(tr);
-      }
-    };
-    fill('top-mips', 'recompiled', true); fill('top-native', 'native', true); fill('top-runtime', 'runtime', false);
-
-    drawHistory(hist.entries);
-  }
-
-  function drawHistory(entries) {
-    const el = $('hist-chart'); el.textContent = '';
-    const w = Math.max(280, el.clientWidth), h = 240, m = { t: 14, r: 14, b: 30, l: 40 };
-    const x = d3.scalePoint(entries.map((_, i) => i), [m.l, w - m.r]).padding(0.3);
-    const y = d3.scaleLinear([0, 100], [h - m.b, m.t]);
-    const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${w} ${h}`).attr('role', 'img').attr('aria-label', 'Decomp progress over time');
-    svg.append('g').selectAll('line').data([0, 25, 50, 75, 100]).join('line').attr('x1', m.l).attr('x2', w - m.r).attr('y1', y).attr('y2', y).attr('stroke', 'var(--line)');
-    svg.append('g').selectAll('text').data([0, 25, 50, 75, 100]).join('text').attr('x', m.l - 6).attr('y', (v) => y(v) + 4).attr('text-anchor', 'end').text((v) => v + '%');
-    const step = Math.max(1, Math.ceil(entries.length / Math.max(2, Math.floor(w / 80))));
-    svg.append('g').selectAll('text').data(entries.map((e, i) => ({ e, i })).filter(({ i }) => i === entries.length - 1 || (i % step === 0 && entries.length - 1 - i >= step / 2)))
-      .join('text').attr('x', ({ i }) => x(i)).attr('y', h - 10).attr('text-anchor', 'middle').text(({ e }) => e.date.slice(5));
-    const series = [['time', 'var(--native)', 'Game thread time native'], ['calls', 'var(--accent)', 'Calls native'], ['code', 'var(--runtime)', 'Code native (by size)']];
-    for (const [k, color] of series) {
-      const pts = entries.map((e, i) => ({ i, v: e[k] })).filter((p) => p.v !== null && p.v !== undefined);
-      svg.append('path').attr('d', d3.line().x((p) => x(p.i)).y((p) => y(p.v))(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 2).attr('stroke-linejoin', 'round');
-      svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (p) => x(p.i)).attr('cy', (p) => y(p.v)).attr('r', 3.5).attr('fill', color).attr('stroke', 'var(--panel)').attr('stroke-width', 1.5);
-    }
-    const cross = svg.append('line').attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--ink-3)').attr('stroke-dasharray', '3 3').attr('visibility', 'hidden');
-    const tip = tipFor(el);
-    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
-      .on('pointermove', (ev) => {
-        const [mx] = d3.pointer(ev);
-        let best = 0; entries.forEach((_, i) => { if (Math.abs(x(i) - mx) < Math.abs(x(best) - mx)) best = i; });
-        const e = entries[best];
-        cross.attr('x1', x(best)).attr('x2', x(best)).attr('visibility', 'visible');
-        const lines = [[null, (e.label && !/^[0-9a-f]{7}$/.test(e.label) ? 'Round ' + e.label.replace(/^r/, '') + ' · ' : '') + e.date], ['t', 'commit ' + e.commit]];
-        for (const [k, , name] of series) if (e[k] !== null && e[k] !== undefined) lines.push(['', name + ': ' + pct(e[k])]);
-        setTip(tip, lines); placeTip(el, tip, ev);
-      })
-      .on('pointerleave', () => { cross.attr('visibility', 'hidden'); tip.hidden = true; });
-  }
-
-  function drawRounds(rounds) {
-    const list = $('round-list'); list.textContent = '';
-    for (const r of [...rounds.rows].reverse()) {
-      const d = document.createElement('div'); d.className = 'round' + (r.commit ? '' : ' now');
-      const h = document.createElement('div'); h.className = 'h';
-      const b = document.createElement('b'); b.textContent = 'Round ' + r.round.replace(/^r/, ''); h.appendChild(b);
-      const chip = document.createElement('span'); chip.className = 'chip'; chip.style.background = 'var(--bg)'; chip.style.border = '1px solid var(--line)'; chip.textContent = r.focus; h.appendChild(chip);
-      const meta = document.createElement('span'); meta.className = 'small'; meta.textContent = r.date + (r.commit ? ' · ' + r.commit : ' · running'); h.appendChild(meta);
-      d.appendChild(h);
-      const p = document.createElement('p'); p.textContent = r.summary; d.appendChild(p);
-      if (r.result) { const res = document.createElement('span'); res.className = 'res'; res.textContent = r.result; d.appendChild(res); }
-      list.appendChild(d);
-    }
-  }
-
-  let data = null;
-  function render() {
-    if (!data) return;
-    const [tree, status, hist, port, rounds] = data;
-    drawLede(tree); drawRecomp(status, port); drawDecomp(tree, status, hist); drawRounds(rounds);
-    $('foot-updated').textContent = 'Last measurement: ' + tree.updated + ' (' + tree.label + ').';
-  }
-  Promise.all(['decomp_tree.json', 'decomp_status.json', 'decomp_history.json', 'port_status.json', 'rounds.json'].map(load))
-    .then((d) => { data = d; render(); })
-    .catch((err) => { $('lede-note').textContent = 'The data files did not load (' + err.message + '). They live next to this page in docs/.'; });
-  let t = null;
-  window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(render, 150); });
-})();
-</script>
+<script src="vendor/d3-7.9.0.min.js" defer></script>
+<script src="assets/app.js" defer></script>
 </body>
 </html>
