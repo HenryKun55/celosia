@@ -1,0 +1,102 @@
+{
+ "note": "tools/decomp_history.py draws docs/decomp_history.svg from this; entries in time order",
+ "entries": [
+  {
+   "date": "2026-10-23",
+   "label": "ed10257",
+   "commit": "ed10257",
+   "code": 4.24,
+   "calls": 34.12
+  },
+  {
+   "date": "2026-10-23",
+   "label": "fce6b0c",
+   "commit": "fce6b0c",
+   "code": 4.31,
+   "calls": 39.57
+  },
+  {
+   "date": "2026-10-23",
+   "label": "e51649c",
+   "commit": "e51649c",
+   "code": 4.51,
+   "calls": 40.27
+  },
+  {
+   "date": "2026-10-24",
+   "label": "33afe16",
+   "commit": "33afe16",
+   "code": 4.65,
+   "calls": 40.6
+  },
+  {
+   "date": "2026-10-25",
+   "label": "d44f871",
+   "commit": "d44f871",
+   "code": 4.69,
+   "calls": 40.9
+  },
+  {
+   "date": "2026-10-25",
+   "label": "23595fb",
+   "commit": "23595fb",
+   "code": 4.73,
+   "calls": 41.57
+  },
+  {
+   "date": "2026-10-26",
+   "label": "a7829ef",
+   "commit": "a7829ef",
+   "code": 5.25,
+   "calls": 51.43
+  },
+  {
+   "date": "2026-10-27",
+   "label": "bb0bfd8",
+   "commit": "bb0bfd8",
+   "code": 5.25,
+   "calls": 47.52
+  },
+  {
+   "date": "2026-10-27",
+   "label": "d2d8bb1",
+   "commit": "d2d8bb1",
+   "code": 5.3,
+   "calls": 47.69
+  },
+  {
+   "date": "2026-10-27",
+   "label": "3dfcd50",
+   "commit": "3dfcd50",
+   "code": 5.4,
+   "calls": 47.78
+  },
+  {
+   "date": "2026-10-29",
+   "label": "a61cb0d",
+   "commit": "a61cb0d",
+   "code": 5.41,
+   "calls": 47.92
+  },
+  {
+   "date": "2026-10-29",
+   "label": "r32",
+   "commit": "1eb9ad7",
+   "code": 5.41,
+   "calls": 47.92,
+   "time": 47.3,
+   "generated": 38.5,
+   "runtime": 12.6
+  },
+  {
+   "date": "2026-10-30",
+   "label": "r35",
+   "commit": "88d2884",
+   "code": 5.41,
+   "calls": 47.92,
+   "time": 45.7,
+   "generated": 38.9,
+   "runtime": 13.4
+  }
+ ]
+}

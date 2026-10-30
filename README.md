@@ -150,13 +150,25 @@ for byte, on the same machine state (`SOTC_DIFFTEST`). It is a functional
 decomp, not a matching one. The workflow (guest profiler, Ghidra scripts,
 difftest) is in [docs/decomp.md](docs/decomp.md).
 
-Progress (2026-10-28, round 19; the figures are round 18's count, plus libmc2's free-cluster count since): **4.96%** of the MIPS code (448 of 9,024 functions, the
-SDK / libc pieces the runtime implements included; 3.2% of the game's own
-code), but **48%** of the guest calls already land in native code (call
-counts of the attract demo and the route to frame 4 800): the
-rewrites go after the hottest functions first. Every native function is
+Progress (2026-10-30, round 35; code and call figures from round 28's count):
+**5.4%** of the MIPS code (450 of 9,024 functions, the SDK / libc pieces the
+runtime implements included; 3.2% of the game's own code), but **48%** of the
+guest calls already land in native code (call counts of the attract demo and
+the route to frame 4 800): the rewrites go after the hottest functions first.
+By time, **46%** of the Vita game thread's instructions run in native code,
+**39%** still in recompiled MIPS and 13% in the runtime (DMA walk, memcpy,
+scheduler), from a Vita3K profile of the route (180-300 s). The recompiled
+share is spread thin (its biggest function is 1.5%), so it shrinks by
+rewriting whole subsystems, not single hot spots. Every native function is
 listed in [docs/decomp_status.json](docs/decomp_status.json)
-(`tools/decomp_status.py` recounts it).
+(`tools/decomp_status.py` recounts it); the history is in
+[docs/decomp_history.json](docs/decomp_history.json) (`tools/decomp_history.py
+--add --label rNN [--profile LATE EARLY ELF THREAD]` appends a measurement and
+redraws the chart).
+
+<p align="center">
+  <img src="docs/decomp_history.svg" alt="Decomp progress over time: share of the game thread's time, of guest calls, and of the MIPS code that is native" width="760">
+</p>
 
 ![What is decompiled](docs/decomp_status.svg)
 
