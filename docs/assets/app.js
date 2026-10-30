@@ -294,6 +294,40 @@
     }
   }
 
+  // Lightbox: any banner or gallery image opens full size in a dialog;
+  // arrows, swipes and Esc work, the page stays where it was.
+  (function lightbox() {
+    const dlg = $('lightbox'); if (!dlg || !dlg.showModal) return;
+    const imgs = [...document.querySelectorAll('.banner img, .gallery img')];
+    const big = $('lb-img'), cap = $('lb-cap'), count = $('lb-count');
+    let at = 0, lastFocus = null;
+    const largest = (im) => { const set = (im.getAttribute('srcset') || '').split(',').map((x) => x.trim().split(/\s+/)); return set.length && set[set.length - 1][0] ? set[set.length - 1][0] : im.src; };
+    function show(i) {
+      at = (i + imgs.length) % imgs.length;
+      const im = imgs[at];
+      big.src = largest(im); big.alt = im.alt;
+      const fc = im.closest('figure') && im.closest('figure').querySelector('figcaption');
+      cap.textContent = fc ? fc.textContent : im.alt;
+      count.textContent = (at + 1) + ' / ' + imgs.length;
+    }
+    function open(i) { lastFocus = document.activeElement; show(i); dlg.showModal(); document.documentElement.classList.add('lb-open'); }
+    function close() { dlg.close(); }
+    dlg.addEventListener('close', () => { document.documentElement.classList.remove('lb-open'); if (lastFocus && lastFocus.focus) lastFocus.focus(); });
+    imgs.forEach((im, i) => {
+      im.tabIndex = 0; im.setAttribute('role', 'button'); im.setAttribute('aria-label', 'Open image: ' + im.alt); im.classList.add('zoomable');
+      im.addEventListener('click', () => open(i));
+      im.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(i); } });
+    });
+    $('lb-prev').addEventListener('click', () => show(at - 1));
+    $('lb-next').addEventListener('click', () => show(at + 1));
+    $('lb-close').addEventListener('click', close);
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
+    dlg.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') show(at - 1); else if (e.key === 'ArrowRight') show(at + 1); });
+    let x0 = null;
+    dlg.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+    dlg.addEventListener('touchend', (e) => { if (x0 === null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) show(at + (dx < 0 ? 1 : -1)); x0 = null; });
+  })();
+
   let data = null;
   function render() {
     if (!data) return;
