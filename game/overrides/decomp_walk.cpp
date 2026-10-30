@@ -68,6 +68,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/native_tuning.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -603,6 +604,12 @@ namespace decomp_walk
         // The level by distance, then against the model's count (+0x1c):
         // past it the last level, or none when the record says so (+0x28);
         // 01097F88 when the model picks its own level (+0xc).
+        // Round 36, "Detalhe reduzido" (Tuning::sacLod): the level picked as
+        // if the model were 1.6x as far, for records that keep their last
+        // level past their range (+0x28 clear: nothing vanishes sooner,
+        // terrain included; it is drawn coarser).
+        if (native_renderer::tuning().sacLod && m.s32(a0 + 0x28u) == 0)
+            f1 = f1 * 1.6f;
         float f12 = lodByDistance(m, a0, f1, static_cast<int32_t>(static_cast<int64_t>(m.u64(s2 + 0x250u) << 21) >> 61));
         uint64_t v0;
         float f20 = -1.0f;

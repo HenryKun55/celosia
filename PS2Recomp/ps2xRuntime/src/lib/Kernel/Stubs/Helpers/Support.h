@@ -1,3 +1,4 @@
+#include "runtime/ps2_thread_load.h"
 #include "runtime/ps2_stats.h"
 #include <mutex>
 #include <vector>
@@ -434,6 +435,15 @@ namespace
     bool readHostRange(const std::filesystem::path &path, uint64_t offsetBytes, uint8_t *dst, size_t byteCount)
     {
         const ps2_stats::TimeInto timed{ps2_stats::cdReadUs};
+        struct GameTime // round 36: the game thread's share (the frame log's "cd ... game")
+        {
+            uint64_t start = ps2_load::t_slot == ps2_load::kGame ? ps2_stats::nowUs() : 0u;
+            ~GameTime()
+            {
+                if (start)
+                    ps2_stats::cdReadGameUs.fetch_add(ps2_stats::nowUs() - start, std::memory_order_relaxed);
+            }
+        } gameTimed;
         ps2_stats::cdReadBytes.fetch_add(byteCount, std::memory_order_relaxed);
         ps2_stats::cdReads.fetch_add(1u, std::memory_order_relaxed);
         // PS2X_CD_LOG=1: every read ("[cd] frame F vblank V t<guest thread> <file> <offset> <bytes>"; debugging).

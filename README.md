@@ -59,7 +59,18 @@ captures each module (see below).
   X or left / right: change, Triangle: help, O or Select: close (the game
   gets no pad input while it is open). Its **Debug** tab (R1 three times)
   changes the developer switches live, without editing `env.txt` or
-  rebooting (`env.txt` still sets where they start): **Mark this moment**
+  rebooting (`env.txt` still sets where they start). Its first rows are
+  the **sacrifices** (round 36), each one taking something off the picture
+  to save the console's game-thread time, game logic untouched, saved in
+  `settings.cfg` (the Vita's default: fewer particles on; the Mac: all off):
+  **Fewer particles** ("Partículas reduzidas", `SOTC_SAC_PARTICLES`: every
+  emitter makes half as many) and **Coarser model detail** ("Detalhe reduzido",
+  `SOTC_SAC_LOD`: detail levels picked as if 1.6x as far; nothing
+  disappears; off by default). `SOTC_SACRIFICES=0` turns them all off at
+  start. On the Vita the picture is always capped at 30 fps in frames with
+  a scene (round 36; not a menu item there; loading screens, logos and
+  black frames are not capped, so the loader is never held back;
+  `SOTC_CAP30=0` / `SOTC_CAP30_ALWAYS=1` for testing). **Mark this moment**
   writes `[mark] <n> frame <f>` to the log (`err.txt` on the Vita) to find
   a moment later; **Performance overlay** shows fps, the frame's time split
   (game, hooks, render thread, wait, present), the worst frame of the last
@@ -288,6 +299,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | `SOTC_GL_SHADOWMASK_VITA=1` | Vita: the shadow mask target made and cleared each frame, as before (default, round 35: not made; the Vita's shadow pass returns before drawing it) |
 | `SOTC_VGL_MEMDUMP=<s>` | Vita: every s seconds `[vgl:dump]` lines: what vitaGL's pools hold by the code that asked for it (sites resolve against the ELF; "dump base" is `vglCeloMemDump`'s address), the circular / immediate pools' peaks, render targets and their driver memory, scratch depths, and each framebuffer's depth (own / scratch / shared); `[native:gl] targets:` names the renderer's framebuffers |
 | `SOTC_PLAN_STATS=1` | also counts the jobs' plan walk (`[plan] ... jobs' walk`: packets looked at, left out by the part / surface test, part runs) |
+| `SOTC_SACRIFICES=0` | round 36: every sacrifice off at start (each one's own variable below still wins; saved `sac_*` values in `settings.cfg` are ignored while it is set) |
+| `SOTC_SAC_PARTICLES=0/1` | Debug "Fewer particles" ("Partículas reduzidas"): each particle emitter's rate halved (the carried fraction keeps the average; an emitter's first frame still makes one) and at most half its live particles (rounded up); the Vita's default 1 |
+| `SOTC_SAC_LOD=0/1` | Debug "Coarser model detail" ("Detalhe reduzido"): modelClipSolid picks the level as if the model were 1.6x as far, only for LOD records that keep their last level past their range (+0x28 clear: nothing vanishes sooner, terrain included); off by default (no game-thread saving measured on the route) |
+| `SOTC_SAC_AB=<mask>` | measuring: the sacrifices in the mask (1 particles, 4 detail) on for two 60-frame frame-log windows, off for the next two, and so on, with a `[sac-ab] on/off` line after each window's (`build/agent-scratch/r36/abwin.py` pairs them): one run, the same places |
+| `SOTC_CAP30=0`, `SOTC_CAP30_ALWAYS=1` | the Vita: the 30 fps cap off / on in every frame (round 36: always on there, not a menu item, a saved `cap30=0` is ignored; it applies while the native renderer's last frame had 150 draws or more and stops under 40: loading screens, logos and black frames run uncapped, `[cap30] on/off` lines say when it switches) |
+| `SOTC_GL_PRESSURE_POOLFREE=1` | Vita: round 33's rule for the heap-pressure eviction (spare what lives in vitaGL's pools only while 8 MB of CDRAM and 2 MB of its main-RAM pool are free). Default (round 36): spared whatever the pools' room: the console's RAM pool sits at 8.2 of ~10 MB, so round 33's spare never applied there and every mesh unused for 8 s went every 16 frames, which gave the heap nothing back and brought the walls of a canyon back as holes |
+| `SOTC_ASYNC_BUDGET=n` | builds queued on the worker a frame at most (round 36: 500 by default on the Vita, 0 = no limit elsewhere); past it a draw is left out as one still on the worker and queued later |
+| `SOTC_TAKEUP_MS=x` | the finished builds taken up at a frame's start for at most x ms, the rest at the next frames in order (round 36: 8 on the Vita, 0 = all at once elsewhere) |
+| `SOTC_GL_RUN_EVICT_OLD=1` | the merged-run copies' room made as before round 36 (a scan and sort of every copy for each copy past the budget, again every frame for a run that found none); default: one scan a frame at most, freeing down to 7/8 of the budget |
+| `SOTC_CPU_LOG=1` | Mac: `[cpu]` lines every 60 frames with the game thread's CPU time (clock_gettime(CLOCK_THREAD_CPUTIME_ID)) |
 
 With `SOTC_FRAME_LOG=1` the `[frame]` lines also end in `| sync ... | joins ...`: the game
 thread's work at the frame's change by part (the join, endFrame, the frame log, the sound log,
@@ -295,7 +316,9 @@ the idle thread's turn, the rest) and the model-job joins by site (round 32). Ro
 `lag <us> max <ms>` (a job's wait from its hand-over until the worker takes it up: average,
 largest) and, on the console, `| cpu <thread> <ms> (<n>p <n>m), ...`: each thread kind's CPU
 time, preemptions and moves to another core (from the kernel's run clocks; Vita3K has none,
-so the column is left out there).
+so the column is left out there). Round 36 adds to the slow-frame lines `cd ... (n reads, KB, game x)` (the disc read time
+that was the game thread's own) and `render x (lock, up, draw, sweep, runs copied / scans)` (the render thread's time by part:
+the GL lock's wait, uploads applied, the draws, the cache sweep, and the merged runs copied and room scans).
 
 Recompile-time and build-time switches for the generated code (round 29;
 each gives the same results, they only bring back the older, slower form):

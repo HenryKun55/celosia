@@ -442,6 +442,11 @@ namespace native_renderer
         // (queued behind others, or the worker not running), summed / the
         // largest.
         uint64_t lagUs = 0, lagMaxUs = 0;
+        // Round 36: the render thread's time by part (the OpenGL backend on
+        // its thread): the GL lock's wait, uploads applied, the draws
+        // (render(), present left out), the per-frame cache sweep.
+        uint64_t renderLockUs = 0, renderUploadUs = 0, renderDrawUs = 0, renderSweepUs = 0;
+        uint32_t renderRunCopies = 0, renderRunScans = 0; // merged runs copied, scans for their room
     };
     FrameCounters &frameCounters();
     uint64_t nowUs();

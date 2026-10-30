@@ -967,6 +967,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static constexpr uint64_t kRunBudget = 0x30000; // ~7 MB
         IdMap<RunCopy> runs;
         uint64_t runVertices = 0;
+        uint64_t runScanFrame = 0; // round 36: the frame of the last scan for room that found none
         bool copyRun(size_t from, size_t to, uint32_t total, RunCopy &copy);
         std::vector<std::pair<uint32_t, uint32_t>> planRanges; // scratch: a run's (first, count)
         void planFrame();
@@ -1180,6 +1181,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         struct
         {
             uint64_t renderUs = 0, presentUs = 0;
+            uint64_t lockUs = 0, uploadUs = 0, drawUs = 0, sweepUs = 0; // round 36: renderUs by part
+            uint32_t runCopies = 0, runScans = 0;                       // round 36: merged runs copied, scans for their room
             uint32_t targets = 0;
         } stats;
         std::vector<native_renderer::ScreenBlur> blurs;
@@ -2558,6 +2561,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     {
         if (runVertices + total > kRunBudget)
         {
+            // Round 36: one scan a frame at most. Each copy past the budget
+            // scanned and sorted every copy (and every run that found no room
+            // scanned again, every frame): a camera turn bringing a few
+            // hundred new runs made it quadratic on the render thread (the
+            // console's 110-170 ms render frames with few uploads are a
+            // suspect). Now a scan frees down to 7/8 of the budget, and a
+            // frame whose scan found nothing old enough does not scan again.
+            // SOTC_GL_RUN_EVICT_OLD=1: as before.
+            static const bool oldWay = std::getenv("SOTC_GL_RUN_EVICT_OLD") && std::atoi(std::getenv("SOTC_GL_RUN_EVICT_OLD")) != 0;
+            if (!oldWay && runScanFrame == arenaFrame)
+                return false;
+            runScanFrame = arenaFrame;
+            ++stats.runScans;
+            const uint64_t goal = oldWay ? kRunBudget : std::min<uint64_t>(kRunBudget - kRunBudget / 8u, kRunBudget - std::min<uint64_t>(total, kRunBudget));
             // Room made from the copies drawn longest ago (not this frame's
             // or the last one's: the GPU may still read them).
             std::vector<std::pair<uint64_t, uint64_t>> old; // (used, key)
@@ -2569,7 +2586,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::sort(old.begin(), old.end());
             for (const auto &[used, key] : old)
             {
-                if (runVertices + total <= kRunBudget)
+                if (runVertices + (oldWay ? total : 0u) <= goal)
                     break;
                 RunCopy *r = runs.find(key);
                 poolFree(r->pool, r->first, r->count);
@@ -2579,6 +2596,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             if (runVertices + total > kRunBudget)
                 return false;
+            runScanFrame = 0; // room made: later copies this frame may use it without a scan
         }
         int pool = -1;
         uint32_t first = 0;
@@ -2608,6 +2626,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         copy.count = total;
         copy.used = arenaFrame;
         runVertices += total;
+        ++stats.runCopies;
         return true;
     }
 
@@ -3870,6 +3889,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 native_renderer::FrameCounters &c = native_renderer::frameCounters();
                 c.renderUs += r->stats.renderUs;
                 c.presentUs += r->stats.presentUs;
+                c.renderLockUs += r->stats.lockUs;
+                c.renderUploadUs += r->stats.uploadUs;
+                c.renderDrawUs += r->stats.drawUs;
+                c.renderSweepUs += r->stats.sweepUs;
+                c.renderRunCopies += r->stats.runCopies;
+                c.renderRunScans += r->stats.runScans;
                 c.targets += r->stats.targets;
             }
             r->stats = {};
@@ -4264,7 +4289,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             static const bool spareInPools = !std::getenv("SOTC_GL_PRESSURE_POOLS") || std::atoi(std::getenv("SOTC_GL_PRESSURE_POOLS")) != 0;
             bool heapOnly = false;
 #if defined(PS2X_NATIVE_VITA)
-            heapOnly = pressure && !critical && spareInPools && vglMemFree(VGL_MEM_VRAM) >= (8u << 20) && vglMemFree(VGL_MEM_RAM) >= (2u << 20);
+            // Round 36: whatever room the pools have. Round 33 also asked for
+            // 8 MB of CDRAM and 2 MB of vitaGL's main-RAM pool free, but the
+            // console's RAM pool (~10 MB) sits at 8.2 used for good: the
+            // spare never applied there (`kept in pools 0` in nearly every
+            // [gl:mem] line of round 35's session, heap 108-110 MB), so every
+            // mesh and texture not drawn for 8 s went every 16 frames, the
+            // pools' as well, which give the heap nothing back. Riding through
+            // a canyon, the walls seen a few seconds before came back as
+            // holes (held terrain, built again at the terrain budget a frame:
+            // the console's "walls you can see through", 2026-10-30). A short
+            // pool is the budget's job (poolShort above).
+            // SOTC_GL_PRESSURE_POOLFREE=1: round 33's condition.
+            static const bool poolFreeRule = std::getenv("SOTC_GL_PRESSURE_POOLFREE") && std::atoi(std::getenv("SOTC_GL_PRESSURE_POOLFREE")) != 0;
+            heapOnly = pressure && !critical && spareInPools &&
+                       (!poolFreeRule || (vglMemFree(VGL_MEM_VRAM) >= (8u << 20) && vglMemFree(VGL_MEM_RAM) >= (2u << 20)));
 #else
             (void)spareInPools;
 #endif
@@ -4408,10 +4447,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 else
                 {
+                    const uint64_t lockStart = native_renderer::nowUs();
                     Lock gl;
                     const uint64_t start = native_renderer::nowUs(), present = r->stats.presentUs;
+                    r->stats.lockUs += start - lockStart;
                     ++r->arenaFrame;
                     r->applyUploads();
+                    const uint64_t uploaded = native_renderer::nowUs();
+                    r->stats.uploadUs += uploaded - start;
                     r->expandDraws();
                     if (!r->hold) // held: the last picture stays on screen
                     {
@@ -4426,7 +4469,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         else
                             r->render(width, height);
                     }
+                    const uint64_t drawn = native_renderer::nowUs();
+                    r->stats.drawUs += (drawn - uploaded) - (r->stats.presentUs - present);
                     r->evictUnused();
+                    r->stats.sweepUs += native_renderer::nowUs() - drawn;
                     r->stats.renderUs += (native_renderer::nowUs() - start) - (r->stats.presentUs - present);
                 }
                 lock.lock();

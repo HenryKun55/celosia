@@ -22,6 +22,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/native_tuning.h"
 
 #include <cstring>
 
@@ -725,6 +726,13 @@ namespace decomp_ptclupdate
             }
         };
 
+        // With sacParticles at most half the emitter's live particles (rounded up).
+        const bool sacParticles = native_renderer::tuning().sacParticles;
+        auto liveCap = [&]() -> uint32_t
+        {
+            const uint32_t cap = m.u32(Mr + 0x1Cu);
+            return sacParticles && static_cast<int32_t>(cap) > 1 ? (cap + 1u) / 2u : cap;
+        };
         uint64_t v0 = 0u;
         if (m.u32(E + 0x114u) == 1u)
         {
@@ -753,6 +761,11 @@ namespace decomp_ptclupdate
                 const float f4 = 1.0f;
                 f2 = FPU_ADD_S(f2, f1r);
                 f20 = FPU_MUL_S(f2, f0);
+                // Round 36, "Partículas reduzidas" (Tuning::sacParticles):
+                // half the emission rate (the carried fraction keeps the
+                // average exact; an emitter's first frame still makes one).
+                if (sacParticles)
+                    f20 = FPU_MUL_S(f20, 0.5f);
                 f0 = FPU_CVT_S_W(FPU_CVT_W_S(f20));
                 f0 = FPU_SUB_S(f20, f0);
                 f0 = FPU_ADD_S(f3, f0);
@@ -780,7 +793,7 @@ namespace decomp_ptclupdate
                 particles(0x0113BEB0u, false);
                 if (s3 == 1u)
                 {
-                    const int32_t want = static_cast<int32_t>(m.u32(Mr + 0x1Cu) - m.u32(E + 0x124u));
+                    const int32_t want = static_cast<int32_t>(liveCap() - m.u32(E + 0x124u));
                     s2 = static_cast<uint64_t>(static_cast<int64_t>(want));
                     s0 = 0u;
                     if (want > 0)
@@ -813,7 +826,7 @@ namespace decomp_ptclupdate
                 particles(0x0113C040u, false);
                 if (s3 == 1u)
                 {
-                    const int32_t want = static_cast<int32_t>(m.u32(Mr + 0x1Cu) - m.u32(E + 0x124u));
+                    const int32_t want = static_cast<int32_t>(liveCap() - m.u32(E + 0x124u));
                     s2 = static_cast<uint64_t>(static_cast<int64_t>(want));
                     s0 = 0u;
                     if (want > 0)

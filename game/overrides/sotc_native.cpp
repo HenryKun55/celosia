@@ -55,6 +55,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <chrono>
 #include <iostream>
 #include <thread>
@@ -3059,12 +3060,13 @@ namespace sotc_native
         // thread blocked), the disc reads, the guest VBlanks: this frame's.
         struct Mark
         {
-            uint64_t wait, cdUs, cdBytes, cdReads, vblanks, sprUs, sprBytes, sprs;
+            uint64_t wait, cdUs, cdBytes, cdReads, vblanks, sprUs, sprBytes, sprs, cdGameUs;
         };
         const Mark mark{ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed), ps2_stats::cdReadUs.load(std::memory_order_relaxed),
                         ps2_stats::cdReadBytes.load(std::memory_order_relaxed), ps2_stats::cdReads.load(std::memory_order_relaxed),
                         ps2_stats::vblanks.load(std::memory_order_relaxed), ps2_stats::sprDmaUs.load(std::memory_order_relaxed),
-                        ps2_stats::sprDmaBytes.load(std::memory_order_relaxed), ps2_stats::sprDmas.load(std::memory_order_relaxed)};
+                        ps2_stats::sprDmaBytes.load(std::memory_order_relaxed), ps2_stats::sprDmas.load(std::memory_order_relaxed),
+                        ps2_stats::cdReadGameUs.load(std::memory_order_relaxed)};
         static Mark lastMark = mark;
         // The game's own step this frame (GAMECORE's frame time, 0x1465650:
         // +0x180 seconds, from the EE timer T0): what its movement, physics
@@ -3082,6 +3084,27 @@ namespace sotc_native
             // CPU time this frame (native_renderer::threads).
             static uint64_t cpuFrames = 0;
             native_renderer::threads::sample();
+#if !defined(__vita__)
+            {
+                // Round 36 (the Mac, SOTC_CPU_LOG=1): the game thread's CPU time
+                // ([cpu] every 60 frames, game frame and VBlank), for A/B checks
+                // on the fixed-30 route, whose positions repeat run to run.
+                static const bool cpuLog = std::getenv("SOTC_CPU_LOG") != nullptr;
+                if (cpuLog)
+                {
+                    timespec ts{};
+                    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+                    const uint64_t cpu = static_cast<uint64_t>(ts.tv_sec) * 1000000u + static_cast<uint64_t>(ts.tv_nsec) / 1000u;
+                    static uint64_t lastCpu = cpu, frames = 0;
+                    if (++frames % 60u == 0u)
+                    {
+                        std::fprintf(stderr, "[cpu] frame %llu vblank %llu: game %.3f ms a frame\n", (unsigned long long)g_frame,
+                                     (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), (cpu - lastCpu) / 60000.0);
+                        lastCpu = cpu;
+                    }
+                }
+            }
+#endif
             ++cpuFrames;
             if (print && (period > 50000u || tune.frameLogAll))
             {
@@ -3091,12 +3114,13 @@ namespace sotc_native
                 native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
             }
             if (print && period > 50000u)
-                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u (terrain %u)%s"
-                                     " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
+                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u async %u/%u held %u (terrain %u)%s"
+                                     " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
-                             c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
+                             c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.renderLockUs / 1000.0, c.renderUploadUs / 1000.0,
+                             c.renderDrawUs / 1000.0, c.renderSweepUs / 1000.0, c.renderRunCopies, c.renderRunScans, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
                              c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "", (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
-                             (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0,
+                             (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0, (mark.cdGameUs - lastMark.cdGameUs) / 1000.0,
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
@@ -3145,6 +3169,35 @@ namespace sotc_native
                 perfOverlayFrame(period, c);
             if (sum.frames == 60u && print)
             {
+                // Round 36 (measuring), SOTC_SAC_AB=<mask>: the sacrifices in the
+                // mask (1 particles, 4 detail) on for
+                // two of these 60-frame windows, off for the next two, and so on
+                // (one run, the same places: the route's positions drift from run
+                // to run); a "[sac-ab] on|off" line after each window's line.
+                static const int abMask = std::getenv("SOTC_SAC_AB") ? std::atoi(std::getenv("SOTC_SAC_AB")) : 0;
+                static uint64_t abWindows = 0;
+                const bool abOn = abMask && ((abWindows / 2u) & 1u) != 0u;
+                struct AbLine
+                {
+                    int mask;
+                    bool on;
+                    ~AbLine()
+                    {
+                        if (!mask)
+                            return;
+                        native_renderer::logf("[sac-ab] %s\n", on ? "on" : "off");
+                    }
+                } abLine{abMask, abOn};
+                if (abMask)
+                {
+                    ++abWindows;
+                    const bool next = ((abWindows / 2u) & 1u) != 0u;
+                    native_renderer::Tuning &t = native_renderer::tuning();
+                    if (abMask & 1)
+                        t.sacParticles = next;
+                    if (abMask & 4)
+                        t.sacLod = next;
+                }
                 const double n = 60.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
                 char avgSplit[640];
                 int at = std::snprintf(avgSplit, sizeof(avgSplit), " lag %.0f us max %.2f", sum.jobCount ? sum.lag / static_cast<double>(sum.jobCount) : 0.0, sum.lagMax / 1000.0);

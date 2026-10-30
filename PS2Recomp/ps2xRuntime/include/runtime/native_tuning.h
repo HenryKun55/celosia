@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -182,6 +183,18 @@ namespace native_renderer
         // (the same picture; on the Vita's GPU a discard costs its hidden
         // surface removal; SOTC_GL_NODISCARD=0/1).
         bool glNoDiscard = true;
+
+        // Round 36: sacrifices for the console's game thread (the Debug
+        // group's first items, saved in settings.cfg; the Vita's default:
+        // the particles one; the Mac: none). Each leaves the game's logic alone and
+        // takes something away from what is shown. SOTC_SACRIFICES=0 turns
+        // them all off at start (each one's own variable wins over it).
+        // Particles: every emitter makes half as many (half its rate, half
+        // its live count, at least one) (SOTC_SAC_PARTICLES).
+        bool sacParticles = false;
+        // Models' detail levels picked as if 1.6x as far (coarser sooner;
+        // none vanishes sooner) (SOTC_SAC_LOD).
+        bool sacLod = false;
     };
 
     // The settings (made from the environment on first use). Inline: the
@@ -226,6 +239,11 @@ namespace native_renderer
     // The performance overlay's numbers (Tuning::perfOverlay): filled at
     // each game frame's end by the game's frame log code, read by the host's
     // overlay (another thread: perfSnapshot copies under a lock).
+    // Round 36: the draws the native renderer got for the last frame (the
+    // host loop turns the Vita's 30 fps cap on only in frames with a scene:
+    // not on loading screens, logos and black frames).
+    inline std::atomic<uint32_t> g_frameDraws{0}, g_lastFrameDraws{0};
+
     struct PerfStats
     {
         float fps = 0, frameMs = 0, gameMs = 0, hooksMs = 0, renderMs = 0, waitMs = 0, presentMs = 0, worstMs = 0;

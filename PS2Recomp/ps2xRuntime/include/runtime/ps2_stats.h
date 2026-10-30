@@ -62,6 +62,7 @@ namespace ps2_stats
     };
     // Disc reads (sceCdRead / the stream's reads into memory): host time, bytes, calls.
     inline std::atomic<uint64_t> cdReadUs{0}, cdReadBytes{0}, cdReads{0};
+    inline std::atomic<uint64_t> cdReadGameUs{0}; // round 36: of cdReadUs, the reads made on the game thread
     // Scratchpad DMA (channels 8 / 9, PS2Memory::tryProcessScratchpadDma): host time, bytes, transfers.
     inline std::atomic<uint64_t> sprDmaUs{0}, sprDmaBytes{0}, sprDmas{0};
     inline std::atomic<uint64_t> tlVu1Us{0}, tlVu1IdleUs{0}, tlGsUs{0}, tlRestUs{0}, tlFrames{0};

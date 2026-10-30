@@ -3126,7 +3126,25 @@ void PS2Runtime::run()
             // vblank at most (the Vita: vsync interval 2), so a game frame
             // that takes a little over 33 ms does not alternate 60/30 shows.
             static int presentedFps = 60;
-            const int wantFps = native_renderer::tuning().frameCap30 ? 30 : 60;
+            // Round 36: only in frames with a scene (the native renderer's
+            // draws: 150 or more turns it on, under 40 off). On loading
+            // screens, logos and black frames the game runs at 60 and the cap
+            // held the game thread back at each hand-over, and with it the
+            // loader, which steps once a frame (calibrated Vita3K: the title
+            // menu 27-229 s after boot with the cap against 15-18 s without;
+            // turning it off when frames took under 1.25 VBlanks did not work:
+            // capped, every frame takes 2). SOTC_CAP30_ALWAYS=1: as set.
+            static bool slowGame = false;
+            {
+                static const bool always = std::getenv("SOTC_CAP30_ALWAYS") && std::atoi(std::getenv("SOTC_CAP30_ALWAYS")) != 0;
+                const uint32_t draws = native_renderer::g_lastFrameDraws.load(std::memory_order_relaxed);
+                const bool was = slowGame;
+                slowGame = always || (draws >= 150u ? true : (draws < 40u ? false : slowGame));
+                if (was != slowGame && native_renderer::tuning().frameCap30)
+                    std::fprintf(stderr, "[cap30] %s at vblank %llu (%u draws)\n", slowGame ? "on" : "off",
+                                 (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), draws);
+            }
+            const int wantFps = (native_renderer::tuning().frameCap30 && slowGame) ? 30 : 60;
             if (wantFps != presentedFps)
             {
                 presentedFps = wantFps;

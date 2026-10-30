@@ -6116,6 +6116,233 @@ env-r35-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1, SOTC_VGL_MEMDUMP=60).
 4. Display buffers aligned to 1 MB (3 MB of CDRAM) if sceDisplay accepts
    4 KB-aligned ones on the console (needs a console test: boot risk).
 
+## Round 36: the canyon walls, sacrifices as switches, the 30 fps cap, the area-change spikes (2026-10-30)
+
+On AC power the whole round. Not deployed to the console; nothing committed.
+The brief changed twice during the round: first a "20 fps travado" lock
+(built, then dropped at the user's word), then the 30 fps cap made
+permanent on the Vita (not a menu item) and kept from slowing loads.
+
+**1. The walls you could see through (the console, round 35's session).**
+The user's shots (cave exit and riding at the 4th colossus's canyon, 17 fps)
+show a cliff block ending in a hard vertical edge with the horizon behind
+it. The cause is ours, not the game's: the GL backend's heap-pressure
+eviction. The console's newlib heap sat at 108-110 MB (the pressure line is
+104), and round 33's spare for pressure ("keep what lives in vitaGL's pools,
+it gives the heap nothing back") applied only while vitaGL's main-RAM pool
+had 2 MB free; on the console that pool is ~10 MB and sat at 8.2 MB used, so
+the spare never applied: 73 of the session's 81 `[gl:mem]` lines say `kept in
+pools 0`, and 25 772 meshes and textures were evicted for pressure (952-4 513
+every 5 s from t=153 s on), every one unused for 8 s, every 16 frames. They
+freed no heap (they live in vitaGL's pools), but a canyon wall seen a few
+seconds before was gone when it came back into view, and came back as held
+terrain, rebuilt at the 2.5 ms terrain budget a frame: the windows of the
+console log with hundreds to 1 800 held terrain draws, and the holes.
+The game's own streaming was not it (the loader's jobs never lasted over
+0.2 s in gameplay; collision is the game's and was not touched).
+- Reproduced in Vita3K (r36/env-press*.txt: `SOTC_GL_HEAP_MB=80` so the
+  route is under pressure, console-sized pools, 240 MHz): with round 33's
+  rule forced off (`SOTC_GL_PRESSURE_POOLS=0`, what the console effectively
+  had) the route's held terrain draws were 21 520, with the spare 11 168.
+- Fix (native_renderer_gl.cpp evictKept): under pressure (not critical)
+  only what lives in the newlib heap goes, whatever the pools' room; a short
+  pool is the budget's job (round 34's poolShort). `SOTC_GL_PRESSURE_POOLFREE=1`
+  gives round 33's rule back.
+- The GS reference (coordinator's ask): the spot is at the 4th colossus,
+  which no card here reaches (the console's card is not in the tree; the
+  route card and the console-r23 card start at the shrine), so the exact
+  shot could not be paired. On the Mac route (no heap pressure, SOTC_NATIVE=2,
+  r36/posfin2, tools/native_compare.py into r36/cmp-posfin2) the canyon and
+  plain cliffs are in both pictures; the worst pairs differ by the frame
+  offset and the fog, not by missing geometry. The eviction is the native
+  renderer's cache: the GS picture cannot show it.
+
+**2. The game thread: what a sacrifice can take.** Profiled in Vita3K at 222
+MHz (SOTC_SUBSYS_PROF, r36/subsys1; instruction counts with r33/thprof.py;
+the game thread is thread 248 in every Vita3K profile of this round). The
+plain, inclusive ms a frame with the probes' cost: the display walk 13.5
+(modelDisp and its hook 4.4, the light pass 1.4), ExecCharaGeometry 11.6 for
+~9 characters a frame (IK 2.9, skeletonPose 2.0), the camera 3.9, the
+collision callback 3.1, particles 2.7, texAnim 1.3, the DMA chain walk 1.7.
+Instruction profile of the plain (thprof, 11.1 M instructions a frame):
+nothing above 4% (skeleton 4.0%, callGuest 2.4%, the collision natives ~7%
+together, modelDispState 2.9%, texAnim 1.4%, the VIF1 chain walk ~3%).
+What was looked at and why most of it cannot be cut without touching game
+logic:
+- **Characters** (SOTC_CHARA_PROBE, a Mac probe, removed): of the ~10-30
+  characters ExecCharaGeometry runs for, the out-of-view ones already cost
+  5-10 us each (the game skips them); 90% of the time is Wander and Agro
+  (~250-300 us each on the Mac), whose poses the climbing and riding use.
+  Nothing to take.
+- **Collision** (a Mac probe of ClipCollisionDirectCallBack by caller,
+  removed): camera_collision_check_direct ~45%, the scripts' collision
+  callback ~25%, 01434AE0 ~15%, the player's water surface and the horse's
+  control the rest; particles' rays are a few percent. All logic or the
+  camera.
+- **Tiny models** (built, measured, removed): a cull of solid models whose
+  sphere covers 2-4 pixels. Among the models that reach a detail level only
+  36 of 106 000 clips were that small (`[sac-tiny]`): the game's own LOD
+  records already drop small far things. No saving.
+- **Kept as switches** (Debug tab, first rows, saved in settings.cfg):
+  **Fewer particles** ("Partículas reduzidas", decomp_ptclupdate.cpp: each
+  emitter's rate x0.5 before its carried fraction, at most half its live
+  particles, at least one; default on on the Vita) and **Coarser model detail**
+  ("Detalhe reduzido", decomp_walk.cpp modelClipSolid: the level picked as if
+  1.6x as far, only for LOD records that keep their last level past their
+  range, so nothing vanishes sooner and terrain walls stay; default off).
+
+Measured in one run each with the sacrifices alternated every two 60-frame
+windows (`SOTC_SAC_AB=<mask>`, r36/abwin.py; the second window of each pair,
+the route's positions the same for both), 222 MHz, game thread ms a frame:
+
+| mask | shrine | walk + area change | plain | after (25-35 windows each) |
+|---|---|---|---|---|
+| particles (1) | (2 windows) | +1.5 | +0.9 | +0.3 |
+| tiny models (2; removed) | | +1.5 | +1.4 | +0.1 |
+| detail (4) | | -5.0 | +2.1 | +0.4 |
+| all three (7), run 1 | | +0.4 | -1.3 | +0.6 |
+| all three (7), run 2 | | -7.0 | +1.4 | +0.9 |
+
+(The walk and plain columns are 2-3 windows of each state: their spread,
+±7 ms, is the scene changing under the alternation.)
+
+The long windows (the plain after the walk, 25-35 windows of each state)
+say it: **no measurable saving on this route** (within ±1 ms, the noise).
+Single runs with Vita3K's profiler (instructions a frame, r36/prof-p2-*,
+prof-p4-*) agreed: the route's own positions move ±25% between runs, more
+than any sacrifice. The route has few particles; the particle switch is
+kept on because the subsystem profile of the walk's cutscene showed the
+particle manager and its draw at 8.7 ms with the probes there.
+Visual check (Mac, fixed-30, sacrifices off / on, r36/vis-off, vis-on,
+the same frames): no visible difference at the route's distances; the
+positions agree (posmax 0.10 to frame 5 400).
+
+**3. The 30 fps cap: always on on the Vita, not while loading.** At the
+user's word the cap is no longer a menu item on the Vita (defaultTuning
+sets it; the `cap30` item is left out of the Vita's list, so a saved
+`cap30=0`, as in the user's settings.cfg, is ignored; `SOTC_CAP30=0` for
+testing). The cap held the game thread back at each hand-over, and the
+game's loader steps once a frame: in calibrated Vita3K the title menu came
+27-229 s after boot with the cap against 13-18 s without (l6-*, base35,
+c1-*). A first try turned it off while frames took under 1.25 VBlanks
+(boot and loading screens run at 60): capped, every frame takes two, so it
+never turned off again (l6-cap-b: 229 s). Now it applies only in frames
+with a scene: the native renderer's draws of the last frame, 150 or more on,
+under 40 off (`[cap30] on/off at vblank ...` lines; `SOTC_CAP30_ALWAYS=1`
+caps every frame). Loading screens, logos and black frames run uncapped.
+Boot to the title menu, calibrated Vita3K at 222 MHz, the route's card
+(r36/loadtimes.py; wall seconds and VBlanks to the menu):
+
+| build | title menu |
+|---|---|
+| round 35 (no cap) | 13.0 s (782 VBlanks) |
+| cap always (round 36's first builds: c1-*, p4-*, l6-cap) | 27.3 / 35.7 / 43.3 / 128.8 / 182.7 / 224.5 / 228.6 s |
+| `SOTC_CAP30=0` (l6-nocap) | 15.2 / 17.7 s |
+| the final cap, by scene (l9-cap-a) | **16.7 s (1 028 VBlanks)** |
+
+The card load and the walk's area change are gameplay frames (40-90 ms):
+the cap does not change them (area change built in 0.33 s, 4 frames, in
+l9-cap-a; 0.31-0.35 s without the cap). In the same run the cap switched
+9 times (on at the first scene, off on each black or loading frame).
+
+**4. Hitches.**
+- **Area changes: the build queue spread over frames** (native_renderer.cpp,
+  `SOTC_ASYNC_BUDGET`, the Vita's default now 500 a frame, was unlimited):
+  the console's slow 2013 queued 1 528 builds in one frame (84 ms of jobs,
+  joined for 71 ms). Past the budget a draw is left out like one still on
+  the worker. In Vita3K the walk's area change now builds over 4-7 frames
+  (0.3-0.5 s, held picture for up to 3 of them) instead of 2.
+- **Finished builds taken up for at most 8 ms a frame** (`SOTC_TAKEUP_MS`,
+  the Vita's default 8, 0 = all at once): the console's slow 5850 took up
+  668 at once (894 meshes, 52 ms in the frame's change).
+- **The render thread's area-change spike**: copying the merged runs' vertices
+  scanned and sorted every run copy for each copy past the 7 MB budget, and
+  every run that found no room scanned again, every frame. One scan a frame
+  at most now, freeing down to 7/8 of the budget (`SOTC_GL_RUN_EVICT_OLD=1`:
+  as before). Vita3K, the walk's area change (4 000 draws): the first frame
+  165 / 167 / 153 / 145 ms render (r35 VPK and round 36's first builds) ->
+  111 / 100 / 102 ms (137-157 runs copied, 3-4 scans); the next frames are
+  Vita3K's 85-90 ms for 3 700 draws either way. The console's 110-170 ms
+  render frames had few uploads, as here.
+- **Disc reads on the game thread**: async reads (cd_async) are already the
+  default; the frame log now says how much of `cd` was the game thread's
+  own (`cd x (n reads, KB, game y)`), to tell on the console whether the
+  70-81 ms `cd` of slow 467 / 5264 were on the game thread (the frame line's
+  `cpu game` there was 56 / 98 ms) or the reader's.
+- **The render thread by part**: `render x (lock, up, draw, sweep, runs
+  copied / scans)` in the slow-frame lines.
+- **Heap growth** (108-110 MB on the console, 86 MB in Vita3K on the
+  route): not found. It grows with the areas visited (65 MB at boot, 87 at
+  t=46, 103 at t=146, 109 at t=247) while the GL caches shrink; the hooks'
+  skinned packets go 1.7 -> 5.8 MB, the draw lists 0.3 -> 2.2 MB, and the
+  arena runs 10-17 MB ahead of what is used (fragmentation). With item 1 it
+  no longer costs the picture; under 126 MB (critical) nothing in the pools
+  is evicted for it.
+
+**Verification.**
+- Mac, sacrifices off (the Mac's default), SOTC_DIFFTEST=all EVERY=200 to
+  4 800 (r36/dt-all): 57 functions, 168 902 checks, 158 mismatches, all
+  gamecore_sub_013F8668 (the life bar's v0, as since round 16).
+- Fixed-30 route to 5 400 (SOTC_NATIVE=2, the r24 card copy; base = r35's
+  binary, new = this round's; the Mac shared with Vita3K runs): base1 against
+  base2 2.06, base3 3.38; against new 0.47, 4.96, 3.80, 5.28; one new run
+  (posfin1) took another line at frame ~2 700 (84 apart from frame 3 330 on)
+  and its repeat did not: a load's VBlank offset under the Mac's load, the
+  sacrifices being off there and nothing else on the game's path changed.
+  VBlanks at 5 400: base 10 826 / 10 798 / 10 775, new 10 829 / 10 748 /
+  10 776 / 10 768 / 10 759 (round 35 had 10 740 in all four on an idle Mac).
+- Sacrifices on (particles and detail; Mac fixed-30, r36/possac): positions
+  within 3.6 of base; r36/vis-on against vis-off 0.10.
+- Settings: the user's console settings.cfg (round 35's copy, settings_version
+  24, quality_preset 1, render_scale 1, cap30=0, no sac_* keys) loaded in
+  not run in Vita3K at the end (the chain was stopped at the coordinator's
+  word). By the code: no settings_version bump is needed; a key the Vita's
+  list does not have (`cap30`) is skipped by tuningRestore and not written
+  back; the `sac_*` keys are absent, so the new defaults apply (fewer
+  particles on, coarser detail off); quality_preset 1 / render_scale 1 and
+  the rest are read as before.
+- Boots and plays in Vita3K: the final VPK's code (r36/n9.vpk =
+  celosia-r36.vpk) ran the route to the plain (l9-cap-a, 222 MHz, cap on
+  by scene, fewer particles on), plain 48.8 ms a frame, worst 66 ms there.
+- Final profile window (coordinator's ask): r36/prof-final.txt.180 / .300
+  with every sacrifice off, from r36/n6 (the build before the cap went by
+  scene and the tiny cull was removed; the game-thread code with the
+  sacrifices off is the final one's plus the removed cull's one store);
+  its ELF is r36/final.elf; the game thread is thread 248.
+
+**Switches** (README): `SOTC_SACRIFICES=0`, `SOTC_SAC_PARTICLES`,
+`SOTC_SAC_LOD`, `SOTC_SAC_AB=<mask>`, `SOTC_CAP30=0` / `SOTC_CAP30_ALWAYS=1`
+(Vita), `SOTC_GL_PRESSURE_POOLFREE=1`, `SOTC_ASYNC_BUDGET`, `SOTC_TAKEUP_MS`,
+`SOTC_GL_RUN_EVICT_OLD=1`, `SOTC_CPU_LOG=1` (Mac).
+
+**Files:** PS2Recomp/ps2xRuntime/include/runtime/native_tuning.h (the
+sacrifices, the draws counter), native_renderer.h (render-thread counters),
+ps2_stats.h (cdReadGameUs); PS2Recomp/ps2xRuntime/src/lib/native/native_renderer.cpp
+(defaults, items, SOTC_SACRIFICES, build queue / take-up budgets, the draws
+counter), native_renderer_gl.cpp (pressure spare, run-copy scans, render
+parts); PS2Recomp/ps2xRuntime/src/lib/ps2_runtime.cpp (the cap by scene);
+PS2Recomp/ps2xRuntime/src/lib/Kernel/Stubs/Helpers/Support.h (game-thread
+disc time); game/overrides/decomp_ptclupdate.cpp, decomp_walk.cpp,
+sotc_native.cpp (frame log fields, SOTC_SAC_AB, the Mac's [cpu] line);
+README.md, docs/decomp.md. Tools in build/agent-scratch/r36: v3k.sh,
+v3kp.sh + snapwatch.sh (profile snapshots by game frame), thw.sh, gt.py,
+abwin.py, loadtimes.py, profrange.py, cpuwin.py, mac.sh, posbase.sh, dt.sh.
+Deliverables: build/agent-scratch/celosia-r36.vpk (shader seed: 42 files),
+env-r36-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1); r36/prof-final.txt.180 /
+.300 and r36/final.elf (see Verification; game thread 248).
+
+**Round 37 (plan).**
+1. The console with this VPK: `kept in pools` should be most of the
+   pressure candidates now and held terrain near 0 outside area changes; the
+   new `cd ... game` and `render (...)` fields on the slow frames; `[cap30]`
+   lines (off on loading screens).
+2. The game thread is logic: the camera's collision (~45% of the collision
+   callback's time), the scripts' collision callback, Wander's and Agro's
+   skeletons. Native work there (exact) is the way to the 45 ms, not more
+   cuts; a cut there would change what the game does.
+3. The heap's growth with areas visited (a per-site count of the newlib
+   heap on the console).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

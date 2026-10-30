@@ -74,6 +74,15 @@ namespace native_renderer
         d.hookWorker = true;
         d.holdIncomplete = true;
         d.warmShaders = true;
+        // Round 36: the picture at most every other refresh, always (not a
+        // menu item on the Vita: a requirement for an even picture; SOTC_CAP30=0
+        // for testing). A frame that takes a little over 33 ms is then shown
+        // at 30 / 20 steadily instead of alternating 60 / 30 / 20 shows.
+        d.frameCap30 = true;
+        // Round 36: the particle sacrifice on by default (half the emitters'
+        // work in particle-heavy scenes); the coarser detail is a toggle only
+        // (no game-thread saving measured on the route).
+        d.sacParticles = true;
 #endif
         return d;
     }
@@ -145,6 +154,15 @@ namespace native_renderer
                 d.ps2Lists = std::atoi(std::getenv("SOTC_PS2_LISTS")) != 0;
             if (on("SOTC_GPU_SKIN"))
                 d.gpuSkinning = std::atoi(std::getenv("SOTC_GPU_SKIN")) != 0;
+            if (on("SOTC_SACRIFICES") && std::atoi(std::getenv("SOTC_SACRIFICES")) == 0)
+            {
+                d.sacParticles = false;
+                d.sacLod = false;
+            }
+            if (on("SOTC_SAC_LOD"))
+                d.sacLod = std::atoi(std::getenv("SOTC_SAC_LOD")) != 0;
+            if (on("SOTC_SAC_PARTICLES"))
+                d.sacParticles = std::atoi(std::getenv("SOTC_SAC_PARTICLES")) != 0;
             if (on("SOTC_CAP30"))
                 d.frameCap30 = std::atoi(std::getenv("SOTC_CAP30")) != 0;
             if (on("SOTC_RENDER_THREAD"))
@@ -217,6 +235,10 @@ namespace native_renderer
         for (const auto &[value, env] : offs)
             if (!value)
                 add(env);
+        if (t.sacParticles != d.sacParticles)
+            add(std::string("SOTC_SAC_PARTICLES=") + (t.sacParticles ? "1" : "0"));
+        if (t.sacLod != d.sacLod)
+            add(std::string("SOTC_SAC_LOD=") + (t.sacLod ? "1" : "0"));
         if (t.frameCap30 != d.frameCap30)
             add(std::string("SOTC_CAP30=") + (t.frameCap30 ? "1" : "0"));
         if (t.midFrameRedraw != d.midFrameRedraw)
@@ -360,10 +382,13 @@ namespace native_renderer
              &Tuning::reflections, nullptr, 0, 1, 1, "SOTC_NATIVE_NOREFLECT"},
             {"refraction", "Water refraction", "Refração da água", "The scene seen through water.", "O cenário visto através da água.",
              &Tuning::refraction, nullptr, 0, 1, 1, "SOTC_NATIVE_NOREFRACT"},
+#if !defined(__vita__)
+            // (the Vita: always on, round 36; a saved cap30=0 is ignored there)
             {"cap30", "Cap at 30 fps", "Limitar a 30 fps",
              "The picture changes at most every other screen refresh: steady 30 fps instead of a mix of 30 and 60 (or 20 and 30).",
              "A imagem muda no máximo a cada duas atualizações da tela: 30 fps estáveis em vez de uma mistura de 30 e 60 (ou 20 e 30).",
              &Tuning::frameCap30, nullptr, 0, 1, 1, "SOTC_CAP30"},
+#endif
         };
         auto debugToggle = [&](const char *key, const char *label, const char *labelPt, const char *help, const char *helpPt, bool Tuning::*flag,
                                const char *env = nullptr)
@@ -372,6 +397,17 @@ namespace native_renderer
             item.debug = true;
             v.push_back(item);
         };
+        // Round 36: the sacrifices first in the Debug group (each takes
+        // something away from the picture to hold the console's frame rate;
+        // the game's logic is left alone).
+        debugToggle("sac_particles", "Fewer particles", "Partículas reduzidas",
+                    "SACRIFICE (saves game-thread time): every particle emitter makes half as many particles (half the rate, half as many alive at once, at least one): thinner dust, splashes, sparks and grass. Off: as on the PS2.",
+                    "SACRIFÍCIO (poupa tempo da thread do jogo): cada emissor de partículas faz metade das partículas (metade da taxa, metade vivas ao mesmo tempo, pelo menos uma): poeira, respingos, faíscas e grama mais ralos. Desligado: como no PS2.",
+                    &Tuning::sacParticles, "SOTC_SAC_PARTICLES");
+        debugToggle("sac_lod", "Coarser model detail", "Detalhe reduzido",
+                    "SACRIFICE (saves game-thread and render time): each model's detail level is picked as if it were 1.6x as far away, so the simpler versions are used sooner (rougher outlines and terrain at a distance; nothing disappears). Off: the game's own levels.",
+                    "SACRIFÍCIO (poupa tempo da thread do jogo e do render): o nível de detalhe de cada modelo é escolhido como se ele estivesse 1,6x mais longe, então as versões mais simples entram antes (contornos e terreno mais grosseiros à distância; nada some). Desligado: os níveis do próprio jogo.",
+                    &Tuning::sacLod, "SOTC_SAC_LOD");
         // Round 20: the switches to flip on the console without a reboot,
         // first in the Debug group.
         {
@@ -795,6 +831,8 @@ namespace native_renderer
             if (item.action)
                 return true; // (never saved)
             if (item.env && std::getenv(item.env))
+                return false;
+            if (!std::strncmp(key, "sac_", 4) && std::getenv("SOTC_SACRIFICES")) // (round 36: all of them set at start)
                 return false;
             if (item.toggle)
                 tuning().*item.toggle = value != 0.0f;
@@ -1413,12 +1451,39 @@ namespace native_renderer
             return budget;
         }
         // Jobs a frame may queue (asyncBudgetLeft): SOTC_ASYNC_BUDGET, 0 = no limit.
+        // Round 36: 500 by default on the Vita. The console's area changes
+        // queued up to ~1 500 builds in one frame (a copy of each packet's
+        // bytes and an allocation, on the model jobs' worker: 84 ms of jobs,
+        // the game thread joined it for 71 ms, round 35's slow 2013); past
+        // the budget a draw is left out like one still on the worker and
+        // queued at a later frame.
         static uint32_t queueBudget()
         {
-            static const uint32_t budget = std::getenv("SOTC_ASYNC_BUDGET") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_ASYNC_BUDGET"))) : 0u;
+#if defined(__vita__)
+            constexpr uint32_t kDefault = 500u;
+#else
+            constexpr uint32_t kDefault = 0u;
+#endif
+            static const uint32_t budget = std::getenv("SOTC_ASYNC_BUDGET") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_ASYNC_BUDGET"))) : kDefault;
             return budget;
         }
+        // Round 36: the finished builds taken up at a frame's start for at
+        // most this long (the uploads they make go to the backend from the
+        // game thread; round 35's slow 5850 took up 668 at once, 894 meshes,
+        // 52 ms); the rest at the next frames, in order, their draws held
+        // meanwhile. SOTC_TAKEUP_MS (the Vita: 8; 0: all at once, as before).
+        static uint64_t takeUpUs()
+        {
+#if defined(__vita__)
+            constexpr double kDefault = 8.0;
+#else
+            constexpr double kDefault = 0.0;
+#endif
+            static const uint64_t us = static_cast<uint64_t>((std::getenv("SOTC_TAKEUP_MS") ? std::atof(std::getenv("SOTC_TAKEUP_MS")) : kDefault) * 1000.0);
+            return us;
+        }
         uint32_t queuedThisFrame = 0;
+        uint64_t takeUpsSplit = 0;
         void takeUp()
         {
             queuedThisFrame = 0;
@@ -1436,8 +1501,14 @@ namespace native_renderer
                     done.erase(done.begin(), done.begin() + budget);
                 }
             }
+            const uint64_t limitUs = takeUpUs();
+            const uint64_t start = limitUs ? nowUs() : 0u;
+            size_t taken = 0;
             for (Job &job : finished)
             {
+                if (limitUs && taken && (taken & 7u) == 0u && nowUs() - start >= limitUs)
+                    break;
+                ++taken;
                 AsyncWork *w = job.w;
                 for (uint32_t i = 0; i < w->idCount && i < 2u; ++i)
                     pending.erase(w->ids[i]);
@@ -1447,8 +1518,15 @@ namespace native_renderer
                 w->finish();
                 delete w;
             }
+            if (taken < finished.size())
+            {
+                // Not taken up this frame: back at the front, in order.
+                std::lock_guard<std::mutex> lock(mutex);
+                done.insert(done.begin(), std::make_move_iterator(finished.begin() + static_cast<std::ptrdiff_t>(taken)), std::make_move_iterator(finished.end()));
+                ++takeUpsSplit;
+            }
             if (tuning().frameTiming())
-                frameCounters().asyncDone += static_cast<uint32_t>(finished.size());
+                frameCounters().asyncDone += static_cast<uint32_t>(taken);
             finished.clear();
         }
     };
@@ -1780,6 +1858,7 @@ namespace native_renderer
                 return;
         }
         ++g_uploads.draws;
+        g_frameDraws.fetch_add(1u, std::memory_order_relaxed);
         if (g_dumpFile)
             dumpDraw(mesh, clip, state);
         // Its mesh or texture still on the worker (buildAsync): left out.
@@ -1833,6 +1912,7 @@ namespace native_renderer
                 return;
         }
         g_uploads.draws += count;
+        g_frameDraws.fetch_add(count, std::memory_order_relaxed);
         if (g_dumpFile)
             for (uint32_t i = 0; i < count; ++i)
                 dumpDraw(meshes[i], clip, state);
@@ -1943,6 +2023,7 @@ namespace native_renderer
     }
     void endFrame(uint32_t width, uint32_t height)
     {
+        g_lastFrameDraws.store(g_frameDraws.exchange(0u, std::memory_order_relaxed), std::memory_order_relaxed);
         if (g_asyncBuilds)
             g_asyncBuilds->flush(); // this frame's builds start now
         // SOTC_QUALITY_CYCLE=N (comparing the quality settings on one scene,
