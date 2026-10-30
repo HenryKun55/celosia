@@ -8,6 +8,29 @@
   const areaName = (a) => a === 'Other game code' ? 'Game code, names not identified yet' : a === RUNTIME ? 'Runtime' : a;
   const load = (f) => fetch(f).then((r) => { if (!r.ok) throw new Error(f + ': ' + r.status); return r.json(); });
 
+  const motion = !window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Numbers count up to their value the first time they scroll into view.
+  const seen = new WeakSet();
+  function countTo(el, value, fmt) {
+    if (!motion || seen.has(el)) { el.textContent = fmt(value); return; }
+    seen.add(el);
+    const run = () => {
+      const t0 = performance.now(), dur = 1100;
+      const step = (t) => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = fmt(value * e); if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    };
+    el.textContent = fmt(0);
+    if (!('IntersectionObserver' in window)) { run(); return; }
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); run(); } }, { threshold: 0.3 });
+    io.observe(el);
+  }
+  // Charts and blocks get a class when they first come into view (CSS animates it).
+  function onView(el, fn) {
+    if (!motion || !('IntersectionObserver' in window)) { fn(); return; }
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); fn(); } }, { threshold: 0.15 });
+    io.observe(el);
+  }
+
   function tipFor(el) {
     let t = el.querySelector('.tip');
     if (!t) { t = document.createElement('div'); t.className = 'tip'; t.hidden = true; el.appendChild(t); }
@@ -42,10 +65,20 @@
     const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${w} ${h}`).attr('role', 'img').attr('aria-label', opts.label);
     const tip = tipFor(el);
     const drilled = state && opts.drill ? opts.drill(state) : null;
+    const layer = svg.append('g');
+    // Zoom: opening an area grows its tile to the whole map; going back
+    // shrinks the map into the area's tile.
+    const zoomFrom = el._from; el._from = null;
+    const zoomed = (inverse) => {
+      if (!motion || !zoomFrom) { if (motion && !el._entered) { el._entered = true; svg.classed('enter', true); } return; }
+      const r = zoomFrom, sx = (r.x1 - r.x0) / w, sy = (r.y1 - r.y0) / h;
+      const t = inverse ? `translate(${-r.x0 / sx},${-r.y0 / sy}) scale(${1 / sx},${1 / sy})` : `translate(${r.x0},${r.y0}) scale(${sx},${sy})`;
+      layer.attr('transform', t).attr('opacity', inverse ? 0 : 0.4).transition().duration(560).ease(d3.easeCubicOut).attr('transform', 'translate(0,0) scale(1,1)').attr('opacity', 1);
+    };
     if (crumb) {
       if (drilled) {
         const back = document.createElement('button'); back.type = 'button'; back.textContent = '‹ All areas';
-        back.addEventListener('click', () => { el._zoom = null; treemap(el, groups, opts); });
+        back.addEventListener('click', () => { el._from = el._area; el._zoom = null; treemap(el, groups, opts); });
         crumb.appendChild(back);
         const t = document.createElement('b'); t.textContent = areaName(state); crumb.appendChild(t);
         const sum = document.createElement('span'); sum.textContent = opts.summary ? opts.summary(state) : ''; crumb.appendChild(sum);
@@ -58,7 +91,7 @@
       const total = d3.sum(items, (i) => i.value) || 1;
       const root = d3.hierarchy({ children: items }).sum((d) => d.value || 0).sort((a, b) => b.value - a.value);
       d3.treemap().size([w, h]).padding(2).round(true)(root);
-      const leaf = svg.selectAll('g').data(root.leaves()).join('g');
+      const leaf = layer.selectAll('g').data(root.leaves()).join('g').attr('class', 'l');
       leaf.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => Math.max(0, d.x1 - d.x0)).attr('height', (d) => Math.max(0, d.y1 - d.y0))
         .attr('rx', 2).attr('fill', (d) => opts.color(d.data)).attr('opacity', (d) => d.data.more ? 0.7 : 1);
       leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 15).attr('font-size', 11).attr('font-weight', 600).attr('font-family', 'var(--body)').attr('fill', (d) => opts.ink(d.data))
@@ -66,14 +99,21 @@
       leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 29).attr('font-size', 10).attr('font-family', 'var(--mono)').attr('fill', (d) => opts.ink(d.data))
         .each(function (d) { if (d.y1 - d.y0 < 34) { this.textContent = ''; return; } fitText(this, opts.itemName(d.data), d.x1 - d.x0 - 10); });
       leaf.on('pointermove', (ev, d) => { setTip(tip, opts.itemTip(d.data, d.value, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
+      zoomed(false);
       return;
     }
     const root = d3.hierarchy({ children: groups.map((g) => ({ name: g.name, children: g.items.filter((i) => i.value > 0) })).filter((g) => g.children.length) })
       .sum((d) => d.value || 0).sort((a, b) => b.value - a.value);
     d3.treemap().size([w, h]).paddingOuter(2).paddingTop(19).paddingInner(2).round(true)(root);
     const total = root.value || 1;
-    const open = (name) => { if (!opts.drill || !opts.drill(name)) return; tip.hidden = true; el._zoom = name; treemap(el, groups, opts); };
-    const g = svg.selectAll('g.a').data(root.children || []).join('g').attr('class', opts.drill ? 'a click' : 'a')
+    const open = (name) => {
+      if (!opts.drill || !opts.drill(name)) return;
+      tip.hidden = true;
+      const a = (root.children || []).find((c) => c.data.name === name);
+      el._area = a ? { x0: a.x0, y0: a.y0, x1: a.x1, y1: a.y1 } : null; el._from = el._area;
+      el._zoom = name; treemap(el, groups, opts);
+    };
+    const g = layer.selectAll('g.a').data(root.children || []).join('g').attr('class', opts.drill ? 'a click' : 'a')
       .attr('tabindex', opts.drill ? 0 : null).attr('role', opts.drill ? 'button' : null).attr('aria-label', (d) => 'Open ' + areaName(d.data.name))
       .on('click', (ev, d) => open(d.data.name)).on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(d.data.name); } });
     g.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => d.x1 - d.x0).attr('height', (d) => d.y1 - d.y0)
@@ -81,7 +121,7 @@
     g.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 14).attr('fill', 'var(--ink)')
       .attr('font-family', 'var(--display)').attr('font-weight', 600).attr('font-size', 12)
       .each(function (d) { fitText(this, areaName(d.data.name) + '  ' + opts.fmt(d.value, total), d.x1 - d.x0 - 10); });
-    const leaf = g.selectAll('g.l').data((d) => d.children).join('g');
+    const leaf = g.selectAll('g.l').data((d) => d.children).join('g').attr('class', 'l').style('animation-delay', (d, i) => (i * 40) + 'ms');
     leaf.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => Math.max(0, d.x1 - d.x0)).attr('height', (d) => Math.max(0, d.y1 - d.y0))
       .attr('rx', 2).attr('fill', (d) => opts.color(d.data));
     leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 15).attr('font-size', 11).attr('font-weight', 600).attr('font-family', 'var(--body)')
@@ -91,18 +131,22 @@
       .attr('fill', (d) => opts.ink(d.data))
       .each(function (d) { if (!opts.leafSub || d.y1 - d.y0 < 34) { this.textContent = ''; return; } fitText(this, opts.leafSub(d.data, d.value, d.parent.value, total), d.x1 - d.x0 - 10); });
     leaf.on('pointermove', (ev, d) => { setTip(tip, opts.tip(d, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
+    g.style('animation-delay', (d, i) => (i * 60) + 'ms');
+    zoomed(true);
   }
 
   function drawLede(tree) {
     const sum = (k) => d3.sum(tree.rows.filter((r) => r.kind === k), (r) => r.time);
     const parts = [['native', sum('native'), 'k-native', 'native'], ['recompiled', sum('recompiled'), 'k-mips', 'MIPS'], ['runtime', sum('runtime'), 'k-runtime', 'runtime']];
     const bar = $('lede-bar'); bar.textContent = '';
-    for (const [, v, cls, name] of parts) { const d = document.createElement('div'); d.className = cls; d.style.flex = `0 0 calc(${v}% - 2px)`; d.textContent = `${v.toFixed(1)}% ${name}`; d.title = d.textContent; bar.appendChild(d); }
+    const cells = [];
+    for (const [, v, cls, name] of parts) { const d = document.createElement('div'); d.className = cls; d.style.flex = motion ? '0 0 0%' : `0 0 calc(${v}% - 2px)`; d.textContent = `${v.toFixed(1)}% ${name}`; d.title = d.textContent; bar.appendChild(d); cells.push([d, v]); }
+    if (motion) requestAnimationFrame(() => requestAnimationFrame(() => cells.forEach(([d, v]) => { d.style.flex = `0 0 calc(${v}% - 2px)`; })));
     $('lede-note').textContent = `Share of the Vita game thread's instructions in a profile of round ${String(tree.label).replace(/^r/, '')}'s build on the usual route (Vita3K at 222 MHz, 180-300 s). The game thread is what limits the frame rate: on the console it needs 50-62 ms a frame, and a steady 20 fps needs 50.`;
   }
 
   function drawRecomp(status, port) {
-    $('rc-fn').textContent = d3.format(',')(status.summary.by_functions.total);
+    countTo($('rc-fn'), status.summary.by_functions.total, (v) => d3.format(',')(Math.round(v)));
     $('rc-mb').innerHTML = ''; $('rc-mb').append((status.summary.by_code_size.total / 1048576).toFixed(1)); const s = document.createElement('small'); s.textContent = 'MB'; $('rc-mb').append(s);
     for (const map of ['renderer', 'hardware']) {
       const rows = port.filter((r) => r.map === map);
@@ -129,10 +173,10 @@
 
   function drawDecomp(tree, status, hist) {
     const sum = (k, f) => d3.sum(tree.rows.filter((r) => r.kind === k), (r) => r[f]);
-    $('dc-time').textContent = pct(sum('native', 'time'));
-    $('dc-mips').textContent = pct(sum('recompiled', 'time'));
-    $('dc-calls').textContent = pct(status.summary.by_calls.percent);
-    $('dc-code').textContent = pct(status.summary.by_code_size.percent);
+    countTo($('dc-time'), sum('native', 'time'), (v) => pct(v));
+    countTo($('dc-mips'), sum('recompiled', 'time'), (v) => pct(v));
+    countTo($('dc-calls'), status.summary.by_calls.percent, (v) => pct(v));
+    countTo($('dc-code'), status.summary.by_code_size.percent, (v) => pct(v));
     $('dc-fns').textContent = d3.format(',')(status.summary.by_functions.native) + ' of ' + d3.format(',')(status.summary.by_functions.total);
     const byArea = d3.group(tree.rows, (r) => r.area);
     const groups = (field) => [...byArea].map(([name, items]) => ({ name, items: items.map((r) => ({ ...r, value: r[field] })) }));
@@ -215,9 +259,11 @@
     const series = [['time', 'var(--native)', 'Game thread time native'], ['calls', 'var(--accent)', 'Calls native'], ['code', 'var(--runtime)', 'Code native (by size)']];
     for (const [k, color] of series) {
       const pts = entries.map((e, i) => ({ i, v: e[k] })).filter((p) => p.v !== null && p.v !== undefined);
-      svg.append('path').attr('d', d3.line().x((p) => x(p.i)).y((p) => y(p.v))(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 2).attr('stroke-linejoin', 'round');
+      const path = svg.append('path').attr('class', 'line').attr('d', d3.line().x((p) => x(p.i)).y((p) => y(p.v))(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 2).attr('stroke-linejoin', 'round');
+      if (motion && !el._drawn) { const len = path.node().getTotalLength(); path.attr('stroke-dasharray', len + ' ' + len).attr('stroke-dashoffset', len); onView(el, () => path.transition().duration(1400).ease(d3.easeCubicInOut).attr('stroke-dashoffset', 0)); }
       svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (p) => x(p.i)).attr('cy', (p) => y(p.v)).attr('r', 3.5).attr('fill', color).attr('stroke', 'var(--panel)').attr('stroke-width', 1.5);
     }
+    el._drawn = true;
     const cross = svg.append('line').attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--ink-3)').attr('stroke-dasharray', '3 3').attr('visibility', 'hidden');
     const tip = tipFor(el);
     svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
@@ -253,6 +299,10 @@
     if (!data) return;
     const [tree, status, hist, port, rounds] = data;
     drawLede(tree); drawRecomp(status, port); drawDecomp(tree, status, hist); drawRounds(rounds);
+    if (motion && !document.body.classList.contains('ready')) {
+      document.body.classList.add('ready');
+      document.querySelectorAll('.banner, .gallery figure, .round, .table-box, .figures').forEach((n) => { if (n.getBoundingClientRect().top > window.innerHeight) { n.classList.add('rise'); onView(n, () => n.classList.add('risen')); } });
+    }
     $('foot-updated').textContent = 'Last measurement: ' + tree.updated + ' (' + tree.label + ').';
   }
   Promise.all(['decomp_tree.json', 'decomp_status.json', 'decomp_history.json', 'port_status.json', 'rounds.json'].map(load))

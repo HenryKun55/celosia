@@ -33,6 +33,12 @@
     <div class="legend"><span><i class="k-native"></i>Native code (decompiled)</span><span><i class="k-mips"></i>Recompiled MIPS</span><span><i class="k-runtime"></i>Runtime around it</span></div>
   </div>
   <p class="small" id="lede-note">Loading the latest measurement…</p>
+  <div class="howto" aria-label="How to read this page">
+    <div><i class="k-native"></i><b>Native code</b><span>Rewritten by hand in C++, proven equal to the original, fast on the Vita.</span></div>
+    <div><i class="k-mips"></i><b>Recompiled MIPS</b><span>Still the machine translation of the PS2 code. Correct, but slow.</span></div>
+    <div><i class="k-runtime"></i><b>Runtime</b><span>The engine room around the game: DMA, memory, the scheduler.</span></div>
+    <div><i class="click"></i><b>Click the maps</b><span>Every area opens into its functions or features. Hover for the numbers.</span></div>
+  </div>
 </section>
 
 <!-- ============ RECOMP ============ -->
@@ -69,7 +75,7 @@
   </figure>
   <div class="chapter-head">
     <div class="row"><h2 id="decomp-h">Decompilation</h2><span class="state going">In progress</span></div>
-    <p class="muted">Recompiled code is correct but slow: every guest register lives in memory, every float goes through PS2 rounding rules, and every call goes through a table. A decompiled function is written by hand as plain C++, then proven equal to the recompiled one on the same machine state before it replaces it. The hottest functions go first, so a small share of the code already carries a large share of the time.</p>
+    <p class="muted">Recompiled code is correct but slow: every guest register lives in memory, every float goes through PS2 rounding rules, and every call goes through a table. A decompiled function is written by hand as plain C++, then proven equal to the recompiled one on the same machine state before it replaces it. It is a functional decompilation, not a matching one: the goal is the same behaviour, faster, not a byte-identical rebuild of the original executable. The hottest functions go first, so a small share of the code already carries a large share of the time.</p>
   </div>
   <div class="figures">
     <div class="fig"><span class="v num" id="dc-time">—</span><span class="l">of the Vita game thread's time runs in native code</span></div>
