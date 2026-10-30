@@ -269,14 +269,33 @@ void InitWindow(int, int, const char *)
     // 96 MB, main RAM 11 MB; free before vitaGL: user 112, phycont 26 MB),
     // where Vita3K's free memory gives a ~100 MB main-RAM pool and the newlib
     // heap never takes GPU objects.
+    // Round 35: vitaGL's temporary pools at what this port uses of them.
+    // The circular pool (client-array vertices, the immediate-mode pool) was
+    // 32 MB, a third a frame in flight: the RAM pool and two thirds of phycont
+    // on the console. Measured ([vgl:dump], the route, every frame): 4 097 KB
+    // a frame at most, 4 096 of it the immediate-mode (glBegin) pool, which
+    // the port never uses (0 KB used). Now the immediate pool is 64 KB and
+    // the circular pool 3 x 1 MB; a frame that needs more takes it from the
+    // pools as vitaGL does on an overrun (counted in [vgl:dump]), never less
+    // drawn. SOTC_VGL_CIRCULAR_KB / SOTC_VGL_IMMEDIATE_KB: other sizes
+    // (32768 / 4096: as before).
+    const auto kb = [](const char *name, int fallback)
+    {
+        const char *e = std::getenv(name);
+        const int v = e ? std::atoi(e) : fallback;
+        return v > 0 ? v : fallback;
+    };
+    const int circularKb = kb("SOTC_VGL_CIRCULAR_KB", 3072), immediateKb = kb("SOTC_VGL_IMMEDIATE_KB", 64);
+    vglSetCircularPoolSize(static_cast<uint32_t>(circularKb) * 1024u);
+    std::fprintf(stderr, "[vita] vitaGL circular pool %d KB, immediate pool %d KB\n", circularKb, immediateKb);
     const char *pools = std::getenv("SOTC_VGL_POOLS");
     if (pools && std::strcmp(pools, "console") == 0)
     {
         std::fprintf(stderr, "[vita] SOTC_VGL_POOLS=console: vitaGL pools of RAM 16, CDRAM 96, phycont 26 MB (a console's)\n");
-        vglInitWithCustomSizes(4 * 1024 * 1024, width, height, 16 * 1024 * 1024, 96 * 1024 * 1024, 26 * 1024 * 1024, 0, SCE_GXM_MULTISAMPLE_NONE);
+        vglInitWithCustomSizes(immediateKb * 1024, width, height, 16 * 1024 * 1024, 96 * 1024 * 1024, 26 * 1024 * 1024, 0, SCE_GXM_MULTISAMPLE_NONE);
     }
     else
-        vglInitWithCustomThreshold(4 * 1024 * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
+        vglInitWithCustomThreshold(immediateKb * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
                                    SCE_GXM_MULTISAMPLE_NONE);
     bootMark("window: vitaGL up");
     seedShaderCache(); // vitaGL made the cache's folders
@@ -391,6 +410,23 @@ void EndDrawing(void)
                      vglMemTotal(VGL_MEM_VRAM) / MB, used[VGL_MEM_RAM] / MB, vglMemTotal(VGL_MEM_RAM) / MB, used[VGL_MEM_PHYCONT] / MB,
                      vglMemTotal(VGL_MEM_PHYCONT) / MB, used[VGL_MEM_BUDGET] / MB, vglMemTotal(VGL_MEM_BUDGET) / MB, static_cast<unsigned>(spills), spill / MB,
                      spillPeak / MB, spillTotal / MB);
+        // Round 35, SOTC_VGL_MEMDUMP=<seconds> (0: off): what vitaGL's pools
+        // hold by the code that asked for it, the circular pool's peak and
+        // the render targets ([vgl:dump] lines; sites resolve against the ELF
+        // with the "dump base" address, vglCeloMemDump's own).
+        static const double dumpEvery = []
+        {
+            const char *e = std::getenv("SOTC_VGL_MEMDUMP");
+            return e ? std::atof(e) : 0.0;
+        }();
+        static double nextDump = 0.0;
+        if (dumpEvery > 0.0 && now >= nextDump)
+        {
+            nextDump = now + dumpEvery;
+            char tag[32];
+            std::snprintf(tag, sizeof(tag), "t=%.0f", now);
+            vglCeloMemDump(tag);
+        }
     }
     if (now - g_fpsWindowStart >= 1.0)
     {

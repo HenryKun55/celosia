@@ -378,9 +378,12 @@ namespace decomp_skeleton
         }
         void flush(R5900Context *ctx)
         {
-            for (int r = 1; r < 32; ++r)
-                if (dirty & (1u << r))
-                    Ps2SetGpr64(ctx, r, lo[r]);
+            // The dirty ones by their bits (round 35), not a test of all 31.
+            for (uint32_t m = dirty & ~1u; m; m &= m - 1u)
+            {
+                const int r = __builtin_ctz(m);
+                std::memcpy(&ctx->r[r], &lo[r], 8);
+            }
             if (hi2Dirty)
                 std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[2]) + 8, &hi2, 8);
             dirty = 0u;
@@ -549,10 +552,11 @@ namespace decomp_skeleton
                     gp.s32(5, a0);
                 }
             }
-            // iosPushCurrentMatrix
+            // iosPushCurrentMatrix (round 35: stores of the values, not a
+            // memcpy from the registers' addresses)
             for (int r = 1; r <= 4; ++r)
             {
-                std::memcpy(vu0(v.vi15), &v.vf[r], 16);
+                _mm_storeu_ps(reinterpret_cast<float *>(vu0(v.vi15)), v.vf[r]);
                 v.vi15 = static_cast<uint16_t>(v.vi15 + 1u);
             }
             pushedClean = rowsClean && !noClean;
@@ -686,7 +690,7 @@ namespace decomp_skeleton
             for (int r = 4; r >= 1; --r)
             {
                 v.vi15 = static_cast<uint16_t>(v.vi15 - 1u);
-                std::memcpy(&v.vf[r], vu0(v.vi15), 16);
+                v.vf[r] = _mm_loadu_ps(reinterpret_cast<const float *>(vu0(v.vi15)));
             }
             // PopQuaternion
             int32_t n = static_cast<int32_t>(u32(Ctx::kQuatTop)) - 1;

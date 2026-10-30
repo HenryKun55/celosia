@@ -5909,6 +5909,213 @@ env-r34-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
    kept per plan with a validity check).
 4. The skeleton pose (decomp_skeleton, 4.5% of the game thread).
 
+## Round 35: what vitaGL's pools held, scratch depth buffers, the pose's register copies (2026-10-30)
+
+On AC power the whole round. Not deployed to the console; nothing committed.
+
+**1. What fills vitaGL's memory** (plan item 2; the round's main target).
+celosia.patch now keeps, with every pool allocation, the code that asked
+for it (the caller of `gpu_alloc_mapped_aligned_for_*`, or of
+`vgl_malloc` / `vgl_memalign`), and `SOTC_VGL_MEMDUMP=<s>` prints `[vgl:dump]`
+lines: the pools' contents by site and size (addresses resolve against the
+ELF with addr2line; the line's "dump base" is `vglCeloMemDump`'s own
+address), the circular pool's use a frame, the immediate-mode pool's,
+the render targets and their driver memory, and every framebuffer with its
+depth (own / scratch / shared) and its last scene. The renderer names its
+targets (`[native:gl] targets:`). Vita3K, the route, `SOTC_VGL_POOLS=console`
+(r35/m1: round 34's code with the dump; r35/m4: this round's VPK):
+
+| what (site) | pool | walk, round 34 | walk, round 35 |
+|---|---|---|---|
+| circular pool (vgl.c: 32 MB in three, one a frame in flight) | RAM 10.7, phycont 21.3 | 32.0 MB | **3.0 MB** |
+| of it a frame at most | | 4 097 KB (4 096: the immediate-mode pool, reserved each frame, never used) | 65 KB (64: the immediate pool) |
+| colour textures (`glTexImage2D`): 16 / 15 render targets of 512 x 448 (14.0 / 13.1 MB), the game's textures | CDRAM | 22.7 MB | 25.1 MB |
+| FBO depth buffers (`init_depth_stencil_buffer`): 13 / 11 picture-sized ones | CDRAM | 12.4 MB | 10.0 MB + 1.3 MB scratch |
+| mesh pools and other buffers (`glBufferData`) | CDRAM | 18.9 MB | 21.1 MB |
+| mip chains (`gpu_alloc_mipmaps`) | CDRAM | 9.6 MB | 10.2 MB |
+| display: 3 colour buffers (2 MB each, 1 MB-aligned), depth 2.0, stencil 0.5 | CDRAM | 8.5 MB | 8.5 MB |
+| GXM rings (VDM 0.1, vertex 2, fragment 0.5), shader patcher (1 + 2 x 1 USSE), uniform pool 2 | CDRAM / RAM | 6.6 MB | 6.6 MB |
+| **vitaGL pools free (CDRAM + RAM + phycont)**, walk | | 23.6 MB | **49.7 MB** |
+| the same on the plain | | 47.6 MB | **73.1 MB** |
+
+So round 34's "~40 MB beyond textures and mesh pools" were the render
+targets (~26 MB of colour and depth at 512 x 448) and vitaGL's own buffers
+(~15 MB); the 37 MB of its main-RAM pool in Vita3K's default pools were the
+circular pool (32 MB) and the uniform pool, the USSE buffers and the index
+buffers. In the default pools the RAM pool now holds 8.2-8.4 MB instead of
+37.2-37.8 (the eight timing runs below).
+
+The cuts (no quality setting touched):
+- **The circular pool 3 x 1 MB, the immediate pool 64 KB** (raylib_vita.cpp;
+  `SOTC_VGL_CIRCULAR_KB` / `SOTC_VGL_IMMEDIATE_KB`, 32768 / 4096 as before).
+  The port draws from VBOs and never with glBegin: over the whole route,
+  boot and menus included, a frame used 65 KB of the circular pool at most
+  (the 64 KB immediate pool's reservation), the immediate pool 0 KB. A frame
+  that needs more takes it from the pools as vitaGL already does on an
+  overrun (`frames over` in `[vgl:dump]`: 0 in every run). 29 MB of
+  main-RAM / phycont pool back; on the console those pools were full
+  (the console's RAM pool is ~11 MB), so the CPU-side buffers vitaGL
+  allocates later went to CDRAM, and GPU objects past CDRAM went to the
+  newlib heap. Placement only: what is drawn does not change.
+- **One scratch depth buffer per size for the targets made without depth**
+  (celosia.patch `vglFramebufferScratchDepth`, native_renderer_gl.cpp
+  makeTarget; `SOTC_GL_SCRATCH_DEPTH=0`: each its own, as before). vitaGL gave
+  every framebuffer a depth buffer of its own at its first scene (DF32M, 4
+  bytes a pixel: 0.9 MB at 512 x 448, 3.5 MB at 2x) although copies, blurs,
+  reductions and full-screen passes never test depth or stencil. Those
+  targets (snapshot, previous, the two shown frames, glowLayer when not on
+  the picture's depth, colorPlain, the 256 / 128 / 64 ones, the bloom ones)
+  now share one per size; a colour result depends on the depth buffer only
+  through a depth or stencil test, and vitaGL counts every draw on a
+  scratch depth with either enabled: **0 in every run** (`draws on it with a
+  depth / stencil test 0`, the whole route). `vglFramebufferShareDepth`
+  refuses a scratch source (the glow layer still draws on the picture's own
+  depth). Freed when its last user is deleted (a resolution change).
+- **No shadow mask target on the Vita** (`SOTC_GL_SHADOWMASK_VITA=1`: made and
+  cleared as before): its pass returns before drawing it there; it was
+  made (0.9 MB + its depth) and cleared every frame for nothing.
+- Measured CDRAM by itself is not lower on the walk (75.3 -> 76.6 MB at
+  t=101, 84.2 at its peak against 82.2): with twice the room free, round 34's
+  low-room eviction (`SOTC_GL_POOL_LOW_MB`, 12 MB free) no longer runs (m1: 1
+  pass at the walk, m4: 0), so more meshes and textures stay cached (mesh
+  pools 9 / 20.2 MB against 8 / 18.0). The headroom before anything spills
+  into the newlib heap is what grew: 23.6 -> 49.7 MB free on the walk.
+- Still held (round 36): the GS renderer's own targets from the boot (four
+  512 x 448 with depth, ~7 MB, last drawn ~2 400 frames before the walk:
+  their contents are the GS's memory, so they cannot simply go), 1 MB-aligned
+  display buffers (3 MB lost), the render targets of the picture's effects
+  (prefix / glowPrefix, drawn every frame).
+
+**2. The hooks' 0.2 ms (plan item 3): nothing kept.** By Vita3K's
+instruction counts (240 MHz, the route's 180-300 s, r33/thprof.py, clean
+runs on an idle Mac) hookScrolls is 29.5 k instructions a frame of the game
+thread's 10.3 M (0.29%), readChainPaletteLean 32-37 k (hook and kick
+copies), modelDispHook 39-43 k. Tried and rejected:
+- the scroll rows' addresses once a frame a plan (the plan's first draw
+  works them out, its other draws copy two words a row): 33.7 / 29.4 k
+  against 29.7 / 28.3 k without (two alternated pairs): most plans are drawn
+  once a frame, so nothing is saved;
+- joining the deferred kick at texReset instead of the first hook (texReset
+  writes the scroll rows and the K scale for the next frame, which is why
+  the hook copies them): texReset runs at the frame's very start (order:
+  texReset, the skeletons, the first hook, the kick: SOTC_R35_ORDER, a
+  one-off log on the Mac), so the join would take back the whole overlap.
+The 0.2 ms in Vita3K is within the walk's own spread at the counts above;
+round 34's gain is for the console's slow worker.
+
+**3. The skeleton pose (plan item 4).** decomp_skeleton's fast path kept its
+VU0 register file in a struct whose element addresses were taken by the
+matrix-stack push / pop (`memcpy(vu0, &v.vf[r], 16)`), and wrote back its
+dirty GPRs with a test of all 31. Now the push / pop move the values
+(`_mm_storeu_ps` / `_mm_loadu_ps`) and the flush walks the dirty bits
+(`__builtin_ctz`). Exact (the same bytes to the same places). Game-thread
+instructions a frame (Vita3K, 240 MHz, 180-300 s, idle Mac):
+
+| skeleton pose | instructions a frame | share of the game thread |
+|---|---|---|
+| round 34 (celosia-r34.vpk) | 461.6 k | 4.48% |
+| this round (two runs; then the final VPK) | 416.9 k, 417.9 k; 425.1 k | 4.10%, 4.11%; 4.21% |
+
+(-8 to -10%.) Tried and rejected (`SOTC_SKELETON_FWD`, removed again): the
+stack frame's five quadwords taken from the values just stored instead of
+read back (aligned, not wrapping), the nine helpers' GPR writes folded into
+their final values, the registers that always get the same value written
+once: 439.8 / 421.8 k against 416.9 / 417.9 k without, no gain (more code
+and branches for the checks; the pose is ~340 calls a frame of ~2 bones, so
+the per-call copies dominate, not the bones). The per-call copies of the
+VU0 registers in and out of the struct (~120 instructions a call) are round
+36's.
+
+**4. Other game-thread items (plan item 4 of the brief).** texReset called
+texAnim (native) through callGuest once per texture, every frame; calling
+it straight when the table holds the native (`SOTC_TEXRESET_DIRECT`) changed
+nothing measurable (callGuest 2.16% / texAnim 1.46% against 2.13% / 1.55%),
+removed. The profile's ~1.5% in import stubs on the game thread
+(sceClibMemcpy / Memmove from EeScheduler::run and publishSnapshot,
+recvMsgHook) are Vita3K's HLE weights, not guest instructions; the
+scheduler's per-dispatch context copies for the debugger are round 36's to
+look at on the console.
+
+**Exactness.**
+- Pictures: the scratch depths by the count above (0 tested draws); the
+  shadow mask was never sampled on the Vita; the pool sizes are placement.
+  Vita3K window shots every 20 s of r34 and this round's VPK
+  (r35/shots-base, shots-new, side by side in r35/cmp): alike where the two
+  runs are at the same place (the shrine's text, bloom, fog, the
+  characters); the route's positions drift apart with the frame rate in
+  Vita3K, so the later shots are of different places.
+- Hook checks (Mac route, SOTC_NATIVE=1, worker on, to 5 400, r35/chkA):
+  SOTC_HOOK_LEAN_CHECK parts 117 823 checks, 0 differ; palette / lights /
+  projection 225 866, 0 differ; SOTC_HOOK_ORDER_CHECK 0 of 10 718
+  game-thread draws while jobs were pending; SOTC_HOOK_ASYNC_VERIFY 416 202
+  job copies, 0 differ; textured 2D 4 111 / model jobs 205 220, what they
+  read changed in 0; `[skin-kick]` scroll rows from the hook 1 325 047, read
+  late 0, records not among the kick's 0. With SOTC_HOOK_WORKER_DELAY_US=150
+  (r35/chkD): 114 229 / 222 588 checks, 0 differ; order 0 of 10 600; copies
+  403 240 (to 4 800), 0 differ; 4 045 / 201 943 jobs, 0 changed.
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r35/dt-all): 57
+  functions, 164 501 checks, 0 mismatches except gamecore_sub_013F8668 (156,
+  the life bar's v0, as since round 16); skeletonPose 0 mismatches.
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, the r24 card copy; base =
+  HEAD's binary r35/bin-base, new = r35/bin-new3; base, new, base, new on an
+  idle Mac): base1 against base2 0.02, against new1 1.81 / new2 0.54, new1
+  against new2 2.34 (the vblank offsets loads leave, as in rounds 29-34).
+  **Vblanks at frame 5 400: 10 740 in all four.**
+- Sound (au.py): stale 0, src-stale 0, late callbacks 0 in all ten Vita3K
+  runs; config, settings, card and shader cache "restored ok" after every run.
+
+**Frame timing** (calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s, r35/env-time.txt = r32's; base = celosia-r34.vpk, new = r35/n4.vpk =
+celosia-r35.vpk; alternated, r35/v3k-chain.sh; ms a frame, r28/split2.py):
+
+| window | 222 base | 222 new | 240 base | 240 new |
+|---|---|---|---|---|
+| shrine | 42.4, 42.3 | 42.3, 42.2 | 39.1, 39.1 | 38.9, 39.0 |
+| walk + area change | 73.5, 73.6 | 73.5, 73.5 | 68.4, 66.6 | 66.4, 65.8 |
+| plain (draws) | 48.2 (903), 47.8 (914) | 47.3 (909), 47.3 (929) | 44.2 (900), 43.4 (917) | 45.6 (945), 44.4 (932) |
+| walk: hooks / join | 3.8 / 0.23, 3.7 / 0.15 | 3.8 / 0.21, 3.7 / 0.16 | 3.4 / 0.16, 3.5 / 0.19 | 3.4 / 0.10, 3.4 / 0.16 |
+
+Within the noise (the walk at 240 sits on the 4-vblank edge; the plain at
+222 spreads as in rounds 32-34). The plain draws a few more models on the
+new side in all four pairs (909-945 against 900-917): with the room freed,
+no low-room eviction holds draws while meshes are made again. The round's
+gains are memory (above) and the console's: with the RAM and phycont pools
+no longer full, vitaGL's CPU-side buffers stay out of CDRAM and GPU objects
+have ~26 MB more before the newlib heap.
+
+**Decomp status:** unchanged (no new natives).
+
+**Switches** (README): `SOTC_VGL_CIRCULAR_KB=n`, `SOTC_VGL_IMMEDIATE_KB=n`,
+`SOTC_GL_SCRATCH_DEPTH=0`, `SOTC_GL_SHADOWMASK_VITA=1`, `SOTC_VGL_MEMDUMP=<s>`
+(all Vita). All exact.
+
+**Files:** PS2Recomp/ps2xRuntime/platform/vita/vitagl/celosia.patch (sites,
+`vglCeloMemDump`, circular / immediate pool counts, render target counts,
+`vglFramebufferScratchDepth` and its check, the framebuffer list);
+PS2Recomp/ps2xRuntime/platform/vita/raylib/raylib_vita.cpp (pool sizes,
+SOTC_VGL_MEMDUMP); PS2Recomp/ps2xRuntime/src/lib/native/native_renderer_gl.cpp
+(scratch depth targets, no shadow mask on the Vita, the targets line);
+game/overrides/decomp_skeleton.cpp; README.md, docs/decomp.md. Tools in
+build/agent-scratch/r35: v3k.sh, v3k-chain.sh, mac-chain.sh, chk.sh, dt.sh,
+posbase.sh, nasm.sh, sites.txt (resolved sites). Deliverables:
+build/agent-scratch/celosia-r35.vpk (shader seed: 42 files),
+env-r35-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1, SOTC_VGL_MEMDUMP=60).
+
+**Round 36 (plan).**
+1. The console with this VPK and env-r35-console.txt: `[vgl:dump]` there
+   (the real pools: RAM ~11 MB), `GPU objects in the heap` (should stay 0),
+   `[vgl:dump] ... draws on it with a depth / stencil test 0`, low-room
+   passes; rounds 32-35's console items as listed in round 35's plan
+   (hitches after `[irq]`, the `joins` column, `[skin-kick]`).
+2. The GS renderer's boot targets (~7 MB of CDRAM with their depth): given
+   back when the native renderer draws, if the GS memory they hold can be
+   written back to the GS's RAM image first and read again on next use.
+3. The skeleton's per-call copies (VU0 registers into the struct and back,
+   ~120 instructions a call, ~340 calls a frame), working on the context's
+   registers where the pose's own stores cannot alias them.
+4. Display buffers aligned to 1 MB (3 MB of CDRAM) if sceDisplay accepts
+   4 KB-aligned ones on the console (needs a console test: boot risk).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

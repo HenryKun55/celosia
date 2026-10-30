@@ -1614,9 +1614,30 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
                 std::cerr << "[native:gl] incomplete framebuffer " << w << "x" << h << std::endl;
 #else
-            (void)depth; // vitaGL gives every framebuffer its depth and stencil
+            // vitaGL gives every framebuffer a depth buffer of its own at its
+            // first scene. Round 35: the targets made without depth (copies,
+            // blurs, reductions, full-screen passes: no draw on them tests
+            // depth or stencil, which our vitaGL counts in [vgl:dump]) share
+            // one scratch depth per size instead (SOTC_GL_SCRATCH_DEPTH=0:
+            // each its own, as before): ~1 MB of CDRAM each at 512 x 448.
+            if (!depth && scratchDepthOn())
+                vglFramebufferScratchDepth(t.fbo, GL_TRUE);
 #endif
         }
+#if defined(PS2X_NATIVE_VITA)
+        static bool scratchDepthOn()
+        {
+            static const bool on = !std::getenv("SOTC_GL_SCRATCH_DEPTH") || std::atoi(std::getenv("SOTC_GL_SCRATCH_DEPTH")) != 0;
+            return on;
+        }
+        // Round 35: the shadow mask target is not drawn on the Vita (doShadow
+        // returns before its first draw there): not made (SOTC_GL_SHADOWMASK_VITA=1: made and cleared, as before).
+        static bool shadowMaskOn()
+        {
+            static const bool on = std::getenv("SOTC_GL_SHADOWMASK_VITA") && std::atoi(std::getenv("SOTC_GL_SHADOWMASK_VITA")) != 0;
+            return on;
+        }
+#endif
 
         void ensureTargets(uint32_t w, uint32_t h)
         {
@@ -1661,7 +1682,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             makeTarget(color, w, h, true);
             makeTarget(background, w, h, true);
             makeTarget(snapshot, w, h, false);
-            makeTarget(shadowMask, w, h, false);
+#if defined(PS2X_NATIVE_VITA)
+            if (shadowMaskOn())
+#endif
+                makeTarget(shadowMask, w, h, false);
             makeTarget(previous, w, h, false);
             for (Target &t : shownFrame)
                 makeTarget(t, w, h, false);
@@ -1703,6 +1727,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glGenFramebuffers(1, &colorPlain.fbo);
             glBindFramebuffer(GL_FRAMEBUFFER, colorPlain.fbo);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color.texture, 0);
+#if defined(PS2X_NATIVE_VITA)
+            if (scratchDepthOn()) // drawn with full-screen passes only (round 35)
+                vglFramebufferScratchDepth(colorPlain.fbo, GL_TRUE);
+#endif
 #if !defined(PS2X_NATIVE_VITA)
             // The shadow mask pass tests the main picture's stencil.
             glBindFramebuffer(GL_FRAMEBUFFER, shadowMask.fbo);
@@ -1714,6 +1742,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             bloomHistory = false;
             width = w;
             height = h;
+#if defined(PS2X_NATIVE_VITA)
+            // Round 35: which framebuffer is which ([vgl:dump] fb lines name them by address).
+            if (std::getenv("SOTC_VGL_MEMDUMP"))
+            {
+                const std::pair<const char *, const Target *> named[] = {
+                    {"color", &color}, {"colorPlain", &colorPlain}, {"background", &background}, {"snapshot", &snapshot}, {"shadowMask", &shadowMask},
+                    {"previous", &previous}, {"shown0", &shownFrame[0]}, {"shown1", &shownFrame[1]}, {"glowLayer", &glowLayer},
+                    {"glowSmall0", &glowSmall[0]}, {"glowSmall1", &glowSmall[1]}, {"glowSmall2", &glowSmall[2]}, {"glowSmall3", &glowSmall[3]},
+                    {"backgroundSmall", &backgroundSmall}, {"reflection", &reflection}, {"refraction", &refraction}, {"hazeSmall", &hazeSmall},
+                    {"prefix0", &prefix[0]}, {"prefix1", &prefix[1]}, {"prefix2", &prefix[2]}, {"glowPrefix", &glowPrefix},
+                    {"refractionHalf", &refractionHalf}, {"bloom0", &bloomTex[0]}, {"bloom1", &bloomTex[1]}, {"bloom2", &bloomTex[2]}};
+                std::string line = "[native:gl] targets:";
+                char one[64];
+                for (const auto &[name, t] : named)
+                {
+                    std::snprintf(one, sizeof(one), " %s=%08x", name, t->fbo);
+                    line += one;
+                }
+                std::fprintf(stderr, "%s\n", line.c_str());
+            }
+#endif
         }
 
         // Blending as the Metal pipelines set it (alpha: source kept), or
@@ -3191,9 +3240,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         auto doShadow = [&]
         {
             // The counted pixels as a mask (testing the main picture's stencil), reduced 4 x 4, blurred.
+#if defined(PS2X_NATIVE_VITA)
+            if (shadowMaskOn())
+            {
+#endif
             bindTarget(shadowMask);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
+#if defined(PS2X_NATIVE_VITA)
+            }
+            else
+                glClearColor(0, 0, 0, 0); // (the state the clear left; the mask itself is not drawn here)
+#endif
             glEnable(GL_STENCIL_TEST);
             glStencilMask(0xFF);
             glStencilFunc(GL_NOTEQUAL, 0, 0xFF);
