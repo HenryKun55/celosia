@@ -1,8 +1,8 @@
 # Celosia: where the port stands
 
-*Updated 2026-10-17.* Live dashboard (treemaps per area, history):
-[Celosia port status](https://claude.ai/artifact/1RnzZd7UBKjDKzogkGEFN9), built
-from [`port_status.json`](port_status.json).
+*Updated 2026-10-17.* Progress page (treemaps per area, decompilation,
+history): [henrykun55.github.io/celosia](https://henrykun55.github.io/celosia/),
+built from [`port_status.json`](port_status.json) and the decomp data next to it.
 
 Celosia runs **Shadow of the Colossus** (PS2, USA, SCUS-97472) as native code
 on macOS (Apple Silicon) and on the **PS Vita**. It began as a static
