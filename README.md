@@ -165,14 +165,61 @@ scheduler, the glue that calls guest code), from a Vita3K profile of the route
 listed in [docs/decomp_status.json](docs/decomp_status.json)
 (`tools/decomp_status.py` recounts it); the history is in
 [docs/decomp_history.json](docs/decomp_history.json) (`tools/decomp_history.py
---add --label rNN [--profile LATE EARLY ELF THREAD]` appends a measurement and
-redraws the chart).
+--add --label rNN [--profile LATE EARLY ELF THREAD]` appends a measurement;
+`tools/decomp_tree.py --readme` rewrites the tables below).
 
-<p align="center">
-  <img src="docs/decomp_history.svg" alt="Decomp progress over time: share of the game thread's time, of guest calls, and of the MIPS code that is native" width="760">
-</p>
+<!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-![What is decompiled](docs/decomp_status.svg)
+**Game thread time on the Vita** (r35, Vita3K profile of the route):
+
+| | share | |
+|---|---:|---|
+| Native code | 43.5% | `█████████░░░░░░░░░░░` |
+| Recompiled MIPS | 38.6% | `████████░░░░░░░░░░░░` |
+| Runtime (DMA walk, memory, scheduler, glue) | 18.0% | `████░░░░░░░░░░░░░░░░` |
+
+<details open>
+<summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>
+
+| Area | Code native | | Functions | Game thread time: native / MIPS |
+|---|---:|---|---:|---|
+| Display and models | 8.8% | `█░░░░░░░░░░░` | 38 / 978 | 17.0% / 6.2% |
+| Other game code (names not identified yet) | 1.5% | `░░░░░░░░░░░░` | 13 / 2888 | 2.3% / 15.3% |
+| Characters and motion | 4.4% | `█░░░░░░░░░░░` | 23 / 1210 | 10.1% / 6.5% |
+| Collision and physics | 15.2% | `██░░░░░░░░░░` | 25 / 326 | 10.7% / 1.1% |
+| Boot ELF, SDK and libc | 14.6% | `██░░░░░░░░░░` | 320 / 2125 | 0.0% / 5.8% |
+| System and memory | 5.0% | `█░░░░░░░░░░░` | 4 / 230 | 1.8% / 0.5% |
+| Math | 16.7% | `██░░░░░░░░░░` | 21 / 133 | 0.4% / 1.2% |
+| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.7% / 0.7% |
+| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.6% / 0.7% |
+| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 284 | 0.0% / 0.4% |
+| Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
+| Runtime (DMA walk, memory, scheduler) | | | | 18.0% (runtime) |
+
+</details>
+
+<details>
+<summary><b>History</b></summary>
+
+| Measured | Commit | Code native | Calls native | Game thread time native |
+|---|---|---:|---:|---:|
+| 2026-10-23 | ed10257 | 4.24% | 34.1% |  |
+| 2026-10-23 | fce6b0c | 4.31% | 39.6% |  |
+| 2026-10-23 | e51649c | 4.51% | 40.3% |  |
+| 2026-10-24 | 33afe16 | 4.65% | 40.6% |  |
+| 2026-10-25 | d44f871 | 4.69% | 40.9% |  |
+| 2026-10-25 | 23595fb | 4.73% | 41.6% |  |
+| 2026-10-26 | a7829ef | 5.25% | 51.4% |  |
+| 2026-10-27 | bb0bfd8 | 5.25% | 47.5% |  |
+| 2026-10-27 | d2d8bb1 | 5.30% | 47.7% |  |
+| 2026-10-27 | 3dfcd50 | 5.40% | 47.8% |  |
+| 2026-10-29 | a61cb0d | 5.41% | 47.9% |  |
+| 2026-10-29 | r32 | 5.41% | 47.9% | 45.0% |
+| 2026-10-30 | r35 | 5.41% | 47.9% | 43.5% |
+
+</details>
+
+<!-- decomp:end -->
 
 ## Commands
 

@@ -9,6 +9,10 @@ Two weights per area:
 
 Usage:
   tools/decomp_tree.py --profile LATE EARLY ELF THREAD [--label rNN]
+  tools/decomp_tree.py --readme      rewrite README.md's decomp block (between
+                                     the decomp:start / decomp:end comments)
+                                     from docs/decomp_tree.json and
+                                     docs/decomp_history.json
 """
 import argparse
 import bisect
@@ -56,11 +60,17 @@ def classify(name):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--profile', nargs=4, required=True, metavar=('LATE', 'EARLY', 'ELF', 'THREAD'))
+    ap.add_argument('--profile', nargs=4, metavar=('LATE', 'EARLY', 'ELF', 'THREAD'))
     ap.add_argument('--label', default='')
     ap.add_argument('--status', default=os.path.join(ROOT, 'docs/decomp_status.json'))
     ap.add_argument('--out', default=os.path.join(ROOT, 'docs/decomp_tree.json'))
+    ap.add_argument('--readme', action='store_true')
     args = ap.parse_args()
+    if args.readme:
+        write_readme(args.out)
+        return
+    if not args.profile:
+        ap.error('--profile or --readme')
     late, early, elf, thread = args.profile
 
     syms = symbols(elf)
@@ -110,6 +120,65 @@ def main():
         print('%-10s time %5.1f%%' % (kind, sum(r['time'] for r in rows if r['kind'] == kind)))
     for r in sorted(rows, key=lambda r: -r['time'])[:12]:
         print('  %-40s %-10s %5.2f%%  %7d bytes' % (r['area'], r['kind'], r['time'], r['bytes']))
+
+
+
+def bar(part, whole, width=12):
+    n = int(round(width * part / whole)) if whole else 0
+    return '`' + '█' * n + '░' * (width - n) + '`'
+
+
+def write_readme(tree_path):
+    tree = json.load(open(tree_path))
+    hist = json.load(open(os.path.join(ROOT, 'docs/decomp_history.json')))['entries']
+    rows = tree['rows']
+    areas = {}
+    for r in rows:
+        a = areas.setdefault(r['area'], {'native': 0, 'recompiled': 0, 'runtime': 0, 'tn': 0.0, 'tr': 0.0, 'tu': 0.0, 'fn': 0, 'ft': 0})
+        a[r['kind']] += r['bytes']
+        a['t' + {'native': 'n', 'recompiled': 'r', 'runtime': 'u'}[r['kind']]] += r['time']
+        a['ft'] += r['functions']
+        if r['kind'] == 'native':
+            a['fn'] += r['functions']
+    tn = sum(a['tn'] for a in areas.values())
+    tr = sum(a['tr'] for a in areas.values())
+    tu = sum(a['tu'] for a in areas.values())
+    out = ['<!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->', '',
+           '**Game thread time on the Vita** (%s, Vita3K profile of the route):' % tree.get('label', ''), '',
+           '| | share | |', '|---|---:|---|',
+           '| Native code | %.1f%% | %s |' % (tn, bar(tn, 100, 20)),
+           '| Recompiled MIPS | %.1f%% | %s |' % (tr, bar(tr, 100, 20)),
+           '| Runtime (DMA walk, memory, scheduler, glue) | %.1f%% | %s |' % (tu, bar(tu, 100, 20)), '',
+           '<details open>', '<summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>', '',
+           '| Area | Code native | | Functions | Game thread time: native / MIPS |', '|---|---:|---|---:|---|']
+    order = sorted(areas.items(), key=lambda kv: (kv[0] == RUNTIME, -(kv[1]['tn'] + kv[1]['tr'])))
+    for name, a in order:
+        size = a['native'] + a['recompiled']
+        if not size and not a['tu']:
+            continue
+        if not size:
+            out.append('| %s | | | | %.1f%% (runtime) |' % (name, a['tu']))
+            continue
+        out.append('| %s | %.1f%% | %s | %d / %d | %.1f%% / %.1f%% |' % (
+            'Other game code (names not identified yet)' if name == 'Other game code' else name, 100.0 * a['native'] / size, bar(a['native'], size), a['fn'], a['ft'], a['tn'], a['tr']))
+    out += ['', '</details>', '']
+    pts = [e for e in hist if e.get('time') is not None]
+    out += ['<details>', '<summary><b>History</b></summary>', '',
+            '| Measured | Commit | Code native | Calls native | Game thread time native |', '|---|---|---:|---:|---:|']
+    for e in hist:
+        out.append('| %s | %s | %.2f%% | %.1f%% | %s |' % (e['date'], e.get('label') or e['commit'], e['code'], e['calls'],
+                                                       ('%.1f%%' % e['time']) if e.get('time') is not None else ''))
+    out += ['', '</details>', '']
+    if len(pts) > 2:
+        out += ['```mermaid', 'xychart-beta', '    title "Game thread time in native code (%)"',
+                '    x-axis [%s]' % ', '.join('"%s"' % e['label'] for e in pts),
+                '    y-axis "%" 0 --> 100', '    line [%s]' % ', '.join('%.1f' % e['time'] for e in pts), '```', '']
+    out.append('<!-- decomp:end -->')
+    path = os.path.join(ROOT, 'README.md')
+    text = open(path).read()
+    a, b = text.index('<!-- decomp:start'), text.index('<!-- decomp:end -->') + len('<!-- decomp:end -->')
+    open(path, 'w').write(text[:a] + '\n'.join(out) + text[b:])
+    print('README.md decomp block: %d lines' % len(out))
 
 
 if __name__ == '__main__':
