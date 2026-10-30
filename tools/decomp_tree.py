@@ -25,7 +25,7 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from decomp_status import area_of  # noqa: E402
+from decomp_status import area_of, recompiled_functions, sizes, stub_functions  # noqa: E402
 
 GUEST = '(unsigned char*, R5900Context*, PS2Runtime*)'
 RUNTIME = 'Runtime (DMA walk, memory, scheduler)'
@@ -41,6 +41,18 @@ def symbols(elf):
             syms.append((int(p[0], 16) & ~1, int(p[1], 16), p[3]))
     syms.sort()
     return syms
+
+
+def short_name(name):
+    """A readable function name: no argument list, no lean_ prefix; a
+    recompiled one keeps its guest address."""
+    head = name.split('(')[0]
+    m = re.match(r'(?:lean_|leant_)?(\w+?)_0x([0-9a-f]+)$', head)
+    if m and '::' not in head:
+        return '%s @ %08x' % (m.group(1), int(m.group(2), 16))
+    head = re.sub(r'<[^<>]*>', '', head)
+    head = re.sub(r'\(anonymous namespace\)::', '', head)
+    return head[:80]
 
 
 def classify(name):
@@ -92,6 +104,7 @@ def main():
 
     a, b = load(late), load(early)
     time = {}
+    per_fn = {}
     for pc, v in a.items():
         d = v - b.get(pc, 0)
         if d <= 0:
@@ -99,7 +112,13 @@ def main():
         n = name(int(pc, 16))
         key = classify(n) if n else ('runtime', RUNTIME)
         time[key] = time.get(key, 0) + d
+        fkey = (key[0], key[1], short_name(n) if n else 'unknown code')
+        per_fn[fkey] = per_fn.get(fkey, 0) + d
     total = sum(time.values()) or 1
+    top = []
+    for kind, count in (('recompiled', 40), ('native', 25), ('runtime', 15)):
+        items = sorted(((k, v) for k, v in per_fn.items() if k[0] == kind), key=lambda kv: -kv[1])[:count]
+        top += [{'kind': kind, 'area': k[1], 'name': k[2], 'time': round(100.0 * v / total, 2)} for k, v in items]
 
     status = json.load(open(args.status))
     rows = []
@@ -110,9 +129,37 @@ def main():
                          'time': round(100.0 * time.pop((kind, area), 0) / total, 2)})
     for (kind, area), v in sorted(time.items()):
         rows.append({'area': area, 'kind': kind, 'bytes': 0, 'functions': 0, 'time': round(100.0 * v / total, 2)})
+    # Drill-down lists: per area, the functions by MIPS size (code map) and
+    # the profile's functions by time (time map), largest first, the tail
+    # folded into one "n more" item.
+    funcs, size, stubs = recompiled_functions(), sizes(), stub_functions()
+    native = {int(f['address'], 16): f for f in status['native_functions']}
+    code = {}
+    for addr, fname in funcs.items():
+        nat = addr in native or addr in stubs
+        src = native[addr].get('source', '') if addr in native else ''
+        area = native[addr]['area'] if addr in native else area_of(addr, fname, src)
+        code.setdefault(area, []).append({'name': '%s @ %08x' % (fname, addr), 'kind': 'native' if nat else 'recompiled', 'bytes': size.get(addr, 0)})
+    timefn = {}
+    for (kind, area, fname), v in per_fn.items():
+        timefn.setdefault(area, []).append({'name': fname, 'kind': kind, 'time': round(100.0 * v / total, 3)})
+
+    def fold(items, key, keep):
+        items.sort(key=lambda r: -r[key])
+        head, tail = items[:keep], items[keep:]
+        for kind in ('native', 'recompiled', 'runtime'):
+            rest = [r for r in tail if r['kind'] == kind]
+            if rest:
+                head.append({'name': '%d more %s functions' % (len(rest), {'native': 'native', 'recompiled': 'MIPS', 'runtime': 'runtime'}[kind]),
+                             'kind': kind, key: round(sum(r[key] for r in rest), 3), 'more': len(rest)})
+        return head
+
+    areas_out = {}
+    for area in set(code) | set(timefn):
+        areas_out[area] = {'code': fold(code.get(area, []), 'bytes', 70), 'time': fold(timefn.get(area, []), 'time', 50)}
     out = {'updated': datetime.date.today().isoformat(), 'label': args.label, 'status_commit': status.get('commit'),
            'note': 'bytes: MIPS code size by area (decomp_status.json); time: % of the Vita game thread instructions (Vita3K profile)',
-           'rows': rows}
+           'rows': rows, 'top': top, 'functions': areas_out}
     with open(args.out, 'w') as f:
         json.dump(out, f, indent=1)
         f.write('\n')

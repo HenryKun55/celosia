@@ -10,7 +10,7 @@ natively. The game is drawn by a native renderer (Metal on the Mac, OpenGL
 ES on the Vita) that reads its model data directly. The rest of the hardware
 it talks to (DMA, IOP, SPU2) is reimplemented as host code.
 
-**Where it stands: [docs/STATUS.md](docs/STATUS.md)** (and the live
+**Progress page: [henrykun55.github.io/celosia](https://henrykun55.github.io/celosia/)** (recompilation, decompilation by area, next targets, rounds). **Where it stands: [docs/STATUS.md](docs/STATUS.md)** (and the live
 [status dashboard](https://claude.ai/artifact/1RnzZd7UBKjDKzogkGEFN9)).
 
 > **No game data is included.** You need your own copy of the game.
