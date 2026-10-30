@@ -1,17 +1,109 @@
 {
  "note": "One line per performance round: what it targeted and what it measured. Console figures are from the real PS Vita (444 MHz); Vita3K figures from the calibrated emulator (222/240 MHz, 3 cores).",
  "rows": [
-  {"round": "r25", "date": "2026-10-28", "commit": "731f00f", "focus": "Tools", "summary": "Scene recorder in the Debug menu (draw lists, assets, timing, pad, sampled pcs), Vita render scale 0.5-2x safe to change live, idle-thread turn.", "result": "Recordings of the user's fights became the main bug and perf evidence."},
-  {"round": "r26", "date": "2026-10-29", "commit": "b839bf1", "focus": "Speed", "summary": "Skeleton pose fast path (state in host registers, recursion as a loop); optional plain floats for the lean code (off, not exact).", "result": "Exact; a few % in Vita3K."},
-  {"round": "r27", "date": "2026-10-29", "commit": "9a154f0", "focus": "Picture", "summary": "Colossus death mask and tendrils drawn right; no more terrain holes while the area streams in.", "result": "Missing-terrain frames 212 -> 0 in Vita3K."},
-  {"round": "r28", "date": "2026-10-29", "commit": "a61cb0d", "focus": "Decomp", "summary": "Collision natives as plain NEON on the Vita, EntryCollisionFinder native, glEnd no longer waits for the worker.", "result": "Decomp 5.41% of the code."},
-  {"round": "r29", "date": "2026-10-29", "commit": "461baf8", "focus": "Recompiler", "summary": "Generated code skips clamps it can prove useless (VU0 lanes, FPU results), PS2 adder alignment only where it changes a bit, dead stores dropped.", "result": "Exact (byte-identical with switches off); ~2% in Vita3K."},
-  {"round": "r30", "date": "2026-10-29", "commit": "a6feffe", "focus": "Recompiler", "summary": "Loop back edges store the pc only when a checkpoint is due, float facts kept across joins and loads, register cache across short joins.", "result": "~1-2% in Vita3K; console fight 11-13 fps (r23 ~10)."},
-  {"round": "r31", "date": "2026-10-29", "commit": "2917042", "focus": "Speed", "summary": "DMA chain walk reads RAM directly, guest-memory slow paths through register-saving trampolines (-13.6% memory instructions in the hottest code), 2D waits off the game thread.", "result": "~1-3% in Vita3K."},
-  {"round": "r32", "date": "2026-10-29", "commit": "1eb9ad7", "focus": "Console", "summary": "Found the console profile's modelDisp 16% was a sampler artefact; the real cost was the game thread waiting 4-9 ms a frame for the model worker. Textured 2D and zFog waits removed, leaner modelDisp hook.", "result": "Console: frame median 60 -> 50 ms, but still hitching."},
-  {"round": "r33", "date": "2026-10-30", "commit": "e0ddd1d", "focus": "Hitches", "summary": "Logs no longer written to the memory card on the game thread (~5 ms a frame), no eviction churn, game thread alone on a core, worker at higher priority.", "result": "Console-only problems: Vita3K shows none of them."},
-  {"round": "r34", "date": "2026-10-30", "commit": "2b0a501", "focus": "Hitches", "summary": "The 150-285 ms hitches were card writes of debug lines: all stderr now buffered. Skinned pass deferred to the worker, mesh pools compacted.", "result": "Exact (30M late reads checked, 0 changed)."},
-  {"round": "r35", "date": "2026-10-30", "commit": "88d2884", "focus": "Memory", "summary": "26 MB more GPU pool headroom (vitaGL's 32 MB circular pool used at most 65 KB a frame), shared scratch depth buffers, skeleton 8-10% fewer instructions.", "result": "Console: frames over 100 ms 174 -> 11; game thread still 50-62 ms of pure CPU."},
-  {"round": "r36", "date": "2026-10-30", "commit": "", "focus": "Stable fps", "summary": "In progress: missing canyon walls, settings that trade detail for game-thread time (debug-menu toggles), the 30 fps cap always on, the remaining load hitches.", "result": "Goal: at least 20 fps on the console with no hitches."}
+  {
+   "round": "r25",
+   "date": "2026-10-28",
+   "commit": "731f00f",
+   "focus": "Tools",
+   "summary": "Scene recorder in the Debug menu (draw lists, assets, timing, pad, sampled pcs), Vita render scale 0.5-2x safe to change live, idle-thread turn.",
+   "result": "Recordings of the user's fights became the main bug and perf evidence."
+  },
+  {
+   "round": "r26",
+   "date": "2026-10-29",
+   "commit": "b839bf1",
+   "focus": "Speed",
+   "summary": "Skeleton pose fast path (state in host registers, recursion as a loop); optional plain floats for the lean code (off, not exact).",
+   "result": "Exact; a few % in Vita3K."
+  },
+  {
+   "round": "r27",
+   "date": "2026-10-29",
+   "commit": "9a154f0",
+   "focus": "Picture",
+   "summary": "Colossus death mask and tendrils drawn right; no more terrain holes while the area streams in.",
+   "result": "Missing-terrain frames 212 -> 0 in Vita3K."
+  },
+  {
+   "round": "r28",
+   "date": "2026-10-29",
+   "commit": "a61cb0d",
+   "focus": "Decomp",
+   "summary": "Collision natives as plain NEON on the Vita, EntryCollisionFinder native, glEnd no longer waits for the worker.",
+   "result": "Decomp 5.41% of the code."
+  },
+  {
+   "round": "r29",
+   "date": "2026-10-29",
+   "commit": "461baf8",
+   "focus": "Recompiler",
+   "summary": "Generated code skips clamps it can prove useless (VU0 lanes, FPU results), PS2 adder alignment only where it changes a bit, dead stores dropped.",
+   "result": "Exact (byte-identical with switches off); ~2% in Vita3K."
+  },
+  {
+   "round": "r30",
+   "date": "2026-10-29",
+   "commit": "a6feffe",
+   "focus": "Recompiler",
+   "summary": "Loop back edges store the pc only when a checkpoint is due, float facts kept across joins and loads, register cache across short joins.",
+   "result": "~1-2% in Vita3K; console fight 11-13 fps (r23 ~10)."
+  },
+  {
+   "round": "r31",
+   "date": "2026-10-29",
+   "commit": "2917042",
+   "focus": "Speed",
+   "summary": "DMA chain walk reads RAM directly, guest-memory slow paths through register-saving trampolines (-13.6% memory instructions in the hottest code), 2D waits off the game thread.",
+   "result": "~1-3% in Vita3K."
+  },
+  {
+   "round": "r32",
+   "date": "2026-10-29",
+   "commit": "1eb9ad7",
+   "focus": "Console",
+   "summary": "Found the console profile's modelDisp 16% was a sampler artefact; the real cost was the game thread waiting 4-9 ms a frame for the model worker. Textured 2D and zFog waits removed, leaner modelDisp hook.",
+   "result": "Console: frame median 60 -> 50 ms, but still hitching."
+  },
+  {
+   "round": "r33",
+   "date": "2026-10-30",
+   "commit": "e0ddd1d",
+   "focus": "Hitches",
+   "summary": "Logs no longer written to the memory card on the game thread (~5 ms a frame), no eviction churn, game thread alone on a core, worker at higher priority.",
+   "result": "Console-only problems: Vita3K shows none of them."
+  },
+  {
+   "round": "r34",
+   "date": "2026-10-30",
+   "commit": "2b0a501",
+   "focus": "Hitches",
+   "summary": "The 150-285 ms hitches were card writes of debug lines: all stderr now buffered. Skinned pass deferred to the worker, mesh pools compacted.",
+   "result": "Exact (30M late reads checked, 0 changed)."
+  },
+  {
+   "round": "r35",
+   "date": "2026-10-30",
+   "commit": "88d2884",
+   "focus": "Memory",
+   "summary": "26 MB more GPU pool headroom (vitaGL's 32 MB circular pool used at most 65 KB a frame), shared scratch depth buffers, skeleton 8-10% fewer instructions.",
+   "result": "Console: frames over 100 ms 174 -> 11; game thread still 50-62 ms of pure CPU."
+  },
+  {
+   "round": "r36",
+   "date": "2026-10-30",
+   "commit": "b49aedc",
+   "focus": "Stable fps",
+   "summary": "Canyon walls fixed (heap-pressure eviction no longer drops meshes stored in the GPU pools; the console had evicted 25,772 in one session). 30 fps cap always on the Vita, but only in frames that draw a scene, so loads stay fast. Fewer particles in the Debug menu. Area-change bursts spread over frames.",
+   "result": "Sacrifices saved under 1 ms: the game thread is game logic (collision, Wander and Agro, camera). Next: native rewrites of camera collision."
+  },
+  {
+   "round": "r37",
+   "date": "2026-10-30",
+   "commit": "",
+   "focus": "Fidelity",
+   "summary": "Next: flip between the emulated GS picture and the native renderer across the route and align every difference (Wander's shadow, fog, sky colour, contrast).",
+   "result": ""
+  }
  ]
 }

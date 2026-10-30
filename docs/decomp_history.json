@@ -97,6 +97,16 @@
    "time": 43.5,
    "generated": 38.6,
    "runtime": 18.0
+  },
+  {
+   "date": "2026-10-30",
+   "label": "r36",
+   "commit": "b49aedc",
+   "code": 5.41,
+   "calls": 47.92,
+   "time": 44.5,
+   "generated": 38.8,
+   "runtime": 16.7
   }
  ]
 }
