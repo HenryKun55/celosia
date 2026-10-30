@@ -551,6 +551,19 @@ namespace native_recorder::detail
             ThreadNaming::SetCurrentThreadName("RecSampler");
 #if defined(__vita__)
             sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+            // Round 32: above the threads it shares cores 1-2 with (the model
+            // jobs' worker, the render thread, the builds: all at the default
+            // 160). At their priority a wake-up waited until one of them
+            // blocked, so the samples fell where those cores went idle (the
+            // frame's change, the 2D joins): round 30's console recording
+            // had 16% at modelDisp's entry and 0.3% in its body, Vita3K 2.7%
+            // and 3.7%. It sleeps between samples: a few microseconds taken
+            // 500 times a second. SOTC_REC_SAMPLER_PRIO=<n> (0: as before).
+            if (const uint64_t prio = envNumber("SOTC_REC_SAMPLER_PRIO", 96u); prio)
+            {
+                const int r = sceKernelChangeThreadPriority(sceKernelGetThreadId(), static_cast<int>(prio));
+                std::fprintf(stderr, "[rec] sampler thread priority %llu: %s\n", (unsigned long long)prio, r < 0 ? "refused" : "ok");
+            }
 #endif
             static const uint64_t periodUs = std::max<uint64_t>(500u, envNumber("SOTC_REC_SAMPLE_US", 2000u));
             for (;;)

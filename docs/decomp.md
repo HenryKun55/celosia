@@ -5323,6 +5323,208 @@ changed in the system setting).
 6. Track B with a write log (this round's item 4), only with 1-2 done.
 
 
+## Round 32: the console profile's blind spot, the last joins, modelDisp's hook on the game thread (2026-10-29)
+
+On AC power the whole round. Not deployed to the console; nothing committed.
+
+**What the console's round 30 recording does and does not say.** Its top
+entry, "modelDisp 16.1% (all from manager_sub_010F3B58)", is the sampled guest
+pc 0x1097118 (modelDisp's entry) with ra 0x10F3C6C (r32/pcs.py on the raw
+samples). modelDispHook stores `ctx->pc = ra` in its first block, right
+after syncFrame (Vita assembly of r31's sotc_native.cpp.obj: the store at
++0x784, before any of the body), so pc 0x1097118 covers only syncFrame and
+the preamble; the hook's body and the native walk around it sample as
+manager_sub_010F3B58, which has 0.32% on the console and 3.66% in Vita3K
+(user-rec/2026-10-29_040320: modelDisp 2.65%). The body cannot be ten times
+cheaper on the A9 than in Vita3K: the samples are biased. The sampler
+(RecSampler) runs on cores 1-2 at the default priority 160, the same as the
+model jobs' worker, the render thread and the builds, and the Vita does not
+time-slice threads of one priority: a wake-up waits until one of them
+blocks. The samples land where cores 1-2 go idle (the frame's change, the
+2D joins, the kick), not where the game thread spends its time: during the
+display walk the worker and the render thread hold both cores and the
+sampler hardly runs (70% of its 500 samples a second were taken over the
+recording). The profile also attributes every native function to the last
+pc a generated function stored (natives do not store it): "010B8590
+GetMotionMatrix 2.5%" is the native skeleton pose (decomp_skeleton.cpp).
+
+What the console's frame log does say (console-r30/err.txt, [frame] slow
+lines in 300-frame bins): the game thread
+**waited 4-9 ms a frame for the model jobs' worker** (the "join" column, in
+"hooks"), and the worker's job time was 5 us a draw before the recording
+started (game frames 2 700-3 300) and 10-12.6 us a draw during it (the
+recorder's per-draw capture and its writer on the same cores): Vita3K has
+~1 us a draw and joins of ~0.5 ms. So on the console the worker is slow and
+the game thread waits for it at every join.
+
+**1. The joins (exact).** Mac route with SOTC_NATIVE=1 and the worker on
+(SOTC_HOOK_ASYNC_VERIFY's per-site counts, r32/sites1): with round 31's
+untextured 2D batches already queued, the joins that still wait are glEnd's
+and the 2D functions' *textured* batches (`glend`, 530-574 frames of 600
+on the walk) and zFog (26-358 of 600).
+- **Textured 2D batches as worker jobs** (flush2D; `SOTC_2D_TEX_ASYNC=0`:
+  they wait, as before). The job looks its texture up itself (texture() is
+  the worker's while jobs are pending: the cloth's and particles' jobs
+  already call it there), so the lookups and draws keep their order.
+- **No join at zFog** (`SOTC_ZFOG_JOIN=1`: as before). Its host part sets
+  g_fog, the game thread's alone; what zFog draws comes through gsReg's 2D
+  path, which keeps the order itself.
+- With a slow worker (`SOTC_HOOK_WORKER_DELAY_US=150`: each job held
+  150 us, the console's case), 600 frames of the route: round 31's joins
+  (r32/chkF) waited 290-319 times at zFog (4.9 s) and 281-310 at glend
+  (4.2-5.3 s), ~16 ms a frame; this round's (r32/chkE) 1-2 waits at the
+  kick, 0.3-1.6 ms in 600 frames.
+
+**2. modelDisp's hook on the game thread** (`SOTC_HOOK_LEAN=0`: round 31's;
+exact):
+- the part tree walked once: modelDispState's walk (the game's test, its
+  +0x2c writes) also makes the job's part vector, the same order and
+  resizes the hook's second walk made from the +0x2c results, when every
+  node was reached once with an index below 4096, the game's level and the
+  same table (else the second walk as before);
+- the palette read straight into the job (two passes over the VIFcodes, the
+  first asking for each UNPACK's lines), not into a 16 KB VU picture that was
+  cleared and copied out again; lo / hi as the picture left them when there
+  is none;
+- the model matrix, the camera's two matrices and the lights as block copies
+  (guestBlock: one memcpy unless the block wraps at 32 MB);
+- the prefetch queue (the next draw's instance, header, own packet, part
+  tree, surfaces) pumped a line a packet and a line a node while this draw
+  runs: with the plans and the worker on (the Vita's default) it was only
+  pumped 8 lines at the next draw's start, then dropped; the next draw's
+  matrix, palette (up to 48 lines) and plan entries asked for too (the
+  CallRecord keeps them).
+- `SOTC_HOOK_LEAN_CHECK=1`: both ways each draw, compared; `SOTC_HOOK_LEAN_STATS=1`:
+  the work counted.
+
+**3. Measuring.**
+- `[frame]` lines end in `| sync <ms> (join end log audio idle rest) | joins
+  <site> <ms> ...`: the frame change's parts and the joins by site (the
+  console's next run says where its join and its frame change go). In
+  Vita3K the frame change is 0.2-0.4 ms (the log line 0.1-0.3 of it).
+- The recorder's sampler at priority 96 on the Vita (`SOTC_REC_SAMPLER_PRIO`,
+  0: as before), above the threads it shares cores 1-2 with.
+- `SOTC_HOOK_ORDER_CHECK=1`: game-thread draws made while model jobs were
+  pending (they would reach the renderer before the jobs' draws).
+- `SOTC_HOOK_ASYNC_VERIFY=1` now also hashes, at the hook and again in the
+  job, a textured 2D batch's texture bytes and what a model job reads of
+  guest memory itself (surface flags / texture mode / texture fields, the
+  scroll rows, the texture headers, the packets' first 16 bytes, the LOD
+  scale 0x118c180).
+- Vita3K's profiler samples every THROTTLE_SLICE guest instructions, so its
+  weights are dynamic instruction counts: r32/dyncount.py / r32/dc.sh (a
+  function's instructions per frame between two snapshots;
+  tools/vita3k.sh's PROF_SNAPS now copies the log too, for the frame
+  numbers) and r32/profdiff.py (two profiles, each with its own ELF).
+
+**Exactness.**
+- Hook (Mac route, SOTC_NATIVE=1, worker on, to 5 400, r32/chkA..E):
+  SOTC_HOOK_LEAN_CHECK parts 117 824 checks, 0 differ; palette / lights /
+  projection 226 533 checks, 0 differ (also with the slow worker: 110 082 /
+  199 925, 0).
+- Order: SOTC_HOOK_ORDER_CHECK 0 game-thread draws while jobs were pending
+  (10 715-15 015 checked) in every run, with and without the zFog join and
+  with the slow worker.
+- What the jobs read later: textured 2D jobs 4 080, their texture's bytes
+  changed between hook and job in 0; model jobs 194 859, what they read
+  themselves changed in 0 (slow worker, no zFog join, r32/chkE); the jobs'
+  copies 383 486 checked, 0 differ.
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r32/dt-all): 57
+  functions, 163 501 checks, 0 mismatches except gamecore_sub_013F8668
+  (115, the life bar's v0, as since round 16).
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, the r24 card copy; base =
+  round 31's Mac binary, new = this round's; base, new, base, new;
+  r32/posbase1, posnew1, posbase2, posnew2): the two new runs within 0.20
+  of each other, new against base1 2.41 / 2.44 (round 31: 2.08 / 3.13).
+  **Vblanks at frame 5 400: 10 740 in all four.** base2 against base1:
+  within the same noise until its last four samples (frames 5 280-5 400),
+  where round 31's binary itself read the player near 0,0,0 with another
+  eye (a cut or load the other three runs did not have there): 410 units,
+  on the base side, not this round's code.
+- Sound (au.py): stale 0, src-stale 0 in every Vita3K run. Config, settings,
+  card and shader cache restored after every run ("restored ok" in all 23;
+  one chain stopped by hand between runs, restored by hand, checked).
+
+**Instructions** (Vita3K profiles, 240 MHz, the route's 180-300 s, one VPK,
+r32/dc.sh; "round 31" = SOTC_HOOK_LEAN=0 SOTC_2D_TEX_ASYNC=0 SOTC_ZFOG_JOIN=1):
+
+| game thread, per frame | round 31 | round 32 |
+|---|---|---|
+| modelDispState (+ its walk) | 238 090 | 296 262 |
+| modelDispHook (+ its second walk) | 104 882 | 34 409 |
+| palette reads (readChainPalette*, all callers) | 44 117 | 46 970 |
+| queueNextDraw | 18 840 | 22 934 |
+| syncFrame | 2 773 | 2 792 |
+| **total** | **408 702** | **403 367** (-1.3%) |
+| whole game thread, plain at 222 (head.vpk vs new2, r32/profdiff.py) | 10 378 k | 10 304 k (-0.7%) |
+
+modelDispState grows by what it now does for the hook (the parts' vector,
+the queue pumps: a PLD a packet and a node); the hook loses its second walk
+(57-61 k a frame), the palette its VU picture. Few instructions go; the
+point is the A9's misses. SOTC_HOOK_LEAN_STATS=1 on the Mac route to
+5 400 (r32/stats0, stats1; ~236 600 draws each):
+
+| game thread, route to 5 400 | round 31 | round 32 |
+|---|---|---|
+| nodes of the hook's second walk | 3 258 394 | 0 |
+| palette bytes moved on the host | 152.6 MB | 50.9 MB (-67%) |
+| queued lines asked for (PLD) | 1 787 016 | 5 258 370 (x2.9) |
+| queued lines dropped unasked | 4 112 038 | 1 837 948 (-55%) |
+ Static counts of the hot
+functions (r32/nasm2.sh, the lean path alone compiled in): 4 592
+instructions / 1 484 memory in round 31, 6 602 / 2 325 now (the recursive
+walk inlined; more code, fewer executed).
+
+**Frame timing** (calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s, ms a frame; base = celosia-r31.vpk, which is byte for byte a rebuild
+of HEAD today (r32/head.vpk); new = r32/new2.vpk; alternated):
+
+| window | 222 base | 222 new | 240 base | 240 new | 333 new (r31's 333 new) |
+|---|---|---|---|---|---|
+| shrine | 42.3, 42.2, 42.0, 42.2, 42.1 | 42.2, 42.3, 42.3 | 39.0, 38.9 | 39.1, 39.0 | 27.9, 27.9 (28.0, 27.8) |
+| walk + area change | 73.5, 73.4, 73.3, 72.8, 73.6 | 73.1, 73.5, 73.4 | 67.9, 67.8 | 66.6, 68.6 | 48.6, 47.5 (48.1, 48.4) |
+| plain (draws) | 47.7, 47.6, 48.0, 45.9, 48.8 (897-918) | 49.4, 48.8, 49.5 (905-938) | 45.0, 44.6 | 43.7, 45.2 | 31.6, 31.7 (30.2, 32.3) |
+| walk: join | 0.50-0.61 | 0.19-0.22 | 0.50-0.51 | 0.16-0.19 | 0.11-0.12 |
+
+- In Vita3K the worker is fast and the joins were small: -0.3 to -0.4 ms of
+  joins on the walk, the frames within the noise, except the plain at 222:
+  new +1.2 ms on average (49.2 against 47.6; the same VPK with every round 32
+  part switched off gave 48.9 and 47.3, and the base VPK itself 45.9-48.8),
+  while the plain's game-thread instruction count went down 0.7%: not
+  explained, looks like the plain's spread at 222 (vblank-quantised frames
+  near 3 vblanks). The gain this round is for the console, where the joins
+  were 4-9 ms a frame; Vita3K cannot show it (it counts instructions, not
+  waits for a slow core).
+- The 333 runs: no stall (13 522 and 13 572 frames, to the end).
+
+**Decomp status:** unchanged (no new natives).
+
+**Files:** game/overrides/sotc_native.cpp; PS2Recomp/ps2xRuntime/src/lib/native/native_renderer.cpp,
+PS2Recomp/ps2xRuntime/include/runtime/native_renderer.h (setDrawCheck);
+PS2Recomp/ps2xRuntime/src/lib/native/native_recorder.cpp (sampler priority);
+tools/vita3k.sh (PROF_SNAPS copies the log); README.md, docs/decomp.md.
+Tools in build/agent-scratch/r32: chk.sh, v3k.sh, chain.sh, chain2.sh,
+chain3.sh, dyncount.py, dc.sh, profdiff.py, plainx.py, nasm.sh, nasm2.sh,
+posbase.sh, dt.sh. Deliverables: build/agent-scratch/celosia-r32.vpk
+(shader seed: 42 files), env-r32-console.txt (SOTC_FRAME_LOG=1,
+SOTC_AUDIO_LOG=1).
+
+**Round 33 (plan).**
+1. The console, this VPK, SOTC_FRAME_LOG=1 (env-r32-console.txt): the
+   `joins` and `sync` parts of the [frame] lines, against round 31's joins
+   in the same place (SOTC_2D_TEX_ASYNC=0 SOTC_ZFOG_JOIN=1 SOTC_HOOK_LEAN=0).
+   Without a recording: the recorder doubles the worker's time a draw.
+   A recording made with this VPK has an unbiased sampler (its profile is
+   then worth reading again).
+2. If the console's game thread still waits at the kick: the worker's own
+   cost (modelDispDraw, ~5 us a draw on the console, 1 in Vita3K), its
+   cores (it shares 1-2 with the render thread and the builds at one
+   priority) and a priority above the render thread's.
+3. The skeleton pose (native, decomp_skeleton.cpp, 3.2 ms in Vita3K's walk).
+4. The 222 plain spread (above): more runs of head.vpk to bound it.
+5. Round 31's items 5-6 (the packet cache and track B) as they stood.
+
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

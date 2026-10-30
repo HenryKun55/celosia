@@ -317,6 +317,10 @@ namespace native_renderer
     // With a tap set: draws are hashed into it and not drawn (a dry run of
     // the same draws, e.g. SOTC_PLAN_VERIFY's reference leg).
     void setDrawTapOnly(bool only);
+    // Testing (round 32, SOTC_HOOK_ORDER_CHECK): called at every draw,
+    // drawMulti and screen blur before anything else (the caller's thread);
+    // nullptr: off.
+    void setDrawCheck(void (*check)());
     // The next whole frame's draws, one line each, to `path` (F8 in the runtime).
     void requestDrawDump(const std::string &path);
     // SotC's zFog: before layer `order`, every pixel blends towards the

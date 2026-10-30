@@ -1190,6 +1190,8 @@ namespace native_renderer
     void setDrawTap(std::vector<uint64_t> *tap) { g_drawTap = tap; }
     std::vector<uint64_t> *drawTap() { return g_drawTap; }
     void setDrawTapOnly(bool only) { g_drawTapOnly = only; }
+    void (*g_drawCheck)() = nullptr;
+    void setDrawCheck(void (*check)()) { g_drawCheck = check; }
     // SOTC_DIFFTEST_DRAWS=2: the per-frame meshes' vertices and the skin
     // palettes too (some are made once a frame: only the first leg has them).
     bool tapMeshes()
@@ -1428,6 +1430,8 @@ namespace native_renderer
     inline bool heldTexture(uint64_t id) { return id && asyncPending(id) && !(native_recorder::active() && backend() && g_backend->hasTexture(id)); }
     void draw(uint64_t mesh, const float clip[16], const DrawState &state)
     {
+        if (g_drawCheck)
+            g_drawCheck();
         if (g_drawTap)
         {
             tapDraw(mesh, clip, state);
@@ -1478,6 +1482,8 @@ namespace native_renderer
     {
         if (count == 1u)
             return draw(meshes[0], clip, state);
+        if (g_drawCheck)
+            g_drawCheck();
         if (g_drawTap)
         {
             for (uint32_t i = 0; i < count; ++i)
@@ -1573,6 +1579,8 @@ namespace native_renderer
     }
     void addScreenBlur(const ScreenBlur &blur)
     {
+        if (g_drawCheck)
+            g_drawCheck();
         if (native_recorder::active())
             native_recorder::front::blur(blur);
         if (backend())

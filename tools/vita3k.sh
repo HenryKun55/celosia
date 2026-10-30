@@ -11,7 +11,8 @@
 #      window saved every SHOTS_EVERY s from SHOTS_FROM s on, screencapture
 #      of this run's window only, tools/winid.swift),
 #      PROF_SNAPS="<s> <s> ..." (with PROF: the profile copied to <file>.<s> at
-#      those seconds; the difference of two is that time window's profile).
+#      those seconds; the difference of two is that time window's profile;
+#      the log then as <file>.<s>.err).
 #      SEED=1: after the run, the shaders vitaGL compiled and cached
 #      (fs/ux0/data/shader_cache/CELO00001/v2) copied to build/vita-shader-seed,
 #      which the next ./celosia vita packs into the VPK (the console's first
@@ -51,7 +52,8 @@ else
         [ -n "$SHOTS" ] && mkdir -p "$SHOTS" && swiftc -O tools/winid.swift -o "$SHOTS/.winid" 2>/dev/null
         for ((t = 1; t <= $1; t++)); do
             sleep 1
-            for s in $PROF_SNAPS; do [ "$t" -eq "$s" ] && [ -f "$PROF" ] && cp "$PROF" "$PROF.$t"; done
+            # (and the log so far as <file>.<s>.err: the game frame there, for per-frame counts)
+            for s in $PROF_SNAPS; do [ "$t" -eq "$s" ] && [ -f "$PROF" ] && cp "$PROF" "$PROF.$t" && cp "$FS/ux0/data/celosia/err.txt" "$PROF.$t.err" 2>/dev/null; done
             if [ -n "$SHOTS" ] && [ "$t" -ge "${SHOTS_FROM:-0}" ] && [ $(((t - ${SHOTS_FROM:-0}) % ${SHOTS_EVERY:-10})) -eq 0 ]; then
                 pid=$(pgrep -f "$V3/config.yml -r CELO00001" | head -1)
                 w=$([ -n "$pid" ] && "$SHOTS/.winid" "$pid")
