@@ -3551,6 +3551,12 @@ PresentationFrame GSCpuBackend::PresentFromLocalMemory(const GSPresentationReque
     decodeDisplaySize(request.display2, width2, height2);
     const bool valid1 = pmode.enableCrt1 && hasDisplaySetup(request.display1, displayFrame1);
     const bool valid2 = pmode.enableCrt2 && hasDisplaySetup(request.display2, displayFrame2);
+    static const bool pmodeLog = std::getenv("PS2X_PMODE_LOG") != nullptr; // debugging: the display registers now and then
+    static uint64_t pmodeLogged = 0;
+    if (pmodeLog && (pmodeLogged++ % 300u) == 0u)
+        std::fprintf(stderr, "[pmode] pmode %llx dispfb1 %llx display1 %llx dispfb2 %llx display2 %llx bg %llx valid %d %d\n", (unsigned long long)request.pmode,
+                     (unsigned long long)request.dispfb1, (unsigned long long)request.display1, (unsigned long long)request.dispfb2, (unsigned long long)request.display2,
+                     (unsigned long long)request.bgcolor, valid1 ? 1 : 0, valid2 ? 1 : 0);
     if (!valid1 && !valid2)
         return result;
 

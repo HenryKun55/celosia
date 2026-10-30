@@ -152,7 +152,9 @@ fragment float4 nativeFragment(VOut in [[stage_in]], texture2d<float> tex [[text
     }
     const float lod = fog.maxLod > 0.0 ? clamp(log2(max(in.depth, 1e-3)) * fog.lodScale + fog.lodK, 0.0, fog.maxLod) : 0.0;
     const bool hw = fog.hwLod != 0 && fog.maxLod > 0.0; // a texture the game samples at level 0 only stays there
-    float4 t = float4(1.0);
+    // Untextured, the GS takes the vertex colour as it is (255 = white),
+    // where a textured draw modulates by it (0x80 = 1): half the 0x80 scale.
+    float4 t = float4(float3(128.0 / 255.0), 1.0);
     if (textured != 0)
         t = fog.clamp == 3 ? sampleModel(tex, sClampUV, in.uv, lod, hw)
             : fog.clamp == 2 ? sampleModel(tex, sClampV, in.uv, lod, hw)

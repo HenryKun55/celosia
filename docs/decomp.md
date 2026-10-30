@@ -6343,6 +6343,114 @@ env-r36-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1); r36/prof-final.txt.180
 3. The heap's growth with areas visited (a per-site count of the newlib
    heap on the console).
 
+## Round 37: picture fidelity against the GS (2026-10-30)
+
+On AC power. Nothing committed or deployed. Goal: the emulated GS picture is
+the reference; find what the native renderer draws differently and fix it.
+Method: the Mac route (`r31/route2.sh`, a copy of the r24 card) with
+`SOTC_NATIVE=2`, a GS / native pair every 30 or 60 frames, compared with
+PS2-like quality settings (`SOTC_MODEL_DETAIL=0 SOTC_TEXTURE_FILTER=2
+SOTC_MSAA=1 SOTC_EFFECT_DETAIL=0`; `celosia_settings.cfg` holds the
+user's Ultra-like choices: finest model detail, anisotropic 16x, MSAA 8x,
+which change the far geometry and the ground's sharpness by design).
+Parallel runs of the route drift apart (load timing), so switches were
+compared inside one run: `SOTC_AB_FLAG=<names> SOTC_AB_PERIOD=60` turns
+them off in every other 60-frame window and `r37/ab.py` averages the
+native - GS gap of the pairs in each state. Scripts: `build/agent-scratch/r37/`
+(exp.sh, one.sh, multi.sh, ab.py, stats.py, fit.py, pair.py, tri.py,
+pos.sh, v3k.sh); the report is `r37/report.md`.
+
+**1. The native picture ~+10..15 levels brighter, washed out (fixed).**
+Not the bloom, the glow, the depth of field, the vertex fog, the zFog, the
+feedback, the screen blur, the sky or the subtract / overlay passes: each
+switched off in alternate windows left the gap at +10 (the rock wall the
+route ends at, no sky in view). Hiding display list layer 20 took it to
+-14: drawFrontFog (0x108a288), a full-screen sprite in FOGCOL (175, 190,
+213 on the plain), ALPHA 0x44 by *0x118b8f0, TEST alpha NEVER / FB_ONLY.
+Untextured, the GS takes a vertex colour as it is (255 = white); the
+native fragment stage scaled every colour as a texture's modulator (0x80 =
+1), so an untextured draw came out twice as bright, here clamped to white.
+Fixed in the three fragment programs (Metal, GLSL, the Vita's Cg): an
+untextured draw's colour is x 128 / 255. Gap over the route's 55-57 pairs
+after it: whole picture -0.5 to +1.0 (was +7.6 to +10.5), lower half +0.7 to
++3. The same rule made the HUD's life gauge pink again (it was white) and
+dims every other untextured 2D (loading lines, gauges' fans).
+
+**2. Wander's and Agro's ground shadows missing (fixed; Vita: a setting).**
+Only the sword's shadow volume was drawn (one shadowDisp call a frame in
+`SOTC_SHADOW_LOG`). The skinned characters' display, 010F3CF0
+(decomp_skinpal.cpp resumes it in the recompiled code), ends in
+`j shadowDisp`, which the recompiler emits as a direct C++ call: the hook
+registered on 0x109e0e8 never ran for them. The shadow is now taken at
+shadowDisp's last call, its iosDlPopLayer (return 0x109e1c4 skinned,
+0x109e274 rigid; s1 = model, s2 = chain), for both paths; the volume code
+(its skinned path was already written but never reached) draws them.
+Volumes on the route: Wander 6 888 vertices (2 296 triangles), Agro 1 320,
+the shrine cutscene's figures up to 24 432. Setting "Body shadows"
+(`SOTC_BODY_SHADOWS`, `body_shadows`): on on the Mac; off by default on the
+Vita until a console test (the GL path draws them, hard-edged: Vita3K
+screenshots r37/v3k/shots-seed with it on).
+
+**3. Vertex fog at 0.55 of the game's (fixed).** The default amount was set
+by eye on 2026-10-17 (64b2389) against the Metal GS raster when it had no fog; the GS
+raster has the GS fog now, and the far cliffs match it at 1 (bluer, lower
+contrast). Default 1; a settings file older than `settings_version=37`
+has its `fog_amount` ignored once (the file is now written as 37).
+
+**4. F9 / F8.** F9 (host loop, Mac) flips the shown picture between the
+native and the GS one; with `SOTC_NATIVE=2` the flip is instant
+(`Tuning::bothShowNative`), with `=1` the GS draws again on demand; a label
+says which shows. F8 forces the emulated picture for its capture frames
+(`Tuning::forceEmulated`) instead of clearing `showNative`, so it works in
+both modes. (Pressing keys from a script is not allowed on this Mac:
+checked by code, not live.)
+
+**Open (found, not fixed):**
+- Far landscape: the GS shows far cliffs as the faded background image
+  (smooth, white-blue); natively nearer-detail rocks and trees stay, with
+  bright angular tops, and in the shrine-exit cutscene a hard-edged grey
+  rectangle. The zFog, bloom and layers 1/2/3/5/6 switched in alternate
+  windows did not change it; zFog's GS side (slices with ALPHA 0x48 FIX
+  0x80 into alpha only, then bgDraw) matches the native composite on
+  paper. Next: the w of those pixels against zFog's slices, and the LOD.
+- Agro's mane (layer 6) drawn as dark flat cards natively; on the GS the
+  cards' transparent texels vanish (likely the GS alpha test, which the
+  native renderer does not model: it only drops alpha < 0.02).
+- The altar stones darker with white carvings natively (a two-texture /
+  second-pass surface), lighter and mossy on the GS.
+- A cutscene's white sun glow (frame ~3030) missing natively; the shrine
+  window's glow shape still differs (known since 2026-10-17).
+- The cinema bars faintly see-through natively during a fade.
+- The GS display blends its two read circuits one line apart (PMODE
+  0x8023, ALP 0x80; `PS2X_PMODE_LOG`): a half-line vertical softening the
+  native picture does not have.
+- Not reached by the route's card: the bridge, forest, colossi, fights, the
+  death effect (recordings not rendered this round).
+
+**Verification.**
+- Positions, fixed-30 route to 5 400, round 36's binary and this round's
+  side by side on an idle Mac (r37/posbase, posnew3): max 3.50 apart
+  (round 36's own spread: 2.06-3.38), both reach 5 400 (VBlank 11 061 /
+  11 074). Two earlier runs made while Vita3K ran (pos1/pos2) took another
+  line at ~2 970-3 360, as round 36's posfin1 did under load.
+- Body shadows on / off (x1 / x0): gaps -0.5 / +0.2, the shadows only in x1.
+- Vita: celosia-r37.vpk (-j6, shader seed 47 files: the seed run's cache,
+  route, body shadows on) boots in Vita3K (240 MHz, 3 cores), plays the
+  route to the plain with the final VPK (r37/v3k/final-err.txt, 5 136 frame
+  lines, `[vita] shader cache seed: 5 copied, 42 already there`), sound
+  lines normal; the user's settings.cfg migration line printed. Vita3K tree
+  restored (`restored ok`).
+
+**Files.** PS2Recomp/ps2xRuntime/include/runtime/native_tuning.h
+(bothShowNative, forceEmulated, bodyShadows, fog 1);
+src/lib/native/native_renderer.cpp (body_shadows item, env, Vita default),
+native_renderer_metal.mm / native_renderer_gl.cpp (untextured colour);
+src/lib/ps2_runtime.cpp (F9, label, F8); ps2_debug_panel.cpp (F9 moved);
+host_menu.cpp (settings_version 37, fog_amount migration);
+gs/gs_cpu_backend.cpp (`PS2X_PMODE_LOG`); game/overrides/sotc_native.cpp
+(shadow at popLayer, `SOTC_SHADOW_LOG`, `SOTC_AB_FLAG`, the shown picture);
+README.md, docs/STATUS.md, docs/native_renderer_map.md, this section.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

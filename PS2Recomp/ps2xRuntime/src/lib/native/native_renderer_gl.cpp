@@ -186,7 +186,7 @@ void main()
         return;
     }
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
-    vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(1.0);
+    vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(vec3(128.0 / 255.0), 1.0); // untextured: the GS takes the vertex colour as is (255 = white)
     float alpha = clamp(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a, 0.0, 1.0);
     if (alpha < 0.02)
         discard;
@@ -232,7 +232,7 @@ void main()
     float textured = uFogColour.w;
     float depth = vUV.z;
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
-    vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(1.0);
+    vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(vec3(128.0 / 255.0), 1.0); // untextured: the GS takes the vertex colour as is (255 = white)
     float alpha = clamp(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a, 0.0, 1.0);
 #if CUT
     if (alpha < 0.02)
@@ -470,7 +470,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
         return float4(saturate(tex2D(uReflection, uv).rgb * uDebug.rgb * vColor.rgb), saturate(vColor.a * -uDebug.w));
     }
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
-    float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(1.0, 1.0, 1.0, 1.0);
+    float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
     if (alpha < 0.02)
         discard;
@@ -502,7 +502,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     float textured = uFogColour.w;
     float depth = vUV.z;
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
-    float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(1.0, 1.0, 1.0, 1.0);
+    float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
 #if CUT
     if (alpha < 0.02)

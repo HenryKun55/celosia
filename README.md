@@ -93,6 +93,17 @@ captures each module (see below).
   strength, fog amount and every effect on/off, changed live. "Print to log"
   gives the setting as `SOTC_*` variables that set it at start. The table is
   in [docs/STATUS.md](docs/STATUS.md#settings).
+- **F9** (Mac): flips the picture shown between the native renderer's and the
+  emulated GS one of the same moment (a "NATIVE" / "GS (emulated)" label shows
+  for two seconds). With `SOTC_NATIVE=2` both are drawn every frame, so the
+  flip is instant (it starts on the GS picture); with the default
+  `SOTC_NATIVE=1` the GS starts drawing again when its picture is asked for
+  (a few frames). Round 37: in the host loop, so it works without the
+  debugger's build too.
+- **F8** (Mac): saves the same moment twice to `shots/` (the folder the game
+  runs in): `f8_<n>_emulated.png` (the GS picture, drawn for those few frames
+  whatever F9 shows), `f8_<n>_native.png` and `f8_<n>_draws.txt` (the native
+  draws of that frame). Works in both `SOTC_NATIVE=1` and `=2`.
 - **F12**: the developer debugger (CPU, threads, DMA, memory).
 
 ### Controls
@@ -318,6 +329,11 @@ xychart-beta
 | `SOTC_TAKEUP_MS=x` | the finished builds taken up at a frame's start for at most x ms, the rest at the next frames in order (round 36: 8 on the Vita, 0 = all at once elsewhere) |
 | `SOTC_GL_RUN_EVICT_OLD=1` | the merged-run copies' room made as before round 36 (a scan and sort of every copy for each copy past the budget, again every frame for a run that found none); default: one scan a frame at most, freeing down to 7/8 of the budget |
 | `SOTC_CPU_LOG=1` | Mac: `[cpu]` lines every 60 frames with the game thread's CPU time (clock_gettime(CLOCK_THREAD_CPUTIME_ID)) |
+| `SOTC_BODY_SHADOWS=0/1` | Renderer "Body shadows" ("Sombras dos corpos", round 37): Wander's, Agro's and the colossi's own shadows on the ground (the skinned shadow volumes; off: only the sword's, as before). On by default on the Mac; off by default on the Vita until a console test (Wander's volume is ~2 300 triangles a frame, Agro's ~440, the shrine cutscene's models up to ~8 000) |
+| `SOTC_FOG_AMOUNT=x` | the vertex fog's share; 1 (the game's own) by default since round 37 (it was 0.55, set by eye against an emulated picture that had no GS fog). A `settings.cfg` / `celosia_settings.cfg` from before round 37 (`settings_version` < 37) has its `fog_amount` ignored once |
+| `SOTC_AB_FLAG=<names>`, `SOTC_AB_PERIOD=n` | fidelity A/B (round 37): the named renderer switches (`bloom vfog zfog glow dof shadows sblur feedback ptcl reflect refract subtract additive overlays sky`, and `L<n>` for display list layer n hidden) off in every other window of n frames (30 by default), so the pairs of one `SOTC_NATIVE=2` run compare the native picture with and without them against the same GS pictures (`build/agent-scratch/r37/ab.py`); `,` or `:` between names |
+| `SOTC_SHADOW_LOG=1` | every 60 frames, each shadow volume drawn (`[shadow]`: chain, model, skinned; `[shadowvol]`: extrusion and vertex count) |
+| `PS2X_PMODE_LOG=1` | the emulated display's PMODE / DISPFB / DISPLAY registers now and then (`[pmode]`; SotC: 0x8023, both read circuits on the same frame one line apart, blended 50/50) |
 
 With `SOTC_FRAME_LOG=1` the `[frame]` lines also end in `| sync ... | joins ...`: the game
 thread's work at the frame's change by part (the join, endFrame, the frame log, the sound log,

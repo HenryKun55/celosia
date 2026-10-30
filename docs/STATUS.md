@@ -108,7 +108,8 @@ scene and camera:
 | --- | --- | --- |
 | Bloom on / strength | on / 1 | `SOTC_BLOOM_SCALE` (0 turns it off) |
 | Bloom blur rounds / spread (OpenGL; Metal draws the GS chain at its fixed sizes, these only with `SOTC_BLOOM_OLD=1`) | 1 / 1.0 | `SOTC_BLOOM_ROUNDS`, `SOTC_BLOOM_SPREAD` |
-| Vertex fog on / amount | on / 0.55 | `SOTC_NATIVE_NOVFOG=1`, `SOTC_FOG_AMOUNT` |
+| Vertex fog on / amount | on / 1 (the game's own; 0.55 before round 37) | `SOTC_NATIVE_NOVFOG=1`, `SOTC_FOG_AMOUNT` |
+| Body shadows (Wander, Agro, colossi) | on (Mac) / off (Vita) | `SOTC_BODY_SHADOWS=0/1` |
 | Depth fog into the sky | on | `SOTC_NATIVE_ZFOG=0` |
 | Glow, depth of field, shadows, particles, screen blur, motion trail, reflections, water refraction | on | `SOTC_NATIVE_NOGLOW`, `_NODOF`, `_NOSHADOWS`, `_NOPTCL`, `_NOSBLUR`, `_NOFEEDBACK`, `_NOREFLECT`, `_NOREFRACT` |
 | Cap at 30 fps | off | `SOTC_CAP30=1` |

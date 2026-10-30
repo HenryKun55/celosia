@@ -2359,8 +2359,7 @@ void PS2DebugPanel::draw(PS2Runtime &runtime)
     }
     if (IsKeyPressed(KEY_F10))
         m_tuningVisible = !m_tuningVisible;
-    if (IsKeyPressed(KEY_F9)) // native <-> emulated picture of the same moment
-        native_renderer::tuning().showNative = !native_renderer::tuning().showNative;
+    // F9 (native <-> emulated picture) is the host loop's (ps2_runtime.cpp), next to F8.
 
     if (!m_visible && !m_tuningVisible)
     {

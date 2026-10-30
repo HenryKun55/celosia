@@ -310,7 +310,7 @@ namespace
         FILE *f = std::fopen(kSettingsPath, "w");
         if (!f)
             return;
-        std::fprintf(f, "settings_version=24\n");
+        std::fprintf(f, "settings_version=37\n");
         std::fprintf(f, "exact_alpha=%d\nshow_fps=%d\nscreen=%d\nvolume=%d\nlanguage=%d\n", g_settings.exactAlpha ? 1 : 0,
                      g_settings.showFps ? 1 : 0, g_settings.screenMode.load(), g_settings.volume.load(), g_settings.language.load());
         for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
@@ -496,12 +496,22 @@ void load()
     const bool old = !findKept(g_fileValues, "settings_version");
     if (old)
         std::fprintf(stderr, "[settings] %s is from before round 24: dbg_subsys_prof in it ignored\n", kSettingsPath);
+    // Before round 37 the vertex fog's amount was 0.55, set by eye against
+    // an emulated picture that had no GS fog; 1 is the game's own (measured
+    // against the GS picture in round 37). A file from before keeps its other
+    // values but takes the new fog default.
+    const KeptValue *version = findKept(g_fileValues, "settings_version");
+    const bool beforeExactFog = !version || version->value < 37.0;
+    if (beforeExactFog)
+        std::fprintf(stderr, "[settings] %s is from before round 37: fog_amount in it ignored (the game's own fog now)\n", kSettingsPath);
     for (const KeptValue &kv : g_fileValues)
     {
         const char *key = kv.key.c_str();
         const float number = static_cast<float>(kv.value);
         const int value = static_cast<int>(number);
         if (old && !std::strcmp(key, "dbg_subsys_prof"))
+            continue;
+        if (beforeExactFog && !std::strcmp(key, "fog_amount"))
             continue;
         if (native_renderer::tuningRestore(key, number))
             continue;

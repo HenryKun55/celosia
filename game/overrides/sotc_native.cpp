@@ -2832,10 +2832,63 @@ namespace sotc_native
             g_zFog(rdram, ctx, runtime);
     }
 
+    // SOTC_AB_FLAG=<name>[,<name>...] SOTC_AB_PERIOD=<n> (fidelity A/B, round 37):
+    // those tuning switches off in every other window of n frames (from
+    // frame n on), so pictures 30 frames apart of one run compare the
+    // native picture with and without them against the same GS picture.
+    // Names: bloom, vfog, zfog, glow, dof, shadows, sblur, feedback, ptcl,
+    // reflect, refract, subtract, additive, overlays, sky.
+    void abSwitches()
+    {
+        static const char *flags = std::getenv("SOTC_AB_FLAG");
+        if (!flags)
+            return;
+        static const uint64_t period = std::max<uint64_t>(1u, std::getenv("SOTC_AB_PERIOD") ? std::strtoull(std::getenv("SOTC_AB_PERIOD"), nullptr, 10) : 30u);
+        const bool off = (g_frame / period) % 2u == 1u;
+        native_renderer::Tuning &t = native_renderer::tuning();
+        static const native_renderer::Tuning start = t;
+        static const std::string list = []
+        {
+            std::string l = std::string(",") + flags + ",";
+            std::replace(l.begin(), l.end(), ':', ','); // ':' separates too (env lists split on commas)
+            return l;
+        }();
+        auto ab = [&](const char *name, bool native_renderer::Tuning::*field)
+        {
+            if (list.find(std::string(",") + name + ",") != std::string::npos)
+                t.*field = off ? false : start.*field;
+        };
+        ab("bloom", &native_renderer::Tuning::bloom);
+        ab("vfog", &native_renderer::Tuning::vertexFog);
+        ab("zfog", &native_renderer::Tuning::zFog);
+        ab("glow", &native_renderer::Tuning::glow);
+        ab("dof", &native_renderer::Tuning::depthOfField);
+        ab("shadows", &native_renderer::Tuning::shadows);
+        ab("sblur", &native_renderer::Tuning::screenBlur);
+        ab("feedback", &native_renderer::Tuning::feedback);
+        ab("ptcl", &native_renderer::Tuning::particles);
+        ab("reflect", &native_renderer::Tuning::reflections);
+        ab("refract", &native_renderer::Tuning::refraction);
+        ab("subtract", &native_renderer::Tuning::subtract);
+        ab("additive", &native_renderer::Tuning::additive);
+        ab("overlays", &native_renderer::Tuning::overlays);
+        ab("sky", &native_renderer::Tuning::skyImage);
+        for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
+            if (list.find(",L" + std::to_string(layer) + ",") != std::string::npos)
+                t.hiddenLayers = off ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
+        static bool logged = false;
+        if (!logged)
+        {
+            logged = true;
+            std::fprintf(stderr, "[ab] %s off in odd windows of %llu frames\n", flags, (unsigned long long)period);
+        }
+    }
+
     void endFrame()
     {
         if (g_frame == 0)
             return;
+        abSwitches();
         flush2D();
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
         // from getFogFactor0/1 (0x1089b70/bb0), the colour as
@@ -2942,8 +2995,12 @@ namespace sotc_native
         // geometry has no resolution; the effects measure in PS2 pixels.
         const float scale = std::clamp(native_renderer::tuning().renderScale, native_renderer::kMinRenderScale, native_renderer::kMaxRenderScale);
         native_renderer::endFrame(static_cast<uint32_t>(512.0f * scale + 0.5f), static_cast<uint32_t>(448.0f * scale + 0.5f));
-        static const bool show = std::atoi(std::getenv("SOTC_NATIVE")) != 2; // 2: draw, keep the emulated picture
-        native_renderer::setShown(show && native_renderer::tuning().showNative && g_frameDraws != 0);
+        // SOTC_NATIVE=2: both drawn, the emulated picture shown unless F9
+        // asked for the native one (Tuning::bothShowNative).
+        static const bool both = std::atoi(std::getenv("SOTC_NATIVE")) == 2;
+        const native_renderer::Tuning &shownTune = native_renderer::tuning();
+        const bool wantNative = both ? shownTune.bothShowNative : shownTune.showNative;
+        native_renderer::setShown(wantNative && !shownTune.forceEmulated && g_frameDraws != 0);
     }
 
     void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -5359,11 +5416,23 @@ namespace sotc_native
         g_pushLayer(rdram, ctx, runtime);
     }
 
+    // shadowDisp's two iosDlPopLayer calls return to these: the skinned path's, the rigid one's.
+    constexpr uint32_t kShadowPopSkinned = 0x0109E1C4u, kShadowPopRigid = 0x0109E274u;
+    void shadowCapture(uint32_t chain, uint32_t model, bool skinnedShadow);
+
     void popLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!g_layers.empty())
             g_layers.pop_back();
+        const uint32_t ra = GPR_U32(ctx, 31);
+        const bool shadow = ra == kShadowPopSkinned || ra == kShadowPopRigid;
+        const uint32_t shadowModel = GPR_U32(ctx, 17), shadowChain = GPR_U32(ctx, 18);
         g_popLayer(rdram, ctx, runtime);
+        if (shadow && (ra == kShadowPopRigid || native_renderer::tuning().bodyShadows))
+        {
+            syncFrame(rdram);
+            shadowCapture(shadowChain, shadowModel, ra == kShadowPopSkinned);
+        }
     }
 
     // ---- Cloth and hair: meshDisp -------------------------------------------
@@ -5598,15 +5667,28 @@ namespace sotc_native
     std::vector<native_renderer::Vertex> g_volume;
     constexpr float kShadowNear = 0.1f;
 
+    // Round 37: the shadow is taken at shadowDisp's last call, its
+    // iosDlPopLayer (popLayerHook, by the return address), with the model in
+    // s1 and the chain in s2 there: the skinned characters' display
+    // (010F3CF0, Wander's and Agro's body shadows) ends in a jump to
+    // shadowDisp that the recompiled code makes as a direct C++ call, so a
+    // hook on shadowDisp itself never saw them (only the sword's rigid
+    // shadow, a guest call from 010F3A08, was drawn).
     void shadowDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
-        const uint32_t chain = GPR_U32(ctx, 4), model = GPR_U32(ctx, 5);
-        const bool skinnedShadow = GPR_U32(ctx, 10) != 0u;
         g_shadowDisp(rdram, ctx, runtime);
+    }
+
+    void shadowCapture(uint32_t chain, uint32_t model, bool skinnedShadow)
+    {
         HookTimer hookTimer;
         const bool shadows = native_renderer::tuning().shadows;
         static const bool idColours = std::getenv("SOTC_NATIVE_IDCOLOR") != nullptr;
+        static const bool shadowLog = std::getenv("SOTC_SHADOW_LOG") != nullptr; // debugging: each call
+        if (shadowLog && g_frame % 60u == 0u)
+            std::fprintf(stderr, "[shadow] frame %llu chain %08x model %08x skinned %d tag %08x ret %08x retq %08x\n", (unsigned long long)g_frame, chain, model,
+                         skinnedShadow ? 1 : 0, chain ? word(chain) : 0u, chain ? word(chain + 4u) : 0u, chain ? word(word(chain + 4u)) : 0u);
         if (!shadows || idColours || !model || !g_cameraContext || ((word(chain) >> 28) & 7u) != 2u)
             return;
         ShadowDispJob local;
@@ -5666,7 +5748,11 @@ namespace sotc_native
         }
         else
             std::memcpy(m, job.rigid, sizeof(m));
-        const float d[3] = {job.extrude[0], job.extrude[1], job.extrude[2]};
+        static const float flip = std::getenv("SOTC_SHADOW_FLIP") ? -1.0f : 1.0f; // debugging
+        const float d[3] = {job.extrude[0] * flip, job.extrude[1] * flip, job.extrude[2] * flip};
+        static const bool volLog = std::getenv("SOTC_SHADOW_LOG") != nullptr;
+        if (volLog && g_frame % 60u == 0u)
+            std::fprintf(stderr, "[shadowvol] frame %llu skinned %d model %08x extrude %g %g %g\n", (unsigned long long)g_frame, skinnedShadow ? 1 : 0, model, d[0], d[1], d[2]);
         const uint32_t tag = word(model + 0x1Cu);
         static std::vector<Strip> strips;
         strips.clear();
@@ -5750,6 +5836,8 @@ namespace sotc_native
                     put(near[k]), put(far[l]), put(near[l]);
                 }
             }
+        if (volLog && g_frame % 60u == 0u)
+            std::fprintf(stderr, "[shadowvol] frame %llu model %08x volume vertices %zu\n", (unsigned long long)g_frame, model, g_volume.size());
         if (g_volume.empty())
             return;
         const float *projection = job.projection;

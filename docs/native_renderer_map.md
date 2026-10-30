@@ -104,8 +104,13 @@ texture is whatever the caller requested just before.
 
 Shadows: `shadowDisp(instance chain, shadow model)` (0x109e0e8, layer 3 or
 7; t2 = 0: microcode 0 + 8, rigid; t2 != 0: microcode 5 + 9, skinned, the
-second qword per vertex x/y/z = bone + weight, w = n, n + 1 bones). In the
-route only Wander's sword has one (model 0x33dfc0, V3-32 strips). Microcode
+second qword per vertex x/y/z = bone + weight, w = n, n + 1 bones). On the
+route: Wander's sword (model 0x33dfc0, rigid, called from 010F3A08) and the
+skinned bodies (Wander, Agro, the shrine cutscene's figures), whose display
+(010F3CF0) ends in a jump to shadowDisp: the recompiled code makes that jump
+a direct C++ call, so a hook on shadowDisp never sees them; natively the
+shadow is taken at shadowDisp's iosDlPopLayer (return address 0x109e1c4
+skinned, 0x109e274 rigid; model in s1, chain in s2), round 37. Microcode
 8 takes each triangle to camera space (VU 972, the chain's RET matrix),
 extrudes it by the w of VU 984-986 (the chain's qwords 1-3), cuts each
 extrusion edge at z = 0.1 and draws the prism into its own buffer with
@@ -247,6 +252,15 @@ GEQUAL, so each pixel keeps the amount of the last slice in front of it.
 that alpha (ALPHA 0x54: (Cs - Cd) x Ad + Cd): the distance fades into the
 sky. `drawFrontFog` adds a flat colour on top (layer 0x14, colour and
 amount at 0x118b8dc..f0, set by graphSetFogParam).
+
+## Untextured colour (round 37)
+
+The GS modulates a textured primitive's texel by its vertex colour (0x80 =
+1), but an untextured one takes the vertex colour as it is (255 = white).
+drawFrontFog (layer 20: a full-screen sprite in FOGCOL, ALPHA 0x44, alpha
+*0x118b8f0), the HUD gauges, the loading lines and every other untextured
+draw were twice as bright natively until round 37 (the front fog alone
+lifted the whole picture by ~12 levels on the plain).
 
 ## Vertex fog (GS FOG)
 

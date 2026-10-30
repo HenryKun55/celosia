@@ -29,11 +29,19 @@ namespace native_renderer
         float bloomRounds = 1.0f;   // blur rounds of +-3 texels at a quarter size, whole (SOTC_BLOOM_ROUNDS)
         float bloomSpread = 1.0f;   // each further round's growth (SOTC_BLOOM_SPREAD)
         bool vertexFog = true;      // the GS fog by distance (SOTC_NATIVE_NOVFOG)
-        float vertexFogAmount = 0.55f; // x the fog's share (0: none, 1: the game's; SOTC_FOG_AMOUNT)
+        // x the fog's share (0: none, 1: the game's; SOTC_FOG_AMOUNT). 1 since
+        // round 37: the 0.55 before was set by eye against an emulated picture
+        // without GS fog; the GS picture with its fog matches 1.
+        float vertexFogAmount = 1.0f;
         bool zFog = true;           // fade into the sky by depth (SOTC_NATIVE_ZFOG=0)
         bool glow = true;           // layer 8 glow (SOTC_NATIVE_NOGLOW)
         bool depthOfField = true;   // SOTC_NATIVE_NODOF
         bool shadows = true;        // SOTC_NATIVE_NOSHADOWS
+        // Round 37: the skinned characters' body shadows (Wander, Agro, the
+        // colossi: shadowDisp's skinned path, reached by a jump the hook never
+        // saw before); off: only the rigid ones (the sword) as up to round 36
+        // (SOTC_BODY_SHADOWS=0/1).
+        bool bodyShadows = true;
         bool particles = true;      // SOTC_NATIVE_NOPTCL
         bool screenBlur = true;     // SOTC_NATIVE_NOSBLUR
         bool feedback = true;       // feedbackBlur: the last frame laid over the new one (SOTC_NATIVE_NOFEEDBACK)
@@ -43,6 +51,13 @@ namespace native_renderer
         // Debugging (the menus' Debug group): what to draw at all.
         uint32_t hiddenLayers = 0;  // bit n: the display list's layer n is not drawn
         bool showNative = true;     // off: the emulated GS picture of the same moment is shown (the native one still drawn)
+        // SOTC_NATIVE=2 (both pictures drawn every frame, the emulated one
+        // shown): on, the native one is shown instead (F9 flips it; not
+        // saved). The GS keeps drawing either way, so the flip is instant.
+        bool bothShowNative = false;
+        // Set by the F8 capture for its few frames: the emulated picture
+        // shown (and so drawn) whatever the two above say.
+        bool forceEmulated = false;
         bool draw2D = true;         // sprites, fades, menus, subtitles
         bool drawWorld = true;      // everything that is not 2D
         bool textures = true;       // off: every draw untextured (its vertex colour)

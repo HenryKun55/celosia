@@ -86,6 +86,9 @@ namespace ps2_stubs
 static constexpr int FB_WIDTH = 640;
 static constexpr int FB_HEIGHT = 512;
 static constexpr int DEFAULT_DISPLAY_HEIGHT = 448;
+// F9 (Mac): which picture the host shows, said on screen for a moment after the flip.
+static double g_pictureLabelUntil = 0.0;
+static bool g_pictureLabelNative = true;
 static constexpr uint32_t DEFAULT_FB_SIZE = FB_WIDTH * FB_HEIGHT * 4;
 static constexpr uint32_t DEFAULT_FB_ADDR = (PS2_RAM_SIZE - DEFAULT_FB_SIZE - 0x10000u);
 #if defined(PLATFORM_VITA)
@@ -2959,6 +2962,12 @@ void PS2Runtime::run()
                 dstWidth,
                 dstHeight};
             DrawTexturePro(shown, srcRect, dstRect, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
+            if (GetTime() < g_pictureLabelUntil) // F9 just flipped the picture: say which one shows
+            {
+                const char *label = g_pictureLabelNative ? "NATIVE" : "GS (emulated)";
+                DrawRectangle(8, 8, MeasureText(label, 24) + 16, 32, Color{0, 0, 0, 170});
+                DrawText(label, 16, 12, 24, g_pictureLabelNative ? Color{120, 200, 255, 255} : Color{255, 210, 120, 255});
+            }
             if (hostmenu::settings().showFps.load(std::memory_order_relaxed))
             {
                 // FPS overlay: game frames = display lists sent to VIF1 per second.
@@ -3261,11 +3270,25 @@ void PS2Runtime::run()
         // and the list of the native draws of that frame, in shots/f8_<n>_*.
         {
             static int f8Wait = 0, f8Count = 0;
-            static bool f8WasNative = true;
+            // F9: flips the picture shown between the native one and the
+            // emulated GS one of the same moment. With SOTC_NATIVE=2 both are
+            // drawn every frame, so the flip is instant; with SOTC_NATIVE=1 the
+            // GS starts drawing again when its picture is asked for.
+            static const bool bothDrawn = std::getenv("SOTC_NATIVE") && std::atoi(std::getenv("SOTC_NATIVE")) == 2;
+            if (IsKeyPressed(KEY_F9))
+            {
+                native_renderer::Tuning &t = native_renderer::tuning();
+                bool &flag = bothDrawn ? t.bothShowNative : t.showNative;
+                flag = !flag;
+                g_pictureLabelNative = flag;
+                g_pictureLabelUntil = GetTime() + 2.0;
+                std::fprintf(stderr, "[f9] showing the %s picture\n", flag ? "native" : "emulated (GS)");
+            }
             if (f8Wait == 0 && IsKeyPressed(KEY_F8))
             {
-                f8WasNative = native_renderer::tuning().showNative;
-                native_renderer::tuning().showNative = false;
+                // The emulated picture for a few frames (the GS draws it again
+                // with SOTC_NATIVE=1), whatever F9 shows.
+                native_renderer::tuning().forceEmulated = true;
                 std::filesystem::create_directories("shots");
                 native_renderer::requestDrawDump("shots/f8_" + std::to_string(f8Count) + "_draws.txt");
                 f8Wait = 8;
@@ -3284,7 +3307,7 @@ void PS2Runtime::run()
                     Image native{rgba.data(), static_cast<int>(nw), static_cast<int>(nh), 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
                     ExportImage(native, (base + "_native.png").c_str());
                 }
-                native_renderer::tuning().showNative = f8WasNative;
+                native_renderer::tuning().forceEmulated = false;
                 std::fprintf(stderr, "[f8] %s_{emulated,native}.png, %s_draws.txt\n", base.c_str(), base.c_str());
             }
         }
