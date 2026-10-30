@@ -969,6 +969,8 @@ namespace
         if (!told)
         {
             told = true;
+            // Round 33: off the game thread's core (SOTC_THREADS=1).
+            native_renderer::threads::place(native_renderer::threads::kAudio);
             SceKernelThreadInfo info{};
             info.size = sizeof(info);
             if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0)
@@ -3074,8 +3076,9 @@ void PS2Runtime::run()
                            {
         ThreadNaming::SetCurrentThreadName("GameThread");
 #if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
-        // Cores 0 and 1: the native renderer's render thread has core 2.
-        sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_1);
+        // Core 0 alone (SOTC_THREADS=0: cores 0 and 1); the render thread has
+        // core 2 (native_renderer::threads).
+        native_renderer::threads::place(native_renderer::threads::kGame);
 #endif
         ps2_load::setThreadSlot(ps2_load::kGame);
         // Guest float code runs like the EE: round toward zero, no denormals.
@@ -3110,6 +3113,9 @@ void PS2Runtime::run()
 #endif
 
     uint64_t tick = 0;
+#if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
+    native_renderer::threads::place(native_renderer::threads::kMain); // off the game thread's core (SOTC_THREADS=1)
+#endif
     while (!isStopRequested() && !gameThreadFinished.load(std::memory_order_acquire))
     {
         {

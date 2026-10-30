@@ -3939,11 +3939,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::fprintf(stderr,
                          "[gl:mem] t=%.0f heap %.1f MB | textures %u %.1f MB (in heap %.1f) | meshes %u %.1f MB (skinned %.1f) | drawn in 120 frames %.1f MB, budget %.0f MB | "
                          "uploads peak %.1f MB a frame, flushes %u | arenas %.1f MB, draw lists %.1f MB | hooks' skinned packets %.1f MB | "
-                         "evicted aged %u, budget %u (%.1f MB), pressure %u (%.1f MB) | skipped %u\n",
+                         "evicted aged %u, budget %u (%.1f MB), pressure %u (%.1f MB), kept in pools %u | skipped %u\n",
                          (native_renderer::nowUs() - m_startUs) / 1e6, m_heap / MB, static_cast<unsigned>(r->textures.size()), r->textureBytes / MB,
                          r->textureHeapBytes / MB, kept, r->meshBytes / MB, r->skinnedBytes / MB, recentBytes / MB, m_cacheBudget == ~0ull ? 0.0 : m_cacheBudget / MB,
                          m_uploadPeak / MB, m_flushes, arenas / MB, lists / MB, skinnedPackets / MB, m_evictedAged, m_evictedBudget,
-                         m_evictedBudgetBytes / MB, m_evictedPressure, m_evictedPressureBytes / MB, m_skipped);
+                         m_evictedBudgetBytes / MB, m_evictedPressure, m_evictedPressureBytes / MB, m_pressureSpared, m_skipped);
+            m_pressureSpared = 0;
             m_uploadPeak = 0;
             m_flushes = m_evictedAged = m_evictedBudget = m_evictedPressure = m_skipped = 0;
             m_evictedBudgetBytes = m_evictedPressureBytes = 0;
@@ -4016,6 +4017,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
             const uint64_t agedBefore = aging ? frame - kUnused : 0u;
             const bool critical = pressure && m_heapLimit > m_heapHigh && m_heap > m_heapHigh + (m_heapLimit - m_heapHigh) / 2u;
+            // Round 33: under pressure (not critical) only what lives in the
+            // newlib heap goes while vitaGL's pools have room: the meshes and
+            // textures in the pools free no heap when evicted, and the
+            // console's round 32 session (heap 105-109 MB from the game's own
+            // use, pools a quarter free) threw away everything unused for 8 s
+            // every 16 frames, then built and uploaded it again (hitches of
+            // 150-200 ms with 60-700 mesh uploads). SOTC_GL_PRESSURE_POOLS=0:
+            // as before.
+            static const bool spareInPools = !std::getenv("SOTC_GL_PRESSURE_POOLS") || std::atoi(std::getenv("SOTC_GL_PRESSURE_POOLS")) != 0;
+            bool heapOnly = false;
+#if defined(PS2X_NATIVE_VITA)
+            heapOnly = pressure && !critical && spareInPools && vglMemFree(VGL_MEM_VRAM) >= (8u << 20) && vglMemFree(VGL_MEM_RAM) >= (2u << 20);
+#else
+            (void)spareInPools;
+#endif
             uint64_t pressureBefore = pressure && frame > kPressureAge ? frame - kPressureAge : 0u;
             uint64_t budgetBefore = overBudget && frame > kBudgetAge ? frame - kBudgetAge : 0u;
             if (pressureBefore && !critical)
@@ -4042,6 +4058,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const bool aged = c.used < agedBefore, pressed = c.used < pressureBefore, budget = c.used < budgetBefore && cached > target;
                 if (!aged && !pressed && !budget)
                     continue;
+                if (heapOnly && !aged && !budget && !(c.texture && r->textures.find(c.id)->inHeap))
+                {
+                    ++m_pressureSpared;
+                    continue;
+                }
                 if (aged)
                     ++m_evictedAged;
                 else if (pressed)
@@ -4094,10 +4115,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void loop(const std::function<void()> &makeCurrent, bool initThere)
         {
             ThreadNaming::SetCurrentThreadName("RenderThread");
-#if defined(PS2X_NATIVE_VITA)
-            // A core of its own: the game thread keeps to the other two (ps2_runtime.cpp).
-            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_2);
-#endif
+            // Core 2 on the Vita (native_renderer::threads).
+            native_renderer::threads::place(native_renderer::threads::kRender);
             if (makeCurrent)
                 makeCurrent();
             const bool ok = !initThere || r->init();
@@ -4197,6 +4216,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool m_memLog = false;
         uint64_t m_startUs = 0, m_nextMemLog = 0;
         uint32_t m_flushes = 0, m_evictedAged = 0, m_evictedBudget = 0, m_evictedPressure = 0, m_skipped = 0;
+        uint32_t m_pressureSpared = 0; // round 33: kept under pressure (in vitaGL's pools, not the heap)
         uint64_t m_evictedBudgetBytes = 0, m_evictedPressureBytes = 0;
         // The hand-over.
         // One condition each way. The waits also look again every few ms: in

@@ -402,9 +402,7 @@ namespace native_recorder::detail
         void writerLoop()
         {
             ThreadNaming::SetCurrentThreadName("RecWriter");
-#if defined(__vita__)
-            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
-#endif
+            native_renderer::threads::place(native_renderer::threads::kRecorder); // cores 1-2
             FILE *files[3] = {nullptr, nullptr, nullptr}; // assets, frames
             uint64_t fileBytes[3] = {0, 0, 0};
             uint32_t fileIndex[3] = {0, 0, 0};
@@ -549,8 +547,8 @@ namespace native_recorder::detail
         void samplerLoop()
         {
             ThreadNaming::SetCurrentThreadName("RecSampler");
+            native_renderer::threads::place(native_renderer::threads::kRecorder); // cores 1-2
 #if defined(__vita__)
-            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
             // Round 32: above the threads it shares cores 1-2 with (the model
             // jobs' worker, the render thread, the builds: all at the default
             // 160). At their priority a wake-up waited until one of them

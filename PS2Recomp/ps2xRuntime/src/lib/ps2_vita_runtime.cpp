@@ -9,6 +9,11 @@
 #include <new>
 #include <psp2/io/fcntl.h>
 
+namespace native_renderer
+{
+    void logFlush();
+}
+
 // Heap sizes must live in a native object as well(bc of LTO).
 // the newlib malloc/new arena (PS2 guest RAM 32MB + GS + buffers live here).
 extern "C" unsigned int _newlib_heap_size_user = 160u * 1024u * 1024u;
@@ -162,6 +167,7 @@ namespace
                 catch (...)
                 {
                 }
+                native_renderer::logFlush(); // the frame / sound logs' ring (round 33)
                 const struct mallinfo mi = mallinfo();
                 std::fprintf(stderr, "[vita] terminate: %s (heap used %.1f of %.1f MB)\n", what, mi.uordblks / 1048576.0,
                              _newlib_heap_size_user / 1048576.0);

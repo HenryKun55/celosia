@@ -5525,6 +5525,214 @@ SOTC_AUDIO_LOG=1).
 5. Round 31's items 5-6 (the packet cache and track B) as they stood.
 
 
+## Round 33: the frame log's own cost, the cache thrown away under pressure, the threads on their cores (2026-10-29/30)
+
+On AC power the whole round. Not deployed to the console; nothing committed.
+Mid-round the console's round 32 session (console-r32/err.txt, no
+recording, SOTC_FRAME_LOG=1 SOTC_AUDIO_LOG=1: "stutters a lot, fps not
+stable, the caches don't seem right") became the first target.
+
+**What the console's round 32 session says.**
+- **The frame log itself costs the game thread ~5.3 ms a frame.** 8 225 of
+  8 349 in-game frames are `[frame] slow` lines (over 50 ms) and so printed
+  one by one; 7 619 of them have `sync ... log 5.x` (mean 5.3 ms, one 769 ms).
+  stderr is err.txt on ux0, unbuffered: each line is a synchronous write to
+  the card, on the game thread, inside the frame. Vita3K writes to the host
+  disk (log 0.1-0.3 ms) and never showed it.
+- **Mesh and texture caches thrown away under heap pressure.** From t=575 s
+  the newlib heap is at 105-109 MB, over SOTC_GL_HEAP_MB (104): the
+  renderer's pressure eviction then drops every mesh and texture unused for
+  8 s, every 16 frames (`[gl:mem] ... pressure 2033 (6.5 MB)`, 4 366, 354,
+  350, 454 ...), and the game builds and uploads them again when it next
+  draws them: the game-side hitches of 150-200 ms with 60-700 mesh uploads
+  (slow 12181, 17364, 17698-18237 all follow pressure evictions). It frees
+  nothing: vitaGL's pools were a quarter free (`vgl vram=20.7/96.0
+  ram=5.5/11.0 MB` free), so the evicted meshes and textures were in the
+  pools, not in the heap (textures "in heap 0.0"); the heap is the game
+  side's own (skinned packets 5.7 MB, plans, ...).
+- **The four render-thread spikes of ~450 ms** (slow 17262, 17546 ...) are
+  the player's render-scale changes in the menu (`[native:gl] picture
+  512x448 -> 256x224 (render scale changed)` before each): the targets
+  made again, one-off, not a fault.
+- **The earlier hitches** (t 117-318, 524-665 s: area changes, 150-285 ms,
+  hooks 3-5 ms, sched / cd 0) are the game's own work on the game thread at
+  an area change; the log has no finer split (round 34: a recording there,
+  with round 32's unbiased sampler).
+- **Kick joins 3-4 ms a frame** on the plain (jobs 6.5 ms, 2 160 draws):
+  the worker still finishes its work while the game thread waits (below).
+
+**1. The logs without the card on the game thread** (exact by construction;
+`SOTC_LOG_ASYNC`, default 1 on the Vita, 0 on the Mac). The `[frame]`,
+`[audio]`, `[audio-ticks]`, `[loader]` and `[hash]` lines go through
+`native_renderer::logf`: formatted on the caller (vsnprintf, a 2 KB stack
+buffer), copied into a 512 KB RAM ring under a mutex, and written to stderr
+by a writer thread (cores 1-2, default priority) every ~50 ms in one chunk.
+A line that does not fit is dropped and counted (`[log] n lines dropped`),
+never waited for; the ring is written out at exit and by the terminate
+handler. Other stderr lines stay synchronous, so they can come out ahead of
+buffered ones. Checked: Mac route with SOTC_LOG_ASYNC=1 SOTC_FRAME_LOG_ALL=1
+to 1 500 (r33/logasync): every frame from 52 on has its line, the last
+(1 501) included, no drops; the eight Vita3K runs below: no drops. On the
+console the "log" part of `sync` should fall from ~5 ms to the formatting
+(tens of microseconds).
+
+**2. Pressure eviction keeps what is in vitaGL's pools**
+(`SOTC_GL_PRESSURE_POOLS=0`: as before). Under heap pressure that is not
+critical (critical: half way from SOTC_GL_HEAP_MB to the heap's end, still
+evicts everything as before), while both vitaGL pools have room (8 MB of
+CDRAM, 2 MB of its main-RAM pool), only textures that live in the newlib
+heap (`inHeap`) are evicted; aged (1 800 frames) and budget evictions are
+unchanged. `[gl:mem]` counts the spared ones (`kept in pools n`). What is
+drawn does not change (an evicted mesh was built again, the draw held
+meanwhile); it removes the rebuilds. Vita3K never reached the pressure
+line in a 420 s route; the console will.
+
+**3. The threads on the Vita's three cores** (`SOTC_THREADS`, default 1;
+0: round 32's). Every thread now places itself at its start
+(`native_renderer::threads::place`, one table of cores and priorities, a
+`[threads]` line each):
+
+| thread | round 32 | round 33 |
+|---|---|---|
+| game | cores 0-1 | **core 0 alone** |
+| model jobs' worker | cores 1-2, default priority | cores 1-2, **priority 150** (`SOTC_HOOK_WORKER_PRIO`) |
+| render | core 2 | core 2 |
+| builds, recorder, log writer | cores 1-2 | cores 1-2 |
+| sound callback (priority 64, ~25% of a core: the mixer) | where SDL put it | **cores 1-2** |
+| main thread, disc readers | where the system put them | **cores 1-2** |
+
+Why: in the console logs of rounds 30 and 32 the join at the kick (and
+before round 32 at zFog / 2D) is as long as the worker's whole job time
+(`jobs 6.0 join 6.4`, `jobs 6.5 join 3.6-4.2`): the worker hardly runs
+while the game thread runs and does its work while the game thread waits
+for it. The Vita does not time-slice threads of one priority, and with the
+game thread on cores 0-1 and the render thread on core 2 the worker (cores
+1-2, same priority) only got a core when one of them blocked; the mixer at
+priority 64 on any core could also take the game thread's. Now nothing else
+runs on core 0, and the worker preempts the render thread / builds when it
+has a job. Only where and when threads run changes, not what they compute
+(the jobs keep their order: the ring, the joins as before).
+- The idle worker sleeps on a kernel semaphore (`SOTC_HOOK_SEMA=0`: the
+  condition variable with its 1 ms re-check, as before): a hand-over to a
+  sleeping worker is one sceKernelSignalSema, no mutex on the game thread;
+  no timed re-checks (in Vita3K's profile the worker's idle re-checks were
+  sceKernelLibcGettimeofday, sceKernelGetTLSAddr, GetProcessTime*,
+  Wait/SignalSema, PollEventFlag: pthread's timed wait every millisecond,
+  which at priority 150 would take core 2 from the render thread each
+  time). 20 ms safety time-out.
+- The frame log on the console now says whether it worked: `lag <us> max
+  <ms>` (a job's wait from its hand-over to the worker taking it up) and
+  `| cpu game X (Np Mm), worker ..., render ..., audio ...`: each thread
+  kind's CPU time, preemptions and core moves per frame from
+  sceKernelGetThreadInfo's run clocks (Vita3K has none: no column there).
+- Vita3K (r33/t1): every placement accepted (`[threads] game ... cores
+  0x10000`, worker `0x60000, priority 150`, audio / main / loaders
+  `0x60000`). Vita3K reports the pthreads' priority as 191 and seems not to
+  model priorities or affinity, so it cannot show the effect; the console
+  must (round 34, item 1).
+
+**4. The worker's own cost (plan item 1), measured, not changed.** Vita3K's
+profile by thread (r33/thprof.py; r32's profile, 240 MHz, walk window):
+the worker runs ~780 k instructions a frame (game thread 10.2 M, render
+3.6 M, the sound callback 2.8 M): the plan walk 181 k (planPackets),
+drawPacket 93 k, its idle spin 85 k, memcpy 61 k, meshDispDraw 45 k, 64-bit
+divisions 23 k (its timed waits), packetId 19 k, the surface memo's refresh
+(surfaceBlend / LodInfo / Info / Layer) ~40 k, the draw calls ~40 k,
+pthread / TLS ~35 k. SOTC_PLAN_STATS's new `jobs' walk` counts (Mac route
+to 3 000, r33/stats1): ~1 960 plan packets looked at a frame, 48% left out
+by the part test, 0 by the surface test, and part runs are as many as
+packets (5.48 M runs for 5.89 M packets): skipping culled parts by run
+would save ~25 k instructions, nothing. At ~7 k instructions a job the
+console's 50 us a job is an IPC of ~0.3 at 444 MHz: misses, not
+instructions. With the worker off the game thread's core its 6 ms a frame
+should no longer be on the game thread's path at all, which is worth more
+than any cut in it; the console's new `cpu` and `lag` columns will say
+whether it still is.
+
+**Exactness.**
+- Hook checks (Mac route, SOTC_NATIVE=1, worker on, to 5 400, r33/chkA):
+  SOTC_HOOK_LEAN_CHECK parts 117 828 checks, 0 differ; palette / lights /
+  projection 225 602, 0 differ; SOTC_HOOK_ORDER_CHECK 0 of 10 709
+  game-thread draws while jobs were pending; SOTC_HOOK_ASYNC_VERIFY 411 481
+  job copies, 0 differ; textured 2D jobs 4 071 / model jobs 204 686, what
+  they read changed in 0. With SOTC_HOOK_WORKER_DELAY_US=150 (r33/chkD):
+  106 989 / 221 525 checks, 0 differ; 0 of 10 657 early; 369 442 copies, 0
+  differ; 3 058 / 193 097 jobs, 0 changed.
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r33/dt-all): 57
+  functions, 163 301 checks, 0 mismatches except gamecore_sub_013F8668 (159,
+  the life bar's v0, as since round 16).
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, the r24 card copy; base =
+  HEAD's binary r33/bin-base, new = r33/bin-new2; base, new, base, new on an
+  idle Mac): base1 against new1 0.20, against base2 0.19, against new2 2.10
+  (the vblank offset an earlier load leaves, as in rounds 29-32). **Vblanks
+  at frame 5 400**: base 10 746 / 10 748, new 10 746 / 10 744.
+- The Mac's code paths changed only by the logs (off there by default) and
+  the plan stats (counted only with SOTC_PLAN_STATS); the thread layout,
+  the semaphore and the eviction rule are the Vita's.
+- Sound (Vita3K, all eight runs): stale 0, src-stale 0; config, settings,
+  card and shader cache restored after each run ("restored ok" in all 8).
+
+**Frame timing** (calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s, r32/env-time.txt; base = celosia-r32.vpk, new = r33/new2.vpk =
+celosia-r33.vpk; alternated base / new, r33/v3k-chain.sh; ms a frame,
+r28/split2.py):
+
+| window | 222 base | 222 new | 240 base | 240 new |
+|---|---|---|---|---|
+| shrine | 42.2, 42.3 | 42.3, 42.4 | 39.0, 39.0 | 39.0, 39.0 |
+| walk + area change | 73.7, 73.2 | 73.3, 73.5 | 66.1, 67.2 | 66.7, 67.6 |
+| plain (draws) | 47.7 (915), 49.8 (943) | 49.2 (910), 48.4 (910) | 44.0 (907), 44.6 (927) | 44.9 (940), 44.4 (926) |
+| walk: jobs / join | 4.4-4.5 / 0.17-0.23 | 5.1-5.2 / 0.25-0.26 | 4.0-4.1 / 0.20-0.22 | 4.6-4.8 / 0.18-0.26 |
+
+Within the noise everywhere (the plain at 222 spreads 47.7-49.8 on the
+base VPK itself, as round 32 found). The worker's measured job time is
+~0.5 ms a frame higher: its time stamps now also take the job's lag (one
+more clock read a job on each side). Vita3K cannot show this round's
+targets (card writes, the heap-pressure thrash, priorities); they are for
+the console.
+
+**Decomp status:** unchanged (no new natives).
+
+**Switches** (README): `SOTC_LOG_ASYNC`, `SOTC_THREADS=0`,
+`SOTC_HOOK_WORKER_PRIO=n`, `SOTC_HOOK_SEMA=0`, `SOTC_GL_PRESSURE_POOLS=0`;
+`SOTC_PLAN_STATS=1` counts the jobs' plan walk too. All exact (where and
+when things run, or a cache policy).
+
+**Files:** game/overrides/sotc_native.cpp (logf for the logs, the worker's
+placement, semaphore and lag, the plan walk counts, the frame log's lag /
+cpu columns); PS2Recomp/ps2xRuntime/include/runtime/native_renderer.h and
+src/lib/native/native_renderer.cpp (logf / logFlush and the ring,
+threads::place / sample / line, FrameCounters lag); src/lib/native/
+native_renderer_gl.cpp (the render thread's placement, pressure eviction
+sparing pool objects); src/lib/native/native_recorder.cpp (the recorder's
+placement); src/lib/ps2_runtime.cpp (game thread, main thread, sound
+callback placement); src/lib/Kernel/Stubs/CD.cpp (disc readers'
+placement); src/lib/ps2_vita_runtime.cpp (the terminate handler flushes the
+ring); README.md, docs/decomp.md. Tools in build/agent-scratch/r33:
+thprof.py (Vita3K profile by thread and function), callers.py, hotpc.py,
+run.sh, chk.sh, dt.sh, posbase.sh, mac-chain.sh, v3k.sh, v3k-chain.sh,
+nasm.sh. Deliverables: build/agent-scratch/celosia-r33.vpk (shader seed: 42
+files), env-r33-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
+
+**Round 34 (plan).**
+1. The console, this VPK, env-r33-console.txt: `sync ... log` should be
+   ~0; `[gl:mem] kept in pools` instead of pressure evictions and no
+   rebuild hitches after them; `[threads]` lines (do the placements hold,
+   what priority do pthreads have there); the `cpu` column (does the
+   worker get CPU while the game thread runs, is the game thread preempted)
+   and the kick join. Then SOTC_THREADS=0 in the same place for the A/B.
+2. If the kick join stays: the kick's skin pass as a worker job (the
+   palettes copied at the kick on the game thread), checked with
+   SOTC_HOOK_ASYNC_VERIFY / SOTC_HOOK_WORKER_DELAY_US.
+3. The area-change hitches (150-285 ms of the game's own work): a scene
+   recording across one with this VPK (unbiased sampler).
+4. The heap's growth to 105-109 MB over a session (skinned packets,
+   plans): what grows, and SOTC_GL_HEAP_MB against it.
+5. The worker's misses (item 4 above) only if the `cpu` column shows the
+   worker still on the game thread's path; the skeleton pose
+   (decomp_skeleton 4.5% of the game thread) otherwise.
+
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

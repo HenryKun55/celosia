@@ -9,6 +9,7 @@
 #include "ps2x/iop/audio_stats.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <atomic>
 #include <cstdio>
 #include <string>
@@ -964,6 +965,288 @@ namespace native_renderer
 #endif
         return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
     }
+    namespace threads
+    {
+        int layout()
+        {
+            // Read at the first call (a thread's start: after env.txt).
+            static const int v = []
+            {
+                const char *e = std::getenv("SOTC_THREADS");
+                return e ? std::atoi(e) : 1;
+            }();
+            return v;
+        }
+#if defined(__vita__)
+        namespace
+        {
+            // The noted threads (a kind may have several: the disc readers,
+            // the recorder's two): slots taken once, read by the game thread.
+            constexpr int kSlots = 24;
+            struct Slot
+            {
+                int kind = 0;
+                SceUID id = 0;
+                uint64_t clocks = 0;
+                uint32_t preempts = 0, moves = 0;
+                bool seen = false;
+            };
+            Slot g_slots[kSlots];
+            std::atomic<int> g_slotCount{0};
+            std::mutex g_slotMutex;
+            uint64_t g_cpuUs[kKinds] = {}, g_preempts[kKinds] = {}, g_moves[kKinds] = {};
+            uint64_t g_lastCpuUs[kKinds] = {}, g_lastPreempts[kKinds] = {}, g_lastMoves[kKinds] = {}; // the last sample's alone
+            const char *const kNames[kKinds] = {"game", "worker", "render", "build", "audio", "main", "loader", "recorder", "log"};
+        }
+        void place(Kind kind)
+        {
+            const SceUID self = sceKernelGetThreadId();
+            {
+                std::lock_guard<std::mutex> lock(g_slotMutex);
+                const int n = g_slotCount.load(std::memory_order_relaxed);
+                bool known = false;
+                for (int i = 0; i < n; ++i)
+                    known |= g_slots[i].id == self;
+                if (!known && n < kSlots)
+                {
+                    g_slots[n].kind = kind;
+                    g_slots[n].id = self;
+                    g_slotCount.store(n + 1, std::memory_order_release);
+                }
+            }
+            const bool r33 = layout() != 0;
+            int mask = 0, prio = 0;
+            switch (kind)
+            {
+            case kGame:
+                mask = r33 ? SCE_KERNEL_CPU_MASK_USER_0 : SCE_KERNEL_CPU_MASK_USER_0 | SCE_KERNEL_CPU_MASK_USER_1;
+                break;
+            case kWorker:
+                mask = SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2;
+                if (r33)
+                {
+                    const char *e = std::getenv("SOTC_HOOK_WORKER_PRIO");
+                    prio = e ? std::atoi(e) : 150;
+                }
+                break;
+            case kRender:
+                mask = SCE_KERNEL_CPU_MASK_USER_2;
+                break;
+            case kBuild:
+            case kRecorder:
+                mask = SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2;
+                break;
+            case kLog:
+                // The default priority (the pthreads' own; it only has to
+                // keep up over seconds).
+                mask = SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2;
+                break;
+            case kAudio:
+            case kMain:
+            case kLoader:
+                mask = r33 ? SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2 : 0;
+                break;
+            default:
+                break;
+            }
+            const int maskResult = mask ? sceKernelChangeThreadCpuAffinityMask(self, mask) : 0;
+            const int prioResult = prio >= 64 && prio <= 191 ? sceKernelChangeThreadPriority(self, prio) : 0;
+            SceKernelThreadInfo info{};
+            info.size = sizeof(info);
+            if (sceKernelGetThreadInfo(self, &info) >= 0)
+                std::fprintf(stderr, "[threads] %s (%s, layout %d): cores 0x%x%s, priority %d%s\n", kNames[kind], info.name, layout() ? 1 : 0,
+                             static_cast<unsigned>(info.currentCpuAffinityMask), maskResult < 0 ? " (refused)" : "", info.currentPriority,
+                             prioResult < 0 ? " (refused)" : "");
+        }
+        void sample()
+        {
+            const int n = g_slotCount.load(std::memory_order_acquire);
+            for (int k = 0; k < kKinds; ++k)
+                g_lastCpuUs[k] = g_lastPreempts[k] = g_lastMoves[k] = 0;
+            for (int i = 0; i < n; ++i)
+            {
+                Slot &t = g_slots[i];
+                SceKernelThreadInfo info{};
+                info.size = sizeof(info);
+                if (sceKernelGetThreadInfo(t.id, &info) < 0)
+                    continue;
+                if (t.seen)
+                {
+                    g_lastCpuUs[t.kind] += info.runClocks - t.clocks;
+                    g_lastPreempts[t.kind] += info.threadPreemptCount - t.preempts;
+                    g_lastMoves[t.kind] += static_cast<uint32_t>(info.changeCpuCount) - t.moves;
+                }
+                t.seen = true;
+                t.clocks = info.runClocks;
+                t.preempts = info.threadPreemptCount;
+                t.moves = static_cast<uint32_t>(info.changeCpuCount);
+            }
+            for (int k = 0; k < kKinds; ++k)
+                g_cpuUs[k] += g_lastCpuUs[k], g_preempts[k] += g_lastPreempts[k], g_moves[k] += g_lastMoves[k];
+        }
+        int line(char *out, size_t room, double frames, bool reset, bool lastFrame)
+        {
+            const uint64_t *cpu = lastFrame ? g_lastCpuUs : g_cpuUs, *pre = lastFrame ? g_lastPreempts : g_preempts, *mov = lastFrame ? g_lastMoves : g_moves;
+            if (lastFrame)
+                frames = 1.0;
+            int at = 0;
+            if (room)
+                out[0] = 0;
+            bool any = false;
+            {
+                // Nothing counted (Vita3K has no run clocks): no column.
+                uint64_t total = 0;
+                for (int k = 0; k < kKinds; ++k)
+                    total += cpu[k] + pre[k] + mov[k];
+                if (!total)
+                {
+                    if (reset)
+                        for (int k = 0; k < kKinds; ++k)
+                            g_cpuUs[k] = g_preempts[k] = g_moves[k] = 0;
+                    return 0;
+                }
+            }
+            for (int k = 0; k < kKinds && static_cast<size_t>(at) < room; ++k)
+            {
+                bool have = false;
+                for (int i = 0; i < g_slotCount.load(std::memory_order_acquire); ++i)
+                    have |= g_slots[i].kind == k;
+                if (!have)
+                    continue;
+                at += std::snprintf(out + at, room - at, "%s %s %.1f (%.0fp %.0fm)", any ? "," : " | cpu", kNames[k], cpu[k] / frames / 1000.0,
+                                    pre[k] / frames, mov[k] / frames);
+                any = true;
+            }
+            if (reset)
+                for (int k = 0; k < kKinds; ++k)
+                    g_cpuUs[k] = g_preempts[k] = g_moves[k] = 0;
+            return at;
+        }
+#else
+        void place(Kind) {}
+        void sample() {}
+        int line(char *out, size_t room, double, bool, bool)
+        {
+            if (room)
+                out[0] = 0;
+            return 0;
+        }
+#endif
+    }
+
+    namespace
+    {
+        struct LogRing
+        {
+            static constexpr size_t kBytes = 512u * 1024u;
+            std::mutex mutex, outMutex;
+            std::vector<char> data = std::vector<char>(kBytes);
+            size_t used = 0;     // bytes waiting
+            uint64_t dropped = 0; // lines not taken (no room)
+            bool started = false;
+            std::vector<char> out = std::vector<char>(kBytes); // the writer's
+            void write()
+            {
+                std::lock_guard<std::mutex> outLock(outMutex);
+                size_t n;
+                uint64_t lost;
+                {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    n = used;
+                    lost = dropped;
+                    if (n)
+                        std::memcpy(out.data(), data.data(), n);
+                    used = 0;
+                    dropped = 0;
+                }
+                if (n)
+                    std::fwrite(out.data(), 1, n, stderr);
+                if (lost)
+                    std::fprintf(stderr, "[log] %llu lines dropped (the ring was full)\n", static_cast<unsigned long long>(lost));
+            }
+            void loop()
+            {
+                ThreadNaming::SetCurrentThreadName("LogWriter");
+                threads::place(threads::kLog);
+                for (;;)
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    write();
+                }
+            }
+        };
+        LogRing &logRing()
+        {
+            static LogRing *r = new LogRing; // never destroyed (the writer runs to the end)
+            return *r;
+        }
+        bool logAsync()
+        {
+            static const bool on = []
+            {
+                const char *e = std::getenv("SOTC_LOG_ASYNC");
+#if defined(__vita__)
+                return !e || std::atoi(e) != 0;
+#else
+                return e && std::atoi(e) != 0;
+#endif
+            }();
+            return on;
+        }
+    }
+    void logf(const char *format, ...)
+    {
+        char line[2048];
+        va_list args;
+        va_start(args, format);
+        if (!logAsync())
+        {
+            std::vfprintf(stderr, format, args);
+            va_end(args);
+            return;
+        }
+        int n = std::vsnprintf(line, sizeof(line), format, args);
+        va_end(args);
+        if (n <= 0)
+            return;
+        if (static_cast<size_t>(n) >= sizeof(line))
+        {
+            n = static_cast<int>(sizeof(line) - 1u);
+            line[n - 1] = '\n'; // cut, still a line
+        }
+        LogRing &r = logRing();
+        bool start = false;
+        {
+            std::lock_guard<std::mutex> lock(r.mutex);
+            if (!r.started)
+                r.started = start = true;
+            if (r.used + static_cast<size_t>(n) <= LogRing::kBytes)
+            {
+                std::memcpy(r.data.data() + r.used, line, static_cast<size_t>(n));
+                r.used += static_cast<size_t>(n);
+            }
+            else
+                ++r.dropped;
+        }
+        if (start)
+        {
+#if defined(__vita__)
+            const unsigned int stackDefault = _pthread_stack_default_user;
+            _pthread_stack_default_user = 64u * 1024u;
+#endif
+            std::thread([] { logRing().loop(); }).detach();
+            std::atexit([] { logRing().write(); }); // what is left at a normal exit
+#if defined(__vita__)
+            _pthread_stack_default_user = stackDefault;
+#endif
+        }
+    }
+    void logFlush()
+    {
+        if (logAsync())
+            logRing().write();
+    }
+
     std::atomic<uint64_t> g_frontSkinned{0};
     void noteFrontendMemory(uint64_t skinnedPackets) { g_frontSkinned.store(skinnedPackets, std::memory_order_relaxed); }
     uint64_t frontendMemory() { return g_frontSkinned.load(std::memory_order_relaxed); }
@@ -1023,10 +1306,8 @@ namespace native_renderer
         void loop()
         {
             ThreadNaming::SetCurrentThreadName("BuildWorker");
-#if defined(__vita__)
-            // Off core 0; the game thread keeps to cores 0-1, the render thread to 2.
-            sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
-#endif
+            // Off core 0 (the game thread's); the render thread has core 2.
+            threads::place(threads::kBuild);
             for (;;)
             {
                 Job job;

@@ -2,6 +2,7 @@
 #include "CD.h"
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
+#include "runtime/native_renderer.h"
 #include "ps2x/iop/audio_stats.h"
 
 #include <condition_variable>
@@ -322,6 +323,7 @@ namespace ps2_stubs
             }
             void aheadLoop()
             {
+                native_renderer::threads::place(native_renderer::threads::kLoader); // off the game thread's core (SOTC_THREADS=1)
                 Ahead &a = ahead();
                 for (;;)
                 {
@@ -392,6 +394,7 @@ namespace ps2_stubs
 
             void workerLoop()
             {
+                native_renderer::threads::place(native_renderer::threads::kLoader);
                 State &s = state();
                 std::unique_lock lock(s.mutex);
                 while (true)

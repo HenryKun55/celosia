@@ -438,9 +438,64 @@ namespace native_renderer
         // game thread's waits for it (in hookUs too), the jobs.
         uint64_t jobUs = 0, joinUs = 0;
         uint32_t jobs = 0;
+        // Round 33: a job's wait from its hand-over to the worker taking it up
+        // (queued behind others, or the worker not running), summed / the
+        // largest.
+        uint64_t lagUs = 0, lagMaxUs = 0;
     };
     FrameCounters &frameCounters();
     uint64_t nowUs();
+
+    // Round 33: the threads on the Vita's three cores. Each thread calls
+    // place() with its kind when it starts: on the Vita it is given its cores
+    // (and priority) and noted, for the frame log's CPU split (cpuLine).
+    // SOTC_THREADS=1 (the Vita's default): the game thread alone on core 0;
+    // the model jobs' worker on cores 1-2 at SOTC_HOOK_WORKER_PRIO (default
+    // 150, above the render thread and the builds at the default 160, so it
+    // takes a core whenever it has a job); the sound callback, the main
+    // thread and the disc readers on cores 1-2 (off the game's core); render
+    // thread core 2, builds and recorder cores 1-2 as before.
+    // SOTC_THREADS=0: round 32's (game thread cores 0-1, worker 1-2 at 160,
+    // the sound callback, main thread and readers where the system put them).
+    // Nothing a thread computes changes: only where and when it runs.
+    // Round 33: the frame / sound / loader logs' lines (printf-style, the
+    // line's own "\n" included). SOTC_LOG_ASYNC=1 (the Vita's default; the
+    // Mac's 0): formatted on the caller, copied into a 512 KB RAM ring and
+    // written to stderr (err.txt) by a writer thread at low priority on
+    // cores 1-2 every ~50 ms in large chunks; a line that does not fit is
+    // dropped (counted: "[log] <n> lines dropped") rather than waited for.
+    // The console's err.txt writes cost the game thread ~5 ms a frame (one
+    // synchronous write per line, nearly every frame "slow"). Other stderr
+    // lines stay synchronous, so they can come out ahead of buffered ones.
+    // SOTC_LOG_ASYNC=0: written at once (as before).
+    void logf(const char *format, ...) __attribute__((format(printf, 1, 2)));
+    void logFlush(); // what the ring holds, written now (the terminate handler)
+
+    namespace threads
+    {
+        enum Kind : int
+        {
+            kGame,
+            kWorker,
+            kRender,
+            kBuild,
+            kAudio,
+            kMain,
+            kLoader,
+            kRecorder,
+            kLog,
+            kKinds
+        };
+        void place(Kind kind);
+        // " | cpu game 40.1 (3p 0m) worker ...": each kind's CPU time (ms),
+        // thread preemptions (p) and moves to another core (m) since the last
+        // call, averaged over `frames`; empty off the Vita or before any
+        // thread is noted. Called once a frame by the frame log (sample) and
+        // when it prints (line).
+        void sample();
+        int line(char *out, size_t room, double frames, bool reset, bool lastFrame = false);
+        int layout(); // SOTC_THREADS as read (0 / 1)
+    }
 
     // Host memory the game's hooks hold, for the backend's memory log
     // ([gl:mem]): the skinned packets' bind poses (kept on the CPU).

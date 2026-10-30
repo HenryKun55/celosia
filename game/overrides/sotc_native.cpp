@@ -2378,6 +2378,10 @@ namespace sotc_native
     struct PlanStats
     {
         uint64_t builds = 0, rebuilds = 0, uses = 0, asked = 0, trusted = 0, checks = 0, draws = 0, differ = 0, countDiffer = 0, ranges = 0, drawn = 0, merged = 0, deferred = 0;
+        // Round 33: the jobs' plan walk (planPackets): packets looked at, left
+        // out by the part test / by the surface test, part runs (a change of
+        // part from the packet before) and the runs the part test left out.
+        uint64_t visited = 0, partSkipped = 0, surfaceSkipped = 0, partRuns = 0, partRunsSkipped = 0;
     } g_planStats;
     // A run of one surface's packets of one draw, drawn as one (drawMulti):
     // the state of its first packet, the meshes of all (round 8). The packets
@@ -2818,7 +2822,7 @@ namespace sotc_native
         {
             uint64_t frames = 0, period = 0, worst = 0, hooks = 0, decode = 0, tex = 0, mesh = 0, render = 0, present = 0, wait = 0, blocked = 0, threaded = 0;
             uint64_t draws = 0, targets = 0, texUploads = 0, texBytes = 0, meshUploads = 0, meshBytes = 0;
-            uint64_t jobs = 0, join = 0;
+            uint64_t jobs = 0, join = 0, jobCount = 0, lag = 0, lagMax = 0;
             uint64_t held = 0, heldTerrain = 0, heldPictures = 0;
             uint64_t sync[kSyncParts] = {}, site[hookjobs::kSites] = {};
         };
@@ -2862,12 +2866,23 @@ namespace sotc_native
         if (last)
         {
             const uint64_t period = now - last;
-            char split[320];
+            char split[640];
             split[0] = 0;
+            // Round 33: the job lag (hand-over to the worker taking it up: avg
+            // us a job / the largest, ms) and, on the Vita, each thread kind's
+            // CPU time this frame (native_renderer::threads).
+            static uint64_t cpuFrames = 0;
+            native_renderer::threads::sample();
+            ++cpuFrames;
             if (print && (period > 50000u || tune.frameLogAll))
-                splits(g_syncUs, hookjobs::g_lastSiteUs, 1.0, split, sizeof(split));
+            {
+                int at = std::snprintf(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
+                splits(g_syncUs, hookjobs::g_lastSiteUs, 1.0, split + at, sizeof(split) - at);
+                at = static_cast<int>(std::strlen(split));
+                native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
+            }
             if (print && period > 50000u)
-                std::fprintf(stderr, "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u (terrain %u)%s"
+                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
@@ -2877,7 +2892,7 @@ namespace sotc_native
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
             if (print && tune.frameLogAll && period <= 50000u)
-                std::fprintf(stderr, "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
+                native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
                              (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0, (unsigned long long)(mark.cdReads - lastMark.cdReads),
@@ -2901,6 +2916,9 @@ namespace sotc_native
             sum.blocked += c.waitUs ? c.waitUs : c.renderUs + c.presentUs;
             sum.jobs += c.jobUs;
             sum.join += c.joinUs;
+            sum.jobCount += c.jobs;
+            sum.lag += c.lagUs;
+            sum.lagMax = std::max(sum.lagMax, c.lagMaxUs);
             sum.draws += c.draws;
             sum.targets += c.targets;
             sum.texUploads += c.texUploads;
@@ -2919,9 +2937,13 @@ namespace sotc_native
             if (sum.frames == 60u && print)
             {
                 const double n = 60.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
-                char avgSplit[320];
-                splits(sum.sync, sum.site, n, avgSplit, sizeof(avgSplit));
-                std::fprintf(stderr, "[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
+                char avgSplit[640];
+                int at = std::snprintf(avgSplit, sizeof(avgSplit), " lag %.0f us max %.2f", sum.jobCount ? sum.lag / static_cast<double>(sum.jobCount) : 0.0, sum.lagMax / 1000.0);
+                splits(sum.sync, sum.site, n, avgSplit + at, sizeof(avgSplit) - at);
+                at = static_cast<int>(std::strlen(avgSplit));
+                native_renderer::threads::line(avgSplit + at, sizeof(avgSplit) - at, static_cast<double>(cpuFrames), true);
+                cpuFrames = 0;
+                native_renderer::logf( "[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
                              "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB) | jobs %.1f join %.1f | held %llu (terrain %llu) pictures held %llu%s\n",
                              (unsigned long long)g_frame, sum.period / n / 1000.0, n * 1e6 / static_cast<double>(sum.period), sum.worst / 1000.0, game, sum.hooks / n / 1000.0,
                              sum.decode / n / 1000.0, sum.tex / n / 1000.0, sum.mesh / n / 1000.0, sum.render / n / 1000.0, sum.present / n / 1000.0,
@@ -2936,7 +2958,7 @@ namespace sotc_native
         }
         static const bool hashStats = std::getenv("SOTC_HASH_STATS") != nullptr;
         if (hashStats && g_hashBytes[0] + g_hashBytes[1] > 65536u)
-            std::fprintf(stderr, "[hash] frame %llu: packets %llu (%.0f KB), textures %llu (%.0f KB); memos carried by moves %llu, ids kept %llu\n", (unsigned long long)g_frame,
+            native_renderer::logf( "[hash] frame %llu: packets %llu (%.0f KB), textures %llu (%.0f KB); memos carried by moves %llu, ids kept %llu\n", (unsigned long long)g_frame,
                          (unsigned long long)g_hashCalls[0], g_hashBytes[0] / 1024.0, (unsigned long long)g_hashCalls[1], g_hashBytes[1] / 1024.0,
                          (unsigned long long)g_rekeyed, (unsigned long long)g_rekeyHits);
         if (hashStats)
@@ -3185,7 +3207,7 @@ namespace sotc_native
                         line += buf;
                     }
         }
-        std::fprintf(stderr, "%s\n", line.c_str());
+        native_renderer::logf( "%s\n", line.c_str());
         const uint32_t job = l.job, type = l.jobType;
         const uint64_t since = l.jobSince;
         l = LoaderLog{};
@@ -3277,7 +3299,7 @@ namespace sotc_native
                            vb = as::voiceBlocks.load(std::memory_order_relaxed), mb = as::mixBlocks.load(std::memory_order_relaxed);
             static uint64_t r0 = 0, l0 = 0;
             const uint64_t r = as::rpcUs.load(std::memory_order_relaxed), l = as::rpcLockUs.load(std::memory_order_relaxed);
-            std::fprintf(stderr, "[audio-ticks] vblank thread %u sound %u | mix voices %.1f ms cores %.1f ms, %.1f voices playing | driver %.1f ms (lock wait %.1f)\n",
+            native_renderer::logf( "[audio-ticks] vblank thread %u sound %u | mix voices %.1f ms cores %.1f ms, %.1f voices playing | driver %.1f ms (lock wait %.1f)\n",
                          ticks - ticksBefore, sound - soundBefore, (v - v0) / 1000.0, (c - c0) / 1000.0, mb > mb0 ? double(vb - vb0) / double(mb - mb0) : 0.0,
                          (r - r0) / 1000.0, (l - l0) / 1000.0);
             v0 = v; c0 = c; vb0 = vb; mb0 = mb; r0 = r; l0 = l;
@@ -3289,7 +3311,7 @@ namespace sotc_native
         auto mx = [](std::atomic<uint64_t> &a) { return a.exchange(0, std::memory_order_relaxed) / 1000.0; };
         const double secs = (now - last) / 1e6;
         const unsigned long long cb = d(&Totals::callbacks);
-        std::fprintf(stderr,
+        native_renderer::logf(
                      "[audio] %.1f s frame %llu: frames %llu vb %llu | status %llu (gap max %.1f ms, %llu over 50) | streams start %llu stop %llu (%llu paused) pause %llu (%.0f ms, max %.0f)"
                      " halves %llu stale %llu src-stale %llu refills %llu (wait max %.1f ms) | voices on %llu off %llu ends %llu retrig %llu | pcm start %llu blocks %llu stale %llu under %llu"
                      " | out cb %llu (%.0f fr) late %llu gap max %.1f ms mix %.2f / max %.2f ms lock max %.2f | cd iop %llu (avg %.1f max %.1f ms) other %llu (max %.1f) wake avg %.2f max %.1f ms cache %llu (%.0f KB)"
@@ -3511,9 +3533,36 @@ namespace sotc_native
         std::condition_variable g_wake, g_done;
         std::atomic<bool> g_sleeping{false}, g_joining{false};
         bool g_started = false;
+        // Round 33 (Vita): the idle worker sleeps on a kernel semaphore
+        // (SOTC_HOOK_SEMA=0: the condition variable, as before). A hand-over
+        // to a sleeping worker is one sceKernelSignalSema, no mutex; the
+        // sleep has no 1 ms re-check (pthread's timed wait: the clock,
+        // TLS and semaphore calls every millisecond, and with the worker
+        // above the render thread's priority each re-check would take core
+        // 2 from it). A safety time-out of 20 ms stays.
+        bool g_sema = false;
+#if defined(__vita__)
+        SceUID g_semaId = -1;
+#endif
+        inline void wakeWorker()
+        {
+#if defined(__vita__)
+            if (g_sema)
+            {
+                sceKernelSignalSema(g_semaId, 1);
+                return;
+            }
+#endif
+            std::lock_guard<std::mutex> lock(g_mutex);
+            g_wake.notify_one();
+        }
         // The worker's: job time (and the verify counts), read by the game
         // thread after a join.
         uint64_t g_jobUs = 0, g_jobs = 0, g_changed = 0, g_changedPart[4] = {};
+        // Round 33: each job's hand-over time (frame timing on) and its wait
+        // until the worker took it up, summed / the largest (the worker's).
+        uint64_t g_pushUs[kRing] = {};
+        uint64_t g_lagUs = 0, g_lagMaxUs = 0;
         uint64_t g_joinUs = 0, g_joins = 0, g_waits = 0; // the game thread's
         bool g_timing = false; // frameTiming() at the frame's start
 
@@ -3522,13 +3571,11 @@ namespace sotc_native
             ThreadNaming::SetCurrentThreadName("HookWorker");
             t_hookWorker = true;
             ::sotc_prof::t_offGameThread = true; // (the subsystem profiler's scopes are the game thread's)
-#if defined(__vita__)
-            // Beside the BuildWorker: off core 0 (the game thread's first).
-            const int affinity = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
-            std::fprintf(stderr, "[hookjob] worker thread running (cores 1-2: %s)\n", affinity < 0 ? "refused" : "ok");
-#else
+            // Cores 1-2 beside the BuildWorker; round 33: above the render
+            // thread's and the builds' priority (SOTC_THREADS,
+            // SOTC_HOOK_WORKER_PRIO; [threads] line).
+            native_renderer::threads::place(native_renderer::threads::kWorker);
             std::fprintf(stderr, "[hookjob] worker thread running\n");
-#endif
             uint32_t tail = g_tail.load(std::memory_order_relaxed);
             for (;;)
             {
@@ -3539,6 +3586,24 @@ namespace sotc_native
                     bool more = false;
                     for (int spin = 0; spin < 256 && !more; ++spin)
                         more = tail != g_head.load(std::memory_order_acquire);
+#if defined(__vita__)
+                    if (!more && g_sema)
+                    {
+                        {
+                            std::lock_guard<std::mutex> lock(g_mutex);
+                            g_sleeping.store(true, std::memory_order_seq_cst);
+                            if (g_joining.load(std::memory_order_seq_cst))
+                                g_done.notify_all();
+                        }
+                        while (tail == g_head.load(std::memory_order_seq_cst))
+                        {
+                            SceUInt timeout = 20000;
+                            sceKernelWaitSema(g_semaId, 1, &timeout);
+                        }
+                        g_sleeping.store(false, std::memory_order_relaxed);
+                        continue;
+                    }
+#endif
                     if (!more)
                     {
                         std::unique_lock<std::mutex> lock(g_mutex);
@@ -3560,6 +3625,12 @@ namespace sotc_native
                 if (delayUs)
                     std::this_thread::sleep_for(std::chrono::microseconds(delayUs));
                 const uint64_t start = g_timing ? native_renderer::nowUs() : 0u;
+                if (start && g_pushUs[tail % kRing])
+                {
+                    const uint64_t lag = start > g_pushUs[tail % kRing] ? start - g_pushUs[tail % kRing] : 0u;
+                    g_lagUs += lag;
+                    g_lagMaxUs = std::max(g_lagMaxUs, lag);
+                }
                 if (g_verify)
                 {
                     ++g_copyChecked;
@@ -3588,6 +3659,12 @@ namespace sotc_native
                 return;
             g_started = true;
 #if defined(__vita__)
+            if (!std::getenv("SOTC_HOOK_SEMA") || std::atoi(std::getenv("SOTC_HOOK_SEMA")) != 0)
+            {
+                g_semaId = sceKernelCreateSema("HookWake", 0, 0, 1, nullptr);
+                g_sema = g_semaId >= 0;
+            }
+            std::fprintf(stderr, "[hookjob] idle worker sleeps on %s\n", g_sema ? "a kernel semaphore" : "the condition variable");
             const unsigned int stackDefault = _pthread_stack_default_user;
             _pthread_stack_default_user = 512u * 1024u; // the packet builds' strips / skinned packets
 #endif
@@ -3636,7 +3713,14 @@ namespace sotc_native
                 while (pending())
                 {
                     if (g_sleeping.load(std::memory_order_seq_cst))
-                        g_wake.notify_one();
+                    {
+#if defined(__vita__)
+                        if (g_sema)
+                            sceKernelSignalSema(g_semaId, 1);
+                        else
+#endif
+                            g_wake.notify_one();
+                    }
                     g_done.wait_for(lock, std::chrono::milliseconds(1));
                 }
                 g_joining.store(false, std::memory_order_relaxed);
@@ -3657,12 +3741,10 @@ namespace sotc_native
         {
             if (g_verify)
                 g_copyHash[g_head.load(std::memory_order_relaxed) % kRing] = jobCopyHash(g_ring[g_head.load(std::memory_order_relaxed) % kRing]);
+            g_pushUs[g_head.load(std::memory_order_relaxed) % kRing] = g_timing ? native_renderer::nowUs() : 0u;
             g_head.store(g_head.load(std::memory_order_relaxed) + 1u, std::memory_order_seq_cst);
             if (g_sleeping.load(std::memory_order_seq_cst))
-            {
-                std::lock_guard<std::mutex> lock(g_mutex);
-                g_wake.notify_one();
-            }
+                wakeWorker();
         }
         // A frame's end (syncFrame, after its join): the jobs' and joins' time
         // into the frame log's counters (hooks: the game thread's, joins
@@ -3674,7 +3756,10 @@ namespace sotc_native
             c.jobUs += g_jobUs;
             c.joinUs += g_joinUs;
             c.jobs += static_cast<uint32_t>(g_jobs);
+            c.lagUs += g_lagUs;
+            c.lagMaxUs = std::max(c.lagMaxUs, g_lagMaxUs);
             g_jobUs = g_joinUs = g_jobs = 0;
+            g_lagUs = g_lagMaxUs = 0;
             std::memcpy(g_lastSiteUs, g_frameSiteUs, sizeof(g_lastSiteUs));
             std::fill(g_frameSiteUs, g_frameSiteUs + kSites, 0u);
             static uint64_t frames = 0, changed = 0, jobs = 0;
@@ -3950,6 +4035,9 @@ namespace sotc_native
                 const PlanStats &ps = g_planStats;
                 std::fprintf(stderr, "[plan] frame %llu: packets drawn %llu (stats on), %llu runs drawn as one: %llu draws fewer\n", (unsigned long long)frame,
                              (unsigned long long)ps.drawn, (unsigned long long)ps.ranges, (unsigned long long)ps.merged);
+                std::fprintf(stderr, "[plan] frame %llu: jobs' walk: %llu packets looked at, %llu left out by the part test, %llu by the surface test; "
+                             "%llu part runs, %llu of them left out\n", (unsigned long long)frame, (unsigned long long)ps.visited,
+                             (unsigned long long)ps.partSkipped, (unsigned long long)ps.surfaceSkipped, (unsigned long long)ps.partRuns, (unsigned long long)ps.partRunsSkipped);
                 std::fprintf(stderr, "[plan] frame %llu: plans %zu built %llu rebuilt %llu deferred %llu uses %llu ids asked %llu kept %llu; verify %llu checks %llu draws, %llu differ (%llu counts)\n",
                              (unsigned long long)frame, g_plans.size(), (unsigned long long)ps.builds, (unsigned long long)ps.rebuilds, (unsigned long long)ps.deferred,
                              (unsigned long long)ps.uses, (unsigned long long)ps.asked, (unsigned long long)ps.trusted, (unsigned long long)ps.checks,
@@ -7428,13 +7516,25 @@ namespace sotc_native
                     if (!onWorker) // the game thread's queue
                         g_prefetchQueue.pump(2u);
                 }
+                if (planStatsOn())
+                {
+                    ++g_planStats.visited;
+                    const bool culled = partCulled && e.part != 0xFFFFFFFFu && e.part < partVisible.size() && partVisible[e.part] == 1u;
+                    if (k == 0u || plan->pk[k - 1u].part != e.part)
+                        ++g_planStats.partRuns, g_planStats.partRunsSkipped += culled;
+                    g_planStats.partSkipped += culled;
+                }
                 if (partCulled && e.part != 0xFFFFFFFFu && e.part < partVisible.size() && partVisible[e.part] == 1u)
                     continue;
                 SurfaceInfo *info = &g_surfaceInfo[e.slot];
                 if (!(info->s == e.s && info->header == header && info->frame == g_frame))
                     info = &surfaceInfo(header, e.s);
                 if (!surfaceDrawnFlags(info->flags))
+                {
+                    if (planStatsOn())
+                        ++g_planStats.surfaceSkipped;
                     continue;
+                }
                 if (hs.on)
                     ++hs.surfaces, hs.surfaceSet.insert(e.s);
                 uint64_t id;
