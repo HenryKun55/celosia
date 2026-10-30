@@ -42,6 +42,17 @@ namespace native_renderer
         // saw before); off: only the rigid ones (the sword) as up to round 36
         // (SOTC_BODY_SHADOWS=0/1).
         bool bodyShadows = true;
+        // Round 38: the GS alpha test per draw (DrawState::alphaTest; SotC's
+        // models GEQUAL 0x40 / FB_ONLY: the pixels under half alpha draw
+        // without writing depth). Off: the round 37 rule, every pixel above
+        // alpha 0.02 writes depth (SOTC_ALPHA_TEST=0/1).
+        bool alphaTest = true;
+        // Round 38: layer 1 (sky, far landscape) depth tested into the
+        // background image as the GS draws it (SOTC_BG_DEPTH=0/1).
+        bool backgroundDepth = true;
+        // Debugging (round 38): shadow volumes with every prism side, as up to
+        // round 37 (SOTC_SHADOW_ALLSIDES=1); off: shared inner sides dropped.
+        bool shadowAllSides = false;
         bool particles = true;      // SOTC_NATIVE_NOPTCL
         bool screenBlur = true;     // SOTC_NATIVE_NOSBLUR
         bool feedback = true;       // feedbackBlur: the last frame laid over the new one (SOTC_NATIVE_NOFEEDBACK)

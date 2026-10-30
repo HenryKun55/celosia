@@ -2,6 +2,8 @@
 #include "runtime/native_renderer.h"
 #include <chrono>
 #include <set>
+#include <map>
+#include <tuple>
 #include <cstdlib>
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/gs_cpu_backend.h"
@@ -1852,6 +1854,22 @@ void GS::vertexKick(bool drawing)
     if (drawing && m_backend)
     {
         GSPrimitiveBatch batch = buildDrawBatch(needed);
+        // PS2X_TEST_LOG=1 (debugging): each distinct context state a primitive draws with
+        // (TEST, ALPHA, TEX0's TBP / PSM / TCC, FBA), counted, printed every 2^20th primitive.
+        static const bool testLog = std::getenv("PS2X_TEST_LOG") != nullptr;
+        if (testLog)
+        {
+            static std::map<std::tuple<int, uint64_t, uint64_t, uint32_t, int, int, uint64_t>, uint64_t> seen;
+            static uint64_t prims = 0;
+            const int ci = m_prim.ctxt ? 1 : 0;
+            const GSContext &c = m_ctx[ci];
+            ++seen[{ci, c.test, c.alpha, 0u, c.tex0.psm, c.tex0.tcc, c.fba}];
+            if ((++prims & 0xFFFFFu) == 0u)
+                for (const auto &[k, n] : seen)
+                    std::fprintf(stderr, "[test] ctx %d TEST %05llx ALPHA %llx tbp %05x psm %02x tcc %d fba %llx: %llu prims\n", std::get<0>(k),
+                                 (unsigned long long)std::get<1>(k), (unsigned long long)std::get<2>(k), std::get<3>(k), std::get<4>(k),
+                                 std::get<5>(k), (unsigned long long)std::get<6>(k), (unsigned long long)n);
+        }
         updatePreferredDisplaySourceForDraw(batch);
         if (!skipRaster())
             m_backend->Submit(batch);

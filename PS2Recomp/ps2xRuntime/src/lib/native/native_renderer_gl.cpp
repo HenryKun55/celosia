@@ -146,6 +146,7 @@ uniform vec4 uFogA;      // start, width, steps, fogged
 uniform vec4 uFogC;      // scale, lod K, lod scale, max lod
 uniform vec4 uFogColour; // rgb, textured mode
 uniform vec4 uDebug;
+uniform vec4 uAlpha;     // alpha test: cut under x (at least 0.02), and at / over y when y > 0
 out vec4 oColor;
 void main()
 {
@@ -188,7 +189,7 @@ void main()
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
     vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(vec3(128.0 / 255.0), 1.0); // untextured: the GS takes the vertex colour as is (255 = white)
     float alpha = clamp(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a, 0.0, 1.0);
-    if (alpha < 0.02)
+    if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
     if (uDebug.w > 0.0)
     {
@@ -226,6 +227,9 @@ uniform vec4 uFogA;      // start, width, steps, fogged
 #endif
 uniform vec4 uFogC;      // scale, lod K, lod scale, max lod
 uniform vec4 uFogColour; // rgb, textured mode
+#if CUT
+uniform vec4 uAlpha;     // alpha test: cut under x (at least 0.02), and at / over y when y > 0
+#endif
 out vec4 oColor;
 void main()
 {
@@ -235,7 +239,7 @@ void main()
     vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(vec3(128.0 / 255.0), 1.0); // untextured: the GS takes the vertex colour as is (255 = white)
     float alpha = clamp(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a, 0.0, 1.0);
 #if CUT
-    if (alpha < 0.02)
+    if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
 #endif
     vec3 rgb = clamp(t.rgb * vColor.rgb, 0.0, 1.0);
@@ -441,7 +445,7 @@ void main(float3 aPos, float3 aNormal, float4 aColor, float2 aUV,
     const char *kMainFragment = R"(
 float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : TEXCOORD2,
             uniform sampler2D uTex, uniform sampler2D uBackground, uniform sampler2D uReflection, uniform sampler2D uRefraction,
-            uniform float4 uFogA, uniform float4 uFogC, uniform float4 uFogColour, uniform float4 uDebug) : COLOR
+            uniform float4 uFogA, uniform float4 uFogC, uniform float4 uFogColour, uniform float4 uDebug, uniform float4 uAlpha) : COLOR
 {
     float textured = uFogColour.w;
     float2 screen = vScreen.xy / vScreen.z * 0.5 + 0.5;
@@ -472,7 +476,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
-    if (alpha < 0.02)
+    if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
     if (uDebug.w > 0.0)
         return float4(uDebug.rgb, 1.0);
@@ -497,6 +501,9 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
 #if BG
             uniform sampler2D uBackground, uniform float4 uFogA,
 #endif
+#if CUT
+            uniform float4 uAlpha,
+#endif
             uniform float4 uFogC, uniform float4 uFogColour) : COLOR
 {
     float textured = uFogColour.w;
@@ -505,7 +512,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
 #if CUT
-    if (alpha < 0.02)
+    if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
 #endif
     float3 rgb = saturate(t.rgb * vColor.rgb);
@@ -838,6 +845,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     struct Target
     {
         GLuint texture = 0, fbo = 0, depth = 0;
+        GLuint stencil = 0; // the Vita: a depth-stencil renderbuffer asking vitaGL for a stencil (round 38)
         uint32_t width = 0, height = 0;
     };
 
@@ -975,7 +983,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t frames = 0, draws = 0, calls = 0, merged = 0, ranges = 0, indexed = 0, noDiscard = 0, bufferSwitches = 0;
             uint64_t progOff = 0, progZero = 0; // SOTC_GL_PROG_CHECK=1: draws with another GL program bound than the cache says / none
+            uint64_t alphaSecond = 0; // the alpha test's second passes (round 38)
         } drawStats; // SOTC_GL_DRAW_LOG: every 300 frames
+        // Round 38: the shadow pass, counted always, one [shadow] line every
+        // 300 frames (the console's log): volume draws and their vertices,
+        // the darkening passes, the frames with any volume.
+        struct
+        {
+            uint64_t frames = 0, framesWithVolumes = 0, volumes = 0, vertices = 0, darkens = 0, alphaSecond = 0, lastFrame = ~0ull;
+            double since = 0.0;
+        } shadowStats;
         // What they hold (GPU memory: on the Vita vitaGL's pools, else the
         // newlib heap), kept as they change: the eviction budget and [gl:mem].
         uint64_t textureBytes = 0, textureHeapBytes = 0, meshBytes = 0, skinnedBytes = 0;
@@ -1031,7 +1048,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // last values sent (kept across frames: nothing else sets them).
         enum MainUniform
         {
-            uClip, uDirections, uColours, uMisc, uFogA, uFogB, uFogC, uFogColour, uDebug, kMainUniforms
+            uClip, uDirections, uColours, uMisc, uFogA, uFogB, uFogC, uFogColour, uDebug, uAlphaTest, kMainUniforms
         };
         // The programs drawing meshes, each with its uniforms' locations and
         // the last values sent (a program keeps its own; kept across frames:
@@ -1399,7 +1416,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (!p)
                     continue;
                 glUseProgram(p);
-                const char *names[kMainUniforms] = {"uClip", "uDirections", "uColours", "uMisc", "uFogA", "uFogB", "uFogC", "uFogColour", "uDebug"};
+                const char *names[kMainUniforms] = {"uClip", "uDirections", "uColours", "uMisc", "uFogA", "uFogB", "uFogC", "uFogColour", "uDebug", "uAlpha"};
                 for (int i = 0; i < kMainUniforms; ++i)
                     m.location[i] = glGetUniformLocation(p, names[i]);
                 for (const auto &[name, unit] : {std::pair<const char *, int>{"uTex", 0}, {"uBackground", 1}, {"uReflection", 2}, {"uRefraction", 3}})
@@ -1595,6 +1612,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glDeleteTextures(1, &t.texture);
             if (t.depth)
                 glDeleteTextures(1, &t.depth);
+            if (t.stencil)
+                glDeleteRenderbuffers(1, &t.stencil);
             t = Target{};
             t.width = w;
             t.height = h;
@@ -1625,6 +1644,30 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // each its own, as before): ~1 MB of CDRAM each at 512 x 448.
             if (!depth && scratchDepthOn())
                 vglFramebufferScratchDepth(t.fbo, GL_TRUE);
+#endif
+        }
+        // Round 38: vitaGL gives a framebuffer a stencil buffer only when a
+        // depth-stencil renderbuffer is attached; without one the shadow
+        // volumes counted on nothing and the darkening's stencil test never
+        // passed: no shadow at all on the console (Vita3K keeps a stencil
+        // anyway, so they showed there). The targets the world is drawn on
+        // (the picture, the glow layer's and the effects' redrawn prefixes)
+        // ask for one: vitaGL makes it (D32F + S8) at their first scene.
+        // SOTC_GL_NO_STENCIL=1: as before. Elsewhere: nothing (the depth
+        // texture is DEPTH32F_STENCIL8 already).
+        static void wantStencil(Target &t)
+        {
+#if defined(PS2X_NATIVE_VITA)
+            static const bool off = std::getenv("SOTC_GL_NO_STENCIL") != nullptr;
+            if (off || t.stencil || !t.fbo)
+                return;
+            glGenRenderbuffers(1, &t.stencil);
+            glBindRenderbuffer(GL_RENDERBUFFER, t.stencil);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height));
+            glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, t.stencil);
+#else
+            (void)t;
 #endif
         }
 #if defined(PS2X_NATIVE_VITA)
@@ -1672,6 +1715,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         glDeleteTextures(1, &t.texture);
                     if (ownTexture && t.depth)
                         glDeleteTextures(1, &t.depth);
+                    if (ownTexture && t.stencil)
+                        glDeleteRenderbuffers(1, &t.stencil);
                     t = Target{};
                 };
                 release(colorPlain, false); // (color's texture)
@@ -1683,6 +1728,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
 #endif
             makeTarget(color, w, h, true);
+            wantStencil(color);
             makeTarget(background, w, h, true);
             makeTarget(snapshot, w, h, false);
 #if defined(PS2X_NATIVE_VITA)
@@ -1707,9 +1753,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             makeTarget(hazeSmall, 256, 256, false);
             for (Target &t : prefix)
                 if (t.texture)
-                    makeTarget(t, w, h, true);
+                    makeTarget(t, w, h, true), wantStencil(t);
             if (glowPrefix.texture)
-                makeTarget(glowPrefix, w, h, true);
+                makeTarget(glowPrefix, w, h, true), wantStencil(glowPrefix);
             makeTarget(refractionHalf, 128, 128, false);
             for (Target &t : bloomTex)
                 makeTarget(t, std::max(w / 4u, 1u), std::max(h / 4u, 1u), false);
@@ -2453,6 +2499,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     p.tex = t;
                 }
         }
+        {
+            const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (shadowStats.since == 0.0)
+                shadowStats.since = now;
+            if (++shadowStats.frames % 300u == 0u)
+            {
+                const double secs = std::max(now - shadowStats.since, 1e-3);
+                std::fprintf(stderr, "[shadow] %llu frames in %.1f s: volumes %.1f/s (%.0f vertices/s), darken passes %.1f/s, frames with volumes %llu; "
+                                     "body shadows %d, shadows %d; alpha-test second passes %.1f/s\n",
+                             (unsigned long long)shadowStats.frames, secs, shadowStats.volumes / secs, shadowStats.vertices / secs, shadowStats.darkens / secs,
+                             (unsigned long long)shadowStats.framesWithVolumes, native_renderer::tuning().bodyShadows ? 1 : 0, native_renderer::tuning().shadows ? 1 : 0,
+                             shadowStats.alphaSecond / secs);
+                const uint64_t last = shadowStats.lastFrame;
+                shadowStats = {};
+                shadowStats.since = now;
+                shadowStats.lastFrame = last;
+            }
+        }
         static const bool log = std::getenv("SOTC_GL_DRAW_LOG") != nullptr;
         if (log)
         {
@@ -2753,6 +2817,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
                 const float a[4] = {shadowAmount, 0, 0, 0};
                 quad(target, 5, QuadBlend::Darken, a);
+                ++shadowStats.darkens;
                 glDisable(GL_STENCIL_TEST);
                 useProgram(mainProgram);
                 // quad() turned the depth test off: the rest of the pass needs
@@ -2850,17 +2915,31 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // samplers they read; without the cut-out when no pixel can be
                 // cut), the full one for the rest.
                 GLuint program = skinned ? skinProgram : mainProgram;
+                // alpha = texel a x 2 (0x80 = 1) x vertex a / 128 x opacity, at least (-1: not known):
+                float leastAlpha = -1.0f;
+                if (!d.state.fresnel && planned.minAlpha && (textured == 0 || textured == 1))
+                {
+                    leastAlpha = static_cast<float>(planned.minAlpha) / 128.0f * d.state.opacity;
+                    if (textured == 1)
+                        leastAlpha *= static_cast<float>(tex->minAlpha) / 255.0f * 2.0f;
+                }
+                // The GS alpha test (DrawState::alphaTest, round 38; GEQUAL / GREATER
+                // with AFAIL FB_ONLY / RGB_ONLY, SotC's models): the pixels at AREF
+                // or over with the draw's depth writes, then those under it again
+                // with the depth read only, when some can be under (the texture's
+                // and the mesh's least alpha say).
+                const uint32_t at = native_renderer::tuning().alphaTest ? d.state.alphaTest : 0u;
+                const uint32_t atst = (at >> 1) & 7u, afail = (at >> 12) & 3u;
+                const bool atOn = (at & 1u) && (atst == 5u || atst == 6u) && (afail == 1u || afail == 3u) && !d.state.overlay && !d.state.screen &&
+                                  !d.state.background && !d.state.noDepthWrite && !d.state.screenDepthTest && !d.state.shadowVolume &&
+                                  d.state.blend != native_renderer::Blend::Additive;
+                const float aref = static_cast<float>((at >> 4) & 0xFFu) / 128.0f;
+                const bool atSecond = atOn && !(leastAlpha >= aref);
                 if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour)
                 {
                     bool cut = true;
-                    if (noDiscard && !d.state.fresnel && planned.minAlpha)
-                    {
-                        // alpha = texel a x 2 (0x80 = 1) x vertex a / 128 x opacity, at least:
-                        float least = static_cast<float>(planned.minAlpha) / 128.0f * d.state.opacity;
-                        if (textured == 1)
-                            least *= static_cast<float>(tex->minAlpha) / 255.0f * 2.0f;
-                        cut = !(least >= 0.03f); // the cut-out is at 0.02
-                    }
+                    if (noDiscard && leastAlpha >= 0.0f)
+                        cut = !(leastAlpha >= 0.03f) || atSecond; // the cut-out is at 0.02
                     if (const GLuint lean = leanProgram(skinned, fogA[3] > 0.5f, cut))
                     {
                         program = lean;
@@ -2920,6 +2999,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     glEnable(GL_DEPTH_CLAMP); // the GS does not cut at the near plane
 #endif
                     drawMesh(mesh, firstVertex);
+                    ++shadowStats.volumes;
+                    shadowStats.vertices += mesh.count;
+                    if (shadowStats.lastFrame != arenaFrame)
+                        shadowStats.lastFrame = arenaFrame, ++shadowStats.framesWithVolumes;
 #if !defined(PS2X_NATIVE_VITA)
                     glDisable(GL_DEPTH_CLAMP);
 #endif
@@ -2938,8 +3021,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // The depth function is always LEQUAL here (the GS's GEQUAL: a
                 // surface drawn again in place passes); test and writes vary.
                 const bool backdrop = d.state.screen || d.state.background;
-                const int depthTest = backdrop && !d.state.screenDepthTest ? 0 : 1;
+                // Round 38: layer 1 (sky, far landscape) depth tested into the background
+                // image, as the GS draws it (Tuning::backgroundDepth); draw order hid near
+                // cliffs behind the trees and far faces before.
+                const bool bgDepth = backgroundOnly && d.state.background && !d.state.screen && native_renderer::tuning().backgroundDepth;
+                const int depthTest = backdrop && !d.state.screenDepthTest && !bgDepth ? 0 : 1;
                 const int depthMask = d.state.screenDepthTest ? 0
+                                      : bgDepth ? 1
                                       : backdrop ? cache.depthMask
                                                : (d.state.overlay || (d.state.blend == native_renderer::Blend::Additive && !d.state.writeDepth) || d.state.noDepthWrite ? 0 : 1);
                 if (depthTest != cache.depthTest)
@@ -3020,6 +3108,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uniform4(uFogC, fogC, 1);
                 uniform4(uFogColour, fogColour, 1);
                 uniform4(uDebug, debug, 1);
+                const float alphaCut[4] = {atSecond ? aref : 0.0f, 0.0f, 0.0f, 0.0f};
+                uniform4(uAlphaTest, alphaCut, 1);
                 {
                     static const long seqFrame = std::getenv("SOTC_GL_DRAWSEQ") ? std::atol(std::getenv("SOTC_GL_DRAWSEQ")) : -1;
                     static FILE *seq = nullptr;
@@ -3074,6 +3164,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 else
                     drawMesh(mesh, firstVertex);
+                if (atSecond)
+                {
+                    // The pixels under AREF: colour, no depth write.
+                    const float under[4] = {0.0f, aref, 0.0f, 0.0f};
+                    uniform4(uAlphaTest, under, 1);
+                    if (cache.depthMask != 0)
+                    {
+                        glDepthMask(GL_FALSE);
+                        cache.depthMask = 0;
+                    }
+                    if (planned.run > 1)
+                        glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(planned.mergedCount));
+                    else
+                        drawMesh(mesh, firstVertex);
+                    ++drawStats.alphaSecond;
+                    ++shadowStats.alphaSecond;
+                }
             }
             resolveShadows();
             for (GLuint i = 1; i < 6; ++i)
@@ -3567,7 +3674,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (ev.blur == -2)
                 {
                     if (!glowPrefix.texture)
-                        makeTarget(glowPrefix, w, h, true);
+                        makeTarget(glowPrefix, w, h, true), wantStencil(glowPrefix);
                     boundFbo = ~0u;
                     pass(glowPrefix, false, 0, ev.order, false);
                     glowBuilt = buildGlow(glowPrefix);
@@ -3591,7 +3698,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         continue;
                     Target &pre = prefix[k];
                     if (!pre.texture)
-                        makeTarget(pre, w, h, true);
+                        makeTarget(pre, w, h, true), wantStencil(pre);
                     boundFbo = ~0u;
                     pass(pre, false, 0, ev.order, false);
                     ev.prefix = last = k++;

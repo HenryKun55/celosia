@@ -79,11 +79,8 @@ namespace native_renderer
         // for testing). A frame that takes a little over 33 ms is then shown
         // at 30 / 20 steadily instead of alternating 60 / 30 / 20 shows.
         d.frameCap30 = true;
-        // Round 37: the body shadows (Wander ~2 300 triangles of volume, Agro
-        // ~440, the shrine's cutscene models up to ~8 000, extruded on the
-        // CPU and filled on the stencil every frame) not measured on the
-        // console yet: off by default there, a menu item to turn on.
-        d.bodyShadows = false;
+        // Round 37 had the body shadows off by default here until measured;
+        // round 38 turns them on (Tuning::bodyShadows' default, a menu item).
         // Round 36: the particle sacrifice on by default (half the emitters'
         // work in particle-heavy scenes); the coarser detail is a toggle only
         // (no game-thread saving measured on the route).
@@ -133,6 +130,11 @@ namespace native_renderer
             d.shadows = !on("SOTC_NATIVE_NOSHADOWS");
             if (on("SOTC_BODY_SHADOWS"))
                 d.bodyShadows = std::atoi(std::getenv("SOTC_BODY_SHADOWS")) != 0;
+            d.shadowAllSides = on("SOTC_SHADOW_ALLSIDES") && std::atoi(std::getenv("SOTC_SHADOW_ALLSIDES")) != 0;
+            if (on("SOTC_BG_DEPTH"))
+                d.backgroundDepth = std::atoi(std::getenv("SOTC_BG_DEPTH")) != 0;
+            if (on("SOTC_ALPHA_TEST"))
+                d.alphaTest = std::atoi(std::getenv("SOTC_ALPHA_TEST")) != 0;
             d.particles = !on("SOTC_NATIVE_NOPTCL");
             d.screenBlur = !on("SOTC_NATIVE_NOSBLUR");
             d.feedback = !on("SOTC_NATIVE_NOFEEDBACK");
@@ -381,6 +383,10 @@ namespace native_renderer
              nullptr, 0, 1, 1, "SOTC_NATIVE_NOSHADOWS"},
             {"body_shadows", "Body shadows", "Sombras dos corpos", "Wander's, Agro's and the colossi's own shadows on the ground (off: only the sword's).",
              "As sombras do Wander, do Agro e dos colossos no chão (desligado: só a da espada).", &Tuning::bodyShadows, nullptr, 0, 1, 1, "SOTC_BODY_SHADOWS"},
+            {"alpha_test", "GS alpha test", "Teste de alfa do GS",
+             "As the PS2 draws cut-out edges (hair, manes, leaves, models fading in): what is under half alpha does not hide what is drawn after it.",
+             "Como o PS2 desenha bordas recortadas (cabelo, crinas, folhas, modelos aparecendo): o que tem menos de meio alfa não esconde o que vem depois.",
+             &Tuning::alphaTest, nullptr, 0, 1, 1, "SOTC_ALPHA_TEST"},
             {"particles", "Particles", "Partículas", "Dust, sparks, birds, grass.", "Poeira, faíscas, pássaros, grama.", &Tuning::particles,
              nullptr, 0, 1, 1, "SOTC_NATIVE_NOPTCL"},
             {"screen_blur", "Screen blur", "Borrão de tela", "The motion and impact blurs.", "Os borrões de movimento e de impacto.",

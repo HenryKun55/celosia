@@ -55,7 +55,28 @@ struct FogParams
     int clamp;    // the GS's CLAMP: bit 0 u, bit 1 v
     int hwLod;    // texture filtering anisotropic: the GPU picks the mip level (by the pixel's footprint), not the GS rule
     float2 ripple; // the mirror's ripple (t, H; H = 0: none)
+    int atst;      // the GS alpha test's ATST (-1: none, only alpha < 0.02 cut)
+    float aref;    // its AREF (0x80 = 1)
+    int atSide;    // 0: draw the pixels that pass, 1: those that fail
+    int atPad;
 };
+
+// The GS's alpha test: A = texture alpha x vertex alpha >> 7 (0x80 = 1) against AREF.
+bool gsAlphaPass(float a, int atst, float aref)
+{
+    const float A = floor(a * 128.0 + 0.001);
+    switch (atst)
+    {
+    case 0: return false;
+    case 1: return true;
+    case 2: return A < aref;
+    case 3: return A <= aref;
+    case 4: return A == aref;
+    case 5: return A >= aref;
+    case 6: return A > aref;
+    default: return A != aref;
+    }
+}
 
 // A model's texture: the filtering the player picked (the samplers bound at
 // 0-3, one per CLAMP mode), at the GS's mip level or the GPU's own.
@@ -161,6 +182,8 @@ fragment float4 nativeFragment(VOut in [[stage_in]], texture2d<float> tex [[text
             : fog.clamp == 1 ? sampleModel(tex, sClampU, in.uv, lod, hw)
                              : sampleModel(tex, sRepeat, in.uv, lod, hw);
     float alpha = saturate(t.a * (textured != 0 ? 2.0 : 1.0) * in.color.a); // texture alpha 0x80 = opaque
+    if (fog.atst >= 0 && gsAlphaPass(t.a * (textured != 0 ? 255.0 / 128.0 : 1.0) * in.color.a, fog.atst, fog.aref) == (fog.atSide != 0))
+        discard_fragment();
     if (alpha < 0.02)
         discard_fragment();
     if (fog.debug.w > 0.0)
@@ -1141,6 +1164,13 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                     static const bool showFog = std::getenv("SOTC_NATIVE_SHOWFOG") != nullptr; // debugging
                     static const bool noOverlayFog = std::getenv("SOTC_FOG_NO_OVERLAY") != nullptr; // debugging
                     static const bool bgFog = std::getenv("SOTC_NATIVE_BGFOG") != nullptr; // every batch has FGE, the sky too
+                    const bool gsAlphaTestOn = native_renderer::tuning().alphaTest;
+                    // Round 38: layer 1 (the sky and the far landscape: bgEnd copies it, as the
+                    // GS drew it into the frame, Z tested, then sets Z to 1) drawn with the depth
+                    // test into the background image; without it the trees behind a far cliff
+                    // and the cliffs' far sides were drawn over it in draw order.
+                    const bool bgDepth = native_renderer::tuning().backgroundDepth;
+                    uint32_t alphaTestSecondPasses = 0; // (a count for debugging)
                     int bound = -1;
                     // Shadow volumes counted so far, waiting for their darkening.
                     uint32_t shadowOrder = 0;
@@ -1203,7 +1233,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             [encoder setVertexBytes:&none length:sizeof(none) atIndex:2];
                             struct
                             {
-                                float values[24];
+                                float values[28];
                             } nofog = {};
                             [encoder setVertexBytes:&nofog length:sizeof(nofog) atIndex:3];
                             [encoder setFragmentBytes:&nofog length:sizeof(nofog) atIndex:1];
@@ -1218,7 +1248,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                         }
                         const int blendMode = static_cast<int>(d.state.blend);
                         const bool backdrop = d.state.screen || d.state.background;
-                        const int mode = blendMode | (backdrop ? 8 : 0) | (d.state.overlay ? 16 : 0) | (d.state.writeDepth ? 32 : 0) | (d.state.noDepthWrite ? 64 : 0) |
+                        const int mode = blendMode | (backdrop ? 8 : 0) | (backgroundOnly && d.state.background ? 256 : 0) | (d.state.overlay ? 16 : 0) | (d.state.writeDepth ? 32 : 0) | (d.state.noDepthWrite ? 64 : 0) |
                                          (d.state.screenDepthTest ? 128 : 0);
                         if (mode != bound)
                         {
@@ -1227,6 +1257,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             // background (the sky, a small dome drawn first) ignore depth; a
                             // second pass lands on its first.
                             [encoder setDepthStencilState:d.state.screenDepthTest ? depthReadOnly
+                                                          : (backgroundOnly && bgDepth && d.state.background && !d.state.screen) ? depthState
                                                           : backdrop ? depthOff
                                                                    : (d.state.overlay ? depthEqualReadOnly
                                                                                       : ((blendMode == 1 && !d.state.writeDepth && !additiveZ) || d.state.noDepthWrite ? depthReadOnly : depthState))];
@@ -1278,6 +1309,9 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             int clamp;
                             int hwLod; // anisotropic filtering: the GPU's own mip level
                             float ripple[2];
+                            int atst;
+                            float aref;
+                            int atSide, atPad;
                         } fp = {fog.start, fog.width, (showFog && !d.state.screen) ? -1.0f : static_cast<float>(fog.steps), (!backgroundOnly && fogOn && d.state.fogged) ? 1 : 0,
                                 {static_cast<float>(w), static_cast<float>(h)},
                                 (fog.vertexFog && !d.state.screen && (!d.state.background || bgFog) && !(d.state.overlay && noOverlayFog)) ? 1 : 0, fog.base, fog.scale,
@@ -1285,16 +1319,42 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                                 {fog.colour[0], fog.colour[1], fog.colour[2], 0},
                                 {static_cast<float>(d.state.debugColour & 0xFFu) / 255.0f, static_cast<float>((d.state.debugColour >> 8) & 0xFFu) / 255.0f,
                                  static_cast<float>((d.state.debugColour >> 16) & 0xFFu) / 255.0f, d.state.debugColour ? 1.0f : 0.0f},
-                                d.state.clamp, drawFilter >= 3 ? 1 : 0, {d.state.mirrorRipple[0], d.state.mirrorRipple[1]}};
+                                d.state.clamp, drawFilter >= 3 ? 1 : 0, {d.state.mirrorRipple[0], d.state.mirrorRipple[1]}, -1, 0.0f, 0, 0};
                         if (d.state.reflectionSample || d.state.refractionSample)
                         {
                             for (int k = 0; k < 3; ++k)
                                 fp.debug[k] = d.state.reflectionTint[k];
                             fp.debug[3] = -d.state.reflectionTint[3];
                         }
+                        // The GS alpha test (DrawState::alphaTest): the passing pixels with the
+                        // draw's own depth state, then (AFAIL FB_ONLY / RGB_ONLY, when a pixel
+                        // can fail) the failing ones again with the depth read only.
+                        const uint32_t at = gsAlphaTestOn ? d.state.alphaTest : 0u;
+                        const int afail = static_cast<int>((at >> 12) & 3u);
+                        const bool atTwo = (at & 1u) && ((at >> 1) & 7u) != 1u && (afail == 1 || afail == 3) && !d.state.overlay && !backdrop &&
+                                           blendMode != 1 && !d.state.noDepthWrite && !d.state.screenDepthTest;
+                        if (at & 1u)
+                        {
+                            fp.atst = static_cast<int>((at >> 1) & 7u);
+                            fp.aref = static_cast<float>((at >> 4) & 0xFFu);
+                            // ZB_ONLY / KEEP and the passes that write no depth anyway: the failing pixels dropped
+                            // (FB_ONLY there draws them as the passing ones: no test).
+                            if (!atTwo && (afail == 1 || afail == 3))
+                                fp.atst = -1;
+                        }
                         [encoder setFragmentBytes:&fp length:sizeof(fp) atIndex:1];
                         [encoder setVertexBytes:&fp length:sizeof(fp) atIndex:3];
-                        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:it->second.count];
+                        if (!(atTwo && fp.atst == 0)) // ATST NEVER: every pixel fails
+                            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:it->second.count];
+                        if (atTwo)
+                        {
+                            fp.atSide = 1;
+                            [encoder setFragmentBytes:&fp length:sizeof(fp) atIndex:1];
+                            [encoder setDepthStencilState:depthReadOnly];
+                            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:it->second.count];
+                            bound = -1;
+                            ++alphaTestSecondPasses;
+                        }
                     }
                     resolveShadows();
                     [encoder endEncoding];

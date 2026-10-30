@@ -2837,7 +2837,8 @@ namespace sotc_native
     // frame n on), so pictures 30 frames apart of one run compare the
     // native picture with and without them against the same GS picture.
     // Names: bloom, vfog, zfog, glow, dof, shadows, sblur, feedback, ptcl,
-    // reflect, refract, subtract, additive, overlays, sky.
+    // reflect, refract, subtract, additive, overlays, sky; round 38:
+    // alphatest, bgdepth, bodyshadows.
     void abSwitches()
     {
         static const char *flags = std::getenv("SOTC_AB_FLAG");
@@ -2873,6 +2874,11 @@ namespace sotc_native
         ab("additive", &native_renderer::Tuning::additive);
         ab("overlays", &native_renderer::Tuning::overlays);
         ab("sky", &native_renderer::Tuning::skyImage);
+        ab("alphatest", &native_renderer::Tuning::alphaTest);
+        ab("bgdepth", &native_renderer::Tuning::backgroundDepth);
+        ab("bodyshadows", &native_renderer::Tuning::bodyShadows);
+        ab("allsides", &native_renderer::Tuning::shadowAllSides);
+        ab("lighting", &native_renderer::Tuning::lighting);
         for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
             if (list.find(",L" + std::to_string(layer) + ",") != std::string::npos)
                 t.hiddenLayers = off ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
@@ -5788,6 +5794,38 @@ namespace sotc_native
             g_volume.push_back(v);
         };
         g_volume.clear();
+        // Round 38: the side quads that two prisms share in opposite
+        // directions (an inner edge of the mesh) count +1 and -1 on the same
+        // pixels: both dropped. What is left draws the same stencil count
+        // (bit for bit: only quads with all four corners equal cancel) with
+        // far fewer vertices and much less fill (SOTC_SHADOW_ALLSIDES=1 / A/B name allsides: all).
+        struct SideQuad
+        {
+            float p[4][3]; // near k, far k, far l, near l
+            bool live;
+        };
+        static std::vector<SideQuad> sides;
+        static std::unordered_map<uint64_t, std::vector<uint32_t>> open; // directed edge key -> quads waiting for their reverse
+        sides.clear();
+        open.clear();
+        const bool allSides = native_renderer::tuning().shadowAllSides;
+        auto edgeKey = [](const float *a, const float *b, const float *fa, const float *fb)
+        {
+            uint64_t h = 1469598103934665603ull;
+            for (const float *p : {a, b, fa, fb})
+                for (int r = 0; r < 3; ++r)
+                {
+                    uint32_t bits;
+                    std::memcpy(&bits, &p[r], 4);
+                    h = (h ^ bits) * 0x100000001b3ull;
+                }
+            return h;
+        };
+        auto sameCorners = [](const SideQuad &q, const float *a, const float *b, const float *fa, const float *fb)
+        {
+            // the reverse of q: a = q's near l, b = q's near k, fa = q's far l, fb = q's far k
+            return !std::memcmp(q.p[3], a, 12) && !std::memcmp(q.p[0], b, 12) && !std::memcmp(q.p[2], fa, 12) && !std::memcmp(q.p[1], fb, 12);
+        };
         for (const Strip &strip : strips)
             for (size_t i = 2; i < strip.size(); ++i)
             {
@@ -5832,9 +5870,45 @@ namespace sotc_native
                 for (int k = 0; k < 3; ++k)
                 {
                     const int l = (k + 1) % 3;
-                    put(near[k]), put(far[k]), put(far[l]);
-                    put(near[k]), put(far[l]), put(near[l]);
+                    if (allSides)
+                    {
+                        put(near[k]), put(far[k]), put(far[l]);
+                        put(near[k]), put(far[l]), put(near[l]);
+                        continue;
+                    }
+                    // Its reverse waiting: both go.
+                    auto it = open.find(edgeKey(near[l], near[k], far[l], far[k]));
+                    bool cancelled = false;
+                    if (it != open.end())
+                        for (size_t j = 0; j < it->second.size(); ++j)
+                        {
+                            SideQuad &q = sides[it->second[j]];
+                            if (q.live && sameCorners(q, near[k], near[l], far[k], far[l]))
+                            {
+                                q.live = false;
+                                it->second[j] = it->second.back();
+                                it->second.pop_back();
+                                cancelled = true;
+                                break;
+                            }
+                        }
+                    if (cancelled)
+                        continue;
+                    SideQuad q;
+                    std::memcpy(q.p[0], near[k], 12);
+                    std::memcpy(q.p[1], far[k], 12);
+                    std::memcpy(q.p[2], far[l], 12);
+                    std::memcpy(q.p[3], near[l], 12);
+                    q.live = true;
+                    open[edgeKey(near[k], near[l], far[k], far[l])].push_back(static_cast<uint32_t>(sides.size()));
+                    sides.push_back(q);
                 }
+            }
+        for (const SideQuad &q : sides)
+            if (q.live)
+            {
+                put(q.p[0]), put(q.p[1]), put(q.p[2]);
+                put(q.p[0]), put(q.p[2]), put(q.p[3]);
             }
         if (volLog && g_frame % 60u == 0u)
             std::fprintf(stderr, "[shadowvol] frame %llu model %08x volume vertices %zu\n", (unsigned long long)g_frame, model, g_volume.size());
@@ -7910,6 +7984,9 @@ namespace sotc_native
             state.clamp = full ? full->clamp : surfaceClamp(s);
             state.order = layer; // surfaceLayer above (pure)
             state.opacity = opacity;
+            // The models' TEST (both contexts; PS2X_TEST_LOG on the route: 0x5140b
+            // for ~95% of the batches): ATE, GEQUAL, AREF 0x40, AFAIL FB_ONLY.
+            state.alphaTest = 0x140Bu;
             const bool noMips = !native_renderer::tuning().mipmaps;
             if (!noMips)
             {
@@ -8065,6 +8142,12 @@ namespace sotc_native
             if (((full ? static_cast<uint32_t>(full->flags) : word(s + 0x18u)) & 0x2200u) == 0x2200u)
                 state.noDepthWrite = true;
             const bool twoTextures = (full ? full->texMode : word(s + 0x1Cu)) == 2u && !posed && !state.debugColour;
+            // SOTC_LOG_HEADER=<hex> (debugging, round 38): that model's surfaces as drawn.
+            static const uint32_t logHeader = std::getenv("SOTC_LOG_HEADER") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_LOG_HEADER"), nullptr, 16)) : 0u;
+            if (logHeader && header == logHeader && g_frame % 30u == 0u)
+                std::fprintf(stderr, "[header] frame %llu surface %u texMode %u posed %d lit %d blend %d layer %u ALPHA_2 %d tex2 %llx\n", (unsigned long long)g_frame, surface,
+                             full ? full->texMode : word(s + 0x1Cu), posed ? 1 : 0, state.lit ? 1 : 0, (int)state.blend, layer,
+                             (int)surfaceBlend(s, 0x43u), (unsigned long long)surfaceTexture(header, surface, 0x3Cu));
             if (twoTextures)
                 state.writeDepth = true;
             uint64_t sflags;

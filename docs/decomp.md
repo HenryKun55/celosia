@@ -6451,6 +6451,99 @@ gs/gs_cpu_backend.cpp (`PS2X_PMODE_LOG`); game/overrides/sotc_native.cpp
 (shadow at popLayer, `SOTC_SHADOW_LOG`, `SOTC_AB_FLAG`, the shown picture);
 README.md, docs/STATUS.md, docs/native_renderer_map.md, this section.
 
+## Round 38: the far landscape, the GS alpha test, the console's shadows (2026-10-30)
+
+On AC power. Nothing committed or deployed. Reference: the GS picture of
+the same frame (`SOTC_NATIVE=2`, r24 route card, PS2-like quality);
+switches compared inside one run with `SOTC_AB_FLAG` (30-frame windows).
+Scripts and pictures: `build/agent-scratch/r38/` (report.md, triab.py,
+absheet.py, posdiff.py, testlog.py, the round 37 scripts copied).
+
+**1. Far landscape (fixed).** Grey blocks and pale angular rocks stood
+where the GS shows the mountains (shrine-exit cutscene, the plain's
+horizon), changing with the camera. Layer 1 (the sky and the far
+landscape) goes into the background image that zFog fades to; it was
+drawn there with depth off, in draw order, so the trees behind a cliff
+and the cliffs' far faces covered the near cliff. The GS draws layer 1
+into the frame with the Z test, then bgEnd copies it to 256 x 256 and
+sets Z to 1 (docs/known_issues.md). Layer 1 is now depth tested into the
+background image, Metal and OpenGL (`Tuning::backgroundDepth`,
+`SOTC_BG_DEPTH=0/1`, A/B name `bgdepth`).
+
+**2. The GS alpha test (implemented).** `PS2X_TEST_LOG=1` (new) counts the
+GS's primitives by context state: ~95% of the 3D draws have TEST 0x5140b
+(ATE, GEQUAL, AREF 0x40, AFAIL FB_ONLY, Z GEQUAL), both contexts.
+`DrawState::alphaTest` carries TEST bits 0-13; modelDispHook sets 0x140b.
+A = texture alpha x vertex alpha / 128 (0x80 = 1) against AREF: the
+passing pixels draw with the draw's depth writes, the failing ones (AFAIL
+FB_ONLY / RGB_ONLY) in a second pass with the depth read only, only when
+the texture's and mesh's least alpha say a pixel can fail (OpenGL: ~70
+second passes a frame on the route). Metal tests every ATST; GLSL / Cg
+GEQUAL and GREATER (a `uAlpha` uniform: cut under x, at / over y). Setting
+"GS alpha test" (`SOTC_ALPHA_TEST`, on). Recordings do not store it: a
+replay gives every 3D draw 0x140b.
+
+**3. No shadow at all on the console (fixed).** vitaGL gives a
+framebuffer a stencil buffer only when a depth-stencil renderbuffer is
+attached (framebuffers.c: `DEPTHBUFFER_WANTS_STENCIL`); our GL targets on
+the Vita had only a colour texture, so the volumes counted on nothing and
+the darkening's stencil test (NOTEQUAL 0) never passed: not even the
+sword's shadow (Vita3K keeps a stencil anyway, so round 37 saw them
+there). The picture, the glow layer's prefix and the redraw prefixes now
+attach a GL_DEPTH24_STENCIL8 renderbuffer (`wantStencil`,
+`SOTC_GL_NO_STENCIL=1`: as before).
+
+**4. Body shadows on by default on the Vita, cheaper.** A volume is one
+closed prism per triangle; the sides two prisms share in opposite
+directions (inner edges) count +1 and -1 on the same pixels and are now
+dropped (only when all four corners are equal: the same stencil count):
+Wander 6 888 -> ~3 210 vertices, Agro 1 320 -> ~500, the shrine figures 24
+432 -> ~9 850 (`SOTC_SHADOW_ALLSIDES=1` / A/B `allsides`: every side).
+Calibrated Vita3K, body shadows alternated every 300 frames: +1.3 ms a
+frame (46.2 vs 44.9). Default on; `settings_version=38` ignores an older
+file's `body_shadows` once. The console log gets a `[shadow]` line every
+300 frames (volumes, vertices and darkening passes a second, frames with
+volumes, the switches, the alpha test's second passes).
+
+**Console r37 log (no timing chain, reasoned from err.txt):** frames
+1310-1419 (present 50-103 ms) and the slower title scene (858-1300: game
+33.5 vs 30.1 ms, render 17 vs 8 against r35) upload 23-28 shadow volume
+meshes (1.3 MB) every frame: the body shadows, which env.txt turned on.
+The title's present has been ~46 ms since r30 with the cap off there, so
+the cap (vitaGL's swap interval 2 on the display queue: a present waits
+at most one 30 fps interval) is not the cause; it was left as it is.
+Frame 2684 (render 158 ms, 26 targets) is a mid-frame redraw frame,
+likely a prefix target's first use; 3076-3078 (area change) unchanged.
+
+**Found and left open:** the altar stone darker natively (model 0x756be0:
+one texture, lit, not skinned; not lighting, overlays, subtract, additive
+or shadows; dark in some runs and right in others at the same frame:
+stale per-instance state, to look at with `SOTC_HOOK_ASYNC=0`); the sun
+glow at ~3030 and the shrine window's glow shape; the cinema bars in a
+fade; the PMODE half-line softness; a flat dark-grey panel on a cliff in
+the console-r30 recording's replay (frame 2101). At the user's own
+settings the sky and horizon match the GS. Colossus shadows: the colossi
+take the same skinned shadowDisp path, not seen this round (the route
+card reaches none, the recordings predate body shadows).
+
+**Verification.** Mac build; Metal and OpenGL (`SOTC_NATIVE_GL=1`) routes
+with each switch alternated. Fixed-30 position route to 5 400: all runs
+reach it; end positions match round 37's main line within 1-6, mid-route
+up to 25 at 2 970-3 150 (the load-sensitive stretch; round 37's own binary
+took the other known line this time). Vita: celosia-r38.vpk (-j6, shader
+seed 52 files from this round's seed run) boots and plays the route in
+calibrated Vita3K with Wander's and Agro's shadows drawn, audio lines
+normal, the Vita3K tree restored.
+
+**Files.** native_renderer.h (alphaTest), native_tuning.h (alphaTest,
+backgroundDepth, shadowAllSides), native_renderer.cpp (items, env, Vita
+body shadows default), native_renderer_metal.mm and native_renderer_gl.cpp
+(alpha test, layer-1 depth; GL: stencil renderbuffers, `[shadow]`),
+native_recorder.cpp (replay alpha test), host_menu.cpp (settings_version
+38), gs/gs_frontend.cpp (`PS2X_TEST_LOG`), game/overrides/sotc_native.cpp
+(alphaTest, shadow sides, A/B names, `SOTC_LOG_HEADER`), README.md,
+docs/STATUS.md, this section.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

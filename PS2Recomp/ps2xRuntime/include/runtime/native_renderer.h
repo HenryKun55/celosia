@@ -258,6 +258,15 @@ namespace native_renderer
         // under AREF (SotC's water: vertex alpha 0x20 < 0x40), so what is drawn
         // after it on or just under the surface (the rings) is not hidden.
         bool noDepthWrite = false;
+        // The GS's alpha test (TEST bits 0-13: ATE, ATST, AREF, AFAIL), 0: none
+        // (only alpha < 0.02 cut). A = texture alpha x vertex alpha / 128, as
+        // the GS's 8-bit A (0x80 = 1), against AREF. AFAIL KEEP drops the
+        // failing pixels; FB_ONLY / RGB_ONLY draw them without a depth write
+        // (a second pass of the same draw, depth read only, only when some
+        // pixel can fail); ZB_ONLY writes only their depth. SotC's models:
+        // 0x140b (GEQUAL 0x40, FB_ONLY): what is under half alpha (card edges,
+        // hair, a model fading in) never hides what is drawn after it.
+        uint16_t alphaTest = 0;
         bool overlay = false; // a second pass over the same geometry: depth equal passes, no depth write
         bool screen = false; // 2D: positions already in clip space, no depth test or write
         // A 2D draw tested against the picture's depth (no write), as the GS

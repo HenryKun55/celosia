@@ -183,6 +183,11 @@ namespace native_recorder::detail
         r.get(s.skinPaletteCount);
         s.lit = r.get<uint8_t>() != 0;
         r.get(s.light);
+        // Not recorded (round 38's DrawState::alphaTest): the models' TEST for
+        // every 3D draw in a replay (the backends apply it to normal-blended,
+        // depth-writing draws only).
+        if (!s.screen && !s.shadowVolume && !s.background)
+            s.alphaTest = 0x140Bu;
         return s;
     }
     uint32_t stateFlags(const native_renderer::DrawState &s)
