@@ -108,9 +108,17 @@
   {
    "round": "r38",
    "date": "2026-10-30",
-   "commit": "",
+   "commit": "30d7599",
    "focus": "Fidelity",
-   "summary": "Next: the remaining GS differences (far landscape, alpha test on hair and grass cards, two-pass surfaces, glow shapes, cinema bars).",
+   "summary": "Far landscape drawn with the depth test like the GS (the grey blocks and white shapes on the horizon). Shadows work on the real Vita (the targets had no stencil buffer) and are on by default, with half the vertices. The GS alpha test in every shader.",
+   "result": "Horizon matches the GS at every camera position checked. Body shadows cost about 1.3 ms in Vita3K."
+  },
+  {
+   "round": "r39",
+   "date": "2026-10-30",
+   "commit": "",
+   "focus": "Decomp",
+   "summary": "Next: the camera collision rewritten as native code (about 45% of the collision time), exact.",
    "result": ""
   }
  ]
