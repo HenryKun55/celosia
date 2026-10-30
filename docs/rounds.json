@@ -100,9 +100,17 @@
   {
    "round": "r37",
    "date": "2026-10-30",
+   "commit": "f06edb1",
+   "focus": "Fidelity",
+   "summary": "GS vs native: untextured colours were drawn twice as bright (the whole picture was washed out), Wander and Agro ground shadows added, vertex fog matched to the GS, F9 flips GS/native live on the Mac.",
+   "result": "Mean brightness gap native vs GS +8..+10 levels -> about 0. Open: far landscape, Agro mane alpha, altar stones, some glows."
+  },
+  {
+   "round": "r38",
+   "date": "2026-10-30",
    "commit": "",
    "focus": "Fidelity",
-   "summary": "Next: flip between the emulated GS picture and the native renderer across the route and align every difference (Wander's shadow, fog, sky colour, contrast).",
+   "summary": "Next: the remaining GS differences (far landscape, alpha test on hair and grass cards, two-pass surfaces, glow shapes, cinema bars).",
    "result": ""
   }
  ]
