@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "GuestKernelMemory.h"
 #include "runtime/ee_scheduler.h"
 #include "runtime/ee_dispatch_probe.h"
@@ -1471,7 +1472,9 @@ void EeScheduler::dispatchIrq(bool dmac, uint32_t cause)
         const uint64_t n = ++counts[dmac ? 1 : 0][cause & 63u];
         if (n == 1 || n % 600 == 0)
         {
-            std::cerr << "[irq] dispatch " << (dmac ? "dmac" : "intc") << " cause=" << cause << " count=" << n << std::endl;
+            // Round 34: one write, not seven (each std::cerr piece was a
+            // card write on the Vita's unbuffered err.txt, on the game thread).
+            std::fprintf(stderr, "[irq] dispatch %s cause=%u count=%llu\n", dmac ? "dmac" : "intc", cause, static_cast<unsigned long long>(n));
         }
     }
     const auto &handlers = dmac ? m_dmacHandlers : m_intcHandlers;

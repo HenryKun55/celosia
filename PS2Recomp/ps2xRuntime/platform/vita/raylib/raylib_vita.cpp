@@ -264,8 +264,20 @@ void InitWindow(int, int, const char *)
                      info.size_cdram / 1048576.0, info.size_phycont / 1048576.0);
     }
     bootMark("window: shader cache root");
-    vglInitWithCustomThreshold(4 * 1024 * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
-                               SCE_GXM_MULTISAMPLE_NONE);
+    // Round 34, SOTC_VGL_POOLS=console (testing in Vita3K, off by default):
+    // vitaGL's pools as a console has them (round 32's console log: CDRAM
+    // 96 MB, main RAM 11 MB; free before vitaGL: user 112, phycont 26 MB),
+    // where Vita3K's free memory gives a ~100 MB main-RAM pool and the newlib
+    // heap never takes GPU objects.
+    const char *pools = std::getenv("SOTC_VGL_POOLS");
+    if (pools && std::strcmp(pools, "console") == 0)
+    {
+        std::fprintf(stderr, "[vita] SOTC_VGL_POOLS=console: vitaGL pools of RAM 16, CDRAM 96, phycont 26 MB (a console's)\n");
+        vglInitWithCustomSizes(4 * 1024 * 1024, width, height, 16 * 1024 * 1024, 96 * 1024 * 1024, 26 * 1024 * 1024, 0, SCE_GXM_MULTISAMPLE_NONE);
+    }
+    else
+        vglInitWithCustomThreshold(4 * 1024 * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
+                                   SCE_GXM_MULTISAMPLE_NONE);
     bootMark("window: vitaGL up");
     seedShaderCache(); // vitaGL made the cache's folders
     bootMark("window: shader cache seeded");
@@ -338,6 +350,8 @@ void BeginDrawing(void)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
+extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
+
 void EndDrawing(void)
 {
     if (g_glReady)
@@ -364,10 +378,19 @@ void EndDrawing(void)
         SceKernelFreeMemorySizeInfo freeInfo{};
         freeInfo.size = sizeof(freeInfo);
         sceKernelGetFreeMemorySize(&freeInfo);
-        std::fprintf(stderr, "[vita:mem] t=%.0f heap used=%.1f MB arena=%.1f MB | vgl vram=%.1f/%.1f ram=%.1f/%.1f MB | system free user=%.1f cdram=%.1f phycont=%.1f MB\n", now,
-                     mi.uordblks / 1048576.0, mi.arena / 1048576.0, vglMemFree(VGL_MEM_VRAM) / 1048576.0, vglMemTotal(VGL_MEM_VRAM) / 1048576.0,
-                     vglMemFree(VGL_MEM_RAM) / 1048576.0, vglMemTotal(VGL_MEM_RAM) / 1048576.0,
-                     freeInfo.size_user / 1048576.0, freeInfo.size_cdram / 1048576.0, freeInfo.size_phycont / 1048576.0);
+        // Round 34: what each vitaGL pool holds by its own count (celosia.patch:
+        // Vita3K's mspace statistics are not real) and the GPU objects vitaGL
+        // put in the newlib heap because its pools had no room.
+        size_t used[VGL_MEM_ALL] = {}, spill = 0, spills = 0, spillTotal = 0, spillPeak = 0;
+        vglCeloMemStats(used, &spill, &spills, &spillTotal, &spillPeak);
+        const double MB = 1048576.0;
+        std::fprintf(stderr, "[vita:mem] t=%.0f heap used=%.1f MB arena=%.1f MB | vgl vram=%.1f/%.1f ram=%.1f/%.1f MB | system free user=%.1f cdram=%.1f phycont=%.1f MB"
+                             " | vgl used vram %.1f/%.1f ram %.1f/%.1f phycont %.1f/%.1f budget %.1f/%.1f MB, GPU objects in the heap %u (%.1f MB, peak %.1f, %.1f MB put there in all)\n",
+                     now, mi.uordblks / MB, mi.arena / MB, vglMemFree(VGL_MEM_VRAM) / MB, vglMemTotal(VGL_MEM_VRAM) / MB, vglMemFree(VGL_MEM_RAM) / MB,
+                     vglMemTotal(VGL_MEM_RAM) / MB, freeInfo.size_user / MB, freeInfo.size_cdram / MB, freeInfo.size_phycont / MB, used[VGL_MEM_VRAM] / MB,
+                     vglMemTotal(VGL_MEM_VRAM) / MB, used[VGL_MEM_RAM] / MB, vglMemTotal(VGL_MEM_RAM) / MB, used[VGL_MEM_PHYCONT] / MB,
+                     vglMemTotal(VGL_MEM_PHYCONT) / MB, used[VGL_MEM_BUDGET] / MB, vglMemTotal(VGL_MEM_BUDGET) / MB, static_cast<unsigned>(spills), spill / MB,
+                     spillPeak / MB, spillTotal / MB);
     }
     if (now - g_fpsWindowStart >= 1.0)
     {

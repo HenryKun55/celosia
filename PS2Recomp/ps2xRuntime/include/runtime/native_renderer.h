@@ -469,7 +469,16 @@ namespace native_renderer
     // lines stay synchronous, so they can come out ahead of buffered ones.
     // SOTC_LOG_ASYNC=0: written at once (as before).
     void logf(const char *format, ...) __attribute__((format(printf, 1, 2)));
+    void logBytes(const char *bytes, size_t n); // round 34: raw bytes into the ring (logCaptureStderr)
     void logFlush(); // what the ring holds, written now (the terminate handler)
+    // Round 34 (the Vita, SOTC_LOG_STDERR, default on with SOTC_LOG_ASYNC):
+    // every stderr write from then on goes into the ring too (newlib's FILE
+    // write function replaced), the writer thread alone writing err.txt. The
+    // console's err.txt is unbuffered: each std::cerr piece was a card write
+    // on the caller's thread; the game thread's "[irq] dispatch" lines (seven
+    // pieces each, every 600 interrupts of a cause) stood before 62 of the 63
+    // in-game frames over 120 ms of round 32's console session.
+    void logCaptureStderr();
 
     namespace threads
     {

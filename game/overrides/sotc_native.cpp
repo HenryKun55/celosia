@@ -61,6 +61,11 @@
 #include <set>
 #include <string>
 #include <sys/stat.h>
+#if !defined(__vita__)
+#include <signal.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -116,6 +121,40 @@ namespace sotc_native
     }
 
     const uint8_t *g_ram = nullptr;
+    // Round 34, -DSOTC_READ_TRACK (check builds, r34/rt): the guest words the
+    // thread reads while t_readTrack (4-byte granules, g_readBits), for
+    // SOTC_KICK_DEFER_CHECK. Nothing in other builds.
+#if defined(SOTC_READ_TRACK)
+    thread_local bool t_readTrack = false;
+    uint8_t *g_readBits = nullptr; // 32 MB / 4 bits
+    thread_local uint8_t t_readSite = 0;
+    uint8_t *g_readTag = nullptr; // a word's last reader (SOTC_READ_SITE)
+    inline void noteRead(uint32_t addr, uint32_t bytes)
+    {
+        if (!t_readTrack || !bytes || !g_readBits)
+            return;
+        for (uint32_t a = addr & ~3u, end = addr + bytes; a < end; a += 4u)
+        {
+            const uint32_t w = (a & 0x1FFFFFFu) >> 2;
+            g_readBits[w >> 3] |= static_cast<uint8_t>(1u << (w & 7u));
+            g_readTag[w] = t_readSite;
+        }
+    }
+    struct ReadSite
+    {
+        uint8_t prev;
+        explicit ReadSite(uint8_t site) : prev(t_readSite) { t_readSite = site; }
+        ~ReadSite() { t_readSite = prev; }
+    };
+#define SOTC_READ_SITE_CAT2(a, b) a##b
+#define SOTC_READ_SITE_CAT(a, b) SOTC_READ_SITE_CAT2(a, b)
+#define SOTC_READ_SITE(n) ::sotc_native::ReadSite SOTC_READ_SITE_CAT(readSite_, __LINE__)(n)
+    const char *const kReadSiteNames[] = {"other", "modelDispDraw", "verify", "surfaceRow/Scroll", "surface", "packetId", "texture", "palette", "skinRecord",
+                                          "mesh/shadow/ptcl/2D", "kick pass", "build copy", "lod", "draw's scroll row", "plan walk"};
+#else
+    inline void noteRead(uint32_t, uint32_t) {}
+#define SOTC_READ_SITE(n)
+#endif
     // The display walk's fast paths (2026-10-22 evening), on unless
     // SOTC_NATIVE_R2=0 (no longer alternated by SOTC_AB); set once a frame
     // (syncFrame). Each part has a switch of its own too.
@@ -192,6 +231,7 @@ namespace sotc_native
     inline void guestBlock(uint32_t addr, uint32_t bytes, void *out)
     {
         const uint32_t at = addr & 0x1FFFFFCu;
+        noteRead(addr, bytes);
         if (at + bytes <= 0x2000000u)
             std::memcpy(out, g_ram + at, bytes);
         else
@@ -200,12 +240,14 @@ namespace sotc_native
     }
     uint32_t word(uint32_t addr)
     {
+        noteRead(addr, 4u);
         uint32_t v;
         std::memcpy(&v, g_ram + (addr & 0x1FFFFFCu), 4);
         return v;
     }
     float real(uint32_t addr)
     {
+        noteRead(addr, 4u);
         float v;
         std::memcpy(&v, g_ram + (addr & 0x1FFFFFCu), 4);
         return v;
@@ -530,6 +572,7 @@ namespace sotc_native
     uint64_t contentHash(uint32_t addr, uint32_t bytes, uint64_t h)
     {
         addr &= 0x1FFFFFCu;
+        noteRead(addr, bytes);
         if (g_fastHash)
         {
             if (addr + bytes <= 0x2000000u)
@@ -599,6 +642,7 @@ namespace sotc_native
     TextureMemo g_textureMemo[256];
     uint64_t texture(uint32_t header)
     {
+        SOTC_READ_SITE(6);
         if (!native_renderer::tuning().fastHooks)
             return decodedTexture(header);
         TextureMemo &memo = g_textureMemo[(header ^ (header >> 9)) & 255u];
@@ -664,6 +708,7 @@ namespace sotc_native
     // The source of a texture (formats checked by the caller); false: no room.
     bool texSource(uint32_t header, TexSource &src)
     {
+        SOTC_READ_SITE(6);
         const uint32_t format = word(header + 0x1Cu);
         src.header = header;
         src.psm = format & 0x3Fu;
@@ -673,6 +718,7 @@ namespace sotc_native
         // stored one after the other; byte +0x1f has a swizzle bit per level.
         static const bool noMips = std::getenv("SOTC_NATIVE_NOMIPS") != nullptr;
         src.levels = noMips ? 1u : std::clamp((format >> 12) & 0xFu, 1u, 7u);
+        noteRead(header + 0x1Fu, 1u);
         src.swizzleBits = g_ram[(header + 0x1Fu) & 0x1FFFFFFu];
         if (src.psm != 0x00u)
         {
@@ -704,6 +750,7 @@ namespace sotc_native
             return false;
         }
         const uint32_t pixels = (header + word(header + 0x14u)) & 0x1FFFFFFu;
+        noteRead(pixels, static_cast<uint32_t>(reach));
         if (pixels + reach <= 0x2000000u)
             std::memcpy(src.pixels.data(), g_ram + pixels, reach);
         else
@@ -811,6 +858,7 @@ namespace sotc_native
 
     uint64_t decodedTexture(uint32_t header)
     {
+        SOTC_READ_SITE(6);
         if (!header || word(header) != 0x324F544Eu) // "NTO2"
             return 0;
         const uint32_t format = word(header + 0x1Cu), psm = format & 0x3Fu;
@@ -900,7 +948,7 @@ namespace sotc_native
                              ++level, w /= 2u, h /= 2u)
                             bytes += psm == 0x00u ? w * h * 4u : (psm == 0x13u ? w * h : w * h / 2u);
                         uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
-                        h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ g_ram[(header + 0x1Fu) & 0x1FFFFFFu]);
+                        h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ (noteRead(header + 0x1Fu, 1u), g_ram[(header + 0x1Fu) & 0x1FFFFFFu]));
                         const uint64_t fresh = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
                         static uint64_t checks = 0, bad = 0;
                         ++checks;
@@ -922,7 +970,7 @@ namespace sotc_native
                 g_hashBytes[1] += bytes;
                 ++g_hashCalls[1];
                 uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
-                h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ g_ram[(header + 0x1Fu) & 0x1FFFFFFu]);
+                h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ (noteRead(header + 0x1Fu, 1u), g_ram[(header + 0x1Fu) & 0x1FFFFFFu]));
                 key = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
                 memo = {header, format, g_frame, sampled, key, g_frame, found && (memo.rewritten || changedInPlace), sotc_decomp::g_guestMoveSerial};
             }
@@ -1032,6 +1080,7 @@ namespace sotc_native
         // stored one after the other; byte +0x1f has a swizzle bit per level.
         static const bool noMips = std::getenv("SOTC_NATIVE_NOMIPS") != nullptr;
         const uint32_t levels = noMips ? 1u : std::clamp((format >> 12) & 0xFu, 1u, 7u);
+        noteRead(header + 0x1Fu, 1u);
         const uint8_t swizzleBits = g_ram[(header + 0x1Fu) & 0x1FFFFFFu];
         rgba.clear();
         std::vector<uint8_t> scratch;
@@ -1063,6 +1112,7 @@ namespace sotc_native
             if (psm == 0x00u)
             {
                 // PSMCT32: the pixels themselves (alpha 0x80 = opaque).
+                noteRead(pixels, w * h * 4u);
                 for (uint32_t i = 0; i < w * h; ++i)
                     std::memcpy(out + i * 4u, g_ram + ((pixels + i * 4u) & 0x1FFFFFFu), 4);
             }
@@ -1078,7 +1128,10 @@ namespace sotc_native
                     {
                         const uint32_t a = GSPSMCT32::addrPSMCT32(0, bw32, i % cw, i / cw);
                         if (a + 4u <= scratch.size())
+                        {
+                            noteRead(pixels + i * 4u, 4u);
                             std::memcpy(&scratch[a], g_ram + ((pixels + i * 4u) & 0x1FFFFFFu), 4);
+                        }
                     }
                 }
                 const uint32_t tbw = std::max<uint32_t>(w / 64u, 2u);
@@ -1099,11 +1152,15 @@ namespace sotc_native
                         }
                         else if (psm == 0x14u)
                         {
+                            noteRead(pixels + (y * w + x) / 2u, 1u);
                             const uint8_t b = g_ram[(pixels + (y * w + x) / 2u) & 0x1FFFFFFu];
                             index = (x & 1u) ? (b >> 4) : (b & 15u);
                         }
                         else
+                        {
+                            noteRead(pixels + y * w + x, 1u);
                             index = g_ram[(pixels + y * w + x) & 0x1FFFFFFu];
+                        }
                         std::memcpy(out + (static_cast<size_t>(y) * w + x) * 4u, &palette[index & (entries - 1u)], 4);
                     }
             }
@@ -1217,6 +1274,7 @@ namespace sotc_native
     uint64_t g_rekeyed = 0, g_rekeyHits = 0;
     void rekeyPacketMemo()
     {
+        SOTC_READ_SITE(5);
         namespace sd = sotc_decomp;
         const uint32_t count = sd::g_guestMoveCount;
         if (count == g_rekeyedAt)
@@ -1309,6 +1367,7 @@ namespace sotc_native
     bool g_packetRewritten = false;
     uint64_t packetId(uint32_t data, uint32_t size, bool fast)
     {
+        SOTC_READ_SITE(5);
         g_packetChangedInPlace = false;
         g_packetRewritten = false;
         if (!fast)
@@ -1481,6 +1540,7 @@ namespace sotc_native
     // The surface's texture: +0x2c, or +0x3c for the second (texture mode 2).
     uint64_t surfaceTexture(uint32_t header, uint32_t surface, uint32_t field = 0x2Cu)
     {
+        SOTC_READ_SITE(4);
         const uint32_t s = word(header + 0x50u) + surface * 0x120u;
         const uint32_t index = word(s + field);
         if (index >= word(header + 0x44u))
@@ -1493,8 +1553,9 @@ namespace sotc_native
     // layers go to the GS in increasing order, so it is the draw order.
     uint32_t surfaceLayer(uint32_t header, uint32_t s, bool fading)
     {
+        SOTC_READ_SITE(4);
         uint64_t flags;
-        std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+        noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
         const uint32_t owner = word(header + 8u);
         const bool second = owner && word(owner + 0x38u) == 1u;
         const auto bit = [flags](int n) { return ((flags >> n) & 1u) != 0; };
@@ -1523,7 +1584,7 @@ namespace sotc_native
     bool surfaceDrawn(uint32_t s)
     {
         uint64_t flags;
-        std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+        noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
         const uint32_t boss = word(0x1186290u);
         if ((flags >> 29) & 1u)
             return false;
@@ -1538,8 +1599,40 @@ namespace sotc_native
     // transfer packet, the row the 16-bit values at *(NTO2 header +0xc) and
     // +4, which the game moves every frame. The ST unpacks use STMOD 1, so
     // the row adds to S and T (12-bit fraction).
+    struct ScrollRow
+    {
+        uint32_t at = 0, w0 = 0, w1 = 0; // the pair's address, its two words
+    };
+    // Round 34: the model draw running (modelDispDraw) takes the scroll rows
+    // and the mip K scale its hook copied (SOTC_KICK_DEFER: the job may run
+    // after the game moved them for the next frame); a row its hook did not
+    // copy is read here as before (counted: g_scrollMissed).
+    const std::vector<ScrollRow> *g_drawScrolls = nullptr;
+    float g_drawLodScale = 0.0f;
+    bool g_drawLodScaleSet = false;
+    uint64_t g_scrollMissed = 0, g_scrollTaken = 0;
+    uint64_t g_kickJoined = 0; // SOTC_KICK_DEFER: kicks that joined all the same (a draw without a plan)
+    inline float drawLodScale() { return g_drawLodScaleSet ? g_drawLodScale : real(0x0118C180u); }
+    inline void scrollRead(uint32_t scroll, uint32_t &w0, uint32_t &w1)
+    {
+        if (const std::vector<ScrollRow> *rows = g_drawScrolls)
+        {
+            for (const ScrollRow &r : *rows)
+                if (r.at == scroll)
+                {
+                    w0 = r.w0, w1 = r.w1;
+                    ++g_scrollTaken;
+                    return;
+                }
+            ++g_scrollMissed;
+        }
+        noteRead(scroll, 8u);
+        std::memcpy(&w0, g_ram + (scroll & 0x1FFFFFCu), 4);
+        std::memcpy(&w1, g_ram + ((scroll + 4u) & 0x1FFFFFCu), 4);
+    }
     bool surfaceRow(uint32_t header, uint32_t surface, float offset[2], uint32_t field = 0x2Cu)
     {
+        SOTC_READ_SITE(3);
         const uint32_t s = word(header + 0x50u) + surface * 0x120u;
         const uint32_t index = word(s + field);
         if (index >= word(header + 0x44u))
@@ -1549,9 +1642,9 @@ namespace sotc_native
         const uint32_t scroll = nto2 ? word(nto2 + 0xCu) : 0u;
         if (!scroll)
             return false;
-        uint32_t pair;
-        std::memcpy(&pair, g_ram + (scroll & 0x1FFFFFCu), 4);
-        const int32_t r0 = static_cast<int32_t>(pair & 0xFFFFu), r1 = static_cast<int32_t>(word(scroll + 4u) & 0xFFFFu);
+        uint32_t pair, second;
+        scrollRead(scroll, pair, second);
+        const int32_t r0 = static_cast<int32_t>(pair & 0xFFFFu), r1 = static_cast<int32_t>(second & 0xFFFFu);
         offset[0] = static_cast<float>(r0) / 4096.0f;
         offset[1] = static_cast<float>(r1) / 4096.0f;
         return r0 != 0 || r1 != 0;
@@ -1562,6 +1655,7 @@ namespace sotc_native
     // *0x118c180 (1/16 steps); the GS level is log2(1/Q) x 2^L + K, Q = 1/w.
     void surfaceLod(uint32_t header, uint32_t surface, native_renderer::DrawState &state, uint32_t field = 0x2Cu)
     {
+        SOTC_READ_SITE(12);
         const uint32_t s = word(header + 0x50u) + surface * 0x120u;
         const uint32_t index = word(s + field);
         if (index >= word(header + 0x44u))
@@ -1575,7 +1669,7 @@ namespace sotc_native
             return;
         state.maxLod = static_cast<float>(levels - 1u);
         state.lodScale = static_cast<float>(1u << (word(nto2 + 0x94u) & 3u));
-        const int32_t k = static_cast<int32_t>(static_cast<float>(static_cast<int32_t>(word(nto2 + 0x90u))) * real(0x0118C180u));
+        const int32_t k = static_cast<int32_t>(static_cast<float>(static_cast<int32_t>(word(nto2 + 0x90u))) * drawLodScale());
         state.lodK = static_cast<float>((k << 20) >> 20) / 16.0f; // 12-bit signed, 7.4
     }
 
@@ -1588,6 +1682,7 @@ namespace sotc_native
     // edge into the border under bilinear filtering (light seams).
     uint8_t surfaceClamp(uint32_t s, uint32_t reg = 0x08u)
     {
+        SOTC_READ_SITE(4);
         for (uint32_t q = s + 0x60u; q < s + 0xC0u; q += 16u)
             if (word(q + 8u) == reg)
             {
@@ -1607,6 +1702,7 @@ namespace sotc_native
     }
     native_renderer::Blend surfaceBlend(uint32_t s, uint32_t reg = 0x42u)
     {
+        SOTC_READ_SITE(4);
         // SOTC_LOG_SURFACE_REGS=1: the distinct GS registers of the surfaces' A+D packets.
         if (reg == 0x42u && g_logSurfaceRegs())
         {
@@ -1661,6 +1757,7 @@ namespace sotc_native
     // surfaceLod's reads, kept (the K product made per draw: applyLod).
     SurfaceInfo::Lod surfaceLodInfo(uint32_t header, uint32_t s, uint32_t field)
     {
+        SOTC_READ_SITE(12);
         SurfaceInfo::Lod l;
         const uint32_t index = word(s + field);
         if (index >= word(header + 0x44u))
@@ -1680,16 +1777,18 @@ namespace sotc_native
     }
     void applyLod(const SurfaceInfo::Lod &l, native_renderer::DrawState &state)
     {
+        SOTC_READ_SITE(12);
         if (!l.on)
             return;
         state.maxLod = l.maxLod;
         state.lodScale = l.lodScale;
-        const int32_t k = static_cast<int32_t>(static_cast<float>(l.k) * real(0x0118C180u));
+        const int32_t k = static_cast<int32_t>(static_cast<float>(l.k) * drawLodScale());
         state.lodK = static_cast<float>((k << 20) >> 20) / 16.0f; // 12-bit signed, 7.4
     }
     // surfaceRow's reads: the row pair's address.
     uint32_t surfaceScroll(uint32_t header, uint32_t s)
     {
+        SOTC_READ_SITE(3);
         const uint32_t index = word(s + 0x2Cu);
         if (index >= word(header + 0x44u))
             return 0;
@@ -1701,13 +1800,14 @@ namespace sotc_native
     // The flags and texture mode (what every packet asks first).
     SurfaceInfo &surfaceInfo(uint32_t header, uint32_t s, SurfaceInfo *memo = g_surfaceInfo)
     {
+        SOTC_READ_SITE(4);
         SurfaceInfo &i = memo[surfaceSlot(s)];
         if (i.s == s && i.header == header && i.frame == g_frame)
             return i;
         i.s = s;
         i.header = header;
         i.frame = g_frame;
-        std::memcpy(&i.flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+        noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&i.flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
         i.texMode = word(s + 0x1Cu);
         i.full = false;
         i.layer[0] = static_cast<uint8_t>(surfaceLayer(header, s, false));
@@ -1729,6 +1829,7 @@ namespace sotc_native
     // The rest, at the first draw of the surface this frame.
     const SurfaceInfo &surfaceInfoFull(SurfaceInfo &i, uint32_t surface)
     {
+        SOTC_READ_SITE(4);
         if (i.full)
             return i;
         i.full = true;
@@ -1868,6 +1969,7 @@ namespace sotc_native
     }
     bool readChainPalette(uint32_t own, VuPalette &palette)
     {
+        SOTC_READ_SITE(7);
         if (((word(own) >> 28) & 7u) != 2u)
             return false;
         const uint32_t ret = word(own + 4u), qwc = word(ret) & 0xFFFFu;
@@ -1890,6 +1992,7 @@ namespace sotc_native
             for (uint32_t q = at; q < last; ++q)
             {
                 const uint32_t from = p + (q - at) * 16u;
+                noteRead(from, 16u);
                 if ((from & 0x1FFFFFCu) + 16u <= 0x2000000u)
                     std::memcpy(&vu[q * 4u], g_ram + (from & 0x1FFFFFCu), 16);
                 else
@@ -1915,6 +2018,7 @@ namespace sotc_native
     // draw's prefetch).
     bool readChainPaletteLean(uint32_t own, uint32_t &lo, uint32_t &hi, std::vector<float> &out, uint32_t &ret, uint32_t &bytes)
     {
+        SOTC_READ_SITE(7);
         ret = 0;
         bytes = 0;
         if (((word(own) >> 28) & 7u) != 2u)
@@ -1969,6 +2073,7 @@ namespace sotc_native
                 if (((q - at) & 1u) == 0u)
                     prefetchGuest(from + 128u);
                 float *const to = out.data() + (q - lo) * 4u;
+                noteRead(from, 16u);
                 if ((from & 0x1FFFFFCu) + 16u <= 0x2000000u)
                     std::memcpy(to, g_ram + (from & 0x1FFFFFCu), 16);
                 else
@@ -2280,20 +2385,27 @@ namespace sotc_native
     struct SkinKickStats
     {
         uint64_t kicks = 0, records = 0, changed = 0, reposed = 0, rewritten = 0;
+        uint64_t deferred = 0, copied = 0, missed = 0; // round 34 (SOTC_KICK_DEFER)
     } g_skinKickStats;
 
-    void skinAtKick()
+    // The kick's pass, `now` taken by fetch(rec.own, now) (true: a palette,
+    // as readChainPalette leaves the VU picture). One picture for both ways
+    // (zero but for the last palette's qwords).
+    VuPalette g_kickNow;
+    template <typename Fetch>
+    void skinAtKickWith(Fetch &&fetch)
     {
+        SOTC_READ_SITE(10);
         if (g_skinDrawList.empty())
             return;
-        static VuPalette now;
+        VuPalette &now = g_kickNow;
         SkinKickStats &st = g_skinKickStats;
         ++st.kicks;
         for (uint32_t r = 0; r < g_skinRecords.size(); ++r)
         {
             SkinRecord &rec = g_skinRecords[r];
             ++st.records;
-            if (!readChainPalette(rec.own, now))
+            if (!fetch(rec.own, now))
                 continue;
             if (now.lo == rec.lo && now.hi == rec.hi &&
                 std::memcmp(now.data() + rec.lo * 4u, rec.used.data(), rec.used.size() * sizeof(float)) == 0)
@@ -2325,9 +2437,101 @@ namespace sotc_native
         }
         static const bool log = std::getenv("SOTC_SKIN_KICK_LOG") != nullptr;
         if (log && st.kicks % 600u == 0u)
-            std::fprintf(stderr, "[skin-kick] %llu kicks: %llu instance palettes, %llu changed after their draws: %llu parts posed again, %llu GPU palettes rewritten\n",
+            std::fprintf(stderr, "[skin-kick] %llu kicks: %llu instance palettes, %llu changed after their draws: %llu parts posed again, %llu GPU palettes rewritten; "
+                         "deferred kicks %llu (joined %llu: a draw without a plan), palettes copied at the kick %llu, records not among them %llu; "
+                         "scroll rows from the hook %llu, read late %llu\n",
                          (unsigned long long)st.kicks, (unsigned long long)st.records, (unsigned long long)st.changed, (unsigned long long)st.reposed,
-                         (unsigned long long)st.rewritten);
+                         (unsigned long long)st.rewritten, (unsigned long long)st.deferred, (unsigned long long)g_kickJoined, (unsigned long long)st.copied,
+                         (unsigned long long)st.missed, (unsigned long long)g_scrollTaken, (unsigned long long)g_scrollMissed);
+    }
+    void skinAtKick()
+    {
+        skinAtKickWith([](uint32_t own, VuPalette &now) { return readChainPalette(own, now); });
+    }
+
+    // ---- The kick without its join (round 34) -----------------------------
+    //
+    // Round 23 joined the model jobs at the kick: skinAtKick reads their
+    // records, and the jobs read guest memory the PS2's DMA reads at the kick.
+    // With a slow worker (the console's) the game thread waited 3-4 ms a
+    // frame there, about the worker's whole job time. Now (SOTC_KICK_DEFER,
+    // default 1, with the worker on) the game thread copies, at the kick, the
+    // bone palettes of every chain its hooks saw with one this frame
+    // (g_kickOwns: what skinAtKick would read there, the same moment) and
+    // hands the pass over as a job behind the frame's model jobs (kJobKick:
+    // skinAtKickWith on the copies); the jobs are joined at the next frame's
+    // first hook (syncFrame), the garbage pass's moves (k_move) or any other
+    // join, so the worker runs them while the game goes on with the next
+    // frame's logic. The draws keep their order (one ring); what the jobs
+    // read of guest memory after the kick is what the DMA read there, which
+    // the game leaves alone until its next display list (checked on the Mac:
+    // SOTC_KICK_DEFER_CHECK=1 holds the jobs from the kick to the join, runs
+    // them on a copy of guest memory taken at the kick, and compares every
+    // page they read with the memory at the join).
+    struct KickPalette
+    {
+        uint32_t own = 0, lo = 0, hi = 0;
+        bool ok = false;
+        std::vector<float> data; // qwords lo..hi
+    };
+    struct KickJob
+    {
+        uint32_t count = 0;               // palettes[0..count) (each slot keeps its room)
+        std::vector<KickPalette> palettes; // by own, ascending
+    };
+    // The kick jobs' copies: a few kept apart from the ring (each slot keeps
+    // its vectors' room: 512 slots that held a kick's ~100 KB of palettes
+    // grew the heap by megabytes); kickRun counts the ones done.
+    constexpr uint32_t kKickJobs = 4;
+    KickJob g_kickJobs[kKickJobs];
+    uint32_t g_kickPushed = 0;
+    std::atomic<uint32_t> g_kickDone{0};
+    std::vector<uint32_t> g_kickOwns; // the frame's chains with a palette at their hook (game thread; cleared with the records)
+    bool g_kickDefer = true;          // SOTC_KICK_DEFER (read at the first frame)
+    bool g_kickMustJoin = false;      // a model job of this frame without its hook's scroll rows (no plan): the kick joins as before
+    // The game thread at the kick: the palettes copied into the job.
+    void kickCopy(KickJob &job)
+    {
+        std::sort(g_kickOwns.begin(), g_kickOwns.end());
+        g_kickOwns.erase(std::unique(g_kickOwns.begin(), g_kickOwns.end()), g_kickOwns.end());
+        if (job.palettes.size() < g_kickOwns.size())
+            job.palettes.resize(g_kickOwns.size());
+        job.count = static_cast<uint32_t>(g_kickOwns.size());
+        for (uint32_t i = 0; i < job.count; ++i)
+        {
+            KickPalette &k = job.palettes[i];
+            uint32_t ret = 0, bytes = 0;
+            k.own = g_kickOwns[i];
+            k.ok = readChainPaletteLean(k.own, k.lo, k.hi, k.data, ret, bytes);
+        }
+        g_skinKickStats.copied += job.count;
+        ++g_skinKickStats.deferred;
+    }
+    // The worker: the pass on the kick's copies (a chain not among them, which
+    // the verify would show, read as before).
+    void kickRun(const KickJob &job)
+    {
+        skinAtKickWith([&job](uint32_t own, VuPalette &now)
+        {
+            const KickPalette *const first = job.palettes.data(), *const last = first + job.count;
+            const KickPalette *k = std::lower_bound(first, last, own, [](const KickPalette &a, uint32_t o) { return a.own < o; });
+            if (k == last || k->own != own)
+            {
+                ++g_skinKickStats.missed;
+                return readChainPalette(own, now);
+            }
+            if (!k->ok)
+                return false;
+            // As readChainPalette leaves the picture: the last palette's
+            // qwords cleared, this one's written (zero where no UNPACK wrote).
+            if (now.hi > now.lo)
+                std::fill(now.vu.begin() + now.lo * 4u, now.vu.begin() + now.hi * 4u, 0.0f);
+            if (k->hi > k->lo)
+                std::copy(k->data.begin(), k->data.end(), now.vu.begin() + k->lo * 4u);
+            now.lo = k->lo;
+            now.hi = k->hi;
+            return true;
+        });
     }
 
     // ---- Draw plans (round 8) --------------------------------------------
@@ -2371,6 +2575,7 @@ namespace sotc_native
         uint32_t first[5] = {};
         uint64_t listHash = 0, checked = ~0ull, used = 0, meshEpoch = 0, skinEpoch = 0;
         std::vector<PlanPacket> pk;
+        std::vector<uint32_t> surfaceRecords; // round 34: the packets' surface records, each once (hookScrolls)
     };
     std::unordered_map<uint64_t, ModelPlan> g_plans;
     int32_t g_planBudget = 0; // packets the frame's new plans may still walk (SOTC_PLAN_BUDGET, default 3000)
@@ -2456,6 +2661,10 @@ namespace sotc_native
             e.slot = surfaceSlot(e.s);
             p.pk.push_back(e);
         }
+        p.surfaceRecords.clear();
+        for (const PlanPacket &e : p.pk)
+            if (std::find(p.surfaceRecords.begin(), p.surfaceRecords.end(), e.s) == p.surfaceRecords.end())
+                p.surfaceRecords.push_back(e.s);
         p.count = count;
         p.listHash = h;
         for (uint32_t i = 0; i < 5u; ++i)
@@ -3416,6 +3625,14 @@ namespace sotc_native
     struct ModelDispJob
     {
         uint32_t instance = 0, matrix = 0, header = 0, table = 0, lod = 0, gameLod = 0;
+        // Round 34 (SOTC_KICK_DEFER): what the game changes between the kick
+        // and the next frame's first hook, taken at the hook: the instance's
+        // chain (+0xc, double-buffered by frame), the mip K scale *0x118c180,
+        // the texture scroll rows of the plan's surfaces.
+        uint32_t own = 0;
+        float lodScale = 0.0f;
+        bool scrollsTaken = false; // scrolls hold every row of the plan's surfaces
+        std::vector<ScrollRow> scrolls;
         bool fading = false, partCulled = false, planOn = false;
         float opacity = 1.0f;
         float clip[16] = {}, projection[16] = {};
@@ -3485,7 +3702,8 @@ namespace sotc_native
         kJobMesh,
         kJobShadow,
         kJobPtcl,
-        kJob2D
+        kJob2D,
+        kJobKick // round 34: skinAtKick on the kick's palettes (SOTC_KICK_DEFER)
     };
     struct HookJob
     {
@@ -3495,6 +3713,7 @@ namespace sotc_native
         ShadowDispJob shadow;
         PtclVtxJob ptcl;
         Draw2DJob draw2d;
+        uint32_t kick = 0; // round 34: its KickJob (g_kickJobs; not one a ring slot, which would keep every palette's room)
     };
     void runJob(HookJob &job);
     // SOTC_HOOK_ASYNC_VERIFY: a hash of everything a job took at the hook
@@ -3566,11 +3785,258 @@ namespace sotc_native
         uint64_t g_joinUs = 0, g_joins = 0, g_waits = 0; // the game thread's
         bool g_timing = false; // frameTiming() at the frame's start
 
+#if !defined(__vita__)
+        // SOTC_KICK_DEFER_CHECK=1 (Mac, round 34): what the deferred kick
+        // (SOTC_KICK_DEFER) changes, shown. At each kick the worker is held
+        // (after the job it is in) and guest memory copied; at the next join
+        // the held jobs run on that copy (g_ram: the game thread waits in the
+        // join meanwhile), which is protected so that each page they read
+        // faults once and is marked; then every page read is compared with
+        // guest memory as the game left it at the join. A page read that
+        // changed would be one a job, run as late as the join, would have read
+        // differently from the kick's ([kick-check] lines, the changed lines'
+        // guest addresses). With SOTC_HOOK_WORKER_DELAY_US most of the frame's
+        // jobs are still waiting at the kick.
+        bool g_deferCheck = false;
+        std::atomic<bool> g_hold{false}, g_inJob{false};
+        uint8_t *g_snap = nullptr;
+        const uint8_t *g_live = nullptr;
+        size_t g_pageBytes = 16384u;
+        std::atomic<uint8_t> *g_pagesRead = nullptr;
+        struct DeferCheckStats
+        {
+            uint64_t kicks = 0, checks = 0, held = 0, pagesRead = 0, pagesChanged = 0, linesChanged = 0, framesChanged = 0;
+            uint64_t wordsRead = 0, wordsChanged = 0, framesWordsChanged = 0, pagesUntracked = 0; // -DSOTC_READ_TRACK
+        } g_dc;
+#if defined(SOTC_READ_TRACK)
+        uint64_t g_dcBySite[16] = {};
+        std::map<uint32_t, std::pair<uint64_t, uint8_t>> *g_dcByAddr = nullptr;
+#endif
+        struct sigaction g_prevBus, g_prevSegv;
+        void snapFault(int sig, siginfo_t *si, void *uc)
+        {
+            uint8_t *const a = static_cast<uint8_t *>(si->si_addr);
+            if (g_snap && a >= g_snap && a < g_snap + 0x2000000u)
+            {
+                const size_t page = static_cast<size_t>(a - g_snap) / g_pageBytes;
+                g_pagesRead[page].store(1u, std::memory_order_relaxed);
+                mprotect(g_snap + page * g_pageBytes, g_pageBytes, PROT_READ);
+                return;
+            }
+            struct sigaction &prev = sig == SIGBUS ? g_prevBus : g_prevSegv;
+            if (prev.sa_flags & SA_SIGINFO)
+                prev.sa_sigaction(sig, si, uc);
+            else if (prev.sa_handler != SIG_DFL && prev.sa_handler != SIG_IGN)
+                prev.sa_handler(sig);
+            else
+            {
+                signal(sig, SIG_DFL);
+                raise(sig);
+            }
+        }
+        void deferCheckInit()
+        {
+            g_pageBytes = static_cast<size_t>(getpagesize());
+            void *m = mmap(nullptr, 0x2000000u, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            if (m == MAP_FAILED)
+                return;
+            g_snap = static_cast<uint8_t *>(m);
+            g_pagesRead = new std::atomic<uint8_t>[0x2000000u / g_pageBytes];
+            struct sigaction sa = {};
+            sa.sa_sigaction = snapFault;
+            sa.sa_flags = SA_SIGINFO;
+            sigemptyset(&sa.sa_mask);
+            sigaction(SIGBUS, &sa, &g_prevBus);
+            sigaction(SIGSEGV, &sa, &g_prevSegv);
+            g_deferCheck = true;
+            std::fprintf(stderr, "[kick-check] on: jobs held from each kick to the next join, run on the kick's guest memory, %zu-byte pages compared\n", g_pageBytes);
+        }
+        void deferCheckKick()
+        {
+            g_hold.store(true, std::memory_order_seq_cst);
+            while (g_inJob.load(std::memory_order_seq_cst))
+                std::this_thread::yield();
+            std::memcpy(g_snap, g_ram, 0x2000000u);
+            ++g_dc.kicks;
+        }
+        bool deferCheckStart()
+        {
+            if (!g_hold.load(std::memory_order_relaxed))
+                return false;
+            g_dc.held += g_head.load(std::memory_order_relaxed) - g_tail.load(std::memory_order_acquire);
+            const size_t pages = 0x2000000u / g_pageBytes;
+            for (size_t i = 0; i < pages; ++i)
+                g_pagesRead[i].store(0u, std::memory_order_relaxed);
+#if defined(SOTC_READ_TRACK)
+            if (!g_readBits)
+            {
+                g_readBits = new uint8_t[0x2000000u / 32u];
+                g_readTag = new uint8_t[0x2000000u / 4u];
+            }
+            std::memset(g_readBits, 0, 0x2000000u / 32u);
+#endif
+            mprotect(g_snap, 0x2000000u, PROT_NONE);
+            g_live = g_ram;
+            g_ram = g_snap;
+            g_hold.store(false, std::memory_order_seq_cst);
+            if (g_sleeping.load(std::memory_order_seq_cst))
+                wakeWorker();
+            return true;
+        }
+        void deferCheckEnd()
+        {
+            g_ram = g_live;
+            mprotect(g_snap, 0x2000000u, PROT_READ | PROT_WRITE);
+            ++g_dc.checks;
+            const size_t pages = 0x2000000u / g_pageBytes;
+            uint64_t read = 0, changed = 0, lines = 0;
+            std::string where;
+            for (size_t i = 0; i < pages; ++i)
+            {
+                if (!g_pagesRead[i].load(std::memory_order_relaxed))
+                    continue;
+                ++read;
+                const uint8_t *a = g_snap + i * g_pageBytes, *b = g_live + i * g_pageBytes;
+                if (std::memcmp(a, b, g_pageBytes) == 0)
+                    continue;
+                ++changed;
+                for (size_t l = 0; l < g_pageBytes; l += 64u)
+                    if (std::memcmp(a + l, b + l, 64u) != 0)
+                    {
+                        ++lines;
+                        if (where.size() < 400u)
+                        {
+                            char item[24];
+                            std::snprintf(item, sizeof(item), " %07zx", i * g_pageBytes + l);
+                            where += item;
+                        }
+                    }
+            }
+#if defined(SOTC_READ_TRACK)
+            {
+                // The words the held jobs read (noteRead), against the memory
+                // at the join; and the pages that faulted with none of them
+                // (a read noteRead does not see).
+                uint64_t words = 0, differ = 0, untracked = 0;
+                std::string at;
+                for (size_t i = 0; i < pages; ++i)
+                {
+                    const size_t perPage = g_pageBytes / 32u; // bytes of bits a page
+                    bool any = false;
+                    for (size_t b = i * perPage; b < (i + 1) * perPage; ++b)
+                    {
+                        if (!g_readBits[b])
+                            continue;
+                        any = true;
+                        for (uint32_t k = 0; k < 8u; ++k)
+                            if (g_readBits[b] & (1u << k))
+                            {
+                                const size_t addr = (b * 8u + k) * 4u;
+                                ++words;
+                                if (std::memcmp(g_snap + addr, g_live + addr, 4) != 0)
+                                {
+                                    ++differ;
+                                    {
+                                        // By address and by reader, over the run.
+                                        static std::map<uint32_t, std::pair<uint64_t, uint8_t>> &byAddr = *new std::map<uint32_t, std::pair<uint64_t, uint8_t>>;
+                                        auto &e = byAddr[static_cast<uint32_t>(addr)];
+                                        ++e.first;
+                                        e.second = g_readTag[addr / 4u];
+                                        ++g_dcBySite[std::min<uint32_t>(e.second, 15u)];
+                                        g_dcByAddr = &byAddr;
+                                    }
+                                    if (at.size() < 600u)
+                                    {
+                                        uint32_t was, now;
+                                        std::memcpy(&was, g_snap + addr, 4);
+                                        std::memcpy(&now, g_live + addr, 4);
+                                        char item[48];
+                                        std::snprintf(item, sizeof(item), " %07zx:%08x>%08x", addr, was, now);
+                                        at += item;
+                                    }
+                                }
+                            }
+                    }
+                    if (!any && g_pagesRead[i].load(std::memory_order_relaxed))
+                    {
+                        ++untracked;
+                        if (at.size() < 600u)
+                        {
+                            char item[40];
+                            std::snprintf(item, sizeof(item), " untracked-page:%07zx", i * g_pageBytes);
+                            at += item;
+                        }
+                    }
+                }
+                g_dc.wordsRead += words;
+                g_dc.wordsChanged += differ;
+                g_dc.framesWordsChanged += differ ? 1u : 0u;
+                g_dc.pagesUntracked += untracked;
+                static uint32_t toldWords = 0;
+                if ((differ || untracked) && toldWords++ < 400u)
+                    std::fprintf(stderr, "[kick-check] frame %llu: words read %llu, changed since the kick %llu, faulted pages without a tracked read %llu:%s\n",
+                                 (unsigned long long)g_frame, (unsigned long long)words, (unsigned long long)differ, (unsigned long long)untracked, at.c_str());
+                if (g_dc.checks % 600u == 0u)
+                {
+                    std::fprintf(stderr, "[kick-check] words: %llu read, %llu changed in %llu frames; faulted pages without a tracked read %llu\n",
+                                 (unsigned long long)g_dc.wordsRead, (unsigned long long)g_dc.wordsChanged, (unsigned long long)g_dc.framesWordsChanged,
+                                 (unsigned long long)g_dc.pagesUntracked);
+                    std::string bySite;
+                    for (uint32_t k = 0; k < 16u; ++k)
+                        if (g_dcBySite[k])
+                        {
+                            char item[64];
+                            std::snprintf(item, sizeof(item), " %s %llu", k < sizeof(kReadSiteNames) / sizeof(kReadSiteNames[0]) ? kReadSiteNames[k] : "?",
+                                          (unsigned long long)g_dcBySite[k]);
+                            bySite += item;
+                        }
+                    std::fprintf(stderr, "[kick-check] changed words by reader:%s\n", bySite.c_str());
+                    if (g_dcByAddr)
+                    {
+                        std::vector<std::pair<uint64_t, uint32_t>> top;
+                        for (const auto &e : *g_dcByAddr)
+                            top.push_back({e.second.first, e.first});
+                        std::sort(top.rbegin(), top.rend());
+                        std::string list;
+                        for (size_t i = 0; i < top.size() && i < 80u; ++i)
+                        {
+                            char item[64];
+                            const uint8_t tag = (*g_dcByAddr)[top[i].second].second;
+                            std::snprintf(item, sizeof(item), " %07x(%s)x%llu", top[i].second, tag < sizeof(kReadSiteNames) / sizeof(kReadSiteNames[0]) ? kReadSiteNames[tag] : "?",
+                                          (unsigned long long)top[i].first);
+                            list += item;
+                        }
+                        std::fprintf(stderr, "[kick-check] %zu addresses changed; the most often:%s\n", top.size(), list.c_str());
+                    }
+                }
+            }
+            const bool pageLines = false; // the page-level lines (coarse: a 16 KB page holds much else)
+#else
+            const bool pageLines = true;
+#endif
+            g_dc.pagesRead += read;
+            g_dc.pagesChanged += changed;
+            g_dc.linesChanged += lines;
+            g_dc.framesChanged += changed ? 1u : 0u;
+            static uint32_t told = 0;
+            if (pageLines && changed && told++ < 300u)
+                std::fprintf(stderr, "[kick-check] frame %llu: pages read %llu, changed since the kick %llu (64-byte lines %llu:%s)\n", (unsigned long long)g_frame,
+                             (unsigned long long)read, (unsigned long long)changed, (unsigned long long)lines, where.c_str());
+            if (g_dc.checks % 600u == 0u)
+                std::fprintf(stderr, "[kick-check] %llu kicks, %llu checked: jobs held at the kick %llu, pages read %llu, changed %llu (lines %llu) in %llu frames\n",
+                             (unsigned long long)g_dc.kicks, (unsigned long long)g_dc.checks, (unsigned long long)g_dc.held, (unsigned long long)g_dc.pagesRead,
+                             (unsigned long long)g_dc.pagesChanged, (unsigned long long)g_dc.linesChanged, (unsigned long long)g_dc.framesChanged);
+        }
+#endif
+
         void loop()
         {
             ThreadNaming::SetCurrentThreadName("HookWorker");
             t_hookWorker = true;
             ::sotc_prof::t_offGameThread = true; // (the subsystem profiler's scopes are the game thread's)
+#if defined(SOTC_READ_TRACK)
+            t_readTrack = true; // (the bits cleared at each check's start: only the held jobs' count)
+#endif
             // Cores 1-2 beside the BuildWorker; round 33: above the render
             // thread's and the builds' priority (SOTC_THREADS,
             // SOTC_HOOK_WORKER_PRIO; [threads] line).
@@ -3579,8 +4045,25 @@ namespace sotc_native
             uint32_t tail = g_tail.load(std::memory_order_relaxed);
             for (;;)
             {
+#if !defined(__vita__)
+                if (g_deferCheck)
+                {
+                    // SOTC_KICK_DEFER_CHECK: held from the kick to the join.
+                    g_inJob.store(true, std::memory_order_seq_cst);
+                    if (g_hold.load(std::memory_order_seq_cst))
+                    {
+                        g_inJob.store(false, std::memory_order_seq_cst);
+                        std::this_thread::sleep_for(std::chrono::microseconds(50));
+                        continue;
+                    }
+                }
+#endif
                 if (tail == g_head.load(std::memory_order_acquire))
                 {
+#if !defined(__vita__)
+                    if (g_deferCheck)
+                        g_inJob.store(false, std::memory_order_seq_cst);
+#endif
                     // A few hundred looks before sleeping: the display walk
                     // hands a job over every few tens of microseconds.
                     bool more = false;
@@ -3651,6 +4134,10 @@ namespace sotc_native
                     g_jobUs += native_renderer::nowUs() - start;
                 ++g_jobs;
                 g_tail.store(++tail, std::memory_order_release);
+#if !defined(__vita__)
+                if (g_deferCheck)
+                    g_inJob.store(false, std::memory_order_seq_cst);
+#endif
             }
         }
         void start()
@@ -3685,6 +4172,17 @@ namespace sotc_native
         // Waits until every job handed over has run.
         void join(Site site)
         {
+#if !defined(__vita__)
+            struct CheckEnd // SOTC_KICK_DEFER_CHECK: after the held jobs ran
+            {
+                bool on;
+                ~CheckEnd()
+                {
+                    if (on)
+                        deferCheckEnd();
+                }
+            } checkEnd{g_deferCheck && deferCheckStart()};
+#endif
             if (!pending())
                 return;
             const uint64_t start = g_timing || g_verify ? native_renderer::nowUs() : 0u;
@@ -3834,6 +4332,13 @@ namespace sotc_native
             }
             static const bool verify = std::getenv("SOTC_HOOK_ASYNC_VERIFY") != nullptr;
             g_verify = verify;
+            // Round 34: the kick without its join (default on; SOTC_KICK_DEFER=0: joined there as before).
+            static const bool defer = !std::getenv("SOTC_KICK_DEFER") || std::atoi(std::getenv("SOTC_KICK_DEFER")) != 0;
+            g_kickDefer = defer;
+#if !defined(__vita__)
+            static const bool deferCheck = [] { if (std::getenv("SOTC_KICK_DEFER_CHECK") && defer) deferCheckInit(); return true; }();
+            (void)deferCheck;
+#endif
             if (on)
                 start();
             g_on = on;
@@ -3884,6 +4389,8 @@ namespace sotc_native
             endFrame();
             g_skinRecords.clear();
             g_skinDrawList.clear();
+            g_kickOwns.clear();
+            g_kickMustJoin = false;
             lap(kSyncEnd);
             frameLog();
             lap(kSyncLog);
@@ -4207,6 +4714,7 @@ namespace sotc_native
     // The worker's half of a deferred 2D batch: what flush2D does with it.
     void draw2DRun(Draw2DJob &job)
     {
+        SOTC_READ_SITE(9);
         if (job.textured)
         {
             if (hookjobs::g_verify)
@@ -4872,6 +5380,7 @@ namespace sotc_native
 
     void meshDispDraw(const MeshDispJob &job)
     {
+        SOTC_READ_SITE(9);
         const uint32_t object = job.object, header = job.header, layer = job.layer;
         const uint32_t base = object + 0x20u;
         const uint32_t rows = job.rows, columns = job.columns, buffer = job.buffer;
@@ -5087,6 +5596,7 @@ namespace sotc_native
 
     void shadowDispDraw(const ShadowDispJob &job)
     {
+        SOTC_READ_SITE(9);
         const uint32_t chain = job.chain, model = job.model;
         const bool skinnedShadow = job.skinned;
         const uint32_t ret = word(chain + 4u);
@@ -5309,6 +5819,7 @@ namespace sotc_native
 
     void ptclVtxDraw(const PtclVtxJob &job, const ParticleEnv &e)
     {
+        SOTC_READ_SITE(9);
         const uint32_t count = job.count, header = job.header, layer = job.layer;
         const uint32_t g_ptclBlend = job.blend; // (the one at the hook)
         // The particles' words (12 each) as captured: rd(i * 48 + offset).
@@ -6101,7 +6612,7 @@ namespace sotc_native
             if (info)
                 flags = info->flags;
             else
-                std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+                noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&flags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
             if ((flags >> 29) & 1u)
                 continue;
             if (partCulled && word(pk + 12u) != 0xFFFFFFFFu)
@@ -6312,6 +6823,7 @@ namespace sotc_native
     };
     bool buildPacketAsync(uint64_t id, uint32_t data, uint32_t size, bool twoPasses)
     {
+        SOTC_READ_SITE(11);
         if (!native_renderer::tuning().asyncBuilds)
             return false;
         PacketWork *job = new (std::nothrow) PacketWork();
@@ -6325,6 +6837,7 @@ namespace sotc_native
         const uint32_t bytes = (data - job->base) + size + 64u; // and a little after (read as the game's would be)
         try
         {
+            noteRead(job->base, bytes);
             if ((job->base & 0x1FFFFFFu) + bytes <= 0x2000000u)
             {
                 const uint8_t *from = g_ram + (job->base & 0x1FFFFFFu);
@@ -6379,6 +6892,49 @@ namespace sotc_native
         float refractAlpha = std::getenv("SOTC_REFRACT_ALPHA") ? static_cast<float>(std::atof(std::getenv("SOTC_REFRACT_ALPHA"))) : 1.0f;
         bool showRefraction = std::getenv("SOTC_REFRACT_SHOW") != nullptr; // debugging: where it lands, in red
     };
+
+    // Round 34 (SOTC_KICK_DEFER): the plan's texture scroll rows into the job
+    // at the hook (the game thread), the row addresses worked out once a frame
+    // a surface record as the job's surface memo does (surfaceScroll).
+    struct ScrollMemo
+    {
+        uint32_t s = 0, header = 0, scroll = 0;
+        uint64_t frame = ~0ull;
+    };
+    ScrollMemo g_scrollMemo[1024];
+    void hookScrolls(ModelDispJob &job)
+    {
+        job.scrolls.clear();
+        job.scrollsTaken = job.plan != nullptr;
+        if (!job.plan)
+        {
+            g_kickMustJoin = true;
+            return;
+        }
+        for (const uint32_t s : job.plan->surfaceRecords)
+        {
+            ScrollMemo &m = g_scrollMemo[surfaceSlot(s)];
+            if (m.frame != g_frame || m.s != s || m.header != job.header)
+            {
+                m.s = s;
+                m.header = job.header;
+                m.frame = g_frame;
+                m.scroll = surfaceScroll(job.header, s);
+            }
+            if (!m.scroll)
+                continue;
+            bool have = false;
+            for (const ScrollRow &r : job.scrolls)
+                have = have || r.at == m.scroll;
+            if (have)
+                continue;
+            ScrollRow r;
+            r.at = m.scroll;
+            r.w0 = word(m.scroll);
+            r.w1 = word(m.scroll + 4u);
+            job.scrolls.push_back(r);
+        }
+    }
 
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -6675,10 +7231,19 @@ namespace sotc_native
                 job.projection[i] = real(g_cameraContext + 0x40u + i * 4u);
         job.ripple[0] = real(0x0118C030u);
         job.ripple[1] = static_cast<float>(static_cast<int32_t>(word(0x01192090u)));
+        job.lodScale = real(0x0118C180u);
+        if (hookjobs::g_on && g_kickDefer)
+            hookScrolls(job);
+        else
+        {
+            job.scrolls.clear();
+            job.scrollsTaken = false;
+        }
         {
             SOTC_PROF_SCOPE(kHookPalette);
             static VuPalette now;
             const uint32_t own = word(instance + 0xCu);
+            job.own = own;
             if (lean)
             {
                 // Straight into the job; lo / hi as the VU picture's last
@@ -6689,7 +7254,11 @@ namespace sotc_native
                 if (leanStatsOn() && job.hasPalette)
                     g_leanStats.paletteHostBytes += job.palette.size() * 4u; // its own copy
                 if (job.hasPalette)
+                {
                     lastLo = lo, lastHi = hi;
+                    if (hookjobs::g_on && g_kickDefer && (g_kickOwns.empty() || g_kickOwns.back() != own))
+                        g_kickOwns.push_back(own); // its palette copied again at the kick (round 34)
+                }
                 else
                     job.palette.clear();
                 job.paletteLo = lastLo;
@@ -6721,6 +7290,8 @@ namespace sotc_native
             {
                 const uint32_t before = now.hi > now.lo ? now.hi - now.lo : 0u;
                 job.hasPalette = readPalette(instance, now);
+                if (job.hasPalette && hookjobs::g_on && g_kickDefer && (g_kickOwns.empty() || g_kickOwns.back() != own))
+                    g_kickOwns.push_back(own);
                 if (leanStatsOn() && job.hasPalette) // the clear of the last palette's range, then its copy in and out
                     g_leanStats.paletteHostBytes += (before + 2u * (now.hi > now.lo ? now.hi - now.lo : 0u)) * 16u;
                 job.paletteLo = now.lo;
@@ -6749,9 +7320,10 @@ namespace sotc_native
     // palette, [3] the model header's lists and the globals.
     uint64_t modelDispInputs(const ModelDispJob &job)
     {
+        SOTC_READ_SITE(2);
         uint64_t h[4] = {0xcbf29ce484222325ull, 0xcbf29ce484222325ull, 0xcbf29ce484222325ull, 0xcbf29ce484222325ull};
         const auto mix = [&h](int k, uint32_t v) { h[k] = (h[k] ^ v) * 0x100000001b3ull; };
-        const uint32_t own = word(job.instance + 0xCu);
+        const uint32_t own = job.own; // (round 34: as taken at the hook; the instance's +0xc moves to the next frame's chain)
         for (uint32_t a = own; a < own + 0x10u; a += 4u)
             mix(0, word(a));
         for (uint32_t a = own + 0x10u; a < own + 0x90u; a += 4u) // its lights
@@ -6779,9 +7351,14 @@ namespace sotc_native
     // moved under them (SOTC_HOOK_ASYNC_VERIFY).
     uint64_t modelRunInputs(const ModelDispJob &job)
     {
+        SOTC_READ_SITE(2);
         uint64_t h = 0xcbf29ce484222325ull;
         const auto mix = [&h](uint32_t v) { h = (h ^ v) * 0x100000001b3ull; };
-        mix(word(0x0118C180u));
+        {
+            uint32_t bits; // round 34: the job's own copy (taken at the hook)
+            std::memcpy(&bits, &job.lodScale, 4);
+            mix(bits);
+        }
         if (!job.plan)
             return h;
         const uint32_t header = job.header;
@@ -6791,7 +7368,14 @@ namespace sotc_native
             const uint32_t s = e.s;
             mix(word(s + 0x18u)), mix(word(s + 0x1Cu)), mix(word(s + 0x2Cu)), mix(word(s + 0x3Cu));
             if (const uint32_t scroll = surfaceScroll(header, s))
-                mix(word(scroll)), mix(word(scroll + 4u));
+            {
+                // Round 34: the job's copy when its hook took the rows.
+                const ScrollRow *row = nullptr;
+                for (const ScrollRow &r : job.scrolls)
+                    if (job.scrollsTaken && r.at == scroll)
+                        row = &r;
+                mix(row ? row->w0 : word(scroll)), mix(row ? row->w1 : word(scroll + 4u));
+            }
             const uint32_t index = word(s + 0x2Cu);
             if (index < word(header + 0x44u))
             {
@@ -6823,6 +7407,7 @@ namespace sotc_native
             bytes(&m.instance, sizeof(m.instance)), bytes(&m.header, 4), bytes(&m.lod, 4), bytes(&m.opacity, 4);
             bytes(m.clip, sizeof(m.clip)), bytes(m.projection, sizeof(m.projection)), bytes(m.ripple, sizeof(m.ripple)), bytes(m.lights, sizeof(m.lights));
             bytes(&m.hasPalette, 1), bytes(&m.paletteLo, 4), bytes(&m.paletteHi, 4);
+            bytes(&m.own, 4), bytes(&m.lodScale, 4), bytes(&m.scrollsTaken, 1), bytes(m.scrolls.data(), m.scrolls.size() * sizeof(ScrollRow));
             bytes(m.palette.data(), m.palette.size() * sizeof(float));
             if (m.partCulled)
                 bytes(m.partVisible.data(), m.partVisible.size());
@@ -6842,6 +7427,14 @@ namespace sotc_native
             break;
         case kJob2D:
             bytes(job.draw2d.batch.data(), job.draw2d.batch.size() * sizeof(native_renderer::Vertex));
+            break;
+        case kJobKick:
+            for (uint32_t i = 0; i < g_kickJobs[job.kick].count; ++i)
+            {
+                const KickPalette &k = g_kickJobs[job.kick].palettes[i];
+                bytes(&k.own, 4), bytes(&k.lo, 4), bytes(&k.hi, 4), bytes(&k.ok, 1);
+                bytes(k.data.data(), k.data.size() * sizeof(float));
+            }
             break;
         }
         return h;
@@ -6863,6 +7456,10 @@ namespace sotc_native
         case kJob2D:
             draw2DRun(job.draw2d);
             break;
+        case kJobKick:
+            kickRun(g_kickJobs[job.kick]);
+            g_kickDone.fetch_add(1, std::memory_order_release);
+            break;
         case kJobPtcl:
             ptclVtxDraw(job.ptcl, *reinterpret_cast<const ParticleEnv *>(job.ptcl.env.data()));
             // A big batch's room let go (every slot keeps what it held:
@@ -6875,6 +7472,22 @@ namespace sotc_native
 
     void modelDispDraw(const ModelDispJob &job, const bool onWorker)
     {
+        SOTC_READ_SITE(1);
+        // Round 34: the scroll rows and the mip K scale as the hook took them.
+        struct DrawInputs
+        {
+            explicit DrawInputs(const ModelDispJob &job)
+            {
+                g_drawScrolls = job.scrollsTaken ? &job.scrolls : nullptr;
+                g_drawLodScale = job.lodScale;
+                g_drawLodScaleSet = true;
+            }
+            ~DrawInputs()
+            {
+                g_drawScrolls = nullptr;
+                g_drawLodScaleSet = false;
+            }
+        } drawInputs(job);
         static const ModelDispEnv env;
         const uint32_t instance = job.instance, matrix = job.matrix, header = job.header, table = job.table, lod = job.lod;
         const bool fading = job.fading, partCulled = job.partCulled;
@@ -6919,8 +7532,9 @@ namespace sotc_native
         {
             if (skinRecordIndex < 0)
             {
+                SOTC_READ_SITE(8);
                 skinRecordIndex = static_cast<int32_t>(g_skinRecords.size());
-                g_skinRecords.push_back({word(instance + 0xCu), palette.lo, palette.hi,
+                g_skinRecords.push_back({job.own, palette.lo, palette.hi,
                                          std::vector<float>(palette.data() + palette.lo * 4u, palette.data() + palette.hi * 4u)});
             }
             return static_cast<uint32_t>(skinRecordIndex);
@@ -7106,7 +7720,7 @@ namespace sotc_native
             if (logPasses)
             {
                 uint64_t f;
-                std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+                noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
                 static std::set<uint64_t> seen;
                 if ((f & 0x2000200u) && seen.insert((static_cast<uint64_t>(header) << 32) | surface).second)
                 {
@@ -7174,10 +7788,11 @@ namespace sotc_native
             {
                 if (!noRow && full->scroll)
                 {
-                    uint32_t pair;
-                    std::memcpy(&pair, g_ram + (full->scroll & 0x1FFFFFCu), 4);
+                    SOTC_READ_SITE(13);
+                    uint32_t pair, second;
+                    scrollRead(full->scroll, pair, second);
                     state.uvOffset[0] = static_cast<float>(static_cast<int32_t>(pair & 0xFFFFu)) / 4096.0f;
-                    state.uvOffset[1] = static_cast<float>(static_cast<int32_t>(word(full->scroll + 4u) & 0xFFFFu)) / 4096.0f;
+                    state.uvOffset[1] = static_cast<float>(static_cast<int32_t>(second & 0xFFFFu)) / 4096.0f;
                 }
             }
             else if (!noRow && surfaceRow(header, surface, state.uvOffset) && logPasses)
@@ -7206,7 +7821,7 @@ namespace sotc_native
                 float row[2] = {0.0f, 0.0f};
                 surfaceRow(header, surface, row);
                 uint64_t f;
-                std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+                noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
                 c.note("texture", surfaceTexture(header, surface) != full->texture);
                 c.note("blend", surfaceBlend(s) != full->blend);
                 c.note("clamp", surfaceClamp(s) != full->clamp);
@@ -7257,7 +7872,7 @@ namespace sotc_native
             // no texture transfer, so no ROW scroll; TEX1 linear without mips,
             // ALPHA 0x44 (normal), TEST without the alpha cut.
             uint64_t bossMask = 0;
-            if (bossMaskOn() && (((full ? full->flags : [&] { uint64_t f; std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8); return f; }()) >> 17) & 1u))
+            if (bossMaskOn() && (((full ? full->flags : [&] { uint64_t f; noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&f, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8); return f; }()) >> 17) & 1u))
             {
                 bossMask = bossMaskTexture();
                 if (!bossMask)
@@ -7315,7 +7930,7 @@ namespace sotc_native
             if (full)
                 sflags = full->flags;
             else
-                std::memcpy(&sflags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
+                noteRead((s + 0x18u) & ~7u, 8u), std::memcpy(&sflags, g_ram + ((s + 0x18u) & 0x1FFFFF8u), 8);
             const bool layer14 = ((sflags >> 25) & 1u) != 0;
             const bool reflective = (layer14 || (sflags & 0x2200u) == 0x2200u) && !noReflect && !state.debugColour;
             if (runs && e && e->resolved && !posed && !twoTextures && !reflective && info && info->texMode != 2u && mesh == id)
@@ -7503,6 +8118,7 @@ namespace sotc_native
         ModelPlan *plan = job.plan;
         const auto planPackets = [&]
         {
+            SOTC_READ_SITE(14);
             const size_t n = plan->pk.size();
             for (size_t k = 0; k < n; ++k)
             {
@@ -7686,8 +8302,34 @@ void installSotcNative(PS2Runtime &runtime)
         // (skinAtKick), and the debugging checks.
         ps2_stats::kickHook = []
         {
+            // Round 34 (SOTC_KICK_DEFER): no join; the kick's palettes copied
+            // and its skinned pass a job behind the frame's model jobs, joined
+            // at the next frame's first hook.
+            if (hookjobs::g_on && sotc_native::g_kickDefer && !sotc_native::g_staleCheck && !sotc_native::g_kickMustJoin)
+            {
+                if (sotc_native::g_skinAtKick && !sotc_native::g_kickOwns.empty())
+                {
+                    using sotc_native::kKickJobs;
+                    // Its copies' buffer free (kicks without a hook between them: a load's).
+                    if (sotc_native::g_kickPushed - sotc_native::g_kickDone.load(std::memory_order_acquire) >= kKickJobs)
+                        sotc_native::hookJoin(hookjobs::k_kick);
+                    const uint32_t k = sotc_native::g_kickPushed++ % kKickJobs;
+                    sotc_native::kickCopy(sotc_native::g_kickJobs[k]);
+                    sotc_native::HookJob &job = hookjobs::next();
+                    job.kind = sotc_native::kJobKick;
+                    job.kick = k;
+                    hookjobs::push();
+                }
+#if !defined(__vita__)
+                if (hookjobs::g_deferCheck)
+                    hookjobs::deferCheckKick();
+#endif
+                return;
+            }
             // The frame's model jobs done before the game goes on to the next
             // frame's logic (and skinAtKick reads their records).
+            if (hookjobs::g_on && sotc_native::g_kickDefer && sotc_native::g_kickMustJoin)
+                ++sotc_native::g_kickJoined;
             sotc_native::hookJoin(hookjobs::k_kick);
             if (sotc_native::g_staleCheck)
             {

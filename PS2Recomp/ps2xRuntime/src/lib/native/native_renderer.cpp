@@ -24,6 +24,9 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#if defined(__vita__)
+#include <unistd.h>
+#endif
 #include <thread>
 #include <unordered_set>
 #if defined(__vita__)
@@ -1136,6 +1139,27 @@ namespace native_renderer
 
     namespace
     {
+        // Round 34 (the Vita, logCaptureStderr): stderr's own file, which the
+        // writer alone writes once every stderr line goes through the ring.
+        int g_logSinkFd = -1;
+        void logSinkWrite(const char *p, size_t n)
+        {
+#if defined(__vita__)
+            if (g_logSinkFd >= 0)
+            {
+                while (n)
+                {
+                    const ssize_t w = ::write(g_logSinkFd, p, n);
+                    if (w <= 0)
+                        return;
+                    p += w;
+                    n -= static_cast<size_t>(w);
+                }
+                return;
+            }
+#endif
+            std::fwrite(p, 1, n, stderr);
+        }
         struct LogRing
         {
             static constexpr size_t kBytes = 512u * 1024u;
@@ -1160,9 +1184,14 @@ namespace native_renderer
                     dropped = 0;
                 }
                 if (n)
-                    std::fwrite(out.data(), 1, n, stderr);
+                    logSinkWrite(out.data(), n);
                 if (lost)
-                    std::fprintf(stderr, "[log] %llu lines dropped (the ring was full)\n", static_cast<unsigned long long>(lost));
+                {
+                    char line[96];
+                    const int m = std::snprintf(line, sizeof(line), "[log] %llu lines dropped (the ring was full)\n", static_cast<unsigned long long>(lost));
+                    if (m > 0)
+                        logSinkWrite(line, static_cast<size_t>(m));
+                }
             }
             void loop()
             {
@@ -1214,16 +1243,22 @@ namespace native_renderer
             n = static_cast<int>(sizeof(line) - 1u);
             line[n - 1] = '\n'; // cut, still a line
         }
+        logBytes(line, static_cast<size_t>(n));
+    }
+    void logBytes(const char *bytes, size_t n)
+    {
+        if (!n)
+            return;
         LogRing &r = logRing();
         bool start = false;
         {
             std::lock_guard<std::mutex> lock(r.mutex);
             if (!r.started)
                 r.started = start = true;
-            if (r.used + static_cast<size_t>(n) <= LogRing::kBytes)
+            if (r.used + n <= LogRing::kBytes)
             {
-                std::memcpy(r.data.data() + r.used, line, static_cast<size_t>(n));
-                r.used += static_cast<size_t>(n);
+                std::memcpy(r.data.data() + r.used, bytes, n);
+                r.used += n;
             }
             else
                 ++r.dropped;
@@ -1245,6 +1280,31 @@ namespace native_renderer
     {
         if (logAsync())
             logRing().write();
+    }
+#if defined(__vita__)
+    namespace
+    {
+        _READ_WRITE_RETURN_TYPE stderrToRing(struct _reent *, void *, const char *buf, _READ_WRITE_BUFSIZE_TYPE n)
+        {
+            if (n > 0)
+                logBytes(buf, static_cast<size_t>(n));
+            return n;
+        }
+    }
+#endif
+    void logCaptureStderr()
+    {
+#if defined(__vita__)
+        const char *e = std::getenv("SOTC_LOG_STDERR");
+        if (!logAsync() || (e && std::atoi(e) == 0))
+            return;
+        std::fflush(stderr);
+        g_logSinkFd = fileno(stderr);
+        if (g_logSinkFd < 0)
+            return;
+        stderr->_write = stderrToRing;
+        std::fprintf(stderr, "[log] every stderr line through the log ring from here on (SOTC_LOG_STDERR=0: each written at once)\n");
+#endif
     }
 
     std::atomic<uint64_t> g_frontSkinned{0};

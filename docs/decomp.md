@@ -5733,6 +5733,182 @@ files), env-r33-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
    (decomp_skeleton 4.5% of the game thread) otherwise.
 
 
+## Round 34: the kick without its join, stderr off the game thread, the mesh pools emptied (2026-10-30)
+
+On AC power the whole round. Not deployed to the console; nothing committed.
+Vita3K cannot show the console's waits (slow card writes, a slow worker);
+this round's numbers come from the console's logs of rounds 31-32, word
+counts on the Mac and Vita3K's memory counts.
+
+**1. The kick without its join** (`SOTC_KICK_DEFER`, default 1 with the
+worker on; 0: as before). The console's round 32 log: the game thread
+waited 3-4 ms a frame at the kick on the plain, about the worker's whole
+job time. Now:
+- At the kick the game thread copies the bone palettes of every instance
+  chain its hooks saw with one this frame (`g_kickOwns`, sorted, each
+  once: what skinAtKick read there, at the same moment) into one of four
+  kick buffers (`g_kickJobs`, kept apart from the job ring: a first version
+  kept them in ring slots, and the 512 slots each kept their room, +6 MB of
+  heap in Vita3K) and hands the skinned pass over as a job (`kJobKick`)
+  behind the frame's model jobs. The join moves to the next frame's first
+  hook (syncFrame's `frame` join), a garbage move's, or any other.
+- Not exact as such: Mac route with the worker held from each kick to the
+  next join and the held jobs reading a copy of guest memory taken at the
+  kick (`SOTC_KICK_DEFER_CHECK=1`, a read tracker built in with
+  `-DSOTC_READ_TRACK`: every guest word a job reads, its reader named, and
+  page faults on the copy to catch reads the tracker misses), the words
+  the jobs read that the game changed between the kick and the join
+  (r34/kchk3, 4 800 frames, slow worker): 177 addresses, by reader:
+  instance chains `instance+0xc` (skinRecord; the game's chains are
+  double-buffered by frame) 6 904, texture scroll rows 9 834, the mip K
+  scale `*0x118c180` 135, and the verify's own reads 49 829. So each model
+  job now takes at its hook its chain (`own`), the K scale (`lodScale`)
+  and its plan's scroll rows (`hookScrolls`: the plan's surface records,
+  their row address worked out once a frame, the two words copied); the
+  draw reads them from the job (`scrollRead`, `drawLodScale`). A frame
+  with a draw that has no plan (an area load past the plan budget) joins
+  at the kick as before (`joined` in `[skin-kick]`).
+- Checked again (r34/kchk4, same run): **30 193 922 words read by held
+  jobs, 0 changed**; faulted pages without a tracked read 0 (the tracker
+  saw every page read); 151 968 jobs held at a kick; records not among the
+  kick's copies 0; scroll rows from the hook 1 197 129, read late 0;
+  kicks that still joined 1 of 4 200.
+
+**2. stderr off the game thread** (`SOTC_LOG_STDERR`, default 1 with
+`SOTC_LOG_ASYNC` on the Vita). r34/hitch.py on the console logs: of the
+63 in-game frames over 120 ms in round 32's session, **62 came right after
+other stderr lines** (33 after `[irq] dispatch` alone, most of the rest
+`[irq]` with `[gs:hw]`); round 31's session: 34 of 39. Frames after any
+such line averaged 69.9 ms against 62.1 without. `[irq] dispatch` is
+printed by EeScheduler on the game thread every 600 interrupts of a cause
+with `std::cerr <<`: seven card writes on the unbuffered err.txt (the
+pieces show interleaved with other threads' lines in the log). These are
+the "area change" hitches of rounds 32-33 (hooks 3-5 ms, sched / cd 0,
+the game's dt 150-200 ms): the game thread blocked in card writes.
+- newlib's stderr write function is replaced at the game thread's start
+  (`native_renderer::logCaptureStderr`): every stderr write is appended to
+  round 33's log ring, the writer thread alone writes err.txt (its own fd,
+  no FILE lock). The `[irq]` line is one fprintf now. The terminate
+  handler flushes the ring after its own line. Logging only.
+
+**3. The heap.**
+- What grows: on the Mac route (MallocStackLogging, `heap -s` every 60 s,
+  r34/heap1) the common code is flat in game: +4.6 MB from 180 s to 1 500 s
+  (Metal driver objects, plans 0.6 MB, the packet memo 0.5 MB), +0.1 MB
+  from 1 500 s to the end (frame ~4 700). Vita3K: 53 MB at boot, 79 MB
+  at 30 s (the runtime's own: cards, IOP, sound, GS), ~86 MB in game,
+  flat over 420-600 s. The console: 100 MB in game, 105-109 in fights.
+- vitaGL's pools were not counted right (Vita3K's mspace statistics are
+  constants; the console's `vram=0.0/96.0` at t=143-163 s is real).
+  celosia.patch now keeps every pool allocation and every GPU object that
+  vitaGL had to put in the newlib heap (gpu_utils' fallback) by pointer
+  and size (`vglCeloMemStats`; `[vita:mem] ... vgl used vram / ram /
+  phycont, GPU objects in the heap n`). `SOTC_VGL_POOLS=console` (testing)
+  sizes the pools as the console's (CDRAM 96, RAM 16, phycont 26 MB) in
+  Vita3K.
+- Vita3K's route with the console's pools (r34/t3): CDRAM 88.5 of 96 MB in
+  use on the walk, 53 MB on the plain; no spill on this route, but within
+  8 MB of it. In the default Vita3K pools (r34/new-240a) the main-RAM pool
+  holds another 37 MB: on a console that is 11 MB of RAM pool, then
+  phycont, then the heap.
+- **The mesh pools** (2.3 MB of vitaGL memory each, let go only when
+  empty): `[gl:mem]` counts them now. On the plain after the walk, 7 pools
+  (15.7 MB) held 1.7 MB of meshes and 0.8 MB of run copies (r34/t2).
+  `poolCompact` (`SOTC_GL_POOL_COMPACT`, default 1): every 30 frames the
+  emptiest pool under half full, if the others have room, is emptied into
+  them (its meshes copied, 16 K vertices a frame; its run copies dropped,
+  made again when drawn); poolRelease lets it go. Plain: **2 pools, 4.5
+  MB** (r34/t3, 45 pools emptied, 1.4 MB moved); Mac GL route r34/glpool2
+  against glpool1: 2 pools 4.4 MB against 8 pools 17.9 MB at the end,
+  pictures alike (r34 cmp shots). The same vertices are drawn.
+- **Low room in vitaGL's pools** (`SOTC_GL_POOL_LOW_MB`, default 12; 0:
+  off): when CDRAM + RAM + phycont have less than that free by the
+  patch's count, the cache budget's eviction runs (only what no frame drew
+  for 120 frames and 20 s, least recently drawn first) until twice that is
+  free. Forced in Vita3K (r34/t4, 50 MB): 174 passes, a few dozen meshes
+  evicted, no rebuild churn, frame times as without.
+- Heap in Vita3K at the route's end: base 85.9 MB, new 86.4 MB.
+
+**4. The skeleton pose:** not done this round.
+
+**Exactness.**
+- Kick deferral: above (0 of 30.2 M words changed).
+- Hook checks (Mac route, worker on, to 5 400, r34/kchk4, slow worker
+  150 us): lean parts 110 473 checks, 0 differ; palette / lights /
+  projection 217 585, 0 differ; order 0 of 10 651 game-thread draws while
+  jobs pending; job copies 390 327, 0 differ; textured 2D 3 991 and model
+  jobs 195 692, what they read themselves changed in 0.
+  Final binary (r34/bin-new4), worker on, default fast worker (r34/chkA):
+  parts 117 822, 0 differ; palette / lights / projection 221 190, 0
+  differ; order 0 of 10 683; copies 413 066, 0 differ; textured 2D 4 103 /
+  model jobs 200 274, changed in 0; no join waited at all over the route
+  (`joins that waited` empty). Slow worker (r34/chkD): 109 461 / 198 919
+  checks, 0 differ; order 0 of 10 667; copies 354 080, 0 differ; 3 847 /
+  176 841 jobs, 0 changed.
+- Natives: SOTC_DIFFTEST=all EVERY=200 to frame 4 800 (r34/dt-all): 57
+  functions, 166 301 checks, 0 mismatches except gamecore_sub_013F8668
+  (158, the life bar's v0, as since round 16).
+- Fixed-30 route (Mac, SOTC_NATIVE=2, to 5 400, the r24 card copy; base =
+  HEAD's binary r34/bin-base, new = r34/bin-new4; base, new, base, new;
+  posnew2 run again after a window-close event ended the first at frame
+  510): base2 against new1 0.68, against new2 0.71; new1 against new2
+  0.37; base1 against base2 1.77 (base1 the outlier: vblank 10 760).
+  **Vblanks at frame 5 400**: base 10 760 / 10 750, new 10 741 / 10 743.
+- Sound: stale 0, src-stale 0 in all Vita3K runs; config, settings, card
+  and shader cache "restored ok" after every run.
+
+**Frame timing** (calibrated Vita3K, CORES=3, the route on the r24 card,
+420 s, r32/env-time.txt; base = celosia-r33.vpk, new = r34/new5.vpk =
+celosia-r34.vpk; alternated, r34/v3k-chain.sh; ms a frame, r28/split2.py):
+
+| window | 222 base | 222 new | 240 base | 240 new |
+|---|---|---|---|---|
+| shrine | 42.4, 42.4 | 42.5, 42.3 | 39.1, 39.2 | 39.1, 39.0 |
+| walk + area change | 73.3, 73.6 | 73.0, 73.1 | 66.2, 66.3 | 68.0, 67.7 |
+| plain | 47.2, 49.0 | 50.1, 47.8 | 45.4, 44.4 | 44.6, 43.5 |
+| walk: hooks / join | 3.6 / 0.23-0.24 | 3.7 / 0.13-0.15 | 3.2-3.3 / 0.18-0.21 | 3.5 / 0.13-0.14 |
+
+In Vita3K the worker is fast and the kick join was small; the game
+thread's hooks cost ~0.2 ms more on the walk (the hooks' chain, K scale
+and scroll rows, the kick's palette copies), the joins ~0.08 ms less. The
+240 walk sits at the 4-vblank edge (66.7 ms): +1.6 ms there, -0.4 at 222;
+the plain within its known spread. The gains are for the console: the
+3-4 ms kick join and the 150-200 ms log stalls.
+
+**Decomp status:** unchanged (no new natives).
+
+**Switches** (README): `SOTC_KICK_DEFER=0`, `SOTC_KICK_DEFER_CHECK=1`
+(Mac), `SOTC_LOG_STDERR=0`, `SOTC_GL_POOL_COMPACT=0`,
+`SOTC_GL_POOL_LOW_MB=n`, `SOTC_VGL_POOLS=console` (Vita3K testing).
+
+**Files:** game/overrides/sotc_native.cpp (kick deferral, hook-time chain /
+K scale / scroll rows, kick buffers, the deferral check and read tracker);
+PS2Recomp/ps2xRuntime/src/lib/native/native_renderer.cpp and
+include/runtime/native_renderer.h (logBytes, logCaptureStderr, the ring's
+own fd); src/lib/native/native_renderer_gl.cpp (pool stats, poolCompact,
+low-room eviction); src/lib/ps2_runtime.cpp (stderr capture at the game
+thread's start); src/lib/ps2_vita_runtime.cpp (terminate flush);
+src/lib/Kernel/EeScheduler.cpp (one write per `[irq]` line);
+platform/vita/raylib/raylib_vita.cpp (`[vita:mem]` pool counts,
+SOTC_VGL_POOLS); platform/vita/vitagl/celosia.patch (pool and spill
+accounting); README.md, docs/decomp.md. Tools in build/agent-scratch/r34:
+chk.sh, heaprun.sh, heapsample.sh, hitch.py, addtrack.py, addtags.py,
+v3k.sh, v3k-chain.sh, mac-chain.sh, posbase.sh, dt.sh. Deliverables:
+build/agent-scratch/celosia-r34.vpk (shader seed: 42 files),
+env-r34-console.txt (SOTC_FRAME_LOG=1, SOTC_AUDIO_LOG=1).
+
+**Round 35 (plan).**
+1. The console with this VPK: `[frame]` lines without the >120 ms frames
+   after `[irq]` (hitch.py), the `joins` column (no `kick`, the `frame`
+   join), `[skin-kick]` with SOTC_SKIN_KICK_LOG=1 (deferred / joined).
+2. The console's `[vita:mem]` and `[gl:mem]`: what vitaGL's pools hold,
+   GPU objects in the heap (should be 0), mesh pools, low-room passes;
+   then what else fills CDRAM (~40 MB beyond textures and pools: render
+   targets, vitaGL's own) and the 37 MB of its main-RAM pool.
+3. The hooks' extra ~0.2 ms (hookScrolls per draw: the scroll rows could be
+   kept per plan with a validity check).
+4. The skeleton pose (decomp_skeleton, 4.5% of the game thread).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

@@ -3072,6 +3072,9 @@ void PS2Runtime::run()
     const unsigned int threadStackDefault = _pthread_stack_default_user;
     _pthread_stack_default_user = 1024u * 1024u;
 #endif
+#if defined(__vita__)
+    native_renderer::logCaptureStderr(); // round 34: stderr through the log ring (SOTC_LOG_STDERR)
+#endif
     std::thread gameThread([&]()
                            {
         ThreadNaming::SetCurrentThreadName("GameThread");

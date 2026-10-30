@@ -32,6 +32,7 @@
 std::recursive_mutex &ps2xVitaGlMutex();
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" unsigned int _newlib_heap_size_user;      // ps2_vita_runtime.cpp
+extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
 #endif
 
 #include "ThreadNaming.h"
@@ -914,6 +915,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool poolAlloc(uint32_t count, int &pool, uint32_t &first);
         void poolFree(int pool, uint32_t first, uint32_t count) { poolPending.push_back({pool, first, count, arenaFrame}); }
         void poolRelease();
+        // Round 34: a pool only goes when empty, and after a scene change the
+        // few meshes still drawn keep many pools mostly empty (Vita3K, the
+        // route's plain: 7 pools, 15.7 MB of vitaGL memory, 13.7 MB of it
+        // free, for 1.7 MB of meshes and 0.8 MB of run copies; on a console
+        // that memory is the CDRAM whose exhaustion sends vitaGL's next GPU
+        // objects into the newlib heap). poolCompact empties the emptiest
+        // such pool into the others' free room (its meshes copied, a budget
+        // of vertices a frame; its run copies dropped, made again when drawn),
+        // and poolRelease lets it go. The same vertices are drawn
+        // (SOTC_GL_POOL_COMPACT=0: off).
+        int poolDraining = -1;
+        uint64_t poolMoved = 0, poolsEmptied = 0; // ([gl:mem])
+        void poolCompact();
         // This frame's draws in their drawing order, with mesh and texture
         // looked up once (not in every pass) and the merges worked out: a
         // run of draws with the same state and matrix whose meshes are plain
@@ -1999,7 +2013,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return false;
         for (size_t p = 0; p < pools.size(); ++p)
         {
-            if (!pools[p].buffer)
+            if (!pools[p].buffer || static_cast<int>(p) == poolDraining)
                 continue;
             auto &free = pools[p].free;
             for (size_t i = 0; i < free.size(); ++i)
@@ -2094,6 +2108,113 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 pool = Pool{};
                 cache.buffer = ~0u;
             }
+    }
+
+    void Renderer::poolCompact()
+    {
+        static const bool on = !std::getenv("SOTC_GL_POOL_COMPACT") || std::atoi(std::getenv("SOTC_GL_POOL_COMPACT")) != 0;
+        if (!on || !native_renderer::tuning().glMeshPools)
+            return;
+        constexpr uint32_t kMoveBudget = 0x4000u; // vertices a frame (~0.6 MB)
+        if (poolDraining < 0)
+        {
+            if (arenaFrame % 30u != 0u)
+                return;
+            // Each pool's live vertices (capacity less its free and let-go ranges).
+            std::vector<uint64_t> live(pools.size(), 0);
+            uint64_t freeAll = 0;
+            size_t count = 0;
+            for (size_t p = 0; p < pools.size(); ++p)
+                if (pools[p].buffer)
+                {
+                    ++count;
+                    uint64_t f = 0;
+                    for (const auto &r : pools[p].free)
+                        f += r.second;
+                    live[p] = pools[p].capacity - f;
+                    freeAll += f;
+                }
+            for (const PoolRange &r : poolPending)
+                if (r.pool >= 0 && static_cast<size_t>(r.pool) < live.size())
+                    live[static_cast<size_t>(r.pool)] -= std::min<uint64_t>(live[static_cast<size_t>(r.pool)], r.count);
+            if (count < 2u)
+                return;
+            int best = -1;
+            for (size_t p = 0; p < pools.size(); ++p)
+                if (pools[p].buffer && live[p] * 2u < pools[p].capacity && (best < 0 || live[p] < live[static_cast<size_t>(best)]))
+                    best = static_cast<int>(p);
+            if (best < 0)
+                return;
+            uint64_t freeElsewhere = freeAll;
+            for (const auto &r : pools[static_cast<size_t>(best)].free)
+                freeElsewhere -= r.second;
+            // Room for its live vertices elsewhere, with a pool's worth to spare
+            // (first fit over ranges: not every free vertex is usable).
+            if (freeElsewhere < live[static_cast<size_t>(best)] + kPoolVertices / 4u)
+                return;
+            poolDraining = best;
+        }
+        Pool &from = pools[static_cast<size_t>(poolDraining)];
+        if (!from.buffer)
+        {
+            poolDraining = -1;
+            return;
+        }
+        uint32_t moved = 0;
+        bool left = false, stuck = false;
+        constexpr size_t stride = sizeof(native_renderer::Vertex);
+        meshes.forEach([&](uint64_t, Mesh &m)
+        {
+            if (m.pool != poolDraining || m.dynamic || stuck)
+                return;
+            if (moved >= kMoveBudget)
+            {
+                left = true;
+                return;
+            }
+            int pool = -1;
+            uint32_t first = 0;
+            if (!poolAlloc(m.count, pool, first))
+            {
+                stuck = true;
+                return;
+            }
+#if defined(PS2X_NATIVE_VITA)
+            std::memcpy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(first) * stride, from.mapped + static_cast<size_t>(m.first) * stride,
+                        static_cast<size_t>(m.count) * stride);
+#else
+            glBindBuffer(GL_COPY_READ_BUFFER, from.buffer);
+            glBindBuffer(GL_COPY_WRITE_BUFFER, pools[static_cast<size_t>(pool)].buffer);
+            glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(m.first) * stride, static_cast<GLintptr>(first) * stride,
+                                static_cast<GLsizeiptr>(m.count) * stride);
+#endif
+            poolFree(poolDraining, m.first, m.count); // (the GPU may still read it: let go after kPoolReuseFrames)
+            m.pool = pool;
+            m.first = first;
+            moved += m.count;
+        });
+        if (moved)
+            cache.buffer = ~0u;
+        poolMoved += moved;
+        if (stuck)
+        {
+            poolDraining = -1; // no room elsewhere after all: left as it is
+            return;
+        }
+        if (left)
+            return;
+        // Its meshes are out: its run copies go too (made again when drawn).
+        runs.forEach([&](uint64_t, RunCopy &r)
+        {
+            if (r.pool != poolDraining)
+                return;
+            poolFree(r.pool, r.first, r.count);
+            runVertices -= r.count;
+            r.pool = -1;
+            r.frames = 0;
+        });
+        ++poolsEmptied;
+        poolDraining = -1; // poolRelease lets it go once its ranges are back
     }
 
     void Renderer::uploadSkinned(uint64_t id, const native_renderer::SkinVertex *vertices, uint32_t count, const uint32_t *indices, uint32_t indexCount)
@@ -2216,6 +2337,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         deadBuffers.clear();
         deadTextures.clear();
         poolRelease();
+        poolCompact();
         applyUploadList(uploads);
         for (const FrameMesh &f : frameMeshes)
         {
@@ -3936,14 +4058,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const uint64_t arenas = r->arena.bytes() + r->indexArena.bytes() + m_rec.arena.bytes() + m_rec.indexArena.bytes();
             const uint64_t lists = (r->draws.capacity() + m_rec.draws.capacity()) * sizeof(Draw) + (r->palettes.capacity() + m_rec.palettes.capacity()) * sizeof(float);
             m_heap = heapUsed();
+            // Round 34: the mesh pools themselves (each 2.3 MB of vitaGL
+            // memory however little of it the meshes use; a pool goes only
+            // when empty): their number, size, room free, largest free range,
+            // ranges let go but not yet reusable; and the merged runs' copies.
+            uint32_t pools = 0;
+            uint64_t poolFree = 0, poolLargest = 0, poolPending = 0;
+            for (const Renderer::Pool &pool : r->pools)
+                if (pool.buffer)
+                {
+                    ++pools;
+                    for (const auto &f : pool.free)
+                    {
+                        poolFree += f.second;
+                        poolLargest = std::max<uint64_t>(poolLargest, f.second);
+                    }
+                }
+            for (const Renderer::PoolRange &pr : r->poolPending)
+                poolPending += pr.count;
+            const double vb = static_cast<double>(sizeof(native_renderer::Vertex));
             std::fprintf(stderr,
                          "[gl:mem] t=%.0f heap %.1f MB | textures %u %.1f MB (in heap %.1f) | meshes %u %.1f MB (skinned %.1f) | drawn in 120 frames %.1f MB, budget %.0f MB | "
                          "uploads peak %.1f MB a frame, flushes %u | arenas %.1f MB, draw lists %.1f MB | hooks' skinned packets %.1f MB | "
-                         "evicted aged %u, budget %u (%.1f MB), pressure %u (%.1f MB), kept in pools %u | skipped %u\n",
+                         "evicted aged %u, budget %u (%.1f MB), pressure %u (%.1f MB), kept in pools %u | skipped %u | "
+                         "mesh pools %u (%.1f MB, free %.1f MB, largest free %.0f KB, let go %.1f MB; emptied %llu, %.1f MB moved), run copies %.1f MB | "
+                         "vgl pools free %.1f MB, low-room passes %llu\n",
                          (native_renderer::nowUs() - m_startUs) / 1e6, m_heap / MB, static_cast<unsigned>(r->textures.size()), r->textureBytes / MB,
                          r->textureHeapBytes / MB, kept, r->meshBytes / MB, r->skinnedBytes / MB, recentBytes / MB, m_cacheBudget == ~0ull ? 0.0 : m_cacheBudget / MB,
                          m_uploadPeak / MB, m_flushes, arenas / MB, lists / MB, skinnedPackets / MB, m_evictedAged, m_evictedBudget,
-                         m_evictedBudgetBytes / MB, m_evictedPressure, m_evictedPressureBytes / MB, m_pressureSpared, m_skipped);
+                         m_evictedBudgetBytes / MB, m_evictedPressure, m_evictedPressureBytes / MB, m_pressureSpared, m_skipped, pools,
+                         pools * static_cast<double>(Renderer::kPoolVertices) * vb / MB, poolFree * vb / MB, poolLargest * vb / 1024.0, poolPending * vb / MB,
+                         static_cast<unsigned long long>(r->poolsEmptied), r->poolMoved * vb / MB, r->runVertices * vb / MB, m_poolFree / MB,
+                         static_cast<unsigned long long>(m_poolLowPasses));
             m_pressureSpared = 0;
             m_uploadPeak = 0;
             m_flushes = m_evictedAged = m_evictedBudget = m_evictedPressure = m_skipped = 0;
@@ -3986,6 +4132,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             return frame > kFrameTimes ? frame - kFrameTimes : 0u; // older than the times kept
         }
+        static uint64_t mb(const char *name, double fallback)
+        {
+            const char *v = std::getenv(name);
+            return static_cast<uint64_t>((v ? std::atof(v) : fallback) * 1048576.0);
+        }
+        uint64_t m_poolFree = 0, m_poolLowPasses = 0; // round 34: vitaGL's pools' room, the passes it started ([gl:mem])
         void evictKept()
         {
             constexpr uint64_t kEvery = 256, kUnused = 1800, kBudgetAge = 120, kPressureAge = 30, kHeapEvery = 16;
@@ -3998,7 +4150,33 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_heap = heapUsed();
             const bool aging = frame % kEvery == 0 && frame >= kUnused;
             const bool pressure = m_heapHigh && m_heap > m_heapHigh && frame >= m_nextPressure;
-            const bool overBudget = r->textureBytes + r->meshBytes > m_cacheBudget && frame >= m_nextBudget;
+            // Round 34 (the Vita, SOTC_GL_POOL_LOW_MB, default 12; 0: off):
+            // vitaGL's pools nearly full (CDRAM, its main-RAM and phycont pools,
+            // by celosia.patch's own count) count as over budget: what no frame
+            // drew for the budget's ages (120 frames and 20 s) goes, the least
+            // recently drawn first, until the pools have twice that free. Past
+            // them vitaGL puts GPU objects in the newlib heap (the console's
+            // round 32 session: CDRAM 0.0 MB free at t=143-163 s, the heap
+            // climbing in 2-3 MB steps after it).
+            uint64_t poolShort = 0;
+#if defined(PS2X_NATIVE_VITA)
+            static const uint64_t kPoolLow = mb("SOTC_GL_POOL_LOW_MB", 12.0);
+            if (kPoolLow && frame % kHeapEvery == 0)
+            {
+                size_t used[VGL_MEM_ALL] = {}, spill = 0, spills = 0, total = 0, peak = 0;
+                vglCeloMemStats(used, &spill, &spills, &total, &peak);
+                uint64_t free = 0;
+                for (int t : {VGL_MEM_VRAM, VGL_MEM_RAM, VGL_MEM_PHYCONT})
+                {
+                    const uint64_t all = vglMemTotal(static_cast<vglMemType>(t));
+                    free += all > used[t] ? all - used[t] : 0u;
+                }
+                m_poolFree = free;
+                if (free < kPoolLow)
+                    poolShort = 2u * kPoolLow - free;
+            }
+#endif
+            const bool overBudget = (r->textureBytes + r->meshBytes > m_cacheBudget || poolShort) && frame >= m_nextBudget;
             if (!aging && !pressure && !overBudget)
                 return;
             m_keepMeshes = native_renderer::IdSet();
@@ -4052,7 +4230,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             });
             std::sort(m_candidates.begin(), m_candidates.end(), [](const Candidate &a, const Candidate &b) { return a.used < b.used; });
             uint64_t cached = r->textureBytes + r->meshBytes;
-            const uint64_t target = m_cacheBudget - m_cacheBudget / 8u;
+            uint64_t target = m_cacheBudget - m_cacheBudget / 8u;
+            if (poolShort)
+            {
+                target = std::min(target, cached > poolShort ? cached - poolShort : 0u);
+                ++m_poolLowPasses;
+            }
             for (const Candidate &c : m_candidates)
             {
                 const bool aged = c.used < agedBefore, pressed = c.used < pressureBefore, budget = c.used < budgetBefore && cached > target;
@@ -4102,7 +4285,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             // A scene that needs more than the budget: looked at again later
             // (not every frame); under pressure, after the next heap reading.
-            if (overBudget && cached > m_cacheBudget)
+            if (overBudget && (cached > m_cacheBudget || poolShort))
                 m_nextBudget = frame + 64u;
             if (pressure)
             {

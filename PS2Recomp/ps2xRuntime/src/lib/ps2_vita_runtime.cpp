@@ -172,6 +172,7 @@ namespace
                 std::fprintf(stderr, "[vita] terminate: %s (heap used %.1f of %.1f MB)\n", what, mi.uordblks / 1048576.0,
                              _newlib_heap_size_user / 1048576.0);
                 std::fprintf(stdout, "[vita] terminate: %s\n", what);
+                native_renderer::logFlush(); // round 34: stderr itself goes through the ring (logCaptureStderr)
                 std::fflush(stdout);
                 std::fflush(stderr);
                 std::abort();

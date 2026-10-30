@@ -538,6 +538,223 @@ index 7b5d704..8679e11 100644
  								fb->depthbuffer_ptr = NULL;
  								fb->depthbuffer_state = DEPTHBUFFER_MISSING;
  							}
+diff --git a/source/utils/gpu_utils.c b/source/utils/gpu_utils.c
+index 4464db5..93535ed 100644
+--- a/source/utils/gpu_utils.c
++++ b/source/utils/gpu_utils.c
+@@ -43,6 +43,8 @@ uint32_t vgl_tex_cache_freq = 3600; // Number of frames prior a texture becomes
+ 	if (res) \
+ 		return res;
+ 
++void vgl_celo_note_spill(void *ptr, size_t size); // mem_utils.c (celosia)
++
+ // VRAM usage setting
+ uint8_t use_vram_for_usse = GL_FALSE;
+ 
+@@ -96,6 +98,7 @@ static inline __attribute__((always_inline)) void *gpu_alloc_mapped_aligned_for_
+ 	vgl_alloc_attempt(alignment, size, VGL_MEM_VRAM)
+ 	if (use_extra_mem) {
+ 		res = vgl_memalign(alignment, size, VGL_MEM_EXTERNAL);
++		vgl_celo_note_spill(res, size); // celosia: counted (vglCeloMemStats)
+ 	}
+ 	return res;
+ }
+@@ -108,6 +111,7 @@ static inline __attribute__((always_inline)) void *gpu_alloc_mapped_aligned_for_
+ 	vgl_alloc_attempt(alignment, size, VGL_MEM_BUDGET)
+ 	if (use_extra_mem) {
+ 		res = vgl_memalign(alignment, size, VGL_MEM_EXTERNAL);
++		vgl_celo_note_spill(res, size); // celosia: counted (vglCeloMemStats)
+ 	}
+ 	return res;
+ }
+diff --git a/source/utils/mem_utils.c b/source/utils/mem_utils.c
+index 4b791b7..7b82084 100644
+--- a/source/utils/mem_utils.c
++++ b/source/utils/mem_utils.c
+@@ -23,6 +23,13 @@
+ 
+ #include "../shared.h"
+ 
++void *vgl_malloc(size_t size, vglMemType type);
++void *vgl_calloc(size_t num, size_t size, vglMemType type);
++void *vgl_memalign(size_t alignment, size_t size, vglMemType type);
++void *vgl_realloc(void *ptr, size_t size);
++void vgl_free(void *ptr);
++void vgl_celo_note_spill(void *ptr, size_t size);
++
+ GLboolean has_cached_mem = GL_FALSE; // Flag for whether to use cached memory for mempools or not
+ 
+ #ifndef HAVE_CUSTOM_HEAP
+@@ -666,7 +673,7 @@ size_t vgl_malloc_usable_size(void *ptr) {
+ #endif
+ }
+ 
+-void vgl_free(void *ptr) {
++static void vgl_free_impl(void *ptr) {
+ 	if (!ptr)
+ 		return;
+ 
+@@ -694,7 +701,7 @@ void vgl_free(void *ptr) {
+ #endif
+ }
+ 
+-void *vgl_malloc(size_t size, vglMemType type) {
++static void *vgl_malloc_impl(size_t size, vglMemType type) {
+ 	if (type == VGL_MEM_EXTERNAL)
+ #ifdef HAVE_WRAPPED_ALLOCATORS
+ 		return __real_malloc(size);
+@@ -715,7 +722,7 @@ void *vgl_malloc(size_t size, vglMemType type) {
+ 	return NULL;
+ }
+ 
+-void *vgl_calloc(size_t num, size_t size, vglMemType type) {
++static void *vgl_calloc_impl(size_t num, size_t size, vglMemType type) {
+ 	if (type == VGL_MEM_EXTERNAL)
+ #ifdef HAVE_WRAPPED_ALLOCATORS
+ 		return __real_calloc(num, size);
+@@ -746,7 +753,7 @@ void *vgl_calloc(size_t num, size_t size, vglMemType type) {
+ 	return NULL;
+ }
+ 
+-void *vgl_memalign(size_t alignment, size_t size, vglMemType type) {
++static void *vgl_memalign_impl(size_t alignment, size_t size, vglMemType type) {
+ 	if (type == VGL_MEM_EXTERNAL)
+ #ifdef HAVE_WRAPPED_ALLOCATORS
+ 		return __real_memalign(alignment, size);
+@@ -767,7 +774,7 @@ void *vgl_memalign(size_t alignment, size_t size, vglMemType type) {
+ 	return NULL;
+ }
+ 
+-void *vgl_realloc(void *ptr, size_t size) {
++static void *vgl_realloc_impl(void *ptr, size_t size) {
+ 	if (!ptr) {
+ #ifdef HAVE_WRAPPED_ALLOCATORS
+ 		return __real_malloc(size);
+@@ -803,3 +810,124 @@ void *vgl_realloc(void *ptr, size_t size) {
+ 	return heap_realloc(type, ptr, size);
+ #endif
+ }
++
++// celosia: what each GPU pool holds, and the GPU objects vitaGL had to put in
++// the newlib heap (gpu_utils' use_extra_mem fallback), for the port's
++// [vita:mem] line (vglCeloMemStats). Every pool allocation and every spill is
++// kept by pointer with its requested size (Vita3K's mspace usable sizes are 0).
++#define CELO_SLOTS 65536
++#define CELO_SPILL VGL_MEM_ALL
++static uintptr_t celo_ptr[CELO_SLOTS];
++static uint32_t celo_size[CELO_SLOTS];
++static uint8_t celo_type[CELO_SLOTS];
++static size_t celo_used[VGL_MEM_ALL + 1] = {};
++static size_t celo_objects = 0, celo_spill_count = 0, celo_spill_total = 0, celo_spill_peak = 0, celo_lost = 0;
++static volatile int celo_lock = 0;
++static inline void celo_acquire(void) { while (__sync_lock_test_and_set(&celo_lock, 1)) {} }
++static inline void celo_release(void) { __sync_lock_release(&celo_lock); }
++static inline size_t celo_slot(uintptr_t p) { return (size_t)((p >> 4) * 2654435761u) & (CELO_SLOTS - 1); }
++static void celo_note(void *ptr, size_t size, int type) {
++	if (!ptr)
++		return;
++	celo_acquire();
++	size_t i = celo_slot((uintptr_t)ptr), n = 0;
++	while (celo_ptr[i] && n < CELO_SLOTS) {
++		i = (i + 1) & (CELO_SLOTS - 1);
++		n++;
++	}
++	if (n < CELO_SLOTS && celo_objects < CELO_SLOTS - 1024) {
++		celo_ptr[i] = (uintptr_t)ptr;
++		celo_size[i] = (uint32_t)size;
++		celo_type[i] = (uint8_t)type;
++		celo_used[type] += size;
++		celo_objects++;
++		if (type == CELO_SPILL) {
++			celo_spill_count++;
++			celo_spill_total += size;
++			if (celo_used[CELO_SPILL] > celo_spill_peak)
++				celo_spill_peak = celo_used[CELO_SPILL];
++		}
++	} else
++		celo_lost++;
++	celo_release();
++}
++void vgl_celo_note_spill(void *ptr, size_t size) { celo_note(ptr, size, CELO_SPILL); }
++// Forgets ptr; returns its type (-1: not kept).
++static int celo_forget(void *ptr) {
++	int type = -1;
++	celo_acquire();
++	size_t i = celo_slot((uintptr_t)ptr), n = 0;
++	while (celo_ptr[i] && n < CELO_SLOTS) {
++		if (celo_ptr[i] == (uintptr_t)ptr) {
++			type = celo_type[i];
++			celo_used[type] -= celo_size[i];
++			celo_objects--;
++			if (type == CELO_SPILL)
++				celo_spill_count--;
++			// Backward-shift deletion (linear probing).
++			size_t hole = i, j = i;
++			for (;;) {
++				j = (j + 1) & (CELO_SLOTS - 1);
++				if (!celo_ptr[j])
++					break;
++				size_t home = celo_slot(celo_ptr[j]);
++				if (((j - home) & (CELO_SLOTS - 1)) >= ((j - hole) & (CELO_SLOTS - 1))) {
++					celo_ptr[hole] = celo_ptr[j];
++					celo_size[hole] = celo_size[j];
++					celo_type[hole] = celo_type[j];
++					hole = j;
++				}
++			}
++			celo_ptr[hole] = 0;
++			break;
++		}
++		i = (i + 1) & (CELO_SLOTS - 1);
++		n++;
++	}
++	celo_release();
++	return type;
++}
++void *vgl_malloc(size_t size, vglMemType type) {
++	void *res = vgl_malloc_impl(size, type);
++	if (res && type < VGL_MEM_EXTERNAL)
++		celo_note(res, size, type);
++	return res;
++}
++void *vgl_calloc(size_t num, size_t size, vglMemType type) {
++	void *res = vgl_calloc_impl(num, size, type);
++	if (res && type < VGL_MEM_EXTERNAL)
++		celo_note(res, num * size, type);
++	return res;
++}
++void *vgl_memalign(size_t alignment, size_t size, vglMemType type) {
++	void *res = vgl_memalign_impl(alignment, size, type);
++	if (res && type < VGL_MEM_EXTERNAL)
++		celo_note(res, size, type);
++	return res;
++}
++void vgl_free(void *ptr) {
++	if (!ptr)
++		return;
++	if (celo_objects)
++		celo_forget(ptr);
++	vgl_free_impl(ptr);
++}
++void *vgl_realloc(void *ptr, size_t size) {
++	int type = ptr && celo_objects ? celo_forget(ptr) : -1;
++	void *res = vgl_realloc_impl(ptr, size);
++	if (res && type >= 0)
++		celo_note(res, size, type == CELO_SPILL ? CELO_SPILL : vgl_mem_get_type_by_addr(res));
++	else if (!res && type >= 0)
++		celo_note(ptr, size, type); // (unchanged; the size as asked)
++	return res;
++}
++void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak) {
++	celo_acquire();
++	for (int i = 0; i < VGL_MEM_ALL; i++)
++		used[i] = i < VGL_MEM_EXTERNAL ? celo_used[i] : 0;
++	*spillBytes = celo_used[CELO_SPILL];
++	*spillCount = celo_spill_count;
++	*spillTotal = celo_spill_total;
++	*spillPeak = celo_spill_peak;
++	celo_release();
++}
 diff --git a/source/vgl.c b/source/vgl.c
 index 014e790..0c6c201 100644
 --- a/source/vgl.c
