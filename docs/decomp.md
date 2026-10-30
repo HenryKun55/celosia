@@ -6544,6 +6544,180 @@ native_recorder.cpp (replay alpha test), host_menu.cpp (settings_version
 (alphaTest, shadow sides, A/B names, `SOTC_LOG_HEADER`), README.md,
 docs/STATUS.md, this section.
 
+## Round 39: the camera's collision path native from its top, the filters, the vertex fetcher (2026-10-30)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r39/` (v3k.sh, dt.sh, pos.sh,
+poschain.sh, fam.py; thprof-base.txt / thprof-new.txt are r33/thprof.py over
+the two profile windows).
+
+**Where the camera's collision time was.** Round 36 found ~45% of
+ClipCollisionDirectCallBack's time under camera_collision_check_direct
+(0x140ee60). That wrapper is 0x160 bytes: the objects to leave out
+(ConstructorCollisionObjectJudgeCallbackData, the extra object, the
+camera's target), the camera's move or visible group, the object filter
+(CollisionObjectJudgeCallbackExceptPluralObj or ...ExceptDescendPluralObj)
+and the id filter (CollisionPlaneJudgeCallbackCameraMove or
+...CameraVisibility), then ClipCollisionDirectCallBack. Under it the object
+loop, the node / low / high sides, the leaf and ClipCollisionDB were native
+since round 22; what still ran as recompiled MIPS on that path, in the
+base profile (r38's VPK, calibrated Vita3K 222 MHz, the route on the r24
+card, snapshots at 180 / 300 s, game thread 248, 2 612 frames;
+instructions a frame): GetArbitraryDirectionInverseMatrix (the segment's
+frame, the loop's first call) 15 436 with GetQuaternionByAxisDirZYExact
+22 075 and iosGetArbitraryUpVectorElement 3 285 under it, the object
+filter 4 900, the camera's id filter 2 619, the wrapper 3 461 and its
+constructor 1 103, iosAbsVector 1 776, EntryModifiedManager 2 833, and the
+vertex fetcher manager_sub_01114C70 (a surface's three vertices into the
+part's world-space cache when one is not there yet) 32 374. The camera
+module's own code (0x140e5c0-0x1426000, the response: CAM_get_warp_position,
+get_camera_collision_data, the sphere sweeps' callers) is 96 k a frame in
+all, no function over 11 k: not worth a transcription this round.
+
+**Nativized** (each through the function table as well, so recompiled
+callers get them; all exact, the recompiler's macros in its order):
+- `camera_collision_check_direct` (0x140ee60) and
+  `camera_invisible_collision_check_direct_by_exception_obj` (0x140efc0):
+  the judge data on the original's frame (the filters read it there), the
+  getters as loads (get_cur_camera_target +0x1c, the groups +0xc / +0x10),
+  the filters' addresses read from the code (`relocated()`, the jal targets
+  checked: another link goes to the recompiled code), then
+  ClipCollisionDirectCallBack through the table.
+- `GetArbitraryDirectionInverseMatrix` (0x1133548, decomp_quat.cpp):
+  end - start normalised, `iosGetArbitraryUpVectorElement` (0x1be8f0, with
+  its tail 0x1be944 the recompiler split off), `GetQuaternionByAxisDirZYExact`
+  (0x1bc4b0: diffQuat and atan2Exact natively, iosGetSinCosf as a call into
+  its native through the table, the context synced around it), the
+  quaternion's rows (quatRows, rotateByConj's sequence without the
+  conjugate), the transpose by the same PEXTLW / PEXTUW / PCPYLD lanes, -start
+  through it, the length along z in f0. vrsqrt as the generated code does it
+  (`ps2VuRsqrtQ`, not the status-setting `ps2VuRsqrt` decomp_quat used so far).
+  `iosAbsVector` (0x1be898).
+- The object filters inside ClipCollisionDirectCallBack's object loop
+  (`objectFilter`, no guest call): ExceptPluralObj (0x11288d0),
+  ExceptDescendPluralObj (0x1128918; a parent only GetLayoutParentObj finds
+  goes to the guest filter), gamecore_sub_0140FAB8 / 013D54F0 (not a
+  character: GetCharacterClass's types 9 / 0x16), gamecore_sub_01434FC0
+  (not the object at *(*0x120132c + 0x5b0)).
+- The id filters in `idFilter` (the leaf's and the object loop's): the
+  camera's CollisionPlaneJudgeCallbackCameraMove (0x1123850),
+  playerPlaneJudgeFuncCameraFilter (0x13b54c8), and the ones
+  SOTC_COLLISION_STATS still showed as guest code on the route:
+  gamecore_sub_01444800 (19 400 calls in round 39's first stats run:
+  GetCollisionDBAttributeAdr, then 1), gamecore_sub_013958B8 (112 000),
+  gamecore_sub_01395830, manager_sub_0110C790. moveCtrlWallJudgeFunc
+  (0x14383f0, 48 000-74 000 calls: a plane's slope in degrees) stays guest
+  code, as do gamecore_sub_013CB8E8 (36 000) and AI_JudgeColAttrFunc
+  (0x13d5510, 369) that dt-final's stats showed.
+- `EntryModifiedManager` (0x11478b8): inline at every call site of the
+  collision natives (clipDB, clipKeep, the leaf's plane, the skinned
+  surfaces, the vertex fetcher); it bumps the caches' epoch as the guest
+  call did.
+- `manager_sub_01114C70` (the vertex fetcher, `verticesFull`): its four
+  variants (packed int16 x 2^-15 x scale + offset or floats, short or long
+  ids; floats with long ids take a whole qword with its w), each vertex
+  through the part's matrix (`vu::apply`) into the cache and the modified
+  list; v0 and f0 / f1 as each variant leaves them.
+
+**Instructions** (one profile window each, the same route and snapshots;
+r38's VPK 2 612 frames, celosia-r39.vpk 2 706 frames; thousands a frame):
+
+| | base (r38) | new (r39) |
+|---|---|---|
+| the recompiled functions replaced (above) | 101.4 | 0.5 |
+| their native code (decomp_quat's new functions 31.3, the filters 9.3 + idFilter +6.5, the vertex fetcher and EntryModifiedManager 6.5, the wrapper 1.4, iosAbsVector 1.6) | - | ~57 |
+| sotc_decomp::callGuest | 231.3 | 207.1 |
+| the collision natives (all of decomp_collision) | 1 125 | 1 099 |
+| the game thread | 10 122 | 9 767 |
+
+The path's saving is ~68 k instructions a frame (101 replaced, ~57 native,
+callGuest -24): ~0.7% of the game thread. The whole thread's -3.5% is mostly
+the two windows' content (the new run went 94 frames further; model clip and
+finder natives, which this round did not touch, +4%). As round 28 found,
+NEON clamp chains cost little in Vita3K: the native code here keeps the
+PS2_V* clamps (exact for any input; no fast path needed a check).
+
+**Exactness.**
+- SOTC_DIFFTEST on the Mac, the route on the r24 card, EVERY=20 to frame
+  3 600: r39/dt-focus (the camera wrapper, the matrix chain, the filters,
+  iosAbsVector, ClipCollisionDirectCallBack): 9 functions, 36 400 checks, 0
+  mismatches; r39/dt-focus3 (after the vertex fetcher and EntryModifiedManager,
+  with ClipCollisionDB, clipCollisionKeep, the tree's node / low / high and
+  ClipCollisionDirectCallBack whose recompiled legs run the original
+  filters): 16 functions, 262 400 checks, 0 mismatches. The first version
+  of the vertex fetcher had 1 100 mismatches (v0 and f0 left unset, the
+  long-id float variant read 12-byte vertices): fixed before dt-focus3.
+- SOTC_DIFFTEST=all EVERY=200 to 4 800 (r39/dt-all, the final binary): 57
+  functions, 154 301 checks, 158 mismatches, all gamecore_sub_013F8668 (the
+  life bar's v0, as since round 16). But `all` checks only the first 64
+  registered functions (kMaxChecked in sotc_decomp.cpp; the registry's
+  order), and none of this round's were among them, nor the collision
+  natives: round 36's `all` had the same blind spot. So the final binary
+  was checked by name too (r39/dt-final, EVERY=20 to 4 800, every function
+  of this round and the collision natives they sit in): 24 functions,
+  538 800 checks, 0 mismatches (ClipCollisionDB 7 300, ClipCollisionDirectCallBack
+  3 400, clipCollisionKeep 16 600, collisionNode / Low / High 123 700 /
+  130 800 / 136 000, GetArbitraryDirectionInverseMatrix 4 400,
+  GetQuaternionByAxisDirZYExact 5 000, iosGetArbitraryUpVectorElement 4 400,
+  iosAbsVector 15 500, camera_collision_check_direct 1 600, the camera's
+  filters 200 / 4 800, ExceptPluralObj 18 400, EntryModifiedManager 6 300,
+  collisionVerticesIndep 2 400, the gamecore filters 100-2 200,
+  playerPlaneJudgeFuncCameraFilter 1 100). Not reached on the route:
+  camera_invisible_collision_check_direct_by_exception_obj,
+  ExceptDescendPluralObj, manager_sub_0110C790 (checked by reading only).
+- `SOTC_CAMCOLL=0` (r39/poscc0, the recompiled code): reaches 5 400; 15.7
+  from the base run at frame 3 210 (run beside dt-final: the load-sensitive
+  stretch of rounds 37-38).
+- Fixed-30 position route to 5 400 (SOTC_NATIVE=2, the r24 card copy;
+  r38/bin-final against r39/bin-new4, one after the other on an idle Mac):
+  max 2.58 apart (frame 3 420; round 36's own spread 2.06-3.38), both reach
+  5 400 (VBlank 10 750 / 10 746).
+- Vita: celosia-r39.vpk (-j6, shader seed 52 files, unchanged since round
+  38) boots and plays the route in calibrated Vita3K (the profile run,
+  r39/new-err.txt: to game frame 7 409 in 320 s against r38's 7 190; sound
+  (r12/tools/au.py): 0 late callbacks, 0 stale halves, 0 src-stale); the
+  Vita3K tree restored (`restored ok`).
+
+**Switch:** `SOTC_CAMCOLL=0` puts every function of this round back to the
+recompiled code (the table entries and the native collision code's own calls
+of the filters, the vertex fetcher and EntryModifiedManager; read at first
+use). Each table entry alone with `SOTC_DECOMP_SKIP=<name>`.
+
+**tools/vita3k.sh**: a profile snapshot is copied until two copies agree
+(round 39's first base run copied the 180 s profile mid-write: half the
+lines, 21 M "instructions a frame").
+
+**Decomp status** (tools/decomp_status.py, r39/replaced.txt, r12's call
+dumps): 5.59% of the MIPS code by size (was 5.41), 5.20% by functions (469 of
+9 024), 49.0% by calls, 3.39% of the game's own code; decomp_history r39:
+44.7% of the game thread's instructions native, 38.6% recompiled MIPS.
+
+**Open.**
+- The scripts' collision callback (SCRGetCollisionCallBack 0x137d1a0) is the
+  same shape as the camera's wrapper (ClipCollisionDirectCallBack with the
+  script's id filter, CopyGeometryPointer of the hit); its filters are the
+  scripts' own (the ones above that showed on the route are native now).
+- Still recompiled under the collision natives: clipKeep's full test
+  (manager_sub_0111C078: 37% of its calls in the first stats run went to the
+  recompiled code, 18 k a frame), the character's slope / water probes
+  (0111C810 33 k, 01117EA0 28 k, 01117340 20 k, 01118B88 15 k),
+  moveCtrlWallJudgeFunc, the old tree walks (0x112b890 / 0x112acd0) and
+  CalcCollisionMultiDepSurfBoundary (5.8 k).
+- The camera's response code (CAM_get_warp_position, get_camera_collision_data
+  and the sphere sweeps through ClipCollisionFinderWithVariableKeep*CB /
+  GetCollisionDBCallBack): recompiled, ~96 k a frame for the whole camera
+  module spread over ~100 functions.
+
+**Files:** game/overrides/decomp_collision.cpp (cameraMove,
+playerCameraFilter, the gamecore / manager id filters, objectFilter and its
+entries, entryModified, verticesFull, the camera wrappers, registrations),
+game/overrides/decomp_quat.cpp (rsqrtQ, upVectorN, quatRows, normalizeQuat,
+axisDirZYExactN, invMatrixN, absVector and their entries),
+game/overrides/sotc_decomp.h (camCollOn), tools/vita3k.sh (snapshot copy),
+README.md (SOTC_CAMCOLL; the decomp block from decomp_tree.py --readme),
+docs/decomp.md, docs/decomp_status.json / .svg, docs/decomp_history.json /
+.svg, docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r39.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

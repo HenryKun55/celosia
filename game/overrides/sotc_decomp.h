@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -259,6 +260,20 @@ namespace sotc_decomp
 
     // Returning from a decompiled function: the jr ra the recompiled code ends with.
     inline void returnTo(R5900Context *ctx) { ctx->pc = GPR_U32(ctx, 31); }
+
+    // Round 39's natives (the camera's collision path: its wrappers, filters
+    // and the segment's matrix, decomp_camcoll.cpp / decomp_collision.cpp /
+    // decomp_quat.cpp). SOTC_CAMCOLL=0 puts the recompiled code back for all
+    // of them (read at first use: the Vita's env.txt comes after static init).
+    inline bool camCollOn()
+    {
+        static const bool on = []
+        {
+            const char *e = std::getenv("SOTC_CAMCOLL");
+            return !(e && e[0] == '0');
+        }();
+        return on;
+    }
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \

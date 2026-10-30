@@ -436,6 +436,108 @@ namespace decomp_collision
         guestCall(g.rdram, g.ctx, g.runtime, target, ra, sp);
     }
 
+    // EntryModifiedManager (0x11478b8, round 39): the index put in the
+    // cache's modified list (+0 the count, +8 the flags, +0xc the index size
+    // 1 / 2 / 4, +0x10 the list; another size: only the flag), the flag byte
+    // set; v0 the old count. Outside main RAM: the guest call.
+    void entryModified(const G g, uint32_t m, uint32_t idx, uint32_t ra, uint32_t sp)
+    {
+        if (!sotc_decomp::camCollOn() || !G::plain(m, 0x14u))
+            return call(g, kEntryModified, ra, sp, {m, idx});
+        const uint32_t n = g.u32(m), flags = g.u32(m + 8u), list = g.u32(m + 0x10u);
+        const int32_t size = static_cast<int32_t>(g.u32(m + 0xCu));
+        const uint32_t width = size == 1 || size == 2 || size == 4 ? static_cast<uint32_t>(size) : 0u;
+        const uint32_t at = list + n * width;
+        if ((width != 0u && !G::plain(at, width)) || !G::plain(flags + idx, 1u))
+            return call(g, kEntryModified, ra, sp, {m, idx});
+        ++g_guestRuns; // as a guest call would (the caches' epoch)
+        g.put32(m, n + 1u);
+        if (width == 1u)
+            g.rdram[at] = static_cast<uint8_t>(idx);
+        else if (width == 2u)
+        {
+            const uint16_t v = static_cast<uint16_t>(idx);
+            std::memcpy(g.rdram + at, &v, 2);
+        }
+        else if (width == 4u)
+            g.put32(at, idx);
+        g.rdram[flags + idx] = 1u;
+        SET_GPR_S32(g.ctx, 2, static_cast<int32_t>(n));
+    }
+
+    void entryModifiedEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t m = GPR_U32(ctx, 4), idx = GPR_U32(ctx, 5);
+        if (!sotc_decomp::camCollOn() || !G::plain(m, 0x14u))
+            return sotc_decomp::recompiled(kEntryModified)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const int32_t size = static_cast<int32_t>(g.u32(m + 0xCu));
+        const uint32_t width = size == 1 || size == 2 || size == 4 ? static_cast<uint32_t>(size) : 0u;
+        if ((width != 0u && !G::plain(g.u32(m + 0x10u) + g.u32(m) * width, width)) || !G::plain(g.u32(m + 8u) + idx, 1u))
+            return sotc_decomp::recompiled(kEntryModified)(rdram, ctx, runtime);
+        entryModified(g, m, idx, GPR_U32(ctx, 31), GPR_U32(ctx, 29));
+        returnTo(ctx);
+    }
+
+    // manager_sub_01114C70 in full (round 39): the vertices not cached yet
+    // made here, in the original's order (per vertex: its index out, then,
+    // when its flag is clear, the position (int16 x 2^-15 x scale + offset,
+    // or three floats, both with w = 1; with long ids and floats a whole
+    // qword as stored) through the part's matrix into the cache
+    // and EntryModifiedManager), then its address out. v0 as it leaves it.
+    void verticesFull(const G g, uint32_t out, uint32_t idx, uint32_t cls, uint32_t index, uint32_t surface, uint32_t sp)
+    {
+        const uint32_t record = g.u32(g.u32(g.u32(cls + 0x184u) + 0x20u) + 8u) + index * 0x90u;
+        const uint32_t cache = g.u32(g.u32(cls + 0x174u) + 0x24u) + index * 0x60u;
+        const uint32_t matrix = g.u32(cls + 0x15Cu) + index * 0x40u;
+        const bool packed = g.u8(record + 9u) != 0u, shortIds = g.u8(record + 8u) != 0u;
+        const uint32_t list = g.u32(record + 0x14u), frame = sp - 0xC0u;
+        // the entry sites' return addresses (packed short / long ids, floats short / long)
+        const uint32_t site = packed ? (shortIds ? 0x01114E10u : 0x01114F5Cu) : (shortIds ? 0x01115058u : 0x01115110u);
+        for (uint32_t k = 0; k < 3u; ++k)
+        {
+            const uint32_t id = shortIds ? g.u16(list + surface * 20u + 2u + k * 2u) : g.u32(list + surface * 0x34u + k * 4u);
+            if (idx != 0u)
+                g.put32(idx + k * 4u, id);
+            const uint32_t dst = g.u32(cache + 0x14u) + id * 16u;
+            if (g.u8(g.u32(cache + 8u) + id) == 0u)
+            {
+                const uint32_t verts = g.u32(record + 4u);
+                __m128 p;
+                const float one = 1.0f;
+                if (packed)
+                {
+                    const uint32_t src = verts + id * 6u;
+                    const int32_t xi = static_cast<int16_t>(g.u16(src)), yi = static_cast<int16_t>(g.u16(src + 2u)), zi = static_cast<int16_t>(g.u16(src + 4u));
+                    const __m128 f = _mm_mul_ps(_mm_cvtepi32_ps(_mm_set_epi32(0, zi, yi, xi)), _mm_set1_ps(3.05175781e-05f)); // vitof15
+                    const uint32_t so = g.u32(record + 0xCu);
+                    const __m128 m = PS2_VMUL(f, g.q(so + 0x10u));
+                    g.f0(one); // lui at, 0x3f80; mtc1 at, f0
+                    p = _mm_blendv_ps(m, PS2_VADD(m, g.q(so)), _mm_castsi128_ps(_mm_set_epi32(0, -1, -1, -1))); // vadd.xyz
+                }
+                else if (shortIds)
+                {
+                    const uint32_t src = verts + id * 12u;
+                    p = _mm_setr_ps(g.f32(src), g.f32(src + 4u), g.f32(src + 8u), 0.0f);
+                    g.ctx->f[1] = g.f32(src + 4u); // lwc1 f0 / f1 / f0
+                    g.f0(g.f32(src + 8u));
+                }
+                else
+                    p = g.q(verts + id * 16u); // a qword as it is (w too): 0x1115080
+                if (packed || shortIds)
+                    std::memcpy(reinterpret_cast<float *>(&p) + 3, &one, 4);
+                const __m128 rowsIn[4] = {g.q(matrix), g.q(matrix + 0x10u), g.q(matrix + 0x20u), g.q(matrix + 0x30u)};
+                g.put(dst, vu::apply(vu::clampRows(rowsIn), p));
+                entryModified(g, cache, id, site, frame);
+            }
+            g.put32(out + k * 4u, dst);
+        }
+        if (packed || shortIds)
+            SET_GPR_U64(g.ctx, 2, 0u);
+        else
+            SET_GPR_U32(g.ctx, 2, out + 8u);
+    }
+
     // manager_sub_01114C70 when the three vertices are cached (world space,
     // this frame): out[0..2] their addresses, idx[0..2] their indices (when
     // idx is not 0). Otherwise the guest function (nothing written before).
@@ -457,6 +559,8 @@ namespace decomp_collision
             if (g.u8(flags + ids[k]) == 0u)
             {
                 COLL_STAT(verticesGuest);
+                if (sotc_decomp::camCollOn())
+                    return verticesFull(g, out, idx, cls, index, surface, sp);
                 return call(g, kVerticesIndep, ra, sp, {out, idx, cls, index, surface});
             }
         for (uint32_t k = 0; k < 3u; ++k)
@@ -610,7 +714,7 @@ namespace decomp_collision
                 COLL_STAT(clipPlane);
                 verticesIndep(g, sp, sp + 0x10u, cls, s1, s3, 0x0111BAA8u, sp);
                 plane(g, sp, normal);
-                call(g, kEntryModified, 0x0111BC58u, sp, {s2, s3});
+                entryModified(g, s2, s3, 0x0111BC58u, sp);
             }
         }
         else
@@ -627,7 +731,7 @@ namespace decomp_collision
                      {sp + 0x20u, sp + 0x30u, a2c + 0x28u, g.u32(a2c + 0x24u), g.u32(cls + 0x15Cu), g.u32(t2 + 8u), g.u32(t2 + 0x14u),
                       g.u32(t2 + 0x18u) + index * 0x40u});
                 plane(g, sp + 0x20u, normal);
-                call(g, kEntryModified, 0x0111BC58u, sp, {s2, index});
+                entryModified(g, s2, index, 0x0111BC58u, sp);
             }
         }
         // vaddw.x vf7 = 1; vmul.xyz; vaddax.x / vmadday.x / vmaddz.x; vaddw.x + n.w
@@ -841,7 +945,7 @@ namespace decomp_collision
             {
                 verticesIndep(g, sp, sp + 0x10u, cls, s1, s3, 0x0111C13Cu, sp);
                 plane(g, sp, normal);
-                call(g, kEntryModified, 0x0111C2E8u, sp, {s2, s3});
+                entryModified(g, s2, s3, 0x0111C2E8u, sp);
             }
         }
         else
@@ -857,7 +961,7 @@ namespace decomp_collision
                      {sp + 0x20u, sp + 0x30u, a2c + 0x28u, g.u32(a2c + 0x24u), g.u32(cls + 0x15Cu), g.u32(t2 + 8u), g.u32(t2 + 0x14u),
                       g.u32(t2 + 0x18u) + index * 0x40u});
                 plane(g, sp + 0x20u, normal);
-                call(g, kEntryModified, 0x0111C2E8u, sp, {s2, index});
+                entryModified(g, s2, index, 0x0111C2E8u, sp);
             }
         }
         const __m128 n = vu::clamp(g.q(normal)), vf0c = vu::clamp(ctx->vu0_vf[0]);
@@ -1473,7 +1577,7 @@ namespace decomp_collision
                 COLL_STAT(finderSlow);
                 verticesIndep(g, sp, sp + 0x10u, cls, 0u, surface, site.vertices, sp);
                 plane(g, sp, slot);
-                call(g, kEntryModified, site.modified, sp, {planes, surface});
+                entryModified(g, planes, surface, site.modified, sp);
             }
             const __m128 n = vu::clamp(g.q(slot));
             const __m128 prod = vu::mulN(n, vu::clamp(c));
@@ -1718,8 +1822,91 @@ namespace decomp_collision
         return true;
     }
 
+    // CollisionPlaneJudgeCallbackCameraMove (0x1123850, round 39), the moving
+    // camera's id filter: 1 for the kind 0x280000000, 0 for the surfaces it
+    // passes through, else 1 unless the 0x80000000000 kind.
+    bool cameraMove(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t a1 = bits & 0xF80000000ull, a3 = bits & 0x3C0000000000ull, a0 = bits & 0x7C000000ull;
+        out = 1u;
+        if (a1 == 0x280000000ull)
+            return true;
+        out = 0u;
+        if (a3 == 0x200000000000ull)
+            return true;
+        if (a0 == 0x30000000u || a0 == 0x34000000u || a0 == 0x64000000u || a0 == 0x68000000u || a0 == 0x6C000000u || a0 == 0x24000000u)
+            return true;
+        if (a1 == 0x300000000ull || a1 == 0x500000000ull || a1 == 0x200000000ull || a1 == 0xB80000000ull || a1 == 0x80000000ull)
+            return true;
+        out = a3 != 0x80000000000ull ? 1u : 0u;
+        return true;
+    }
+
+    // playerPlaneJudgeFuncCameraFilter (0x13b54c8, round 39): 1 for the kind
+    // 0x24000000, 0 for the kinds the camera passes through, else 1 unless
+    // the 0x80000000000 kind (GetCollisionDBAttributeAdr twice: the same record).
+    bool playerCameraFilter(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t a2 = bits & 0x7C000000ull, a3 = bits & 0x3C0000000000ull, v1 = bits & 0xF80000000ull;
+        out = 1u;
+        if (a2 == 0x24000000u)
+            return true;
+        out = 0u;
+        if (a2 == 0x34000000u || a2 == 0x64000000u || a2 == 0x68000000u || a2 == 0x6C000000u || a2 == 0x48000000u || a2 == 0x30000000u ||
+            a2 == 0x04000000u)
+            return true;
+        if (v1 == 0x200000000ull || v1 == 0xB80000000ull || v1 == 0x80000000ull || v1 == 0x300000000ull || v1 == 0x500000000ull ||
+            v1 == 0x280000000ull)
+            return true;
+        out = a3 != 0x80000000000ull ? 1u : 0u;
+        return true;
+    }
+
+    // gamecore_sub_01395830 (round 39): 0 for the kind 0x280000000 and the
+    // surface kinds 0x64 / 0x68 / 0x6c / 0x24, else 1 unless the 0x80000000000 kind.
+    bool gamecore1395830(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t v0 = bits & 0xF80000000ull, a0 = bits & 0x3C0000000000ull, v1 = bits & 0x7C000000ull;
+        out = 0u;
+        if (v0 == 0x280000000ull || v1 == 0x64000000u || v1 == 0x68000000u || v1 == 0x6C000000u || v1 == 0x24000000u)
+            return true;
+        out = a0 != 0x80000000000ull ? 1u : 0u;
+        return true;
+    }
+
+    // gamecore_sub_013958B8 (round 39): 0 for the kinds 0x280000000 /
+    // 0x300000000 / 0x500000000, the surface kinds 0x64 / 0x68 / 0x6c / 0x24
+    // and the 0x80000000000 kind, else 1.
+    bool gamecore13958b8(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t a3 = bits & 0xF80000000ull, a0 = bits & 0x3C0000000000ull, v1 = bits & 0x7C000000ull;
+        out = 0u;
+        if (a3 == 0x280000000ull || v1 == 0x64000000u || v1 == 0x68000000u || v1 == 0x6C000000u || v1 == 0x24000000u || a0 == 0x80000000000ull ||
+            a3 == 0x300000000ull || a3 == 0x500000000ull)
+            return true;
+        out = 1u;
+        return true;
+    }
+
     constexpr uint32_t kCameraLeave = 0x01123C60u, kCharaSurface = 0x010D41E0u, kGamecoreSurface = 0x01434C00u, kNotKind28 = 0x011292B0u,
-                       kPathJudge = 0x014336A0u;
+                       kPathJudge = 0x014336A0u, kCameraMove = 0x01123850u, kPlayerCameraFilter = 0x013B54C8u, kAnySurface = 0x01444800u,
+                       kGamecore1395830 = 0x01395830u, kGamecore13958b8 = 0x013958B8u, kNotKind80 = 0x0110C790u;
 
     // An id filter run natively when it is one of the above (false: run it as guest code).
     bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out)
@@ -1738,6 +1925,30 @@ namespace decomp_collision
             return notKind28(g, id, out);
         case kPathJudge:
             return pathJudge(g, id, out);
+        case kCameraMove:
+            return sotc_decomp::camCollOn() && cameraMove(g, id, out);
+        case kPlayerCameraFilter:
+            return sotc_decomp::camCollOn() && playerCameraFilter(g, id, out);
+        case kAnySurface: // gamecore_sub_01444800: GetCollisionDBAttributeAdr, then 1
+        {
+            uint32_t record;
+            if (!sotc_decomp::camCollOn() || !attributeAddress(g, id, record))
+                return false;
+            out = 1u;
+            return true;
+        }
+        case kGamecore1395830:
+            return sotc_decomp::camCollOn() && gamecore1395830(g, id, out);
+        case kGamecore13958b8:
+            return sotc_decomp::camCollOn() && gamecore13958b8(g, id, out);
+        case kNotKind80: // manager_sub_0110C790: every surface but the kind 0x800000000
+        {
+            uint32_t record;
+            if (!sotc_decomp::camCollOn() || !attributeAddress(g, id, record))
+                return false;
+            out = (attributeBits(g, record) & 0xF80000000ull) != 0x800000000ull ? 1u : 0u;
+            return true;
+        }
         default:
             return false;
         }
@@ -1748,7 +1959,7 @@ namespace decomp_collision
     {
         const G g{rdram, ctx, runtime};
         uint64_t v0;
-        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : kPathJudge;
+        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : kNotKind80;
         if (!idFilter(g, address, GPR_U32(ctx, 4), GPR_U32(ctx, 5), v0))
             return sotc_decomp::recompiled(address)(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 2, v0);
@@ -1837,6 +2048,96 @@ namespace decomp_collision
             r[i] = vu::apply(rows, g.q(m + i * 0x10u));
         for (int i = 0; i < 4; ++i)
             g.put(out + i * 0x10u, r[i]);
+    }
+
+    // ---- round 39: the object filters ClipCollisionDirectCallBack's callers
+    // hand it (t0: object, user) -----------------------------------------------
+    constexpr uint32_t kExceptPlural = 0x011288D0u, kExceptDescend = 0x01128918u, kNotCharacter = 0x0140FAB8u, kNotPlayer = 0x01434FC0u,
+                       kNotCharacter2 = 0x013D54F0u;
+
+    // CollisionObjectJudgeCallbackExceptPluralObj: 0 for an object in the
+    // list (+0 the count, +4 the objects), else 1.
+    uint64_t exceptPlural(const G g, uint32_t object, uint32_t list)
+    {
+        const int32_t n = static_cast<int32_t>(g.u32(list));
+        for (int32_t i = 0; i < n; ++i)
+            if (g.u32(list + 4u + static_cast<uint32_t>(i) * 4u) == object)
+                return 0u;
+        return 1u;
+    }
+
+    // CollisionObjectJudgeCallbackExceptDescendPluralObj: 0 for an object
+    // that is one of the listed or below one of them (its layout class's
+    // parent at +0x194, up to the top); false: a parent only
+    // GetLayoutParentObj finds (GetGeometryPointerObject), or a class
+    // GetLayoutClass computes by a call: the guest filter (nothing written).
+    bool exceptDescend(const G g, uint32_t object, uint32_t list, uint64_t &out)
+    {
+        for (int32_t i = 0; i < static_cast<int32_t>(g.u32(list)); ++i)
+        {
+            const uint32_t listed = g.u32(list + 4u + static_cast<uint32_t>(i) * 4u);
+            if (listed == 0u)
+                continue;
+            for (uint32_t v = object; v != 0u;)
+            {
+                if (v == listed)
+                {
+                    out = 0u;
+                    return true;
+                }
+                uint32_t cls;
+                if (!layoutClass(g, v, cls))
+                    return false;
+                if (cls == 0u)
+                    break;
+                v = g.u32(cls + 0x194u);
+                if (v == 0u && g.u32(cls + 0x124u) != 0u)
+                    return false;
+            }
+        }
+        out = 1u;
+        return true;
+    }
+
+    bool objectFilter(const G g, uint32_t filter, uint32_t object, uint32_t user, uint64_t &out)
+    {
+        if (!sotc_decomp::camCollOn())
+            return false;
+        if (filter == kExceptPlural)
+        {
+            out = exceptPlural(g, object, user);
+            return true;
+        }
+        if (filter == kExceptDescend)
+            return exceptDescend(g, object, user, out);
+        if ((filter == kNotCharacter && sotc_decomp::jalTarget(g.rdram, 0x0140FAC0u) == 0x010C0A70u) ||
+            (filter == kNotCharacter2 && sotc_decomp::jalTarget(g.rdram, 0x013D54F8u) == 0x010C0A70u))
+        {
+            // gamecore_sub_0140FAB8: GetCharacterClass (types 9 / 0x16) == 0.
+            const uint8_t type = g.u8(object + 8u);
+            out = type == 9u || type == 0x16u ? 0u : 1u;
+            return true;
+        }
+        if (filter == kNotPlayer)
+        {
+            // gamecore_sub_01434FC0: the object is not the one at *(*0x120132c + 0x5b0).
+            const uint32_t base = sotc_decomp::relocated(g.rdram, 0x01434FC0u, 0x01434FC4u);
+            out = g.u32(g.u32(base) + 0x5B0u) != object ? 1u : 0u;
+            return true;
+        }
+        return false;
+    }
+
+    template <int Which>
+    void objectFilterEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const G g{rdram, ctx, runtime};
+        constexpr uint32_t address = Which == 0 ? kExceptPlural : Which == 1 ? kExceptDescend : Which == 2 ? kNotCharacter : Which == 3 ? kNotPlayer : kNotCharacter2;
+        uint64_t v0;
+        if (!objectFilter(g, address, GPR_U32(ctx, 4), GPR_U32(ctx, 5), v0))
+            return sotc_decomp::recompiled(address)(rdram, ctx, runtime);
+        SET_GPR_U64(ctx, 2, v0);
+        returnTo(ctx);
     }
 
     bool directFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint32_t ra, uint32_t sp)
@@ -1928,10 +2229,16 @@ namespace decomp_collision
             COLL_STAT(directObjects);
             if (const uint32_t filter = g.u32(sp + 0x1A4u); filter != 0u)
             {
-                if (g_statsOn)
-                    countGuestFilter(filter | 2u);
-                call(g, filter, 0x0112D654u, sp, {object, user});
-                tested = GPR_U64(ctx, 2) != 0u;
+                uint64_t pass;
+                if (objectFilter(g, filter, object, user, pass))
+                    tested = pass != 0u;
+                else
+                {
+                    if (g_statsOn)
+                        countGuestFilter(filter | 2u);
+                    call(g, filter, 0x0112D654u, sp, {object, user});
+                    tested = GPR_U64(ctx, 2) != 0u;
+                }
             }
             if (tested)
             {
@@ -2120,7 +2427,7 @@ namespace decomp_collision
                                                         continue;
                                                     call(g, 0x01124368u, 0x0112DF00u, sp,
                                                          {s1, s3, g.u32(sp + 0x1CCu), g.u32(sp + 0x1C8u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3});
-                                                    call(g, kEntryModified, 0x0112DF0Cu, sp, {s3, s0});
+                                                    entryModified(g, s3, s0, 0x0112DF0Cu, sp);
                                                 }
                                                 g.put(sp + 0x170u, g.q(s1));
                                                 putf(g, sp + 0x17Cu, one);
@@ -2218,6 +2525,107 @@ namespace decomp_collision
         if (const uint32_t last = g.u32(sp + 0x1B8u); last != 0u)
             call(g, 0x001C77B8u, 0x0112E140u, sp, {last, 0u}); // isysGroupForExit
         finish(static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(g.u32(sp + 0x1B4u)))));
+    }
+
+    // manager_sub_01114C70 from guest code (round 39).
+    void verticesIndepEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::camCollOn())
+            return sotc_decomp::recompiled(kVerticesIndep)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const uint32_t out = GPR_U32(ctx, 4), cls = GPR_U32(ctx, 6), index = GPR_U32(ctx, 7);
+        verticesIndep(g, out, GPR_U32(ctx, 5), cls, index, GPR_U32(ctx, 8), GPR_U32(ctx, 31), GPR_U32(ctx, 29));
+        // v0 as the loop leaves it (also when every vertex was cached).
+        const uint32_t record = g.u32(g.u32(g.u32(cls + 0x184u) + 0x20u) + 8u) + index * 0x90u;
+        if (g.u8(record + 9u) != 0u || g.u8(record + 8u) != 0u)
+            SET_GPR_U64(ctx, 2, 0u);
+        else
+            SET_GPR_U32(ctx, 2, out + 8u);
+        returnTo(ctx);
+    }
+
+    // ---- round 39: the camera's segment tests ----------------------------------
+    // camera_collision_check_direct (0x140ee60) and
+    // camera_invisible_collision_check_direct_by_exception_obj (0x140efc0):
+    // the objects to leave out on the frame (ConstructorCollisionObjectJudgeCallbackData's
+    // count and five words, then the extra object and the camera's target),
+    // the camera's group and filters, and ClipCollisionDirectCallBack (native)
+    // with that frame. The getters (get_cur_camera_target +0x1c,
+    // get_camera_move / visible_collision_group +0xc / +0x10) are plain
+    // loads; the filters' addresses are read from the code (relocated()).
+    // Only v0 (ClipCollisionDirectCallBack's) and the result are seen after:
+    // the frame below the caller's sp is dead.
+    constexpr uint32_t kCameraCheckDirect = 0x0140EE60u, kCameraInvisible = 0x0140EFC0u;
+    constexpr uint32_t kJudgeCtor = 0x01128898u, kCurTarget = 0x0141CE60u, kMoveGroup = 0x0141CE38u, kVisibleGroup = 0x0141CE40u;
+
+    // The judge data at `at`: six words zeroed, then the objects (0 skipped).
+    void judgeData(const G g, uint32_t at, uint32_t first, uint32_t second)
+    {
+        for (uint32_t k = 0; k < 6u; ++k)
+            g.put32(at + k * 4u, 0u);
+        uint32_t n = 0;
+        for (uint32_t o : {first, second})
+            if (o != 0u)
+                g.put32(at + 4u + 4u * n++, o);
+        g.put32(at, n);
+    }
+
+    void cameraCheckDirect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        using sotc_decomp::jalTarget;
+        using sotc_decomp::relocated;
+        if (!sotc_decomp::camCollOn() || jalTarget(rdram, 0x0140EEB0u) != kJudgeCtor || jalTarget(rdram, 0x0140EEE8u) != kCurTarget ||
+            jalTarget(rdram, 0x0140EF40u) != kMoveGroup || jalTarget(rdram, 0x0140EF58u) != kVisibleGroup || jalTarget(rdram, 0x0140EF84u) != kDirectCallBack)
+            return sotc_decomp::recompiled(kCameraCheckDirect)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x80u;
+        const uint32_t cam = GPR_U32(ctx, 7), move = GPR_U32(ctx, 8), descend = GPR_U32(ctx, 9), extra = GPR_U32(ctx, 10), withTarget = GPR_U32(ctx, 11);
+        judgeData(g, sp + 0x10u, extra, withTarget == 1u ? g.u32(cam + 0x1Cu) : 0u);
+        const uint32_t filter = descend == 1u ? relocated(rdram, 0x0140EF24u, 0x0140EF2Cu) : relocated(rdram, 0x0140EF20u, 0x0140EF30u);
+        uint32_t group, idFilter;
+        if (move == 1u)
+        {
+            group = g.u32(cam + 0xCu);
+            idFilter = relocated(rdram, 0x0140EF4Cu, 0x0140EF54u);
+        }
+        else
+        {
+            group = g.u32(cam + 0x10u);
+            idFilter = relocated(rdram, 0x0140EF64u, 0x0140EF68u);
+        }
+        g.put32(sp, sp + 0x10u);
+        SET_GPR_U32(ctx, 7, group);
+        SET_GPR_U32(ctx, 8, filter);
+        SET_GPR_U64(ctx, 9, 0u);
+        SET_GPR_U64(ctx, 10, 0u);
+        SET_GPR_U32(ctx, 11, idFilter);
+        guestCall(rdram, ctx, runtime, kDirectCallBack, 0x0140EF8Cu, sp);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        returnTo(ctx);
+    }
+
+    void cameraInvisible(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        using sotc_decomp::jalTarget;
+        using sotc_decomp::relocated;
+        if (!sotc_decomp::camCollOn() || jalTarget(rdram, 0x0140F000u) != kJudgeCtor || jalTarget(rdram, 0x0140F038u) != kCurTarget ||
+            jalTarget(rdram, 0x0140F068u) != kMoveGroup || jalTarget(rdram, 0x0140F094u) != kDirectCallBack)
+            return sotc_decomp::recompiled(kCameraInvisible)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x70u;
+        const uint32_t cam = GPR_U32(ctx, 7), extra = GPR_U32(ctx, 8), withTarget = GPR_U32(ctx, 9);
+        judgeData(g, sp + 0x10u, extra, withTarget == 1u ? g.u32(cam + 0x1Cu) : 0u);
+        g.put32(sp, sp + 0x10u);
+        SET_GPR_U32(ctx, 7, g.u32(cam + 0xCu));
+        SET_GPR_U32(ctx, 8, relocated(rdram, 0x0140F070u, 0x0140F084u));
+        SET_GPR_U64(ctx, 9, 0u);
+        SET_GPR_U64(ctx, 10, 0u);
+        SET_GPR_U64(ctx, 11, 0u);
+        guestCall(rdram, ctx, runtime, kDirectCallBack, 0x0140F09Cu, sp);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        returnTo(ctx);
     }
 
     // ---- FlushModifiedManager (0x1147798), round 11 ---------------------------
@@ -2438,3 +2846,19 @@ SOTC_DECOMP_FUNCTION(0x01125DC8u, ClipCollisionFinder, decomp_collision::finderC
 SOTC_DECOMP_FUNCTION(0x01125CC0u, ClipCollisionFinderCallBack, decomp_collision::finderClip<true>);
 SOTC_DECOMP_FUNCTION(0x01147798u, FlushModifiedManager, decomp_collision::flushModified);
 SOTC_DECOMP_FUNCTION(0x0112A250u, EntryCollisionFinder, decomp_collision::entryFinder);
+// Round 39: the camera's segment tests (SOTC_CAMCOLL=0: all recompiled).
+SOTC_DECOMP_FUNCTION(0x0140EE60u, camera_collision_check_direct, decomp_collision::cameraCheckDirect);
+SOTC_DECOMP_FUNCTION(0x011478B8u, EntryModifiedManager, decomp_collision::entryModifiedEntry);
+SOTC_DECOMP_FUNCTION(0x01114C70u, collisionVerticesIndep, decomp_collision::verticesIndepEntry);
+SOTC_DECOMP_FUNCTION(0x0140EFC0u, camera_invisible_collision_check_direct_by_exception_obj, decomp_collision::cameraInvisible);
+SOTC_DECOMP_FUNCTION(0x01123850u, CollisionPlaneJudgeCallbackCameraMove, decomp_collision::filterEntry<5>);
+SOTC_DECOMP_FUNCTION(0x013B54C8u, playerPlaneJudgeFuncCameraFilter, decomp_collision::filterEntry<6>);
+SOTC_DECOMP_FUNCTION(0x011288D0u, CollisionObjectJudgeCallbackExceptPluralObj, decomp_collision::objectFilterEntry<0>);
+SOTC_DECOMP_FUNCTION(0x01128918u, CollisionObjectJudgeCallbackExceptDescendPluralObj, decomp_collision::objectFilterEntry<1>);
+SOTC_DECOMP_FUNCTION(0x0140FAB8u, gamecore_sub_0140FAB8, decomp_collision::objectFilterEntry<2>);
+SOTC_DECOMP_FUNCTION(0x01434FC0u, gamecore_sub_01434FC0, decomp_collision::objectFilterEntry<3>);
+SOTC_DECOMP_FUNCTION(0x01444800u, gamecore_sub_01444800, decomp_collision::filterEntry<7>);
+SOTC_DECOMP_FUNCTION(0x01395830u, gamecore_sub_01395830, decomp_collision::filterEntry<8>);
+SOTC_DECOMP_FUNCTION(0x013958B8u, gamecore_sub_013958B8, decomp_collision::filterEntry<9>);
+SOTC_DECOMP_FUNCTION(0x0110C790u, manager_sub_0110C790, decomp_collision::filterEntry<10>);
+SOTC_DECOMP_FUNCTION(0x013D54F0u, gamecore_sub_013D54F0, decomp_collision::objectFilterEntry<4>);

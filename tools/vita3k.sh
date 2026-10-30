@@ -53,7 +53,11 @@ else
         for ((t = 1; t <= $1; t++)); do
             sleep 1
             # (and the log so far as <file>.<s>.err: the game frame there, for per-frame counts)
-            for s in $PROF_SNAPS; do [ "$t" -eq "$s" ] && [ -f "$PROF" ] && cp "$PROF" "$PROF.$t" && cp "$FS/ux0/data/celosia/err.txt" "$PROF.$t.err" 2>/dev/null; done
+            # The profiler rewrites the file as it goes: copy until two copies agree (round 39: a copy caught mid-write
+            # had half the lines).
+            for s in $PROF_SNAPS; do [ "$t" -eq "$s" ] && [ -f "$PROF" ] && {
+                for _ in 1 2 3 4 5 6 7 8 9 10; do cp "$PROF" "$PROF.$t.a"; sleep 0.3; cp "$PROF" "$PROF.$t"; cmp -s "$PROF.$t" "$PROF.$t.a" && [ -s "$PROF.$t" ] && break; done
+                rm -f "$PROF.$t.a"; cp "$FS/ux0/data/celosia/err.txt" "$PROF.$t.err" 2>/dev/null; }; done
             if [ -n "$SHOTS" ] && [ "$t" -ge "${SHOTS_FROM:-0}" ] && [ $(((t - ${SHOTS_FROM:-0}) % ${SHOTS_EVERY:-10})) -eq 0 ]; then
                 pid=$(pgrep -f "$V3/config.yml -r CELO00001" | head -1)
                 w=$([ -n "$pid" ] && "$SHOTS/.winid" "$pid")

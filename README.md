@@ -191,12 +191,12 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 <!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-**Game thread time on the Vita** (r36, Vita3K profile of the route):
+**Game thread time on the Vita** (r39, Vita3K profile of the route):
 
 | | share | |
 |---|---:|---|
-| Native code | 44.5% | `█████████░░░░░░░░░░░` |
-| Recompiled MIPS | 38.8% | `████████░░░░░░░░░░░░` |
+| Native code | 44.7% | `█████████░░░░░░░░░░░` |
+| Recompiled MIPS | 38.6% | `████████░░░░░░░░░░░░` |
 | Runtime (DMA walk, memory, scheduler, glue) | 16.7% | `███░░░░░░░░░░░░░░░░░` |
 
 <details open>
@@ -204,16 +204,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 | Area | Code native | | Functions | Game thread time: native / MIPS |
 |---|---:|---|---:|---|
-| Display and models | 8.8% | `█░░░░░░░░░░░` | 38 / 978 | 17.2% / 4.6% |
-| Other game code (names not identified yet) | 1.5% | `░░░░░░░░░░░░` | 13 / 2888 | 2.3% / 17.0% |
-| Characters and motion | 4.4% | `█░░░░░░░░░░░` | 23 / 1210 | 10.9% / 7.4% |
-| Collision and physics | 15.2% | `██░░░░░░░░░░` | 25 / 326 | 10.9% / 1.3% |
-| Boot ELF, SDK and libc | 14.6% | `██░░░░░░░░░░` | 320 / 2125 | 0.0% / 4.9% |
-| System and memory | 5.0% | `█░░░░░░░░░░░` | 4 / 230 | 1.5% / 0.5% |
-| Math | 16.7% | `██░░░░░░░░░░` | 21 / 133 | 0.5% / 1.2% |
-| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.8% / 0.7% |
+| Display and models | 8.8% | `█░░░░░░░░░░░` | 38 / 978 | 17.3% / 4.6% |
+| Characters and motion | 4.8% | `█░░░░░░░░░░░` | 27 / 1212 | 11.4% / 7.7% |
+| Other game code (names not identified yet) | 1.5% | `░░░░░░░░░░░░` | 13 / 2881 | 2.1% / 17.0% |
+| Collision and physics | 18.0% | `██░░░░░░░░░░` | 40 / 339 | 10.7% / 1.2% |
+| Boot ELF, SDK and libc | 14.6% | `██░░░░░░░░░░` | 320 / 2122 | 0.0% / 4.6% |
+| System and memory | 5.0% | `█░░░░░░░░░░░` | 4 / 229 | 1.5% / 0.5% |
+| Math | 17.0% | `██░░░░░░░░░░` | 21 / 132 | 0.5% / 1.1% |
+| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.8% / 0.8% |
 | Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.4% / 0.6% |
-| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 284 | 0.0% / 0.5% |
+| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.0% / 0.5% |
 | Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
 | Runtime (DMA walk, memory, scheduler) | | | | 16.7% (runtime) |
 
@@ -238,15 +238,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | 2026-10-29 | r32 | 5.41% | 47.9% | 45.0% |
 | 2026-10-30 | r35 | 5.41% | 47.9% | 43.5% |
 | 2026-10-30 | r36 | 5.41% | 47.9% | 44.5% |
+| 2026-10-30 | r39 | 5.59% | 49.0% | 44.7% |
 
 </details>
 
 ```mermaid
 xychart-beta
     title "Game thread time in native code (%)"
-    x-axis ["r32", "r35", "r36"]
+    x-axis ["r32", "r35", "r36", "r39"]
     y-axis "%" 0 --> 100
-    line [45.0, 43.5, 44.5]
+    line [45.0, 43.5, 44.5, 44.7]
 ```
 
 <!-- decomp:end -->
@@ -338,6 +339,7 @@ xychart-beta
 | `PS2X_PMODE_LOG=1` | the emulated display's PMODE / DISPFB / DISPLAY registers now and then (`[pmode]`; SotC: 0x8023, both read circuits on the same frame one line apart, blended 50/50) |
 | `PS2X_TEST_LOG=1` | (round 38) the emulated GS's primitives counted by context state (TEST, ALPHA, TEX0 PSM / TCC, FBA), printed every 2^20 primitives (`[test]`; `build/agent-scratch/r38/testlog.py` decodes the last dump) |
 | `SOTC_LOG_HEADER=<hex>` | (round 38) every 30 frames, each surface of that model as drawn (`[header]`: texture mode, posed, lit, blend, layer, ALPHA_2) |
+| `SOTC_CAMCOLL=0` | (round 39) the camera's collision path and the collision filters made native this round back to the recompiled code: `camera_collision_check_direct` / `camera_invisible_collision_check_direct_by_exception_obj`, `GetArbitraryDirectionInverseMatrix` with `iosGetArbitraryUpVectorElement`, `GetQuaternionByAxisDirZYExact` and `iosAbsVector`, the object filters (`CollisionObjectJudgeCallbackExcept(Descend)PluralObj`, `gamecore_sub_0140FAB8` / `01434FC0` / `013D54F0`), the id filters (`CollisionPlaneJudgeCallbackCameraMove`, `playerPlaneJudgeFuncCameraFilter`, `gamecore_sub_01395830` / `013958B8` / `01444800`, `manager_sub_0110C790`), `EntryModifiedManager` and the uncached case of the vertex fetcher `0x1114c70`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the names in `game/overrides/decomp_collision.cpp` / `decomp_quat.cpp`; the native collision code's own calls of the filters, the vertex fetcher and EntryModifiedManager follow `SOTC_CAMCOLL` only) |
 
 With `SOTC_FRAME_LOG=1` the `[frame]` lines also end in `| sync ... | joins ...`: the game
 thread's work at the frame's change by part (the join, endFrame, the frame log, the sound log,

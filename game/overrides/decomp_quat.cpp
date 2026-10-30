@@ -164,6 +164,12 @@ namespace decomp_quat
             accQ = true;
             q = ps2VuRsqrt(status, fs, ft);
         }
+        // vrsqrt as the recompiled code does it (ps2VuRsqrtQ: the status left alone).
+        void rsqrtQ(float fs, float ft)
+        {
+            accQ = true;
+            q = ps2VuRsqrtQ(fs, ft);
+        }
         __m128 vf0() const { return vf[0]; }
         // mfc1 r, f; qmtc2 r, vf: the GPR's upper words as they are.
         __m128 viaGpr(int r, float f)
@@ -698,6 +704,306 @@ namespace decomp_quat
         returnTo(ctx);
     }
 
+    // ---- round 39: the camera's segment matrix ---------------------------------
+    // GetArbitraryDirectionInverseMatrix (0x1133548, ClipCollisionDirectCallBack's
+    // first call: ~25 a frame for the camera alone) and what it calls, each
+    // natively into the next: iosGetArbitraryUpVectorElement (0x1be8f0, its
+    // tail at 0x1be944 the recompiler split off) and
+    // GetQuaternionByAxisDirZYExact (0x1bc4b0: diffQuat, atan2Exact natively,
+    // iosGetSinCosf as a guest call into its native).
+    constexpr uint32_t kUpVector = 0x001BE8F0u, kAxisDirZYExact = 0x001BC4B0u, kSinCos = 0x001BDDB0u, kInvMatrix = 0x01133548u,
+                       kAbsVector = 0x001BE898u;
+
+    // iosGetArbitraryUpVectorElement(out, dir): an axis by dir's y (0x1e1010
+    // above 0.7071, z below -0.7071, else y), out = dir x (axis x dir) by two
+    // opmula / opmsub pairs (w = w - w); v0 the axis, f0 the bound, f1 dir.y.
+    void upVectorN(State &s, uint32_t out, uint32_t dir)
+    {
+        R5900Context *ctx = s.ctx;
+        const Ram ram = s.ram;
+        const float y = ram.f32(dir + 4u);
+        float f0 = bits(0x3F34FDF3u);
+        uint32_t axis;
+        if (s.lt(f0, y))
+            axis = 0x001E1010u;
+        else
+        {
+            f0 = bits(0xBF34FDF3u);
+            axis = s.lt(y, f0) ? 0x001E0FC0u : 0x001E0FB0u;
+        }
+        ctx->f[0] = f0;
+        ctx->f[1] = y;
+        SET_GPR_U32(ctx, 2, axis);
+        __m128 &vf5 = s.w(5), &vf6 = s.w(6), &vf7 = s.w(7);
+        __m128 &acc = s.a();
+        const __m128 xyz = mask(1, 1, 1, 0), wOnly = mask(0, 0, 0, 1);
+        vf5 = clamp(ram.q(dir));
+        vf6 = clamp(ram.q(axis));
+        acc = bl(acc, mulN(yzx(vf5), zxy(vf6)), xyz);
+        vf7 = bl(vf7, subN(acc, mulN(yzx(vf6), zxy(vf5))), xyz);
+        vf7 = bl(vf7, PS2_VSUB(vf7, vf7), wOnly);
+        // sqc2 / lqc2 through the frame (below sp): the same bits.
+        vf5 = vf7;
+        vf6 = clamp(ram.q(dir));
+        acc = bl(acc, mulN(yzx(vf5), zxy(vf6)), xyz);
+        vf7 = bl(vf7, subN(acc, mulN(yzx(vf6), zxy(vf5))), xyz);
+        vf7 = bl(vf7, PS2_VSUB(vf7, vf7), wOnly);
+        ram.putq(out, vf7);
+    }
+
+    // The quaternion's rows (vf14..vf16, vf17 = vf0 after) by the opmula /
+    // opmsub sequence (rotateByConj's without the conjugate): vf11 the
+    // quaternion clamped, vf12.xyz = 1 first.
+    void quatRows(State &s, __m128 quat)
+    {
+        const __m128 vf0 = s.vf0();
+        __m128 &vf10 = s.w(10), &vf11 = s.w(11), &vf12 = s.w(12), &vf13 = s.w(13);
+        __m128 &vf14 = s.w(14), &vf15 = s.w(15), &vf16 = s.w(16), &vf17 = s.w(17);
+        __m128 &acc = s.a();
+        const __m128 xyz = mask(1, 1, 1, 0), wOnly = mask(0, 0, 0, 1);
+        vf12 = bl(vf12, addN(vf0, lane<3>(vf0)), xyz);
+        vf11 = clamp(quat);
+        const __m128 r32 = _mm_shuffle_ps(vf0, vf0, _MM_SHUFFLE(0, 3, 2, 1));
+        vf14 = bl(vf14, r32, wOnly);
+        vf15 = bl(vf15, r32, wOnly);
+        vf16 = bl(vf16, r32, wOnly);
+        acc = bl(acc, mulN(yzx(vf11), zxy(vf12)), xyz);
+        vf11 = bl(vf11, addN(acc, mulN(vf0, vf0)), xyz);
+        vf10 = bl(vf10, addN(acc, mulN(vf11, vf12)), xyz);
+        vf13 = bl(vf13, mulN(vf11, vf10), xyz);
+        acc = bl(acc, mulN(yzx(vf11), zxy(vf10)), xyz);
+        vf15 = bl(vf15, addN(acc, mulN(vf10, lane<3>(vf11))), xyz);
+        vf16 = bl(vf16, subN(acc, mulN(vf10, lane<3>(vf11))), xyz);
+        acc = bl(acc, mulN(yzx(vf13), zxy(vf12)), xyz);
+        vf17 = bl(vf17, addN(acc, mulN(vf13, vf12)), xyz);
+        acc = bl(acc, mulN(yzx(vf15), zxy(vf12)), xyz);
+        vf15 = bl(vf15, addN(acc, mulN(vf0, vf0)), xyz);
+        vf14 = bl(vf14, subN(vf12, vf17), xyz);
+        vf17 = bl(vf17, vf14, mask(0, 1, 1, 0));
+        vf14 = bl(vf14, vf16, mask(0, 1, 0, 0));
+        vf16 = bl(vf16, vf15, mask(0, 1, 0, 0));
+        vf15 = bl(vf15, vf17, mask(0, 1, 0, 0));
+        vf14 = bl(vf14, vf15, mask(0, 0, 1, 0));
+        vf15 = bl(vf15, vf16, mask(0, 0, 1, 0));
+        vf16 = bl(vf16, vf17, mask(0, 0, 1, 0));
+    }
+
+    // vf15 = vf14 / |vf14| (four lanes; vf14 the quaternion at q0), stored at q0.
+    void normalizeQuat(State &s, uint32_t q0)
+    {
+        const __m128 vf0 = s.vf0();
+        __m128 &vf14 = s.w(14), &vf15 = s.w(15);
+        const __m128 x = mask(1, 0, 0, 0);
+        vf14 = clamp(s.ram.q(q0));
+        vf15 = mulN(vf14, vf14);
+        vf15 = bl(vf15, addN(vf15, lane<1>(vf15)), x);
+        vf15 = bl(vf15, addN(vf15, lane<2>(vf15)), x);
+        vf15 = bl(vf15, addN(vf15, lane<3>(vf15)), x);
+        s.rsqrtQ(_mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(vf15));
+        vf15 = mulN(vf14, _mm_set1_ps(s.q));
+        s.ram.putq(q0, vf15);
+    }
+
+    // GetQuaternionByAxisDirZYExact(q, dir, v): as GetQuaternionByAxisDirZY,
+    // normalised after the first turn, the turn about z made from sin / cos of
+    // half the angle (iosGetSinCosf, radians) and normalised again. frame:
+    // its sp (the original's - 0xa0). false: a guest call left ctx elsewhere.
+    void axisDirZYExactN(State &s, PS2Runtime *runtime, uint32_t q0, uint32_t dir, uint32_t v, uint32_t frame)
+    {
+        R5900Context *ctx = s.ctx;
+        const Ram ram = s.ram;
+        diffQuatN(s, q0, dir, kZ, kY, frame - 0x20u);
+        normalizeQuat(s, q0);
+        const __m128 vf0 = s.vf0();
+        const __m128 vf10 = rotateByConj(s, ram.q(q0), ram.q(v));
+        __m128 &vf5 = s.w(5), &vf6 = s.w(6), &vf7 = s.w(7);
+        __m128 &acc = s.a();
+        const __m128 xyz = mask(1, 1, 1, 0), wOnly = mask(0, 0, 0, 1);
+        vf5 = vf10;
+        reinterpret_cast<uint32_t *>(&vf5)[2] = 0u; // sw zero, 0x48(sp)
+        vf7 = bl(vf7, mulN(vf5, vf5), xyz);
+        acc = bl(acc, mulN(vf0, lane<0>(vf7)), wOnly);
+        acc = bl(acc, addN(acc, mulN(vf0, lane<1>(vf7))), wOnly);
+        vf7 = bl(vf7, addN(acc, mulN(vf0, lane<2>(vf7))), wOnly);
+        s.rsqrtQ(_mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf7)));
+        vf5 = bl(vf5, mulN(vf5, _mm_set1_ps(s.q)), xyz);
+        ram.putq(frame + 0x40u, vf5);
+        alignas(16) float xy[4];
+        _mm_store_ps(xy, vf5);
+        uint64_t v0;
+        const float angle = atan2ExactN(s, xy[0], xy[1], v0);
+        const float half = mul(angle, 0.5f);
+        // iosGetSinCosf(frame + 0x70, half): native through the table; it
+        // reads and writes the context (vf15..vf19, Q, fcr31, f0..f5, f12).
+        s.storeBack();
+        s.written &= ~((1u << 15) | (1u << 16) | (1u << 17));
+        ctx->f[12] = half;
+        SET_GPR_U64(ctx, 2, v0);
+        SET_GPR_U32(ctx, 4, frame + 0x70u);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        sotc_decomp::callGuest(ram.rdram, ctx, runtime, kSinCos, 0x001BC610u, frame);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        for (int i = 15; i < 18; ++i)
+            s.vf[i] = ctx->vu0_vf[i];
+        s.fcr31 = ctx->fcr31;
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        const float f0 = ram.f32(frame + 0x74u);
+        SET_GPR_U32(ctx, 2, bitsOf(f0));
+        vf6 = _mm_castsi128_ps(GPR_VEC(ctx, 2)); // qmtc2 v0: the whole GPR
+        vf5 = mulN(clamp(ram.q(kZ)), lane<0>(clamp(vf6)));
+        const float f1 = ram.f32(frame + 0x70u);
+        __m128 r = vf5;
+        std::memcpy(reinterpret_cast<float *>(&r) + 3, &f1, 4);
+        ram.putq(frame + 0x60u, r);
+        const __m128 vf13 = quatMul(s, ram.q(q0), r);
+        ram.putq(q0, vf13);
+        normalizeQuat(s, q0);
+        ctx->f[0] = f0;
+        ctx->f[1] = f1;
+    }
+
+    // GetArbitraryDirectionInverseMatrix(inv, rot, start, end): rot the turn
+    // taking z to end - start (the up vector's choice of y), its fourth row
+    // start; inv its inverse (the rows transposed, -start through them);
+    // v0 1, f0 the segment's length along z (end through inv). A zero
+    // segment: v0 0, f0 -1, nothing written.
+    bool invMatrixN(State &s, PS2Runtime *runtime, uint32_t inv, uint32_t rot, uint32_t start, uint32_t end, uint32_t sp)
+    {
+        R5900Context *ctx = s.ctx;
+        const Ram ram = s.ram;
+        const __m128 vf0 = s.vf0();
+        const uint32_t frame = sp - 0x70u, s0 = frame + 0x10u;
+        __m128 &vf5 = s.w(5), &vf6 = s.w(6), &vf7 = s.w(7);
+        __m128 &acc = s.a();
+        const __m128 xyz = mask(1, 1, 1, 0), wOnly = mask(0, 0, 0, 1);
+        vf5 = clamp(ram.q(end));
+        vf6 = clamp(ram.q(start));
+        vf7 = subN(vf5, vf6);
+        ram.putq(s0, vf7);
+        alignas(16) float d[4];
+        _mm_store_ps(d, vf7);
+        ctx->f[1] = d[0];
+        ctx->f[0] = 0.0f;
+        ctx->f[2] = d[1];
+        if (s.eq(d[0], 0.0f) && s.eq(d[0], d[1]))
+        {
+            ctx->f[0] = d[2];
+            if (s.eq(d[1], d[2]))
+            {
+                SET_GPR_U64(ctx, 2, 0u);
+                ctx->f[0] = -1.0f;
+                return false;
+            }
+        }
+        vf5 = vf7;
+        vf7 = bl(vf7, mulN(vf5, vf5), xyz);
+        acc = bl(acc, mulN(vf0, lane<0>(vf7)), wOnly);
+        acc = bl(acc, addN(acc, mulN(vf0, lane<1>(vf7))), wOnly);
+        vf7 = bl(vf7, addN(acc, mulN(vf0, lane<2>(vf7))), wOnly);
+        s.rsqrtQ(_mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf7)));
+        vf5 = bl(vf5, mulN(vf5, _mm_set1_ps(s.q)), xyz);
+        ram.putq(s0, vf5);
+        upVectorN(s, frame + 0x20u, s0);
+        axisDirZYExactN(s, runtime, frame + 0x30u, s0, frame + 0x20u, frame - 0xA0u);
+        quatRows(s, ram.q(frame + 0x30u));
+        ram.putq(rot, s.vf[14]);
+        ram.putq(rot + 0x10u, s.vf[15]);
+        ram.putq(rot + 0x20u, s.vf[16]);
+        __m128 vf4 = bl(ram.q(start), vf0, wOnly);
+        ram.putq(rot + 0x30u, vf4);
+        // L1133674: -start through the transposed rows.
+        __m128 vf24 = vf4, vf25 = ctx->vu0_vf[25], vf28 = ctx->vu0_vf[28];
+        vf25 = bl(vf25, subN(vf0, lane<3>(vf0)), mask(1, 0, 0, 0));
+        vf28 = bl(vf28, mulN(clamp(vf24), lane<0>(vf25)), xyz);
+        vf28 = bl(vf28, PS2_VSUB(vf28, vf28), wOnly);
+        const __m128i r0 = _mm_castps_si128(s.vf[14]), r1 = _mm_castps_si128(s.vf[15]), r2 = _mm_castps_si128(s.vf[16]), r3 = _mm_castps_si128(vf0);
+        const __m128i t4 = PS2_PEXTLW(r1, r0), t5 = PS2_PEXTUW(r1, r0), t6 = PS2_PEXTLW(r3, r2), t7 = PS2_PEXTUW(r3, r2);
+        vf24 = _mm_castsi128_ps(PS2_PCPYLD(t6, t4));
+        vf25 = _mm_castsi128_ps(_mm_unpackhi_epi64(t4, t6));
+        __m128 vf26 = _mm_castsi128_ps(PS2_PCPYLD(t7, t5));
+        __m128 a = mulN(clamp(vf24), lane<0>(vf28));
+        a = addN(a, mulN(clamp(vf25), lane<1>(vf28)));
+        a = addN(a, mulN(clamp(vf26), lane<2>(vf28)));
+        __m128 vf29 = addN(a, mulN(clamp(vf0), lane<3>(vf28)));
+        vf29 = bl(vf29, PS2_VSUB(vf29, vf29), wOnly);
+        vf29 = bl(vf29, PS2_VADD(vf29, vf0), wOnly);
+        ram.putq(inv, vf24);
+        ram.putq(inv + 0x10u, vf25);
+        ram.putq(inv + 0x20u, vf26);
+        ram.putq(inv + 0x30u, vf29);
+        // end through inv: the length along z.
+        __m128 &vf8 = s.w(8), &vf10 = s.w(10), &vf14 = s.w(14), &vf15 = s.w(15), &vf16 = s.w(16), &vf17 = s.w(17);
+        vf8 = clamp(ram.q(end));
+        vf14 = clamp(vf24);
+        vf15 = clamp(vf25);
+        vf16 = clamp(vf26);
+        vf17 = vf29;
+        acc = mulN(vf14, lane<0>(vf8));
+        acc = addN(acc, mulN(vf15, lane<1>(vf8)));
+        acc = addN(acc, mulN(vf16, lane<2>(vf8)));
+        vf10 = addN(acc, mulN(vf17, lane<3>(vf8)));
+        ram.putq(frame, vf10);
+        ctx->f[0] = _mm_cvtss_f32(lane<2>(vf10));
+        ctx->vu0_vf[4] = vf4;
+        ctx->vu0_vf[24] = vf24;
+        ctx->vu0_vf[25] = vf25;
+        ctx->vu0_vf[26] = vf26;
+        ctx->vu0_vf[28] = vf28;
+        ctx->vu0_vf[29] = vf29;
+        SET_GPR_U64(ctx, 2, 1u);
+        return true;
+    }
+
+    void invMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t inv = GPR_U32(ctx, 4), rot = GPR_U32(ctx, 5), start = GPR_U32(ctx, 6), end = GPR_U32(ctx, 7), sp = GPR_U32(ctx, 29);
+        if (!sotc_decomp::camCollOn() || !inRam(inv, 64u) || !inRam(rot, 64u) || !inRam(start, 16u) || !inRam(end, 16u) || !inRam(sp - 0x200u, 0x200u))
+            return sotc_decomp::recompiled(kInvMatrix)(rdram, ctx, runtime);
+        State s(rdram, ctx);
+        invMatrixN(s, runtime, inv, rot, start, end, sp);
+        s.storeBack();
+        returnTo(ctx);
+    }
+
+    void upVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), dir = GPR_U32(ctx, 5);
+        if (!sotc_decomp::camCollOn() || !inRam(out, 16u) || !inRam(dir, 16u))
+            return sotc_decomp::recompiled(kUpVector)(rdram, ctx, runtime);
+        State s(rdram, ctx);
+        upVectorN(s, out, dir);
+        s.storeBack();
+        returnTo(ctx);
+    }
+
+    void axisDirZYExact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t q0 = GPR_U32(ctx, 4), dir = GPR_U32(ctx, 5), v = GPR_U32(ctx, 6), sp = GPR_U32(ctx, 29);
+        if (!sotc_decomp::camCollOn() || !inRam(q0, 16u) || !inRam(dir, 16u) || !inRam(v, 16u) || !inRam(sp - 0x100u, 0x100u))
+            return sotc_decomp::recompiled(kAxisDirZYExact)(rdram, ctx, runtime);
+        State s(rdram, ctx);
+        axisDirZYExactN(s, runtime, q0, dir, v, sp - 0xA0u);
+        s.storeBack();
+        returnTo(ctx);
+    }
+
+    // iosAbsVector(out, v): vabs (no clamp), vf5 / vf6 as it leaves them.
+    void absVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), v = GPR_U32(ctx, 5);
+        if (!sotc_decomp::camCollOn() || !inRam(out, 16u) || !inRam(v, 16u))
+            return sotc_decomp::recompiled(kAbsVector)(rdram, ctx, runtime);
+        const Ram ram{rdram};
+        const __m128 vf5 = ram.q(v);
+        const __m128 vf6 = _mm_and_ps(vf5, _mm_castsi128_ps(_mm_set1_epi32(0x7FFFFFFF)));
+        ram.putq(out, vf6);
+        ctx->vu0_vf[5] = vf5;
+        ctx->vu0_vf[6] = vf6;
+        returnTo(ctx);
+    }
+
     // The registered functions.
 
     void atanf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
@@ -815,3 +1121,7 @@ SOTC_DECOMP_AB_FUNCTION(0x001BBDA8u, SetQuaternionByAxisRotateVWithNoRegularize,
 SOTC_DECOMP_AB_FUNCTION(0x001BA4D0u, GetDifferencialQuaternionWithNoRegularize, decomp_quat::diffQuat);
 SOTC_DECOMP_AB_FUNCTION(0x001BC308u, GetQuaternionByAxisDirZY, decomp_quat::axisDirZY);
 SOTC_DECOMP_AB_FUNCTION(0x001BA880u, GetEulerYXZFromQuaternion, decomp_quat::eulerYXZ);
+SOTC_DECOMP_FUNCTION(0x01133548u, GetArbitraryDirectionInverseMatrix, decomp_quat::invMatrix);
+SOTC_DECOMP_FUNCTION(0x001BE8F0u, iosGetArbitraryUpVectorElement, decomp_quat::upVector);
+SOTC_DECOMP_FUNCTION(0x001BC4B0u, GetQuaternionByAxisDirZYExact, decomp_quat::axisDirZYExact);
+SOTC_DECOMP_FUNCTION(0x001BE898u, iosAbsVector, decomp_quat::absVector);
