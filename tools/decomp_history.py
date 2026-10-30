@@ -65,22 +65,16 @@ def profile_share(late, early, elf, thread):
                 d[q[1]] = d.get(q[1], 0) + int(q[3])
         return d
 
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from decomp_tree import classify  # same split as the dashboard's treemaps
     a, b = load(late), load(early)
-    kinds = {'native': 0, 'generated': 0, 'runtime': 0, 'other': 0}
+    kinds = {'native': 0, 'recompiled': 0, 'runtime': 0}
     for pc, v in a.items():
         d = v - b.get(pc, 0)
         if d <= 0:
             continue
         n = name(int(pc, 16))
-        head = n.split('(')[0]
-        if head.startswith(('decomp_', 'sotc_')):
-            kinds['native'] += d
-        elif n.endswith(GUEST) and '::' not in head:
-            kinds['generated'] += d
-        elif n == '?':
-            kinds['other'] += d
-        else:
-            kinds['runtime'] += d
+        kinds[classify(n)[0] if n != '?' else 'runtime'] += d
     total = sum(kinds.values()) or 1
     return {k: round(100.0 * v / total, 1) for k, v in kinds.items()}
 
@@ -163,7 +157,7 @@ def main():
         if args.profile:
             share = profile_share(*args.profile)
             e['time'] = share['native']
-            e['generated'] = share['generated']
+            e['generated'] = share['recompiled']
             e['runtime'] = share['runtime']
         data['entries'].append(e)
         with open(HISTORY, 'w') as f:

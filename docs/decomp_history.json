@@ -84,9 +84,9 @@
    "commit": "1eb9ad7",
    "code": 5.41,
    "calls": 47.92,
-   "time": 47.3,
-   "generated": 38.5,
-   "runtime": 12.6
+   "time": 45.0,
+   "generated": 38.3,
+   "runtime": 16.7
   },
   {
    "date": "2026-10-30",
@@ -94,9 +94,9 @@
    "commit": "88d2884",
    "code": 5.41,
    "calls": 47.92,
-   "time": 45.7,
-   "generated": 38.9,
-   "runtime": 13.4
+   "time": 43.5,
+   "generated": 38.6,
+   "runtime": 18.0
   }
  ]
 }

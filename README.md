@@ -155,11 +155,13 @@ Progress (2026-10-30, round 35; code and call figures from round 28's count):
 runtime implements included; 3.2% of the game's own code), but **48%** of the
 guest calls already land in native code (call counts of the attract demo and
 the route to frame 4 800): the rewrites go after the hottest functions first.
-By time, **46%** of the Vita game thread's instructions run in native code,
-**39%** still in recompiled MIPS and 13% in the runtime (DMA walk, memcpy,
-scheduler), from a Vita3K profile of the route (180-300 s). The recompiled
-share is spread thin (its biggest function is 1.5%), so it shrinks by
-rewriting whole subsystems, not single hot spots. Every native function is
+By time, **43%** of the Vita game thread's instructions run in native code,
+**39%** still in recompiled MIPS and 18% in the runtime (DMA walk, memcpy,
+scheduler, the glue that calls guest code), from a Vita3K profile of the route
+(180-300 s). The recompiled share is spread thin (its biggest function is
+1.5%), so it shrinks by rewriting whole subsystems, not single hot spots.
+`tools/decomp_tree.py` splits both figures by area of the game
+([docs/decomp_tree.json](docs/decomp_tree.json)). Every native function is
 listed in [docs/decomp_status.json](docs/decomp_status.json)
 (`tools/decomp_status.py` recounts it); the history is in
 [docs/decomp_history.json](docs/decomp_history.json) (`tools/decomp_history.py

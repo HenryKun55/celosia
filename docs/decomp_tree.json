@@ -1,0 +1,169 @@
+{
+ "updated": "2026-10-30",
+ "label": "r35",
+ "status_commit": "9a154f0",
+ "note": "bytes: MIPS code size by area (decomp_status.json); time: % of the Vita game thread instructions (Vita3K profile)",
+ "rows": [
+  {
+   "area": "Boot ELF, SDK and libc",
+   "kind": "native",
+   "bytes": 58884,
+   "functions": 320,
+   "time": 0.0
+  },
+  {
+   "area": "Boot ELF, SDK and libc",
+   "kind": "recompiled",
+   "bytes": 345808,
+   "functions": 1805,
+   "time": 5.83
+  },
+  {
+   "area": "Math",
+   "kind": "native",
+   "bytes": 4444,
+   "functions": 21,
+   "time": 0.39
+  },
+  {
+   "area": "Math",
+   "kind": "recompiled",
+   "bytes": 22160,
+   "functions": 112,
+   "time": 1.18
+  },
+  {
+   "area": "Display and models",
+   "kind": "native",
+   "bytes": 22192,
+   "functions": 38,
+   "time": 17.0
+  },
+  {
+   "area": "Display and models",
+   "kind": "recompiled",
+   "bytes": 230372,
+   "functions": 940,
+   "time": 6.18
+  },
+  {
+   "area": "Characters and motion",
+   "kind": "native",
+   "bytes": 12216,
+   "functions": 23,
+   "time": 10.12
+  },
+  {
+   "area": "Characters and motion",
+   "kind": "recompiled",
+   "bytes": 267104,
+   "functions": 1187,
+   "time": 6.54
+  },
+  {
+   "area": "System and memory",
+   "kind": "native",
+   "bytes": 3048,
+   "functions": 4,
+   "time": 1.75
+  },
+  {
+   "area": "System and memory",
+   "kind": "recompiled",
+   "bytes": 58120,
+   "functions": 226,
+   "time": 0.53
+  },
+  {
+   "area": "Other game code",
+   "kind": "native",
+   "bytes": 18528,
+   "functions": 13,
+   "time": 2.29
+  },
+  {
+   "area": "Other game code",
+   "kind": "recompiled",
+   "bytes": 1258076,
+   "functions": 2875,
+   "time": 15.33
+  },
+  {
+   "area": "Camera",
+   "kind": "native",
+   "bytes": 0,
+   "functions": 0,
+   "time": 0.0
+  },
+  {
+   "area": "Camera",
+   "kind": "recompiled",
+   "bytes": 42144,
+   "functions": 284,
+   "time": 0.43
+  },
+  {
+   "area": "Sound",
+   "kind": "native",
+   "bytes": 0,
+   "functions": 0,
+   "time": 0.0
+  },
+  {
+   "area": "Sound",
+   "kind": "recompiled",
+   "bytes": 13128,
+   "functions": 102,
+   "time": 0.05
+  },
+  {
+   "area": "Particles and effects",
+   "kind": "native",
+   "bytes": 6344,
+   "functions": 6,
+   "time": 0.57
+  },
+  {
+   "area": "Particles and effects",
+   "kind": "recompiled",
+   "bytes": 21688,
+   "functions": 110,
+   "time": 0.72
+  },
+  {
+   "area": "Collision and physics",
+   "kind": "native",
+   "bytes": 16384,
+   "functions": 25,
+   "time": 10.66
+  },
+  {
+   "area": "Collision and physics",
+   "kind": "recompiled",
+   "bytes": 91256,
+   "functions": 301,
+   "time": 1.1
+  },
+  {
+   "area": "Script and events",
+   "kind": "native",
+   "bytes": 0,
+   "functions": 0,
+   "time": 0.67
+  },
+  {
+   "area": "Script and events",
+   "kind": "recompiled",
+   "bytes": 133248,
+   "functions": 632,
+   "time": 0.68
+  },
+  {
+   "area": "Runtime (DMA walk, memory, scheduler)",
+   "kind": "runtime",
+   "bytes": 0,
+   "functions": 0,
+   "time": 17.98
+  }
+ ]
+}
