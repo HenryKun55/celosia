@@ -33,6 +33,7 @@ std::recursive_mutex &ps2xVitaGlMutex();
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" unsigned int _newlib_heap_size_user;      // ps2_vita_runtime.cpp
 extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
+extern "C" uint32_t vgl_celo_scenes; // celosia.patch (round 45): scenes begun (vglCeloSceneStats)
 #endif
 
 #include "ThreadNaming.h"
@@ -255,6 +256,16 @@ void main()
     }
 #endif
     oColor = vec4(rgb, alpha);
+}
+)";
+
+    // Round 45: the shadow volumes' fragment stage: nothing (the volume only
+    // counts in the stencil; its colour is masked and blended away).
+    const char *kVolumeFragment = R"(#version 330 core
+out vec4 oColor;
+void main()
+{
+    oColor = vec4(0.0);
 }
 )";
 
@@ -533,6 +544,13 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
 
     // The plain full-screen vertex program, and the one screenBlur's
     // scaled / turned copies (mode 3) use: no branch on the Vita.
+    const char *kVolumeFragment = R"(
+float4 main() : COLOR
+{
+    return float4(0.0, 0.0, 0.0, 0.0);
+}
+)";
+
     const char *kQuadVertex = R"(
 void main(float2 aPos,
           float4 out oPosition : POSITION,
@@ -804,6 +822,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint buffer = 0;
         int pool = -1;        // a kept mesh in a shared buffer (Renderer::pools), from vertex `first` (buffer 0)
         uint8_t minAlpha = 0; // the least vertex alpha (kept meshes; 0: not known)
+        uint8_t maxAlpha = 0xFF; // round 45: the greatest (kept meshes; 0xFF: not known)
+        // Round 45: a frame's own mesh's least / greatest vertex alpha, read in
+        // planFrame for the alpha test (valid in frame alphaFrame).
+        uint64_t alphaFrame = ~0ull;
+        uint8_t frameMinAlpha = 0, frameMaxAlpha = 0xFF;
         uint32_t count = 0;
         bool dynamic = false; // in this frame's arena, from vertex `first`
         uint32_t first = 0;
@@ -823,6 +846,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint32_t filter = 2; // the min / mag filter set on it (Tuning::textureFilter; 2 trilinear, as uploaded)
         bool mipped = false; // has mip levels
         uint8_t minAlpha = 0; // the least texel alpha over its levels
+        uint8_t maxAlpha = 0xFF; // round 45: the greatest (counted up to 0x80, A = 1: no AREF is above it)
         uint64_t used = 0;
         uint64_t bytes = 0;
         bool inHeap = false; // vitaGL put it in the newlib heap (its pools were full)
@@ -871,6 +895,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target colorPlain; // the picture's colour alone (passes that read its depth)
         Target color, background, backgroundSmall, reflection, refraction, refractionHalf, snapshot, shadowMask;
         Target previous; // the last frame shown (feedbackBlur)
+        // Round 45 (Tuning glFewCopies, a host that shows a copy of its own):
+        // the last frame shown is that copy (shownFrame), not a copy of its own.
+        GLuint previousTexture = 0; // 0: previous.texture
         // Tuning midFrameRedraw: the picture up to a mid-frame effect's layer
         // drawn again into a target of its own (one per effect), and the
         // heat haze's 256 x 256 copy apart from the water's.
@@ -951,6 +978,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             int runPool = -1;          // run > 1, meshes apart: its copy (runs), in this pool from runFirst
             uint32_t runFirst = 0;
             uint8_t minAlpha = 0;      // the least vertex alpha of its mesh(es) (0: not known)
+            uint8_t maxAlpha = 0xFF;   // round 45: the greatest (0xFF: not known)
         };
         std::vector<Planned> plan;
         // Merged runs whose meshes lie apart in the pools: their vertices
@@ -984,7 +1012,22 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t frames = 0, draws = 0, calls = 0, merged = 0, ranges = 0, indexed = 0, noDiscard = 0, bufferSwitches = 0;
             uint64_t progOff = 0, progZero = 0; // SOTC_GL_PROG_CHECK=1: draws with another GL program bound than the cache says / none
             uint64_t alphaSecond = 0; // the alpha test's second passes (round 38)
-        } drawStats; // SOTC_GL_DRAW_LOG: every 300 frames
+        } drawStats;
+        // Round 45: the alpha test's passes ([shadow] line): second passes whose
+        // mesh's least alpha is not known (the frame's own meshes), draws
+        // drawn in one pass because every pixel is under AREF.
+        struct
+        {
+            uint64_t secondUnknown = 0, merged = 0;
+        } alphaStats;
+        // Round 45 ([gl:scenes] every 300 frames): GXM scenes begun (every
+        // render-target switch with a draw is one), target binds, depth /
+        // stencil KB loaded and stored (vglCeloSceneStats), per frame.
+        struct
+        {
+            uint64_t frames = 0, scenes = 0, binds = 0, loadKB = 0, storeKB = 0;
+        } sceneStats;
+        void noteScenes(); // SOTC_GL_DRAW_LOG: every 300 frames
         // Round 38: the shadow pass, counted always, one [shadow] line every
         // 300 frames (the console's log): volume draws and their vertices,
         // the darkening passes, the frames with any volume.
@@ -1063,7 +1106,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             GLint palette = -1;
             uint64_t paletteSent = ~0ull; // frame << 32 | handle: what its palette holds
         };
-        static constexpr int kMainSlots = 10;
+        // Round 45: slot 10 the shadow volumes' program (kVolumeFragment).
+        static constexpr int kMainSlots = 11;
+        static constexpr int kVolumeSlot = 10;
         MainSlot mains[kMainSlots];
         int mainSlot = 0; // the one in use
         GLuint leanProgram(bool skinned, bool bg, bool cut) const { return mains[2 + (skinned ? 4 : 0) + (bg ? 2 : 0) + (cut ? 1 : 0)].program; }
@@ -1213,6 +1258,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint32_t index = 0, drawn = 0, order = 0, count = 0, target = 0;
             bool volume = false, overlay = false, skinned = false, dynamic = false;
             uint16_t alphaTest = 0;
+            // Round 45: what came between the two draws of the longest gap
+            // (the last effect event run, -100 none; the GXM scenes begun),
+            // and the slowest single draw call (its index and time).
+            int event = -100, gapEvent = -100;
+            uint32_t scenesAt = 0, gapScenes = 0;
+            uint64_t callMax = 0;
+            uint32_t callIndex = 0;
         } spike;
         std::vector<native_renderer::ScreenBlur> blurs;
         native_renderer::Fog fog;
@@ -1422,6 +1474,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                             skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
                                     : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
                     }
+            mains[kVolumeSlot].program = program(mainVertex, kVolumeFragment, {"aPos", "aNormal", "aColor", "aUV"});
+            if (!mains[kVolumeSlot].program)
+                std::cerr << "[native:gl] no shadow volume program: the volumes drawn with the main one" << std::endl;
             for (MainSlot &m : mains)
             {
                 const GLuint p = m.program;
@@ -1501,15 +1556,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             };
             uint32_t draws = 0;
             uint32_t programs = 0;
-            for (int which = 0; which < 22; ++which)
+            for (int which = 0; which < 23; ++which)
             {
-                // main, skin, the 12 quad programs, the 8 lean ones
+                // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45)
                 const GLuint p = which == 0 ? mainProgram : (which == 1 ? skinProgram : (which < 14 ? quadPrograms[which - 2] : mains[2 + which - 14].program));
                 if (!p)
                     continue;
                 ++programs;
                 glUseProgram(p);
-                const bool skinned = which == 1 || which >= 18, quadMode = which >= 2 && which < 14;
+                const bool skinned = which == 1 || (which >= 18 && which < 22), quadMode = which >= 2 && which < 14;
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
                 for (GLuint i = 0; i < 6; ++i)
                 {
@@ -1802,9 +1857,42 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, color.depth, 0);
 #endif
             bloomHistory = false;
+            previousTexture = 0;
             width = w;
             height = h;
 #if defined(PS2X_NATIVE_VITA)
+            // Round 45: each target's first scene made now, once (vitaGL makes a
+            // framebuffer's GXM render target and its depth at its first scene:
+            // in the middle of a frame the first time an effect is drawn; the
+            // console's two 155 ms draw spikes stood at an effect's layer after
+            // a load). Cleared to nothing, waited for. SOTC_GL_WARM_TARGETS=0: off.
+            static const bool warmTargets = !std::getenv("SOTC_GL_WARM_TARGETS") || std::atoi(std::getenv("SOTC_GL_WARM_TARGETS")) != 0;
+            if (warmTargets)
+            {
+                const uint64_t start = native_renderer::nowUs();
+                glDisable(GL_SCISSOR_TEST);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glDepthMask(GL_TRUE);
+                glStencilMask(0xFF);
+                glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                glClearDepthf(1.0f);
+                glClearStencil(0);
+                uint32_t made = 0;
+                for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &glowSmall[0], &glowSmall[1],
+                                  &glowSmall[2], &glowSmall[3], &backgroundSmall, &reflection, &refraction, &hazeSmall, &refractionHalf, &bloomTex[0], &bloomTex[1],
+                                  &bloomTex[2], &colorPlain})
+                    if (t->fbo)
+                    {
+                        glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+                        glViewport(0, 0, static_cast<GLsizei>(t->width), static_cast<GLsizei>(t->height));
+                        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                        ++made;
+                    }
+                glFinish();
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                boundFbo = boundProgram = ~0u;
+                std::fprintf(stderr, "[native:gl] %u targets made at %ux%u (their first scene) in %.1f ms\n", made, w, h, (native_renderer::nowUs() - start) / 1000.0);
+            }
             // Round 35: which framebuffer is which ([vgl:dump] fb lines name them by address).
             if (std::getenv("SOTC_VGL_MEMDUMP"))
             {
@@ -1961,14 +2049,34 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void selfCheck(uint32_t w, uint32_t h)
         {
             native_renderer::Tuning &t = native_renderer::tuning();
-            const bool merge = t.glMergeDraws, lean = t.glLeanPrograms;
+            const native_renderer::Tuning saved = t;
             std::vector<uint8_t> a(static_cast<size_t>(w) * h * 4u), b(a.size());
-            t.glMergeDraws = t.glLeanPrograms = false;
+            // SOTC_GL_SELFCHECK_OFF=<names> (round 45): the reference frame drawn
+            // with these off instead of the merges and lean programs: fewcopies,
+            // atmerge, volprog, depthkeep, merge, lean (comma separated).
+            static const char *offList = std::getenv("SOTC_GL_SELFCHECK_OFF");
+            if (offList)
+            {
+                const std::string l = std::string(",") + offList + ",";
+                auto has = [&](const char *n) { return l.find(std::string(",") + n + ",") != std::string::npos; };
+                t.glFewCopies = t.glFewCopies && !has("fewcopies");
+                t.alphaTestMerge = t.alphaTestMerge && !has("atmerge");
+                t.glVolumeProgram = t.glVolumeProgram && !has("volprog");
+                t.glDepthKeep = t.glDepthKeep && !has("depthkeep");
+                t.glMergeDraws = t.glMergeDraws && !has("merge");
+                t.glLeanPrograms = t.glLeanPrograms && !has("lean");
+            }
+            else
+                t.glMergeDraws = t.glLeanPrograms = false;
             render(w, h);
             glBindFramebuffer(GL_FRAMEBUFFER, colorPlain.fbo);
             glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h), GL_RGBA, GL_UNSIGNED_BYTE, a.data());
-            t.glMergeDraws = merge;
-            t.glLeanPrograms = lean;
+            t.glFewCopies = saved.glFewCopies;
+            t.alphaTestMerge = saved.alphaTestMerge;
+            t.glVolumeProgram = saved.glVolumeProgram;
+            t.glDepthKeep = saved.glDepthKeep;
+            t.glMergeDraws = saved.glMergeDraws;
+            t.glLeanPrograms = saved.glLeanPrograms;
             const uint64_t calls = drawStats.calls;
             render(w, h);
             glBindFramebuffer(GL_FRAMEBUFFER, colorPlain.fbo);
@@ -1983,6 +2091,25 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     d = std::max<uint32_t>(d, static_cast<uint32_t>(std::abs(int(a[i + c]) - int(b[i + c]))));
                 differ += d ? 1u : 0u;
                 worst = std::max(worst, d);
+            }
+            static int dumps = std::getenv("SOTC_GL_SELFCHECK_DUMP") ? std::atoi(std::getenv("SOTC_GL_SELFCHECK_DUMP")) : 0;
+            if (differ && dumps > 0)
+            {
+                --dumps;
+                for (int k = 0; k < 2; ++k)
+                {
+                    char name[96];
+                    std::snprintf(name, sizeof(name), "selfcheck_%llu_%c.ppm", (unsigned long long)arenaFrame, k ? 'b' : 'a');
+                    if (FILE *f = std::fopen(name, "wb"))
+                    {
+                        std::fprintf(f, "P6\n%u %u\n255\n", w, h);
+                        const std::vector<uint8_t> &img = k ? b : a;
+                        for (uint32_t y = 0; y < h; ++y)
+                            for (uint32_t x = 0; x < w; ++x)
+                                std::fwrite(&img[(static_cast<size_t>(h - 1u - y) * w + x) * 4u], 1, 3, f);
+                        std::fclose(f);
+                    }
+                }
             }
             std::fprintf(stderr, "[gl:selfcheck] frame %llu draws %zu calls %llu: %u of %u pixels differ (most %u)\n", (unsigned long long)arenaFrame, draws.size(),
                          (unsigned long long)(drawStats.calls - calls), differ, w * h, worst);
@@ -2079,10 +2206,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             poolFree(mesh.pool, mesh.first, mesh.count);
             mesh.pool = -1;
         }
-        uint8_t minAlpha = 0xFF;
+        uint8_t minAlpha = 0xFF, maxAlpha = 0;
         for (uint32_t i = 0; i < count; ++i)
+        {
             minAlpha = std::min(minAlpha, vertices[i].a);
+            maxAlpha = std::max(maxAlpha, vertices[i].a);
+        }
         mesh.minAlpha = count ? minAlpha : 0;
+        mesh.maxAlpha = count ? maxAlpha : 0xFF;
         int pool = -1;
         uint32_t first = 0;
         if (count && native_renderer::tuning().glMeshPools && poolAlloc(count, pool, first))
@@ -2336,10 +2467,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         mesh.dynamic = false;
         mesh.skinned = true;
         mesh.indexed = true;
-        uint8_t minAlpha = 0xFF;
+        uint8_t minAlpha = 0xFF, maxAlpha = 0;
         for (uint32_t i = 0; i < count; ++i)
+        {
             minAlpha = std::min(minAlpha, vertices[i].a);
+            maxAlpha = std::max(maxAlpha, vertices[i].a);
+        }
         mesh.minAlpha = count ? minAlpha : 0;
+        mesh.maxAlpha = count ? maxAlpha : 0xFF;
         if (mesh.pool >= 0)
         {
             poolFree(mesh.pool, mesh.first, mesh.count);
@@ -2379,10 +2514,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 w = std::max(1u, w / 2u);
                 h = std::max(1u, h / 2u);
             }
-            uint8_t least = 0xFF;
-            for (size_t i = 0; i < texels && least; ++i)
-                least = std::min(least, rgba[i * 4u + 3u]);
+            // Round 45: and the greatest, up to 0x80 (A = 1): a draw whose
+            // texels all fall under AREF draws every pixel without its depth
+            // (the GS alpha test's FB_ONLY), one pass. Stops as soon as both
+            // are settled (a cut-out texture: a 0 and a 0x80).
+            uint8_t least = 0xFF, greatest = 0;
+            for (size_t i = 0; i < texels && (least || greatest < 0x80u); ++i)
+            {
+                const uint8_t a = rgba[i * 4u + 3u];
+                least = std::min(least, a);
+                greatest = std::max(greatest, a);
+            }
             t.minAlpha = least;
+            t.maxAlpha = greatest;
         }
         glBindTexture(GL_TEXTURE_2D, t.name);
         for (uint32_t level = 0, w = width, h = height; level < levels; ++level)
@@ -2459,6 +2603,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 mesh.pool = -1;
             }
             mesh.minAlpha = 0;
+            mesh.maxAlpha = 0xFF;
             mesh.dynamic = true;
             mesh.frame = arenaFrame;
             mesh.first = f.first;
@@ -2504,6 +2649,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m->used = arenaFrame;
                 p.mesh = m;
                 p.minAlpha = m->dynamic ? 0 : m->minAlpha;
+                p.maxAlpha = m->dynamic ? 0xFF : m->maxAlpha;
             }
             if (d.state.texture)
                 if (Texture *t = textures.find(d.state.texture))
@@ -2511,6 +2657,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     t->used = arenaFrame;
                     p.tex = t;
                 }
+            // Round 45: a frame's own mesh drawn with the GS alpha test, whose
+            // texture's least alpha cannot fail it (or untextured): its least
+            // and greatest vertex alpha read from the frame's arena once (on
+            // the console's route ~65% of the second passes were on meshes of
+            // unknown alpha). Only these meshes, once a frame each.
+            if (m && m->dynamic && !m->indexed && m->count && native_renderer::tuning().alphaTestMerge && native_renderer::tuning().alphaTest)
+            {
+                const uint32_t at = d.state.alphaTest;
+                if ((at & 1u) && !d.state.fresnel && (!d.state.texture || p.tex))
+                {
+                    const float aref = static_cast<float>((at >> 4) & 0xFFu) / 128.0f;
+                    const bool texOk = !p.tex || static_cast<float>(p.tex->minAlpha) / 255.0f * 2.0f >= aref || p.tex->maxAlpha != 0xFFu;
+                    if (texOk && m->alphaFrame != arenaFrame && static_cast<size_t>(m->first) + m->count <= arena.size())
+                    {
+                        const native_renderer::Vertex *v = arena.data() + m->first;
+                        uint8_t lo = 0xFF, hi = 0;
+                        for (uint32_t i = 0; i < m->count; ++i)
+                        {
+                            lo = std::min(lo, v[i].a);
+                            hi = std::max(hi, v[i].a);
+                        }
+                        m->alphaFrame = arenaFrame;
+                        m->frameMinAlpha = lo;
+                        m->frameMaxAlpha = hi;
+                    }
+                    if (m->alphaFrame == arenaFrame)
+                    {
+                        p.minAlpha = m->frameMinAlpha;
+                        p.maxAlpha = m->frameMaxAlpha;
+                    }
+                }
+            }
         }
         {
             const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2520,10 +2698,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 const double secs = std::max(now - shadowStats.since, 1e-3);
                 std::fprintf(stderr, "[shadow] %llu frames in %.1f s: volumes %.1f/s (%.0f vertices/s), darken passes %.1f/s, frames with volumes %llu; "
-                                     "body shadows %d, shadows %d; alpha-test second passes %.1f/s\n",
+                                     "body shadows %d, shadows %d; alpha-test second passes %.1f/s (%.1f/s on meshes of unknown least alpha), %.1f/s drawn in one pass (all under AREF)\n",
                              (unsigned long long)shadowStats.frames, secs, shadowStats.volumes / secs, shadowStats.vertices / secs, shadowStats.darkens / secs,
                              (unsigned long long)shadowStats.framesWithVolumes, native_renderer::tuning().bodyShadows ? 1 : 0, native_renderer::tuning().shadows ? 1 : 0,
-                             shadowStats.alphaSecond / secs);
+                             shadowStats.alphaSecond / secs, alphaStats.secondUnknown / secs, alphaStats.merged / secs);
+                alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
                 shadowStats.since = now;
@@ -2593,6 +2772,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     contiguous = contiguous && o->first == next && o->pool == m->pool;
                     next = o->first + o->count;
                     p.minAlpha = std::min(p.minAlpha, plan[j].minAlpha);
+                    p.maxAlpha = std::max(p.maxAlpha, plan[j].maxAlpha);
                     key = (key ^ draws[static_cast<size_t>(drawOrder[j] & 0xFFFFFFFFu)].mesh) * 0xff51afd7ed558ccdull;
                     key ^= key >> 29;
                 }
@@ -2707,10 +2887,57 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         return true;
     }
 
+    // Round 45: the frame's GXM scenes, binds and depth traffic, a [gl:scenes]
+    // line every 300 frames (the console's log; elsewhere SOTC_GL_SCENE_LOG=1).
+    void Renderer::noteScenes()
+    {
+        uint32_t scenes = 0, loadKB = 0, storeKB = 0;
+#if defined(PS2X_NATIVE_VITA)
+        vglCeloSceneStats(&scenes, &loadKB, &storeKB);
+        constexpr bool log = true;
+#else
+        static const bool log = std::getenv("SOTC_GL_SCENE_LOG") != nullptr;
+#endif
+        sceneStats.scenes += scenes;
+        sceneStats.loadKB += loadKB;
+        sceneStats.storeKB += storeKB;
+        sceneStats.binds += stats.targets; // (counted from the hand-over: this frame's)
+        if (++sceneStats.frames < 300u)
+            return;
+        const double n = static_cast<double>(sceneStats.frames);
+        if (log)
+            std::fprintf(stderr, "[gl:scenes] per frame over %llu frames: %.1f scenes, %.1f target binds, depth / stencil %.0f KB loaded, %.0f KB stored | depth keep %d, few copies %d, volume program %d, alpha merge %d\n",
+                         (unsigned long long)sceneStats.frames, sceneStats.scenes / n, sceneStats.binds / n, sceneStats.loadKB / n, sceneStats.storeKB / n,
+                         native_renderer::tuning().glDepthKeep ? 1 : 0, native_renderer::tuning().glFewCopies ? 1 : 0, native_renderer::tuning().glVolumeProgram ? 1 : 0,
+                         native_renderer::tuning().alphaTestMerge ? 1 : 0);
+        sceneStats.frames = sceneStats.scenes = sceneStats.binds = sceneStats.loadKB = sceneStats.storeKB = 0;
+    }
+
     void Renderer::render(uint32_t w, uint32_t h)
     {
         ensureTargets(w, h);
         boundFbo = boundProgram = ~0u;
+        // Round 45 (Tuning glDepthKeep, the Vita): which scenes load / store
+        // their depth and stencil (vglCeloDepthKeep: bit 0 load, bit 1 store;
+        // -1 vitaGL's forced both). The copies' and passes' scratch depth is
+        // never tested, the display's never either (the host draws its
+        // picture and menus without depth tests), the background image and
+        // the mirror are drawn in one scene from a clear; the picture's
+        // scenes are set as they go (`keepColour`).
+#if defined(PS2X_NATIVE_VITA)
+        const bool depthKeep = native_renderer::tuning().glDepthKeep;
+        vglCeloScratchKeep(depthKeep ? 0 : -1);
+        vglCeloDepthKeep(0, depthKeep ? 0 : -1);
+        auto keepDepth = [&](const Target &t, int keep)
+        {
+            if (t.fbo)
+                vglCeloDepthKeep(t.fbo, depthKeep ? keep : -1);
+        };
+        keepDepth(background, 0);
+        keepDepth(reflection, 0);
+#else
+        auto keepDepth = [](const Target &, int) {};
+#endif
         drawOrder.clear();
         drawOrder.reserve(draws.size());
         for (size_t i = 0; i < draws.size(); ++i)
@@ -2869,9 +3096,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (spike.on)
                 {
                     const uint64_t now = native_renderer::nowUs();
+#if defined(PS2X_NATIVE_VITA)
+                    const uint32_t scenesNow = vgl_celo_scenes;
+#else
+                    const uint32_t scenesNow = 0;
+#endif
                     if (spike.last && now - spike.last > spike.gap)
-                        spike.gap = now - spike.last, spike.index = spike.drawn;
+                        spike.gap = now - spike.last, spike.index = spike.drawn, spike.gapEvent = spike.event, spike.gapScenes = scenesNow - spike.scenesAt;
                     spike.last = now;
+                    spike.event = -100;
+                    spike.scenesAt = scenesNow;
                     if (spike.index == spike.drawn) // the draw the gap ends at
                     {
                         spike.order = d.state.order, spike.count = mesh.count, spike.target = target.fbo;
@@ -2942,6 +3176,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // samplers they read; without the cut-out when no pixel can be
                 // cut), the full one for the rest.
                 GLuint program = skinned ? skinProgram : mainProgram;
+                if (d.state.shadowVolume && native_renderer::tuning().glVolumeProgram && mains[kVolumeSlot].program)
+                    program = mains[kVolumeSlot].program; // round 45: only counts
                 // alpha = texel a x 2 (0x80 = 1) x vertex a / 128 x opacity, at least (-1: not known):
                 float leastAlpha = -1.0f;
                 if (!d.state.fresnel && planned.minAlpha && (textured == 0 || textured == 1))
@@ -2961,12 +3197,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                                   !d.state.background && !d.state.noDepthWrite && !d.state.screenDepthTest && !d.state.shadowVolume &&
                                   d.state.blend != native_renderer::Blend::Additive;
                 const float aref = static_cast<float>((at >> 4) & 0xFFu) / 128.0f;
-                const bool atSecond = atOn && !(leastAlpha >= aref);
+                // Round 45 (Tuning alphaTestMerge): every pixel under AREF (the
+                // greatest texel and vertex alphas say, a margin for the GPU's
+                // rounding): the first pass would draw nothing; the second
+                // alone, in one pass.
+                bool atAllUnder = false;
+                if (atOn && native_renderer::tuning().alphaTestMerge && !d.state.fresnel && planned.maxAlpha != 0xFFu && (textured == 0 || textured == 1))
+                {
+                    float greatest = static_cast<float>(planned.maxAlpha) / 128.0f * d.state.opacity;
+                    if (textured == 1)
+                        greatest *= static_cast<float>(tex->maxAlpha) / 255.0f * 2.0f;
+                    atAllUnder = greatest < aref - 1.0f / 256.0f;
+                }
+                const bool atSecond = atOn && !atAllUnder && !(leastAlpha >= aref);
                 if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour)
                 {
                     bool cut = true;
                     if (noDiscard && leastAlpha >= 0.0f)
-                        cut = !(leastAlpha >= 0.03f) || atSecond; // the cut-out is at 0.02
+                        cut = !(leastAlpha >= 0.03f) || atSecond || atAllUnder; // the cut-out is at 0.02
                     if (const GLuint lean = leanProgram(skinned, fogA[3] > 0.5f, cut))
                     {
                         program = lean;
@@ -3068,16 +3316,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         glDisable(GL_DEPTH_TEST);
                     cache.depthTest = depthTest;
                 }
-                if (depthMask != cache.depthMask)
+                const int depthMaskDrawn = atAllUnder ? 0 : depthMask; // all under AREF: FB_ONLY, no depth written
+                if (depthMaskDrawn != cache.depthMask)
                 {
-                    glDepthMask(depthMask ? GL_TRUE : GL_FALSE);
-                    cache.depthMask = depthMask;
+                    glDepthMask(depthMaskDrawn ? GL_TRUE : GL_FALSE);
+                    cache.depthMask = depthMaskDrawn;
                 }
                 if (d.state.texture && !tex)
                     ++texStats.missing;
                 if (textured == 5)
                 {
-                    bindTexture(0, previous.texture);
+                    bindTexture(0, previousTexture ? previousTexture : previous.texture);
                     cache.texture = ~0u;
                 }
                 if (textured == 3 || textured == 4)
@@ -3085,7 +3334,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     const native_renderer::Tuning &t = native_renderer::tuning();
                     const int source = static_cast<int>((textured == 4 ? t.hazeSource : t.waterSource) + 0.5f);
                     const GLuint redrawn = textured == 4 ? hazeSourceTexture : waterSource;
-                    bindTexture(3, redrawn && source != 2 ? redrawn : (source == 2 ? previous.texture : (source == 1 ? snapshot.texture : refraction.texture)));
+                    bindTexture(3, redrawn && source != 2 ? redrawn : (source == 2 ? (previousTexture ? previousTexture : previous.texture) : (source == 1 ? snapshot.texture : refraction.texture)));
                 }
                 if (textured == 1)
                 {
@@ -3135,7 +3384,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uniform4(uFogC, fogC, 1);
                 uniform4(uFogColour, fogColour, 1);
                 uniform4(uDebug, debug, 1);
-                const float alphaCut[4] = {atSecond ? aref : 0.0f, 0.0f, 0.0f, 0.0f};
+                const float alphaCut[4] = {atSecond ? aref : 0.0f, atAllUnder ? aref : 0.0f, 0.0f, 0.0f};
+                if (atAllUnder)
+                    ++alphaStats.merged;
+                if (atSecond && !planned.minAlpha)
+                    ++alphaStats.secondUnknown;
                 uniform4(uAlphaTest, alphaCut, 1);
                 {
                     static const long seqFrame = std::getenv("SOTC_GL_DRAWSEQ") ? std::atol(std::getenv("SOTC_GL_DRAWSEQ")) : -1;
@@ -3183,6 +3436,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     drawStats.progOff += static_cast<GLuint>(cur) != boundProgram;
                     drawStats.progZero += cur == 0;
                 }
+                const uint64_t callStart = spike.on ? native_renderer::nowUs() : 0u;
                 if (planned.run > 1)
                 {
                     drawStats.merged += planned.run - 1u;
@@ -3191,6 +3445,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 else
                     drawMesh(mesh, firstVertex);
+                if (spike.on)
+                {
+                    const uint64_t took = native_renderer::nowUs() - callStart;
+                    if (took > spike.callMax)
+                        spike.callMax = took, spike.callIndex = spike.drawn - 1u;
+                }
                 if (atSecond)
                 {
                     // The pixels under AREF: colour, no depth write.
@@ -3457,10 +3717,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const int haze = static_cast<int>(t.hazeSource + 0.5f), water = static_cast<int>(t.waterSource + 0.5f);
             if (haze == 2 && water == 2)
                 return;
-            snapshotColor();
+            // Round 45 (Tuning glFewCopies): when no draw reads the full-size
+            // snapshot (source 1), the 256 x 256 copy is made from the picture
+            // itself (the snapshot is the same pixels at the same size).
+            const bool direct = t.glFewCopies && haze != 1 && water != 1;
+            if (!direct)
+                snapshotColor();
             if (haze == 0 || water == 0)
             {
-                copy(snapshot, refraction);
+                copy(direct ? color : snapshot, refraction);
                 copy(refraction, refractionHalf);
                 copy(refractionHalf, refraction);
             }
@@ -3758,9 +4023,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             if (ev.prefix >= 0 && ev.blur == -4)
                 continue; // its copies are made
+            // The picture's first scene starts from a clear (nothing to load);
+            // every scene but its last is taken up again (stored). The scene a
+            // pass begins takes the setting at its start: back to "both" as
+            // soon as the first one is open (an effect's quads on the picture
+            // begin the next one).
+            keepDepth(color, loaded ? 3 : 2);
             pass(color, false, from, ev.order, loaded);
+            keepDepth(color, 3);
             loaded = true;
             from = ev.order;
+            spike.event = ev.blur;
             if (ev.blur == -8)
                 bloomMask();
             else if (ev.blur == -6)
@@ -3781,12 +4054,25 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             else
                 doBlur(blurs[static_cast<size_t>(ev.blur)], ev.prefix >= 0 ? &prefix[ev.prefix] : nullptr);
         }
+        // The last one: nothing reads its depth after it (the next frame clears).
+        keepDepth(color, loaded ? 1 : 0);
         pass(color, false, from, ~0u, loaded);
         const bool bloomAdd = keepAlpha;
         keepAlpha = false;
         if (bloomAdd)
             bloomReduce(); // round 18's order: added by the next frame's bloomMask
-        copy(colorPlain, previous);
+        // Round 45 (Tuning glFewCopies, the Vita): the host's copy below is the
+        // last frame shown; without such a host (the Mac's read-back) a copy of its own.
+#if defined(PS2X_NATIVE_VITA)
+        const bool previousIsShown = native_renderer::tuning().glFewCopies && static_cast<bool>(native_renderer::detail::presentHook());
+#else
+        const bool previousIsShown = false;
+#endif
+        if (!previousIsShown)
+        {
+            copy(colorPlain, previous);
+            previousTexture = previous.texture;
+        }
 
 
         if (const auto &hook = native_renderer::detail::presentHook())
@@ -3795,6 +4081,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // into `color` before the GPU has put this one on the screen.
             shownIndex ^= 1;
             copy(colorPlain, shownFrame[shownIndex]);
+            if (previousIsShown)
+                previousTexture = shownFrame[shownIndex].texture;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = boundProgram = ~0u;
             const bool timed = native_renderer::tuning().frameTiming();
@@ -3802,6 +4090,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             hook(shownFrame[shownIndex].texture, w, h);
             if (timed)
                 stats.presentUs += native_renderer::nowUs() - start;
+            noteScenes();
             return;
         }
         // Read back, top row first (the GL picture is y-up).
@@ -3817,6 +4106,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         outputWidth = w;
         outputHeight = h;
         hasOutput = true;
+        noteScenes();
     }
 
     // The game thread's side of the renderer (every Backend call) and the
@@ -4611,11 +4901,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         const uint64_t drawPart = (drawn - uploaded) - (r->stats.presentUs - present);
                         if (drawPart > limitUs)
                             std::fprintf(stderr,
-                                         "[gl:spike] arena %llu: draw %.1f ms (upload %.1f, present %.1f), %u draws; longest gap %.1f ms ending at draw %u (fbo %u order %u, %u vertices%s%s%s%s, test %04x)\n",
+                                         "[gl:spike] arena %llu: draw %.1f ms (upload %.1f, present %.1f), %u draws; longest gap %.1f ms ending at draw %u (fbo %u order %u, %u vertices%s%s%s%s, test %04x); "
+                                         "in the gap: event %d (-100 none; -1 bloom, -2 glow, -3 shadows, -4 refraction copy, -8 Vita bloom, 0+ screen blur), %u scenes; "
+                                         "slowest draw call %.1f ms (draw %u); targets made %s\n",
                                          (unsigned long long)r->arenaFrame, drawPart / 1000.0, (uploaded - start) / 1000.0, (r->stats.presentUs - present) / 1000.0,
                                          r->spike.drawn, r->spike.gap / 1000.0, r->spike.index, r->spike.target, r->spike.order, r->spike.count,
                                          r->spike.volume ? ", shadow volume" : "", r->spike.overlay ? ", overlay" : "", r->spike.skinned ? ", skinned" : "",
-                                         r->spike.dynamic ? ", dynamic" : "", r->spike.alphaTest);
+                                         r->spike.dynamic ? ", dynamic" : "", r->spike.alphaTest, r->spike.gapEvent, r->spike.gapScenes, r->spike.callMax / 1000.0,
+                                         r->spike.callIndex, std::getenv("SOTC_GL_WARM_TARGETS") && std::atoi(std::getenv("SOTC_GL_WARM_TARGETS")) == 0 ? "lazily" : "at start");
+                        r->spike.callMax = 0;
+                        r->spike.event = r->spike.gapEvent = -100;
                         r->spike.last = r->spike.gap = 0;
                         r->spike.drawn = r->spike.index = 0;
                     }

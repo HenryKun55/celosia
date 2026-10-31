@@ -187,7 +187,9 @@ namespace native_renderer
             if (on("SOTC_EE_TRUST"))
                 d.trustFinite = std::atoi(std::getenv("SOTC_EE_TRUST")) != 0;
             for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
-                                             {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard}})
+                                             {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard},
+                                         {"SOTC_GL_DEPTH_KEEP", &Tuning::glDepthKeep}, {"SOTC_GL_FEW_COPIES", &Tuning::glFewCopies}, {"SOTC_GL_VOLUME_PROG", &Tuning::glVolumeProgram},
+                                         {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -257,7 +259,9 @@ namespace native_renderer
         if (t.warmShaders != d.warmShaders)
             add(std::string("SOTC_GL_WARM=") + (t.warmShaders ? "1" : "0"));
         for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
-                                         {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard}})
+                                         {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard},
+                                         {"SOTC_GL_DEPTH_KEEP", &Tuning::glDepthKeep}, {"SOTC_GL_FEW_COPIES", &Tuning::glFewCopies}, {"SOTC_GL_VOLUME_PROG", &Tuning::glVolumeProgram},
+                                         {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)

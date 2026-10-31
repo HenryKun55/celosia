@@ -209,6 +209,33 @@ namespace native_renderer
         // (the same picture; on the Vita's GPU a discard costs its hidden
         // surface removal; SOTC_GL_NODISCARD=0/1).
         bool glNoDiscard = true;
+        // Round 45 (the console's GPU: SGX draws a target in tiles and each
+        // render-target switch is a scene of its own):
+        // the Vita: each scene loads / stores its depth and stencil only when
+        // a draw of the frame needs what was there or what it leaves (the
+        // picture's first scene clears them, its last one is not read again;
+        // the background, the mirror, the copies' scratch depth and the
+        // display need neither); vitaGL forced both for every scene
+        // (STORE_DEPTH_STENCIL). Read each frame (SOTC_GL_DEPTH_KEEP=0/1).
+        bool glDepthKeep = true;
+        // the Vita: the last frame shown is the host's copy of it (no copy
+        // of its own), and the water's / heat haze's 256 x 256 copy is made
+        // from the picture itself (no full-size snapshot first) when nothing
+        // else reads the snapshot: the same pixels, two fewer picture-sized
+        // scenes (SOTC_GL_FEW_COPIES=0/1).
+        bool glFewCopies = true;
+        // the shadow volumes through a program that only counts (the main
+        // vertex program, a fragment program that writes nothing): the same
+        // stencil, no fog / texture work per volume pixel (SOTC_GL_VOLUME_PROG=0/1).
+        bool glVolumeProgram = true;
+        // the GS alpha test's two passes merged into one where they draw the
+        // same: every pixel under AREF (the texture's and the mesh's
+        // greatest alpha say), one pass without depth writes (SOTC_GL_AT_MERGE=0/1).
+        bool alphaTestMerge = true;
+        // the body shadows' volumes as indexed meshes (each corner once, the
+        // prisms' triangles as indices; inner sides matched by vertex): the
+        // same triangles, about a third of the bytes (SOTC_SHADOW_INDEXED=0/1).
+        bool shadowIndexed = true;
 
         // Round 36: sacrifices for the console's game thread (the Debug
         // group's first items, saved in settings.cfg; the Vita's default:

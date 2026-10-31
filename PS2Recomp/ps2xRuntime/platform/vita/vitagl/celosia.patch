@@ -321,18 +321,19 @@ index 11937c4..cbe951e 100644
  		ffp_vertex_attrib_state = (1 << FFP_ATTRIB_POSITION) | (1 << FFP_ATTRIB_COLOR);
  		if (zero_lights) {
 diff --git a/source/framebuffers.c b/source/framebuffers.c
-index 15e59ea..dc47b04 100644
+index 15e59ea..47cd53b 100644
 --- a/source/framebuffers.c
 +++ b/source/framebuffers.c
-@@ -217,6 +217,7 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
+@@ -217,6 +217,8 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
  			framebuffers[i].depthbuffer_ptr = NULL;
  			framebuffers[i].target = NULL;
  			framebuffers[i].tex = NULL;
 +			framebuffers[i].celo_scratch = 0;
++			framebuffers[i].celo_keep = -1;
  		}
  		if (j >= n)
  			break;
-@@ -281,9 +282,12 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
+@@ -281,9 +283,12 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
  			}
  #ifndef DEPTH_STENCIL_HACK
  			if (fb->depthbuffer_ptr) {
@@ -345,7 +346,7 @@ index 15e59ea..dc47b04 100644
  		}
  	}
  }
-@@ -365,7 +369,8 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
+@@ -365,7 +370,8 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
  	// Discarding any previously bound hidden depth buffers
  	if (fb->depthbuffer_ptr) {
  #ifndef DEPTH_STENCIL_HACK
@@ -355,7 +356,7 @@ index 15e59ea..dc47b04 100644
  #endif
  	}
  	fb->depthbuffer_ptr = NULL;
-@@ -397,7 +402,8 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
+@@ -397,7 +403,8 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
  	// Discarding any previously bound hidden depth buffers
  	if (fb->depthbuffer_ptr) {
  #ifndef DEPTH_STENCIL_HACK
@@ -365,7 +366,7 @@ index 15e59ea..dc47b04 100644
  #endif
  		fb->depthbuffer_ptr = NULL;
  	}
-@@ -840,11 +846,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+@@ -840,11 +847,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
  	sceGxmSetBackPolygonMode(gxm_context, SCE_GXM_POLYGON_MODE_TRIANGLE_FILL);
  
  	// Set framebuffer blit shader
@@ -380,7 +381,7 @@ index 15e59ea..dc47b04 100644
  	
  	// Set fragment texture to read framebuffer bound color attachment
  	framebuffer *read_fb = (framebuffer *)readFramebuffer;
-@@ -858,7 +864,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+@@ -858,7 +865,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
  		vglSetTexMinFilter(tex, SCE_GXM_TEXTURE_FILTER_POINT);
  		vglSetTexMipmapCount(tex, 0);
  	}
@@ -389,7 +390,7 @@ index 15e59ea..dc47b04 100644
  	
  	// Set stencil func to keep original data
  	sceGxmSetFrontStencilFunc(gxm_context,
-@@ -984,3 +990,140 @@ void glReadBuffer(GLenum mode) {
+@@ -984,3 +991,197 @@ void glReadBuffer(GLenum mode) {
  #endif
  	}
  }
@@ -530,8 +531,65 @@ index 15e59ea..dc47b04 100644
 +			fb->celo_frame ? (unsigned)(vgl_framecount - fb->celo_frame) : 0xFFFFFFFFu);
 +	}
 +}
++
++// Celosia r45: whether a scene loads its depth / stencil from memory at its
++// start (keep bit 0) and stores it at its end (bit 1). Built with
++// STORE_DEPTH_STENCIL (the GS renderer's targets keep their Z across the
++// scenes a frame splits them into), vitaGL forces both for every surface:
++// ~1.1 MB each way for a 512 x 448 scene with stencil, 2.6 MB for the
++// display's, whether or not the scene's draws need what was there or the
++// next scene reads what it leaves. Without the force GXM loads / stores
++// only for a partial render (the parameter buffer full), as vitaGL does
++// when built without it. -1: as built. fbo 0: the display. The scratch
++// depth surfaces (vglFramebufferScratchDepth: never tested) take
++// vglCeloScratchKeep's. Applied when a scene begins (vgl_celo_apply_keep).
++static int8_t celo_display_keep = -1, celo_scratch_keep = -1;
++uint32_t vgl_celo_scenes = 0, vgl_celo_depth_load = 0, vgl_celo_depth_store = 0; // since vglCeloSceneStats (KB)
++void vglCeloDepthKeep(GLuint fbo, int keep) {
++	if (keep < -1 || keep > 3)
++		keep = -1;
++	if (!fbo) {
++		celo_display_keep = (int8_t)keep;
++		return;
++	}
++	((framebuffer *)fbo)->celo_keep = (int8_t)keep;
++}
++void vglCeloScratchKeep(int keep) {
++	celo_scratch_keep = (int8_t)(keep < -1 || keep > 3 ? -1 : keep);
++}
++void vglCeloSceneStats(uint32_t *scenes, uint32_t *loadKB, uint32_t *storeKB) {
++	if (scenes)
++		*scenes = vgl_celo_scenes;
++	if (loadKB)
++		*loadKB = vgl_celo_depth_load;
++	if (storeKB)
++		*storeKB = vgl_celo_depth_store;
++	vgl_celo_scenes = vgl_celo_depth_load = vgl_celo_depth_store = 0;
++}
++void vgl_celo_apply_keep(framebuffer *fb, SceGxmDepthStencilSurface *surface, int w, int h) {
++	vgl_celo_scenes++;
++	if (!surface)
++		return;
++	int keep = fb ? fb->celo_keep : celo_display_keep;
++	if (keep < 0 && fb && fb->celo_scratch >= 2 && fb->celo_scratch - 2 < CELO_SCRATCH_SLOTS && surface == &celo_scratch_slot[fb->celo_scratch - 2].surf)
++		keep = celo_scratch_keep;
++	if (keep < 0) {
++#ifdef STORE_DEPTH_STENCIL
++		keep = 3;
++#else
++		keep = 0;
++#endif
++	}
++	sceGxmDepthStencilSurfaceSetForceLoadMode(surface, (keep & 1) ? SCE_GXM_DEPTH_STENCIL_FORCE_LOAD_ENABLED : SCE_GXM_DEPTH_STENCIL_FORCE_LOAD_DISABLED);
++	sceGxmDepthStencilSurfaceSetForceStoreMode(surface, (keep & 2) ? SCE_GXM_DEPTH_STENCIL_FORCE_STORE_ENABLED : SCE_GXM_DEPTH_STENCIL_FORCE_STORE_DISABLED);
++	const uint32_t kb = (uint32_t)(VGL_ALIGN(w, SCE_GXM_TILE_SIZEX) * VGL_ALIGN(h, SCE_GXM_TILE_SIZEY) * (surface->stencilData ? 5 : 4) / 1024);
++	if (keep & 1)
++		vgl_celo_depth_load += kb;
++	if (keep & 2)
++		vgl_celo_depth_store += kb;
++}
 diff --git a/source/gxm.c b/source/gxm.c
-index 4cbb40b..7eacbff 100644
+index 4cbb40b..f6a8d95 100644
 --- a/source/gxm.c
 +++ b/source/gxm.c
 @@ -69,6 +69,10 @@ static GLboolean needs_scene_reset = GL_TRUE; // Flag for when a scene reset is
@@ -627,15 +685,16 @@ index 4cbb40b..7eacbff 100644
  				legacy_pool = (float *)gpu_alloc_mapped_temp(legacy_pool_size);
  				legacy_pool_ptr = legacy_pool;
  #ifndef SKIP_ERROR_HANDLING
-@@ -618,6 +674,7 @@ void scene_reset(void) {
+@@ -618,6 +674,8 @@ void scene_reset(void) {
  				shared_fb_info.vsync = vsync_interval;
  				gxm_back_buffer_index = (shared_fb_info.index + 1) % 2;
  			}
 +			vgl_state_invalidate();
++			vgl_celo_apply_keep(NULL, &gxm_depth_stencil_surface, DISPLAY_WIDTH, DISPLAY_HEIGHT); // celosia r45
  			int r = sceGxmBeginScene(gxm_context, 0, gxm_render_target,
  				NULL, NULL,
  				gxm_sync_objects[gxm_back_buffer_index],
-@@ -634,10 +691,15 @@ void scene_reset(void) {
+@@ -634,10 +692,15 @@ void scene_reset(void) {
  				_glFramebufferTexture2D(active_write_fb, GL_COLOR_ATTACHMENT0, active_write_fb->tex, 1);
  			}
  			
@@ -653,7 +712,13 @@ index 4cbb40b..7eacbff 100644
  				active_write_fb->depthbuffer_state |= DEPTHBUFFER_READY;
  			}
  
-@@ -668,8 +730,10 @@ void scene_reset(void) {
+@@ -663,13 +726,16 @@ void scene_reset(void) {
+ 				}
+ 			}
+ #endif
++			vgl_celo_apply_keep(active_write_fb, active_write_fb->depthbuffer_ptr, active_write_fb->width, active_write_fb->height); // celosia r45
+ #ifdef HAVE_SHARED_RENDERTARGETS
+ 			render_target *fbo_rt = (render_target *)active_write_fb->target;
  #ifdef RECYCLE_RENDERTARGETS
  			fbo_rt->last_frame = vgl_framecount;
  #endif
@@ -664,7 +729,7 @@ index 4cbb40b..7eacbff 100644
  			int r = sceGxmBeginScene(gxm_context, 0, active_write_fb->target,
  #endif
  					NULL, NULL, NULL,
-@@ -790,6 +854,20 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -790,6 +856,20 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  
  	vgl_framecount++;
  #if !defined(DISABLE_CIRCULAR_POOL) && !defined(CIRCULAR_POOL_SPEEDHACK)
@@ -685,7 +750,7 @@ index 4cbb40b..7eacbff 100644
  #ifdef HAVE_DEBUG_INTERFACE
  	vgl_circular_pool_frame_peak = (uint32_t)circular_data_pool_ptr[vgl_circular_idx] - (uint32_t)circular_data_pool[vgl_circular_idx];
  	if (vgl_circular_pool_frame_peak > vgl_circular_pool_global_peak) {
-@@ -975,13 +1053,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -975,13 +1055,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  void glFinish(void) {
  	THREAD_SAFE()
  
@@ -721,7 +786,7 @@ index 238f052..06a531b 100644
  	sceGxmReserveVertexDefaultUniformBuffer(gxm_context, &vbuffer);
  	sceGxmSetUniformDataF(vbuffer, clear_position, 0, 4, &clear_vertices->x);
 diff --git a/source/shared.h b/source/shared.h
-index 167e4f2..a98d053 100644
+index 167e4f2..a6f396a 100644
 --- a/source/shared.h
 +++ b/source/shared.h
 @@ -66,6 +66,8 @@
@@ -733,13 +798,15 @@ index 167e4f2..a98d053 100644
  
  #ifndef MAX
  #define MAX(a, b) (((a) < (b)) ? (b) : (a))
-@@ -606,7 +608,15 @@ typedef struct {
+@@ -606,7 +608,17 @@ typedef struct {
  	int stride;
  	void *data;
  	texture *tex;
 +	uint32_t celo_frame; // celosia r35: the last frame a scene began on it
 +	uint8_t celo_scratch; // celosia r35: 0 own depth; 1 a scratch depth wanted (vglFramebufferScratchDepth); 2 + k: scratch slot k taken
++	int8_t celo_keep; // celosia r45: its scenes' depth / stencil loaded (bit 0) and stored (bit 1); -1 as built (vglCeloDepthKeep)
  } framebuffer;
++void vgl_celo_apply_keep(framebuffer *fb, SceGxmDepthStencilSurface *surface, int w, int h); // celosia r45 (framebuffers.c): before each sceGxmBeginScene
 +void vgl_celo_scratch_take(framebuffer *fb); // celosia r35 (framebuffers.c)
 +void vgl_celo_scratch_release(framebuffer *fb);
 +extern uint32_t vgl_celo_scratch_tested;
@@ -749,7 +816,7 @@ index 167e4f2..a98d053 100644
  
  // Query struct
  typedef struct {
-@@ -1024,6 +1034,56 @@ extern float fullscreen_y_scale;
+@@ -1024,6 +1036,56 @@ extern float fullscreen_y_scale;
  extern float fullscreen_z_scale;
  
  extern SceGxmContext *gxm_context; // sceGxm context instance
@@ -806,7 +873,7 @@ index 167e4f2..a98d053 100644
  extern GLenum vgl_error; // Error returned by glGetError
  extern SceGxmDepthStencilSurface gxm_depth_stencil_surface; // Depth/Stencil surfaces setup for sceGxm
  extern GLboolean system_app_mode; // Flag for system app mode usage
-@@ -1371,6 +1431,7 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
+@@ -1371,6 +1433,7 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
  			}
  			if (fb->depthbuffer_ptr) {
  #ifndef DEPTH_STENCIL_HACK
@@ -1363,10 +1430,10 @@ index 014e790..79bb11d 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..a033608 100644
+index eeec610..0bb2676 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1259,6 +1259,12 @@ void vglSetShaderAssociationPath(const char *path);
+@@ -1259,6 +1259,15 @@ void vglSetShaderAssociationPath(const char *path);
  
  // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
  void vglSetShaderCachePath(const char *path);
@@ -1376,6 +1443,9 @@ index eeec610..a033608 100644
 +void vglCollectGarbageNow(void); // celosia: after glFinish, frees what is marked for deletion at once
 +void vglCeloMemDump(const char *tag);
 +void vglFramebufferScratchDepth(GLuint fbo, GLboolean on); // celosia r35: the framebuffer never tests depth / stencil: one scratch depth per size // celosia r35: [vgl:dump] lines, what the pools hold by site
++void vglCeloDepthKeep(GLuint fbo, int keep); // celosia r45: its scenes load (1) / store (2) their depth and stencil; -1 as built; fbo 0 the display
++void vglCeloScratchKeep(int keep); // celosia r45: the same for the scratch depth surfaces (vglFramebufferScratchDepth)
++void vglCeloSceneStats(uint32_t *scenes, uint32_t *loadKB, uint32_t *storeKB); // celosia r45: scenes begun, depth / stencil KB loaded and stored since the last call
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
  void vglSetTextureCacheFrequency(GLuint freq);

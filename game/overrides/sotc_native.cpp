@@ -2928,6 +2928,12 @@ namespace sotc_native
         ab("bodyshadows", &native_renderer::Tuning::bodyShadows);
         ab("allsides", &native_renderer::Tuning::shadowAllSides);
         ab("lighting", &native_renderer::Tuning::lighting);
+        // Round 45: the console GPU's savings, each switchable to measure it.
+        ab("depthkeep", &native_renderer::Tuning::glDepthKeep);
+        ab("fewcopies", &native_renderer::Tuning::glFewCopies);
+        ab("volprog", &native_renderer::Tuning::glVolumeProgram);
+        ab("atmerge", &native_renderer::Tuning::alphaTestMerge);
+        ab("shadowidx", &native_renderer::Tuning::shadowIndexed);
         for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
             if (list.find(",L" + std::to_string(layer) + ",") != std::string::npos)
                 t.hiddenLayers = isOff(("L" + std::to_string(layer)).c_str()) ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
@@ -5959,6 +5965,173 @@ namespace sotc_native
                     at += 3u;
                 }
         }
+        // Round 45 (Tuning shadowIndexed; the console's A/B: the body shadows
+        // +4.4 ms of the worker, +4.5 ms of the render thread a frame): the
+        // volume as an indexed mesh. A strip vertex's two corners (near, far:
+        // cut at z = 0.1 as below, which depends on that vertex alone, the
+        // same arithmetic) are worked out once; vertices whose two corners are
+        // the same bits share one entry, so a side's four corners match its
+        // reverse's exactly when their two entries do (round 38's rule, by
+        // integers instead of a hash of twelve floats per side). The same
+        // triangles (SOTC_SHADOW_CHECK compares them), each corner once in the
+        // upload instead of in every triangle using it.
+        const bool indexedVolume = native_renderer::tuning().shadowIndexed && !allSides;
+        native_renderer::Vertex *volumeRoom = nullptr;
+        uint32_t *volumeIndices = nullptr;
+        uint32_t volumeBase = 0, volumeEntries = 0, volumeIndexCount = 0;
+        if (indexedVolume)
+        {
+            static std::vector<uint32_t> entryOf;  // strip vertex -> entry
+            static std::vector<float> corners;     // entry: near xyz, far xyz
+            static std::vector<uint8_t> behindOf;  // entry: both corners behind z = 0.1
+            static std::vector<uint32_t> probe;    // open addressing: entry + 1 (0: empty)
+            entryOf.resize(vertices);
+            corners.clear();
+            behindOf.clear();
+            uint32_t probeSize = 64u;
+            while (probeSize < vertices * 2u)
+                probeSize <<= 1;
+            probe.assign(probeSize, 0u);
+            for (size_t i = 0; i < vertices; ++i)
+            {
+                float nearP[3], farP[3];
+                std::memcpy(nearP, &cam[i * 3u], 12);
+                for (int r = 0; r < 3; ++r)
+                    farP[r] = nearP[r] + d[r];
+                bool behind = false;
+                const float zn = nearP[2], zf = farP[2];
+                if (zn <= kShadowNear && zf <= kShadowNear)
+                    behind = true;
+                else if (zf < kShadowNear || zn < kShadowNear)
+                {
+                    float *out = zf < kShadowNear ? farP : nearP;
+                    const float *in = zf < kShadowNear ? nearP : farP;
+                    const float t = (in[2] - kShadowNear) / (in[2] - out[2]);
+                    for (int r = 0; r < 3; ++r)
+                        out[r] = in[r] + (out[r] - in[r]) * t;
+                }
+                uint32_t bits[6];
+                std::memcpy(bits, nearP, 12);
+                std::memcpy(bits + 3, farP, 12);
+                uint32_t h = behind ? 0x9E3779B9u : 0x7F4A7C15u;
+                for (uint32_t b : bits)
+                    h = (h ^ b) * 0x01000193u;
+                h ^= h >> 15;
+                uint32_t at = h & (probeSize - 1u);
+                for (;;)
+                {
+                    const uint32_t e = probe[at];
+                    if (!e)
+                    {
+                        const uint32_t made = static_cast<uint32_t>(behindOf.size());
+                        probe[at] = made + 1u;
+                        corners.insert(corners.end(), nearP, nearP + 3);
+                        corners.insert(corners.end(), farP, farP + 3);
+                        behindOf.push_back(behind ? 1u : 0u);
+                        entryOf[i] = made;
+                        break;
+                    }
+                    if (behindOf[e - 1u] == (behind ? 1u : 0u) && !std::memcmp(&corners[(e - 1u) * 6u], bits, 24))
+                    {
+                        entryOf[i] = e - 1u;
+                        break;
+                    }
+                    at = (at + 1u) & (probeSize - 1u);
+                }
+            }
+            volumeEntries = static_cast<uint32_t>(behindOf.size());
+            volumeRoom = volumeEntries ? native_renderer::frameMesh(volumeEntries * 2u) : nullptr;
+            if (volumeRoom)
+                volumeIndices = native_renderer::frameMeshIndices(static_cast<uint32_t>(triangles * 24u), volumeBase);
+            if (volumeRoom && !volumeIndices)
+                native_renderer::cancelFrameMesh();
+            if (volumeIndices)
+            {
+                for (uint32_t e = 0; e < volumeEntries; ++e)
+                    for (int k = 0; k < 2; ++k)
+                    {
+                        native_renderer::Vertex v{};
+                        v.x = corners[e * 6u + k * 3u];
+                        v.y = corners[e * 6u + k * 3u + 1u];
+                        v.z = corners[e * 6u + k * 3u + 2u];
+                        v.r = v.g = v.b = v.a = 0x80; // the shared fragment stage drops alpha 0
+                        volumeRoom[e * 2u + k] = v;
+                    }
+                // The open sides by directed edge (entry k, entry l): chains
+                // through a power-of-two table, as below.
+                struct EdgeSide
+                {
+                    uint32_t k, l;
+                    int32_t next;
+                    bool live;
+                };
+                static std::vector<EdgeSide> edges;
+                static std::vector<int32_t> edgeHeads;
+                edges.clear();
+                edges.reserve(triangles * 3u);
+                uint32_t edgeSize = 64u;
+                while (edgeSize < triangles * 6u)
+                    edgeSize <<= 1;
+                edgeHeads.assign(edgeSize, -1);
+                auto edgeHash = [edgeSize](uint32_t k, uint32_t l) { return ((k * 0x9E3779B1u) ^ (l * 0x85EBCA77u) ^ (k >> 7)) & (edgeSize - 1u); };
+                uint32_t *ix = volumeIndices;
+                const uint32_t base = volumeBase;
+                size_t firstVertex = 0;
+                for (const Strip &strip : strips)
+                {
+                    const float *sv = cam.data() + firstVertex * 3u;
+                    const uint32_t *ev = entryOf.data() + firstVertex;
+                    firstVertex += strip.size();
+                    for (size_t i = 2; i < strip.size(); ++i)
+                    {
+                        const float *a = sv + (i - 2) * 3u, *b = sv + (i - 1) * 3u, *c = sv + i * 3u;
+                        const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, w[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                        const float n[3] = {u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]};
+                        const float facing = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+                        if (facing == 0.0f)
+                            continue; // degenerate (strip joins) or edge-on
+                        uint32_t e[3] = {ev[i - 2], ev[i - 1], ev[i]};
+                        if (facing > 0.0f)
+                            std::swap(e[1], e[2]); // the near face looks away from the extrusion
+                        if (behindOf[e[0]] || behindOf[e[1]] || behindOf[e[2]])
+                            continue;
+                        // Closed prism, faces outwards: near (a, b, c), far reversed, sides.
+                        *ix++ = base + e[0] * 2u, *ix++ = base + e[1] * 2u, *ix++ = base + e[2] * 2u;
+                        *ix++ = base + e[0] * 2u + 1u, *ix++ = base + e[2] * 2u + 1u, *ix++ = base + e[1] * 2u + 1u;
+                        for (int k = 0; k < 3; ++k)
+                        {
+                            const uint32_t ek = e[k], el = e[(k + 1) % 3];
+                            bool cancelled = false;
+                            for (int32_t j = edgeHeads[edgeHash(el, ek)]; j >= 0; j = edges[j].next)
+                            {
+                                EdgeSide &q = edges[j];
+                                if (q.live && q.k == el && q.l == ek)
+                                {
+                                    q.live = false;
+                                    cancelled = true;
+                                    break;
+                                }
+                            }
+                            if (cancelled)
+                                continue;
+                            int32_t &head = edgeHeads[edgeHash(ek, el)];
+                            edges.push_back({ek, el, head, true});
+                            head = static_cast<int32_t>(edges.size() - 1u);
+                        }
+                    }
+                }
+                for (const EdgeSide &q : edges)
+                    if (q.live)
+                    {
+                        // near k, far k, far l / near k, far l, near l
+                        *ix++ = base + q.k * 2u, *ix++ = base + q.k * 2u + 1u, *ix++ = base + q.l * 2u + 1u;
+                        *ix++ = base + q.k * 2u, *ix++ = base + q.l * 2u + 1u, *ix++ = base + q.l * 2u;
+                    }
+                volumeIndexCount = static_cast<uint32_t>(ix - volumeIndices);
+            }
+        }
+        else
+        {
         // The open sides by directed edge: a power-of-two table of chains
         // through SideQuad::next (cancelled ones stay in the chain, not live).
         uint32_t tableSize = 64u;
@@ -6056,9 +6229,14 @@ namespace sotc_native
                 put(q.p[0]), put(q.p[1]), put(q.p[2]);
                 put(q.p[0]), put(q.p[2]), put(q.p[3]);
             }
+        }
         // SOTC_SHADOW_CHECK=1 (round 44, testing): round 38's builder run too
-        // and the two volumes compared as sets of triangles.
+        // and the two volumes compared as sets of triangles (round 45: the
+        // indexed volume's triangles as the indices pick them out).
         static const bool shadowCheck = std::getenv("SOTC_SHADOW_CHECK") != nullptr;
+        if (shadowCheck && indexedVolume)
+            for (uint32_t i = 0; i < volumeIndexCount; ++i)
+                g_volume.push_back(volumeRoom[volumeIndices[i] - volumeBase]);
         if (shadowCheck)
         {
             static std::vector<native_renderer::Vertex> ref;
@@ -6214,12 +6392,29 @@ namespace sotc_native
                 std::fprintf(stderr, "[shadowcheck] %llu volumes compared, %llu differ\n", (unsigned long long)checks, (unsigned long long)bad);
         }
         if (volLog && g_frame % 60u == 0u)
-            std::fprintf(stderr, "[shadowvol] frame %llu model %08x volume vertices %zu\n", (unsigned long long)g_frame, model, g_volume.size());
-        if (g_volume.empty())
-            return;
+            std::fprintf(stderr, "[shadowvol] frame %llu model %08x volume vertices %zu (indexed: %u corners, %u indices)\n", (unsigned long long)g_frame, model,
+                         g_volume.size(), volumeEntries * 2u, volumeIndexCount);
         const float *projection = job.projection;
-        const uint64_t mesh = (1ull << 59) | g_skinnedDraws++;
-        native_renderer::uploadMesh(mesh, g_volume.data(), static_cast<uint32_t>(g_volume.size()), true);
+        uint64_t mesh = 0;
+        if (indexedVolume)
+        {
+            if (!volumeIndices)
+                return;
+            if (!volumeIndexCount)
+            {
+                native_renderer::cancelFrameMesh();
+                return;
+            }
+            mesh = (1ull << 59) | g_skinnedDraws++;
+            native_renderer::commitFrameMesh(mesh, volumeEntries * 2u, volumeIndexCount);
+        }
+        else
+        {
+            if (g_volume.empty())
+                return;
+            mesh = (1ull << 59) | g_skinnedDraws++;
+            native_renderer::uploadMesh(mesh, g_volume.data(), static_cast<uint32_t>(g_volume.size()), true);
+        }
         native_renderer::DrawState state;
         static const bool showVolumes = std::getenv("SOTC_SHADOW_SHOW") != nullptr; // debugging: the volumes in red
         if (showVolumes)

@@ -7553,6 +7553,155 @@ SOTC_GL_SPIKE_LOG, SOTC_SHADOW_CHECK; the decomp block), docs/decomp.md,
 docs/decomp_status.json / .svg, docs/decomp_history.json / .svg,
 docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r44.vpk.
 
+## Round 45: the console's GPU scenes, the alpha test's merged passes, indexed body shadows (2026-10-31)
+
+On AC power the whole round. Nothing committed or deployed. Scripts and logs:
+`build/agent-scratch/r45/` (check.sh the Mac OpenGL route, replay.sh the
+recordings drawn again, cmp.py, v3k.sh as round 44's with SEED / SHOTS,
+pos.sh, console-ab/env.txt).
+
+**What the console's r44 A/B said** (console-r44ab/err.txt, r44/abrot.py):
+on the plain frame 61.6 ms, body shadows +4.5 (worker +4.4, render +4.5,
+jobs +5.4), alpha test +3.2 (~140 second passes a frame), shadows +2.2,
+overlays +2.0; the decomp groups each save 2.6-7 ms. The colossus 4 fight
+runs at ~10 fps (300 frames in 25-32 s): 200-400 alpha second passes a frame,
+`present` 60-94 ms (GPU-bound), 21-38 target binds a frame. A fight frame
+(recording 034748, frame 301) has a mirror pass, a screen blur at layer 4
+(4 steps), the glow at 8 (rounds 2), water at 9 and the bloom at 20: on the
+console ~26 GXM scenes (reflection, background + its 256 copy, 5 picture
+scenes, 2 snapshots, the glow layer and 5 glow reductions, 3 refraction
+copies, 4 bloom passes, the last-frame copy, the host's copy, the display).
+
+**1. Depth / stencil kept only where read (the biggest GPU item).** vitaGL is
+built with `STORE_DEPTH_STENCIL=1` (for the GS renderer's targets), which
+forces every depth / stencil surface to be loaded at each scene's start and
+stored at its end: ~1.1 MB each way for a 512 x 448 scene with stencil,
+2.6 MB for the display's, including the scratch depth of every copy and
+blur. celosia.patch now has `vglCeloDepthKeep(fbo, keep)` (bit 0 load, bit 1
+store, -1 as built; fbo 0 the display), `vglCeloScratchKeep` for the
+scratch surfaces, applied at each `sceGxmBeginScene` (`vgl_celo_apply_keep`),
+and `vglCeloSceneStats` (scenes, KB loaded / stored). The renderer
+(`Tuning::glDepthKeep`, `SOTC_GL_DEPTH_KEEP`, A/B `depthkeep`): the scratch
+surfaces and the display neither (nothing tests them: the host draws its
+picture and menus without depth tests), the background image and the
+mirror neither (one scene each, from a clear), the picture's first scene
+store only (it starts with a clear), its middle scenes both (as before), its
+last one load only (the next frame clears; the glow layer, which shares its
+depth, keeps vitaGL's both). Vita3K's Vulkan renderer honours the force
+flags (a scene without load starts at the background depth; without either
+a transient attachment), and the route there draws correctly with it (r45/shots-smoke: the shadows, the HUD).
+Measured in Vita3K on the console's path (`SOTC_EMULATOR=0`: the picture
+split by the same-frame bloom, ~23 scenes a frame; Vita3K shows white there,
+its known loss of a picture taken up again, the counts stand):
+**depth / stencil traffic 13.2 + 13.2 MB -> 4.7 + 5.6 MB a frame**
+(r45/dkon, dkoff). Expected on the console: several ms of GPU memory traffic
+a frame on the plain, more in the fight (more picture scenes). The middle
+scenes of the picture (the only case Vita3K cannot show) keep vitaGL's
+behaviour; the first / last-scene rule is the risk to watch in the A/B.
+
+**2. Fewer picture-sized scenes** (`Tuning::glFewCopies`, `SOTC_GL_FEW_COPIES`,
+A/B `fewcopies`): the last frame shown (`previous`, read by the feedback and
+source 2) is the host's copy `shownFrame` when the host shows a copy of its
+own (the Vita), instead of a second copy of the picture; the water's and the
+heat haze's 256 x 256 copy is reduced from the picture itself when nothing
+reads the full-size snapshot (sources 0 / 2): the same pixels (both copies
+are a same-size copy of the picture). One to two 512 x 448 scenes fewer.
+
+**3. The alpha test's passes merged where they draw the same**
+(`Tuning::alphaTestMerge`, `SOTC_GL_AT_MERGE`, A/B `atmerge`): a texture's
+greatest alpha (scanned at upload with its least, stopping once both are
+settled) and a mesh's greatest vertex alpha; when every pixel of a draw is
+under AREF (with a 1/256 margin) the first pass would draw nothing: one pass
+without depth writes. The frame's own meshes (65% of the second passes had
+an unknown least alpha) get their least / greatest vertex alpha read from
+the frame's arena once a frame, only when alpha tested and their texture
+could not decide it. Merged: ~11% of the alpha-tested draws on the route
+(Vita3K: 125-135 a second against ~1 000-1 200 second passes), 8-10% in the
+fight replay. The rest are textures with alpha under AREF that bilinear
+filtering spreads over edges, as on the GS: a real second pass.
+
+**4. Body shadows** (`Tuning::shadowIndexed`, `SOTC_SHADOW_INDEXED`, A/B
+`shadowidx`; `Tuning::glVolumeProgram`, `SOTC_GL_VOLUME_PROG`, A/B `volprog`):
+- The volume is an indexed frame mesh: each strip vertex's two corners (near,
+  far, cut at z = 0.1: a function of that vertex alone, the same arithmetic)
+  worked out once; vertices whose two corners are the same bits share one
+  entry, so a side's four corners equal its reverse's exactly when their two
+  entries do (round 38's rule, matched by two integers instead of an FNV
+  hash of twelve floats per side, twice per side). Upload: 2 corners x 36
+  bytes per entry + 4-byte indices instead of 36 bytes per triangle corner
+  (about a third). `SOTC_SHADOW_CHECK`: 10 500 volumes on the Mac route
+  compared with round 38's builder as sets of triangles, 0 differ.
+- The volumes are drawn with the main vertex program and a fragment program
+  that writes nothing (kVolumeFragment; the 23rd program warmed, shader seed
+  53 files): the same stencil, no fog / texture work per volume pixel. (The
+  main program's alpha cut-out also applied to volumes with whatever uAlpha
+  the last draw of that program left: a volume could be cut away after an
+  alpha-test second pass on the main program; the volume program has no cut.)
+
+**5. The two 155 ms overlay spikes** (frames 475 / 2313, both the first frame
+drawn after a load, gap ending at the first draw of layer 9, i.e. right
+after the refraction copies): not explained by the log. Mitigation: every
+render target's first scene (vitaGL makes the GXM render target and its
+depth there) is made at start (`SOTC_GL_WARM_TARGETS=0`: lazily; Vita3K: 20
+targets in 11 ms). `[gl:spike]` now also names the effect event run in the
+gap, the GXM scenes begun in it and the slowest single draw call, so the next
+console log says whether it is a scene begin (GXM waiting on a render target's
+scenes in flight) or a draw call.
+
+**Logs.** `[gl:scenes]` every 300 frames (the Vita; `SOTC_GL_SCENE_LOG=1`
+elsewhere): scenes, target binds, depth KB loaded / stored per frame and the
+switches. `[shadow]` adds the second passes on meshes of unknown least alpha
+and the merged draws.
+
+**Verification.**
+- Pictures: the fight (034748, 31 full captures, 481 pictures with the
+  layer modes) and death (040320, 45 captures, 657 pictures) recordings drawn
+  again on the Mac's OpenGL renderer (the Vita's) with the new switches off
+  and on: 1 138 of 1 138 identical; on twice: identical (deterministic).
+  `SOTC_GL_SELFCHECK=20 SOTC_GL_SELFCHECK_OFF=...` on the live route was not
+  usable as a check: frames 2400-2880 differ between two draws of the same
+  frame even with nothing switched (the skinned characters' edges; the state the
+  first draw leaves was not found); outside that stretch 0 to 4 200 but for
+  1-9 pixels at 460-560.
+- Shadow volumes: `SOTC_SHADOW_CHECK` 10 500 compared, 0 differ.
+- Fixed-30 route to 5 400 (idle Mac, Metal): two r45 runs agree within 1.23;
+  against round 44's recorded run max 12.4 at 3 060 (the load-sensitive
+  stretch; round 38 saw up to 25 there), the end within 2. Round 44's own
+  binary run today took another line (player gone at 4 800): the spread
+  today is wider than the change.
+- Vita: celosia-r45.vpk (-j6, shader seed 53 files from this round's seed run)
+  boots and plays the route in calibrated Vita3K (240 MHz, 420 s to game frame
+  10 604; Wander's shadow drawn; audio 0 stale / src-stale; shaders warmed 253
+  draws, 23 programs; 20 targets made at start); the dkon / dkoff runs on the
+  final VPK; the Vita3K tree restored (`restored ok` all runs).
+
+**Console run asked for:** build/agent-scratch/r45/console-ab/env.txt (the
+frame log, body shadows on, alphatest, bodyshadows, shadows, overlays plus
+this round's depthkeep, fewcopies, volprog, atmerge, shadowidx rotating in
+60-frame windows, the spike log). r44/abrot.py reads it; the five new flags'
+rows are what each saves (negative = the flag on is cheaper).
+
+**Open.**
+- The console numbers (the A/B above): the GPU savings are reasoned from the
+  traffic, not measured.
+- The colossus fight is GPU-bound: the screen blur's 4 full-screen steps, the
+  mirror pass at full size on the Vita (the GS's is 256 x 256: smaller would
+  be the GS's picture, not today's), the glow chain's small scenes; fusing
+  the bloom / glow blur steps would change the 8-bit rounding between passes.
+- The live self-check's skinned noise (above).
+
+**Files:** PS2Recomp/ps2xRuntime/platform/vita/vitagl/celosia.patch
+(vglCeloDepthKeep, vglCeloScratchKeep, vglCeloSceneStats, vgl_celo_apply_keep);
+PS2Recomp/ps2xRuntime/include/runtime/native_tuning.h (glDepthKeep,
+glFewCopies, glVolumeProgram, alphaTestMerge, shadowIndexed);
+src/lib/native/native_renderer.cpp (their variables);
+src/lib/native/native_renderer_gl.cpp (depth hints, previous / snapshot
+copies, the volume program, the merged alpha test, the arena alpha read,
+targets made at start, [gl:scenes], the spike log's detail, the self-check's
+switch list and dumps); game/overrides/sotc_native.cpp (indexed volumes, the
+A/B names); README.md; this section. Deliverable:
+build/agent-scratch/celosia-r45.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
