@@ -188,9 +188,17 @@
   {
    "round": "r48",
    "date": "2026-10-31",
-   "commit": "",
+   "commit": "77c962c",
    "focus": "Decomp",
-   "summary": "Next: whole subsystems instead of leaf functions: the script VM and the object lifetime (isys), which now cost more than any single function.",
+   "summary": "The script system (scripts are compiled MIPS coroutines woken every frame) and the object lifetime rewritten as native code, with a coroutine framework so a script can sleep and resume in either native or recompiled code. Every native audited for the saved-register leak: none left.",
+   "result": "69.5% of the game thread native, decomp 12.7% of the code, 65% of calls. Per function the natives now cost what the lean code did: next comes making the native code itself faster."
+  },
+  {
+   "round": "r49",
+   "date": "2026-10-31",
+   "commit": "",
+   "focus": "Speed",
+   "summary": "Next: make the hottest native code faster than a transcription: host pointers instead of guest address translation, NEON math, data laid out for the Vita's cache.",
    "result": ""
   }
  ]
