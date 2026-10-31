@@ -52,6 +52,14 @@
 // The list unlinks are written once (the original's seven copies differ
 // only in when they reload a field nothing in between writes).
 //
+// Round 47: s0-s7 / fp, f20 (the pass's radius limit, then 1.0 in the part
+// loop) and the scratch f1-f3 hold the code's values at every guest call (a
+// callee saves s / f20 in its frame below this one, and a later callee can
+// read such a slot as an uninitialised local; before this the callees saw
+// this function's caller's s-registers and f20, and the difftest gave a
+// rare f0 mismatch, recompiled 0 native 0x39e5109e); the epilogue's loads
+// put them back from the frame.
+//
 // SOTC_HOTLIST=0 or SOTC_DECOMP_SKIP=gamecore_sub_013EF378: the recompiled code.
 #include "sotc_decomp.h"
 
@@ -140,6 +148,13 @@ namespace decomp_hot43e
         // ---- registers --------------------------------------------------------
         void a(int reg, uint32_t v) const { SET_GPR_S32(ctx, reg, static_cast<int32_t>(v)); }
         void setF0(float v) const { ctx->f[0] = v; }
+        // Round 47: the callee-saved registers (s0-s7 16..23, fp 30) and f20
+        // hold the code's values at every guest call (a callee saves them in
+        // its frame and a later one may read such a slot as an uninitialised
+        // local); s(): a 32-bit result (lw / addiu sign-extend), sV0(): a
+        // daddu of v0 (64 bits).
+        void s(int reg, uint32_t v) const { SET_GPR_S32(ctx, reg, static_cast<int32_t>(v)); }
+        void sV0(int reg) const { SET_GPR_U64(ctx, reg, GPR_U64(ctx, 2)); }
         // c.lt.s: the condition bit, as the original leaves it.
         bool lt(float x, float y) const
         {
@@ -279,20 +294,31 @@ namespace decomp_hot43e
         const uint32_t list = m + 0x11Cu;
         uint32_t layout = 0; // s3
         uint32_t node = call2(jalTarget(rdram, 0x013EF438u), 0x013EF440u, kLayoutGroup, 0);
+        sV0(21); // s5: the node
         while (node)
         {
             layout = u32(node);
+            s(19, layout);
             uint32_t points = u32(layout + 0x58u);
+            if (points)
+                s(18, 0); // s2: the point index
             if (points && u32(points) != 0)
             {
+                s(17, m + 0x120u);
                 for (uint32_t index = 0;;)
                 {
                     const uint32_t point = call2(jalTarget(rdram, 0x013EF470u), 0x013EF478u, points, index);
                     const float d = distance2(point, u32(player + 0x134u));
+                    ctx->f[2] = d;
+                    {
+                        const uint32_t bits = 0x46AFC800u; // f3: 150^2
+                        std::memcpy(&ctx->f[3], &bits, 4);
+                    }
                     const uint32_t ty = type(s16(point + 0x14u));
                     if (u32(ty + 0x10u) == u32(m + 0x9D4u))
                     {
                         const float radius = f32(point + 0x24u);
+                        ctx->f[1] = radius;
                         setF0(0.0f);
                         float limit;
                         {
@@ -301,6 +327,7 @@ namespace decomp_hot43e
                         }
                         if (lt(0.0f, radius))
                             limit = FPU_MUL_S(radius, radius);
+                        ctx->f[3] = limit;
                         if (lt(d, limit))
                         {
                             int32_t count = s32(list);
@@ -376,11 +403,13 @@ namespace decomp_hot43e
                     }
                     points = u32(layout + 0x58u);
                     ++index;
+                    s(18, index);
                     if (!(index < u32(points)))
                         break;
                 }
             }
             node = call2(jalTarget(rdram, 0x013EF640u), 0x013EF648u, node, 0);
+            sV0(21);
         }
         if (layout)
             call2(jalTarget(rdram, 0x013EF65Cu), 0x013EF664u, layout, 0);
@@ -390,13 +419,19 @@ namespace decomp_hot43e
     void G::merge(uint32_t player)
     {
         const uint32_t list = m + 0x11Cu;
-        uint32_t old = m + 0x14u; // the old record's +0x10 (its objects' list)
-        for (int32_t i = 0; i < s32(m); ++i, old += 0x1Cu)
+        uint32_t old = m + 0x14u; // the old record's +0x10 (its objects' list); s3
+        s(23, list);              // s7
+        s(21, 0);                 // s5: i
+        int32_t i = 0;
+        for (; i < s32(m); ++i, old += 0x1Cu)
         {
+            s(19, old);
+            s(21, static_cast<uint32_t>(i));
             const uint32_t id = u32(old - 0x10u);
             const int32_t count = s32(list);
             bool found = false;
-            for (int32_t k = 0; k < count; ++k)
+            int32_t k = 0; // s1
+            for (; k < count; ++k)
             {
                 const uint32_t r = list + 4u + static_cast<uint32_t>(k) * 0x1Cu;
                 if (u32(r) == id && u32(r + 4u) == u32(old - 0xCu))
@@ -406,6 +441,7 @@ namespace decomp_hot43e
                     break;
                 }
             }
+            s(17, static_cast<uint32_t>(k));
             if (found)
                 continue;
             // Gone: its idle objects back to the free list.
@@ -428,13 +464,16 @@ namespace decomp_hot43e
             // Still holding some: a slot in the new list.
             int32_t n = s32(list);
             uint32_t slot = 0;
+            s(18, 0); // s2: the slot
             if (!(n < 10))
             {
-                uint32_t r = list + 4u;
-                for (int32_t k = 0;; r += 0x1Cu)
+                uint32_t r = list + 4u; // s0
+                for (int32_t j = 0;; r += 0x1Cu)
                 {
-                    const bool more = k < n;
-                    ++k;
+                    s(16, r);
+                    const bool more = j < n;
+                    ++j;
+                    s(17, static_cast<uint32_t>(j));
                     if (!more)
                         break;
                     if (call1(kFreeSlot, 0x013EF850u, r) == 0)
@@ -450,6 +489,7 @@ namespace decomp_hot43e
                 put32(list, static_cast<uint32_t>(n + 1));
                 slot = list + 4u + static_cast<uint32_t>(n) * 0x1Cu;
             }
+            s(18, slot);
             if (slot)
             {
                 copy(slot, old - 0x10u, 0x1Cu);
@@ -460,6 +500,9 @@ namespace decomp_hot43e
                 putf(slot + 8u, d);
             }
         }
+        s(21, static_cast<uint32_t>(i));
+        if (i > 0)
+            s(19, old);
     }
 
     // ---- 3. trim (pass 0) and spawn (pass 1) -----------------------------------
@@ -471,25 +514,31 @@ namespace decomp_hot43e
         for (int32_t pass = 0; pass < 2;)
         {
             uint32_t budget = frameWord(0xECu); // s6
+            s(22, budget);
             frame(0xE4u, 0);
             if (s32(list) > 0)
             {
                 uint32_t s1 = list;
+                s(17, s1);
                 for (int32_t index = 0;;)
                 {
                     const uint32_t rec = s1 + 4u;
                     const uint32_t point = u32(s1 + 0x10u);
+                    s(19, point); // s3
                     frame(0xF0u, rec);
                     setF0(0.0f);
                     const float radius = f32(point + 0x24u);
+                    ctx->f[1] = radius;
                     float limit;
                     {
                         const uint32_t bits = 0x46AFC800u;
                         std::memcpy(&limit, &bits, 4);
                     }
                     int32_t want = 0; // s5
+                    s(21, 0);
                     if (lt(0.0f, radius))
                         limit = FPU_MUL_S(radius, radius);
+                    ctx->f[20] = limit; // f20
                     uint32_t typeHalf = u16(point + 0x14u);
                     if (u32(type(s16(point + 0x14u)) + 0xCu) == 0)
                         want = s16(point + 0x16u);
@@ -497,6 +546,7 @@ namespace decomp_hot43e
                     {
                         const int32_t bits = s16(point + 0x18u);
                         uint32_t bitsHalf = u16(point + 0x18u);
+                        s(16, 0); // s0: the bit
                         if (bits > 0)
                         {
                             for (int32_t b = 0;;)
@@ -504,6 +554,7 @@ namespace decomp_hot43e
                                 const int32_t bit = s16(point + 0x1Au) + b;
                                 if (bit < 0x40)
                                 {
+                                    s(21, static_cast<uint32_t>(want));
                                     bool counts = true;
                                     if (call2(kGexsFlag, 0x013EF9BCu, u32(s1 + 4u), static_cast<uint32_t>(bit)) != 0 &&
                                         call2(kFlagTaken, 0x013EF9D0u, rec, static_cast<uint32_t>(s16(point + 0x1Au) + b)) == 0)
@@ -519,22 +570,30 @@ namespace decomp_hot43e
                                     }
                                 }
                                 ++b;
+                                s(16, static_cast<uint32_t>(b));
                                 if (!(b < static_cast<int16_t>(bitsHalf)))
                                     break;
                             }
                             typeHalf = u16(point + 0x14u);
                         }
                     }
+                    s(21, static_cast<uint32_t>(want));
                     if (u32(type(static_cast<int16_t>(typeHalf)) + 0x20u) != 0)
                     {
                         a(4, typeHalf);
                         if (static_cast<int32_t>(call(kDeadBosses, 0x013EFA44u)) < want)
+                        {
                             want = static_cast<int32_t>(call(kDeadBosses, 0x013EFA58u));
+                            sV0(21);
+                        }
                     }
                     {
                         const int32_t total = s32(m + 0x9D0u);
                         if (total < static_cast<int32_t>(static_cast<uint32_t>(want) + budget))
+                        {
                             want = static_cast<int32_t>(static_cast<uint32_t>(total) - budget);
+                            s(21, static_cast<uint32_t>(want));
+                        }
                     }
                     if (frameWord(0xE8u) == 0)
                     {
@@ -598,11 +657,14 @@ namespace decomp_hot43e
                         {
                             int32_t flag = -1; // fp
                             uint32_t obj = 0;  // s0
+                            s(16, 0);
+                            s(30, 0xFFFFFFFFu);
                             bool haveTemplate;
                             if (u32(type(s16(point + 0x14u)) + 0xCu) != 0)
                             {
                                 const int32_t bits = s16(point + 0x18u);
                                 uint32_t bitsHalf = u16(point + 0x18u);
+                                s(18, 0); // s2: the bit
                                 if (bits > 0)
                                     for (int32_t b = 0;;)
                                     {
@@ -613,22 +675,26 @@ namespace decomp_hot43e
                                                 call2(kFlagTaken, 0x013EFD08u, rec, static_cast<uint32_t>(s16(point + 0x1Au) + b)) == 0)
                                             {
                                                 flag = s16(point + 0x1Au) + b;
+                                                s(30, static_cast<uint32_t>(flag));
                                                 break;
                                             }
                                             bitsHalf = u16(point + 0x18u);
                                         }
                                         ++b;
+                                        s(18, static_cast<uint32_t>(b));
                                         if (!(b < static_cast<int16_t>(bitsHalf)))
                                             break;
                                     }
                                 if (flag == -1)
                                     goto spawned;
                                 obj = call2(kTemplateByFlag, 0x013EFD50u, m, static_cast<uint32_t>(flag));
+                                sV0(16);
                             }
                             else
                             {
                                 a(6, u32(s1 + 4u));
                                 obj = call2(kTemplate, 0x013EFDE0u, m, u32(s1 + 8u));
+                                sV0(16);
                             }
                             haveTemplate = obj != 0;
                             if (haveTemplate)
@@ -646,6 +712,7 @@ namespace decomp_hot43e
                                     append(s1 + 0x14u, spare);
                                     obj = spare;
                                 }
+                                s(16, obj);
                             }
                         spawned:
                             if (obj)
@@ -684,14 +751,19 @@ namespace decomp_hot43e
                     {
                         const int32_t done = static_cast<int32_t>(frameWord(0xE4u)) + 1;
                         s1 += 0x1Cu;
+                        s(21, static_cast<uint32_t>(want));
+                        s(22, budget);
+                        s(17, s1);
                         frame(0xE4u, static_cast<uint32_t>(done));
                         budget -= call1(kFreeSlot, 0x013F0098u, frameWord(0xF0u));
+                        s(22, budget);
                         index = done;
                         if (!(index < s32(list)))
                             break;
                     }
                 }
             }
+            s(16, 0x011F7150u); // s0: the globals' base (lui / addiu)
             if (u32(kFreed) == 0 && frameWord(0xE8u) == 1 && u32(m + 0x23Cu) != 0)
             {
                 a(4, m);
@@ -718,6 +790,7 @@ namespace decomp_hot43e
         {
             const uint32_t at = frameWord(0x104u);
             uint32_t obj = u32(at + 0x18u); // s1
+            s(17, obj);
             frame(0xF8u, 0);
             frame(0xF4u, u32(at + 0x10u));
             if (obj)
@@ -729,6 +802,9 @@ namespace decomp_hot43e
                     o = u32(o + 0x58u);
                     frame(0xF8u, model ? n + 1u : n);
                 }
+                // s2 the handle mask, s6 the boot ELF's null handle's page (lui at 0x13f0170).
+                s(18, kMask18);
+                s(22, (sotc_decomp::codeWord(rdram, 0x013F0170u) & 0xFFFFu) << 16);
                 // The boot ELF's null handle record (lui at 0x13f0170 + each lw's offset).
                 auto nullAt = [&](uint32_t site) { return relocated(rdram, 0x013F0170u, site); };
                 for (;;)
@@ -737,6 +813,7 @@ namespace decomp_hot43e
                     if (u32(kLoaded) != 0 || u32(obj) != 0 || call1(kStageLoaded, 0x013F01ACu, call1(kStageName, 0x013F01A4u, obj)) == 0)
                     {
                         obj = u32(obj + 0x58u);
+                        s(17, obj);
                         if (obj)
                             continue;
                         count = s32(list);
@@ -751,6 +828,7 @@ namespace decomp_hot43e
                         heap = FPU_CVT_S_W(static_cast<int32_t>((left & 1u) | (left >> 1)));
                         heap = FPU_ADD_S(heap, heap);
                     }
+                    ctx->f[1] = heap;
                     float enough;
                     {
                         const uint32_t bits = 0x49999999u;
@@ -773,9 +851,12 @@ namespace decomp_hot43e
                             if (ownerField(parts, word, nullAt(0x013F02C8u), 0x10u) != 0)
                             {
                                 uint32_t part = ownerField(parts, word, nullAt(0x013F0308u), 0x10u);
+                                s(16, part); // s0
                                 int32_t partCount = static_cast<int32_t>(ownerField(parts, word, nullAt(0x013F0348u), 0xCu));
                                 if (!(partCount < 3))
                                     partCount = 2;
+                                s(19, static_cast<uint32_t>(partCount)); // s3
+                                s(21, 0);                                // s5: k
                                 bool all = true; // t2: every part's mesh there
                                 if (partCount > 0)
                                 {
@@ -784,12 +865,14 @@ namespace decomp_hot43e
                                     {
                                         const uint32_t meshAt = part + 4u;
                                         part += 0x4Cu;
+                                        s(16, part);
                                         if (element(meshAt, nullRec) == 0)
                                         {
                                             all = false;
                                             break;
                                         }
                                         ++k;
+                                        s(21, static_cast<uint32_t>(k));
                                         if (!(k < partCount))
                                             break;
                                     }
@@ -797,6 +880,8 @@ namespace decomp_hot43e
                                 if (all)
                                 {
                                     part = ownerField(parts, word, nullAt(0x013F0430u), 0x10u);
+                                    s(16, part);
+                                    s(21, 0);
                                     if (partCount > 0)
                                     {
                                         float one;
@@ -804,11 +889,15 @@ namespace decomp_hot43e
                                             const uint32_t bits = 0x3F800000u;
                                             std::memcpy(&one, &bits, 4);
                                         }
+                                        ctx->f[20] = one;
                                         const uint32_t fp = sp + 0x50u;
+                                        s(30, fp);
                                         frame(0x100u, kMask18);
                                         for (int32_t k = 0;;)
                                         {
                                             const uint32_t mesh = element(part + 4u, relocated(rdram, 0x013F04A0u, 0x013F04A4u)); // s6
+                                            s(22, mesh);
+                                            s(18, 0);
                                             const uint32_t pointData = frameWord(0xF4u);
                                             uint32_t geometry = 0; // s2
                                             const uint32_t layoutObj = u32(obj);
@@ -823,6 +912,7 @@ namespace decomp_hot43e
                                                 a(4, sp);
                                                 a(5, layoutObj);
                                                 a(6, part + 0x10u);
+                                                s(18, sp); // the jal's delay slot
                                                 call(kGeometry, 0x013F0500u);
                                                 geometry = sp;
                                             }
@@ -840,6 +930,7 @@ namespace decomp_hot43e
                                                         a(9, kMask18);
                                                     a(10, kMask18);
                                                     geometry = call(placement, 0x013F0548u);
+                                                    sV0(18);
                                                     if (u32(type(s16(frameWord(0xF4u) + 0x14u)) + 0x1Cu) != 0 && geometry == 0)
                                                     {
                                                         frame(0xFCu, 1);
@@ -868,6 +959,7 @@ namespace decomp_hot43e
                                             ctx->f[13] = FPU_NEG_S(f32(part + 0x28u));
                                             ctx->f[12] = f32(part + 0x24u);
                                             ctx->f[14] = f32(part + 0x2Cu);
+                                            ctx->f[1] = f32(part + 0x1Cu); // f1 as the code leaves it
                                             a(4, sp + 0xB0u);
                                             call(jalTarget(rdram, 0x013F05E8u), 0x013F05F0u);
                                             // loadObj's description (sp + 0x60).
@@ -913,6 +1005,8 @@ namespace decomp_hot43e
                                             }
                                             ++k;
                                             part += 0x4Cu;
+                                            s(21, static_cast<uint32_t>(k));
+                                            s(16, part);
                                             if (!(k < partCount))
                                                 break;
                                         }
@@ -959,6 +1053,11 @@ namespace decomp_hot43e
         g.putf(g.sp + 0x160u, ctx->f[20]);
         g.tbl = g.u32(relocated(rdram, 0x013EF37Cu, 0x013EF388u));
         g.frame(0xE0u, g.tbl);
+        // s4 = a0, s6 = a1 (daddu), s0 = the new list, s3 = 0 (the first jal's delay slot).
+        SET_GPR_U64(ctx, 20, GPR_U64(ctx, 4));
+        SET_GPR_U64(ctx, 22, GPR_U64(ctx, 5));
+        g.s(16, g.m + 0x11Cu);
+        g.s(19, 0);
         // The new list cleared.
         const float far = g.f32(kFarDistance);
         g.setF0(far);
@@ -984,6 +1083,17 @@ namespace decomp_hot43e
             g.put32(g.m + i, g.u32(g.m + 0x11Cu + i));
         SET_GPR_U64(ctx, 2, g.u64(g.m + 0x21Cu));
         SET_GPR_U64(ctx, 3, g.u64(g.m + 0x224u));
+        // The epilogue: s0-s7, fp and f20 back from the frame.
+        SET_GPR_U64(ctx, 16, g.u64(g.sp + 0x110u));
+        SET_GPR_U64(ctx, 17, g.u64(g.sp + 0x118u));
+        SET_GPR_U64(ctx, 18, g.u64(g.sp + 0x120u));
+        SET_GPR_U64(ctx, 19, g.u64(g.sp + 0x128u));
+        SET_GPR_U64(ctx, 20, g.u64(g.sp + 0x130u));
+        SET_GPR_U64(ctx, 21, g.u64(g.sp + 0x138u));
+        SET_GPR_U64(ctx, 22, g.u64(g.sp + 0x140u));
+        SET_GPR_U64(ctx, 23, g.u64(g.sp + 0x148u));
+        SET_GPR_U64(ctx, 30, g.u64(g.sp + 0x150u));
+        ctx->f[20] = g.f32(g.sp + 0x160u);
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(entrySp));
         SET_GPR_U64(ctx, 31, entryRa);
         ctx->pc = static_cast<uint32_t>(entryRa);

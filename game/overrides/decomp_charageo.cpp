@@ -37,7 +37,9 @@
 //      is within the class's +0x3c of the position; +0xcec = 0.
 // The guest calls with the original's argument registers, frame (sp0 -
 // 0x110: the vectors and stack arguments callees read are written there)
-// and return addresses; VU0 work with the recompiled code's PS2_V* macros in
+// and return addresses, s0-s7 / fp / f20 / f21 as the code holds them at
+// each call (round 47; the prologue's saves and the spills +0x70..+0xa0
+// written, the registers put back from the saves at the end); VU0 work with the recompiled code's PS2_V* macros in
 // its order on the context's VU0 registers (the bone products and the
 // normalisation loop on locals, written back). v0 the class (the original's
 // last load), f0 as the last writer leaves it, fcr31's condition bit at
@@ -90,6 +92,13 @@ namespace decomp_charageo
         }
         void putq(uint32_t a, __m128 v) const { std::memcpy(rdram + (a & PS2_RAM_MASK & ~0xFu), &v, 16); }
         void put32(uint32_t a, uint32_t v) const { std::memcpy(rdram + (a & PS2_RAM_MASK), &v, 4); }
+        void put64(uint32_t a, uint64_t v) const { std::memcpy(rdram + (a & PS2_RAM_MASK), &v, 8); }
+        uint64_t u64(uint32_t a) const
+        {
+            uint64_t v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 8);
+            return v;
+        }
         void putf(uint32_t a, float v) const { std::memcpy(rdram + (a & PS2_RAM_MASK), &v, 4); }
         void put8(uint32_t a, uint8_t v) const { rdram[a & PS2_RAM_MASK] = v; }
     };
@@ -146,10 +155,30 @@ namespace decomp_charageo
             return sotc_decomp::recompiled(kExecCharaGeometry)(rdram, ctx, runtime);
         const Ram r{rdram};
         const uint32_t obj = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5);
-        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x110u;
+        const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x110u;
         auto call = [&](uint32_t site, uint32_t target) { sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, sp); };
         auto setF = [&](int reg, float v) { ctx->f[reg] = v; };
         auto cond = [&](bool c) { ctx->fcr31 = c ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u); return c; };
+        // Round 47: the callee-saved registers s0-s7 / fp (and f20 / f21) hold
+        // the code's values at every call, set where the original sets them (a
+        // callee saves them into its frame, and a later one can read such a
+        // slot as an uninitialised local: ExecAnimeTableInfo's sub-thread kept
+        // this function's caller's s7 in its stack while the original has
+        // c + 0x490 there), and are put back from the frame at the end as the
+        // epilogue does. sreg: an addiu / lw / addu result (32 bits,
+        // sign-extended).
+        auto sreg = [&](int reg, uint32_t v) { SET_GPR_S32(ctx, reg, static_cast<int32_t>(v)); };
+
+        // The prologue's saves (sp0 - 0x110: s0..s7 at +0xb0, fp +0xf0, ra
+        // +0xf8, f21 +0x108, f20 +0x100) and a1's spill (+0x70).
+        for (int k = 0; k < 8; ++k)
+            r.put64(sp + 0xB0u + 8u * k, GPR_U64(ctx, 16 + k));
+        r.put64(sp + 0xF0u, GPR_U64(ctx, 30));
+        r.put64(sp + 0xF8u, GPR_U64(ctx, 31));
+        r.put32(sp + 0x108u, fBits(ctx->f[21]));
+        r.put32(sp + 0x100u, fBits(ctx->f[20]));
+        r.put32(sp + 0x70u, point);
+        SET_GPR_U64(ctx, 19, GPR_U64(ctx, 4)); // s3 = a0 (daddu)
 
         // The context's VU0 registers, by the generated code's names.
         const __m128 v0 = ctx->vu0_vf[0];
@@ -351,8 +380,14 @@ namespace decomp_charageo
         // ---- 1 ----
         const uint32_t c = classOf(r, obj);
         const uint32_t s0 = c;
+        sreg(16, s0);
         const float f21 = r.f(c + 0xCE0u), f20 = r.f(c + 0xCE4u);
+        setF(21, f21);
+        setF(20, f20);
         const uint32_t list358 = r.u32(s0 + 0x358u);
+        r.put32(sp + 0x74u, c);              // the class (v0 at the end)
+        r.put32(sp + 0x7Cu, s0 + 0x1C0u);    // the motion slot
+        r.put32(sp + 0x80u, list358);
         {
             const uint8_t b = static_cast<uint8_t>((r.u8(s0 + 0x1130u) + 1u) & 1u);
             r.put8(s0 + 0x1130u, b);
@@ -367,7 +402,9 @@ namespace decomp_charageo
         {
             r.put32(s0 + 0x578u, m);
             s2 = r.u32(s0 + 0x1C0u);
+            sreg(18, s2);
             mo = s2 + 0x50u;
+            r.put32(sp + 0x84u, mo);
             run = mo != 0u;
         }
         if (run)
@@ -379,10 +416,19 @@ namespace decomp_charageo
             const uint32_t sphereKind = r.u32(s0 + 0x510u);
             const bool gaze = ((r.u32(cls + 0x38u) >> 4) & 1u) != 0u;
             const uint32_t s1v = sp + 0x20u;
+            r.put32(sp + 0x9Cu, subgeo ? 1u : 0u);
+            r.put32(sp + 0xA0u, dyn ? 1u : 0u);
+            r.put32(sp + 0x88u, cls);
+            r.put32(sp + 0x90u, sphereKind);
+            r.put32(sp + 0x8Cu, gaze ? 1u : 0u);
+            sreg(20, s4);
+            sreg(21, s5);
+            sreg(23, s7);
 
             // ---- 2 ----
             if (dyn)
             {
+                sreg(17, s1v);
                 bool found = false;
                 if (sphereKind == r.u32(relocated(rdram, 0x010BFA50u, 0x010BFA54u)))
                 {
@@ -514,6 +560,7 @@ namespace decomp_charageo
             call(0x010BFD94u, 0x010BB258u);
             // stored with sw and loaded back with lw: the low word, sign-extended
             const uint64_t interp = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(GPR_U32(ctx, 2))));
+            r.put32(sp + 0x78u, GPR_U32(ctx, 2));
             SET_GPR_U32(ctx, 4, obj);
             SET_GPR_U32(ctx, 5, s2);
             SET_GPR_U32(ctx, 6, s4);
@@ -521,11 +568,15 @@ namespace decomp_charageo
             setF(13, f20);
             call(0x010BFDB0u, 0x010E21C0u);
             const uint32_t s1 = s0 + 0x40u;
+            sreg(21, s0 + 0x90u); // s5 (both paths)
             if (subgeo)
             {
                 const uint32_t fpv = relocated(rdram, 0x010BFDC0u, 0x010BFDD0u);
                 const uint32_t s6 = r.u32(relocated(rdram, 0x010BFDC8u, 0x010BFDD4u));
                 const uint32_t nodes = r.u32(s0 + 0x2E8u);
+                sreg(30, fpv);
+                sreg(22, s6);
+                sreg(17, nodes);
                 if (r.u8(s0 + 0xD90u) == 2u)
                 {
                     bool add = true;
@@ -602,6 +653,7 @@ namespace decomp_charageo
             call(0x010BFEE8u, 0x010BBA60u);
             SET_GPR_U32(ctx, 4, s0);
             call(0x010BFEF0u, 0x010BC2F8u);
+            sreg(17, s1);
             if (subgeo)
             {
                 const uint32_t sites[2][3] = {{0x010BFF00u, 0x010BFF08u, 0x010BFF20u}, {0x010BFF28u, 0x010BFF2Cu, 0x010BFF44u}};
@@ -638,6 +690,7 @@ namespace decomp_charageo
                     dot();
                     const uint32_t d = static_cast<uint32_t>(_mm_cvtsi128_si32(_mm_castps_si128(v15)));
                     ctx->f[0] = bitsF(d);
+                    r.put32(sp + 0x94u, d);
                     if (static_cast<int32_t>(d) < 0)
                         negate(sp + 0x40u);
                     v7 = laneX(fBits(ctx->f[1]));
@@ -694,6 +747,7 @@ namespace decomp_charageo
                     dot();
                     const uint32_t d = static_cast<uint32_t>(_mm_cvtsi128_si32(_mm_castps_si128(v15)));
                     ctx->f[0] = bitsF(d);
+                    r.put32(sp + 0x98u, d);
                     if (static_cast<int32_t>(d) < 0)
                         negate(sp + 0x60u);
                     v7 = laneX(fBits(ctx->f[1]));
@@ -822,6 +876,7 @@ namespace decomp_charageo
 
             // ---- 7 ----
             const uint32_t c2 = classOf(r, obj);
+            sreg(18, c2);
             const int32_t queued = r.s8(c2 + 0x53Du);
             if (queued > 0)
             {
@@ -831,10 +886,14 @@ namespace decomp_charageo
                     const uint32_t fn = r.u32(e);
                     if (fn == 0u)
                         continue;
+                    sreg(16, e); // the slot
+                    sreg(17, static_cast<uint32_t>(i)); // the count left
                     SET_GPR_U32(ctx, 4, obj);
                     call(0x010C0564u, fn);
                     r.put32(e, 0u);
                 }
+                sreg(16, e);
+                sreg(17, 0u);
             }
             r.put8(c2 + 0x53Du, 0u);
         }
@@ -843,11 +902,14 @@ namespace decomp_charageo
         SET_GPR_U32(ctx, 4, obj);
         call(0x010C0580u, 0x010F1A20u);
         const uint32_t layoutClass = GPR_U32(ctx, 2);
+        SET_GPR_U64(ctx, 20, GPR_U64(ctx, 2)); // s4 (daddu)
         if (r.u32(layoutClass + 0x180u) != 0u)
         {
             const uint32_t s1 = classOf(r, obj);
+            sreg(17, s1);
             if (r.s8(s1 + 0x53Cu) == 0)
             {
+                sreg(18, s1 + 0x52Au);
                 if (r.u32(layoutClass + 0x124u) != 0u)
                 {
                     SET_GPR_U32(ctx, 4, layoutClass + 0xC0u);
@@ -884,12 +946,23 @@ namespace decomp_charageo
                     SET_GPR_U32(ctx, 4, obj);
                     call(0x010C0650u, 0x011398F8u);
                     const uint32_t k = r.u8(s2c) & 0x7Fu;
+                    // s0 counts down (k - 1, then k - 2 .. -1 at the calls,
+                    // -2 after them), s5 = -1 its end
+                    sreg(16, k - 1u);
+                    if (k != 0u)
+                        sreg(21, 0xFFFFFFFFu);
                     for (uint32_t i = 0; i < k; ++i)
+                    {
+                        sreg(16, k - 2u - i);
                         cloth(0x010C0688u, 1u, 0u);
+                    }
+                    if (k != 0u)
+                        sreg(16, 0xFFFFFFFEu);
                     r.put8(s2c, static_cast<uint8_t>(r.u8(s2c) | 0x80u));
                 }
                 const uint32_t a3 = r.u32(layoutClass + 0x178u);
                 const uint32_t s0c = r.u32(s1 + 0xE38u) + (static_cast<uint32_t>(static_cast<int32_t>(r.s16(s1 + 0x370u))) << 2);
+                sreg(16, s0c);
                 uint64_t a1 = 2u;
                 if (r.u32(a3 + 0x10u) == 0u)
                 {
@@ -933,6 +1006,7 @@ namespace decomp_charageo
                 if (cond(FPU_C_OLT_S(ctx->f[1], ctx->f[0])))
                 {
                     const uint32_t s0a = classOf(r, obj);
+                    sreg(16, s0a);
                     auto anime = [&](uint32_t site, uint32_t base, uint32_t a0)
                     {
                         setF(0, r.f(base + 0x2Cu));
@@ -946,16 +1020,27 @@ namespace decomp_charageo
                         anime(0x010C07D0u, s0a + 0xD20u, s0a + 0xD50u);
                     const int32_t n = r.s32(s0a + 0x3FCu);
                     uint32_t slot = r.u32(s0a + 0x30Cu);
+                    sreg(16, slot);
                     for (int32_t i = n; i > 0; --i, slot += 0x80u)
                         if (r.s32(slot + 0x44u) >= 0)
+                        {
+                            sreg(16, slot);
+                            sreg(17, static_cast<uint32_t>(i));
                             anime(0x010C0804u, slot + 4u, slot + 0x34u);
+                        }
                 }
             }
         }
+        // the epilogue: v0 the class (+0x74), the saves back
+        SET_GPR_S32(ctx, 2, r.s32(sp + 0x74u));
+        for (int k = 0; k < 8; ++k)
+            SET_GPR_U64(ctx, 16 + k, r.u64(sp + 0xB0u + 8u * k));
+        SET_GPR_U64(ctx, 30, r.u64(sp + 0xF0u));
+        SET_GPR_U64(ctx, 31, r.u64(sp + 0xF8u));
+        setF(21, r.f(sp + 0x108u));
+        setF(20, r.f(sp + 0x100u));
         r.put8(c + 0xCECu, 0u);
-        SET_GPR_S32(ctx, 2, static_cast<int32_t>(c));
         SET_GPR_U32(ctx, 29, sp0);
-        SET_GPR_U32(ctx, 31, ra0);
         returnTo(ctx);
     }
 }

@@ -52,8 +52,9 @@
 //
 // Not as the original: the scratch GPRs (only the call arguments and the
 // registers the VU0 moves read are set); the callee-saved GPRs are never
-// changed in the context (the code restores every one from its frame), the
-// frame's saves are written as the code writes them; f20-f22 are set as the
+// changed in the context by 010C4220 / CheckControlDef (the code restores
+// every one from its frame; 010CABA0 sets them as the code does since
+// round 47, see there), the frame's saves are written as the code writes them; f20-f22 are set as the
 // code sets them and put back from the frame. HI / LO as the last mult
 // leaves them (010CABA0: s2 x 0xf98, set once before memcmp). The loops'
 // checkpoints are left out. v0 and f0 as the
@@ -617,11 +618,24 @@ namespace decomp_hot46c
         WRITE64(sp + 0x4A8u, ra);
         f[20] = FPU_MOV_S(f[12]);
         auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
+        // Round 47: the callee-saved registers hold the code's values at
+        // every call (a callee saves them into its frame, and a later one
+        // can read such a slot as an uninitialised local: GetMainAnimation's
+        // callee copied a byte of s5 into the heap on a padless character,
+        // 1-2 mismatches in 5 000 checks while s5 was this function's
+        // caller's), and are put back from the frame at the end.
+        SET_GPR_U64(ctx, 18, owner);
+        SET_GPR_U64(ctx, 19, s3in);
+        SET_GPR_U64(ctx, 20, s4);
+        SET_GPR_U64(ctx, 21, GPR_U64(ctx, 6));
 
         call(kCharacterClass, 0x010CABE8u);
         const uint32_t cls = GPR_U32(ctx, 2); // fp
         const uint64_t s6 = sx(READ32(cls + 0x950u)); // the partner object
         const uint32_t status = cls + 0x760u;         // s1: the control status
+        SET_GPR_U64(ctx, 30, GPR_U64(ctx, 2));
+        SET_GPR_U64(ctx, 22, s6);
+        SET_GPR_S32(ctx, 17, status);
         WRITE32(sp + 0x448u, s3in == 0u ? static_cast<uint32_t>(owner) : 1u);
         WRITE32(sp + 0x440u, READ32(cls + 0x960u));
         // v0 / v1 as the code leaves them at each call (a callee may store
@@ -639,6 +653,7 @@ namespace decomp_hot46c
             call(kCharacterClass, r0);
             f[12] = FPU_MOV_S(f[20]);
             const uint64_t s0 = GPR_U64(ctx, 2);
+            SET_GPR_U64(ctx, 16, s0);
             SET_GPR_U64(ctx, 4, s0);
             call(kResetMailFlags, r0 + 0x10u);
             SET_GPR_U64(ctx, 4, obj);
@@ -669,8 +684,10 @@ namespace decomp_hot46c
         {
             SET_GPR_S32(ctx, 5, READ32(sp + 0x448u));
             SET_GPR_U64(ctx, 4, owner);
-            call(kLayoutClass, 0x010CACCCu);
             const uint32_t s2 = s3in != 0u ? 1u : 0u; // the pad
+            SET_GPR_U64(ctx, 18, s2); // the jal's delay slot
+            call(kLayoutClass, 0x010CACCCu);
+            SET_GPR_U64(ctx, 19, s2);
             WRITE32(sp + 0x44Cu, GPR_U32(ctx, 2));
             // The status's first 0x80 bytes from the default; with +0x78's bit 18, +8 kept and the bit set again.
             uint64_t flags = READ64(status + 0x78u);
@@ -685,6 +702,7 @@ namespace decomp_hot46c
                 WRITE64(status + 0x78u, flags | 0x40000u);
             }
             const uint32_t pad = kPads + s2 * kPadStride; // s0
+            SET_GPR_S32(ctx, 16, pad);
             SET_GPR_S32(ctx, 11, kHiFrame);
             const __m128i t3 = GPR_VEC(ctx, 11);
             SET_GPR_S32(ctx, 4, sp);
@@ -845,6 +863,8 @@ namespace decomp_hot46c
             }
             const uint32_t s3 = s2 * kPadStride;
             const uint32_t P = kPads + s3;
+            SET_GPR_S32(ctx, 19, s3);           // mult s3, s2, v1 (0x10cafb8)
+            SET_GPR_S32(ctx, 23, kPads + 8u);   // s7 (0x10cafd8)
             f[0] = fb(0x3C23D708u);
             WRITE32(status, bf(f[1]));
             setC(ctx, FPU_C_OLT_S(f[0], f[1]));
@@ -883,6 +903,7 @@ namespace decomp_hot46c
                 SET_GPR_S32(ctx, 4, sp + 0x50u);
                 SET_GPR_S32(ctx, 5, sp + 0x30u);
                 SET_GPR_S32(ctx, 6, sp + 0x40u);
+                SET_GPR_S32(ctx, 16, sp + 0x10u);
                 WRITE128(sp + 0x450u, GPR_VEC(ctx, 11));
                 call(jalTarget(rdram, kSiteDiffQuat), 0x010CB0DCu);
                 // sp + 0x10 through the difference's rotation (the fourth row vf0).
@@ -902,6 +923,7 @@ namespace decomp_hot46c
             const uint32_t i00 = READ32(s5 + 0x00u), i04 = READ32(s5 + 0x04u), i08 = READ32(s5 + 0x08u), i0C = READ32(s5 + 0x0Cu),
                            i10 = READ32(s5 + 0x10u), i14 = READ32(s5 + 0x14u), i18 = READ32(s5 + 0x18u), i1C = READ32(s5 + 0x1Cu);
             const uint32_t w8 = READ32(P + 8u), wC = READ32(P + 0xCu), w0 = READ32(P);
+            SET_GPR_S32(ctx, 16, i1C); // lw s0, 0x1c(s5) (0x10cb178)
             auto bit = [](uint32_t n) { return 1u << (n & 0x1Fu); };
             auto timer = [&](uint32_t n) { return ((s2 * 998u + n) << 2) + kPads; }; // + 4 x n in the pad's record
             // An unsigned frame count to seconds (the code's cvt.s.w of the halved value doubled when bit 31 is set).
@@ -1054,6 +1076,7 @@ namespace decomp_hot46c
             call(kCharacterClass, r0);
             const uint64_t s2 = GPR_U64(ctx, 2);
             const uint32_t c = static_cast<uint32_t>(s2);
+            SET_GPR_U64(ctx, 18, s2);
             SET_GPR_U64(ctx, 3, 1u);
             SET_GPR_S32(ctx, 2, READ32(c + 0x1070u));
             if (!first)
@@ -1081,8 +1104,11 @@ namespace decomp_hot46c
             SET_GPR_S32(ctx, 2, copy);
             uint64_t s0 = sx(status);
             if (cb != 0u)
-            {
                 s0 = sx(copy);
+            SET_GPR_U64(ctx, 19, s3);
+            SET_GPR_U64(ctx, 16, s0);
+            if (cb != 0u)
+            {
                 for (uint32_t k = 0; k < 0x1F0u; k += 8u)
                     WRITE64(copy + k, READ64(status + k));
                 // The copy loop's registers as it leaves them.
@@ -1119,6 +1145,7 @@ namespace decomp_hot46c
             SET_GPR_U64(ctx, 4, obj);
             call(kCharacterClass, r0);
             const uint64_t s0 = GPR_U64(ctx, 2);
+            SET_GPR_U64(ctx, 16, s0);
             SET_GPR_U64(ctx, 4, s0);
             call(kResetRelations, r0 + 0xCu);
             WRITE64(static_cast<uint32_t>(s0) + 0x928u, 0u);
@@ -1132,6 +1159,15 @@ namespace decomp_hot46c
             resetRelations(s4, 0x010CBB74u);
 
         f[20] = fb(READ32(sp + 0x4B0u));
+        SET_GPR_U64(ctx, 16, READ64(sp + 0x460u));
+        SET_GPR_U64(ctx, 17, READ64(sp + 0x468u));
+        SET_GPR_U64(ctx, 18, READ64(sp + 0x470u));
+        SET_GPR_U64(ctx, 19, READ64(sp + 0x478u));
+        SET_GPR_U64(ctx, 20, READ64(sp + 0x480u));
+        SET_GPR_U64(ctx, 21, READ64(sp + 0x488u));
+        SET_GPR_U64(ctx, 22, READ64(sp + 0x490u));
+        SET_GPR_U64(ctx, 23, READ64(sp + 0x498u));
+        SET_GPR_U64(ctx, 30, READ64(sp + 0x4A0u));
         SET_GPR_U64(ctx, 31, ra);
         SET_GPR_U64(ctx, 29, entrySp);
         ctx->pc = static_cast<uint32_t>(ra);

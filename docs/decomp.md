@@ -7881,6 +7881,191 @@ block), docs/decomp.md, docs/decomp_status.json / .svg,
 docs/decomp_history.json / .svg, docs/decomp_tree.json. Deliverable:
 build/agent-scratch/celosia-r46.vpk.
 
+## Round 47: the s-registers natives leave to their callees, the next hot list (2026-10-31)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r47/` (v3k.sh / dt.sh / pos.sh as round
+46's; fam47.py this round's family table; poscmp.py the fixed-30 comparison;
+worker-brief.txt the transcription workers' rules; cab.s / ecg.s / efd08.s
+disassemblies; callg.pkl / reach_efd08.txt the static call graph and what
+reaches 010EFD08). The transcriptions were made by ten workers in parallel
+(one file each, syntax-checked with r43/syn.sh; scratch in r47/work-*), then
+built and difftested together here.
+
+**1. manager_sub_010CABA0's heap byte: found and fixed.**
+- New in the difftest (Mac): `SOTC_DIFFTEST_WATCH=1` reruns the native leg at
+  a function's first RAM mismatch from the same input with every guest call
+  (any depth) watched and prints the call that changed the byte, with the
+  registers it was entered with; a second rerun logs every store inside that
+  call (`[write] ... pc=`).
+- With EVERY=1 the mismatch is 47 in 54 200 checks (r47/dt-cabW): every one
+  made by the call to GetMainAnimation (0x10D37C8, ra 0x10cba0c: the first
+  object's control definitions, the walk path). The store log (r47/dt-cabW2):
+  GetMainAnimation -> ... -> CreateScriptAnimationSequence -> CreateLayoutObj
+  -> manager_sub_010EFD08 (a new layout object) -> CopyGeometryPointer
+  (0x11327b0) copies the parent's geometry pointer, whose +8 word was never
+  written: a stack slot where an earlier callee had saved s5. The native
+  left this function's *caller's* s5 in the context during its calls
+  (0x01073660: the byte 60), the original has its own s5 there (a2, the
+  button map: 0 on a padless character, the byte 00).
+- Fix (decomp_hot46c.cpp): s0-s7 and fp hold the code's values at every call
+  (s2 / s3 / s4 / s5 from a1 / a3 / a0 / a2, fp / s6 / s1 after the class,
+  s0 per mail / pad / stick / button word, s2 / s3 / s0 per control
+  definition walk, s7 = 0x118d688, s3 = pad x 0xf98) and all come back from
+  the frame at the end. EVERY=1 to 5 400: 0 in 50 200 checks (r47/dt-cabF);
+  0 in 16 800 at EVERY=3 with the final build (r47/dt-fix2).
+- **Audit** (the same pattern elsewhere): the natives whose original reaches
+  010EFD08 by jal (r47/reach_efd08.txt, 287 functions): charaLinks,
+  ExecCharaGeometry, gamecore_sub_013EF378, 01372068, 01108960,
+  ExecObjectAnimation (and 010CABA0). By name, EVERY=3 with the watch
+  (r47/dt-audit): 0 mismatches but ExecCharaGeometry (503 in 15 100) and
+  013EF378 (f0, 2 in 3 600). The control run (`SOTC_DIFFTEST_CONTROL=1`,
+  r47/dt-ecgctl) has ExecCharaGeometry's 0x270c14.. / 0x1e0bf0 / f0 noise but
+  never the heap words 0x0121cxx8 (recompiled 30 native 10) nor 013EF378's
+  f0: those are the natives'. The 0x0121cxx8 bytes: ExecAnimeTableInfo starts
+  a sub-thread whose function (manager_sub_01159008) saves the inherited
+  s-registers into its stack (the original's s7 = class + 0x490, low byte
+  0x30). Fixed in decomp_charageo.cpp (s0-s7 / fp as the code sets them on
+  every path, the frame's saves and spills written, f20 / f21 set before the
+  first call, the epilogue's reloads) and decomp_hot43e.cpp (the same for
+  the small-object manager). After (r47/dt-fix2, EVERY=3): ExecCharaGeometry
+  455 in 15 400, all at the control run's addresses (0x270c14.. 0x70 apart,
+  0x1e0bf0, 0x26d988, f0): no 0x0121cxxx. 013EF378: still 3 f0 differences
+  in 3 600, now both ways (0 vs 0x39e5109e and back): open, see below.
+- Every native written this round sets the s-registers the same way (the
+  workers' brief); round 46's natives other than 010CABA0 do not (they
+  showed nothing in the audit).
+
+**2. Nativized** (`SOTC_HOTLIST47=0` puts all of round 47's back; each table
+entry alone with `SOTC_DECOMP_SKIP=<name>`; `SOTC_AB_FLAG` takes `hotlist47`;
+transcribed from the generator's code, FPU_* / PS2_V* in order, guest calls
+through the table with the original's ra and frame sp, relocated sites from
+the live words, the s-registers as above):
+- decomp_hot47a.cpp: `manager_sub_010BC718` (the option nodes with a parent:
+  positions up the 0x10000-flagged chain, the bone matrix), `010BC2F8` (the
+  parentless option nodes' pose, blended), `010BC900` (a character's
+  geometry step: root motion, dissolve / morph, sub-geometries, root
+  direction, UpdateLayoutClassPastGeometry).
+- decomp_hot47b.cpp: `gamecore_sub_013F8B58` (the player's life bar layout:
+  11 sprites, the gauge's pulse and easing, the placement jump table).
+- decomp_hot47c.cpp: `charrootdyn_slideExceptionJudgeCB` (the landing
+  surface filter), `GetCharaRootDynamicsAfter` (the root after dynamics,
+  three modes).
+- decomp_hot47d.cpp: `GetCharaRootDynamics` (the root's dynamics step, ~14
+  kinds dispatched, the "follow" kind inline, parent links, plane fits).
+- decomp_hot47e.cpp: `doit_particle_manager` (three clocks, the geodisp
+  walk, the emitters by layer), `get_particle_parameter_blend_doit` (85
+  fields w0 a + w1 b; its lambdas forced inline and the run loop unrolled
+  after the profile: 21.6 k a frame against the recompiled 8.5 k before).
+- decomp_hot47f.cpp: `doit_expression`, `gamecore_sub_013BA790` (a string
+  point's length keep). gamecore_sub_013E3840 skipped: a script sub-thread
+  body (scrRun yields; resumed at labels).
+- decomp_hot47g.cpp: the VRAM block allocator `manager_sub_010AB6D0`
+  (place), `010AB848` (alloc), `010AB9A0` (free and merge).
+- decomp_hot47h.cpp: texTransResolve's CLUT work records (0x10a7fa8 CLUT
+  only, 0x10a55f8 texture + CLUT: two placements, DMA CALL / NEXT), called
+  from decomp_textrans.cpp's walk after round 46's kinds; nine jump tables
+  checked before the first record.
+- decomp_hot47i.cpp: `manager_sub_010CF210`'s matches (round 41's
+  decomp_motionpredict.cpp keeps the no-match searches and now hands a match
+  to it instead of the recompiled code), `GetCharacterClassOptionNodeGeo`.
+- decomp_hot47j.cpp: `StageManagerCheckAreaExist`, `manager_sub_01118340`
+  (a triangle's ground reach), `getClothDynamics`, `GetCollisionDBCallBack`,
+  `GAMEUTIL_doit_interp_value_cntrl`, `GetSkeletonFocusNode` (the two leaf
+  tails GetSkeletonFocusNodeDirect / get_interp_value inline).
+- Not done: `gamecore_sub_013CF258` (round 46's reason stands: a sub-thread
+  body resumed at 50 labels through a dense jump table; its 16 k a frame is
+  the per-resume dispatch and two calls, which a native entered at the same
+  labels would still pay), `gamecore_sub_013E3840` (above), texTransRequest.
+
+**3. The two unreached natives (target 3).**
+- `SOTC_DIFFTEST_PROBE=<target>@<donor>` (Mac, new): at each call of a
+  donor with the same argument registers the target runs first through its
+  table entry (both legs compared when SOTC_DIFFTEST names it), then RAM,
+  scratchpad and the context are put back and the donor runs: the game is
+  unchanged. `manager_sub_0113DEA0@manager_sub_0113DBF8` (the sibling particle
+  draw, same a0 / a1 / a2): 16 200 checks, 0 mismatches (r47/dt-probe, to
+  3 600); on the user's shrine save it is reached once (r47/dt-shrine).
+- `GetMotionDirectResourceNodeQuaternionPosFloatFrame`: still not reached
+  (route, shrine save with a walk, attract) and no native with its argument
+  set exists to probe it (its callers are the foot IK step with an IK
+  attribute's animation resource, and 01371108): unverified at run time,
+  checked by reading in round 46.
+
+**4. Exactness.**
+- By name (Mac, the route on the r24 card, EVERY=10, MAX=3000, to 5 400,
+  r47/dt-focus1, the build before the blend inlining): 24 functions, 103 201
+  checks, 0 mismatches: 010BC718 2 100, 010BC2F8 2 100, 010BC900 2 900,
+  slideExceptionJudgeCB 700, GetCharaRootDynamics 2 100, -After 2 100,
+  doit_particle_manager 700, blend_doit 3 800, doit_expression 700, 013BA790
+  5 600, 010AB6D0 16 000, 010AB848 15 900, 010AB9A0 15 900,
+  texTransResolve 700, GetCharacterClassOptionNodeGeo 3 600,
+  StageManagerCheckAreaExist 4 000, 01118340 200, getClothDynamics 6 700,
+  GetCollisionDBCallBack 200, interp_value_cntrl 11 600,
+  GetSkeletonFocusNode 700, ExecCharaGeometry 1 900, 010CABA0 3 000.
+  The route does not show the life bar nor match a motion change: on the
+  user's shrine save (r47/dt-shrine, EVERY=1 to 4 200) 013F8B58 700 and
+  010CF210 4 200 checks, 0 mismatches. blend_doit after the inlining:
+  29 100 checks, 0 (r47/dt-fix2).
+- `all` (r47/dt-all, EVERY=200 to 4 800, the final build): 259 functions
+  reached, 291 001 checks, mismatches only isysWakeupSubThread (278),
+  manager_sub_01102638 (247), gamecore_sub_013F8668 (92), ExecCharaGeometry
+  (10): the known noise.
+- Fixed-30 position route to 5 400 (one binary, SOTC_HOTLIST47=0 against on,
+  r47/posoff, poson): both reach 5 400 (VBlank 10 741 / 10 743); max 2.03,
+  the end 2.00, 0 samples over 3 (round 46's pair: max 17.4, end 2.08).
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s; r46 2 862 frames from 4 005, r47 2 861 from 4 088;
+thousands a frame, r47/fam47.py, the build before the blend inlining): the
+targets' recompiled code 221.0 -> 0; their native code 213.4 (blend_doit
+21.6 of it: 8.5 recompiled before, inlined since); the s-register fixes
++7 k (charageo 79.6 -> 82.5, 013EF378 12.6 -> 14.1, 010CABA0 13.2 -> 15.7);
+the game thread 9 241 -> 9 244 k (flat: these leaves cost the same natively
+as in the lean recompiled code; the gain is in the decomp count, not the
+time). decomp_history r47: 66.9% of the game thread's instructions native
+(r46 64.7), 18.3% recompiled MIPS (20.9).
+
+**Decomp status** (r47/replaced.txt): 11.68% of the MIPS code by size (was
+10.89), 6.49% by functions (586), 58.1% by calls, 10.50% of the game's own code.
+
+**Vita.** celosia-r47.vpk (-j6, shader seed 53 files) boots and plays the route
+in calibrated Vita3K: the profile run (r47/prof-err.txt, 222 MHz) and the
+smoke run on the final VPK (r47/smoke-err.txt, 240 MHz, 240 s to game frame
+5 873; r46's 6 018; audio 0 stale, 0 src-stale); the Vita3K tree restored
+(`restored ok`, both runs).
+
+**Console run asked for:** build/agent-scratch/r47/console-ab/env.txt (the
+frame log, body shadows on, hotlist46, hotlist47 and round 45's depthkeep,
+fewcopies, volprog, atmerge, shadowidx rotating in 60-frame windows, the
+spike log); r44/abrot.py reads it.
+
+**Open.**
+- gamecore_sub_013EF378's f0 (3 in 3 600, both ways, after its s-register
+  fix; RAM is not compared once f0 differs): probably the loadObj path's
+  state (it is a load request), not proven.
+- Round 46's other natives (and older ones) still leave the caller's
+  s-registers in the context during calls; the audit found no effect on the
+  route, but a path that creates an object or a sub-thread under them could.
+- GetMotionDirectResourceNodeQuaternionPosFloatFrame unverified at run time.
+- 013CF258's resumes, 013E3840 (a script sub-thread), texTransRequest.
+- Next recompiled on the game thread (r47 window, docs/decomp_tree.json):
+  013CF258 16.1, texTransRequest 13.5, 013E3840 12.4, iosDlSwap 12.3,
+  isysDeleteGroupAllObj 11.8, 0109E2A0 11.6, graphFrameInit 10.8,
+  Sg2ModTickProc 10.8, gsRegEnd 10.7, 01137F78 10.6. The flat profile and
+  this round's result say leaves of ~10 k a frame no longer pay in time;
+  whole subsystems (the script VM, isys object lifetime) would.
+
+**Files:** game/overrides/sotc_decomp.h (kHotList47, hotList47On),
+sotc_decomp.cpp (SOTC_DIFFTEST_WATCH, SOTC_DIFFTEST_PROBE), sotc_native.cpp
+(the A/B's switch name), decomp_hot46c.cpp (010CABA0's s-registers),
+decomp_charageo.cpp and decomp_hot43e.cpp (their s-registers), decomp_motionpredict.cpp
+(a match to decomp_hot47i), decomp_textrans.cpp (the CLUT records' call),
+decomp_hot47a.cpp .. decomp_hot47j.cpp (new); README.md (SOTC_HOTLIST47,
+SOTC_DIFFTEST_WATCH / PROBE, the A/B names, the decomp block), docs/decomp.md,
+docs/decomp_status.json / .svg, docs/decomp_history.json / .svg,
+docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r47.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

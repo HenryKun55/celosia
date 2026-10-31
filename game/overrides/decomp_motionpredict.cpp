@@ -29,6 +29,11 @@
 #include <cstdlib>
 #include <cstring>
 
+namespace decomp_hot47i
+{
+    void motionChange(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // the whole function (round 47)
+}
+
 namespace decomp_motionpredict
 {
     using sotc_decomp::relocated;
@@ -133,8 +138,10 @@ namespace decomp_motionpredict
                 std::fprintf(stderr, "[motionpredict] %llu calls, %llu matched (recompiled)\n", static_cast<unsigned long long>(g_stats.calls),
                              static_cast<unsigned long long>(g_stats.matches));
         }
+        // Round 47: a match natively too (decomp_hot47i.cpp; SOTC_HOTLIST47=0: the recompiled code).
         if (match)
-            return sotc_decomp::recompiled(kPredict)(rdram, ctx, runtime);
+            return sotc_decomp::hotList47On() ? decomp_hot47i::motionChange(rdram, ctx, runtime)
+                                              : sotc_decomp::recompiled(kPredict)(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 2, 0u);
         returnTo(ctx);
     }

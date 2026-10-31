@@ -338,7 +338,7 @@ namespace sotc_decomp
 
     // The rounds' subsystem switches (round 44: one table, so the console's
     // A/B can turn them off and on in one run: SOTC_AB_FLAG's camcoll,
-    // collprobe, motion, leaves, hotlist, hotlist44, hotlist46; sotc_native's
+    // collprobe, motion, leaves, hotlist, hotlist44, hotlist46, hotlist47; sotc_native's
     // abSwitches). Each is read from its env variable at first use (the
     // Vita's env.txt comes after static init), "0" off; a native checks its
     // switch at entry, so a change takes effect at the next call.
@@ -351,10 +351,11 @@ namespace sotc_decomp
         kHotList,
         kHotList44,
         kHotList46,
+        kHotList47,
         kSwitchCount
     };
-    inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+    inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -404,6 +405,10 @@ namespace sotc_decomp
     // colossus fight's: decomp_hot46*.cpp). SOTC_HOTLIST46=0 puts the
     // recompiled code back for all of them (read at first use).
     inline bool hotList46On() { return switchOn(kHotList46); }
+    // Round 47's natives (the next functions down the game thread's profile:
+    // decomp_hot47*.cpp). SOTC_HOTLIST47=0 puts the recompiled code back for
+    // all of them (read at first use).
+    inline bool hotList47On() { return switchOn(kHotList47); }
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \

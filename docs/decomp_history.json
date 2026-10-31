@@ -177,6 +177,16 @@
    "time": 64.7,
    "generated": 20.9,
    "runtime": 14.4
+  },
+  {
+   "date": "2026-10-31",
+   "label": "r47",
+   "commit": "5b8ae18",
+   "code": 11.68,
+   "calls": 58.13,
+   "time": 66.9,
+   "generated": 18.3,
+   "runtime": 14.8
   }
  ]
 }

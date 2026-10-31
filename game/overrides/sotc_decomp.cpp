@@ -91,6 +91,19 @@ namespace sotc_decomp
             }
         }
 
+#if !defined(__vita__)
+        // SOTC_DIFFTEST_WATCH=1 (Mac, round 47): at a function's first RAM
+        // mismatch the native leg runs again from the same input with its
+        // guest calls (any depth) through callGuestSlow, which prints each
+        // call that changes the differing byte: target, return address,
+        // depth and the registers it was entered with.
+        uint32_t g_watchAddr = 0, g_watchOn = 0;
+        int g_watchDepth = 0;
+        // The first (innermost) call seen changing it; the second rerun logs
+        // every store made inside that call (g_ps2LogAllWrites).
+        uint32_t g_watchTarget = 0, g_watchRa = 0, g_watchLogTarget = 0, g_watchLogRa = 0;
+#endif
+
         // The registers a caller may rely on after the call.
         // (v1 too would be for 128-bit returns, which none of these has.)
         constexpr int kCompared[] = {2, 16, 17, 18, 19, 20, 21, 22, 23, 28, 29, 30, 31};
@@ -363,6 +376,52 @@ namespace sotc_decomp
                 std::memcpy(nativeAfter.ram.data() + range.first, rdram + range.first, range.second - range.first);
             compareMemory(rdram, nativeAfter.ram.data(), PS2_RAM_SIZE, 0u, "ram");
             compareMemory(scratch, nativeAfter.scratch.data(), PS2_SCRATCHPAD_SIZE, 0x70000000u, "scratchpad");
+#if !defined(__vita__)
+            static const bool watch = std::getenv("SOTC_DIFFTEST_WATCH") != nullptr;
+            if (bad && watch && depth == 0 && !c.function->switches && std::memcmp(rdram, nativeAfter.ram.data(), PS2_RAM_SIZE) != 0)
+            {
+                size_t i = 0;
+                while (rdram[i] == nativeAfter.ram[i])
+                    ++i;
+                // The recompiled leg's result kept aside, the native leg again from the input.
+                const std::vector<uint8_t> keepRam(rdram, rdram + PS2_RAM_SIZE), keepScratch(scratch, scratch + PS2_SCRATCHPAD_SIZE);
+                const R5900Context keepCtx = *ctx;
+                std::memcpy(rdram, before.ram.data(), PS2_RAM_SIZE);
+                std::memcpy(scratch, before.scratch.data(), PS2_SCRATCHPAD_SIZE);
+                *ctx = input;
+                g_watchAddr = static_cast<uint32_t>(i);
+                g_watchOn = 1;
+                g_watchDepth = 0;
+                const bool stats = g_callGuestStats;
+                g_callGuestStats = true;
+                std::fprintf(stderr, "[watch] %s: %08x recompiled %02x native %02x, before %02x; sp %08x ra %08x\n", c.function->name, g_watchAddr,
+                             keepRam[i], nativeAfter.ram[i], before.ram[i], GPR_U32(&input, 29), GPR_U32(&input, 31));
+                g_watchTarget = g_watchRa = 0;
+                ++g_depth;
+                runToReturn(rdram, ctx, runtime, c.function->native);
+                --g_depth;
+                std::fprintf(stderr, "[watch] rerun ends with %02x\n", rdram[g_watchAddr]);
+                static int logged = 0;
+                if (g_watchTarget && logged++ < 2)
+                {
+                    std::memcpy(rdram, before.ram.data(), PS2_RAM_SIZE);
+                    std::memcpy(scratch, before.scratch.data(), PS2_SCRATCHPAD_SIZE);
+                    *ctx = input;
+                    g_watchLogTarget = g_watchTarget;
+                    g_watchLogRa = g_watchRa;
+                    ++g_depth;
+                    runToReturn(rdram, ctx, runtime, c.function->native);
+                    --g_depth;
+                    g_watchLogTarget = g_watchLogRa = 0;
+                    std::fprintf(stderr, "[watch] second rerun (stores inside %08x from %08x) ends with %02x\n", g_watchTarget, g_watchRa, rdram[g_watchAddr]);
+                }
+                g_callGuestStats = stats;
+                g_watchOn = 0;
+                std::memcpy(rdram, keepRam.data(), PS2_RAM_SIZE);
+                std::memcpy(scratch, keepScratch.data(), PS2_SCRATCHPAD_SIZE);
+                *ctx = keepCtx;
+            }
+#endif
             if (bad)
                 c.mismatches.fetch_add(1, std::memory_order_relaxed);
             const uint64_t checks = c.checks.load(std::memory_order_relaxed);
@@ -457,8 +516,45 @@ namespace sotc_decomp
     void callGuestSlow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
     {
 #if !defined(__vita__)
-        if (g_callGuestStats)
+        if (g_callGuestStats && callStatsPeriod() != 0u)
             noteCall(runtime, target, ra);
+        if (g_watchOn)
+        {
+            const uint8_t was = rdram[g_watchAddr];
+            const R5900Context in = *ctx;
+            ++g_watchDepth;
+            const bool logStores = g_watchLogTarget == target && g_watchLogRa == ra;
+            const bool watchWas = g_ps2WatchWriteEnabled;
+            if (logStores)
+            {
+                std::fprintf(stderr, "[watch] stores inside %08x:\n", target);
+                g_ps2WatchWriteEnabled = g_ps2LogAllWrites = true;
+            }
+            PS2Runtime::RecompiledFunction fn = runtime->guestFunctionAt(target);
+            runToReturn(rdram, ctx, runtime, fn ? fn : runtime->lookupFunction(target));
+            if (logStores)
+            {
+                g_ps2LogAllWrites = false;
+                g_ps2WatchWriteEnabled = watchWas;
+            }
+            --g_watchDepth;
+            if (rdram[g_watchAddr] != was && !g_watchTarget)
+            {
+                g_watchTarget = target;
+                g_watchRa = ra;
+            }
+            if (rdram[g_watchAddr] != was)
+            {
+                const R5900Context *r = &in;
+                std::fprintf(stderr,
+                             "[watch] depth %d call %08x ra %08x sp %08x: %02x -> %02x; a0 %08x a1 %08x a2 %08x a3 %08x t0 %08x t1 %08x v0 %08x v1 %08x"
+                             " s0 %08x s1 %08x s2 %08x s3 %08x s4 %08x s5 %08x s6 %08x s7 %08x fp %08x\n",
+                             g_watchDepth, target, ra, sp, was, rdram[g_watchAddr], GPR_U32(r, 4), GPR_U32(r, 5), GPR_U32(r, 6), GPR_U32(r, 7),
+                             GPR_U32(r, 8), GPR_U32(r, 9), GPR_U32(r, 2), GPR_U32(r, 3), GPR_U32(r, 16), GPR_U32(r, 17), GPR_U32(r, 18),
+                             GPR_U32(r, 19), GPR_U32(r, 20), GPR_U32(r, 21), GPR_U32(r, 22), GPR_U32(r, 23), GPR_U32(r, 30));
+            }
+            return;
+        }
 #endif
         PS2Runtime::RecompiledFunction fn = runtime->guestFunctionAt(target);
         runToReturn(rdram, ctx, runtime, fn ? fn : runtime->lookupFunction(target));
@@ -572,6 +668,57 @@ namespace sotc_decomp
         return f->native;
     }
 
+#if !defined(__vita__)
+    namespace
+    {
+        // SOTC_DIFFTEST_PROBE=<target>@<donor> (Mac, round 47): a function the
+        // route never reaches checked on a sibling's inputs. At each call of the
+        // donor (a function the route reaches, with the same argument
+        // registers) the target runs first from the donor's input, through its
+        // table entry (the difftest's checker when SOTC_DIFFTEST names it: both
+        // legs compared), then RAM, scratchpad and the context are put back as
+        // they were and the donor runs as usual: the game goes on unchanged.
+        uint32_t g_probeTarget = 0, g_probeDonor = 0;
+        PS2Runtime::RecompiledFunction g_probeDonorFn = nullptr;
+        void probeDonor(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            static std::vector<uint8_t> ram, spr;
+            uint8_t *scratch = runtime->memory().getScratchpad();
+            ram.assign(rdram, rdram + PS2_RAM_SIZE);
+            spr.assign(scratch, scratch + PS2_SCRATCHPAD_SIZE);
+            const R5900Context input = *ctx;
+            ctx->pc = g_probeTarget;
+            runToReturn(rdram, ctx, runtime, runtime->guestFunctionAt(g_probeTarget));
+            std::memcpy(rdram, ram.data(), PS2_RAM_SIZE);
+            std::memcpy(scratch, spr.data(), PS2_SCRATCHPAD_SIZE);
+            *ctx = input;
+            g_probeDonorFn(rdram, ctx, runtime);
+        }
+        void installProbe(PS2Runtime &runtime)
+        {
+            const char *probe = std::getenv("SOTC_DIFFTEST_PROBE");
+            if (!probe || !std::strchr(probe, '@'))
+                return;
+            const std::string target(probe, std::strchr(probe, '@')), donor(std::strchr(probe, '@') + 1);
+            for (const Function &f : registry())
+            {
+                if (target == f.name)
+                    g_probeTarget = f.address;
+                if (donor == f.name)
+                    g_probeDonor = f.address;
+            }
+            if (!g_probeTarget || !g_probeDonor)
+            {
+                std::cerr << "[difftest] SOTC_DIFFTEST_PROBE: " << probe << ": not two registered natives" << std::endl;
+                return;
+            }
+            g_probeDonorFn = runtime.lookupFunction(g_probeDonor);
+            runtime.registerFunction(g_probeDonor, probeDonor);
+            std::cerr << "[difftest] probe: " << target << " on " << donor << "'s inputs" << std::endl;
+        }
+    }
+#endif
+
     void install(PS2Runtime &runtime)
     {
         if (const char *on = std::getenv("SOTC_DECOMP"); on && std::atoi(on) == 0)
@@ -637,6 +784,9 @@ namespace sotc_decomp
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
         buildRecompiledTable();
+#if !defined(__vita__)
+        installProbe(runtime);
+#endif
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;
     }

@@ -66,6 +66,12 @@ namespace decomp_hot46f
     bool record(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, uint32_t e);
 }
 
+namespace decomp_hot47h
+{
+    // decomp_hot47h.cpp (round 47): a work record with a CLUT request natively; false: nothing done.
+    bool clutRecord(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, uint32_t e);
+}
+
 namespace decomp_textrans
 {
     constexpr uint32_t kResolve = 0x010A54F0u, kLoopHead = 0x010A5560u, kListHead = 0x010A5540u;
@@ -174,6 +180,10 @@ namespace decomp_textrans
             if (work && sotc_decomp::hotList46On() && decomp_hot46f::record(rdram, ctx, runtime, sp, e))
             {
                 e = r.u32(sp + 0x30u); // done to 0x10a8dd8 natively (round 46): t0 the record from the frame
+            }
+            else if (work && sotc_decomp::hotList47On() && decomp_hot47h::clutRecord(rdram, ctx, runtime, sp, e))
+            {
+                e = r.u32(sp + 0x30u); // a CLUT record done to 0x10a8dd8 natively (round 47)
             }
             else if (work)
             {
