@@ -21,6 +21,10 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 
+#if __has_include("ps2_recompiled_table.h")
+#include "ps2_recompiled_table.h" // the table's bounds as constants (callGuest's lookup folds)
+#endif
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -187,6 +191,13 @@ namespace sotc_decomp
 
     // Puts the registered functions in place (and the checks SOTC_DIFFTEST asks for).
     void install(PS2Runtime &runtime);
+    // For a hook installed before install() (sotc_native's layer stack and
+    // camera context, round 42): what the hook should call for the function
+    // at that address. The registered native (its difftest checker with
+    // SOTC_DIFFTEST) unless SOTC_DECOMP=0 / SOTC_DECOMP_SKIP names it or none
+    // is registered (then the table's function, as lookupFunction). install()
+    // then leaves that table entry to the hook.
+    PS2Runtime::RecompiledFunction behindHook(PS2Runtime &runtime, uint32_t address);
     // SOTC_AB=<frames>: every that many game frames the "new" set (the
     // functions registered with SOTC_DECOMP_AB_FUNCTION, the runtime's
     // ps2_fast_paths) goes off or back on; "[ab] frame F: new | old" at each
@@ -200,9 +211,70 @@ namespace sotc_decomp
     // function's rare cases left to the original code), nullptr if none.
     PS2Runtime::RecompiledFunction recompiled(uint32_t address);
 
+    // callGuest's rare parts, out of line: the callee left with pc on a
+    // continuation (run on to the return), no table entry (lookupFunction),
+    // SOTC_CALLGUEST_STATS's count (Mac).
+    void finishGuestCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp);
+    void callGuestSlow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp);
+#if !defined(__vita__)
+    inline bool g_callGuestStats = false; // SOTC_CALLGUEST_STATS (install)
+#endif
+
+    // The table's entry for a guest address (a constant address's slot is a
+    // constant: one load).
+    inline PS2Runtime::RecompiledFunction guestFunction(const PS2Runtime *runtime, uint32_t target)
+    {
+#if defined(PS2X_RECOMP_TABLE_BASE) && defined(PS2X_RECOMP_TABLE_SLOTS)
+        (void)runtime;
+        return PS2Runtime::guestFunctionIn<PS2X_RECOMP_TABLE_BASE, PS2X_RECOMP_TABLE_SLOTS>(target);
+#else
+        return runtime->guestFunctionAt(target);
+#endif
+    }
+
     // Calls guest code from a decompiled function as a jal would: ra and sp
     // set (sp: the original's frame at that call), run until it returns there.
-    void callGuest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp);
+    // Inline (round 42): the call was ~45 Vita instructions out of line
+    // (6 000 a frame on the route, 3% of the game thread), most of it the
+    // argument moves, the lookup and the run-to-return loop's set-up. The
+    // callee is whatever the table holds: a native (its switch, SOTC_DECOMP_SKIP,
+    // a difftest checker, SOTC_AB, a profiler wrapper all still apply) or the
+    // recompiled code; a native returns to ra, so the loop is not entered.
+    inline void callGuest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
+    {
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = target;
+        const PS2Runtime::RecompiledFunction fn = guestFunction(runtime, target);
+#if !defined(__vita__)
+        if (__builtin_expect(!fn || g_callGuestStats, 0))
+#else
+        if (__builtin_expect(!fn, 0))
+#endif
+            return callGuestSlow(rdram, ctx, runtime, target, ra, sp);
+        fn(rdram, ctx, runtime);
+        if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != sp, 0))
+            finishGuestCall(rdram, ctx, runtime, ra, sp);
+    }
+    // The same with the callee's native known (a native calling another one,
+    // round 42): a direct call while the table holds it, else as callGuest.
+    inline void callNative(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, PS2Runtime::RecompiledFunction known, uint32_t ra,
+                           uint32_t sp)
+    {
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = target;
+        const PS2Runtime::RecompiledFunction fn = guestFunction(runtime, target);
+#if !defined(__vita__)
+        if (__builtin_expect(fn != known || g_callGuestStats, 0))
+#else
+        if (__builtin_expect(fn != known, 0))
+#endif
+            return callGuest(rdram, ctx, runtime, target, ra, sp);
+        known(rdram, ctx, runtime);
+        if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != sp, 0))
+            finishGuestCall(rdram, ctx, runtime, ra, sp);
+    }
     // The same for the recompiled code a decompiled function replaced (its
     // rare cases, from a native caller): ra and sp set, run to its return.
     void callRecompiled(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t address, uint32_t ra, uint32_t sp);
@@ -296,6 +368,20 @@ namespace sotc_decomp
         static const bool on = []
         {
             const char *e = std::getenv("SOTC_MOTION");
+            return !(e && e[0] == '0');
+        }();
+        return on;
+    }
+    // Round 42's natives (the small leaves the natives call most, the layer
+    // stack and the camera context behind sotc_native's hooks, the 2D sprite,
+    // the collision work flush and the IK attribute filter; decomp_leaves.cpp,
+    // decomp_collision.cpp). SOTC_LEAVES=0 puts the recompiled code back for
+    // all of them (read at first use).
+    inline bool leavesOn()
+    {
+        static const bool on = []
+        {
+            const char *e = std::getenv("SOTC_LEAVES");
             return !(e && e[0] == '0');
         }();
         return on;

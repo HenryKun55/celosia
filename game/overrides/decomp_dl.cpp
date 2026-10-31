@@ -230,5 +230,57 @@ namespace decomp_dl
     }
 }
 
+// Round 42 (SOTC_LEAVES=0: recompiled).
+// iosDlGetLayer (0x1c0198): the current layer (0x2132d8 + 0x1c), v1 0x2132d8.
+// transMicroCode (0x1114b50, a0 a VU1 microcode id): a DMA tag
+// (iosDlChainTailCurrent, a0 0x1195480) in the current layer, then, when the
+// layer's last microcode (0x1216d68 + 4 x layer) is another one, the id's
+// upload tag (iosDlChainTailCurrent of *(0x118cd90 + 4 x id)) and the id
+// noted. iosDlChainTailCurrent's native called directly while the table
+// holds it (its jal sites are relocated: checked once).
+namespace decomp_dl
+{
+    void getLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn())
+            return sotc_decomp::recompiled(0x001C0198u)(rdram, ctx, runtime);
+        const Ram m{rdram};
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(kDl));
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(m.u32(kDl + 0x1Cu)));
+        returnTo(ctx);
+    }
+
+    void transMicroCode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool sitesOk = sotc_decomp::jalTarget(rdram, 0x01114B60u) == 0x001C0198u && sotc_decomp::jalTarget(rdram, 0x01114B80u) == kChainTail &&
+                                    sotc_decomp::jalTarget(rdram, 0x01114BA0u) == kChainTail;
+        if (!sotc_decomp::leavesOn() || !sitesOk)
+            return sotc_decomp::recompiled(0x01114B50u)(rdram, ctx, runtime);
+        const Ram m{rdram};
+        const uint32_t id = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x20u;
+        // iosDlGetLayer
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(kDl));
+        const uint32_t layer = m.u32(kDl + 0x1Cu);
+        const uint32_t last = 0x01216D68u + (layer << 2);
+        SET_GPR_S32(ctx, 4, 0x01195480);
+        sotc_decomp::callNative(rdram, ctx, runtime, kChainTail, &chainTail, 0x01114B88u, sp);
+        const uint32_t current = m.u32(last);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(id << 2));
+        if (current == id)
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(current));
+        else
+        {
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(0x0118CD90u + (id << 2))));
+            sotc_decomp::callNative(rdram, ctx, runtime, kChainTail, &chainTail, 0x01114BA8u, sp);
+            m.put32(last, id);
+        }
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x001C0198u, iosDlGetLayer, decomp_dl::getLayer);
+SOTC_DECOMP_FUNCTION(0x01114B50u, transMicroCode, decomp_dl::transMicroCode);
+
 SOTC_DECOMP_AB_FUNCTION(0x0110DC20u, AddSortObj, decomp_dl::addSortObj);
 SOTC_DECOMP_AB_FUNCTION(0x001BFE88u, iosDlChainTailCurrent, decomp_dl::chainTail);

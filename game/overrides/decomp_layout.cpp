@@ -188,11 +188,21 @@ SOTC_DECOMP_FUNCTION(0x010F26D0u, UpdateLayoutClassGeometry, decomp_layout::upda
 // GetLayoutClass (0x10f1a20): an object's layout class by its type (byte
 // +8, 9..22, through the table at 0x1194070): +0x20, +0x90 or none
 // natively (~1 700 calls a frame, 1% of the Vita's game thread
-// recompiled); the cases that call out (0x10f1a60 / a70 / a88) go to the
-// recompiled code from its start (nothing written before).
+// recompiled); the cases that call out (0x10f1a60 / a70 / a88: the script,
+// camera and light objects) natively too since round 42 (SOTC_LEAVES=0: the
+// recompiled code from its start for them, nothing written before).
 namespace decomp_layoutclass
 {
     using sotc_decomp::returnTo;
+
+    // The call-out cases' callees, as the code names them (relocated
+    // module code: read once from the live words).
+    bool callsOk(const uint8_t *rdram)
+    {
+        static const bool ok = sotc_decomp::jalTarget(rdram, 0x010F1A60u) == 0x0110D058u && sotc_decomp::jalTarget(rdram, 0x010F1A70u) == 0x01162E08u &&
+                               sotc_decomp::jalTarget(rdram, 0x010F1A80u) == 0x01162F08u && sotc_decomp::jalTarget(rdram, 0x010F1A8Cu) == 0x010F93F0u;
+        return ok;
+    }
 
     void getLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -213,6 +223,34 @@ namespace decomp_layoutclass
             v0 = a0 + 0x90u;
         else if (target == 0x010F1AA0u)
             v0 = 0u;
+        else if (sotc_decomp::leavesOn() && callsOk(rdram))
+        {
+            // Round 42: the three that call out, natively (their callees are
+            // a few instructions each; the type byte is the one just read).
+            uint32_t v1;
+            if (target == 0x010F1A60u) // GetScriptLayoutClass (type 11: obj + 0x20), + 0x70
+            {
+                v0 = a0 + 0x90u;
+                v1 = 0xBu;
+                SET_GPR_U64(ctx, 5, 0xBu);
+            }
+            else if (target == 0x010F1A70u) // dynamic_cast_to_camera_obj (type 17: obj), get_camera_obj_layout_class (+ 0x20)
+            {
+                v0 = a0 + 0x20u;
+                v1 = 0x11u;
+            }
+            else if (target == 0x010F1A88u) // GetLightClass (type 19: obj + 0x20)
+            {
+                v0 = a0 + 0x20u;
+                v1 = 0u;
+                SET_GPR_U64(ctx, 4, 0x13u);
+            }
+            else
+                return sotc_decomp::recompiled(0x010F1A20u)(rdram, ctx, runtime);
+            SET_GPR_U64(ctx, 3, v1);
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+            return returnTo(ctx);
+        }
         else
             return sotc_decomp::recompiled(0x010F1A20u)(rdram, ctx, runtime);
         SET_GPR_S32(ctx, 3, static_cast<int32_t>(target));

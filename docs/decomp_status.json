@@ -1,63 +1,63 @@
 {
- "updated": "2026-10-30",
- "commit": "f89884e",
+ "updated": "2026-10-31",
+ "commit": "fabcdcc",
  "summary": {
   "by_functions": {
-   "native": 502,
+   "native": 518,
    "partial": 0,
    "total": 9024,
-   "percent": 5.56
+   "percent": 5.74
   },
   "by_code_size": {
-   "native": 196632,
+   "native": 201448,
    "partial": 0,
    "total": 2625144,
-   "percent": 7.49
+   "percent": 7.67
   },
   "by_calls": {
-   "native": 85975949,
+   "native": 90007616,
    "partial": 0,
    "total": 167661665,
-   "percent": 51.28
+   "percent": 53.68
   },
   "game_code_by_size": {
-   "native": 124688,
+   "native": 128088,
    "total": 2208056,
-   "percent": 5.65
+   "percent": 5.8
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
-   "functions": 2124,
-   "native_functions": 322,
-   "bytes": 404556,
-   "native_bytes": 59412,
+   "functions": 2126,
+   "native_functions": 329,
+   "bytes": 404980,
+   "native_bytes": 61252,
    "partial_functions": 0,
-   "percent": 14.69
+   "percent": 15.12
   },
   "Math": {
-   "functions": 131,
-   "native_functions": 22,
-   "bytes": 26004,
-   "native_bytes": 6500,
+   "functions": 132,
+   "native_functions": 24,
+   "bytes": 26092,
+   "native_bytes": 6692,
    "partial_functions": 0,
-   "percent": 25.0
+   "percent": 25.65
   },
   "Display and models": {
-   "functions": 978,
-   "native_functions": 41,
-   "bytes": 252564,
-   "native_bytes": 39888,
+   "functions": 975,
+   "native_functions": 40,
+   "bytes": 252052,
+   "native_bytes": 39496,
    "partial_functions": 0,
-   "percent": 15.79
+   "percent": 15.67
   },
   "Characters and motion": {
-   "functions": 1209,
-   "native_functions": 38,
-   "bytes": 277200,
-   "native_bytes": 21008,
+   "functions": 1208,
+   "native_functions": 41,
+   "bytes": 276952,
+   "native_bytes": 21848,
    "partial_functions": 0,
-   "percent": 7.58
+   "percent": 7.89
   },
   "System and memory": {
    "functions": 229,
@@ -69,11 +69,11 @@
   },
   "Other game code": {
    "functions": 2878,
-   "native_functions": 20,
+   "native_functions": 22,
    "bytes": 1274596,
-   "native_bytes": 35896,
+   "native_bytes": 37592,
    "partial_functions": 0,
-   "percent": 2.82
+   "percent": 2.95
   },
   "Camera": {
    "functions": 281,
@@ -100,12 +100,12 @@
    "percent": 22.63
   },
   "Collision and physics": {
-   "functions": 344,
-   "native_functions": 48,
-   "bytes": 113792,
-   "native_bytes": 23728,
+   "functions": 345,
+   "native_functions": 51,
+   "bytes": 114040,
+   "native_bytes": 24368,
    "partial_functions": 0,
-   "percent": 20.85
+   "percent": 21.37
   },
   "Script and events": {
    "functions": 632,
@@ -262,6 +262,14 @@
    "source": "game/overrides/decomp_softfloat.cpp"
   },
   {
+   "address": "0x00128e6c",
+   "name": "strcmp",
+   "bytes": 324,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_texsearch.cpp"
+  },
+  {
    "address": "0x00131b10",
    "name": "dptoli",
    "bytes": 156,
@@ -390,6 +398,14 @@
    "source": "game/overrides/decomp_math.cpp"
   },
   {
+   "address": "0x001b9c88",
+   "name": "iosGetScaleMatrixV",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_layoutsimple.cpp"
+  },
+  {
    "address": "0x001ba4d0",
    "name": "GetDifferencialQuaternionWithNoRegularize",
    "bytes": 448,
@@ -478,6 +494,14 @@
    "source": "game/overrides/decomp_gaze.cpp"
   },
   {
+   "address": "0x001be700",
+   "name": "iosFTOI4Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_leaves.cpp"
+  },
+  {
    "address": "0x001be898",
    "name": "iosAbsVector",
    "bytes": 24,
@@ -498,8 +522,8 @@
    "name": "iosDlPopLayer",
    "bytes": 240,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_leaves.cpp"
   },
   {
    "address": "0x001bfe88",
@@ -518,12 +542,20 @@
    "source": "game/overrides/decomp_isys.cpp"
   },
   {
+   "address": "0x001c0198",
+   "name": "iosDlGetLayer",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_dl.cpp"
+  },
+  {
    "address": "0x001c0210",
    "name": "iosDlPushLayer",
    "bytes": 184,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/sotc_native.cpp"
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_leaves.cpp"
   },
   {
    "address": "0x001c19c0",
@@ -556,6 +588,14 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_overrides.cpp"
+  },
+  {
+   "address": "0x001c5110",
+   "name": "spriteNoTexFast",
+   "bytes": 1080,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_leaves.cpp"
   },
   {
    "address": "0x001c5548",
@@ -708,6 +748,14 @@
    "status": "native",
    "area": "Math",
    "source": "game/overrides/decomp_math.cpp"
+  },
+  {
+   "address": "0x001e0010",
+   "name": "floorf",
+   "bytes": 216,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_leaves.cpp"
   },
   {
    "address": "0x0108a780",
@@ -942,6 +990,14 @@
    "source": "game/overrides/decomp_motionframe.cpp"
   },
   {
+   "address": "0x010b4fd8",
+   "name": "GetMotionFloatFrame",
+   "bytes": 608,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_motionframe.cpp"
+  },
+  {
    "address": "0x010b6e80",
    "name": "GetMotionNodeBasePos",
    "bytes": 224,
@@ -956,6 +1012,22 @@
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_motion.cpp"
+  },
+  {
+   "address": "0x010b7158",
+   "name": "getMotionFloatFrameWithLimitCaribration",
+   "bytes": 64,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_motionframe.cpp"
+  },
+  {
+   "address": "0x010b7198",
+   "name": "getMotionFloatFrame",
+   "bytes": 168,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_motionframe.cpp"
   },
   {
    "address": "0x010b81f8",
@@ -1126,6 +1198,22 @@
    "source": "game/overrides/decomp_chara.cpp"
   },
   {
+   "address": "0x010f1d60",
+   "name": "FlushCollisionWork",
+   "bytes": 200,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x010f24d8",
+   "name": "UpdateLayoutClassPastSimpleGeometry",
+   "bytes": 88,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
+  },
+  {
    "address": "0x010f26d0",
    "name": "UpdateLayoutClassGeometry",
    "bytes": 1152,
@@ -1270,6 +1358,14 @@
    "source": "game/overrides/decomp_sortlist.cpp"
   },
   {
+   "address": "0x01114b50",
+   "name": "transMicroCode",
+   "bytes": 112,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/sotc_prof.cpp"
+  },
+  {
    "address": "0x01114c70",
    "name": "manager_sub_01114C70",
    "bytes": 1256,
@@ -1377,6 +1473,14 @@
    "address": "0x01123c60",
    "name": "CollisionPlaneJudgeCallbackCameraLeave",
    "bytes": 304,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01124410",
+   "name": "FlushCollisionWorkByWorkStruct",
+   "bytes": 192,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
@@ -1500,6 +1604,14 @@
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01132ec8",
+   "name": "CopyMultiMatrix",
+   "bytes": 104,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_math.cpp"
   },
   {
    "address": "0x01133548",
@@ -1654,12 +1766,28 @@
    "source": "game/overrides/decomp_keyboard.cpp"
   },
   {
+   "address": "0x01160f68",
+   "name": "get_cur_camera_context",
+   "bytes": 32,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_leaves.cpp"
+  },
+  {
    "address": "0x01344788",
    "name": "gamecore",
    "bytes": 56,
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/sotc_overrides.cpp"
+  },
+  {
+   "address": "0x01374f08",
+   "name": "character_ikcolattrfilter",
+   "bytes": 248,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
   },
   {
    "address": "0x0137d1a0",
@@ -1790,6 +1918,14 @@
    "source": "game/overrides/decomp_collision.cpp"
   },
   {
+   "address": "0x014274a8",
+   "name": "gamecore_sub_014274A8",
+   "bytes": 1584,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_leaves.cpp"
+  },
+  {
    "address": "0x0142da48",
    "name": "execPointListSort",
    "bytes": 600,
@@ -1846,5 +1982,5 @@
    "source": "game/overrides/decomp_collision.cpp"
   }
  ],
- "runtime_functions": 286
+ "runtime_functions": 285
 }

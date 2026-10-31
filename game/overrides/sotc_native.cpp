@@ -8476,7 +8476,7 @@ void installSotcNative(PS2Runtime &runtime)
     g_modelDisp = runtime.lookupFunction(kModelDisp);
     runtime.registerFunction(kModelDisp, modelDispHook);
     sotc_decomp::g_beforeGuestMove = [] { sotc_native::hookJoin(hookjobs::k_move); }; // the jobs' memos by address
-    g_getCameraContext = runtime.lookupFunction(kGetCameraContext);
+    g_getCameraContext = sotc_decomp::behindHook(runtime, kGetCameraContext); // its native when registered (round 42)
     runtime.registerFunction(kGetCameraContext, getCameraContextHook);
     if (runtime.hasFunction(kGsReg) && runtime.hasFunction(kTexTransRequest) && runtime.hasFunction(kPushLayer) && runtime.hasFunction(kPopLayer))
     {
@@ -8484,9 +8484,9 @@ void installSotcNative(PS2Runtime &runtime)
         runtime.registerFunction(kGsReg, gsRegHook);
         g_texTransRequest = runtime.lookupFunction(kTexTransRequest);
         runtime.registerFunction(kTexTransRequest, texTransRequestHook);
-        g_pushLayer = runtime.lookupFunction(kPushLayer);
+        g_pushLayer = sotc_decomp::behindHook(runtime, kPushLayer);
         runtime.registerFunction(kPushLayer, pushLayerHook);
-        g_popLayer = runtime.lookupFunction(kPopLayer);
+        g_popLayer = sotc_decomp::behindHook(runtime, kPopLayer);
         runtime.registerFunction(kPopLayer, popLayerHook);
         if (runtime.hasFunction(kGlEnd))
         {

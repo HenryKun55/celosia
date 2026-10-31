@@ -305,6 +305,97 @@ namespace decomp_copymatrix
 }
 SOTC_DECOMP_FUNCTION(0x001B9148u, iosCopyMatrix, decomp_copymatrix::copyMatrix);
 
+// Round 42 (SOTC_LEAVES=0: recompiled).
+// CopyMultiMatrix (0x1132ec8): a2 matrices copied, a1 to a0, 0x40 bytes
+// apart, each by iosCopyMatrix (its native called directly while the table
+// holds it; the jal is a relocated site, checked once). A count past 0x10000
+// (the code's 32-bit down-count from a 64-bit register): the recompiled code.
+// iosGetScaleMatrixV (0x1b9c88): the identity at 0x1e0f00 to a0 (rows 3..0
+// through t1 .. a2 as its lq / sq pairs), then a1's x, y, z on the diagonal
+// (through f0 / f1).
+namespace decomp_copymatrix
+{
+    void copyMulti(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool siteOk = sotc_decomp::jalTarget(rdram, 0x01132F04u) == 0x001B9148u;
+        const uint64_t count = GPR_U64(ctx, 6);
+        if (!sotc_decomp::leavesOn() || !siteOk || count > 0x10000u)
+            return sotc_decomp::recompiled(0x01132EC8u)(rdram, ctx, runtime);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        uint32_t to = GPR_U32(ctx, 4), from = GPR_U32(ctx, 5);
+        for (uint64_t i = 0; i < count; ++i, to += 0x40u, from += 0x40u)
+        {
+            SET_GPR_U32(ctx, 4, to);
+            SET_GPR_U32(ctx, 5, from);
+            sotc_decomp::callNative(rdram, ctx, runtime, 0x001B9148u, &copyMatrix, 0x01132F0Cu, sp0 - 0x30u);
+        }
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void scaleMatrixV(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn())
+            return sotc_decomp::recompiled(0x001B9C88u)(rdram, ctx, runtime);
+        const uint32_t to = GPR_U32(ctx, 4), scale = GPR_U32(ctx, 5);
+        SET_GPR_S32(ctx, 2, 0x001E0F00);
+        static constexpr int kReg[4] = {6, 7, 8, 9};
+        for (int row = 3; row >= 0; --row)
+        {
+            const __m128i v = READ128(0x001E0F00u + row * 16u);
+            SET_GPR_VEC(ctx, kReg[row], v);
+            WRITE128(to + row * 16u, v);
+        }
+        uint32_t bits = READ32(scale);
+        std::memcpy(&ctx->f[0], &bits, 4);
+        WRITE32(to, bits);
+        bits = READ32(scale + 4u);
+        std::memcpy(&ctx->f[1], &bits, 4);
+        WRITE32(to + 0x14u, bits);
+        bits = READ32(scale + 8u);
+        std::memcpy(&ctx->f[0], &bits, 4);
+        WRITE32(to + 0x28u, bits);
+        sotc_decomp::returnTo(ctx);
+    }
+}
+// UpdateLayoutClassPastSimpleGeometry (0x10f24d8, a0 a layout class): the
+// past world matrix's... the qword at *(+0x134) to *(+0x138) (through v0),
+// +0xa0 to +0xb0, then with flag 0x20 at +0x1bc a tail jump to
+// CopyMultiMatrix (+0x168 from +0x164, the count +0x1b4): the generated code
+// calls that one directly, so only this native reaches its native.
+namespace decomp_copymatrix
+{
+    void pastSimple(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn())
+            return sotc_decomp::recompiled(0x010F24D8u)(rdram, ctx, runtime);
+        const uint32_t lc = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29);
+        WRITE64(sp0 - 0x10u, GPR_U64(ctx, 31));
+        SET_GPR_U32(ctx, 5, lc);
+        const uint32_t from = READ32(lc + 0x134u), to = READ32(lc + 0x138u);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(from));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(to));
+        __m128i v = READ128(from);
+        SET_GPR_VEC(ctx, 2, v);
+        WRITE128(to, v);
+        const uint32_t flags = READ8(lc + 0x1BCu) & 0x20u;
+        SET_GPR_U64(ctx, 3, flags);
+        v = READ128(lc + 0xA0u);
+        SET_GPR_VEC(ctx, 2, v);
+        WRITE128(lc + 0xB0u, v);
+        if (flags == 0u)
+            return sotc_decomp::returnTo(ctx);
+        SET_GPR_S32(ctx, 6, static_cast<int16_t>(READ16(lc + 0x1B4u)));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(READ32(lc + 0x168u)));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(lc + 0x164u)));
+        sotc_decomp::callNative(rdram, ctx, runtime, 0x01132EC8u, &copyMulti, GPR_U32(ctx, 31), sp0);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x01132EC8u, CopyMultiMatrix, decomp_copymatrix::copyMulti);
+SOTC_DECOMP_FUNCTION(0x010F24D8u, UpdateLayoutClassPastSimpleGeometry, decomp_copymatrix::pastSimple);
+SOTC_DECOMP_FUNCTION(0x001B9C88u, iosGetScaleMatrixV, decomp_copymatrix::scaleMatrixV);
+
 // __ieee754_sqrtf (0x1df480) and sqrtf (0x1dda40, its wrapper: a frame and a
 // j), round 11: fdlibm's bit-by-bit square root, correctly rounded (to
 // nearest even), so for a positive normal input it is IEEE's root, bit for

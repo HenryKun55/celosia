@@ -293,5 +293,194 @@ namespace decomp_motionframe
     }
 }
 
+// Round 42 (SOTC_LEAVES=0: recompiled): two of the wrappers that tail-jump
+// to GetMotionFloatFrameNoCaribration (the generated code calls a j's
+// target directly, not through the table, so round 41's native ran only for
+// the jal callers: 17 k a frame of the recompiled function was reached this
+// way). Their tail jumps now call the natives.
+// getMotionFloatFrame (0x10b7198): the frame f12 wrapped into the motion's
+// length (+4, a short n: f12 - k with k = cvt.w(f12) for n == 1, else f12 -
+// (n - 1) x cvt.w(f12 / (n - 1))); a frame that wraps to 0 from above 0 is
+// the last one (n - 1). f0 / f1 / f2, fcr31's condition, LO / HI, v0, v1,
+// a3, t0..t2 as the code leaves them; ra in its frame's slot.
+// getMotionFloatFrameWithLimitCaribration (0x10b7158): a frame at or past
+// the length takes manager_sub_010B81F8 (the keys of frame n, a2 = n, a3 the
+// count), else GetMotionFloatFrameNoCaribration.
+namespace decomp_motionframe
+{
+    constexpr uint32_t kWrapFrame = 0x010B7198u, kLimitFrame = 0x010B7158u;
+
+    inline float fromBits(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+
+    void wrapFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn() || !sotc_decomp::motionOn())
+            return sotc_decomp::recompiled(kWrapFrame)(rdram, ctx, runtime);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), res = GPR_U32(ctx, 5);
+        WRITE64(sp0 - 0x10u, GPR_U64(ctx, 31));
+        SET_GPR_U64(ctx, 2, GPR_U64(ctx, 5));
+        const int32_t k = FPU_CVT_W_S(ctx->f[12]);
+        SET_GPR_S32(ctx, 9, k);
+        SET_GPR_S32(ctx, 7, 1);
+        const float frame = ctx->f[12];
+        ctx->f[1] = frame;
+        const int32_t n = static_cast<int16_t>(READ16(res + 4u));
+        const uint32_t nBits = static_cast<uint16_t>(READ16(res + 4u));
+        SET_GPR_S32(ctx, 3, n);
+        SET_GPR_ZE32(ctx, 10, nBits);
+        const int32_t last = n - 1;
+        SET_GPR_S32(ctx, 8, last);
+        if (n == 1)
+        {
+            ctx->f[0] = FPU_CVT_S_W(k);
+            ctx->f[12] = FPU_SUB_S(frame, ctx->f[0]);
+        }
+        else
+        {
+            ctx->f[0] = FPU_CVT_S_W(last);
+            ctx->f[0] = ps2FpuDivide(ctx->fcr31, frame, ctx->f[0]);
+            const int32_t loops = FPU_CVT_W_S(ctx->f[0]);
+            ctx->f[2] = fromBits(static_cast<uint32_t>(loops));
+            const int64_t product = static_cast<int64_t>(last) * static_cast<int64_t>(loops);
+            ctx->lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product)));
+            ctx->hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product >> 32)));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(product));
+            ctx->f[0] = FPU_CVT_S_W(static_cast<int32_t>(product));
+            ctx->f[12] = FPU_SUB_S(frame, ctx->f[0]);
+        }
+        ctx->f[0] = fromBits(0u);
+        const bool zero = FPU_C_EQ_S(ctx->f[12], ctx->f[0]);
+        ctx->fcr31 = zero ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        if (zero)
+        {
+            const bool positive = FPU_C_OLT_S(ctx->f[0], ctx->f[1]);
+            ctx->fcr31 = positive ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(nBits << 16));
+            if (positive)
+            {
+                const int32_t end = (static_cast<int32_t>(nBits << 16) >> 16) - 1;
+                SET_GPR_S32(ctx, 2, end);
+                ctx->f[12] = FPU_CVT_S_W(end);
+            }
+        }
+        sotc_decomp::callNative(rdram, ctx, runtime, kFloatFrame, &floatFrame, ra0, sp0);
+    }
+
+    void limitFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn() || !sotc_decomp::motionOn())
+            return sotc_decomp::recompiled(kLimitFrame)(rdram, ctx, runtime);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        WRITE64(sp0 - 0x10u, GPR_U64(ctx, 31));
+        const int32_t n = static_cast<int16_t>(READ16(GPR_U32(ctx, 5) + 4u));
+        SET_GPR_S32(ctx, 2, n);
+        ctx->f[0] = FPU_CVT_S_W(n);
+        const bool past = FPU_C_OLE_S(ctx->f[0], ctx->f[12]);
+        ctx->fcr31 = past ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        SET_GPR_U64(ctx, 7, GPR_U64(ctx, 6));
+        if (past)
+        {
+            SET_GPR_U64(ctx, 6, GPR_U64(ctx, 2));
+            return sotc_decomp::callGuest(rdram, ctx, runtime, kKeys, ra0, sp0);
+        }
+        sotc_decomp::callNative(rdram, ctx, runtime, kFloatFrame, &floatFrame, ra0, sp0);
+    }
+}
+
+// GetMotionFloatFrame (0x10b4fd8, round 42): a0 the keys out, a1 a motion
+// handle, a2 a record whose +4 is the key count, f12 the frame. A plain
+// motion (the handle's table, not the empty one, of the plain type; the
+// types and the empty table are relocated per site): its resource's length
+// wraps the frame as getMotionFloatFrame does, then a tail jump to
+// GetMotionFloatFrameNoCaribration (its native). Another type (the code
+// then returns), a missing table or a motion without its resource (the
+// iosJumpRecoverPoint longjmp): the recompiled code from the start
+// (nothing written before). f20 is not touched (the code saves and
+// restores it); v0 / v1 / a3, f0 / f1, LO / HI and fcr31's condition as
+// the code leaves them.
+namespace decomp_motionframe
+{
+    constexpr uint32_t kMotionFloatFrame = 0x010B4FD8u;
+
+    void motionFloatFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn() || !sotc_decomp::motionOn())
+            return sotc_decomp::recompiled(kMotionFloatFrame)(rdram, ctx, runtime);
+        const uint32_t keys = GPR_U32(ctx, 4), handle = GPR_U32(ctx, 5), countRecord = GPR_U32(ctx, 6);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        const uint32_t word = READ32(handle), index = word & 0x3FFFFu;
+        // The handle's table, unless none or the empty one (that site's empty table).
+        auto table = [&](uint32_t hi, uint32_t lo)
+        {
+            const uint32_t t = index != 0u ? READ32(handle - index) : 0u;
+            return t != 0u && t != READ32(relocated(rdram, hi, lo)) ? t : 0u;
+        };
+        const uint32_t typed = table(0x010B5028u, 0x010B502Cu);
+        if (READ32(typed + 8u) != relocated(rdram, 0x010B503Cu, 0x010B5044u))
+            return sotc_decomp::recompiled(kMotionFloatFrame)(rdram, ctx, runtime);
+        const uint32_t plain = table(0x010B5070u, 0x010B5074u);
+        if (plain == 0u)
+            return sotc_decomp::recompiled(kMotionFloatFrame)(rdram, ctx, runtime);
+        const int64_t offset = static_cast<int64_t>((word >> 18) & 0xFFFu) * static_cast<int32_t>(READ32(READ32(plain + 8u) + 0xCu));
+        const uint32_t entry = READ32(plain + 0x10u) + static_cast<uint32_t>(offset);
+        const uint32_t motion = READ32(entry + 0xCu);
+        if (motion == 0u)
+            return sotc_decomp::recompiled(kMotionFloatFrame)(rdram, ctx, runtime);
+        ctx->lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(offset)));
+        ctx->hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(offset >> 32)));
+        const uint32_t res = READ32(motion + 0x20u);
+        const int32_t n = static_cast<int16_t>(READ16(res + 4u));
+        const uint32_t count = READ32(countRecord + 4u);
+        const float frame = ctx->f[12];
+        int32_t v0;
+        if (n == 1)
+        {
+            v0 = FPU_CVT_W_S(frame);
+            SET_GPR_U64(ctx, 3, 1u);
+        }
+        else
+        {
+            ctx->f[0] = FPU_CVT_S_W(n - 1);
+            ctx->f[0] = ps2FpuDivide(ctx->fcr31, frame, ctx->f[0]);
+            const int32_t loops = FPU_CVT_W_S(ctx->f[0]);
+            ctx->f[1] = fromBits(static_cast<uint32_t>(loops));
+            SET_GPR_S32(ctx, 3, loops);
+            const int64_t product = static_cast<int64_t>(n - 1) * static_cast<int64_t>(loops);
+            ctx->lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product)));
+            ctx->hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product >> 32)));
+            v0 = static_cast<int32_t>(product);
+        }
+        ctx->f[0] = FPU_CVT_S_W(v0);
+        ctx->f[12] = FPU_SUB_S(frame, ctx->f[0]);
+        ctx->f[0] = fromBits(0u);
+        const bool zero = FPU_C_EQ_S(ctx->f[12], ctx->f[0]);
+        ctx->fcr31 = zero ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        if (zero)
+        {
+            const bool positive = FPU_C_OLT_S(ctx->f[0], frame);
+            ctx->fcr31 = positive ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+            if (positive)
+            {
+                v0 = static_cast<int16_t>(READ16(res + 4u)) - 1;
+                ctx->f[12] = FPU_CVT_S_W(v0);
+            }
+        }
+        SET_GPR_S32(ctx, 2, v0);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(keys));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(res));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(count));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(word));
+        sotc_decomp::callNative(rdram, ctx, runtime, kFloatFrame, &floatFrame, ra0, sp0);
+    }
+}
+
 SOTC_DECOMP_FUNCTION(0x010AD1B0u, GetMotionFloatFrameNoCaribration, decomp_motionframe::floatFrame);
+SOTC_DECOMP_FUNCTION(0x010B4FD8u, GetMotionFloatFrame, decomp_motionframe::motionFloatFrame);
+SOTC_DECOMP_FUNCTION(0x010B7198u, getMotionFloatFrame, decomp_motionframe::wrapFrame);
+SOTC_DECOMP_FUNCTION(0x010B7158u, getMotionFloatFrameWithLimitCaribration, decomp_motionframe::limitFrame);
 SOTC_DECOMP_FUNCTION(0x010B3E98u, GetMotionIntFrame, decomp_motionframe::intFrame);

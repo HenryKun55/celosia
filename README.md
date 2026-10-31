@@ -191,31 +191,31 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 <!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-**Game thread time on the Vita** (r41, Vita3K profile of the route):
+**Game thread time on the Vita** (r42, Vita3K profile of the route):
 
 | | share | |
 |---|---:|---|
-| Native code | 52.2% | `██████████░░░░░░░░░░` |
-| Recompiled MIPS | 30.3% | `██████░░░░░░░░░░░░░░` |
-| Runtime (DMA walk, memory, scheduler, glue) | 17.5% | `████░░░░░░░░░░░░░░░░` |
+| Native code | 56.0% | `███████████░░░░░░░░░` |
+| Recompiled MIPS | 28.7% | `██████░░░░░░░░░░░░░░` |
+| Runtime (DMA walk, memory, scheduler, glue) | 15.3% | `███░░░░░░░░░░░░░░░░░` |
 
 <details open>
 <summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>
 
 | Area | Code native | | Functions | Game thread time: native / MIPS |
 |---|---:|---|---:|---|
-| Display and models | 15.8% | `██░░░░░░░░░░` | 41 / 978 | 18.5% / 3.9% |
-| Characters and motion | 7.6% | `█░░░░░░░░░░░` | 38 / 1209 | 14.2% / 3.8% |
-| Other game code (names not identified yet) | 2.8% | `░░░░░░░░░░░░` | 20 / 2878 | 3.2% / 14.0% |
-| Collision and physics | 20.9% | `███░░░░░░░░░` | 48 / 344 | 12.2% / 1.1% |
-| Boot ELF, SDK and libc | 14.7% | `██░░░░░░░░░░` | 322 / 2124 | 0.0% / 4.5% |
-| Math | 25.0% | `███░░░░░░░░░` | 22 / 131 | 1.1% / 0.8% |
-| System and memory | 6.3% | `█░░░░░░░░░░░` | 5 / 229 | 1.7% / 0.2% |
-| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.9% / 0.7% |
-| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.4% / 0.7% |
+| Display and models | 15.7% | `██░░░░░░░░░░` | 40 / 975 | 19.8% / 3.4% |
+| Characters and motion | 7.9% | `█░░░░░░░░░░░` | 41 / 1208 | 15.1% / 3.6% |
+| Other game code (names not identified yet) | 2.9% | `░░░░░░░░░░░░` | 22 / 2878 | 3.8% / 14.4% |
+| Collision and physics | 21.4% | `███░░░░░░░░░` | 51 / 345 | 12.9% / 1.0% |
+| Boot ELF, SDK and libc | 15.1% | `██░░░░░░░░░░` | 329 / 2126 | 0.0% / 3.4% |
+| System and memory | 6.3% | `█░░░░░░░░░░░` | 5 / 229 | 2.0% / 0.2% |
+| Math | 25.6% | `███░░░░░░░░░` | 24 / 132 | 1.2% / 0.8% |
+| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.9% / 0.8% |
+| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.4% / 0.6% |
 | Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.0% / 0.4% |
 | Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
-| Runtime (DMA walk, memory, scheduler) | | | | 17.5% (runtime) |
+| Runtime (DMA walk, memory, scheduler) | | | | 15.3% (runtime) |
 
 </details>
 
@@ -241,15 +241,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | 2026-10-30 | r39 | 5.59% | 49.0% | 44.7% |
 | 2026-10-30 | r40 | 5.73% | 49.1% | 45.1% |
 | 2026-10-30 | r41 | 7.49% | 51.3% | 52.2% |
+| 2026-10-31 | r42 | 7.67% | 53.7% | 56.0% |
 
 </details>
 
 ```mermaid
 xychart-beta
     title "Game thread time in native code (%)"
-    x-axis ["r32", "r35", "r36", "r39", "r40", "r41"]
+    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42"]
     y-axis "%" 0 --> 100
-    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2]
+    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0]
 ```
 
 <!-- decomp:end -->
@@ -344,6 +345,8 @@ xychart-beta
 | `SOTC_CAMCOLL=0` | (round 39) the camera's collision path and the collision filters made native this round back to the recompiled code: `camera_collision_check_direct` / `camera_invisible_collision_check_direct_by_exception_obj`, `GetArbitraryDirectionInverseMatrix` with `iosGetArbitraryUpVectorElement`, `GetQuaternionByAxisDirZYExact` and `iosAbsVector`, the object filters (`CollisionObjectJudgeCallbackExcept(Descend)PluralObj`, `gamecore_sub_0140FAB8` / `01434FC0` / `013D54F0`), the id filters (`CollisionPlaneJudgeCallbackCameraMove`, `playerPlaneJudgeFuncCameraFilter`, `gamecore_sub_01395830` / `013958B8` / `01444800`, `manager_sub_0110C790`), `EntryModifiedManager` and the uncached case of the vertex fetcher `0x1114c70`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the names in `game/overrides/decomp_collision.cpp` / `decomp_quat.cpp`; the native collision code's own calls of the filters, the vertex fetcher and EntryModifiedManager follow `SOTC_CAMCOLL` only) |
 | `SOTC_COLLPROBE=0` | (round 40) the collision natives of round 40 back to the recompiled code: the scripts' collision callback `SCRGetCollisionCallBack`, the id filters `moveCtrlWallJudgeFunc` (the plane's slope in degrees), `gamecore_sub_013CB8E8` and `AI_JudgeColAttrFunc`, `GetCollisionDBPlane` and the water probes `manager_sub_01117EA0` / `manager_sub_01117340`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the native collision code's own calls of the filters follow `SOTC_COLLPROBE` only) |
 | `SOTC_MOTION=0` | (round 41) the character / motion natives of round 41 back to the recompiled code: the motion accessors (`getBlendLastMotion`, `GetMotionVersion`, `GetMotionNbOptionNodes`, `GetMotionOptionNodePhysicalId`, `GetOptionNodePhysicalNodeId`, `GetMotionNodeBasePos` / `GetMotionNodeBaseQuaternion`, `GetMotionFloatFrameNoCaribration`, `GetMotionIntFrame`), the pose's root `GetMotionMatrix`, `ExecCharaGeometry` and its chain (`CalcNodeInterp`, `CalcNodeQuaternionWithIK`, the option nodes `manager_sub_010BC4F0` with `AddCharacterClassOptionNodeSubGeometries`, the gaze `manager_sub_010C6238`, `UpdateLayoutClassSimpleGeometry`), the control definition walker `manager_sub_010CA230`, `manager_sub_010C71D8`, `manager_sub_010CF210`, `getAmbientColorC`, `AI_GetSmallAnimalAIParam`, `FlushPadHistory`, `texTransResolve`, `clothmath_doubleTensionMove`, `gamecore_sub_013B8DC8`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the natives' direct calls of each other follow `SOTC_MOTION` only) |
+| `SOTC_LEAVES=0` | (round 42) round 42's natives back to the recompiled code: the display list's layer stack `iosDlPushLayer` / `iosDlPopLayer` and the camera context `iosgluGetCameraContext` / `get_cur_camera_context` (the first three behind sotc_native's hooks, which now call the natives), `iosDlGetLayer`, `transMicroCode`, the 2D sprite `spriteNoTexFast`, `floorf`, `strcmp`, `iosFTOI4Vector`, `iosGetScaleMatrixV`, `CopyMultiMatrix`, `UpdateLayoutClassPastSimpleGeometry`, `FlushCollisionWork` / `FlushCollisionWorkByWorkStruct`, the IK feet's id filter `character_ikcolattrfilter`, `GetLayoutClass`'s script / camera / light cases, the motion frame wrappers `GetMotionFloatFrame` / `getMotionFloatFrame` / `getMotionFloatFrameWithLimitCaribration`, the camera parameter copy `gamecore_sub_014274A8`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (also for the three behind the hooks) |
+| `SOTC_CALLGUEST_STATS=<frames>` | (round 42, measuring, Mac) the natives' guest calls (`sotc_decomp::callGuest`) by target and by call site every that many game frames: calls a frame and how many land on a native |
 | `SOTC_DIFFTEST_MAX=<n>` | (round 40, checking) after each n checks of a function past `SOTC_DIFFTEST_FIRST` its stride (`SOTC_DIFFTEST_EVERY`) doubles; default 1000 with `SOTC_DIFFTEST=all`, off for a list of names. `all` now checks every registered native (512 slots, was the first 64) |
 
 With `SOTC_FRAME_LOG=1` the `[frame]` lines also end in `| sync ... | joins ...`: the game

@@ -1956,6 +1956,39 @@ namespace decomp_collision
         return true;
     }
 
+    // character_ikcolattrfilter (0x1374f08, round 42; the IK feet's probes):
+    // 0 for the surface kinds 0x30 / 0x04 / 0x64 / 0x68 / 0x6c / 0x24 and the
+    // kinds 0x800000000 / 0x200000000 / 0xb80000000 / 0x300000000 /
+    // 0x500000000 / 0x380000000 / 0x280000000, else 1 unless the
+    // 0x80000000000 kind.
+    bool ikColAttr(const G g, uint32_t id, uint64_t &out)
+    {
+        static const bool siteOk = sotc_decomp::jalTarget(g.rdram, 0x01374F10u) == kAttributeAdr; // a relocated jal
+        uint32_t record;
+        if (!siteOk || !attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t surface = bits & 0x7C000000u, kind = bits & 0xF80000000ull;
+        out = 0u;
+        switch (surface)
+        {
+        case 0x30000000u: case 0x04000000u: case 0x64000000u: case 0x68000000u: case 0x6C000000u: case 0x24000000u:
+            return true;
+        default:
+            break;
+        }
+        switch (kind)
+        {
+        case 0x800000000ull: case 0x200000000ull: case 0xB80000000ull: case 0x300000000ull: case 0x500000000ull: case 0x380000000ull:
+        case 0x280000000ull:
+            return true;
+        default:
+            break;
+        }
+        out = (bits & 0x3C0000000000ull) != 0x80000000000ull ? 1u : 0u;
+        return true;
+    }
+
     // GetCollisionDBPlane (0x11257a0) when the surface's plane is in its
     // part's cache already (the flag byte set): its address, nothing
     // written. false: not cached (the guest code computes and enters it).
@@ -2049,7 +2082,8 @@ namespace decomp_collision
     constexpr uint32_t kCameraLeave = 0x01123C60u, kCharaSurface = 0x010D41E0u, kGamecoreSurface = 0x01434C00u, kNotKind28 = 0x011292B0u,
                        kPathJudge = 0x014336A0u, kCameraMove = 0x01123850u, kPlayerCameraFilter = 0x013B54C8u, kAnySurface = 0x01444800u,
                        kGamecore1395830 = 0x01395830u, kGamecore13958b8 = 0x013958B8u, kNotKind80 = 0x0110C790u,
-                       kGamecore13cb8e8 = 0x013CB8E8u, kAiJudgeColAttr = 0x013D5510u, kMoveCtrlWall = 0x014383F0u;
+                       kGamecore13cb8e8 = 0x013CB8E8u, kAiJudgeColAttr = 0x013D5510u, kMoveCtrlWall = 0x014383F0u,
+                       kIkColAttr = 0x01374F08u;
 
     // An id filter run natively when it is one of the above (false: run it as
     // guest code). sp: the stack pointer the guest filter would be called
@@ -2062,6 +2096,8 @@ namespace decomp_collision
             return sotc_decomp::collProbeOn() && gamecore13cb8e8(g, id, out);
         case kAiJudgeColAttr:
             return sotc_decomp::collProbeOn() && aiJudgeColAttr(g, id, out);
+        case kIkColAttr:
+            return sotc_decomp::leavesOn() && ikColAttr(g, id, out);
         case kMoveCtrlWall:
             return moveCtrlWall(g, id, user, sp, out);
         case kCameraVisibility:
@@ -2110,7 +2146,7 @@ namespace decomp_collision
     {
         const G g{rdram, ctx, runtime};
         uint64_t v0;
-        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : Which == 10 ? kNotKind80 : Which == 11 ? kGamecore13cb8e8 : Which == 12 ? kAiJudgeColAttr : kMoveCtrlWall;
+        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : Which == 10 ? kNotKind80 : Which == 11 ? kGamecore13cb8e8 : Which == 12 ? kAiJudgeColAttr : Which == 14 ? kIkColAttr : kMoveCtrlWall;
         if (!idFilter(g, address, GPR_U32(ctx, 4), GPR_U32(ctx, 5), v0, GPR_U32(ctx, 29)))
             return sotc_decomp::recompiled(address)(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 2, v0);
@@ -3102,6 +3138,120 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
+    // ---- FlushCollisionWorkByWorkStruct (0x1124410), round 42 -----------------
+    // a0 a collision work, a1 its part count, a2 / a3 two flags: each part's
+    // four modified lists (+0, +0x30, +0x48, +0x18 of the 0x60-byte parts from
+    // *(a0 + 0x24)), with a3 the work's +0x28 / +0x40, with a2 its +0x58 /
+    // +0x70, flushed (FlushModifiedManager: its native called directly while
+    // the table holds it); +0x1c cleared; v0 1.
+    constexpr uint32_t kFlushWork = 0x01124410u, kFlushModified = 0x01147798u;
+    void flushModified(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void flushWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn())
+            return sotc_decomp::recompiled(kFlushWork)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const uint32_t work = GPR_U32(ctx, 4), withB = GPR_U32(ctx, 6), withA = GPR_U32(ctx, 7);
+        const int32_t parts = GPR_S32(ctx, 5);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x30u;
+        auto flush = [&](uint32_t list, uint32_t site)
+        {
+            SET_GPR_U32(ctx, 4, list);
+            sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, &flushModified, site + 8u, sp);
+        };
+        uint32_t part = g.u32(work + 0x24u);
+        for (int32_t left = parts; left > 0; --left, part += 0x60u)
+        {
+            flush(part, 0x0112444Cu);
+            flush(part + 0x30u, 0x01124454u);
+            flush(part + 0x48u, 0x0112445Cu);
+            flush(part + 0x18u, 0x01124464u);
+        }
+        if (withA != 0u)
+        {
+            flush(work + 0x28u, 0x0112447Cu);
+            flush(work + 0x40u, 0x01124484u);
+        }
+        if (withB != 0u)
+        {
+            flush(work + 0x58u, 0x01124494u);
+            flush(work + 0x70u, 0x0112449Cu);
+        }
+        g.put32(work + 0x1Cu, 0u);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        SET_GPR_U64(ctx, 2, 1u);
+        returnTo(ctx);
+    }
+
+    // FlushCollisionWork (0x10f1d60, round 42): the object's layout class by
+    // its type (the jump table at 0x1194130, as GetLayoutClass's: +0x20,
+    // +0x90, the script / camera / light objects' class calls, or none),
+    // then, with a collision (+0x184) and a part (+0x174) not negative, a
+    // tail jump to FlushCollisionWorkByWorkStruct (the generated code calls
+    // that one directly, not through the table: only this native reaches the
+    // native above) with the collision record's +0x20 counts. v0 0 otherwise.
+    constexpr uint32_t kFlushCollisionWork = 0x010F1D60u;
+    bool flushCallsOk(const uint8_t *rdram)
+    {
+        using sotc_decomp::jalTarget;
+        static const bool ok = jalTarget(rdram, 0x010F1DA0u) == 0x0110D058u && jalTarget(rdram, 0x010F1DB0u) == 0x01162E08u &&
+                               jalTarget(rdram, 0x010F1DB8u) == 0x01162F08u && jalTarget(rdram, 0x010F1DC8u) == 0x010F93F0u &&
+                               jalTarget(rdram, 0x010F1E0Cu) == kFlushWork;
+        return ok;
+    }
+    void flushCollisionWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn() || !flushCallsOk(rdram))
+            return sotc_decomp::recompiled(kFlushCollisionWork)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const uint32_t obj = GPR_U32(ctx, 4);
+        const uint32_t index = static_cast<uint32_t>(g.u8(obj + 8u)) - 9u;
+        uint32_t layout = 0u;
+        if (index < 0xEu)
+        {
+            switch (g.u32(0x01194130u + index * 4u))
+            {
+            case 0x010F1D98u:
+                layout = obj + 0x20u;
+                break;
+            case 0x010F1DA0u: // GetScriptLayoutClass (type 11), + 0x70
+                layout = obj + 0x90u;
+                SET_GPR_U64(ctx, 5, 0xBu);
+                break;
+            case 0x010F1DB0u: // the camera object's class
+            case 0x010F1DC8u: // GetLightClass (type 19)
+                layout = obj + 0x20u;
+                break;
+            case 0x010F1DD8u:
+                layout = obj + 0x90u;
+                break;
+            case 0x010F1DE0u:
+                break;
+            default:
+                return sotc_decomp::recompiled(kFlushCollisionWork)(rdram, ctx, runtime);
+            }
+        }
+        const uint32_t collision = g.u32(layout + 0x184u);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(collision));
+        SET_GPR_U64(ctx, 2, 0u);
+        if (collision == 0u)
+        {
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(layout));
+            return returnTo(ctx);
+        }
+        const int32_t part = static_cast<int32_t>(g.u32(layout + 0x174u));
+        SET_GPR_S32(ctx, 4, part);
+        if (part < 0)
+            return returnTo(ctx);
+        const uint32_t counts = g.u32(collision + 0x20u);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(counts));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(g.u32(counts + 0xCu)));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(g.u32(counts + 4u)));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(g.u32(counts + 0x10u)));
+        sotc_decomp::callNative(rdram, ctx, runtime, kFlushWork, &flushWork, GPR_U32(ctx, 31), GPR_U32(ctx, 29));
+    }
+
     // ---- ClipCollisionFinder (0x1125dc8) / ClipCollisionFinderCallBack (0x1125cc0), round 11
     // The segment (a2, copied into the frame at sp + 0, the copy a2 of each
     // test) against a finder's candidates (a3: +0 / +4 two counts, the
@@ -3305,3 +3455,7 @@ SOTC_DECOMP_FUNCTION(0x0137D1A0u, SCRGetCollisionCallBack, decomp_collision::scr
 SOTC_DECOMP_FUNCTION(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbe);
 SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurface);
 SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlane);
+// Round 42 (SOTC_LEAVES=0: recompiled).
+SOTC_DECOMP_FUNCTION(0x01374F08u, character_ikcolattrfilter, decomp_collision::filterEntry<14>);
+SOTC_DECOMP_FUNCTION(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWork);
+SOTC_DECOMP_FUNCTION(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWork);

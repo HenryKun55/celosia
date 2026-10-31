@@ -60,6 +60,9 @@ namespace sotc_decomp
         constexpr int kMaxDepth = 3;
         int g_depth = 0;
         std::array<Checked, kMaxChecked> g_checked;
+        int g_checkedUsed = 0; // slots given out (install, behindHook)
+        // Natives a hook calls (behindHook): install() leaves their table entry to the hook.
+        std::vector<uint32_t> g_behindHook;
         std::unordered_map<uint32_t, PS2Runtime::RecompiledFunction> g_recompiled;
         // recompiled()'s lookups, read-only once install() has run: open
         // addressing on a power-of-two table (the map's prime modulo is a
@@ -381,11 +384,82 @@ namespace sotc_decomp
         }
     }
 
-    void callGuest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
+#if !defined(__vita__)
+    namespace
     {
-        SET_GPR_U32(ctx, 31, ra);
-        SET_GPR_U32(ctx, 29, sp);
-        ctx->pc = target;
+        // SOTC_CALLGUEST_STATS=<frames> (Mac, round 42): the natives' guest
+        // calls by target and by call site, every that many game frames:
+        // calls a frame, and whether the table holds a native there.
+        struct CallStats
+        {
+            std::unordered_map<uint32_t, uint64_t> byTarget, bySite;
+            uint64_t calls = 0, from = 0;
+        };
+        uint64_t callStatsPeriod()
+        {
+            static const uint64_t p = std::getenv("SOTC_CALLGUEST_STATS") ? std::strtoull(std::getenv("SOTC_CALLGUEST_STATS"), nullptr, 0) : 0u;
+            return p;
+        }
+        bool isNative(PS2Runtime::RecompiledFunction fn)
+        {
+            for (const Function &f : registry())
+                if (f.native == fn)
+                    return true;
+            return false;
+        }
+        void noteCall(PS2Runtime *runtime, uint32_t target, uint32_t ra)
+        {
+            static CallStats s;
+            const uint64_t period = callStatsPeriod();
+            if (!s.calls)
+                s.from = g_gameFrame;
+            ++s.calls;
+            ++s.byTarget[target];
+            ++s.bySite[ra - 8u];
+            if (g_gameFrame - s.from < period)
+                return;
+            const double frames = static_cast<double>(g_gameFrame - s.from);
+            std::vector<std::pair<uint64_t, uint32_t>> t, c;
+            for (const auto &[a, n] : s.byTarget)
+                t.emplace_back(n, a);
+            for (const auto &[a, n] : s.bySite)
+                c.emplace_back(n, a);
+            std::sort(t.rbegin(), t.rend());
+            std::sort(c.rbegin(), c.rend());
+            uint64_t nativeCalls = 0;
+            for (const auto &[n, a] : t)
+                if (isNative(runtime->guestFunctionAt(a)))
+                    nativeCalls += n;
+            std::fprintf(stderr, "[callguest] frames %llu-%llu: %.1f calls a frame, %.1f to natives\n", (unsigned long long)s.from,
+                         (unsigned long long)g_gameFrame, s.calls / frames, nativeCalls / frames);
+            for (size_t i = 0; i < t.size() && i < 60; ++i)
+                std::fprintf(stderr, "[callguest] target %08x %8.1f %s\n", t[i].second, t[i].first / frames,
+                             isNative(runtime->guestFunctionAt(t[i].second)) ? "native" : "");
+            for (size_t i = 0; i < c.size() && i < 60; ++i)
+                std::fprintf(stderr, "[callguest] site %08x %8.1f\n", c[i].second, c[i].first / frames);
+            s = CallStats{};
+        }
+    }
+#endif
+
+    void finishGuestCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp)
+    {
+        // runToReturn's loop, after the callee's first return.
+        while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
+        {
+            PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
+            if (!next)
+                break;
+            next(rdram, ctx, runtime);
+        }
+    }
+
+    void callGuestSlow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
+    {
+#if !defined(__vita__)
+        if (g_callGuestStats)
+            noteCall(runtime, target, ra);
+#endif
         PS2Runtime::RecompiledFunction fn = runtime->guestFunctionAt(target);
         runToReturn(rdram, ctx, runtime, fn ? fn : runtime->lookupFunction(target));
     }
@@ -460,22 +534,69 @@ namespace sotc_decomp
         std::fprintf(stderr, "[ab] frame %llu: %s\n", static_cast<unsigned long long>(frame), on ? "new" : "old");
     }
 
+    namespace
+    {
+        const std::array<PS2Runtime::RecompiledFunction, kMaxChecked> &checkers()
+        {
+            static const auto table = makeChecked(std::make_integer_sequence<int, kMaxChecked>{});
+            return table;
+        }
+    }
+
+    PS2Runtime::RecompiledFunction behindHook(PS2Runtime &runtime, uint32_t address)
+    {
+        const PS2Runtime::RecompiledFunction original = runtime.lookupFunction(address);
+        if (const char *on = std::getenv("SOTC_DECOMP"); on && std::atoi(on) == 0)
+            return original;
+        const Function *f = nullptr;
+        for (const Function &g : registry())
+            if (g.address == address)
+                f = &g;
+        if (!f || !runtime.hasFunction(address))
+            return original;
+        g_recompiled.emplace(address, original);
+        g_behindHook.push_back(address);
+        if (listed(std::getenv("SOTC_DECOMP_SKIP"), f->name))
+            return original;
+        const char *test = std::getenv("SOTC_DIFFTEST");
+        if (listed(test, f->name) && g_checkedUsed < kMaxChecked)
+        {
+            if (const char *max = std::getenv("SOTC_DIFFTEST_MAX"))
+                g_maxChecks = std::strtoull(max, nullptr, 0);
+            else if (test && std::strcmp(test, "all") == 0)
+                g_maxChecks = 1000u;
+            g_checked[g_checkedUsed].function = f;
+            g_checked[g_checkedUsed].recompiled = original;
+            return checkers()[g_checkedUsed++];
+        }
+        return f->native;
+    }
+
     void install(PS2Runtime &runtime)
     {
         if (const char *on = std::getenv("SOTC_DECOMP"); on && std::atoi(on) == 0)
             return;
-        static const auto checkers = makeChecked(std::make_integer_sequence<int, kMaxChecked>{});
+#if !defined(__vita__)
+        g_callGuestStats = callStatsPeriod() != 0u;
+#endif
+        const auto &checkers = sotc_decomp::checkers();
         const char *skip = std::getenv("SOTC_DECOMP_SKIP");
         const char *test = std::getenv("SOTC_DIFFTEST");
         if (const char *max = std::getenv("SOTC_DIFFTEST_MAX"))
             g_maxChecks = std::strtoull(max, nullptr, 0);
         else if (test && std::strcmp(test, "all") == 0)
             g_maxChecks = 1000u;
-        int replaced = 0, checked = 0, unchecked = 0;
+        int replaced = 0, checked = g_checkedUsed, unchecked = 0;
         for (const Function &f : registry())
         {
             if (!runtime.hasFunction(f.address))
                 continue;
+            // A hook calls it (behindHook): its table entry stays the hook's.
+            if (std::find(g_behindHook.begin(), g_behindHook.end(), f.address) != g_behindHook.end())
+            {
+                ++replaced;
+                continue;
+            }
             // Kept for a skipped one too: other natives reach the recompiled
             // code through recompiled() (a skipped boundary crashed them).
             g_recompiled.emplace(f.address, runtime.lookupFunction(f.address));
@@ -508,6 +629,7 @@ namespace sotc_decomp
             sotc_prof::noteAb(true);
             std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : "") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }
+        g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
         buildRecompiledTable();

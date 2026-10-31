@@ -137,6 +137,16 @@
    "time": 52.2,
    "generated": 30.3,
    "runtime": 17.5
+  },
+  {
+   "date": "2026-10-31",
+   "label": "r42",
+   "commit": "fabcdcc",
+   "code": 7.67,
+   "calls": 53.68,
+   "time": 56.0,
+   "generated": 28.7,
+   "runtime": 15.3
   }
  ]
 }

@@ -7012,6 +7012,181 @@ sotc_decomp.h (motionOn), README.md (SOTC_MOTION; the decomp block),
 docs/decomp.md, docs/decomp_status.json / .svg, docs/decomp_history.json /
 .svg, docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r41.vpk.
 
+## Round 42: callGuest inline, natives behind the hooks, the tail jumps, clamp-once (2026-10-30/31)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r42/` (dt.sh, pos.sh, v3k.sh as round
+41's; fam42.py is this round's family table; clamponce.py the clamp-once
+pass; thprof-new.txt is r33/thprof.py over this round's window, compared
+with r41/thprof-new.txt).
+
+**1. The natives' guest calls.** `SOTC_CALLGUEST_STATS=600` (new, Mac: the
+natives' guest calls by target and by call site) on the route: ~6 000
+calls a frame in the busy stretch (frames 1 800-4 200), half of them to
+natives (getPointDataByAreaIdx 426, isysAddGroupWithLinkParam 319,
+010A9EA8 308, 010C7B28 236, 010AC6C8 209, GetLayoutClass 198 ...) and
+the rest to recompiled code (iosgluGetCameraContext 298, SignalSema 249,
+floorf 132, strcmp 74, iosFTOI4Vector 67 ...). The out-of-line
+`sotc_decomp::callGuest` was ~45 Vita instructions a call (the argument
+moves, the table lookup through the table's extern bounds, the
+run-to-return loop's set-up), 294 k a frame in r41's window. Now:
+- `callGuest` is inline (sotc_decomp.h): ra / sp / pc stored, the table
+  entry read with the table's bounds as constants (ps2_recompiled_table.h,
+  as the generated code's PS2_GUEST_FN: a constant target is one load),
+  the host function called, and only when it leaves with pc != ra or
+  another sp the run-to-return loop (`finishGuestCall`, out of line). No
+  table entry, or the Mac's stats: `callGuestSlow`. ~20-25 instructions a
+  call at the sites looked at. Whatever the table holds is what runs, so
+  the switches, SOTC_DECOMP_SKIP, the difftest's checkers, SOTC_AB and the
+  profiler's wrappers all still apply.
+- `callNative(target, known, ra, sp)`: the same with the callee's native
+  named: a direct call while the table holds it (else callGuest). Used by
+  this round's natives for their callees (FlushModifiedManager,
+  iosCopyMatrix, iosDlChainTailCurrent, GetMotionFloatFrameNoCaribration,
+  CopyMultiMatrix, FlushCollisionWorkByWorkStruct).
+- callGuest & co. in the profile: 294.1 k a frame (r41) -> 22.7 k (the
+  out-of-line copies GCC kept: callGuest 21.4, finishGuestCall 0.8); the
+  inlined part is now in its callers' own counts (e.g. charageo 69.8 ->
+  79.3 k although its VU blocks got cheaper).
+
+**2. The tail jumps.** The generator emits a `j` to another function as a
+direct C++ call of that function's generated code, not through the table:
+a native at a tail-jump target only runs for its jal callers. A scan of
+build/recomp/game/output for such calls into registered natives found 25
+natives tail-jumped to from 37 functions; three mattered: GetMotionFloatFrameNoCaribration (17 k a frame
+still recompiled after round 41: GetMotionFloatFrame, getMotionFloatFrame
+and getMotionFloatFrameWithLimitCaribration tail-jump to it),
+FlushCollisionWorkByWorkStruct (21 k: FlushCollisionWork's tail) and
+CopyMultiMatrix (19 k: UpdateLayoutClassPastSimpleGeometry's and
+UpdateLayoutClassPastGeometry's). The jumpers became natives that call the
+target's native (callNative).
+
+**3. Natives behind sotc_native's hooks.** sotc_native installs its hooks
+(the layer stack's iosDlPushLayer / iosDlPopLayer, the camera context
+iosgluGetCameraContext) before sotc_decomp::install, which used to replace
+them (round 6). `sotc_decomp::behindHook(runtime, address)`: the hook asks
+for what to call: the registered native (its difftest checker with
+SOTC_DIFFTEST; the recompiled code with SOTC_DECOMP=0 / SKIP), and
+install() then leaves that table entry to the hook. Without the native
+renderer (no hooks) the natives go in the table as usual.
+
+**4. Nativized** (`SOTC_LEAVES=0` puts all of them back, each table entry
+alone with `SOTC_DECOMP_SKIP=<name>`; the generated code's statements in its
+order, relocated jal sites checked once from the live words):
+- decomp_leaves.cpp: `iosDlPushLayer` / `iosDlPopLayer` (their error reports
+  run the recompiled code from the start), `iosgluGetCameraContext` /
+  `get_cur_camera_context`, `spriteNoTexFast` (the 2D sprite's A+D pairs:
+  the simple mode and the 64-pixel columns with SCISSOR_1, every pair's
+  checks and pointer loads in the code's order, v0 / HI / LO / HI1 / LO1 as
+  it leaves them), `floorf`, `strcmp`, `iosFTOI4Vector`,
+  `gamecore_sub_014274A8` (a 0x654-byte camera parameter record copy).
+- decomp_collision.cpp: `character_ikcolattrfilter` (the IK feet's id
+  filter, also inline in idFilter), `FlushCollisionWork` and
+  `FlushCollisionWorkByWorkStruct`.
+- decomp_math.cpp: `CopyMultiMatrix`, `iosGetScaleMatrixV`,
+  `UpdateLayoutClassPastSimpleGeometry`. decomp_dl.cpp: `iosDlGetLayer`,
+  `transMicroCode`. decomp_layout.cpp: GetLayoutClass's three call-out
+  cases (script, camera, light objects; were the recompiled code).
+- decomp_motionframe.cpp: `GetMotionFloatFrame` (the plain motion's handle
+  walk, the frame wrap), `getMotionFloatFrame`,
+  `getMotionFloatFrameWithLimitCaribration`.
+- Not done: reflectionBegin (as round 41: its display calls are told apart
+  by return address, little to save), gamecore_sub_01427AD8 (fills the same
+  0x654-byte record block by block from motion handles: next),
+  texTransResolve's work records, 013EF378, the IK step, 010CF210's match
+  path (left for the next round: each is 2-15 KB of code).
+
+**5. Clamp-once.** r42/clamponce.py over the natives transcribed from the
+generator's one-line VU0 statements (decomp_charageo, gc13b8dc8, aiparam,
+ctrlturn, nodeinterp, ptclupdate, motion, clothtension, layoutsimple): per
+register and lane, whether the lane holds a PS2_V* result (or vf0's
+0, 0, 0, 1) through each run of consecutive statements (any other line
+ends the run); an operand whose kept lanes (the statement's final blend
+mask: the ops are lane-wise and feed only that blend) are all such
+results drops its clamp: ps2VuAddK / SubK / MulK<1, ...>, the recompiler's
+round-29 forms. ps2VuOperand is idempotent, so the kept lanes have the
+same bits on every host. 421 operand clamps dropped (charageo 72,
+gc13b8dc8 169, aiparam 55, motion 32, nodeinterp 33, ptclupdate 30,
+layoutsimple 19, clothtension 6, ctrlturn 5). AI_GetSmallAnimalAIParam
+28.7 -> 13.9 k a frame; the others move with the window's content and
+the inlined guest calls.
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s, game thread 248; r41/new.vpk 2 744 frames from
+game frame 4 176, r42/new.vpk 2 806 frames from 3 993; thousands a frame,
+r42/fam42.py):
+
+| | r41 | r42 |
+|---|---|---|
+| the recompiled functions replaced (spriteNoTexFast 45.9, gamecore_sub_014274A8 24.7, iosDlPopLayer 23.4, GetLayoutClass 23.4 + its callees 12.5, FlushCollisionWorkByWorkStruct 21.3, iosDlPushLayer 20.4, GetMotionFloatFrameNoCaribration 17.4, transMicroCode 15.7, floorf 14.3, character_ikcolattrfilter 13.7, get_cur_camera_context 8.7 ...) | 275.6 | 20.1 (CopyMultiMatrix 18.9: UpdateLayoutClassPastGeometry's tail jump) |
+| their native code (GetLayoutClass's native 30.4 -> 39.2 included) | - | 130.4 |
+| sotc_decomp::callGuest (out of line) | 294.1 | 22.7 (the rest inlined into the callers) |
+| the game thread | 9 623 | 9 425 |
+
+The thread's -198 k (-2.1%) is the honest total (other content in the two
+windows aside); the replaced functions alone save ~145 k, the guest-call
+path the rest. decomp_history r42: 56.0% of the game thread's instructions
+native (was 52.2), 28.7% recompiled MIPS (was 30.3).
+
+**Exactness.**
+- By name (Mac, the route on the r24 card, EVERY=10, MAX=3000;
+  r42/dt-focus1..6, dt-clamp): 0 mismatches in all: iosgluGetCameraContext
+  11 900 checks, iosDlPushLayer / PopLayer 16 800 each (checked behind the
+  hooks), get_cur_camera_context 800, spriteNoTexFast 4 100 + 7 500 (to
+  5 400), floorf 6 300, strcmp 7 600, iosFTOI4Vector 4 700, GetLayoutClass
+  23 400, FlushCollisionWork 4 300, FlushCollisionWorkByWorkStruct 300,
+  CopyMultiMatrix 200, iosGetScaleMatrixV 6 700, iosDlGetLayer 18 200,
+  transMicroCode 14 600, character_ikcolattrfilter 12 400 (with
+  collisionFinderLeaf 6 700, ClipCollisionDirectCallBack 5 100, the finders
+  4 400 each, clipCollisionKeep 12 800, whose recompiled legs call it through
+  the table), UpdateLayoutClassPastSimpleGeometry 2 100, GetMotionFloatFrame
+  3 200, GetMotionFloatFrameNoCaribration 800, iosCopyMatrix 17 900,
+  gamecore_sub_014274A8 700; the clamp-once natives (dt-clamp, 13
+  functions, 63 300 checks): only ExecCharaGeometry's known noise (90 of
+  3 700: the sub-threads' bytes 0x270c14.. 0x70 apart, f0 -1e7 / 0.95 / 0.7).
+  getMotionFloatFrame / ..WithLimitCaribration: not reached on the Mac
+  route (checked by reading).
+- `all` (r42/dt-all, the final code, EVERY=200 to 4 800): 200 in place,
+  188 reached, 233 703 checks, mismatches only isysWakeupSubThread (295),
+  gamecore_sub_013F8668 (149), ExecCharaGeometry (17).
+- Fixed-30 position route to 5 400 (r41/bin-new7 against r42/bin-new6, one
+  after the other): max 2.35 (frame 3 360), both reach 5 400 (VBlank 10 758
+  / 10 753); the runs part by one VBlank from frame 1 170 (a load's timing),
+  inside rounds 36-39's spread (2.06-3.38), wider than r41's 0.30.
+- Vita: celosia-r42.vpk (-j6, shader seed 52 files) boots and plays the
+  route in calibrated Vita3K: the profile run (r42/new-err.txt, to game frame
+  6 799 at 300 s) and the smoke run (r42/smoke-err.txt, 240 s to frame
+  5 945, r41's 5 734; sound: 0 late callbacks, 0 stale halves, 0
+  src-stale); the Vita3K tree restored (`restored ok` both).
+
+**Decomp status** (r42/replaced.txt): 7.67% of the MIPS code by size (was
+7.49), 5.74% by functions (518), 53.7% by calls, 5.80% of the game's own
+code.
+
+**Open.**
+- The remaining tail jumps into natives (r42's scan: glVertex* ->
+  glVertexKick, iosSetDC* -> iosDlChainTailCurrent, iosGetSinCos & co.,
+  UpdateLayoutClassPastGeometry -> CopyMultiMatrix 18.9 k): a generator
+  change (a `j`'s target through the table, as the jal's
+  PS2_CALL_GUEST_KNOWN) would cover all, at the price of regenerating.
+- SignalSema (249 calls a frame from natives): a syscall stub.
+- New top recompiled: reflectionBegin 0.5%, 0111C810 0.3, 013E1E48 0.3,
+  013EF378 0.3, 01427AD8 0.3, texTransResolve 0.3, the IK step 0.3,
+  CalcLightLayoutObj 0.2, 010D1A10 0.2, gsReg 0.2, 010C7B28's fallback
+  types 0.2, __ieee754_asinf 0.2, 0116A0D4 0.2, CopyMultiMatrix 0.2.
+
+**Files:** game/overrides/sotc_decomp.h (callGuest / callNative inline,
+guestFunction, behindHook, leavesOn), sotc_decomp.cpp (finishGuestCall,
+callGuestSlow, SOTC_CALLGUEST_STATS, behindHook and its checker slots),
+sotc_native.cpp (the hooks through behindHook), decomp_leaves.cpp (new),
+decomp_collision.cpp, decomp_math.cpp, decomp_dl.cpp, decomp_layout.cpp,
+decomp_motionframe.cpp, the clamp-once files (decomp_charageo,
+gc13b8dc8, aiparam, ctrlturn, nodeinterp, ptclupdate, motion,
+clothtension, layoutsimple), README.md (SOTC_LEAVES,
+SOTC_CALLGUEST_STATS; the decomp block), docs/decomp.md,
+docs/decomp_status.json / .svg, docs/decomp_history.json / .svg,
+docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r42.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

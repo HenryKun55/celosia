@@ -427,9 +427,9 @@ namespace decomp_ptclupdate
             // 0x113bb84  vmulax.xyzw $ACC, $vf24, $vf28x
             { __m128 res = PS2_VMUL(vf[24], _mm_shuffle_ps(vf[28], vf[28], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bb88  vmadday.xyzw $ACC, $vf25, $vf28y
-            { __m128 mul_res = PS2_VMUL(vf[25], _mm_shuffle_ps(vf[28], vf[28], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[25], _mm_shuffle_ps(vf[28], vf[28], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bb8c  vmaddaz.xyzw $ACC, $vf26, $vf28z
-            { __m128 mul_res = PS2_VMUL(vf[26], _mm_shuffle_ps(vf[28], vf[28], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[26], _mm_shuffle_ps(vf[28], vf[28], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bb90  vmaddw.xyzw $vf29, $vf0, $vf28w
             { __m128 mul_res = PS2_VMUL(vf[0], _mm_shuffle_ps(vf[28], vf[28], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[29] = _mm_blendv_ps(vf[29], res, _mm_castsi128_ps(mask)); }
             // 0x113bb94  vsub.w      $vf29, $vf29, $vf29
@@ -467,33 +467,33 @@ namespace decomp_ptclupdate
             // 0x113bbd4  vmulax.xyzw $ACC, $vf14, $vf24x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbd8  vmadday.xyzw $ACC, $vf15, $vf24y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbdc  vmaddaz.xyzw $ACC, $vf16, $vf24z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbe0  vmaddw.xyzw $vf24, $vf17, $vf24w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[24] = _mm_blendv_ps(vf[24], res, _mm_castsi128_ps(mask)); }
             // 0x113bbe4  vmulax.xyzw $ACC, $vf14, $vf25x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbe8  vmadday.xyzw $ACC, $vf15, $vf25y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbec  vmaddaz.xyzw $ACC, $vf16, $vf25z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbf0  vmaddw.xyzw $vf25, $vf17, $vf25w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[25] = _mm_blendv_ps(vf[25], res, _mm_castsi128_ps(mask)); }
             // 0x113bbf4  vmulax.xyzw $ACC, $vf14, $vf26x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbf8  vmadday.xyzw $ACC, $vf15, $vf26y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bbfc  vmaddaz.xyzw $ACC, $vf16, $vf26z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc00  vmaddw.xyzw $vf26, $vf17, $vf26w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[26] = _mm_blendv_ps(vf[26], res, _mm_castsi128_ps(mask)); }
             // 0x113bc04  vmulax.xyzw $ACC, $vf14, $vf27x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc08  vmadday.xyzw $ACC, $vf15, $vf27y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc0c  vmaddaz.xyzw $ACC, $vf16, $vf27z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc10  vmaddw.xyzw $vf27, $vf17, $vf27w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[27] = _mm_blendv_ps(vf[27], res, _mm_castsi128_ps(mask)); }
             // 0x113bc14  sqc2        $vf24, 0x0($v0)
@@ -523,33 +523,33 @@ namespace decomp_ptclupdate
             // 0x113bc44  vmulax.xyzw $ACC, $vf14, $vf24x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc48  vmadday.xyzw $ACC, $vf15, $vf24y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc4c  vmaddaz.xyzw $ACC, $vf16, $vf24z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc50  vmaddw.xyzw $vf24, $vf17, $vf24w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[24] = _mm_blendv_ps(vf[24], res, _mm_castsi128_ps(mask)); }
             // 0x113bc54  vmulax.xyzw $ACC, $vf14, $vf25x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc58  vmadday.xyzw $ACC, $vf15, $vf25y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc5c  vmaddaz.xyzw $ACC, $vf16, $vf25z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc60  vmaddw.xyzw $vf25, $vf17, $vf25w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[25] = _mm_blendv_ps(vf[25], res, _mm_castsi128_ps(mask)); }
             // 0x113bc64  vmulax.xyzw $ACC, $vf14, $vf26x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc68  vmadday.xyzw $ACC, $vf15, $vf26y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc6c  vmaddaz.xyzw $ACC, $vf16, $vf26z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc70  vmaddw.xyzw $vf26, $vf17, $vf26w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[26] = _mm_blendv_ps(vf[26], res, _mm_castsi128_ps(mask)); }
             // 0x113bc74  vmulax.xyzw $ACC, $vf14, $vf27x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc78  vmadday.xyzw $ACC, $vf15, $vf27y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc7c  vmaddaz.xyzw $ACC, $vf16, $vf27z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bc80  vmaddw.xyzw $vf27, $vf17, $vf27w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[27] = _mm_blendv_ps(vf[27], res, _mm_castsi128_ps(mask)); }
             // 0x113bc84  sqc2        $vf24, 0x0($v0)
@@ -579,33 +579,33 @@ namespace decomp_ptclupdate
             // 0x113bcb4  vmulax.xyzw $ACC, $vf14, $vf24x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcb8  vmadday.xyzw $ACC, $vf15, $vf24y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcbc  vmaddaz.xyzw $ACC, $vf16, $vf24z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcc0  vmaddw.xyzw $vf24, $vf17, $vf24w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[24], vf[24], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[24] = _mm_blendv_ps(vf[24], res, _mm_castsi128_ps(mask)); }
             // 0x113bcc4  vmulax.xyzw $ACC, $vf14, $vf25x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcc8  vmadday.xyzw $ACC, $vf15, $vf25y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bccc  vmaddaz.xyzw $ACC, $vf16, $vf25z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcd0  vmaddw.xyzw $vf25, $vf17, $vf25w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[25], vf[25], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[25] = _mm_blendv_ps(vf[25], res, _mm_castsi128_ps(mask)); }
             // 0x113bcd4  vmulax.xyzw $ACC, $vf14, $vf26x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcd8  vmadday.xyzw $ACC, $vf15, $vf26y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcdc  vmaddaz.xyzw $ACC, $vf16, $vf26z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bce0  vmaddw.xyzw $vf26, $vf17, $vf26w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[26], vf[26], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[26] = _mm_blendv_ps(vf[26], res, _mm_castsi128_ps(mask)); }
             // 0x113bce4  vmulax.xyzw $ACC, $vf14, $vf27x
             { __m128 res = PS2_VMUL(vf[14], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bce8  vmadday.xyzw $ACC, $vf15, $vf27y
-            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[15], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcec  vmaddaz.xyzw $ACC, $vf16, $vf27z
-            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[16], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             // 0x113bcf0  vmaddw.xyzw $vf27, $vf17, $vf27w
             { __m128 mul_res = PS2_VMUL(vf[17], _mm_shuffle_ps(vf[27], vf[27], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[27] = _mm_blendv_ps(vf[27], res, _mm_castsi128_ps(mask)); }
             // 0x113bcf4  sqc2        $vf24, 0x0($v0)
@@ -972,7 +972,7 @@ namespace decomp_ptclupdate
             // 0x113b6e4  vmulax.w    $ACC, $vf0, $vf7x
             { __m128 res = PS2_VMUL(vf[0], _mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
             // 0x113b6e8  vmadday.w   $ACC, $vf0, $vf7y
-            { __m128 mul_res = PS2_VMUL(vf[0], _mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
+            { __m128 mul_res = PS2_VMUL(vf[0], _mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
             // 0x113b6ec  vmaddz.w    $vf7, $vf0, $vf7z
             { __m128 mul_res = PS2_VMUL(vf[0], _mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); vf[7] = _mm_blendv_ps(vf[7], res, _mm_castsi128_ps(mask)); }
             // 0x113b6f0  .word       0x4BA703BD                   # vsqrt       $Q, $vf7w # 00200000 <InstrIdType: R5900_COP2_SPECIAL2>
@@ -1016,7 +1016,7 @@ namespace decomp_ptclupdate
             // 0x113b73c  vaddax.x    $ACC, $vf0, $vf6x
             { __m128 res = PS2_VADD(vf[0], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
             // 0x113b740  vmadday.x   $ACC, $vf7, $vf6y
-            { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
             // 0x113b744  vmaddz.x    $vf6, $vf7, $vf6z
             { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(0, 0, 0, -1); vf[6] = _mm_blendv_ps(vf[6], res, _mm_castsi128_ps(mask)); }
             // 0x113b748  qmfc2.ni    $v0, $vf6
@@ -1046,7 +1046,7 @@ namespace decomp_ptclupdate
             // 0x113b77c  vaddax.x    $ACC, $vf0, $vf6x
             { __m128 res = PS2_VADD(vf[0], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
             // 0x113b780  vmadday.x   $ACC, $vf7, $vf6y
-            { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
             // 0x113b784  vmaddz.x    $vf6, $vf7, $vf6z
             { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(0, 0, 0, -1); vf[6] = _mm_blendv_ps(vf[6], res, _mm_castsi128_ps(mask)); }
             // 0x113b788  qmfc2.ni    $v0, $vf6
@@ -1073,7 +1073,7 @@ namespace decomp_ptclupdate
             // 0x113b7b4  vaddax.x    $ACC, $vf0, $vf6x
             { __m128 res = PS2_VADD(vf[0], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
             // 0x113b7b8  vmadday.x   $ACC, $vf7, $vf6y
-            { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
+            { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1))); }
             // 0x113b7bc  vmaddz.x    $vf6, $vf7, $vf6z
             { __m128 mul_res = PS2_VMUL(vf[7], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(0, 0, 0, -1); vf[6] = _mm_blendv_ps(vf[6], res, _mm_castsi128_ps(mask)); }
             // 0x113b7c0  qmfc2.ni    $v0, $vf6

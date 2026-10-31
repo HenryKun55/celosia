@@ -172,8 +172,8 @@ namespace decomp_ctrlturn
             v[25] = _mm_castsi128_ps(_mm_unpackhi_epi64(t4, t6));
             v[26] = _mm_castsi128_ps(PS2_PCPYLD(t7, t5));
             { __m128 res = PS2_VMUL(v[24], _mm_shuffle_ps(v[28], v[28], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
-            { __m128 mul_res = PS2_VMUL(v[25], _mm_shuffle_ps(v[28], v[28], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
-            { __m128 mul_res = PS2_VMUL(v[26], _mm_shuffle_ps(v[28], v[28], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(v[25], _mm_shuffle_ps(v[28], v[28], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(v[26], _mm_shuffle_ps(v[28], v[28], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             { __m128 mul_res = PS2_VMUL(v[0], _mm_shuffle_ps(v[28], v[28], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); v[29] = _mm_blendv_ps(v[29], res, _mm_castsi128_ps(mask)); }
             { __m128 res = PS2_VSUB(v[29], v[29]); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); v[29] = PS2_VBLEND(v[29], res, _mm_castsi128_ps(mask)); }
             { __m128 res = PS2_VADD(v[29], v[0]); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); v[29] = PS2_VBLEND(v[29], res, _mm_castsi128_ps(mask)); }
@@ -191,8 +191,8 @@ namespace decomp_ctrlturn
             v[16] = q128(m + 0x20u);
             v[17] = q128(m + 0x30u);
             { __m128 res = PS2_VMUL(v[14], _mm_shuffle_ps(v[8], v[8], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
-            { __m128 mul_res = PS2_VMUL(v[15], _mm_shuffle_ps(v[8], v[8], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
-            { __m128 mul_res = PS2_VMUL(v[16], _mm_shuffle_ps(v[8], v[8], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(v[15], _mm_shuffle_ps(v[8], v[8], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+            { __m128 mul_res = PS2_VMUL(v[16], _mm_shuffle_ps(v[8], v[8], _MM_SHUFFLE(2,2,2,2))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             { __m128 mul_res = PS2_VMUL(v[17], _mm_shuffle_ps(v[8], v[8], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); v[10] = _mm_blendv_ps(v[10], res, _mm_castsi128_ps(mask)); }
             putq(dst, v[10]);
         }
@@ -466,7 +466,7 @@ namespace decomp_ctrlturn
                 v[5] = s.q128(sp + 0x140u);
             { __m128 res = PS2_VMUL(v[5], v[5]); __m128i mask = _mm_set_epi32(0, -1, -1, -1); v[7] = PS2_VBLEND(v[7], res, _mm_castsi128_ps(mask)); }
             { __m128 res = PS2_VMUL(v[0], _mm_shuffle_ps(v[7], v[7], _MM_SHUFFLE(0,0,0,0))); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
-            { __m128 mul_res = PS2_VMUL(v[0], _mm_shuffle_ps(v[7], v[7], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
+            { __m128 mul_res = PS2_VMUL(v[0], _mm_shuffle_ps(v[7], v[7], _MM_SHUFFLE(1,1,1,1))); __m128 res = ps2VuAddK<1, 1>(acc, mul_res); acc = _mm_blendv_ps(acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
             { __m128 mul_res = PS2_VMUL(v[0], _mm_shuffle_ps(v[7], v[7], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD(acc, mul_res); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); v[7] = _mm_blendv_ps(v[7], res, _mm_castsi128_ps(mask)); }
             { float fs = _mm_cvtss_f32(_mm_shuffle_ps(v[0], v[0], _MM_SHUFFLE(0,0,0,3))); float ft = _mm_cvtss_f32(_mm_shuffle_ps(v[7], v[7], _MM_SHUFFLE(0,0,0,3))); q = ps2VuRsqrt(status, fs, ft); }
             { __m128 res = PS2_VMUL(v[5], _mm_set1_ps(q)); __m128i mask = _mm_set_epi32(0, -1, -1, -1); v[5] = _mm_blendv_ps(v[5], res, _mm_castsi128_ps(mask)); }
