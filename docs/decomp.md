@@ -6855,6 +6855,163 @@ SOTC_DIFFTEST_MAX; the decomp block), docs/decomp.md, docs/decomp_status.json
 / .svg, docs/decomp_history.json / .svg, docs/decomp_tree.json. Deliverable:
 build/agent-scratch/celosia-r40.vpk.
 
+## Round 41: the motion accessors, ExecCharaGeometry and its chain, the control definition walker (2026-10-30)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r41/` (dt.sh, pos.sh, v3k.sh as round
+40's; vublock.py prints a generated function's statements with their
+mnemonics and `ctx->vu0_vf[N]` as `vN`, for transcribing VU0 blocks onto
+locals; syntax.sh compiles one overrides file with the runner's flags,
+`-fsyntax-only`; fam41.py is this round's family table; thprof-base.txt /
+thprof-new.txt are r33/thprof.py over r40's and this round's windows).
+
+**Targets.** Round 40's tree "top" list: the character / motion functions
+still run as recompiled MIPS on the game thread (898.6 k instructions a frame
+in r40's window, 8.7% of the thread), plus the smaller ones the list named.
+The 010Cxxxx "cluster" turned out to be several subsystems of the character
+class, not one: the control definition walker (010CA230, whose conditions
+010C7B28 were native since round 11), the motion change prediction (010CF210),
+the gaze (010C6238) and the turn / slope record (010C71D8).
+
+**Nativized** (all through the function table; `SOTC_MOTION=0` puts every one
+back to the recompiled code, each table entry alone with
+`SOTC_DECOMP_SKIP=<name>`; the reference is build/recomp/game/output, the
+generated code's macros in its order, relocated sites read live):
+- decomp_motion.cpp, the motion accessors: `getBlendLastMotion` (0x10b28e0),
+  `GetMotionVersion`, `GetMotionNbOptionNodes`, `GetMotionOptionNodePhysicalId`
+  (the handle walk through blends: the plain and blend types and the empty
+  table are relocated per site; a plain motion without its resource, the
+  original's iosJumpRecoverPoint longjmp, runs the recompiled code from the
+  start), `GetOptionNodePhysicalNodeId`, `AddCharacterClassOptionNodeSubGeometries`
+  (the slot loop, the sub geometry as a guest call), `manager_sub_010BC4F0`
+  (ExecCharaGeometry's option nodes: the accessors called natively, the
+  float frame / boolean info / sub geometry as guest calls),
+  `GetMotionNodeBasePos` / `GetMotionNodeBaseQuaternion` (a node up its parent
+  chain, the VU0 statements on locals).
+- decomp_skeleton.cpp: `GetMotionMatrix` (0x10b1d60), the pose from its root:
+  SetCurrentQuaternion / iosUnitCurrentMatrix / iosTransCurrentMatrix inline,
+  then round 26's Fast pose from node 0 on GetMotionMatrix's own frame (node
+  0 is what 010B8590 does for a node; v0 the root's sibling when it has
+  none). The quaternion-less variant (a1 == 0, 010B8798) is recompiled.
+- decomp_motionframe.cpp: `GetMotionFloatFrameNoCaribration` (two integer
+  frames' keys from 010B81F8, blended on the original's variable frame) and
+  `GetMotionIntFrame` (the object-animation case, header +8 == 0, recompiled).
+- decomp_charageo.cpp: `ExecCharaGeometry` (0x10bf8f0) whole, every callee a
+  guest call with the original's registers and frame (34 static sites checked
+  once, the relocated ones called where they point); the node quaternion
+  normalisation and the bone product loop on locals.
+- decomp_nodeinterp.cpp `CalcNodeInterp`, decomp_ikquat.cpp
+  `CalcNodeQuaternionWithIK` (the no-IK path; a running IK step goes to the
+  recompiled code: 25 k of its 33 k a frame still run there),
+  decomp_gaze.cpp `manager_sub_010C6238` (curveEval called through the wrapper
+  0x10b64c0 inlined), decomp_layoutsimple.cpp `UpdateLayoutClassSimpleGeometry`
+  (decomp_layout's products).
+- decomp_ctrlwalk.cpp `manager_sub_010CA230` (the entries, the conditions
+  through the table, the 25 request records' actions natively with guest
+  Request* calls), decomp_ctrlturn.cpp `manager_sub_010C71D8`,
+  decomp_motionpredict.cpp `manager_sub_010CF210` (the two link searches
+  natively; a match runs the recompiled code from the start:
+  `SOTC_MOTIONPREDICT_STATS=1` counts them, 12 077 of 20 000 on the fixed-30
+  route).
+- decomp_ambient.cpp `getAmbientColorC` (the ambient grid's bilinear sample;
+  the group walk and floorf as guest calls), decomp_aiparam.cpp
+  `AI_GetSmallAnimalAIParam`, decomp_padhist.cpp `FlushPadHistory` (its
+  semaphores as guest calls), decomp_clothtension.cpp
+  `clothmath_doubleTensionMove`, decomp_gc13b8dc8.cpp `gamecore_sub_013B8DC8`
+  (the strand solver, ~1 100 instructions: the generated statements lifted
+  mechanically onto host locals by r41/gc13b8dc8/lift.py, not hand-written),
+  decomp_textrans.cpp `texTransResolve` (the idle records' walk natively; the
+  first record with work enters the recompiled function at 0x10a5560: on the
+  route that is almost every call, 30.9 of its 31.6 k a frame still recompiled).
+- Looked at and not done: reflectionBegin (about 120 of its 141 call sites
+  are display calls the native renderer hooks by return address; the code
+  between them is argument packing: a native would save little at a high
+  risk), spriteNoTexFast (draw code).
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s, game thread 248; r40/new.vpk 2 664 frames from game
+frame 3 765, r41/new.vpk 2 744 frames from 4 176; thousands a frame,
+r41/fam41.py):
+
+| | r40 | r41 |
+|---|---|---|
+| the recompiled functions replaced (ExecCharaGeometry 112.7, 010CA230 78.6, getAmbientColorC 70.3, 013B8DC8 49.9, 010C6238 45.0, 010CF210 39.1, GetMotionMatrix 38.0, getBlendLastMotion 36.6, CalcNodeQuaternionWithIK 33.1, AI_GetSmallAnimalAIParam 32.8, FlushPadHistory 32.0, texTransResolve 31.6, ...) | 898.6 | 82.0 (texTransResolve 30.9, CalcNodeQuaternionWithIK 25.1, GetMotionFloatFrameNoCaribration 17.4, 010CF210 8.6) |
+| their native code (the pose itself not counted) | - | 419.6 |
+| the pose (decomp_skeleton: skeleton, now mostly reached as motionMatrix) | 454.7 | 441.3 |
+| sotc_decomp::callGuest / runToReturn | 221.7 | 294.1 |
+| the game thread | 10 322 | 9 623 |
+
+Net on these paths ~340 k instructions a frame, ~3.3% of the game thread
+(816.6 replaced, 419.6 native, the pose -13.4, callGuest +72.4: the new
+natives' guest calls, ExecCharaGeometry's ~40 a character above all). The
+thread's -6.8% is partly the windows' content. Several natives cost nearly
+what the lean code did (AI_GetSmallAnimalAIParam 28.7 against 32.8,
+clothmath_doubleTensionMove 21.2 against 27.1, GetMotionNodeBasePos 24.2
+against 29.6: the PS2_V* clamps dominate, NEON clamp-once left for later);
+the big savings are the handle walks, ExecCharaGeometry (69 against 113) and
+getAmbientColorC (32 against 70).
+
+**Exactness.**
+- By name (Mac, the route on the r24 card to frame 3 600, EVERY=10,
+  MAX=3000; r41/dt-focus1..6): 24 functions, 97 700 checks, 0 mismatches
+  (getBlendLastMotion 9 100, GetMotionVersion 9 200, ..PhysicalId 9 200,
+  GetOptionNodePhysicalNodeId 6 500, AddCharacterClassOptionNodeSubGeometries
+  6 500, GetMotionNodeBasePos 3 600, ..BaseQuaternion 4 100, GetMotionMatrix
+  4 200 (skeletonPose under it 16 000), GetMotionFloatFrameNoCaribration 300,
+  GetMotionIntFrame 2 200, 010BC4F0 3 300, CalcNodeInterp 3 400,
+  CalcNodeQuaternionWithIK 3 300, 010C6238 400, UpdateLayoutClassSimpleGeometry
+  6 800, 010CA230 3 400, 010C71D8 3 500, 010CF210 1 400, getAmbientColorC
+  3 800, AI_GetSmallAnimalAIParam 5 500, FlushPadHistory 500,
+  clothmath_doubleTensionMove 6 300, gamecore_sub_013B8DC8 700,
+  texTransResolve 500). GetMotionNbOptionNodes is reached only natively
+  (from GetOptionNodePhysicalNodeId) on the route.
+- ExecCharaGeometry: 6 700 checks, 37 + 48 mismatches, every one a byte of
+  the sub-threads' state (0x270c14 .. 0x2711c4, 0x70 apart; 0x26d988 once)
+  or f0 swapping between a callee's -1e7 and 0.7 / 0.95 both ways. The
+  control run (`SOTC_DIFFTEST_CONTROL=1`, the recompiled code in both legs,
+  r41/dt-ecgctl) gives 81 in 3 300 at the same addresses: the wake noise
+  isysWakeupSubThread shows (its callees wake sub-threads), not the native.
+- `all` (r41/dt-all, EVERY=200 to 4 800): 180 in place, 169 reached, 204 603
+  checks, mismatches only isysWakeupSubThread (295), gamecore_sub_013F8668
+  (144) and ExecCharaGeometry (16, the same noise addresses plus 0x1e0bf0, the
+  heap word round 40's isysWakeupSubThread mismatches also had).
+- Fixed-30 position route to 5 400 (r40/bin-final against r41/bin-new7, one
+  after the other): max 0.30 (frame 3 450), 0 frames over 0.5, both reach 5 400.
+- Vita: celosia-r41.vpk (-j6, shader seed 52 files) boots and plays the route
+  in calibrated Vita3K: the profile run (r41/new-err.txt, to game frame 6 920
+  at 300 s; r40's 6 429) and the smoke run (r41/smoke-err.txt, 240 s to frame
+  5 734, r40's 5 521; sound: 0 late callbacks, 0 stale halves, 0 src-stale);
+  the Vita3K tree restored (`restored ok` both).
+
+**Decomp status** (r41/replaced.txt): 7.49% of the MIPS code by size (was
+5.73), 5.56% by functions (502), 51.3% by calls, 5.65% of the game's own
+code; decomp_history r41: 52.2% of the game thread's instructions native
+(was 45.1), 30.3% recompiled MIPS.
+
+**Open.**
+- CalcNodeQuaternionWithIK's IK step (25 k a frame), texTransResolve's work
+  records (31 k), 010CF210's matches (8.6 k), GetMotionFloatFrameNoCaribration
+  (17 k left: check which path goes back).
+- The natives' guest calls: +72 k a frame in callGuest. ExecCharaGeometry's
+  callees are mostly natives now: calling them through a direct table lookup
+  (no runToReturn loop) is the next saving.
+- The PS2_V* clamps in the transcribed VU0 blocks: clamp-once (sotc_decomp::vu)
+  where provably the same bits.
+- New top recompiled: spriteNoTexFast 0.48, reflectionBegin 0.46,
+  texTransResolve 0.32, gamecore_sub_013EF378 0.30, 01427AD8 0.29,
+  014274A8 0.26, iosDlPopLayer 0.24, GetLayoutClass's calls out 0.24,
+  FlushCollisionWorkByWorkStruct 0.22, 010D1A10 0.22, gsReg 0.22.
+
+**Files:** game/overrides/decomp_motion.cpp, decomp_motionframe.cpp,
+decomp_charageo.cpp, decomp_nodeinterp.cpp, decomp_ikquat.cpp, decomp_gaze.cpp,
+decomp_layoutsimple.cpp, decomp_ctrlwalk.cpp, decomp_ctrlturn.cpp,
+decomp_motionpredict.cpp, decomp_ambient.cpp, decomp_aiparam.cpp,
+decomp_padhist.cpp, decomp_clothtension.cpp, decomp_gc13b8dc8.cpp,
+decomp_textrans.cpp (new), decomp_skeleton.cpp (GetMotionMatrix),
+sotc_decomp.h (motionOn), README.md (SOTC_MOTION; the decomp block),
+docs/decomp.md, docs/decomp_status.json / .svg, docs/decomp_history.json /
+.svg, docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r41.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

@@ -287,6 +287,19 @@ namespace sotc_decomp
         }();
         return on;
     }
+    // Round 41's natives (the motion accessors and the pose's root,
+    // decomp_motion.cpp / decomp_skeleton.cpp; the character's geometry
+    // subsystem, decomp_charageo.cpp). SOTC_MOTION=0 puts the recompiled
+    // code back for all of them (read at first use).
+    inline bool motionOn()
+    {
+        static const bool on = []
+        {
+            const char *e = std::getenv("SOTC_MOTION");
+            return !(e && e[0] == '0');
+        }();
+        return on;
+    }
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \

@@ -807,6 +807,83 @@ namespace decomp_skeleton
 SOTC_DECOMP_FUNCTION(0x010B8590u, skeletonPose, decomp_skeleton::skeleton);
 namespace decomp_skeleton
 {
+    // GetMotionMatrix (0x10b1d60, round 41): a whole pose from its root. a0
+    // the matrices, a1 the quaternions out, a2 the skeleton, a3 the local
+    // rotations, t0 the root's position, t1 the scale. The current
+    // quaternion set from 0x1e0f40 (relocated), the current matrix the unit
+    // one translated by t0, then node 0 as manager_sub_010B8590 does a node
+    // (the same frame offsets, its quaternion into a1 + 0), its children and
+    // siblings by it: Fast above from node 0, on GetMotionMatrix's frame. v0:
+    // the root's sibling (-1) when it has none (the original's last load).
+    // a1 == 0 (the pose without quaternions, 010B8798) and helper sites that
+    // name other functions: the recompiled code.
+    bool motionMatrixSites(uint8_t *rdram)
+    {
+        static constexpr uint32_t kSites[14][2] = {{0x010B1DA8u, 0x001BB988u}, {0x010B1DB0u, 0x001B8620u}, {0x010B1DB8u, 0x001B8878u},
+                                                   {0x010B1DD8u, 0x001BBB48u}, {0x010B1DE0u, 0x001B8638u}, {0x010B1DF0u, 0x001BB8A8u},
+                                                   {0x010B1EB4u, 0x001B8878u}, {0x010B1EBCu, 0x001B8CD0u}, {0x010B1ECCu, 0x001B8C90u},
+                                                   {0x010B1ED4u, 0x001BB868u}, {0x010B1F24u, 0x010B8590u}, {0x010B1F2Cu, 0x001B8650u},
+                                                   {0x010B1F34u, 0x001BBC08u}, {0x010B1F58u, 0x010B8590u}};
+        for (const auto &s : kSites)
+            if (sotc_decomp::jalTarget(rdram, s[0]) != s[1])
+                return false;
+        return true;
+    }
+    void motionMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool fastOn = !std::getenv("SOTC_SKELETON_FAST") || std::atoi(std::getenv("SOTC_SKELETON_FAST")) != 0;
+        if (!sotc_decomp::motionOn() || !fastOn || GPR_U64(ctx, 5) == 0u || !fastSites(rdram) || !motionMatrixSites(rdram))
+            return sotc_decomp::recompiled(0x010B1D60u)(rdram, ctx, runtime);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x100u;
+        Fast f;
+        f.rdram = rdram;
+        f.ctx = ctx;
+        f.runtime = runtime;
+        f.vu0mem = runtime->memory().getVU0Data();
+        f.matrices = GPR_U32(ctx, 4);
+        f.quats = GPR_U32(ctx, 5);
+        f.skeleton = GPR_U32(ctx, 6);
+        f.locals = GPR_U32(ctx, 7);
+        f.scale = GPR_U32(ctx, 9);
+        const uint32_t pos = GPR_U32(ctx, 8);
+        f.vf0 = ctx->vu0_vf[0];
+        f.vf0c = vu::clamp(f.vf0);
+        f.vf0sq = vu::mulN(f.vf0c, f.vf0c);
+        f.vf0w = lane<3>(f.vf0);
+        f.mr32w = _mm_shuffle_ps(f.vf0, f.vf0, _MM_SHUFFLE(0, 3, 2, 1));
+        f.vf12xyz = vu::addN(f.vf0c, lane<3>(f.vf0c));
+        f.vf0Clean = std::memcmp(&f.vf0, &f.vf0c, 16) == 0;
+        f.v.load(ctx);
+        // SetCurrentQuaternion(0x1e0f40)
+        {
+            const uint32_t src = sotc_decomp::relocated(rdram, 0x010B1D64u, 0x010B1D78u);
+            const uint32_t top = Ctx::kQuatStack + (f.u32(Ctx::kQuatTop) << 4);
+            f.putq(top, f.q(src));
+        }
+        // iosUnitCurrentMatrix: vf4 = vf0, vf3..vf1 each the one above rotated (vmr32)
+        __m128 *vf = f.v.vf;
+        vf[4] = f.vf0;
+        vf[3] = _mm_shuffle_ps(vf[4], vf[4], _MM_SHUFFLE(0, 3, 2, 1));
+        vf[2] = _mm_shuffle_ps(vf[3], vf[3], _MM_SHUFFLE(0, 3, 2, 1));
+        vf[1] = _mm_shuffle_ps(vf[2], vf[2], _MM_SHUFFLE(0, 3, 2, 1));
+        // iosTransCurrentMatrix(t0)
+        vf[8] = f.q(pos);
+        vf[4] = f.column(vu::clampRows(vf + 1), vf[8], f.vf0w);
+        const uint32_t rootSibling = f.u32(f.u32(f.skeleton + 8u) + 0x34u);
+        f.run(0u, sp + 0xB0u);
+        if (rootSibling == 0xFFFFFFFFu)
+            f.gp.s32(2, 0xFFFFFFFFu);
+        f.gp.s32(29, sp0);
+        f.gp.s32(31, ra0);
+        f.gp.flush(ctx);
+        f.v.store(ctx);
+        returnTo(ctx);
+    }
+}
+SOTC_DECOMP_FUNCTION(0x010B1D60u, GetMotionMatrix, decomp_skeleton::motionMatrix);
+
+namespace decomp_skeleton
+{
     // regularizeMatAry (0x10c1a98, round 11): a1 quaternions at a0 each
     // normalised in place, the VU0 block normalised() does (vf14 the
     // quaternion, vf15 the result, Q). A negative count: the recompiled code.
