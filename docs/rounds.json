@@ -156,9 +156,17 @@
   {
    "round": "r44",
    "date": "2026-10-31",
-   "commit": "",
+   "commit": "7ea1edd",
    "focus": "Decomp",
-   "summary": "Next: settle the slope probe on the Vita, then texTransResolve, clipKeep's full test, gsReg and the next top recompiled functions.",
+   "summary": "Console regression in r42 traced to the body-shadow volumes being rebuilt every frame on the worker: rebuilt once and reused, half the worker's work. A/B rotation for the console to price every feature. 15 more natives, including the rest of the collision keep test and gsReg.",
+   "result": "Console r42: game thread 54 -> 69 ms, worker 8 -> 40 ms vs r35. Fix measured only in Vita3K so far (worker -50%)."
+  },
+  {
+   "round": "r45",
+   "date": "2026-10-31",
+   "commit": "",
+   "focus": "Console",
+   "summary": "Next: the console A/B run prices each feature and native group; set the Vita defaults from it.",
    "result": ""
   }
  ]
