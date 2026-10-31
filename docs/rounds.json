@@ -139,10 +139,18 @@
   },
   {
    "round": "r42",
-   "date": "2026-10-30",
+   "date": "2026-10-31",
+   "commit": "b4f9d82",
+   "focus": "Decomp",
+   "summary": "Native-to-native calls made cheap (the guest call path inlined: ~20 instructions a call instead of ~45), 20 more natives (sprites, display-list layers, layout classes, collision work flush, motion frames, microcode transfer, camera context), 421 redundant VU clamps dropped. Exact.",
+   "result": "About 4% of the game thread between both changes; 56% of the game thread now native, 54% of calls."
+  },
+  {
+   "round": "r43",
+   "date": "2026-10-31",
    "commit": "",
    "focus": "Decomp",
-   "summary": "Next: natives call natives directly instead of through the guest call path, then the new top recompiled functions (sprites, reflection, texture transfer, layout).",
+   "summary": "Next: route tail jumps through the function table (so natives are reached from every caller), then reflectionBegin, the IK step, the slope probes and the next top recompiled functions.",
    "result": ""
   }
  ]
