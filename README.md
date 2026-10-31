@@ -191,31 +191,31 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 <!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-**Game thread time on the Vita** (r43, Vita3K profile of the route):
+**Game thread time on the Vita** (r44, Vita3K profile of the route):
 
 | | share | |
 |---|---:|---|
-| Native code | 59.9% | `████████████░░░░░░░░` |
-| Recompiled MIPS | 25.6% | `█████░░░░░░░░░░░░░░░` |
-| Runtime (DMA walk, memory, scheduler, glue) | 14.4% | `███░░░░░░░░░░░░░░░░░` |
+| Native code | 60.6% | `████████████░░░░░░░░` |
+| Recompiled MIPS | 24.7% | `█████░░░░░░░░░░░░░░░` |
+| Runtime (DMA walk, memory, scheduler, glue) | 14.8% | `███░░░░░░░░░░░░░░░░░` |
 
 <details open>
 <summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>
 
 | Area | Code native | | Functions | Game thread time: native / MIPS |
 |---|---:|---|---:|---|
-| Display and models | 15.9% | `██░░░░░░░░░░` | 41 / 975 | 21.1% / 3.4% |
-| Characters and motion | 7.9% | `█░░░░░░░░░░░` | 41 / 1208 | 15.2% / 3.3% |
-| Other game code (names not identified yet) | 5.1% | `█░░░░░░░░░░░` | 33 / 2880 | 5.9% / 11.9% |
-| Collision and physics | 19.4% | `██░░░░░░░░░░` | 48 / 342 | 12.9% / 0.9% |
-| Boot ELF, SDK and libc | 15.4% | `██░░░░░░░░░░` | 330 / 2126 | 0.0% / 3.2% |
-| System and memory | 6.6% | `█░░░░░░░░░░░` | 6 / 230 | 2.0% / 0.2% |
-| Math | 25.6% | `███░░░░░░░░░` | 24 / 132 | 1.5% / 0.7% |
-| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.9% / 0.8% |
-| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.5% / 0.7% |
-| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.0% / 0.4% |
+| Display and models | 15.9% | `██░░░░░░░░░░` | 40 / 974 | 21.6% / 3.7% |
+| Characters and motion | 7.9% | `█░░░░░░░░░░░` | 40 / 1207 | 15.9% / 3.5% |
+| Other game code (names not identified yet) | 5.7% | `█░░░░░░░░░░░` | 43 / 2881 | 5.7% / 10.8% |
+| Collision and physics | 17.9% | `██░░░░░░░░░░` | 47 / 341 | 11.5% / 0.8% |
+| Boot ELF, SDK and libc | 15.5% | `██░░░░░░░░░░` | 333 / 2128 | 0.0% / 3.0% |
+| System and memory | 6.6% | `█░░░░░░░░░░░` | 6 / 230 | 2.3% / 0.2% |
+| Math | 25.6% | `███░░░░░░░░░` | 24 / 132 | 1.6% / 0.7% |
+| Script and events | 0.3% | `░░░░░░░░░░░░` | 1 / 632 | 1.2% / 0.7% |
+| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.8% / 0.9% |
+| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.1% / 0.4% |
 | Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
-| Runtime (DMA walk, memory, scheduler) | | | | 14.4% (runtime) |
+| Runtime (DMA walk, memory, scheduler) | | | | 14.8% (runtime) |
 
 </details>
 
@@ -243,15 +243,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | 2026-10-30 | r41 | 7.49% | 51.3% | 52.2% |
 | 2026-10-31 | r42 | 7.67% | 53.7% | 56.0% |
 | 2026-10-31 | r43 | 8.66% | 54.1% | 59.9% |
+| 2026-10-31 | r44 | 8.93% | 54.9% | 60.6% |
 
 </details>
 
 ```mermaid
 xychart-beta
     title "Game thread time in native code (%)"
-    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42", "r43"]
+    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42", "r43", "r44"]
     y-axis "%" 0 --> 100
-    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0, 59.9]
+    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0, 59.9, 60.6]
 ```
 
 <!-- decomp:end -->
@@ -349,6 +350,10 @@ xychart-beta
 | `SOTC_LEAVES=0` | (round 42) round 42's natives back to the recompiled code: the display list's layer stack `iosDlPushLayer` / `iosDlPopLayer` and the camera context `iosgluGetCameraContext` / `get_cur_camera_context` (the first three behind sotc_native's hooks, which now call the natives), `iosDlGetLayer`, `transMicroCode`, the 2D sprite `spriteNoTexFast`, `floorf`, `strcmp`, `iosFTOI4Vector`, `iosGetScaleMatrixV`, `CopyMultiMatrix`, `UpdateLayoutClassPastSimpleGeometry`, `FlushCollisionWork` / `FlushCollisionWorkByWorkStruct`, the IK feet's id filter `character_ikcolattrfilter`, `GetLayoutClass`'s script / camera / light cases, the motion frame wrappers `GetMotionFloatFrame` / `getMotionFloatFrame` / `getMotionFloatFrameWithLimitCaribration`, the camera parameter copy `gamecore_sub_014274A8`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (also for the three behind the hooks) |
 | `SOTC_HOTLIST=0` | (round 43) round 43's natives back to the recompiled code (the list in docs/decomp.md, "Round 43"); each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` |
 | `SOTC_SEMA_FAST=0` | (round 43) `SignalSema` through the runtime's syscall stub every time (default: the uncontended case, no waiter and room in the count, done in the table entry without the syscall's set-up; also off with `SOTC_DECOMP=0` or `SOTC_DECOMP_SKIP=SignalSema`) |
+| `SOTC_HOTLIST44=0` | (round 44) round 44's natives back to the recompiled code: `gsReg` (behind sotc_native's 2D hook), `GetQuaternionByEulerYXZ`, `execCondition`, `manager_sub_01129988`, `manager_sub_01118B88`, clipCollisionKeep's full test (0x111c078), `gamecore_sub_013E30D0` / `013448C0` / `0141F310`, `_setNodeHPB` / `_setNodeHPBIllegal`, `manager_sub_010AC4A0`, `manager_sub_01102638`, texTransResolve's whole walk; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` |
+| `SOTC_AB_ROTATE=1` | (round 44) with `SOTC_AB_FLAG`: the windows take turns, window w turning off only the (w mod (n + 1))-th listed flag (0: none, the baseline), with `[ab] frame F: <flag> off` / `all on` in the log, so one console run gives each flag's cost (`build/agent-scratch/r44/abrot.py err.txt`). `SOTC_AB_FLAG` also takes the decomp switches `camcoll collprobe motion leaves hotlist hotlist44` (rotating or not) |
+| `SOTC_GL_SPIKE_LOG=1`, `SOTC_GL_SPIKE_MS=n` | (round 44, OpenGL / Vita) a `[gl:spike]` line for each frame whose draw part on the render thread passes n ms (100): the longest gap between two 3D draws and the draw it ended at (target, order, vertices, shadow volume / overlay / skinned, alpha test). One clock read a draw when on |
+| `SOTC_SHADOW_CHECK=1` | (round 44, testing) round 38's shadow volume builder run as well as round 44's (strips parsed once per model, each vertex to camera space once, the inner sides matched in a flat table) and the two volumes compared as sets of triangles (`[shadowcheck]`) |
 | `SOTC_SEMA_STATS=1` | (round 43, measuring, Mac) SignalSema's calls through the uncontended path and through the stub, every 65 536 calls |
 | `SOTC_CALLGUEST_STATS=<frames>` | (round 42, measuring, Mac) the natives' guest calls (`sotc_decomp::callGuest`) by target and by call site every that many game frames: calls a frame and how many land on a native |
 | `SOTC_DIFFTEST_MAX=<n>` | (round 40, checking) after each n checks of a function past `SOTC_DIFFTEST_FIRST` its stride (`SOTC_DIFFTEST_EVERY`) doubles; default 1000 with `SOTC_DIFFTEST=all`, off for a list of names. `all` now checks every registered native (512 slots, was the first 64) |

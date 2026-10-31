@@ -1202,6 +1202,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint32_t runCopies = 0, runScans = 0;                       // round 36: merged runs copied, scans for their room
             uint32_t targets = 0;
         } stats;
+        // SOTC_GL_SPIKE_LOG=1 (round 44, the console's 150-450 ms draw spikes):
+        // the render thread's time between consecutive 3D draws of a frame,
+        // the longest gap and the draw before it, logged when the frame's
+        // draw part passes SOTC_GL_SPIKE_MS (100). One clock read a draw.
+        struct
+        {
+            bool on = false;
+            uint64_t last = 0, gap = 0;
+            uint32_t index = 0, drawn = 0, order = 0, count = 0, target = 0;
+            bool volume = false, overlay = false, skinned = false, dynamic = false;
+            uint16_t alphaTest = 0;
+        } spike;
         std::vector<native_renderer::ScreenBlur> blurs;
         native_renderer::Fog fog;
         native_renderer::Bloom bloom;
@@ -1438,6 +1450,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glUniform1i(uniform(false, "uSrc"), 0);
             glUniform1i(uniform(false, "uSrc2"), 1);
             glUniform1i(uniform(false, "uDepth"), 2);
+            spike.on = std::getenv("SOTC_GL_SPIKE_LOG") && std::atoi(std::getenv("SOTC_GL_SPIKE_LOG")) != 0;
 #if defined(PS2X_NATIVE_VITA)
             probeEmulator();
             if (native_renderer::tuning().warmShaders)
@@ -2853,6 +2866,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (!planned.mesh)
                     continue;
                 Mesh &mesh = *planned.mesh;
+                if (spike.on)
+                {
+                    const uint64_t now = native_renderer::nowUs();
+                    if (spike.last && now - spike.last > spike.gap)
+                        spike.gap = now - spike.last, spike.index = spike.drawn;
+                    spike.last = now;
+                    if (spike.index == spike.drawn) // the draw the gap ends at
+                    {
+                        spike.order = d.state.order, spike.count = mesh.count, spike.target = target.fbo;
+                        spike.volume = d.state.shadowVolume, spike.overlay = d.state.overlay, spike.skinned = mesh.skinned, spike.dynamic = mesh.dynamic;
+                        spike.alphaTest = d.state.alphaTest;
+                    }
+                    ++spike.drawn;
+                }
                 bindTarget(target);
                 const bool skinned = mesh.skinned;
                 if (skinned && (!skinProgram || !d.state.skinPalette))
@@ -4578,6 +4605,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                     const uint64_t drawn = native_renderer::nowUs();
                     r->stats.drawUs += (drawn - uploaded) - (r->stats.presentUs - present);
+                    if (r->spike.on)
+                    {
+                        static const uint64_t limitUs = std::getenv("SOTC_GL_SPIKE_MS") ? std::strtoull(std::getenv("SOTC_GL_SPIKE_MS"), nullptr, 10) * 1000u : 100000u;
+                        const uint64_t drawPart = (drawn - uploaded) - (r->stats.presentUs - present);
+                        if (drawPart > limitUs)
+                            std::fprintf(stderr,
+                                         "[gl:spike] arena %llu: draw %.1f ms (upload %.1f, present %.1f), %u draws; longest gap %.1f ms ending at draw %u (fbo %u order %u, %u vertices%s%s%s%s, test %04x)\n",
+                                         (unsigned long long)r->arenaFrame, drawPart / 1000.0, (uploaded - start) / 1000.0, (r->stats.presentUs - present) / 1000.0,
+                                         r->spike.drawn, r->spike.gap / 1000.0, r->spike.index, r->spike.target, r->spike.order, r->spike.count,
+                                         r->spike.volume ? ", shadow volume" : "", r->spike.overlay ? ", overlay" : "", r->spike.skinned ? ", skinned" : "",
+                                         r->spike.dynamic ? ", dynamic" : "", r->spike.alphaTest);
+                        r->spike.last = r->spike.gap = 0;
+                        r->spike.drawn = r->spike.index = 0;
+                    }
                     r->evictUnused();
                     r->stats.sweepUs += native_renderer::nowUs() - drawn;
                     r->stats.renderUs += (native_renderer::nowUs() - start) - (r->stats.presentUs - present);

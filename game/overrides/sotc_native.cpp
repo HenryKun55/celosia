@@ -2845,7 +2845,6 @@ namespace sotc_native
         if (!flags)
             return;
         static const uint64_t period = std::max<uint64_t>(1u, std::getenv("SOTC_AB_PERIOD") ? std::strtoull(std::getenv("SOTC_AB_PERIOD"), nullptr, 10) : 30u);
-        const bool off = (g_frame / period) % 2u == 1u;
         native_renderer::Tuning &t = native_renderer::tuning();
         static const native_renderer::Tuning start = t;
         static const std::string list = []
@@ -2854,11 +2853,61 @@ namespace sotc_native
             std::replace(l.begin(), l.end(), ':', ','); // ':' separates too (env lists split on commas)
             return l;
         }();
+        // SOTC_AB_ROTATE=1 (round 44, one console run for many switches): the
+        // windows take turns, window w turning off only the (w mod (n + 1))-th
+        // listed flag, 0 none (the baseline): "[ab] frame F: <flag> off" /
+        // "all on" at each change, so each flag's cost is its windows
+        // against the baseline's (build/agent-scratch/r44/abrot.py).
+        // Without it all listed flags go off together in odd windows.
+        static const bool rotate = std::getenv("SOTC_AB_ROTATE") && std::atoi(std::getenv("SOTC_AB_ROTATE")) != 0;
+        static const std::vector<std::string> names = []
+        {
+            std::vector<std::string> out;
+            size_t at = 1;
+            while (at < list.size())
+            {
+                const size_t end = list.find(',', at);
+                if (end == std::string::npos)
+                    break;
+                if (end > at)
+                    out.push_back(list.substr(at, end - at));
+                at = end + 1;
+            }
+            return out;
+        }();
+        const uint64_t window = g_frame / period;
+        const size_t slot = rotate ? static_cast<size_t>(window % (names.size() + 1u)) : 0u;
+        const bool odd = window % 2u == 1u;
+        auto isOff = [&](const char *name)
+        {
+            if (!rotate)
+                return odd;
+            return slot > 0 && names[slot - 1u] == name;
+        };
+        static size_t lastSlot = ~size_t(0);
+        if (rotate && slot != lastSlot)
+        {
+            lastSlot = slot;
+            std::fprintf(stderr, "[ab] frame %llu: %s%s\n", (unsigned long long)g_frame, slot ? names[slot - 1u].c_str() : "all on", slot ? " off" : "");
+        }
         auto ab = [&](const char *name, bool native_renderer::Tuning::*field)
         {
             if (list.find(std::string(",") + name + ",") != std::string::npos)
-                t.*field = off ? false : start.*field;
+                t.*field = isOff(name) ? false : start.*field;
         };
+        // The decomp rounds' subsystem switches (sotc_decomp.h's table).
+        static bool switchStart[sotc_decomp::kSwitchCount];
+        static const bool switchesRead = []
+        {
+            for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
+                switchStart[i] = sotc_decomp::switchOn(i);
+            return true;
+        }();
+        (void)switchesRead;
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44"};
+        for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
+            if (list.find(std::string(",") + switchNames[i] + ",") != std::string::npos)
+                sotc_decomp::setSwitch(i, isOff(switchNames[i]) ? false : switchStart[i]);
         ab("bloom", &native_renderer::Tuning::bloom);
         ab("vfog", &native_renderer::Tuning::vertexFog);
         ab("zfog", &native_renderer::Tuning::zFog);
@@ -2881,12 +2930,13 @@ namespace sotc_native
         ab("lighting", &native_renderer::Tuning::lighting);
         for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
             if (list.find(",L" + std::to_string(layer) + ",") != std::string::npos)
-                t.hiddenLayers = off ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
+                t.hiddenLayers = isOff(("L" + std::to_string(layer)).c_str()) ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
         static bool logged = false;
         if (!logged)
         {
             logged = true;
-            std::fprintf(stderr, "[ab] %s off in odd windows of %llu frames\n", flags, (unsigned long long)period);
+            std::fprintf(stderr, rotate ? "[ab] %s off one at a time, windows of %llu frames\n" : "[ab] %s off in odd windows of %llu frames\n", flags,
+                         (unsigned long long)period);
         }
     }
 
@@ -5760,9 +5810,74 @@ namespace sotc_native
         if (volLog && g_frame % 60u == 0u)
             std::fprintf(stderr, "[shadowvol] frame %llu skinned %d model %08x extrude %g %g %g\n", (unsigned long long)g_frame, skinnedShadow ? 1 : 0, model, d[0], d[1], d[2]);
         const uint32_t tag = word(model + 0x1Cu);
-        static std::vector<Strip> strips;
-        strips.clear();
-        readBatches(word(tag + 4u), (word(tag) & 0xFFFFu) * 16u, strips);
+        // Round 44 (the console's r42 log: the worker 8 -> 40 ms a frame with
+        // the body shadows, half of it this function): the shadow model's
+        // strips are parsed once and kept while the guest bytes the parse
+        // read are the same (compared at each use, so a model unloaded and
+        // another loaded at its address is parsed again); each strip vertex
+        // goes to camera space once (it was once per triangle using it: three
+        // times); the inner sides are matched in a flat table (an
+        // unordered_map of vectors was ~45% of the worker's instructions in
+        // Vita3K: the bucket modulo and an allocation per edge). The
+        // volume's vertices are the same values as before.
+        struct ParsedModel
+        {
+            uint32_t addr = 0, size = 0, lo = 0, hi = 0;
+            std::vector<uint8_t> bytes; // guest [lo, hi) as the parse read it
+            std::vector<Strip> strips;
+        };
+        struct SpanMem
+        {
+            mutable uint32_t lo = ~0u, hi = 0u;
+            uint32_t word(uint32_t a) const
+            {
+                lo = std::min(lo, a & ~3u);
+                hi = std::max(hi, (a & ~3u) + 4u);
+                return sotc_native::word(a);
+            }
+            float real(uint32_t a) const
+            {
+                const uint32_t v = word(a);
+                float f;
+                std::memcpy(&f, &v, 4);
+                return f;
+            }
+        };
+        static ParsedModel parsed[8];
+        static uint32_t parsedNext = 0;
+        const uint32_t batchAddr = word(tag + 4u), batchSize = (word(tag) & 0xFFFFu) * 16u;
+        auto sameBytes = [](const ParsedModel &c)
+        {
+            const uint32_t at = c.lo & 0x1FFFFFCu;
+            if (c.hi <= c.lo || at + (c.hi - c.lo) > 0x2000000u || (c.lo & ~0x1FFFFFCu) != ((c.hi - 4u) & ~0x1FFFFFCu))
+                return false; // wraps or empty: parse again
+            noteRead(c.lo, c.hi - c.lo);
+            return std::memcmp(c.bytes.data(), g_ram + at, c.hi - c.lo) == 0;
+        };
+        const ParsedModel *pm = nullptr;
+        for (const ParsedModel &c : parsed)
+            if (c.addr == batchAddr && c.size == batchSize && !c.bytes.empty() && sameBytes(c))
+            {
+                pm = &c;
+                break;
+            }
+        static std::vector<Strip> uncached;
+        if (!pm)
+        {
+            ParsedModel &c = parsed[parsedNext++ % 8u];
+            c.strips.clear();
+            const SpanMem span;
+            readBatchesFrom(span, batchAddr, batchSize, c.strips);
+            c.addr = batchAddr;
+            c.size = batchSize;
+            c.lo = span.lo;
+            c.hi = span.hi;
+            c.bytes.clear();
+            if (span.hi > span.lo && (span.lo & 0x1FFFFFCu) + (span.hi - span.lo) <= 0x2000000u)
+                c.bytes.assign(g_ram + (span.lo & 0x1FFFFFCu), g_ram + (span.lo & 0x1FFFFFCu) + (span.hi - span.lo));
+            pm = &c;
+        }
+        const std::vector<Strip> &strips = pm->strips;
         auto toCamera = [&](const BatchVertex &v, float out[3])
         {
             if (!skinnedShadow)
@@ -5802,12 +5917,12 @@ namespace sotc_native
         struct SideQuad
         {
             float p[4][3]; // near k, far k, far l, near l
+            uint64_t key;  // its directed edge
+            int32_t next;  // the next quad in its table chain
             bool live;
         };
         static std::vector<SideQuad> sides;
-        static std::unordered_map<uint64_t, std::vector<uint32_t>> open; // directed edge key -> quads waiting for their reverse
         sides.clear();
-        open.clear();
         const bool allSides = native_renderer::tuning().shadowAllSides;
         auto edgeKey = [](const float *a, const float *b, const float *fa, const float *fb)
         {
@@ -5826,13 +5941,43 @@ namespace sotc_native
             // the reverse of q: a = q's near l, b = q's near k, fa = q's far l, fb = q's far k
             return !std::memcmp(q.p[3], a, 12) && !std::memcmp(q.p[0], b, 12) && !std::memcmp(q.p[2], fa, 12) && !std::memcmp(q.p[1], fb, 12);
         };
+        // Each strip vertex in camera space once.
+        static std::vector<float> cam;
+        size_t vertices = 0, triangles = 0;
         for (const Strip &strip : strips)
+        {
+            vertices += strip.size();
+            triangles += strip.size() > 2 ? strip.size() - 2 : 0;
+        }
+        cam.resize(vertices * 3u);
+        {
+            size_t at = 0;
+            for (const Strip &strip : strips)
+                for (const BatchVertex &v : strip)
+                {
+                    toCamera(v, &cam[at]);
+                    at += 3u;
+                }
+        }
+        // The open sides by directed edge: a power-of-two table of chains
+        // through SideQuad::next (cancelled ones stay in the chain, not live).
+        uint32_t tableSize = 64u;
+        while (tableSize < triangles * 6u)
+            tableSize <<= 1;
+        static std::vector<int32_t> heads;
+        heads.assign(tableSize, -1);
+        sides.reserve(triangles * 3u);
+        size_t first = 0;
+        for (const Strip &strip : strips)
+        {
+            const float *sv = cam.data() + first * 3u;
+            first += strip.size();
             for (size_t i = 2; i < strip.size(); ++i)
             {
                 float a[3], b[3], c[3];
-                toCamera(strip[i - 2], a);
-                toCamera(strip[i - 1], b);
-                toCamera(strip[i], c);
+                std::memcpy(a, sv + (i - 2) * 3u, 12);
+                std::memcpy(b, sv + (i - 1) * 3u, 12);
+                std::memcpy(c, sv + i * 3u, 12);
                 const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, w[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
                 const float n[3] = {u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]};
                 const float facing = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
@@ -5877,13 +6022,150 @@ namespace sotc_native
                         continue;
                     }
                     // Its reverse waiting: both go.
-                    auto it = open.find(edgeKey(near[l], near[k], far[l], far[k]));
+                    const uint64_t reverse = edgeKey(near[l], near[k], far[l], far[k]);
+                    bool cancelled = false;
+                    for (int32_t j = heads[static_cast<uint32_t>(reverse ^ (reverse >> 32)) & (tableSize - 1u)]; j >= 0; j = sides[j].next)
+                    {
+                        SideQuad &q = sides[j];
+                        if (q.live && q.key == reverse && sameCorners(q, near[k], near[l], far[k], far[l]))
+                        {
+                            q.live = false;
+                            cancelled = true;
+                            break;
+                        }
+                    }
+                    if (cancelled)
+                        continue;
+                    SideQuad q;
+                    std::memcpy(q.p[0], near[k], 12);
+                    std::memcpy(q.p[1], far[k], 12);
+                    std::memcpy(q.p[2], far[l], 12);
+                    std::memcpy(q.p[3], near[l], 12);
+                    q.live = true;
+                    q.key = edgeKey(near[k], near[l], far[k], far[l]);
+                    int32_t &head = heads[static_cast<uint32_t>(q.key ^ (q.key >> 32)) & (tableSize - 1u)];
+                    q.next = head;
+                    head = static_cast<int32_t>(sides.size());
+                    sides.push_back(q);
+                }
+            }
+        }
+        for (const SideQuad &q : sides)
+            if (q.live)
+            {
+                put(q.p[0]), put(q.p[1]), put(q.p[2]);
+                put(q.p[0]), put(q.p[2]), put(q.p[3]);
+            }
+        // SOTC_SHADOW_CHECK=1 (round 44, testing): round 38's builder run too
+        // and the two volumes compared as sets of triangles.
+        static const bool shadowCheck = std::getenv("SOTC_SHADOW_CHECK") != nullptr;
+        if (shadowCheck)
+        {
+            static std::vector<native_renderer::Vertex> ref;
+            auto rput = [&](const float *p)
+            {
+                native_renderer::Vertex v{};
+                v.x = p[0];
+                v.y = p[1];
+                v.z = p[2];
+                v.r = v.g = v.b = v.a = 0x80;
+                ref.push_back(v);
+            };
+            const uint32_t tag = word(model + 0x1Cu);
+        static std::vector<Strip> rstrips;
+        rstrips.clear();
+        readBatches(word(tag + 4u), (word(tag) & 0xFFFFu) * 16u, rstrips);
+        ref.clear();
+        // Round 38: the side quads that two prisms share in opposite
+        // directions (an inner edge of the mesh) count +1 and -1 on the same
+        // pixels: both dropped. What is left draws the same stencil count
+        // (bit for bit: only quads with all four corners equal cancel) with
+        // far fewer vertices and much less fill (SOTC_SHADOW_ALLSIDES=1 / A/B name allsides: all).
+        struct RSideQuad
+        {
+            float p[4][3]; // near k, far k, far l, near l
+            bool live;
+        };
+        static std::vector<RSideQuad> rsides;
+        static std::unordered_map<uint64_t, std::vector<uint32_t>> open; // directed edge key -> quads waiting for their reverse
+        rsides.clear();
+        open.clear();
+        const bool rallSides = native_renderer::tuning().shadowAllSides;
+        auto redgeKey = [](const float *a, const float *b, const float *fa, const float *fb)
+        {
+            uint64_t h = 1469598103934665603ull;
+            for (const float *p : {a, b, fa, fb})
+                for (int r = 0; r < 3; ++r)
+                {
+                    uint32_t bits;
+                    std::memcpy(&bits, &p[r], 4);
+                    h = (h ^ bits) * 0x100000001b3ull;
+                }
+            return h;
+        };
+        auto rsameCorners = [](const RSideQuad &q, const float *a, const float *b, const float *fa, const float *fb)
+        {
+            // the reverse of q: a = q's near l, b = q's near k, fa = q's far l, fb = q's far k
+            return !std::memcmp(q.p[3], a, 12) && !std::memcmp(q.p[0], b, 12) && !std::memcmp(q.p[2], fa, 12) && !std::memcmp(q.p[1], fb, 12);
+        };
+        for (const Strip &strip : rstrips)
+            for (size_t i = 2; i < strip.size(); ++i)
+            {
+                float a[3], b[3], c[3];
+                toCamera(strip[i - 2], a);
+                toCamera(strip[i - 1], b);
+                toCamera(strip[i], c);
+                const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, w[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+                const float n[3] = {u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]};
+                const float facing = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+                if (facing == 0.0f)
+                    continue; // degenerate (strip joins) or edge-on
+                if (facing > 0.0f)
+                    std::swap(b, c); // the near face looks away from the extrusion
+                // Each extrusion edge cut at z = 0.1 as microcode 8 does, so
+                // the far cap stays in front of the camera; a triangle with
+                // an edge wholly behind it is dropped.
+                float *near[3] = {a, b, c};
+                float far[3][3];
+                bool behind = false;
+                for (int k = 0; k < 3; ++k)
+                {
+                    for (int r = 0; r < 3; ++r)
+                        far[k][r] = near[k][r] + d[r];
+                    const float zn = near[k][2], zf = far[k][2];
+                    if (zn <= kShadowNear && zf <= kShadowNear)
+                        behind = true;
+                    else if (zf < kShadowNear || zn < kShadowNear)
+                    {
+                        float *out = zf < kShadowNear ? far[k] : near[k];
+                        const float *in = zf < kShadowNear ? near[k] : far[k];
+                        const float t = (in[2] - kShadowNear) / (in[2] - out[2]);
+                        for (int r = 0; r < 3; ++r)
+                            out[r] = in[r] + (out[r] - in[r]) * t;
+                    }
+                }
+                if (behind)
+                    continue;
+                // Closed prism, faces outwards: near (a, b, c), far reversed, rsides.
+                rput(a), rput(b), rput(c);
+                rput(far[0]), rput(far[2]), rput(far[1]);
+                for (int k = 0; k < 3; ++k)
+                {
+                    const int l = (k + 1) % 3;
+                    if (rallSides)
+                    {
+                        rput(near[k]), rput(far[k]), rput(far[l]);
+                        rput(near[k]), rput(far[l]), rput(near[l]);
+                        continue;
+                    }
+                    // Its reverse waiting: both go.
+                    auto it = open.find(redgeKey(near[l], near[k], far[l], far[k]));
                     bool cancelled = false;
                     if (it != open.end())
                         for (size_t j = 0; j < it->second.size(); ++j)
                         {
-                            SideQuad &q = sides[it->second[j]];
-                            if (q.live && sameCorners(q, near[k], near[l], far[k], far[l]))
+                            RSideQuad &q = rsides[it->second[j]];
+                            if (q.live && rsameCorners(q, near[k], near[l], far[k], far[l]))
                             {
                                 q.live = false;
                                 it->second[j] = it->second.back();
@@ -5894,22 +6176,43 @@ namespace sotc_native
                         }
                     if (cancelled)
                         continue;
-                    SideQuad q;
+                    RSideQuad q;
                     std::memcpy(q.p[0], near[k], 12);
                     std::memcpy(q.p[1], far[k], 12);
                     std::memcpy(q.p[2], far[l], 12);
                     std::memcpy(q.p[3], near[l], 12);
                     q.live = true;
-                    open[edgeKey(near[k], near[l], far[k], far[l])].push_back(static_cast<uint32_t>(sides.size()));
-                    sides.push_back(q);
+                    open[redgeKey(near[k], near[l], far[k], far[l])].push_back(static_cast<uint32_t>(rsides.size()));
+                    rsides.push_back(q);
                 }
             }
-        for (const SideQuad &q : sides)
+        for (const RSideQuad &q : rsides)
             if (q.live)
             {
-                put(q.p[0]), put(q.p[1]), put(q.p[2]);
-                put(q.p[0]), put(q.p[2]), put(q.p[3]);
+                rput(q.p[0]), rput(q.p[1]), rput(q.p[2]);
+                rput(q.p[0]), rput(q.p[2]), rput(q.p[3]);
             }
+            auto tris = [](const std::vector<native_renderer::Vertex> &v)
+            {
+                std::vector<std::array<uint32_t, 9>> t(v.size() / 3u);
+                for (size_t i = 0; i < t.size(); ++i)
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        std::memcpy(&t[i][k * 3], &v[i * 3 + k].x, 4);
+                        std::memcpy(&t[i][k * 3 + 1], &v[i * 3 + k].y, 4);
+                        std::memcpy(&t[i][k * 3 + 2], &v[i * 3 + k].z, 4);
+                    }
+                std::sort(t.begin(), t.end());
+                return t;
+            };
+            static uint64_t checks = 0, bad = 0;
+            ++checks;
+            if (tris(ref) != tris(g_volume))
+                ++bad, std::fprintf(stderr, "[shadowcheck] frame %llu model %08x: %zu vertices against round 38's %zu, triangles differ\n", (unsigned long long)g_frame, model,
+                                    g_volume.size(), ref.size());
+            if (checks % 500u == 0u)
+                std::fprintf(stderr, "[shadowcheck] %llu volumes compared, %llu differ\n", (unsigned long long)checks, (unsigned long long)bad);
+        }
         if (volLog && g_frame % 60u == 0u)
             std::fprintf(stderr, "[shadowvol] frame %llu model %08x volume vertices %zu\n", (unsigned long long)g_frame, model, g_volume.size());
         if (g_volume.empty())
@@ -8480,7 +8783,7 @@ void installSotcNative(PS2Runtime &runtime)
     runtime.registerFunction(kGetCameraContext, getCameraContextHook);
     if (runtime.hasFunction(kGsReg) && runtime.hasFunction(kTexTransRequest) && runtime.hasFunction(kPushLayer) && runtime.hasFunction(kPopLayer))
     {
-        g_gsReg = runtime.lookupFunction(kGsReg);
+        g_gsReg = sotc_decomp::behindHook(runtime, kGsReg); // its native when registered (round 44)
         runtime.registerFunction(kGsReg, gsRegHook);
         g_texTransRequest = runtime.lookupFunction(kTexTransRequest);
         runtime.registerFunction(kTexTransRequest, texTransRequestHook);

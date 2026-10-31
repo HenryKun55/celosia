@@ -336,73 +336,69 @@ namespace sotc_decomp
     // Returning from a decompiled function: the jr ra the recompiled code ends with.
     inline void returnTo(R5900Context *ctx) { ctx->pc = GPR_U32(ctx, 31); }
 
+    // The rounds' subsystem switches (round 44: one table, so the console's
+    // A/B can turn them off and on in one run: SOTC_AB_FLAG's camcoll,
+    // collprobe, motion, leaves, hotlist, hotlist44; sotc_native's
+    // abSwitches). Each is read from its env variable at first use (the
+    // Vita's env.txt comes after static init), "0" off; a native checks its
+    // switch at entry, so a change takes effect at the next call.
+    enum Switch : int
+    {
+        kCamColl,
+        kCollProbe,
+        kMotion,
+        kLeaves,
+        kHotList,
+        kHotList44,
+        kSwitchCount
+    };
+    inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1}; // -1: not read yet
+    inline bool switchOn(int which)
+    {
+        signed char v = g_switch[which];
+        if (__builtin_expect(v < 0, 0))
+        {
+            const char *e = std::getenv(kSwitchEnv[which]);
+            v = !(e && e[0] == '0');
+            g_switch[which] = v;
+        }
+        return v != 0;
+    }
+    inline void setSwitch(int which, bool on) { g_switch[which] = on ? 1 : 0; }
+
     // Round 39's natives (the camera's collision path: its wrappers, filters
     // and the segment's matrix, decomp_camcoll.cpp / decomp_collision.cpp /
     // decomp_quat.cpp). SOTC_CAMCOLL=0 puts the recompiled code back for all
     // of them (read at first use: the Vita's env.txt comes after static init).
-    inline bool camCollOn()
-    {
-        static const bool on = []
-        {
-            const char *e = std::getenv("SOTC_CAMCOLL");
-            return !(e && e[0] == '0');
-        }();
-        return on;
-    }
+    inline bool camCollOn() { return switchOn(kCamColl); }
     // Round 40's natives (the scripts' collision callback, the id filters
     // left as guest code, the character's slope / water probes;
     // decomp_collision.cpp). SOTC_COLLPROBE=0 puts the recompiled code back
     // for all of them (read at first use).
-    inline bool collProbeOn()
-    {
-        static const bool on = []
-        {
-            const char *e = std::getenv("SOTC_COLLPROBE");
-            return !(e && e[0] == '0');
-        }();
-        return on;
-    }
+    inline bool collProbeOn() { return switchOn(kCollProbe); }
     // Round 41's natives (the motion accessors and the pose's root,
     // decomp_motion.cpp / decomp_skeleton.cpp; the character's geometry
     // subsystem, decomp_charageo.cpp). SOTC_MOTION=0 puts the recompiled
     // code back for all of them (read at first use).
-    inline bool motionOn()
-    {
-        static const bool on = []
-        {
-            const char *e = std::getenv("SOTC_MOTION");
-            return !(e && e[0] == '0');
-        }();
-        return on;
-    }
+    inline bool motionOn() { return switchOn(kMotion); }
     // Round 42's natives (the small leaves the natives call most, the layer
     // stack and the camera context behind sotc_native's hooks, the 2D sprite,
     // the collision work flush and the IK attribute filter; decomp_leaves.cpp,
     // decomp_collision.cpp). SOTC_LEAVES=0 puts the recompiled code back for
     // all of them (read at first use).
-    inline bool leavesOn()
-    {
-        static const bool on = []
-        {
-            const char *e = std::getenv("SOTC_LEAVES");
-            return !(e && e[0] == '0');
-        }();
-        return on;
-    }
+    inline bool leavesOn() { return switchOn(kLeaves); }
     // Round 43's natives (the next functions down the game thread's profile:
     // the slope probe, the camera record fill, the lights' layout pass, the
     // texture resolve's work path, libm's asinf ...; decomp_hot43*.cpp).
     // SOTC_HOTLIST=0 puts the recompiled code back for all of them (read at
     // first use).
-    inline bool hotListOn()
-    {
-        static const bool on = []
-        {
-            const char *e = std::getenv("SOTC_HOTLIST");
-            return !(e && e[0] == '0');
-        }();
-        return on;
-    }
+    inline bool hotListOn() { return switchOn(kHotList); }
+    // Round 44's natives (the next functions down the profile: the clip
+    // keep's full test, the collision DB lookups, the Euler quaternion, the
+    // condition walkers ...; decomp_hot44*.cpp). SOTC_HOTLIST44=0 puts the
+    // recompiled code back for all of them (read at first use).
+    inline bool hotList44On() { return switchOn(kHotList44); }
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \

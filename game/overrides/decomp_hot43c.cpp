@@ -135,7 +135,7 @@ namespace decomp_hot43c
             { __m128 mul_res = PS2_VMUL_K(1, 1, vf[0], _mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
             { __m128 mul_res = PS2_VMUL_K(1, 1, vf[0], _mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); vf[7] = _mm_blendv_ps(vf[7], res, _mm_castsi128_ps(mask)); }
             { float fs = _mm_cvtss_f32(_mm_shuffle_ps(vf[0], vf[0], _MM_SHUFFLE(0,0,0,3))); float ft = _mm_cvtss_f32(_mm_shuffle_ps(vf[7], vf[7], _MM_SHUFFLE(0,0,0,3))); ctx->vu0_q = ps2VuRsqrt(ctx->vu0_status, fs, ft); }
-            { __m128 res = PS2_VMUL(vf[29], _mm_set1_ps(ctx->vu0_q)); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf[29] = _mm_blendv_ps(vf[29], res, _mm_castsi128_ps(mask)); }
+            { __m128 res = ps2VuMulK<1, 0>(vf[29], _mm_set1_ps(ctx->vu0_q)); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf[29] = _mm_blendv_ps(vf[29], res, _mm_castsi128_ps(mask)); }
             vf[31] = vf[29];
             vput(slot, vf[31]);
             const uint32_t p0 = s(verts);

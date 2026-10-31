@@ -916,6 +916,13 @@ namespace decomp_collision
     // in front of the plane: 2. The rest: the recompiled code from the start
     // (the plane cached by then, nothing else written).
     constexpr uint32_t kClipKeep = 0x0111C078u;
+}
+namespace decomp_hot44a
+{
+    void clipKeepTest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_collision
+{
     void clipKeep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const G g{rdram, ctx, runtime};
@@ -935,7 +942,9 @@ namespace decomp_collision
             SET_GPR_U32(ctx, 29, spIn);
             ctx->f[12] = keep;
             ctx->pc = kClipKeep;
-            return sotc_decomp::recompiled(kClipKeep)(rdram, ctx, runtime);
+            // Round 44: the whole test natively (decomp_hot44a.cpp; it runs
+            // the recompiled code itself with SOTC_HOTLIST44=0).
+            return decomp_hot44a::clipKeepTest(rdram, ctx, runtime);
         };
         const uint32_t w1 = g.u32(id + 4u);
         uint32_t cls;

@@ -7368,6 +7368,191 @@ decomp block), docs/decomp.md, docs/decomp_status.json / .svg,
 docs/decomp_history.json / .svg, docs/decomp_tree.json. Deliverable:
 build/agent-scratch/celosia-r43.vpk.
 
+## Round 44: the slope probe's verdict, the console's r42 regression, the next hot list (2026-10-31)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r44/` (dt.sh / pos.sh / v3k.sh / syn.sh
+as round 43's, v3k.sh also counting the shader cache after a run; abslope.py
+the slope A/B; fam44.py this round's family table; clamponce44.py; abrot.py
+the rotating A/B's table; console-ab/env.txt the console run asked for;
+thprof-*.txt r33/thprof.py over each window).
+
+**1. The slope probe on the Vita (settled).** One VPK (celosia-r43.vpk),
+calibrated Vita3K 222 MHz, the route, snapshots 180 / 300 s, twice: as is
+and with `SOTC_DECOMP_SKIP=manager_sub_0111C810,manager_sub_0116A0D4`; calls
+counted by `SOTC_SUBSYS_PROF=1 SOTC_SUBSYS_PROF_EXTRA=0x0111C810:slope,
+0x0116A0D4:segtest` (the table entry wrapped, so jal callers and the natives'
+callGuest both count), instructions from the profile (r44/abslope.py):
+
+| | native (abon) | recompiled (aboff) |
+|---|---|---|
+| slope probe 0111C810 | 53.5 k a frame, 15.5 calls: **3 456 a call** | 20.3 k, 5.7 calls: **3 558 a call** |
+| segment test 0116A0D4 | 26.1 k, 57.1 calls: **457 a call** | 12.4 k, 24.7 calls: **504 a call** |
+
+The natives are 3% and 9% cheaper a call on ARM; round 43's "85 k against
+32.5 k" was the window's content (2.7x the calls in that stretch). Kept on.
+
+**2. The console's r42 regression** (console-r42b/err.txt against
+console-r35 / r37; the coordinator's report: game 53.6 -> 69-70 ms, worker
+8.1 -> 39-40 ms, render 20 -> 31-36 ms on the plain, ~1 780 draws).
+- What the log shows: on the plain every 60-frame line uploads 93-125
+  meshes / ~830 KB (r35: 18-95 / 67-199 KB): the body shadow volumes, rebuilt
+  and uploaded every frame (`[shadow]`: 77-130 volumes a second, 230-420 k
+  vertices a second, every frame with volumes). r37's run (SOTC_BODY_SHADOWS=1
+  by env) had the same signature on the title scene (1.3 MB a frame, worker
+  16 ms); r35 had no body shadows on the Vita. In Vita3K's profile of the
+  route the worker thread was 3.93 M instructions a frame, ~1.9 M of it the
+  volume builder: shadowDispDraw 810 k, `__udivsi3` 443 k and
+  `__aeabi_uidivmod` 130 k (std::unordered_map's bucket modulo), malloc /
+  free ~270 k (a vector per edge), readBatchesFrom 127 k (the shadow model's
+  VIF data parsed again every frame), truncf 88 k (each strip vertex skinned
+  three times, once per triangle using it).
+- Fixed (sotc_native.cpp shadowDispDraw, the same volume): the shadow
+  model's strips parsed once and kept while the guest bytes the parse read
+  are unchanged (compared at each use: another model loaded at the address
+  is parsed again); each strip vertex to camera space once; the inner sides
+  matched in a flat power-of-two table chained through the quads (no
+  allocation, no division). `SOTC_SHADOW_CHECK=1` runs round 38's builder
+  too and compares the two volumes as sets of triangles: 9 000 volumes on
+  the Mac route (r44/shcheck, to 4 200), 0 differ. Vita3K, the same route:
+  the worker 3 928 k -> 1 933 k instructions a frame (shadowDispDraw 558 k,
+  its put 67 k, no division or allocation left). The volumes stay on by
+  default; their GPU side (the upload, the stencil fill) is what the console
+  A/B below measures.
+- The draw spikes (render "draw" 150-450 ms at frames 479, 2198, 5625,
+  7753, 7924): not shader compiles. Every program is compiled at the
+  renderer's start (compile() / program() are only called from init; the
+  cache gives them back), every program x blend state is patched there
+  (warmShaders), and after a whole route in Vita3K the shader cache holds
+  exactly the VPK's 52 seed files (r44/v3k.sh's count: 56 = the seed + the
+  4 old v31 files): nothing was compiled during play. r37's run (body
+  shadows on) had 0.5-1.06 s spikes, r35's (none) at most 170 ms; 7924 is the
+  user's render-scale change (`picture 512x448 -> 256x224`, targets made
+  again). `SOTC_GL_SPIKE_LOG=1` (new) names the draw a spike waits on in the
+  next console run.
+- `SOTC_AB_ROTATE=1` (new, sotc_native abSwitches): the A/B windows take
+  turns, one listed flag off per window and a baseline window with all on,
+  so one console run gives each flag's cost; `SOTC_AB_FLAG` now also takes
+  the decomp switches camcoll / collprobe / motion / leaves / hotlist /
+  hotlist44 (sotc_decomp.h: the switches are one table, read at first use,
+  set by the A/B). r44/abrot.py prints the table (frame ms, the game /
+  worker / render CPU, render, jobs: baseline minus each flag's windows).
+  Not switchable at run time: the stencil renderbuffers
+  (`SOTC_GL_NO_STENCIL=1` is read when the targets are made; a separate short
+  run). Checked on the Mac (r44/abtest: the rotation, the switches' natives
+  and their recompiled code alternating, to 2 400).
+- The console run: build/agent-scratch/r44/console-ab/env.txt
+  (`SOTC_FRAME_LOG_ALL=1`, body shadows forced on, alphatest, bodyshadows,
+  shadows, overlays and the six decomp switches rotating in 60-frame windows,
+  the spike log).
+
+**3. Nativized** (`SOTC_HOTLIST44=0` puts all of them back, each table entry
+alone with `SOTC_DECOMP_SKIP=<name>`; transcribed from build/runner's
+generated code, the same FPU_* / PS2_V* operations, guest calls through the
+table with the original's ra and frame sp, relocated sites from the live
+words):
+- decomp_hot44a.cpp: clipCollisionKeep's full test (0x111c078: the plane,
+  the end / start tests, the boundary sphere, the barycentric test; called
+  from decomp_collision's clipKeep where it used to run the recompiled code
+  from the start), `manager_sub_01118B88` (a point moved with its surface's
+  skinned vertices).
+- decomp_hot44b.cpp: `GetQuaternionByEulerYXZ` (three axis rotations through
+  decomp_quat's native), `execCondition` (a condition list, all / any),
+  `manager_sub_01129988` (the keep test, then the slope probe).
+- decomp_hot44c.cpp: `gamecore_sub_013E30D0` (a small animal's movement
+  step), `gamecore_sub_013448C0` (a group's objects re-parented),
+  `gamecore_sub_0141F310` (a camera parameter condition table).
+- decomp_hot44d.cpp: `_setNodeHPB`, `_setNodeHPBIllegal` (a node's heading /
+  pitch / bank through Euler angles), `manager_sub_010AC4A0` (a node's
+  quaternion and position), `manager_sub_01102638` (the script objects'
+  group pass: wakes, starts, deletes).
+- decomp_hot44g.cpp: `gsReg` (one A+D pair into the 2D packet); sotc_native's
+  2D hook now calls it through behindHook.
+- decomp_textrans.cpp: texTransResolve's whole walk natively (with the back
+  edges' checkpoints as the code takes them); a record with work runs in a
+  copy of the generated function (build/runner's file included and renamed,
+  its two back-edge checkpoints returning to the walk). Not a transcription:
+  the work paths are still the generated code.
+- Not done: gamecore_sub_013CF258 (a sub-thread's body: it sleeps and is
+  resumed by pc), manager_sub_01137640 (already decomp_clothdyn's; its
+  type-1 string path is the 17 k), 01372068, 01391E30 (5-8 KB each).
+
+**4. Clamp-once.** r44/clamponce44.py: round 42's pass for natives written on
+the context's registers (vf[N], ctx->vu0_acc, vf0 known) with the
+generator's PS2_V*_K forms (flags only raised), copies and loads tracked, a
+statement under an if / else / for not trusted after. Over decomp_hot43*,
+decomp_ikquat and decomp_hot44*: 1 operand clamp (decomp_hot43c's plane
+normalisation). Those files were transcribed from the round-29 generator's
+output, which already carries the known-operand flags.
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s, game thread 248; r43/new.vpk 2 757 frames from
+4 201, r44/new.vpk 2 805 frames from 3 982; thousands a frame, r44/fam44.py):
+the 14 targets' recompiled code 257.8 -> 0 (texTransResolve 32.0, 0111C078
+23.6, gsReg 21.6, 01118B88 17.8, 013E30D0 17.7, 013448C0 17.4,
+GetQuaternionByEulerYXZ 17.2, execCondition 16.9 ...), their native code
+224.6 (the work records' copy 34.8, gsReg 22.4, _setNodeHPB 17.2, 010AC4A0
+15.3 ...): ~33 k a frame, the windows' content aside (the thread 9 563 ->
+9 818 k with more slope probing and particles in this one). The worker
+thread 3 928 -> 1 933 k (the shadow volumes). decomp_history r44: 60.6% of
+the game thread's instructions native (was 59.9), 24.6% recompiled MIPS (was
+25.6).
+
+**Exactness.**
+- By name (Mac, the route on the r24 card, EVERY=10, MAX=3000): r44/dt-focus1
+  (to 5 400) and dt-reach (to 3 000): 0 mismatches in gsReg 14 700 checks,
+  GetQuaternionByEulerYXZ 500, gamecore_sub_013448C0 300, 0141F310 200,
+  _setNodeHPB 500, manager_sub_010AC4A0 1 200, texTransResolve 300,
+  manager_sub_0111C810 2 500, 0116A0D4 5 300, clipCollisionKeep 9 500,
+  manager_sub_01129988 7 000, 01118B88 5 200, execCondition 4 900,
+  _setNodeHPBIllegal 1 800, gamecore_sub_013E30D0 1 100; dt-clamp (the
+  clamp-once change) 0111C810 4 100, 0. manager_sub_01102638: 811 of 2 100
+  differ in the sub-threads' bytes at 0x1465680-0x14656f0; with
+  `SOTC_DIFFTEST_CONTROL=1` (the recompiled code in both legs, dt-ctl01102638)
+  436 of 1 100 differ the same way: the wakes' state, not the native (as
+  isysWakeupSubThread's).
+- `all` (r44/dt-all, the final code, EVERY=200 to 4 800): 214 reached,
+  265 102 checks, mismatches only isysWakeupSubThread (280),
+  manager_sub_01102638 (247, above), gamecore_sub_013F8668 (90),
+  ExecCharaGeometry (10).
+- Shadow volumes: SOTC_SHADOW_CHECK, 9 000 volumes, 0 differ (above).
+- Fixed-30 position route to 5 400 against round 43's binary (r44/posbase,
+  posnew, one after the other): max 2.23 at frame 3 210, both reach 5 400
+  (VBlank 10 992 / 10 959): inside rounds 36-39's spread (2.06-3.38).
+- Vita: celosia-r44.vpk (-j6, shader seed 52 files) boots and plays the route
+  in calibrated Vita3K: the profile run (r44/new-err.txt, to game frame ~6 787
+  at 300 s) and the smoke run (r44/smoke-err.txt, 240 s to frame 5 628;
+  sound: 0 stale, 0 under, 0 src-stale; body shadows drawn); the Vita3K tree
+  restored (`restored ok` all four runs).
+
+**Decomp status** (r44/replaced.txt): 8.93% of the MIPS code by size (was
+8.66), 5.98% by functions (540), 54.9% by calls, 7.23% of the game's own
+code.
+
+**Open.**
+- The console A/B (console-ab/env.txt): each flag's real cost, and the spike
+  log; then decide the Vita defaults (body shadows' GPU side, the alpha
+  test's ~140 second passes a frame on the plain).
+- The game thread's +16 ms on the console's plain is not explained by the
+  log alone (the scene, memory traffic from a 40 ms worker, or the natives
+  on the console's cores): the rotating A/B's decomp switches answer it.
+- Next recompiled on the game thread: ClipCollisionDirectCallBackObjAry
+  36.4, doit_particle_manager 21.0, 0142F4E8 19.4, 01391E30 19.3, 01137640's
+  string path 19.3, 01372068 18.7, 010C4220 16.8, 013CF258 16.8,
+  get_particle_parameter_blend_doit 16.4, 010AE128 16.1.
+
+**Files:** game/overrides/sotc_decomp.h (the switch table: switchOn /
+setSwitch, hotList44On), sotc_native.cpp (shadowDispDraw's builder,
+SOTC_SHADOW_CHECK, SOTC_AB_ROTATE and the decomp switches in abSwitches,
+gsReg through behindHook), decomp_collision.cpp (clipKeep's rest path),
+decomp_textrans.cpp, decomp_hot43c.cpp (clamp-once), decomp_hot44a.cpp,
+decomp_hot44b.cpp, decomp_hot44c.cpp, decomp_hot44d.cpp, decomp_hot44g.cpp
+(new); PS2Recomp/ps2xRuntime/src/lib/native/native_renderer_gl.cpp
+(SOTC_GL_SPIKE_LOG); README.md (SOTC_HOTLIST44, SOTC_AB_ROTATE,
+SOTC_GL_SPIKE_LOG, SOTC_SHADOW_CHECK; the decomp block), docs/decomp.md,
+docs/decomp_status.json / .svg, docs/decomp_history.json / .svg,
+docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r44.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
