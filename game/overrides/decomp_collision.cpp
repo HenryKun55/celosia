@@ -60,7 +60,7 @@ namespace decomp_collision
     // SOTC_COLLISION_STATS=1: how often each path runs (stderr, every 600 leaf calls x 100).
     struct Stats
     {
-        std::atomic<uint64_t> clip{0}, clipSlow{0}, boundary{0}, boundarySlow{0}, leaf{0}, surfaces{0}, cylinder{0}, finder{0}, finderSlow{0}, clipPlane{0}, clipCross{0}, keep{0}, keepSlow{0}, direct{0}, directObjects{0}, directTree{0}, directSkinned{0}, vertices{0}, verticesGuest{0}, surfFilter{0}, idFilter{0}, idFilterNative{0};
+        std::atomic<uint64_t> clip{0}, clipSlow{0}, boundary{0}, boundarySlow{0}, leaf{0}, surfaces{0}, cylinder{0}, finder{0}, finderSlow{0}, clipPlane{0}, clipCross{0}, keep{0}, keepSlow{0}, direct{0}, directObjects{0}, directTree{0}, directSkinned{0}, vertices{0}, verticesGuest{0}, surfFilter{0}, idFilter{0}, idFilterNative{0}, water{0}, waterSlow{0}, wall{0}, wallGuest{0}, scr{0}, surface{0}, surfaceSlow{0}, surfaceFiltered{0}, plane{0}, planeMade{0};
         std::atomic<uint32_t> lastSurfFilter{0}, lastIdFilter{0};
     };
     Stats g_stats;
@@ -107,6 +107,12 @@ namespace decomp_collision
                      (unsigned long long)g_stats.directTree.load(), (unsigned long long)g_stats.directSkinned.load());
         std::fprintf(stderr, "[collision] keep %llu (recompiled %llu)\n", (unsigned long long)g_stats.keep.load(), (unsigned long long)g_stats.keepSlow.load());
         std::fprintf(stderr, "[collision] finder leaves %llu (recompiled %llu)\n", (unsigned long long)g_stats.finder.load(), (unsigned long long)g_stats.finderSlow.load());
+        std::fprintf(stderr, "[collision] r40: water probe %llu (recompiled %llu) wall filter %llu (guest %llu) script callback %llu\n", (unsigned long long)g_stats.water.load(),
+                     (unsigned long long)g_stats.waterSlow.load(), (unsigned long long)g_stats.wall.load(), (unsigned long long)g_stats.wallGuest.load(),
+                     (unsigned long long)g_stats.scr.load());
+        std::fprintf(stderr, "[collision] r40: water surface %llu (recompiled %llu, with a triangle filter %llu)\n", (unsigned long long)g_stats.surface.load(),
+                     (unsigned long long)g_stats.surfaceSlow.load(), (unsigned long long)g_stats.surfaceFiltered.load());
+        std::fprintf(stderr, "[collision] r40: GetCollisionDBPlane %llu (made %llu)\n", (unsigned long long)g_stats.plane.load(), (unsigned long long)g_stats.planeMade.load());
     }
 
     // Guest code run from here (filters, vertex fetches, the recompiled
@@ -1029,7 +1035,7 @@ namespace decomp_collision
     }
 
     bool cameraVisibility(const G g, uint32_t id, uint64_t &out);
-    bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out);
+    bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out, uint32_t sp);
 
     // ---- the leaf (0x112be58) -----------------------------------------------
     struct Seg
@@ -1230,7 +1236,7 @@ namespace decomp_collision
                 if (g_statsOn)
                     g_stats.lastIdFilter = filter;
                 uint64_t seen;
-                if (idFilter(g, filter, sp + 0x40u, g.u32(p + 0x24u), seen))
+                if (idFilter(g, filter, sp + 0x40u, g.u32(p + 0x24u), seen, sp))
                 {
                     COLL_STAT(idFilterNative);
                     if (seen == 0u)
@@ -1601,7 +1607,7 @@ namespace decomp_collision
                 g.put32(sp, g.u32(p + 4u));
                 g.put32(sp + 4u, static_cast<uint32_t>(id));
                 uint64_t pass;
-                if (idFilter(g, filter, sp, g.u32(p + 0x30u), pass))
+                if (idFilter(g, filter, sp, g.u32(p + 0x30u), pass, sp))
                 {
                     if (pass == 0u)
                         continue;
@@ -1904,15 +1910,160 @@ namespace decomp_collision
         return true;
     }
 
+    // ---- round 40: the id filters still run as guest code ---------------------
+    // gamecore_sub_013CB8E8: 0 for the kinds 0x300000000 / 0x500000000 /
+    // 0x280000000 and the surface kinds 0x30 / 0x34 / 0x6c / 0x24 / 0x04 /
+    // 0x64 / 0x68, else 1 unless the 0x80000000000 kind.
+    bool gamecore13cb8e8(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t v1 = bits & 0xF80000000ull, a1 = bits & 0x7C000000ull;
+        out = 0u;
+        if (v1 == 0x300000000ull || v1 == 0x500000000ull || v1 == 0x280000000ull)
+            return true;
+        if (a1 == 0x30000000u || a1 == 0x34000000u || a1 == 0x6C000000u || a1 == 0x24000000u || a1 == 0x04000000u || a1 == 0x64000000u ||
+            a1 == 0x68000000u)
+            return true;
+        out = (bits & 0x3C0000000000ull) != 0x80000000000ull ? 1u : 0u;
+        return true;
+    }
+
+    // AI_JudgeColAttrFunc (0x13d5510): 0 for the kinds 0x200000000 /
+    // 0x300000000 / 0x500000000 / 0xb80000000 / 0x380000000 and the
+    // attribute's 0x7c00 field 0x3c00..0x7400 (some) and 0x7c00, else 1
+    // unless the 0x80000000000 kind.
+    bool aiJudgeColAttr(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t bits = attributeBits(g, record);
+        const uint64_t a1 = bits & 0xF80000000ull, v1 = bits & 0x7C00u;
+        out = 0u;
+        if (a1 == 0x200000000ull || a1 == 0x300000000ull || a1 == 0x500000000ull || a1 == 0xB80000000ull || a1 == 0x380000000ull)
+            return true;
+        switch (v1)
+        {
+        case 0x3C00u: case 0x4000u: case 0x4400u: case 0x4C00u: case 0x5400u: case 0x5C00u: case 0x6400u: case 0x6C00u: case 0x7400u: case 0x7C00u:
+            return true;
+        default:
+            break;
+        }
+        out = (bits & 0x3C0000000000ull) != 0x80000000000ull ? 1u : 0u;
+        return true;
+    }
+
+    // GetCollisionDBPlane (0x11257a0) when the surface's plane is in its
+    // part's cache already (the flag byte set): its address, nothing
+    // written. false: not cached (the guest code computes and enters it).
+    bool planeCached(const G g, uint32_t id, uint32_t &plane)
+    {
+        const uint32_t w0 = g.u32(id), w1 = g.u32(id + 4u);
+        uint32_t cls;
+        if (!layoutClass(g, w0, cls))
+            return false;
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        uint32_t s2, slot;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            s2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
+            slot = s3;
+        }
+        else
+        {
+            const uint32_t t2 = g.u32(g.u32(cls + 0x184u) + 0x20u);
+            slot = g.u32(s3 * 4u + g.u32(s1 * 0x90u + g.u32(t2 + 8u) + 0x54u));
+            s2 = g.u32(cls + 0x174u) + 0x58u;
+        }
+        if (g.u8(g.u32(s2 + 8u) + slot) == 0u)
+            return false;
+        plane = g.u32(s2 + 0x14u) + slot * 16u;
+        return true;
+    }
+
+    inline float bitsFloat(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+    inline uint32_t floatBits(float f)
+    {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    }
+
+    // moveCtrlWallJudgeFunc (0x14383f0): the surface's plane
+    // (GetCollisionDBPlane) through a1's rotation (iosApplyRotMatrix: three
+    // rows and vf0), its slope in degrees (GetPlaneSlopeDegree: 0 / 180 at
+    // |y| >= 1, else iosGetACosfExact's acosf x 57.295776), 1 when |slope| is
+    // over the limit at a1 + 0x40. sp: the filter's caller's (acosf, the one
+    // guest call, through the function table as the original's j reaches it).
+    // f0 the |slope|, fcr31's condition and vf10 / ACC as the original leaves them.
+    constexpr uint32_t kAcosf = 0x001DD9C8u;
+    bool moveCtrlWall(const G g, uint32_t id, uint32_t user, uint32_t sp, uint64_t &out)
+    {
+        if (!sotc_decomp::collProbeOn() || sp == 0u)
+            return false;
+        COLL_STAT(wall);
+        uint32_t plane;
+        if (!planeCached(g, id, plane))
+        {
+            COLL_STAT(wallGuest);
+            return false;
+        }
+        R5900Context *ctx = g.ctx;
+        const __m128 rows[4] = {g.q(user), g.q(user + 0x10u), g.q(user + 0x20u), ctx->vu0_vf[0]};
+        __m128 acc;
+        const __m128 rotated = vu::apply(vu::clampRows(rows), g.q(plane), &acc);
+        ctx->vu0_acc = acc;
+        ctx->vu0_vf[10] = rotated;
+        const float y = _mm_cvtss_f32(_mm_shuffle_ps(rotated, rotated, _MM_SHUFFLE(1, 1, 1, 1)));
+        float slope;
+        if (FPU_C_OLE_S(bitsFloat(0x3F800000u), y))
+            slope = bitsFloat(0u);
+        else if (FPU_C_OLE_S(y, bitsFloat(0xBF800000u)))
+            slope = bitsFloat(0x43340000u);
+        else
+        {
+            const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), pc = ctx->pc;
+            ctx->f[12] = y;
+            sotc_decomp::callGuest(g.rdram, ctx, g.runtime, kAcosf, 0x01134508u, sp - 0x30u);
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, spIn);
+            ctx->pc = pc;
+            slope = FPU_MUL_S(ctx->f[0], bitsFloat(0x42652EE0u));
+        }
+        const float a = FPU_ABS_S(slope);
+        ctx->f[0] = a;
+        const bool le = FPU_C_OLE_S(a, g.f32(user + 0x40u));
+        ctx->fcr31 = le ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        out = le ? 0u : 1u;
+        return true;
+    }
+
     constexpr uint32_t kCameraLeave = 0x01123C60u, kCharaSurface = 0x010D41E0u, kGamecoreSurface = 0x01434C00u, kNotKind28 = 0x011292B0u,
                        kPathJudge = 0x014336A0u, kCameraMove = 0x01123850u, kPlayerCameraFilter = 0x013B54C8u, kAnySurface = 0x01444800u,
-                       kGamecore1395830 = 0x01395830u, kGamecore13958b8 = 0x013958B8u, kNotKind80 = 0x0110C790u;
+                       kGamecore1395830 = 0x01395830u, kGamecore13958b8 = 0x013958B8u, kNotKind80 = 0x0110C790u,
+                       kGamecore13cb8e8 = 0x013CB8E8u, kAiJudgeColAttr = 0x013D5510u, kMoveCtrlWall = 0x014383F0u;
 
-    // An id filter run natively when it is one of the above (false: run it as guest code).
-    bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out)
+    // An id filter run natively when it is one of the above (false: run it as
+    // guest code). sp: the stack pointer the guest filter would be called
+    // with (0: unknown, the filters that call out go to the guest code).
+    bool idFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint64_t &out, uint32_t sp)
     {
         switch (filter)
         {
+        case kGamecore13cb8e8:
+            return sotc_decomp::collProbeOn() && gamecore13cb8e8(g, id, out);
+        case kAiJudgeColAttr:
+            return sotc_decomp::collProbeOn() && aiJudgeColAttr(g, id, out);
+        case kMoveCtrlWall:
+            return moveCtrlWall(g, id, user, sp, out);
         case kCameraVisibility:
             return cameraVisibility(g, id, out);
         case kCameraLeave:
@@ -1959,8 +2110,8 @@ namespace decomp_collision
     {
         const G g{rdram, ctx, runtime};
         uint64_t v0;
-        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : kNotKind80;
-        if (!idFilter(g, address, GPR_U32(ctx, 4), GPR_U32(ctx, 5), v0))
+        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : Which == 10 ? kNotKind80 : Which == 11 ? kGamecore13cb8e8 : Which == 12 ? kAiJudgeColAttr : kMoveCtrlWall;
+        if (!idFilter(g, address, GPR_U32(ctx, 4), GPR_U32(ctx, 5), v0, GPR_U32(ctx, 29)))
             return sotc_decomp::recompiled(address)(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 2, v0);
         returnTo(ctx);
@@ -2143,7 +2294,7 @@ namespace decomp_collision
     bool directFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint32_t ra, uint32_t sp)
     {
         uint64_t pass;
-        if (idFilter(g, filter, id, user, pass))
+        if (idFilter(g, filter, id, user, pass, sp))
             return pass != 0u;
         call(g, filter, ra, sp, {id, user});
         return GPR_U64(g.ctx, 2) != 0u;
@@ -2628,6 +2779,290 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
+    // ---- round 40: SCRGetCollisionCallBack (0x137d1a0) -------------------------
+    // The scripts' segment test: a1 / a2's points (lq: their qwords, w set
+    // to 1) on the frame, ClipCollisionDirectCallBack (native) with the
+    // group a3, no object / part / surface filter, t0 the id filter and t1
+    // its user word (the callee's first stack word); a hit's geometry
+    // pointer (64 bytes, CopyGeometryPointer) to a0 unless a0 is 0. v0 the
+    // callback's; f0 as the original leaves it (1.0 before the call).
+    constexpr uint32_t kScrCollision = 0x0137D1A0u, kCopyGeometry = 0x011327B0u;
+    void scrCollision(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        using sotc_decomp::jalTarget;
+        if (!sotc_decomp::collProbeOn() || jalTarget(rdram, 0x0137D1F8u) != kDirectCallBack || jalTarget(rdram, 0x0137D214u) != kCopyGeometry)
+            return sotc_decomp::recompiled(kScrCollision)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        COLL_STAT(scr);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0xA0u, out = GPR_U32(ctx, 4);
+        const uint64_t filter = GPR_U64(ctx, 8);
+        g.put(sp + 0x10u, g.q(GPR_U32(ctx, 5)));
+        g.put32(sp + 0x1Cu, 0x3F800000u);
+        g.put(sp + 0x20u, g.q(GPR_U32(ctx, 6)));
+        g.put32(sp + 0x2Cu, 0x3F800000u);
+        g.put32(sp, GPR_U32(ctx, 9));
+        ctx->f[0] = bitsFloat(0x3F800000u);
+        SET_GPR_U32(ctx, 4, sp + 0x30u);
+        SET_GPR_U32(ctx, 5, sp + 0x10u);
+        SET_GPR_U32(ctx, 6, sp + 0x20u);
+        SET_GPR_U64(ctx, 8, 0u);
+        SET_GPR_U64(ctx, 9, 0u);
+        SET_GPR_U64(ctx, 10, 0u);
+        SET_GPR_U64(ctx, 11, filter);
+        guestCall(rdram, ctx, runtime, kDirectCallBack, 0x0137D200u, sp);
+        if (GPR_U64(ctx, 2) != 0u && out != 0u)
+            for (uint32_t k = 0; k < 0x40u; k += 4u)
+                g.put32(out + k, g.u32(sp + 0x30u + k));
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        returnTo(ctx);
+    }
+
+    // ---- round 40: manager_sub_01117EA0, the water surface under a segment ----
+    // a1 / a2 the segment's points, a3 the water's object, a0 the result.
+    // Both points into the object's space (+0x164's matrix), then each of its
+    // water triangles (the class's +0x184 -> +0x20 record: +0x38 the count,
+    // +0x3c the triangles, 0x20 bytes: +4 the height, +8.. three xz
+    // vertices): the second point's xz in the triangle by the code's own
+    // barycentric (VU0 outer products and dots, two FPU divides, 2e-5 of
+    // slack). A triangle the point is in and that a point is below (the
+    // ray down from a1 and the id check, ClipCollisionDirectCallBackOneObj,
+    // then the hit into world space): the recompiled code, from the start
+    // (nothing written yet; rare on the route). v0 0 and f0 as the loop
+    // leaves it otherwise. The VU0 registers are not written back (no caller
+    // reads them across the call).
+    constexpr uint32_t kWaterProbe = 0x01117EA0u;
+    // vopmula.xyz ACC, a, b; vopmsub.xyz d, b, a: a x b in xyz (a, b clamped;
+    // w left out: no lane of it reaches the dots below).
+    inline __m128 opm(__m128 a, __m128 b)
+    {
+        return vu::mulN(_mm_shuffle_ps(a, a, _MM_SHUFFLE(3, 0, 2, 1)), _mm_shuffle_ps(b, b, _MM_SHUFFLE(3, 1, 0, 2)));
+    }
+    inline __m128 outer(__m128 a, __m128 b) { return vu::subN(opm(a, b), opm(b, a)); }
+    // vaddw.x vf10, vf0, vf0 (1); vmul.xyz vf11, a, b; vaddax.x ACC, vf0,
+    // vf11x; vmadday.x ACC, vf10, vf11y; vmaddz.x vf10, vf10, vf11z: x lane.
+    inline float dotX(__m128 a, __m128 b)
+    {
+        const __m128 m = vu::mulN(a, b), one = _mm_set1_ps(1.0f);
+        __m128 acc = vu::addN(_mm_setzero_ps(), vu::lane<0>(m));
+        acc = vu::addN(acc, vu::mulN(one, vu::lane<1>(m)));
+        return _mm_cvtss_f32(vu::addN(acc, vu::mulN(one, vu::lane<2>(m))));
+    }
+
+    void waterProbe(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x01117EE8u) != kGetLayoutClass)
+            return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        uint32_t cls;
+        if (!layoutClass(g, GPR_U32(ctx, 7), cls))
+            return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
+        COLL_STAT(water);
+        const uint32_t rec = g.u32(g.u32(cls + 0x184u) + 0x20u), m = g.u32(cls + 0x164u);
+        const __m128 rowsIn[4] = {g.q(m), g.q(m + 0x10u), g.q(m + 0x20u), g.q(m + 0x30u)};
+        const vu::Rows rows = vu::clampRows(rowsIn);
+        const __m128 p0 = vu::apply(rows, g.q(GPR_U32(ctx, 5))), p1 = vu::apply(rows, g.q(GPR_U32(ctx, 6)));
+        const float p0y = _mm_cvtss_f32(vu::lane<1>(p0)), p1x = _mm_cvtss_f32(p1), p1y = _mm_cvtss_f32(vu::lane<1>(p1)),
+                    p1z = _mm_cvtss_f32(vu::lane<2>(p1));
+        const int32_t count = static_cast<int32_t>(g.u32(rec + 0x38u));
+        const float lowLimit = bitsFloat(0xB7A7C5ACu), highLimit = bitsFloat(0x37A7C5ACu), one = bitsFloat(0x3F800000u);
+        float f0 = ctx->f[0];
+        uint32_t t = g.u32(rec + 0x3Cu);
+        for (int32_t i = 0; i < count; ++i, t += 0x20u)
+        {
+            const float vx = g.f32(t + 8u), vz = g.f32(t + 0xCu);
+            const __m128 a = vu::clamp(_mm_setr_ps(FPU_SUB_S(g.f32(t + 0x10u), vx), 0.0f, FPU_SUB_S(g.f32(t + 0x14u), vz), 0.0f));
+            const __m128 b = vu::clamp(_mm_setr_ps(FPU_SUB_S(g.f32(t + 0x18u), vx), 0.0f, FPU_SUB_S(g.f32(t + 0x1Cu), vz), 0.0f));
+            const __m128 c = vu::clamp(_mm_setr_ps(FPU_SUB_S(p1x, vx), 0.0f, FPU_SUB_S(p1z, vz), 0.0f));
+            const __m128 n = outer(a, b);
+            const __m128 nb = outer(n, b);
+            const float u = ps2FpuDivide(ctx->fcr31, dotX(nb, c), dotX(nb, a)); // div.s as generated
+            const __m128 na = outer(n, a);
+            const float v = ps2FpuDivide(ctx->fcr31, dotX(na, c), dotX(na, b));
+            f0 = u;
+            if (FPU_C_OLT_S(u, lowLimit))
+                continue;
+            f0 = v;
+            if (FPU_C_OLT_S(v, lowLimit))
+                continue;
+            f0 = FPU_SUB_S(FPU_ADD_S(u, v), one);
+            if (FPU_C_OLT_S(highLimit, f0))
+                continue;
+            const float h = g.f32(t + 4u);
+            if (FPU_C_OLT_S(p1y, h))
+            {
+                COLL_STAT(waterSlow);
+                return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
+            }
+            f0 = p0y;
+            if (FPU_C_OLT_S(p0y, h))
+            {
+                COLL_STAT(waterSlow);
+                return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
+            }
+        }
+        ctx->f[0] = f0;
+        SET_GPR_U64(ctx, 2, 0u);
+        returnTo(ctx);
+    }
+
+    // ---- round 40: manager_sub_01117340, the water surface a segment crosses --
+    // a0 the result, a1 / a2 the segment, a3 the water's object, t0 "any
+    // crossing" (no ray check needed), t1 a triangle filter, t2 a hit
+    // callback, t3 their user word. Both points into the object's space,
+    // then each triangle: its origin, edges and height into the work block
+    // at 0x118ce20 (relocated; +0 the origin, +0x10 / +0x20 the edges, +0x30
+    // the height, +0x40 the crossing point; only x and z words written), the
+    // segment's crossing of the height (b over, a under), the crossing's xz
+    // in the triangle (the barycentric of manager_sub_01117EA0 on the block's
+    // qwords). A crossing inside a triangle (the ray down, the callback):
+    // the recompiled code from the start, which writes the block again with
+    // the same words (nothing else written before). A triangle filter (t1)
+    // is a guest call for each triangle (a0 the object, a1 the work block, a2
+    // t3), allowed only when no crossing can come (b not under a).
+    constexpr uint32_t kWaterSurface = 0x01117340u;
+    void waterSurface(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x01117394u) != kGetLayoutClass)
+            return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        uint32_t cls;
+        if (!layoutClass(g, GPR_U32(ctx, 7), cls))
+            return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+        const uint32_t work = sotc_decomp::relocated(rdram, 0x011173ACu, 0x011173B4u), cross = sotc_decomp::relocated(rdram, 0x011173A0u, 0x011173A4u);
+        const uint32_t rec = g.u32(g.u32(cls + 0x184u) + 0x20u), m = g.u32(cls + 0x164u);
+        const __m128 rowsIn[4] = {g.q(m), g.q(m + 0x10u), g.q(m + 0x20u), g.q(m + 0x30u)};
+        const vu::Rows rows = vu::clampRows(rowsIn);
+        const __m128 p0 = vu::apply(rows, g.q(GPR_U32(ctx, 5))), p1 = vu::apply(rows, g.q(GPR_U32(ctx, 6)));
+        const float p0y = _mm_cvtss_f32(vu::lane<1>(p0)), p1y = _mm_cvtss_f32(vu::lane<1>(p1));
+        // A triangle filter (IsWaterSurfaceExistAround's, the
+        // ClipCollisionVariableXZSurfaceCB's) runs as a guest call for every
+        // triangle, so a crossing (b under a, which needs the recompiled
+        // code) must be impossible: else the recompiled code from the start.
+        const uint32_t filter = GPR_U32(ctx, 9), object = GPR_U32(ctx, 7), user = GPR_U32(ctx, 11);
+        if (filter != 0u)
+        {
+            COLL_STAT(surfaceFiltered);
+            if (FPU_C_OLT_S(p1y, p0y))
+                return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+        }
+        COLL_STAT(surface);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29);
+        const int32_t count = static_cast<int32_t>(g.u32(rec + 0x38u));
+        const float lowLimit = bitsFloat(0xB7A7C5ACu), highLimit = bitsFloat(0x37A7C5ACu), one = bitsFloat(0x3F800000u);
+        const __m128 vf0 = ctx->vu0_vf[0];
+        float f0 = ctx->f[0];
+        uint32_t t = g.u32(rec + 0x3Cu);
+        for (int32_t i = 0; i < count; ++i, t += 0x20u)
+        {
+            const float vx = g.f32(t + 8u), vz = g.f32(t + 0xCu), h = g.f32(t + 4u);
+            g.put32(work + 0x10u, floatBits(FPU_SUB_S(g.f32(t + 0x10u), vx)));
+            g.put32(work + 0x18u, floatBits(FPU_SUB_S(g.f32(t + 0x14u), vz)));
+            g.put32(work + 0x20u, floatBits(FPU_SUB_S(g.f32(t + 0x18u), vx)));
+            g.put32(work, floatBits(vx));
+            g.put32(work + 8u, floatBits(vz));
+            g.put32(work + 0x28u, floatBits(FPU_SUB_S(g.f32(t + 0x1Cu), vz)));
+            g.put32(work + 0x30u, floatBits(h));
+            f0 = h;
+            if (filter != 0u)
+            {
+                ctx->f[0] = f0;
+                call(g, filter, 0x01117490u, spIn - 0x110u, {object, work, user});
+                f0 = ctx->f[0];
+                if (GPR_U64(ctx, 2) == 0u)
+                    continue;
+            }
+            if (!FPU_C_OLT_S(p1y, h))
+                continue;
+            f0 = p0y;
+            if (!FPU_C_OLT_S(h, p0y))
+                continue;
+            const float k = ps2FpuDivide(ctx->fcr31, FPU_SUB_S(h, p0y), FPU_SUB_S(p1y, p0y));
+            const __m128 kx = vu::clamp(_mm_set1_ps(k));
+            const __m128 w = vu::subN(vf0, kx); // vsubx.w vf8, vf0, vf7 (lane w)
+            const __m128 q = vu::addN(vu::mulN(p1, kx), vu::mulN(p0, vu::lane<3>(w)));
+            g.put32(cross, floatBits(FPU_SUB_S(_mm_cvtss_f32(q), vx)));
+            g.put32(cross + 8u, floatBits(FPU_SUB_S(_mm_cvtss_f32(vu::lane<2>(q)), vz)));
+            const __m128 a = vu::clamp(g.q(work + 0x10u)), b = vu::clamp(g.q(work + 0x20u)), c = vu::clamp(g.q(cross));
+            const __m128 n = outer(a, b);
+            const __m128 nb = outer(n, b);
+            const float u = ps2FpuDivide(ctx->fcr31, dotX(nb, c), dotX(nb, a));
+            const __m128 na = outer(n, a);
+            const float v = ps2FpuDivide(ctx->fcr31, dotX(na, c), dotX(na, b));
+            f0 = u;
+            if (FPU_C_OLT_S(u, lowLimit) || FPU_C_OLT_S(v, lowLimit))
+                continue;
+            f0 = FPU_SUB_S(FPU_ADD_S(u, v), one);
+            if (FPU_C_OLT_S(highLimit, f0))
+                continue;
+            COLL_STAT(surfaceSlow);
+            return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+        }
+        ctx->f[0] = f0;
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, 0u);
+        returnTo(ctx);
+    }
+
+    // ---- round 40: GetCollisionDBPlane (0x11257a0) ----------------------------
+    // a0 the surface's id: the address of its plane in the part's cache,
+    // made there first when the flag byte says it is not (the three
+    // vertices by the vertex fetcher, or manager_sub_01116108 for a skinned
+    // surface as a guest call; plane(); EntryModifiedManager), as clipKeep's
+    // first part. A layout class GetLayoutClass computes by a call: the
+    // recompiled code.
+    constexpr uint32_t kCollisionPlane = 0x011257A0u;
+    void collisionPlane(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x011257D4u) != kGetLayoutClass ||
+            sotc_decomp::jalTarget(rdram, 0x01125830u) != kVerticesIndep || sotc_decomp::jalTarget(rdram, 0x01125948u) != kVertices ||
+            sotc_decomp::jalTarget(rdram, 0x011259E0u) != kEntryModified)
+            return sotc_decomp::recompiled(kCollisionPlane)(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x80u, id = GPR_U32(ctx, 4);
+        const uint32_t w1 = g.u32(id + 4u);
+        uint32_t cls;
+        if (!layoutClass(g, g.u32(id), cls))
+            return sotc_decomp::recompiled(kCollisionPlane)(rdram, ctx, runtime);
+        COLL_STAT(plane);
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        uint32_t normal;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t s2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
+            normal = g.u32(s2 + 0x14u) + s3 * 16u;
+            if (g.u8(g.u32(s2 + 8u) + s3) == 0u)
+            {
+                COLL_STAT(planeMade);
+                verticesIndep(g, sp, sp + 0x10u, cls, s1, s3, 0x01125838u, sp);
+                plane(g, sp, normal);
+                entryModified(g, s2, s3, 0x011259E8u, sp);
+            }
+        }
+        else
+        {
+            const uint32_t t2 = g.u32(g.u32(cls + 0x184u) + 0x20u);
+            const uint32_t s2 = g.u32(cls + 0x174u) + 0x58u;
+            const uint32_t index = g.u32(g.u32(s1 * 0x90u + g.u32(t2 + 8u) + 0x54u) + s3 * 4u);
+            normal = g.u32(s2 + 0x14u) + index * 16u;
+            if (g.u8(g.u32(s2 + 8u) + index) == 0u)
+            {
+                COLL_STAT(planeMade);
+                const uint32_t a2c = g.u32(cls + 0x174u);
+                call(g, kVertices, 0x01125950u, sp,
+                     {sp + 0x20u, sp + 0x30u, a2c + 0x28u, g.u32(a2c + 0x24u), g.u32(cls + 0x15Cu), g.u32(t2 + 8u), g.u32(t2 + 0x14u),
+                      g.u32(t2 + 0x18u) + index * 0x40u});
+                plane(g, sp + 0x20u, normal);
+                entryModified(g, s2, index, 0x011259E8u, sp);
+            }
+        }
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U32(ctx, 2, normal);
+        returnTo(ctx);
+    }
+
     // ---- FlushModifiedManager (0x1147798), round 11 ---------------------------
     // a0: a cache's modified list (+0 the count, +8 the flags base, +0xc the
     // index size 1 / 2 / 4, +0x10 the indices): each listed flag byte
@@ -2862,3 +3297,11 @@ SOTC_DECOMP_FUNCTION(0x01395830u, gamecore_sub_01395830, decomp_collision::filte
 SOTC_DECOMP_FUNCTION(0x013958B8u, gamecore_sub_013958B8, decomp_collision::filterEntry<9>);
 SOTC_DECOMP_FUNCTION(0x0110C790u, manager_sub_0110C790, decomp_collision::filterEntry<10>);
 SOTC_DECOMP_FUNCTION(0x013D54F0u, gamecore_sub_013D54F0, decomp_collision::objectFilterEntry<4>);
+// Round 40 (SOTC_COLLPROBE=0: all of them recompiled).
+SOTC_DECOMP_FUNCTION(0x013CB8E8u, gamecore_sub_013CB8E8, decomp_collision::filterEntry<11>);
+SOTC_DECOMP_FUNCTION(0x013D5510u, AI_JudgeColAttrFunc, decomp_collision::filterEntry<12>);
+SOTC_DECOMP_FUNCTION(0x014383F0u, moveCtrlWallJudgeFunc, decomp_collision::filterEntry<13>);
+SOTC_DECOMP_FUNCTION(0x0137D1A0u, SCRGetCollisionCallBack, decomp_collision::scrCollision);
+SOTC_DECOMP_FUNCTION(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbe);
+SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurface);
+SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlane);

@@ -38,13 +38,27 @@ namespace sotc_decomp
         }
 
         // ---- differential test --------------------------------------------
-        constexpr int kMaxChecked = 64;
+        // One slot (a trampoline) per checked function. Round 40: was 64, so
+        // `all` left every function registered after the 64th unchecked.
+        constexpr int kMaxChecked = 512;
         struct Checked
         {
             const Function *function = nullptr;
             PS2Runtime::RecompiledFunction recompiled = nullptr;
             std::atomic<uint64_t> calls{0}, checks{0}, mismatches{0};
+            uint64_t next = 0; // the next call checked past SOTC_DIFFTEST_FIRST
         };
+        // SOTC_DIFFTEST_MAX=<n> (round 40; default 1000 with `all`, 0 = off
+        // for a list of names): after each n checks of a function past
+        // SOTC_DIFFTEST_FIRST its stride (SOTC_DIFFTEST_EVERY) doubles, so a
+        // hot function's checks spread over the whole run without taking it
+        // over, and `all` stays fast with every registered function in it.
+        uint64_t g_maxChecks = 0;
+        // Checks in progress (nested: a checked function the native or the
+        // recompiled leg of another check reaches). Each depth has its own
+        // snapshots; deeper than kMaxDepth the call runs recompiled, unchecked.
+        constexpr int kMaxDepth = 3;
+        int g_depth = 0;
         std::array<Checked, kMaxChecked> g_checked;
         std::unordered_map<uint32_t, PS2Runtime::RecompiledFunction> g_recompiled;
         // recompiled()'s lookups, read-only once install() has run: open
@@ -109,32 +123,37 @@ namespace sotc_decomp
             }
         }
 
-        template <int Slot>
-        void checkedCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        void checkedCallImpl(Checked &c, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
-            Checked &c = g_checked[Slot];
             static const uint64_t first = std::getenv("SOTC_DIFFTEST_FIRST") ? std::strtoull(std::getenv("SOTC_DIFFTEST_FIRST"), nullptr, 0) : 200u;
             static const uint64_t every = std::max<uint64_t>(1u, std::getenv("SOTC_DIFFTEST_EVERY") ? std::strtoull(std::getenv("SOTC_DIFFTEST_EVERY"), nullptr, 0) : 1000u);
             const uint64_t n = c.calls.fetch_add(1, std::memory_order_relaxed);
-            // A checked function reached again while a check runs (recursion,
-            // or one checked function calling another): the recompiled code,
-            // unchecked; the snapshots below belong to the outer check.
-            static int depth = 0;
-            if (depth > 0 || (n >= first && n % every != 0u))
+            // Too deep (a chain of checked functions reached from each
+            // other's legs): the recompiled code, unchecked.
+            if (g_depth >= kMaxDepth || (n >= first && n < c.next))
             {
                 c.recompiled(rdram, ctx, runtime);
                 return;
             }
+            if (n >= first)
+            {
+                const uint64_t past = c.checks.load(std::memory_order_relaxed) > first ? c.checks.load(std::memory_order_relaxed) - first : 0u;
+                const unsigned doublings = g_maxChecks ? static_cast<unsigned>(std::min<uint64_t>(40u, past / g_maxChecks)) : 0u;
+                c.next = n + (every << doublings);
+            }
             uint8_t *scratch = runtime->memory().getScratchpad();
-            static Snapshot before, nativeAfter;
+            const int depth = g_depth;
+            static Snapshot snapshots[kMaxDepth][2];
+            Snapshot &before = snapshots[depth][0], &nativeAfter = snapshots[depth][1];
             before.ram.assign(rdram, rdram + PS2_RAM_SIZE);
             before.scratch.assign(scratch, scratch + PS2_SCRATCHPAD_SIZE);
             const R5900Context input = *ctx;
 
-            ++depth;
+            ++g_depth;
             // SOTC_DIFFTEST_DRAWS=1: the native renderer's draws of each leg
             // (native_renderer::setDrawTap) compared too.
-            static const bool draws = std::getenv("SOTC_DIFFTEST_DRAWS") != nullptr;
+            static const bool drawsOn = std::getenv("SOTC_DIFFTEST_DRAWS") != nullptr;
+            const bool draws = drawsOn && depth == 0; // the outermost check's draws only
             static std::vector<uint64_t> drawsNative, drawsRecompiled;
             drawsNative.clear();
             drawsRecompiled.clear();
@@ -147,7 +166,8 @@ namespace sotc_decomp
             const PS2Runtime::RecompiledFunction leg = control ? c.recompiled : c.function->native;
             // SOTC_DIFFTEST_CYCLES=1 (checking, round 15): the EE cycles each
             // leg charges (the game's time step comes from the EE clock).
-            static const bool cycles = std::getenv("SOTC_DIFFTEST_CYCLES") != nullptr;
+            static const bool cyclesOn = std::getenv("SOTC_DIFFTEST_CYCLES") != nullptr;
+            const bool cycles = cyclesOn && depth == 0;
             static uint64_t cyclesNative = 0, cyclesRecompiled = 0;
             const uint64_t clock0 = runtime->m_eeClock.now();
             if (c.function->once)
@@ -169,7 +189,7 @@ namespace sotc_decomp
                 c.recompiled(rdram, ctx, runtime);
             else
                 runToReturn(rdram, ctx, runtime, c.recompiled);
-            --depth;
+            --g_depth;
             if (cycles)
             {
                 cyclesNative += clock1 - clock0;
@@ -348,6 +368,12 @@ namespace sotc_decomp
                              (unsigned long long)c.mismatches.load(), (unsigned long long)(n + 1u));
         }
 
+        template <int Slot>
+        void checkedCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            checkedCallImpl(g_checked[Slot], rdram, ctx, runtime);
+        }
+
         template <int... Slots>
         constexpr std::array<PS2Runtime::RecompiledFunction, sizeof...(Slots)> makeChecked(std::integer_sequence<int, Slots...>)
         {
@@ -441,7 +467,11 @@ namespace sotc_decomp
         static const auto checkers = makeChecked(std::make_integer_sequence<int, kMaxChecked>{});
         const char *skip = std::getenv("SOTC_DECOMP_SKIP");
         const char *test = std::getenv("SOTC_DIFFTEST");
-        int replaced = 0, checked = 0;
+        if (const char *max = std::getenv("SOTC_DIFFTEST_MAX"))
+            g_maxChecks = std::strtoull(max, nullptr, 0);
+        else if (test && std::strcmp(test, "all") == 0)
+            g_maxChecks = 1000u;
+        int replaced = 0, checked = 0, unchecked = 0;
         for (const Function &f : registry())
         {
             if (!runtime.hasFunction(f.address))
@@ -451,6 +481,8 @@ namespace sotc_decomp
             g_recompiled.emplace(f.address, runtime.lookupFunction(f.address));
             if (listed(skip, f.name))
                 continue;
+            if (listed(test, f.name) && checked >= kMaxChecked)
+                ++unchecked;
             if (listed(test, f.name) && checked < kMaxChecked)
             {
                 g_checked[checked].function = &f;
@@ -476,6 +508,8 @@ namespace sotc_decomp
             sotc_prof::noteAb(true);
             std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : "") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }
+        if (unchecked)
+            std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
         buildRecompiledTable();
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;

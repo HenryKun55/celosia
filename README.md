@@ -191,31 +191,31 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 <!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-**Game thread time on the Vita** (r39, Vita3K profile of the route):
+**Game thread time on the Vita** (r40, Vita3K profile of the route):
 
 | | share | |
 |---|---:|---|
-| Native code | 44.7% | `█████████░░░░░░░░░░░` |
-| Recompiled MIPS | 38.6% | `████████░░░░░░░░░░░░` |
-| Runtime (DMA walk, memory, scheduler, glue) | 16.7% | `███░░░░░░░░░░░░░░░░░` |
+| Native code | 45.1% | `█████████░░░░░░░░░░░` |
+| Recompiled MIPS | 38.3% | `████████░░░░░░░░░░░░` |
+| Runtime (DMA walk, memory, scheduler, glue) | 16.6% | `███░░░░░░░░░░░░░░░░░` |
 
 <details open>
 <summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>
 
 | Area | Code native | | Functions | Game thread time: native / MIPS |
 |---|---:|---|---:|---|
-| Display and models | 8.8% | `█░░░░░░░░░░░` | 38 / 978 | 17.3% / 4.6% |
-| Characters and motion | 4.8% | `█░░░░░░░░░░░` | 27 / 1212 | 11.4% / 7.7% |
-| Other game code (names not identified yet) | 1.5% | `░░░░░░░░░░░░` | 13 / 2881 | 2.1% / 17.0% |
-| Collision and physics | 18.0% | `██░░░░░░░░░░` | 40 / 339 | 10.7% / 1.2% |
+| Display and models | 8.8% | `█░░░░░░░░░░░` | 38 / 978 | 17.3% / 4.8% |
+| Characters and motion | 4.8% | `█░░░░░░░░░░░` | 27 / 1212 | 11.5% / 7.6% |
+| Other game code (names not identified yet) | 1.5% | `░░░░░░░░░░░░` | 13 / 2877 | 1.9% / 16.7% |
+| Collision and physics | 20.7% | `██░░░░░░░░░░` | 47 / 344 | 11.2% / 1.2% |
 | Boot ELF, SDK and libc | 14.6% | `██░░░░░░░░░░` | 320 / 2122 | 0.0% / 4.6% |
 | System and memory | 5.0% | `█░░░░░░░░░░░` | 4 / 229 | 1.5% / 0.5% |
-| Math | 17.0% | `██░░░░░░░░░░` | 21 / 132 | 0.5% / 1.1% |
-| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.8% / 0.8% |
+| Math | 17.1% | `██░░░░░░░░░░` | 21 / 131 | 0.5% / 1.1% |
+| Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.8% / 0.7% |
 | Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.4% / 0.6% |
-| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.0% / 0.5% |
+| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.0% / 0.4% |
 | Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
-| Runtime (DMA walk, memory, scheduler) | | | | 16.7% (runtime) |
+| Runtime (DMA walk, memory, scheduler) | | | | 16.6% (runtime) |
 
 </details>
 
@@ -239,15 +239,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | 2026-10-30 | r35 | 5.41% | 47.9% | 43.5% |
 | 2026-10-30 | r36 | 5.41% | 47.9% | 44.5% |
 | 2026-10-30 | r39 | 5.59% | 49.0% | 44.7% |
+| 2026-10-30 | r40 | 5.73% | 49.1% | 45.1% |
 
 </details>
 
 ```mermaid
 xychart-beta
     title "Game thread time in native code (%)"
-    x-axis ["r32", "r35", "r36", "r39"]
+    x-axis ["r32", "r35", "r36", "r39", "r40"]
     y-axis "%" 0 --> 100
-    line [45.0, 43.5, 44.5, 44.7]
+    line [45.0, 43.5, 44.5, 44.7, 45.1]
 ```
 
 <!-- decomp:end -->
@@ -340,6 +341,8 @@ xychart-beta
 | `PS2X_TEST_LOG=1` | (round 38) the emulated GS's primitives counted by context state (TEST, ALPHA, TEX0 PSM / TCC, FBA), printed every 2^20 primitives (`[test]`; `build/agent-scratch/r38/testlog.py` decodes the last dump) |
 | `SOTC_LOG_HEADER=<hex>` | (round 38) every 30 frames, each surface of that model as drawn (`[header]`: texture mode, posed, lit, blend, layer, ALPHA_2) |
 | `SOTC_CAMCOLL=0` | (round 39) the camera's collision path and the collision filters made native this round back to the recompiled code: `camera_collision_check_direct` / `camera_invisible_collision_check_direct_by_exception_obj`, `GetArbitraryDirectionInverseMatrix` with `iosGetArbitraryUpVectorElement`, `GetQuaternionByAxisDirZYExact` and `iosAbsVector`, the object filters (`CollisionObjectJudgeCallbackExcept(Descend)PluralObj`, `gamecore_sub_0140FAB8` / `01434FC0` / `013D54F0`), the id filters (`CollisionPlaneJudgeCallbackCameraMove`, `playerPlaneJudgeFuncCameraFilter`, `gamecore_sub_01395830` / `013958B8` / `01444800`, `manager_sub_0110C790`), `EntryModifiedManager` and the uncached case of the vertex fetcher `0x1114c70`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the names in `game/overrides/decomp_collision.cpp` / `decomp_quat.cpp`; the native collision code's own calls of the filters, the vertex fetcher and EntryModifiedManager follow `SOTC_CAMCOLL` only) |
+| `SOTC_COLLPROBE=0` | (round 40) the collision natives of round 40 back to the recompiled code: the scripts' collision callback `SCRGetCollisionCallBack`, the id filters `moveCtrlWallJudgeFunc` (the plane's slope in degrees), `gamecore_sub_013CB8E8` and `AI_JudgeColAttrFunc`, `GetCollisionDBPlane` and the water probes `manager_sub_01117EA0` / `manager_sub_01117340`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the native collision code's own calls of the filters follow `SOTC_COLLPROBE` only) |
+| `SOTC_DIFFTEST_MAX=<n>` | (round 40, checking) after each n checks of a function past `SOTC_DIFFTEST_FIRST` its stride (`SOTC_DIFFTEST_EVERY`) doubles; default 1000 with `SOTC_DIFFTEST=all`, off for a list of names. `all` now checks every registered native (512 slots, was the first 64) |
 
 With `SOTC_FRAME_LOG=1` the `[frame]` lines also end in `| sync ... | joins ...`: the game
 thread's work at the frame's change by part (the join, endFrame, the frame log, the sound log,

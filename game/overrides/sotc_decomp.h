@@ -274,6 +274,19 @@ namespace sotc_decomp
         }();
         return on;
     }
+    // Round 40's natives (the scripts' collision callback, the id filters
+    // left as guest code, the character's slope / water probes;
+    // decomp_collision.cpp). SOTC_COLLPROBE=0 puts the recompiled code back
+    // for all of them (read at first use).
+    inline bool collProbeOn()
+    {
+        static const bool on = []
+        {
+            const char *e = std::getenv("SOTC_COLLPROBE");
+            return !(e && e[0] == '0');
+        }();
+        return on;
+    }
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \

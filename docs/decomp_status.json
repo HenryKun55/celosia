@@ -1,29 +1,29 @@
 {
  "updated": "2026-10-30",
- "commit": "89880b9",
+ "commit": "80ef255",
  "summary": {
   "by_functions": {
-   "native": 469,
+   "native": 476,
    "partial": 0,
    "total": 9024,
-   "percent": 5.2
+   "percent": 5.27
   },
   "by_code_size": {
-   "native": 146840,
+   "native": 150424,
    "partial": 0,
    "total": 2625144,
-   "percent": 5.59
+   "percent": 5.73
   },
   "by_calls": {
-   "native": 82188669,
+   "native": 82356100,
    "partial": 0,
    "total": 167661665,
-   "percent": 49.02
+   "percent": 49.12
   },
   "game_code_by_size": {
-   "native": 74896,
+   "native": 78480,
    "total": 2208056,
-   "percent": 3.39
+   "percent": 3.55
   }
  },
  "areas": {
@@ -36,12 +36,12 @@
    "percent": 14.57
   },
   "Math": {
-   "functions": 132,
+   "functions": 131,
    "native_functions": 21,
-   "bytes": 26092,
+   "bytes": 26004,
    "native_bytes": 4444,
    "partial_functions": 0,
-   "percent": 17.03
+   "percent": 17.09
   },
   "Display and models": {
    "functions": 978,
@@ -68,12 +68,12 @@
    "percent": 5.0
   },
   "Other game code": {
-   "functions": 2881,
+   "functions": 2877,
    "native_functions": 13,
-   "bytes": 1274892,
+   "bytes": 1272164,
    "native_bytes": 18528,
    "partial_functions": 0,
-   "percent": 1.45
+   "percent": 1.46
   },
   "Camera": {
    "functions": 281,
@@ -100,12 +100,12 @@
    "percent": 22.63
   },
   "Collision and physics": {
-   "functions": 339,
-   "native_functions": 40,
-   "bytes": 110976,
-   "native_bytes": 20008,
+   "functions": 344,
+   "native_functions": 47,
+   "bytes": 113792,
+   "native_bytes": 23592,
    "partial_functions": 0,
-   "percent": 18.03
+   "percent": 20.73
   },
   "Script and events": {
    "functions": 632,
@@ -1134,6 +1134,22 @@
    "source": "game/overrides/decomp_finder.cpp"
   },
   {
+   "address": "0x01117340",
+   "name": "manager_sub_01117340",
+   "bytes": 1112,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01117ea0",
+   "name": "manager_sub_01117EA0",
+   "bytes": 1184,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
    "address": "0x01119248",
    "name": "getLayoutClassCollisionIndepSurfBoundary",
    "bytes": 384,
@@ -1185,6 +1201,14 @@
    "address": "0x01123c60",
    "name": "CollisionPlaneJudgeCallbackCameraLeave",
    "bytes": 304,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x011257a0",
+   "name": "GetCollisionDBPlane",
+   "bytes": 616,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
@@ -1446,6 +1470,14 @@
    "source": "game/overrides/sotc_overrides.cpp"
   },
   {
+   "address": "0x0137d1a0",
+   "name": "SCRGetCollisionCallBack",
+   "bytes": 152,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
    "address": "0x01395830",
    "name": "gamecore_sub_01395830",
    "bytes": 136,
@@ -1486,9 +1518,25 @@
    "source": "game/overrides/decomp_collision.cpp"
   },
   {
+   "address": "0x013cb8e8",
+   "name": "gamecore_sub_013CB8E8",
+   "bytes": 192,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
    "address": "0x013d54f0",
    "name": "AI_JudgeNotCharaObjFunc",
    "bytes": 32,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x013d5510",
+   "name": "AI_JudgeColAttrFunc",
+   "bytes": 240,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
@@ -1569,6 +1617,14 @@
    "address": "0x01434fc0",
    "name": "gamecore_sub_01434FC0",
    "bytes": 24,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x014383f0",
+   "name": "moveCtrlWallJudgeFunc",
+   "bytes": 88,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"

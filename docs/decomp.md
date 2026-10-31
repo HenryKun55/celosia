@@ -28,7 +28,11 @@ Not a matching decomp: nothing has to rebuild a PS2 binary.
    the same state, the native one and the recompiled one, and compares v0,
    f0, the callee-saved registers and every byte of RAM and scratchpad
    (the dead stack below sp excepted). `SOTC_DIFFTEST_FIRST` / `_EVERY` set
-   how many calls are checked (each check copies 64 MB: the game stutters).
+   how many calls are checked (each check copies 64 MB: the game stutters);
+   `SOTC_DIFFTEST_MAX=<n>` doubles a function's stride after each n checks
+   (1000 by default with `all`, which covers every registered native since
+   round 40). Checks nest three deep (a checked function reached from
+   another check's leg is checked too, with its own snapshots).
    A function goes in with 0 mismatches over the route.
 5. **Measure it** with the profiler again (Mac, then the Vita).
 
@@ -65,6 +69,11 @@ What a native function has to keep, learned the hard way:
 - **Same operations, same order:** FPU_* and PS2_V* macros (EE rounding,
   clamping, operand alignment), the original's constants by their bits
   (0.001 is 0x3a83126e, not 0x3a83126f).
+  The reference is the code the runner is built from,
+  `build/recomp/game/output/` (and its lean copies, build/runner/lean):
+  `recomp/game/output/` is an older generator's output (its div.s is a plain
+  host divide; today's is `ps2FpuDivide`, round 40's first water probe was
+  one ulp off in f0 for reading the old one).
 - **Rare cases go back to the recompiled code** before anything is written
   (`sotc_decomp::recompiled(address)`): a dying particle, a collision test,
   a negative count. A function can also do its hot part natively and then
@@ -6717,6 +6726,134 @@ game/overrides/sotc_decomp.h (camCollOn), tools/vita3k.sh (snapshot copy),
 README.md (SOTC_CAMCOLL; the decomp block from decomp_tree.py --readme),
 docs/decomp.md, docs/decomp_status.json / .svg, docs/decomp_history.json /
 .svg, docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r39.vpk.
+
+## Round 40: the difftest's blind spot, the scripts' callback, the wall filter, the water probes (2026-10-30)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r40/` (dt.sh, pos.sh, v3k.sh, fam.py
+as round 39's; thprof-new.txt is r33/thprof.py over the profile window).
+
+**1. `SOTC_DIFFTEST=all` checks every registered native.** It had 64 slots
+(kMaxChecked, sotc_decomp.cpp) and took the registry's first 64, so rounds
+36-39's `all` never saw the collision natives nor round 39's. Now 512 slots,
+each a thin trampoline into one checker (`checkedCallImpl`); the snapshots
+are per nesting depth (three deep: a checked function reached from another
+check's leg is checked too, deeper ones run recompiled), not per function
+(147 functions x 64 MB would not fit). `SOTC_DIFFTEST_MAX=<n>` doubles a
+function's stride after each n checks past FIRST (1000 by default with
+`all`), so the hot collision natives do not take the run over: `all` to
+frame 4 800 runs in ~9 minutes. A line says how many functions did not get
+a slot (none now). The first full run (r40/dt-all0, round 39's code): 147
+functions in place, 136 reached, 189 003 checks, mismatches only
+isysWakeupSubThread (300 of 1 300; never in the first 64 since round 5) and
+the life bar's gamecore_sub_013F8668 (139 of 200), plus one
+iosMallocGarbageTickProc (round 14's host-time budget). The wake's is state
+noise: `SOTC_DIFFTEST_CONTROL=1` (both legs recompiled, r40/dt-wakectl to
+frame 2 400) gives 147 of 900. **No older native has a mismatch.** Not
+reached on the route (11): acosf / __ieee754_acosf / sqrtf (their natives
+are called directly), atan2f / ieee754_atan2f, kbGetStatus,
+camera_invisible_collision_check_direct_by_exception_obj,
+collisionFinderLeaf16, ExceptDescendPluralObj, manager_sub_0110C790.
+
+**2. Nativized** (decomp_collision.cpp; all exact, the generated code's
+macros in its order; `SOTC_COLLPROBE=0` puts all of them back, each table
+entry alone with `SOTC_DECOMP_SKIP=<name>`):
+- `SCRGetCollisionCallBack` (0x137d1a0): the two points' qwords with w = 1 on
+  the frame, ClipCollisionDirectCallBack (native) with the group, t0's id
+  filter and t1's user word, CopyGeometryPointer's 64 bytes on a hit.
+- The id filters still run as guest code: `moveCtrlWallJudgeFunc`
+  (0x14383f0): the plane from the part's cache (GetCollisionDBPlane's cached
+  case, `planeCached`; an uncached plane, 47 of 44 500 on the route, goes to
+  the guest filter), iosApplyRotMatrix (`vu::apply` with vf0),
+  GetPlaneSlopeDegree (0 / 180 at |y| >= 1, else acosf through the table x
+  57.295776), |slope| against a1 + 0x40; f0, fcr31's condition, vf10 / ACC
+  as the original. `idFilter` now takes the sp the guest filter would get
+  (acosf's frame). `gamecore_sub_013CB8E8` and `AI_JudgeColAttrFunc`
+  (0x13d5510): attribute bits.
+- `GetCollisionDBPlane` (0x11257a0): clipKeep's first part as its own entry
+  (the plane made in the cache by the vertex fetcher or 0x1116108, plane(),
+  EntryModifiedManager); 86 000 calls on the route.
+- The water probes: `manager_sub_01117EA0` (CheckUnderVariableXZSurface's:
+  is the segment's end over a water triangle with a point under it) and
+  `manager_sub_01117340` (the segment's crossing of a water triangle's
+  height; GetWaterSurfacePositionYExtend, IsWaterSurfaceExistAround,
+  ClipCollisionVariableXZSurfaceCB). The triangle loop natively: both points
+  through the object's matrix, the barycentric of VU0 outer products and
+  dots with the generated `ps2FpuDivide`, 01117340's work block at 0x118ce20
+  (relocated) written as the original does each triangle and read back as
+  qwords (its y / w words are RAM's). A triangle that needs the ray check
+  (ClipCollisionDirectCallBackOneObj, the id compare, the hit callback):
+  the recompiled code from the start (nothing but the work block, written
+  again with the same words, is written before; 0 and 2 of ~5 000 calls on
+  the route). 01117340's per-triangle filter (IsWaterSurfaceExistAround's)
+  is a guest call; with one, a crossing must be impossible (b not under a,
+  true for that caller's point) or the recompiled code runs.
+- Dropped: GetCollisionDBAttribute (0x1125a08) was written, but its callers
+  reach it without the table (0 calls through it on the route): not
+  shipped unverified.
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s, game thread 248, r40/new.vpk + new.elf: the final code plus the unreached GetCollisionDBAttribute entry; r39's window against this round's,
+2 706 and 2 664 frames; thousands a frame; the windows start at different
+game frames, 4 133 and 3 765, so the whole thread's +5.7% is content):
+
+| | r39 | r40 |
+|---|---|---|
+| the recompiled functions replaced (01117EA0 27.5, 01117340 19.2, GetCollisionDBPlane 8.0, iosApplyRotMatrix 3.8, GetPlaneSlopeDegree 3.0, moveCtrlWallJudgeFunc 2.8, 013CB8E8 1.5, SCRGetCollisionCallBack 0.8) | 66.5 | 0 |
+| their native code | - | 30.6 |
+| sotc_decomp::callGuest | 207 | 221 |
+
+About 36 k instructions a frame net (~0.35% of the game thread) on the
+path; callGuest's +14 k is the window (the wall filter's guest calls are
+gone: 47 left).
+
+**Exactness.**
+- By name (Mac, the route to 4 800, r40/dt-final, EVERY=10, MAX=3000): 14
+  functions, 64 101 checks, 0 mismatches (SCRGetCollisionCallBack 600,
+  gamecore_sub_013CB8E8 900, moveCtrlWallJudgeFunc 200 through the table,
+  44 000 inline, AI_JudgeColAttrFunc 1, 01117EA0 2 400, 01117340 3 000,
+  GetCollisionDBPlane 6 000, collisionFinderLeaf 6 400,
+  ClipCollisionDirectCallBack 4 500, ClipCollisionFinder / CallBack 3 700
+  each, clipCollisionKeep 12 500, ClipCollisionDB 17 400,
+  camera_collision_check_direct 2 800); the leaves' and the callbacks'
+  recompiled legs call the new filters through the table (checked nested).
+  The first 01117EA0 was 1 ulp off in f0 in 720 of 1 300 checks: read from
+  the old generator's output (a plain divide, see "The loop").
+- `all` (r40/dt-all, the final code but GetCollisionDBAttribute's
+  registration): 155 in place, 144 reached, 192 503 checks, mismatches only
+  isysWakeupSubThread (306) and gamecore_sub_013F8668 (145).
+- Fixed-30 position route to 5 400 (r39/bin-new4 against r40/bin-final, one
+  after the other): max 0.36 (frame 2 790), both reach 5 400.
+- Vita: celosia-r40.vpk (-j6, shader seed 52 files) boots and plays the route
+  in calibrated Vita3K (r40/smoke-err.txt, 240 s to game frame 5 521; sound:
+  0 late callbacks, 0 stale halves); the profile run (r40/new-err.txt) the
+  same; the Vita3K tree restored (`restored ok` both).
+
+**Decomp status** (r40/replaced.txt): 5.73% of the MIPS code by size (was
+5.59), 5.27% by functions (476), 49.1% by calls, 3.55% of the game's own
+code; decomp_history r40: 45.1% of the game thread's instructions native.
+
+**Open.**
+- Still recompiled on the path: clipKeep's full test (0111C078; 26% of
+  clipKeep's calls; 5-20 k a frame), the slope probes 0111C810 (16-24 k) and
+  01118B88 (10-15 k, its non-skinned case calls 0x1116108), 01118340 (10 k),
+  the water probes' callers CheckUnderVariableXZSurface /
+  GetWaterSurfacePositionYExtend (~7 k each: the group walk), the old tree
+  walks, CalcCollisionMultiDepSurfBoundary, ClipCollisionDirectCallBackObjAry
+  (10 k).
+- GetCollisionDBAttribute: reached by direct C++ calls from recompiled code;
+  a native would need its callers replaced.
+- The camera response (CAM_get_warp_position, get_camera_collision_data,
+  the VariableKeep / GetCollisionDBCallBack sweeps) untouched.
+
+**Files:** game/overrides/sotc_decomp.cpp (512 slots, trampolines, nested
+snapshots, SOTC_DIFFTEST_MAX), sotc_decomp.h (collProbeOn),
+decomp_collision.cpp (the filters, planeCached, moveCtrlWall, scrCollision,
+waterProbe / waterSurface with opm / outer / dotX, collisionPlane, idFilter's
+sp, the [collision] r40 stats lines), README.md (SOTC_COLLPROBE,
+SOTC_DIFFTEST_MAX; the decomp block), docs/decomp.md, docs/decomp_status.json
+/ .svg, docs/decomp_history.json / .svg, docs/decomp_tree.json. Deliverable:
+build/agent-scratch/celosia-r40.vpk.
 
 ## Vita3K calibration (2026-10-22)
 
