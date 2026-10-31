@@ -7702,6 +7702,185 @@ switch list and dumps); game/overrides/sotc_native.cpp (indexed volumes, the
 A/B names); README.md; this section. Deliverable:
 build/agent-scratch/celosia-r45.vpk.
 
+## Round 46: the next hot list, the fight's recompiled code, the colossus question (2026-10-31)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r46/` (v3k.sh / dt.sh / pos.sh as round
+45's; fam46.py this round's family table; fightload.sh the user's card copy
+loaded on the Mac; fight/eye.py the camera from a recording's clip matrices;
+fight/recprof.py a recording's sampled guest pcs named from the build's
+function list; thprof-base-all.txt / thprof-fin-all.txt r33/thprof.py over
+the two windows; console-ab/env.txt the console run asked for). The
+transcriptions were made by ten workers in parallel (one file each,
+syntax-checked with r43/syn.sh; scratch in r46/work-a..j), then built and
+difftested together here.
+
+**1. The profile (r45, before).** celosia-r45.vpk, calibrated Vita3K 222 MHz,
+the route on the r24 card, snapshots 180 / 300 s: 2 887 frames from 4 009,
+game thread 9 536 k instructions a frame. docs/decomp_tree.json's "top"
+refreshed from it: texTransResolveRecords 33.0 k, 01372068 19.2, 01137640's
+string path 18.8, 01391E30 18.4, 013CF258 16.8, 010C4220 16.0, 01397110
+15.7, updatePowerWork 15.6, DispWithSwordBlur 15.2, 010CABA0 15.1, 0135AE50
+14.8, 010E1068 14.5 ... (flat: every item 0.1-0.35% of the thread).
+
+**2. The colossus fight.**
+- The card the recorder saved with each recording (user-rec/*/mc_slot1.ps2,
+  the same bytes in all three; loaded from a copy, r46/fight/user-card.ps2)
+  holds one save: "Shrine of Worship, 3 defeated, 0:47:27". It loads at the
+  shrine after colossus 3 (Mac, r46/fight/load1): the next colossus is the 4th,
+  minutes of riding away. No save near colossus 1 can be made from it: the
+  game saves only at shrines, colossus 1 is already dead on that card, and a
+  New Game reaches Valus only after a climb a blind pad script would not
+  survive. A replay of the recorded pad does not reach the fight either: the
+  recordings start mid-game (034217 at game frame 3 524, 034748 at 10 627) with
+  a gap between them, and the game's step follows host time.
+- The title's attract demo (Mac, frames 0-16 000, r46/fight/attract1, attract2)
+  is the opening and Agro galloping across the plain, looping: no colossus.
+- A teleport (writing the player's +0x170) would need the arena's world
+  position; the recordings' clip matrices give the camera only in each
+  terrain tile's own space (fight/eye.py: tiles 300 apart), not the world's.
+  Left open.
+- What was used instead: the fight recordings' own guest pc samples (500 a
+  second on the user's Vita3K session, coarse: the pc moves at dispatched
+  calls). tools/rec.py names them from the repo's older recomp/game/functions.csv
+  (inner labels like "manager_sub_0112DAE0" are ClipCollisionDirectCallBack's
+  inside); fight/recprof.py uses build/recomp/game/functions.csv and marks what
+  is native today. Recompiled and much hotter in the fight (034748) and the
+  death (040320) than on the plain (034217): 010AE128 0.67 / 0.50 / 0.05%,
+  updateObjectGeo 0.44 / 0.32 / 0.00, 01108960 0.40 / 0.25 / 0.17,
+  GetObjectAnimationFloatFrame 0.34 / 0.24 / 0.12, 010ADE08 0.31 / 0.25 /
+  0.09, ClipCollisionDirectCallBackObjAry 0.30 / 0.10 / 0.11, ExecObjectAnimation
+  0.26 / 0.18 / 0.10, iosGetScaleInverseVector 0.15 / 0.08 / 0,
+  GetMotionDirectResourceNodeQuaternionPosFloatFrame 0.11 / 0 / 0, the
+  ClipCollisionFinderWithKeep pair; 0113DBF8 1.3-1.4% everywhere. The
+  colossus is an object animation (its parts moved by ExecObjectAnimation's
+  channels, the geometry pointer kick 01108960, updateObjectGeo) collided with
+  as object arrays (ObjAry): those are nativized below.
+
+**3. Nativized** (`SOTC_HOTLIST46=0` puts all of round 46's back, each table
+entry alone with `SOTC_DECOMP_SKIP=<name>`; transcribed from the generator's
+code, FPU_* / PS2_V* in order, guest calls through the table with the
+original's ra and frame sp, relocated sites from the live words; scratch
+GPRs, the callee-saved registers during calls and the loops' checkpoints as
+in rounds 43-44):
+- decomp_hot46a.cpp: `gamecore_sub_01372068` (one leg's foot IK step: the
+  ground probe's three paths, character_ikcolsearch, the surface plane, the
+  attach frame, the tilt, the eased rotation; all 23 calls).
+- decomp_hot46b.cpp: `gamecore_sub_01391E30` (Agro's body step: rider, timers,
+  steer dead zones in soft doubles, the control definitions, the three
+  forward probes, the obstacle group, stop decisions, the turn; 66 calls,
+  22 phase helpers).
+- decomp_hot46c.cpp: `manager_sub_010C4220` (a character's root motion and
+  pose blend, the pose on a stack area of count x 16 bytes), `manager_sub_010CABA0`
+  (a character's control step: mail, the pad status, the stick and d-pad
+  ramps, ctrlTurn, the walkers), `CheckControlDef`.
+- decomp_hot46d.cpp: `gamecore_sub_01397110` (a hanging cloth strip's pass),
+  `updatePowerWork` (the grip / attack power charge), `gamecore_sub_0135AE50`
+  (the stage area grid refresh; jump table at 0x14680c0).
+- decomp_hot46e.cpp: `DispWithSwordBlur` (the sword's blur trail: 10 quads
+  through the gl calls with the original return addresses), `manager_sub_010E1068`
+  (aim IK), `nico_IK_legCalcAndSetUpper`.
+- decomp_hot46f.cpp (+ decomp_textrans.cpp's walk): texTransResolve's type-1
+  VRAM reset and the texture-only placement (every state: fresh upload with
+  the mip loop and the CT32 forms, the other context's packet copy, the DMA
+  NEXT), native; records with a CLUT request still run round 44's copy of the
+  generated code (decided before any write).
+- decomp_clothdyn.cpp: clothVelocity's type-1 path (a string of layout
+  objects: direction, the first segment's scale, GetQuaternionByAxisDirZY,
+  the position, UpdateLayoutClassSimpleGeometry) native from 0x1137728.
+- The fight's: decomp_hot46g.cpp `ClipCollisionDirectCallBackObjAry`,
+  `ClipCollisionFinderWithKeep4DSlopeLimitCB`; decomp_hot46h.cpp
+  `manager_sub_010AE128` (an option node's rotation / position / scale at a
+  frame), `010ADE08` (a vec3 key), `010AEAF8` (a position key lerp),
+  `010AF070` (an object animation's sample); decomp_hot46i.cpp
+  `ExecObjectAnimation`, `updateObjectGeo`, `GetObjectAnimationFloatFrame` (22
+  channel cases), `GetMotionDirectResourceNodeQuaternionPosFloatFrame`;
+  decomp_hot46j.cpp `manager_sub_0113DBF8` / `0113E6C8` / `0113DEA0` (particle
+  draws), `manager_sub_01108960` (the geometry pointer kick, 28 cases).
+- Not done: `gamecore_sub_013CF258` (skipped: a sub-thread body resumed by pc
+  at ~50 labels after each isysSleepSubThread; the table holds the resume
+  labels separately, so a native would have to be registered at each and
+  leave through the runtime's own call primitive at every sleep, which is
+  what the generated code already does per resume: its 16 k a frame is that
+  dispatch, not work a native would remove), texTransRequest (a hook's target),
+  texTransResolve's CLUT records.
+
+**4. Exactness.**
+- By name (Mac, the route on the r24 card, EVERY=10, MAX=3000, to 5 400;
+  r46/dt-focus1, dt-focus2, dt-cloth, dt-area, dt-cabB / C): 0 mismatches in
+  gamecore_sub_01372068 2 300 checks, 01391E30 500, 010C4220 1 100,
+  CheckControlDef 9 200, 01397110 1 000, updatePowerWork 600, 0135AE50 1 400
+  (after the table fix), DispWithSwordBlur 500, 010E1068 500,
+  nico_IK_legCalcAndSetUpper 2 300, texTransResolve 700, ObjAry 1 700,
+  FinderWithKeep4DSlopeLimitCB 1 400, clothVelocity 8 400, ExecObjectAnimation
+  6 400, GetObjectAnimationFloatFrame 10 800, 010ADE08 14 000, 010AE128 5 500,
+  010AEAF8 9 900, 010AF070 5 400, 01108960 10 500, 0113DBF8 3 400, 0113E6C8
+  700, updateObjectGeo 3 200; 0113DEA0 reached once (0);
+  GetMotionDirectResourceNodeQuaternionPosFloatFrame not reached on the route
+  (checked by reading).
+- manager_sub_010CABA0: the first build mismatched on the player (146 of
+  4 300; SOTC_DIFFTEST_CONTROL=1 0 of 2 900, so the native): ctrlTurn's third
+  argument (status + 0x80) was not set, v0 after ctrlTurn, the registers the
+  walker is entered with. Fixed: the player 0 mismatches; left 1-2 in 4 600-5 300
+  checks on a padless character: one heap byte 00 vs 60 (a stack-copy
+  address' low byte), most likely a callee copying an uninitialised local
+  that holds a callee-saved register's save (the natives do not mirror the
+  s-registers during calls). Open.
+- gamecore_sub_0135AE50 fell back to the recompiled code on every call in the
+  first build (its jump table address was wrong: 0x1467f40 for 0x14680c0; the
+  check before any change sent it back, so no wrong result); fixed after the
+  profile run, difftested after.
+- `all` (r46/dt-all, EVERY=200 to 4 800, the build before the 010CABA0
+  fixes): 238 functions reached, 277 001 checks, mismatches only
+  isysWakeupSubThread (284), manager_sub_01102638 (247), gamecore_sub_013F8668
+  (90), ExecCharaGeometry (17) (the known noise) and 010CABA0 (3, above).
+- Fixed-30 position route to 5 400 (one binary, SOTC_HOTLIST46=0 against on,
+  r46/posoff, poson): both reach 5 400 at VBlank 10 741; the end 2.08 apart;
+  max 17.4 at frame 1 140 (one sample, 1.5-2.7 elsewhere) leaving out three
+  samples where one run's player object was not resolved yet (0, 0, 0 at the
+  loads, frames 660, 690, 1 530): within rounds 36-45's spread.
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s; r45 2 887 frames from 4 009, r46 2 862 frames from
+4 005, the host idle for the r46 window; thousands a frame, r46/fam46.py):
+the targets' recompiled code 273.4 -> 14.3 (0135AE50's fallback, fixed
+since); their native code 214.4; the game thread 9 536 -> 9 241 k (-295 k,
+-3.1%). decomp_history r46: 64.7% of the game thread's instructions native
+(r44 60.6), 20.9% recompiled MIPS (24.6).
+
+**Decomp status** (r46/replaced.txt): 10.89% of the MIPS code by size (was
+8.93), 6.26% by functions (565), 56.2% by calls, 9.56% of the game's own code.
+
+**Vita.** celosia-r46.vpk (-j6, shader seed 53 files) boots and plays the route
+in calibrated Vita3K: the profile run (r46/fin-err.txt, 222 MHz, the build
+before the 0135AE50 table fix and 010CABA0's last register fix) and the smoke
+run on the final VPK (r46/smoke-err.txt, 240 MHz, 240 s to game frame 6 018;
+r44's 5 628; audio 0 stale, 0 src-stale); the Vita3K tree restored
+(`restored ok`, all runs).
+
+**Console run asked for:** build/agent-scratch/r46/console-ab/env.txt (the
+frame log, body shadows on, hotlist46 plus round 45's depthkeep, fewcopies,
+volprog, atmerge, shadowidx rotating in 60-frame windows, the spike log);
+r44/abrot.py reads it.
+
+**Open.**
+- A colossus fight on a test run: a save at a colossus, or a teleport with
+  the arena's world position.
+- 010CABA0's rare heap byte on a padless character (above).
+- texTransResolve's CLUT records, 013CF258's resumes, texTransRequest.
+- Next recompiled on the game thread (r46 window): 013CF258 15.8, 010BC718
+  13.8, 013F8B58 13.0, charrootdyn_slideExceptionJudgeCB 12.6,
+  doit_particle_manager 12.4, 013E3840 11.9, 0109E2A0 11.7, doit_expression
+  11.4, texTransRequest 11.2, 010AB9A0 11.0, 010AB848 11.0.
+
+**Files:** game/overrides/sotc_decomp.h (kHotList46, hotList46On),
+sotc_native.cpp (the A/B's switch name), decomp_clothdyn.cpp (stringObjects),
+decomp_textrans.cpp (the native work records), decomp_hot46a.cpp ..
+decomp_hot46j.cpp (new); README.md (SOTC_HOTLIST46, the A/B names, the decomp
+block), docs/decomp.md, docs/decomp_status.json / .svg,
+docs/decomp_history.json / .svg, docs/decomp_tree.json. Deliverable:
+build/agent-scratch/celosia-r46.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

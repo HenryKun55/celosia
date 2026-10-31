@@ -16,73 +16,76 @@
 <line class="ax" x1="52" x2="530" y1="282.0" y2="282.0" stroke-width="1"/>
 <text class="t2" x="52.0" y="300" text-anchor="middle">ed10257</text>
 <text class="t2" x="52.0" y="314" text-anchor="middle" font-size="10">10-23</text>
-<text class="t2" x="152.6" y="300" text-anchor="middle">d44f871</text>
-<text class="t2" x="152.6" y="314" text-anchor="middle" font-size="10">10-25</text>
-<text class="t2" x="253.3" y="300" text-anchor="middle">d2d8bb1</text>
-<text class="t2" x="253.3" y="314" text-anchor="middle" font-size="10">10-27</text>
-<text class="t2" x="353.9" y="300" text-anchor="middle">r35</text>
-<text class="t2" x="353.9" y="314" text-anchor="middle" font-size="10">10-30</text>
-<text class="t2" x="454.5" y="300" text-anchor="middle">r41</text>
-<text class="t2" x="454.5" y="314" text-anchor="middle" font-size="10">10-30</text>
-<text class="t2" x="530.0" y="300" text-anchor="middle">r44</text>
+<text class="t2" x="147.6" y="300" text-anchor="middle">d44f871</text>
+<text class="t2" x="147.6" y="314" text-anchor="middle" font-size="10">10-25</text>
+<text class="t2" x="243.2" y="300" text-anchor="middle">d2d8bb1</text>
+<text class="t2" x="243.2" y="314" text-anchor="middle" font-size="10">10-27</text>
+<text class="t2" x="338.8" y="300" text-anchor="middle">r35</text>
+<text class="t2" x="338.8" y="314" text-anchor="middle" font-size="10">10-30</text>
+<text class="t2" x="434.4" y="300" text-anchor="middle">r41</text>
+<text class="t2" x="434.4" y="314" text-anchor="middle" font-size="10">10-30</text>
+<text class="t2" x="530.0" y="300" text-anchor="middle">r46</text>
 <text class="t2" x="530.0" y="314" text-anchor="middle" font-size="10">10-31</text>
-<polyline class="s0" fill="none" style="fill:none" stroke-width="2" stroke-linejoin="round" points="328.7,173.1 353.9,176.7 379.1,174.3 404.2,173.8 429.4,172.9 454.5,155.7 479.7,146.5 504.8,137.0 530.0,135.3"/>
-<circle class="s0 ring" cx="328.7" cy="173.1" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="353.9" cy="176.7" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="379.1" cy="174.3" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="404.2" cy="173.8" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="429.4" cy="172.9" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="454.5" cy="155.7" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="479.7" cy="146.5" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="504.8" cy="137.0" r="4" stroke-width="2"/>
-<circle class="s0 ring" cx="530.0" cy="135.3" r="4" stroke-width="2"/>
-<polyline class="s1" fill="none" style="fill:none" stroke-width="2" stroke-linejoin="round" points="52.0,199.4 77.2,186.2 102.3,184.5 127.5,183.7 152.6,183.0 177.8,181.4 202.9,157.5 228.1,167.0 253.3,166.6 278.4,166.4 303.6,166.0 328.7,166.0 353.9,166.0 379.1,166.0 404.2,163.4 429.4,163.1 454.5,157.9 479.7,152.1 504.8,151.1 530.0,149.1"/>
+<polyline class="s0" fill="none" style="fill:none" stroke-width="2" stroke-linejoin="round" points="314.9,173.1 338.8,176.7 362.7,174.3 386.6,173.8 410.5,172.9 434.4,155.7 458.3,146.5 482.2,137.0 506.1,135.3 530.0,125.4"/>
+<circle class="s0 ring" cx="314.9" cy="173.1" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="338.8" cy="176.7" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="362.7" cy="174.3" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="386.6" cy="173.8" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="410.5" cy="172.9" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="434.4" cy="155.7" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="458.3" cy="146.5" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="482.2" cy="137.0" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="506.1" cy="135.3" r="4" stroke-width="2"/>
+<circle class="s0 ring" cx="530.0" cy="125.4" r="4" stroke-width="2"/>
+<polyline class="s1" fill="none" style="fill:none" stroke-width="2" stroke-linejoin="round" points="52.0,199.4 75.9,186.2 99.8,184.5 123.7,183.7 147.6,183.0 171.5,181.4 195.4,157.5 219.3,167.0 243.2,166.6 267.1,166.4 291.0,166.0 314.9,166.0 338.8,166.0 362.7,166.0 386.6,163.4 410.5,163.1 434.4,157.9 458.3,152.1 482.2,151.1 506.1,149.1 530.0,146.1"/>
 <circle class="s1 ring" cx="52.0" cy="199.4" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="77.2" cy="186.2" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="102.3" cy="184.5" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="127.5" cy="183.7" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="152.6" cy="183.0" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="177.8" cy="181.4" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="202.9" cy="157.5" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="228.1" cy="167.0" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="253.3" cy="166.6" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="278.4" cy="166.4" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="303.6" cy="166.0" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="328.7" cy="166.0" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="353.9" cy="166.0" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="379.1" cy="166.0" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="404.2" cy="163.4" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="429.4" cy="163.1" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="454.5" cy="157.9" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="479.7" cy="152.1" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="504.8" cy="151.1" r="4" stroke-width="2"/>
-<circle class="s1 ring" cx="530.0" cy="149.1" r="4" stroke-width="2"/>
-<polyline class="s2" fill="none" style="fill:none" stroke-width="2" stroke-linejoin="round" points="52.0,271.7 77.2,271.6 102.3,271.1 127.5,270.7 152.6,270.7 177.8,270.6 202.9,269.3 228.1,269.3 253.3,269.2 278.4,268.9 303.6,268.9 328.7,268.9 353.9,268.9 379.1,268.9 404.2,268.5 429.4,268.1 454.5,263.9 479.7,263.4 504.8,261.0 530.0,260.4"/>
+<circle class="s1 ring" cx="75.9" cy="186.2" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="99.8" cy="184.5" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="123.7" cy="183.7" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="147.6" cy="183.0" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="171.5" cy="181.4" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="195.4" cy="157.5" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="219.3" cy="167.0" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="243.2" cy="166.6" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="267.1" cy="166.4" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="291.0" cy="166.0" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="314.9" cy="166.0" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="338.8" cy="166.0" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="362.7" cy="166.0" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="386.6" cy="163.4" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="410.5" cy="163.1" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="434.4" cy="157.9" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="458.3" cy="152.1" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="482.2" cy="151.1" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="506.1" cy="149.1" r="4" stroke-width="2"/>
+<circle class="s1 ring" cx="530.0" cy="146.1" r="4" stroke-width="2"/>
+<polyline class="s2" fill="none" style="fill:none" stroke-width="2" stroke-linejoin="round" points="52.0,271.7 75.9,271.6 99.8,271.1 123.7,270.7 147.6,270.7 171.5,270.6 195.4,269.3 219.3,269.3 243.2,269.2 267.1,268.9 291.0,268.9 314.9,268.9 338.8,268.9 362.7,268.9 386.6,268.5 410.5,268.1 434.4,263.9 458.3,263.4 482.2,261.0 506.1,260.4 530.0,255.6"/>
 <circle class="s2 ring" cx="52.0" cy="271.7" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="77.2" cy="271.6" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="102.3" cy="271.1" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="127.5" cy="270.7" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="152.6" cy="270.7" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="177.8" cy="270.6" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="202.9" cy="269.3" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="228.1" cy="269.3" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="253.3" cy="269.2" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="278.4" cy="268.9" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="303.6" cy="268.9" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="328.7" cy="268.9" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="353.9" cy="268.9" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="379.1" cy="268.9" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="404.2" cy="268.5" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="429.4" cy="268.1" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="454.5" cy="263.9" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="479.7" cy="263.4" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="504.8" cy="261.0" r="4" stroke-width="2"/>
-<circle class="s2 ring" cx="530.0" cy="260.4" r="4" stroke-width="2"/>
-<rect class="s0" x="542" y="133.8" width="10" height="3" rx="1.5"/>
-<text class="t1" x="558" y="135.3" dy="4">Game-thread time native: 60.6%</text>
-<rect class="s1" x="542" y="149.8" width="10" height="3" rx="1.5"/>
-<text class="t1" x="558" y="151.3" dy="4">Guest calls native: 54.9%</text>
-<rect class="s2" x="542" y="258.9" width="10" height="3" rx="1.5"/>
-<text class="t1" x="558" y="260.4" dy="4">MIPS code native (size): 8.9%</text>
+<circle class="s2 ring" cx="75.9" cy="271.6" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="99.8" cy="271.1" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="123.7" cy="270.7" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="147.6" cy="270.7" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="171.5" cy="270.6" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="195.4" cy="269.3" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="219.3" cy="269.3" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="243.2" cy="269.2" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="267.1" cy="268.9" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="291.0" cy="268.9" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="314.9" cy="268.9" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="338.8" cy="268.9" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="362.7" cy="268.9" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="386.6" cy="268.5" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="410.5" cy="268.1" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="434.4" cy="263.9" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="458.3" cy="263.4" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="482.2" cy="261.0" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="506.1" cy="260.4" r="4" stroke-width="2"/>
+<circle class="s2 ring" cx="530.0" cy="255.6" r="4" stroke-width="2"/>
+<rect class="s0" x="542" y="123.9" width="10" height="3" rx="1.5"/>
+<text class="t1" x="558" y="125.4" dy="4">Game-thread time native: 64.7%</text>
+<rect class="s1" x="542" y="144.6" width="10" height="3" rx="1.5"/>
+<text class="t1" x="558" y="146.1" dy="4">Guest calls native: 56.2%</text>
+<rect class="s2" x="542" y="254.1" width="10" height="3" rx="1.5"/>
+<text class="t1" x="558" y="255.6" dy="4">MIPS code native (size): 10.9%</text>
 <text class="t2" x="52" y="334" font-size="10">Calls: a larger call sample from 2026-10-27 on. Time: Vita3K profile of the game thread.</text>
 </svg>

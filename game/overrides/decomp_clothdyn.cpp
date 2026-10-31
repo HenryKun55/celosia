@@ -145,6 +145,132 @@ namespace decomp_clothdyn
         returnTo(ctx);
     }
 
+    // A type-1 cloth's objects (0x1137728.., round 46): the cloth is a
+    // string of layout objects, one per point of its first row. For each
+    // object of the group (isysGroupForFirst / isysGroupForNext; s3 the
+    // point, s1 the next one): its layout class (GetLayoutClass), the
+    // direction to the next point (point - next, xyz, kept in the frame at
+    // sp + 0x10); for the first object only, when the cloth's +0x70 byte is
+    // set, the segment's length (VU0 sqrt) over the cloth's segment length
+    // (+0x28 -> +4) into the layout's +0x98 (its scale); the direction
+    // normalised (VU0 rsqrt) and turned into the layout's quaternion
+    // (GetQuaternionByAxisDirZY(+0x13c, dir, the relocated up vector)), the
+    // point's qword copied to the layout's position (+0x134) and the
+    // geometry made again (UpdateLayoutClassSimpleGeometry, f12 0). Then
+    // isysGroupForExit on the last object, and the epilogue's loads.
+    // Entered with the frame as the prologue made it, s2 = v0 the group's
+    // first entry, s3 the row's positions, s6 the +0x70 byte, fp the cloth.
+    // The VU0 operations are the generated code's statements on the
+    // context's registers (vf5, vf7, ACC, Q and the status flags as the code
+    // leaves them); the loop's checkpoint is not taken.
+    void stringObjects(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp)
+    {
+        using sotc_decomp::callGuest;
+        using sotc_decomp::jalTarget;
+        const Ram ram{rdram};
+        constexpr uint32_t kGetLayoutClass = 0x010F1A20u, kUpdateSimpleGeometry = 0x010EED58u;
+        const __m128i xyz = _mm_set_epi32(0, -1, -1, -1), wOnly = _mm_set_epi32(-1, 0, 0, 0);
+        auto lane = [](__m128 v, int l)
+        {
+            switch (l)
+            {
+            case 0: return _mm_shuffle_ps(v, v, _MM_SHUFFLE(0, 0, 0, 0));
+            case 1: return _mm_shuffle_ps(v, v, _MM_SHUFFLE(1, 1, 1, 1));
+            default: return _mm_shuffle_ps(v, v, _MM_SHUFFLE(2, 2, 2, 2));
+            }
+        };
+        // vf7.w = vf7.x + vf7.y + vf7.z through ACC.w (vmulax.w / vmadday.w / vmaddz.w by vf0.w).
+        auto sumToW = [&]()
+        {
+            __m128 *vf = ctx->vu0_vf;
+            ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, PS2_VMUL(vf[0], lane(vf[7], 0)), _mm_castsi128_ps(wOnly));
+            ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, PS2_VADD(ctx->vu0_acc, PS2_VMUL(vf[0], lane(vf[7], 1))), _mm_castsi128_ps(wOnly));
+            vf[7] = _mm_blendv_ps(vf[7], PS2_VADD(ctx->vu0_acc, PS2_VMUL(vf[0], lane(vf[7], 2))), _mm_castsi128_ps(wOnly));
+        };
+        auto wOf = [](__m128 v) { return _mm_cvtss_f32(_mm_shuffle_ps(v, v, _MM_SHUFFLE(0, 0, 0, 3))); };
+
+        const uint32_t fp = GPR_U32(ctx, 30);
+        const uint32_t s4 = sp + 0x10u; // the direction's qword in the frame (s5 too)
+        uint32_t s2 = GPR_U32(ctx, 2), s3 = GPR_U32(ctx, 19);
+        bool firstScale = GPR_U64(ctx, 22) != 0u;
+        uint64_t s7 = 0u;
+        if (s2 != 0u)
+        {
+            s7 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(ram.u32(s2))));
+            for (;;)
+            {
+                const uint32_t s1 = s3 + 0x10u;
+                SET_GPR_U64(ctx, 4, s7);
+                callGuest(rdram, ctx, runtime, kGetLayoutClass, 0x0113774Cu, sp);
+                const uint32_t layout = GPR_U32(ctx, 2);
+                __m128 *vf = ctx->vu0_vf;
+                vf[5] = ram.q(s3);
+                vf[6] = ram.q(s1);
+                vf[5] = PS2_VBLEND(vf[5], PS2_VSUB(vf[5], vf[6]), _mm_castsi128_ps(xyz));
+                ram.putq(s4, vf[5]);
+                if (firstScale)
+                {
+                    vf[7] = ram.q(s4);
+                    vf[7] = PS2_VBLEND(vf[7], PS2_VMUL(vf[7], vf[7]), _mm_castsi128_ps(xyz));
+                    sumToW();
+                    ctx->vu0_q = ps2VuSqrt(ctx->vu0_status, wOf(vf[7]));
+                    uint32_t bits;
+                    std::memcpy(&bits, &ctx->vu0_q, 4);
+                    std::memcpy(&ctx->f[0], &bits, 4);
+                    firstScale = false;
+                    const uint32_t lengths = ram.u32(fp + 0x28u);
+                    ctx->f[1] = ram.f32(lengths + 4u);
+                    ctx->f[0] = ps2FpuDivide(ctx->fcr31, ctx->f[0], ctx->f[1]);
+                    std::memcpy(&bits, &ctx->f[0], 4);
+                    ram.put32(layout + 0x98u, bits);
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(lengths));
+                }
+                vf[5] = ram.q(s4);
+                vf[7] = PS2_VBLEND(vf[7], PS2_VMUL(vf[5], vf[5]), _mm_castsi128_ps(xyz));
+                sumToW();
+                ctx->vu0_q = ps2VuRsqrt(ctx->vu0_status, wOf(vf[0]), wOf(vf[7]));
+                vf[5] = _mm_blendv_ps(vf[5], PS2_VMUL(vf[5], _mm_set1_ps(ctx->vu0_q)), _mm_castsi128_ps(xyz));
+                ram.putq(s4, vf[5]);
+                // GetQuaternionByAxisDirZY(layout +0x13c, dir, up): up from the relocated lui / addiu pair.
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(ram.u32(layout + 0x13Cu)));
+                SET_GPR_U32(ctx, 5, s4);
+                SET_GPR_S32(ctx, 6, static_cast<int32_t>(sotc_decomp::relocated(rdram, 0x011377CCu, 0x011377D4u)));
+                callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x011377D8u), 0x011377E0u, sp);
+                // The point's qword to the layout's position, then its geometry.
+                const uint32_t position = ram.u32(layout + 0x134u);
+                SET_GPR_S32(ctx, 3, static_cast<int32_t>(position));
+                SET_GPR_VEC(ctx, 2, READ128(s3));
+                WRITE128(position, GPR_VEC(ctx, 2));
+                s3 = s1;
+                ctx->f[12] = 0.0f;
+                SET_GPR_U32(ctx, 4, layout);
+                callGuest(rdram, ctx, runtime, kUpdateSimpleGeometry, 0x011377FCu, sp);
+                SET_GPR_U32(ctx, 4, s2);
+                SET_GPR_U64(ctx, 5, 0u);
+                callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x01137800u), 0x01137808u, sp);
+                s2 = GPR_U32(ctx, 2);
+                if (s2 == 0u)
+                    break;
+                s7 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(ram.u32(s2))));
+            }
+        }
+        if (s7 != 0u)
+        {
+            SET_GPR_U64(ctx, 4, s7);
+            SET_GPR_U64(ctx, 5, 0u);
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0113781Cu), 0x01137824u, sp);
+        }
+        else
+            SET_GPR_U64(ctx, 4, s7);
+        // The epilogue: s0-s7, fp, ra from the frame.
+        for (int r = 16; r <= 23; ++r)
+            SET_GPR_U64(ctx, r, READ64(sp + 0x20u + (r - 16) * 8u));
+        SET_GPR_U64(ctx, 30, READ64(sp + 0x60u));
+        SET_GPR_U64(ctx, 31, READ64(sp + 0x68u));
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0x70u));
+        returnTo(ctx);
+    }
+
     // 01137640(a0 the cloth's dynamics, f13): the velocities.
     void velocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -205,6 +331,10 @@ namespace decomp_clothdyn
             SET_GPR_U32(ctx, 4, t3 + 8u);
             SET_GPR_U64(ctx, 5, 0u);
             sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x01137720u), 0x01137728u, sp);
+            // Round 46 (SOTC_HOTLIST46=0: the recompiled code from 0x1137728
+            // as before): the string's objects natively.
+            if (sotc_decomp::hotList46On())
+                return stringObjects(rdram, ctx, runtime, sp);
             ctx->pc = 0x01137728u;
             return sotc_decomp::recompiled(kVelocity)(rdram, ctx, runtime);
         }

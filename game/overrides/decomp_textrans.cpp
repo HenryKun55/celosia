@@ -43,6 +43,14 @@
 // isysObjSignalSema, then the epilogue's loads (s0-s7, fp, ra from the
 // frame; a work record changed s0 / s1 / s3-s7).
 //
+// Round 46 (SOTC_HOTLIST46=0: round 44's walk above, every work record in
+// the copy): a record of type 1 (the VRAM reset) or of type 0 with a texture
+// and no CLUT request (the texture-only placement, 0x10a71f8..) is done by
+// decomp_hot46f.cpp's record() natively, from the loop head to 0x10a8dd8
+// (it decides from the record before writing anything); the walk then takes
+// the next record as for an idle one (t0 the record reloaded from sp + 0x30).
+// The CLUT requests (0x10a55f8, 0x10a7fa8) still run in the copy.
+//
 // SOTC_MOTION=0 (round 41's switch) or SOTC_DECOMP_SKIP=texTransResolve:
 // the recompiled code.
 #include "sotc_decomp.h"
@@ -51,6 +59,12 @@
 #include "runtime/ps2_memory.h"
 
 #include <cstring>
+
+namespace decomp_hot46f
+{
+    // decomp_hot46f.cpp (round 46): a work record natively; false: nothing done.
+    bool record(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, uint32_t e);
+}
 
 namespace decomp_textrans
 {
@@ -157,7 +171,11 @@ namespace decomp_textrans
             }
             else if (!work)
                 SET_GPR_U32(ctx, 10, e); // t2: the beqz's delay slot (type not 0 / 1)
-            if (work)
+            if (work && sotc_decomp::hotList46On() && decomp_hot46f::record(rdram, ctx, runtime, sp, e))
+            {
+                e = r.u32(sp + 0x30u); // done to 0x10a8dd8 natively (round 46): t0 the record from the frame
+            }
+            else if (work)
             {
                 // The generated code from the loop head for this record.
                 ctx->pc = kLoopHead;
