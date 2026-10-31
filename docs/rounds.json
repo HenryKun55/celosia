@@ -172,9 +172,17 @@
   {
    "round": "r46",
    "date": "2026-10-31",
+   "commit": "d77e579",
+   "focus": "Decomp",
+   "summary": "30 more natives: foot IK, Agro's body step, control checks, sword blur, leg IK, texture transfer records, and fight-heavy collision, animation and particle functions found in the user's fight recordings.",
+   "result": "Game thread -3.1% (Vita3K); 64.7% native, decomp 10.9% of the code. One native (010CABA0) still has a rare one-byte mismatch."
+  },
+  {
+   "round": "r47",
+   "date": "2026-10-31",
    "commit": "",
    "focus": "Decomp",
-   "summary": "Next: the next top recompiled functions on the game thread, and the fight's game logic.",
+   "summary": "Next: fix 010CABA0, a test save next to a colossus from the console card, then the fight's logic.",
    "result": ""
   }
  ]
