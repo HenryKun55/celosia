@@ -275,6 +275,12 @@ namespace ps2recomp
             return false;
         }
 
+        if (m_gen.m_tailTable)
+        {
+            // Round 43: through the table's slot (natives at tail-jump targets run).
+            m_ss << fmt::format("{}PS2_TAIL_GUEST_KNOWN(0x{:X}u, {}); return;\n", indent, target, functionName);
+            return true;
+        }
         m_ss << indent << functionName << "(rdram, ctx, runtime); return;\n";
         return true;
     }

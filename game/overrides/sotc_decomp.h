@@ -198,6 +198,9 @@ namespace sotc_decomp
     // is registered (then the table's function, as lookupFunction). install()
     // then leaves that table entry to the hook.
     PS2Runtime::RecompiledFunction behindHook(PS2Runtime &runtime, uint32_t address);
+    // SignalSema's uncontended case in the table (decomp_sema.cpp, round 43;
+    // SOTC_SEMA_FAST=0: the stub stays). Called by install().
+    void installSemaFast(PS2Runtime &runtime);
     // SOTC_AB=<frames>: every that many game frames the "new" set (the
     // functions registered with SOTC_DECOMP_AB_FUNCTION, the runtime's
     // ps2_fast_paths) goes off or back on; "[ab] frame F: new | old" at each
@@ -382,6 +385,20 @@ namespace sotc_decomp
         static const bool on = []
         {
             const char *e = std::getenv("SOTC_LEAVES");
+            return !(e && e[0] == '0');
+        }();
+        return on;
+    }
+    // Round 43's natives (the next functions down the game thread's profile:
+    // the slope probe, the camera record fill, the lights' layout pass, the
+    // texture resolve's work path, libm's asinf ...; decomp_hot43*.cpp).
+    // SOTC_HOTLIST=0 puts the recompiled code back for all of them (read at
+    // first use).
+    inline bool hotListOn()
+    {
+        static const bool on = []
+        {
+            const char *e = std::getenv("SOTC_HOTLIST");
             return !(e && e[0] == '0');
         }();
         return on;

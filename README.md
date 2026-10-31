@@ -191,31 +191,31 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 <!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-**Game thread time on the Vita** (r42, Vita3K profile of the route):
+**Game thread time on the Vita** (r43, Vita3K profile of the route):
 
 | | share | |
 |---|---:|---|
-| Native code | 56.0% | `███████████░░░░░░░░░` |
-| Recompiled MIPS | 28.7% | `██████░░░░░░░░░░░░░░` |
-| Runtime (DMA walk, memory, scheduler, glue) | 15.3% | `███░░░░░░░░░░░░░░░░░` |
+| Native code | 59.9% | `████████████░░░░░░░░` |
+| Recompiled MIPS | 25.6% | `█████░░░░░░░░░░░░░░░` |
+| Runtime (DMA walk, memory, scheduler, glue) | 14.4% | `███░░░░░░░░░░░░░░░░░` |
 
 <details open>
 <summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>
 
 | Area | Code native | | Functions | Game thread time: native / MIPS |
 |---|---:|---|---:|---|
-| Display and models | 15.7% | `██░░░░░░░░░░` | 40 / 975 | 19.8% / 3.4% |
-| Characters and motion | 7.9% | `█░░░░░░░░░░░` | 41 / 1208 | 15.1% / 3.6% |
-| Other game code (names not identified yet) | 2.9% | `░░░░░░░░░░░░` | 22 / 2878 | 3.8% / 14.4% |
-| Collision and physics | 21.4% | `███░░░░░░░░░` | 51 / 345 | 12.9% / 1.0% |
-| Boot ELF, SDK and libc | 15.1% | `██░░░░░░░░░░` | 329 / 2126 | 0.0% / 3.4% |
-| System and memory | 6.3% | `█░░░░░░░░░░░` | 5 / 229 | 2.0% / 0.2% |
-| Math | 25.6% | `███░░░░░░░░░` | 24 / 132 | 1.2% / 0.8% |
+| Display and models | 15.9% | `██░░░░░░░░░░` | 41 / 975 | 21.1% / 3.4% |
+| Characters and motion | 7.9% | `█░░░░░░░░░░░` | 41 / 1208 | 15.2% / 3.3% |
+| Other game code (names not identified yet) | 5.1% | `█░░░░░░░░░░░` | 33 / 2880 | 5.9% / 11.9% |
+| Collision and physics | 19.4% | `██░░░░░░░░░░` | 48 / 342 | 12.9% / 0.9% |
+| Boot ELF, SDK and libc | 15.4% | `██░░░░░░░░░░` | 330 / 2126 | 0.0% / 3.2% |
+| System and memory | 6.6% | `█░░░░░░░░░░░` | 6 / 230 | 2.0% / 0.2% |
+| Math | 25.6% | `███░░░░░░░░░` | 24 / 132 | 1.5% / 0.7% |
 | Script and events | 0.0% | `░░░░░░░░░░░░` | 0 / 632 | 0.9% / 0.8% |
-| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.4% / 0.6% |
+| Particles and effects | 22.6% | `███░░░░░░░░░` | 6 / 116 | 0.5% / 0.7% |
 | Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.0% / 0.4% |
 | Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
-| Runtime (DMA walk, memory, scheduler) | | | | 15.3% (runtime) |
+| Runtime (DMA walk, memory, scheduler) | | | | 14.4% (runtime) |
 
 </details>
 
@@ -242,15 +242,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | 2026-10-30 | r40 | 5.73% | 49.1% | 45.1% |
 | 2026-10-30 | r41 | 7.49% | 51.3% | 52.2% |
 | 2026-10-31 | r42 | 7.67% | 53.7% | 56.0% |
+| 2026-10-31 | r43 | 8.66% | 54.1% | 59.9% |
 
 </details>
 
 ```mermaid
 xychart-beta
     title "Game thread time in native code (%)"
-    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42"]
+    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42", "r43"]
     y-axis "%" 0 --> 100
-    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0]
+    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0, 59.9]
 ```
 
 <!-- decomp:end -->
@@ -346,6 +347,9 @@ xychart-beta
 | `SOTC_COLLPROBE=0` | (round 40) the collision natives of round 40 back to the recompiled code: the scripts' collision callback `SCRGetCollisionCallBack`, the id filters `moveCtrlWallJudgeFunc` (the plane's slope in degrees), `gamecore_sub_013CB8E8` and `AI_JudgeColAttrFunc`, `GetCollisionDBPlane` and the water probes `manager_sub_01117EA0` / `manager_sub_01117340`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the native collision code's own calls of the filters follow `SOTC_COLLPROBE` only) |
 | `SOTC_MOTION=0` | (round 41) the character / motion natives of round 41 back to the recompiled code: the motion accessors (`getBlendLastMotion`, `GetMotionVersion`, `GetMotionNbOptionNodes`, `GetMotionOptionNodePhysicalId`, `GetOptionNodePhysicalNodeId`, `GetMotionNodeBasePos` / `GetMotionNodeBaseQuaternion`, `GetMotionFloatFrameNoCaribration`, `GetMotionIntFrame`), the pose's root `GetMotionMatrix`, `ExecCharaGeometry` and its chain (`CalcNodeInterp`, `CalcNodeQuaternionWithIK`, the option nodes `manager_sub_010BC4F0` with `AddCharacterClassOptionNodeSubGeometries`, the gaze `manager_sub_010C6238`, `UpdateLayoutClassSimpleGeometry`), the control definition walker `manager_sub_010CA230`, `manager_sub_010C71D8`, `manager_sub_010CF210`, `getAmbientColorC`, `AI_GetSmallAnimalAIParam`, `FlushPadHistory`, `texTransResolve`, `clothmath_doubleTensionMove`, `gamecore_sub_013B8DC8`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (the natives' direct calls of each other follow `SOTC_MOTION` only) |
 | `SOTC_LEAVES=0` | (round 42) round 42's natives back to the recompiled code: the display list's layer stack `iosDlPushLayer` / `iosDlPopLayer` and the camera context `iosgluGetCameraContext` / `get_cur_camera_context` (the first three behind sotc_native's hooks, which now call the natives), `iosDlGetLayer`, `transMicroCode`, the 2D sprite `spriteNoTexFast`, `floorf`, `strcmp`, `iosFTOI4Vector`, `iosGetScaleMatrixV`, `CopyMultiMatrix`, `UpdateLayoutClassPastSimpleGeometry`, `FlushCollisionWork` / `FlushCollisionWorkByWorkStruct`, the IK feet's id filter `character_ikcolattrfilter`, `GetLayoutClass`'s script / camera / light cases, the motion frame wrappers `GetMotionFloatFrame` / `getMotionFloatFrame` / `getMotionFloatFrameWithLimitCaribration`, the camera parameter copy `gamecore_sub_014274A8`; each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` (also for the three behind the hooks) |
+| `SOTC_HOTLIST=0` | (round 43) round 43's natives back to the recompiled code (the list in docs/decomp.md, "Round 43"); each one's table entry alone with `SOTC_DECOMP_SKIP=<name>` |
+| `SOTC_SEMA_FAST=0` | (round 43) `SignalSema` through the runtime's syscall stub every time (default: the uncontended case, no waiter and room in the count, done in the table entry without the syscall's set-up; also off with `SOTC_DECOMP=0` or `SOTC_DECOMP_SKIP=SignalSema`) |
+| `SOTC_SEMA_STATS=1` | (round 43, measuring, Mac) SignalSema's calls through the uncontended path and through the stub, every 65 536 calls |
 | `SOTC_CALLGUEST_STATS=<frames>` | (round 42, measuring, Mac) the natives' guest calls (`sotc_decomp::callGuest`) by target and by call site every that many game frames: calls a frame and how many land on a native |
 | `SOTC_DIFFTEST_MAX=<n>` | (round 40, checking) after each n checks of a function past `SOTC_DIFFTEST_FIRST` its stride (`SOTC_DIFFTEST_EVERY`) doubles; default 1000 with `SOTC_DIFFTEST=all`, off for a list of names. `all` now checks every registered native (512 slots, was the first 64) |
 
@@ -373,11 +377,13 @@ each gives the same results, they only bring back the older, slower form):
 | `PS2X_RECOMP_VU_LOADS=0` (recompiler env) | every guest memory access forgets the VU0 provenance (default: stores only; no read path runs VU0 code) |
 | `PS2X_RECOMP_REGCACHE_JOIN=0` (recompiler env) | every label a register cache sync point (default: a forward-only label with no memory access, call or helper between its first goto and it keeps the locals its edges agree on) |
 | `PS2X_RECOMP_REGCACHE_JOIN_MEM=0` (recompiler env) | round 30's rule for those labels (default, round 31: the span may hold 8-64-bit guest loads / stores too) |
+| `PS2X_RECOMP_TAIL_TABLE=0` (recompiler env) | a `j` to another generated function's entry (a tail jump) is a plain C++ call of its generated code again (default, round 43: through the function table, `PS2_TAIL_GUEST_KNOWN`, a direct call while the slot holds that function, so a native, hook or checker registered there runs for the tail-jumping callers too) |
 | `-DPS2X_GUEST_MEM_TRAMP=0` (C++ flags, Vita) | the guest memory slow paths called as plain functions (default on the Vita: through a trampoline that keeps every register, so the generated code does not spill around them) |
 
 With the three round 29 recompiler switches at 0 the generated code is
 round 28's byte for byte; with the four round 30 ones at 0 it is round 29's
-byte for byte; with `PS2X_RECOMP_REGCACHE_JOIN_MEM=0` it is round 30's.
+byte for byte; with `PS2X_RECOMP_REGCACHE_JOIN_MEM=0` it is round 30's; with
+`PS2X_RECOMP_TAIL_TABLE=0` it is round 42's.
 
 `tools/` also has analysis helpers: `addr2sym.py`, `callers.py`, `xref.py`
 (symbols and call graph), `vudis.py` (VU disassembler), `gsdecode.py`,

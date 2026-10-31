@@ -295,7 +295,7 @@ namespace ps2recomp
         // round 16's calls and jumps. The guest memory macros (READ* /
         // WRITE*) hide ctx too, but their slow path never reads or writes a
         // GPR / FPR (see the top of this file).
-        const char *const kHiddenCtxMacros[] = {"PS2_CALL_GUEST", "PS2_CALL_GUEST_KNOWN", "PS2_JUMP_GUEST"};
+        const char *const kHiddenCtxMacros[] = {"PS2_CALL_GUEST", "PS2_CALL_GUEST_KNOWN", "PS2_JUMP_GUEST", "PS2_TAIL_GUEST_KNOWN"};
 
         // Round 31: every READ / WRITE in the line is one of the 8-64-bit
         // guest memory macros (READ8 / 16 / 32 / 64, WRITE8 / 16 / 32 / 64),

@@ -469,6 +469,8 @@ public:
     inline bool callGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
                             uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     inline void jumpGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target);
+    static inline void tailGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
+                                      uint32_t target);
     inline bool callGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, uint32_t target,
                                uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     void jumpGuestSlow(RecompiledFunction fn);
@@ -743,6 +745,20 @@ __attribute__((always_inline)) inline void PS2Runtime::jumpGuestFn(RecompiledFun
     if (eeCheckpointDue(kEeDispatchCycles))
         return;
     fn(rdram, ctx, this);
+}
+
+// A tail jump to a generated function (PS2_TAIL_GUEST_KNOWN, round 43): the
+// slot's function, a direct call while that is the one the generator saw. An
+// empty slot (none expected: every generated function has one) goes as a jump.
+__attribute__((always_inline)) inline void PS2Runtime::tailGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram,
+                                                                      R5900Context *ctx, PS2Runtime *runtime, uint32_t target)
+{
+    if (__builtin_expect(fn == known, 1))
+        known(rdram, ctx, runtime);
+    else if (fn)
+        fn(rdram, ctx, runtime);
+    else
+        runtime->jumpGuestFn(fn, rdram, ctx, target);
 }
 
 __attribute__((always_inline)) inline void PS2Runtime::jumpGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target)

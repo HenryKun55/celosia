@@ -7187,6 +7187,187 @@ SOTC_CALLGUEST_STATS; the decomp block), docs/decomp.md,
 docs/decomp_status.json / .svg, docs/decomp_history.json / .svg,
 docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r42.vpk.
 
+## Round 43: tail jumps through the table, the next hot list, SignalSema's fast path (2026-10-31)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r43/` (regen.sh as r31's into r43/;
+syn.sh a syntax check of override sources with the Mac flags; tails.py the
+tail jumps into replaced table entries; fam43.py this round's family table;
+shotcmp.py snapshot differences; dt.sh / pos.sh / v3k.sh as round 42's;
+thprof-all.txt / thprof-r42all.txt are r33/thprof.py over this round's and
+round 42's windows, every function).
+
+**1. Tail jumps through the function table** (`PS2X_RECOMP_TAIL_TABLE`,
+recompiler env, default on). A `j` to another generated function's entry was
+emitted as a plain C++ call of that function's generated code
+(`fn(rdram, ctx, runtime); return;`), so whatever replaced the table entry (a
+native, a hook, a difftest checker, a profiler wrapper) ran only for jal
+callers. Now: `PS2_TAIL_GUEST_KNOWN(target, fn); return;`
+(ps2_runtime_macros.h; PS2Runtime::tailGuestKnown in ps2_runtime.h): the
+slot's function, called directly while it is the one the generator saw (a bl,
+as PS2_CALL_GUEST_KNOWN), else through the slot; no checkpoint and no jump
+serial, as the plain call had none. ra is the jumper's caller's, as before:
+the callee returns there. The register cache treats the macro as a barrier
+(register_cache.cpp's hidden-ctx list), as the call it replaces was.
+- `PS2X_RECOMP_TAIL_TABLE=0`: round 42's build/runner byte for byte (r43/off,
+  9 080 files, 0 differ; the unchanged generator's r43/def also 0 differ).
+  Default (r43/new, installed): 1 072 files differ, 1 196 tail jumps to 756
+  targets.
+- 34 of those targets have their table entry replaced at run time (tails.py
+  against the r42 dump; some only by a lean copy): the natives
+  CopyMultiMatrix (UpdateLayoutClassPast[Simple]Geometry),
+  GetMotionFloatFrameNoCaribration, 010B81F8, 010AC6C8, iosDlChainTailCurrent
+  (iosSetDC*, iosTransTex), iosGetSinCosf / Sinf / Cosf, atanf / acosf /
+  atan2f and their ieee754 cores, get_cur_camera_context,
+  FlushCollisionWorkByWorkStruct, 01114C70 / 01116108,
+  ClipCollisionFinderCallBack, 0108D730 (glVertex*), isysAddGroupWithLinkParam,
+  isysGroupForExit, isysWakeupSubThread, 013F8668, kbGetStatus, 0113AAE0;
+  and hooks, each checked: heapHook (its return-address tests are direct jal
+  sites; transparent otherwise), iosRecvMsg (audio stats only), glEnd
+  (gluSetWrapMode's CLAMP_1 pair: feed2D ignores register 8;
+  manager_sub_01142148's gl triangle is now drawn by the 2D path as every
+  other glEnd), shadowDisp (a syncFrame), texTransRequest (g_requested now
+  set for set_particle_texture_by_id / 01153758 too), iosDlPopLayer
+  (iosResetDC's and the loading indicator's pops now reach popLayerHook, so
+  the renderer's layer stack stays balanced with the guest's).
+- The snapshots of the fixed-30 route against round 42's binary show the same
+  picture (r43/shotcmp.py: the differences are the pose / camera spread).
+
+**2. Nativized** (`SOTC_HOTLIST=0` puts all of round 43's back, each table
+entry alone with `SOTC_DECOMP_SKIP=<name>`; transcribed from build/runner's
+generated code, the same FPU_* / PS2_V* operations in order, guest calls
+through the table with the original's ra and frame sp, relocated sites from
+the live words):
+- decomp_hot43a.cpp: `gamecore_sub_01427AD8` (the 0x654-byte camera record
+  filled block by block from eight motion handles; memcpy when no source
+  overlaps the record, else the recompiled code from the start),
+  `manager_sub_0116A0D4` (a segment against a triangle, VU0 macro code),
+  `manager_sub_010C9B10` (a character's reaction list: 010C7B28 per
+  condition record, RequestCharacterClassAdditionMotionChange).
+- decomp_hot43b.cpp: `CalcLightLayoutObj` (a light layout object's pass: the
+  attachment walk, the position through the matrix, the light colour /
+  vector calls), `manager_sub_010D1A10` (a character's motion step:
+  GetMotionFrame, 010CF210 / 010D01A8), `__ieee754_asinf` (fdlibm's, as
+  decomp_libm::acosF; __ieee754_sqrtf a guest call).
+- decomp_hot43c.cpp: `manager_sub_0111C810` (the slope probe: a surface
+  against its neighbours' planes; both record layouts through one routine
+  driven by a table of frame slots and the 39 call sites' ra).
+- decomp_hot43d.cpp: `gamecore_sub_013E1E48` (a small animal's AI step:
+  the state switch over AI_UpdateVelocity / AI_CheckPathPoint / the ground
+  probe ...). decomp_hot43i.cpp: `gamecore_sub_013DD228` (its steering).
+- decomp_hot43e.cpp: `gamecore_sub_013EF378` (the stage's small-object
+  manager: the near list of layout points, the merge with last frame's, the
+  spawn budget, one model load a frame).
+- decomp_hot43g.cpp: `reflectionBegin` (the water reflection's GS setup in
+  layers 0xc / 0xe / 0xf, the shrink passes and the ripple bands). Every
+  callee (81 gsReg calls, the sprites, the layer pushes and pops) through the
+  table with the original's ra: the native renderer's hooks see the same
+  return addresses; none of them tests a range inside reflectionBegin.
+- decomp_ikquat.cpp: CalcNodeQuaternionWithIK's IK step (GetMotionMatrix,
+  per IK node GetSkeletonFocusNode and its jalr callback on the lowered sp,
+  the mark tables, the blend back of the unmarked nodes, 010C32E8).
+- decomp_ctrldef.cpp: 68 more condition types of manager_sub_010C7B28 (the
+  same shapes as round 11's: ranges, squared ranges, flags, bits, equality)
+  and the types past the table (result 0). Left recompiled: the cases with
+  guest calls, the abort word, the inline -10000 compares, cvt.s.w, 0x35,
+  0x37 and those with their own compare order.
+- Not done: texTransResolve's work path (~3 450 instructions, 35 jals),
+  gamecore_sub_013E30D0 (compare chains around the motion speed calls).
+
+**3. SignalSema** (`SOTC_SEMA_FAST=0` off; decomp_sema.cpp). The table's
+SignalSema was the runtime's stub: ctx->pc = ra, then
+ps2_syscalls::SignalSema (scheduler bind, signalSemaphore with the debug
+snapshot's publish, v0, transferIfRequested), each an out-of-line call.
+EeScheduler::signalSemaphoreUncontended (ee_scheduler.h, inline): with a
+thread running, no reschedule pending, not inside an interrupt, the
+semaphore found (the cache, else the map), no waiter and its count below
+the maximum, the count goes up and the result is the id: what
+signalSemaphore does in that case, and no transfer can follow. Anything else
+goes to the stub. Installed at the end of sotc_decomp::install, not as a
+registry native (a difftest leg would signal twice: the count is host state
+the check does not put back). On the route 99.2% of the calls take it
+(SOTC_SEMA_STATS=1, Mac: 1 494 949 against 12 379).
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s, game thread 248; r42/new.vpk 2 806 frames from 3 993,
+r43/new.vpk 2 757 frames from 4 201; thousands a frame, r43/fam43.py):
+
+| | r42 | r43 |
+|---|---|---|
+| the targets' recompiled code (reflectionBegin 46.1, 0111C810 32.5, 013E1E48 32.3, 013EF378 30.0, 01427AD8 28.4, CalcNodeQuaternionWithIK 25.9, CalcLightLayoutObj 21.9, 010D1A10 21.6, 010C7B28 20.7, asinf 20.2, 0116A0D4 19.2, CopyMultiMatrix 18.9, 010C9B10 18.2, 013DD228 18.2 ...) | 384.8 | 38.9 (010C7B28's remaining types 6.9, texTransResolve 32.0) |
+| their native code | - | 314.8 |
+| the SignalSema path (stub, scheduler, new native) | 59.7 | 37.4 |
+| the game thread | 9 425 | 9 563 |
+
+Per target: reflectionBegin 46.1 -> 34.5, 01427AD8 28.4 -> 1.5, 013EF378
+30.0 -> ~13, 010D1A10 21.6 -> 5.2, the IK step 25.9 -> 16.1,
+CalcLightLayoutObj 21.9 -> 15.4, asinf 20.2 -> 17.7, 010C9B10 18.2 -> 11.1,
+013DD228 18.2 -> 15.3, 013E1E48 32.3 -> ~33. The windows' content differs
+(0111C078 +41%, 01118B88 +37%: more slope probing in this one), so the
+thread's total is not a clean comparison. The slope family reads higher
+native than round 42's recompiled code in this window (0111C810 32.5 ->
+~85 with its helpers, 0116A0D4 19.2 -> 56.4); on the Mac the same binary
+with and without them (SOTC_SUBSYS_PROF probes, SOTC_DECOMP_SKIP, frames
+1 800-4 200, r43/slope-on / slope-off) gives the natives at parity or
+slightly ahead per call (slope 0.516 against 0.570 us, segment test 0.075
+against 0.078; ~31 and ~78 calls a frame). A same-VPK Vita3K A/B was not
+run: the host was saturated by another user's processes (load 30-40) at the
+end of the round, which moves the wall-clock snapshots to other frames.
+decomp_history r43: 59.9% of the game thread's instructions native (was
+56.0), 25.6% recompiled MIPS (was 28.7).
+
+**Exactness.**
+- Generator: `PS2X_RECOMP_TAIL_TABLE=0` gives round 42's output byte for
+  byte (above).
+- By name (Mac, the route on the r24 card, EVERY=10, MAX=3000, to 5 400;
+  r43/dt-focus1, dt-focus2): 0 mismatches: __ieee754_asinf 6 900,
+  CalcNodeQuaternionWithIK 3 900, manager_sub_010C9B10 4 100,
+  gamecore_sub_013EF378 1 200, gamecore_sub_01427AD8 1 200,
+  manager_sub_0116A0D4 8 300, gamecore_sub_013E1E48 2 900,
+  manager_sub_0111C810 4 000, reflectionBegin 600, CalcLightLayoutObj 6 200,
+  manager_sub_010D1A10 3 600, gamecore_sub_013DD228 2 600,
+  manager_sub_010C7B28 17 100. The first run caught two: CalcLightLayoutObj's
+  v0 (the code returns the light pointer it loads before its last four calls)
+  and 010D1A10's call of 010CF210 (a fifth argument in t0: f0 and a byte of
+  the record differed).
+- `all` (r43/dt-all, the final code, EVERY=200 to 4 800): 211 in place, 202
+  reached, 307 901 checks, mismatches only isysWakeupSubThread (298),
+  gamecore_sub_013F8668 (140), ExecCharaGeometry (18).
+- Fixed-30 position route to 5 400 against round 42's binary (r43/posbase,
+  one after the other): the tail table alone (postail) max 1.09, the final
+  binary (posnew) max 0.56 at frame 3 570; all reach 5 400 (VBlank 10 765,
+  10 749, 10 765).
+- Vita: celosia-r43.vpk (-j6, shader seed 52 files) boots and plays the route
+  in calibrated Vita3K: the profile run (r43/new-err.txt, to game frame
+  ~7 195 at 300 s) and the smoke run (r43/smoke-err.txt, 240 s: frame 3 777
+  with the host saturated by other processes; sound: 0 stale, 0 under, 0
+  src-stale); the Vita3K tree restored (`restored ok` both).
+
+**Decomp status** (r43/replaced.txt): 8.66% of the MIPS code by size (was
+7.67), 5.86% by functions (529), 54.1% by calls, 6.93% of the game's own
+code.
+
+**Open.**
+- The slope family on the Vita: a same-VPK A/B (SOTC_DECOMP_SKIP=
+  manager_sub_0111C810,manager_sub_0116A0D4) on a quiet host.
+- texTransResolve's work path, gamecore_sub_013E30D0, 010C7B28's call cases.
+- New top recompiled: texTransResolve 32.0, 0111C078 23.6, gsReg 21.6,
+  01372068 18.3, 01118B88 17.8, 013E30D0 17.7, 013448C0 17.4,
+  GetQuaternionByEulerYXZ 17.2, 01137640 17.0, execCondition 16.9.
+
+**Files:** PS2Recomp/ps2xRecomp/include/ps2recomp/code_generator.h
+(m_tailTable), src/lib/control_flow_emitter.cpp, src/lib/register_cache.cpp;
+PS2Recomp/ps2xRuntime/include/ps2_runtime.h (tailGuestKnown),
+ps2_runtime_macros.h (PS2_TAIL_GUEST_KNOWN), include/runtime/ee_scheduler.h
+(signalSemaphoreUncontended); game/overrides/sotc_decomp.h (hotListOn,
+installSemaFast), sotc_decomp.cpp, decomp_ikquat.cpp, decomp_ctrldef.cpp,
+decomp_hot43a.cpp, decomp_hot43b.cpp, decomp_hot43c.cpp, decomp_hot43d.cpp,
+decomp_hot43e.cpp, decomp_hot43g.cpp, decomp_hot43i.cpp, decomp_sema.cpp
+(new); README.md (PS2X_RECOMP_TAIL_TABLE, SOTC_HOTLIST, SOTC_SEMA_FAST; the
+decomp block), docs/decomp.md, docs/decomp_status.json / .svg,
+docs/decomp_history.json / .svg, docs/decomp_tree.json. Deliverable:
+build/agent-scratch/celosia-r43.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

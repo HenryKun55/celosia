@@ -314,6 +314,32 @@ public:
     int createSemaphore(int initCount, int maxCount, uint32_t attr, uint32_t option);
     int deleteSemaphore(int id, bool interruptSafe);
     int signalSemaphore(int id, bool interruptSafe);
+    // Round 43: SignalSema's common case without the syscall's set-up (the
+    // stub, bindMainContextForSyscall, the out-of-line calls): a thread is
+    // running (the syscall's bind would change nothing), no reschedule is
+    // pending (its transferIfRequested would return), the semaphore exists,
+    // no thread waits on it and its count is below the maximum. Then the count
+    // goes up as signalSemaphore's own path does and the result is the id
+    // (true). False: nothing changed, take the full path. The kernel snapshot
+    // (the debug UI's) is left to the next full syscall.
+    bool signalSemaphoreUncontended(int id, const uint8_t *rdram) noexcept
+    {
+        if (m_currentThreadId == 0 || m_rescheduleRequested || m_insideInterrupt || m_rdram != rdram)
+            return false;
+        EeSemaphore *object = m_semaphoreCache;
+        if (id != m_semaphoreCacheId || !object)
+        {
+            const auto it = m_semaphores.find(id);
+            if (it == m_semaphores.end())
+                return false;
+            m_semaphoreCacheId = id;
+            m_semaphoreCache = object = &it->second;
+        }
+        if (!object->waiters.empty() || object->count == object->maxCount)
+            return false;
+        ++object->count;
+        return true;
+    }
     int pollSemaphore(int id);
     void waitSemaphore(int id);
 

@@ -17,6 +17,24 @@
 // compare); every other type, or a jump table not as expected, runs the
 // recompiled function from its start (nothing written before).
 //
+// Round 43 (SOTC_HOTLIST=0 puts them back to the recompiled code): ~75 more
+// types whose code is one of the same shapes, found by grouping the cases'
+// instruction sequences (delay slots included, branch targets resolved,
+// immediates aside) with the native ones' (build/agent-scratch/r43/forkH/
+// sig.py): the ranges with a word or byte pre-test (the pre-test's base may
+// differ from the value's: types 0x3c / 0x3d test t0 + 0x35d, read t1), the
+// squared ranges on other fields (0x0c, 0x11), the words and bytes nonzero,
+// the bytes zero (0x20 / 0x21: lb; sltiu), the masks with a pre-test (0x18,
+// 0x23), every bit of a2 + 0xf8's doubleword (bit 0 of its low word: 0x81),
+// EqS0 against +0x750 (0x36), the types the table sends straight to the
+// epilogue (0x1f, 0x30, 0x31, 0x5d-0x5f) and the types outside 2..0x83 (the
+// sltiu's branch to the same place). Left recompiled: the cases with guest
+// calls not seen here (0x47 / 0x56 / 0x33 / 0x28 / 0x4c / 0x62 ...), the
+// ones that write the abort word (0x1a), the inline -10000 compares sharing a
+// tail (0x0d-0x15's lui forms, 0x25, 0x29-0x2e), cvt.s.w (0x44), the
+// relocated read (0x35) and the few with their own compare order (0x0b,
+// 0x19, 0x1d, 0x4a, 0x4b, 0x5b, 0x5c).
+//
 // SOTC_CTRLDEF_STATS=1 (measuring): the condition types seen, every 20 000 calls.
 #include "sotc_decomp.h"
 
@@ -75,6 +93,7 @@ namespace decomp_ctrldef
         SubAnim,    // type 0x55: SearchSubAnimation(t0, s0) >= 0
         Surface,    // types 0x58 / 0x27: a pre-test word, GetGeometryPointerSurfaceAttribute, then Mask
         Flag3a,     // type 0x3a
+        ByteZero,   // types 0x20 / 0x21 (round 43): a byte zero
     };
     // Bounds: which "not tested" flag each side has and its compare.
     enum Flag : uint8_t
@@ -99,6 +118,11 @@ namespace decomp_ctrldef
         bool byte = false; // Word: lb
         uint32_t shift = 0; // Bit
         uint32_t frameAt = 0, jalSite = 0; // Surface: the result's frame slot, the jal
+        // Round 43: the pre-test a byte (lb) and its base when not the
+        // value's (0xff: the same); the case one of round 43's (SOTC_HOTLIST).
+        bool preByte = false;
+        uint8_t preBase = 0xFF;
+        bool r43 = false;
     };
 
     // From the disassembly (the address each case's code starts at, as the
@@ -119,7 +143,7 @@ namespace decomp_ctrldef
         {0x04, 0x010C8278u, Mask, 2, -1, 0x690},
         {0x6d, 0x010C9418u, Range, 0, 0x38, 0x3C, F0, true, false},
         {0x68, 0x010C9360u, Range, 0, 0x24, 0x28, F0, true, false},
-        {0x54, 0x010C8650u, EqS0},
+        {0x54, 0x010C8650u, EqS0, 0, -1, 0x1C0}, // *(s7) = *(t0 + 0x1c0)
         {0x41, 0x010C8800u, Range, 1, 0x0, 0x4, F180, false, false, true},
         {0x43, 0x010C8768u, Range, 0, -1, 0x4, F180, true, false},
         {0x6c, 0x010C9410u, Word, 0, -1, 0x34},
@@ -130,7 +154,90 @@ namespace decomp_ctrldef
         {0x06, 0x010C91F0u, Range, 1, -1, 0x14, F10000, true, true},
         {0x07, 0x010C9238u, Range, 1, -1, 0x18, F10000, true, true},
         {0x3a, 0x010C9108u, Flag3a},
+
+        // ---- round 43 --------------------------------------------------------
+        // Ranges with a word pre-test (base t0 = 2, a0 = 0; the pre-test's
+        // delay slot reloads the abort word: false when it is 0).
+        {.type = 0x03, .target = 0x010C88F8u, .kind = Range, .base = 2, .pre = 0x124, .off = 0x6B8, .flag = F180, .r43 = true},
+        {.type = 0x4e, .target = 0x010C89A8u, .kind = Range, .base = 2, .pre = 0x124, .off = 0x6C0, .flag = F180, .r43 = true},
+        {.type = 0x16, .target = 0x010C8AF8u, .kind = Range, .base = 2, .pre = 0x610, .off = 0x624, .flag = F180, .r43 = true},
+        {.type = 0x17, .target = 0x010C8B50u, .kind = Range, .base = 2, .pre = 0x670, .off = 0x67C, .flag = F180, .r43 = true},
+        {.type = 0x1c, .target = 0x010C8C08u, .kind = Range, .base = 2, .pre = 0xED0, .off = 0xEDC, .flag = F180, .r43 = true},
+        {.type = 0x22, .target = 0x010C8A00u, .kind = Range, .base = 2, .pre = 0xF3C, .off = 0xF48, .flag = F10000, .r43 = true},
+        {.type = 0x24, .target = 0x010C8AA0u, .kind = Range, .base = 2, .pre = 0xF3C, .off = 0xF50, .flag = F10000, .r43 = true},
+        {.type = 0x1b, .target = 0x010C8C60u, .kind = Range, .base = 2, .pre = 0xE70, .off = 0xE88, .flag = F10000, .r43 = true},
+        {.type = 0x69, .target = 0x010C93B8u, .kind = Range, .base = 0, .pre = 0x2C, .off = 0x30, .flag = F0, .lowStrict = true, .r43 = true},
+        {.type = 0x6e, .target = 0x010C9470u, .kind = Range, .base = 0, .pre = 0x40, .off = 0x44, .flag = F0, .lowStrict = true, .r43 = true},
+        {.type = 0x70, .target = 0x010C94D0u, .kind = Range, .base = 0, .pre = 0x4C, .off = 0x50, .flag = F0, .lowStrict = true, .r43 = true},
+        {.type = 0x71, .target = 0x010C9528u, .kind = Range, .base = 0, .pre = 0x54, .off = 0x58, .flag = F0, .lowStrict = true, .r43 = true},
+        {.type = 0x73, .target = 0x010C9588u, .kind = Range, .base = 0, .pre = 0x60, .off = 0x64, .flag = F0, .lowStrict = true, .r43 = true},
+        {.type = 0x74, .target = 0x010C95E0u, .kind = Range, .base = 0, .pre = 0x68, .off = 0x6C, .flag = F0, .lowStrict = true, .r43 = true},
+        {.type = 0x82, .target = 0x010C9640u, .kind = Range, .base = 0, .pre = 0x70, .off = 0x74, .flag = F0, .lowStrict = true, .r43 = true},
+        // Ranges with a byte pre-test of t0 (lb).
+        {.type = 0x3b, .target = 0x010C8D80u, .kind = Range, .base = 2, .pre = 0x35D, .off = 0x51C, .flag = F10000, .preByte = true, .r43 = true},
+        {.type = 0x50, .target = 0x010C8E20u, .kind = Range, .base = 2, .pre = 0x361, .off = 0x51C, .flag = F10000, .preByte = true, .r43 = true},
+        {.type = 0x51, .target = 0x010C8E78u, .kind = Range, .base = 2, .pre = 0x362, .off = 0x10C4, .flag = F10000, .preByte = true, .r43 = true},
+        {.type = 0x52, .target = 0x010C8ED0u, .kind = Range, .base = 2, .pre = 0x362, .off = 0x10CC, .flag = F10000, .preByte = true, .r43 = true},
+        {.type = 0x3c, .target = 0x010C9058u, .kind = Range, .base = 1, .pre = 0x35D, .off = 0x48, .flag = F10000, .preByte = true, .preBase = 2, .r43 = true},
+        {.type = 0x3d, .target = 0x010C90B0u, .kind = Range, .base = 1, .pre = 0x35D, .off = 0x44, .flag = F10000, .preByte = true, .preBase = 2, .r43 = true},
+        // Ranges without a pre-test.
+        {.type = 0x42, .target = 0x010C8720u, .kind = Range, .base = 0, .off = 0x8, .flag = F180, .lowStrict = true, .r43 = true},
+        {.type = 0x53, .target = 0x010C8858u, .kind = Range, .base = 1, .off = 0x4C, .flag = F180, .r43 = true},
+        {.type = 0x08, .target = 0x010C9280u, .kind = Range, .base = 1, .off = 0x20, .flag = F10000, .lowStrict = true, .highStrict = true, .r43 = true},
+        {.type = 0x09, .target = 0x010C92C8u, .kind = Range, .base = 1, .off = 0x24, .flag = F10000, .lowStrict = true, .highStrict = true, .r43 = true},
+        {.type = 0x0a, .target = 0x010C9310u, .kind = Range, .base = 1, .off = 0x28, .flag = F10000, .lowStrict = true, .highStrict = true, .r43 = true},
+        {.type = 0x3e, .target = 0x010C8DD8u, .kind = Range, .base = 2, .off = 0x520, .flag = F10000, .r43 = true},
+        // Squared ranges (f2 / f3, the prologue's f20 x f20 / f21 x f21).
+        {.type = 0x0c, .target = 0x010C82B8u, .kind = RangeSq, .base = 1, .off = 0x74, .flag = F10000, .r43 = true},
+        {.type = 0x11, .target = 0x010C8400u, .kind = RangeSq, .base = 2, .off = 0x518, .flag = F10000, .r43 = true},
+        // Words / bytes nonzero (lw, lb; types 0x2f / 0x64 load the byte into s1 itself).
+        {.type = 0x4f, .target = 0x010C7CA0u, .kind = Word, .base = 2, .off = 0xDEC, .r43 = true},
+        {.type = 0x26, .target = 0x010C85E8u, .kind = Word, .base = 2, .off = 0xFBC, .r43 = true},
+        {.type = 0x6f, .target = 0x010C94C8u, .kind = Word, .base = 0, .off = 0x48, .r43 = true},
+        {.type = 0x72, .target = 0x010C9580u, .kind = Word, .base = 0, .off = 0x5C, .r43 = true},
+        {.type = 0x34, .target = 0x010C7EC8u, .kind = Word, .base = 2, .off = 0xA24, .byte = true, .r43 = true},
+        {.type = 0x46, .target = 0x010C7F80u, .kind = Word, .base = 2, .off = 0x9C5, .byte = true, .r43 = true},
+        {.type = 0x1e, .target = 0x010C7FD0u, .kind = Word, .base = 2, .off = 0x35F, .byte = true, .r43 = true},
+        {.type = 0x61, .target = 0x010C8188u, .kind = Word, .base = 2, .off = 0x531, .byte = true, .r43 = true},
+        {.type = 0x60, .target = 0x010C8190u, .kind = Word, .base = 2, .off = 0x10A6, .byte = true, .r43 = true},
+        {.type = 0x3f, .target = 0x010C9050u, .kind = Word, .base = 2, .off = 0x35E, .byte = true, .r43 = true},
+        {.type = 0x63, .target = 0x010C9148u, .kind = Word, .base = 2, .off = 0x539, .byte = true, .r43 = true},
+        {.type = 0x2f, .target = 0x010C7FC8u, .kind = Word, .base = 2, .off = 0x530, .byte = true, .r43 = true},
+        {.type = 0x64, .target = 0x010C8D78u, .kind = Word, .base = 2, .off = 0x535, .byte = true, .r43 = true},
+        // Bytes zero.
+        {.type = 0x20, .target = 0x010C8BE8u, .kind = ByteZero, .base = 2, .off = 0xA94, .r43 = true},
+        {.type = 0x21, .target = 0x010C8BF8u, .kind = ByteZero, .base = 2, .off = 0xA95, .r43 = true},
+        // Masks with a word pre-test.
+        {.type = 0x23, .target = 0x010C8280u, .kind = Mask, .base = 2, .pre = 0xF3C, .off = 0xF40, .r43 = true},
+        {.type = 0x18, .target = 0x010C8BA8u, .kind = Mask, .base = 2, .pre = 0x670, .off = 0x680, .r43 = true},
+        // Bits of a2 + 0xf8 (dsll n; dsra32; andi 1; 0x81: lw; andi 1, the low word's bit 0 = a shift of 32).
+        {.type = 0x6a, .target = 0x010C96B0u, .kind = Bit, .shift = 31, .r43 = true},
+        {.type = 0x7e, .target = 0x010C96F8u, .kind = Bit, .shift = 27, .r43 = true},
+        {.type = 0x7f, .target = 0x010C9710u, .kind = Bit, .shift = 26, .r43 = true},
+        {.type = 0x80, .target = 0x010C9728u, .kind = Bit, .shift = 25, .r43 = true},
+        {.type = 0x83, .target = 0x010C9740u, .kind = Bit, .shift = 24, .r43 = true},
+        {.type = 0x75, .target = 0x010C9758u, .kind = Bit, .shift = 23, .r43 = true},
+        {.type = 0x76, .target = 0x010C9770u, .kind = Bit, .shift = 22, .r43 = true},
+        {.type = 0x77, .target = 0x010C97D0u, .kind = Bit, .shift = 21, .r43 = true},
+        {.type = 0x78, .target = 0x010C9788u, .kind = Bit, .shift = 20, .r43 = true},
+        {.type = 0x79, .target = 0x010C97E8u, .kind = Bit, .shift = 19, .r43 = true},
+        {.type = 0x7a, .target = 0x010C97A0u, .kind = Bit, .shift = 18, .r43 = true},
+        {.type = 0x7b, .target = 0x010C9800u, .kind = Bit, .shift = 17, .r43 = true},
+        {.type = 0x7c, .target = 0x010C97B8u, .kind = Bit, .shift = 16, .r43 = true},
+        {.type = 0x7d, .target = 0x010C9820u, .kind = Bit, .shift = 15, .r43 = true},
+        {.type = 0x81, .target = 0x010C9638u, .kind = Bit, .shift = 32, .r43 = true},
+        // EqS0 against the character class's +0x750 (b to 0x54's compare, lw in its delay slot).
+        {.type = 0x36, .target = 0x010C8648u, .kind = EqS0, .base = 2, .off = 0x750, .r43 = true},
+        // Straight to the epilogue (s1 = 0).
+        {.type = 0x1f, .target = 0x010C9834u, .kind = None, .r43 = true},
+        {.type = 0x30, .target = 0x010C9834u, .kind = None, .r43 = true},
+        {.type = 0x31, .target = 0x010C9834u, .kind = None, .r43 = true},
+        {.type = 0x5d, .target = 0x010C9834u, .kind = None, .r43 = true},
+        {.type = 0x5e, .target = 0x010C9834u, .kind = None, .r43 = true},
+        {.type = 0x5f, .target = 0x010C9834u, .kind = None, .r43 = true},
     };
+    // A type outside 2..0x83: the sltiu's branch to the epilogue (s1 = 0; round 43).
+    constexpr Case kOutOfRange{.type = 0, .target = 0x010C9834u, .kind = None, .r43 = true};
 
     struct Table
     {
@@ -172,8 +279,11 @@ namespace decomp_ctrldef
         const uint32_t a0In = GPR_U32(ctx, 4), t0 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), c = GPR_U32(ctx, 7);
         const uint32_t type = m.u32(c);
         condStats(type);
-        const Case *k = type - 2u < 0x82u ? table().byType[type] : nullptr;
-        if (!k || m.u32(kTable + (type - 2u) * 4u) != k->target)
+        const bool inTable = type - 2u < 0x82u;
+        const Case *k = inTable ? table().byType[type] : &kOutOfRange;
+        if (k && k->r43 && !sotc_decomp::hotListOn())
+            k = nullptr;
+        if (!k || (inTable && m.u32(kTable + (type - 2u) * 4u) != k->target))
         {
             ctx->pc = kCond;
             return sotc_decomp::recompiled(kCond)(rdram, ctx, runtime);
@@ -198,7 +308,7 @@ namespace decomp_ctrldef
         const bool t3 = cmp(FPU_C_OLT_S(f20, zero));
         float f0 = zero;
         const uint64_t s4 = m.u64(c + 0x18u), s5 = m.u64(c + 0x20u);
-        const uint32_t t1 = a2 + 0x100u, a0 = a2 + 0x80u, t6 = t0 + 0x200u, s7 = t0 + 0x1C0u;
+        const uint32_t t1 = a2 + 0x100u, a0 = a2 + 0x80u, t6 = t0 + 0x200u;
         // s0: the record the packed link at +0x14 names (0 when none).
         auto recordS0 = [&]() -> uint32_t
         {
@@ -210,6 +320,12 @@ namespace decomp_ctrldef
             return m.u32(owner + 0x10u) + static_cast<uint32_t>(index * size);
         };
         auto base = [&](uint8_t b) { return b == 0 ? a0 : (b == 1 ? t1 : t0); };
+        // The pre-test's word (lw) or byte (lb) is zero.
+        auto preZero = [&]()
+        {
+            const uint32_t b = base(k->preBase == 0xFF ? k->base : k->preBase) + static_cast<uint32_t>(k->pre);
+            return k->preByte ? m.s8(b) == 0 : m.u32(b) == 0u;
+        };
         auto maskTest = [&](uint64_t v) -> bool
         {
             v &= s4;
@@ -242,7 +358,7 @@ namespace decomp_ctrldef
         case Range:
         {
             const uint32_t b = base(k->base);
-            if (k->pre >= 0 && m.u32(b + static_cast<uint32_t>(k->pre)) == 0u)
+            if (k->pre >= 0 && preZero())
             {
                 s1 = k->preTrue;
                 break;
@@ -253,7 +369,7 @@ namespace decomp_ctrldef
         case RangeSq:
         {
             const float f2 = FPU_MUL_S(f20, f20), f3 = FPU_MUL_S(f21, f21);
-            s1 = range(m.f(a0 + k->off), F0, true, false, f2, f3, true);
+            s1 = range(m.f(base(k->base) + k->off), k->flag, k->lowStrict, k->highStrict, f2, f3, true);
             break;
         }
         case Bit:
@@ -263,7 +379,12 @@ namespace decomp_ctrldef
             s1 = k->byte ? m.s8(base(k->base) + k->off) != 0 : m.u32(base(k->base) + k->off) != 0u;
             break;
         case Mask:
+            if (k->pre >= 0 && preZero())
+                break;
             s1 = maskTest(m.u64(base(k->base) + k->off));
+            break;
+        case ByteZero:
+            s1 = m.s8(base(k->base) + k->off) == 0;
             break;
         case BitOfS0:
         {
@@ -273,7 +394,7 @@ namespace decomp_ctrldef
             break;
         }
         case EqS0:
-            s1 = m.u32(s7) == recordS0();
+            s1 = m.u32(t0 + k->off) == recordS0(); // 0x54: s7 = t0 + 0x1c0
             break;
         case Target:
         {

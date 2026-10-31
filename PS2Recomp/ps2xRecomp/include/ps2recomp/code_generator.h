@@ -116,6 +116,15 @@ namespace ps2recomp
         // macros are barriers, register_cache.cpp).
         bool m_leanCalls = !(std::getenv("PS2X_RECOMP_LEAN_CALLS") && std::getenv("PS2X_RECOMP_LEAN_CALLS")[0] == '0');
         bool leanCalls() const { return m_leanCalls; }
+        // Round 43: a J to another generated function's entry (a tail jump)
+        // goes through the function table (PS2_TAIL_GUEST_KNOWN: a direct
+        // call while the slot holds that function, else whatever the slot
+        // holds: a native, a hook, a checker), as a JAL's PS2_CALL_GUEST_KNOWN
+        // does; it was a plain call of the generated function, so a native
+        // registered there ran only for its JAL callers.
+        // PS2X_RECOMP_TAIL_TABLE=0 at recompile time: the plain call (round
+        // 42's output byte for byte).
+        bool m_tailTable = !(std::getenv("PS2X_RECOMP_TAIL_TABLE") && std::getenv("PS2X_RECOMP_TAIL_TABLE")[0] == '0');
         // Round 29 (float_known.cpp): VU0 add / sub / mul operands known to
         // be normalised already skip ps2VuOperand (PS2_VADD_K & co.), FPU
         // add / sub / mul of finite operands skip the result's clamp

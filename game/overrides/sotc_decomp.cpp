@@ -629,6 +629,10 @@ namespace sotc_decomp
             sotc_prof::noteAb(true);
             std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : "") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }
+        // Round 43: SignalSema's uncontended case (decomp_sema.cpp; not a
+        // registry native: a difftest leg would signal twice).
+        if (!listed(skip, "SignalSema"))
+            installSemaFast(runtime);
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;

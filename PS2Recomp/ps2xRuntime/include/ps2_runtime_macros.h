@@ -782,6 +782,15 @@ namespace ps2_guest_mem
 #define PS2_CALL_GUEST_KNOWN(target, function, returnPc, sourcePc, kind, name) \
     runtime->callGuestKnown(PS2_GUEST_FN(target), &function, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
 
+// A J to a generated function's entry, a tail jump (round 43): whatever the
+// table's slot holds runs (a native, a hook, a difftest checker), called
+// directly while it holds that function. ctx->pc is the target already (the
+// generator stores it first) and ra is the jumper's caller's: the callee
+// returns there itself. No checkpoint or jump serial, as the plain call it
+// replaces (PS2X_RECOMP_TAIL_TABLE=0) had none.
+#define PS2_TAIL_GUEST_KNOWN(target, function) \
+    PS2Runtime::tailGuestKnown(PS2_GUEST_FN(target), &function, rdram, ctx, runtime, (target))
+
 // A loop's back edge (round 30): the checkpoint, ctx->pc stored only when
 // it is taken (PS2Runtime::eeCheckpointDueAt).
 #define PS2_CHECKPOINT_DUE_AT(pc) runtime->eeCheckpointDueAt(ctx, (pc))
