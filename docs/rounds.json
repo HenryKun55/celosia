@@ -148,9 +148,17 @@
   {
    "round": "r43",
    "date": "2026-10-31",
+   "commit": "84bf8d5",
+   "focus": "Decomp",
+   "summary": "Tail jumps in the generated code now go through the function table, so natives are used by every caller. 13 more natives: reflections, the slope probe, small-animal AI, the stage object manager, the camera record, layout lights, the IK step and more. Semaphore signals without the syscall overhead when nobody waits.",
+   "result": "60% of the game thread native, decomp 8.66% of the code. Open: check the slope probe on the Vita."
+  },
+  {
+   "round": "r44",
+   "date": "2026-10-31",
    "commit": "",
    "focus": "Decomp",
-   "summary": "Next: route tail jumps through the function table (so natives are reached from every caller), then reflectionBegin, the IK step, the slope probes and the next top recompiled functions.",
+   "summary": "Next: settle the slope probe on the Vita, then texTransResolve, clipKeep's full test, gsReg and the next top recompiled functions.",
    "result": ""
   }
  ]
