@@ -2904,7 +2904,7 @@ namespace sotc_native
             return true;
         }();
         (void)switchesRead;
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48"};
         for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
             if (list.find(std::string(",") + switchNames[i] + ",") != std::string::npos)
                 sotc_decomp::setSwitch(i, isOff(switchNames[i]) ? false : switchStart[i]);
@@ -8980,7 +8980,7 @@ void installSotcNative(PS2Runtime &runtime)
     {
         g_gsReg = sotc_decomp::behindHook(runtime, kGsReg); // its native when registered (round 44)
         runtime.registerFunction(kGsReg, gsRegHook);
-        g_texTransRequest = runtime.lookupFunction(kTexTransRequest);
+        g_texTransRequest = sotc_decomp::behindHook(runtime, kTexTransRequest); // its native when registered (round 48)
         runtime.registerFunction(kTexTransRequest, texTransRequestHook);
         g_pushLayer = sotc_decomp::behindHook(runtime, kPushLayer);
         runtime.registerFunction(kPushLayer, pushLayerHook);

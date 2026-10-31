@@ -37,10 +37,18 @@
 // table): see its own block below. Every case is native; a table word the
 // generated code does not know goes to the recompiled code from the start.
 //
+// Round 48 (01108960 only): s0-s7 / fp now hold the code's values in the
+// context at every guest call (Kick::sync before each one; parentNode sets
+// s0 to the frame quaternion before the motion call as the code does) and
+// are reloaded from the frame saves at the end as the epilogue does; the
+// code keeps nothing in f20-f31. Round 47's stale-slot bug: the kickLWS,
+// updateSEGeo, 01104BA0, 0110C530 / 0110C660 callees reach 010EFD08.
+//
 // Not as the original: the scratch GPRs ($at, a0-t3 apart from the calls'
-// arguments) are not all set as the code sets them; the callee-saved
-// registers are never changed in the context (the code restores every one
-// from its frame), the frame's saves are written as the code writes them;
+// arguments) are not all set as the code sets them; in the particle draws
+// the callee-saved registers are never changed in the context (the code
+// restores every one from its frame), the frame's saves are written as the
+// code writes them;
 // 01142030 inline (no table call, ra not set to its site); the particle
 // loops' checkpoints are left out. In 01108960 the scratch GPRs are set as
 // the code sets them on the paths that reach a return, $at only where an
@@ -760,7 +768,8 @@ namespace decomp_hot46j
         R5900Context *ctx;
         PS2Runtime *runtime;
         uint32_t sp;
-        // The code's registers (callee-saved ones never written to the context).
+        // The code's callee-saved registers (round 48: copied into the
+        // context before every guest call, see sync()).
         uint64_t s0, s1, s2, s3, s4, s5, s6, s7, fp;
 
         uint64_t r(int i) const { return GPR_U64(ctx, i); }
@@ -770,8 +779,31 @@ namespace decomp_hot46j
         uint64_t lb(uint32_t a) const { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int8_t>(READ8(a)))); }
         static uint32_t u(uint64_t v) { return static_cast<uint32_t>(v); }
         static uint64_t add(uint64_t a, uint32_t b) { return sx(static_cast<uint32_t>(a) + b); } // addiu / addu
+        // Round 48: s0-s7 / fp in the context as the code holds them at a
+        // call (a callee saves them into its frame; a later callee on the
+        // kickLWS / ExecEff / kickEffect / 01104BA0 / 0110C530 / 0110C660
+        // -> CreateScriptAnimationSequence -> 010EFD08 chain can read such a
+        // stale slot and copy it into a new layout object, round 47's bug).
+        // Every write of these registers on a path to a call is mirrored in
+        // the fields above (delay-slot writes before the call included).
+        void sync() const
+        {
+            SET_GPR_U64(ctx, 16, s0);
+            SET_GPR_U64(ctx, 17, s1);
+            SET_GPR_U64(ctx, 18, s2);
+            SET_GPR_U64(ctx, 19, s3);
+            SET_GPR_U64(ctx, 20, s4);
+            SET_GPR_U64(ctx, 21, s5);
+            SET_GPR_U64(ctx, 22, s6);
+            SET_GPR_U64(ctx, 23, s7);
+            SET_GPR_U64(ctx, 30, fp);
+        }
         // jal `target` at `site` (ra site + 8, the frame's sp).
-        void call(uint32_t target, uint32_t site) { callGuest(rdram, ctx, runtime, target, site + 8u, sp); }
+        void call(uint32_t target, uint32_t site)
+        {
+            sync();
+            callGuest(rdram, ctx, runtime, target, site + 8u, sp);
+        }
         // A relocated jal site.
         void callAt(uint32_t site) { call(jalTarget(rdram, site), site); }
         // lui at `hi` + the addiu at `lo`, both relocated (read live).
@@ -820,6 +852,7 @@ namespace decomp_hot46j
                 return {add(r(4), u(r(2))), r(5)};
             }
             const uint64_t quat = sx(sp + quatOff);
+            s0 = quat; // addiu s0, sp, quatOff before the motion call (round 48)
             set(7, s1);
             set(4, quat);
             set32(5, sp + posOff);
@@ -1493,6 +1526,17 @@ namespace decomp_hot46j
         WRITE32(sp + 0x400u, GPR_U32(ctx, 6));
         auto finish = [&]()
         {
+            // The epilogue's reloads (round 48: the cases change s0-s7 / fp
+            // in the context through Kick::call).
+            SET_GPR_U64(ctx, 16, READ64(sp + 0x430u));
+            SET_GPR_U64(ctx, 17, READ64(sp + 0x438u));
+            SET_GPR_U64(ctx, 18, READ64(sp + 0x440u));
+            SET_GPR_U64(ctx, 19, READ64(sp + 0x448u));
+            SET_GPR_U64(ctx, 20, READ64(sp + 0x450u));
+            SET_GPR_U64(ctx, 21, READ64(sp + 0x458u));
+            SET_GPR_U64(ctx, 22, READ64(sp + 0x460u));
+            SET_GPR_U64(ctx, 23, READ64(sp + 0x468u));
+            SET_GPR_U64(ctx, 30, READ64(sp + 0x470u));
             SET_GPR_U64(ctx, 29, entrySp);
             SET_GPR_U64(ctx, 31, ra);
             returnTo(ctx);

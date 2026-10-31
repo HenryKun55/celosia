@@ -79,8 +79,11 @@
 // from the live code words.
 // Not as the original: the scratch GPRs (only the call arguments and v0
 // are set as the code sets them, v1 where cheap), the s-registers in the
-// context during the calls (the callees save and restore them), no loop
-// checkpoints. GetObjectAnimationFloatFrame with a jump-table target that
+// context during the calls of the other three (the callees save and
+// restore them), no loop checkpoints. (Round 48: ExecObjectAnimation's s0-s7 / fp now hold the code's values at
+// every guest call, as round 47's rule asks: its callees reach
+// ExecAnimeTableInfo's sub-thread and kickLWS -> ... -> 010EFD08, which save
+// them and can copy a stale slot into the heap.) GetObjectAnimationFloatFrame with a jump-table target that
 // is not one of the generated code's labels runs the recompiled code from
 // the start (nothing written before).
 #include "sotc_decomp.h"
@@ -314,11 +317,21 @@ namespace decomp_hot46i
         WRITE32(sp + 0xE0u, bf(ctx->f[22]));
         SET_GPR_U32(ctx, 29, sp);
 
+        // Round 48: s0, s4, fp as the code sets them before the first call
+        // (s0 0, then the part by movz: v1's full register; s4 the object,
+        // fp the owner, daddu copies); s1-s3 and s5-s7 stay the caller's
+        // until the channel walk / the cloth loop set them below.
+        SET_GPR_U64(ctx, 16, 0u);
+        SET_GPR_U64(ctx, 20, object64);
+        SET_GPR_U64(ctx, 30, owner64);
+
         // The animation part: object + 0x20 for kind 0xd, else 0 (movz).
         const uint32_t kindTest = READ8(object + 8u) ^ 0xDu;
         const uint32_t part = kindTest == 0u ? object + 0x20u : 0u; // s0
         SET_GPR_U64(ctx, 2, kindTest);
-        SET_GPR_U32(ctx, 3, object + 0x20u);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(object + 0x20u)); // addiu
+        if (kindTest == 0u)
+            SET_GPR_VEC(ctx, 16, GPR_VEC(ctx, 3));
         SET_GPR_U32(ctx, 4, 1u);
         call(sotc_decomp::jalTarget(rdram, kRapCounterSite), 0x0110A198u);
         SET_GPR_U64(ctx, 4, object64);
@@ -376,9 +389,20 @@ namespace decomp_hot46i
                     uint32_t record = READ32(anim + 0x18u);                     // s2: 12-byte channel records
                     const uint32_t channelAnim = READ32(part + 0x334u);         // s7
                     uint32_t target = READ32(part + 0x338u);                    // s1: 8-byte targets
+                    // Round 48: the walk's s-registers (lw sign-extends; s5
+                    // the channel index, s3 the channel's target).
+                    SET_GPR_U64(ctx, 21, 0u);
+                    SET_GPR_U64(ctx, 22, sx(static_cast<uint32_t>(channels)));
+                    SET_GPR_U64(ctx, 18, sx(record));
+                    SET_GPR_U64(ctx, 23, sx(channelAnim));
+                    SET_GPR_U64(ctx, 17, sx(target));
                     for (int32_t i = 0; i < channels; ++i, target += 8u, record += 12u)
                     {
                         const uint32_t to = READ32(target); // s3
+                        SET_GPR_U64(ctx, 19, sx(to));
+                        SET_GPR_U64(ctx, 21, sx(static_cast<uint32_t>(i)));
+                        SET_GPR_U64(ctx, 17, sx(target));
+                        SET_GPR_U64(ctx, 18, sx(record));
                         if (to == 0u && !animatedWithoutTarget(static_cast<int32_t>(READ32(record))))
                             continue;
                         SET_GPR_U32(ctx, 6, static_cast<uint32_t>(i));
@@ -402,6 +426,13 @@ namespace decomp_hot46i
                         WRITE32(sp, extra); // the tenth argument
                         call(kApplyChannel, 0x0110A2F4u);
                     }
+                    if (channels > 0)
+                    {
+                        // The loop's last addiu's: s5 = count, s1 / s2 past the end.
+                        SET_GPR_U64(ctx, 21, sx(static_cast<uint32_t>(channels)));
+                        SET_GPR_U64(ctx, 17, sx(target));
+                        SET_GPR_U64(ctx, 18, sx(record));
+                    }
                     SET_GPR_U32(ctx, 5, kExecChildGroupArg);
                     SET_GPR_U64(ctx, 4, object64);
                     call(kExecChildGroup, 0x0110A318u);
@@ -412,11 +443,17 @@ namespace decomp_hot46i
                 if (clothCount != 0u)
                 {
                     uint32_t ids = READ32(part + 0x354u);
+                    // Round 48: s3 -1 (the end mark); at each call s0 the
+                    // layout id, s1 the ids left, s2 the next id's address.
+                    SET_GPR_U64(ctx, 19, ~0ull);
                     for (int32_t left = static_cast<int32_t>(clothCount) - 1; left != -1;)
                     {
                         const uint32_t id = READ32(ids);
                         ids += 4u;
                         --left;
+                        SET_GPR_U64(ctx, 16, sx(id));
+                        SET_GPR_U64(ctx, 17, sx(static_cast<uint32_t>(left)));
+                        SET_GPR_U64(ctx, 18, sx(ids));
                         SET_GPR_U32(ctx, 4, id);
                         call(kGetLayoutClass, 0x0110A350u);
                         SET_GPR_U64(ctx, 4, GPR_U64(ctx, 2));

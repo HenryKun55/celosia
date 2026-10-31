@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -186,10 +187,38 @@ namespace sotc_decomp
             const bool cycles = cyclesOn && depth == 0;
             static uint64_t cyclesNative = 0, cyclesRecompiled = 0;
             const uint64_t clock0 = runtime->m_eeClock.now();
+            const uint64_t clockBase = runtime->m_eeClock.cycle;
+#if !PS2X_EE_CLOCK64
+            const uint32_t clockRun = runtime->m_eeClock.run;
+#endif
+            // SOTC_DIFFTEST_SPOISON=1 (round 48, checking): both legs run with
+            // the caller's s0-s7 / fp replaced by marks (0x5e5e...r), so where
+            // the native leaves a caller's register in place at a guest call
+            // while the original has set its own value, a callee that saves it
+            // and another that copies the stale slot into RAM (round 47's leak)
+            // shows as a mismatch whatever the caller held; a mark left in a
+            // register at the end is the caller's value put back.
+            static const bool spoison = std::getenv("SOTC_DIFFTEST_SPOISON") != nullptr;
+            const bool poison = spoison && !c.function->switches;
+            auto mark = [](int r) { return 0x5E5E5E5E5E5E0000ull | static_cast<uint64_t>(r); };
+            if (poison)
+            {
+                for (int r = 16; r <= 23; ++r)
+                    SET_GPR_U64(ctx, r, mark(r));
+                SET_GPR_U64(ctx, 30, mark(30));
+            }
             if (c.function->once)
                 leg(rdram, ctx, runtime);
             else
                 runToReturn(rdram, ctx, runtime, leg);
+            if (poison)
+            {
+                for (int r = 16; r <= 23; ++r)
+                    if (GPR_U64(ctx, r) == mark(r))
+                        std::memcpy(&ctx->r[r], &input.r[r], 16);
+                if (GPR_U64(ctx, 30) == mark(30))
+                    std::memcpy(&ctx->r[30], &input.r[30], 16);
+            }
             const uint64_t clock1 = runtime->m_eeClock.now();
             const R5900Context nativeOut = *ctx;
             const R5900Context *native = &nativeOut;
@@ -201,10 +230,72 @@ namespace sotc_decomp
             *ctx = input;
             if (draws)
                 native_renderer::setDrawTap(&drawsRecompiled);
+            // SOTC_DIFFTEST_SAMECLOCK=1 (round 48, checking): the recompiled leg
+            // starts at the EE clock the native one started at (a sub-thread a
+            // wake runs reads the timer: the legs saw different times).
+            static const bool sameClock = std::getenv("SOTC_DIFFTEST_SAMECLOCK") != nullptr;
+            if (sameClock && depth == 0)
+            {
+                runtime->m_eeClock.cycle = clockBase;
+#if !PS2X_EE_CLOCK64
+                runtime->m_eeClock.run = clockRun;
+#endif
+                runtime->m_eeClock.closeGate();
+            }
+            // SOTC_DIFFTEST_SWITCH=scriptvm,isys,... (round 48): those subsystem
+            // switches off during the recompiled leg, so a check of a function
+            // above them (isysWakeupSubThread: a whole resumed sub-thread)
+            // compares the subsystem's natives with the recompiled code.
+            static const std::vector<int> legSwitches = []
+            {
+                std::vector<int> out;
+                const char *list = std::getenv("SOTC_DIFFTEST_SWITCH");
+                for (int i = 0; list && i < kSwitchCount; ++i)
+                {
+                    std::string name = kSwitchEnv[i] + 5; // past "SOTC_"
+                    for (char &ch : name)
+                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    if (listed(list, name.c_str()))
+                        out.push_back(i);
+                }
+                return out;
+            }();
+            const bool offLeg = depth == 0 && !legSwitches.empty();
+            if (offLeg)
+                for (int i : legSwitches)
+                    setSwitch(i, false);
+            // The same marks in the recompiled leg: a register the original
+            // leaves alone is the caller's (the mark) in both legs, so only
+            // one the native fails to set as the original does can differ.
+            if (poison)
+            {
+                for (int r = 16; r <= 23; ++r)
+                    SET_GPR_U64(ctx, r, mark(r));
+                SET_GPR_U64(ctx, 30, mark(30));
+            }
             if (c.function->once)
                 c.recompiled(rdram, ctx, runtime);
             else
                 runToReturn(rdram, ctx, runtime, c.recompiled);
+            if (poison)
+            {
+                for (int r = 16; r <= 23; ++r)
+                    if (GPR_U64(ctx, r) == mark(r))
+                        std::memcpy(&ctx->r[r], &input.r[r], 16);
+                if (GPR_U64(ctx, 30) == mark(30))
+                    std::memcpy(&ctx->r[30], &input.r[30], 16);
+            }
+            if (offLeg)
+                for (int i : legSwitches)
+                    setSwitch(i, true);
+            // The clock never goes back past where the native leg left it (a
+            // wait loop around a checked call must still see time pass).
+            if (sameClock && depth == 0 && runtime->m_eeClock.now() < clock1)
+            {
+                runtime->m_eeClock.fold();
+                runtime->m_eeClock.cycle = clock1;
+                runtime->m_eeClock.closeGate();
+            }
             --g_depth;
             if (cycles)
             {
@@ -422,6 +513,20 @@ namespace sotc_decomp
                 *ctx = keepCtx;
             }
 #endif
+            // SOTC_DIFFTEST_SPOISON: the legs ran on marks; the game goes on
+            // from the recompiled code run once more on the real registers.
+            if (poison)
+            {
+                std::memcpy(rdram, before.ram.data(), PS2_RAM_SIZE);
+                std::memcpy(scratch, before.scratch.data(), PS2_SCRATCHPAD_SIZE);
+                *ctx = input;
+                ++g_depth;
+                if (c.function->once)
+                    c.recompiled(rdram, ctx, runtime);
+                else
+                    runToReturn(rdram, ctx, runtime, c.recompiled);
+                --g_depth;
+            }
             if (bad)
                 c.mismatches.fetch_add(1, std::memory_order_relaxed);
             const uint64_t checks = c.checks.load(std::memory_order_relaxed);
@@ -500,6 +605,21 @@ namespace sotc_decomp
         }
     }
 #endif
+
+    bool callMaySleepRest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp)
+    {
+        // finishGuestCall's loop, stopping when the sub-thread slept.
+        while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
+        {
+            if (onWakerContext(rdram, ctx))
+                return false;
+            PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
+            if (!next)
+                return false;
+            next(rdram, ctx, runtime);
+        }
+        return true;
+    }
 
     void finishGuestCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp)
     {
@@ -749,6 +869,17 @@ namespace sotc_decomp
             g_recompiled.emplace(f.address, runtime.lookupFunction(f.address));
             if (listed(skip, f.name))
                 continue;
+            // Round 48: a coroutine's entries are never checked by themselves
+            // (isysWakeupSubThread's check with SOTC_DIFFTEST_SWITCH covers them).
+            if (f.coroutine)
+            {
+                if (listed(test, f.name) && !f.resume && std::strcmp(test, "all") != 0)
+                    std::cerr << "[difftest] " << f.name << ": a coroutine or unchecked native, not checked by itself (coroutines: isysWakeupSubThread with SOTC_DIFFTEST_SWITCH)" << std::endl;
+                runtime.registerFunction(f.address, f.native);
+                if (!f.resume)
+                    ++replaced;
+                continue;
+            }
             if (listed(test, f.name) && checked >= kMaxChecked)
                 ++unchecked;
             if (listed(test, f.name) && checked < kMaxChecked)

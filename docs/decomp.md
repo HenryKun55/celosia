@@ -8066,6 +8066,229 @@ SOTC_DIFFTEST_WATCH / PROBE, the A/B names, the decomp block), docs/decomp.md,
 docs/decomp_status.json / .svg, docs/decomp_history.json / .svg,
 docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r47.vpk.
 
+## Round 48: the s-register audit, the script system as coroutine natives, the isys lifetime (2026-10-31)
+
+On AC power the whole round (100%, charged). Nothing committed or deployed.
+Scripts and logs: `build/agent-scratch/r48/` (dt.sh / pos.sh / v3k.sh as round
+47's, dt.sh taking TIMEOUT; cg.py the static call graph (cg.pkl), audit.py the
+natives' static reach (`risk`, `paths`), sleepers.py the functions that can
+reach the sub-thread sleep; worker-brief.txt the transcription workers'
+rules; fam48.py this round's family table; names.txt / focus-names.txt /
+poison-names.txt the difftest lists; thprof-new-all.txt r33/thprof.py over the
+profile window; console-ab/env.txt the console run asked for). Ten workers
+transcribed in parallel (one file each, syntax-checked with r43/syn.sh), then
+built and difftested here.
+
+**1. The s-register rule everywhere (target 1).**
+- Static (r48/audit.py over the 269 registered natives, jal / j reach in the
+  ELF): the natives whose original reaches round 47's sinks (a new layout
+  object, manager_sub_010EFD08; a sub-thread start, isysStartSubThread /
+  isysCreateSubThreadS / ExecAnimeTableInfo): charaLinks, ExecCharaGeometry,
+  gamecore_sub_013EF378, manager_sub_010CABA0 (the four of round 47), and
+  gamecore_sub_01372068 (the footstep effects: ExecEff -> kickLWS ->
+  CreateScriptAnimationSequence), ExecObjectAnimation (ExecAnimeTableInfo;
+  01108960 -> kickLWS), manager_sub_01108960 (kickLWS, ExecEff, kickEffect,
+  0110C530 / 0110C660 / 01104BA0), manager_sub_01102638 (isysStartSubThread:
+  already mirrored since round 44). charaLinks (no frame saves at all before),
+  01372068, ExecObjectAnimation and 01108960 now hold s0-s7 / fp as the
+  original at every guest call, write the prologue's saves and reload them
+  as the epilogue (01108960 also set s0 too late on its ask-the-motion
+  paths). No native reaches the sleep statically.
+- The helper: `sotc_decomp::SFrame` (sotc_decomp.h) names the prologue's
+  save slots: save() / set() / restore().
+- Dynamic: `SOTC_DIFFTEST_SPOISON=1` (new) runs both legs with the caller's
+  s0-s7 / fp replaced by marks (0x5e5e...r) and the game goes on from a third,
+  clean recompiled run; a native that leaves a caller's value where the
+  original has its own, and a callee that copies it into RAM, shows as a
+  mismatch whatever the caller held. (A one-leg mark gave false positives:
+  graphFrameInit's callee saves the caller's s3, which the original leaves
+  alone too; marks in the live leg corrupted the game.) Over every native
+  that makes guest calls (r48/poison-names.txt: 239 functions, the boot's
+  soft-float / relocation, the wake / sleep and the script pass left out),
+  EVERY=100, MAX=500 to 4 800 (r48/dt-spoison4): 217 901 checks, mismatches
+  only the known noise (013F8668's v0 109, ExecCharaGeometry 27 and
+  013CFBE0 18 at the sub-threads' bytes 0x270c14.. / 0x1e0bf0): **no s-register
+  leak left**.
+- **gamecore_sub_013EF378's f0 (settled)**: `SOTC_DIFFTEST_SAMECLOCK=1` (new: the
+  recompiled leg starts at the EE clock the native leg started at, and the
+  clock never goes back past where the native leg left it) at EVERY=1 to
+  5 400 (r48/dt-ef378): 10 400 checks, 0 mismatches. Round 47's 3 in 3 600
+  were the legs' different clocks, not the native.
+
+**2. The script system (target 2).**
+- What it is: no bytecode interpreter runs the scripts. A script is compiled
+  MIPS code: each script object owns a sub-thread (decomp_subthread.cpp's
+  coroutines) whose body is the script function. Each frame execScript walks
+  16 priority groups through manager_sub_01102638, which wakes each object's
+  sub-thread; the script runs until scrRun / scrRunM(n), which go to
+  gamecore_sub_013CF258 (the frame end: the type's per-frame work, the
+  letters discarded, the view interval clip, the character's geometry
+  post-process, then isysSleepSubThread). The next wake calls the sub-thread
+  at the label after that sleep. The data-driven AI is a second layer inside
+  the bodies: execSCRBaseFunc walks 0x40-byte records {function, a1, a2,
+  f12-f15, a3, t0, t1-t3 = record + 0x30..} and calls each (SCRFunc* /
+  SCRCondition*, conditions through execCondition, round 44's native).
+- The recompiled resume path: wake -> the table's entry at the label (the
+  generated function's switch on pc) -> the frame end's tail -> jr ra unwinds
+  into scriptPass's run-to-return loop -> scrRunM's label -> the script body's
+  label, each a lookup and a label switch.
+- **Coroutine natives** (sotc_decomp.h): `callMaySleep` / `callNativeMaySleep` /
+  `tailMaySleep` make a call that can sleep: true when it came back, false
+  when the sub-thread slept (the context is the waker's: sp == *0x270bb8 +
+  0x2d0, `onWakerContext`), and the native returns at once. A native that
+  can sleep is registered with `SOTC_DECOMP_COROUTINE` and each label after a
+  sleeping call with `SOTC_DECOMP_RESUME` (the same function, switching on
+  pc); the frames and every register at a sleep are the original's (the
+  sleep saves them all into the sub-thread's stack), so a resume can go to
+  the native or to the recompiled code (switch off, `SOTC_AB_ROTATE`). Never
+  put behind a difftest checker (a check would run the waker nested).
+  `SOTC_DECOMP_UNCHECKED` (same install, no check) is for natives whose legs
+  would each change host state the check does not restore.
+- Nativized (`SOTC_SCRIPTVM=0` off): decomp_scriptvm.cpp `gamecore_sub_013CF258`
+  (12 resume labels), `scrRun`, `scrRunM` (resumed at 0x13cf9f8);
+  decomp_scriptvm2.cpp `execSCRBaseFunc` (a coroutine: its opcode calls are
+  indirect, resumed at 0x1456078), `SCRFuncSubFunc`, `SCRFuncConditionExecFunc`
+  (their tail jumps into it), `getSCRDataCtrlWork`, `GetSCRCharaAIWorkPtr`,
+  `CheckSCRCharaAIWorkPtr`, `SCRGetFirstObj` and nine hot opcodes
+  (SCRConditionPlayerLastMotionShiftCheck, ...ControlModeCheck,
+  ...ParentColAttr, SCRSoundConditionPlayerParentColAttr,
+  SCRConditionRootAnglePlayerWorldXZ, SCRFuncStartEventDemoGameModeCheck,
+  SCRFuncVolumeCheckByGameObjForSelfPos, SCRCharaTurnDirectInput,
+  SCRGetGetGeometryPointerLegalParentObj); decomp_scriptvm3.cpp the frame
+  end's per-type helpers (013CFCA0, 013CFE40, 013CFBE0, 013CFD80: they run
+  their callees on the script work stack at 0x11f7140; 013CF4E0), GetScriptClass,
+  GetScriptCharacterClass, GetScriptLayoutClass, ExecScriptLayoutObj,
+  CheckLetter, the script control status (CharaCtrl*ScriptCtrlStatus,
+  checkScriptControlDef), isysGetThisSubThread; decomp_scriptvm4.cpp
+  `gamecore_sub_013E3840`, the small animal's script body (resumed at
+  0x13e38b0 / 0x13e38f8 / 0x13e3908 / 0x13e3a7c).
+- Not done: updateScriptDataSystem (6 KB, ~5 k a frame), nico_sheathScript (a
+  body), the other script bodies (each its own coroutine).
+
+**3. The isys object lifetime (target 3, `SOTC_ISYS=0` off; decomp_isys48.cpp).**
+isysDeleteGroupAllObj, isysDeleteObjManager, isysRequestDeleteObj,
+isysGroupForFirstForce, isysObjDeleteUnLock, isysObjWaitSema / SignalSema
+(nested only; `SOTC_DECOMP_UNCHECKED`: a leg that takes the semaphore would
+leave the other leg's WaitSema blocked for good, which hung the first `all`
+run at boot), kernel_sub_001BF590 (the display list reset),
+isysGetGroupSrhNext, the letters (isysLetterObjDiscardLetterAll,
+open_letter_post, discard_all_letter_in_post, close_letter_post) and
+texTransRequest (sotc_native's hook now asks `behindHook` for it). The lock as
+round 11's: nested (depth up), or taken with PollSema when WaitSema would not
+block (released in the same call), else the recompiled code from the start.
+iosDlSwap stays recompiled (its own semaphore, then the isys lock: a second
+wait that blocks could not be undone); its loop's callees are native.
+
+**4. Round 48's other natives (`SOTC_HOTLIST48=0`).** decomp_hot48a.cpp
+`manager_sub_0109E2A0` (the bloom chain, layer 0x14: every display call with
+its original return address); decomp_hot48b.cpp `graphFrameInit`, `gsRegEnd`,
+`gamecore_sub_013D8B38`, `SpriteMenuSetSpriteObjectParam`, `bossDeathEffectEnd`
+(its idle path; a running effect goes to the recompiled code before any side
+effect); decomp_hot48c.cpp `GetCollisionDBEdgeInfoNext3`, `AI_GetRotVelocity`,
+`GAMEUTIL_get_spring_interpolate_value3D_extend`, `manager_sub_01115D00`,
+`AddCharacterClassSubGeometries`, `CopyMultiQuaternion`, `GetWindVector`.
+manager_sub_01137F78 (a grid mesh's normals) was written but is **not
+registered**: the Mac route never reaches it and in Vita3K it cost 146.7 k a
+frame against the recompiled 10.6 k (with GetMeshClass +37.6 k: many more
+vertices; a bug in its loop, open). Skipped by the workers: xz (2.8 KB,
+~35 calls), manager_sub_010E0558 (dynamic stack, 20 VU0 blocks).
+
+**Instructions** (calibrated Vita3K 222 MHz, the route on the r24 card,
+snapshots 180 / 300 s, game thread 248; r47 2 861 frames from 4 088, r48
+(r48/new.vpk, with 01137F78 still registered) 2 846 from 4 119; thousands a
+frame, r48/fam48.py; the letters count in both of the first two rows):
+
+| | r47 | r48 |
+|---|---|---|
+| the script system (sub-threads, frame end, scrRun, SCR data, bodies, letters) | 183.8 | 194.8 |
+| the isys lifetime (groups, deletes, swap, locks, texTransRequest) | 138.0 | 142.2 |
+| round 48's other targets (01137F78 left out: 10.6 recompiled, 146.7 native) | 120.0 | 103.0 |
+| the s-register retrofits (charaLinks, 01372068, ExecObjectAnimation, 01108960) | 106.1 | 101.1 |
+| the game thread | 9 244 | 9 682 |
+
+Per function the natives cost what the lean recompiled code did (the frame
+end 18.3 + scrRun 2.6 against 16.1 + 4.3 + scrRunM 2.0; texTransRequest 10.9
+against 13.5; isysDeleteGroupAllObj 4.1 against 11.8; 013E3840 11.5 against
+12.4; the SCR opcodes at parity). The thread's +438 k is this window's
+content (collision +150 k: clipDB, leaf, finderLeaf, low / high) and the
+unregistered 01137F78 (+184 k with GetMeshClass); no saving is measurable in
+time: the subsystem natives move the decomp count, not the frame. The resume
+path's dispatch was not the cost round 46 feared either: per resume it is a
+few lookups. decomp_history r48: 69.5% of the game thread's instructions
+native (r47 66.9), 15.9% recompiled MIPS (18.3).
+
+**Exactness.**
+- By name (Mac, the route on the r24 card, EVERY=10, MAX=3000,
+  SAMECLOCK, to 5 400; r48/dt-focus1): 57 functions (every new
+  non-coroutine native and the four retrofits), 249 200 checks, 0 mismatches
+  but gamecore_sub_013CFBE0 (237 in 3 100, all at the sub-threads' bytes
+  0x270c14.. 0x70 apart and 0x1e0bf0, ExecCharaGeometry's known noise; its
+  control run 28 in 3 400 at the same addresses; `SOTC_DIFFTEST_WATCH` shows the
+  byte written by 01169020 under ExecCharaGeometry, and two reruns of the same
+  native leg from the same input write different values: host state). Not
+  reached on the route: manager_sub_01137F78 (unregistered, above).
+- The coroutine natives through the wake (`SOTC_DIFFTEST=isysWakeupSubThread
+  SOTC_DIFFTEST_SWITCH=scriptvm SAMECLOCK`, every wake checked, EVERY=1):
+  r48/dt-wakesw1 (the route to 3 000): 33 300 checks, 8 253 mismatches, every
+  one at the nine bytes 0x1465680..0x14656f0 and 0x15b8bc0 (one script's
+  timers, written from host time; the same bytes with the natives off,
+  r48/dt-wakeclk); r48/dt-wakesw2 with those two ranges ignored (this run's
+  menu input landed on New Game: the opening cutscenes with Dormin's speech
+  to 5 400): 11 200 checks, 0 mismatches. Without SAMECLOCK the wake's noise
+  was 21% of its checks (r48/dt-wakebase), with it 2.7% (r48/dt-wakeclk).
+- `all` (r48/dt-all, SAMECLOCK, EVERY=200 to 4 800): 313 functions, 397 902
+  checks, mismatches only manager_sub_01102638 (247), 013F8668 (138),
+  isysWakeupSubThread (130), ExecCharaGeometry (26), 013CFBE0 (23, above).
+- Pictures (Mac, SOTC_NATIVE=2, fixed 30, against r47's binary): the opening
+  cutscenes (r12/mac.sh intro to 6 000, r48/intro-base / intro-new, snapshots
+  every 150 frames): the same shots at the same frames (the cutscenes' cuts and
+  subtitles line up; mean difference 0-9, the pose / camera spread,
+  r48/cmp_intro_*.png); the user's shrine save (r46's card copy, to 3 600,
+  r48/shrine-base / shrine-new): positions at most 0.31 apart, 0 samples over 3.
+- Fixed-30 position route to 5 400 (r47/poson against r48/posnew): both reach
+  5 400 (VBlank 10 743 both), max 0.36, the end 0.16, 0 samples over 3.
+- The A/B: `SOTC_AB_FLAG=scriptvm,isys,hotlist48,hotlist46,hotlist47
+  SOTC_AB_ROTATE=1` on the Mac to 3 000 (r48/abtest): 52 `[ab]` lines, plays on.
+
+**Vita.** celosia-r48.vpk (-j6, shader seed 53 files) boots and plays the route
+in calibrated Vita3K: the profile run (r48/prof-err.txt, 222 MHz, to game frame
+7 514 at 320 s) and the smoke run on the final VPK (r48/smoke-err.txt, 240 MHz,
+240 s to game frame ~6 015; r47's 5 873; audio 0 stale, 0 src-stale, 0 late
+callbacks); the Vita3K tree restored (`restored ok`, both runs).
+
+**Decomp status** (r48/replaced.txt): 12.71% of the MIPS code by size (was
+11.68), 7.17% by functions (647), 64.8% by calls, 11.55% of the game's own code.
+
+**Console run asked for:** build/agent-scratch/r48/console-ab/env.txt (the frame
+log, body shadows on, scriptvm, isys, hotlist48, hotlist46, hotlist47 rotating in
+60-frame windows, the spike log); r44/abrot.py reads it.
+
+**Open.**
+- manager_sub_01137F78's native (unregistered): why it runs so many more
+  vertices.
+- The remaining script bodies and updateScriptDataSystem; iosDlSwap.
+- The wake's remaining noise (one script's timers at 0x1465680..) and the
+  sub-threads' bytes under ExecCharaGeometry: host time, not the natives.
+- Next recompiled on the game thread (r48 window, docs/decomp_tree.json, after
+  GetMeshClass, which is 01137F78's): iosDlSwap 0.12%, Sg2ModTickProc 0.12,
+  0111DDC0 0.12, 010E0558 0.10, ClipCollisionDirectCallBackDoubleSide 0.10,
+  GetCollisionEdgePointerVertexPoint 0.09, AddCharacterClassOptionNodeSubGeometry
+  0.09, nico_gazeHeadIK4 0.09, shadowDraw 0.09, xz 0.09.
+
+**Files:** game/overrides/sotc_decomp.h (coroutines: onWakerContext,
+callMaySleep, callNativeMaySleep, tailMaySleep; SFrame; the switches
+SOTC_SCRIPTVM / SOTC_ISYS / SOTC_HOTLIST48; SOTC_DECOMP_COROUTINE / _RESUME /
+_UNCHECKED), sotc_decomp.cpp (callMaySleepRest, the coroutine install,
+SOTC_DIFFTEST_SAMECLOCK / _SWITCH / _SPOISON), sotc_native.cpp (texTransRequest
+through behindHook, the A/B names), decomp_chara.cpp, decomp_hot46a.cpp,
+decomp_hot46i.cpp, decomp_hot46j.cpp (the s-register retrofits),
+decomp_scriptvm.cpp, decomp_scriptvm2.cpp, decomp_scriptvm3.cpp,
+decomp_scriptvm4.cpp, decomp_isys48.cpp, decomp_hot48a.cpp, decomp_hot48b.cpp,
+decomp_hot48c.cpp (new); README.md (SOTC_SCRIPTVM, SOTC_ISYS, SOTC_HOTLIST48,
+SOTC_DIFFTEST_SAMECLOCK / _SWITCH / _SPOISON, the A/B names, the decomp block),
+docs/decomp.md, docs/decomp_status.json / .svg, docs/decomp_history.json /
+.svg, docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r48.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

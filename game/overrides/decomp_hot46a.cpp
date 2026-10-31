@@ -41,13 +41,21 @@
 //   quaternion, 0x011e5de0 the tilt (+0xc0). v0 the relocated address, v1
 //   its 16 bytes, f0 the tilt.
 //
+// Round 48 (round 47's rule): s0-s7 / fp hold the code's values in the
+// context at every guest call (they were left as the caller's: the
+// footstep effects under 01370030 -> ExecEff -> kickLWS -> ... ->
+// manager_sub_010EFD08 can copy a stale stack slot holding one into a new
+// layout object), set where the code sets them (move / daddu: 64 bits,
+// lw / addiu / addu / lui: sign-extended) and reloaded from the frame at
+// the end as the epilogue does. f20 / f21 (the only callee-saved FPU
+// registers the code touches) were already kept in the context as the code
+// keeps them.
+//
 // Not as the original: the scratch GPRs (only the call arguments are set,
 // and every 128-bit GPR write the code makes: lq, qmfc2, the transposes,
-// movz's zeroed a2, so that the qmtc2's upper lanes are the code's); the
-// callee-saved registers are never changed in the context (the code
-// restores every one from its frame; f20 / f21 are used in the context and
-// reloaded from the frame as the code does), the frame's saves and slots are
-// written as the code writes them. FPU registers, the condition bit, HI /
+// movz's zeroed a2, so that the qmtc2's upper lanes are the code's); f20 /
+// f21 are used in the context and reloaded from the frame as the code does;
+// the frame's saves and slots are written as the code writes them. FPU registers, the condition bit, HI /
 // LO and the VU0 registers / ACC / Q / status as the code leaves them (the
 // generator's statements on the context's registers; the repeated VU0
 // blocks are helpers made of the generator's text of one site, the other
@@ -492,6 +500,10 @@ namespace decomp_hot46a
         WRITE64(sp + 0x288u, ra);
         WRITE32(sp + 0x298u, bf(f[21]));
         WRITE32(sp + 0x290u, bf(f[20]));
+        // Round 48: the prologue's s0 = t0, s4 = a2 (64-bit moves), s2 = s4 + 0x3c.
+        SET_GPR_U64(ctx, 16, GPR_U64(ctx, 8));
+        SET_GPR_U64(ctx, 20, GPR_U64(ctx, 6));
+        SET_GPR_S32(ctx, 18, resSlot);
 
         auto call = [&](uint32_t site) { callGuest(rdram, ctx, runtime, jalTarget(rdram, site), site + 8u, sp); };
         auto callK = [&](uint32_t target_, uint32_t retAddr) { callGuest(rdram, ctx, runtime, target_, retAddr, sp); };
@@ -522,9 +534,12 @@ namespace decomp_hot46a
         WRITE32(sp + 0x208u, GPR_U32(ctx, 9));
         call(kSiteCharaClass);
         const uint32_t chara = GPR_U32(ctx, 2);                   // s6
+        SET_GPR_U64(ctx, 22, GPR_U64(ctx, 2));
         const uint32_t idx = READ32(ik + 0x14u) & 0xFFFEFFFFu;    // s1: the leg index
         const uint32_t leg = READ32(chara + 0x31Cu) + idx * 0xD0u; // fp: the leg record
         const uint32_t legFlags = READ32(chara + 0x2FCu) + idx * 3u; // frame +0x214: 3 state bytes
+        SET_GPR_S32(ctx, 17, idx); // (lw +0x14 sign-extended) & 0xfffffffffffeffff
+        SET_GPR_S32(ctx, 30, leg);
         WRITE32(sp + 0x214u, legFlags);
         WRITE32(sp + 0x210u, leg + 0x50u);
         WRITE32(sp + 0x218u, leg + 0xBCu);
@@ -563,6 +578,7 @@ namespace decomp_hot46a
         {
             SET_GPR_S32(ctx, 4, resSlot);
             call(kSiteAnimRes);
+            SET_GPR_S32(ctx, 16, sp + 0x80u); // 0x1372268
             f[12] = fb(0u);
             SET_GPR_S32(ctx, 4, sp + 0x80u);
             SET_GPR_S32(ctx, 5, sp + 0x10u);
@@ -591,10 +607,14 @@ namespace decomp_hot46a
                 WRITE32(sp + 0x238u, anchor);
         }
         else
+        {
+            SET_GPR_S32(ctx, 16, sp + 0x80u); // 0x1372388
             WRITE32(sp + 0x238u, anchor);
+        }
 
         // 0x13723a4: the target in the leg matrix's space (sp+0x80).
         const uint32_t mtx = ik + 0x70u;                          // s2
+        SET_GPR_S32(ctx, 18, mtx);
         const uint32_t legState = READ32(chara + 0x330u) + idx;   // frame +0x22c: a state byte
         WRITE32(sp + 0x224u, leg + 0xB0u);
         WRITE32(sp + 0x228u, leg + 0xC4u);
@@ -617,6 +637,9 @@ namespace decomp_hot46a
                 const uint32_t probe = probes + idx * 0x50u; // s0
                 const uint32_t probePos = probe + 0x30u;    // s5
                 const uint32_t probeH = probe + 0x40u;      // s1
+                SET_GPR_S32(ctx, 16, probe);
+                SET_GPR_S32(ctx, 21, probePos);
+                SET_GPR_S32(ctx, 17, probeH);
                 const int8_t st = lb(legState);
                 // Writes the leg's second state byte into legState (0x1372770).
                 auto copyState = [&]() { WRITE8(legState, READ8(legFlags + 1u)); };
@@ -633,6 +656,8 @@ namespace decomp_hot46a
                     const int32_t kindFilter = (flags & 0x10000u) ? -1 : 0; // s3
                     const uint32_t attr = kindFilter == 0 ? chara + 0xE20u
                                                           : READ32(chara + 0xE38u) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(READ16(param)))) * 4u; // s7
+                    SET_GPR_S32(ctx, 19, kindFilter);
+                    SET_GPR_S32(ctx, 23, attr);
                     SET_GPR_S32(ctx, 7, res);
                     SET_GPR_S32(ctx, 6, sp + 0x10u);
                     SET_GPR_S32(ctx, 5, ik);
@@ -644,6 +669,7 @@ namespace decomp_hot46a
                     setC(ctx, FPU_C_OLT_S(f[1], f[0]));
                     swf(probeH, f[0]);
                     WRITE32(sp + 0x234u, up);
+                    SET_GPR_S32(ctx, 17, colArg); // 0x1372518 / 0x1372768
                     if (cBit())
                     {
                         const __m128i p = lq(rdram, ctx, runtime, 2, leg + 0x50u);
@@ -758,11 +784,15 @@ namespace decomp_hot46a
                 }
             }
         }
+        SET_GPR_S32(ctx, 17, colArg); // every path: s1 = a0's +0x30
 
         // 0x1372790: the foot's probe from the target.
         const uint32_t legB8 = leg + 0xB8u; // s5: the reach ratio
         const uint32_t legB4 = leg + 0xB4u; // s3: a hold timer
         int32_t lower = (READ32(param) & 0x40000u) ? -1 : 0; // s0: try the attach (set to 1 below for a hit above the target)
+        SET_GPR_S32(ctx, 21, legB8);
+        SET_GPR_S32(ctx, 19, legB4);
+        SET_GPR_S32(ctx, 16, lower);
         f[20] = lwf(chara + 0x113Cu);
         if (READ32(param + 8u) != 0u)
             f[20] = fb(0u);
@@ -800,12 +830,15 @@ namespace decomp_hot46a
             // 0x1372c48: no ground: the target as it is.
             WRITE128(sp + 0x90u, lq(rdram, ctx, runtime, 2, sp + 0x30u));
             WRITE8(leg + 0xC5u, 0u);
+            SET_GPR_S32(ctx, 23, 0x01460000); // 0x1372c4c
         }
         else
         {
             SET_GPR_S32(ctx, 4, sp + 0xA0u);
             call(kSitePlane);
             const uint64_t plane = GPR_U64(ctx, 2); // s1: the surface plane
+            SET_GPR_U64(ctx, 17, plane);
+            SET_GPR_S32(ctx, 23, 0x01460000); // 0x1372950
             invertRigid(rdram, ctx, runtime, mtx, sp + 0x130u);
             matApply(rdram, ctx, runtime, sp + 0xE0u, mtx, sp + 0x110u);
             matApply(rdram, ctx, runtime, leg + 0x40u, mtx, sp + 0x120u);
@@ -846,6 +879,7 @@ namespace decomp_hot46a
             {
                 WRITE128(sp + 0x90u, lq(rdram, ctx, runtime, 2, sp + 0x100u));
                 lower = 1;
+                SET_GPR_S32(ctx, 16, 1);
             }
             WRITE128(leg + 0x80u, lq(rdram, ctx, runtime, 2, static_cast<uint32_t>(plane)));
             // 0x1372a80: the first frame on a geometry.
@@ -884,6 +918,7 @@ namespace decomp_hot46a
                     call(kSiteAxisDirZY);
                     SET_GPR_S32(ctx, 5, leg);
                     SET_GPR_S32(ctx, 4, sp + 0x1B0u);
+                    SET_GPR_S32(ctx, 16, leg + 0x70u); // the jal's delay slot
                     call(kSiteGeomQuat1);
                     SET_GPR_S32(ctx, 4, leg + 0x70u);
                     SET_GPR_S32(ctx, 5, sp + 0x1A0u);
@@ -1033,6 +1068,7 @@ namespace decomp_hot46a
                 SET_GPR_S32(ctx, 4, leg + 0x50u);
                 SET_GPR_S32(ctx, 5, leg);
                 call(kSiteGeomPos);
+                SET_GPR_S32(ctx, 16, sp + 0x1B0u);
                 SET_GPR_S32(ctx, 5, leg);
                 SET_GPR_S32(ctx, 4, sp + 0x1B0u);
                 call(kSiteGeomQuat2);
@@ -1043,6 +1079,9 @@ namespace decomp_hot46a
                 SET_GPR_S32(ctx, 4, sp + 0x1C0u);
                 SET_GPR_S32(ctx, 5, sp + 0x1F0u);
                 SET_GPR_S32(ctx, 6, sp + 0x1C0u);
+                SET_GPR_S32(ctx, 17, sp + 0x1C0u);
+                SET_GPR_S32(ctx, 18, sp + 0x1D0u);
+                SET_GPR_S32(ctx, 16, sp + 0x1F0u);
                 call(kSiteFitting);
                 normalizeXYZ(rdram, ctx, runtime, sp + 0x1C0u);
                 crossXYZ(rdram, ctx, runtime, sp + 0x1C0u, sp + 0x1D0u, sp + 0x1E0u);
@@ -1123,6 +1162,9 @@ namespace decomp_hot46a
                 subXYZ(rdram, ctx, runtime, leg + 0x50u, sp + 0x1D0u, kTarget);
             }
         }
+        // Every path: s1 = fp + 0xa0, s0 = 0x011e0000 (0x13730bc / 0x13732a0, 0x1373184 / 0x1373270 / 0x1373298).
+        SET_GPR_S32(ctx, 17, leg + 0xA0u);
+        SET_GPR_S32(ctx, 16, 0x011E0000);
         // 0x13732b0: the step timer (+0xbc) and its sine lift along the up vector.
         f[0] = lwf(kDt);
         f[1] = lwf(leg + 0xBCu);
@@ -1166,6 +1208,7 @@ namespace decomp_hot46a
             if (attached != 0)
             {
                 goal = sp + 0x60u;
+                SET_GPR_S32(ctx, 16, goal);
                 SET_GPR_S32(ctx, 4, goal);
                 SET_GPR_S32(ctx, 5, leg + 0x80u);
                 SET_GPR_S32(ctx, 6, up);
@@ -1173,7 +1216,10 @@ namespace decomp_hot46a
                 call(kSiteDiffQuat);
             }
             else
+            {
                 goal = relocated(rdram, 0x013733C0u, 0x013733C4u);
+                SET_GPR_S32(ctx, 16, goal);
+            }
             f[1] = lwf(param + 0x14u);
             f[0] = fb(0u);
             setC(ctx, FPU_C_OLT_S(f[0], f[1]));
@@ -1218,6 +1264,16 @@ namespace decomp_hot46a
             swf(kTiltOut, f[0]);
             SET_GPR_S32(ctx, 2, quat);
         }
+        // The epilogue's reloads of s0-s7 / fp.
+        SET_GPR_U64(ctx, 16, READ64(sp + 0x240u));
+        SET_GPR_U64(ctx, 17, READ64(sp + 0x248u));
+        SET_GPR_U64(ctx, 18, READ64(sp + 0x250u));
+        SET_GPR_U64(ctx, 19, READ64(sp + 0x258u));
+        SET_GPR_U64(ctx, 20, READ64(sp + 0x260u));
+        SET_GPR_U64(ctx, 21, READ64(sp + 0x268u));
+        SET_GPR_U64(ctx, 22, READ64(sp + 0x270u));
+        SET_GPR_U64(ctx, 23, READ64(sp + 0x278u));
+        SET_GPR_U64(ctx, 30, READ64(sp + 0x280u));
         SET_GPR_U64(ctx, 31, ra);
         SET_GPR_U64(ctx, 29, entrySp);
         ctx->pc = static_cast<uint32_t>(ra);

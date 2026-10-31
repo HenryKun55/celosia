@@ -48,6 +48,14 @@ namespace sotc_decomp
         // Part of SOTC_AB's "new" set (sotc_decomp.cpp: alternated with the
         // recompiled code, with the runtime's fast paths, for an A/B in one run).
         bool ab = false;
+        // Round 48: a coroutine's code (a sub-thread body or a function that
+        // can sleep under one: the scripts' frame end, scrRun ...). Never put
+        // behind a difftest checker (a check would run the other context
+        // nested); checked through isysWakeupSubThread with
+        // SOTC_DIFFTEST_SWITCH (sotc_decomp.cpp). `resume`: the entry is a
+        // label inside the function (a return address after a call that can
+        // sleep) where the sub-thread is resumed by pc.
+        bool coroutine = false, resume = false;
     };
 
     std::vector<Function> &registry();
@@ -183,9 +191,9 @@ namespace sotc_decomp
     struct Registrar
     {
         Registrar(uint32_t address, const char *name, PS2Runtime::RecompiledFunction native, bool returnsFloat = false, bool switches = false,
-                  bool once = false, bool ab = false)
+                  bool once = false, bool ab = false, bool coroutine = false, bool resume = false)
         {
-            registry().push_back({address, name, native, returnsFloat, switches, once, ab});
+            registry().push_back({address, name, native, returnsFloat, switches, once, ab, coroutine, resume});
         }
     };
 
@@ -336,6 +344,114 @@ namespace sotc_decomp
     // Returning from a decompiled function: the jr ra the recompiled code ends with.
     inline void returnTo(R5900Context *ctx) { ctx->pc = GPR_U32(ctx, 31); }
 
+    // ---- coroutines (round 48: the script system's sub-threads) -------------
+    // The game's sub-threads (decomp_subthread.cpp) are coroutines: a sleep
+    // (isysSleepSubThread) saves the sub-thread's registers on its stack, loads
+    // the waker's and returns into isysWakeupSubThread's caller; the next wake
+    // calls the sub-thread at the return address after its sleep. The
+    // recompiled code unwinds through every call between (each returns with pc
+    // on the other context) and is entered again by pc at that label.
+    // sotc_decomp::callGuest cannot be used for a call that can sleep: its
+    // run-to-return loop would go on running the waker's code nested inside
+    // the sleeping sub-thread. A native that calls such code uses callMaySleep
+    // and returns at once when it says the sub-thread slept; the sub-thread is
+    // resumed at the return label, in the native's resume entry
+    // (SOTC_DECOMP_RESUME) or in the recompiled function (the frames and
+    // registers are the original's, so either can go on from there).
+    //
+    // The waker's frame (0x2c0 bytes: decomp_subthread's kMainSp at 0x270bb8)
+    // ends at the wake's sp - 0x10: a call that comes back with sp there and
+    // pc not on its return has switched to the waker.
+    inline bool onWakerContext(const uint8_t *rdram, const R5900Context *ctx)
+    {
+        uint32_t main;
+        std::memcpy(&main, rdram + 0x00270BB8u, 4);
+        return main != 0u && GPR_U32(ctx, 29) == main + 0x2D0u;
+    }
+    // A guest call that can sleep: true when it came back to ra at sp (the
+    // continuations run on, as callGuest's loop), false when the sub-thread
+    // slept (the context is the waker's: the caller must return at once and
+    // leave ctx as it is) or the dispatcher must take over (no function).
+    bool callMaySleepRest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp);
+    inline bool callMaySleep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
+    {
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = target;
+        const PS2Runtime::RecompiledFunction fn = guestFunction(runtime, target);
+        if (__builtin_expect(!fn, 0))
+            return false; // the dispatcher looks it up (pc is on it)
+        fn(rdram, ctx, runtime);
+        if (__builtin_expect(ctx->pc == ra && GPR_U32(ctx, 29) == sp, 1))
+            return true;
+        return callMaySleepRest(rdram, ctx, runtime, ra, sp);
+    }
+    // The same with the callee's native known: a direct call while the table holds it.
+    inline bool callNativeMaySleep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, PS2Runtime::RecompiledFunction known,
+                                   uint32_t ra, uint32_t sp)
+    {
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = target;
+        const PS2Runtime::RecompiledFunction fn = guestFunction(runtime, target);
+        if (__builtin_expect(fn != known, 0))
+            return callMaySleep(rdram, ctx, runtime, target, ra, sp);
+        known(rdram, ctx, runtime);
+        if (__builtin_expect(ctx->pc == ra && GPR_U32(ctx, 29) == sp, 1))
+            return true;
+        return callMaySleepRest(rdram, ctx, runtime, ra, sp);
+    }
+    // A tail jump (j) that can sleep: the callee returns to the jumper's
+    // caller (ra and sp as the jump leaves them); nothing runs after it here.
+    inline void tailMaySleep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
+    {
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = target;
+        const PS2Runtime::RecompiledFunction fn = guestFunction(runtime, target);
+        if (__builtin_expect(fn != nullptr, 1))
+            fn(rdram, ctx, runtime);
+    }
+
+    // The callee-saved registers as the original holds them (round 48's
+    // helper; round 47's rule): a callee saves s0-s7 / fp into its frame and a
+    // later callee can read such a stale slot as an uninitialised local, so
+    // at every guest call they must hold the original's values. SFrame names
+    // the prologue's save slots (offsets from the frame's sp, -1: not saved):
+    // save() stores the incoming values there as the prologue does, set()
+    // gives a register the value the code puts in it, restore() reloads the
+    // saved ones as the epilogue does.
+    struct SFrame
+    {
+        uint8_t *rdram;
+        R5900Context *ctx;
+        uint32_t sp;
+        int16_t off[9]; // s0..s7, fp
+        static constexpr int kFp = 8;
+        static int reg(int i) { return i == kFp ? 30 : 16 + i; }
+        void save() const
+        {
+            for (int i = 0; i < 9; ++i)
+                if (off[i] >= 0)
+                {
+                    const uint64_t v = GPR_U64(ctx, reg(i));
+                    std::memcpy(rdram + ((sp + static_cast<uint32_t>(off[i])) & 0x01FFFFFFu), &v, 8);
+                }
+        }
+        void set(int i, uint64_t v) const { SET_GPR_U64(ctx, reg(i), v); }
+        void setS32(int i, uint32_t v) const { SET_GPR_U64(ctx, reg(i), static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v)))); }
+        void restore() const
+        {
+            for (int i = 0; i < 9; ++i)
+                if (off[i] >= 0)
+                {
+                    uint64_t v;
+                    std::memcpy(&v, rdram + ((sp + static_cast<uint32_t>(off[i])) & 0x01FFFFFFu), 8);
+                    SET_GPR_U64(ctx, reg(i), v);
+                }
+        }
+    };
+
     // The rounds' subsystem switches (round 44: one table, so the console's
     // A/B can turn them off and on in one run: SOTC_AB_FLAG's camcoll,
     // collprobe, motion, leaves, hotlist, hotlist44, hotlist46, hotlist47; sotc_native's
@@ -352,10 +468,14 @@ namespace sotc_decomp
         kHotList44,
         kHotList46,
         kHotList47,
+        kScriptVm,
+        kIsys,
+        kHotList48,
         kSwitchCount
     };
-    inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+    inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -409,6 +529,17 @@ namespace sotc_decomp
     // decomp_hot47*.cpp). SOTC_HOTLIST47=0 puts the recompiled code back for
     // all of them (read at first use).
     inline bool hotList47On() { return switchOn(kHotList47); }
+    // Round 48's subsystems: the script system (the sub-threads' frame end,
+    // scrRun / scrRunM, the SCR data interpreter execSCRBaseFunc and its hot
+    // opcodes, a script body; decomp_scriptvm*.cpp) and the isys object
+    // lifetime (the group deletes, the display list swap, the letters;
+    // decomp_isys48.cpp), and the rest of round 48's list (decomp_hot48*.cpp).
+    // SOTC_SCRIPTVM=0 / SOTC_ISYS=0 / SOTC_HOTLIST48=0 put the recompiled code
+    // back (read at first use; a coroutine native checks it at its entry and
+    // at each resume label too).
+    inline bool scriptVmOn() { return switchOn(kScriptVm); }
+    inline bool isysOn() { return switchOn(kIsys); }
+    inline bool hotList48On() { return switchOn(kHotList48); }
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \
@@ -418,6 +549,18 @@ namespace sotc_decomp
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, false, false, true}
 #define SOTC_DECOMP_FLOAT_FUNCTION(address, name, fn) \
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, true}
+// Round 48: a coroutine native (never behind a difftest checker), and one of
+// its resume entries (a label after a call that can sleep; `tag` makes the
+// registrar's name unique, the name stays the function's for SOTC_DECOMP_SKIP).
+#define SOTC_DECOMP_COROUTINE(address, name, fn) \
+    static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, false, false, false, true, false}
+#define SOTC_DECOMP_RESUME(address, name, tag, fn) \
+    static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name##_##tag{address, #name, fn, false, false, false, false, true, true}
+// A native whose difftest legs would each change host state the check does
+// not put back (a semaphore taken or given in one leg only: the second leg's
+// WaitSema would block for good): installed like a coroutine, never checked.
+#define SOTC_DECOMP_UNCHECKED(address, name, fn) \
+    static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, false, false, false, true, false}
 // A context switch that returns to its caller after a round trip (wake).
 #define SOTC_DECOMP_SWITCH_FUNCTION(address, name, fn) \
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, true, false}

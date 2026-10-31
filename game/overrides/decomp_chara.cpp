@@ -54,20 +54,46 @@ namespace decomp_chara
     // stopping at the first that returns non-zero. If none was such a slot,
     // the links to a1 from the character itself go to 010CE138(a0, chara,
     // entry, f12).
+    //
+    // Round 48: s0-s7, fp and f20 hold the code's values at every guest
+    // call (010CE138 / 010CE2E8 reach 010CCCF0 -> CreateScriptAnimation-
+    // Sequence -> ... -> 010EFD08, the sink round 47 found copying a stale
+    // stack slot that held a caller's s-register into a new heap object);
+    // the 0x70-byte frame gets the prologue's saves (s0-s7, fp, ra, f20),
+    // a1 at +0 and the "called 010CE2E8" flag at +4, and the epilogue
+    // reloads s0-s7, fp, f20 from it. a3 at the 010CE138 calls is what the
+    // code leaves there (the first loop's last handle, then the callee's).
     void charaLinks(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
-        const uint32_t a0 = GPR_U32(ctx, 4), target = GPR_U32(ctx, 5);
+        const uint64_t a0 = GPR_U64(ctx, 4); // fp
+        const uint32_t target = GPR_U32(ctx, 5);
         const float f12 = ctx->f[12];
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp1 = sp0 - 0x70u;
-        const uint64_t saved[] = {GPR_U64(ctx, 16), GPR_U64(ctx, 17), GPR_U64(ctx, 18), GPR_U64(ctx, 19), GPR_U64(ctx, 20),
-                                  GPR_U64(ctx, 21), GPR_U64(ctx, 22), GPR_U64(ctx, 23), GPR_U64(ctx, 30)};
+        const sotc_decomp::SFrame fr{rdram, ctx, sp1, {0x10, 0x18, 0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50}};
+        auto sx = [](uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); };
+        // Prologue: the saves, a1 at +0, f20 = f12.
+        fr.save();
+        {
+            float f = ctx->f[20];
+            uint32_t bits;
+            std::memcpy(&bits, &f, sizeof(bits));
+            WRITE32(sp1 + 0x60u, bits);
+        }
+        WRITE32(sp1 + 0x0u, target);
+        WRITE64(sp1 + 0x58u, GPR_U64(ctx, 31));
+        SET_GPR_U64(ctx, 30, a0);
+        ctx->f[20] = FPU_MOV_S(f12);
         auto finish = [&](uint64_t v0)
         {
             SET_GPR_U64(ctx, 2, v0);
-            for (int i = 0; i < 8; ++i)
-                SET_GPR_U64(ctx, 16 + i, saved[i]);
-            SET_GPR_U64(ctx, 30, saved[8]);
+            fr.restore();
+            {
+                const uint32_t bits = READ32(sp1 + 0x60u);
+                float f;
+                std::memcpy(&f, &bits, sizeof(f));
+                ctx->f[20] = f;
+            }
             SET_GPR_U32(ctx, 29, sp0);
             SET_GPR_U32(ctx, 31, ra0);
             returnTo(ctx);
@@ -75,17 +101,28 @@ namespace decomp_chara
 
         sotc_decomp::callGuest(rdram, ctx, runtime, kGetCharacterClass, 0x010CE598u, sp1);
         const uint32_t chara = GPR_U32(ctx, 2);
+        SET_GPR_U64(ctx, 18, GPR_U64(ctx, 2)); // s2: the character (daddu)
+        WRITE32(sp1 + 4u, 0u);                 // no 010CE2E8 call yet
         const uint32_t self = ram.u32(relocated(rdram, 0x010CE5A8u, 0x010CE5B0u));
+        SET_GPR_U64(ctx, 23, sx(self)); // s7: this character (lw)
         const uint32_t list = ram.u32(chara + 0x10ECu);
         const uint32_t t = ram.table(list);
         const int32_t count = t != 0u && t != ram.u32(relocated(rdram, 0x010CE5D8u, 0x010CE5DCu)) ? static_cast<int32_t>(ram.u32(t + 0xCu)) : 0;
         const uint32_t base = t != 0u && t != ram.u32(relocated(rdram, 0x010CE620u, 0x010CE624u)) ? ram.u32(t + 0x10u) : 0u;
+        SET_GPR_U64(ctx, 19, sx(static_cast<uint32_t>(count))); // s3: the count
+        SET_GPR_U64(ctx, 20, sx(base));                         // s4: the entries
+        SET_GPR_U64(ctx, 16, sx(base));                         // s0: the entry
+        SET_GPR_U64(ctx, 17, 0u);                               // s1: the index
         if (count <= 0)
         {
             // v0: the lui of the empty table's pointer (0x10ce620).
             finish(static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(sotc_decomp::codeWord(rdram, 0x010CE620u) << 16))));
             return;
         }
+        // s5: the handle offset mask; s6: the empty table pointer's lui
+        // (relocated, read from the code).
+        SET_GPR_U64(ctx, 21, 0x3FFFFu);
+        SET_GPR_U64(ctx, 22, sx((sotc_decomp::codeWord(rdram, 0x010CE64Cu) & 0xFFFFu) << 16));
         const uint32_t noTable1a = relocated(rdram, 0x010CE64Cu, 0x010CE678u), noTable1b = relocated(rdram, 0x010CE64Cu, 0x010CE6D0u);
         const uint32_t noTable2a = relocated(rdram, 0x010CE7A0u, 0x010CE7C8u), noTable2b = relocated(rdram, 0x010CE7A0u, 0x010CE820u);
         bool found = false;
@@ -108,9 +145,12 @@ namespace decomp_chara
             if (index < 0)
                 continue;
             found = true;
-            SET_GPR_U32(ctx, 4, a0);
+            WRITE32(sp1 + 4u, 1u);
+            SET_GPR_U64(ctx, 16, sx(e)); // s0: the entry (addiu)
+            SET_GPR_U64(ctx, 17, sx(static_cast<uint32_t>(i)));
+            SET_GPR_U64(ctx, 4, a0);
             SET_GPR_S32(ctx, 5, index);
-            SET_GPR_U32(ctx, 6, e);
+            SET_GPR_U64(ctx, 6, sx(e));
             SET_GPR_U32(ctx, 7, a3);
             SET_GPR_U64(ctx, 2, 1u);
             ctx->f[12] = f12;
@@ -126,6 +166,11 @@ namespace decomp_chara
             finish(0u);
             return;
         }
+        // No 010CE2E8 call happened: a3 still holds the first loop's last
+        // handle. s4: the mask; s3: the empty table pointer's lui.
+        SET_GPR_U32(ctx, 7, a3);
+        SET_GPR_U64(ctx, 20, 0x3FFFFu);
+        SET_GPR_U64(ctx, 19, sx((sotc_decomp::codeWord(rdram, 0x010CE7A0u) & 0xFFFFu) << 16));
         uint64_t v0 = 0u;
         e = base;
         for (int32_t i = count; i != 0; --i, e += 0x1Cu)
@@ -136,10 +181,11 @@ namespace decomp_chara
             v0 = ram.resolve(e + 4u, noTable2b);
             if (v0 != target)
                 continue;
-            SET_GPR_U32(ctx, 4, a0);
-            SET_GPR_U32(ctx, 5, chara);
-            SET_GPR_U32(ctx, 6, e);
-            SET_GPR_U32(ctx, 7, a3);
+            SET_GPR_U64(ctx, 16, sx(e));                        // s0: the entry
+            SET_GPR_U64(ctx, 17, sx(static_cast<uint32_t>(i))); // s1: entries left
+            SET_GPR_U64(ctx, 4, a0);
+            SET_GPR_U64(ctx, 5, GPR_U64(ctx, 18));
+            SET_GPR_U64(ctx, 6, sx(e));
             ctx->f[12] = f12;
             sotc_decomp::callGuest(rdram, ctx, runtime, 0x010CE138u, 0x010CE86Cu, sp1);
             v0 = GPR_U64(ctx, 2);
