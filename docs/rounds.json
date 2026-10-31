@@ -180,9 +180,17 @@
   {
    "round": "r47",
    "date": "2026-10-31",
+   "commit": "61673e3",
+   "focus": "Decomp",
+   "summary": "Found why one native differed by one byte: while a native called guest code, its caller's saved registers were still in place, and a callee copied a stack slot holding one into a new object. Natives now keep the original's saved registers across calls; fixed the same pattern in character geometry. 24 more natives (life bar, particles, expressions, VRAM allocator and more).",
+   "result": "Exact again (0 in 50,200 checks at every call). 67% of the game thread native, decomp 11.7% of the code, 58% of calls."
+  },
+  {
+   "round": "r48",
+   "date": "2026-10-31",
    "commit": "",
    "focus": "Decomp",
-   "summary": "Next: fix 010CABA0, a test save next to a colossus from the console card, then the fight's logic.",
+   "summary": "Next: whole subsystems instead of leaf functions: the script VM and the object lifetime (isys), which now cost more than any single function.",
    "result": ""
   }
  ]
