@@ -164,9 +164,17 @@
   {
    "round": "r45",
    "date": "2026-10-31",
+   "commit": "10b061b",
+   "focus": "GPU",
+   "summary": "Console A/B priced every feature: the natives save ~23 ms a frame against the recompiled code; body shadows cost 4.5 ms, the alpha test 3.2. All kept on and made cheaper: depth/stencil memory traffic cut from 26 to 10 MB a frame, fewer full-size copies, merged alpha-test passes, lighter shadow volumes.",
+   "result": "Console r44: game thread 49 ms on the plain (r35: 54, r42: 69). Colossus fight still GPU-bound (present 60-94 ms)."
+  },
+  {
+   "round": "r46",
+   "date": "2026-10-31",
    "commit": "",
-   "focus": "Console",
-   "summary": "Next: the console A/B run prices each feature and native group; set the Vita defaults from it.",
+   "focus": "Decomp",
+   "summary": "Next: the next top recompiled functions on the game thread, and the fight's game logic.",
    "result": ""
   }
  ]
