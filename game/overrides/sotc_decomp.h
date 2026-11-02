@@ -588,10 +588,12 @@ namespace sotc_decomp
             if (__builtin_expect(calls++ == 0u, 0))
                 enrol();
         }
-        __attribute__((noinline, cold)) void enrol();
+        void enrol();
     };
     inline NativeCount *g_nativeCounts = nullptr;
-    inline void NativeCount::enrol()
+    // (the attributes on the definition: GCC warns about an inline definition
+    // after a noinline declaration)
+    __attribute__((noinline, cold)) inline void NativeCount::enrol()
     {
         next = g_nativeCounts;
         g_nativeCounts = this;

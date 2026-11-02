@@ -85,6 +85,125 @@ extern "C" PS2X_NO_LIBCALL void *memset(void *dst, int ch, size_t n)
     return dst;
 }
 
+// Round 50: the unwinder's table lookup. The EE scheduler switches guest
+// threads by throwing EeDispatcherTransfer up to its dispatcher (a WaitSema
+// that blocks, an interrupt handler's invocation, a thread's exit), and the
+// ARM EHABI unwinder finds each frame's entry by a binary search of the
+// whole .ARM.exidx table (one entry per function of a 113 MB binary, ~19
+// probes, twice a frame: the search and the cleanup pass). In the r48
+// Vita3K profile search_EIT_table + selfrel_offset31 were ~0.33% of the game
+// thread. libgcc asks __gnu_Unwind_Find_exidx (a weak reference) for the
+// table first: this one answers with the one entry a small cache of return
+// addresses already found for that pc (checked against the table before it
+// is used, so a stale or torn slot only costs a search), and libgcc's own
+// search over that one entry returns it, the entry its search of the whole
+// table returns. A pc in no function gets the whole table, as before.
+// SOTC_EXIDX_CHECK=1: every answer compared with the search of the whole
+// table ([exidx] lines); SOTC_FASTNATIVE_STATS=1: lookups and hits every
+// 2^18 lookups.
+namespace
+{
+    struct ExidxEntry
+    {
+        uint32_t fn;
+        uint32_t content;
+    };
+}
+extern "C" const ExidxEntry __exidx_start[], __exidx_end[];
+namespace
+{
+    // libgcc's selfrel_offset31: the prel31 offset sign-extended, plus its address.
+    inline uint32_t exidxFn(const ExidxEntry *e)
+    {
+        uint32_t o = e->fn;
+        o = (o & 0x40000000u) ? (o | 0x80000000u) : (o & 0x7FFFFFFFu);
+        return o + static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&e->fn));
+    }
+    // libgcc's search_EIT_table, the index it returns (-1: none).
+    int32_t exidxSearch(const ExidxEntry *t, int32_t nrec, uint32_t pc)
+    {
+        if (nrec == 0)
+            return -1;
+        int32_t left = 0, right = nrec - 1;
+        for (;;)
+        {
+            const int32_t n = (left + right) / 2;
+            const uint32_t thisFn = exidxFn(t + n);
+            const uint32_t nextFn = n != nrec - 1 ? exidxFn(t + n + 1) - 1u : ~0u;
+            if (pc < thisFn)
+            {
+                if (n == left)
+                    return -1;
+                right = n - 1;
+            }
+            else if (pc <= nextFn)
+                return n;
+            else
+                left = n + 1;
+        }
+    }
+    constexpr uint32_t kExidxSlots = 4096u;
+    uint32_t g_exidxCache[kExidxSlots]; // entry index + 1, 0 = empty
+    uint32_t g_exidxLookups = 0, g_exidxHits = 0, g_exidxChecks = 0, g_exidxBad = 0;
+    signed char g_exidxCheck = -1, g_exidxStats = -1;
+    bool exidxFlag(signed char &v, const char *name)
+    {
+        if (__builtin_expect(v < 0, 0))
+        {
+            const char *e = std::getenv(name);
+            v = (e && e[0] == '1') ? 1 : 0;
+        }
+        return v != 0;
+    }
+}
+extern "C" uintptr_t __gnu_Unwind_Find_exidx(uintptr_t pc, int *nrec)
+{
+    const ExidxEntry *const t = __exidx_start;
+    const int32_t n = static_cast<int32_t>(__exidx_end - __exidx_start);
+    const uint32_t p = static_cast<uint32_t>(pc);
+    uint32_t *const slot = &g_exidxCache[((p >> 1) ^ (p >> 13)) & (kExidxSlots - 1u)];
+    const uint32_t cached = __atomic_load_n(slot, __ATOMIC_RELAXED);
+    int32_t i = -1;
+    bool hit = false;
+    if (cached != 0u && cached <= static_cast<uint32_t>(n))
+    {
+        const int32_t c = static_cast<int32_t>(cached - 1u);
+        if (p >= exidxFn(t + c) && (c == n - 1 || p <= exidxFn(t + c + 1) - 1u))
+            i = c, hit = true;
+    }
+    if (!hit)
+    {
+        i = exidxSearch(t, n, p);
+        if (i >= 0)
+            __atomic_store_n(slot, static_cast<uint32_t>(i) + 1u, __ATOMIC_RELAXED);
+    }
+    if (__builtin_expect(exidxFlag(g_exidxStats, "SOTC_FASTNATIVE_STATS"), 0))
+    {
+        const uint32_t k = __atomic_add_fetch(&g_exidxLookups, 1u, __ATOMIC_RELAXED);
+        if (hit)
+            __atomic_add_fetch(&g_exidxHits, 1u, __ATOMIC_RELAXED);
+        if ((k & 0x3FFFFu) == 0u)
+            std::fprintf(stderr, "[exidx] %u lookups, %u from the cache (%d entries)\n", k, g_exidxHits, n);
+    }
+    if (__builtin_expect(exidxFlag(g_exidxCheck, "SOTC_EXIDX_CHECK"), 0) && hit)
+    {
+        const int32_t full = exidxSearch(t, n, p);
+        const uint32_t k = __atomic_add_fetch(&g_exidxChecks, 1u, __ATOMIC_RELAXED);
+        const bool bad = full != i;
+        if (bad)
+            __atomic_add_fetch(&g_exidxBad, 1u, __ATOMIC_RELAXED);
+        if (bad || (k & 0xFFFFu) == 0u)
+            std::fprintf(stderr, "[exidx] check: %u hits checked, %u mismatches%s\n", k, g_exidxBad, bad ? " MISMATCH" : "");
+    }
+    if (i < 0)
+    {
+        *nrec = n; // libgcc's search of the whole table finds none either
+        return reinterpret_cast<uintptr_t>(t);
+    }
+    *nrec = 1;
+    return reinterpret_cast<uintptr_t>(t + i);
+}
+
 namespace
 {
     // Out of heap: written with sceIo and closed at once, so it survives the

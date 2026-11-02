@@ -8367,6 +8367,40 @@ same address; its tail from 0x1138200 is the "recompiled 01137F78" in the
 profiles), not a missing native; why gridMesh ran so many more instructions
 than decomp_cloth's native stays open, and it stays unregistered.
 
+## Round 50: the unwinder's table lookup on the Vita (2026-11-02)
+
+Scripts and logs: `build/agent-scratch/r50/`. A short runtime round.
+
+**What.** The EE scheduler switches guest threads by throwing
+EeDispatcherTransfer up to its dispatcher (a WaitSema that blocks, an
+interrupt handler's invocation, a thread's exit). In round 48's Vita3K profile
+the game thread spent ~1% in ARM EHABI unwinding (search_EIT_table 0.15%,
+selfrel_offset31 0.19%, _Unwind_VRS_Pop 0.18%, the personality routine and
+its LSDA reads). libgcc asks a weak `__gnu_Unwind_Find_exidx` for the table
+before its binary search; ps2_vita_runtime.cpp now defines it: a 4 096-slot
+cache of the entry each return address resolved to, checked against the
+table before use (a stale or torn slot only costs a search), handed back as
+a one-entry table, so libgcc's search returns the same entry it finds in the
+whole table. A pc in no function gets the whole table, as before.
+`SOTC_EXIDX_CHECK=1` compares every cached answer with the search of the
+whole table; `SOTC_FASTNATIVE_STATS=1` prints lookups / hits every 2^18
+lookups (`[exidx]`).
+
+**Measured (Vita3K, 444 MHz, attract demo to frame 6 318, r50/v3k-check-err.txt).**
+The table has 18 503 entries (unity builds), ~14 probes a search. ~95 lookups
+a game frame (both unwind phases, every frame unwound), 99.97% from the cache;
+0 mismatches in 589 824 checked hits. The saving is small (tens of
+microseconds a frame); the rest of the unwinding (frame-by-frame register
+pops, the personality routine) stays. The bigger lever is throwing less: a
+thread switch without an exception would need the dispatcher to return
+through every native and recompiled frame, not done.
+
+Also: `NativeCount::enrol`'s attributes moved to its definition (GCC warned
+about an inline definition after a noinline declaration in every unit).
+
+**Deliverable:** build/agent-scratch/celosia-r50.vpk; the console A/B env of
+round 49 applies (r49/console-ab/env.txt).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
