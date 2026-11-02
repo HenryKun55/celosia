@@ -283,7 +283,12 @@ namespace decomp_reloc
     {
         Ram ram{rdram};
         const uint32_t sp0 = GPR_U32(ctx, 29), sp1 = sp0 - 0x50u;
-        if (!Ram::ok(sp1, 0x50u))
+        // The boot's module loads stay the recompiled code (EE cycles charged
+        // as the original): the native's free loops changed the boot threads'
+        // order and the heap with it, and GAMECORE sat 0x600 below the
+        // address every native is written for (found on a fresh setup,
+        // 2026-11-02). The area changes after it are what the native is for.
+        if (!sotc_decomp::gamecoreEntered() || !Ram::ok(sp1, 0x50u))
             return sotc_decomp::recompiled(kRelocOnline)(rdram, ctx, runtime);
         saveFrame(ram, ctx, sp1);
         // s0 = a1, s1 = a2, s2 = t0, s3 = a0, s4 = a3, then the two calls.

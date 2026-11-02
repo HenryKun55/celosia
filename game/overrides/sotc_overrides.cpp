@@ -27,11 +27,20 @@ void installSotcNative(PS2Runtime &runtime); // sotc_native.cpp
 
 namespace
 {
+    bool g_gamecoreEntered = false;
+}
+
+namespace sotc_decomp
+{
+    bool gamecoreEntered() { return g_gamecoreEntered; }
+}
+
+namespace
+{
     // Entry point of GAMECORE.XFF as laid out by the game's own loader.
     constexpr uint32_t kGamecoreEntry = 0x01344788u;
 
     PS2Runtime::RecompiledFunction g_gamecoreEntry = nullptr;
-    bool g_gamecoreEntered = false;
 
     // Module placement depends on the guest heap, which is only reproducible
     // while emulated time is driven purely by executed cycles. Once all code
@@ -566,8 +575,8 @@ namespace
             g_gamecoreImageAllocated = true;
         static const bool log = std::getenv("SOTC_LOG_MALLOC") != nullptr;
         if (log && !g_gamecoreEntered)
-            std::fprintf(stderr, "[heap] %s heap=%x size=%x align=%x ra=%x\n", Kind == 0 ? "malloc" : Kind == 1 ? "mallocNC" : "free",
-                         a0, a1, a2, ra);
+            std::fprintf(stderr, "[heap] %s heap=%x size=%x align=%x ra=%x -> %x\n", Kind == 0 ? "malloc" : Kind == 1 ? "mallocNC" : "free",
+                         a0, a1, a2, ra, GPR_U32(ctx, 2));
     }
 
     // ---- Native system (SOTC_NATIVE): the game library's hardware access

@@ -222,6 +222,11 @@ namespace sotc_decomp
     // function's rare cases left to the original code), nullptr if none.
     PS2Runtime::RecompiledFunction recompiled(uint32_t address);
 
+    // GAMECORE.XFF has started (sotc_overrides.cpp's entry hook). Before it,
+    // module placement depends on the boot's guest timing: natives that skip
+    // EE cycles there move the modules (decomp_reloc.cpp).
+    bool gamecoreEntered();
+
     // callGuest's rare parts, out of line: the callee left with pc on a
     // continuation (run on to the return), no table entry (lookupFunction),
     // SOTC_CALLGUEST_STATS's count (Mac).
