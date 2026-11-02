@@ -240,21 +240,30 @@ namespace decomp_walk
     };
 
     // GetLayoutClass (decomp_layout.cpp) for its plain cases; a guest call for the others.
-    uint32_t layoutClass(const G g, uint32_t object, uint32_t site, uint32_t sp)
+    // Round 49: the plain cases inline at the callers (it was a call with G
+    // copied through the stack, ~25 instructions, ~700 times a frame), the
+    // guest call out of line. Same reads, same result: no switch.
+    __attribute__((noinline)) uint32_t layoutClassCall(const G &g, uint32_t object, uint32_t site, uint32_t sp)
+    {
+        static sotc_decomp::NativeCount count("layoutClassCall");
+        count.hit();
+        g.a(4, object);
+        g.call(kGetLayoutClass, site, sp);
+        return g.v0();
+    }
+    inline __attribute__((always_inline)) uint32_t layoutClass(const G &g, uint32_t object, uint32_t site, uint32_t sp)
     {
         const uint32_t index = static_cast<uint32_t>(g.m.u8(object + 8u)) - 9u;
         if (index >= 0xEu)
             return 0u;
         const uint32_t target = g.m.u32(kClassTable + index * 4u);
-        if (target == 0x010F1A58u)
+        if (__builtin_expect(target == 0x010F1A58u, 1))
             return object + 0x20u;
         if (target == 0x010F1A98u)
             return object + 0x90u;
         if (target == 0x010F1AA0u)
             return 0u;
-        g.a(4, object);
-        g.call(kGetLayoutClass, site, sp);
-        return g.v0();
+        return layoutClassCall(g, object, site, sp);
     }
     // GetCharacterClass (0x10c0a70): types 9 and 0x16.
     inline uint32_t characterClass(const Ram m, uint32_t object)
@@ -373,8 +382,88 @@ namespace decomp_walk
     // corners and the registers are as it leaves them when it runs to the
     // end (when it stops early, VU0 holds more corners than it would: VU0 is
     // scratch to its callers).
+    // Round 49 (SOTC_FASTNATIVE): ps2VuClipFlags(p, p) on the vector side,
+    // one NEON->ARM move: the same integer compares of x, y, z (and their
+    // sign-flipped patterns) against |w|'s pattern (0x7fffff when w's
+    // exponent is 0), the six bits ORed into one lane. Exact on every host.
+    inline __attribute__((always_inline)) uint32_t clipFlagsVec(__m128 p)
+    {
+#if defined(__ARM_NEON)
+        const int32x4_t b = vreinterpretq_s32_f32(vreinterpretq_f32_m128(p));
+        const int32x4_t w = vdupq_lane_s32(vget_high_s32(b), 1);
+        const uint32x4_t hasExp = vtstq_s32(w, vdupq_n_s32(0x7F800000));
+        const int32x4_t limit = vbslq_s32(hasExp, vandq_s32(w, vdupq_n_s32(0x7FFFFFFF)), vdupq_n_s32(0x007FFFFF));
+        const uint32x4_t gp = vcgtq_s32(b, limit);
+        const uint32x4_t gn = vcgtq_s32(veorq_s32(b, vdupq_n_s32(static_cast<int32_t>(0x80000000u))), limit);
+        const uint32x4_t kp = {1u, 4u, 16u, 0u}, kn = {2u, 8u, 32u, 0u};
+        const uint32x4_t bits = vorrq_u32(vandq_u32(gp, kp), vandq_u32(gn, kn));
+        uint32x2_t h = vorr_u32(vget_low_u32(bits), vget_high_u32(bits));
+        h = vorr_u32(h, vrev64_u32(h));
+        return vget_lane_u32(h, 0);
+#else
+        return ps2VuClipFlags(p, p);
+#endif
+    }
+
+    // The fast clipByMinMaxCube: the same operations on the same values, each
+    // operand's clamp (PS2X_VU_IN) done once (the matrix rows, the box's two
+    // corners, vf0.w) and left out where the operand is an op's result (it
+    // maps those to themselves: ps2VuMulK / AddK with K = 1); the corners'
+    // lanes as broadcasts of min / max, c3 x w once (the same product every
+    // corner), the CLIP in NEON. The registers written back as the old code.
+    uint32_t clipByMinMaxCubeFast(R5900Context *ctx, const Ram m, uint32_t lo, uint32_t hi, uint32_t mat)
+    {
+        __m128 *vf = ctx->vu0_vf;
+        const __m128 vf0 = vf[0];
+        const __m128 vf1 = sel(m.q(lo), vf0, kW), vf2 = sel(m.q(hi), vf0, kW);
+        const __m128 c[4] = {m.q(mat), m.q(mat + 0x10u), m.q(mat + 0x20u), m.q(mat + 0x30u)};
+        const __m128 n0 = PS2X_VU_IN(c[0]), n1 = PS2X_VU_IN(c[1]), n2 = PS2X_VU_IN(c[2]);
+        const __m128 lo1 = PS2X_VU_IN(vf1), hi1 = PS2X_VU_IN(vf2);
+        const __m128 lx = lane<0>(lo1), ly = lane<1>(lo1), lz = lane<2>(lo1), hx = lane<0>(hi1), hy = lane<1>(hi1), hz = lane<2>(hi1);
+        const __m128 c3w = PS2_VMUL(c[3], lane<3>(vf0));
+        __m128 acc = ctx->vu0_acc, out[2] = {vf[20], vf[21]};
+        uint32_t flags = ctx->vu0_clip_flags, v0 = 0x3Fu;
+        auto corner = [&](int k, __m128 x, __m128 y, __m128 z) __attribute__((always_inline)) -> bool
+        {
+            acc = PS2_VMUL_K(1, 1, n0, x);
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, n1, y));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, n2, z));
+            const __m128 p = PS2_VADD_K(1, 1, acc, c3w);
+            out[k & 1] = p;
+            flags = ((flags << 6) | clipFlagsVec(p)) & 0xFFFFFFu;
+            v0 &= flags;
+            return v0 == 0u;
+        };
+        // vf10..vf17's x, y, z: min / max as clipByMinMaxCube's selects pick them.
+        (void)(corner(0, lx, ly, lz) || corner(1, lx, hy, hz) || corner(2, hx, ly, hz) || corner(3, hx, hy, lz) ||
+               corner(4, lx, ly, hz) || corner(5, lx, hy, lz) || corner(6, hx, ly, lz) || corner(7, hx, hy, hz));
+        const __m128 kXy = _mm_castsi128_ps(_mm_set_epi32(0, 0, -1, -1)), kXz = _mm_castsi128_ps(_mm_set_epi32(0, -1, 0, -1)),
+                     kYz = _mm_castsi128_ps(_mm_set_epi32(0, -1, -1, 0));
+        vf[10] = sel(vf[10], vf1, kXyz);
+        vf[11] = sel(sel(vf[11], vf1, kX), vf2, kYz);
+        vf[12] = sel(sel(vf[12], vf1, kY), vf2, kXz);
+        vf[13] = sel(sel(vf[13], vf1, kZ), vf2, kXy);
+        vf[14] = sel(sel(vf[14], vf1, kXy), vf2, kZ);
+        vf[15] = sel(sel(vf[15], vf2, kY), vf1, kXz);
+        vf[16] = sel(sel(vf[16], vf2, kX), vf1, kYz);
+        vf[17] = sel(vf[17], vf2, kXyz);
+        vf[1] = vf1;
+        vf[2] = vf2;
+        for (int i = 0; i < 4; ++i)
+            vf[4 + i] = c[i];
+        vf[20] = out[0];
+        vf[21] = out[1];
+        ctx->vu0_acc = acc;
+        ctx->vu0_clip_flags = flags;
+        return v0;
+    }
+
     uint32_t clipByMinMaxCube(R5900Context *ctx, const Ram m, uint32_t lo, uint32_t hi, uint32_t mat)
     {
+        static sotc_decomp::NativeCount count("clipByMinMaxCube");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return clipByMinMaxCubeFast(ctx, m, lo, hi, mat);
         __m128 *vf = ctx->vu0_vf;
         const __m128 vf0 = vf[0];
         const __m128 vf1 = sel(m.q(lo), vf0, kW), vf2 = sel(m.q(hi), vf0, kW);
@@ -464,7 +553,13 @@ namespace decomp_walk
 
     // ---- modelClipSolid (0x1098840; a0 the instance, a1 its matrix): the LOD
     // level to draw (f0), -2 culled, -1 none.
-    void modelClipSolid(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Round 49: Fast (SOTC_FASTNATIVE) the lambdas inline (finish was an
+    // out-of-line call reading every capture through a closure built on the
+    // stack each call) and the root box's camera x model product with each
+    // operand clamped once (ps2VuMulK / AddK, see clipByMinMaxCubeFast); the
+    // same operations, values and stores otherwise.
+    template <bool Fast>
+    void modelClipSolidT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
         const Ram m = g.m;
@@ -487,7 +582,7 @@ namespace decomp_walk
         m.putf(sp + 0xA0u, ctx->f[20]);
         SET_GPR_U64(ctx, 18, GPR_U64(ctx, 4));
         SET_GPR_U64(ctx, 19, GPR_U64(ctx, 5));
-        auto finish = [&](float f0, uint64_t v0)
+        auto finish = [&](float f0, uint64_t v0) __attribute__((always_inline))
         {
             ctx->f[0] = f0;
             SET_GPR_U64(ctx, 2, v0);
@@ -520,7 +615,7 @@ namespace decomp_walk
         float f0, f1;
         const __m128 vf0 = ctx->vu0_vf[0];
         // vsub / vmul.xyz / the sum into w / vsqrt: |a - b| in Q, the registers as the original leaves them.
-        auto distance = [&](__m128 vf5, __m128 vf6) -> float
+        auto distance = [&](__m128 vf5, __m128 vf6) __attribute__((always_inline)) -> float
         {
             __m128 vf7 = PS2_VSUB(vf5, vf6);
             vf7 = sel(vf7, PS2_VMUL(vf7, vf7), kXyz);
@@ -670,11 +765,29 @@ namespace decomp_walk
         const uint32_t table = m.u32(static_cast<uint32_t>(drawn) * 4u + s1 + 0x30u);
         const __m128 cam[4] = {m.q(s4 + 0x5A0u), m.q(s4 + 0x5B0u), m.q(s4 + 0x5C0u), m.q(s4 + 0x5D0u)};
         __m128 acc = ctx->vu0_acc, out[4];
-        for (int i = 0; i < 4; ++i)
+        if constexpr (Fast)
         {
-            out[i] = apply(cam, m.q(s3 + static_cast<uint32_t>(i) * 0x10u), acc);
-            m.putq(sp + 0x30u + static_cast<uint32_t>(i) * 0x10u, out[i]);
+            // apply()'s operations, each operand's clamp once: the camera rows
+            // and each model row (its lanes), the products' and sums' results
+            // as they are. Each row read before the previous product's store,
+            // as the old loop does.
+            const __m128 n0 = PS2X_VU_IN(cam[0]), n1 = PS2X_VU_IN(cam[1]), n2 = PS2X_VU_IN(cam[2]), n3 = PS2X_VU_IN(cam[3]);
+            for (int i = 0; i < 4; ++i)
+            {
+                const __m128 r = PS2X_VU_IN(m.q(s3 + static_cast<uint32_t>(i) * 0x10u));
+                acc = PS2_VMUL_K(1, 1, n0, lane<0>(r));
+                acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, n1, lane<1>(r)));
+                acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, n2, lane<2>(r)));
+                out[i] = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, n3, lane<3>(r)));
+                m.putq(sp + 0x30u + static_cast<uint32_t>(i) * 0x10u, out[i]);
+            }
         }
+        else
+            for (int i = 0; i < 4; ++i)
+            {
+                out[i] = apply(cam, m.q(s3 + static_cast<uint32_t>(i) * 0x10u), acc);
+                m.putq(sp + 0x30u + static_cast<uint32_t>(i) * 0x10u, out[i]);
+            }
         ctx->vu0_acc = acc;
         for (int i = 0; i < 4; ++i)
         {
@@ -692,6 +805,14 @@ namespace decomp_walk
         else
             v0 = clipByMinMaxCube(ctx, m, table, table + 0x10u, sp + 0x30u);
         finish(v0 != 0u ? -2.0f : f20, v0);
+    }
+    void modelClipSolid(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("modelClipSolid");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return modelClipSolidT<true>(rdram, ctx, runtime);
+        modelClipSolidT<false>(rdram, ctx, runtime);
     }
 
     // ---- ClipLayoutObjModel (0x10f4890; a0 the object) ---------------------

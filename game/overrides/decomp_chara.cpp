@@ -63,7 +63,36 @@ namespace decomp_chara
     // a1 at +0 and the "called 010CE2E8" flag at +4, and the epilogue
     // reloads s0-s7, fp, f20 from it. a3 at the 010CE138 calls is what the
     // code leaves there (the first loop's last handle, then the callee's).
-    void charaLinks(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    //
+    // Round 49 (Fast): the scans only read memory, so between two guest
+    // calls the empty tables' words (*noTable) are read once, and a handle's
+    // table's element base / size (+0x10, *(+8) +0xc) are kept for the last
+    // table seen (the handles of a list mostly share a table); both are read
+    // again after every guest call. Same values, same
+    // calls, the same registers and frame.
+    struct TableCache
+    {
+        uint32_t t = 0u, base = 0u, size = 0u;
+    };
+    __attribute__((always_inline)) inline uint32_t resolveFast(const Ram ram, uint32_t v, uint32_t h, uint32_t noTableWord, TableCache &c)
+    {
+        const uint32_t off = v & 0x3FFFFu;
+        if (off == 0u)
+            return 0u;
+        const uint32_t t = ram.u32(h - off);
+        if (t == 0u || t == noTableWord)
+            return 0u;
+        if (__builtin_expect(t != c.t, 0))
+        {
+            c.t = t;
+            c.base = ram.u32(t + 0x10u);
+            c.size = ram.u32(ram.u32(t + 8u) + 0xCu);
+        }
+        return c.base + ((v >> 18) & 0xFFFu) * c.size;
+    }
+
+    template <bool Fast>
+    void charaLinksT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
         const uint64_t a0 = GPR_U64(ctx, 4); // fp
@@ -128,11 +157,24 @@ namespace decomp_chara
         bool found = false;
         uint32_t a3 = 0u;
         uint32_t e = base;
+        // Fast: the empty tables' words and the table cache, read again
+        // after a guest call.
+        TableCache tc;
+        uint32_t nt1a = Fast ? ram.u32(noTable1a) : 0u, nt1b = Fast ? ram.u32(noTable1b) : 0u;
         for (int32_t i = 0; i < count; ++i, e += 0x1Cu)
         {
-            a3 = ram.resolve(e, noTable1a);
-            if (a3 == self || ram.resolve(e + 4u, noTable1b) != target)
-                continue;
+            if constexpr (Fast)
+            {
+                a3 = resolveFast(ram, ram.u32(e), e, nt1a, tc);
+                if (a3 == self || resolveFast(ram, ram.u32(e + 4u), e + 4u, nt1b, tc) != target)
+                    continue;
+            }
+            else
+            {
+                a3 = ram.resolve(e, noTable1a);
+                if (a3 == self || ram.resolve(e + 4u, noTable1b) != target)
+                    continue;
+            }
             const int32_t slots = static_cast<int32_t>(ram.u32(chara + 0x3FCu));
             uint32_t slot = ram.u32(chara + 0x30Cu);
             int32_t index = -1;
@@ -160,6 +202,12 @@ namespace decomp_chara
                 finish(GPR_U64(ctx, 2));
                 return;
             }
+            if constexpr (Fast)
+            {
+                tc = TableCache{};
+                nt1a = ram.u32(noTable1a);
+                nt1b = ram.u32(noTable1b);
+            }
         }
         if (found)
         {
@@ -173,14 +221,28 @@ namespace decomp_chara
         SET_GPR_U64(ctx, 19, sx((sotc_decomp::codeWord(rdram, 0x010CE7A0u) & 0xFFFFu) << 16));
         uint64_t v0 = 0u;
         e = base;
+        tc = TableCache{};
+        uint32_t nt2a = Fast ? ram.u32(noTable2a) : 0u, nt2b = Fast ? ram.u32(noTable2b) : 0u;
         for (int32_t i = count; i != 0; --i, e += 0x1Cu)
         {
-            v0 = ram.resolve(e, noTable2a);
-            if (v0 != self)
-                continue;
-            v0 = ram.resolve(e + 4u, noTable2b);
-            if (v0 != target)
-                continue;
+            if constexpr (Fast)
+            {
+                v0 = resolveFast(ram, ram.u32(e), e, nt2a, tc);
+                if (v0 != self)
+                    continue;
+                v0 = resolveFast(ram, ram.u32(e + 4u), e + 4u, nt2b, tc);
+                if (v0 != target)
+                    continue;
+            }
+            else
+            {
+                v0 = ram.resolve(e, noTable2a);
+                if (v0 != self)
+                    continue;
+                v0 = ram.resolve(e + 4u, noTable2b);
+                if (v0 != target)
+                    continue;
+            }
             SET_GPR_U64(ctx, 16, sx(e));                        // s0: the entry
             SET_GPR_U64(ctx, 17, sx(static_cast<uint32_t>(i))); // s1: entries left
             SET_GPR_U64(ctx, 4, a0);
@@ -189,8 +251,23 @@ namespace decomp_chara
             ctx->f[12] = f12;
             sotc_decomp::callGuest(rdram, ctx, runtime, 0x010CE138u, 0x010CE86Cu, sp1);
             v0 = GPR_U64(ctx, 2);
+            if constexpr (Fast)
+            {
+                tc = TableCache{};
+                nt2a = ram.u32(noTable2a);
+                nt2b = ram.u32(noTable2b);
+            }
         }
         finish(v0);
+    }
+
+    void charaLinks(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("charaLinks");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return charaLinksT<true>(rdram, ctx, runtime);
+        charaLinksT<false>(rdram, ctx, runtime);
     }
 
     // manager_sub_010CDD10(a0 handle, a1 key, a2 index): the table a0

@@ -98,13 +98,51 @@ namespace decomp_light
     void cond(R5900Context *ctx, bool c) { ctx->fcr31 = c ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u); }
 
     // ---- SetWorkFromGlobalLight (a0 the work area) -------------------------
-    void setWorkFromGlobalLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Round 49: one guest region (main RAM or the scratchpad) as a host base:
+    // the same bytes as Mem::p for every address of a range Mem::ok accepted
+    // (the alignment masks only go down, by less than 16, and stay in it),
+    // without the per-access scratchpad test.
+    struct FlatMem
     {
-        const Mem m(rdram, runtime);
-        const uint32_t work = GPR_U32(ctx, 4);
-        if (!Mem::ok(work, 0x5C0u))
-            return sotc_decomp::recompiled(kSetWork)(rdram, ctx, runtime);
+        uint8_t *base;
+        uint32_t lo;
+        FlatMem(const Mem &m, uint32_t a) : base(a - PS2_SCRATCHPAD_BASE < PS2_SCRATCHPAD_SIZE ? m.spr : m.rdram), lo(a - PS2_SCRATCHPAD_BASE < PS2_SCRATCHPAD_SIZE ? PS2_SCRATCHPAD_BASE : 0u) {}
+        uint8_t *p(uint32_t a) const { return base + (a - lo); }
+        uint32_t u32(uint32_t a) const
+        {
+            uint32_t v;
+            std::memcpy(&v, p(a & ~3u), 4);
+            return v;
+        }
+        float f32(uint32_t a) const
+        {
+            float v;
+            std::memcpy(&v, p(a & ~3u), 4);
+            return v;
+        }
+        __m128 q(uint32_t a) const
+        {
+            __m128 v;
+            std::memcpy(&v, p(a & ~0xFu), 16);
+            return v;
+        }
+        void put32(uint32_t a, uint32_t v) const { std::memcpy(p(a & ~3u), &v, 4); }
+        void putf(uint32_t a, float v) const { std::memcpy(p(a & ~3u), &v, 4); }
+        void putq(uint32_t a, __m128 v) const { std::memcpy(p(a & ~0xFu), &v, 16); }
+    };
+
+    // Fast (round 49): the work area through FlatMem (every access of the
+    // loop is inside the 0x5c0 bytes Mem::ok checked), and each VU0
+    // operand normalised once: vf4 and vf0 (lane-wise, so their shuffles are
+    // the shuffles of the normalised value) and the ops' results are what
+    // PS2X_VU_IN makes of them already (ps2VuOperand is idempotent), so the
+    // _K forms skip it: the same bits on every host. A blend's lanes outside
+    // the dest mask come from the raw register as before.
+    template <bool Fast, class M>
+    __attribute__((noinline)) void setWorkImpl(const M &m, uint8_t *rdram, R5900Context *ctx, uint32_t work)
+    {
         const __m128 vf0 = ctx->vu0_vf[0];
+        const __m128 n0 = Fast ? ps2VuOperand(vf0) : vf0;
         __m128 vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7], vf8 = ctx->vu0_vf[8];
         float f0 = ctx->f[0];
         uint32_t v0 = GPR_U32(ctx, 2), a1 = GPR_U32(ctx, 5);
@@ -130,19 +168,41 @@ namespace decomp_light
             if (v0 != 0u)
                 m.put32(light + 0x30u, 0x102u);
             vf4 = m.q(s0);
-            vf5 = PS2_VMUL(vf4, vf4);
-            vf6 = mr32(vf4);
-            vf7 = PS2_VMUL(vf6, vf4);
-            vf6 = mr32(vf6);
-            vf8 = PS2_VMUL(vf6, vf4);
-            vf6 = sel(vf6, PS2_VSUB(vf0, lane<0>(vf5)), kZ);
-            vf6 = sel(vf6, PS2_VSUB(vf6, lane<1>(vf5)), kZ);
-            vf6 = sel(vf6, PS2_VADD(vf7, lane<3>(vf7)), kY);
-            vf6 = sel(vf6, PS2_VSUB(vf8, lane<1>(vf8)), kX);
-            vf6 = sel(vf6, PS2_VSUB(vf0, vf0), kW);
-            vf5 = sel(vf5, PS2_VADD(vf0, vf0), kW);
-            vf6 = sel(vf6, PS2_VMUL(vf6, lane<3>(vf5)), kXyz);
-            vf6 = sel(vf6, PS2_VADD(vf6, lane<3>(vf0)), kZ);
+            if constexpr (Fast)
+            {
+                const __m128 n4 = ps2VuOperand(vf4);
+                vf5 = PS2_VMUL_K(1, 1, n4, n4);
+                const __m128 n6 = mr32(n4);
+                vf6 = mr32(vf4);
+                vf7 = PS2_VMUL_K(1, 1, n6, n4);
+                vf6 = mr32(vf6);
+                vf8 = PS2_VMUL_K(1, 1, mr32(n6), n4);
+                // From here on every lane an op reads is an op's result or n0.
+                vf6 = sel(vf6, PS2_VSUB_K(1, 1, n0, lane<0>(vf5)), kZ);
+                vf6 = sel(vf6, PS2_VSUB_K(1, 1, vf6, lane<1>(vf5)), kZ);
+                vf6 = sel(vf6, PS2_VADD_K(1, 1, vf7, lane<3>(vf7)), kY);
+                vf6 = sel(vf6, PS2_VSUB_K(1, 1, vf8, lane<1>(vf8)), kX);
+                vf6 = sel(vf6, PS2_VSUB_K(1, 1, n0, n0), kW);
+                vf5 = sel(vf5, PS2_VADD_K(1, 1, n0, n0), kW);
+                vf6 = sel(vf6, PS2_VMUL_K(1, 1, vf6, lane<3>(vf5)), kXyz);
+                vf6 = sel(vf6, PS2_VADD_K(1, 1, vf6, lane<3>(n0)), kZ);
+            }
+            else
+            {
+                vf5 = PS2_VMUL(vf4, vf4);
+                vf6 = mr32(vf4);
+                vf7 = PS2_VMUL(vf6, vf4);
+                vf6 = mr32(vf6);
+                vf8 = PS2_VMUL(vf6, vf4);
+                vf6 = sel(vf6, PS2_VSUB(vf0, lane<0>(vf5)), kZ);
+                vf6 = sel(vf6, PS2_VSUB(vf6, lane<1>(vf5)), kZ);
+                vf6 = sel(vf6, PS2_VADD(vf7, lane<3>(vf7)), kY);
+                vf6 = sel(vf6, PS2_VSUB(vf8, lane<1>(vf8)), kX);
+                vf6 = sel(vf6, PS2_VSUB(vf0, vf0), kW);
+                vf5 = sel(vf5, PS2_VADD(vf0, vf0), kW);
+                vf6 = sel(vf6, PS2_VMUL(vf6, lane<3>(vf5)), kXyz);
+                vf6 = sel(vf6, PS2_VADD(vf6, lane<3>(vf0)), kZ);
+            }
             m.putq(light + 0x10u, vf6);
             m.put32(light + 0x34u, 0u);
             v0 = s0 + 0x10u;
@@ -171,6 +231,18 @@ namespace decomp_light
         ctx->f[0] = f0;
         SET_GPR_U32(ctx, 2, v0);
         returnTo(ctx);
+    }
+    void setWorkFromGlobalLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("SetWorkFromGlobalLight");
+        count.hit();
+        const Mem m(rdram, runtime);
+        const uint32_t work = GPR_U32(ctx, 4);
+        if (!Mem::ok(work, 0x5C0u))
+            return sotc_decomp::recompiled(kSetWork)(rdram, ctx, runtime);
+        if (sotc_decomp::fastNativeOn())
+            return setWorkImpl<true>(FlatMem(m, work), rdram, ctx, work);
+        setWorkImpl<false>(m, rdram, ctx, work);
     }
 
     // ---- GetInverseMatrixFromQuaternionPos (a0 out, a1 quaternion, a2 position)
@@ -1078,10 +1150,56 @@ namespace decomp_light
     constexpr uint32_t kLightPass = 0x010F4FB8u, kPreLight = 0x010F5CF8u, kAfterLight = 0x010F63C8u, kCameraContext = 0x0108F518u;
     constexpr uint32_t kReverb = 0x010F6420u, kGetLayoutClass = 0x010F1A20u, kObjLight = 0x010F4A18u, kCopyMatrix = 0x001B9148u;
 
+    // Round 49 (SOTC_FASTNATIVE): the sort list's bucket array as one host
+    // range, so the scans for the next non-empty bucket (most of the light
+    // pass's instructions: ~1000 empty buckets a walk, three walks) read it
+    // directly instead of through Mem::p's scratchpad test per word. The
+    // whole range [buckets, buckets + count * 4) must lie in main RAM or in
+    // the scratchpad (Mem::p maps it the same way word by word), and the
+    // list's index word (list + 16, stored by the scan) outside it.
+    typedef uint32_t __attribute__((may_alias)) AliasU32;
+    inline const AliasU32 *bucketWords(const Mem &m, uint32_t list, uint32_t buckets, int32_t count)
+    {
+        const uint32_t a = buckets & ~3u, bytes = static_cast<uint32_t>(count) * 4u;
+        if (count <= 0 || count > 0x01000000)
+            return nullptr;
+        const uint8_t *base;
+        if (a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a)
+        {
+            base = m.rdram + a;
+            const uint32_t idx = list + 16u; // Mem::ok(list, 0x14) holds
+            if (idx < PS2_RAM_SIZE && idx + 4u > a && idx < a + bytes)
+                return nullptr;
+        }
+        else if (a - PS2_SCRATCHPAD_BASE < PS2_SCRATCHPAD_SIZE && bytes <= PS2_SCRATCHPAD_SIZE - (a - PS2_SCRATCHPAD_BASE))
+        {
+            base = m.spr + (a - PS2_SCRATCHPAD_BASE);
+            const uint32_t idx = list + 16u - PS2_SCRATCHPAD_BASE, o = a - PS2_SCRATCHPAD_BASE;
+            if (idx < PS2_SCRATCHPAD_SIZE && idx + 4u > o && idx < o + bytes)
+                return nullptr;
+        }
+        else
+            return nullptr;
+        return reinterpret_cast<const AliasU32 *>(base);
+    }
+    // The first i in [from, count) whose word is nonzero (count when none).
+    inline int32_t scanBuckets(const AliasU32 *w, int32_t from, int32_t count)
+    {
+        int32_t i = from;
+        for (; i + 4 <= count; i += 4)
+            if ((w[i] | w[i + 1] | w[i + 2] | w[i + 3]) != 0u)
+                break;
+        for (; i < count; ++i)
+            if (w[i] != 0u)
+                return i;
+        return count;
+    }
+
     struct SortList
     {
         const Mem &m;
         uint32_t list;
+        bool fast = false;
         // GetFirstSortObj (0x110ddd8).
         uint32_t first() const
         {
@@ -1090,6 +1208,18 @@ namespace decomp_light
                 return 0u;
             m.put32(list + 16u, 0u);
             const uint32_t buckets = m.u32(list);
+            if (fast)
+            {
+                if (const AliasU32 *w = bucketWords(m, list, buckets, count))
+                {
+                    // The original stores each index it moves to; the last
+                    // one stays: the bucket found, or count - 1.
+                    const int32_t i = scanBuckets(w, 0, count);
+                    if (i != 0)
+                        m.put32(list + 16u, static_cast<uint32_t>(i < count ? i : count - 1));
+                    return i < count ? w[i] : 0u;
+                }
+            }
             uint32_t v = m.u32(buckets);
             int32_t i = 0;
             while (v == 0u)
@@ -1111,6 +1241,16 @@ namespace decomp_light
             const int32_t count = static_cast<int32_t>(m.u32(list + 4u));
             const uint32_t buckets = m.u32(list);
             int32_t index = static_cast<int32_t>(m.u32(list + 16u));
+            if (fast && index >= -1 && index < count)
+            {
+                if (const AliasU32 *w = bucketWords(m, list, buckets, count))
+                {
+                    index = scanBuckets(w, index + 1, count);
+                    v = index < count ? w[index] : 0u;
+                    m.put32(list + 16u, static_cast<uint32_t>(index));
+                    return v;
+                }
+            }
             for (;;)
             {
                 ++index;
@@ -1130,13 +1270,16 @@ namespace decomp_light
 
     void lightPass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        static sotc_decomp::NativeCount count("lightPass_010F4FB8");
+        count.hit();
+        const bool fast = sotc_decomp::fastNativeOn();
         const Mem m(rdram, runtime);
         const uint32_t list = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x30u;
         const uint32_t classTable = 0x01194070u;
         if (!Mem::ok(list, 0x14u) || frame >= PS2_RAM_SIZE || sotc_decomp::jalTarget(rdram, 0x010F523Cu) != kCopyMatrix ||
             sotc_decomp::jalTarget(rdram, 0x010F5258u) != kCopyMatrix)
             return sotc_decomp::recompiled(kLightPass)(rdram, ctx, runtime);
-        const SortList sorted{m, list};
+        const SortList sorted{m, list, fast};
         auto call = [&](uint32_t target, uint32_t site) { sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, frame); };
         // GetLayoutClass (decomp_layout.cpp's cases inline; another one as a guest call).
         auto layoutClass = [&](uint32_t object, uint32_t site) -> uint32_t

@@ -85,7 +85,9 @@ namespace decomp_texanim
         return !Ps2IsSpecialAddress(a) && !Ps2IsSpecialAddress(a + size - 1u) && (a & PS2_RAM_MASK) + size <= PS2_RAM_SIZE;
     }
 
-    void texAnim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Round 48's native, unchanged (SOTC_FASTNATIVE=0, and the fast path's
+    // rare cases).
+    __attribute__((noinline)) void texAnimExact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
         uint32_t fcr31 = ctx->fcr31;
@@ -382,6 +384,297 @@ namespace decomp_texanim
         }
         ram.put32(s1 + 0xCu, dst);
         finish(1u);
+    }
+
+    // ---- Round 49's fast path (SOTC_FASTNATIVE, the default) ----------------
+    // The same operations on host pointers resolved once (every record in
+    // plain main RAM, checked as one range each), the fields in locals, no
+    // out-of-line range checks. What it leaves to texAnimExact (before
+    // anything is written): a record outside 0..32 MB, a texture with a wave
+    // (r+0x10 / r+0x14 set: the guest trig calls; rare on the routes), and
+    // any overlap between the records it writes (s3's, s1's, the
+    // destination palette) and what it reads after a write (s3, s1, the
+    // source palette, the size / swizzle tables, iosDlGetWorkBufId's word),
+    // so that reading a field once is the same as the original's re-reads.
+    // The float operations are the original's in the same order; the
+    // clamps (Inf / NaN -> +-FLT_MAX) are left out only where the operands
+    // are finite: the time chain when step, the time, the phase and the speed
+    // are finite (the game thread rounds toward zero, so a finite sum /
+    // product never reaches Inf: the clamp is the identity, FPU_ADD_SF's
+    // reasoning), and the palette blend, whose product is (b - a) in
+    // -255..255 times f1 in [0, 1] (counter / perStep with 0 <= counter <=
+    // perStep, or 0), at most 255: no clamp, and cvt.w.s of it needs no
+    // saturation. The wrap of a rotated index is computed once (modulo) and
+    // then stepped (+1, back to lo past hi): the same representative of the
+    // same residue as the original's while loops. Exact on both platforms.
+    namespace fast
+    {
+        inline bool inRam(uint32_t a, uint32_t size) { return a <= PS2_RAM_SIZE - size; }
+        inline uint32_t ld32(const uint8_t *p)
+        {
+            uint32_t v;
+            std::memcpy(&v, p, 4);
+            return v;
+        }
+        inline uint32_t ld16(const uint8_t *p)
+        {
+            uint16_t v;
+            std::memcpy(&v, p, 2);
+            return v;
+        }
+        inline void st32(uint8_t *p, uint32_t v) { std::memcpy(p, &v, 4); }
+        inline void st16(uint8_t *p, uint32_t v)
+        {
+            const uint16_t h = static_cast<uint16_t>(v);
+            std::memcpy(p, &h, 2);
+        }
+        // [a, a + an) and [b, b + bn) share a byte (both inside main RAM).
+        inline bool overlap(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a < b + bn && b < a + an; }
+        inline bool finite(uint32_t b) { return (b & 0x7F800000u) != 0x7F800000u; }
+        // The while loops' wrap into lo..hi (span = hi - lo + 1 >= 1).
+        inline int32_t wrapMod(int32_t x, int32_t lo, int32_t span)
+        {
+            int64_t m = (static_cast<int64_t>(x) - lo) % span;
+            if (m < 0)
+                m += span;
+            return lo + static_cast<int32_t>(m);
+        }
+    }
+
+    void texAnimFast(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        using namespace fast;
+        uint32_t fcr31 = ctx->fcr31;
+        const float zero = 0.0f;
+        const float step = ctx->f[12];
+        if (FPU_C_EQ_S(step, zero))
+        {
+            ctx->f[6] = zero;
+            ctx->fcr31 = fcr31 | 0x800000u;
+            return returnTo(ctx);
+        }
+        fcr31 &= ~0x800000u;
+
+        // Checks (nothing written yet).
+        const uint32_t at = GPR_U32(ctx, 4) + 0x20u;
+        if (__builtin_expect(!inRam(at, 4u), 0))
+            return texAnimExact(rdram, ctx, runtime);
+        const uint32_t s3 = ld32(rdram + at);
+        if (__builtin_expect(!inRam(s3, 0xA0u), 0))
+            return texAnimExact(rdram, ctx, runtime);
+        uint8_t *const R = rdram + s3; // the record; r = R + 0x20
+        uint8_t *const r = R + 0x20u;
+        const uint32_t s1 = ld32(R + 0xCu);
+        const uint32_t format = ld32(R + 0x1Cu) & 0x3Fu;
+        const uint32_t size = ld32(rdram + kSizes + format * 4u);
+        const uint32_t id = ld32(rdram + 0x002132F0u);
+        if (__builtin_expect(!inRam(s1, 0x60u) || id >= 4u || size > 1024u || (ld32(r + 0x10u) | ld32(r + 0x14u)) != 0u ||
+                                 sotc_decomp::jalTarget(rdram, 0x010AA2ACu) != kGetWorkBufId,
+                             0))
+            return texAnimExact(rdram, ctx, runtime);
+        uint8_t *const S = rdram + s1;
+        const uint32_t src = ld32(S + 0x40u), dst = ld32(S + 0x44u + id * 4u);
+        const bool csm = format == 0x13u || format == 0x1Bu;
+        // The palette bytes read / written: entries 0..size-1, and through
+        // the swizzle (a byte) up to entry 255.
+        const uint32_t palBytes = 4u * ((csm && size < 256u) ? 256u : size);
+        constexpr uint32_t kTables = kSizes, kTablesEnd = kSwizzle + 0x400u;
+        if (__builtin_expect(!inRam(src, 4096u) || !inRam(dst, 4096u) || overlap(s3, 0xA0u, s1, 0x60u) ||
+                                 overlap(s3, 0xA0u, kTables, kTablesEnd - kTables) || overlap(s1, 0x60u, kTables, kTablesEnd - kTables) ||
+                                 overlap(s3, 0xA0u, 0x002132F0u, 4u) || overlap(s1, 0x60u, 0x002132F0u, 4u) ||
+                                 overlap(dst, palBytes, s3, 0xA0u) || overlap(dst, palBytes, s1, 0x60u) || overlap(dst, palBytes, src, palBytes) ||
+                                 overlap(dst, palBytes, kTables, kTablesEnd - kTables) || overlap(dst, palBytes, 0x002132F0u, 4u),
+                             0))
+            return texAnimExact(rdram, ctx, runtime);
+
+        const float thirty = bits(0x41F00000u), two31 = bits(0x4F000000u);
+        const float tm = bits(ld32(r + 0x7Cu)), phase = bits(ld32(r)), speed = bits(ld32(r + 4u));
+        float f0, f1, f22;
+        uint32_t frames;
+        if (__builtin_expect(finite(fbits(step)) && finite(fbits(tm)) && finite(fbits(phase)) && finite(fbits(speed)), 1))
+        {
+            f0 = FPU_MUL_SF(step, thirty);
+            f0 = FPU_ADD_SF(tm, f0);
+            const uint32_t before = static_cast<uint32_t>(FPU_CVT_W_S(tm));
+            f1 = FPU_ADD_SF(f0, phase);
+            st32(r + 0x7Cu, fbits(f0));
+            frames = static_cast<uint32_t>(FPU_CVT_W_S(f0)) - before;
+            f22 = FPU_MUL_SF(f1, speed);
+            f0 = FPU_ADD_SF(f22, f22);
+        }
+        else
+        {
+            f0 = FPU_MUL_S(step, thirty);
+            f0 = FPU_ADD_S(tm, f0);
+            const uint32_t before = static_cast<uint32_t>(FPU_CVT_W_S(tm));
+            f1 = FPU_ADD_S(f0, phase);
+            st32(r + 0x7Cu, fbits(f0));
+            frames = static_cast<uint32_t>(FPU_CVT_W_S(f0)) - before;
+            f22 = FPU_MUL_S(f1, speed);
+            f0 = FPU_ADD_S(f22, f22);
+        }
+        // (f21 = f0 x pi only feeds the waves.)
+        st16(S, 0u);
+        st16(S + 4u, 0u);
+
+        // Linear scrolls (cvt.w.s with the >= 2^31 case, the condition bit).
+        auto linear = [&](uint32_t speedAt, uint32_t partAt, uint32_t offsetAt)
+        {
+            const int32_t sp = static_cast<int32_t>(ld32(r + speedAt));
+            if (sp == 0)
+                return;
+            f0 = FPU_MUL_S(FPU_CVT_S_W(sp), f22);
+            uint32_t w;
+            if (FPU_C_OLE_S(two31, f0))
+            {
+                fcr31 |= 0x800000u;
+                f0 = FPU_SUB_S(f0, two31);
+                w = static_cast<uint32_t>(FPU_CVT_W_S(f0)) | 0x80000000u;
+            }
+            else
+            {
+                fcr31 &= ~0x800000u;
+                w = static_cast<uint32_t>(FPU_CVT_W_S(f0));
+            }
+            w &= 0xFFFu;
+            const uint32_t off = ld16(S + offsetAt);
+            st16(S + partAt, w);
+            st16(S + offsetAt, (off + w) & 0xFFFu);
+        };
+        linear(0x08u, 2u, 0u);
+        linear(0x0Cu, 6u, 4u);
+
+        auto finish = [&](uint32_t value)
+        {
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(value));
+            ctx->f[0] = f0;
+            ctx->fcr31 = fcr31;
+            // The original's sp / ra write-back (sign-extends the 64-bit slots).
+            SET_GPR_U32(ctx, 29, GPR_U32(ctx, 29));
+            SET_GPR_U32(ctx, 31, GPR_U32(ctx, 31));
+            returnTo(ctx);
+        };
+        if (size == 0u)
+            return finish(kSizes + format * 4u);
+        const uint32_t v0 = ld32(r + 0x4Cu);
+        if (v0 == 0u || frames == 0u)
+            return finish(v0);
+
+        // Palette animation.
+        uint32_t a1 = ld32(r + 0x40u);
+        if (!(a1 < size))
+        {
+            a1 = size - 1u;
+            st32(r + 0x40u, a1);
+        }
+        uint32_t a0 = ld32(r + 0x44u);
+        if (!(a0 < size))
+        {
+            a0 = size - 1u;
+            st32(r + 0x44u, a0);
+        }
+        const int32_t lo = static_cast<int32_t>(a0 < a1 ? a0 : a1);
+        const int32_t hi = static_cast<int32_t>(a0 < a1 ? a1 : a0);
+        const int32_t span = hi - lo + 1;
+        const uint32_t counter = ld16(S + 0xAu) + frames;
+        st16(S + 0xAu, counter);
+        const int32_t perStep = static_cast<int32_t>(ld32(r + 0x48u));
+        const int32_t counter16 = static_cast<int32_t>(counter & 0xFFFFu);
+        if (perStep == 0 || perStep < counter16)
+        {
+            st16(S + 0xAu, counter - ld16(r + 0x48u));
+            st16(S + 8u, ld16(S + 8u) + v0);
+            f1 = zero;
+        }
+        else
+        {
+            f1 = FPU_CVT_S_W(counter16);
+            f0 = FPU_CVT_S_W(perStep);
+            f1 = ps2FpuDivide(fcr31, f1, f0);
+        }
+
+        const uint8_t *const P = rdram + src;
+        uint8_t *const D = rdram + dst;
+        const uint8_t *const swz = rdram + kSwizzle;
+        // Entries outside lo..hi: copied as they are (no swizzle).
+        if (lo > 0)
+            std::memcpy(D, P, 4u * static_cast<uint32_t>(lo));
+        if (static_cast<uint32_t>(hi) + 1u < size)
+            std::memcpy(D + 4u * (hi + 1), P + 4u * (hi + 1), 4u * (size - 1u - static_cast<uint32_t>(hi)));
+        const int32_t rot = static_cast<int16_t>(ld16(S + 8u));
+        int32_t from = wrapMod(lo + rot, lo, span);
+        if (ld32(r + 0x50u) != 0u)
+        {
+            // Blend between the entry and the one v0 further on.
+            const uint32_t t0 = static_cast<uint32_t>(lo + rot) + v0;
+            const bool stepTo = static_cast<int64_t>(static_cast<int32_t>(t0)) + (hi - lo) <= INT32_MAX;
+            int32_t to = wrapMod(static_cast<int32_t>(t0), lo, span);
+            for (int32_t i = lo; i <= hi; ++i)
+            {
+                if (__builtin_expect(!stepTo, 0))
+                    to = wrapMod(static_cast<int32_t>(static_cast<uint32_t>(i + rot) + v0), lo, span);
+                const uint8_t *pa, *pb;
+                uint8_t *pd;
+                if (csm)
+                {
+                    pa = P + 4u * swz[from];
+                    pb = P + 4u * swz[to];
+                    pd = D + 4u * swz[i];
+                }
+                else
+                {
+                    pa = P + 4u * from;
+                    pb = P + 4u * to;
+                    pd = D + 4u * i;
+                }
+                for (uint32_t k = 0; k < 4u; ++k)
+                {
+                    const uint32_t a = pa[k], b = pb[k];
+                    f0 = FPU_CVT_S_W(static_cast<int32_t>(b - a)) * f1; // |.| <= 255: FPU_MUL_S's clamp is the identity
+                    pd[k] = static_cast<uint8_t>(a + static_cast<uint32_t>(static_cast<int32_t>(f0)));
+                }
+                from = from == hi ? lo : from + 1;
+                to = to == hi ? lo : to + 1;
+            }
+        }
+        else
+        {
+            for (int32_t i = lo; i <= hi; ++i)
+            {
+                if (csm)
+                    std::memcpy(D + 4u * swz[i], P + 4u * swz[from], 4u);
+                else
+                    std::memcpy(D + 4u * i, P + 4u * from, 4u);
+                from = from == hi ? lo : from + 1;
+            }
+        }
+        // Keep the rotation in 0..span-1 (16 bits, signed).
+        uint32_t rt = ld16(S + 8u);
+        if (static_cast<int32_t>(rt << 16) < 0)
+        {
+            do
+                rt += span;
+            while (static_cast<int32_t>(rt << 16) < 0);
+            st16(S + 8u, rt);
+        }
+        if (!(static_cast<int16_t>(rt) < span))
+        {
+            do
+                rt -= span;
+            while (!(static_cast<int16_t>(rt) < span));
+            st16(S + 8u, rt);
+        }
+        st32(S + 0xCu, dst);
+        finish(1u);
+    }
+
+    void texAnim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("texAnim");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return texAnimFast(rdram, ctx, runtime);
+        texAnimExact(rdram, ctx, runtime);
     }
 }
 

@@ -67,8 +67,23 @@ namespace decomp_gctick
 
     // kernel_sub_001C81B0(a0): 1 to go on. Leaves v0, v1, a0, f0, f1 and
     // the condition bit as the recompiled code does.
-    uint32_t timeCheck(const Ram ram, R5900Context *ctx, PS2Runtime *runtime, uint8_t *rdram, uint32_t a0)
+    //
+    // Round 49 (Fast): the count's target and function are looked up once a
+    // garbage pass (the jal at 0x1c81e0 is boot-ELF code, the table's slot
+    // for it does not change during the pass), and the elapsed ticks' float
+    // is a 32-bit integer conversion when they are below 2^24 (exact in any
+    // rounding mode, the same float __floatdisf gives); otherwise the old
+    // conversions.
+    struct CountFn
     {
+        uint32_t pc = 0u;
+        PS2Runtime::RecompiledFunction fn = nullptr;
+    };
+    sotc_decomp::NativeCount g_timeCheckCount("gcTimeCheck");
+    template <bool Fast>
+    __attribute__((always_inline)) inline uint32_t timeCheckT(const Ram ram, R5900Context *ctx, PS2Runtime *runtime, uint8_t *rdram, uint32_t a0, CountFn &cf)
+    {
+        g_timeCheckCount.hit();
         if (ram.u32(0x001E131Cu) != 0u)
         {
             SET_GPR_U64(ctx, 2, 1u);
@@ -85,14 +100,31 @@ namespace decomp_gctick
         // iosGetTCountExtension, as the function table has it (the native
         // system's EE clock / 2, or the recompiled T0 read).
         SET_GPR_U32(ctx, 31, 0x001C81E8u);
-        ctx->pc = sotc_decomp::jalTarget(rdram, 0x001C81E0u);
-        PS2Runtime::RecompiledFunction count = runtime->guestFunctionAt(ctx->pc);
-        (count ? count : runtime->lookupFunction(ctx->pc))(rdram, ctx, runtime);
+        if constexpr (Fast)
+        {
+            if (__builtin_expect(cf.fn == nullptr, 0))
+            {
+                cf.pc = sotc_decomp::jalTarget(rdram, 0x001C81E0u);
+                PS2Runtime::RecompiledFunction count = runtime->guestFunctionAt(cf.pc);
+                cf.fn = count ? count : runtime->lookupFunction(cf.pc);
+            }
+            ctx->pc = cf.pc;
+            cf.fn(rdram, ctx, runtime);
+        }
+        else
+        {
+            (void)cf;
+            ctx->pc = sotc_decomp::jalTarget(rdram, 0x001C81E0u);
+            PS2Runtime::RecompiledFunction count = runtime->guestFunctionAt(ctx->pc);
+            (count ? count : runtime->lookupFunction(ctx->pc))(rdram, ctx, runtime);
+        }
         const uint64_t now = GPR_U64(ctx, 2);
         const uint64_t elapsed = now - ram.u64(0x0026D990u);
         const int64_t e = static_cast<int64_t>(elapsed);
         float f1;
-        if (e < 0)
+        if (Fast && elapsed < 0x01000000u)
+            f1 = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(elapsed)));
+        else if (e < 0)
         {
             const uint64_t half = (elapsed >> 1) | (elapsed & 1u);
             f1 = static_cast<float>(static_cast<int64_t>(half)) * 2.0f;
@@ -110,9 +142,11 @@ namespace decomp_gctick
         return on;
     }
 
-    void tick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    template <bool Fast>
+    void tickT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
+        CountFn cf;
         const uint32_t callback = GPR_U32(ctx, 4), arg = GPR_U32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp1 = sp0 - 0x50u;
         auto call = [&](uint32_t target, uint32_t ra) { sotc_decomp::callGuest(rdram, ctx, runtime, target, ra, sp1); };
@@ -165,7 +199,7 @@ namespace decomp_gctick
             uint32_t go;
             if (callback == kTimeCheck)
             {
-                go = timeCheck(ram, ctx, runtime, rdram, arg);
+                go = timeCheckT<Fast>(ram, ctx, runtime, rdram, arg, cf);
                 if (budget && ram.u32(0x001E131Cu) == 0u) // not a forced pass
                 {
                     const uint64_t spent = (sotc_decomp::g_gcStats.bytes - bytes0) + 256u * blocks;
@@ -240,6 +274,15 @@ namespace decomp_gctick
         SET_GPR_U32(ctx, 29, sp0);
         SET_GPR_U32(ctx, 31, ra0);
         sotc_decomp::callGuest(rdram, ctx, runtime, 0x00107000u, ra0, sp0);
+    }
+
+    void tick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("iosMallocGarbageTickProc");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return tickT<true>(rdram, ctx, runtime);
+        tickT<false>(rdram, ctx, runtime);
     }
 }
 

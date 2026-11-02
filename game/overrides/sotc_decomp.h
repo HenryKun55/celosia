@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -476,11 +477,12 @@ namespace sotc_decomp
         kScriptVm,
         kIsys,
         kHotList48,
+        kFastNative,
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -545,6 +547,76 @@ namespace sotc_decomp
     inline bool scriptVmOn() { return switchOn(kScriptVm); }
     inline bool isysOn() { return switchOn(kIsys); }
     inline bool hotList48On() { return switchOn(kHotList48); }
+    // Round 49: the hottest natives' inner loops rewritten for the Cortex-A9
+    // (host pointers, values in locals, plain NEON where the clamps provably
+    // change nothing, fewer guest round trips), bit-exact with round 48's
+    // code. SOTC_FASTNATIVE=0 puts round 48's code paths back (read at first
+    // use; each native checks it at its entry).
+    inline bool fastNativeOn() { return switchOn(kFastNative); }
+
+    // Round 49's measurements. NativeCount: calls of a native (counted
+    // whatever SOTC_FASTNATIVE says, at its entry); with
+    // SOTC_FASTNATIVE_STATS=1 each one's total is printed every 600 game
+    // frames ("[fncount] frame F name calls"), so the profile's instructions
+    // a frame divide into instructions a call. FastCheck: a Vita-only fast
+    // path's result compared with the exact code's when
+    // SOTC_FASTNATIVE_CHECK=1 (the exact result is the one used), counted in
+    // "[fastcheck] name checks mismatches" lines.
+    inline signed char g_fnStats = -1, g_fnCheck = -1;
+    inline bool flagEnv(signed char &v, const char *name)
+    {
+        if (__builtin_expect(v < 0, 0))
+        {
+            const char *e = std::getenv(name);
+            v = (e && e[0] == '1') ? 1 : 0;
+        }
+        return v != 0;
+    }
+    inline bool fastStatsOn() { return flagEnv(g_fnStats, "SOTC_FASTNATIVE_STATS"); }
+    inline bool fastCheckOn() { return flagEnv(g_fnCheck, "SOTC_FASTNATIVE_CHECK"); }
+    // constexpr: a function-local static NativeCount needs no guard; hit()
+    // is one 32-bit add (and a cold enrolment at the first call); the
+    // frame tick (fastStatsTick, sotc_native's frame loop) prints them.
+    struct NativeCount
+    {
+        const char *name;
+        uint32_t calls = 0;
+        NativeCount *next = nullptr;
+        constexpr explicit NativeCount(const char *n) : name(n) {}
+        inline __attribute__((always_inline)) void hit()
+        {
+            if (__builtin_expect(calls++ == 0u, 0))
+                enrol();
+        }
+        __attribute__((noinline, cold)) void enrol();
+    };
+    inline NativeCount *g_nativeCounts = nullptr;
+    inline void NativeCount::enrol()
+    {
+        next = g_nativeCounts;
+        g_nativeCounts = this;
+    }
+    inline void fastStatsTick(uint64_t frame)
+    {
+        if (frame % 600u != 0u || !fastStatsOn())
+            return;
+        for (NativeCount *c = g_nativeCounts; c; c = c->next)
+            std::fprintf(stderr, "[fncount] frame %llu %s %u\n", (unsigned long long)frame, c->name, c->calls);
+    }
+    struct FastCheck
+    {
+        const char *name;
+        uint64_t checks = 0, bad = 0;
+        explicit FastCheck(const char *n) : name(n) {}
+        __attribute__((noinline)) void note(bool same)
+        {
+            ++checks;
+            if (!same)
+                ++bad;
+            if ((!same && bad <= 8u) || (checks & 0x3FFFu) == 0u)
+                std::fprintf(stderr, "[fastcheck] %s %llu %llu%s\n", name, (unsigned long long)checks, (unsigned long long)bad, same ? "" : " MISMATCH");
+        }
+    };
 }
 
 #define SOTC_DECOMP_FUNCTION(address, name, fn) \
