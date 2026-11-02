@@ -204,7 +204,7 @@
   {
    "round": "r50",
    "date": "2026-11-02",
-   "commit": "",
+   "commit": "1bae0a6",
    "focus": "Speed",
    "summary": "The thread switch's C++ unwind on the Vita: the unwinder's table lookup answered from a checked cache of return addresses (libgcc's __gnu_Unwind_Find_exidx).",
    "result": "Exact (0 mismatches in 590 k checked lookups, 99.97% cached); small: ~95 lookups a frame."
