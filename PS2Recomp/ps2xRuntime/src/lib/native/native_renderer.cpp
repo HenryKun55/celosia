@@ -739,6 +739,14 @@ namespace native_renderer
 
     int tuningChoices(const TuningItem &item) { return choicesOf(item).count; }
 
+    std::string tuningChoiceText(const TuningItem &item, int i, bool portuguese)
+    {
+        const Choices c = choicesOf(item);
+        if (!c.count)
+            return "";
+        return (portuguese ? c.pt : c.en)[std::clamp(i, 0, c.count - 1)];
+    }
+
     std::string tuningValueText(const TuningItem &item, bool portuguese)
     {
         const Tuning &t = tuning();

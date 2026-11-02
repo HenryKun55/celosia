@@ -2247,15 +2247,17 @@ namespace
                     const std::string current = native_renderer::tuningValueText(item);
                     if (ImGui::BeginCombo(item.label, current.c_str()))
                     {
-                        const float saved = v;
                         for (int i = 0; i < choices; ++i)
                         {
                             if (item.number == &native_renderer::Tuning::preset && i == native_renderer::kPresetCustom)
                                 continue; // not a choice: what any other mix of values is
-                            v = static_cast<float>(i);
-                            const std::string name = native_renderer::tuningValueText(item);
-                            v = saved;
-                            if (ImGui::Selectable(name.c_str(), name == current))
+                            // The choice's own name (the preset's text is the preset the
+                            // values match: every row read "Custom", ImGui's ID conflict).
+                            const std::string name = native_renderer::tuningChoiceText(item, i);
+                            ImGui::PushID(i);
+                            const bool picked = ImGui::Selectable(name.c_str(), name == current);
+                            ImGui::PopID();
+                            if (picked)
                             {
                                 v = static_cast<float>(i);
                                 itemChanged = true;

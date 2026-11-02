@@ -311,6 +311,9 @@ namespace native_renderer
     const std::vector<TuningItem> &tuningItems();
     // The item's value as text ("On", "0.46", "3x"), in Portuguese when asked.
     std::string tuningValueText(const TuningItem &item, bool portuguese = false);
+    // The name of named value i (a list item; the preset's own names, not the
+    // preset the current values match).
+    std::string tuningChoiceText(const TuningItem &item, int i, bool portuguese = false);
     // Named values (the preset, filtering, MSAA...): how many there are
     // (0: a plain number or switch), for the F10 panel's lists.
     int tuningChoices(const TuningItem &item);
