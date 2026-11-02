@@ -8289,6 +8289,84 @@ SOTC_DIFFTEST_SAMECLOCK / _SWITCH / _SPOISON, the A/B names, the decomp block),
 docs/decomp.md, docs/decomp_status.json / .svg, docs/decomp_history.json /
 .svg, docs/decomp_tree.json. Deliverable: build/agent-scratch/celosia-r48.vpk.
 
+## Round 49: the natives' own speed on the A9, the boot layout on a fresh setup (2026-11-02)
+
+Resumed on another Mac: build/ was lost on the old one (with every round's
+helper scripts and the route card) and regenerated with `./celosia setup`.
+Helpers recreated in `build/agent-scratch/tools/` (intro.sh / intro2.sh: New
+Game on a copy of the empty setup card through the opening cutscenes, VBlank
+input, fixed 30, `[pos]` log; abrot.py: the rotating A/B table from an
+err.txt). Vita3K: the patched build from ../vita3k-omha copied to
+build/agent-scratch/vita3k-bin with a `portable` link to ../vita3k-celosia
+(that build reads no `VITA3K_PREF_PATH`: the portable folder is how it finds
+our tree); the tree backed up first (build/agent-scratch/backups/).
+
+**1. The boot layout on a fresh setup (bf01804).** The new setup hung at
+boot: GAMECORE loaded 0x600 below the address every native is written for
+(scrRun at 0x13cf3a8, not 0x13cf9a8), so natives sat on other code, the
+script natives hung the boot and the GAMECORE entry hook (0x1344788) never
+fired. The native LoaderSysRelocateOnlineElfInfo charges no EE cycles: during
+the boot the other threads ran at other points and a 0x200-byte buffer took a
+lower hole in the heap. Found by bisecting the 250 pre-GAMECORE natives with
+`SOTC_DECOMP_SKIP` and `SOTC_LOG_MALLOC` (now prints each call's result). The
+native now runs only after GAMECORE's entry (`sotc_decomp::gamecoreEntered()`).
+After any setup, logs/capture-gamecore.log must show `target=0x1344788`.
+
+**2. Faster natives (`SOTC_FASTNATIVE=0` off; 67ed890).** Rounds 47-48 found
+the natives cost what the lean recompiled code did a call; this round makes
+the hottest ones cheaper on the Cortex-A9, bit-exact with round 48's code:
+host pointers instead of guest address translation, values in locals across
+loops, plain NEON where the PS2 clamps provably change nothing (A32 only: the
+Vita), fewer guest round trips. modelDispState's part walk and packet loop,
+texAnim / texReset / the frame start's reset, charaLinks, clothStep, the
+garbage tick's time check, evalKey, the light pass, the control conditions,
+the point sort, modelClip, UpdateLayoutClassGeometry's products, the
+collision leaf (a tight scan of the surfaces round 28's test rejects),
+ClipCollisionDB's plane, the keep test, the finder's scan, GetMotionMatrix's
+pose and regularizeMatAry. GetMotionMatrix's non-A32 path computes the VU0
+block before the column products read it (an argument list's order is
+unspecified: the first build read P early). Helpers in sotc_decomp.h:
+`NativeCount` (`SOTC_FASTNATIVE_STATS=1`: `[fncount]` calls of each native
+every 600 frames) and `FastCheck` (`SOTC_FASTNATIVE_CHECK=1`: a Vita-only fast
+path's result compared with the exact code's, the exact one used).
+`SOTC_AB_FLAG` takes `fastnative`.
+
+**Exactness.**
+- Mac difftest over the new game's intro, the 84 natives of the changed
+  files: EVERY=20 46 functions reached, EVERY=1 42 functions, 0 mismatches.
+- Vita3K (444 MHz, 3 cores, the attract demo to game frame 11 118 at 30 fps,
+  `SOTC_FASTNATIVE_CHECK=1`, r49/v3k-check-err.txt): every A32 fast path
+  compared at every call, **0 mismatches in ~16.2 M checks** (leafScan 3.95 M,
+  clipPlane 2.18 M, GetMotionMatrix bone / mcq 2.21 M each,
+  UpdateLayoutClassGeometry mul40 / mul80 1.46 M each, cylinder 1.18 M,
+  finderScan 1.03 M, clipKeep 0.54 M).
+- Mac sweep (fixed 30): New Game through the intro to 6 000 with
+  `SOTC_FASTNATIVE=1` (r49/intro-fn1) and the same input with `=0`
+  (r49/intro-fn0: its presses skipped the cutscene and reached the shrine
+  and the ride on the plain), New Game into the shrine and the pause map
+  with `=1` to 4 800 (r49/play-fn1): no crash, pictures right. The presses are
+  VBlank-timed, so the runs part ways at the menus; positions are not
+  compared across them.
+- Vita3K A/B run with the console env (`fastnative` rotating, r49/v3k-ab-err.txt):
+  plays on, `[ab]` windows alternate (127 windows, attract demo, 444 MHz,
+  not the calibrated clock): game 11.74 ms with the fast paths, 12.36
+  without (-5% of the game thread); an indication only, the console decides.
+
+**Console run asked for:** build/agent-scratch/r49/console-ab/env.txt (the
+frame log, body shadows on, `fastnative` off in every other 60-frame window,
+the spike log, `[fncount]`); tools/abrot.py reads it. A correctness run:
+r49/console-check/env.txt (`SOTC_FASTNATIVE_CHECK=1`; not for fps).
+Deliverable: build/agent-scratch/celosia-r49.vpk (the user's copy in
+~/Downloads/celosia-r49/).
+
+**Open.** The saving is not measured: Vita3K's timing does not predict the
+console, the user's A/B log is the evidence. decomp_hot48b's gridMesh
+(01137F78, unregistered since round 48) is a second transcription of
+the function decomp_cloth.cpp has replaced since round 2 (registered at the
+same address; its tail from 0x1138200 is the "recompiled 01137F78" in the
+profiles), not a missing native; why gridMesh ran so many more instructions
+than decomp_cloth's native stays open, and it stays unregistered.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
