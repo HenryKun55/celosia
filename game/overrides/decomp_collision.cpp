@@ -401,6 +401,92 @@ namespace decomp_collision
                 std::fprintf(stderr, "[fastcheck] %s: %llu checks, %llu mismatches, %llu not small\n", c.name, (unsigned long long)n,
                              (unsigned long long)c.bad.load(), (unsigned long long)c.slow.load());
         }
+
+        // Round 49 (SOTC_FASTNATIVE): the fast paths' checks, SOTC_FASTNATIVE_CHECK=1
+        // (sotc_decomp::FastCheck) or SOTC_COLLISION_FASTCHECK=1 (either).
+        inline bool check49() { return __builtin_expect(sotc_decomp::fastCheckOn() || checkOn(), 0); }
+
+        // Round 49: the leaf's run of surfaces that round 28's NEON rejection
+        // throws out (fast::applySmall + fast::cylinderOutside, the cylinder's
+        // rows small), in one tight loop with the rows in registers and host
+        // pointers: ids (the leaf's u16 ids, count of them), flags / table
+        // (the class's boundary flags and records, index 0, every surface
+        // index in range). Stops at the first surface that is not rejected
+        // that way (its boundary not cached, a lane not small, or the test
+        // says maybe), which the leaf's body then takes as before; nothing is
+        // written to guest memory here. Returns how many were rejected, the
+        // last one's boundary (w = 1) and transformed center in lastBound /
+        // lastCyl. Per surface the same NEON operations as round 48's
+        // (applySmall's chain, the last row's x 1.0 left out: the rows are
+        // clamped, so r3 x 1.0 is r3; vmla is not fused on ARMv7 NEON: the
+        // product rounded, then the sum, as vmul then vadd), the compare's
+        // result folded into one NEON -> core move.
+        struct ScanRows
+        {
+            float32x4_t r0, r1, r2, r3;
+        };
+        // SOTC_FASTNATIVE_CHECK: round 48's NEON test of the surface (the
+        // result used), compared with the scan's.
+        __attribute__((noinline, cold)) bool leafScanCheck(const ScanRows &rows, float32x4_t bq, float32x4_t &c, bool rejected)
+        {
+            static sotc_decomp::FastCheck fc("collision.leafScan");
+            const vu::Rows r{{m(rows.r0), m(rows.r1), m(rows.r2), m(rows.r3)}};
+            const __m128 b = m(vsetq_lane_f32(1.0f, bq, 3));
+            uint32x2_t small;
+            const __m128 oc = applySmall(r, b, small);
+            float cy;
+            const bool out = cylinderOutside(oc, m(bq), small, &cy);
+            fc.note(rejected == out && (!out || (same(oc, m(c)) && cy == vgetq_lane_f32(c, 1))));
+            c = f(oc);
+            return out;
+        }
+        __attribute__((noinline)) uint32_t leafScan(const uint8_t *ids, uint32_t count, const uint8_t *flags, const uint8_t *table, const ScanRows &rowsIn,
+                                                    float32x4_t &lastBound, float32x4_t &lastCyl, bool check)
+        {
+            const float32x4_t r0 = rowsIn.r0, r1 = rowsIn.r1, r2 = rowsIn.r2, r3 = rowsIn.r3;
+            const float32x4_t limit = vdupq_n_f32(0x1p61f);
+            const float32x2_t k = vdup_n_f32(1.0000019f);
+            const uint32x2_t infBits = vdup_n_u32(0x7F800000u);
+            float32x4_t bound = lastBound, cyl = lastCyl;
+            uint32_t n = 0;
+            for (; n < count; ++n)
+            {
+                uint16_t surface;
+                std::memcpy(&surface, ids + n * 2u, 2);
+                if (__builtin_expect(flags[surface] == 0u, 0))
+                    break;
+                const float32x4_t bq = vld1q_f32(reinterpret_cast<const float *>(table + static_cast<uint32_t>(surface) * 16u));
+                const float32x4_t b = vsetq_lane_f32(1.0f, bq, 3);
+                const float32x2_t lo = vget_low_f32(b), hi = vget_high_f32(b);
+                float32x4_t c = vmlaq_lane_f32(vmulq_lane_f32(r0, lo, 0), r1, lo, 1);
+                c = vaddq_f32(vmlaq_lane_f32(c, r2, hi, 0), r3);
+                const uint32x4_t sm = vcaltq_f32(b, limit);
+                const float32x2_t cl = vget_low_f32(c);
+                const float32x2_t sq = vmul_f32(cl, cl);
+                const float32x2_t sum = vpadd_f32(sq, sq);
+                const float32x2_t r = vdup_lane_f32(vget_high_f32(bq), 1);
+                const float32x2_t r2k = vmul_f32(vmul_f32(r, r), k);
+                // sum > r2k && sum < Inf on the bits (GCC makes the float
+                // compares of two lanes VFP compares, each with a flag move):
+                // sum is a sum of squares, +0 .. +Inf; r2k +0 .. +Inf or the
+                // default NaN (0x7fc00000, above every sum's bits); such
+                // floats order as their bits do.
+                const uint32x2_t sb = vreinterpret_u32_f32(sum);
+                uint32x2_t out = vand_u32(vcgt_u32(sb, vreinterpret_u32_f32(r2k)), vclt_u32(sb, infBits));
+                out = vand_u32(out, vand_u32(vget_low_u32(sm), vget_high_u32(sm)));
+                out = vpmin_u32(out, out);
+                bool rejected = vget_lane_u32(out, 0) != 0u;
+                if (__builtin_expect(check, 0))
+                    rejected = leafScanCheck(rowsIn, bq, c, rejected);
+                if (!rejected)
+                    break;
+                bound = b;
+                cyl = c;
+            }
+            lastBound = bound;
+            lastCyl = cyl;
+            return n;
+        }
     }
 #endif
 
@@ -680,8 +766,17 @@ namespace decomp_collision
     // a plane or boundary not cached yet and EntryModifiedManager are guest
     // calls; a layout class GetLayoutClass computes by a call: the recompiled
     // code from the start.
-    uint64_t clipDB(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t ra, uint32_t spIn)
+    // Round 49's call counts (SOTC_FASTNATIVE_STATS) of the natives that are
+    // also reached directly from other natives here.
+    // (Namespace objects: a function's static would be a guarded one.)
+    sotc_decomp::NativeCount g_countLeaf("collisionLeaf"), g_countClipDB("ClipCollisionDB"), g_countFinderLeaf("collisionFinderLeaf"),
+        g_countFinderLeaf16("collisionFinderLeaf16"), g_countDirect("ClipCollisionDirectCallBack"), g_countKeep("clipCollisionKeep"),
+        g_countCylinder("collision.cylinder");
+
+    template <bool Fast>
+    uint64_t clipDBT(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t ra, uint32_t spIn)
     {
+        g_countClipDB.hit();
         R5900Context *ctx = g.ctx;
         COLL_STAT(clip);
         const uint32_t sp = spIn - 0xF0u;
@@ -746,6 +841,51 @@ namespace decomp_collision
         // The same operations with each operand clamped once (the clamp is
         // idempotent; x 1.0 of a clamped value is that value).
         (void)vf7;
+#if PS2X_VU_NEON_A32
+        bool smallF = false;
+        uint64_t dBitsF = 0u;
+        if constexpr (Fast)
+        {
+            // Round 49: the plane test first on the unclamped normal and vf0
+            // (Vita): a lane is small (finite, below 2^61) exactly when its
+            // clamp is, and the clamp of a small lane only makes a denormal
+            // the signed zero ARMv7 NEON reads it as (flush-to-zero keeps the
+            // sign), so fast::planeDistances gives round 48's bits; the
+            // clamps are left for the crossing path below (most calls end
+            // here). The three qwords loaded once from host memory when all
+            // are in main RAM.
+            const uint32_t qa = a1 & ~0xFu, qb = a2 & ~0xFu, qn = normal & ~0xFu;
+            __m128 pa, pb, pn;
+            if (__builtin_expect(G::plain(qa > qb ? (qa > qn ? qa : qn) : (qb > qn ? qb : qn), 16u), 1))
+            {
+                std::memcpy(&pa, g.rdram + qa, 16);
+                std::memcpy(&pb, g.rdram + qb, 16);
+                std::memcpy(&pn, g.rdram + qn, 16);
+            }
+            else
+            {
+                pa = g.q(a1);
+                pb = g.q(a2);
+                pn = g.q(normal);
+            }
+            dBitsF = fast::planeDistances(pn, vf0, pa, pb, smallF);
+            if (fast::check49())
+            {
+                static sotc_decomp::FastCheck fc("collision.clipPlane");
+                bool smallOld;
+                const uint64_t dOld = fast::planeDistances(vu::clamp(pn), vu::clamp(vf0), pa, pb, smallOld);
+                fc.note(smallOld == smallF && (!smallF || dOld == dBitsF));
+                smallF = smallOld; // round 48's values used
+                dBitsF = dOld;
+            }
+            if (__builtin_expect(smallF, 1))
+            {
+                g.f0(0.0f);
+                if (fast::belowZero(static_cast<uint32_t>(dBitsF)) || fast::aboveZero(static_cast<uint32_t>(dBitsF >> 32)))
+                    return 0u;
+            }
+        }
+#endif
         const __m128 n = vu::clamp(g.q(normal)), vf0c = vu::clamp(vf0);
         auto distance = [&](uint32_t p)
         {
@@ -758,8 +898,9 @@ namespace decomp_collision
         const float zero = 0.0f;
         float d0, d1;
 #if PS2X_VU_NEON_A32
-        bool small;
-        const uint64_t dBits = fast::planeDistances(n, vf0c, g.q(a1), g.q(a2), small);
+        bool small = smallF;
+        // (Fast: round 49's values above, the same as these; the rest as before)
+        const uint64_t dBits = Fast ? dBitsF : fast::planeDistances(n, vf0c, g.q(a1), g.q(a2), small);
         if (__builtin_expect(fast::checkOn(), 0))
         {
             if (!small)
@@ -908,6 +1049,13 @@ namespace decomp_collision
         return 1u;
     }
 
+    uint64_t clipDB(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t ra, uint32_t spIn)
+    {
+        if (sotc_decomp::fastNativeOn())
+            return clipDBT<true>(g, a0, a1, a2, a3, ra, spIn);
+        return clipDBT<false>(g, a0, a1, a2, a3, ra, spIn);
+    }
+
     // manager_sub_0111C078 (the "keep" variant of ClipCollisionDB that the
     // character's probes use, ClipCollisionFinderWithKeep*): a0 the result,
     // a1 more of it, a2 / a3 the segment's end / start, t0 the surface's id,
@@ -925,6 +1073,7 @@ namespace decomp_collision
 {
     void clipKeep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        g_countKeep.hit();
         const G g{rdram, ctx, runtime};
         const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0xD0u;
         const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), a3 = GPR_U32(ctx, 7), id = GPR_U32(ctx, 8);
@@ -979,11 +1128,41 @@ namespace decomp_collision
                 entryModified(g, s2, index, 0x0111C2E8u, sp);
             }
         }
-        const __m128 n = vu::clamp(g.q(normal)), vf0c = vu::clamp(ctx->vu0_vf[0]);
-        const __m128 prod = vu::mulN(n, vu::clamp(g.q(a3)));
-        __m128 acc = vu::addN(vf0c, lane<0>(prod));
-        acc = vu::addN(acc, lane<1>(prod));
-        const float d = x(vu::addN(vu::addN(acc, lane<2>(prod)), lane<3>(n)));
+        auto exactDistance = [&]()
+        {
+            const __m128 n = vu::clamp(g.q(normal)), vf0c = vu::clamp(ctx->vu0_vf[0]);
+            const __m128 prod = vu::mulN(n, vu::clamp(g.q(a3)));
+            __m128 acc = vu::addN(vf0c, lane<0>(prod));
+            acc = vu::addN(acc, lane<1>(prod));
+            return x(vu::addN(vu::addN(acc, lane<2>(prod)), lane<3>(n)));
+        };
+        float d;
+#if PS2X_VU_NEON_A32
+        // Round 49 (SOTC_FASTNATIVE, Vita): the distance as clipDB's
+        // (fast::planeDistances' lane 0: the same chain, vf0.x + n.x a.x +
+        // n.y a.y + n.z a.z + n.w, without its clamps when everything is
+        // small; the operands unclamped, see clipDB).
+        bool small = false;
+        uint64_t bits = 0u;
+        if (sotc_decomp::fastNativeOn())
+        {
+            const __m128 pa = g.q(a3);
+            bits = fast::planeDistances(g.q(normal), ctx->vu0_vf[0], pa, pa, small);
+            if (fast::check49())
+            {
+                static sotc_decomp::FastCheck fc("collision.clipKeep");
+                const float e = exactDistance();
+                uint32_t eb;
+                std::memcpy(&eb, &e, 4);
+                fc.note(!small || eb == static_cast<uint32_t>(bits));
+                small = false; // the exact distance used
+            }
+        }
+        if (small)
+            d = fast::asFloat(static_cast<uint32_t>(bits));
+        else
+#endif
+            d = exactDistance();
         const float ahead = FPU_SUB_S(d, keep), zero = 0.0f;
         if (!FPU_C_OLE_S(zero, ahead))
             return rest();
@@ -1052,7 +1231,8 @@ namespace decomp_collision
         uint32_t a0, a3, t1; // result, tree, parameters
     };
 
-    uint64_t leaf(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)
+    template <bool Fast>
+    uint64_t leafT(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)
     {
         R5900Context *ctx = g.ctx;
         COLL_STAT(leaf);
@@ -1101,8 +1281,63 @@ namespace decomp_collision
 #endif
         uint64_t bEpoch = ~0ull;
         uint32_t bClsAt = 0u, bFlags = 0u, bTable = 0u;
+#if PS2X_VU_NEON_A32
+        const bool check49 = Fast && fast::check49();
+#endif
         for (; count != 0u; --count, ids += 2u)
         {
+#if PS2X_VU_NEON_A32
+            if constexpr (Fast)
+            {
+                // Round 49: the surfaces round 28's NEON test rejects, in
+                // fast::leafScan's tight loop (the same values, the same
+                // decisions; nothing written, no guest code). First the
+                // per-surface state brought up to date as the body below does
+                // it (the boundary tables and the cylinder's rows, both only
+                // re-read when they changed: idempotent).
+                const uint32_t bCls = g.u32(p + 4u);
+                if (bEpoch != g_guestRuns || bClsAt != bCls)
+                {
+                    const uint32_t t2 = g.u32(g.u32(bCls + 0x174u) + 0x24u) + 0x48u;
+                    bFlags = g.u32(t2 + 8u);
+                    bTable = g.u32(t2 + 0x14u);
+                    bClsAt = bCls;
+                    bEpoch = g_guestRuns;
+                }
+                const uint32_t m2 = g.u32(p + 0x10u);
+                if (m2 != rowsAt || g_guestRuns != rowsRuns)
+                {
+                    rows = {{vu::clamp(g.q(m2)), vu::clamp(g.q(m2 + 0x10u)), vu::clamp(g.q(m2 + 0x20u)), vu::clamp(g.q(m2 + 0x30u))}};
+                    rowsAt = m2;
+                    rowsRuns = g_guestRuns;
+                    rowsSmall = fast::allSmall(rows);
+                }
+                const uint32_t tableAt = bTable & ~0xFu;
+                if (rowsSmall && G::plain(ids, count * 2u) && G::plain(bFlags, 0x10000u) && G::plain(tableAt, 0x100000u))
+                {
+                    const fast::ScanRows sr{fast::f(rows.r[0]), fast::f(rows.r[1]), fast::f(rows.r[2]), fast::f(rows.r[3])};
+                    float32x4_t lb = fast::f(frameBound), lc = fast::f(frameCyl);
+                    const uint32_t n = fast::leafScan(g.rdram + ids, count, g.rdram + bFlags, g.rdram + tableAt, sr, lb, lc, check49);
+                    if (n != 0u)
+                    {
+                        if (g_statsOn)
+                        {
+                            g_stats.surfaces.fetch_add(n, std::memory_order_relaxed);
+                            g_stats.boundary.fetch_add(n, std::memory_order_relaxed);
+                        }
+                        frameBound = fast::m(lb);
+                        frameCyl = fast::m(lc);
+                        framePending = true;
+                        lastFast = true;
+                        lastCy = vgetq_lane_f32(lc, 1);
+                        count -= n;
+                        ids += n * 2u;
+                        if (count == 0u)
+                            break;
+                    }
+                }
+            }
+#endif
             COLL_STAT(surfaces);
             // boundary()'s cached case inline (index 0): the class's table
             // pointers read again whenever guest code ran (round 22).
@@ -1267,14 +1502,14 @@ namespace decomp_collision
             uint64_t clipped;
             if (mode == 1)
             {
-                clipped = clipDB(g, s.a0, sp, sp + 0x10u, sp + 0x40u, 0x112C244u, sp);
+                clipped = clipDBT<Fast>(g, s.a0, sp, sp + 0x10u, sp + 0x40u, 0x112C244u, sp);
                 if (clipped == 0u)
-                    clipped = clipDB(g, s.a0, sp + 0x10u, sp, sp + 0x40u, 0x112C260u, sp);
+                    clipped = clipDBT<Fast>(g, s.a0, sp + 0x10u, sp, sp + 0x40u, 0x112C260u, sp);
             }
             else if (mode == 2)
-                clipped = clipDB(g, s.a0, sp + 0x10u, sp, sp + 0x40u, 0x112C434u, sp);
+                clipped = clipDBT<Fast>(g, s.a0, sp + 0x10u, sp, sp + 0x40u, 0x112C434u, sp);
             else
-                clipped = clipDB(g, s.a0, sp, sp + 0x10u, sp + 0x40u, 0x112C06Cu, sp);
+                clipped = clipDBT<Fast>(g, s.a0, sp, sp + 0x10u, sp + 0x40u, 0x112C06Cu, sp);
             if (clipped == 0u)
                 continue;
             hit = 1u;
@@ -1292,8 +1527,17 @@ namespace decomp_collision
         return hit;
     }
 
+    uint64_t leaf(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)
+    {
+        g_countLeaf.hit();
+        if (sotc_decomp::fastNativeOn())
+            return leafT<true>(g, s, a1, a2, index, spIn);
+        return leafT<false>(g, s, a1, a2, index, spIn);
+    }
+
     // ---- the node visitor and its sides ---------------------------------------
-    uint64_t node(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn);
+    uint64_t nodeOld(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn);
+    sotc_decomp::NativeCount g_countLow("collisionLow"), g_countHigh("collisionHigh"), g_countNode("collisionNode");
 
     // vmulax.xyz ACC = a * t; vmaddw.xyz a = ACC + b * (1 - t): w stays a's.
     inline __m128 lerp(const G g, __m128 a, __m128 b, float t)
@@ -1306,8 +1550,9 @@ namespace decomp_collision
     }
 
     // 0x112c498: the low side of the node at t0 (coordinates <= split x scale).
-    uint64_t low(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    uint64_t lowOld(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
+        g_countLow.hit();
         const uint32_t sp = spIn - 0x30u;
         const uint32_t t3 = g.u32(t0 + 4u);
         // Round 28: the child's node (or leaf word) asked for before the split test.
@@ -1325,7 +1570,7 @@ namespace decomp_collision
             return leaf(g, s, a1, a2, child, sp);
         const uint32_t next = g.u32(s.a3 + 8u) + child * 8u;
         if (in0 && in1)
-            return node(g, s, a1, a2, next, sp);
+            return nodeOld(g, s, a1, a2, next, sp);
         const float zero = 0.0f;
         if (in0)
         {
@@ -1335,7 +1580,7 @@ namespace decomp_collision
             f0 = FPU_ADD_S(f0, zero);
             g.f0(f0);
             g.put(sp, lerp(g, g.q(a2), g.q(a1), f0));
-            return node(g, s, a1, sp, next, sp);
+            return nodeOld(g, s, a1, sp, next, sp);
         }
         const float f2 = FPU_SUB_S(f1, f0);
         f0 = FPU_SUB_S(split, f0);
@@ -1343,12 +1588,13 @@ namespace decomp_collision
         f0 = FPU_ADD_S(f0, zero);
         g.f0(f0);
         g.put(sp + 0x10u, lerp(g, g.q(a1), g.q(a2), f0));
-        return node(g, s, sp + 0x10u, a2, next, sp);
+        return nodeOld(g, s, sp + 0x10u, a2, next, sp);
     }
 
     // 0x112c610: the high side (coordinates >= split x scale).
-    uint64_t high(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    uint64_t highOld(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
+        g_countHigh.hit();
         const uint32_t sp = spIn - 0x30u;
         const uint32_t t3 = g.u32(t0 + 4u);
         g.prefetch(static_cast<int32_t>(t3) < 0 ? g.u32(s.a3 + 4u) + ((t3 >> 17) & 0x3FFFu) * 4u : g.u32(s.a3 + 8u) + ((t3 >> 17) & 0x3FFFu) * 8u);
@@ -1365,7 +1611,7 @@ namespace decomp_collision
             return leaf(g, s, a1, a2, child, sp);
         const uint32_t next = g.u32(s.a3 + 8u) + child * 8u;
         if (in0 && in1)
-            return node(g, s, a1, a2, next, sp);
+            return nodeOld(g, s, a1, a2, next, sp);
         const float zero = 0.0f;
         if (in0)
         {
@@ -1375,7 +1621,7 @@ namespace decomp_collision
             f0 = FPU_SUB_S(f0, zero);
             g.f0(f0);
             g.put(sp, lerp(g, g.q(a1), g.q(a2), f0));
-            return node(g, s, a1, sp, next, sp);
+            return nodeOld(g, s, a1, sp, next, sp);
         }
         const float f2 = FPU_SUB_S(f0, f1);
         f0 = FPU_SUB_S(split, f1);
@@ -1383,19 +1629,231 @@ namespace decomp_collision
         f0 = FPU_SUB_S(f0, zero);
         g.f0(f0);
         g.put(sp + 0x10u, lerp(g, g.q(a2), g.q(a1), f0));
-        return node(g, s, sp + 0x10u, a2, next, sp);
+        return nodeOld(g, s, sp + 0x10u, a2, next, sp);
     }
 
     // 0x1131c80: the side the segment starts in first, the other if no hit.
-    uint64_t node(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    uint64_t nodeOld(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
+        g_countNode.hit();
         const uint32_t sp = spIn - 0x40u;
         const uint32_t axis = (g.u32(t0 + 4u) & 3u) * 4u;
         const float f1 = g.f32(a1 + axis), f0 = g.f32(a2 + axis);
         g.f0(f0);
         if (FPU_C_OLE_S(f0, f1))
-            return (high(g, s, a1, a2, t0, sp) != 0u || low(g, s, a1, a2, t0, sp) != 0u) ? 1u : 0u;
-        return (low(g, s, a1, a2, t0, sp) != 0u || high(g, s, a1, a2, t0, sp) != 0u) ? 1u : 0u;
+            return (highOld(g, s, a1, a2, t0, sp) != 0u || lowOld(g, s, a1, a2, t0, sp) != 0u) ? 1u : 0u;
+        return (lowOld(g, s, a1, a2, t0, sp) != 0u || highOld(g, s, a1, a2, t0, sp) != 0u) ? 1u : 0u;
+    }
+
+
+    // ---- round 49: the walk with its lookups kept (SOTC_FASTNATIVE) --------------
+    // The same steps as lowOld / highOld / nodeOld in the same order, with
+    // the tree's leaf and node arrays (a3 + 4, a3 + 8) and the split scale
+    // (t1 + 0x14) read once and again after each leaf (the only place guest
+    // code runs or anything is written but f0 and the walk's own frames), a
+    // node's two words loaded together and handed with the segment's two
+    // coordinates on its axis to the side visited first (nothing is written
+    // in between: the same values; the second side reads them again), and
+    // both children's lines asked for as soon as the node's word is known.
+    struct Walk
+    {
+        uint32_t leaves, nodes;
+        float scale;
+        void load(const G g, const Seg &s)
+        {
+            leaves = g.u32(s.a3 + 4u);
+            nodes = g.u32(s.a3 + 8u);
+            scale = g.f32(s.t1 + 0x14u);
+        }
+    };
+    // What the walk passes down: the memory, the test's words, the lookups.
+    struct WalkCtx
+    {
+        G g;
+        Seg s;
+        Walk w;
+    };
+    struct NodeVals
+    {
+        uint32_t word;
+        float split, f1, f0; // the split (unscaled), a1 / a2 on the node's axis
+    };
+    inline __attribute__((always_inline)) NodeVals nodeVals(const G g, uint32_t t0, uint32_t a1, uint32_t a2)
+    {
+        NodeVals v;
+        if (__builtin_expect(G::plain(t0, 8u), 1))
+        {
+            std::memcpy(&v.split, g.rdram + t0, 4);
+            std::memcpy(&v.word, g.rdram + t0 + 4u, 4);
+        }
+        else
+        {
+            v.word = g.u32(t0 + 4u);
+            v.split = g.f32(t0);
+        }
+        const uint32_t axis = (v.word & 3u) * 4u;
+        v.f1 = g.f32(a1 + axis);
+        v.f0 = g.f32(a2 + axis);
+        return v;
+    }
+    // A child's node or leaf word (no fault, no effect on guest state).
+    inline __attribute__((always_inline)) void prefetchChildren(const G &g, const Walk &w, uint32_t word)
+    {
+        const uint32_t lo = (word >> 2) & 0x3FFFu, hi = (word >> 17) & 0x3FFFu;
+        g.prefetch(((word >> 16) & 1u) ? w.leaves + lo * 4u : w.nodes + lo * 8u);
+        g.prefetch(static_cast<int32_t>(word) < 0 ? w.leaves + hi * 4u : w.nodes + hi * 8u);
+    }
+    uint64_t nodeF(WalkCtx &c, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn);
+    inline uint64_t leafW(WalkCtx &c, uint32_t a1, uint32_t a2, uint32_t index, uint32_t sp)
+    {
+        g_countLeaf.hit();
+        const uint64_t r = leafT<true>(c.g, c.s, a1, a2, index, sp);
+        c.w.load(c.g, c.s);
+        return r;
+    }
+
+    uint64_t lowF(WalkCtx &c, uint32_t a1, uint32_t a2, uint32_t spIn, const NodeVals &v)
+    {
+        const G g = c.g;
+        const Walk &w = c.w;
+        g_countLow.hit();
+        const uint32_t sp = spIn - 0x30u;
+        const uint32_t t3 = v.word;
+        const float split = FPU_MUL_S(v.split, w.scale);
+        const float f1 = v.f1;
+        float f0 = v.f0;
+        g.f0(f0);
+        const bool in0 = FPU_C_OLE_S(f1, split), in1 = FPU_C_OLE_S(f0, split);
+        if (!in0 && !in1)
+            return 0u;
+        const uint32_t child = (t3 >> 2) & 0x3FFFu;
+        if ((t3 >> 16) & 1u)
+            return leafW(c, a1, a2, child, sp);
+        const uint32_t next = w.nodes + child * 8u;
+        if (in0 && in1)
+            return nodeF(c, a1, a2, next, sp);
+        const float zero = 0.0f;
+        if (in0)
+        {
+            const float f2 = FPU_SUB_S(f0, f1);
+            f0 = FPU_SUB_S(split, f1);
+            f0 = ps2FpuDivide(g.ctx->fcr31, f0, f2);
+            f0 = FPU_ADD_S(f0, zero);
+            g.f0(f0);
+            g.put(sp, lerp(g, g.q(a2), g.q(a1), f0));
+            return nodeF(c, a1, sp, next, sp);
+        }
+        const float f2 = FPU_SUB_S(f1, f0);
+        f0 = FPU_SUB_S(split, f0);
+        f0 = ps2FpuDivide(g.ctx->fcr31, f0, f2);
+        f0 = FPU_ADD_S(f0, zero);
+        g.f0(f0);
+        g.put(sp + 0x10u, lerp(g, g.q(a1), g.q(a2), f0));
+        return nodeF(c, sp + 0x10u, a2, next, sp);
+    }
+
+    uint64_t highF(WalkCtx &c, uint32_t a1, uint32_t a2, uint32_t spIn, const NodeVals &v)
+    {
+        const G g = c.g;
+        const Walk &w = c.w;
+        g_countHigh.hit();
+        const uint32_t sp = spIn - 0x30u;
+        const uint32_t t3 = v.word;
+        const float split = FPU_MUL_S(v.split, w.scale);
+        const float f1 = v.f1;
+        float f0 = v.f0;
+        g.f0(f0);
+        const bool in0 = FPU_C_OLE_S(split, f1), in1 = FPU_C_OLE_S(split, f0);
+        if (!in0 && !in1)
+            return 0u;
+        const uint32_t child = (t3 >> 17) & 0x3FFFu;
+        if (static_cast<int32_t>(t3) < 0)
+            return leafW(c, a1, a2, child, sp);
+        const uint32_t next = w.nodes + child * 8u;
+        if (in0 && in1)
+            return nodeF(c, a1, a2, next, sp);
+        const float zero = 0.0f;
+        if (in0)
+        {
+            const float f2 = FPU_SUB_S(f1, f0);
+            f0 = FPU_SUB_S(split, f0);
+            f0 = ps2FpuDivide(g.ctx->fcr31, f0, f2);
+            f0 = FPU_SUB_S(f0, zero);
+            g.f0(f0);
+            g.put(sp, lerp(g, g.q(a1), g.q(a2), f0));
+            return nodeF(c, a1, sp, next, sp);
+        }
+        const float f2 = FPU_SUB_S(f0, f1);
+        f0 = FPU_SUB_S(split, f1);
+        f0 = ps2FpuDivide(g.ctx->fcr31, f0, f2);
+        f0 = FPU_SUB_S(f0, zero);
+        g.f0(f0);
+        g.put(sp + 0x10u, lerp(g, g.q(a2), g.q(a1), f0));
+        return nodeF(c, sp + 0x10u, a2, next, sp);
+    }
+
+    // The node's sides from sp (nodeOld's frame below spIn, or the caller's own
+    // sp for directCallBack's root): the side the segment starts in first.
+    inline __attribute__((always_inline)) uint64_t sidesF(WalkCtx &c, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t sp)
+    {
+        const NodeVals v = nodeVals(c.g, t0, a1, a2);
+        prefetchChildren(c.g, c.w, v.word);
+        c.g.f0(v.f0);
+        if (FPU_C_OLE_S(v.f0, v.f1))
+        {
+            if (highF(c, a1, a2, sp, v) != 0u)
+                return 1u;
+            const NodeVals again = nodeVals(c.g, t0, a1, a2);
+            return lowF(c, a1, a2, sp, again) != 0u ? 1u : 0u;
+        }
+        if (lowF(c, a1, a2, sp, v) != 0u)
+            return 1u;
+        const NodeVals again = nodeVals(c.g, t0, a1, a2);
+        return highF(c, a1, a2, sp, again) != 0u ? 1u : 0u;
+    }
+    uint64_t nodeF(WalkCtx &c, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    {
+        g_countNode.hit();
+        return sidesF(c, a1, a2, t0, spIn - 0x40u);
+    }
+
+    // The registered entries (and directCallBack's root): round 48's code
+    // with SOTC_FASTNATIVE=0.
+    uint64_t low(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return lowOld(g, s, a1, a2, t0, spIn);
+        WalkCtx c{g, s, {}};
+        c.w.load(g, s);
+        const NodeVals v = nodeVals(g, t0, a1, a2);
+        prefetchChildren(g, c.w, v.word);
+        return lowF(c, a1, a2, spIn, v);
+    }
+    uint64_t high(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return highOld(g, s, a1, a2, t0, spIn);
+        WalkCtx c{g, s, {}};
+        c.w.load(g, s);
+        const NodeVals v = nodeVals(g, t0, a1, a2);
+        prefetchChildren(g, c.w, v.word);
+        return highF(c, a1, a2, spIn, v);
+    }
+    uint64_t node(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return nodeOld(g, s, a1, a2, t0, spIn);
+        WalkCtx c{g, s, {}};
+        c.w.load(g, s);
+        return nodeF(c, a1, a2, t0, spIn);
+    }
+    // directCallBack's root (Fast): nodeOld's two sides on the caller's sp,
+    // after the caller's own f0 write (the same value).
+    uint64_t rootF(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t sp)
+    {
+        WalkCtx c{g, s, {}};
+        c.w.load(g, s);
+        return sidesF(c, a1, a2, t0, sp);
     }
 
     template <uint64_t (*F)(const G, const Seg &, uint32_t, uint32_t, uint32_t, uint32_t)>
@@ -1498,9 +1956,69 @@ namespace decomp_collision
     constexpr FinderSites kFinderA{0x01115798u, 0x0111581Cu, 0x01115870u, 0x011159DCu, 0x01115A0Cu, 0x011158BCu, 0x01115950u};
     constexpr FinderSites kFinderB{0x01115A50u, 0x01115ACCu, 0x01115B20u, 0x01115C8Cu, 0x01115CBCu, 0x01115B6Cu, 0x01115C00u};
 
+#if PS2X_VU_NEON_A32
+    // Round 49 (SOTC_FASTNATIVE, Vita): the finder leaf's run of surfaces
+    // whose boundary sphere misses the query's (round 28's NEON squared
+    // distance, its compare on the bits), in one tight loop: ids (u16, count
+    // of them), flags / table the class's boundary flags and records (index
+    // 0, every surface in range, the table 16-aligned so the record's radius
+    // is the qword's w), c the query's center. Stops at the first surface
+    // that is not thrown out that way (boundary not cached, a lane not
+    // small, or a hit); nothing written. Returns how many were rejected and
+    // the last one's f0 ((r + radius)^2, which the loop leaves in f0).
+    __attribute__((noinline, cold)) bool finderScanCheck(float32x4_t bq, float32x4_t c, float f0, bool rejected)
+    {
+        static sotc_decomp::FastCheck fc("collision.finderScan");
+        bool small;
+        const uint32_t dBits = fast::squaredDistance(fast::m(bq), fast::m(c), small);
+        uint32_t f0Bits;
+        std::memcpy(&f0Bits, &f0, 4);
+        const bool out = small && !(fast::key(dBits) < fast::key(f0Bits)); // round 48's NEON path's "continue"
+        fc.note(out == rejected);
+        return out;
+    }
+    __attribute__((noinline)) uint32_t finderScan(const uint8_t *ids, uint32_t count, const uint8_t *flags, const uint8_t *table, float radius, float32x4_t c,
+                                                  float &lastF0, bool check)
+    {
+        const float32x4_t limit = vdupq_n_f32(0x1p61f);
+        const uint32x4_t cSmall = vcaltq_f32(c, limit);
+        float f0Last = lastF0;
+        uint32_t n = 0;
+        for (; n < count; ++n)
+        {
+            uint16_t surface;
+            std::memcpy(&surface, ids + n * 2u, 2);
+            if (__builtin_expect(flags[surface] == 0u, 0))
+                break;
+            const float32x4_t bq = vld1q_f32(reinterpret_cast<const float *>(table + static_cast<uint32_t>(surface) * 16u));
+            float f0 = FPU_ADD_S(vgetq_lane_f32(bq, 3), radius);
+            f0 = FPU_MUL_S(f0, f0);
+            // fast::squaredDistance, the small test folded in with the bits
+            const float32x4_t d = vsubq_f32(bq, c);
+            const float32x4_t sq = vmulq_f32(d, d);
+            const float32x2_t lo = vget_low_f32(sq);
+            float32x2_t sm = vadd_f32(lo, vdup_lane_f32(lo, 1));
+            sm = vadd_f32(sm, vget_high_f32(sq));
+            const uint32x2_t ok = fast::all(vandq_u32(vcaltq_f32(bq, limit), cSmall));
+            const uint64_t both = vget_lane_u64(vreinterpret_u64_u32(vzip_u32(vreinterpret_u32_f32(sm), ok).val[0]), 0);
+            uint32_t f0Bits;
+            std::memcpy(&f0Bits, &f0, 4);
+            bool rejected = (both >> 32) != 0u && !(fast::key(static_cast<uint32_t>(both)) < fast::key(f0Bits));
+            if (__builtin_expect(check, 0))
+                rejected = finderScanCheck(bq, c, f0, rejected);
+            if (!rejected)
+                break;
+            f0Last = f0;
+        }
+        lastF0 = f0Last;
+        return n;
+    }
+#endif
+
     template <bool ByteCount>
     void finderLeaf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        (ByteCount ? g_countFinderLeaf : g_countFinderLeaf16).hit();
         const FinderSites &site = ByteCount ? kFinderA : kFinderB;
         const G g{rdram, ctx, runtime};
         const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x70u;
@@ -1531,8 +2049,36 @@ namespace decomp_collision
         const __m128 vf0 = ctx->vu0_vf[0];
         const __m128 vf7one = PS2_VADD(vf0, lane<3>(vf0));
         const float zero = 0.0f;
+#if PS2X_VU_NEON_A32
+        const bool fastOn = sotc_decomp::fastNativeOn(), check49 = fastOn && fast::check49();
+#endif
         for (; count != 0u; --count, ids += 2u)
         {
+#if PS2X_VU_NEON_A32
+            if (fastOn)
+            {
+                // Round 49: the surfaces that miss, in finderScan's loop (the
+                // same values as below; boundary()'s cached case read as it
+                // reads it, only guest code changes it).
+                const uint32_t t2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + 0x48u;
+                const uint32_t flags = g.u32(t2 + 8u), table = g.u32(t2 + 0x14u);
+                if ((table & 0xFu) == 0u && G::plain(ids, count * 2u) && G::plain(flags, 0x10000u) && G::plain(table, 0x100000u))
+                {
+                    float lastF0 = 0.0f;
+                    const uint32_t n = finderScan(rdram + ids, count, rdram + flags, rdram + table, radius, fast::f(g.q(center)), lastF0, check49);
+                    if (n != 0u)
+                    {
+                        if (g_statsOn)
+                            g_stats.boundary.fetch_add(n, std::memory_order_relaxed);
+                        g.f0(lastF0);
+                        count -= n;
+                        ids += n * 2u;
+                        if (count == 0u)
+                            break;
+                    }
+                }
+            }
+#endif
             const uint32_t surface = g.u16(ids);
             const uint32_t bnd = boundary(g, cls, 0u, surface, site.boundary, sp);
             float f0 = FPU_ADD_S(g.f32(bnd + 0xCu), radius);
@@ -2204,6 +2750,47 @@ namespace decomp_collision
     // The boundary cylinder test (x^2 + y^2 < r^2, -r < z < length + r), f0 as left.
     bool cylinder(const G g, __m128 c, float r, float length, bool sumInF0)
     {
+        g_countCylinder.hit();
+#if PS2X_VU_NEON_A32
+        // Round 49 (SOTC_FASTNATIVE, Vita): the plain rejection below in NEON,
+        // one move to a core register (no VFP compares and flag moves).
+        // NEON flushes denormals, the VFP code below need not: a flushed
+        // square is at most the VFP one, so the NEON sum is at most the VFP
+        // sum, and with r's chain normal (tested) a NEON "out" is a VFP "out"
+        // too (the other way round the code below decides); f0 is then the
+        // VFP y^2, as below.
+        if (!sumInF0 && sotc_decomp::fastNativeOn())
+        {
+            const float32x2_t lo = vget_low_f32(fast::f(c));
+            const float32x2_t sq = vmul_f32(lo, lo);
+            const uint32x2_t sum = vreinterpret_u32_f32(vpadd_f32(sq, sq));
+            const float32x2_t rr = vdup_n_f32(r);
+            const uint32x2_t r2k = vreinterpret_u32_f32(vmul_f32(vmul_f32(rr, rr), vdup_n_f32(1.0000019f)));
+            // as in fast::leafScan: these floats order as their bits do; and
+            // r^2 (1 + 2^-19) at least 2^-125, so r^2 was not flushed (the
+            // VFP's r chain is the same) and every normal sum above it is
+            // above it in the VFP too
+            const uint32x2_t out = vand_u32(vand_u32(vcgt_u32(sum, r2k), vclt_u32(sum, vdup_n_u32(0x7F800000u))), vcge_u32(r2k, vdup_n_u32(0x01000000u)));
+            bool rejected = vget_lane_u32(out, 0) != 0u;
+            if (fast::check49())
+            {
+                // (the code below decides then)
+                static sotc_decomp::FastCheck fc("collision.cylinder");
+                float w[4];
+                std::memcpy(w, &c, 16);
+                const float px = w[0] * w[0], py = w[1] * w[1], r2p = r * r;
+                const float sp2 = px + py;
+                fc.note(!rejected || (std::isfinite(sp2) && std::isfinite(r2p) && sp2 > r2p * 1.0000019f));
+                rejected = false;
+            }
+            if (__builtin_expect(rejected, 1))
+            {
+                const float cy = vget_lane_f32(lo, 1);
+                g.f0(cy * cy);
+                return false;
+            }
+        }
+#endif
         float v[4];
         std::memcpy(v, &c, 16);
         // The plain-float rejection of the leaf (see there): c is clamped.
@@ -2389,6 +2976,7 @@ namespace decomp_collision
 
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        g_countDirect.hit();
         const G g{rdram, ctx, runtime};
         COLL_STAT(direct);
         const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x270u;
@@ -2466,8 +3054,40 @@ namespace decomp_collision
                         g.put32(sp + 0x1D4u, g.u32(cls + 0x15Cu));
                         g.put(sp + 0xA0u, g.q(sp + 0x80u));
                         g.put32(sp + 0x1D8u, g.u32(cls + 0x164u));
+                        const bool fastParts = sotc_decomp::fastNativeOn();
                         for (int32_t part = 0; part < static_cast<int32_t>(g.u32(db + 4u));)
                         {
+                            if (fastParts)
+                            {
+                                // Round 49: a run of parts with nothing to test
+                                // (s7 + 4 == 0) in one loop, the frame's part
+                                // index and three matrix pointers written once
+                                // after it with the values the per-part steps
+                                // leave (nothing runs or reads them in between;
+                                // the part records and the count are outside
+                                // those four words).
+                                const uint32_t frame = sp + 0x1D0u;
+                                int32_t end = part;
+                                uint32_t at = s7;
+                                const int32_t n = static_cast<int32_t>(g.u32(db + 4u));
+                                const bool apart = db + 8u <= frame || db + 4u >= frame + 0x10u;
+                                while (apart && end < n && (at + 8u <= frame || at + 4u >= frame + 0x10u) && g.u32(at + 4u) == 0u)
+                                {
+                                    at += 0x90u;
+                                    ++end;
+                                }
+                                if (end != part)
+                                {
+                                    const uint32_t k = static_cast<uint32_t>(end - part) * 0x40u;
+                                    s7 = at;
+                                    part = end;
+                                    g.put32(sp + 0x1DCu, static_cast<uint32_t>(part));
+                                    g.put32(sp + 0x1D4u, g.u32(sp + 0x1D4u) + k);
+                                    g.put32(sp + 0x1D8u, g.u32(sp + 0x1D8u) + k);
+                                    g.put32(sp + 0x1D0u, g.u32(sp + 0x1D0u) + k);
+                                    continue;
+                                }
+                            }
                             if (g.u32(s7 + 4u) != 0u)
                             {
                                 g.put32(sp + 0x1E4u, 0u);
@@ -2527,10 +3147,12 @@ namespace decomp_collision
                                             const float f1 = g.f32(s3 + axis), f0 = g.f32(s2 + axis);
                                             g.f0(f0);
                                             const Seg seg{s5, tree, sp + 0xD0u};
-                                            if (FPU_C_OLE_S(f0, f1))
-                                                r2 = (high(g, seg, s3, s2, root, sp) != 0u || low(g, seg, s3, s2, root, sp) != 0u) ? 1u : 0u;
+                                            if (sotc_decomp::fastNativeOn())
+                                                r2 = rootF(g, seg, s3, s2, root, sp); // round 49
+                                            else if (FPU_C_OLE_S(f0, f1))
+                                                r2 = (highOld(g, seg, s3, s2, root, sp) != 0u || lowOld(g, seg, s3, s2, root, sp) != 0u) ? 1u : 0u;
                                             else
-                                                r2 = (low(g, seg, s3, s2, root, sp) != 0u || high(g, seg, s3, s2, root, sp) != 0u) ? 1u : 0u;
+                                                r2 = (lowOld(g, seg, s3, s2, root, sp) != 0u || highOld(g, seg, s3, s2, root, sp) != 0u) ? 1u : 0u;
                                         }
                                         if (r2 != 0u)
                                             g.put32(sp + 0x1E4u, 1u);

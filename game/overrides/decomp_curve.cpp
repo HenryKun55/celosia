@@ -220,13 +220,15 @@ namespace decomp_curve
     }
 
     // The key into a0 natively; false (nothing written) for the cases the
-    // recompiled code takes.
-    bool evalKey(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // recompiled code takes. Round 48's code (counted: the fast path called
+    // count() already).
+    bool evalKeyR48(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, bool counted)
     {
         const Ram ram{rdram};
         const uint32_t out = GPR_U32(ctx, 4), chan = GPR_U32(ctx, 6), index = GPR_U32(ctx, 7);
         const uint64_t format = GPR_U64(ctx, 5);
-        count(format);
+        if (!counted)
+            count(format);
         const uint32_t target = format < 15u ? ram.u32(kTable + static_cast<uint32_t>(format) * 4u) : 0x010AC700u;
         if (!inRam(out, 16u) || !inRam(chan, 0x20u))
             return false;
@@ -345,6 +347,197 @@ namespace decomp_curve
         SET_GPR_U64(ctx, 2, v0);
         returnTo(ctx);
         return true;
+    }
+
+    // ---- Round 49 (SOTC_FASTNATIVE): formats 0, 3..9 without the Eval
+    // struct (no 76-byte memset a call), the stats flag cached, and the packed
+    // formats' FPU arithmetic without the clamps that provably change nothing:
+    //  - the game thread rounds toward zero (ps2SetEeFloatingPointMode, on the
+    //    Vita and the Mac alike: the generated code's FPU_*_SF rely on it,
+    //    round 29), so a product / sum of two finite floats is finite (an
+    //    overflow gives +-FLT_MAX) and FPU_MUL_S / ADD_S / SUB_S's result clamp
+    //    is the identity on finite operands;
+    //  - the channel's eight scales / offsets (+0 .. +0x1c, the only operands
+    //    read from memory) are tested finite once (else round 48's code);
+    //    cvt.s.w, the products, sums and the clamped VU0 sqrt are finite;
+    //  - an add's operand alignment only runs when the signs differ
+    //    (ps2FpuAddFinite, as FPU_ADD_S): a key field's product
+    //    cvt(v) x scale x k has the sign (v < 0) ^ sign(scale) (k > 0; the
+    //    IEEE product's sign, zeros and flushed results included), known from
+    //    the integers, so the same-sign case is a plain add (round 29: the
+    //    alignment changes nothing then), the other ps2FpuAddFinite itself;
+    //    the squares are >= +0, so their sums are plain adds too.
+    // The output qword must not overlap the channel's 0x20 bytes or the key
+    // word (the original re-reads them after its stores; else round 48's
+    // code). Bit-exact on every host.
+    inline signed char g_statsOn = -1;
+    inline void countFast(uint64_t format)
+    {
+        if (__builtin_expect(g_statsOn != 0, 0))
+        {
+            if (g_statsOn < 0)
+                g_statsOn = std::getenv("SOTC_CURVE_STATS") != nullptr ? 1 : 0;
+            if (g_statsOn)
+                count(format);
+        }
+    }
+    inline bool overlaps(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a < b + bn && b < a + an; }
+    // a + b where a's sign bit (bit 31 of signA) is known without moving a to
+    // a core register; the same bits as ps2FpuAddFinite(a, b).
+    inline __attribute__((always_inline)) float addSigned(float a, uint32_t signA, float b, uint32_t bBits)
+    {
+        if (static_cast<int32_t>(signA ^ bBits) >= 0)
+            return a + b;
+        return ps2FpuAddFinite(a, b);
+    }
+    // Any of the eight words' exponent 255 (Inf / NaN).
+    inline bool anyNonFinite8(const uint8_t *p)
+    {
+#if defined(__ARM_NEON)
+        const uint32x4_t e = vdupq_n_u32(0x7F800000u);
+        const uint32x4_t a = vreinterpretq_u32_u8(vld1q_u8(p)), b = vreinterpretq_u32_u8(vld1q_u8(p + 16));
+        const uint32x4_t t = vorrq_u32(vceqq_u32(vandq_u32(a, e), e), vceqq_u32(vandq_u32(b, e), e));
+        const uint32x2_t h = vorr_u32(vget_low_u32(t), vget_high_u32(t));
+        return vget_lane_u32(vpmax_u32(h, h), 0) != 0u;
+#else
+        uint32_t w[8];
+        std::memcpy(w, p, 32);
+        uint32_t bad = 0u;
+        for (int i = 0; i < 8; ++i)
+            bad |= static_cast<uint32_t>((w[i] & 0x7F800000u) == 0x7F800000u);
+        return bad != 0u;
+#endif
+    }
+
+    template <int S0, int S1, int S2, int S3, int L0, int L1, int L2, int L3, int SB>
+    inline __attribute__((always_inline)) bool packedFast(uint8_t *rdram, R5900Context *ctx, uint32_t out, uint32_t chan, uint32_t key)
+    {
+        const uint8_t *cp = rdram + chan; // inRam(chan, 0x20)
+        if (overlaps(out, 16u, chan, 0x20u) || overlaps(out, 16u, key, 4u) || anyNonFinite8(cp))
+            return false;
+        // Everything read before the first store (the stores cannot reach
+        // these words: checked above), kept in registers.
+        auto word = [cp](int i) __attribute__((always_inline))
+        {
+            uint32_t v;
+            std::memcpy(&v, cp + i * 4, 4);
+            return v;
+        };
+        auto flt = [cp](int i) __attribute__((always_inline))
+        {
+            float v;
+            std::memcpy(&v, cp + i * 4, 4);
+            return v;
+        };
+        uint32_t w;
+        std::memcpy(&w, rdram + key, 4);
+        uint8_t *op = rdram + out;
+        const float k = bits(0x3B808080u);
+        // A field: cvt(v) x scale x k + offset (scale / offset words si / oi).
+        auto field = [&](int32_t v, int si, int oi) __attribute__((always_inline))
+        {
+            float p = static_cast<float>(v) * flt(si);
+            p = p * k;
+            return addSigned(p, static_cast<uint32_t>(v) ^ word(si), flt(oi), word(oi));
+        };
+        const float a = field(static_cast<int32_t>(w << S0) >> 23, 1, 0);
+        const float b = field(static_cast<int32_t>(w << S1) >> 23, 3, 2);
+        const float cc = field(static_cast<int32_t>(w << S2) >> 23, 5, 4);
+        const int32_t v4 = static_cast<int32_t>(w << S3) >> 28;
+        float p4 = static_cast<float>(v4) * flt(7);
+        p4 = p4 * bits(0x3E124924u);
+        const float off = addSigned(p4, static_cast<uint32_t>(v4) ^ word(7), flt(6), word(6));
+        // One operation a statement (no a * b + c expression a compiler may
+        // contract into a fused multiply-add: clang's -ffp-contract=on).
+        float f2 = a * a;
+        const float f1 = b * b;
+        f2 = f2 + f1;
+        const float f3 = cc * cc;
+        f2 = f2 + f3;
+        const float f5 = ps2FpuSubFinite(1.0f, f2);
+        const uint32_t f5b = bitsOf(f5);
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(f5b)); // mfc1 a2 / qmtc2 a2, vf1 (x read)
+        const __m128 vf1 = _mm_castsi128_ps(GPR_VEC(ctx, 6));
+        uint16_t status = ctx->vu0_status;
+        const float q = ps2VuSqrt(status, _mm_cvtss_f32(vf1));
+        // FPU_C_OLT_S(f5, 0): negative with a nonzero exponent.
+        const bool neg = static_cast<int32_t>(f5b) < 0 && (f5b & 0x7F800000u) != 0u;
+        float f0;
+        if (neg)
+            f0 = ps2FpuAddFinite(off, 0.0f);
+        else
+        {
+            const bool minus = SB == 31 ? static_cast<int32_t>(w) < 0 : ((w >> SB) & 1u) != 0u;
+            f0 = minus ? -q : q;
+            f0 = ps2FpuAddFinite(f0, off);
+        }
+        std::memcpy(op + L0 * 4, &a, 4);
+        std::memcpy(op + L1 * 4, &b, 4);
+        std::memcpy(op + L2 * 4, &cc, 4);
+        std::memcpy(op + L3 * 4, &f0, 4);
+        ctx->f[0] = f0;
+        ctx->fcr31 = neg ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        ctx->vu0_vf[1] = vf1;
+        ctx->vu0_q = q;
+        ctx->vu0_status = status;
+        return true;
+    }
+
+    bool evalKeyFast(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const Ram ram{rdram};
+        const uint32_t out = GPR_U32(ctx, 4), chan = GPR_U32(ctx, 6), index = GPR_U32(ctx, 7);
+        const uint64_t format = GPR_U64(ctx, 5);
+        countFast(format);
+        const uint32_t target = format < 15u ? ram.u32(kTable + static_cast<uint32_t>(format) * 4u) : 0x010AC700u;
+        if (!inRam(out, 16u) || !inRam(chan, 0x20u))
+            return false;
+        uint64_t v0 = 0u;
+        switch (target)
+        {
+        case 0x010AD028u: // the channel's qword
+            ram.putq(out, ram.q(chan));
+            break;
+        case 0x010AC700u: // none
+            ram.putq(out, ctx->vu0_vf[0]);
+            v0 = 1u;
+            break;
+        case 0x010AC978u:
+        case 0x010ACAB0u:
+        case 0x010ACBE8u:
+        case 0x010ACD20u:
+        {
+            const uint32_t key = ram.u32(chan + 0x20u) + (index << 2);
+            if (!inRam(key, 4u))
+                return false;
+            bool done;
+            if (target == 0x010AC978u)
+                done = packedFast<5, 14, 23, 1, 1, 2, 3, 0, 31>(rdram, ctx, out, chan, key);
+            else if (target == 0x010ACAB0u)
+                done = packedFast<0, 14, 23, 10, 0, 2, 3, 1, 22>(rdram, ctx, out, chan, key);
+            else if (target == 0x010ACBE8u)
+                done = packedFast<0, 9, 23, 19, 0, 1, 3, 2, 13>(rdram, ctx, out, chan, key);
+            else
+                done = packedFast<0, 9, 18, 28, 0, 1, 2, 3, 4>(rdram, ctx, out, chan, key);
+            if (!done)
+                return evalKeyR48(rdram, ctx, runtime, true);
+            break;
+        }
+        default: // 12, 13 and the recompiled code's formats: round 48's code
+            return evalKeyR48(rdram, ctx, runtime, true);
+        }
+        SET_GPR_U64(ctx, 2, v0);
+        returnTo(ctx);
+        return true;
+    }
+
+    bool evalKey(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("evalKey");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return evalKeyFast(rdram, ctx, runtime);
+        return evalKeyR48(rdram, ctx, runtime, false);
     }
 
     void curveEval(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

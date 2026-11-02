@@ -90,7 +90,76 @@ namespace decomp_clothstep
         return sum;
     }
 
-    void clothStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // ---- Round 49's fast path (SOTC_FASTNATIVE, default on) ----------------
+    // The same operations on the same operands, with the clamps the old code
+    // repeats on values that are already clamped left out (ps2VuOperand is
+    // idempotent: a VU0 add / sub / mul result, a broadcast of a clamped
+    // lane, the random lanes 1.0..2.0 are their own clamp), so every lane
+    // that is kept is bit-identical on every host. Constant lane masks as
+    // vector literals (one vbsl), the loop-invariant broadcasts clamped once,
+    // the rows' arrays as host pointers when they do not wrap the 32 MB mask,
+    // the stored-then-reloaded vf21 taken from the register.
+    namespace fast
+    {
+        using V = __m128;
+        __attribute__((always_inline)) inline V op(V v) { return ps2VuOperand(v); }
+        __attribute__((always_inline)) inline V add(V a, V b) { return op(vaddq_f32(a, b)); }
+        __attribute__((always_inline)) inline V sub(V a, V b) { return op(vsubq_f32(a, b)); }
+        __attribute__((always_inline)) inline V mul(V a, V b) { return op(vmulq_f32(a, b)); }
+        // a's lanes where the mask is clear, b's where it is set.
+        __attribute__((always_inline)) inline V selXyz(V a, V b)
+        {
+            const uint32x4_t m = {~0u, ~0u, ~0u, 0u};
+            return vbslq_f32(m, b, a);
+        }
+        __attribute__((always_inline)) inline V selY(V a, V b)
+        {
+            const uint32x4_t m = {0u, ~0u, 0u, 0u};
+            return vbslq_f32(m, b, a);
+        }
+        __attribute__((always_inline)) inline V dupX(V v) { return vdupq_lane_f32(vget_low_f32(v), 0); }
+        __attribute__((always_inline)) inline V dupW(V v) { return vdupq_lane_f32(vget_high_f32(v), 1); }
+        __attribute__((always_inline)) inline V ld(const uint8_t *p)
+        {
+            V v;
+            std::memcpy(&v, p, 16);
+            return v;
+        }
+        __attribute__((always_inline)) inline void st(uint8_t *p, V v) { std::memcpy(p, &v, 16); }
+        constexpr uint32_t kM16 = PS2_RAM_MASK & ~0xFu;
+        // n quadwords from a (masked as Ram::q does) without wrapping the mask.
+        inline bool linear(uint32_t a, int64_t n) { return n >= 0 && static_cast<int64_t>(a & kM16) + n * 16 <= static_cast<int64_t>(PS2_RAM_SIZE); }
+
+        // pin() inlined (the same code).
+        __attribute__((always_inline)) inline V pin(const Ram ram, uint32_t list, uint32_t bones, V &acc, V &vf13)
+        {
+            int32_t n = static_cast<int32_t>(ram.u32(list));
+            uint32_t e = ram.u32(list + 4u);
+            vf13 = ram.q(e + 16u);
+            const __m128 r0[4] = {ram.q(bones + ram.u32(e) * 64u), ram.q(bones + ram.u32(e) * 64u + 0x10u), ram.q(bones + ram.u32(e) * 64u + 0x20u), ram.q(bones + ram.u32(e) * 64u + 0x30u)};
+            V sum = sotc_decomp::vu::apply(sotc_decomp::vu::clampRows(r0), vf13, &acc);
+            if (n == 1)
+                return sum;
+            n -= 2;
+            e += 32u;
+            if (n == -1)
+                return sum;
+            do
+            {
+                const uint32_t m = bones + ram.u32(e) * 64u;
+                const __m128 rows[4] = {ram.q(m), ram.q(m + 0x10u), ram.q(m + 0x20u), ram.q(m + 0x30u)};
+                vf13 = sotc_decomp::vu::apply(sotc_decomp::vu::clampRows(rows), ram.q(e + 16u), &acc);
+                // PS2_VADD(sum, vf13): both are VU0 results (clamped).
+                sum = add(sum, vf13);
+                --n;
+                e += 32u;
+            } while (n != -1);
+            return sum;
+        }
+    }
+
+    template <bool Fast>
+    void clothStepT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
         const uint32_t a0 = GPR_U32(ctx, 4), owner = GPR_U32(ctx, 5);
@@ -130,7 +199,57 @@ namespace decomp_clothstep
         bool rTouched = false;
         uint32_t v0 = ram.u32(a0 + 12u);
         const uint32_t rows0 = v0;
-        if (rows != 0)
+        if (Fast && rows != 0)
+        {
+            using namespace fast;
+            const V c3 = op(dupX(vf3)), c2 = op(vf2), c0w = op(dupW(vf0)), c5 = op(dupX(vf5)), c4 = op(dupX(vf4));
+            V s4 = vf11, m = vf12;
+            auto point = [&](uint8_t *pv, const uint8_t *pp, uint8_t *po)
+            {
+                const V v = ld(pv), p = ld(pp);
+                const V cv = op(v);
+                const V u = add(selY(cv, add(cv, c3)), c2);
+                const uint32_t r1 = (((r << 1) ^ ((r >> 4) & 1u) ^ ((r >> 22) & 1u)) & 0x007FFFFFu) | 0x3F800000u;
+                const uint32_t r2 = (((r1 << 1) ^ ((r1 >> 4) & 1u) ^ ((r1 >> 22) & 1u)) & 0x007FFFFFu) | 0x3F800000u;
+                r = (((r2 << 1) ^ ((r2 >> 4) & 1u) ^ ((r2 >> 22) & 1u)) & 0x007FFFFFu) | 0x3F800000u;
+                const uint32x4_t rv = {r1, r2, r, r};
+                const V s2 = sub(vreinterpretq_f32_u32(rv), c0w);
+                s4 = mul(sub(add(s2, s2), c0w), c5);
+                const V u2 = add(u, s4);
+                m = mul(u2, c4);
+                vf10 = selXyz(v, u2);
+                vf20 = selXyz(p, add(op(p), m));
+                st(pv, vf10);
+                st(po, vf20);
+            };
+            uint32_t row = rows0;
+            for (int32_t i = rows - 1; i != -1; --i, row += 24u)
+            {
+                uint32_t vel = ram.u32(row + 8u), pos = ram.u32(row + 20u), out = ram.u32(row + 16u);
+                if (__builtin_expect(linear(vel, cols) && linear(pos, cols) && linear(out, cols), 1))
+                {
+                    uint8_t *pv = rdram + (vel & kM16), *pp = rdram + (pos & kM16), *po = rdram + (out & kM16);
+                    for (int32_t k = cols; k != 0; --k, pv += 16, pp += 16, po += 16)
+                        point(pv, pp, po);
+                    rTouched |= cols != 0;
+                }
+                else
+                {
+                    for (int32_t k = cols - 1; k != -1; --k, vel += 16u, pos += 16u, out += 16u)
+                    {
+                        point(rdram + (vel & kM16), rdram + (pos & kM16), rdram + (out & kM16));
+                        rTouched = true;
+                    }
+                }
+            }
+            if (rTouched)
+            {
+                vf11 = selXyz(vf11, s4);
+                vf12 = selXyz(vf12, m);
+            }
+            v0 = ram.u32(a0 + 12u);
+        }
+        else if (rows != 0)
         {
             uint32_t row = rows0;
             for (int32_t i = rows - 1; i != -1; --i, row += 24u)
@@ -177,7 +296,51 @@ namespace decomp_clothstep
         vf3 = vecOf(3, f2);
         vf4 = vecOf(4, f0);
         __m128 acc = ctx->vu0_acc, vf13 = ctx->vu0_vf[13], vf18 = ctx->vu0_vf[18], vf21 = ctx->vu0_vf[21], vf22 = ctx->vu0_vf[22];
-        if (rows != 0)
+        if (Fast && rows != 0)
+        {
+            using namespace fast;
+            const V c3 = op(dupX(vf3)), c4 = op(dupX(vf4));
+            uint32_t row = v0, pins = ram.u32(cloth + 40u);
+            const uint32_t bones = ram.u32(owner + 348u);
+            for (int32_t i = rows - 1; i != -1; --i, pins += 36u, row += 24u)
+            {
+                const V a = fast::pin(ram, pins + 20u, bones, acc, vf13);
+                const uint32_t out = ram.u32(row + 16u);
+                const V b = fast::pin(ram, pins + 12u, ram.u32(owner + 348u), acc, vf13);
+                vf18 = b;
+                ram.putq(out, b);
+                vf20 = a;
+                vf21 = b; // ram.q(out): the quadword just stored
+                // PS2_VSUB(a, b), both VU0 results; then vf22.xyz x vf3.x.
+                const V d = sub(a, b);
+                vf22 = selXyz(d, mul(d, c3));
+                v0 = ram.u32(row + 16u) + 16u;
+                const int32_t n = cols - 1;
+                if (__builtin_expect(linear(v0, n), 1))
+                {
+                    uint8_t *pq = rdram + (v0 & kM16);
+                    for (int32_t k = n; k != 0; --k, pq += 16)
+                    {
+                        vf22 = selXyz(vf22, mul(vf22, c4));
+                        const V q = ld(pq);
+                        vf20 = selXyz(q, add(op(q), vf22));
+                        st(pq, vf20);
+                    }
+                    v0 += static_cast<uint32_t>(n) * 16u;
+                }
+                else
+                {
+                    for (int32_t k = cols - 2; k != -1; --k, v0 += 16u)
+                    {
+                        vf22 = selXyz(vf22, mul(vf22, c4));
+                        const V q = ram.q(v0);
+                        vf20 = selXyz(q, add(op(q), vf22));
+                        ram.putq(v0, vf20);
+                    }
+                }
+            }
+        }
+        else if (rows != 0)
         {
             uint32_t row = v0, pins = ram.u32(cloth + 40u);
             const uint32_t bones = ram.u32(owner + 348u);
@@ -227,6 +390,15 @@ namespace decomp_clothstep
             ctx->vu0_r = _mm_castsi128_ps(_mm_set1_epi32(static_cast<int32_t>(r)));
         SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
         returnTo(ctx);
+    }
+
+    void clothStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("clothStep");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return clothStepT<true>(rdram, ctx, runtime);
+        clothStepT<false>(rdram, ctx, runtime);
     }
 }
 

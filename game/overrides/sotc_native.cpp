@@ -2904,7 +2904,7 @@ namespace sotc_native
             return true;
         }();
         (void)switchesRead;
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative"};
         for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
             if (list.find(std::string(",") + switchNames[i] + ",") != std::string::npos)
                 sotc_decomp::setSwitch(i, isOff(switchNames[i]) ? false : switchStart[i]);
@@ -4615,6 +4615,7 @@ namespace sotc_native
             }
             sotc_prof::frameTick(frame);
             sotc_decomp::g_gameFrame = frame;
+            sotc_decomp::fastStatsTick(frame);
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);
             native_renderer::beginFrame();
@@ -7022,6 +7023,226 @@ namespace sotc_native
             q.push(shape.surfaces[i] + 0x18u);
     }
 
+    // Round 49 (SOTC_FASTNATIVE, modelDispState's fast path): the part
+    // test's CLIP judgements with the same integer compares as vuClipFlags4x,
+    // the six flag bits put together by shift-inserts (no constants per bit),
+    // |w|'s limit as max(|w| bits, 0x7fffff) (the same value: a zero exponent
+    // leaves |w| bits <= 0x7fffff, any other exponent >= 0x800000).
+    inline uint32x4_t mdsClipFlags4(__m128 a, __m128 b, __m128 c, __m128 d)
+    {
+        _MM_TRANSPOSE4_PS(a, b, c, d); // a: the x of each, b: y, c: z, d: w
+        const int32x4_t lim = vmaxq_s32(vreinterpretq_s32_u32(vandq_u32(vreinterpretq_u32_f32(d), vdupq_n_u32(0x7FFFFFFFu))), vdupq_n_s32(0x007FFFFF));
+        const uint32x4_t sign = vdupq_n_u32(0x80000000u);
+        const auto gt = [&](__m128 v) { return vcgtq_s32(vreinterpretq_s32_f32(v), lim); };
+        const auto lt = [&](__m128 v) { return vcgtq_s32(vreinterpretq_s32_u32(veorq_u32(vreinterpretq_u32_f32(v), sign)), lim); };
+        uint32x4_t r = gt(a);
+        r = vsliq_n_u32(r, lt(a), 1);
+        r = vsliq_n_u32(r, gt(b), 2);
+        r = vsliq_n_u32(r, lt(b), 3);
+        r = vsliq_n_u32(r, gt(c), 4);
+        r = vsliq_n_u32(r, lt(c), 5);
+        return vandq_u32(r, vdupq_n_u32(0x3Fu));
+    }
+    // The part test (modelDispState's `test`): the same products, sums and
+    // clamps, the judgements' reductions on the NEON side (three moves to
+    // the ARM registers instead of a store of eleven words and their loads).
+    struct MdsPartClip
+    {
+        __m128 col0, col1, col2, byW;
+        uint32_t clip; // the CLIP register (24 bits)
+        inline uint32_t test(const uint8_t *ram, uint32_t node)
+        {
+            static constexpr uint8_t kCorners[8] = {0, 6, 5, 3, 4, 2, 1, 7}; // bit 0 x, 1 y, 2 z: max
+            const __m128 lo = ps2VuOperand(_mm_loadu_ps(reinterpret_cast<const float *>(ram + (node & 0x1FFFFFCu)))),
+                         hi = ps2VuOperand(_mm_loadu_ps(reinterpret_cast<const float *>(ram + ((node + 0x10u) & 0x1FFFFFCu))));
+            const __m128 byX[2] = {ps2VuResult(_mm_mul_ps(col0, _mm_shuffle_ps(lo, lo, 0x00))), ps2VuResult(_mm_mul_ps(col0, _mm_shuffle_ps(hi, hi, 0x00)))};
+            const __m128 byY[2] = {ps2VuResult(_mm_mul_ps(col1, _mm_shuffle_ps(lo, lo, 0x55))), ps2VuResult(_mm_mul_ps(col1, _mm_shuffle_ps(hi, hi, 0x55)))};
+            const __m128 byZ[2] = {ps2VuResult(_mm_mul_ps(col2, _mm_shuffle_ps(lo, lo, 0xAA))), ps2VuResult(_mm_mul_ps(col2, _mm_shuffle_ps(hi, hi, 0xAA)))};
+            __m128 v[8];
+            for (int k = 0; k < 8; ++k)
+            {
+                const uint8_t corner = kCorners[k];
+                v[k] = ps2VuResult(_mm_add_ps(byX[corner & 1], byY[(corner >> 1) & 1]));
+                v[k] = ps2VuResult(_mm_add_ps(v[k], byZ[(corner >> 2) & 1]));
+                v[k] = ps2VuResult(_mm_add_ps(v[k], byW));
+            }
+            // f[3..6] in a, f[7..10] in b (the old code's f[]): all = the AND
+            // of the eight, any = their OR and the register's last three
+            // (its low 18 bits), the register after = f7<<18 | f8<<12 | f9<<6 | f10.
+            const uint32x4_t a = mdsClipFlags4(v[0], v[1], v[2], v[3]), b = mdsClipFlags4(v[4], v[5], v[6], v[7]);
+            static const int32_t kShifts[4] = {18, 12, 6, 0};
+            const uint32x4_t andv = vandq_u32(a, b), orv = vorrq_u32(a, b), placed = vshlq_u32(b, vld1q_s32(kShifts));
+            // reduced on the NEON side to three lanes: three moves to the ARM side
+            uint32x2_t and2 = vand_u32(vget_low_u32(andv), vget_high_u32(andv));
+            uint32x2_t or2 = vorr_u32(vget_low_u32(orv), vget_high_u32(orv));
+            uint32x2_t reg2 = vorr_u32(vget_low_u32(placed), vget_high_u32(placed));
+            and2 = vand_u32(and2, vrev64_u32(and2));
+            or2 = vorr_u32(or2, vrev64_u32(or2));
+            reg2 = vorr_u32(reg2, vrev64_u32(reg2));
+            const uint32x2_t allAny = vext_u32(and2, or2, 1); // {all, any of the eight}
+            const uint32_t all = vget_lane_u32(allAny, 0);
+            const uint32_t any = vget_lane_u32(allAny, 1) | (clip & 0x3FFFFu);
+            clip = vget_lane_u32(reg2, 0);
+            return all ? 1u : (any ? 0u : 2u);
+        }
+    };
+
+    // modelDispState's part walk below the root (round 49): the recursive
+    // visit's order exactly (pre-order; a node's +0x24 link read after its
+    // +0x20 subtree is done; the same depth and budget limits; the queue
+    // asked for one line a node), without recursion and with the walk's
+    // state in registers: `pending` holds the nodes whose +0x24 link is still
+    // to be read (the path's nodes entered by their +0x20 child), a node
+    // entered by its +0x24 child is done (its depth goes with its child).
+    // The results go to partOut as the old walk's record() puts them (while
+    // `once`: each index once, below 4096; the vector grown the same way),
+    // the vector's data and size kept in registers between its resizes.
+    template <bool prefetchOn>
+    __attribute__((noinline)) void mdsPartWalk(MdsPartClip &pc, uint32_t table, uint32_t root, uint32_t &budgetRef, uint32_t &maxNodeRef, bool pumpQueue,
+                                               std::vector<uint8_t> *partOut, bool &onceRef, uint32_t *seen, uint32_t stamp)
+    {
+        uint8_t *const ram = const_cast<uint8_t *>(g_ram);
+        bool once = onceRef;
+        uint8_t *pvData = partOut ? partOut->data() : nullptr;
+        size_t pvSize = partOut ? partOut->size() : 0u;
+        PrefetchQueue &q = g_prefetchQueue;
+        const uint32_t qFirst = q.head, qEnd = pumpQueue ? std::max(q.tail, q.head) : q.head;
+        uint32_t qAt = qFirst, budget = budgetRef, maxNode = maxNodeRef;
+        struct Pending
+        {
+            uint32_t node, state, depth;
+        } pending[66];
+        uint32_t count = 0;
+        uint32_t node = table, state = root, depth = 0, second = 0; // second: +0x24 next
+        for (;;)
+        {
+            const uint32_t at = node + (second ? 0x24u : 0x20u);
+            noteRead(at, 4u);
+            uint32_t index;
+            std::memcpy(&index, ram + (at & 0x1FFFFFCu), 4);
+            if (index != 0xFFFFFFFFu && depth < 64u && budget != 0u)
+            {
+                if (!second)
+                    pending[count++] = {node, state, depth};
+                // visit(index, table + index * 0x30, state, depth + 1)
+                --budget;
+                if (qAt < qEnd)
+                    __builtin_prefetch(ram + (q.lines[qAt++] & 0x1FFFFE0u)); // the next draw's lines (queueNextDraw)
+                node = table + index * 0x30u;
+                if (prefetchOn)
+                    __builtin_prefetch(ram + ((node + 0x60u) & 0x1FFFFE0u)); // two nodes on (a table is mostly in walk order)
+                maxNode = std::max(maxNode, node);
+                if (!state)
+                    state = pc.test(ram, node);
+                std::memcpy(ram + ((node + 0x2Cu) & 0x1FFFFFCu), &state, 4);
+                if (once)
+                {
+                    if (index >= 4096u || seen[index] == stamp)
+                        once = false;
+                    else
+                    {
+                        seen[index] = stamp;
+                        if (pvSize <= index)
+                        {
+                            partOut->resize(index + 1u, 0u);
+                            pvData = partOut->data();
+                            pvSize = partOut->size();
+                        }
+                        pvData[index] = static_cast<uint8_t>(state);
+                    }
+                }
+                ++depth;
+                second = 0;
+                continue;
+            }
+            if (!second)
+            {
+                second = 1;
+                continue;
+            }
+            if (count == 0u)
+                break;
+            const Pending &p = pending[--count];
+            node = p.node;
+            state = p.state;
+            depth = p.depth;
+        }
+        if (leanStatsOn())
+            g_leanStats.queuePumped += qAt - qFirst;
+        q.head = qAt;
+        budgetRef = budget;
+        maxNodeRef = maxNode;
+        onceRef = once;
+    }
+    // modelDispState's loop over the plan's packets (round 49): the same
+    // tests in the same order, the frame, the guest base, the queue and the
+    // tests' constants in registers.
+    template <bool partCulled>
+    __attribute__((noinline)) void mdsPlanPackets(const ModelPlan *plan, SurfaceInfo *memoArr, uint32_t header, uint32_t table, bool fading, uint32_t boss,
+                                                  uint32_t cache)
+    {
+        uint8_t *const ram = const_cast<uint8_t *>(g_ram);
+        const uint64_t frame = g_frame;
+        const bool pumpQueue = g_hookLean && g_prefetch;
+        PrefetchQueue &q = g_prefetchQueue;
+        const uint32_t qFirst = q.head, qEnd = q.tail;
+        uint32_t qAt = qFirst;
+        const uint32_t layerAt = fading ? 1u : 0u;
+        const PlanPacket *e = plan->pk.data();
+        const PlanPacket *const end = e + plan->pk.size();
+        SurfaceInfo *nextInfo = e != end ? &memoArr[e->slot] : nullptr; // (each slot's address made once)
+        for (; e != end; ++e)
+        {
+            const uint32_t s = e->s;
+            SurfaceInfo &info = *nextInfo;
+            if (e + 1 != end)
+                nextInfo = &memoArr[e[1].slot];
+            if (pumpQueue)
+            {
+                if (qAt < qEnd)
+                    __builtin_prefetch(ram + (q.lines[qAt++] & 0x1FFFFE0u)); // the next draw's lines (queueNextDraw)
+                if (e + 1 != end)
+                    __builtin_prefetch(nextInfo);
+            }
+            if (__builtin_expect(!(info.s == s && info.header == header && info.frame == frame), 0))
+                surfaceInfo(header, s, memoArr);
+            const uint32_t flags = static_cast<uint32_t>(info.flags); // bits 17, 24, 26, 29 only
+            if ((flags >> 29) & 1u)
+                continue;
+            if (partCulled && e->part != 0xFFFFFFFFu) // (a constant)
+            {
+                const uint32_t at = table + e->part * 0x30u + 0x2Cu;
+                noteRead(at, 4u);
+                uint32_t state;
+                std::memcpy(&state, ram + (at & 0x1FFFFFCu), 4);
+                if ((state & ~2u) != 0u) // not 0 or 2
+                    continue;
+            }
+            if ((flags >> 17) & 1u)
+                continue;
+            if (__builtin_expect((flags >> 24) & 1u, 0))
+            {
+                const uint32_t one = 1u;
+                std::memcpy(ram + 0x1186294u, &one, 4); // setShadowEffect
+                if (!(boss & 2u))
+                    continue;
+            }
+            if ((flags >> 26) & 1u)
+            {
+                noteRead(0x1186328u, 4u);
+                uint32_t fog;
+                std::memcpy(&fog, ram + 0x1186328u, 4);
+                if (fog != 0u)
+                    continue;
+            }
+            const uint32_t to = cache + info.layer[layerAt] * 4u;
+            std::memcpy(ram + (to & 0x1FFFFFCu), &s, 4);
+        }
+        if (leanStatsOn())
+            g_leanStats.queuePumped += qAt - qFirst;
+        q.head = qAt;
+    }
+
     // partOut (round 32, g_hookLean): the parts' results as modelDispHook's
     // second walk would make them from what this walk leaves at +0x2c (the
     // same order, the same resizes); *partOk only when they are that walk's
@@ -7031,6 +7252,10 @@ namespace sotc_native
     void modelDispState(R5900Context *ctx, uint32_t instance, const float model[16], const ModelPlan *plan = nullptr, std::vector<uint8_t> *partOut = nullptr,
                         bool *partOk = nullptr, uint32_t *partTable = nullptr)
     {
+        static sotc_decomp::NativeCount count("modelDispState");
+        count.hit();
+        // Round 49: the part walk and the plan's packet loop in locals (SOTC_FASTNATIVE=0: round 48's).
+        const bool fast = sotc_decomp::fastNativeOn();
         if (partOk)
             *partOk = false;
         const uint32_t header = word(word(instance) + 0x20u);
@@ -7189,6 +7414,54 @@ namespace sotc_native
                     if (word(node + link) != 0xFFFFFFFFu)
                         self(self, word(node + link), table + word(node + link) * 0x30u, state, depth + 1);
             };
+            if (fast)
+            {
+                // Round 49: the same walk (pre-order, link +0x20's subtree
+                // before +0x24 is read, the same depth and budget limits)
+                // without recursion, the guest base and the queue in locals.
+                uint8_t *const ram = const_cast<uint8_t *>(g_ram);
+                const auto st = [ram](uint32_t a, uint32_t v) { std::memcpy(ram + (a & 0x1FFFFFCu), &v, 4); };
+                MdsPartClip pc{col0, col1, col2, byW, clipRegister};
+                const bool prefetchOn = g_prefetch;
+                if (prefetchOn)
+                {
+                    const ModelShape &shape = modelShape(header);
+                    if (shape.header == header && shape.table == table)
+                    {
+                        uint32_t a = table & ~31u;
+                        const uint32_t limit = table + shape.nodes * 0x30u;
+                        for (uint32_t n = limit > a ? std::min<uint32_t>(64u, (limit - a + 31u) >> 5) : 0u; n; --n, a += 32u)
+                            __builtin_prefetch(ram + (a & 0x1FFFFE0u));
+                    }
+                }
+                const uint32_t root = pc.test(ram, table);
+                st(table + 0x2Cu, root);
+                if (partOut)
+                {
+                    partOut->clear();
+                    if (root != 1u)
+                    {
+                        partOut->assign(1u, static_cast<uint8_t>(root));
+                        seen[0] = stamp;
+                    }
+                }
+                if (root == 1u)
+                {
+                    clipRegister = pc.clip;
+                    if (partOk)
+                        *partOk = once; // the hook returns too: nothing drawn
+                    return;
+                }
+                if (prefetchOn)
+                    mdsPartWalk<true>(pc, table, root, budget, maxNode, pumpQueue, partOut, once, seen, stamp);
+                else
+                    mdsPartWalk<false>(pc, table, root, budget, maxNode, pumpQueue, partOut, once, seen, stamp);
+                clipRegister = pc.clip;
+                if (partOk)
+                    *partOk = once;
+            }
+            else
+            {
             if (g_prefetch)
             {
                 // This model's part tree as it was: asked for at once (the
@@ -7220,6 +7493,7 @@ namespace sotc_native
                     visit(visit, word(table + link), table + word(table + link) * 0x30u, root, 1);
             if (partOk)
                 *partOk = once;
+            }
         }
         const auto put = [](uint32_t addr, uint32_t value) { std::memcpy(const_cast<uint8_t *>(g_ram) + (addr & 0x1FFFFFCu), &value, 4); };
         uint64_t drawFlags;
@@ -7265,6 +7539,15 @@ namespace sotc_native
         }
         const bool memo = g_surfaceMemo && native_renderer::tuning().fastHooks;
         SurfaceInfo *const memoArr = hookjobs::g_on ? g_surfaceInfoSync : g_surfaceInfo; // (the jobs' own: g_surfaceInfo)
+        if (plan && memo && plan->header == header && plan->lod == lod && plan->packets == packets && plan->surfaces == surfaces && fast)
+        {
+            // Round 49: the loop below in a function of its own (mdsPlanPackets).
+            if (partCulled)
+                mdsPlanPackets<true>(plan, memoArr, header, table, fading, boss, cache);
+            else
+                mdsPlanPackets<false>(plan, memoArr, header, table, fading, boss, cache);
+            return;
+        }
         if (plan && memo && plan->header == header && plan->lod == lod && plan->packets == packets && plan->surfaces == surfaces)
         {
             // The plan's packets of this LOD, in the list's order: the same

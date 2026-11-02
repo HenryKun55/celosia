@@ -256,6 +256,33 @@ namespace decomp_ctrldef
 
     inline void setFloatBits(float &dst, uint32_t bits) { std::memcpy(&dst, &bits, 4); }
 
+    // Round 49 (SOTC_FASTNATIVE): the type's case from a table built at
+    // compile time (no function-local static's guard on every call).
+    struct IndexTable
+    {
+        uint8_t at[0x84] = {}; // 1 + the index into kCases, 0: none
+    };
+    constexpr IndexTable makeIndexTable()
+    {
+        IndexTable t{};
+        for (unsigned i = 0; i < sizeof(kCases) / sizeof(kCases[0]); ++i)
+            t.at[kCases[i].type] = static_cast<uint8_t>(i + 1u);
+        return t;
+    }
+    inline constexpr IndexTable kIndex = makeIndexTable();
+    static_assert(sizeof(kCases) / sizeof(kCases[0]) < 255u, "kCases indexes in a byte");
+    // FPU_C_OLT_S's operands' keys from the bit patterns
+    // (ps2FpuCompareKeyFast: the same key as the default
+    // ps2FpuCompareKeyRef for every pattern, ps2_macro_selftest.cpp).
+    inline uint32_t cmpKey(uint32_t bits)
+    {
+        bits &= 0u - static_cast<uint32_t>((bits & 0x7F800000u) != 0u);
+        return bits ^ (static_cast<uint32_t>(static_cast<int32_t>(bits) >> 31) | 0x80000000u);
+    }
+    constexpr uint32_t kKeyMinus10000 = ~0xC61C4000u, kKeyMinus180 = ~0xC3340000u, kKeyZero = 0x80000000u;
+    // SOTC_CTRLDEF_STATS read once (-1: not yet).
+    inline signed char g_statsOn = -1;
+
     void condStats(uint32_t type)
     {
         static const bool on = std::getenv("SOTC_CTRLDEF_STATS") != nullptr;
@@ -273,14 +300,36 @@ namespace decomp_ctrldef
         }
     }
 
-    void cond(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Fast (round 49): the case from kIndex, the stats flag cached, and the
+    // prologue's six bound compares done only as far as they are observed:
+    // the condition bit after them is t3's (f20 < 0), and a Range / RangeSq
+    // reads only its own flag's pair (each compare is a pure function of
+    // f20 / f21, done on the bit patterns with the same keys). Everything
+    // else as round 48's code.
+    template <bool Fast>
+    void condImpl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const R m{rdram};
         const uint32_t a0In = GPR_U32(ctx, 4), t0 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), c = GPR_U32(ctx, 7);
         const uint32_t type = m.u32(c);
-        condStats(type);
         const bool inTable = type - 2u < 0x82u;
-        const Case *k = inTable ? table().byType[type] : &kOutOfRange;
+        const Case *k;
+        if constexpr (Fast)
+        {
+            if (__builtin_expect(g_statsOn != 0, 0))
+            {
+                if (g_statsOn < 0)
+                    g_statsOn = std::getenv("SOTC_CTRLDEF_STATS") != nullptr ? 1 : 0;
+                if (g_statsOn)
+                    condStats(type);
+            }
+            k = inTable ? (kIndex.at[type] ? &kCases[kIndex.at[type] - 1u] : nullptr) : &kOutOfRange;
+        }
+        else
+        {
+            condStats(type);
+            k = inTable ? table().byType[type] : &kOutOfRange;
+        }
         if (k && k->r43 && !sotc_decomp::hotListOn())
             k = nullptr;
         if (!k || (inTable && m.u32(kTable + (type - 2u) * 4u) != k->target))
@@ -300,12 +349,23 @@ namespace decomp_ctrldef
         const float minus10000 = [] { float f; setFloatBits(f, 0xC61C4000u); return f; }();
         const float minus180 = [] { float f; setFloatBits(f, 0xC3340000u); return f; }();
         const float zero = 0.0f;
-        const bool t5 = cmp(FPU_C_OLT_S(f21, minus10000));
-        const bool t2 = cmp(FPU_C_OLT_S(f20, minus10000));
-        const bool s3 = cmp(FPU_C_OLT_S(f21, minus180));
-        const bool s2 = cmp(FPU_C_OLT_S(f20, minus180));
-        const bool t7 = cmp(FPU_C_OLT_S(f21, zero));
-        const bool t3 = cmp(FPU_C_OLT_S(f20, zero));
+        bool t5 = false, t2 = false, s3 = false, s2 = false, t7 = false, t3 = false;
+        uint32_t k20 = 0u, k21 = 0u;
+        if constexpr (Fast)
+        {
+            k20 = cmpKey(m.u32(c + 4u));
+            k21 = cmpKey(m.u32(c + 0xCu));
+            t3 = cmp(k20 < kKeyZero);
+        }
+        else
+        {
+            t5 = cmp(FPU_C_OLT_S(f21, minus10000));
+            t2 = cmp(FPU_C_OLT_S(f20, minus10000));
+            s3 = cmp(FPU_C_OLT_S(f21, minus180));
+            s2 = cmp(FPU_C_OLT_S(f20, minus180));
+            t7 = cmp(FPU_C_OLT_S(f21, zero));
+            t3 = cmp(FPU_C_OLT_S(f20, zero));
+        }
         float f0 = zero;
         const uint64_t s4 = m.u64(c + 0x18u), s5 = m.u64(c + 0x20u);
         const uint32_t t1 = a2 + 0x100u, a0 = a2 + 0x80u, t6 = t0 + 0x200u;
@@ -334,8 +394,18 @@ namespace decomp_ctrldef
         // A range: the low side tested unless its flag, then the high side.
         auto range = [&](float x, Flag flag, bool lowStrict, bool highStrict, float lo, float hi, bool loaded) -> bool
         {
-            const bool lowOff = flag == F10000 ? t2 : (flag == F180 ? s2 : t3);
-            const bool highOff = flag == F10000 ? t5 : (flag == F180 ? s3 : t7);
+            bool lowOff, highOff;
+            if constexpr (Fast)
+            {
+                const uint32_t bound = flag == F10000 ? kKeyMinus10000 : (flag == F180 ? kKeyMinus180 : kKeyZero);
+                lowOff = k20 < bound;
+                highOff = k21 < bound;
+            }
+            else
+            {
+                lowOff = flag == F10000 ? t2 : (flag == F180 ? s2 : t3);
+                highOff = flag == F10000 ? t5 : (flag == F180 ? s3 : t7);
+            }
             bool low = true, high = true;
             if (!lowOff)
             {
@@ -465,6 +535,15 @@ namespace decomp_ctrldef
         SET_GPR_U32(ctx, 31, ra);
         SET_GPR_U64(ctx, 2, result ? 1u : 0u);
         returnTo(ctx);
+    }
+
+    void cond(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static sotc_decomp::NativeCount count("manager_sub_010C7B28");
+        count.hit();
+        if (sotc_decomp::fastNativeOn())
+            return condImpl<true>(rdram, ctx, runtime);
+        condImpl<false>(rdram, ctx, runtime);
     }
 
     SOTC_DECOMP_FUNCTION(kCond, manager_sub_010C7B28, cond);
