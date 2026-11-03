@@ -224,6 +224,14 @@
    "focus": "Speed",
    "summary": "The EE scheduler's thread switch (a WaitSema / SleepThread that blocks, a SignalSema that wakes a higher thread: ~400 a second) made by returning through the generated code instead of throwing a C++ exception, which on the Vita is a full ARM EHABI unwind; host frames that go on after guest code rethrow at their level as before (PS2X_XFER_RETURN).",
    "result": "Same state either way (Mac audit mode over the attract demo, the new-game intro and a save load / save screen: no frame went on). Vita3K 240 MHz A/B: game thread 23.45 -> 23.12 ms (-1.4%)."
+  },
+  {
+   "round": "r53",
+   "date": "2026-11-03",
+   "commit": "60ede99",
+   "focus": "Speed",
+   "summary": "The keyboard state the game reads every frame (256 keys, no keyboard attached) read with host pointers and written once a key when the caller's words lie apart from it (SOTC_FASTNATIVE2, a new switch for the next fast paths). Also tried and reverted: a lighter wait for the sound mixer's lock.",
+   "result": "Exact (difftest 0 mismatches; random-state test 0 differences). kbGetStatus 0.42% -> 0.03% of the Vita3K game thread (~0.08 ms a frame). The mixer change cut the game thread's lock wait 10% but cost the frame 2 ms: not kept."
   }
  ]
 }
