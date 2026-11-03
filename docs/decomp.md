@@ -8869,6 +8869,47 @@ fps does not hold there; the game thread is its limit at 222 now.
 
 **Deliverable:** build/agent-scratch/celosia-r56.vpk.
 
+## Round 57: the uniform values' copies; planFrame's compare unrolled (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r57/` (v3k.sh as round 56's; pr222:
+a rotating A/B of a pass-range change with a profile from 330 to 450 s;
+lean222: the A/B of this round's build; shots222: window shots).
+
+**Profile (Vita3K 222 MHz, round 56's build, attract demo frames
+~6 200-8 060, r57/pr222).** The render thread: sceGxmDraw 27%, planFrame
+11% (the title screen's world: ~2 600 draws), the draw loop 11%, vitaGL's
+draw path 8%, **sceClibMemcpy 7% from `glUniform4fv`** (vitaGL's
+`vglSetUniformData` copies each uniform array into the program's buffer
+through the import: the skinned draws' palettes, up to 192 qwords a call),
+memcpy 5% (round 56's uniform buffer copies), sceGxmSetVertexStream down to
+2.6% (9-10% before round 56).
+
+**1. `vglSetUniformData` copies with memcpy** (under round 56's
+`SOTC_GL_LEAN_DRAW` / `leandraw`, bit 0): the same bytes.
+
+**2. planFrame's `sameDraw` compare with a constant size** (the clip
+matrix 64 bytes, the light 128, the tints): unrolled word compares OR-ed
+together; round 56's loop kept its bound on the stack (~7 instructions a
+word; the hottest two instructions of planFrame). The same answer.
+
+**Tried, not kept: a draw pass over its order range only.** Each pass
+(several a frame) reads every draw of the frame to skip those outside its
+order range; a binary search of the sorted draw list for the range's start
+and end visits the same draws. Rotating A/B at 222 MHz (r57/pr222,
+`passrange`): render thread 18.87 ms with it, 18.55 without, frame 34.29 /
+34.56: nothing measurable. Dropped.
+
+**Measured (Vita3K 222 MHz, attract demo, 420 s, `leandraw` rotating, the
+host's one-second stalls left out, r57/lean222):** with `leandraw` (rounds
+56 + 57) the render thread 18.09 ms, without 20.19 (-2.1 ms, -10%; round
+56 alone: -1.9); fit 9.7 + 13.1 us a draw against 11.0 + 14.0. Frame 33.63
+/ 34.54 ms, game 22.01 / 22.63. The title screen's world (frames >= 7 000):
+frame 39.96 / 44.87 ms, render 23.75 / 27.48, game 32.95 / 34.63 (~400
+frames each, noisy). vb <= 2 in 82.2% of the frames (80.0% off). Window
+shots normal (r57/shots222).
+
+**Deliverable:** build/agent-scratch/celosia-r57.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

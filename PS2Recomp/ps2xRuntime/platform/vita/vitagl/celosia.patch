@@ -1290,6 +1290,118 @@ index 8abf57b..b4a63aa 100644
 +int gpu_alloc_mipmap_data(int level, texture *tex, const void *data, uint32_t lw, uint32_t lh); // celosia r55
  
  #endif
+diff --git a/source/utils/gxm_utils.c b/source/utils/gxm_utils.c
+index 61803f3..b774207 100644
+--- a/source/utils/gxm_utils.c
++++ b/source/utils/gxm_utils.c
+@@ -1,3 +1,4 @@
++#include <string.h>
+ /*
+  * This file is part of vitaGL
+  * Copyright 2017, 2018, 2019, 2020 Rinnegatamante
+@@ -255,6 +256,17 @@ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
+ 		dst += align_size; \
+ 	}
+ 
++// celosia r57 (vglCeloLeanDraw bit 0): a glUniform*'s values copied into the
++// program's uniform buffer with the library's memcpy instead of the
++// sceClibMemcpy import (the skinned draws' palettes: up to 3 KB a call).
++extern int vgl_celo_lean_draw;
++static inline __attribute__((always_inline)) void celo_uniform_copy(void *dst, const void *src, uint32_t size) {
++	if (vgl_celo_lean_draw & 1)
++		memcpy(dst, src, size);
++	else
++		vgl_fast_memcpy(dst, src, size);
++}
++
+ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, const int offset, const uint32_t count, const uint32_t componentCount, const void *sourceData, const SceGxmParameterType input_type) {
+ 	if (offset != 0) {
+ 		switch (t) {
+@@ -286,29 +298,29 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+ 			case SCE_GXM_PARAMETER_TYPE_F32:
+ 			case SCE_GXM_PARAMETER_TYPE_U32:
+ 			case SCE_GXM_PARAMETER_TYPE_S32:
+-				vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * 4);
++				celo_uniform_copy(uniformBuffer, sourceData, componentCount * 4);
+ 				break;
+ 			case SCE_GXM_PARAMETER_TYPE_F16:
+ 			case SCE_GXM_PARAMETER_TYPE_U16:
+ 			case SCE_GXM_PARAMETER_TYPE_S16:
+-				vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * 2);
++				celo_uniform_copy(uniformBuffer, sourceData, componentCount * 2);
+ 				break;
+ 			case SCE_GXM_PARAMETER_TYPE_U8:
+ 			case SCE_GXM_PARAMETER_TYPE_S8:
+ 			default:
+-				vgl_fast_memcpy(uniformBuffer, sourceData, componentCount);
++				celo_uniform_copy(uniformBuffer, sourceData, componentCount);
+ 				break;
+ 			}
+ 		} else {
+ 			switch (t) {
+ 			case SCE_GXM_PARAMETER_TYPE_F32:
+ 				if (componentCount == 2 || componentCount == 4) {
+-					vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * 4 * count);
++					celo_uniform_copy(uniformBuffer, sourceData, componentCount * 4 * count);
+ 				} else {
+ 					uint32_t align_size = componentCount == 1 ? 8 : 16;
+ 					float *src = (float *)sourceData;
+ 					for (int i = 0; i < count; i++) {
+-						vgl_fast_memcpy(uniformBuffer, src, componentCount * 4);
++						celo_uniform_copy(uniformBuffer, src, componentCount * 4);
+ 						src += componentCount;
+ 						uniformBuffer += align_size;
+ 					}
+@@ -316,11 +328,11 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+ 				break;
+ 			case SCE_GXM_PARAMETER_TYPE_F16:
+ 				if (componentCount == 4) {
+-					vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * 2 * count);
++					celo_uniform_copy(uniformBuffer, sourceData, componentCount * 2 * count);
+ 				} else {
+ 					uint16_t *src = (uint16_t *)sourceData;
+ 					for (int i = 0; i < count; i++) {
+-						vgl_fast_memcpy(uniformBuffer, src, componentCount * 2);
++						celo_uniform_copy(uniformBuffer, src, componentCount * 2);
+ 						src += componentCount;
+ 						uniformBuffer += 8;
+ 					}
+@@ -328,17 +340,17 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+ 				break;
+ 			case SCE_GXM_PARAMETER_TYPE_U32:
+ 			case SCE_GXM_PARAMETER_TYPE_S32:
+-				vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * 4 * count);
++				celo_uniform_copy(uniformBuffer, sourceData, componentCount * 4 * count);
+ 				break;
+ 			case SCE_GXM_PARAMETER_TYPE_U16:
+ 			case SCE_GXM_PARAMETER_TYPE_S16:
+ 				if (componentCount == 2 || componentCount == 4) {
+-					vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * 2 * count);
++					celo_uniform_copy(uniformBuffer, sourceData, componentCount * 2 * count);
+ 				} else {
+ 					uint32_t align_size = componentCount == 1 ? 4 : 8;
+ 					uint16_t *src = (uint16_t *)sourceData;
+ 					for (int i = 0; i < count; i++) {
+-						vgl_fast_memcpy(uniformBuffer, src, componentCount * 2);
++						celo_uniform_copy(uniformBuffer, src, componentCount * 2);
+ 						src += componentCount;
+ 						uniformBuffer += align_size;
+ 					}
+@@ -347,12 +359,12 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+ 			case SCE_GXM_PARAMETER_TYPE_U8:
+ 			case SCE_GXM_PARAMETER_TYPE_S8:
+ 				if (componentCount == 4) {
+-					vgl_fast_memcpy(uniformBuffer, sourceData, componentCount * count);
++					celo_uniform_copy(uniformBuffer, sourceData, componentCount * count);
+ 				} else {
+ 					
+ 					uint8_t *src = (uint8_t *)sourceData;
+ 					for (int i = 0; i < count; i++) {
+-						vgl_fast_memcpy(uniformBuffer, src, componentCount);
++						celo_uniform_copy(uniformBuffer, src, componentCount);
+ 						src += componentCount;
+ 						uniformBuffer += 4;
+ 					}
 diff --git a/source/utils/mem_utils.c b/source/utils/mem_utils.c
 index 4b791b7..d8be23f 100644
 --- a/source/utils/mem_utils.c

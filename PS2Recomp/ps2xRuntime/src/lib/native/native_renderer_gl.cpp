@@ -2835,18 +2835,22 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // Round 56: the arrays' bits compared word by word inline (the library
     // memcmp's calls from here were ~4% of the Vita render thread in the
     // attract demo's heaviest scenes); the same answer as memcmp's == 0.
-    static inline bool sameBits(const void *a, const void *b, size_t bytes)
+    template <size_t Bytes>
+    static inline bool sameBits(const void *a, const void *b)
     {
+        // (round 57: the size a constant, so the loop is unrolled with no
+        // spills: planFrame's clip compare kept its bound on the stack)
+        static_assert(Bytes % 4u == 0u, "whole words");
         const unsigned char *x = static_cast<const unsigned char *>(a), *y = static_cast<const unsigned char *>(b);
-        for (size_t i = 0; i < bytes; i += 4)
+        uint32_t diff = 0;
+        for (size_t i = 0; i < Bytes; i += 4)
         {
             uint32_t u, v;
             std::memcpy(&u, x + i, 4);
             std::memcpy(&v, y + i, 4);
-            if (u != v)
-                return false;
+            diff |= u ^ v;
         }
-        return true;
+        return diff == 0;
     }
 
     static bool sameDraw(const Draw &a, const Draw &b)
@@ -2860,11 +2864,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             x.fresnel != y.fresnel || x.screenCopy != y.screenCopy || x.previousFrame != y.previousFrame || x.debugColour != y.debugColour ||
             x.lit != y.lit || x.skinPalette || y.skinPalette)
             return false;
-        if (!sameBits(x.reflectionTint, y.reflectionTint, sizeof(x.reflectionTint)) || !sameBits(x.mirrorRipple, y.mirrorRipple, sizeof(x.mirrorRipple)))
+        if (!sameBits<sizeof(x.reflectionTint)>(x.reflectionTint, y.reflectionTint) || !sameBits<sizeof(x.mirrorRipple)>(x.mirrorRipple, y.mirrorRipple))
             return false;
-        if ((x.lit || x.fresnel) && !sameBits(x.light, y.light, sizeof(x.light)))
+        if ((x.lit || x.fresnel) && !sameBits<sizeof(x.light)>(x.light, y.light))
             return false;
-        return sameBits(a.clip, b.clip, sizeof(a.clip));
+        return sameBits<sizeof(a.clip)>(a.clip, b.clip);
     }
 
     void Renderer::planFrame()
