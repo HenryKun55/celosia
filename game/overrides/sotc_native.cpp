@@ -2840,6 +2840,8 @@ namespace sotc_native
     // reflect, refract, subtract, additive, overlays, sky; round 38:
     // alphatest, bgdepth, bodyshadows.
     PS2Runtime *g_runtimeForLog = nullptr; // the [audio] line's thread and heap part
+    // Round 59 (screenBlurHook): SOTC_SBLUR_JOIN=0 or an A/B with `sblurlazy`.
+    bool g_sblurLazyJoin = false;
     void abSwitches()
     {
         static const char *flags = std::getenv("SOTC_AB_FLAG");
@@ -2945,7 +2947,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -2958,6 +2960,7 @@ namespace sotc_native
             for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
                 layerAt[layer] = indexOf("L" + std::to_string(layer));
             xferAt = indexOf("xferreturn");
+            sblurLazyAt = indexOf("sblurlazy");
             return true;
         }();
         (void)placesRead;
@@ -2970,6 +2973,8 @@ namespace sotc_native
             static const bool xferStart = g_runtimeForLog->eeScheduler().xferReturn();
             g_runtimeForLog->eeScheduler().setXferReturn(isOffAt(xferAt) ? false : xferStart);
         }
+        if (sblurLazyAt >= 0) // round 59
+            g_sblurLazyJoin = !isOffAt(sblurLazyAt);
         for (size_t i = 0; i < kTuningCount; ++i)
             if (tuningAt[i] >= 0)
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? false : start.*(kTuningFlags[i].field);
@@ -6808,10 +6813,25 @@ namespace sotc_native
     // ---- screenBlur (0x108a780) -------------------------------------------
     constexpr uint32_t kScreenBlur = 0x0108A780u;
     PS2Runtime::RecompiledFunction g_screenBlur = nullptr;
+    // Round 59 (SOTC_SBLUR_JOIN=0 / A/B name `sblurlazy`; off by default): the
+    // model jobs are joined only when a blur is recorded. cameraBlur calls
+    // screenBlur near the frame's end whenever the camera moved, and nearly
+    // every call is the identity (round 51), which records nothing: its join
+    // only held the game thread until the worker had drawn the frame's
+    // models (Vita3K 222 MHz: 777 of 7 476 frames, 4.3 ms each), work the
+    // frame change's join (or the next frame's logic) covers as in any frame
+    // without a blur. The guest screenBlur's own GS writes go through gsReg's
+    // hooks, which keep the jobs' order themselves; a recorded blur still
+    // joins first, as before.
     void screenBlurHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
-        hookJoin(hookjobs::k_screenblur);
+        // Default: the join at every call, as before (the lazy join measured
+        // no gain and the title screen's world a little worse, round 59).
+        static const bool envLazy = std::getenv("SOTC_SBLUR_JOIN") && std::atoi(std::getenv("SOTC_SBLUR_JOIN")) == 0;
+        const bool lazy = g_sblurLazyJoin || envLazy;
+        if (!lazy)
+            hookJoin(hookjobs::k_screenblur);
         static int n = 0;
         // SOTC_SBLUR_LOG=1 (debugging, round 51): every call, not the first 30.
         static const bool everyBlur = std::getenv("SOTC_SBLUR_LOG") != nullptr;
@@ -6844,7 +6864,11 @@ namespace sotc_native
         const float moved = std::fabs(b.scale - 1.0f) * corner + (std::fabs(b.angle) >= 0.01570796f ? std::fabs(b.angle) * corner : 0.0f) + std::fabs(b.dx) + std::fabs(b.dy);
         const bool identity = !(moved >= 1.0f / 16.0f); // (NaN: left out too)
         if (native_renderer::tuning().screenBlur && b.steps > 0 && b.steps < 64 && (!identity || drawIdentity))
+        {
+            if (lazy)
+                hookJoin(hookjobs::k_screenblur);
             native_renderer::addScreenBlur(b);
+        }
         g_screenBlur(rdram, ctx, runtime);
     }
 

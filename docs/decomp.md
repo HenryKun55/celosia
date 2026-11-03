@@ -9016,6 +9016,77 @@ shadowCapture in another).
 
 **Deliverable:** build/agent-scratch/celosia-r58.vpk.
 
+## Round 59: the camera blur's join only when it records; what the slips really are (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r59/` (verify: the Mac order /
+async check, ab222 / ab300: the A/B runs, check444: the Vita3K check run);
+new tool `build/agent-scratch/tools/slips.py`.
+
+**1. The camera blur's join (`SOTC_SBLUR_JOIN=0`, off by default; A/B
+`sblurlazy`).** Round 58's A/B log had the game thread waiting for the hook
+worker at screenBlurHook in 777 of 7 476 frames, 4.3 ms each (the `joins
+screenblur` column). cameraBlur calls screenBlur near the frame's end
+whenever the camera moved; nearly every call is the identity (round 51),
+which records nothing, and its join only held the game thread until the
+worker had drawn the frame's models. The hook now joins only before it
+records a blur (`addScreenBlur`); the guest screenBlur's own GS writes go
+through gsReg's hooks, which keep the jobs' order themselves (round 32).
+- Exact (the same draws in the same order): Mac attract demo to 6 000 with
+  the worker on and slowed (`SOTC_HOOK_WORKER_DELAY_US=150`), 613 screenBlur
+  calls (r59/verify): `SOTC_HOOK_ORDER_CHECK=1` 6 467 game-thread draws, 0
+  while jobs were pending; `SOTC_HOOK_ASYNC_VERIFY=1` 293 115 jobs' inputs
+  checked, 0 differ, what the model jobs read themselves changed in 0.
+- Vita3K 222 MHz A/B (r59/ab222): frames with a screen blur join 392 ->
+  26 (1 798 -> 91 ms of waiting), the hooks' time 1.72 -> 1.30 ms a frame,
+  the frame-change join unchanged (4 frames); the frame itself 34.36 ->
+  33.91 ms, game 22.57 -> 22.45 (noise): the frames that waited had slack
+  before their vblank, so the wait seldom cost a vblank.
+- Vita3K 300 MHz A/B (r59/ab300): frame 32.16 (old) / 32.47 (lazy), game
+  17.57 / 17.36; frames over 40 ms in the first 7 000 frames 3.0% / 3.1%, in
+  the title screen's world 4.1% / 7.9% (and at 222 MHz 58.6% / 61.7%).
+- **So the lazy join is not the default**: it removes the waits but no
+  frame-time gain shows, and the title screen's world came out a little
+  worse at both clocks (few windows, but the same way twice). The hook joins
+  at every call as before; `SOTC_SBLUR_JOIN=0` (or an A/B with `sblurlazy`,
+  lazy outside its own windows) for the console to judge.
+
+**Round 58's checks, finished** (Vita3K 444 MHz, `SOTC_FASTNATIVE_CHECK=1`,
+the attract demo to frame 9 978 through the title screen's world,
+r59/check444): collision.finderHas 491 520 checks, gc.timeCheckKept
+3 899 392, and every round 49 check (leafScan, clipPlane, finderScan,
+clipKeep, cylinder, GetMotionMatrix, UpdateLayoutClassGeometry): 0
+mismatches.
+
+**2. What the slips are.** Vita3K's guest vblank count per frame (`vb`)
+jitters: in round 59's run 588 of the 1 032 frames counted as 3 vblanks in
+the attract demo's first 7 000 frames took 31.1 ms on average (game 19.9,
+render 17.3): a count, not a lost frame. `slips.py` counts host frame times
+over 40 ms (a lost vblank shows as ~50 ms) and splits them by the thread
+past 33 ms:
+
+| run (state all on) | frames < 7 000: > 40 ms | game / render / other | the title screen's world: > 40 ms |
+|---|---|---|---|
+| 222 MHz, r58/ab222 | 8.0% | 2.5 / 3.0 / 2.6% | 57% (all game thread) |
+| 222 MHz, r59/ab222 | 8.9% | 3.6 / 2.9 / 2.4% | 62% (all game thread) |
+| 300 MHz, r58/ab300 | 2.5% | 0.7 / 0.1 / 1.7% | 2.1% |
+
+At 300 MHz the attract demo is close to a locked 30 (the "other" slips
+are mostly host hiccups); at 222 MHz about one frame in twelve slips in the
+first 7 000 frames (half the game thread's heavy frames, ~46 ms; half the
+render thread's ~1 950-draw frames, ~42 ms) and most frames of the title
+screen's world (the game thread, ~41 ms a frame).
+
+**Where 30 fps stands after rounds 58-59.** 300 MHz: ~3% of the attract
+demo's frames over 40 ms (mostly host hiccups), the title screen's world
+2-8%: close to a held 30. 222 MHz: ~8-9% of the first 7 000 frames slip
+(game-thread frames of ~46 ms and ~1 950-draw render frames of ~42 ms, about
+half each), the title screen's world ~60% (game thread ~41 ms against 33).
+Not 30 fps at 222: the game thread would need ~20% less in the heavy scenes,
+and the profile is flat (nothing over 2.3%).
+
+**Deliverable:** build/agent-scratch/celosia-r59.vpk (the default as round
+58's behaviour, plus the switch).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
