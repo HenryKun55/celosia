@@ -16,6 +16,7 @@
 // matrix, the packets, the epilogue) is the recompiled code from its label
 // 0x113eafc, entered with the registers and frame it expects there.
 #include "sotc_decomp.h"
+#include "lines67.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -45,7 +46,11 @@ namespace decomp_ptcldraw
     struct Ram
     {
         uint8_t *rdram;
-        uint8_t *p(uint32_t a) const { return rdram + (a & PS2_RAM_MASK); }
+        uint8_t *p(uint32_t a) const
+        {
+            lines67::touch(a);
+            return rdram + (a & PS2_RAM_MASK);
+        }
         uint32_t u32(uint32_t a) const
         {
             uint32_t v;
@@ -63,6 +68,7 @@ namespace decomp_ptcldraw
         const Ram ram{rdram};
         const uint32_t s2 = GPR_U32(ctx, 4), fp = GPR_U32(ctx, 5), s4 = GPR_U32(ctx, 6);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp1 = sp0 - 0xF0u;
+        const lines67::Scope l67(lines67::kPtcl, true, sp0);
         if ((sp1 & 0xFu) != 0u || !plain(sp1, 0xF0u) || !plain(s2, 0x150u) || !plain(s4, 0xC0u))
             return sotc_decomp::recompiled(kDraw)(rdram, ctx, runtime);
         const uint64_t e16 = GPR_U64(ctx, 16), e17 = GPR_U64(ctx, 17), e18 = GPR_U64(ctx, 18), e19 = GPR_U64(ctx, 19), e20 = GPR_U64(ctx, 20),
@@ -136,8 +142,53 @@ namespace decomp_ptcldraw
             const __m128 vf0 = ctx->vu0_vf[0];
             const __m128 wv = _mm_shuffle_ps(vf0, vf0, _MM_SHUFFLE(3, 3, 3, 3)), xv = _mm_shuffle_ps(vf0, vf0, _MM_SHUFFLE(0, 0, 0, 0));
             __m128 vf7 = ctx->vu0_vf[7];
+            // Round 67 (SOTC_WALK67): a runner kAhead particles in front of
+            // the loop along the +0xa8 links, asking for each particle's
+            // lines (+0x00 .. +0xa8: the position, the scales, the fade
+            // words, the angle, the link) as it reaches it, and the display
+            // list's 48-byte slots as far ahead (written in turn). Only
+            // reads and PLDs: the loop below is unchanged (the runner reads
+            // a link the loop reads later; nothing is written in between but
+            // the display list and the context, and a link it gets wrong
+            // only costs a wasted line).
+            const bool w67 = sotc_decomp::walk67On();
+            constexpr uint32_t kAhead = 4u;
+            uint32_t runner = s0, outAhead = s1;
+            auto askParticle = [&](uint32_t p)
+            {
+                for (uint32_t off = 0; off < 0xB0u; off += 0x20u)
+                {
+                    lines67::pref(p + off);
+                    __builtin_prefetch(rdram + ((p + off) & PS2_RAM_MASK));
+                }
+            };
+            auto askOut = [&](uint32_t o)
+            {
+                lines67::pref(o), lines67::pref(o + 0x2Fu);
+                __builtin_prefetch(rdram + (o & PS2_RAM_MASK));
+                __builtin_prefetch(rdram + ((o + 0x2Fu) & PS2_RAM_MASK));
+            };
+            if (w67)
+            {
+                for (uint32_t i = 0; i < kAhead && runner != 0u && plain(runner, 0xB0u); ++i)
+                {
+                    askParticle(runner);
+                    askOut(outAhead);
+                    outAhead += 0x30u;
+                    if (i + 1u < kAhead)
+                        runner = ram.u32(runner + 0xA8u);
+                }
+            }
             do
             {
+                if (w67 && runner != 0u && plain(runner, 0xB0u))
+                {
+                    runner = ram.u32(runner + 0xA8u); // asked for kAhead - 1 particles ago
+                    if (runner != 0u && plain(runner, 0xB0u))
+                        askParticle(runner);
+                    askOut(outAhead);
+                    outAhead += 0x30u;
+                }
                 f0 = ram.f32(s0 + 0x40u);
                 if (FPU_C_EQ_S(f0, f21))
                 {

@@ -38,6 +38,7 @@
 #include "runtime/ee_scheduler.h"
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
+#include "lines67.h"
 #include "lean_hot.h"
 #include "ThreadNaming.h"
 
@@ -236,7 +237,11 @@ namespace sotc_native
             g_r2Check = new R2Check;
         return *g_r2Check;
     }
-    inline void prefetchGuest(uint32_t addr) { __builtin_prefetch(g_ram + (addr & 0x1FFFFE0u)); }
+    inline void prefetchGuest(uint32_t addr)
+    {
+        lines67::pref(addr);
+        __builtin_prefetch(g_ram + (addr & 0x1FFFFE0u));
+    }
     // Round 32: `bytes` (a multiple of 4) of guest memory from addr as real()
     // / word() read them one by one (each word's address masked): one copy
     // when the block does not wrap at the 32 MB end.
@@ -253,6 +258,7 @@ namespace sotc_native
     uint32_t word(uint32_t addr)
     {
         noteRead(addr, 4u);
+        lines67::touch(addr);
         uint32_t v;
         std::memcpy(&v, g_ram + (addr & 0x1FFFFFCu), 4);
         return v;
@@ -260,6 +266,7 @@ namespace sotc_native
     float real(uint32_t addr)
     {
         noteRead(addr, 4u);
+        lines67::touch(addr);
         float v;
         std::memcpy(&v, g_ram + (addr & 0x1FFFFFCu), 4);
         return v;
@@ -2961,7 +2968,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3040,6 +3047,7 @@ namespace sotc_native
             return;
         if (mdsTraceOn())
             mdsTraceFrame();
+        lines67::frame(g_frame);
         abSwitches();
         flush2D();
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
@@ -5625,6 +5633,7 @@ namespace sotc_native
     void meshDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
+        const lines67::Scope l67(lines67::kHook, true);
         const uint32_t object = GPR_U32(ctx, 4);
         const uint32_t header = g_requested;
         const uint32_t layer = g_layers.empty() ? 2u : g_layers.back();
@@ -5658,11 +5667,32 @@ namespace sotc_native
                 return;
             const uint32_t bytes = 0xB0u + job.rows * (job.columns * 0x40u + 0x10u);
             job.grid.resize(bytes);
-            for (uint32_t i = 0; i < bytes; i += 4u)
+            // Round 67 (SOTC_WALK67): a 4-byte-aligned grid inside main RAM
+            // copied in one block with its lines asked for 1 KB ahead
+            // (the same words as the word-by-word loop: word() reads
+            // g_ram + (a & 0x1fffffc), which for such a range is the block).
+            const uint32_t at = job.buffer & 0x1FFFFFFu;
+            if (sotc_decomp::walk67On() && (job.buffer & 3u) == 0u && at + bytes <= 0x2000000u)
             {
-                const uint32_t w = word(job.buffer + i);
-                std::memcpy(job.grid.data() + i, &w, 4);
+                for (uint32_t i = 0; i < 1024u && i < bytes; i += 32u)
+                    prefetchGuest(job.buffer + i);
+                for (uint32_t i = 0; i < bytes; i += 256u)
+                {
+                    const uint32_t n = std::min<uint32_t>(256u, bytes - i);
+                    for (uint32_t k = 1024u; k < 1280u && i + k < bytes; k += 32u)
+                        prefetchGuest(job.buffer + i + k);
+                    for (uint32_t k = 0; k < n; k += 64u)
+                        lines67::touch(job.buffer + i + k);
+                    lines67::touch(job.buffer + i + n - 1u);
+                    std::memcpy(job.grid.data() + i, g_ram + at + i, n);
+                }
             }
+            else
+                for (uint32_t i = 0; i < bytes; i += 4u)
+                {
+                    const uint32_t w = word(job.buffer + i);
+                    std::memcpy(job.grid.data() + i, &w, 4);
+                }
         }
         if (!hookjobs::g_on)
         {
@@ -7280,10 +7310,10 @@ namespace sotc_native
                 // visit(index, table + index * 0x30, state, depth + 1)
                 --budget;
                 if (qAt < qEnd)
-                    __builtin_prefetch(ram + (q.lines[qAt++] & 0x1FFFFE0u)); // the next draw's lines (queueNextDraw)
+                    lines67::pref(q.lines[qAt]), __builtin_prefetch(ram + (q.lines[qAt++] & 0x1FFFFE0u)); // the next draw's lines (queueNextDraw)
                 node = table + index * 0x30u;
                 if (prefetchOn)
-                    __builtin_prefetch(ram + ((node + 0x60u) & 0x1FFFFE0u)); // two nodes on (a table is mostly in walk order)
+                    lines67::pref(node + 0x60u), __builtin_prefetch(ram + ((node + 0x60u) & 0x1FFFFE0u)); // two nodes on (a table is mostly in walk order)
                 maxNode = std::max(maxNode, node);
                 if (!state)
                     state = pc.test(ram, node);
@@ -7358,7 +7388,7 @@ namespace sotc_native
             if (pumpQueue)
             {
                 if (qAt < qEnd)
-                    __builtin_prefetch(ram + (q.lines[qAt++] & 0x1FFFFE0u)); // the next draw's lines (queueNextDraw)
+                    lines67::pref(q.lines[qAt]), __builtin_prefetch(ram + (q.lines[qAt++] & 0x1FFFFE0u)); // the next draw's lines (queueNextDraw)
                 if (e + 1 != end)
                     __builtin_prefetch(nextInfo);
             }
@@ -7657,7 +7687,7 @@ namespace sotc_native
                         uint32_t a = table & ~31u;
                         const uint32_t limit = table + shape.nodes * 0x30u;
                         for (uint32_t n = limit > a ? std::min<uint32_t>(64u, (limit - a + 31u) >> 5) : 0u; n; --n, a += 32u)
-                            __builtin_prefetch(ram + (a & 0x1FFFFE0u));
+                            lines67::pref(a), __builtin_prefetch(ram + (a & 0x1FFFFE0u));
                     }
                 }
                 const uint32_t root = pc.test(ram, table);
@@ -8105,9 +8135,62 @@ namespace sotc_native
         uint64_t frame = ~0ull;
     };
     ScrollMemo g_scrollMemo[1024];
+    // Round 67 (SOTC_WALK67): the memo misses' chains (s + 0x2c -> the
+    // header's object table -> the object's +0x20 -> its +0xc -> the row)
+    // walked level by level over up to 32 surfaces at a time, each level's
+    // lines asked for together before the next level reads them: the
+    // A9's misses then overlap instead of five in a row per surface. Only
+    // reads and PLDs (no guest code, nothing written); the loop below then
+    // does the same reads as before, from the cache.
+    void scrollChainsAhead(const ModelPlan *plan, uint32_t header)
+    {
+        const std::vector<uint32_t> &recs = plan->surfaceRecords;
+        constexpr size_t kBatch = 32u;
+        uint32_t at[kBatch];
+        const uint32_t tableCount = word(header + 0x44u), table = word(header + 0x40u);
+        for (size_t base = 0; base < recs.size(); base += kBatch)
+        {
+            size_t n = 0;
+            for (size_t i = base, end = std::min(recs.size(), base + kBatch); i < end; ++i)
+            {
+                const uint32_t s = recs[i];
+                const ScrollMemo &m = g_scrollMemo[surfaceSlot(s)];
+                if (m.frame == g_frame && m.s == s && m.header == header)
+                    continue;
+                at[n++] = s + 0x2Cu;
+                prefetchGuest(s + 0x2Cu);
+            }
+            // The levels: the index -> the table entry's +0x10, the object's
+            // +0x20, nto2's +0xc, the row's two words.
+            for (int level = 0; level < 4 && n; ++level)
+            {
+                size_t kept = 0;
+                for (size_t i = 0; i < n; ++i)
+                {
+                    const uint32_t v = word(at[i]);
+                    uint32_t next = 0u;
+                    if (level == 0)
+                        next = v < tableCount ? table + v * 0x20u + 0x10u : 0u;
+                    else if (level == 1)
+                        next = v ? v + 0x20u : 0u;
+                    else if (level == 2)
+                        next = v ? v + 0xCu : 0u;
+                    else
+                        next = v;
+                    if (!next)
+                        continue;
+                    prefetchGuest(next);
+                    at[kept++] = next;
+                }
+                n = kept;
+            }
+        }
+    }
     // The plan's rows' addresses as the memo above gives them (round 34's loop).
     void hookScrollRows(const ModelPlan *plan, uint32_t header, std::vector<ScrollRow> &out)
     {
+        if (sotc_decomp::walk67On() && plan->surfaceRecords.size() > 1u)
+            scrollChainsAhead(plan, header);
         for (const uint32_t s : plan->surfaceRecords)
         {
             ScrollMemo &m = g_scrollMemo[surfaceSlot(s)];
@@ -8545,6 +8628,7 @@ namespace sotc_native
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
+        const lines67::Scope l67(lines67::kHook, true);
         static const ModelDispEnv env;
         const uint32_t instance = GPR_U32(ctx, 4), matrix = GPR_U32(ctx, 5);
         float model[16];

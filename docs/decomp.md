@@ -10034,6 +10034,157 @@ err-plain.txt gives the layout's effect.
 
 **Deliverable:** build/agent-scratch/celosia-r66.vpk (r65b + this round).
 
+## Round 67: the per-object walks' memory misses asked for ahead (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r67/` (wt: this round's worktree;
+mac / vita: its builds; attract.sh: the Mac attract demo; lines.py: the
+proxy's table; off4 / on4: the proxy runs, off2 / on2 / on3 with the sites
+and offsets; dt-on / dt-list / dt-ctl: the difftests; pic-on / pic-off /
+pic-off2: the pictures; ab.sh / batch.sh / rot1 / rot2: the Vita3K A/B;
+env-console.txt: the console run's env.txt). The console's own cost
+(round 66, item 6) is DRAM latency, ~250 ns a miss with no useful hardware
+prefetch on the Cortex-A9, in walks that touch every object's records once
+a frame on the game thread. Neither Vita3K nor the Mac shows it, so this
+round first built a proxy for it on the Mac.
+
+**The proxy (`SOTC_LINES67=1`, lines67.h / decomp_lines67.cpp; nothing in
+the Vita build).** The game thread's guest reads and writes in the native
+display walk (DispDispObjGroupModel's own, the clip callbacks with
+modelClipSolid, the draw callbacks with 010F3A08, the strips and the gl
+kick), the model / mesh hooks' game-thread part (word() / real()), a
+particle system's draw (manager_sub_0113E940) and the collision natives (G)
+are counted as 64-byte lines per frame, the guest stack (+-8 KB around the
+walk's sp) left out. A line is "exposed" when its first use in the frame
+was not asked for (PLD) in an earlier object call of the frame or at least
+16 of the walks' accesses before: the A9's demand misses if every line were
+cold and every prefetch that far ahead arrived in time (an upper bound: L2
+hits are not modelled). `SOTC_LINES67_SITES=1` gives the exposed lines by
+caller, `SOTC_LINES67_REL=1` by offset from the object being clipped /
+drawn. The first runs (walk67 off, hook worker on as on the Vita, attract
+demo early part, a frame): ~3 600 lines, ~2 850 exposed: the particle draw
+~1 150 (its particle list and display list), the hooks ~730 (the texture
+scroll rows' chains in hookScrollRows ~350, meshDispHook's cloth grid copy
+~230), the walk's own ~320, the draw callbacks ~320, collision ~290 (the
+camera's segment tests and the collision works' flush), the clip callbacks
+only ~50 (round 2's last-frame prefetch already covered them).
+
+**What changed (`SOTC_WALK67`, default on; `SOTC_AB_FLAG` takes `walk67`).**
+Only reads and PLDs are added: every decision, write and guest call is the
+same, in the same order.
+- The display walk (decomp_prefetch.cpp, decomp_walk.cpp): round 2's
+  records of the last frame's clip / draw calls are asked for 3 calls
+  ahead (`SOTC_WALK67_AHEAD`) instead of 1, by DispDispObjGroupModel at the
+  top of each object's turn (its own reads of the object come before the
+  callback's), each call asking only for the record that enters the
+  window; the records gain the walk's own lines (+0x1b6..+0x1b8, the sort
+  node's first line, the draw's +0x280 / +0x3c0, found by the proxy's
+  offsets) and lose their duplicate lines. The group chain is run 4 entries
+  ahead; the sort lists' passes ask for their nodes 6 ahead, the objects'
+  type / class lines 3 ahead and the +0x260 word (and the draw class's
+  callbacks) 1 ahead, from a read-only copy of the list's order; the bucket
+  array is asked for before its clear; 010F3A08 asks for the parts' source
+  matrices and blocks four parts ahead; the gl kick asks for the GIF
+  packet's next two lines.
+- The hooks (sotc_native.cpp): hookScrollRows' memo misses walk their
+  five-deep chain (surface +0x2c, the header's object table, the object's
+  +0x20, its +0xc, the row) level by level over 32 surfaces at a time, each
+  level's lines asked for together, so the misses overlap instead of
+  coming five in a row per surface; meshDispHook copies the cloth grid in
+  one block (the same words: word() reads g_ram + (a & 0x1fffffc), which for
+  a 4-byte-aligned range in main RAM is the block) with its lines asked for
+  1 KB ahead.
+- The particle draw (decomp_ptcldraw.cpp): a runner 4 particles ahead on
+  the +0xa8 links asks for each particle's six lines and the display list's
+  next 48-byte slot.
+- Collision (decomp_collision.cpp): the leaf's boundary records (a gather
+  through the u16 ids) asked for 4 ids ahead, in the Vita's NEON scan and
+  in the generic body; FlushCollisionWorkByWorkStruct asks for its
+  0x60-byte parts two ahead and the next part's id arrays.
+
+What was not done: cutting the distinct lines themselves. They are the
+game's records (instance, header, LOD record, matrices, the part tree,
+packets, surfaces); an exact side array (SoA) would have to be checked
+against the guest words it copies at each use, which reads the same lines,
+or trusted for a frame, which is round 2's policy for textures and packets
+and not exact. Batching the clip tests over contiguous bounds would move
+guest calls (the update / clip callbacks run between the tests) and is not
+exact either. Collision is mostly compute (rounds 10-24: 0.7-0.95x Vita3K's
+time on the console), so it got only the gathers.
+
+**The proxy, before and after (the Mac, attract demo to 12 000, 600-frame
+windows, a frame; off4 / on4).** Distinct lines do not change (the same
+reads; the heavy part's runs are not frame-identical); the exposed ones
+drop by 55-61%:
+
+| walk | calls (heavy) | lines (heavy) off / on | exposed early off / on | exposed flyover off / on | exposed heavy off / on |
+|---|---|---|---|---|---|
+| the walk's own (DispDispObjGroupModel) |  | 641 / 718 | 453 / 226 | 359 / 215 | 397 / 188 |
+| clip callbacks (ClipLayoutObjModel, modelClipSolid) | 53.8 | 461 / 542 | 64 / 54 | 54 / 48 | 64 / 56 |
+| draw callbacks (DispLayoutObjModel, 010F3A08, strips, gl kick) | 43.1 | 713 / 770 | 355 / 246 | 197 / 146 | 420 / 300 |
+| model / mesh hooks (game-thread part) | 53.0 | 986 / 981 | 1021 / 393 | 919 / 319 | 880 / 366 |
+| particle draw (0113E940) | 5.7 | 1179 / 1124 | 470 / 24 | 485 / 23 | 1179 / 60 |
+| collision natives | 2.0 | 327 / 326 | 295 / 269 | 319 / 292 | 316 / 290 |
+| all |  | 4308 / 4462 | 2659 / 1211 | 2333 / 1044 | 3257 / 1260 |
+
+The prefetches never used in their frame: ~285 lines a frame before, ~370
+after.
+
+**Exactness.** Mac `SOTC_DIFFTEST` with SOTC_WALK67=1: `all`, every 25th
+call to frame 1 500 (dt-on): mismatches only in the two known noisy ones
+(isysWakeupSubThread's timer, manager_sub_01102638); the touched natives by
+name, every 5th call to 3 000 (dt-list): DispDispObjGroupModel 200 checks,
+ClipLayoutObjModel 11 300, modelClipSolid 11 500, DispLayoutObjModel 7 100,
+010F3A08 7 200, the strips 600, glVertexKick 29 200, particleDraw 1 000,
+ClipCollisionDirectCallBack 500: 0 mismatches. FlushCollisionWork /
+FlushCollisionWorkByWorkStruct show the bytes of round 65's known noise
+(0x29126c and scattered others) at the same rate with SOTC_WALK67=0
+(dt-ctl: 417 in 5 700 and 18 in 1 900; with it on 105 in 1 500 and 35 in
+700). meshDispHook's block copy and hookScrollRows' prepass are exact by
+construction (the same words; the prepass only reads). Pictures (pic-on /
+pic-off / pic-off2, every 600 frames to 6 000): the same scenes, the
+RMSE between walk67 on and off within the run-to-run noise of two runs
+with it off.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, the attract demo 480 s, frame
+log; SOTC_AB_FLAG=walk67 SOTC_AB_ROTATE=1, 60-frame windows: one run
+alternates walk67 on and off; two runs; abrot.py / slips.py).** Vita3K's
+PLD does nothing and its host caches hide the misses, so this only checks
+that the added work costs nothing:
+
+| part | run | windows on / off | game thread on / off (ms) | off minus on | hooks on / off | frames > 40 ms on / off |
+|---|---|---|---|---|---|---|
+| early (< 7 000) | rot1 | 58 / 58 | 20.67 / 20.48 | -0.19 | 1.31 / 1.34 | 8.8% / 5.4% |
+| | rot2 | 58 / 58 | 20.45 / 20.21 | -0.24 | 1.29 / 1.34 | 7.6% / 6.9% |
+| flyover (7 000-9 999) | rot1 | 25 / 25 | 15.89 / 15.67 | -0.22 | 0.76 / 0.73 | 1.5% / 1.1% |
+| | rot2 | 25 / 25 | 15.56 / 15.03 | -0.53 | 0.70 / 0.60 | 0.0% / 0.0% |
+| heavy (>= 10 000) | rot1 | 20 / 19 | 32.05 / 33.06 | +1.02 | 1.28 / 1.60 | 48.2% / 31.2% |
+| | rot2 | 22 / 21 | 34.04 / 34.51 | +0.48 | 1.59 / 1.69 | 49.1% / 39.1% |
+
+In Vita3K the added work (the walks' extra reads: the sort lists' copies,
+the records' dedupe, the scroll chains' prepass, the runners) costs ~0.2-0.5
+ms of the game thread in the light parts, ~1-2%; the heavy part's +0.5 /
++1.0 ms for walk67 is within the noise of ~20 windows a state (the rotating
+windows sample the demo at fixed phases, which is also why the > 40 ms
+shares disagree between the states and between the runs). Nothing got
+slower beyond that. The PLDs themselves are what Vita3K cannot show.
+
+**Estimated on the console (not measured).** ~2 000 fewer exposed lines a
+frame in the heavy part; if half of those are DRAM misses at ~250 ns (the
+rest L2 hits), ~0.25 ms, up to ~0.5 ms; the hook worker's own walks (not
+counted: off the game thread) gain from the prefetch queue as before. Far
+from the ~20 ms a locked 30 fps needs; the console A/B below says what it
+really is.
+
+**For the console run (the user's):** celosia-r67.vpk with
+`build/agent-scratch/r67/env-console.txt` as ux0:data/celosia/env.txt (r66's
+profile env plus `SOTC_AB_FLAG=walk67 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`):
+`[ab] frame F: walk67 off` / `all on` every 60 frames, so the one run gives
+walk67's cost; `abrot.py err.txt` (frame, game, hooks by state: positive =
+walk67 saves that much) and `slips.py err.txt` (frames over 40 ms by state
+and cause); the [prof] windows by subsystem as in r66's.
+
+**Deliverable:** build/agent-scratch/celosia-r67.vpk (main + this round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

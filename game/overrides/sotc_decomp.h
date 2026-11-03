@@ -527,11 +527,12 @@ namespace sotc_decomp
         kParticles62, // round 62: the particle geodisps' clip pass (decomp_ptcl62)
         kColl63,      // round 63: the collision leaf's plane test first (decomp_collision)
         kTex64,       // round 64: texReset's texture loop on the offload thread (decomp_tex64)
+        kWalk67,      // round 67: the per-object walks' lines asked for ahead (decomp_prefetch, decomp_walk, sotc_native, decomp_ptcldraw, decomp_collision)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -607,6 +608,10 @@ namespace sotc_decomp
     inline bool fastNative2On() { return switchOn(kFastNative2); }
     // Round 58: the next fast paths (the same rules), SOTC_FASTNATIVE3=0 off.
     inline bool fastNative3On() { return switchOn(kFastNative3); }
+    // Round 67 (SOTC_WALK67=0: off): the per-object walks' guest lines asked
+    // for further ahead and level by level (prefetch only: what is read,
+    // written and called is the same either way).
+    inline bool walk67On() { return switchOn(kWalk67); }
 
     // Round 49's measurements. NativeCount: calls of a native (counted
     // whatever SOTC_FASTNATIVE says, at its entry); with

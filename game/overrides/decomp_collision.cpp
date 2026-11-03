@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "lines67.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -176,8 +177,11 @@ namespace decomp_collision
         void slowPut(uint32_t a, __m128 v) const { slowPutAt(rdram, ctx, runtime, a, v); }
         void slowPut32(uint32_t a, uint32_t v) const { slowPut32At(rdram, ctx, runtime, a, v); }
         void slowPut64(uint32_t a, uint64_t v) const { slowPut64At(rdram, ctx, runtime, a, v); }
+        // Round 67: the cache-line proxy (lines67.h, Mac only).
+        void lt(uint32_t a) const { lines67::touchAs(lines67::kColl, a, GPR_U32(ctx, 29)); }
         inline __attribute__((always_inline)) uint32_t u32(uint32_t a) const
         {
+            lt(a);
             if (__builtin_expect(plain(a, 4u), 1))
             {
                 uint32_t v;
@@ -188,6 +192,7 @@ namespace decomp_collision
         }
         inline __attribute__((always_inline)) uint16_t u16(uint32_t a) const
         {
+            lt(a);
             if (__builtin_expect(plain(a, 2u), 1))
             {
                 uint16_t v;
@@ -196,7 +201,7 @@ namespace decomp_collision
             }
             return slow16(a);
         }
-        inline __attribute__((always_inline)) uint8_t u8(uint32_t a) const { return __builtin_expect(plain(a, 1u), 1) ? rdram[a] : slow8(a); }
+        inline __attribute__((always_inline)) uint8_t u8(uint32_t a) const { return lt(a), __builtin_expect(plain(a, 1u), 1) ? rdram[a] : slow8(a); }
         inline __attribute__((always_inline)) float f32(uint32_t a) const
         {
             const uint32_t bits = u32(a);
@@ -207,6 +212,7 @@ namespace decomp_collision
         inline __attribute__((always_inline)) __m128 q(uint32_t a) const
         {
             a &= ~0xFu;
+            lt(a);
             if (__builtin_expect(plain(a, 16u), 1))
             {
                 __m128 v;
@@ -218,6 +224,7 @@ namespace decomp_collision
         inline __attribute__((always_inline)) void put(uint32_t a, __m128 v) const
         {
             a &= ~0xFu;
+            lt(a);
             if (__builtin_expect(plain(a, 16u), 1))
                 std::memcpy(rdram + a, &v, 16);
             else
@@ -225,6 +232,7 @@ namespace decomp_collision
         }
         inline __attribute__((always_inline)) void put32(uint32_t a, uint32_t v) const
         {
+            lt(a);
             if (__builtin_expect(plain(a, 4u), 1))
                 std::memcpy(rdram + a, &v, 4);
             else
@@ -232,6 +240,7 @@ namespace decomp_collision
         }
         inline __attribute__((always_inline)) void put64(uint32_t a, uint64_t v) const
         {
+            lt(a);
             if (__builtin_expect(plain(a, 8u), 1))
                 std::memcpy(rdram + a, &v, 8);
             else
@@ -239,7 +248,11 @@ namespace decomp_collision
         }
         void f0(float v) const { ctx->f[0] = v; }
         // A cache line asked for ahead of its use (no fault, no effect on guest state).
-        void prefetch(uint32_t a) const { __builtin_prefetch(rdram + (a & 0x1FFFFFFu)); }
+        void prefetch(uint32_t a) const
+        {
+            lines67::prefAs(lines67::kColl, a);
+            __builtin_prefetch(rdram + (a & 0x1FFFFFFu));
+        }
     };
 
     // GetLayoutClass (0x10f1a20) without a call: false for the types it
@@ -461,8 +474,24 @@ namespace decomp_collision
             const uint32x2_t infBits = vdup_n_u32(0x7F800000u);
             float32x4_t bound = lastBound, cyl = lastCyl;
             uint32_t n = 0;
+            // Round 67 (SOTC_WALK67): the boundary records are a gather
+            // through the ids: each one's line asked for four ids ahead.
+            const bool w67 = sotc_decomp::walk67On();
+            if (w67)
+                for (uint32_t k = 0; k < 4u && k < count; ++k)
+                {
+                    uint16_t ahead;
+                    std::memcpy(&ahead, ids + k * 2u, 2);
+                    __builtin_prefetch(table + static_cast<uint32_t>(ahead) * 16u);
+                }
             for (; n < count; ++n)
             {
+                if (w67 && n + 4u < count)
+                {
+                    uint16_t ahead;
+                    std::memcpy(&ahead, ids + (n + 4u) * 2u, 2);
+                    __builtin_prefetch(table + static_cast<uint32_t>(ahead) * 16u);
+                }
                 uint16_t surface;
                 std::memcpy(&surface, ids + n * 2u, 2);
                 if (__builtin_expect(flags[surface] == 0u, 0))
@@ -1444,6 +1473,11 @@ namespace decomp_collision
             }
 #endif
             COLL_STAT(surfaces);
+            // Round 67 (SOTC_WALK67): the next surfaces' boundary records
+            // (a gather through the ids) asked for four ids ahead, once the
+            // class's table is known (only reads and PLDs).
+            if (bTable != 0u && count > 4u && G::plain(ids + 8u, 2u) && sotc_decomp::walk67On())
+                g.prefetch(bTable + static_cast<uint32_t>(g.u16(ids + 8u)) * 16u);
             // boundary()'s cached case inline (index 0): the class's table
             // pointers read again whenever guest code ran (round 22).
             const uint32_t bCls = g.u32(p + 4u), surface = g.u16(ids);
@@ -2038,6 +2072,7 @@ namespace decomp_collision
     void entry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const G g{rdram, ctx, runtime};
+        lines67::callAs(lines67::kColl);
         const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
         const Seg s{GPR_U32(ctx, 4), GPR_U32(ctx, 7), GPR_U32(ctx, 9)};
         const uint64_t v0 = F(g, s, GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 8), sp);
@@ -3199,6 +3234,7 @@ namespace decomp_collision
     }
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        lines67::callAs(lines67::kColl);
         // Round 65 (Tuning::sacCamColl): the camera's "leave" attribute test
         // (is_hit_cam_opt_leave_collision_attribute) in even frames only.
         static bool memoInner = false;
@@ -4129,8 +4165,26 @@ namespace decomp_collision
             sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, &flushModified, site + 8u, sp);
         };
         uint32_t part = g.u32(work + 0x24u);
+        // Round 67 (SOTC_WALK67): the 0x60-byte parts' four list heads asked
+        // for two parts ahead (a PLD each 32 bytes; nothing else changes).
+        const bool w67 = sotc_decomp::walk67On();
+        if (w67)
+            for (uint32_t off = 0; off < 0xC0u && off < static_cast<uint32_t>(parts > 0 ? parts : 0) * 0x60u; off += 0x20u)
+                g.prefetch(part + off);
         for (int32_t left = parts; left > 0; --left, part += 0x60u)
         {
+            if (w67)
+            {
+                if (left > 2)
+                    for (uint32_t off = 0xC0u; off < 0x120u; off += 0x20u)
+                        g.prefetch(part + off);
+                // The next part's lists' id arrays (their heads asked for a
+                // part ago), when they have ids.
+                if (left > 1 && G::plain(part + 0x60u, 0xC0u))
+                    for (const uint32_t list : {0x60u, 0x90u, 0xA8u, 0x78u})
+                        if (g.u32(part + list) != 0u)
+                            g.prefetch(g.u32(part + list + 0x10u));
+            }
             flush(part, 0x0112444Cu);
             flush(part + 0x30u, 0x01124454u);
             flush(part + 0x48u, 0x0112445Cu);

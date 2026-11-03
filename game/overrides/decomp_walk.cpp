@@ -65,6 +65,7 @@
 // with the registers it has there, the callbacks from their entry before
 // anything is written.
 #include "sotc_decomp.h"
+#include "lines67.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -73,11 +74,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace decomp_prefetch
 {
     void aheadClip(const uint8_t *rdram, uint32_t object);
     void aheadDisp(const uint8_t *rdram, uint32_t object);
+    void aheadWalkClip(const uint8_t *rdram, uint32_t object);
+    void aheadWalkDisp(const uint8_t *rdram, uint32_t object);
 }
 
 namespace decomp_walk
@@ -98,7 +102,11 @@ namespace decomp_walk
     {
         uint8_t *rdram;
         static bool ok(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
-        uint8_t *p(uint32_t a) const { return rdram + (a & PS2_RAM_MASK); }
+        uint8_t *p(uint32_t a) const
+        {
+            lines67::touch(a);
+            return rdram + (a & PS2_RAM_MASK);
+        }
         uint32_t u32(uint32_t a) const
         {
             uint32_t v;
@@ -362,6 +370,103 @@ namespace decomp_walk
         }
     }
 
+    // ---- Round 67 (SOTC_WALK67): the walk's own lines asked for ahead ----
+    // Only reads and PLDs: nothing here is written or called, and every
+    // decision the walk makes reads the same words as before.
+    inline void ask(const Ram m, uint32_t a)
+    {
+        lines67::pref(a);
+        __builtin_prefetch(m.rdram + (a & PS2_RAM_MASK));
+    }
+    // GetLayoutClass's plain cases without a call (0 for the others).
+    inline uint32_t layoutClassHint(const Ram m, uint32_t object)
+    {
+        const uint32_t index = static_cast<uint32_t>(m.u8(object + 8u)) - 9u;
+        if (index >= 0xEu)
+            return 0u;
+        const uint32_t target = m.u32(kClassTable + index * 4u);
+        return target == 0x010F1A58u ? object + 0x20u : target == 0x010F1A98u ? object + 0x90u : 0u;
+    }
+    // A sort list's nodes in GetNextSortObj's order, read without its
+    // writes (the bucket index at +0x10 is kept here): the passes over it
+    // ask for their next nodes' lines from this copy.
+    void sortOrder(const Ram m, uint32_t list, std::vector<uint32_t> &out)
+    {
+        out.clear();
+        const int32_t count = m.s32(list + 4u);
+        const uint32_t buckets = m.u32(list);
+        if (count <= 0 || count > 0x10000 || !Ram::ok(buckets, static_cast<uint32_t>(count) * 4u))
+            return;
+        for (int32_t index = 0; index < count && out.size() < 4096u; ++index)
+            for (uint32_t node = m.u32(buckets + static_cast<uint32_t>(index) * 4u); node != 0u && out.size() < 4096u; node = m.u32(node + 8u))
+            {
+                if (!Ram::ok(node, 0x10u))
+                    break;
+                out.push_back(node);
+            }
+    }
+    // The stages ahead of node k of a pass over `order`: the node's line 6
+    // on, its object's type and class lines 3 on (the node read: asked for 3
+    // turns ago), the class's +0x144 target's +0x260 word and the draw's
+    // class words 1 on (the object's lines asked for 2 turns ago).
+    void sortAhead(const Ram m, const std::vector<uint32_t> &order, size_t k, bool draw)
+    {
+        if (k == 0)
+        {
+            for (size_t i = 0; i < 6u && i < order.size(); ++i)
+                ask(m, order[i]);
+        }
+        if (k + 6u < order.size())
+            ask(m, order[k + 6u]);
+        if (k + 3u < order.size())
+        {
+            const uint32_t obj = m.u32(order[k + 3u]);
+            if (Ram::ok(obj, 0x200u))
+            {
+                ask(m, obj + 8u);
+                ask(m, obj + 0x160u);
+                ask(m, obj + 0x1D0u);
+            }
+        }
+        if (k + 1u < order.size())
+        {
+            const uint32_t obj = m.u32(order[k + 1u]);
+            if (Ram::ok(obj, 0x200u))
+                if (const uint32_t lc = layoutClassHint(m, obj))
+                {
+                    const uint32_t geo = m.u32(lc + 0x144u);
+                    if (Ram::ok(geo, 0x268u))
+                        ask(m, geo + 0x260u);
+                    if (draw)
+                    {
+                        const uint32_t cls = m.u32(lc + 0x140u);
+                        if (Ram::ok(cls, 0xE8u))
+                            ask(m, cls + 0xD0u);
+                    }
+                }
+        }
+    }
+    // The group chain kAhead entries on (isysGroupForNext's entries: +0xc's
+    // high half the next index, +0 the object).
+    struct GroupRunner
+    {
+        uint32_t entry = 0u;
+        void step(const Ram m)
+        {
+            if (!entry)
+                return;
+            const uint32_t index = static_cast<uint16_t>(m.u32(entry + 0xCu) >> 16);
+            entry = index ? kEntries + index * 24u : 0u;
+            if (!entry || !Ram::ok(entry, 0x18u))
+            {
+                entry = 0u;
+                return;
+            }
+            ask(m, entry);
+            ask(m, entry + 0x17u);
+        }
+    };
+
     void clipLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void dispLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void solidDisp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -573,6 +678,7 @@ namespace decomp_walk
             return fallback(rdram, ctx, runtime, kClipSolid);
         // Round 28: the model matrix's two lines, read last (the root box's
         // product), asked for now: they missed the cache there.
+        lines67::pref(s3), lines67::pref(s3 + 0x20u);
         __builtin_prefetch(rdram + s3);
         __builtin_prefetch(rdram + s3 + 0x20u);
         const uint64_t in16 = GPR_U64(ctx, 16), in17 = GPR_U64(ctx, 17), in18 = GPR_U64(ctx, 18), in19 = GPR_U64(ctx, 19), in20 = GPR_U64(ctx, 20);
@@ -820,6 +926,7 @@ namespace decomp_walk
     {
         static sotc_decomp::NativeCount count("modelClipSolid");
         count.hit();
+        const lines67::Scope l67(lines67::kClip, false, GPR_U32(ctx, 29));
         if (sotc_decomp::fastNativeOn())
             return modelClipSolidT<true>(rdram, ctx, runtime);
         modelClipSolidT<false>(rdram, ctx, runtime);
@@ -834,6 +941,8 @@ namespace decomp_walk
         const uint32_t object = GPR_U32(ctx, 4);
         if (!Ram::ok(sp, 0x20u) || !Ram::ok(object, 0x10u))
             return fallback(rdram, ctx, runtime, kClip);
+        const lines67::Scope l67(lines67::kClip, true);
+        lines67::base(object);
         decomp_prefetch::aheadClip(rdram, object);
         const uint64_t in16 = GPR_U64(ctx, 16), in17 = GPR_U64(ctx, 17);
         m.put64(sp, in16);
@@ -945,6 +1054,7 @@ namespace decomp_walk
     // ---- 010F3A08 (a0 the camera object, a1 the layout class, a2 its character class)
     void solidDisp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        const lines67::Scope l67(lines67::kDisp, false, GPR_U32(ctx, 29));
         G g(rdram, ctx, runtime);
         const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x60u;
@@ -979,8 +1089,25 @@ namespace decomp_walk
             uint32_t a3 = m.u32(s1 + 0x15Cu);
             if (0 < s2)
             {
+                // Round 67 (SOTC_WALK67): the parts' source matrices (64
+                // bytes each, in a row) and their blocks asked for four parts
+                // ahead of the products.
+                const bool w67 = sotc_decomp::walk67On();
+                auto askPart = [&](int32_t i, uint32_t src)
+                {
+                    ask(m, src);
+                    ask(m, src + 0x20u);
+                    const uint32_t d = block(i);
+                    ask(m, d);
+                    ask(m, d + 0x20u);
+                };
+                if (w67)
+                    for (int32_t i = 0; i < 4 && i < s2; ++i)
+                        askPart(i, a3 + static_cast<uint32_t>(i) * 0x40u);
                 for (int32_t i = 0; i < s2; ++i, a3 += 0x40u)
                 {
+                    if (w67 && i + 4 < s2)
+                        askPart(i + 4, a3 + 0x100u);
                     const uint32_t dst = block(i);
                     // (the camera matrix read again each part, as the original does)
                     const __m128 cc[4] = {m.q(t0), m.q(t0 + 0x10u), m.q(t0 + 0x20u), m.q(t0 + 0x30u)};
@@ -1345,6 +1472,15 @@ namespace decomp_walk
             SET_GPR_U32(ctx, 17, kGl);
             SET_GPR_U32(ctx, 20, sp);
             uint64_t v0 = 0;
+            // Round 67 (SOTC_WALK67): the GIF packet's next lines (a vertex
+            // writes up to 48 bytes there) asked for a vertex or two ahead of
+            // their stores.
+            if (sotc_decomp::walk67On())
+            {
+                const uint32_t out = m.u32(kGl + 4u);
+                ask(m, out + 0x40u);
+                ask(m, out + 0x60u);
+            }
             // A packet pair at *(G + 4): the value, then the register.
             auto emit = [&](uint64_t value, uint64_t reg)
             {
@@ -1909,6 +2045,8 @@ namespace decomp_walk
         const uint32_t object = GPR_U32(ctx, 5), camera = GPR_U32(ctx, 4);
         if (!Ram::ok(sp, 0x20u) || !Ram::ok(object, 0x10u))
             return fallback(rdram, ctx, runtime, kDisp);
+        const lines67::Scope l67(lines67::kDisp, true);
+        lines67::base(object);
         decomp_prefetch::aheadDisp(rdram, object);
         const uint64_t in16 = GPR_U64(ctx, 16), in17 = GPR_U64(ctx, 17), in18 = GPR_U64(ctx, 18);
         m.put64(sp, in16);
@@ -2014,6 +2152,7 @@ namespace decomp_walk
     // ---- DispDispObjGroupModel (0x10f52c8; a0 the camera object) -------------
     void dispDispObjGroupModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        const lines67::Scope l67(lines67::kGroup, false, GPR_U32(ctx, 29));
         G g(rdram, ctx, runtime);
         const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x80u;
@@ -2060,6 +2199,18 @@ namespace decomp_walk
         g.callRel(0x010F5310u, sp); // isysObjWaitSema
         set(19, 0u);
         g.call(kGraphFsEffectReset, 0x010F5318u, sp);
+        const bool w67 = sotc_decomp::walk67On();
+        if (w67)
+        {
+            // Round 67: the bucket array the clear writes, asked for ahead of
+            // its stores (~4 KB, one miss a line otherwise).
+            const uint32_t list = m.u32(kSortList);
+            const int32_t count = m.s32(list + 4u);
+            const uint32_t buckets = m.u32(list);
+            if (count > 0 && count <= 0x10000 && Ram::ok(buckets, static_cast<uint32_t>(count) * 4u))
+                for (uint32_t a = buckets & ~31u, end = buckets + static_cast<uint32_t>(count) * 4u; a < end; a += 32u)
+                    ask(m, a);
+        }
         clearSortList(m, m.u32(kSortList));
         g.a(4, m.u32(sp + 0x20u));
         SET_GPR_U64(ctx, 5, 0u);
@@ -2067,6 +2218,13 @@ namespace decomp_walk
         uint32_t s4 = g.v0(), s3 = 0u;
         set(20, s4);
         QuatProduct qp{};
+        GroupRunner runner;
+        if (w67 && Ram::ok(s4, 0x18u))
+        {
+            runner.entry = s4;
+            for (int i = 0; i < 4; ++i)
+                runner.step(m);
+        }
         while (s4 != 0u)
         {
             if (!Ram::ok(s4, 0x10u) || !Ram::ok(m.u32(s4), 0x10u))
@@ -2076,6 +2234,11 @@ namespace decomp_walk
                 return resume(0x010F5348u);
             }
             s3 = m.u32(s4);
+            if (w67)
+            {
+                runner.step(m);
+                decomp_prefetch::aheadWalkClip(rdram, s3);
+            }
             set(19, s3);
             const uint32_t s0 = layoutClass(g, s3, 0x010F5348u, sp);
             set(16, s0);
@@ -2289,9 +2452,19 @@ namespace decomp_walk
         }
         // The second list: the first one without the objects with bit 4 of +0x260.
         clearSortList(m, m.u32(kSortList2));
+        static std::vector<uint32_t> order;
+        size_t turn = 0;
+        if (w67)
+            sortOrder(m, m.u32(kSortList), order);
         uint32_t s0 = firstSortObj(m, m.u32(kSortList));
         while (s0 != 0u)
         {
+            if (w67)
+            {
+                if (turn < order.size() && order[turn] == s0)
+                    sortAhead(m, order, turn, false);
+                ++turn;
+            }
             set(16, s0);
             const uint32_t s1 = nextSortObj(m, m.u32(kSortList), s0);
             set(17, s1);
@@ -2320,12 +2493,22 @@ namespace decomp_walk
             g.call(kLightPass, 0x010F56E8u, sp);
             const uint32_t list = m.u32(kSortList2);
             set(19, list);
+            if (w67)
+                sortOrder(m, list, order);
+            turn = 0;
             uint32_t s2 = firstSortObj(m, list);
             set(18, s2);
             while (s2 != 0u)
             {
                 if (!Ram::ok(s2, 0x10u))
                     return resume(0x010F5710u);
+                if (w67)
+                {
+                    if (turn < order.size() && order[turn] == s2)
+                        sortAhead(m, order, turn, true);
+                    ++turn;
+                    decomp_prefetch::aheadWalkDisp(rdram, m.u32(s2));
+                }
                 const uint32_t obj = m.u32(s2);
                 set(16, obj);
                 const uint32_t lc = layoutClass(g, obj, 0x010F5710u, sp);

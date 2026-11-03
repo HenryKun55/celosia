@@ -18,11 +18,13 @@
 // for the lines here (aheadClip / aheadDisp) before its own reads;
 // SOTC_OBJ_PREFETCH=0 leaves the prefetch out.
 #include "sotc_decomp.h"
+#include "lines67.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_stats.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -34,12 +36,14 @@ namespace decomp_prefetch
         const uint8_t *rdram;
         uint32_t u32(uint32_t a) const
         {
+            lines67::touch(a);
             uint32_t v;
             std::memcpy(&v, rdram + (a & PS2_RAM_MASK & ~3u), 4);
             return v;
         }
         uint64_t u64(uint32_t a) const
         {
+            lines67::touch(a);
             uint64_t v;
             std::memcpy(&v, rdram + (a & PS2_RAM_MASK & ~7u), 8);
             return v;
@@ -49,6 +53,7 @@ namespace decomp_prefetch
     // GetLayoutClass (decomp_layout.cpp) for the cases it answers natively; 0 otherwise.
     uint32_t layoutClass(const Ram m, uint32_t object)
     {
+        lines67::touch(object + 8u);
         const uint32_t index = static_cast<uint32_t>(m.rdram[(object + 8u) & PS2_RAM_MASK]) - 9u;
         if (index >= 0xEu)
             return 0u;
@@ -65,10 +70,10 @@ namespace decomp_prefetch
     {
         uint32_t object = 0;
         uint32_t count = 0;
-        uint32_t lines[24];
+        uint32_t lines[28];
         void add(uint32_t addr)
         {
-            if (count < 24u && addr)
+            if (count < 28u && addr)
                 lines[count++] = addr & ~31u;
         }
     };
@@ -123,10 +128,13 @@ namespace decomp_prefetch
     {
         std::vector<Record> now, last;
         size_t cursor = 0;
+        size_t asked = 0; // round 67: last[] records before this one already asked for this frame
         uint64_t frame = ~0ull;
+        uint64_t walkFrame = ~0ull; // round 67: the frame whose window the walk itself moves (aheadWalk)
 
-        // The last frame's record after `object`'s, or nullptr.
-        const Record *next(uint64_t f, uint32_t object)
+        // The index in the last frame's calls of the record after
+        // `object`'s, or npos when `object` is not found near the cursor.
+        size_t locate(uint64_t f, uint32_t object)
         {
             if (f != frame)
             {
@@ -134,6 +142,7 @@ namespace decomp_prefetch
                 last.swap(now);
                 now.clear();
                 cursor = 0;
+                asked = 0;
             }
             size_t at = cursor;
             if (at >= last.size() || last[at].object != object)
@@ -146,10 +155,16 @@ namespace decomp_prefetch
                         break;
                     }
                 if (at == ~size_t(0))
-                    return nullptr;
+                    return ~size_t(0);
             }
             cursor = at + 1u;
-            return cursor < last.size() ? &last[cursor] : nullptr;
+            return cursor;
+        }
+        // The last frame's record after `object`'s, or nullptr.
+        const Record *next(uint64_t f, uint32_t object)
+        {
+            const size_t at = locate(f, object);
+            return at < last.size() ? &last[at] : nullptr;
         }
     };
     Sequence g_clip, g_disp;
@@ -166,7 +181,69 @@ namespace decomp_prefetch
     inline void ask(const uint8_t *rdram, const Record &r)
     {
         for (uint32_t i = 0; i < r.count; ++i)
+        {
+            lines67::pref(r.lines[i]);
             __builtin_prefetch(rdram + (r.lines[i] & PS2_RAM_MASK));
+        }
+    }
+
+    // Round 67 (SOTC_WALK67): how many of the last frame's next calls are
+    // asked for ahead (SOTC_WALK67_AHEAD, 3 by default): each call asks
+    // only for the one that comes into the window (the first call of a
+    // frame, or after a resync, for the whole window), so a call's lines
+    // have ~ahead calls of time to arrive instead of one.
+    size_t ahead67()
+    {
+        static const size_t n = [] {
+            const char *v = std::getenv("SOTC_WALK67_AHEAD");
+            const long a = v ? std::atol(v) : 3;
+            return static_cast<size_t>(a < 1 ? 1 : a > 16 ? 16 : a);
+        }();
+        return n;
+    }
+
+    // Round 67: the lines the walk itself reads around the call that
+    // objectLines leaves out (DispDispObjGroupModel's pass flags at
+    // +0x1b6..+0x1b8, the draw's +0x280 / +0x3c0, the sort node: the
+    // geometry class's own first line, its +4 key and +8 link), the
+    // record's duplicates dropped (each PLD of
+    // a line already asked for costs an issue slot and a fill buffer).
+    void objectLines67(const Ram m, uint32_t object, Record &r)
+    {
+        objectLines(m, object, r);
+        if (r.count == 0u)
+            return;
+        r.add(object + 0x1B6u);
+        // (DispLayoutObjModel's reads at +0x280 / +0x3c0, the lines the Mac's
+        // proxy found most often missed in the draw pass.)
+        r.add(object + 0x280u);
+        r.add(object + 0x3C0u);
+        const uint32_t lc = layoutClass(m, object);
+        if (lc)
+            r.add(m.u32(lc + 0x140u));
+        uint32_t n = 0;
+        for (uint32_t i = 0; i < r.count; ++i)
+        {
+            bool dup = false;
+            for (uint32_t j = 0; j < n && !dup; ++j)
+                dup = r.lines[j] == r.lines[i];
+            if (!dup)
+                r.lines[n++] = r.lines[i];
+        }
+        r.count = n;
+    }
+
+    // The window of the last frame's next calls after `object`'s, asked for
+    // up to ahead67() calls on (those already asked for skipped).
+    void window(Sequence &seq, uint64_t f, uint32_t object, const uint8_t *rdram)
+    {
+        const size_t at = seq.locate(f, object);
+        if (at == ~size_t(0))
+            return;
+        const size_t end = std::min(seq.last.size(), at + ahead67());
+        for (size_t i = std::max(at, seq.asked); i < end; ++i)
+            ask(rdram, seq.last[i]);
+        seq.asked = std::max(seq.asked, end);
     }
 
     void note(Sequence &seq, uint32_t object, const uint8_t *rdram)
@@ -174,12 +251,24 @@ namespace decomp_prefetch
         if (!enabled())
             return;
         const Ram m{rdram};
-        if (const Record *next = seq.next(ps2_stats::vif1Chains.load(std::memory_order_relaxed), object))
+        const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+        const bool w67 = sotc_decomp::walk67On();
+        if (w67)
+        {
+            if (seq.walkFrame != f)
+                window(seq, f, object, rdram);
+            else if (f != seq.frame)
+                seq.locate(f, object); // (a new frame: the lists turned over)
+        }
+        else if (const Record *next = seq.next(f, object))
             ask(rdram, *next);
         if (seq.now.size() < 4096u)
         {
             seq.now.emplace_back();
-            objectLines(m, object, seq.now.back());
+            if (w67)
+                objectLines67(m, object, seq.now.back());
+            else
+                objectLines(m, object, seq.now.back());
         }
     }
 
@@ -187,4 +276,24 @@ namespace decomp_prefetch
     // ClipLayoutObjModel / DispLayoutObjModel.
     void aheadClip(const uint8_t *rdram, uint32_t object) { note(g_clip, object, rdram); }
     void aheadDisp(const uint8_t *rdram, uint32_t object) { note(g_disp, object, rdram); }
+    // Round 67: DispDispObjGroupModel's first pass moves the clip window at
+    // the top of each object's turn (its own reads of the object come
+    // before the clip callback's), and the draw pass the draw window; the
+    // callbacks then only record their object.
+    void aheadWalkClip(const uint8_t *rdram, uint32_t object)
+    {
+        if (!enabled() || !sotc_decomp::walk67On())
+            return;
+        const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+        window(g_clip, f, object, rdram);
+        g_clip.walkFrame = f;
+    }
+    void aheadWalkDisp(const uint8_t *rdram, uint32_t object)
+    {
+        if (!enabled() || !sotc_decomp::walk67On())
+            return;
+        const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+        window(g_disp, f, object, rdram);
+        g_disp.walkFrame = f;
+    }
 }
