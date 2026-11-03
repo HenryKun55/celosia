@@ -280,6 +280,14 @@
    "focus": "Speed",
    "summary": "The camera blur hook's wait for the hook worker only when it records a blur (SOTC_SBLUR_JOIN=0, opt-in): it removed ~95% of those waits but measured no frame-time gain, so the old join stays the default. Found that Vita3K's per-frame vblank count jitters (31 ms frames counted as 3 vblanks): slips are now counted as frames over 40 ms (slips.py).",
    "result": "Frames over 40 ms on the attract demo: 300 MHz ~3% (title screen's world 2-8%), close to a held 30; 222 MHz ~8-9% of the first 7 000 frames (half game thread, half ~1 950-draw render frames) and ~60% of the title screen's world (game thread ~41 ms). Not 30 fps at 222."
+  },
+  {
+   "round": "r60",
+   "date": "2026-11-03",
+   "commit": "3a9b1b4",
+   "focus": "Speed",
+   "summary": "The frame's display list (the VIF1 DMA chain) is walked on a worker thread, as the PS2's DMA ran beside the EE: the kick hands it over and leaves the channel busy; its effects (VIF1 registers, the GS SIGNAL / FINISH / LABEL writes, MSKPATH3, the channel's completion and the GS interrupt) are applied on the game thread where the game could first see them (SOTC_DMA_ASYNC, default on). Checked: every chain's result and every byte it reads compared with a walk at the kick, 0 differences on the Mac and in Vita3K.",
+   "result": "Vita3K A/B: game thread -1.9 ms (attract demo) / -1.7 ms (title screen's world) at 222 MHz, -1.6 / -1.7 ms at 300 MHz; frames over 40 ms in the title screen's world at 222 MHz 30.5% against 48.8%. Not 30 fps at 222 yet."
   }
  ]
 }
