@@ -54,8 +54,27 @@ namespace decomp_wind
         const uint64_t saved[8] = {GPR_U64(ctx, 16), GPR_U64(ctx, 17), GPR_U64(ctx, 18), GPR_U64(ctx, 19),
                                    GPR_U64(ctx, 20), GPR_U64(ctx, 21), GPR_U64(ctx, 22), GPR_U64(ctx, 23)};
         int32_t n = 0;
+        // Round 54 (SOTC_FASTNATIVE2): the empty slots skipped in a loop of
+        // their own, the slot array through a host pointer (the zone loop
+        // kept every counter and the frame's values on the stack across the
+        // skip: ~40 calls a frame, 80 slots each, most of them empty). The
+        // same slots read in the same order.
+        const bool fastSkip = sotc_decomp::fastNative2On();
+        const uint8_t *slotWords = rdram + kSlots;
         for (int i = 0; i < kCount; ++i)
         {
+            if (fastSkip)
+            {
+                uint32_t w;
+                while (true)
+                {
+                    std::memcpy(&w, slotWords + static_cast<uint32_t>(i) * 4u, 4);
+                    if (w != 0u || ++i == kCount)
+                        break;
+                }
+                if (i == kCount)
+                    break;
+            }
             const uint32_t zone = u32(kSlots + static_cast<uint32_t>(i) * 4u);
             if (zone == 0u || u32(zone + 0xA0u) != 1u)
                 continue;
@@ -117,6 +136,19 @@ namespace decomp_wind
                 }
             if (at == -1)
                 at = n;
+            else if (fastSkip)
+            {
+                // Round 54: the same move a record at a time from the top, in
+                // place (the Vita's memmove is a library call through a veneer
+                // for these few records).
+                uint8_t *base = rdram + kResults;
+                for (int32_t r = n - 1; r >= at; --r)
+                {
+                    uint8_t rec[32];
+                    std::memcpy(rec, base + static_cast<uint32_t>(r) * 32u, 32);
+                    std::memcpy(base + static_cast<uint32_t>(r + 1) * 32u, rec, 32);
+                }
+            }
             else // records at..n-1 up one, as the original's loop from the top leaves them (one move: round 11)
                 std::memmove(rdram + kResults + static_cast<uint32_t>(at + 1) * 32u, rdram + kResults + static_cast<uint32_t>(at) * 32u,
                              static_cast<size_t>(n - at) * 32u);

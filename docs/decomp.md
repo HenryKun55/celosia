@@ -8588,6 +8588,53 @@ windZones 1.2%, modelClipFast 1.1%.
 **Deliverable:** build/agent-scratch/celosia-r53.vpk; console A/B env:
 r53/console-ab/env.txt.
 
+## Round 54: the wind zones' walk (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r54/` (intro-dt / intro-dt2 the Mac
+difftests, prof.txt.120 / .300 with ps2EntryRunner.elf, v3k-ab-err.txt,
+console-ab/env.txt).
+
+**What.** In round 53's profile window decomp_wind's windZones
+(manager_sub_01145F78, round 6) was 1.16% of the game thread by itself, plus
+0.60% in the kind-1 weight function it calls. Its samples sat in the zone
+loop's skip of empty slots (objdump of the samples' pcs: ~70% on the slot
+load and the loop's head): the function runs ~45 times a frame in gameplay
+(the difftest's count), 80 slots each, most of them empty, and the loop
+kept its counters and the frame's values on the stack across the skip.
+Under `SOTC_FASTNATIVE2` (round 53's switch):
+- the empty slots are skipped in a loop of their own through a host
+  pointer to the slot array (the same words read in the same order);
+- the sorted insert's move of the records below the new one (a library
+  memmove through a veneer on the Vita, 0.35% in round 54's first profile)
+  is a record-at-a-time copy from the top, the same bytes.
+
+**Exactness.** Mac difftest of windZones over the new game's intro to 5 000
+(r54/intro-dt2, every 2nd call: 121 600 checks, 0 mismatches in 243 000
+calls; r54/intro-dt before the move change: 44 800 checks, 0 mismatches)
+and the attract demo at every call to 1 500 (r54/dt-wind: 13 100 checks, 0).
+
+**Measured (Vita3K 240 MHz, 3 cores, attract demo).**
+- Profile (r54/prof.txt, the first build, skip only): windZones' own share
+  1.16% -> 0.23% (a different scene of the demo in the window: the kind-1
+  weights there 0.02%, not 0.60%; per call the skip is what changed).
+- Rotating A/B of `fastnative2` (rounds 53 and 54 together, 79 windows each,
+  r54/v3k-ab-err.txt): game thread 22.98 ms with the fast paths, 23.39 ms
+  without (-0.40 ms, at the edge of one run's noise: the off windows also
+  drew 28 more batches); the frame the same (34.78 / 34.75, the render
+  thread's).
+
+**Next (round 54's profile, game thread):** the DMA walk (feedT 2.3%,
+walkVif1Chain 2.1%, the GIF scanner 0.7%), motionMatrix 2.3%, memcpy 1.8%
+(most of it called from code past the ELF's symbols: not resolved),
+hookScrolls 1.8% (five dependent loads a surface a frame), glVertexKick 1.8%,
+mdsPlanPackets 1.7%, charaLinks 1.4%, texAnimFast 1.3%, clipDB / leaf 2.3%,
+the garbage tick 1.0% (the EE clock read per heap block), cameraParamCopy's
+memcpy 0.7%; and __aeabi_uidivmod 0.4% (callers not visible in the
+sampled return addresses).
+
+**Deliverable:** build/agent-scratch/celosia-r54.vpk; console A/B env:
+r54/console-ab/env.txt (`fastnative2` rotating: rounds 53 and 54).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
