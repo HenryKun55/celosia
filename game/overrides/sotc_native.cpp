@@ -6764,7 +6764,9 @@ namespace sotc_native
         syncFrame(rdram);
         hookJoin(hookjobs::k_screenblur);
         static int n = 0;
-        if (std::getenv("SOTC_NATIVE_LOG") && n++ < 30)
+        // SOTC_SBLUR_LOG=1 (debugging, round 51): every call, not the first 30.
+        static const bool everyBlur = std::getenv("SOTC_SBLUR_LOG") != nullptr;
+        if ((std::getenv("SOTC_NATIVE_LOG") && n++ < 30) || everyBlur)
             std::fprintf(stderr, "[sblur] frame %llu angle %g scale %g layer %u w %d a1 %d steps %d a3 %d t0 %d\n", (unsigned long long)g_frame, ctx->f[12], ctx->f[13],
                          GPR_U32(ctx, 4), static_cast<int32_t>(GPR_U32(ctx, 5)), static_cast<int32_t>(GPR_U32(ctx, 6)), static_cast<int32_t>(GPR_U32(ctx, 7)),
                          static_cast<int32_t>(GPR_U32(ctx, 8)), static_cast<int32_t>(GPR_U32(ctx, 9)));
@@ -6775,7 +6777,24 @@ namespace sotc_native
         b.steps = static_cast<int32_t>(GPR_U32(ctx, 7));
         b.dx = static_cast<float>(static_cast<int32_t>(GPR_U32(ctx, 8)));
         b.dy = static_cast<float>(static_cast<int32_t>(GPR_U32(ctx, 9)));
-        if (native_renderer::tuning().screenBlur && b.steps > 0 && b.steps < 64)
+        // Round 51: cameraBlur (graphFrameFinish) calls this whenever the
+        // camera moved more than its threshold since the last frame, which at
+        // the Vita's 16-20 fps is nearly every moving frame (170 calls in 90 s
+        // of the attract demo in Vita3K against 62 in 6 000 frames on the
+        // Mac), and 98% of them are the identity: scale 1 +- 1e-5, an angle
+        // under the 0.0157 the copies ignore, no shift. Each copy then lands
+        // on the picture's own pixels (at most 1/16 of a PS2 pixel off at the
+        // corners): what the copies blend is the picture itself, the GS's
+        // result too. Drawn, it cost the picture so far copied mid-frame (the
+        // console) or the scene drawn a second time (Vita3K), and that path
+        // smeared the Vita's picture while the camera moved (fine as soon as
+        // it stopped: no more calls). Left out; real zoom / shift blurs are
+        // drawn as before. SOTC_SBLUR_IDENTITY=1: drawn anyway (debugging).
+        static const bool drawIdentity = std::getenv("SOTC_SBLUR_IDENTITY") && std::atoi(std::getenv("SOTC_SBLUR_IDENTITY")) != 0;
+        const float corner = 340.2f; // PS2 pixels from the centre to a corner (256, 224)
+        const float moved = std::fabs(b.scale - 1.0f) * corner + (std::fabs(b.angle) >= 0.01570796f ? std::fabs(b.angle) * corner : 0.0f) + std::fabs(b.dx) + std::fabs(b.dy);
+        const bool identity = !(moved >= 1.0f / 16.0f); // (NaN: left out too)
+        if (native_renderer::tuning().screenBlur && b.steps > 0 && b.steps < 64 && (!identity || drawIdentity))
             native_renderer::addScreenBlur(b);
         g_screenBlur(rdram, ctx, runtime);
     }

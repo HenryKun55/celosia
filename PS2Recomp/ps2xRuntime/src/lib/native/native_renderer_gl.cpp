@@ -4073,6 +4073,48 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             copy(colorPlain, previous);
             previousTexture = previous.texture;
         }
+        // SOTC_GL_SHOTS=<n> (debugging, round 51): every n-th frame drawn
+        // saved as shot_<frame>.ppm (colour) and shot_<frame>_a.pgm (alpha) in
+        // SOTC_GL_SHOT_DIR (the Vita: ux0:data/celosia/shots), for pictures of
+        // the Vita build (the console: Vita3K never writes its render targets
+        // back to the guest's memory, so there they come out black).
+        static const uint64_t shotEvery = std::getenv("SOTC_GL_SHOTS") ? std::strtoull(std::getenv("SOTC_GL_SHOTS"), nullptr, 10) : 0u;
+        if (shotEvery && arenaFrame % shotEvery == 0u)
+        {
+#if defined(PS2X_NATIVE_VITA)
+            static const std::string dir = std::getenv("SOTC_GL_SHOT_DIR") ? std::getenv("SOTC_GL_SHOT_DIR") : "ux0:data/celosia/shots";
+#else
+            static const std::string dir = std::getenv("SOTC_GL_SHOT_DIR") ? std::getenv("SOTC_GL_SHOT_DIR") : "shots";
+#endif
+            std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4u);
+            glFinish(); // (vitaGL reads the target's memory: the GPU done with it first)
+            glBindFramebuffer(GL_FRAMEBUFFER, colorPlain.fbo);
+            glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            boundFbo = ~0u;
+            for (int k = 0; k < 2; ++k)
+            {
+                const std::string path = dir + "/shot_" + std::to_string(arenaFrame) + (k ? "_a.pgm" : ".ppm");
+                if (FILE *f = std::fopen(path.c_str(), "wb"))
+                {
+                    std::fprintf(f, "%s\n%u %u\n255\n", k ? "P5" : "P6", w, h);
+                    std::vector<uint8_t> line(static_cast<size_t>(w) * (k ? 1u : 3u));
+                    for (uint32_t y = 0; y < h; ++y)
+                    {
+                        const uint8_t *src = &px[static_cast<size_t>(h - 1u - y) * w * 4u];
+                        for (uint32_t x = 0; x < w; ++x)
+                        {
+                            if (k)
+                                line[x] = src[x * 4u + 3u];
+                            else
+                                std::memcpy(&line[x * 3u], &src[x * 4u], 3);
+                        }
+                        std::fwrite(line.data(), 1, line.size(), f);
+                    }
+                    std::fclose(f);
+                }
+            }
+        }
 
 
         if (const auto &hook = native_renderer::detail::presentHook())

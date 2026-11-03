@@ -208,6 +208,14 @@
    "focus": "Speed",
    "summary": "The thread switch's C++ unwind on the Vita: the unwinder's table lookup answered from a checked cache of return addresses (libgcc's __gnu_Unwind_Find_exidx).",
    "result": "Exact (0 mismatches in 590 k checked lookups, 99.97% cached); small: ~95 lookups a frame."
+  },
+  {
+   "round": "r51",
+   "date": "2026-11-02",
+   "commit": "",
+   "focus": "Fidelity",
+   "summary": "The Vita's smear while the camera moves: cameraBlur's screenBlur fires on nearly every moving frame at 16-20 fps, 98% of the calls the identity; those are left out (the picture they draw is the picture itself), real zoom / shift blurs drawn as before.",
+   "result": "Vita3K attract demo: frames drawing a screen blur 454 of 3 706 -> 7 of 3 982 (each also a full scene redraw saved); Mac Metal / GL native vs GS unchanged (RMSE 0.072 -> 0.069, 0.058 -> 0.056)."
   }
  ]
 }

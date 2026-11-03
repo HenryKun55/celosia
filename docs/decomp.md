@@ -8401,6 +8401,74 @@ about an inline definition after a noinline declaration in every unit).
 **Deliverable:** build/agent-scratch/celosia-r50.vpk; the console A/B env of
 round 49 applies (r49/console-ab/env.txt).
 
+## Round 51: the camera blur's smear on the Vita (2026-11-02)
+
+Scripts, pictures and logs: `build/agent-scratch/r51/`. A fidelity round.
+
+**The report.** Vita3K at 240 MHz, r50, the attract demo: while the camera
+moves the native picture smears (walls stretched, blurred bands, the scene
+washed grey-green); as soon as it stops the picture is right.
+
+**What it was.** Not the feedback blur (feedbackBlur never runs in the attract
+demo: `SOTC_FEEDBACK_LOG` prints nothing) and not DoF / bloom / fog (each
+switched off on the Mac: no change). The game's camera blur: graphFrameFinish
+calls cameraBlur (0x108b188), which compares the camera with the last frame's
+and, past a threshold (0x1186380), calls screenBlur (0x108a780) at layer 23
+with 4 steps. The camera moves more per game frame the slower the game runs,
+so at the Vita's 16-20 fps it fires on nearly every moving frame and almost
+never at the Mac's 30: `SOTC_SBLUR_LOG=1` counted 62 calls in 6 000 frames on
+the Mac, 170 in 90 s of the same demo in Vita3K, 454 of 3 706 frames drawn
+(`SOTC_GL_EVENT_LOG`, r51/v3k-before-err.txt). 167 of those 170 calls were
+the identity: scale 1 +- 1e-5, an angle under the 0.0157 below which the
+copies are not turned, no shift (the other 3: shifts of 2 and 13 PS2 pixels).
+The four copies then land on the picture's own pixels: the GS's result is
+the picture, and so is the native one on the Mac. But drawing them needs the
+picture so far as a texture in the middle of the frame: on the Vita in an
+emulator (Tuning::midFrameRedraw, on in Vita3K and in a settings.cfg with
+`dbg_redraw=1`) the scene below layer 23 is drawn a second time into a target
+of its own, on the console a copy of the picture is made there; the first copy
+has alpha 1, so in those frames the picture below layer 23 is *that* target
+(and the bloom added at layer 20 is lost under it). The smear is that path's
+picture in Vita3K. Why exactly it comes out wrong there could not be seen:
+Vita3K never writes render targets back to guest memory (readback and the
+display are black even with surface sync on and memory mapping asked for;
+MoltenVK has none) and this Mac has no screen-capture permission, so no
+Vita-side picture was taken. The Mac (Metal; OpenGL with the redraw forced,
+render scale 1, the Vita's threads, holds and cap) draws the same calls
+correctly.
+
+**Fix (sotc_native.cpp screenBlurHook).** A call whose copies move no point
+of the screen by 1/16 of a PS2 pixel or more (|scale - 1| x 340 + the angle
+x 340 when it is turned + |dx| + |dy|) is left out: the picture it would
+draw is the picture itself. Real zoom / shift blurs (the cutscenes', the 3
+shifted calls) are drawn as before. Metal and GL alike; the frames that left
+it out also skip a full redraw of the scene in Vita3K (or a mid-frame copy on
+the console). `SOTC_SBLUR_IDENTITY=1` draws them anyway.
+
+**Measured.**
+- Vita3K, attract demo, 150 s each (r51/v3k-before-err.txt, v3k-after-err.txt):
+  frames with a screen blur event 454 of 3 706 -> 7 of 3 982 (the shifted
+  calls); the haze copy (layer 23) is in ~2 500 frames either way (it was
+  there while still too).
+- Mac, attract demo to frame 6 000, native vs GS (RMSE over 200 pairs):
+  Metal 0.072 -> 0.069, OpenGL 0.058 -> 0.056 (run-to-run noise; the large
+  pairs are scene cuts caught a frame apart and the bloom of the rain scene,
+  both before and after). Side by side: r51/sbs-attract0.png (Metal before),
+  sbs-metal-after.png, sbs-gl0.png (GL before), sbs-gl-after.png.
+
+**Tools (new).** `SOTC_SBLUR_LOG=1`; `SOTC_GL_SHOTS=n` (frames saved as PPM
+by the OpenGL renderer, for the console: black in Vita3K, see above). The
+harness's native snapshots carry the picture's alpha (the Vita bloom mask):
+compare with the alpha dropped (`magick -alpha off`), or the native picture
+looks washed white (r51/rmse.sh).
+
+**Left:** the remaining shifted blurs still go through the redraw in Vita3K;
+if they smear too, drawing them on a second picture target (ping-pong, no
+mid-frame copy or redraw) is the next step. The user's red smoke report is
+next.
+
+**Deliverable:** build/agent-scratch/celosia-r51.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
