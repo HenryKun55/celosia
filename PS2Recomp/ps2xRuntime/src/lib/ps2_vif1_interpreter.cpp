@@ -468,7 +468,8 @@ void Vif1Walker::feedT(const uint8_t *data, uint32_t bytes)
         {
             const uint32_t n = std::min(gif, bytes - pos);
             if constexpr (Rec)
-                m_rec->add(data + pos, n);
+                if (!m_rec->preciseDirect)
+                    m_rec->add(data + pos, n);
             sync();
             m_direct.feed(data + pos, n);
             gif -= n;

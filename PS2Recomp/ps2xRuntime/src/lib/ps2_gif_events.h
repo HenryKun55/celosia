@@ -14,12 +14,25 @@ public:
     using WriteFn = std::function<void(uint8_t reg, uint64_t value)>;
     explicit GifEventScanner(const WriteFn &write) : m_write(write) {}
 
+    // Round 60's check (SOTC_DMA_ASYNC_CHECK): every piece of the fed data
+    // the scan reads to decide what it does (each GIF tag, each A+D qword
+    // of a PACKED block; a qword split between two pieces conservatively
+    // whole), never the IMAGE / REGLIST data it steps over.
+    using ReadSink = void (*)(void *ctx, const uint8_t *data, uint32_t bytes);
+    void setReadSink(ReadSink sink, void *ctx)
+    {
+        m_sink = sink;
+        m_sinkCtx = ctx;
+    }
+
     void feed(const uint8_t *data, uint32_t bytes)
     {
         uint32_t pos = 0;
         if (m_partial != 0u)
         {
             const uint32_t n = std::min(16u - m_partial, bytes);
+            if (m_sink) [[unlikely]]
+                m_sink(m_sinkCtx, data, n);
             std::memcpy(m_qword + m_partial, data, n);
             m_partial += n;
             pos = n;
@@ -44,6 +57,8 @@ public:
             if (m_remaining != 0u && m_nreg == 1u && (m_regs & 0xFu) == 0xEu && fast())
             {
                 const uint32_t n = std::min<uint32_t>(m_remaining, (bytes - pos) / 16u);
+                if (m_sink) [[unlikely]]
+                    m_sink(m_sinkCtx, data + pos, n * 16u);
                 for (uint32_t i = 0; i < n; ++i)
                 {
                     const uint8_t address = data[pos + i * 16u + 8u];
@@ -59,11 +74,21 @@ public:
                 pos += n * 16u;
                 continue;
             }
+            if (m_sink) [[unlikely]]
+            {
+                // What qword() reads of it: a GIF tag, or an A+D register's qword.
+                const bool reads = m_remaining == 0u ||
+                                   (m_format == 0u && m_hasAD && ((static_cast<uint32_t>(m_regs >> (m_index * 4u)) & 0xFu) == 0xEu));
+                if (reads)
+                    m_sink(m_sinkCtx, data + pos, 16u);
+            }
             qword(data + pos);
             pos += 16u;
         }
         if (pos < bytes)
         {
+            if (m_sink) [[unlikely]]
+                m_sink(m_sinkCtx, data + pos, bytes - pos);
             m_partial = bytes - pos;
             std::memcpy(m_qword, data + pos, m_partial);
         }
@@ -74,7 +99,10 @@ public:
     [[nodiscard]] bool idle() const { return m_partial == 0u && m_remaining == 0u; }
 
     // SIGNAL / FINISH / LABEL writes seen (PS2X_GIF_EVENT_LOG, debugging).
-    static inline uint64_t s_events[3] = {};
+    // Per thread since round 60: the display list's chain can be walked on
+    // the DMA worker (SOTC_DMA_ASYNC) while the game thread scans GIF data;
+    // the packet cache compares the count before and after a packet's walk.
+    static inline thread_local uint64_t s_events[3] = {};
 
 private:
     static bool fast(); // ps2_fast_paths::g_dmaWalkFast (ps2_memory.cpp)
@@ -117,6 +145,8 @@ private:
     }
 
     const WriteFn &m_write;
+    ReadSink m_sink = nullptr;
+    void *m_sinkCtx = nullptr;
     uint8_t m_qword[16]{};
     uint32_t m_partial = 0;
     uint32_t m_remaining = 0, m_format = 0, m_nreg = 1, m_index = 0;

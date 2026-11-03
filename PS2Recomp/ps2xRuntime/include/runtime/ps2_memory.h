@@ -270,11 +270,43 @@ public:
     ~PS2Memory();
 
     // Waits until queued VIF1/GIF work has run (no-op without MTVU).
+    // Round 60: also applies a display list walked on the DMA worker
+    // (every GS register access and GIF / VIF register access comes here).
     void syncVu1()
     {
+        if (m_vif1AsyncPending.load(std::memory_order_relaxed)) [[unlikely]]
+            vif1AsyncJoin(kJoinGs);
         if (m_mtvuOutstanding.load(std::memory_order_acquire) != 0u && !onVu1Worker())
             mtvuSyncSlow();
     }
+
+    // Round 60 (SOTC_DMA_ASYNC, A/B `dmaasync`): the display list's VIF1
+    // chain (iosDmaSendSChainPath1's host kick) walked on a worker thread,
+    // as the PS2's DMA ran beside the EE. The kick hands the chain state and
+    // a copy of the VIF1 registers over and leaves CHCR.STR set; the walk's
+    // effects (the VIF1 registers, the GS SIGNAL / FINISH / LABEL writes and
+    // the MSKPATH3 changes in their order, TADR / ASR / CHCR, the channel's
+    // completion and its interrupt) are applied on the game thread at the
+    // first point the guest could see them: a DMA / VIF / GIF / GS register
+    // read or write, the host's polls (hostDrawPathsIdle, hostChannelBusy),
+    // GIF work, and the next VBlank. vif1AsyncJoin waits for the worker if
+    // it is not done and applies; it returns true if it applied something.
+    enum Vif1JoinReason : int
+    {
+        kJoinVblank,
+        kJoinPoll,
+        kJoinRegRead,
+        kJoinRegWrite,
+        kJoinGs,
+        kJoinGif,
+        kJoinOther,
+        kJoinReasons
+    };
+    bool vif1AsyncJoin(int reason);
+    bool vif1AsyncPending() const { return m_vif1AsyncPending.load(std::memory_order_relaxed); }
+    // Run on the game thread right after an apply: the runtime's
+    // drainCompletedDmacHandlers (the channel's cause, the GS interrupt).
+    void setVif1AsyncApplied(std::function<void()> fn) { m_vif1AsyncApplied = std::move(fn); }
     // Runs fn after the VIF1/GIF work queued so far, on the VU1 worker
     // (inline when the worker is not in use), without waiting for it.
     void runInVu1Order(std::function<void()> fn);
@@ -576,7 +608,16 @@ public:
         uint32_t tagAddr, asr0, asr1, asp, lastTagUpper;
         int tags;
     };
-    void walkVif1Chain(class Vif1Walker &walker, class GifEventScanner &gif, Vif1ChainState &st, bool tie, bool useCache);
+    void walkVif1Chain(class Vif1Walker &walker, class GifEventScanner &gif, Vif1ChainState &st, bool tie, bool useCache,
+                       void *wholeRecord = nullptr);
+    // Round 60: the asynchronous walk (ps2_memory.cpp).
+    struct Vif1Async;
+    Vif1Async *m_vif1A = nullptr;
+    std::atomic<bool> m_vif1AsyncPending{false};
+    std::function<void()> m_vif1AsyncApplied;
+    void vif1AsyncKick(const Vif1ChainState &st, bool tie, uint32_t chcr);
+    void vif1AsyncLoop();
+    void vif1AsyncApply();
     void completeDmacChannel(uint32_t channelBase, uint32_t cause);
     void queueCompletedDmacCause(uint32_t cause);
 };

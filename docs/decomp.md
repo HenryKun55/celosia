@@ -9087,6 +9087,116 @@ and the profile is flat (nothing over 2.3%).
 **Deliverable:** build/agent-scratch/celosia-r59.vpk (the default as round
 58's behaviour, plus the switch).
 
+## Round 60: the display list's DMA walk on a worker thread (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r60b/` (attract.sh, v3k.sh; chk1, chk2,
+chk2d: the Mac checks; dt-on / dt-off: the difftests; pics-*: picture pairs;
+ab222 / ab300: the Vita3K A/B runs). Round 60's scoping run (no code) is in
+`build/agent-scratch/r60/`. A runtime round.
+
+**What.** Every frame iosSyncGP hands the frame's display list to the VIF1
+(iosDlTrans -> iosDmaSendSChainPath1, kicked by the host through the native
+system library: sotc_overrides' dmaSendPath1, `hostDmaStart`). With the native renderer drawing, the
+chain is only walked for what the game can see of it (round 31's
+`walkVif1Chain` / `Vif1Walker::feedT` / the GIF event scanner): the VIF1
+registers, the GS SIGNAL / FINISH / LABEL writes, MSKPATH3, then the
+channel's completion (TADR / ASR / CHCR, D_STAT, CHCR.STR, the interrupt).
+That walk was ~1.2-2 ms of the game thread at 222 MHz (walkVif1Chain 2.1%,
+feedT 1.8%, the scanner 0.6% of the title screen's world). On the PS2 the
+DMA ran beside the EE.
+
+**How (`SOTC_DMA_ASYNC=0` off; A/B `dmaasync`).**
+- The kick (`writeIORegister`'s chain branch, host kicks only) snapshots the
+  chain state (TADR, ASR0 / ASR1, ASP, the last tag, TIE) and a copy of the
+  VIF1 registers, hands them to a worker thread (`DMA`, cores 1-2 on the
+  Vita: `native_renderer::threads::kDma`) and returns with CHCR.STR still
+  set. The frame's kick bookkeeping (the native renderer's kickHook, the
+  chain count) runs at the kick as before.
+- The worker walks it with its own walker and scanner; the GS event writes
+  and MSKPATH3 changes are collected in their order.
+- `PS2Memory::vif1AsyncJoin` applies it on the game thread: the VIF1
+  registers, the events (`GS::writeRegister`) and mask changes in order,
+  TADR / ASR / CHCR as the walk leaves them, then the completion through
+  the same path as before (`processPendingTransfers`: D_STAT, STR, QWC, the
+  cause), then the runtime's `drainCompletedDmacHandlers` (the GS interrupt:
+  SotC's FINISH handler 0x1c37f0 -> iFinish -> texTransResolve, the finish
+  time, 0x1e1150). It waits for the worker only if it is not done.
+- Where it is applied: the next VBlank (EeScheduler, before the VBlank's own
+  interrupt; the GP thread this VBlank wakes polls for the finish), the
+  host's polls (`hostDrawPathsIdle` / `hostChannelBusy`: iosCheckDrawFinish,
+  iosChkGpDlTransExec, the next kick), any read or write of a DMA / VIF / GIF
+  register or a GS privileged register (`readIORegister`, `writeIORegister`,
+  `syncVu1`), GIF work (PATH3 against a mask in flight: `submitGifPacket`,
+  `flushMaskedPath3Packets`, the native GIF chains).
+- `GifEventScanner::s_events` is per thread (the packet cache compares it
+  across a packet's walk).
+
+What moves in time: the guest sees the chain finished (and its FINISH
+interrupt) at its first look, not right after the kick, as on the PS2.
+
+**Exactness.**
+- `SOTC_DMA_ASYNC_CHECK=1` (new): at each kick the walk the game thread
+  would make there is made too (on copies, no packet cache), with every byte
+  it reads to decide what it does (each tag's qword, the VIFcodes, STMASK /
+  STROW / STCOL data, and of the DIRECT data what the GIF scanner reads:
+  GIF tags and A+D qwords, through a new read sink; not the image data it
+  steps over) copied; at the apply (1) the worker's result is compared with
+  it (VIF1 registers, every event and mask change in order, the chain
+  state, the walker's counters), (2) every byte it read is compared with
+  memory then (the guest touched nothing the walk read while it was in
+  flight), (3) the walk is made again from the kick's state and compared.
+  `[dmaasync] check:` every 600 chains.
+  - Mac, attract demo to 3 000 (r60b/chk2): 3 000 chains, 0 differ, 0
+    touched in flight (156 MB of read bytes compared), 0 different again.
+  - The same with the worker held 8 ms before each walk
+    (`SOTC_DMA_ASYNC_DELAY_US=8000`, r60b/chk2d; 250 joins waited for it):
+    0 / 0 / 0.
+  - A first version recorded all of the DIRECT data: 1 250 of 3 000 chains
+    "touched" (r60b/chk1): a 64-byte image (a CLUT the game animates in
+    place each frame, shared by both display lists) the scanner steps over;
+    the walk again at the join was the same every time (0).
+  - Vita3K 444 MHz, the Vita build (r60b/check444, the attract demo to frame
+    ~10 300, the title screen's world included): 10 200 chains compared, 0
+    differ, 0 touched in flight (625 MB of read bytes compared), 0 different
+    again.
+- Mac difftest, attract demo, every 25th call of every native
+  (`SOTC_DIFFTEST=all`, r60b/dt-on, past frame 600): 232 functions, 110 862
+  checks, mismatches only in the two known noisy ones (isysWakeupSubThread's
+  timer, manager_sub_01102638's pad / frame timers), as with
+  `SOTC_DMA_ASYNC=0` (r60b/dt-off).
+- Pictures: attract demo to 6 000 on vs off (r60b/pics-on, pics-off), RMSE
+  per pair 0.005-0.081; two runs with it off (pics-off2) differ by
+  0.007-0.138 (host timing): within the run-to-run noise.
+
+Where it was applied (Vita3K 222 MHz): at the GP thread's poll in 1 721 of
+1 800 chains (`joined at poll`), the VBlank 53, a register 13 + 13; the
+worker walked a chain in 0.56-0.61 ms (0.40 at 300 MHz), the chain was in
+flight 36-42 ms (the poll comes at the next frame), and the game thread
+waited for the worker in 14 of 1 800 chains (max 4.2 ms, the first ones).
+
+**Measured (Vita3K, attract demo, 420 s, `dmaasync` rotating in 60-frame
+windows, host stalls left out; `slips.py`: frames over 40 ms).**
+
+| | frames on / off | frame ms | game | render thread | > 40 ms |
+|---|---|---|---|---|---|
+| 222 MHz, frames < 7 000 (r60b/ab222) | 3 470 / 3 452 | 32.53 / 33.26 | 19.41 / 21.29 | 17.24 / 17.60 | 5.6% / 7.2% |
+| 222 MHz, the title screen's world | 1 498 / 1 489 | 39.96 / 41.38 | 33.50 / 35.16 | 20.21 / 20.64 | 30.5% / 48.8% |
+| 300 MHz, frames < 7 000 (r60b/ab300) | 3 505 / 3 476 | 31.41 / 31.97 | 14.94 / 16.50 | 13.50 / 13.40 | 1.7% / 1.9% |
+| 300 MHz, the title screen's world | 2 921 / 2 940 | 34.05 / 34.96 | 25.73 / 27.46 | 18.36 / 18.15 | 8.5% / 10.1% |
+
+The game thread -1.6 to -1.9 ms in every part at both clocks (twice the
+null A/B's +-0.7), more than the walk's own time on the worker (0.4-0.6
+ms): the walk on the game thread also cost it its caches. The frame -0.6
+to -1.4 ms; at 222 MHz the title screen's world's frames over 40 ms
+30.5% against 48.8%.
+
+**Estimated on the console (an estimate, not measured):** the walk is
+memory-bound (a DRAM miss per tag on the A9), so the console's game thread
+should lose at least what Vita3K shows, ~2 ms of its ~56 ms in the heavy
+frames (~3-4%); the DMA thread's ~0.6-1 ms goes to cores 1-2.
+
+**Deliverable:** build/agent-scratch/celosia-r60.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

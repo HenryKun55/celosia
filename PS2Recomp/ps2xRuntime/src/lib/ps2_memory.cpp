@@ -21,6 +21,7 @@
 #include <optional>
 #include "ps2_vif1_compact.h"
 #include "ps2_gif_events.h"
+#include "runtime/native_renderer.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -403,8 +404,58 @@ std::vector<uint8_t> PS2Memory::copyTransferData(const PendingTransfer &transfer
     return out;
 }
 
+// Round 60 (the walk on the DMA worker, further down).
+struct PS2Memory::Vif1Async
+{
+    struct Op
+    {
+        uint8_t mask = 0, reg = 0; // mask: an MSKPATH3 change (value 0 / 1), else a GS event write
+        uint64_t value = 0;
+        bool operator==(const Op &o) const { return mask == o.mask && reg == o.reg && value == o.value; }
+    };
+    struct Result
+    {
+        VIFRegisters regs{};
+        Vif1ChainState st{};
+        std::vector<Op> ops;
+        uint64_t counters = 0;
+        bool scanIdle = true;
+    };
+    std::thread thread;
+    std::mutex m;
+    std::condition_variable work, doneCv;
+    bool stop = false, job = false, done = false;
+    std::thread::id owner;
+    bool tie = false, useCache = false;
+    uint32_t chcr = 0;
+    Result res; // the worker's: regs / st start as the kick's
+    uint64_t workUs = 0, kickUs = 0;
+    // SOTC_DMA_ASYNC_CHECK: the walk made on the game thread at the kick
+    // (copies, no packet cache), every byte it read and their values then.
+    Result ref;
+    Vif1Walker::Record whole;
+    std::vector<uint8_t> wholeBytes;
+    bool wholeOk = false;
+    Vif1ChainState startSt{};
+    VIFRegisters startRegs{};
+    uint64_t kicks = 0, joins[PS2Memory::kJoinReasons] = {}, waits = 0, waitUs = 0, maxWaitUs = 0, workTotalUs = 0, inflightUs = 0;
+    uint64_t checked = 0, differ = 0, touched = 0, unverifiable = 0, rewalkDiffer = 0, wholeKB = 0;
+};
+
 PS2Memory::~PS2Memory()
 {
+    if (m_vif1A)
+    {
+        {
+            std::lock_guard<std::mutex> lock(m_vif1A->m);
+            m_vif1A->stop = true;
+        }
+        m_vif1A->work.notify_all();
+        if (m_vif1A->thread.joinable())
+            m_vif1A->thread.join();
+        delete m_vif1A;
+        m_vif1A = nullptr;
+    }
     {
         std::lock_guard<std::mutex> lock(m_mtvuMutex);
         m_mtvuStop = true;
@@ -1527,6 +1578,10 @@ namespace
 bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
 {
     g_mmioCensus.count(address, true);
+    // Round 60: a display list in flight is applied before the guest (or the
+    // host for it) writes a GIF / VIF / DMA register.
+    if (m_vif1AsyncPending.load(std::memory_order_relaxed) && address >= 0x10003000u && address < 0x1000F600u) [[unlikely]]
+        vif1AsyncJoin(kJoinRegWrite);
     if ((address >= 0x10003000u && address < 0x10003100u) || (address >= 0x10003C00u && address < 0x10003E00u))
         syncVu1(); // GIF / VIF1 registers
     size_t timerIndex = 0u;
@@ -1945,6 +2000,18 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     static const bool dumping = std::getenv("PS2X_DMA_DUMP") != nullptr;
                     static const bool cacheCheck = std::getenv("SOTC_DMACACHE_CHECK") && std::atoi(std::getenv("SOTC_DMACACHE_CHECK")) != 0;
                     const bool walk2 = walker && transferTagData && channelBase == 0x10009000u && ps2_fast_paths::g_dmaWalk2 && !dumping;
+                    if (walk2 && !cacheCheck && t_hostIo && ps2_fast_paths::g_dmaAsync)
+                    {
+                        // Round 60: the walk on the DMA worker; CHCR.STR stays
+                        // set until it is applied (vif1AsyncJoin).
+                        vif1AsyncKick(Vif1ChainState{tagAddr, asr0, asr1, asp, lastTagUpper, 0}, tieEnabled, chcr);
+                        // As after the walk below: the frame's kick.
+                        if (ps2_stats::kickHook)
+                            ps2_stats::kickHook();
+                        ps2_stats::vif1Chains.fetch_add(1, std::memory_order_relaxed);
+                        ps2_stats::frameKicked(ps2_stats::nowUs(), ps2_load::waitUs[ps2_load::kVu1].load(std::memory_order_relaxed));
+                        return true;
+                    }
                     if (walk2)
                     {
                         Vif1ChainState st{tagAddr, asr0, asr1, asp, lastTagUpper, 0};
@@ -2365,6 +2432,7 @@ void PS2Memory::completeDmacChannel(uint32_t channelBase, uint32_t cause)
 
 void PS2Memory::processPendingTransfers()
 {
+    vif1AsyncJoin(kJoinOther); // round 60 (no-op inside its own apply)
     if (m_mtvuEnabled && (!m_pendingGifTransfers.empty() || !m_pendingVif1Transfers.empty()))
     {
         // Keep PATH3 and VIF1 in submission order on the worker; the DMA
@@ -2663,6 +2731,7 @@ std::vector<uint32_t> PS2Memory::consumeCompletedDmacCauses()
 
 void PS2Memory::flushMaskedPath3Packets(bool drainImmediately)
 {
+    vif1AsyncJoin(kJoinGif); // round 60 (no-op inside its own apply)
     if (m_path3Masked || m_path3MaskedFifo.empty())
         return;
 
@@ -2687,6 +2756,7 @@ void PS2Memory::flushMaskedPath3Packets(bool drainImmediately)
 
 void PS2Memory::submitGifPacket(GifPathId pathId, const uint8_t *data, uint32_t sizeBytes, bool drainImmediately, bool path2DirectHl)
 {
+    vif1AsyncJoin(kJoinGif); // round 60: PATH3 against a mask in flight
     if (!data || sizeBytes < 16)
         return;
 
@@ -2747,6 +2817,7 @@ void PS2Memory::processGIFPacket(const uint8_t *data, uint32_t sizeBytes)
 
 bool PS2Memory::tryProcessNativeGifImageUploadChain(GS &gs, uint32_t tadr, uint32_t chcr)
 {
+    vif1AsyncJoin(kJoinGif); // round 60
     if (m_mtvuEnabled)
         return false; // GS packets must stay ordered behind the MTVU queue
     static constexpr uint32_t GIF_CHANNEL = 0x1000A000u;
@@ -2941,6 +3012,7 @@ bool PS2Memory::tryProcessNativeGifImageUploadChain(GS &gs, uint32_t tadr, uint3
 
 bool PS2Memory::tryProcessNativeGifPackedChain(GS &gs, uint32_t tadr, uint32_t chcr)
 {
+    vif1AsyncJoin(kJoinGif); // round 60
     if (m_mtvuEnabled)
         return false; // GS packets must stay ordered behind the MTVU queue
     static constexpr uint32_t GIF_CHANNEL = 0x1000A000u;
@@ -3029,6 +3101,8 @@ int PS2Memory::pollDmaRegisters()
 uint32_t PS2Memory::readIORegister(uint32_t address)
 {
     g_mmioCensus.count(address, false);
+    if (m_vif1AsyncPending.load(std::memory_order_relaxed) && ((address >= 0x10003000u && address < 0x1000F600u) || isGsPrivReg(address))) [[unlikely]]
+        vif1AsyncJoin(kJoinRegRead); // round 60
     // VIF1_STAT / GIF_STAT while the VU1 worker still has work: report the
     // paths as busy instead of waiting, like the hardware. Games poll these
     // once per vsync to decide whether to flip (SotC's iosCheckDrawFinish);
@@ -3333,11 +3407,22 @@ void PS2Memory::clearModifiedFlag(uint32_t address, uint32_t size)
 //   it ends clean. Those codes' effects depend on CYCLE (kept) and on BASE /
 //   OFST / ITOPS / TOPS / DBF, which no kept code changes but MSCAL, which
 //   replay() runs in order: the result is the walk's.
-void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1ChainState &st, bool tie, bool useCache)
+void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1ChainState &st, bool tie, bool useCache, void *wholeRecord)
 {
     const int kMaxChainTags = 1 << 20;
     if (useCache)
         ++g_vif1Walks;
+    // Round 60's check (SOTC_DMA_ASYNC_CHECK): every byte the walk reads that
+    // decides what it does (each tag's qword, the VIFcodes, DIRECT and STMASK /
+    // STROW / STCOL data), as main RAM ranges; anything outside main RAM
+    // marks the record bad. Only without the packet cache (its recording
+    // uses the walker's one record).
+    Vif1Walker::Record *whole = useCache ? nullptr : static_cast<Vif1Walker::Record *>(wholeRecord);
+    if (whole)
+    {
+        whole->base = m_rdram;
+        walker.record(whole);
+    }
     // One record reused (its vectors keep their capacity: no allocation per
     // packet; only the cached walk records).
     static Vif1Walker::Record rec;
@@ -3407,6 +3492,13 @@ void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1Chai
         const uint32_t addr = static_cast<uint32_t>((tag >> 32) & 0x7FFFFFFF);
         st.lastTagUpper = static_cast<uint32_t>((tag >> 16) & 0xFFFFu);
         ++st.tags;
+        if (whole)
+        {
+            if (inRam)
+                whole->add(tp, 16u);
+            else
+                whole->bad = true;
+        }
         if (recording)
         {
             if (!inRam || irq || id == 0u || id == 5u || id == 7u)
@@ -3519,6 +3611,8 @@ void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1Chai
         {
             if (recording)
                 rec.bad = true;
+            if (whole)
+                whole->bad = true;
             walker.feed(tp + 8, 8u);
         }
         if (hasPayload)
@@ -3530,6 +3624,8 @@ void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1Chai
             {
                 if (recording)
                     rec.bad = true;
+                if (whole)
+                    whole->bad = true;
                 feedGeneral(dataAddr, bytes);
             }
         }
@@ -3639,7 +3735,289 @@ void PS2Memory::walkVif1Chain(Vif1Walker &walker, GifEventScanner &gif, Vif1Chai
     }
     if (recording)
         stopRecording();
+    if (whole)
+        walker.record(nullptr);
     g_vif1PacketStats.tags += static_cast<uint64_t>(st.tags);
+}
+
+// ---- Round 60: the display list's VIF1 chain walked on a worker ----
+// (SOTC_DMA_ASYNC; ps2_memory.h, vif1AsyncJoin.) The walk only reads guest
+// memory and changes nothing outside the walker's own registers, the GS
+// event writes and the MSKPATH3 calls: those are collected in order on the
+// worker and applied on the game thread, as the walk on the game thread
+// would have made them, before anything can look at them.
+namespace
+{
+    bool dmaAsyncCheck()
+    {
+        static const bool on = std::getenv("SOTC_DMA_ASYNC_CHECK") && std::atoi(std::getenv("SOTC_DMA_ASYNC_CHECK")) != 0;
+        return on;
+    }
+    const char *const kJoinNames[PS2Memory::kJoinReasons] = {"vblank", "poll", "regread", "regwrite", "gs", "gif", "other"};
+}
+
+void PS2Memory::vif1AsyncKick(const Vif1ChainState &st, bool tie, uint32_t chcr)
+{
+    if (!m_vif1A)
+    {
+        m_vif1A = new Vif1Async;
+        m_vif1A->owner = std::this_thread::get_id();
+        m_vif1A->thread = std::thread([this]
+                                      { vif1AsyncLoop(); });
+    }
+    Vif1Async &a = *m_vif1A;
+    if (dmaAsyncCheck())
+    {
+        // The reference: the walk the game thread would make now.
+        Vif1Async::Result &r = a.ref;
+        r.regs = vif1_regs;
+        r.st = st;
+        r.ops.clear();
+        a.whole.ranges.clear();
+        a.whole.ops.clear();
+        a.whole.bad = a.whole.anyCode = a.whole.intSeen = false;
+        a.whole.code = a.whole.num = a.whole.mscal = a.whole.mscnt = a.whole.unpack = 0u;
+        a.whole.bytes = 0u;
+        a.whole.preciseDirect = true;
+        const GifEventScanner::WriteFn write = [&r](uint8_t reg, uint64_t v)
+        { r.ops.push_back({0u, reg, v}); };
+        const Vif1Walker::Path3Mask mask = [&r](bool m)
+        { r.ops.push_back({1u, 0u, m ? 1u : 0u}); };
+        uint64_t saved[3];
+        std::memcpy(saved, GifEventScanner::s_events, sizeof(saved));
+        GifEventScanner scan(write);
+        // What the GIF scan reads of the DIRECT data (not the image data it
+        // steps over): main RAM only, anything else makes the record bad.
+        scan.setReadSink([](void *ctx, const uint8_t *p, uint32_t n)
+                         {
+                             auto *self = static_cast<PS2Memory *>(ctx);
+                             Vif1Walker::Record &w = self->m_vif1A->whole;
+                             if (p >= self->m_rdram && p + n <= self->m_rdram + PS2_RAM_SIZE)
+                                 w.add(p, n);
+                             else
+                                 w.bad = true; },
+                         this);
+        Vif1Walker walker(r.regs, scan, mask);
+        walkVif1Chain(walker, scan, r.st, tie, false, &a.whole);
+        std::memcpy(GifEventScanner::s_events, saved, sizeof(saved));
+        r.counters = walker.countersHash();
+        r.scanIdle = scan.idle();
+        a.wholeOk = !a.whole.bad;
+        a.wholeBytes.clear();
+        if (a.wholeOk)
+            for (const auto &[at, n] : a.whole.ranges)
+                a.wholeBytes.insert(a.wholeBytes.end(), m_rdram + at, m_rdram + at + n);
+        a.startSt = st;
+        a.startRegs = vif1_regs;
+    }
+    {
+        std::lock_guard<std::mutex> lock(a.m);
+        a.res.regs = vif1_regs;
+        a.res.st = st;
+        a.res.ops.clear();
+        a.tie = tie;
+        a.useCache = ps2_fast_paths::g_dmaCache;
+        a.chcr = chcr;
+        a.job = true;
+        a.done = false;
+    }
+    a.work.notify_one();
+    ++a.kicks;
+    a.kickUs = ps2_stats::nowUs();
+    static const bool log = std::getenv("SOTC_DMA_ASYNC_LOG") != nullptr;
+    if (log)
+        std::fprintf(stderr, "[dmaasync] kick %llu, ra %08x, TADR %08x\n", (unsigned long long)a.kicks, g_ps2MmioCaller ? g_ps2MmioCaller() : 0u, st.tagAddr);
+    m_vif1AsyncPending.store(true, std::memory_order_relaxed);
+}
+
+void PS2Memory::vif1AsyncLoop()
+{
+    ThreadNaming::SetCurrentThreadName("DMA");
+    native_renderer::threads::place(native_renderer::threads::kDma);
+    // SOTC_DMA_ASYNC_DELAY_US (checking): the worker waits this long before
+    // each walk, so the guest has the time to touch a chain still in flight.
+    static const uint64_t delayUs = std::getenv("SOTC_DMA_ASYNC_DELAY_US") ? std::strtoull(std::getenv("SOTC_DMA_ASYNC_DELAY_US"), nullptr, 10) : 0u;
+    Vif1Async &a = *m_vif1A;
+    std::unique_lock<std::mutex> lock(a.m);
+    while (true)
+    {
+        a.work.wait(lock, [&a]
+                    { return a.stop || (a.job && !a.done); });
+        if (a.stop)
+            return;
+        lock.unlock();
+        if (delayUs)
+            std::this_thread::sleep_for(std::chrono::microseconds(delayUs));
+        const uint64_t t0 = ps2_stats::nowUs();
+        Vif1Async::Result &r = a.res;
+        {
+            const GifEventScanner::WriteFn write = [&r](uint8_t reg, uint64_t v)
+            { r.ops.push_back({0u, reg, v}); };
+            const Vif1Walker::Path3Mask mask = [&r](bool m)
+            { r.ops.push_back({1u, 0u, m ? 1u : 0u}); };
+            GifEventScanner scan(write);
+            Vif1Walker walker(r.regs, scan, mask);
+            walkVif1Chain(walker, scan, r.st, a.tie, a.useCache);
+            r.counters = walker.countersHash();
+            r.scanIdle = scan.idle();
+            walker.finish();
+        }
+        const uint64_t t1 = ps2_stats::nowUs();
+        lock.lock();
+        a.workUs = t1 - t0;
+        a.done = true;
+        a.doneCv.notify_all();
+    }
+}
+
+bool PS2Memory::vif1AsyncJoin(int reason)
+{
+    if (!m_vif1AsyncPending.load(std::memory_order_relaxed) || !m_vif1A)
+        return false;
+    Vif1Async &a = *m_vif1A;
+    if (std::this_thread::get_id() != a.owner)
+        return false; // only the game thread applies (no other thread looks)
+    m_vif1AsyncPending.store(false, std::memory_order_relaxed);
+    {
+        std::unique_lock<std::mutex> lock(a.m);
+        if (!a.done)
+        {
+            const uint64_t t0 = ps2_stats::nowUs();
+            {
+                ps2_load::Wait waiting;
+                a.doneCv.wait(lock, [&a]
+                              { return a.done; });
+            }
+            const uint64_t w = ps2_stats::nowUs() - t0;
+            ++a.waits;
+            a.waitUs += w;
+            a.maxWaitUs = std::max(a.maxWaitUs, w);
+        }
+        a.job = false;
+        a.workTotalUs += a.workUs;
+    }
+    a.inflightUs += ps2_stats::nowUs() - a.kickUs;
+    ++a.joins[reason >= 0 && reason < kJoinReasons ? reason : kJoinOther];
+    static const bool log = std::getenv("SOTC_DMA_ASYNC_LOG") != nullptr; // debugging: each join, its reason, the guest's ra
+    if (log)
+        std::fprintf(stderr, "[dmaasync] join %llu at %s, ra %08x, %.2f ms after the kick\n", (unsigned long long)a.kicks,
+                     kJoinNames[reason >= 0 && reason < kJoinReasons ? reason : kJoinOther], g_ps2MmioCaller ? g_ps2MmioCaller() : 0u,
+                     (ps2_stats::nowUs() - a.kickUs) / 1000.0);
+    vif1AsyncApply();
+    if (a.kicks % 1800u == 0u)
+    {
+        char line[512];
+        int n = std::snprintf(line, sizeof(line), "[dmaasync] %llu chains: walk %.2f ms a chain on the worker, in flight %.1f ms, waited %llu times (%.2f ms a chain, max %.2f ms); joined at",
+                              (unsigned long long)a.kicks, a.workTotalUs / 1000.0 / 1800.0, a.inflightUs / 1000.0 / 1800.0, (unsigned long long)a.waits,
+                              a.waitUs / 1000.0 / 1800.0, a.maxWaitUs / 1000.0);
+        for (int k = 0; k < kJoinReasons && n > 0 && n < static_cast<int>(sizeof(line)); ++k)
+            if (a.joins[k])
+                n += std::snprintf(line + n, sizeof(line) - n, " %s %llu", kJoinNames[k], (unsigned long long)a.joins[k]);
+        std::fprintf(stderr, "%s\n", line);
+        a.workTotalUs = a.inflightUs = a.waits = a.waitUs = a.maxWaitUs = 0;
+        std::fill(std::begin(a.joins), std::end(a.joins), 0ull);
+    }
+    if (m_vif1AsyncApplied)
+        m_vif1AsyncApplied();
+    return true;
+}
+
+void PS2Memory::vif1AsyncApply()
+{
+    Vif1Async &a = *m_vif1A;
+    const Vif1Async::Result &r = a.res;
+    if (dmaAsyncCheck())
+    {
+        // 1. The worker's walk against the kick's: registers, chain state,
+        //    events and mask changes in order, counters.
+        const Vif1Async::Result &f = a.ref;
+        const bool same = std::memcmp(&f.regs, &r.regs, sizeof(VIFRegisters)) == 0 && f.ops == r.ops && f.st.tagAddr == r.st.tagAddr &&
+                          f.st.asr0 == r.st.asr0 && f.st.asr1 == r.st.asr1 && f.st.asp == r.st.asp && f.st.lastTagUpper == r.st.lastTagUpper &&
+                          f.st.tags == r.st.tags && f.counters == r.counters && f.scanIdle == r.scanIdle;
+        ++a.checked;
+        if (!same && a.differ++ < 20u)
+            std::fprintf(stderr, "[dmaasync] chain %llu DIFFERS: tags %d / %d, end %08x / %08x, code %08x / %08x, stat %08x / %08x, top %x / %x, ops %zu / %zu\n",
+                         (unsigned long long)a.kicks, f.st.tags, r.st.tags, f.st.tagAddr, r.st.tagAddr, f.regs.code, r.regs.code, f.regs.stat, r.regs.stat,
+                         f.regs.top, r.regs.top, f.ops.size(), r.ops.size());
+        // 2. Every byte the walk read, now (the guest ran since the kick):
+        //    unchanged means the guest never touched the chain in flight.
+        if (!a.wholeOk)
+            ++a.unverifiable;
+        else
+        {
+            size_t at = 0;
+            bool changed = false;
+            for (const auto &[addr, n] : a.whole.ranges)
+            {
+                if (std::memcmp(a.wholeBytes.data() + at, m_rdram + addr, n) != 0)
+                {
+                    uint32_t i = 0;
+                    while (i < n && a.wholeBytes[at + i] == m_rdram[addr + i])
+                        ++i;
+                    if (!changed && a.touched < 20u)
+                        std::fprintf(stderr, "[dmaasync] chain %llu TOUCHED in flight: guest byte %08x (range %08x + %u) %02x -> %02x\n",
+                                     (unsigned long long)a.kicks, addr + i, addr, n, a.wholeBytes[at + i], m_rdram[addr + i]);
+                    changed = true;
+                }
+                at += n;
+            }
+            a.touched += changed;
+            a.wholeKB += a.wholeBytes.size() >> 10;
+        }
+        // 3. The walk made again now, from the kick's state: the same.
+        {
+            Vif1Async::Result again;
+            again.regs = a.startRegs;
+            again.st = a.startSt;
+            const GifEventScanner::WriteFn write = [&again](uint8_t reg, uint64_t v)
+            { again.ops.push_back({0u, reg, v}); };
+            const Vif1Walker::Path3Mask mask = [&again](bool m)
+            { again.ops.push_back({1u, 0u, m ? 1u : 0u}); };
+            uint64_t saved[3];
+            std::memcpy(saved, GifEventScanner::s_events, sizeof(saved));
+            GifEventScanner scan(write);
+            Vif1Walker walker(again.regs, scan, mask);
+            walkVif1Chain(walker, scan, again.st, a.tie, false);
+            std::memcpy(GifEventScanner::s_events, saved, sizeof(saved));
+            const bool sameAgain = std::memcmp(&f.regs, &again.regs, sizeof(VIFRegisters)) == 0 && f.ops == again.ops && f.st.tagAddr == again.st.tagAddr &&
+                                   f.st.tags == again.st.tags && f.st.asp == again.st.asp && walker.countersHash() == f.counters;
+            a.rewalkDiffer += !sameAgain;
+        }
+        if (a.checked % 600u == 0u)
+            std::fprintf(stderr, "[dmaasync] check: %llu chains compared, %llu differ, %llu touched in flight (%llu unverifiable, %llu KB read compared), %llu walked again at the join differ\n",
+                         (unsigned long long)a.checked, (unsigned long long)a.differ, (unsigned long long)a.touched, (unsigned long long)a.unverifiable,
+                         (unsigned long long)a.wholeKB, (unsigned long long)a.rewalkDiffer);
+    }
+    // What the walk on the game thread did as it went, in its order.
+    vif1_regs = r.regs;
+    for (const Vif1Async::Op &op : r.ops)
+    {
+        if (op.mask)
+        {
+            const bool was = m_path3Masked;
+            m_path3Masked = op.value != 0u;
+            if (was && !m_path3Masked)
+                flushMaskedPath3Packets();
+        }
+        else if (m_gsEventWrite)
+            m_gsEventWrite(op.reg, op.value);
+    }
+    // Then what writeIORegister does after its walk: the channel's
+    // registers, and its completion (D_STAT, CHCR.STR, QWC, the interrupt).
+    constexpr uint32_t kChannel = 0x10009000u;
+    m_ioRegisters[kChannel + 0x30] = r.st.tagAddr;
+    m_ioRegisters[kChannel + 0x40] = r.st.asr0;
+    m_ioRegisters[kChannel + 0x50] = r.st.asr1;
+    uint32_t chcr = a.chcr;
+    chcr = (chcr & ~(0x3u << 4)) | ((r.st.asp & 0x3u) << 4);
+    chcr = (chcr & 0x0000FFFFu) | (r.st.lastTagUpper << 16);
+    m_ioRegisters[kChannel] = chcr;
+    PendingTransfer pt;
+    pt.fromScratchpad = false;
+    pt.srcAddr = 0;
+    pt.qwc = 0;
+    m_pendingVif1Transfers.push_back(std::move(pt));
+    processPendingTransfers();
 }
 
 void PS2Memory::hostDmaStart(uint32_t channelBase, uint32_t chcr, uint32_t madr, uint32_t qwc, uint32_t tadr)
@@ -3657,6 +4035,7 @@ void PS2Memory::hostDmaStart(uint32_t channelBase, uint32_t chcr, uint32_t madr,
 
 bool PS2Memory::hostDrawPathsIdle()
 {
+    vif1AsyncJoin(kJoinPoll); // round 60: the game's poll sees the walk done
     t_hostIo = true;
     const bool idle = (readIORegister(0x10009000u) & 0x100u) == 0u && (readIORegister(0x1000A000u) & 0x100u) == 0u &&
                       (readIORegister(0x10003C00u) & 0x1F000003u) == 0u && (readIORegister(0x10003020u) & 0xC00u) == 0u;
@@ -3677,6 +4056,7 @@ void PS2Memory::hostStopEeTimer(size_t index)
 
 bool PS2Memory::hostChannelBusy(uint32_t channelBase)
 {
+    vif1AsyncJoin(kJoinPoll);
     t_hostIo = true;
     const bool busy = (readIORegister(channelBase) & 0x100u) != 0u;
     t_hostIo = false;
@@ -3710,6 +4090,11 @@ namespace ps2_fast_paths
     {
         const char *env = std::getenv("PS2X_DMA_CACHE");
         return env && std::atoi(env) != 0;
+    }();
+    bool g_dmaAsync = []
+    {
+        const char *env = std::getenv("SOTC_DMA_ASYNC");
+        return !env || std::atoi(env) != 0;
     }();
 }
 

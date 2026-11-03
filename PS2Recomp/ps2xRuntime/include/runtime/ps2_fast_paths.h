@@ -27,4 +27,8 @@ namespace ps2_fast_paths
     extern bool g_dmaWalkFast;
     extern bool g_dmaWalk2;
     extern bool g_dmaCache;
+    // Round 60: the display list's VIF1 chain walked on a worker thread and
+    // applied where the guest could first see it (SOTC_DMA_ASYNC=0: on the
+    // game thread at the kick; A/B name `dmaasync`).
+    extern bool g_dmaAsync;
 }

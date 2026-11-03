@@ -2310,6 +2310,11 @@ void EeScheduler::processEvent(const EeEvent &event)
         requestStop();
         break;
     case EeEventType::VBlankStart:
+        // Round 60: a display list still walked on the DMA worker is applied
+        // (its GS interrupt queued) before the VBlank's own work: the GS
+        // finished it long before on the PS2, and the GP thread this VBlank
+        // wakes polls for it.
+        m_runtime.memory().vif1AsyncJoin(PS2Memory::kJoinVblank);
         ++m_vsyncTick;
         m_runtime.memory().gs().vsyncTick.store(m_vsyncTick, std::memory_order_release);
         ps2_stats::vblanks.store(m_vsyncTick, std::memory_order_relaxed);

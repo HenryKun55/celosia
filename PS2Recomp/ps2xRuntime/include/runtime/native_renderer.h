@@ -509,6 +509,7 @@ namespace native_renderer
             kLoader,
             kRecorder,
             kLog,
+            kDma, // round 60: the display list's chain walk (SOTC_DMA_ASYNC)
             kKinds
         };
         void place(Kind kind);

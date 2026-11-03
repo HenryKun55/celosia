@@ -846,6 +846,11 @@ bool PS2Runtime::syncCoreSubsystems()
     m_memory.setGifArbiter(&m_gifArbiter);
     m_memory.setGsEventWriter([this](uint8_t reg, uint64_t value)
                               { m_gs.writeRegister(reg, value); });
+    // Round 60: a display list walked on the DMA worker, once applied: its
+    // completion and the GS interrupt go to their handlers as the kick's
+    // drain would have sent them (sotc_overrides dmaSendPath1).
+    m_memory.setVif1AsyncApplied([this]
+                                 { drainCompletedDmacHandlers(m_memory.getRDRAM()); });
     {
         extern uint32_t (*g_ps2MmioCaller)();
         static PS2Runtime *self = this;

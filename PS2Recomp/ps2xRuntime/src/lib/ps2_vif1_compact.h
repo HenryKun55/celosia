@@ -98,6 +98,9 @@ public:
         std::vector<std::pair<uint32_t, uint32_t>> ranges;
         std::vector<uint32_t> ops;
         bool bad = false, anyCode = false, intSeen = false;
+        // Round 60's check: DIRECT data not added here (the GIF scanner's
+        // read sink adds what the scan reads of it instead).
+        bool preciseDirect = false;
         uint32_t code = 0, num = 0;
         uint32_t mscal = 0, mscnt = 0, unpack = 0;
         uint64_t bytes = 0;

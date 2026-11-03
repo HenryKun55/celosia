@@ -32,6 +32,7 @@
 #include "runtime/gs/ps2_gs_psmt4.h"
 #include "runtime/gs/ps2_gs_psmt8.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_fast_paths.h"
 #include "ps2x/iop/audio_stats.h"
 #include "runtime/ps2_thread_load.h"
 #include "runtime/ee_scheduler.h"
@@ -2947,7 +2948,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -2961,6 +2962,7 @@ namespace sotc_native
                 layerAt[layer] = indexOf("L" + std::to_string(layer));
             xferAt = indexOf("xferreturn");
             sblurLazyAt = indexOf("sblurlazy");
+            dmaAsyncAt = indexOf("dmaasync");
             return true;
         }();
         (void)placesRead;
@@ -2975,6 +2977,11 @@ namespace sotc_native
         }
         if (sblurLazyAt >= 0) // round 59
             g_sblurLazyJoin = !isOffAt(sblurLazyAt);
+        if (dmaAsyncAt >= 0) // round 60: the display list's walk on the DMA worker
+        {
+            static const bool dmaAsyncStart = ps2_fast_paths::g_dmaAsync;
+            ps2_fast_paths::g_dmaAsync = isOffAt(dmaAsyncAt) ? false : dmaAsyncStart;
+        }
         for (size_t i = 0; i < kTuningCount; ++i)
             if (tuningAt[i] >= 0)
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? false : start.*(kTuningFlags[i].field);
