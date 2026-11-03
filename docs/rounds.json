@@ -248,6 +248,14 @@
    "focus": "Fidelity",
    "summary": "Vita3K's red canyon mist: the GS backend's start-up probe left a red 64 x 64 surface in memory vitaGL freed, and Vita3K sampled the next texture put there (often the mist's puff) as that surface; the probe no longer runs in an emulator and freed targets are kept there. The real camera blurs are drawn on a second picture instead of from the scene drawn again (SOTC_SBLUR_PINGPONG). vitaGL takes the PS2's own mip levels.",
    "result": "Mist red in about 4 Vita3K runs of 10 before (7 of 7 red runs with the puff in one of the two freed blocks; with the probe's bands made green the mist came out green), 0 of 8 after. Blur: no scene redraw; Vita3K A/B with every camera blur drawn: render thread 23.2 -> 22.4 ms; frame 59.3 -> 63.3 ms, all of it in Vita3K's present (console not measured)."
+  },
+  {
+   "round": "r56",
+   "date": "2026-11-03",
+   "commit": "3d4dc9a",
+   "focus": "Speed",
+   "summary": "vitaGL's per-draw work made lighter on the Vita: a packed draw's attributes on one vertex stream (one sceGxmSetVertexStream instead of 4-6), the default uniform buffers copied with memcpy instead of the sceClibMemcpy import, a 16-entry vertex layout cache (SOTC_GL_LEAN_DRAW). Found that Vita3K stalls ~1 s every ~90 frames while the Mac's screen is locked (host present), which had skewed the 60-frame averages.",
+   "result": "Vita3K attract demo, stalls left out: render thread 20.8 -> 18.9 ms at 222 MHz (-9%), 16.2 -> 14.5 ms at 300 MHz; frame 34.7 -> 34.1 ms at 222, 32.7 -> 32.1 at 300. Not 30 fps: the title screen's world runs ~42 ms at 222 (game thread ~35 ms)."
   }
  ]
 }
