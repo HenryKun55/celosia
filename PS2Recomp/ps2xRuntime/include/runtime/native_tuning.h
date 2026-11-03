@@ -224,6 +224,18 @@ namespace native_renderer
         // else reads the snapshot: the same pixels, two fewer picture-sized
         // scenes (SOTC_GL_FEW_COPIES=0/1).
         bool glFewCopies = true;
+        // Round 55: a frame's one screen blur drawn on a second picture (the
+        // picture so far copied there, the copies read from the first, the
+        // rest of the frame drawn there on the first's depth) instead of from
+        // the scene drawn again (Vita3K's mid-frame redraw) or a mid-frame
+        // copy taken up again (the console). The Vita's default; the Mac's
+        // OpenGL takes the copy unless SOTC_SBLUR_PINGPONG=1 (Metal: its own
+        // path). SOTC_SBLUR_PINGPONG=0/1; A/B name `sblurapart`.
+#if defined(__vita__)
+        bool blurApart = true;
+#else
+        bool blurApart = false;
+#endif
         // the shadow volumes through a program that only counts (the main
         // vertex program, a fragment program that writes nothing): the same
         // stencil, no fog / texture work per volume pixel (SOTC_GL_VOLUME_PROG=0/1).

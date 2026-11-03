@@ -1,4 +1,5 @@
 #include "runtime/gs/gs_hw_backend.h"
+#include "runtime/native_renderer.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "runtime/gs/gs_direct_frame.h"
 #include "runtime/host_menu.h"
@@ -759,7 +760,22 @@ struct GSHwBackend::Impl
         glUniform1i(uniform("uTexture"), 0);
 #if defined(PS2X_GS_HW_VITA)
         // No COLCLAMP wrap path yet (it needs a float target): wrapProgram 0.
-        measureOrientation();
+        // Round 55: not measured in Vita3K (native_renderer::inEmulator, the
+        // native renderer's probe at start-up). There it reads nothing back
+        // (all "unknown": the defaults), and its 64 x 64 targets were the
+        // attract demo's red mist: fill() rewrites a texture just drawn
+        // into, so vitaGL moves that texture's storage and frees the old
+        // block, which the framebuffer still points at; Vita3K keeps the
+        // red-banded colour surface it rendered there, and the next 64 x 64
+        // RGBA texture vitaGL put in that block (often the canyon mist's puff)
+        // was sampled as it (proved with the bands made green: the mist came
+        // out green, build/agent-scratch/r55/pg4). SOTC_GS_MEASURE_ROWS=1:
+        // measured anyway.
+        static const bool measureAnyway = std::getenv("SOTC_GS_MEASURE_ROWS") && std::atoi(std::getenv("SOTC_GS_MEASURE_ROWS")) != 0;
+        if (native_renderer::inEmulator() && !measureAnyway)
+            std::fprintf(stderr, "[gs:hw] vitaGL rows: not measured in an emulator (the defaults; SOTC_GS_MEASURE_ROWS=1 measures)\n");
+        else
+            measureOrientation();
         vuProgram = g_vitaVuProgram; // built on the main thread (setContextProvider)
 #else
         {
@@ -814,6 +830,20 @@ struct GSHwBackend::Impl
     }
 
 #if defined(PS2X_GS_HW_VITA)
+    // Round 55: in Vita3K a GS target that grows keeps its old texture
+    // instead of deleting it (SOTC_GL_KEEP_TARGETS=0: deleted, as before).
+    // Vita3K looks every texture up in its cache of colour surfaces first,
+    // by address and row stride, and keeps a surface after the guest frees
+    // its memory (it sees no frees, and no writes on this Mac): a texture
+    // vitaGL later put in such memory was drawn as the old surface's
+    // picture (the red mist of the attract demo, see measureOrientation's
+    // call).
+    std::vector<GLuint> retiredTargets;
+    static bool keepRetiredTargets()
+    {
+        static const bool on = !std::getenv("SOTC_GL_KEEP_TARGETS") || std::atoi(std::getenv("SOTC_GL_KEEP_TARGETS")) != 0;
+        return on && native_renderer::inEmulator(); // (the console reads its memory: nothing to keep there)
+    }
     // Which way vitaGL puts rows into a framebuffer's memory for a draw, a
     // scissor and a blit's source and destination (it depends on how it was
     // built): each works on GS rows [0, 16) of a 64x64 target and the memory
@@ -925,6 +955,9 @@ struct GSHwBackend::Impl
         std::fprintf(stderr, "[gs:hw] vitaGL rows: draw %s, scissor %s, blit source %s, blit target %s\n", names[draw + 1], names[scissor + 1],
                      names[blitSrc + 1], names[blitDst + 1]);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (std::getenv("SOTC_GL_LAYER_LOG"))
+            for (int i = 0; i < 2; ++i)
+                std::fprintf(stderr, "[gs:hw] orientation target %d (64x64) at %p\n", i, static_cast<const void *>(textureMemory(tex[i])));
         glDeleteFramebuffers(2, fbo);
         glDeleteTextures(2, tex);
         scissorState.valid = false;
@@ -1507,6 +1540,19 @@ struct GSHwBackend::Impl
                     if (d.attached == rt.texture)
                         d.attached = 0;
 #endif
+#if defined(PS2X_GS_HW_VITA)
+                // Round 55: a GS target that grows leaves its old texture
+                // kept, not deleted (keepRetiredTargets): Vita3K keeps the
+                // colour surface it saw at that address after the memory is
+                // freed and samples a texture vitaGL later puts there, with
+                // the same row stride, as that old surface.
+                if (std::getenv("SOTC_GL_LAYER_LOG"))
+                    std::fprintf(stderr, "[gs:hw] target fbp %u %ux%u at %p %s\n", rt.fbp, rt.width, rt.height, static_cast<const void *>(textureMemory(rt.texture)),
+                                 keepRetiredTargets() ? "retired (kept)" : "deleted");
+                if (keepRetiredTargets())
+                    retiredTargets.push_back(rt.texture);
+                else
+#endif
                 glDeleteTextures(1, &rt.texture);
                 for (auto it = framebuffers.begin(); it != framebuffers.end();)
                 {
@@ -1537,6 +1583,11 @@ struct GSHwBackend::Impl
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, rt.width, rt.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+#if defined(PS2X_GS_HW_VITA)
+            if (std::getenv("SOTC_GL_LAYER_LOG")) // (debugging, round 55: where the GS's targets live)
+                std::fprintf(stderr, "[gs:hw] target fbp %u fbw %u %ux%u at %p (%u bytes)\n", fbp, rt.fbw, rt.width, rt.height,
+                             static_cast<const void *>(textureMemory(rt.texture)), ((rt.width + 7u) & ~7u) * 4u * rt.height);
+#endif
         }
         return rt;
     }

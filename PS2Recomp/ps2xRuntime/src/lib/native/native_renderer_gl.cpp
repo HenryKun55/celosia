@@ -34,6 +34,7 @@ extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" unsigned int _newlib_heap_size_user;      // ps2_vita_runtime.cpp
 extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
 extern "C" uint32_t vgl_celo_scenes; // celosia.patch (round 45): scenes begun (vglCeloSceneStats)
+extern "C" void vglCeloOwnMips(int on); // celosia.patch (round 55): glTexImage2D levels >= 1 taken as given
 #endif
 
 #include "ThreadNaming.h"
@@ -850,6 +851,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint64_t used = 0;
         uint64_t bytes = 0;
         bool inHeap = false; // vitaGL put it in the newlib heap (its pools were full)
+        // SOTC_GL_TEX_VERIFY (Vita, round 55): its first level's memory and hash at upload.
+        const uint8_t *level0 = nullptr;
+        uint32_t level0W = 0, level0H = 0;
+        uint64_t level0Hash = 0;
     };
 
     struct Draw
@@ -905,6 +910,47 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target shownFrame[2]; // what the host shows, alternately (the GPU draws later: never the target being drawn)
         int shownIndex = 0;
         Target glowPrefix; // Vita3K: the picture below layer 8, apart (the glow layer's depth)
+        // Round 55: screenBlur drawn on a second picture (blurApart): the
+        // picture so far is copied into it and the blur's copies, read from the
+        // first, laid over it; the rest of the frame is drawn on it, on the
+        // first one's depth. `color` / `colorPlain` swap with these for the
+        // rest of that frame (pictureSwapped, undone when the frame is done).
+        Target blurOut, blurOutPlain;
+        bool pictureSwapped = false;
+        uint64_t blurApartCount = 0; // frames that drew their blur that way (the [gl:events] lines)
+        void swapPicture()
+        {
+            std::swap(color.fbo, blurOut.fbo);
+            std::swap(color.texture, blurOut.texture);
+            std::swap(colorPlain.fbo, blurOutPlain.fbo);
+            std::swap(colorPlain.texture, blurOutPlain.texture);
+            pictureSwapped = !pictureSwapped;
+            boundFbo = ~0u;
+        }
+        // The second picture and its colour-alone framebuffer (made at first use).
+        void makeBlurOut(uint32_t w, uint32_t h)
+        {
+            makeTarget(blurOut, w, h, false);
+            if (blurOutPlain.fbo)
+                glDeleteFramebuffers(1, &blurOutPlain.fbo);
+            blurOutPlain = Target{};
+            blurOutPlain.texture = blurOut.texture;
+            blurOutPlain.width = w;
+            blurOutPlain.height = h;
+            glGenFramebuffers(1, &blurOutPlain.fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, blurOutPlain.fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blurOut.texture, 0);
+#if defined(PS2X_NATIVE_VITA)
+            if (scratchDepthOn())
+                vglFramebufferScratchDepth(blurOutPlain.fbo, GL_TRUE);
+#else
+            // The rest of the frame is drawn on the picture's depth.
+            glBindFramebuffer(GL_FRAMEBUFFER, blurOut.fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, color.depth, 0);
+#endif
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            boundFbo = ~0u;
+        }
         Target glowLayer, glowSmall[4]; // bossDeathEffect: layer 8 apart (on the picture's depth); 256, 128, 64, 64
         Target bloomTex[3];
         bool bloomHistory = false;
@@ -1515,6 +1561,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
 
 #if defined(PS2X_NATIVE_VITA)
+        // Round 55: the two render targets made only at start-up (the
+        // emulator probe's 16 x 16, cleared to magenta, and the shader
+        // warm-up's 1 x 1) are kept for good instead of deleted: Vita3K keeps
+        // a colour surface after the guest frees its memory and samples a
+        // texture vitaGL later puts at that address, with the same row
+        // stride, as that old surface (what made the attract demo's mist red:
+        // the GS backend's 64 x 64 row probe, see gs_hw_backend.cpp). A few KB.
+        // SOTC_GL_KEEP_TARGETS=0: deleted, as before.
+        std::vector<Target> startTargets;
+        static bool keepStartTargets()
+        {
+            static const bool on = !std::getenv("SOTC_GL_KEEP_TARGETS") || std::atoi(std::getenv("SOTC_GL_KEEP_TARGETS")) != 0;
+            return on;
+        }
         // A GXM fragment program carries its blend state: vitaGL patches a
         // program again when it is drawn with other blending, and the shader
         // patcher keeps each patched copy. The first draw of a program with a
@@ -1609,10 +1669,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = boundProgram = ~0u;
             glDeleteBuffers(1, &vbo);
-            glDeleteFramebuffers(1, &t.fbo);
-            glDeleteTextures(1, &t.texture);
-            if (t.depth)
-                glDeleteTextures(1, &t.depth);
+            if (keepStartTargets())
+                startTargets.push_back(t); // kept: see keepStartTargets
+            else
+            {
+                glDeleteFramebuffers(1, &t.fbo);
+                glDeleteTextures(1, &t.texture);
+                if (t.depth)
+                    glDeleteTextures(1, &t.depth);
+            }
             std::fprintf(stderr, "[native:gl] shaders warmed: %u draws (%u programs x %u blend states) in %.1f ms\n", draws, programs,
                          static_cast<unsigned>(sizeof(blends) / sizeof(blends[0])), (native_renderer::nowUs() - start) / 1000.0);
         }
@@ -1654,8 +1719,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                          emulator ? "an emulator (Vita3K)" : "the console");
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = ~0u;
-            glDeleteFramebuffers(1, &t.fbo);
-            glDeleteTextures(1, &t.texture);
+            if (keepStartTargets())
+                startTargets.push_back(t); // kept: see keepStartTargets
+            else
+            {
+                glDeleteFramebuffers(1, &t.fbo);
+                glDeleteTextures(1, &t.texture);
+            }
         }
 #endif
 
@@ -1672,6 +1742,30 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return t;
         }
 
+#if defined(PS2X_NATIVE_VITA)
+        static bool texVerifyOn()
+        {
+            static const bool on = std::getenv("SOTC_GL_TEX_VERIFY") && std::atoi(std::getenv("SOTC_GL_TEX_VERIFY")) != 0;
+            return on;
+        }
+        // The first level as vitaGL lays it out (rows 8-texel aligned).
+        static uint64_t level0Hash(const Texture &t)
+        {
+            uint64_t h = 0xcbf29ce484222325ull;
+            const uint32_t stride = ((t.level0W + 7u) & ~7u) * 4u;
+            for (uint32_t y = 0; y < t.level0H; ++y)
+            {
+                const uint8_t *row = t.level0 + static_cast<size_t>(y) * stride;
+                for (uint32_t x = 0; x < t.level0W * 4u; x += 4u)
+                {
+                    uint32_t v;
+                    std::memcpy(&v, row + x, 4);
+                    h = (h ^ v) * 0x100000001b3ull;
+                }
+            }
+            return h;
+        }
+#endif
         static void makeTarget(Target &t, uint32_t w, uint32_t h, bool depth)
         {
             if (t.fbo)
@@ -1712,6 +1806,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // each its own, as before): ~1 MB of CDRAM each at 512 x 448.
             if (!depth && scratchDepthOn())
                 vglFramebufferScratchDepth(t.fbo, GL_TRUE);
+            if (std::getenv("SOTC_GL_LAYER_LOG")) // (debugging, round 55: where each target's colour lives)
+            {
+                glBindTexture(GL_TEXTURE_2D, t.texture);
+                std::fprintf(stderr, "[gl:target] made %ux%u at %p (%u bytes)\n", w, h, vglGetTexDataPointer(GL_TEXTURE_2D), ((w + 7u) & ~7u) * 4u * h);
+            }
 #endif
         }
         // Round 38: vitaGL gives a framebuffer a stencil buffer only when a
@@ -1791,6 +1890,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &reflection,
                                   &prefix[0], &prefix[1], &prefix[2], &glowPrefix, &bloomTex[0], &bloomTex[1], &bloomTex[2]})
                     release(*t);
+                release(blurOutPlain, false); // (blurOut's texture)
+                release(blurOut);
                 boundFbo = boundProgram = ~0u;
                 vglCollectGarbageNow();
             }
@@ -1856,6 +1957,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glBindFramebuffer(GL_FRAMEBUFFER, glowLayer.fbo);
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, color.depth, 0);
 #endif
+            if (blurOut.texture)
+                makeBlurOut(w, h); // (the Vita's were let go above: made again at first use)
             bloomHistory = false;
             previousTexture = 0;
             width = w;
@@ -1892,6 +1995,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 boundFbo = boundProgram = ~0u;
                 std::fprintf(stderr, "[native:gl] %u targets made at %ux%u (their first scene) in %.1f ms\n", made, w, h, (native_renderer::nowUs() - start) / 1000.0);
+            }
+            // Round 55 (SOTC_GL_LAYER_LOG): each target's colour memory.
+            if (std::getenv("SOTC_GL_LAYER_LOG"))
+            {
+                const std::pair<const char *, const Target *> named[] = {
+                    {"color", &color}, {"background", &background}, {"snapshot", &snapshot}, {"previous", &previous}, {"shown0", &shownFrame[0]},
+                    {"shown1", &shownFrame[1]}, {"glowLayer", &glowLayer}, {"glowSmall0", &glowSmall[0]}, {"glowSmall1", &glowSmall[1]},
+                    {"glowSmall2", &glowSmall[2]}, {"glowSmall3", &glowSmall[3]}, {"backgroundSmall", &backgroundSmall}, {"reflection", &reflection},
+                    {"refraction", &refraction}, {"hazeSmall", &hazeSmall}, {"refractionHalf", &refractionHalf}, {"bloom0", &bloomTex[0]},
+                    {"bloom1", &bloomTex[1]}, {"bloom2", &bloomTex[2]}};
+                for (const auto &[name, t] : named)
+                    if (t->texture)
+                    {
+                        glBindTexture(GL_TEXTURE_2D, t->texture);
+                        std::fprintf(stderr, "[gl:target] %s %ux%u at %p (%u bytes)\n", name, t->width, t->height, vglGetTexDataPointer(GL_TEXTURE_2D),
+                                     ((t->width + 7u) & ~7u) * 4u * t->height);
+                    }
+                for (const Target &t : startTargets)
+                {
+                    glBindTexture(GL_TEXTURE_2D, t.texture);
+                    std::fprintf(stderr, "[gl:target] start %ux%u at %p\n", t.width, t.height, vglGetTexDataPointer(GL_TEXTURE_2D));
+                }
             }
             // Round 35: which framebuffer is which ([vgl:dump] fb lines name them by address).
             if (std::getenv("SOTC_VGL_MEMDUMP"))
@@ -2151,6 +2276,77 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                          (unsigned long long)texStats.errors, texStats.lastError, textures.size(), textureBytes / 1048576.0);
             texStats.missing = texStats.uploads = texStats.errors = 0;
         }
+#if defined(PS2X_NATIVE_VITA)
+        // SOTC_GL_TEX_VERIFY=1 (debugging, round 55): every 60 frames each
+        // texture's first level hashed again where vitaGL keeps it: a change
+        // is texture memory written by someone else since its upload.
+        if (texVerifyOn() && arenaFrame % 60 == 0)
+        {
+            glFinish();
+            uint64_t checked = 0, changed = 0;
+            textures.forEach([&](uint64_t key, Texture &t)
+            {
+                if (!t.level0)
+                    return;
+                ++checked;
+                const uint64_t h = level0Hash(t);
+                if (h == t.level0Hash)
+                    return;
+                ++changed;
+                static uint64_t printed = 0;
+                if (printed++ < 40)
+                    std::fprintf(stderr, "[gl:texverify] frame %llu texture %016llx %ux%u%s at %p: its first level changed since upload\n",
+                                 (unsigned long long)arenaFrame, (unsigned long long)key, t.level0W, t.level0H, t.mipped ? " (mipped)" : "",
+                                 static_cast<const void *>(t.level0));
+                t.level0Hash = h; // (counted once per change)
+            });
+            // And each mipped texture's second level against its first (the
+            // means of their texels): far apart, the level is not a reduction
+            // of the first (memory nobody wrote).
+            uint64_t mipped = 0, mipOff = 0;
+            if (arenaFrame % 600 == 0)
+                textures.forEach([&](uint64_t key, Texture &t)
+                {
+                    if (!t.level0 || !t.mipped || t.level0W < 2 || t.level0H < 2)
+                        return;
+                    ++mipped;
+                    const uint32_t w0 = t.level0W, h0 = t.level0H, s0 = ((w0 + 7u) & ~7u) * 4u;
+                    const uint32_t w1 = w0 / 2u, h1 = h0 / 2u, s1 = ((w1 + 7u) & ~7u) * 4u;
+                    const uint8_t *l1 = t.level0 + static_cast<size_t>(s0) * h0;
+                    double m0[4] = {}, m1[4] = {};
+                    for (uint32_t y = 0; y < h0; ++y)
+                        for (uint32_t x = 0; x < w0; ++x)
+                            for (int c = 0; c < 4; ++c)
+                                m0[c] += t.level0[static_cast<size_t>(y) * s0 + x * 4u + c];
+                    for (uint32_t y = 0; y < h1; ++y)
+                        for (uint32_t x = 0; x < w1; ++x)
+                            for (int c = 0; c < 4; ++c)
+                                m1[c] += l1[static_cast<size_t>(y) * s1 + x * 4u + c];
+                    bool off = false;
+                    for (int c = 0; c < 4; ++c)
+                    {
+                        m0[c] /= static_cast<double>(w0) * h0;
+                        m1[c] /= static_cast<double>(w1) * h1;
+                        off = off || std::fabs(m0[c] - m1[c]) > 24.0;
+                    }
+                    if (!off)
+                        return;
+                    ++mipOff;
+                    static uint64_t printed = 0;
+                    if (printed++ < 40)
+                        std::fprintf(stderr, "[gl:texverify] frame %llu texture %016llx %ux%u: level 1 mean %.0f %.0f %.0f %.0f, level 0 %.0f %.0f %.0f %.0f\n",
+                                     (unsigned long long)arenaFrame, (unsigned long long)key, w0, h0, m1[0], m1[1], m1[2], m1[3], m0[0], m0[1], m0[2], m0[3]);
+                });
+            if (arenaFrame % 600 == 0)
+                std::fprintf(stderr, "[gl:texverify] frame %llu: %llu mipped textures, %llu with a second level unlike the first\n", (unsigned long long)arenaFrame,
+                             (unsigned long long)mipped, (unsigned long long)mipOff);
+            static uint64_t changedAll = 0;
+            changedAll += changed;
+            if (arenaFrame % 600 == 0)
+                std::fprintf(stderr, "[gl:texverify] frame %llu: %llu textures checked, %llu changed now, %llu in all\n", (unsigned long long)arenaFrame,
+                             (unsigned long long)checked, (unsigned long long)changed, (unsigned long long)changedAll);
+        }
+#endif
         constexpr uint64_t kEvery = 256, kUnused = 1800;
         static const bool log = std::getenv("SOTC_GL_CACHE_LOG") != nullptr;
         if (log && arenaFrame % 600 == 0)
@@ -2529,6 +2725,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             t.maxAlpha = greatest;
         }
         glBindTexture(GL_TEXTURE_2D, t.name);
+#if defined(PS2X_NATIVE_VITA)
+        // Round 55: the texture's own mip levels (the PS2's), as given. vitaGL
+        // took glTexImage2D's levels >= 1 as a request to downscale level 0
+        // with an asynchronous GPU transfer, and Vita3K had uploaded the
+        // chain by then (it hashes level 0 only): the levels below were
+        // whatever that memory held (the attract demo's canyon mist red and
+        // teal). SOTC_GL_OWN_MIPS=0: vitaGL's downscale, as before.
+        static const bool ownMips = !std::getenv("SOTC_GL_OWN_MIPS") || std::atoi(std::getenv("SOTC_GL_OWN_MIPS")) != 0;
+        vglCeloOwnMips(ownMips ? 1 : 0);
+#endif
         for (uint32_t level = 0, w = width, h = height; level < levels; ++level)
         {
             glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA,
@@ -2549,6 +2755,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         t.inHeap = inHostHeap(vglGetTexDataPointer(GL_TEXTURE_2D));
         if (t.inHeap)
             textureHeapBytes += t.bytes;
+        if (texVerifyOn())
+        {
+            glFinish(); // (the level-0 memory as the CPU wrote it)
+            t.level0 = static_cast<const uint8_t *>(vglGetTexDataPointer(GL_TEXTURE_2D));
+            t.level0W = width;
+            t.level0H = height;
+            t.level0Hash = level0Hash(t);
+        }
 #endif
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, levels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -2917,6 +3131,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     {
         ensureTargets(w, h);
         boundFbo = boundProgram = ~0u;
+        // (a frame that drew its screen blur on the second picture: the
+        // targets back in their places for the next one, whichever way it ends)
+        struct PictureBack
+        {
+            Renderer *r;
+            ~PictureBack()
+            {
+                if (r->pictureSwapped)
+                    r->swapPicture();
+            }
+        } pictureBack{this};
         // Round 45 (Tuning glDepthKeep, the Vita): which scenes load / store
         // their depth and stencil (vglCeloDepthKeep: bit 0 load, bit 1 store;
         // -1 vitaGL's forced both). The copies' and passes' scratch depth is
@@ -3391,6 +3616,37 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     ++alphaStats.secondUnknown;
                 uniform4(uAlphaTest, alphaCut, 1);
                 {
+                    // SOTC_GL_LAYER_LOG=<layer> (debugging, round 55): every 120
+                    // frames, the first draws of that layer as the GPU gets them.
+                    static const int logLayer = std::getenv("SOTC_GL_LAYER_LOG") ? std::atoi(std::getenv("SOTC_GL_LAYER_LOG")) : -1;
+                    static uint64_t logFrame = ~0ull;
+                    static int logged = 0;
+                    if (logLayer >= 0 && static_cast<int>(d.state.order) == logLayer && arenaFrame % 120u == 0u)
+                    {
+                        if (logFrame != arenaFrame)
+                            logFrame = arenaFrame, logged = 0;
+                        const void *texData = nullptr;
+#if defined(PS2X_NATIVE_VITA)
+                        if (tex)
+                        {
+                            bindTexture(0, tex->name);
+                            texData = vglGetTexDataPointer(GL_TEXTURE_2D);
+                        }
+#endif
+                        if (logged < 4)
+                            std::fprintf(stderr, "[gl:layer] data %p\n", texData);
+                        if (logged++ < 4)
+                            std::fprintf(stderr, "[gl:layer] frame %llu mesh %016llx dyn %d first %d count %u buf %u prog %u slot %d textured %d tex %u (%ux? mipped %d alpha %u..%u filter %u clamp %u) blend %d "
+                                                 "misc %g %g %g %g fogA %g %g %g %g fogB %g %g %g %g fogC %g %g %g %g fogCol %g %g %g %g debug %g %g %g %g cut %g %g least %g\n",
+                                         (unsigned long long)arenaFrame, (unsigned long long)d.mesh, mesh.dynamic ? 1 : 0, static_cast<int>(firstVertex), mesh.count,
+                                         vertexBuffer, program, mainSlot, textured, tex ? tex->name : 0u, 0u, tex && tex->mipped ? 1 : 0, tex ? tex->minAlpha : 0u,
+                                         tex ? tex->maxAlpha : 0u, tex ? tex->filter : 0u, tex ? tex->clamp : 0u, static_cast<int>(d.state.blend), misc[0], misc[1],
+                                         misc[2], misc[3], fogA[0], fogA[1], fogA[2], fogA[3], fogB[0], fogB[1], fogB[2], fogB[3], fogC[0], fogC[1], fogC[2], fogC[3],
+                                         fogColour[0], fogColour[1], fogColour[2], fogColour[3], debug[0], debug[1], debug[2], debug[3], alphaCut[0], alphaCut[1],
+                                         leastAlpha);
+                    }
+                }
+                {
                     static const long seqFrame = std::getenv("SOTC_GL_DRAWSEQ") ? std::atol(std::getenv("SOTC_GL_DRAWSEQ")) : -1;
                     static FILE *seq = nullptr;
                     if (seqFrame >= 0 && arenaFrame == static_cast<uint64_t>(seqFrame))
@@ -3552,6 +3808,57 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const float alpha[4] = {1.0f / static_cast<float>(i + 1), 0, 0, 0};
                 quad(color, 3, QuadBlend::Over, alpha, nullptr, params, true);
             }
+        };
+        // Round 55 (blurApart): the blur on a second picture. The picture so
+        // far (`color`, complete: nothing is drawn into it after this) is
+        // copied into blurOut (where a copy smaller than the screen leaves
+        // the picture as it was, as on the GS), the copies, read from it, are
+        // laid over that, and the rest of the frame goes on in blurOut, on
+        // the picture's depth: no mid-frame copy taken up again (the
+        // console) and no second drawing of the scene (Vita3K's mid-frame
+        // redraw, which smeared there). `hazeHere`: the heat haze's copy at
+        // the same layer made from the same picture first. False: not done
+        // (the depth could not be shared).
+        auto doBlurApart = [&](const native_renderer::ScreenBlur &b, bool hazeHere) -> bool
+        {
+            if (!blurOut.texture)
+                makeBlurOut(w, h);
+#if defined(PS2X_NATIVE_VITA)
+            bindTarget(color); // drawn into this frame: its depth exists
+            if (!vglFramebufferShareDepth(blurOut.fbo, color.fbo))
+                return false;
+            keepDepth(blurOut, 3); // the picture's depth loaded; kept for the scenes after
+#endif
+            if (hazeHere)
+            {
+                const native_renderer::Tuning &t = native_renderer::tuning();
+                const int hazeFrom = static_cast<int>(t.hazeSource + 0.5f);
+                if (hazeFrom == 0)
+                {
+                    copy(color, hazeSmall); // the PS2's 256 x 256, blurred once through 128 x 128
+                    copy(hazeSmall, refractionHalf);
+                    copy(refractionHalf, hazeSmall);
+                    hazeSourceTexture = hazeSmall.texture;
+                }
+                else
+                    hazeSourceTexture = color.texture; // (source 1: the picture itself, full size; 2 reads the last frame)
+            }
+            const GLuint from = color.texture;
+            const float none[4] = {0, 0, 0, 0};
+            bindTexture(0, from);
+            quad(blurOut, 13, QuadBlend::None, none); // a plain copy, its alpha too (the Vita bloom's mask)
+            bindTexture(0, from);
+            for (int i = 0; i < b.steps; ++i)
+            {
+                const float f = static_cast<float>(b.steps - i) / static_cast<float>(b.steps);
+                const float params[4] = {(b.scale - 1.0f) * f + 1.0f, std::fabs(b.angle) >= 0.01570796f ? -b.angle * f : 0.0f,
+                                         b.dx * f / 256.0f, -b.dy * f / 224.0f}; // PS2 pixels
+                const float alpha[4] = {1.0f / static_cast<float>(i + 1), 0, 0, 0};
+                quad(blurOut, 3, QuadBlend::Over, alpha, nullptr, params, true);
+            }
+            swapPicture(); // the rest of the frame: on blurOut (now `color`)
+            bindTarget(color);
+            return true;
         };
         // bossDeathEffect (layer 8): the layer drawn apart into a buffer cleared
         // to nothing, reduced to 256, 128, 64 and blurred, back to 256; laid
@@ -3930,6 +4237,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         for (size_t i = 0; i < blurs.size(); ++i)
             events.push_back({blurs[i].order, static_cast<int>(i)});
         std::stable_sort(events.begin(), events.end(), [](const Event &x, const Event &y) { return x.order < y.order; });
+        // Round 55: one screen blur in the frame is drawn on a second picture
+        // (doBlurApart) instead of from the picture drawn again (Vita3K) or a
+        // mid-frame copy (the console): Tuning::blurApart (SOTC_SBLUR_PINGPONG,
+        // A/B `sblurapart`; the Vita's default, the Mac's OpenGL with =1).
+        const int pingPong = native_renderer::tuning().blurApart ? 1 : 0;
+        const bool blurApart = pingPong != 0 && blurs.size() == 1u && blurs[0].steps > 0;
+        // The heat haze at the blur's layer reads the same picture: its copy made there too.
+        const bool hazeWithBlur = blurApart && screenCopyOrder && screenCopyOrder == blurs[0].order && static_cast<int>(native_renderer::tuning().hazeSource + 0.5f) != 2;
+        bool hazeDone = false;
         static const bool eventLog = std::getenv("SOTC_GL_EVENT_LOG") != nullptr; // debugging: each frame's effects (layer:kind)
         if (eventLog)
         {
@@ -3939,8 +4255,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             unsigned layer8 = 0;
             for (const Draw &d : draws)
                 layer8 += d.state.order == 8u ? 1u : 0u;
-            std::fprintf(stderr, "[gl:events] frame %llu draws %u layer8 %u glow %d%s\n", (unsigned long long)arenaFrame, static_cast<unsigned>(draws.size()), layer8,
-                         glow.enabled ? 1 : 0, line.c_str());
+            std::fprintf(stderr, "[gl:events] frame %llu draws %u layer8 %u glow %d%s%s (blurs apart so far %llu)\n", (unsigned long long)arenaFrame,
+                         static_cast<unsigned>(draws.size()), layer8, glow.enabled ? 1 : 0, line.c_str(), blurApart ? " blur-apart" : "",
+                         (unsigned long long)blurApartCount);
         }
         // Mid-frame redraw (Tuning midFrameRedraw; the Vita's default): an
         // effect that reads the picture so far (water refraction, heat haze,
@@ -3976,8 +4293,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             for (Event &ev : events)
             {
                 const bool water = ev.blur == -4 && haveRefraction && ev.order == 9u && waterFrom != 2;
-                const bool haze = ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && hazeFrom != 2;
-                if (!(ev.blur >= 0 || water || haze))
+                const bool haze = ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && hazeFrom != 2 && !hazeWithBlur;
+                if (!((ev.blur >= 0 && !blurApart) || water || haze))
                     continue;
                 // Effects at the same layer read the same picture (the draws
                 // before that layer): drawn again once for all of them
@@ -4023,6 +4340,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             if (ev.prefix >= 0 && ev.blur == -4)
                 continue; // its copies are made
+            if (hazeWithBlur && ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && !(haveRefraction && ev.order == 9u))
+                continue; // made by the blur at its layer (doBlurApart)
             // The picture's first scene starts from a clear (nothing to load);
             // every scene but its last is taken up again (stored). The scene a
             // pass begins takes the setting at its start: back to "both" as
@@ -4051,6 +4370,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             else if (ev.blur < 0)
                 doBloom();
+            else if (blurApart)
+            {
+                if (!doBlurApart(blurs[static_cast<size_t>(ev.blur)], hazeWithBlur))
+                {
+                    if (hazeWithBlur && !hazeDone) // (the depth could not be shared: the copies as the console made them)
+                        doRefraction();
+                    doBlur(blurs[static_cast<size_t>(ev.blur)], nullptr);
+                }
+                hazeDone = true;
+                ++blurApartCount;
+            }
             else
                 doBlur(blurs[static_cast<size_t>(ev.blur)], ev.prefix >= 0 ? &prefix[ev.prefix] : nullptr);
         }

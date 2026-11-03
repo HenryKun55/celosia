@@ -8635,6 +8635,152 @@ sampled return addresses).
 **Deliverable:** build/agent-scratch/celosia-r54.vpk; console A/B env:
 r54/console-ab/env.txt (`fastnative2` rotating: rounds 53 and 54).
 
+## Round 55: the red mist in Vita3K, the camera blurs on a second picture (2026-11-03)
+
+Scripts, pictures and logs: `build/agent-scratch/r55/` (v3k.sh: a Vita3K run
+at 240 MHz with screenshots of its window and a red count per shot; run.sh:
+the Mac's native / GS pairs). A fidelity round.
+
+**1. The red mist (the user's report: "vermelho de novo").** Vita3K, the
+attract demo's canyon (game frames ~1300-2000, the hawk): the mist over the
+walls drawn as large hard-edged red fans, with darker / teal edges.
+
+What the mist is: particle type 4 (a lit fan of 4 triangles around each
+puff, round 16), layer 18, ~98 puffs of 250-360 units, colour ~0.3 grey,
+alpha 0-0.22, one texture: header 0x310840, a 64 x 64 4-bit texture whose
+16 colours are all white with an alpha falloff. Mac Metal and OpenGL (also
+with the Vita's settings): no red.
+
+Narrowed down in Vita3K (screenshots of its window work again on this Mac;
+the red count is the share of pixels with r - g > 0.012):
+- it is per run, not per frame: in about 4 runs of 10 the mist is red for
+  the whole canyon, in the rest never (r49, r51 and r54's VPKs alike, so not
+  a recent change);
+- not the hook worker (red with `SOTC_HOOK_ASYNC=0`), not merged draws
+  (`SOTC_GL_MERGE=0`), not mip levels (the puff texture has none), not the
+  sacrifice, not a thread race in the renderer's recording (the new
+  `SOTC_RACE_CHECK` found none in a red run), not the texture changing between
+  the hook and its job, not texture memory overwritten (the new
+  `SOTC_GL_TEX_VERIFY`);
+- the GL side is the same in red and clean runs (the new `SOTC_GL_LAYER_LOG`:
+  program, uniforms, blend, texture, vertex range of every layer-18 draw);
+- what differs is where vitaGL put the puff texture: red runs had it at
+  0x60d5f8a0 or 0x61b23a50, clean runs elsewhere (7 of 7 red runs there,
+  0 of 15 clean ones).
+
+The cause: the GS backend's start-up probe of vitaGL's row order
+(gs_hw_backend.cpp measureOrientation): two 64 x 64 targets,
+red bands drawn and cleared into them, read back. Its `fill()` rewrites a
+texture it has just drawn into; vitaGL then moves that texture's storage
+(glTexSubImage2D on a texture in use copies it) and frees the old 16 KB,
+which the framebuffer, and Vita3K's colour-surface cache, still have as a
+red-banded surface. Vita3K looks every texture up in that cache first (by
+address and row stride) and never learns the memory was freed (no frees, and
+no write tracking on this Mac). The next 64 x 64 RGBA texture vitaGL put in
+that block was sampled as the red surface: in the canyon, often the mist's
+puff. Proof: with the probe's bands made green (a test build), the run whose
+puff landed there drew the mist green (r55/proof-green-probe-pg4.png; red
+before: r55/proof-red-before-fa3.png). The probe reads nothing back in Vita3K
+anyway ("vitaGL rows: draw unknown ..."). The console reads the memory, so
+it never showed this. Round 10/11's red / grey dust quads (a 512 x 256 atlas,
+Vita3K only) may have been the same thing with a 512-wide GS target.
+
+The fix:
+- gs_hw_backend.cpp: the probe is not run in an emulator
+  (`native_renderer::inEmulator()`, the native renderer's probe, which runs
+  first); the defaults it falls back to are what it measured there.
+  `SOTC_GS_MEASURE_ROWS=1` runs it anyway.
+- In Vita3K a GS target that grows keeps its old texture instead of deleting
+  it (the same aliasing for any later texture with its stride).
+- native_renderer_gl.cpp: the two start-up targets of its own (the emulator
+  probe's 16 x 16 magenta, the shader warm-up's 1 x 1) are kept instead of
+  deleted. `SOTC_GL_KEEP_TARGETS=0`: both as before.
+- Not covered: the GS backend's page reloads (`glTexSubImage2D` into its
+  512 x 448 targets, 28 at boot) move those targets' storage the same way, so
+  a later 512-wide texture could still land in a freed block in Vita3K; and a
+  live render-scale change frees the native targets.
+
+Measured (Vita3K 240 MHz, attract demo, 5 shots from 40 s to 60 s a run):
+before, the mist red in about 4 runs of 10 (r49, r51 and r54's VPKs and this round's builds; 7 of the 22 runs whose texture address was logged), every red run with the puff at one of two freed blocks (0x60d5f8a0, 0x61b23a50: 7 of 7; an eighth run there, with the probe's bands made green, drew it green), no clean run there (0 of 15); after, 0 of 8 runs red (r55/fn1-fn8, "[gs:hw] vitaGL rows: not measured in an emulator" in each).
+
+**2. The real camera blurs, drawn on a second picture (`SOTC_SBLUR_PINGPONG`).**
+Round 51 left out cameraBlur's identity calls; the real ones (a shift of a
+few PS2 pixels while the camera turns, the cutscenes' zooms) still read the
+picture so far as the old way: in Vita3K the scene below the blur's layer
+drawn a second time into a target of its own (the mid-frame redraw), on the
+console a copy of the picture taken mid-frame and the picture taken up again
+after it. The redraw is what smeared in Vita3K (round 51), and it costs the
+scene's draws below layer 23 twice.
+
+Now (native_renderer_gl.cpp, `doBlurApart`, Tuning `blurApart`): when a
+frame has one screen blur, at its layer
+- the picture so far (`color`) is complete and nothing is drawn into it
+  again;
+- if the heat haze reads a copy at the same layer, its 256 x 256 copy is made
+  from that picture first (no redraw for it either in those frames);
+- the picture is copied into a second target (`blurOut`, alpha included: the
+  Vita bloom's mask lives there) and the blur's copies, read from the first,
+  are laid over it as before (alpha 1, 1/2, 1/3, 1/4);
+- `blurOut` shares the picture's depth and stencil (`vglFramebufferShareDepth`,
+  as the glow layer does; the Mac's OpenGL attaches the depth texture), and the
+  rest of the frame is drawn there: `color` / `colorPlain` swap with it until
+  the frame is done (the bloom's reduction, the last-frame copy and the
+  present read the second picture).
+No scene drawn twice, no picture taken up again. More than one blur in a
+frame (not seen in the attract demo) still goes the old way. Metal is
+unchanged. The Vita's default; `SOTC_SBLUR_PINGPONG=0` goes back, `=1` turns it
+on for the Mac's OpenGL. `SOTC_AB_FLAG` takes `sblurapart`. The
+`[gl:events]` line (`SOTC_GL_EVENT_LOG`) marks such frames `blur-apart`.
+
+Measured:
+- Mac OpenGL, `SOTC_SBLUR_PINGPONG=1`, attract demo to 6 000: 7 frames with
+  real (shifted) blurs drawn apart (1740-1746 of the renderer, game 1758-1764),
+  the pictures match the GS (r55/pp1 frame 171: RMSE 0.032, the frames around
+  0.032); with `SOTC_SBLUR_IDENTITY=1` (every camera-blur call drawn) 599
+  frames drawn apart, RMSE over 200 pairs 0.059 (the mid-frame copy: 0.072;
+  run-to-run noise either way, no broken frame).
+- Vita3K 240 MHz, attract demo with `SOTC_SBLUR_IDENTITY=1` (the calls that
+  smeared in round 51 all drawn): 187 frames drawn apart, the shots normal
+  (r55/sheet-v3k-identity-blurs-new.png); the old path, 197 frames through the
+  redraw (sheet-v3k-identity-blurs-old.png).
+- Vita3K A/B (`sblurapart` rotating, 60-frame windows, identity blurs drawn,
+  300 s, r55/v3k-ab-err.txt, 41 / 40 windows): the render thread 23.20 ms ->
+  22.43 ms with it on (no scene drawn twice); the frame 59.3 -> 63.3 ms, all of
+  it in the present (32.4 -> 37.0 ms, Vita3K's own swap; the game thread
+  21.3 / 21.1). In normal play the real blurs are rare (7 frames in 150 s of
+  the attract demo), so neither number moves a normal frame; the console's
+  cost is not measured.
+
+**3. vitaGL's mip levels (`SOTC_GL_OWN_MIPS`).** Found on the way: vitaGL
+ignores the texels `glTexImage2D` gives for levels >= 1 and downscales level 0
+instead, with `sceGxmTransferDownscale`, an asynchronous GPU transfer. Vita3K
+hashes only a texture's first level and uploads the whole chain the first time
+it sees it, before that transfer has run, so the lower levels can be whatever
+the memory held. Our vitaGL (`vglCeloOwnMips`, celosia.patch:
+`gpu_alloc_mipmap_data`) now writes the levels we give where vitaGL lays its
+chain out: the PS2's own level images (what the GS samples), no transfer.
+Levels past the chain GXM takes (the smaller side at 1 texel) are left out.
+Mipped textures look as before in Vita3K (the distant terrain);
+`SOTC_GL_OWN_MIPS=0` goes back.
+
+**Build note.** vita-elf-create needs ~4.5 KB below the 64 KB boundary
+after the text segment for the module's SCE data ("Cannot allocate N bytes
+for SCE data at end of segment 0; segment 1 overlaps"): this round's text
+ended 0x2e0 below one. `sotc_vita_elf_room` (8 KB of read-only data,
+sotc_native.cpp) moves it; change its size if the message comes back.
+
+**Tools (new, debugging):** `SOTC_RACE_CHECK=1`, `SOTC_GL_TEX_VERIFY=1`,
+`SOTC_GL_LAYER_LOG=<layer>` (also every target's colour memory and the GS
+targets', `[gl:target]` / `[gs:hw] target`), `[ptcldraw]` lines now carry the
+fan's light / shade / fade and the texture format.
+
+**Left:** on the Mac too, the mist and the river under it are darker and
+harder-edged in the native picture than on the GS (the GS's misty river is
+bright and soft): not this round's red; the puff's `fade` (0.3 / 0.7, read
+by the hook) is not used by the native draw, a lead.
+
+**Deliverable:** build/agent-scratch/celosia-r55.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

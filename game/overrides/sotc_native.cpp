@@ -2938,6 +2938,7 @@ namespace sotc_native
         // Round 45: the console GPU's savings, each switchable to measure it.
         ab("depthkeep", &native_renderer::Tuning::glDepthKeep);
         ab("fewcopies", &native_renderer::Tuning::glFewCopies);
+        ab("sblurapart", &native_renderer::Tuning::blurApart); // round 55
         ab("volprog", &native_renderer::Tuning::glVolumeProgram);
         ab("atmerge", &native_renderer::Tuning::alphaTestMerge);
         ab("shadowidx", &native_renderer::Tuning::shadowIndexed);
@@ -4212,6 +4213,7 @@ namespace sotc_native
         void loop()
         {
             ThreadNaming::SetCurrentThreadName("HookWorker");
+            native_renderer::setRaceLabel("hook worker");
             t_hookWorker = true;
             ::sotc_prof::t_offGameThread = true; // (the subsystem profiler's scopes are the game thread's)
 #if defined(SOTC_READ_TRACK)
@@ -6759,9 +6761,11 @@ namespace sotc_native
                 for (int k = 0; k < 7; ++k)
                     lo[k] = std::min(lo[k], vals[k]), hi[k] = std::max(hi[k], vals[k]);
             }
-            std::fprintf(stderr, "[ptcldraw] f %llu type %u n %u blend %u hdr %08x layer %u tex %016llx vec %g %g r %g..%g g %g..%g b %g..%g a %g..%g sz %g..%g u %g..%g v %g..%g\n",
+            std::fprintf(stderr, "[ptcldraw] f %llu type %u n %u blend %u hdr %08x layer %u tex %016llx vec %g %g r %g..%g g %g..%g b %g..%g a %g..%g sz %g..%g u %g..%g v %g..%g"
+                                 " light %g %g %g %g shade %g %g %g %g fade %g format %08x\n",
                          (unsigned long long)g_frame, e.type, count, g_ptclBlend, header, layer, (unsigned long long)state.texture, e.vec[0], e.vec[1], lo[0], hi[0],
-                         lo[1], hi[1], lo[2], hi[2], lo[3], hi[3], lo[4], hi[4], lo[5], hi[5], lo[6], hi[6]);
+                         lo[1], hi[1], lo[2], hi[2], lo[3], hi[3], lo[4], hi[4], lo[5], hi[5], lo[6], hi[6], e.light[0], e.light[1], e.light[2], e.light[3], e.shade[0],
+                         e.shade[1], e.shade[2], e.shade[3], e.fade, header ? word(header + 0x1Cu) : 0u);
         }
         state.blend = g_ptclBlend == 1u ? native_renderer::Blend::Additive : (g_ptclBlend == 2u ? native_renderer::Blend::Subtract : native_renderer::Blend::Normal);
         state.order = layer;
@@ -9385,3 +9389,16 @@ void installSotcNative(PS2Runtime &runtime)
     }
     std::cerr << "[sotc:native] models drawn by the native renderer" << std::endl;
 }
+
+#if defined(__vita__)
+// Round 55: room for vita-elf-create. It appends the module's SCE data
+// (~4.5 KB of import/export tables) to the end of the text segment, and the
+// linker puts the data segment at the next 64 KB boundary after the text:
+// when the text ends less than ~4.5 KB below a boundary the VPK build fails
+// with "Cannot allocate N bytes for SCE data at end of segment 0; segment 1
+// overlaps" (round 55's text ended 0x2e0 below one). These 8 KB of read-only
+// data move the end past it; if that message comes back after code grows or
+// shrinks, change the size (any value that moves the text end more than
+// ~4.5 KB away from the boundary below it).
+extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[8192] = {1};
+#endif

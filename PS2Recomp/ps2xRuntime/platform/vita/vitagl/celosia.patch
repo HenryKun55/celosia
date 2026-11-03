@@ -897,10 +897,22 @@ index aad6b0e..d964742 100644
  	// Invalidating viewport and culling
  	invalidate_viewport();
 diff --git a/source/textures.c b/source/textures.c
-index 7b5d704..8679e11 100644
+index 7b5d704..fd127a8 100644
 --- a/source/textures.c
 +++ b/source/textures.c
-@@ -1827,7 +1827,8 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
+@@ -921,7 +921,10 @@ static inline __attribute__((always_inline)) void _glTexImage2D_FlatIMPL(texture
+ 			}
+ 		}
+ 	} else if (tex->write_cb) {
+-		gpu_alloc_mipmaps(level, tex);
++		// celosia r55: the caller's own level (vglCeloOwnMips), else level 0 downscaled.
++		if (!(vgl_celo_own_mips && fast_store && data_bpp == 4 && tex_format == SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR &&
++				gpu_alloc_mipmap_data(level, tex, data, width, height)))
++			gpu_alloc_mipmaps(level, tex);
+ 	} else {
+ 		gpu_alloc_compressed_texture(level, width, height, tex_format, 0, data, tex, data_bpp, GL_TRUE);
+ 	}
+@@ -1827,7 +1830,8 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
  						if (fb) {
  							gpu_free_texture(&texture_slots[i]);
  							if (fb->depthbuffer_ptr) {
@@ -910,8 +922,18 @@ index 7b5d704..8679e11 100644
  								fb->depthbuffer_ptr = NULL;
  								fb->depthbuffer_state = DEPTHBUFFER_MISSING;
  							}
+@@ -1868,6 +1872,9 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
+ 	}
+ }
+ 
++// celosia r55: glTexImage2D's levels >= 1 of RGBA8 textures taken as given (gpu_alloc_mipmap_data).
++void vglCeloOwnMips(int on) { vgl_celo_own_mips = on; }
++
+ void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *data) {
+ 	THREAD_SAFE()
+ 
 diff --git a/source/utils/gpu_utils.c b/source/utils/gpu_utils.c
-index 4464db5..2d75134 100644
+index 4464db5..262003c 100644
 --- a/source/utils/gpu_utils.c
 +++ b/source/utils/gpu_utils.c
 @@ -43,6 +43,8 @@ uint32_t vgl_tex_cache_freq = 3600; // Number of frames prior a texture becomes
@@ -1028,6 +1050,92 @@ index 4464db5..2d75134 100644
  	// Mapping memblock into sceGxm as fragment USSE memory
  	sceGxmMapFragmentUsseMemory(addr, size, usse_offset);
  
+@@ -910,6 +945,73 @@ void gpu_alloc_mipmaps(int level, texture *tex) {
+ 	}
+ }
+ 
++// celosia r55: mip level `level` (>= 1) of an RGBA8 texture from the
++// caller's texels (lw x lh, rows packed), put where gpu_alloc_mipmaps puts
++// its downscale of level 0, in the chain it allocates the same way. No
++// sceGxmTransferDownscale: that is an asynchronous GPU transfer, and Vita3K
++// uploads a texture's whole chain when it first sees its first level's
++// hash (it hashes level 0 only), so the levels below came out as whatever
++// that memory held before (the attract demo's mist drawn red and teal);
++// and these are the texture's own level images (the PS2's), not a box
++// filter of level 0. 0: not done (the caller downscales, as before).
++int vgl_celo_own_mips = 0; // vglCeloOwnMips
++int gpu_alloc_mipmap_data(int level, texture *tex, const void *data, uint32_t lw, uint32_t lh) {
++	SceGxmTextureFormat format = vglGetTexFormat(&tex->gxm_tex);
++	const uint32_t bpp = tex_format_to_bytespp(format);
++	if (bpp != 4 || level < 1 || !data || tex->status != TEX_VALID)
++		return 0;
++	uint32_t orig_w, orig_h;
++	vglGetTexSizes(&tex->gxm_tex, &orig_w, &orig_h);
++	uint32_t w = nearest_po2(orig_w), h = nearest_po2(orig_h);
++	uint32_t jumps[16], size = 0;
++	int mips = 0;
++	while ((w > 1) && (h > 1) && mips < 15) {
++		jumps[mips] = MAX(w, 8) * h * bpp;
++		size += jumps[mips];
++		w /= 2;
++		h /= 2;
++		mips++;
++	}
++	jumps[mips] = MAX(w, 8) * h * bpp;
++	size += jumps[mips];
++	if (level > mips)
++		return 1; // past the end of the chain GXM takes (the smaller side at 1 texel): left out, not downscaled
++	void *texture_data = tex->data;
++	if (tex->mip_count - 1 <= 0) {
++		// The whole chain's room, once (as gpu_alloc_mipmaps' first call).
++		texture_data = vgl_realloc(tex->data, size);
++		if (!texture_data) {
++			texture_data = gpu_alloc_mapped_for_gpu(size);
++			if (!texture_data)
++				return 0;
++			vgl_memcpy(texture_data, tex->data, VGL_ALIGN(orig_w, 8) * orig_h * bpp);
++			gpu_free_texture_data(tex);
++		}
++	}
++	uint32_t offset = 0;
++	for (int j = 0; j < level; j++)
++		offset += jumps[j];
++	const uint32_t level_w = MAX(nearest_po2(orig_w) >> level, 1), level_h = MAX(nearest_po2(orig_h) >> level, 1);
++	const uint32_t stride = VGL_ALIGN(level_w, 8) * bpp;
++	const uint32_t rows = MIN(lh, level_h), row_bytes = MIN(lw, level_w) * bpp;
++	uint8_t *dst = (uint8_t *)texture_data + offset;
++	const uint8_t *src = (const uint8_t *)data;
++	for (uint32_t y = 0; y < rows; y++)
++		vgl_memcpy(dst + y * stride, src + y * lw * bpp, row_bytes);
++	tex->mip_count = level + 1;
++	vglInitLinearTexture(&tex->gxm_tex, texture_data, format, orig_w, orig_h, tex->use_mips ? tex->mip_count : 0);
++	tex->palette_data = NULL;
++	tex->status = TEX_VALID;
++	tex->data = texture_data;
++#ifndef TEXTURES_SPEEDHACK
++	tex->last_frame = OBJ_NOT_USED;
++#endif
++#ifdef HAVE_TEX_CACHE
++	mark_as_cacheable(tex)
++#endif
++	return 1;
++}
++
+ void gpu_free_palette(void *pal) {
+ 	// Deallocating palette memblock and object
+ 	if (pal != NULL)
+diff --git a/source/utils/gpu_utils.h b/source/utils/gpu_utils.h
+index 8abf57b..b4a63aa 100644
+--- a/source/utils/gpu_utils.h
++++ b/source/utils/gpu_utils.h
+@@ -216,5 +216,7 @@ void gpu_free_palette(void *pal);
+ 
+ // Generate mipmaps for a given texture
+ void gpu_alloc_mipmaps(int level, texture *tex);
++extern int vgl_celo_own_mips; // celosia r55
++int gpu_alloc_mipmap_data(int level, texture *tex, const void *data, uint32_t lw, uint32_t lh); // celosia r55
+ 
+ #endif
 diff --git a/source/utils/mem_utils.c b/source/utils/mem_utils.c
 index 4b791b7..d8be23f 100644
 --- a/source/utils/mem_utils.c

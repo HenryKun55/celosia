@@ -330,6 +330,8 @@ namespace native_renderer
     // drawMulti and screen blur before anything else (the caller's thread);
     // nullptr: off.
     void setDrawCheck(void (*check)());
+    // SOTC_RACE_CHECK (round 55): this thread's name in the [race] lines.
+    void setRaceLabel(const char *label);
     // The next whole frame's draws, one line each, to `path` (F8 in the runtime).
     void requestDrawDump(const std::string &path);
     // SotC's zFog: before layer `order`, every pixel blends towards the

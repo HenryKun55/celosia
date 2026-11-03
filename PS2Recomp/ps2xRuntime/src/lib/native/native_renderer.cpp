@@ -189,7 +189,8 @@ namespace native_renderer
             for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
                                              {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard},
                                          {"SOTC_GL_DEPTH_KEEP", &Tuning::glDepthKeep}, {"SOTC_GL_FEW_COPIES", &Tuning::glFewCopies}, {"SOTC_GL_VOLUME_PROG", &Tuning::glVolumeProgram},
-                                         {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed}})
+                                         {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed},
+                                         {"SOTC_SBLUR_PINGPONG", &Tuning::blurApart}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -261,7 +262,8 @@ namespace native_renderer
         for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_GL_POOLS", &Tuning::glMeshPools}, {"SOTC_GL_MERGE", &Tuning::glMergeDraws},
                                          {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard},
                                          {"SOTC_GL_DEPTH_KEEP", &Tuning::glDepthKeep}, {"SOTC_GL_FEW_COPIES", &Tuning::glFewCopies}, {"SOTC_GL_VOLUME_PROG", &Tuning::glVolumeProgram},
-                                         {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed}})
+                                         {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed},
+                                         {"SOTC_SBLUR_PINGPONG", &Tuning::blurApart}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)
@@ -1431,6 +1433,7 @@ namespace native_renderer
         void loop()
         {
             ThreadNaming::SetCurrentThreadName("BuildWorker");
+            setRaceLabel("build worker");
             // Off core 0 (the game thread's); the render thread has core 2.
             threads::place(threads::kBuild);
             for (;;)
@@ -1617,10 +1620,76 @@ namespace native_renderer
         return a.anyPending() && a.pending.count(id);
     }
 
+    // SOTC_RACE_CHECK=1 (debugging, round 55): the frame's recording (meshes,
+    // the vertex room, draws, uploads) used by two threads at once, or by one
+    // while another thread's frameMesh room is still open (its arena can move
+    // under it): counted and the first ones printed.
+    std::atomic<int> g_raceDepth{0};
+    std::atomic<const void *> g_raceRoomOwner{nullptr};
+    thread_local char t_raceTag = 0;
+    thread_local const char *t_raceLabel = nullptr;
+    inline const char *threadLabel() { return t_raceLabel ? t_raceLabel : "unnamed"; }
+    std::atomic<uint64_t> g_races{0};
+    std::atomic<const char *> g_raceHolder{nullptr}, g_raceRoomWhat{nullptr};
+    std::atomic<const void *> g_raceHolderThread{nullptr};
+    bool raceCheckOn()
+    {
+        static const bool on = std::getenv("SOTC_RACE_CHECK") != nullptr; // (first use is after the Vita's env.txt)
+        return on;
+    }
+    thread_local int t_raceNest = 0; // this thread's own nesting (beginFrame -> uploads, drawMulti -> draw)
+    struct RaceScope
+    {
+        bool on;
+        explicit RaceScope(const char *what) : on(raceCheckOn() && t_raceNest++ == 0)
+        {
+            if (!on)
+            {
+                if (raceCheckOn() && t_raceNest == 0)
+                    ++t_raceNest; // (balanced by the destructor)
+                return;
+            }
+            const int depth = g_raceDepth.fetch_add(1, std::memory_order_acq_rel);
+            const void *owner = g_raceRoomOwner.load(std::memory_order_acquire);
+            const char *other = g_raceHolder.load(std::memory_order_relaxed);
+            const void *otherThread = g_raceHolderThread.load(std::memory_order_relaxed);
+            if (depth == 0)
+            {
+                g_raceHolder.store(what, std::memory_order_relaxed);
+                g_raceHolderThread.store(&t_raceTag, std::memory_order_relaxed);
+            }
+            if (depth != 0 || (owner && owner != &t_raceTag))
+            {
+                const uint64_t n = g_races.fetch_add(1, std::memory_order_relaxed) + 1u;
+                if (n <= 60u || (n & 1023u) == 0u)
+                    std::fprintf(stderr, "[race] %s from thread %p (%s): %s %s from %p (%llu so far)\n", what, static_cast<const void *>(&t_raceTag),
+                                 threadLabel(), depth != 0 ? "while" : "with the vertex room open by", depth != 0 ? (other ? other : "?") : g_raceRoomWhat.load(),
+                                 depth != 0 ? otherThread : owner, (unsigned long long)n);
+            }
+        }
+        ~RaceScope()
+        {
+            if (on)
+                g_raceDepth.fetch_sub(1, std::memory_order_acq_rel);
+            if (raceCheckOn())
+                --t_raceNest;
+        }
+    };
+    inline void raceRoom(bool open)
+    {
+        if (raceCheckOn())
+            g_raceRoomOwner.store(open ? &t_raceTag : nullptr, std::memory_order_release);
+    }
+    // The thread's name, for the [race] lines.
+    void setRaceLabel(const char *label) { t_raceLabel = label; }
     // While the scene recorder records, what it has not got yet is "not
     // there": the hooks build and upload it again, and it is recorded.
     inline bool recorded(uint64_t id) { return !native_recorder::active() || native_recorder::front::known(id); }
-    bool hasMesh(uint64_t id) { return backend() && ((g_backend->hasMesh(id) && recorded(id)) || asyncPending(id)); }
+    bool hasMesh(uint64_t id)
+    {
+        RaceScope race("hasMesh");
+        return backend() && ((g_backend->hasMesh(id) && recorded(id)) || asyncPending(id));
+    }
     bool meshKnown(uint64_t id) { return backend() && g_backend->hasMesh(id) && recorded(id); }
     uint64_t meshEvictions() { return (backend() ? g_backend->meshEvictions() : 0u) + native_recorder::front::epoch(); }
     // SOTC_NATIVE_LOG_UPLOADS=1: uploads per frame (meshes: static / per-frame
@@ -1654,6 +1723,7 @@ namespace native_renderer
     }
     void uploadMesh(uint64_t id, const Vertex *vertices, uint32_t count, bool perFrame)
     {
+        RaceScope race("uploadMesh");
         if (g_drawTap && perFrame && tapMeshes())
             g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, vertices, static_cast<size_t>(count) * sizeof(Vertex)));
         if (g_uploads.on)
@@ -1679,7 +1749,11 @@ namespace native_renderer
     }
     Vertex *frameMesh(uint32_t count)
     {
+        RaceScope race("frameMesh");
         Vertex *v = backend() ? g_backend->frameMesh(count) : nullptr;
+        raceRoom(v != nullptr);
+        if (v && raceCheckOn())
+            g_raceRoomWhat.store(threadLabel(), std::memory_order_relaxed);
         g_tapFrameMesh = v;
         if (native_recorder::active())
             native_recorder::front::frameMeshRoom(v, nullptr, 0);
@@ -1687,6 +1761,7 @@ namespace native_renderer
     }
     uint32_t *frameMeshIndices(uint32_t count, uint32_t &base)
     {
+        RaceScope race("frameMeshIndices");
         base = 0;
         uint32_t *indices = backend() ? g_backend->frameMeshIndices(count, base) : nullptr;
         if (native_recorder::active() && indices)
@@ -1695,6 +1770,8 @@ namespace native_renderer
     }
     void commitFrameMesh(uint64_t id, uint32_t count, uint32_t indexCount)
     {
+        RaceScope race("commitFrameMesh");
+        raceRoom(false);
         if (g_drawTap && g_tapFrameMesh && tapMeshes())
             g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, g_tapFrameMesh, static_cast<size_t>(count) * sizeof(Vertex)));
         const uint64_t bytes = static_cast<uint64_t>(count) * sizeof(Vertex) + static_cast<uint64_t>(indexCount) * 4u;
@@ -1718,6 +1795,7 @@ namespace native_renderer
     bool gpuSkinning() { return tuning().gpuSkinning && backend() && g_backend->canSkin(); }
     void uploadSkinnedMesh(uint64_t id, const SkinVertex *vertices, uint32_t count, const uint32_t *indices, uint32_t indexCount)
     {
+        RaceScope race("uploadSkinnedMesh");
         if (native_recorder::active())
             native_recorder::front::skinnedMesh(id, vertices, count, indices, indexCount);
         if (!backend())
@@ -1734,6 +1812,7 @@ namespace native_renderer
     }
     uint32_t framePalette(const float *qwords, uint32_t count)
     {
+        RaceScope race("framePalette");
         if (g_drawTap && tapMeshes())
             g_drawTap->push_back(tapHash(0xcbf29ce484222325ull, qwords, static_cast<size_t>(count) * 16u));
         const uint32_t handle = backend() ? g_backend->framePalette(qwords, count) : 0u;
@@ -1750,12 +1829,19 @@ namespace native_renderer
     }
     void cancelFrameMesh()
     {
+        RaceScope race("cancelFrameMesh");
+        raceRoom(false);
         if (backend())
             g_backend->cancelFrameMesh();
     }
-    bool hasTexture(uint64_t id) { return backend() && ((g_backend->hasTexture(id) && recorded(id)) || asyncPending(id)); }
+    bool hasTexture(uint64_t id)
+    {
+        RaceScope race("hasTexture");
+        return backend() && ((g_backend->hasTexture(id) && recorded(id)) || asyncPending(id));
+    }
     void uploadTexture(uint64_t id, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels)
     {
+        RaceScope race("uploadTexture");
         if (g_uploads.on)
         {
             ++g_uploads.textures;
@@ -1789,6 +1875,9 @@ namespace native_renderer
 
     void beginFrame()
     {
+        if (!t_raceLabel)
+            t_raceLabel = "game (beginFrame)";
+        RaceScope race("beginFrame");
         if (g_dumpState == 1)
         {
             g_dumpFile = std::fopen(g_dumpPath.c_str(), "w");
@@ -1876,6 +1965,7 @@ namespace native_renderer
     inline bool heldTexture(uint64_t id) { return id && asyncPending(id) && !(native_recorder::active() && backend() && g_backend->hasTexture(id)); }
     void draw(uint64_t mesh, const float clip[16], const DrawState &state)
     {
+        RaceScope race("draw");
         if (g_drawCheck)
             g_drawCheck();
         if (g_drawTap)
@@ -1927,6 +2017,7 @@ namespace native_renderer
     }
     void drawMulti(const uint64_t *meshes, uint32_t count, const float clip[16], const DrawState &state)
     {
+        RaceScope race("drawMulti");
         if (count == 1u)
             return draw(meshes[0], clip, state);
         if (g_drawCheck)
@@ -2050,6 +2141,7 @@ namespace native_renderer
     }
     void endFrame(uint32_t width, uint32_t height)
     {
+        RaceScope race("endFrame");
         g_lastFrameDraws.store(g_frameDraws.exchange(0u, std::memory_order_relaxed), std::memory_order_relaxed);
         if (g_asyncBuilds)
             g_asyncBuilds->flush(); // this frame's builds start now
