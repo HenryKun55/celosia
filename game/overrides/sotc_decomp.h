@@ -72,6 +72,40 @@ namespace sotc_decomp
     inline void (*g_beforeGuestMove)() = nullptr;
     // The game frame (sotc_native syncFrame), for in-run A/B switches.
     inline uint64_t g_gameFrame = 0;
+    // Round 61 (SOTC_MDS_LANE): the VU0 CLIP register while modelDispState
+    // runs on its lane (sotc_native mdslane). The register holds the last
+    // four judgements (6 bits each); the lane's walk leaves it as its last
+    // tests do, so on the game thread it is pending until the lane is joined.
+    // Code that only shifts judgements in and decides on its own ones
+    // (clipByMinMaxCube's corners) records them here instead (`known`, the
+    // last `shifts` judgements, newest lowest); anything that reads the
+    // register calls clipNeeded first (the lane joined, the true value put
+    // in the context). `tracking` (SOTC_MDS_LANE_VERIFY): the same records
+    // kept while nothing is pending, to check them against the register.
+    struct LazyClip
+    {
+        R5900Context *ctx = nullptr;
+        bool pending = false, tracking = false;
+        uint32_t known = 0, shifts = 0;
+    };
+    inline LazyClip g_lazyClip;
+    inline void (*g_clipJoin)() = nullptr;
+    inline bool clipPending(const R5900Context *ctx) { return g_lazyClip.pending && g_lazyClip.ctx == ctx; }
+    inline void clipNeeded(const R5900Context *ctx)
+    {
+        if ((g_lazyClip.pending || g_lazyClip.tracking) && g_lazyClip.ctx == ctx) [[unlikely]]
+            g_clipJoin();
+    }
+    // One judgement shifted in by code that decides on its own judgements
+    // only: true when it was recorded (the register is pending or tracked).
+    inline void clipShift(const R5900Context *ctx, uint32_t judgement)
+    {
+        if ((g_lazyClip.pending || g_lazyClip.tracking) && g_lazyClip.ctx == ctx)
+        {
+            g_lazyClip.known = ((g_lazyClip.known << 6) | judgement) & 0xFFFFFFu;
+            ++g_lazyClip.shifts;
+        }
+    }
     // The idle thread's turn (round 25, sotc_overrides.cpp): called at each
     // game frame's end on the game thread.
     void idleTurn(uint8_t *rdram, PS2Runtime *runtime);

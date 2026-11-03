@@ -191,6 +191,7 @@ namespace decomp_modelclip
     {
         static sotc_decomp::NativeCount count("modelClipPoint");
         count.hit();
+        sotc_decomp::clipNeeded(ctx); // round 61: it reads the whole CLIP register
         if (sotc_decomp::fastNativeOn() && modelClipFast(rdram, ctx))
             return;
         const uint32_t a0 = GPR_U32(ctx, 4) & ~0xFu, a1 = (GPR_U32(ctx, 5) + 0x230u) & ~0xFu, a2 = GPR_U32(ctx, 6) & ~0xFu,

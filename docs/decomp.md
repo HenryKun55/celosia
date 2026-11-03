@@ -9197,6 +9197,116 @@ frames (~3-4%); the DMA thread's ~0.6-1 ms goes to cores 1-2.
 
 **Deliverable:** build/agent-scratch/celosia-r60.vpk.
 
+## Round 61: modelDispState on a lane of its own (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r61/` (attract.sh; trace: the
+readers' census; verify1: the check; lane-on / lane-off / lane-delay: the
+Mac pictures; ab222 / ab300: the Vita3K A/B runs). A game-thread round.
+
+**What.** modelDispState (sotc_native's modelDisp without its display list,
+round 49's fast paths) ran at every model hook on the game thread:
+the part tree's camera test (each tested node's result at +0x2c), the
+layers' last surface (*0x118bfc8, the packet loop), setShadowEffect's flag
+(0x1186294), the instance packet's opacity, and the VU0 CLIP register as
+its tests leave it. 1.7 ms a frame in the title screen's world at 222 MHz
+(hook.state; mdsPlanPackets 1.4%, mdsPartWalk 1.1%, the root test 0.9%,
+the parts' vector 0.45% of the game thread).
+
+**Who sees what it writes (the census first, `SOTC_MDS_TRACE=1`).**
+- The CLIP register: every recompiled function with a VCLIP or a CLIP read
+  (9: clipBySphere, clipByMinMaxCube, ClipPoint, 0108C9C0, 0108C188,
+  modelDisp, its walk 01099A08 / 01099BA8 / 01099BC0) and the natives
+  that read it (modelClipPoint, glVertexKick, clipByMinMaxCube's fast
+  path inside modelClipSolid). The register keeps the last four
+  judgements and the game's tests OR the whole register in (modelDisp's
+  root test includes the three judgements before its own corners), so the
+  value chains from one model to the next through every test between them.
+  clipByMinMaxCube (the display walk's far cull before each model) decides
+  on its own judgements only (its AND starts at 0x3f) but early-exits after
+  one or two corners on a visible model: the next model's root test sees
+  the last model's judgements.
+- The layer cache: modelSetSurface, modelResetSurface and the model
+  functions that read *0x118bfc8 (01097928 / 01097A68, 01097B70,
+  01097D88, 01099828). Per 600 frames of the attract demo: ~14 000-39 000
+  model hooks, ~3 100-3 600 times one of these right after a hook (~6 a
+  frame); the shadow flag's users (setShadowEffect, bossDeathEffectEnd)
+  once a frame; ClipPoint once, glVertexKick one or two.
+- The part tree's results: a scan of every recompiled function that
+  indexes 0x30-byte nodes and reads +0x2c finds modelDisp's own walk and
+  01097A68 only (and 01114C70, collision's vertices, another table).
+
+**How (`SOTC_MDS_LANE=0` off; A/B `mdslane`).**
+- The hook takes modelDispState's inputs (the instance's LOD word and fade,
+  the camera context's matrix, the boss / cache / fog globals, the plan, the
+  hook's own camera x model and LOD for a finer "Model detail") into a job
+  for the lane (a thread of its own, cores 1-2, `threads::kLane`) and makes
+  the instance packet's opacity itself. The lane runs modelDispState (with
+  the inputs: no prefetch queue, no model shapes) and the hook's own part
+  decision (the parts the hook's walk would give, or its second walk on the
+  game's +0x2c results or its own test of the finer LOD's parts, and "out
+  of view"). The model job on the hook worker waits for its lane job, takes
+  its parts and skips a model the lane found out of view; the last palette
+  (a model without one draws with the one before) is carried by the worker
+  in the jobs' order (`paletteDeferred`), as the hook did.
+- The CLIP register is pending on the game thread (`sotc_decomp::g_lazyClip`):
+  clipByMinMaxCube's corners record their judgements (`clipShift`); the next
+  lane job's register is the last one's shifted by them. Every other reader
+  joins first (`clipNeeded`: the lane done, the true register put back).
+- Joins (the lane done) before the layer cache's and the flag's users and
+  the CLIP readers (wrappers on their table entries; the natives call
+  `clipNeeded`), at every hook worker join (the frame's change, guest
+  moves, the 2D / cloth / particle hooks ...), and before a model hook that
+  cannot use the lane.
+
+**Exactness (`SOTC_MDS_LANE_VERIFY=1`).** At each hook the old code runs for
+the game; the lane's code runs on the same state (the part table, the
+layer cache and the flag put back first) and its memory, register, parts
+and decision are compared; and the CLIP records made since the last hook
+(when no reader joined in between) are checked against the register.
+- Mac, attract demo to 3 000, the worker on, "Model detail" 2 (the finer
+  LOD's own test; r61/verify1): 63 991 jobs made both ways, 0 differ;
+  63 991 decisions, 0 differ; 51 442 CLIP records checked, 0 differ.
+- Vita3K 444 MHz, the Vita build (its NEON part test; r61/verify444, to
+  frame 4 200: the check is slow): 75 257 jobs, 0 differ; 75 257
+  decisions, 0 differ; 62 848 CLIP records, 0 differ.
+- Mac attract demo to 6 000 with the lane, without, and with the lane held
+  300 us a job (r61/lane-on, lane-off, lane-delay): plays on, pictures
+  normal; on against off RMSE 0.003-0.090 a pair (the run-to-run noise of
+  round 60's pairs); the held lane slows the game and its demo drifts to
+  other scenes (normal pictures).
+
+Joins (Vita3K 222 MHz, per 600 frames of the title screen's world): the
+CLIP readers ~300 (ClipPoint once in two frames), the layer cache 100-300,
+the flag 0-19; the game thread waited ~0.15 ms a frame in them; the model
+jobs waited for the lane ~1 a frame.
+
+**Measured (Vita3K, attract demo, 420 s, `mdslane` rotating in 60-frame
+windows; "game + hooks" is the frame less its wait: modelDispState ran
+inside the model hook, whose time the frame log counts as hooks).**
+
+| | frames on / off | frame ms | game + hooks | hooks | render thread | > 40 ms |
+|---|---|---|---|---|---|---|
+| 222 MHz, frames < 7 000 (r61/ab222) | 3 504 / 3 476 | 32.45 / 33.09 | 20.80 / 21.62 | 1.29 / 1.51 | 17.40 / 17.59 | 5.3% / 7.0% |
+| 222 MHz, the title screen's world | 2 424 / 2 460 | 39.11 / 40.47 | 35.40 / 37.03 | 1.44 / 2.65 | 21.49 / 20.79 | 30.5% / 46.6% |
+| 300 MHz, frames < 7 000 (r61/ab300) | 3 506 / 3 475 | 31.40 / 31.86 | 16.07 / 16.65 | 1.02 / 1.15 | 13.39 / 13.35 | 2.1% / 2.4% |
+| 300 MHz, the title screen's world | 2 980 / 2 997 | 33.68 / 34.08 | 25.28 / 26.49 | 1.11 / 1.56 | 17.86 / 17.63 | 7.4% / 9.0% |
+
+The game thread -0.6 to -0.8 ms in the attract demo's first part and -1.2
+to -1.6 ms in the title screen's world (the hooks' own time there -0.45 to
+-1.2 ms, the rest the caches); the hook worker's jobs did not grow (the
+lane is apart).
+
+**Estimated on the console (an estimate):** modelDispState is memory-bound
+(the part tables, the surface records): ~1.5-2.5 ms of the ~56 ms heavy
+frames off the game thread; the lane's ~1-2 ms go to cores 1-2, which the
+render thread and the hook worker share.
+
+**Also:** `SOTC_DMA_ASYNC` (round 60) is read again at the first kick (the
+Vita's env.txt can come after the static initialisers: `SOTC_DMA_ASYNC=0`
+in env.txt did nothing).
+
+**Deliverable:** build/agent-scratch/celosia-r61.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

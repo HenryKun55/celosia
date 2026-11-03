@@ -2000,6 +2000,15 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     static const bool dumping = std::getenv("PS2X_DMA_DUMP") != nullptr;
                     static const bool cacheCheck = std::getenv("SOTC_DMACACHE_CHECK") && std::atoi(std::getenv("SOTC_DMACACHE_CHECK")) != 0;
                     const bool walk2 = walker && transferTagData && channelBase == 0x10009000u && ps2_fast_paths::g_dmaWalk2 && !dumping;
+                    // (SOTC_DMA_ASYNC read again at the first kick: the Vita's
+                    // env.txt can come after the static initialisers.)
+                    static const bool asyncEnvRead = []
+                    {
+                        if (const char *env = std::getenv("SOTC_DMA_ASYNC"))
+                            ps2_fast_paths::g_dmaAsync = std::atoi(env) != 0;
+                        return true;
+                    }();
+                    (void)asyncEnvRead;
                     if (walk2 && !cacheCheck && t_hostIo && ps2_fast_paths::g_dmaAsync)
                     {
                         // Round 60: the walk on the DMA worker; CHCR.STR stays

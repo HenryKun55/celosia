@@ -79,6 +79,9 @@ extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 
 namespace sotc_native
 {
+    bool mdsTraceOn(); // round 61's SOTC_MDS_TRACE (mdstrace, below)
+    void mdsTraceModel();
+    void mdsTraceFrame();
     constexpr uint32_t kModelDisp = 0x01097118u, kGetCameraContext = 0x0108F518u;
     PS2Runtime::RecompiledFunction g_modelDisp = nullptr, g_getCameraContext = nullptr;
     uint32_t g_cameraContext = 0;
@@ -120,6 +123,13 @@ namespace sotc_native
     {
         if (hookjobs::g_on)
             hookjobs::join(site);
+    }
+    // Round 61: modelDispState's lane (below, before modelDispHook).
+    namespace mdslane
+    {
+        extern bool g_frameOn, g_switch;
+        void join(int site);
+        void frameStart(bool hookWorkerOn);
     }
 
     const uint8_t *g_ram = nullptr;
@@ -2948,7 +2958,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -2963,6 +2973,7 @@ namespace sotc_native
             xferAt = indexOf("xferreturn");
             sblurLazyAt = indexOf("sblurlazy");
             dmaAsyncAt = indexOf("dmaasync");
+            mdsLaneAt = indexOf("mdslane");
             return true;
         }();
         (void)placesRead;
@@ -2977,6 +2988,11 @@ namespace sotc_native
         }
         if (sblurLazyAt >= 0) // round 59
             g_sblurLazyJoin = !isOffAt(sblurLazyAt);
+        if (mdsLaneAt >= 0) // round 61: modelDispState on its lane (applied at the next frame's start)
+        {
+            static const bool laneStart = [] { return !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0; }();
+            mdslane::g_switch = isOffAt(mdsLaneAt) ? false : laneStart;
+        }
         if (dmaAsyncAt >= 0) // round 60: the display list's walk on the DMA worker
         {
             static const bool dmaAsyncStart = ps2_fast_paths::g_dmaAsync;
@@ -3001,6 +3017,8 @@ namespace sotc_native
     {
         if (g_frame == 0)
             return;
+        if (mdsTraceOn())
+            mdsTraceFrame();
         abSwitches();
         flush2D();
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
@@ -3869,6 +3887,12 @@ namespace sotc_native
         bool hasPalette = false, haveLights = false;
         uint32_t paletteLo = 0, paletteHi = 0;
         std::vector<float> palette; // qwords paletteLo..paletteHi
+        // Round 61 (SOTC_MDS_LANE): the state made on the lane (lane seq; the
+        // worker waits for it, takes the parts and skips a model the lane
+        // found out of view); paletteDeferred: lo / hi resolved by the worker
+        // (the last palette carried in the jobs' order).
+        bool lane = false, paletteDeferred = false;
+        uint64_t laneSeq = 0;
         float lights[32] = {};
         uint64_t inputs = 0; // SOTC_HOOK_ASYNC_VERIFY: the inputs' hash at the hook
         uint64_t runInputs = 0; // round 32: what the job itself reads of guest memory, hashed at the hook (modelRunInputs)
@@ -3877,6 +3901,9 @@ namespace sotc_native
     uint64_t modelDispInputs(const ModelDispJob &job);
     uint64_t modelRunInputs(const ModelDispJob &job);
     ModelDispJob g_syncJob; // the job when it runs at once
+    // The last palette's lo / hi (a model without one draws with them): the
+    // hook's, or with the lane on the worker's in the jobs' order (round 61).
+    uint32_t g_palLastLo = 0, g_palLastHi = 0;
     // The other hooks' host parts, as jobs too (they draw after the models'
     // in the same order): cloth (meshDisp), shadow volumes (shadowDisp),
     // particles (ptclVtx).
@@ -4397,6 +4424,7 @@ namespace sotc_native
         // Waits until every job handed over has run.
         void join(Site site)
         {
+            mdslane::join(site == k_frame ? 5 : 3); // round 61: the lane first (kJFrame / kJHook)
 #if !defined(__vita__)
             struct CheckEnd // SOTC_KICK_DEFER_CHECK: after the held jobs ran
             {
@@ -4568,6 +4596,7 @@ namespace sotc_native
                 start();
             g_on = on;
             g_timing = t.frameTiming();
+            mdslane::frameStart(on);
         }
     }
 
@@ -7205,7 +7234,8 @@ namespace sotc_native
         uint8_t *pvData = partOut ? partOut->data() : nullptr;
         size_t pvSize = partOut ? partOut->size() : 0u;
         PrefetchQueue &q = g_prefetchQueue;
-        const uint32_t qFirst = q.head, qEnd = pumpQueue ? std::max(q.tail, q.head) : q.head;
+        // (round 61: on the lane the queue, the game thread's, is not touched)
+        const uint32_t qFirst = pumpQueue ? q.head : 0u, qEnd = pumpQueue ? std::max(q.tail, q.head) : 0u;
         uint32_t qAt = qFirst, budget = budgetRef, maxNode = maxNodeRef;
         struct Pending
         {
@@ -7266,9 +7296,12 @@ namespace sotc_native
             state = p.state;
             depth = p.depth;
         }
-        if (leanStatsOn())
-            g_leanStats.queuePumped += qAt - qFirst;
-        q.head = qAt;
+        if (pumpQueue)
+        {
+            if (leanStatsOn())
+                g_leanStats.queuePumped += qAt - qFirst;
+            q.head = qAt;
+        }
         budgetRef = budget;
         maxNodeRef = maxNode;
         onceRef = once;
@@ -7276,15 +7309,17 @@ namespace sotc_native
     // modelDispState's loop over the plan's packets (round 49): the same
     // tests in the same order, the frame, the guest base, the queue and the
     // tests' constants in registers.
+    // (Round 61: fog is *0x1186328 as the hook read it, ~0u: read it here;
+    // on the lane the queue is not touched.)
     template <bool partCulled>
     __attribute__((noinline)) void mdsPlanPackets(const ModelPlan *plan, SurfaceInfo *memoArr, uint32_t header, uint32_t table, bool fading, uint32_t boss,
-                                                  uint32_t cache)
+                                                  uint32_t cache, uint32_t fogIn = ~0u, bool onLane = false)
     {
         uint8_t *const ram = const_cast<uint8_t *>(g_ram);
         const uint64_t frame = g_frame;
-        const bool pumpQueue = g_hookLean && g_prefetch;
+        const bool pumpQueue = g_hookLean && g_prefetch && !onLane;
         PrefetchQueue &q = g_prefetchQueue;
-        const uint32_t qFirst = q.head, qEnd = q.tail;
+        const uint32_t qFirst = pumpQueue ? q.head : 0u, qEnd = pumpQueue ? q.tail : 0u;
         uint32_t qAt = qFirst;
         const uint32_t layerAt = fading ? 1u : 0u;
         const PlanPacket *e = plan->pk.data();
@@ -7328,18 +7363,71 @@ namespace sotc_native
             }
             if ((flags >> 26) & 1u)
             {
-                noteRead(0x1186328u, 4u);
-                uint32_t fog;
-                std::memcpy(&fog, ram + 0x1186328u, 4);
+                uint32_t fog = fogIn;
+                if (fogIn == ~0u)
+                {
+                    noteRead(0x1186328u, 4u);
+                    std::memcpy(&fog, ram + 0x1186328u, 4);
+                }
                 if (fog != 0u)
                     continue;
             }
             const uint32_t to = cache + info.layer[layerAt] * 4u;
             std::memcpy(ram + (to & 0x1FFFFFCu), &s, 4);
         }
-        if (leanStatsOn())
-            g_leanStats.queuePumped += qAt - qFirst;
-        q.head = qAt;
+        if (pumpQueue)
+        {
+            if (leanStatsOn())
+                g_leanStats.queuePumped += qAt - qFirst;
+            q.head = qAt;
+        }
+    }
+
+    // Round 61 (SOTC_MDS_LANE): modelDispState's inputs as the hook took
+    // them, for its run on the lane (mdslane, below): what the game can
+    // change after the hook (the instance's LOD word, its fade, the camera
+    // context's matrix, the globals the packet loop reads) and the CLIP
+    // register in / out. On the lane the prefetch queue, the model shapes
+    // and the instance packet's opacity (done by the hook) are left alone.
+    struct MdsIn
+    {
+        bool lane = false;
+        uint32_t header = 0;
+        uint64_t lodWord = 0;
+        float camera[16] = {};
+        bool fading = false;
+        uint32_t boss = 0, cache = 0, fog = 0;
+        uint32_t clipIn = 0, clipOut = 0;
+    };
+    // modelDisp's instance packet opacity (+0xdc) and +0xd0: on the game
+    // thread (the hook) either way.
+    void mdsOpacity(uint32_t instance, uint32_t header)
+    {
+        const auto put = [](uint32_t addr, uint32_t value) { std::memcpy(const_cast<uint8_t *>(g_ram) + (addr & 0x1FFFFFCu), &value, 4); };
+        const uint32_t flags18 = word(header + 0x18u) & 1u;
+        uint64_t drawFlags;
+        std::memcpy(&drawFlags, g_ram + ((instance + 0x260u) & 0x1FFFFF8u), 8);
+        if ((drawFlags & 4u) == 0u)
+        {
+            float opacity = 1.0f - real(instance + 0x244u);
+            if (word(header + 0xCu) != 0u)
+                opacity *= 1.0f - real(instance + 0x248u);
+            const uint32_t packet = word(instance + 0xCu);
+            uint32_t bits;
+            std::memcpy(&bits, &opacity, 4);
+            if (flags18 == 0u)
+            {
+                if (!(1.0f <= opacity))
+                    put(packet + 0xDCu, bits);
+            }
+            else
+            {
+                if (real(packet + 0xD0u) != real(instance + 0x24Cu))
+                    put(packet + 0xD0u, word(instance + 0x24Cu));
+                if (opacity < 1.0f)
+                    put(packet + 0xDCu, bits);
+            }
+        }
     }
 
     // partOut (round 32, g_hookLean): the parts' results as modelDispHook's
@@ -7349,17 +7437,24 @@ namespace sotc_native
     // with shared or looping links, or a model still loading, is walked
     // again by the hook as before).
     void modelDispState(R5900Context *ctx, uint32_t instance, const float model[16], const ModelPlan *plan = nullptr, std::vector<uint8_t> *partOut = nullptr,
-                        bool *partOk = nullptr, uint32_t *partTable = nullptr)
+                        bool *partOk = nullptr, uint32_t *partTable = nullptr, MdsIn *in = nullptr)
     {
         static sotc_decomp::NativeCount count("modelDispState");
-        count.hit();
+        if (!in)
+            count.hit();
+        // Round 61: on the lane (in->lane) its inputs are the hook's (MdsIn).
+        const bool lane = in && in->lane;
+        const bool prefetchOk = g_prefetch && !lane;
         // Round 49: the part walk and the plan's packet loop in locals (SOTC_FASTNATIVE=0: round 48's).
         const bool fast = sotc_decomp::fastNativeOn();
         if (partOk)
             *partOk = false;
-        const uint32_t header = word(word(instance) + 0x20u);
+        const uint32_t header = in ? in->header : word(word(instance) + 0x20u);
         uint64_t lodWord;
-        std::memcpy(&lodWord, g_ram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+        if (in)
+            lodWord = in->lodWord;
+        else
+            std::memcpy(&lodWord, g_ram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
         // dsll 21, dsra32 29: bits 40-42, signed.
         uint32_t lod = static_cast<uint32_t>(static_cast<int64_t>(lodWord << 21) >> 61);
         const uint32_t flags18 = word(header + 0x18u) & 1u;
@@ -7373,7 +7468,7 @@ namespace sotc_native
             uint32_t header, table, &maxNode;
             ~ShapeNodes()
             {
-                if (!g_prefetch || !table)
+                if (!g_prefetch || !table) // (0 on the lane)
                     return;
                 ModelShape &shape = modelShape(header);
                 if (shape.header != header)
@@ -7388,7 +7483,7 @@ namespace sotc_native
                 }
                 shape.nodes = std::max(shape.nodes, (maxNode - table) / 0x30u + 1u);
             }
-        } shapeNodes{header, partCulled ? table : 0u, maxNode};
+        } shapeNodes{header, partCulled && !lane ? table : 0u, maxNode};
         if (partTable)
             *partTable = table;
         if (partCulled)
@@ -7403,7 +7498,8 @@ namespace sotc_native
             float clip[16];
             __m128 camera[4];
             for (int i = 0; i < 4; ++i)
-                camera[i] = ps2VuNormalize(_mm_loadu_ps(reinterpret_cast<const float *>(g_ram + ((g_cameraContext + 0x5A0u + i * 16u) & 0x1FFFFFCu))));
+                camera[i] = ps2VuNormalize(in ? _mm_loadu_ps(in->camera + i * 4)
+                                              : _mm_loadu_ps(reinterpret_cast<const float *>(g_ram + ((g_cameraContext + 0x5A0u + i * 16u) & 0x1FFFFFCu))));
             for (int c = 0; c < 4; ++c)
             {
                 const __m128 m = ps2VuNormalize(_mm_loadu_ps(model + c * 4));
@@ -7417,7 +7513,7 @@ namespace sotc_native
             // judgements) read after each: all of them sharing a plane -> 1
             // (out), the register 0 at every read (this box's corners and the
             // three judgements before them all inside) -> 2, else 0 (partly).
-            uint32_t clipRegister = ctx->vu0_clip_flags & 0xFFFFFFu;
+            uint32_t clipRegister = (in ? in->clipIn : ctx->vu0_clip_flags) & 0xFFFFFFu;
             // vuTransform four rows at a time (the same products and sums,
             // each through the same clamp: ps2VuNormalize is vuNorm by lane),
             // the products by each corner's x, y and z made once for the box.
@@ -7460,12 +7556,19 @@ namespace sotc_native
                 clipRegister = f[10] | (f[9] << 6) | (f[8] << 12) | (f[7] << 18);
                 return all ? 1u : (any ? 0u : 2u);
             };
-            struct ClipBack // the register as modelDisp leaves it
+            struct ClipBack // the register as modelDisp leaves it (round 61: the lane's into in->clipOut)
             {
                 R5900Context *ctx;
+                MdsIn *in;
                 uint32_t &value;
-                ~ClipBack() { ctx->vu0_clip_flags = value; }
-            } clipBack{ctx, clipRegister};
+                ~ClipBack()
+                {
+                    if (in)
+                        in->clipOut = value;
+                    else
+                        ctx->vu0_clip_flags = value;
+                }
+            } clipBack{ctx, in, clipRegister};
             const auto put = [](uint32_t addr, uint32_t value) { std::memcpy(const_cast<uint8_t *>(g_ram) + (addr & 0x1FFFFFCu), &value, 4); };
             // manager_sub_01099A08: a node takes its parent's result unless
             // that is 0 (partly inside), then it is tested; written at +0x2c.
@@ -7497,7 +7600,7 @@ namespace sotc_native
                     pv.resize(index + 1u, 0u);
                 pv[index] = static_cast<uint8_t>(state);
             };
-            const bool pumpQueue = g_hookLean && g_prefetch;
+            const bool pumpQueue = g_hookLean && prefetchOk;
             const auto visit = [&](auto &&self, uint32_t index, uint32_t node, uint32_t inherited, int depth) -> void
             {
                 if (depth > 64 || budget == 0u)
@@ -7521,7 +7624,7 @@ namespace sotc_native
                 uint8_t *const ram = const_cast<uint8_t *>(g_ram);
                 const auto st = [ram](uint32_t a, uint32_t v) { std::memcpy(ram + (a & 0x1FFFFFCu), &v, 4); };
                 MdsPartClip pc{col0, col1, col2, byW, clipRegister};
-                const bool prefetchOn = g_prefetch;
+                const bool prefetchOn = prefetchOk;
                 if (prefetchOn)
                 {
                     const ModelShape &shape = modelShape(header);
@@ -7561,7 +7664,7 @@ namespace sotc_native
             }
             else
             {
-            if (g_prefetch)
+            if (prefetchOk)
             {
                 // This model's part tree as it was: asked for at once (the
                 // walk below goes from node to node by their links).
@@ -7595,34 +7698,15 @@ namespace sotc_native
             }
         }
         const auto put = [](uint32_t addr, uint32_t value) { std::memcpy(const_cast<uint8_t *>(g_ram) + (addr & 0x1FFFFFCu), &value, 4); };
-        uint64_t drawFlags;
-        std::memcpy(&drawFlags, g_ram + ((instance + 0x260u) & 0x1FFFFF8u), 8);
-        if ((drawFlags & 4u) == 0u)
-        {
-            float opacity = 1.0f - real(instance + 0x244u);
-            if (word(header + 0xCu) != 0u)
-                opacity *= 1.0f - real(instance + 0x248u);
-            const uint32_t packet = word(instance + 0xCu);
-            uint32_t bits;
-            std::memcpy(&bits, &opacity, 4);
-            if (flags18 == 0u)
-            {
-                if (!(1.0f <= opacity))
-                    put(packet + 0xDCu, bits);
-            }
-            else
-            {
-                if (real(packet + 0xD0u) != real(instance + 0x24Cu))
-                    put(packet + 0xD0u, word(instance + 0x24Cu));
-                if (opacity < 1.0f)
-                    put(packet + 0xDCu, bits);
-            }
-        }
-        const bool fading = 0.0f < real(instance + 0x244u);
-        const uint32_t boss = word(0x1186290u), cache = word(0x118BFC8u);
+        if (!in) // (round 61: the hook makes these itself, mdsOpacity)
+            mdsOpacity(instance, header);
+        const bool fading = in ? in->fading : 0.0f < real(instance + 0x244u);
+        const uint32_t boss = in ? in->boss : word(0x1186290u), cache = in ? in->cache : word(0x118BFC8u);
+        const uint32_t fogIn = in ? in->fog : ~0u;
+        const auto fogNow = [fogIn]() { return fogIn != ~0u ? fogIn : word(0x1186328u); };
         const uint32_t packets = word(header + 0x60u), surfaces = word(header + 0x50u);
         ModelShape *shape = nullptr;
-        if (g_prefetch)
+        if (prefetchOk)
         {
             shape = &modelShape(header);
             if (shape->header != header)
@@ -7642,16 +7726,16 @@ namespace sotc_native
         {
             // Round 49: the loop below in a function of its own (mdsPlanPackets).
             if (partCulled)
-                mdsPlanPackets<true>(plan, memoArr, header, table, fading, boss, cache);
+                mdsPlanPackets<true>(plan, memoArr, header, table, fading, boss, cache, fogIn, lane);
             else
-                mdsPlanPackets<false>(plan, memoArr, header, table, fading, boss, cache);
+                mdsPlanPackets<false>(plan, memoArr, header, table, fading, boss, cache, fogIn, lane);
             return;
         }
         if (plan && memo && plan->header == header && plan->lod == lod && plan->packets == packets && plan->surfaces == surfaces)
         {
             // The plan's packets of this LOD, in the list's order: the same
             // tests and writes as the walk below.
-            const bool pumpQueue = g_hookLean && g_prefetch;
+            const bool pumpQueue = g_hookLean && prefetchOk;
             for (const PlanPacket &e : plan->pk)
             {
                 const uint32_t s = e.s;
@@ -7681,7 +7765,7 @@ namespace sotc_native
                     if (!(boss & 2u))
                         continue;
                 }
-                if (((flags >> 26) & 1u) && word(0x1186328u) != 0u)
+                if (((flags >> 26) & 1u) && fogNow() != 0u)
                     continue;
                 put(cache + info.layer[fading ? 1 : 0] * 4u, s);
             }
@@ -7724,7 +7808,7 @@ namespace sotc_native
                 if (!(boss & 2u))
                     continue;
             }
-            if (((flags >> 26) & 1u) && word(0x1186328u) != 0u)
+            if (((flags >> 26) & 1u) && fogNow() != 0u)
                 continue;
             put(cache + (info ? info->layer[fading ? 1 : 0] : surfaceLayer(header, s, fading)) * 4u, s);
         }
@@ -8095,6 +8179,345 @@ namespace sotc_native
         }
     }
 
+    // ---- Round 61: modelDispState on a lane of its own (SOTC_MDS_LANE) -------
+    //
+    // modelDispState (the game's modelDisp results: the part tree's camera
+    // test at +0x2c, the layers' last surface at *0x118bfc8, setShadowEffect's
+    // flag 0x1186294, and the VU0 CLIP register as the tests leave it) ran on
+    // the game thread at every model hook (1.7 ms a frame in the title
+    // screen's world at 222 MHz). Now the hook takes its inputs (the
+    // instance's LOD word and fade, the camera context's matrix, the globals
+    // the packet loop reads, the plan) and hands it to a thread of its own
+    // (the lane, cores 1-2); the hook's own second part walk and its "out of
+    // view" decision go with it; the model job on the hook worker waits for
+    // its lane job, takes its parts and skips a model the lane found out of
+    // view (the last palette carried in the jobs' order, paletteDeferred).
+    // The instance packet's opacity (mdsOpacity) stays at the hook.
+    // What the game could see of it waits for the lane (join):
+    //  - the CLIP register: pending in the context (sotc_decomp::g_lazyClip);
+    //    clipByMinMaxCube's corners (they decide on their own judgements
+    //    only) shift theirs in as `known`, the next lane job's register is
+    //    the last one's shifted by them; every other reader joins: the
+    //    recompiled functions with a VCLIP / CLIP read (clipBySphere,
+    //    clipByMinMaxCube, ClipPoint, 0108C9C0, 0108C188, modelDisp's walk
+    //    0109xxxx), modelClipPoint's and glVertexKick's natives;
+    //  - the layer cache's users (modelSetSurface, modelResetSurface and the
+    //    model functions that read *0x118bfc8: 01097928 / 01097A68, 01097B70,
+    //    01097D88, 01099828), setShadowEffect's flag (setShadowEffect,
+    //    bossDeathEffectEnd), the part tree's results (the static scan of
+    //    every recompiled function that indexes 0x30-byte nodes and reads
+    //    +0x2c finds modelDisp's own walk and 01097A68 only);
+    //  - every hook worker join (frame change, guest moves, the 2D / cloth /
+    //    particle hooks, ...) and any model hook that cannot use the lane.
+    // SOTC_MDS_LANE=0: on the game thread as before (A/B `mdslane`).
+    // SOTC_MDS_LANE_VERIFY=1: each lane job also made at the hook from the
+    // same state by the old code and compared (the memory it writes, the
+    // CLIP register, the parts, the out-of-view decision), and the CLIP
+    // records (`known`) checked against the register at the next hook.
+    namespace mdslane
+    {
+        enum JoinSite : int { kJClip, kJCache, kJShadow, kJHook, kJSync, kJFrame, kJSites };
+        const char *const kJoinNames[kJSites] = {"clip", "cache", "shadow", "hook", "sync", "frame"};
+        bool g_frameOn = false; // this frame's model hooks use the lane (set at the frame's start)
+        bool g_switch = true;   // SOTC_MDS_LANE (and the A/B's turns)
+        bool g_verify = false;  // SOTC_MDS_LANE_VERIFY
+        struct Job
+        {
+            uint64_t seq = 0;
+            uint32_t instance = 0, table = 0;
+            bool partCulled = false;
+            bool useGame = true;   // the hook's table is the game's LOD's: its parts are the game's results
+            float model[16] = {};
+            float clip[16] = {};   // the hook's camera x model (its own test of a finer LOD's parts)
+            const ModelPlan *plan = nullptr;
+            MdsIn in;
+            bool chained = false; // the register in: the last job's out with (known, shifts) shifted in since
+            uint32_t known = 0, shifts = 0;
+            std::vector<uint8_t> parts; // the hook's partVisible
+            bool skip = false;          // out of view: nothing drawn
+        };
+        constexpr uint32_t kRing = 1024u;
+        Job g_ring[kRing];
+        uint64_t g_pushed = 0, g_frameFirst = 0; // game thread
+        std::atomic<uint64_t> g_done{0};
+        uint32_t g_lastClipOut = 0; // the lane's last job's register (read after a join)
+        std::mutex g_mutex;
+        std::condition_variable g_work, g_idle;
+        std::atomic<bool> g_sleeping{false}, g_waiting{false};
+        bool g_started = false;
+        R5900Context g_laneCtx{}; // (modelDispState's ctx argument; the register goes through MdsIn)
+        uint64_t g_jobs = 0, g_joinCount[kJSites] = {}, g_joinWaitUs = 0, g_joinWaits = 0;
+        std::atomic<uint64_t> g_workerWaits{0};
+        uint64_t g_verifyJobs = 0, g_verifyDiffer = 0, g_clipChecks = 0, g_clipDiffer = 0, g_verifyDecisions = 0, g_verifyDecisionsDiffer = 0;
+        struct Job;
+        Job *g_verifyJob = nullptr; // (the hook's verify: its lane job, for the decision's check)
+        bool g_trackValid = false; // (verify) no join since the last hook: the records cover the register
+        uint32_t g_trackOut = 0;
+
+        inline uint32_t combine(uint32_t prev, uint32_t known, uint32_t shifts)
+        {
+            return shifts >= 4u ? known & 0xFFFFFFu : ((prev << (6u * shifts)) | known) & 0xFFFFFFu;
+        }
+
+        // The lane's part of the hook: modelDispState, then the hook's own
+        // part decision (as modelDispHook made it after modelDispState).
+        void run(Job &j)
+        {
+            j.in.clipIn = j.chained ? combine(g_lastClipOut, j.known, j.shifts) : j.in.clipIn;
+            j.in.clipOut = j.in.clipIn; // (left as it is when nothing is tested)
+            j.parts.clear();
+            bool taken = false;
+            uint32_t partsTable = 0;
+            modelDispState(&g_laneCtx, j.instance, j.model, j.plan, &j.parts, &taken, &partsTable, &j.in);
+            g_lastClipOut = j.in.clipOut;
+            j.skip = false;
+            if (!j.partCulled)
+                return;
+            if (j.useGame && taken && partsTable == j.table)
+            {
+                j.skip = j.parts.empty(); // the root out (1)
+                return;
+            }
+            // modelDispHook's second walk, as there: on the game's results
+            // (+0x2c), or its own test of a finer LOD's parts ("Model detail").
+            const uint32_t table = j.table;
+            std::vector<uint8_t> &partVisible = j.parts;
+            const float *const clip = j.clip;
+            const bool useGame = j.useGame;
+            const auto test = [clip, useGame](uint32_t node) -> uint32_t
+            {
+                if (useGame)
+                    return word(node + 0x2Cu);
+                uint32_t all = 0x3Fu, any = 0u;
+                for (int c = 0; c < 8; ++c)
+                {
+                    const float x = real(node + ((c & 1) ? 0x10u : 0u)), y = real(node + ((c & 2) ? 0x14u : 4u)), z = real(node + ((c & 4) ? 0x18u : 8u));
+                    float v[4];
+                    for (int r = 0; r < 4; ++r)
+                        v[r] = clip[r] * x + clip[4 + r] * y + clip[8 + r] * z + clip[12 + r];
+                    const float w = std::fabs(v[3]);
+                    const uint32_t flags = (v[0] > w ? 1u : 0u) | (v[0] < -w ? 2u : 0u) | (v[1] > w ? 4u : 0u) | (v[1] < -w ? 8u : 0u) | (v[2] > w ? 16u : 0u) |
+                                           (v[2] < -w ? 32u : 0u);
+                    all &= flags;
+                    any |= flags;
+                }
+                return all ? 1u : (any ? 0u : 2u);
+            };
+            uint32_t budget = 4096u;
+            const auto visit = [&](auto &&self, uint32_t index, uint32_t inherited, int depth) -> void
+            {
+                if (index >= 4096u || depth > 64 || budget == 0u)
+                    return;
+                --budget;
+                const uint32_t node = table + index * 0x30u;
+                const uint32_t state = inherited ? inherited : test(node);
+                if (partVisible.size() <= index)
+                    partVisible.resize(index + 1u, 0u);
+                partVisible[index] = static_cast<uint8_t>(state);
+                for (uint32_t link : {0x20u, 0x24u})
+                    if (word(node + link) != 0xFFFFFFFFu)
+                        self(self, word(node + link), state, depth + 1);
+            };
+            if (table == 0u)
+            {
+                j.skip = true; // (the hook returns before it hands a model job over)
+                return;
+            }
+            const uint32_t root = test(table);
+            if (root == 1u)
+            {
+                j.skip = true;
+                return;
+            }
+            partVisible.assign(1u, static_cast<uint8_t>(root));
+            for (uint32_t link : {0x20u, 0x24u})
+                if (word(table + link) != 0xFFFFFFFFu)
+                    visit(visit, word(table + link), root, 1);
+        }
+
+        void loop()
+        {
+            native_renderer::threads::place(native_renderer::threads::kLane);
+            ThreadNaming::SetCurrentThreadName("mdslane");
+            static const uint32_t delayUs = std::getenv("SOTC_MDS_LANE_DELAY_US") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_MDS_LANE_DELAY_US"))) : 0u;
+            uint64_t next = 0;
+            for (;;)
+            {
+                uint64_t pushed = 0;
+                for (int spin = 0;; ++spin)
+                {
+                    pushed = __atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE);
+                    if (pushed > next)
+                        break;
+                    if (spin < 256)
+                        continue;
+                    std::unique_lock<std::mutex> lock(g_mutex);
+                    g_sleeping.store(true, std::memory_order_seq_cst);
+                    if (__atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE) <= next)
+                        g_work.wait(lock);
+                    g_sleeping.store(false, std::memory_order_relaxed);
+                    spin = 0;
+                }
+                for (; next < pushed; ++next)
+                {
+                    if (delayUs)
+                        std::this_thread::sleep_for(std::chrono::microseconds(delayUs));
+                    run(g_ring[next % kRing]);
+                    g_done.store(next + 1u, std::memory_order_release);
+                    if (g_waiting.load(std::memory_order_seq_cst))
+                    {
+                        std::lock_guard<std::mutex> lock(g_mutex);
+                        g_idle.notify_all();
+                    }
+                }
+            }
+        }
+
+        // Until job `seq` is done (the hook worker, or the game thread's join).
+        void waitDone(uint64_t seq)
+        {
+            for (int spin = 0; spin < 2048; ++spin)
+                if (g_done.load(std::memory_order_acquire) > seq)
+                    return;
+            std::unique_lock<std::mutex> lock(g_mutex);
+            g_waiting.store(true, std::memory_order_seq_cst);
+            while (g_done.load(std::memory_order_acquire) <= seq)
+                g_idle.wait_for(lock, std::chrono::microseconds(200));
+            g_waiting.store(false, std::memory_order_relaxed);
+        }
+
+        // The game thread: every job handed over done, the CLIP register put
+        // back in its context.
+        void join(int site)
+        {
+            sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
+            if (g_verify)
+                g_trackValid = false; // a reader's own judgements are not in the records
+            if (!c.pending && g_done.load(std::memory_order_acquire) == g_pushed)
+                return;
+            ++g_joinCount[site >= 0 && site < kJSites ? site : kJHook];
+            if (g_done.load(std::memory_order_acquire) != g_pushed)
+            {
+                const uint64_t t0 = native_renderer::nowUs();
+                ps2_load::Wait waiting;
+                waitDone(g_pushed - 1u);
+                g_joinWaitUs += native_renderer::nowUs() - t0;
+                ++g_joinWaits;
+            }
+            if (c.pending)
+            {
+                c.ctx->vu0_clip_flags = combine(g_lastClipOut, c.known, c.shifts);
+                c.pending = false;
+                c.known = c.shifts = 0;
+            }
+        }
+
+        void frameStart(bool hookWorkerOn)
+        {
+            join(kJFrame);
+            // (read at the first frame: the Vita's env.txt comes after static init)
+            static const bool envRead = []
+            {
+                g_switch = !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0;
+                g_verify = std::getenv("SOTC_MDS_LANE_VERIFY") != nullptr;
+                return true;
+            }();
+            (void)envRead;
+            g_frameOn = hookWorkerOn && g_switch && g_hookLean;
+            g_frameFirst = g_pushed;
+            if (g_frameOn && !g_started)
+            {
+                g_started = true;
+                sotc_decomp::g_clipJoin = [] { join(kJClip); };
+                std::thread(loop).detach();
+            }
+            if ((g_jobs || g_verifyJobs) && sotc_native::g_frame % 600u == 0u)
+            {
+                char line[400];
+                int n = std::snprintf(line, sizeof(line), "[mdslane] frame %llu: %llu jobs, joins waited %llu (%.2f ms), worker waits %llu; joins at",
+                                      (unsigned long long)sotc_native::g_frame, (unsigned long long)g_jobs, (unsigned long long)g_joinWaits, g_joinWaitUs / 1000.0,
+                                      (unsigned long long)g_workerWaits.load(std::memory_order_relaxed));
+                for (int k = 0; k < kJSites && n > 0 && n < static_cast<int>(sizeof(line)); ++k)
+                    n += std::snprintf(line + n, sizeof(line) - n, " %s %llu", kJoinNames[k], (unsigned long long)g_joinCount[k]);
+                std::fprintf(stderr, "%s\n", line);
+                if (g_verify)
+                    std::fprintf(stderr, "[mdslane] verify: %llu jobs made both ways, %llu differ (memory, CLIP); decisions %llu, %llu differ; CLIP records %llu checked, %llu differ\n",
+                                 (unsigned long long)g_verifyJobs, (unsigned long long)g_verifyDiffer, (unsigned long long)g_verifyDecisions,
+                                 (unsigned long long)g_verifyDecisionsDiffer, (unsigned long long)g_clipChecks, (unsigned long long)g_clipDiffer);
+                g_jobs = g_joinWaits = g_joinWaitUs = 0;
+                g_workerWaits.store(0, std::memory_order_relaxed);
+                std::fill(std::begin(g_joinCount), std::end(g_joinCount), 0ull);
+            }
+        }
+
+        // The hook: its inputs into the next job, the job handed over.
+        Job &take(R5900Context *ctx)
+        {
+            sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
+            if ((c.pending && c.ctx != ctx) || g_pushed - g_frameFirst >= kRing)
+            {
+                // Another context's register pending, or the ring's slots all
+                // this frame's (the hook worker may still read them): all done first.
+                hookJoin(hookjobs::k_move);
+                join(kJHook);
+                g_frameFirst = g_pushed;
+            }
+            Job &j = g_ring[g_pushed % kRing];
+            j.seq = g_pushed;
+            if (c.pending)
+            {
+                j.chained = true;
+                j.known = c.known;
+                j.shifts = c.shifts;
+            }
+            else
+            {
+                j.chained = false;
+                j.in.clipIn = ctx->vu0_clip_flags & 0xFFFFFFu;
+            }
+            return j;
+        }
+        void push(R5900Context *ctx)
+        {
+            sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
+            c.ctx = ctx;
+            c.pending = true;
+            c.known = c.shifts = 0;
+            ++g_jobs;
+            __atomic_store_n(&g_pushed, g_pushed + 1u, __ATOMIC_RELEASE);
+            if (g_sleeping.load(std::memory_order_seq_cst))
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_work.notify_one();
+            }
+        }
+
+        // Round 61's check (SOTC_MDS_LANE_VERIFY), at the hook with the lane
+        // idle: the old code's results (memory, register, parts) against the
+        // lane's code on the same state. The memory it can write: the part
+        // table (up to 4096 nodes), the layer cache's 64 slots, the flag.
+        struct Snap
+        {
+            std::vector<uint8_t> table, cache;
+            uint32_t flag = 0;
+        };
+        void snap(Snap &s, uint32_t table, uint32_t cache)
+        {
+            const uint32_t tb = std::min<uint32_t>(4096u * 0x30u, table < PS2_RAM_SIZE ? PS2_RAM_SIZE - table : 0u);
+            s.table.assign(g_ram + table, g_ram + table + tb);
+            const uint32_t cb = cache && cache < PS2_RAM_SIZE - 256u ? 256u : 0u;
+            s.cache.assign(g_ram + cache, g_ram + cache + cb);
+            std::memcpy(&s.flag, g_ram + 0x1186294u, 4);
+        }
+        void unsnap(const Snap &s, uint32_t table, uint32_t cache)
+        {
+            uint8_t *const ram = const_cast<uint8_t *>(g_ram);
+            std::memcpy(ram + table, s.table.data(), s.table.size());
+            std::memcpy(ram + cache, s.cache.data(), s.cache.size());
+            std::memcpy(ram + 0x1186294u, &s.flag, 4);
+        }
+    }
+
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         syncFrame(rdram);
@@ -8217,15 +8640,101 @@ namespace sotc_native
         ModelDispJob &job = hookJob ? hookJob->model : g_syncJob;
         bool partsTaken = false; // job.partVisible made by modelDispState's walk (lean)
         uint32_t partsTable = 0;
+        bool laneUsed = false; // round 61: the state made on the lane (mdslane)
+        uint64_t laneSeq = 0;
         if (check)
             modelDispCheck(rdram, ctx, runtime, instance, model);
         else if (!ps2Lists)
         {
             SOTC_PROF_SCOPE(kHookState);
-            if (lean)
-                modelDispState(ctx, instance, model, gamePlan, &job.partVisible, &partsTaken, &partsTable);
+            // Round 61: on the lane when the hook's own part decision can go
+            // with it (lean, the game's own LOD: no finer "Model detail").
+            const bool laneOk = mdslane::g_frameOn && hookJob && lean && !leanCheck;
+            if (laneOk)
+            {
+                mdslane::Job &lj = mdslane::take(ctx);
+                const uint32_t h = word(word(instance) + 0x20u);
+                uint64_t lw;
+                std::memcpy(&lw, rdram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+                // The hook's LOD and table as it works them out below (gameLod,
+                // then "Model detail"'s finer level, tested by the hook itself).
+                uint32_t gl = static_cast<uint32_t>((lw >> 40) & 7u);
+                if ((word(h + 0x18u) & 1u) && gl >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
+                    gl = word(h + 0x1Cu) - 1u;
+                uint32_t l = gl;
+                if (const int finer = static_cast<int>(native_renderer::tuning().modelDetail + 0.5f); finer > 0 && l > 0u)
+                {
+                    l = finer >= 2 ? 0u : l - 1u;
+                    if (word(h + 0x30u + l * 4u) == 0u && word(h + 0x30u + gl * 4u) != 0u)
+                        l = gl;
+                }
+                lj.instance = instance;
+                lj.table = word(h + 0x30u + l * 4u);
+                lj.useGame = l == gl;
+                std::memcpy(lj.clip, clip, sizeof(lj.clip));
+                lj.partCulled = (word(h + 0x18u) & 1u) == 0u && word(h + 0x54u) != 1u;
+                std::memcpy(lj.model, model, sizeof(lj.model));
+                lj.plan = gamePlan;
+                MdsIn &in = lj.in;
+                in.lane = true;
+                in.header = h;
+                in.lodWord = lw;
+                guestBlock(g_cameraContext + 0x5A0u, 64u, in.camera);
+                in.fading = 0.0f < real(instance + 0x244u);
+                in.boss = word(0x1186290u);
+                in.cache = word(0x118BFC8u);
+                in.fog = word(0x1186328u);
+                if (!mdslane::g_verify)
+                {
+                    mdsOpacity(instance, h);
+                    laneSeq = lj.seq;
+                    mdslane::push(ctx);
+                    laneUsed = true;
+                }
+                else
+                {
+                    // SOTC_MDS_LANE_VERIFY: the old code for the game, the
+                    // lane's on the same state, compared.
+                    sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
+                    if (mdslane::g_trackValid && c.ctx == ctx)
+                    {
+                        ++mdslane::g_clipChecks;
+                        mdslane::g_clipDiffer += mdslane::combine(mdslane::g_trackOut, c.known, c.shifts) != (ctx->vu0_clip_flags & 0xFFFFFFu);
+                    }
+                    lj.chained = false;
+                    lj.in.clipIn = ctx->vu0_clip_flags & 0xFFFFFFu;
+                    static mdslane::Snap pre, post;
+                    mdslane::snap(pre, lj.table, in.cache);
+                    modelDispState(ctx, instance, model, gamePlan, &job.partVisible, &partsTaken, &partsTable);
+                    mdslane::snap(post, lj.table, in.cache);
+                    const uint32_t clipOld = ctx->vu0_clip_flags & 0xFFFFFFu;
+                    mdslane::unsnap(pre, lj.table, in.cache);
+                    mdslane::run(lj);
+                    mdslane::snap(pre, lj.table, in.cache);
+                    const bool sameMemory = pre.table == post.table && pre.cache == post.cache && pre.flag == post.flag;
+                    bool same = sameMemory && lj.in.clipOut == clipOld;
+                    mdslane::g_verifyJob = &lj; // (its decision checked against the hook's below)
+                    ++mdslane::g_verifyJobs;
+                    if (!same && mdslane::g_verifyDiffer++ < 20u)
+                        std::fprintf(stderr, "[mdslane] verify: instance %08x header %08x table %08x DIFFERS (memory same %d, clip %06x / %06x, parts %zu / %zu)\n",
+                                     instance, h, lj.table, sameMemory ? 1 : 0, lj.in.clipOut, clipOld, lj.parts.size(), job.partVisible.size());
+                    c.tracking = true;
+                    c.ctx = ctx;
+                    c.known = c.shifts = 0;
+                    mdslane::g_trackValid = true;
+                    mdslane::g_trackOut = clipOld;
+                }
+            }
             else
-                modelDispState(ctx, instance, model, gamePlan);
+            {
+                mdslane::join(mdslane::kJSync); // (the register and the walk's statics)
+                if (lean)
+                    modelDispState(ctx, instance, model, gamePlan, &job.partVisible, &partsTaken, &partsTable);
+                else
+                    modelDispState(ctx, instance, model, gamePlan);
+            }
+            if (mdsTraceOn())
+                mdsTraceModel();
         }
 
         const uint32_t header = word(word(instance) + 0x20u);
@@ -8290,10 +8799,31 @@ namespace sotc_native
         static std::vector<uint8_t> partsLean;
         if (partsReady && leanCheck)
             partsLean = partVisible;
-        if (partsReady && !leanCheck)
+        job.lane = laneUsed; // round 61: the lane makes the parts and the out-of-view decision
+        job.laneSeq = laneSeq;
+        // SOTC_MDS_LANE_VERIFY: the lane's decision against the hook's (below).
+        mdslane::Job *const verifyLane = mdslane::g_verifyJob;
+        mdslane::g_verifyJob = nullptr;
+        const auto verifyDecision = [&](bool skip)
+        {
+            if (!verifyLane)
+                return;
+            ++mdslane::g_verifyDecisions;
+            if (verifyLane->skip != skip || (!skip && partCulled && verifyLane->parts != partVisible))
+                if (mdslane::g_verifyDecisionsDiffer++ < 20u)
+                    std::fprintf(stderr, "[mdslane] verify: instance %08x decision DIFFERS (skip %d / %d, parts %zu / %zu)\n", instance, verifyLane->skip ? 1 : 0,
+                                 skip ? 1 : 0, verifyLane->parts.size(), partVisible.size());
+        };
+        if (laneUsed)
+        {
+        }
+        else if (partsReady && !leanCheck)
         {
             if (partVisible.empty())
+            {
+                verifyDecision(true);
                 return; // the root out (1): modelDisp returns, nothing drawn
+            }
         }
         else if (partCulled)
         {
@@ -8362,7 +8892,10 @@ namespace sotc_native
                 partVisible = ref;
             }
             if (root == 1u)
+            {
+                verifyDecision(true);
                 return; // modelDisp returns: nothing of the model is drawn
+            }
             if (!partsReady)
             {
                 partVisible.assign(1u, static_cast<uint8_t>(root));
@@ -8371,6 +8904,7 @@ namespace sotc_native
                         visit(visit, word(table + link), root, 1);
             }
         }
+        verifyDecision(false);
         job.instance = instance;
         job.matrix = matrix;
         job.header = header;
@@ -8407,12 +8941,23 @@ namespace sotc_native
             {
                 // Straight into the job; lo / hi as the VU picture's last
                 // palette left them when there is none (as before).
-                static uint32_t lastLo = 0, lastHi = 0;
+                // (Round 61: with the lane on, the last palette is the worker's,
+                // in the jobs' order: a job the lane finds out of view keeps it.)
+                uint32_t &lastLo = g_palLastLo, &lastHi = g_palLastHi;
                 uint32_t lo = lastLo, hi = lastHi, ret = 0, bytes = 0;
                 job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+                job.paletteDeferred = mdslane::g_frameOn;
                 if (leanStatsOn() && job.hasPalette)
                     g_leanStats.paletteHostBytes += job.palette.size() * 4u; // its own copy
-                if (job.hasPalette)
+                if (job.paletteDeferred)
+                {
+                    job.paletteLo = lo, job.paletteHi = hi; // (its own when it has one; resolved by the worker)
+                    if (job.hasPalette && hookjobs::g_on && g_kickDefer && (g_kickOwns.empty() || g_kickOwns.back() != own))
+                        g_kickOwns.push_back(own);
+                    if (!job.hasPalette)
+                        job.palette.clear();
+                }
+                else if (job.hasPalette)
                 {
                     lastLo = lo, lastHi = hi;
                     if (hookjobs::g_on && g_kickDefer && (g_kickOwns.empty() || g_kickOwns.back() != own))
@@ -8420,8 +8965,11 @@ namespace sotc_native
                 }
                 else
                     job.palette.clear();
-                job.paletteLo = lastLo;
-                job.paletteHi = lastHi;
+                if (!job.paletteDeferred)
+                {
+                    job.paletteLo = lastLo;
+                    job.paletteHi = lastHi;
+                }
                 if (record)
                     record->palette = ret, record->paletteBytes = bytes;
                 guestBlock(own + 0x10u, 128u, job.lights);
@@ -8604,8 +9152,30 @@ namespace sotc_native
         switch (job.kind)
         {
         case kJobModel:
-            modelDispDraw(job.model, true);
+        {
+            ModelDispJob &m = job.model;
+            if (m.lane) // round 61: its state from the lane
+            {
+                mdslane::Job &l = mdslane::g_ring[m.laneSeq % mdslane::kRing];
+                if (mdslane::g_done.load(std::memory_order_acquire) <= m.laneSeq)
+                {
+                    mdslane::g_workerWaits.fetch_add(1, std::memory_order_relaxed);
+                    mdslane::waitDone(m.laneSeq);
+                }
+                if (l.skip)
+                    break; // out of view: modelDisp draws nothing (and keeps the last palette)
+                m.partVisible.swap(l.parts);
+            }
+            if (m.paletteDeferred)
+            {
+                if (m.hasPalette)
+                    g_palLastLo = m.paletteLo, g_palLastHi = m.paletteHi;
+                else
+                    m.paletteLo = g_palLastLo, m.paletteHi = g_palLastHi;
+            }
+            modelDispDraw(m, true);
             break;
+        }
         case kJobMesh:
             meshDispDraw(job.mesh);
             break;
@@ -9395,6 +9965,136 @@ namespace sotc_native
             std::fprintf(stderr, "[plan-verify] frame %llu instance %08x header %08x lod %u: %zu draws (plan) / %zu (walk), %zu differ\n",
                          (unsigned long long)g_frame, instance, header, lod, fromPlan.size(), fromWalk.size(), differ);
     }
+}
+
+// Round 61 (SOTC_MDS_TRACE=1, debugging): who reads what modelDispState
+// writes, and how soon after a model hook: the layer cache's users
+// (modelSetSurface, modelResetSurface and the four model functions that
+// read *0x118bfc8), setShadowEffect's flag (0x1186294) and the VU0 CLIP
+// register's guest users, each counted as it comes after model hooks.
+namespace mdstrace
+{
+    enum : int { kClip, kCache, kShadow, kKinds };
+    const char *const kKindNames[kKinds] = {"clip", "cache", "shadow"};
+    struct Fn
+    {
+        uint32_t address;
+        int kind;
+        const char *name;
+    };
+    const Fn kFns[] = {
+        {0x01087260u, kClip, "clipBySphere"}, {0x01087300u, kClip, "clipByMinMaxCube"}, {0x011333B8u, kClip, "ClipPoint"},
+        {0x0108C9C0u, kClip, "0108C9C0"},     {0x01099C50u, kClip, "modelClipPoint"},   {0x0108D730u, kClip, "glVertexKick"},
+        {0x0108C188u, kClip, "0108C188"},     {0x010993C8u, kCache, "modelResetSurface"}, {0x01099768u, kCache, "modelSetSurface"},
+        {0x01097B70u, kCache, "01097B70"},    {0x01097D88u, kCache, "01097D88"},        {0x01099828u, kCache, "01099828"},
+        {0x01097928u, kCache, "01097928"},    {0x010871C8u, kShadow, "setShadowEffect"}, {0x01085E40u, kShadow, "bossDeathEffectEnd"},
+    };
+    constexpr int kFnCount = sizeof(kFns) / sizeof(kFns[0]);
+    PS2Runtime::RecompiledFunction g_orig[kFnCount] = {};
+    bool g_on = false;
+    uint64_t g_models = 0, g_calls[kFnCount] = {}, g_after[kFnCount] = {}, g_joins[kKinds] = {};
+    uint32_t g_since = 0; // model hooks since the last reader of any kind
+    bool g_pending[kKinds] = {};
+    uint64_t g_frames = 0, g_lastFrame = 0;
+    void model()
+    {
+        ++g_models;
+        ++g_since;
+        for (bool &p : g_pending)
+            p = true;
+    }
+    void report()
+    {
+        if (!g_on || sotc_native::g_frame == g_lastFrame)
+            return;
+        g_lastFrame = sotc_native::g_frame;
+        if (++g_frames % 600u != 0u)
+            return;
+        std::string line = "[mdstrace] 600 frames: model hooks " + std::to_string(g_models);
+        for (int k = 0; k < kKinds; ++k)
+            line += std::string(", ") + kKindNames[k] + " joins " + std::to_string(g_joins[k]);
+        line += " | calls (after a hook):";
+        for (int i = 0; i < kFnCount; ++i)
+            if (g_calls[i])
+                line += std::string(" ") + kFns[i].name + " " + std::to_string(g_calls[i]) + " (" + std::to_string(g_after[i]) + ")";
+        std::fprintf(stderr, "%s\n", line.c_str());
+        g_models = 0;
+        std::fill(std::begin(g_calls), std::end(g_calls), 0ull);
+        std::fill(std::begin(g_after), std::end(g_after), 0ull);
+        std::fill(std::begin(g_joins), std::end(g_joins), 0ull);
+    }
+    template <int I>
+    void wrap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++g_calls[I];
+        const int kind = kFns[I].kind;
+        if (g_pending[kind])
+        {
+            ++g_after[I];
+            ++g_joins[kind];
+            g_pending[kind] = false;
+        }
+        g_orig[I](rdram, ctx, runtime);
+    }
+    template <int... I>
+    void installAll(PS2Runtime &runtime, std::integer_sequence<int, I...>)
+    {
+        ((runtime.hasFunction(kFns[I].address) ? (g_orig[I] = runtime.lookupFunction(kFns[I].address), runtime.registerFunction(kFns[I].address, wrap<I>), 0) : 0),
+         ...);
+    }
+    void install(PS2Runtime &runtime)
+    {
+        g_on = std::getenv("SOTC_MDS_TRACE") != nullptr;
+        if (g_on)
+            installAll(runtime, std::make_integer_sequence<int, kFnCount>{});
+    }
+}
+
+// Round 61: the guest code that can see what modelDispState's lane writes
+// joins the lane first (sotc_native mdslane: the CLIP register's readers,
+// the layer cache's and setShadowEffect's flag's users, modelDisp's walk).
+namespace mdsjoin
+{
+    struct Fn
+    {
+        uint32_t address;
+        int site;
+    };
+    constexpr int kClip = 0, kCache = 1, kShadow = 2; // mdslane::kJClip / kJCache / kJShadow
+    const Fn kFns[] = {
+        {0x01087260u, kClip},  {0x01087300u, kClip},  {0x011333B8u, kClip},  {0x0108C9C0u, kClip},  {0x0108C188u, kClip},
+        {0x01099A08u, kClip},  {0x01099BA8u, kClip},  {0x01099BC0u, kClip},  {0x010993C8u, kCache}, {0x01099768u, kCache},
+        {0x01097B70u, kCache}, {0x01097D88u, kCache}, {0x01099828u, kCache}, {0x01097928u, kCache}, {0x01097A68u, kCache},
+        {0x010871C8u, kShadow}, {0x01085E40u, kShadow},
+    };
+    constexpr int kFnCount = sizeof(kFns) / sizeof(kFns[0]);
+    PS2Runtime::RecompiledFunction g_orig[kFnCount] = {};
+    template <int I>
+    void wrap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        sotc_native::mdslane::join(kFns[I].site);
+        g_orig[I](rdram, ctx, runtime);
+    }
+    template <int... I>
+    void installAll(PS2Runtime &runtime, std::integer_sequence<int, I...>)
+    {
+        ((runtime.hasFunction(kFns[I].address) ? (g_orig[I] = runtime.lookupFunction(kFns[I].address), runtime.registerFunction(kFns[I].address, wrap<I>), 0) : 0),
+         ...);
+    }
+}
+
+// After sotc_decomp::install (the natives at these addresses wrapped too).
+void installSotcNativeLate(PS2Runtime &runtime)
+{
+    if (std::getenv("SOTC_NATIVE") && runtime.hasFunction(sotc_native::kModelDisp))
+        mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
+    mdstrace::install(runtime);
+}
+namespace sotc_native
+{
+    bool mdsTraceOn() { return mdstrace::g_on; }
+    void mdsTraceModel() { mdstrace::model(); }
+    void mdsTraceFrame() { mdstrace::report(); }
 }
 
 void installSotcNative(PS2Runtime &runtime)

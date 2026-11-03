@@ -430,7 +430,9 @@ namespace decomp_walk
             acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, n2, z));
             const __m128 p = PS2_VADD_K(1, 1, acc, c3w);
             out[k & 1] = p;
-            flags = ((flags << 6) | clipFlagsVec(p)) & 0xFFFFFFu;
+            const uint32_t j = clipFlagsVec(p);
+            flags = ((flags << 6) | j) & 0xFFFFFFu;
+            sotc_decomp::clipShift(ctx, j); // round 61: decided on its own judgements only (v0 starts at 0x3f)
             v0 &= flags;
             return v0 == 0u;
         };
@@ -492,7 +494,9 @@ namespace decomp_walk
             acc = PS2_VADD(acc, PS2_VMUL(c[2], lane<2>(corner[k])));
             const __m128 p = PS2_VADD(acc, PS2_VMUL(c[3], w));
             out[k & 1] = p;
-            flags = ((flags << 6) | ps2VuClipFlags(p, p)) & 0xFFFFFFu;
+            const uint32_t j = ps2VuClipFlags(p, p);
+            flags = ((flags << 6) | j) & 0xFFFFFFu;
+            sotc_decomp::clipShift(ctx, j); // round 61
             v0 &= flags;
             if (v0 == 0u)
                 break;
@@ -1248,6 +1252,7 @@ namespace decomp_walk
     // 0108D478's, a guest call.
     void glVertexKick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        sotc_decomp::clipNeeded(ctx); // round 61: it reads the whole CLIP register (left in s0)
         G g(rdram, ctx, runtime);
         const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x90u;
