@@ -194,13 +194,55 @@ namespace decomp_gctick
         static const uint64_t minWork = (std::getenv("SOTC_GC_MIN_KB") ? std::strtoull(std::getenv("SOTC_GC_MIN_KB"), nullptr, 10) : 128u) * 1024u;
         const bool budget = budgetOn && callback == kTimeCheck;
         const uint64_t bytes0 = sotc_decomp::g_gcStats.bytes;
+        const bool fast3 = sotc_decomp::fastNative3On();
+        bool checked = false; // round 58: the last time check still holds
+        uint64_t checkedCycle = 0;
+        uint32_t checkedGo = 0;
         while (s1 != 0u)
         {
             ++blocks;
             uint32_t go;
             if (callback == kTimeCheck)
             {
-                go = timeCheckT<Fast>(ram, ctx, runtime, rdram, arg, cf);
+                // Round 58 (SOTC_FASTNATIVE3): a check right after another
+                // one with nothing between them but this loop's walk (no
+                // guest call: the merge and the handler clear `checked`)
+                // gives the same answer and leaves the same registers: the
+                // words it reads (0x1e131c, 0x1e1314, 0x26d990) are not
+                // written here, a0 is the same, and the count is the EE clock
+                // / 2 (the native system's iosGetTCountExtension), which only
+                // guest code moves. The last check's own call must have left
+                // the clock where it was (a recompiled T0 read charges cycles:
+                // then every check runs), and the clock must still be there.
+                // v0 / v1 / at / ra / pc / f0 / f1 / fcr31 hold what the
+                // check wrote; the walk only writes s1 / s2 between checks.
+                const uint64_t cycleNow = runtime->eeScheduler().eeCycle();
+                if (Fast && fast3 && checked && cycleNow == checkedCycle)
+                {
+                    go = checkedGo;
+                    if (__builtin_expect(sotc_decomp::fastCheckOn(), 0))
+                    {
+                        // SOTC_FASTNATIVE_CHECK=1: the check run anyway, its
+                        // answer and registers compared with what was kept.
+                        static sotc_decomp::FastCheck fc("gc.timeCheckKept");
+                        const uint64_t v0 = GPR_U64(ctx, 2), v1 = GPR_U64(ctx, 3), at = GPR_U64(ctx, 1), r31 = GPR_U64(ctx, 31);
+                        const float f0 = ctx->f[0], f1 = ctx->f[1];
+                        const uint32_t fcr = ctx->fcr31, pc = ctx->pc;
+                        go = timeCheckT<Fast>(ram, ctx, runtime, rdram, arg, cf);
+                        fc.note(go == checkedGo && v0 == GPR_U64(ctx, 2) && v1 == GPR_U64(ctx, 3) && at == GPR_U64(ctx, 1) && r31 == GPR_U64(ctx, 31) &&
+                                std::memcmp(&f0, &ctx->f[0], 4) == 0 && std::memcmp(&f1, &ctx->f[1], 4) == 0 && fcr == ctx->fcr31 && pc == ctx->pc);
+                    }
+                    else
+                        g_timeCheckCount.hit();
+                }
+                else
+                {
+                    go = timeCheckT<Fast>(ram, ctx, runtime, rdram, arg, cf);
+                    const uint64_t cycleAfter = runtime->eeScheduler().eeCycle();
+                    checked = cycleAfter == cycleNow;
+                    checkedCycle = cycleAfter;
+                    checkedGo = go;
+                }
                 if (budget && ram.u32(0x001E131Cu) == 0u) // not a forced pass
                 {
                     const uint64_t spent = (sotc_decomp::g_gcStats.bytes - bytes0) + 256u * blocks;
@@ -248,6 +290,7 @@ namespace decomp_gctick
             SET_GPR_U32(ctx, 4, s1);
             SET_GPR_U32(ctx, 5, next);
             SET_GPR_U32(ctx, 6, ram.u32(0x001E0BF4u));
+            checked = false;
             call(sotc_decomp::jalTarget(rdram, 0x001AFF60u), 0x001AFF68u); // merge
             SET_GPR_U32(ctx, 16, handlerArg);
             SET_GPR_U32(ctx, 5, GPR_U32(ctx, 2));

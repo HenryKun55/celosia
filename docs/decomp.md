@@ -8922,6 +8922,100 @@ stable 30 at either clock.
 
 **Deliverable:** build/agent-scratch/celosia-r57.vpk.
 
+## Round 58: the garbage pass's kept time check, the finder's search, the scroll rows per plan; the A/B's own cost (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r58/` (v3k.sh as round 57's;
+prof57: a profile of round 57's build at 222 MHz, 330-450 s; intro-dt*,
+scrollchk2: the Mac checks; check444: the Vita3K check run; ab222 / ab300:
+the A/B runs). A game-thread round.
+
+**The measurement's own cost.** Two things every A/B run had on the game
+thread that a normal run does not:
+- `abSwitches` built a string and searched the flag list for each of ~45
+  names every frame (allocations, `sceClibMemmove`, the TLS lookups of
+  malloc): ~1.3% of the game thread in round 57's A/B profile. The names'
+  places in the list are now looked up once; the switches are still
+  applied every frame.
+- `SOTC_FRAME_LOG=1` turns the sound log on by default (`SOTC_AUDIO_LOG`),
+  and with it the [loader] line's scheduler snapshot every frame (a copy of
+  every thread's, semaphore's and event flag's state, sorted) and the
+  message-box hooks: ~1% of the game thread in round 57's profile. The A/B
+  runs from this round set `SOTC_AUDIO_LOG=0` (closer to a normal run).
+Round 57's lean222 (both) against this round's ab222 (neither, `all on`
+windows): game thread 22.0 -> 21.2 ms; part of that is this.
+
+**1. The garbage pass's time check, kept (`SOTC_FASTNATIVE3=0` off, a new
+switch; A/B `fastnative3`).** iosMallocGarbageTickProc (decomp_gctick.cpp)
+asks its callback before each heap block (~400 a frame) whether to go on;
+the native check reads three words, calls iosGetTCountExtension through the
+function table and writes v0 / v1 / at / ra / pc / f0 / f1 / fcr31. A check
+right after another with nothing between them but the walk (no merge, no
+handler: no guest code ran) gives the same answer and leaves the same
+registers: the three words are not written there, a0 is the same, and the
+count is the EE clock / 2, which only guest code moves. So it is kept while
+the EE clock reads what it read after the last check (and that check's own
+call left the clock where it was: a recompiled T0 read would charge cycles,
+and then every check runs). `SOTC_FASTNATIVE_CHECK=1` runs the check anyway
+and compares the answer and every register it writes.
+
+**2. The finder's duplicate search** (CheckCollisionFinderExistData and the
+finder leaf's test before EntryCollisionFinder, `finderHas`): the ids'
+words read through a host pointer when the whole range is in main RAM,
+without the per-word range test; the same words, the same order, the same
+answer (`SOTC_FASTNATIVE_CHECK=1`: compared with the old loop).
+
+**3. The model hook's scroll rows per plan** (sotc_native.cpp hookScrolls,
+the hook worker's path): the rows' addresses are kept a frame per model
+plan and header; the instances of one model drawn in a frame have the same
+surfaces, so the same addresses as round 34's per-surface memo gives within
+the frame (which already takes them as fixed for the frame). The two words
+of each row are still read at each hook. `SOTC_SCROLL_CHECK=1`: both ways,
+compared.
+
+**Exactness.**
+- Mac difftest of iosMallocGarbageTickProc over the new game's intro to
+  5 000, every call: 4 900 checks, 0 mismatches with `SOTC_GC_BUDGET=0
+  SOTC_DIFFTEST_SAMECLOCK=1` (r58/intro-dt-gc0-same). Without them the
+  known noise of this native: round 14's budget (by design) and the
+  recompiled leg starting at a later EE clock (1 of 4 900 with the budget
+  off; the same kind with the switch off: r58/intro-dt-off, -gc0-off).
+- Mac attract demo to 8 000 with the hook worker on (r58/scrollchk2):
+  `SOTC_SCROLL_CHECK=1` 316 896 draws compared, 0 differ;
+  `SOTC_FASTNATIVE_CHECK=1` gc.timeCheckKept 3 162 112 kept checks, 0 differ.
+- Vita3K 444 MHz, `SOTC_FASTNATIVE_CHECK=1`, attract demo to 6 318
+  (r58/check444): gc.timeCheckKept 2 392 064 (~380 a frame), 0 differ; the
+  round 49 checks there 0 differ. finderHas is first reached in the title
+  screen's world (past 6 400 in Vita3K; never in the Mac's runs): see
+  round 59's check run.
+
+**Measured (Vita3K, attract demo, 420 s, `fastnative3` rotating in 60-frame
+windows, `SOTC_AUDIO_LOG=0`, the host's one-second stalls left out):**
+
+| | frames on / off | frame ms | game | render thread | vb <= 2 |
+|---|---|---|---|---|---|
+| 222 MHz, all (r58/ab222) | 3 723 / 3 753 | 33.39 / 34.19 | 21.22 / 22.48 | 17.69 / 18.28 | 81.4% / 80.4% |
+| 222 MHz, frames < 7 000 | 3 410 / 3 412 | 32.90 / 33.09 | 20.33 / 21.12 | 17.10 / 17.29 | 84.2% / 84.6% |
+| 222 MHz, frames >= 7 000 | 314 / 341 | 38.70 / 45.19 | 30.96 / 36.07 | 24.04 / 28.19 | 51.3% / 39.3% |
+| 300 MHz, all (r58/ab300) | 3 992 / 3 993 | 32.07 / 32.43 | 16.61 / 17.08 | 14.77 / 14.88 | 89.6% / 88.1% |
+| 300 MHz, frames < 7 000 | 3 434 / 3 401 | 31.81 / 31.89 | 15.66 / 15.95 | 13.54 / 13.55 | 90.8% / 89.4% |
+| 300 MHz, frames >= 7 000 | 559 / 592 | 33.69 / 35.56 | 22.44 / 23.52 | 22.30 / 22.48 | 82.5% / 80.2% |
+
+The game thread -0.3 to -0.8 ms where the windows are many (at the edge of
+one run's noise, +-0.7 ms); the title screen's world's windows are few and
+their scenes differ (the off windows drew 41-174 more draws), so its -1 to
+-5 ms is not evidence. Not 30 fps: at 222 MHz ~84% of the attract demo's
+first 7 000 frames hold 2 vblanks, the title screen's world ~51%.
+
+**Profile (round 57's build, 222 MHz, 330-450 s, r58/prof57, game
+thread):** clipDB 2.3%, motionMatrix 2.3%, the leaf 2.2%, walkVif1Chain
+1.8%, memcpy 1.7%, feedT 1.6%, mdsPlanPackets 1.4%, glVertexKick 1.2%,
+attributeAddress 1.2%, texAnim 1.0%, directCallBack 1.0%, hookScrolls 1.0%,
+the finder leaf 1.0%: flat. The HLE imports' callers in Vita3K's profile
+are not reliable (the same `sceClibMemmove` showed abSwitches in one run and
+shadowCapture in another).
+
+**Deliverable:** build/agent-scratch/celosia-r58.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

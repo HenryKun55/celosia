@@ -2879,11 +2879,23 @@ namespace sotc_native
         const uint64_t window = g_frame / period;
         const size_t slot = rotate ? static_cast<size_t>(window % (names.size() + 1u)) : 0u;
         const bool odd = window % 2u == 1u;
-        auto isOff = [&](const char *name)
+        // Round 58: the names' places in the list looked up once, not a
+        // string built and searched for each name every frame (that was ~1.3%
+        // of the game thread in every A/B run: allocations, memmove, TLS).
+        // A name is "off" in odd windows (all together) or in its own
+        // rotating slot (applied every frame, as before).
+        auto indexOf = [&](const std::string &name) -> int
+        {
+            for (size_t i = 0; i < names.size(); ++i)
+                if (names[i] == name)
+                    return static_cast<int>(i);
+            return -1;
+        };
+        auto isOffAt = [&](int at)
         {
             if (!rotate)
                 return odd;
-            return slot > 0 && names[slot - 1u] == name;
+            return slot > 0 && static_cast<int>(slot - 1u) == at;
         };
         static size_t lastSlot = ~size_t(0);
         if (rotate && slot != lastSlot)
@@ -2891,61 +2903,79 @@ namespace sotc_native
             lastSlot = slot;
             std::fprintf(stderr, "[ab] frame %llu: %s%s\n", (unsigned long long)g_frame, slot ? names[slot - 1u].c_str() : "all on", slot ? " off" : "");
         }
-        auto ab = [&](const char *name, bool native_renderer::Tuning::*field)
+        struct TuningFlag
         {
-            if (list.find(std::string(",") + name + ",") != std::string::npos)
-                t.*field = isOff(name) ? false : start.*field;
+            const char *name;
+            bool native_renderer::Tuning::*field;
         };
+        static const TuningFlag kTuningFlags[] = {
+            {"bloom", &native_renderer::Tuning::bloom},
+            {"vfog", &native_renderer::Tuning::vertexFog},
+            {"zfog", &native_renderer::Tuning::zFog},
+            {"glow", &native_renderer::Tuning::glow},
+            {"dof", &native_renderer::Tuning::depthOfField},
+            {"shadows", &native_renderer::Tuning::shadows},
+            {"sblur", &native_renderer::Tuning::screenBlur},
+            {"feedback", &native_renderer::Tuning::feedback},
+            {"ptcl", &native_renderer::Tuning::particles},
+            {"reflect", &native_renderer::Tuning::reflections},
+            {"refract", &native_renderer::Tuning::refraction},
+            {"subtract", &native_renderer::Tuning::subtract},
+            {"additive", &native_renderer::Tuning::additive},
+            {"overlays", &native_renderer::Tuning::overlays},
+            {"sky", &native_renderer::Tuning::skyImage},
+            {"alphatest", &native_renderer::Tuning::alphaTest},
+            {"bgdepth", &native_renderer::Tuning::backgroundDepth},
+            {"bodyshadows", &native_renderer::Tuning::bodyShadows},
+            {"allsides", &native_renderer::Tuning::shadowAllSides},
+            {"lighting", &native_renderer::Tuning::lighting},
+            // Round 45: the console GPU's savings, each switchable to measure it.
+            {"depthkeep", &native_renderer::Tuning::glDepthKeep},
+            {"fewcopies", &native_renderer::Tuning::glFewCopies},
+            {"sblurapart", &native_renderer::Tuning::blurApart}, // round 55
+            {"leandraw", &native_renderer::Tuning::glLeanDraw},  // round 56
+            {"volprog", &native_renderer::Tuning::glVolumeProgram},
+            {"atmerge", &native_renderer::Tuning::alphaTestMerge},
+            {"shadowidx", &native_renderer::Tuning::shadowIndexed},
+        };
+        constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
+        static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3"};
+        static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
-        static const bool switchesRead = []
+        static int layerAt[32];
+        static int xferAt = -1;
+        static const bool placesRead = [&]
         {
+            for (size_t i = 0; i < kTuningCount; ++i)
+                tuningAt[i] = indexOf(kTuningFlags[i].name);
             for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
+            {
                 switchStart[i] = sotc_decomp::switchOn(i);
+                switchAt[i] = indexOf(switchNames[i]);
+            }
+            for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
+                layerAt[layer] = indexOf("L" + std::to_string(layer));
+            xferAt = indexOf("xferreturn");
             return true;
         }();
-        (void)switchesRead;
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2"};
+        (void)placesRead;
         for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
-            if (list.find(std::string(",") + switchNames[i] + ",") != std::string::npos)
-                sotc_decomp::setSwitch(i, isOff(switchNames[i]) ? false : switchStart[i]);
+            if (switchAt[i] >= 0)
+                sotc_decomp::setSwitch(i, isOffAt(switchAt[i]) ? false : switchStart[i]);
         // Round 52: the thread switch by returning (PS2X_XFER_RETURN).
-        if (g_runtimeForLog && list.find(",xferreturn,") != std::string::npos)
+        if (g_runtimeForLog && xferAt >= 0)
         {
             static const bool xferStart = g_runtimeForLog->eeScheduler().xferReturn();
-            g_runtimeForLog->eeScheduler().setXferReturn(isOff("xferreturn") ? false : xferStart);
+            g_runtimeForLog->eeScheduler().setXferReturn(isOffAt(xferAt) ? false : xferStart);
         }
-        ab("bloom", &native_renderer::Tuning::bloom);
-        ab("vfog", &native_renderer::Tuning::vertexFog);
-        ab("zfog", &native_renderer::Tuning::zFog);
-        ab("glow", &native_renderer::Tuning::glow);
-        ab("dof", &native_renderer::Tuning::depthOfField);
-        ab("shadows", &native_renderer::Tuning::shadows);
-        ab("sblur", &native_renderer::Tuning::screenBlur);
-        ab("feedback", &native_renderer::Tuning::feedback);
-        ab("ptcl", &native_renderer::Tuning::particles);
-        ab("reflect", &native_renderer::Tuning::reflections);
-        ab("refract", &native_renderer::Tuning::refraction);
-        ab("subtract", &native_renderer::Tuning::subtract);
-        ab("additive", &native_renderer::Tuning::additive);
-        ab("overlays", &native_renderer::Tuning::overlays);
-        ab("sky", &native_renderer::Tuning::skyImage);
-        ab("alphatest", &native_renderer::Tuning::alphaTest);
-        ab("bgdepth", &native_renderer::Tuning::backgroundDepth);
-        ab("bodyshadows", &native_renderer::Tuning::bodyShadows);
-        ab("allsides", &native_renderer::Tuning::shadowAllSides);
-        ab("lighting", &native_renderer::Tuning::lighting);
-        // Round 45: the console GPU's savings, each switchable to measure it.
-        ab("depthkeep", &native_renderer::Tuning::glDepthKeep);
-        ab("fewcopies", &native_renderer::Tuning::glFewCopies);
-        ab("sblurapart", &native_renderer::Tuning::blurApart); // round 55
-        ab("leandraw", &native_renderer::Tuning::glLeanDraw); // round 56
-        ab("volprog", &native_renderer::Tuning::glVolumeProgram);
-        ab("atmerge", &native_renderer::Tuning::alphaTestMerge);
-        ab("shadowidx", &native_renderer::Tuning::shadowIndexed);
-        for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
-            if (list.find(",L" + std::to_string(layer) + ",") != std::string::npos)
-                t.hiddenLayers = isOff(("L" + std::to_string(layer)).c_str()) ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
+        for (size_t i = 0; i < kTuningCount; ++i)
+            if (tuningAt[i] >= 0)
+                t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? false : start.*(kTuningFlags[i].field);
+        for (uint32_t layer = 0; layer < 32u; ++layer)
+            if (layerAt[layer] >= 0)
+                t.hiddenLayers = isOffAt(layerAt[layer]) ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
         static bool logged = false;
         if (!logged)
         {
@@ -7936,6 +7966,48 @@ namespace sotc_native
         uint64_t frame = ~0ull;
     };
     ScrollMemo g_scrollMemo[1024];
+    // The plan's rows' addresses as the memo above gives them (round 34's loop).
+    void hookScrollRows(const ModelPlan *plan, uint32_t header, std::vector<ScrollRow> &out)
+    {
+        for (const uint32_t s : plan->surfaceRecords)
+        {
+            ScrollMemo &m = g_scrollMemo[surfaceSlot(s)];
+            if (m.frame != g_frame || m.s != s || m.header != header)
+            {
+                m.s = s;
+                m.header = header;
+                m.frame = g_frame;
+                m.scroll = surfaceScroll(header, s);
+            }
+            if (!m.scroll)
+                continue;
+            bool have = false;
+            for (const ScrollRow &r : out)
+                have = have || r.at == m.scroll;
+            if (have)
+                continue;
+            ScrollRow r;
+            r.at = m.scroll;
+            r.w0 = word(m.scroll);
+            r.w1 = word(m.scroll + 4u);
+            out.push_back(r);
+        }
+    }
+    // Round 58 (SOTC_FASTNATIVE3): the rows' addresses kept a frame per plan
+    // and model header (the instances of one model drawn in a frame: the
+    // same surfaces, so the same addresses as the per-surface memo gives
+    // within the frame, which already takes them as fixed for the frame);
+    // the two words still read at each hook. SOTC_SCROLL_CHECK=1: both ways,
+    // compared ([scroll-check] every 600 frames).
+    struct ScrollPlanMemo
+    {
+        const ModelPlan *plan = nullptr;
+        uint32_t header = 0, planHeader = 0, lod = 0;
+        uint64_t frame = ~0ull;
+        std::vector<uint32_t> at;
+    };
+    ScrollPlanMemo g_scrollPlanMemo[256];
+    uint64_t g_scrollChecks = 0, g_scrollDiffer = 0;
     void hookScrolls(ModelDispJob &job)
     {
         job.scrolls.clear();
@@ -7945,28 +8017,50 @@ namespace sotc_native
             g_kickMustJoin = true;
             return;
         }
-        for (const uint32_t s : job.plan->surfaceRecords)
+        if (!sotc_decomp::fastNative3On())
+            return hookScrollRows(job.plan, job.header, job.scrolls);
+        const ModelPlan *plan = job.plan;
+        ScrollPlanMemo &pm = g_scrollPlanMemo[(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(plan) >> 4) * 0x9E3779B1u) >> 24];
+        if (pm.frame == g_frame && pm.plan == plan && pm.header == job.header && pm.planHeader == plan->header && pm.lod == plan->lod)
         {
-            ScrollMemo &m = g_scrollMemo[surfaceSlot(s)];
-            if (m.frame != g_frame || m.s != s || m.header != job.header)
+            for (const uint32_t at : pm.at)
             {
-                m.s = s;
-                m.header = job.header;
-                m.frame = g_frame;
-                m.scroll = surfaceScroll(job.header, s);
+                ScrollRow r;
+                r.at = at;
+                r.w0 = word(at);
+                r.w1 = word(at + 4u);
+                job.scrolls.push_back(r);
             }
-            if (!m.scroll)
-                continue;
-            bool have = false;
+        }
+        else
+        {
+            hookScrollRows(plan, job.header, job.scrolls);
+            pm.plan = plan;
+            pm.header = job.header;
+            pm.planHeader = plan->header;
+            pm.lod = plan->lod;
+            pm.frame = g_frame;
+            pm.at.clear();
             for (const ScrollRow &r : job.scrolls)
-                have = have || r.at == m.scroll;
-            if (have)
-                continue;
-            ScrollRow r;
-            r.at = m.scroll;
-            r.w0 = word(m.scroll);
-            r.w1 = word(m.scroll + 4u);
-            job.scrolls.push_back(r);
+                pm.at.push_back(r.at);
+        }
+        static const bool check = std::getenv("SOTC_SCROLL_CHECK") != nullptr;
+        if (check)
+        {
+            std::vector<ScrollRow> ref;
+            hookScrollRows(plan, job.header, ref);
+            bool same = ref.size() == job.scrolls.size();
+            for (size_t i = 0; same && i < ref.size(); ++i)
+                same = ref[i].at == job.scrolls[i].at && ref[i].w0 == job.scrolls[i].w0 && ref[i].w1 == job.scrolls[i].w1;
+            ++g_scrollChecks;
+            g_scrollDiffer += !same;
+            static uint64_t told = ~0ull;
+            if (g_frame % 600u == 0u && told != g_frame)
+            {
+                told = g_frame;
+                std::fprintf(stderr, "[scroll-check] frame %llu: %llu draws compared, %llu differ\n", (unsigned long long)g_frame, (unsigned long long)g_scrollChecks,
+                             (unsigned long long)g_scrollDiffer);
+            }
         }
     }
 

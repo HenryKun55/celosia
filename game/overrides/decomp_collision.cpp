@@ -1876,7 +1876,7 @@ namespace decomp_collision
     // CheckCollisionFinderExistData (0x112a478): a0 the finder (+0 / +4 two
     // counts, the smaller one bounds the list, +0xc the list: 8-byte ids),
     // a1 the first index, a2 the surface: 1 if an id from a1 on has it.
-    uint64_t finderHas(const G g, uint32_t finder, int32_t first, uint64_t surface)
+    uint64_t finderHasExact(const G g, uint32_t finder, int32_t first, uint64_t surface)
     {
         const int32_t a = static_cast<int32_t>(g.u32(finder + 4u)), b = static_cast<int32_t>(g.u32(finder));
         const int32_t end = a < b ? a : b;
@@ -1885,6 +1885,46 @@ namespace decomp_collision
             if (static_cast<uint64_t>(g.u32(at + 4u) & 0x00FFFFFFu) == surface)
                 return 1u;
         return 0u;
+    }
+    uint64_t finderHas(const G g, uint32_t finder, int32_t first, uint64_t surface)
+    {
+        // Round 58 (SOTC_FASTNATIVE3): the ids' words in main RAM read
+        // through a host pointer, without the per-word range test (the same
+        // words in the same order, the same answer; SOTC_FASTNATIVE_CHECK=1:
+        // compared with the loop above, whose answer is used).
+        if (sotc_decomp::fastNative3On())
+        {
+            const int32_t a = static_cast<int32_t>(g.u32(finder + 4u)), b = static_cast<int32_t>(g.u32(finder));
+            const int32_t end = a < b ? a : b;
+            const uint32_t at = g.u32(finder + 0xCu) + static_cast<uint32_t>(first) * 8u;
+            if (first >= end)
+                return 0u;
+            const uint32_t n = static_cast<uint32_t>(end - first);
+            if (first >= 0 && n < 0x00400000u && G::plain(at, n * 8u))
+            {
+                const uint8_t *q = g.rdram + at + 4u;
+                uint64_t found = 0u;
+                for (uint32_t i = 0; i < n; ++i, q += 8)
+                {
+                    uint32_t v;
+                    std::memcpy(&v, q, 4);
+                    if (static_cast<uint64_t>(v & 0x00FFFFFFu) == surface)
+                    {
+                        found = 1u;
+                        break;
+                    }
+                }
+                if (__builtin_expect(sotc_decomp::fastCheckOn(), 0))
+                {
+                    static sotc_decomp::FastCheck fc("collision.finderHas");
+                    const uint64_t exact = finderHasExact(g, finder, first, surface);
+                    fc.note(exact == found);
+                    return exact;
+                }
+                return found;
+            }
+        }
+        return finderHasExact(g, finder, first, surface);
     }
 
     void checkFinderExistData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
