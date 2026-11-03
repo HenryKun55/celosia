@@ -336,6 +336,14 @@
    "focus": "Speed",
    "summary": "The Vita build's code layout, for the console's Cortex-A9 (small caches and TLBs) rather than Vita3K: every function in its own section and the 3 934 functions Vita3K profiles sampled linked hottest first at the start of the code, with vitaGL and the C libraries right after them. The 90% hot set now fits in ~2 MB instead of being spread over 34 MB (4 KB pages it touches 745 -> 530, 64 KB pages 146 -> 41). The guest RAM is page aligned (it was 8-byte aligned, so half of the 16-byte guest loads crossed two cache lines). Sized and not done: -Os for cold code (only 13% smaller), splitting cold blocks out of functions (GCC cannot with ARM exceptions), and a generator change for the remaining codegen overhead (the recompiled code is ~18% of the game thread now).",
    "result": "Vita3K 222 MHz A/B (two runs each): the same within the noise, as expected (Vita3K does not model the console's caches). The effect can only show on the console: an estimate of 0.5-2 ms of the ~56 ms heavy frames, more if the Vita maps the code with large pages. A console profile run (SOTC_SUBSYS_PROF) is prepared."
+  },
+  {
+   "round": "r67",
+   "date": "2026-11-03",
+   "commit": "a7d2403",
+   "focus": "Speed",
+   "summary": "For the console's DRAM latency (~250 ns a miss, no useful hardware prefetch on the Cortex-A9): the walks that touch every object's records once a frame on the game thread now ask for their lines ahead (SOTC_WALK67, on by default, switchable in one console run with SOTC_AB_FLAG=walk67): the display walk's objects 3 ahead with its own lines, the sort lists in stages, the part matrices and the GIF packet; the model hook's texture scroll chains level by level; the cloth grid in one block; the particle draw 4 particles ahead; the collision leaf's boundary records and the work flush. Only reads and prefetches: difftest exact. A Mac-side proxy (SOTC_LINES67) counts the cache lines each walk touches and how many were not asked for in time.",
+   "result": "Mac proxy: the same distinct lines (the game's records), the exposed ones (likely console misses) down 55-61%: heavy part 3 257 -> 1 260 a frame, early 2 659 -> 1 211. Vita3K 222 MHz (which cannot show cache effects): the added reads cost ~0.2-0.5 ms of the game thread in light parts, heavy part within noise. Estimated on the console: ~0.25-0.5 ms; the prepared console A/B will tell."
   }
  ]
 }
