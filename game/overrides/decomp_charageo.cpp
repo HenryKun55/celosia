@@ -49,7 +49,11 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/native_tuning.h"
 
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace decomp_charageo
@@ -147,6 +151,115 @@ namespace decomp_charageo
     {
         const uint8_t t = r.u8(obj + 8u);
         return t == 9u || t == 0x16u ? obj + 0x90u : 0u;
+    }
+
+    // Round 65, "Distant characters at half rate" (Tuning::sacFarChara): a
+    // character whose position (+0x134) is farther from the camera (the
+    // camera context's +0x140) than SOTC_SAC_FARCHARA_DIST (default below)
+    // plus twice its collision sphere's radius
+    // has GetMotionMatrix (its pose into +0x158 / +0x154) made in every other
+    // frame only (by its address's parity, so the far ones share the work
+    // out); in the frame between the pose of the frame before stays, when it
+    // was made then into the same buffers (and the character has no sub
+    // geometries, which change those matrices in place). Everything else of the frame (the
+    // root dynamics, IK, the bone products, cloth, callbacks) runs as before.
+    // SOTC_SAC_STATS=1: a line every 600 frames. Off (the default): never asked.
+    namespace farchara
+    {
+        struct Seen
+        {
+            uint32_t cls = 0, out0 = 0, out1 = 0;
+            uint64_t frame = ~0ull;
+        };
+        Seen g_seen[64];
+        struct Stats
+        {
+            bool on = std::getenv("SOTC_SAC_STATS") != nullptr;
+            uint64_t calls = 0, far = 0, skipped = 0, from = 0;
+            uint64_t bucket[6] = {}; // distance < 10, 20, 40, 80, 160, more
+        };
+        Stats &stats()
+        {
+            static Stats s;
+            return s;
+        }
+        float limit()
+        {
+            static const float d = std::getenv("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(std::getenv("SOTC_SAC_FARCHARA_DIST"))) : 40.0f;
+            return d;
+        }
+        Seen &seen(uint32_t cls)
+        {
+            Seen *oldest = &g_seen[0];
+            for (Seen &s : g_seen)
+            {
+                if (s.cls == cls)
+                    return s;
+                if (s.frame == ~0ull || (oldest->frame != ~0ull && s.frame < oldest->frame))
+                    oldest = &s;
+            }
+            *oldest = Seen{};
+            oldest->cls = cls;
+            return *oldest;
+        }
+        // True: leave GetMotionMatrix out this frame.
+        bool skip(const Ram r, uint32_t cls, uint32_t out0, uint32_t out1)
+        {
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            Stats &st = stats();
+            if (st.on)
+            {
+                ++st.calls;
+                if (frame >= st.from + 600u)
+                {
+                    std::fprintf(stderr, "[sac-farchara] frame %llu: %.1f poses a frame, far %.1f, left out %.1f; by distance <10 %llu <20 %llu <40 %llu <80 %llu <160 %llu more %llu\n",
+                                 (unsigned long long)frame, st.calls / 600.0, st.far / 600.0, st.skipped / 600.0, (unsigned long long)st.bucket[0],
+                                 (unsigned long long)st.bucket[1], (unsigned long long)st.bucket[2], (unsigned long long)st.bucket[3], (unsigned long long)st.bucket[4],
+                                 (unsigned long long)st.bucket[5]);
+                    st = Stats{};
+                    st.from = frame;
+                }
+            }
+            const uint32_t cam = sotc_decomp::g_cameraContextAddr;
+            const uint32_t posAt = r.u32(cls + 0x134u);
+            if (cam == 0u || cam >= 0x01FFF000u || posAt == 0u || posAt >= 0x01FFFFF0u)
+                return false;
+            float p[4], c[4];
+            const __m128 pv = r.q(posAt), cv = r.q(cam + 0x140u);
+            std::memcpy(p, &pv, 16);
+            std::memcpy(c, &cv, 16);
+            const float dx = p[0] - c[0], dy = p[1] - c[1], dz = p[2] - c[2];
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (st.on)
+            {
+                const float d = std::sqrt(d2);
+                ++st.bucket[d < 10.0f ? 0 : d < 20.0f ? 1 : d < 40.0f ? 2 : d < 80.0f ? 3 : d < 160.0f ? 4 : 5];
+            }
+            Seen &s = seen(cls);
+            // The limit grows with the character's size: its collision
+            // sphere's radius (+0xe00's w, phase 2) twice, so a colossus
+            // whose body reaches the camera is never far.
+            float sphere[4];
+            const __m128 sv = r.q(cls + 0xE00u);
+            std::memcpy(sphere, &sv, 16);
+            const float radius = std::fabs(sphere[3]);
+            if (!std::isfinite(radius))
+                return false;
+            const float lim = limit() + 2.0f * radius;
+            const bool far = d2 > lim * lim; // (NaN: not far)
+            const bool odd = ((frame ^ (cls >> 4)) & 1u) != 0u;
+            if (far && odd && s.frame + 1u == frame && s.out0 == out0 && s.out1 == out1)
+            {
+                st.far += st.on;
+                st.skipped += st.on;
+                return true;
+            }
+            st.far += st.on && far;
+            s.frame = frame;
+            s.out0 = out0;
+            s.out1 = out1;
+            return false;
+        }
     }
 
     void execCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -786,7 +899,9 @@ namespace decomp_charageo
             SET_GPR_U32(ctx, 8, s1);
             SET_GPR_U32(ctx, 6, list358);
             SET_GPR_U32(ctx, 7, r.u32(s0 + 0x2E8u));
-            call(0x010C0284u, 0x010B1D60u);
+            // (not with sub geometries: they change the pose's matrices in place)
+            if (!native_renderer::tuning().sacFarChara || subgeo || !farchara::skip(r, s0, r.u32(s0 + 0x158u), r.u32(s0 + 0x154u)))
+                call(0x010C0284u, 0x010B1D60u);
             if (subgeo)
             {
                 const uint32_t sites[2][3] = {{0x010C0294u, 0x010C029Cu, 0x010C02B4u}, {0x010C02BCu, 0x010C02C0u, 0x010C02DCu}};

@@ -42,6 +42,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/native_tuning.h"
 
 #include <cstring>
 
@@ -103,8 +104,46 @@ namespace decomp_hot47e
         SET_GPR_S32(ctx, 21, 0x01210000u);
         auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
 
+        // Round 65, "Effects at half rate" (Tuning::sacFxHalf): every other
+        // call steps no particle geodisp and leaves the three clocks as they
+        // are; its times (f12, f13, one fixed 1/30) go to the next call's, so
+        // the particles keep their speed, their spawn counts and their ages.
+        // Off (the default): nothing here differs from the original.
+        static float pendA = 0.0f, pendC = 0.0f;
+        static uint32_t pendFrames = 0u;
+        static uint64_t halfCalls = 0u;
+        const bool half = native_renderer::tuning().sacFxHalf;
+        bool skipStep = false;
+        if (half && (++halfCalls & 1u) == 0u)
+        {
+            skipStep = true;
+            pendA += f[12];
+            pendC += f[13];
+            ++pendFrames;
+        }
+        else
+            halfCalls = half ? halfCalls : 0u;
+        if (skipStep)
+        {
+            WRITE32(kArg0, GPR_U32(ctx, 4));
+            WRITE32(kArg1, GPR_U32(ctx, 5));
+            WRITE32(kArg2, GPR_U32(ctx, 6));
+            SET_GPR_U64(ctx, 4, GPR_U64(ctx, 7));
+            SET_GPR_S32(ctx, 2, kClockA);
+            SET_GPR_S32(ctx, 3, kClockC);
+            SET_GPR_S32(ctx, 7, 0x01190000u);
+        }
+        else
+        {
+        const float b1 = pendFrames != 0u ? fb(0x3D088888u) * static_cast<float>(pendFrames + 1u) : fb(0x3D088888u);
+        if (pendFrames != 0u)
+        {
+            f[12] += pendA;
+            f[13] += pendC;
+            pendA = pendC = 0.0f;
+        }
         // The three clocks.
-        f[10] = fb(0x3D088888u); // 1/30
+        f[10] = b1; // 1/30 (x the frames when steps were left out)
         f[5] = fb(READ32(kClockA + 8u));
         f[7] = fb(READ32(kClockB + 8u));
         f[4] = fb(READ32(kClockC + 8u));
@@ -119,7 +158,8 @@ namespace decomp_hot47e
         f[8] = fb(0x3D088887u);
         f[3] = fb(0x3F000000u); // 0.5
         f[2] = FPU_MUL_S(f[4], f[0]);
-        f[9] = fb(0x3A11A2B2u);
+        f[9] = pendFrames != 0u ? b1 * b1 * 0.5f : fb(0x3A11A2B2u);
+        pendFrames = 0u;
         f[0] = FPU_MUL_S(f[7], f[0]);
         const uint32_t framesA = static_cast<uint32_t>(FPU_CVT_W_S(f[1])); // t1
         f[6] = fb(framesA);
@@ -158,6 +198,7 @@ namespace decomp_hot47e
         SET_GPR_S32(ctx, 2, kClockA);
         SET_GPR_S32(ctx, 3, kClockC);
         SET_GPR_S32(ctx, 7, 0x01190000u);
+        }
         call(kView, 0x0113A480u);
 
         // Every geodisp: its step and the auto-end check.
@@ -175,7 +216,8 @@ namespace decomp_hot47e
                 SET_GPR_U64(ctx, 17, s1);
                 SET_GPR_U64(ctx, 4, s1);
                 WRITE32(sp + 0u, static_cast<uint32_t>(s1));
-                call(kGeodisp, 0x0113A4ACu);
+                if (!skipStep)
+                    call(kGeodisp, 0x0113A4ACu);
                 SET_GPR_S32(ctx, 4, sp);
                 call(kAutoEnd, 0x0113A4B4u);
                 SET_GPR_U64(ctx, 4, s0);

@@ -266,6 +266,21 @@ namespace native_renderer
         // Models' detail levels picked as if 1.6x as far (coarser sooner;
         // none vanishes sooner) (SOTC_SAC_LOD).
         bool sacLod = false;
+        // Round 65: the Quality menu's performance cuts (all off by default on
+        // every platform; each saved in settings.cfg, each its own variable).
+        // Camera checks: the camera's look / visibility segment tests (not
+        // the one that keeps it out of walls) run every other frame, the
+        // frame between given the last result (SOTC_SAC_CAMCOLL).
+        bool sacCamColl = false;
+        // Far characters: a character far from the camera has its pose
+        // (GetMotionMatrix) made every other frame (SOTC_SAC_FARCHARA).
+        bool sacFarChara = false;
+        // Effects at half rate: the particle systems stepped every other
+        // frame with both frames' time (SOTC_SAC_FX).
+        bool sacFxHalf = false;
+        // Shorter draw distance: models the game lets vanish past their
+        // range vanish at 2/3 of it (terrain keeps its range) (SOTC_SAC_DRAWDIST).
+        bool sacDrawDist = false;
     };
 
     // The settings (made from the environment on first use). Inline: the

@@ -72,6 +72,9 @@ namespace sotc_decomp
     inline void (*g_beforeGuestMove)() = nullptr;
     // The game frame (sotc_native syncFrame), for in-run A/B switches.
     inline uint64_t g_gameFrame = 0;
+    // Round 65: the camera context GetCameraContext last returned (sotc_native's
+    // hook; +0x140 the camera's position), for the Quality menu's cuts.
+    inline uint32_t g_cameraContextAddr = 0;
     // Round 61 (SOTC_MDS_LANE): the VU0 CLIP register while modelDispState
     // runs on its lane (sotc_native mdslane). The register holds the last
     // four judgements (6 bits each); the lane's walk leaves it as its last

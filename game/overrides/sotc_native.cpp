@@ -2950,6 +2950,13 @@ namespace sotc_native
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
+            // Round 65: the Quality menu's cuts (on at start through their
+            // variables, "<name> off" windows without the cut); `sacall`
+            // below turns all four off together.
+            {"saccam", &native_renderer::Tuning::sacCamColl},
+            {"sacchara", &native_renderer::Tuning::sacFarChara},
+            {"sacfx", &native_renderer::Tuning::sacFxHalf},
+            {"sacdraw", &native_renderer::Tuning::sacDrawDist},
         };
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
@@ -2958,7 +2965,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -2975,6 +2982,7 @@ namespace sotc_native
             dmaAsyncAt = indexOf("dmaasync");
             mdsLaneAt = indexOf("mdslane");
             lazySnapAt = indexOf("lazysnap");
+            sacAllAt = indexOf("sacall");
             return true;
         }();
         (void)placesRead;
@@ -3007,6 +3015,13 @@ namespace sotc_native
         for (size_t i = 0; i < kTuningCount; ++i)
             if (tuningAt[i] >= 0)
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? false : start.*(kTuningFlags[i].field);
+        if (sacAllAt >= 0) // round 65: every cut off together
+        {
+            const bool off = isOffAt(sacAllAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if (!std::strncmp(kTuningFlags[i].name, "sac", 3) && (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
         for (uint32_t layer = 0; layer < 32u; ++layer)
             if (layerAt[layer] >= 0)
                 t.hiddenLayers = isOffAt(layerAt[layer]) ? (t.hiddenLayers | (1u << layer)) : ((t.hiddenLayers & ~(1u << layer)) | (start.hiddenLayers & (1u << layer)));
@@ -3146,6 +3161,7 @@ namespace sotc_native
         if (runtime->transferPending())
             return; // a thread switch below (round 52): nothing more here
         g_cameraContext = GPR_U32(ctx, 2);
+        sotc_decomp::g_cameraContextAddr = g_cameraContext;
     }
 
     // The performance overlay's numbers (round 20, Tuning::perfOverlay):

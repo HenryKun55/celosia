@@ -168,11 +168,20 @@ namespace native_renderer
             {
                 d.sacParticles = false;
                 d.sacLod = false;
+                d.sacCamColl = d.sacFarChara = d.sacFxHalf = d.sacDrawDist = false;
             }
             if (on("SOTC_SAC_LOD"))
                 d.sacLod = std::atoi(std::getenv("SOTC_SAC_LOD")) != 0;
             if (on("SOTC_SAC_PARTICLES"))
                 d.sacParticles = std::atoi(std::getenv("SOTC_SAC_PARTICLES")) != 0;
+            // Round 65: the Quality menu's cuts. SOTC_SAC_MAX=1 all four (the
+            // menu's "Max performance"), each one's own variable over it.
+            if (on("SOTC_SAC_MAX") && std::atoi(std::getenv("SOTC_SAC_MAX")) != 0)
+                d.sacCamColl = d.sacFarChara = d.sacFxHalf = d.sacDrawDist = true;
+            for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_SAC_CAMCOLL", &Tuning::sacCamColl}, {"SOTC_SAC_FARCHARA", &Tuning::sacFarChara},
+                                             {"SOTC_SAC_FX", &Tuning::sacFxHalf}, {"SOTC_SAC_DRAWDIST", &Tuning::sacDrawDist}})
+                if (on(name))
+                    d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_CAP30"))
                 d.frameCap30 = std::atoi(std::getenv("SOTC_CAP30")) != 0;
             if (on("SOTC_RENDER_THREAD"))
@@ -252,6 +261,10 @@ namespace native_renderer
             add(std::string("SOTC_SAC_PARTICLES=") + (t.sacParticles ? "1" : "0"));
         if (t.sacLod != d.sacLod)
             add(std::string("SOTC_SAC_LOD=") + (t.sacLod ? "1" : "0"));
+        for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_SAC_CAMCOLL", &Tuning::sacCamColl}, {"SOTC_SAC_FARCHARA", &Tuning::sacFarChara},
+                                         {"SOTC_SAC_FX", &Tuning::sacFxHalf}, {"SOTC_SAC_DRAWDIST", &Tuning::sacDrawDist}})
+            if (t.*flag != d.*flag)
+                add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.frameCap30 != d.frameCap30)
             add(std::string("SOTC_CAP30=") + (t.frameCap30 ? "1" : "0"));
         if (t.midFrameRedraw != d.midFrameRedraw)
@@ -413,6 +426,56 @@ namespace native_renderer
              "A imagem muda no máximo a cada duas atualizações da tela nas cenas pesadas: 30 fps estáveis em vez de uma mistura de 30 e 60 (ou 20 e 30). Desligado: mostrada assim que fica pronta.",
              &Tuning::frameCap30, nullptr, 0, 1, 1, "SOTC_CAP30"},
         };
+        // Round 65: the performance cuts, in the Quality group (the Vita's
+        // Select x2 menu), each off by default and saved; the last row turns
+        // all four on or off at once.
+        v.push_back({"sac_camcoll", "Fewer camera checks", "Menos checagens da câmera",
+                     "PERFORMANCE (saves game-thread time): the camera's look and visibility tests against the scenery run every other frame, the frame between "
+                     "uses the last answer (the test that keeps the camera out of walls still runs every frame). The camera may react a frame later. Off: as on the PS2.",
+                     "DESEMPENHO (poupa tempo da thread do jogo): os testes de visão e visibilidade da câmera contra o cenário rodam a cada dois quadros, o quadro "
+                     "do meio usa a última resposta (o teste que mantém a câmera fora das paredes continua a cada quadro). A câmera pode reagir um quadro depois. Desligado: como no PS2.",
+                     &Tuning::sacCamColl, nullptr, 0, 1, 1, "SOTC_SAC_CAMCOLL"});
+        v.push_back({"sac_farchara", "Distant characters at half rate", "Personagens distantes a meia taxa",
+                     "PERFORMANCE (saves game-thread time): a character far from the camera has its pose worked out every other frame (its animation looks "
+                     "choppier at a distance; it still moves and collides every frame). Anything near the camera keeps every frame, a colossus while any of its body is near. Off: as on the PS2.",
+                     "DESEMPENHO (poupa tempo da thread do jogo): um personagem longe da câmera tem a pose calculada a cada dois quadros (a animação fica "
+                     "mais travada à distância; ele continua se movendo e colidindo a cada quadro). O que estiver perto da câmera continua a cada quadro, um colosso enquanto qualquer parte do corpo dele estiver perto. Desligado: como no PS2.",
+                     &Tuning::sacFarChara, nullptr, 0, 1, 1, "SOTC_SAC_FARCHARA"});
+        v.push_back({"sac_fx", "Effects at half rate", "Efeitos a meia taxa",
+                     "PERFORMANCE (saves game-thread time): dust, splashes, sparks, birds and the other particles move every other frame (with both frames' time, so "
+                     "they keep their speed and amount; their motion looks choppier). Off: every frame, as on the PS2.",
+                     "DESEMPENHO (poupa tempo da thread do jogo): poeira, respingos, faíscas, pássaros e as outras partículas se movem a cada dois quadros (com o tempo "
+                     "dos dois quadros, então mantêm a velocidade e a quantidade; o movimento fica mais travado). Desligado: a cada quadro, como no PS2.",
+                     &Tuning::sacFxHalf, nullptr, 0, 1, 1, "SOTC_SAC_FX"});
+        v.push_back({"sac_drawdist", "Shorter draw distance", "Distância de visão menor",
+                     "PERFORMANCE (saves game-thread and render time): trees, rocks, grass and the other models the game already lets disappear in the distance "
+                     "disappear at 2/3 of that distance, and use their simpler versions sooner. Terrain and cliffs keep their distance. Off: as on the PS2.",
+                     "DESEMPENHO (poupa tempo da thread do jogo e do render): árvores, pedras, grama e os outros modelos que o jogo já deixa sumir à distância somem "
+                     "a 2/3 dessa distância e usam as versões mais simples antes. Terreno e penhascos mantêm a distância. Desligado: como no PS2.",
+                     &Tuning::sacDrawDist, nullptr, 0, 1, 1, "SOTC_SAC_DRAWDIST"});
+        {
+            TuningItem item{"sac_max", "Max performance", "Desempenho máximo",
+                            "X: turns the four performance cuts above on together (or off, when all four are on). Each can still be changed on its own.",
+                            "X: liga os quatro cortes de desempenho acima juntos (ou desliga, quando os quatro estão ligados). Cada um ainda pode ser mudado sozinho.",
+                            nullptr, nullptr, 0, 1, 1, nullptr};
+            item.action = []
+            {
+                Tuning &t = tuning();
+                const bool all = t.sacCamColl && t.sacFarChara && t.sacFxHalf && t.sacDrawDist;
+                t.sacCamColl = t.sacFarChara = t.sacFxHalf = t.sacDrawDist = !all;
+            };
+            item.actionText = [](bool pt)
+            {
+                const Tuning &t = tuning();
+                const int n = (t.sacCamColl ? 1 : 0) + (t.sacFarChara ? 1 : 0) + (t.sacFxHalf ? 1 : 0) + (t.sacDrawDist ? 1 : 0);
+                if (n == 4)
+                    return std::string(pt ? "Ligado (X: desligar)" : "On (X: turn off)");
+                if (n == 0)
+                    return std::string(pt ? "Desligado (X: ligar)" : "Off (X: turn on)");
+                return std::string(pt ? "Parcial, " : "Partly, ") + std::to_string(n) + (pt ? " de 4 (X: ligar)" : " of 4 (X: turn on)");
+            };
+            v.push_back(item);
+        }
         auto debugToggle = [&](const char *key, const char *label, const char *labelPt, const char *help, const char *helpPt, bool Tuning::*flag,
                                const char *env = nullptr)
         {
@@ -636,7 +699,7 @@ namespace native_renderer
         {
             const std::string key = item.key;
             item.quality = key == "quality_preset" || key == "render_scale" || key == "msaa" || key == "texture_filter" || key == "model_detail" ||
-                           key == "effect_detail";
+                           key == "effect_detail" || key == "sac_camcoll" || key == "sac_farchara" || key == "sac_fx" || key == "sac_drawdist" || key == "sac_max";
             if (key == "msaa" || key == "effect_detail")
                 item.backends = 1;
             if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw_mode" || key == "dbg_glow_vita" || key == "dbg_bloom_sameframe" ||

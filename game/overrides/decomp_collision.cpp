@@ -34,6 +34,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/native_tuning.h"
 
 #include <atomic>
 #include <cmath>
@@ -3191,8 +3192,29 @@ namespace decomp_collision
         }
     }
 
+    namespace cammemo // (round 65, below cameraCheckDirect)
+    {
+        bool replay(const G g, uint32_t ra, uint32_t out, uint32_t &nth);
+        void keep(const G g, uint32_t ra, uint32_t nth, uint32_t out);
+    }
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round 65 (Tuning::sacCamColl): the camera's "leave" attribute test
+        // (is_hit_cam_opt_leave_collision_attribute) in even frames only.
+        static bool memoInner = false;
+        if (__builtin_expect(native_renderer::tuning().sacCamColl, 0) && !memoInner && GPR_U32(ctx, 31) == 0x0140F2ACu)
+        {
+            const G g{rdram, ctx, runtime};
+            const uint32_t out = GPR_U32(ctx, 4);
+            uint32_t nth = 0u;
+            if (cammemo::replay(g, 0x0140F2ACu, out, nth))
+                return returnTo(ctx);
+            memoInner = true;
+            directCallBack(rdram, ctx, runtime);
+            memoInner = false;
+            cammemo::keep(g, 0x0140F2ACu, nth, out);
+            return;
+        }
         g_countDirect.hit();
         const G g{rdram, ctx, runtime};
         COLL_STAT(direct);
@@ -3612,6 +3634,91 @@ namespace decomp_collision
         g.put32(at, n);
     }
 
+    // Round 65, "Fewer camera checks" (Tuning::sacCamColl): the camera's look
+    // and visibility tests (the call sites below: the subjective and the
+    // objective target's visibility, the target offset's two, and the
+    // "leave" attribute's segment) run in even game frames only; in an odd
+    // frame each site's n-th call of the frame gets the answer its n-th call
+    // got the frame before (v0 and the 0x50-byte result). The test that
+    // places the camera (CAM_act_ray_check_for_camera, ra 0x1419f30) and
+    // every other caller run every frame. Off (the default): never taken.
+    namespace cammemo
+    {
+        constexpr uint32_t kResult = 0x50u;
+        struct Slot
+        {
+            uint32_t ra = 0, nth = 0;
+            uint64_t frame = ~0ull, v0 = 0;
+            uint8_t bytes[kResult] = {};
+        };
+        Slot g_slots[16];
+        uint64_t g_frame = ~0ull;
+        uint32_t g_seen[16][2]; // ra, calls this frame
+        int g_seenCount = 0;
+        bool site(uint32_t ra)
+        {
+            return ra == 0x01417108u || ra == 0x0141AA0Cu || ra == 0x01418494u || ra == 0x01418548u || ra == 0x0140F2ACu;
+        }
+        uint32_t nthCall(uint32_t ra)
+        {
+            if (sotc_decomp::g_gameFrame != g_frame)
+            {
+                g_frame = sotc_decomp::g_gameFrame;
+                g_seenCount = 0;
+            }
+            for (int i = 0; i < g_seenCount; ++i)
+                if (g_seen[i][0] == ra)
+                    return g_seen[i][1]++;
+            if (g_seenCount < 16)
+            {
+                g_seen[g_seenCount][0] = ra;
+                g_seen[g_seenCount][1] = 1u;
+                ++g_seenCount;
+            }
+            return 0u;
+        }
+        Slot *slot(uint32_t ra, uint32_t nth, bool make)
+        {
+            Slot *oldest = &g_slots[0];
+            for (Slot &s : g_slots)
+            {
+                if (s.ra == ra && s.nth == nth)
+                    return &s;
+                if (s.frame == ~0ull || (oldest->frame != ~0ull && s.frame < oldest->frame))
+                    oldest = &s;
+            }
+            if (!make)
+                return nullptr;
+            *oldest = Slot{};
+            oldest->ra = ra;
+            oldest->nth = nth;
+            return oldest;
+        }
+        // True when the answer was given from the frame before (v0 set).
+        bool replay(const G g, uint32_t ra, uint32_t out, uint32_t &nth)
+        {
+            nth = nthCall(ra);
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            if ((frame & 1u) == 0u || (out == 0u || !G::plain(out, kResult)))
+                return false;
+            const Slot *s = slot(ra, nth, false);
+            if (!s || s->frame + 1u != frame)
+                return false;
+            std::memcpy(g.rdram + (out & PS2_RAM_MASK), s->bytes, kResult);
+            SET_GPR_U64(g.ctx, 2, s->v0);
+            return true;
+        }
+        void keep(const G g, uint32_t ra, uint32_t nth, uint32_t out)
+        {
+            if ((out == 0u || !G::plain(out, kResult)))
+                return;
+            Slot *s = slot(ra, nth, true);
+            s->frame = sotc_decomp::g_gameFrame;
+            s->v0 = GPR_U64(g.ctx, 2);
+            std::memcpy(s->bytes, g.rdram + (out & PS2_RAM_MASK), kResult);
+        }
+    }
+
     void cameraCheckDirect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         using sotc_decomp::jalTarget;
@@ -3621,6 +3728,11 @@ namespace decomp_collision
             return sotc_decomp::recompiled(kCameraCheckDirect)(rdram, ctx, runtime);
         const G g{rdram, ctx, runtime};
         const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x80u;
+        const bool memo = native_renderer::tuning().sacCamColl && cammemo::site(ra);
+        uint32_t memoNth = 0u;
+        const uint32_t memoOut = GPR_U32(ctx, 4);
+        if (memo && cammemo::replay(g, ra, memoOut, memoNth))
+            return returnTo(ctx);
         const uint32_t cam = GPR_U32(ctx, 7), move = GPR_U32(ctx, 8), descend = GPR_U32(ctx, 9), extra = GPR_U32(ctx, 10), withTarget = GPR_U32(ctx, 11);
         judgeData(g, sp + 0x10u, extra, withTarget == 1u ? g.u32(cam + 0x1Cu) : 0u);
         const uint32_t filter = descend == 1u ? relocated(rdram, 0x0140EF24u, 0x0140EF2Cu) : relocated(rdram, 0x0140EF20u, 0x0140EF30u);
@@ -3644,6 +3756,8 @@ namespace decomp_collision
         guestCall(rdram, ctx, runtime, kDirectCallBack, 0x0140EF8Cu, sp);
         SET_GPR_U32(ctx, 31, ra);
         SET_GPR_U32(ctx, 29, spIn);
+        if (memo)
+            cammemo::keep(g, ra, memoNth, memoOut);
         returnTo(ctx);
     }
 

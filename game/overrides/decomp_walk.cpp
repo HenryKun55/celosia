@@ -709,6 +709,12 @@ namespace decomp_walk
         // terrain included; it is drawn coarser).
         if (native_renderer::tuning().sacLod && m.s32(a0 + 0x28u) == 0)
             f1 = f1 * 1.6f;
+        // Round 65, "Shorter draw distance" (Tuning::sacDrawDist): for the
+        // records that drop the model past their last level (+0x28 set:
+        // never terrain, whose records keep their last level) the level is
+        // picked as if 1.5x as far, so the model goes at 2/3 of its range.
+        if (native_renderer::tuning().sacDrawDist && m.s32(a0 + 0x28u) != 0)
+            f1 = f1 * 1.5f;
         float f12 = lodByDistance(m, a0, f1, static_cast<int32_t>(static_cast<int64_t>(m.u64(s2 + 0x250u) << 21) >> 61));
         uint64_t v0;
         float f20 = -1.0f;

@@ -9656,6 +9656,169 @@ The A/B runs above had it off (the default, no settings.cfg entry).
 
 **Deliverable:** build/agent-scratch/celosia-r64.vpk.
 
+## Round 65: performance cuts in the Quality menu (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r65/` (v3kb.sh: v3k.sh with a boot
+check, a run that shows no `[frame]` line in 60 s is killed and retried;
+batch.sh; pool.py: the frames of several A/B runs pooled by state; oddwin.py;
+ab222, ab222b, ab222c, ab222d, allab222: the Vita3K runs; mac-on / mac-off:
+the Mac attract demo with every cut on / off; dt-off: the Mac difftest; shots:
+the Vita3K screenshots). Rounds 60-64 took what could be taken exactly; the
+console still needs ~20 ms off its ~56 ms heavy frames, so this round adds
+cuts the player chooses, as the user asked: each one a row in the Vita's
+Quality tab (Select twice; F1 on the Mac), labelled in Portuguese and
+English, **off by default**, saved in `settings.cfg` (`sac_*` keys, so
+`SOTC_SACRIFICES=0` turns them off too), each with its own variable and A/B
+name. With all of them off nothing on the game's path changes (a `tuning()`
+flag read at each site).
+
+**What each cut does.**
+- **Fewer camera checks** ("Menos checagens da câmera", `sac_camcoll`,
+  `SOTC_SAC_CAMCOLL`, A/B `saccam`; decomp_collision.cpp `cammemo`). The
+  round 63 census named the camera's queries in the heavy part: 6
+  camera_collision_check_direct calls a frame (~1.4 ms with the census's
+  own clock reads) plus is_hit_cam_opt_leave_collision_attribute's
+  segment and create_camera_collisionDB's finder. The cut leaves the one
+  that places the camera (CAM_act_ray_check_for_camera, ra 0x1419f30: two
+  calls a frame, it keeps the camera out of walls) and the finder alone;
+  the subjective and objective target visibility tests (ra 0x1417108,
+  0x141aa0c), the target offset's two (0x1418494, 0x1418548) and the
+  "leave" attribute's ClipCollisionDirectCallBack (0x140f2ac) run in even
+  game frames only. In an odd frame each site's n-th call gets what its
+  n-th call got the frame before: v0 and the 0x50-byte result (the callers'
+  buffers are 0x50 bytes: the hit record and the point at +0x40), and
+  nothing else of the query runs. A visibility answer or a target offset a
+  frame late (33 ms) is what can show; the player's collision is not
+  touched.
+- **Distant characters at half rate** ("Personagens distantes a meia taxa",
+  `sac_farchara`, `SOTC_SAC_FARCHARA`, A/B `sacchara`; decomp_charageo.cpp
+  `farchara`). ExecCharaGeometry's GetMotionMatrix (the pose into the
+  class's +0x158 / +0x154, ~2.4% of the heavy part's game thread) is left
+  out in every other frame (by the class address's parity) for a character
+  whose position (+0x134) is farther from the camera (the camera context's
+  +0x140) than 40 (`SOTC_SAC_FARCHARA_DIST`) plus twice its collision
+  sphere's radius (+0xe00's w, so a colossus whose body reaches the camera
+  is never far; added after the A/B runs, which had the plain 40: nothing
+  in the attract demo is large enough for it to matter), when it was made the frame
+  before into the same buffers and the character has no sub geometries
+  (those change the matrices in place). Root dynamics, IK, the bone
+  products, cloth, the anime tables and the callbacks run every frame, so
+  the character moves and collides as before; its limbs update at 15 Hz.
+  `SOTC_SAC_STATS=1` counts it: in the attract demo's first part 1-2 poses a
+  frame (Wander, Agro) and Agro far in about half the frames; in the title
+  screen's world 3-4 poses a frame, all past 80 (its wide shots), half of
+  them left out.
+- **Effects at half rate** ("Efeitos a meia taxa", `sac_fx`, `SOTC_SAC_FX`,
+  A/B `sacfx`; decomp_hot47e.cpp, doit_particle_manager). Every other call
+  of the particle manager steps no geodisp (doit_particle_geodisp, the
+  emitter lists: every emitter's and particle's step, the parameter blend,
+  the wind they ask) and leaves its three clocks (0x1216e08 / 18 / 28) as
+  they are; that call's times (f12, f13, and the fixed 1/30) are added to
+  the next call's, whose clocks then step by both frames (the step, the
+  step^2 / 2, the whole 30 fps frames and the remainder as the code makes
+  them), so the particles keep their speed, spawn counts and ages. The
+  view, the auto-end checks and the layers' pass run every call; the
+  particle draws (disp_particle_emitter, from the display walk) draw every
+  frame what the last step left. Cloth and the hair strands were left out
+  of this cut: their solvers are anchored to the owner's bones each step
+  (GetClothDynamics with the frame's times from ExecCharaGeometry,
+  gamecore_sub_013B8DC8 through the owner's matrices), so a skipped step
+  leaves them behind a moving body, and a doubled step changes a stiff
+  solver; together they are ~2.3% of the game thread (half of it ~0.35 ms
+  at 222 MHz), not worth that.
+- **Shorter draw distance** ("Distância de visão menor", `sac_drawdist`,
+  `SOTC_SAC_DRAWDIST`, A/B `sacdraw`; decomp_walk.cpp modelClipSolid). For
+  the LOD records that drop the model past their last level (+0x28 set;
+  terrain's records keep their last level, round 36) the level is picked
+  as if the model were 1.5x as far: those models (trees, rocks, grass,
+  props) vanish at 2/3 of their range and take their coarser levels sooner.
+  Round 36's `sac_lod` (Debug "Detalhe reduzido") is the other half: it
+  scales the records that keep their last level (terrain included) by 1.6
+  and makes nothing vanish; the two can be on together.
+- **Max performance** ("Desempenho máximo", `sac_max`, `SOTC_SAC_MAX=1`): a
+  row that turns the four on (or off when all four are on); it shows
+  On / Off / "Partly, n of 4"; not saved itself (the four are).
+
+**Default path unchanged.** With every cut off (the default on both
+platforms, and whenever `SOTC_SACRIFICES=0`), each site only reads its
+flag. Mac difftest of the five touched natives against the recompiled code
+(attract demo to frame 2 400, every 3rd call, r65/dt-off):
+camera_collision_check_direct 1 500 checks, ClipCollisionDirectCallBack
+2 100, doit_particle_manager 900, modelClipSolid 29 900: 0 mismatches;
+ExecCharaGeometry 2 600 checks, 1 mismatch (one byte at 0x29126c, once, at
+the 300th check). The control run (`SOTC_DIFFTEST_CONTROL=1`: the
+recompiled code in both legs, r65/dt-ctl) has 6 in 3 300 checks, 0x29126c
+among them: the noise of the sub-threads' wakes known since round 41, not
+the native.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, the attract demo; frame log
+per frame; game = the frame less hooks and wait).** Every run had the four
+cuts on at start and turned them off in windows (`SOTC_AB_ROTATE=1`): one
+state "all on" and one per cut off, plus `sacall` (all four off). Four
+rotating runs with different window lengths and orders (ab222 and ab222b:
+60 frames; ab222c: 30; ab222d: 45; 4 000-4 700 frames a state in each part
+pooled, r65/pooled4.txt), and one two-state run of all on against all off
+(allab222, 60-frame windows, ~3 500 frames a state early, ~2 650 heavy).
+A rotating state samples the deterministic demo at a fixed phase, so the
+runs with other lengths and orders are what averages that out; the spread
+between runs of the same state was about +-1 ms, and the parts' own scenes
+shift with the frame rate. Ms saved with the cut on (off minus on):
+
+| cut (on vs off) | part | frame | game | > 40 ms on / off |
+|---|---|---|---|---|
+| Fewer camera checks | early (< 7 000) | +0.42 | +1.05 | 4.4% / 3.6% |
+| | heavy (>= 10 000) | +1.00 | +0.55 | 17.5% / 23.1% |
+| Distant characters | early | -0.38 | +0.58 | 4.4% / 2.6% |
+| | heavy | +0.06 | +0.18 | 17.5% / 18.2% |
+| Effects at half rate | early | +1.29 | +1.87 | 4.4% / 5.4% |
+| | heavy | +2.05 | +2.16 | 17.5% / 25.5% |
+| Shorter draw distance | early | -0.57 | +0.63 | 4.4% / 1.7% |
+| | heavy | +1.34 | +0.71 | 17.5% / 24.2% |
+| All four (rotating runs) | early | -0.48 | +0.94 | 4.4% / 1.6% |
+| | heavy | +1.40 | +1.47 | 17.5% / 21.5% |
+| All four (allab222, two states) | early | +1.96 | +1.79 | 2.4% / 5.4% |
+| | heavy | +0.75 | +0.80 | 24.3% / 25.8% |
+
+(The flyover between, frames 7 000-9 999, is render-bound: every cut's
+game-thread figure there was -0.3 to -1.1 ms, within the noise; its render
+thread ~23 ms either way.)
+
+What it says, honestly: the only cut clearly above the noise is **Effects
+at half rate** (game thread -1.9 ms early, -2.2 ms heavy, in all four
+rotating runs between +0.4 and +3.9 ms). The camera checks give ~0.5-1 ms,
+the shorter draw distance ~0.6-0.7 ms of the game thread and ~1 ms of the
+render thread in the heavy part, the distant characters ~0.2-0.6 ms (in the
+title screen's world it leaves out 2 of ~4 poses a frame). All four
+together: -0.8 to -1.8 ms of the game thread in the clean two-state run,
+-0.9 to -1.5 ms pooled; the share of frames over 40 ms in the heavy part
+24.3% against 25.8% (two-state) and 17.5% against 21.5% (pooled). The sum
+of the single cuts (~3.5-4 ms heavy) is more than all four measured together:
+the single figures carry +-1 ms each. Not 30 fps at 222 MHz.
+
+**Estimated on the console (an estimate, not measured):** Vita3K at 222 MHz
+is ~1.5x optimistic on the game thread (round 58), and these cuts take
+memory-bound work (particles' and emitters' records, the camera's segment
+walks, the pose's matrix stack): all four ~1.5-3 ms of the ~56 ms heavy
+frames, of which the particles ~2-3 ms in particle-heavy scenes (the
+attract demo has few). Far from the ~20 ms a locked 30 needs; these cuts
+are worth it in particle and camera heavy places, not as the answer.
+
+**Visual check.** Vita3K (the final VPK, every cut on, `SOTC_SAC_MAX=1`,
+222 MHz, screenshots every 15 s from 30 s; r65/shots-on) and the Mac attract
+demo (mac-on / mac-off to frame 6 000): no missing terrain, no broken
+characters, particles present. Particles move at 15 Hz with the cut (seen
+only in motion), the far models thin out sooner at the horizon's edge.
+
+**Also:** build/agent-scratch/r65/v3kb.sh checks that Vita3K booted (a
+`[frame]` line in err.txt within 60 s; else it is killed and the run
+retried, at most three times) and never leaves a Vita3K running; one run
+of this round hung at Vita3K's "Please wait, loading..." and was killed.
+During the rotating runs ab222c / ab222d / allab222 another Vita3K (a
+separate tree) ran on the Mac at the same time: both states of each A/B
+shared that load.
+
+**Deliverable:** build/agent-scratch/celosia-r65.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
