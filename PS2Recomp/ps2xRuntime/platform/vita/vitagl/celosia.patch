@@ -1291,7 +1291,7 @@ index 8abf57b..b4a63aa 100644
  
  #endif
 diff --git a/source/utils/gxm_utils.c b/source/utils/gxm_utils.c
-index 61803f3..b774207 100644
+index 61803f3..1327472 100644
 --- a/source/utils/gxm_utils.c
 +++ b/source/utils/gxm_utils.c
 @@ -1,3 +1,4 @@
@@ -1299,7 +1299,46 @@ index 61803f3..b774207 100644
  /*
   * This file is part of vitaGL
   * Copyright 2017, 2018, 2019, 2020 Rinnegatamante
-@@ -255,6 +256,17 @@ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
+@@ -28,7 +29,21 @@
+ #define XXH_memset sceClibMemset
+ #include "xxhash_utils.h"
+ 
+-#define UNIFORM_CIRCULAR_POOL_SIZE (2 * 1024 * 1024)
++// celosia r65c: the uniform circular pool's size set by the application
++// (vglCeloSetUniformPoolSize, before vglInit); 2 MB as vitaGL had it. The
++// pool wraps without waiting for the GPU: a frame's draws whose uniforms the
++// GPU (or Vita3K, which reads them when it processes the scene) has not read
++// yet get later draws' values. vglCeloUniformStats: bytes reserved, wraps.
++uint32_t vgl_celo_unif_pool_size = 2 * 1024 * 1024;
++uint32_t vgl_celo_unif_bytes = 0, vgl_celo_unif_wraps = 0;
++void vglCeloSetUniformPoolSize(uint32_t size) { vgl_celo_unif_pool_size = size; }
++void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps) {
++	if (bytes)
++		*bytes = vgl_celo_unif_bytes;
++	if (wraps)
++		*wraps = vgl_celo_unif_wraps;
++}
++#define UNIFORM_CIRCULAR_POOL_SIZE vgl_celo_unif_pool_size
+ 
+ void *vgl_def_frag_buf = NULL;
+ void *vgl_def_vert_buf = NULL;
+@@ -226,6 +241,7 @@ void vglSetupUniformCircularPool() {
+ 
+ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
+ 	void *r;
++	vgl_celo_unif_bytes += size;
+ 	if (unif_idx + size >= UNIFORM_CIRCULAR_POOL_SIZE) {
+ #ifndef SKIP_ERROR_HANDLING
+ 		static uint32_t last_frame_swap = 0;
+@@ -236,6 +252,7 @@ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
+ #endif
+ 		r = unif_pool;
+ 		unif_idx = size;
++		vgl_celo_unif_wraps++;
+ 	} else {
+ 		r = (unif_pool + unif_idx);
+ 		unif_idx += size;
+@@ -255,6 +272,17 @@ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
  		dst += align_size; \
  	}
  
@@ -1317,7 +1356,7 @@ index 61803f3..b774207 100644
  void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, const int offset, const uint32_t count, const uint32_t componentCount, const void *sourceData, const SceGxmParameterType input_type) {
  	if (offset != 0) {
  		switch (t) {
-@@ -286,29 +298,29 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -286,29 +314,29 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
  			case SCE_GXM_PARAMETER_TYPE_F32:
  			case SCE_GXM_PARAMETER_TYPE_U32:
  			case SCE_GXM_PARAMETER_TYPE_S32:
@@ -1352,7 +1391,7 @@ index 61803f3..b774207 100644
  						src += componentCount;
  						uniformBuffer += align_size;
  					}
-@@ -316,11 +328,11 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -316,11 +344,11 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
  				break;
  			case SCE_GXM_PARAMETER_TYPE_F16:
  				if (componentCount == 4) {
@@ -1366,7 +1405,7 @@ index 61803f3..b774207 100644
  						src += componentCount;
  						uniformBuffer += 8;
  					}
-@@ -328,17 +340,17 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -328,17 +356,17 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
  				break;
  			case SCE_GXM_PARAMETER_TYPE_U32:
  			case SCE_GXM_PARAMETER_TYPE_S32:
@@ -1387,7 +1426,7 @@ index 61803f3..b774207 100644
  						src += componentCount;
  						uniformBuffer += align_size;
  					}
-@@ -347,12 +359,12 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -347,12 +375,12 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
  			case SCE_GXM_PARAMETER_TYPE_U8:
  			case SCE_GXM_PARAMETER_TYPE_S8:
  				if (componentCount == 4) {
@@ -1804,7 +1843,7 @@ index 014e790..79bb11d 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..0bb2676 100644
+index eeec610..dfdab70 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
 @@ -1259,6 +1259,15 @@ void vglSetShaderAssociationPath(const char *path);
@@ -1823,3 +1862,12 @@ index eeec610..0bb2676 100644
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
  void vglSetTextureCacheFrequency(GLuint freq);
+@@ -1274,6 +1283,8 @@ void vglSetVertexAttribPoolSize(uint32_t main_size, uint32_t aux_size);
+ 
+ // Setup the vertex ring buffer size of sceGxm. Must be called before vglInit*. Default value: SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE.
+ void vglSetVertexBufferSize(uint32_t size);
++void vglCeloSetUniformPoolSize(uint32_t size); // celosia r65c: the uniform circular pool (default 2 MB), before vglInit
++void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia r65c: uniform bytes reserved and pool wraps so far
+ 
+ // Change the priority and affinity to use for the garbage collector thread. Must be called before vglInit*.
+ void vglSetupGarbageCollector(int priority, int affinity);

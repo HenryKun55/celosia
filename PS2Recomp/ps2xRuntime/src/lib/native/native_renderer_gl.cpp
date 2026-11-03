@@ -36,6 +36,7 @@ extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillC
 extern "C" uint32_t vgl_celo_scenes; // celosia.patch (round 45): scenes begun (vglCeloSceneStats)
 extern "C" void vglCeloOwnMips(int on); // celosia.patch (round 55): glTexImage2D levels >= 1 taken as given
 extern "C" void vglCeloLeanDraw(int bits); // celosia.patch (round 56): bit 0 uniform copies by memcpy, bit 1 one vertex stream
+extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia.patch (round 65c): uniform bytes reserved, pool wraps
 #endif
 
 #include "ThreadNaming.h"
@@ -1551,8 +1552,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glBufferData(GL_ARRAY_BUFFER, sizeof(corners), corners, GL_STATIC_DRAW);
             GLuint skinVertex = 0;
             {
-                const std::string skin = skinnedVertex(kMainVertex);
+                std::string skin = skinnedVertex(kMainVertex);
+#if defined(PS2X_NATIVE_VITA)
+                // SOTC_GL_SKIN_PRECISE=1 (round 65c, testing): the skinning
+                // vertex program compiled without libshacccg's fast math /
+                // precision / int (a source of its own, so neither the cache
+                // nor the VPK's seed hands back the fast binary).
+                static const bool skinPrecise = std::getenv("SOTC_GL_SKIN_PRECISE") && std::atoi(std::getenv("SOTC_GL_SKIN_PRECISE")) != 0;
+                static const bool fastShaders = !std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0;
+                if (skinPrecise && !skin.empty())
+                {
+                    skin = "// precise\n" + skin;
+                    vglSetupRuntimeShaderCompiler(SHARK_OPT_DEFAULT, 0, 0, 0);
+                }
+#endif
                 skinVertex = skin.empty() ? 0 : compile(GL_VERTEX_SHADER, skin.c_str());
+#if defined(PS2X_NATIVE_VITA)
+                if (skinPrecise && fastShaders)
+                    vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 1, 1);
+                std::fprintf(stderr, "[native:gl] skinning program: %s\n", skinPrecise || !fastShaders ? "precise" : "fast");
+#endif
                 skinProgram = skin.empty() ? 0 : program(skinVertex, kMainFragment, {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"});
                 if (!skinProgram)
                     std::cerr << "[native:gl] no skinning program: skinned meshes posed on the CPU" << std::endl;
@@ -3307,8 +3326,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
         // The soft path draws a separate mask that must test the picture's
         // stencil; vitaGL framebuffers cannot share it, so the mask covered
-        // everything (the horizon vanished with shadows on): darken in place.
-        constexpr bool hardShadows = true;
+        // everything (the horizon vanished with shadows on): darkened in
+        // place until round 65c. The hard edges showed the volumes' own
+        // triangles on the bodies they come from (Agro's rump and legs in
+        // flat light and dark facets, Wander's cloak speckled): the GS (and
+        // the Mac) blur the mask. Round 65c: the mask is written into the
+        // picture's alpha (free until bloomMask writes it), reduced and
+        // blurred as the Mac's (doShadow). SOTC_SHADOW_SOFT_VITA=0: hard, as before.
+        static const bool hardShadows = std::getenv("SOTC_SHADOW_SOFT_VITA") && std::atoi(std::getenv("SOTC_SHADOW_SOFT_VITA")) == 0;
 #else
         static const bool hardShadows = std::getenv("SOTC_SHADOW_HARD") != nullptr;
 #endif
@@ -4064,10 +4089,76 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 quad(color, 14, QuadBlend::Over, tint);
             }
         };
+#if defined(PS2X_NATIVE_VITA)
+        // Round 65c: the soft shadows' mask on the Vita. The counted pixels
+        // (the volumes' stencil in `t`, which is bound) into t's alpha, the
+        // colour kept (as bloomMask writes its mask), the count cleared; then
+        // reduced 4 x 4 (mode 11, from the alpha) into bloomTex[0] (free: the
+        // GS bloom chain has targets of its own) and blurred as the Mac's.
+        static const int shadowBlurRounds = std::getenv("SOTC_SHADOW_BLUR") ? std::atoi(std::getenv("SOTC_SHADOW_BLUR")) : 1;
+        auto shadowAlphaMask = [&](const Target &t)
+        {
+            bindTarget(t);
+            useQuad(8);
+            glEnable(GL_BLEND); // colour kept, alpha written
+            glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+            glBlendFuncSeparate(GL_ZERO, GL_ONE, GL_ONE, GL_ZERO);
+            glDisable(GL_CULL_FACE);
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            glBindBuffer(GL_ARRAY_BUFFER, quadBuffer);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+            for (GLuint i = 1; i < 4; ++i)
+                glDisableVertexAttribArray(i);
+            const float q[4] = {-1.0f, 0, 0, 0};
+            glUniform4fv(uniform(false, "uQuad"), 1, q);
+            for (int k = 0; k < 2; ++k)
+            {
+                const float a[4] = {k ? 1.0f : 0.0f, 0, 0, 0};
+                if (k)
+                {
+                    glEnable(GL_STENCIL_TEST);
+                    glStencilMask(0xFF);
+                    glStencilFunc(GL_NOTEQUAL, 0, 0xFF);
+                    glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
+                }
+                glUniform4fv(uniform(false, "uA"), 1, a);
+                glDrawArrays(GL_TRIANGLES, 0, 3);
+            }
+            glDisable(GL_STENCIL_TEST);
+            useQuad(11);
+            const float texel[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
+            glUniform4fv(uniform(false, "uSize"), 1, texel);
+            const float white[4] = {1, 1, 1, 1};
+            bindTexture(0, t.texture);
+            quad(bloomTex[0], 11, QuadBlend::None, nullptr, white);
+            blur(shadowBlurRounds);
+        };
+#endif
         auto doShadow = [&]
         {
             // The counted pixels as a mask (testing the main picture's stencil), reduced 4 x 4, blurred.
 #if defined(PS2X_NATIVE_VITA)
+            {
+                // Round 65c (see shadowAlphaMask): the mask from the picture
+                // itself, then the picture darkened by it (taken up again: in
+                // Vita3K too, the pictures and the timing as with the hard
+                // shadows; the picture below the volumes drawn again apart for
+                // the mask, as the mid-frame redraw does, cost Vita3K 2-4x the
+                // frame time in the plains). The quad clears what is left of the count.
+                shadowAlphaMask(color);
+                glEnable(GL_STENCIL_TEST);
+                glStencilMask(0xFF);
+                glStencilFunc(GL_ALWAYS, 0, 0xFF);
+                glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
+                const float amount[4] = {softAmount, 0, 0, 0};
+                bindTexture(0, bloomTex[0].texture);
+                quad(color, 9, QuadBlend::Darken, amount);
+                glDisable(GL_STENCIL_TEST);
+                ++shadowStats.darkens;
+                return;
+            }
             if (shadowMaskOn())
             {
 #endif
@@ -5137,6 +5228,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                          pools * static_cast<double>(Renderer::kPoolVertices) * vb / MB, poolFree * vb / MB, poolLargest * vb / 1024.0, poolPending * vb / MB,
                          static_cast<unsigned long long>(r->poolsEmptied), r->poolMoved * vb / MB, r->runVertices * vb / MB, m_poolFree / MB,
                          static_cast<unsigned long long>(m_poolLowPasses));
+#if defined(PS2X_NATIVE_VITA)
+            {
+                // Round 65c: vitaGL's uniform circular pool, a frame's share
+                // of it since the last line (it wraps without waiting for the
+                // GPU: more than the pool in flight and draws get later
+                // draws' uniforms).
+                uint32_t bytes = 0, wraps = 0;
+                vglCeloUniformStats(&bytes, &wraps);
+                const uint64_t frames = r->arenaFrame > m_unifFrame ? r->arenaFrame - m_unifFrame : 1u;
+                std::fprintf(stderr, "[gl:unif] %.0f KB of uniforms a frame over %llu frames, pool wraps %u\n",
+                             static_cast<double>(bytes - m_unifBytes) / 1024.0 / static_cast<double>(frames), static_cast<unsigned long long>(frames), wraps - m_unifWraps);
+                m_unifBytes = bytes, m_unifWraps = wraps, m_unifFrame = r->arenaFrame;
+            }
+#endif
             m_pressureSpared = 0;
             m_uploadPeak = 0;
             m_flushes = m_evictedAged = m_evictedBudget = m_evictedPressure = m_skipped = 0;
@@ -5487,6 +5592,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint64_t m_startUs = 0, m_nextMemLog = 0;
         uint32_t m_flushes = 0, m_evictedAged = 0, m_evictedBudget = 0, m_evictedPressure = 0, m_skipped = 0;
         uint32_t m_pressureSpared = 0; // round 33: kept under pressure (in vitaGL's pools, not the heap)
+        uint32_t m_unifBytes = 0, m_unifWraps = 0; // round 65c: vglCeloUniformStats at the last [gl:unif] line
+        uint64_t m_unifFrame = 0;
         uint64_t m_evictedBudgetBytes = 0, m_evictedPressureBytes = 0;
         // The hand-over.
         // One condition each way. The waits also look again every few ms: in

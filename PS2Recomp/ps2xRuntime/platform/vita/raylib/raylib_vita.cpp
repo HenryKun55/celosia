@@ -25,6 +25,8 @@
 #include <mutex>
 #include <vector>
 
+extern "C" void vglCeloSetUniformPoolSize(uint32_t size); // celosia.patch (round 65c)
+
 // vitaGL is one GL state for the whole process: the host (between
 // BeginDrawing and EndDrawing, and in texture calls) and the GPU GS renderer
 // on its own thread take turns under this lock.
@@ -64,7 +66,8 @@ static void shaderCacheRoot()
     if (sceAppMgrAppParamGetString(0, 12, titleId, sizeof(titleId)) < 0 || !titleId[0])
         std::strcpy(titleId, "CELO00001");
     titleId[9] = '\0'; // title ids are 9 characters
-    std::snprintf(g_shaderCacheRoot, sizeof(g_shaderCacheRoot), "ux0:data/shader_cache/%s", titleId);
+    const bool fastShaders = !std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0;
+    std::snprintf(g_shaderCacheRoot, sizeof(g_shaderCacheRoot), "ux0:data/shader_cache/%s%s", titleId, fastShaders ? "" : "_precise");
     vglSetShaderCachePath(g_shaderCacheRoot);
 }
 static void seedShaderCache()
@@ -244,8 +247,15 @@ void InitWindow(int, int, const char *)
     if (SDL_Init(SDL_INIT_AUDIO) != 0)
         std::fprintf(stderr, "[vita] SDL_Init failed: %s\n", SDL_GetError());
     bootMark("window: SDL up");
-    // Shaders are compiled at run time (libshacccg); fast math is fine here.
-    vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 1, 1);
+    // Shaders are compiled at run time (libshacccg). SOTC_SHADER_FAST=0
+    // (round 65c, testing): no fast math / precision / int, kept in a cache
+    // of its own (the seed and the fast cache hold the fast binaries).
+    const bool fastShaders = !std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0;
+    if (fastShaders)
+        vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 1, 1);
+    else
+        vglSetupRuntimeShaderCompiler(SHARK_OPT_DEFAULT, 0, 0, 0);
+    std::fprintf(stderr, "[vita] shader compiler: %s\n", fastShaders ? "fast (O3, fast math / precision / int)" : "precise (O2)");
     bootMark("window: shader compiler set up");
     // Some framebuffers get several scenes a frame (the small copies of the
     // picture, the bloom's): GXM sizes a render target for this many scenes
@@ -286,6 +296,16 @@ void InitWindow(int, int, const char *)
         return v > 0 ? v : fallback;
     };
     const int circularKb = kb("SOTC_VGL_CIRCULAR_KB", 3072), immediateKb = kb("SOTC_VGL_IMMEDIATE_KB", 64);
+    // Round 65c: vitaGL's uniform circular pool (every draw's vertex and
+    // fragment uniforms; 2 MB in vitaGL) wraps without waiting for the GPU.
+    // Measured ([gl:unif]): 455-705 KB a frame in the 3D (a skinned draw's
+    // palette is 3.3 KB), so it wraps every ~3 frames. Suspected of Agro's
+    // facets in Vita3K and ruled out (8 MB: the same picture; they were the
+    // hard shadows, see the renderer's doShadow), kept as a size to try.
+    // SOTC_VGL_UNIFORM_KB: its size (default 2048, as vitaGL).
+    const int uniformKb = kb("SOTC_VGL_UNIFORM_KB", 2048);
+    vglCeloSetUniformPoolSize(static_cast<uint32_t>(uniformKb) * 1024u);
+    std::fprintf(stderr, "[vita] vitaGL uniform pool %d KB\n", uniformKb);
     vglSetCircularPoolSize(static_cast<uint32_t>(circularKb) * 1024u);
     std::fprintf(stderr, "[vita] vitaGL circular pool %d KB, immediate pool %d KB\n", circularKb, immediateKb);
     const char *pools = std::getenv("SOTC_VGL_POOLS");
@@ -298,7 +318,8 @@ void InitWindow(int, int, const char *)
         vglInitWithCustomThreshold(immediateKb * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
                                    SCE_GXM_MULTISAMPLE_NONE);
     bootMark("window: vitaGL up");
-    seedShaderCache(); // vitaGL made the cache's folders
+    if (!std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0)
+        seedShaderCache(); // vitaGL made the cache's folders (the seed holds the fast binaries)
     bootMark("window: shader cache seeded");
     g_glReady = true;
     glViewport(0, 0, width, height);

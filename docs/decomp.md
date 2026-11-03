@@ -9883,6 +9883,93 @@ source is ../Vita3K, not changed here).
 
 **Deliverable:** build/agent-scratch/celosia-r65fix.vpk (on round 65).
 
+## Round 65c: the faceted Agro and the seams in Vita3K, soft shadows on the Vita (2026-11-03)
+
+Scripts, runs and pictures: `build/agent-scratch/r65c/` (v3kd.sh / abc.sh:
+Vita3K runs of the attract demo in ../vita3k-celosia-fix with a boot check,
+a per-second log and window shots; attract.sh: the Mac's attract demo with
+GS and native snapshots; rpvita.sh: a scene recording drawn again by the
+Mac's OpenGL renderer; sbs.sh: Vita3K | GS | Mac native; rec-a10/: a Vita3K
+recording of the attract demo's canyon exit and bridge; pics/: before /
+after).
+
+**The report (r65fix, Vita3K 222 MHz).** Thin light dotted lines along
+Agro's legs, his lower legs pale and blocky, his tail dithered, Wander's
+cloak speckled with stair-step edges, and the sky out of the shrine washed
+out white.
+
+**Reproduced without input** (the attract demo has Agro and Wander close
+up: the shrine, the canyon's exit, the bridge). In Vita3K Agro's body was
+faceted: flat light and dark patches with straight, stair-stepped edges on
+the rump and the legs, where the GS and the Mac's native picture are
+smooth (pics/before_*).
+
+**The cause: the hard shadows.** The body shadows (round 37) are stencil
+volumes, Wander's and Agro's own included, and those volumes also cover
+the bodies that cast them: the GS (and the Mac) count them into a mask,
+reduce it 4 x 4 and blur it, so on the body the self-shadow is a soft
+gradient. The Vita darkened where the count is not 0 in place, hard-edged
+(round 35: vitaGL framebuffers cannot share the picture's stencil with a
+separate mask target): on the body every volume triangle's edge showed, the
+flat dark and light facets, the light lines along the legs, the speckled
+cloak. Shown three ways:
+- `SOTC_BODY_SHADOWS=0` in Vita3K: smooth (r65c/snobody).
+- The Mac drawing the Vita3K recording rec-a10 with `SOTC_SHADOW_HARD=1`:
+  the same facets as Vita3K; soft (its default): smooth (rp-a10 / rp-a10h,
+  pics/macreplay_of_vita3k_lists_soft__hard_shadows.png).
+- Posed on the CPU (`SOTC_GPU_SKIN=0`) Vita3K was smoother: the volumes and
+  the body then come from the same posing and fewer volume edges cut the
+  surface (the self-shadow's straight edges were still there, fainter).
+
+**Ruled out on the way:** vitaGL's 2 MB uniform circular pool (it wraps
+every ~3 frames: 455-705 KB of uniforms a frame in the 3D; 8 MB changed
+nothing; `SOTC_VGL_UNIFORM_KB` and the `[gl:unif]` line stay, default 2048);
+the skinning program's precision (`SOTC_GL_SKIN_PRECISE=1`,
+`SOTC_SHADER_FAST=0`: no change); Vita3K's uniform buffer sizes (the
+program's default buffer is 828 words, uPalette at word 60, read whole);
+the data (the Vita3K recording on the Mac is smooth with soft shadows).
+Vita3K's "Unhandled write protected region was valid" messages are its
+memory-mapping write traps on surfaces / textures (4 KB ranges on 16 KB host
+pages); memory mapping is off in this tree, they are unrelated.
+
+**Fix (`SOTC_SHADOW_SOFT_VITA=0`: hard, as before).** At the volumes'
+layer the picture's alpha (free until bloomMask writes the bloom's mask)
+takes the mask: 0 everywhere, 1 where the stencil count is not 0 (the count
+cleared), colour kept; it is reduced 4 x 4 into bloomTex[0] (mode 11; the GS
+bloom chain has targets of its own), blurred once (`SOTC_SHADOW_BLUR`) and
+the picture darkened by it (mode 9), as the Mac's doShadow. A few quads and
+two small passes a frame with volumes, and the picture taken up again once.
+A version that drew the picture below the volumes again apart for Vita3K
+(as the mid-frame redraw) was 2-4x slower there and was dropped: taken up
+again, the picture held in Vita3K.
+
+**Verified (Vita3K 222 MHz, 3 cores, the attract demo, test3.vpk on round
+66 with this round's files).**
+- The canyon's exit, Agro from behind (r65c/hdef t0215 against cu8192
+  t0162, the hard shadows): no facets, no light lines along the legs, the
+  rump's dark sides a gradient as on the GS
+  (pics/after_agro_rear_vita3k_before__after__gs.png).
+- The shrine, Agro and Wander from behind (tsoft t0154 against pall t0164):
+  the same (pics/after_shrine_agro_vita3k_before__after__gs.png).
+- The ground shadows still there (the canyon, the plain); no picture lost
+  or older where the picture is taken up again, with the mid-frame redraw on
+  (default) or off (`SOTC_GL_REDRAW=0`, usoftr0).
+
+**Not verified.** The console (no runs here): the in-picture mask is the
+same GL as the bloom's mask, which works there. The timing: the host had
+other agents' builds running (load 30-45) and the hard shadows also fell to
+6-8 fps in the same session, so no Vita3K number is given; the cost is a few
+full-screen quads, the 4 x 4 reduction (240 x 136) and one blur, in frames
+with volumes. The user's own scenes (the plain outside the shrine, its foot,
+Wander's cloak up close) were not run with input; the attract demo's
+shrine and canyon cover Agro and Wander from behind.
+
+**Open: the sky out of the shrine.** The Vita's bloom glow (the GS chain
+since 65b, late in Vita3K) still varies from run to run in Vita3K: washed
+out white in the user's r65fix shots, none in this round's bridge shots,
+where the GS has a bright but structured glow. The Mac's native picture has
+no glow there either, so the reference itself is doubtful; not changed here.
+
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
 Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,
