@@ -74,9 +74,8 @@ namespace native_renderer
         d.hookWorker = true;
         d.holdIncomplete = true;
         d.warmShaders = true;
-        // Round 36: the picture at most every other refresh, always (not a
-        // menu item on the Vita: a requirement for an even picture; SOTC_CAP30=0
-        // for testing). A frame that takes a little over 33 ms is then shown
+        // Round 36: the picture at most every other refresh (round 62: a menu
+        // item on the Vita again, "30 fps cap", on by default; SOTC_CAP30 over it). A frame that takes a little over 33 ms is then shown
         // at 30 / 20 steadily instead of alternating 60 / 30 / 20 shows.
         d.frameCap30 = true;
         // Round 37 had the body shadows off by default here until measured;
@@ -403,13 +402,13 @@ namespace native_renderer
              &Tuning::reflections, nullptr, 0, 1, 1, "SOTC_NATIVE_NOREFLECT"},
             {"refraction", "Water refraction", "Refração da água", "The scene seen through water.", "O cenário visto através da água.",
              &Tuning::refraction, nullptr, 0, 1, 1, "SOTC_NATIVE_NOREFRACT"},
-#if !defined(__vita__)
-            // (the Vita: always on, round 36; a saved cap30=0 is ignored there)
-            {"cap30", "Cap at 30 fps", "Limitar a 30 fps",
-             "The picture changes at most every other screen refresh: steady 30 fps instead of a mix of 30 and 60 (or 20 and 30).",
-             "A imagem muda no máximo a cada duas atualizações da tela: 30 fps estáveis em vez de uma mistura de 30 e 60 (ou 20 e 30).",
+            // (Round 62: a menu item on the Vita again, as the user asked: on by
+            // default, a saved value honoured, SOTC_CAP30 over both. It caps
+            // only the heavy frames: above 150 draws, never loading / black ones.)
+            {"cap30", "30 fps cap", "Limite 30 fps",
+             "The picture changes at most every other screen refresh in heavy scenes: steady 30 fps instead of a mix of 30 and 60 (or 20 and 30). Off: shown as soon as it is ready.",
+             "A imagem muda no máximo a cada duas atualizações da tela nas cenas pesadas: 30 fps estáveis em vez de uma mistura de 30 e 60 (ou 20 e 30). Desligado: mostrada assim que fica pronta.",
              &Tuning::frameCap30, nullptr, 0, 1, 1, "SOTC_CAP30"},
-#endif
         };
         auto debugToggle = [&](const char *key, const char *label, const char *labelPt, const char *help, const char *helpPt, bool Tuning::*flag,
                                const char *env = nullptr)

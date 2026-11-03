@@ -295,6 +295,11 @@ public:
     // Round 52: PS2X_XFER_RETURN, switchable while running (SOTC_AB_FLAG=xferreturn).
     [[nodiscard]] bool xferReturn() const noexcept { return m_xferReturn; }
     void setXferReturn(bool on) noexcept { m_xferReturn = on; }
+    // Round 62: the kernel snapshot made only when a reader asked (default);
+    // periodic: every 10 ms of EE time as before (PS2X_SNAPSHOT_EVERY_10MS=1,
+    // SOTC_AB_FLAG `lazysnap`).
+    [[nodiscard]] bool snapshotPeriodic() const noexcept { return m_snapshotPeriodic; }
+    void setSnapshotPeriodic(bool on) noexcept { m_snapshotPeriodic = on; }
     // Round 52: a frame that cannot return early (it goes on after the guest
     // code it runs) holds this while it runs it: a thread switch below throws.
     struct ThrowScope
@@ -572,6 +577,7 @@ private:
     // Snapshots only feed debugging views: rebuild them when one was asked
     // for, or every few EE milliseconds, instead of on every scheduler event.
     mutable std::atomic<bool> m_snapshotWanted{true};
+    bool m_snapshotPeriodic = false;
     uint64_t m_snapshotCycle = 0;
     EeKernelSnapshot m_snapshot;
     uint64_t m_snapshotSequence = 0;

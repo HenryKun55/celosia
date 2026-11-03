@@ -1814,9 +1814,22 @@ EeKernelSnapshot EeScheduler::snapshot() const
 
 void EeScheduler::publishSnapshot()
 {
+    // Round 62: made only when a reader asked since the last one (the debug
+    // panel, the logs: snapshot() asks); the reader gets it at its next
+    // look. Before, one every 10 ms of EE time on the game thread whoever
+    // read it: ~1% of the Vita's game thread (the thread, semaphore and
+    // event flag copies, sorts and allocations) with nobody reading.
+    // PS2X_SNAPSHOT_EVERY_10MS=1: every 10 ms as before.
+    static const bool envRead = [this]
+    {
+        if (const char *env = std::getenv("PS2X_SNAPSHOT_EVERY_10MS"))
+            m_snapshotPeriodic = std::atoi(env) != 0;
+        return true;
+    }();
+    (void)envRead;
     constexpr uint64_t kSnapshotIntervalCycles = 294912000ull / 100ull; // 10 ms of EE time
     if (!m_snapshotWanted.exchange(false, std::memory_order_relaxed) &&
-        eeNow() - m_snapshotCycle < kSnapshotIntervalCycles)
+        (!m_snapshotPeriodic || eeNow() - m_snapshotCycle < kSnapshotIntervalCycles))
         return;
     m_snapshotCycle = eeNow();
     EeKernelSnapshot next{};

@@ -2954,11 +2954,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -2974,6 +2974,7 @@ namespace sotc_native
             sblurLazyAt = indexOf("sblurlazy");
             dmaAsyncAt = indexOf("dmaasync");
             mdsLaneAt = indexOf("mdslane");
+            lazySnapAt = indexOf("lazysnap");
             return true;
         }();
         (void)placesRead;
@@ -2988,6 +2989,11 @@ namespace sotc_native
         }
         if (sblurLazyAt >= 0) // round 59
             g_sblurLazyJoin = !isOffAt(sblurLazyAt);
+        if (g_runtimeForLog && lazySnapAt >= 0) // round 62: the kernel snapshot only when asked
+        {
+            static const bool periodicStart = g_runtimeForLog->eeScheduler().snapshotPeriodic();
+            g_runtimeForLog->eeScheduler().setSnapshotPeriodic(isOffAt(lazySnapAt) ? true : periodicStart);
+        }
         if (mdsLaneAt >= 0) // round 61: modelDispState on its lane (applied at the next frame's start)
         {
             static const bool laneStart = [] { return !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0; }();

@@ -9307,6 +9307,85 @@ in env.txt did nothing).
 
 **Deliverable:** build/agent-scratch/celosia-r61.vpk.
 
+## Round 62: the particle geodisps' clip pass natively; the kernel snapshot only when asked; the 30 fps cap back in the Vita's menu (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r62/` (attract.sh; dt1, dt2: the
+Mac difftests; ab222 / ab300: the Vita3K A/B runs). Round 61's profile of
+its own build (Vita3K 222 MHz, frames ~6 200-8 100): `build/agent-scratch/r61/prof222`.
+
+**Where the particles' time is.** The scoping run's "particles 5.8 ms" was
+one scene's (the title screen's world late in the demo: doit_particle_manager
+4.4 ms inclusive, ~60 particle geodisps); elsewhere 0.3-2.7 ms. Most of it
+is native already (rounds 2-48: the particle step, the emitters, the
+parameter blend, the manager, the draw). The recompiled rest is a long tail
+of small functions (0.1-0.3% of the game thread each in the title world):
+the geodisp classes, the per-frame clip pass, the display chain
+(0113ACB8, disp_particle_emitter, 0113E6C8, the ptclman packet builders),
+the emitters' moves (0113AEF8, 0113C1A8, 01141EA8). This round takes the
+clip pass and the functions every particle pass asks, the most called.
+
+**1. The particle geodisps' clip pass (`SOTC_PTCL62=0` off; A/B `ptcl62`;
+decomp_ptcl62.cpp).**
+- GetGeoDispClass (0x10ed688; up to ~170 000 calls in 6 000 frames of the
+  demo), get_top_emitter_list_from_particle_geodisp (0x113f378),
+  is_emitter_need_disp (0x113fdc8; its bounds test 0113B1D8 stays a guest
+  call), manager_sub_01140C10 (the list's pass: each emitter's answer into
+  its +0x174, any), clip_particle_geodisp (0x113f530: with an emitter to
+  draw the list head's position through getZ into the class's +0x20..+0x28,
+  else -1 at +0x30; iosgluGetCameraContext and getZ guest calls).
+- The natives call each other directly (host calls), the guest calls with
+  the original's argument registers, return addresses, frame and
+  s-registers.
+
+**2. The kernel snapshot only when asked (`PS2X_SNAPSHOT_EVERY_10MS=1`
+as before; A/B `lazysnap`).** EeScheduler::publishSnapshot built a copy of
+every thread, semaphore and event flag (vectors, sorts) every 10 ms of EE
+time on the game thread, read only by the debug panel and the logs:
+`sceClibMemmove` from it was 0.92% of the game thread in round 61's
+profile. Now it is made when a reader asked since the last one
+(snapshot() asks; the reader gets it at its next look).
+
+**3. "30 fps cap" back in the Vita's Quality menu (the user's request).**
+Since round 36 the cap (cap30) was left out of the Vita's list and a saved
+cap30=0 was ignored. Now it is a menu item there too ("30 fps cap" /
+"Limite 30 fps", on / off): on by default, a saved value honoured,
+`SOTC_CAP30` over both. The cap keeps round 36's rule (only for frames of
+150 draws or more, off on loading / black frames, `SOTC_CAP30_ALWAYS=1`).
+Checked in Vita3K (444 MHz, 100 s of the attract demo): with `cap30=0` in
+settings.cfg no `[cap30] on`; without it (default) the cap turns on in
+the heavy scenes (r62/cap0, cap1).
+
+**Exactness.**
+- Mac difftest of the five natives at every 3rd call over the attract demo
+  to frame 9 017 (the title screen's world included; r62/dt2):
+  GetGeoDispClass 160 100 checks, get_top_emitter_list 61 800, the list's
+  pass 16 500, is_emitter_need_disp 22 000, clip_particle_geodisp 12 300:
+  0 mismatches (and r62/dt1, to 3 000 at every call: 0).
+- The snapshot: nothing in the game reads it (observation only); the debug
+  panel and the logs still get one (one look late).
+
+**Measured (Vita3K, attract demo, 420 s, `ptcl62` and `lazysnap` rotating
+with the baseline in 60-frame windows; game + hooks).**
+
+| | all on | `ptcl62` off | `lazysnap` off |
+|---|---|---|---|
+| 222 MHz, frames < 7 000 (r62/ab222) | 20.86 ms (frame 32.98) | 20.84 (32.87) | 20.60 (32.52) |
+| 222 MHz, the title screen's world (~360 frames each) | 34.10 (41.36) | 32.26 (37.53) | 36.50 (41.58) |
+| 300 MHz, frames < 7 000 (r62/ab300) | 16.28 (31.42) | 16.17 (31.88) | 16.06 (31.65) |
+| 300 MHz, the title screen's world (~1 200 frames each) | 24.86 (33.18) | 25.45 (33.71) | 26.00 (34.69) |
+
+Within the noise both ways (+-0.7 ms; the 222 MHz run lost its title
+screen's world to the host's stalls, ~360 frames a state, and its windows
+drew different scenes: 129 draws apart). Neither item moves the frame
+measurably: the five functions were ~0.8% of the game thread in the
+title screen's world and the snapshot's share in the profile was an HLE
+caller guess (Vita3K's import callers are unreliable, round 58). Both
+stay on (exact, and less work); the particles' recompiled tail left
+(the display chain, the emitters' moves) is the same kind: ~0.1-0.3% each.
+
+**Deliverable:** build/agent-scratch/celosia-r62.vpk (with the menu item;
+the A/B runs had the build before it).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
