@@ -9819,6 +9819,70 @@ shared that load.
 
 **Deliverable:** build/agent-scratch/celosia-r65.vpk.
 
+## Round 65b: the character spikes, the sky's glow outside the shrine (2026-11-03)
+
+Scripts, runs and pictures: `build/agent-scratch/r65fix/` (route.sh / bis.sh:
+the Mac New Game route out of the shrine with private snapshot dirs; v3k.sh /
+v3kab.sh: the same in a Vita3K tree of its own, ../vita3k-celosia-fix, window
+shots every 1-3 s; rec-vita*/: scene recordings made in Vita3K, replayed on
+the Mac with `SOTC_REC_REPLAY`).
+
+**1. The white spikes out of Wander's and Agro's legs (Vita3K).** Not on the
+Mac (Metal, OpenGL, `SOTC_NATIVE_GL=check` 0 difference; GPU skinning on or
+off). The scenes recorded in Vita3K replay clean on the Mac, so the draw
+lists were right and the Vita's drawing was not. With every skinned part
+posed on the CPU (`SOTC_GPU_SKIN=0`) Vita3K showed whole frames of junk;
+`SOTC_GL_NOARENA=1` (each per-frame mesh in a buffer of its own) made them
+clean; lean draw (r56), the render thread, the hook worker, merging and the
+mesh pools changed nothing. The skinned parts posed on the CPU (packets the
+GPU path cannot take: lit with a vertex without a normal, or a palette wider
+than 192 qwords) and the shadow volumes are drawn indexed from the start of
+the frame's shared vertex buffer (indexed CPU posing since 28ba06a, the
+indexed volumes since round 45). vitaGL's `glBufferData` copies the data in
+with `sceClibMemcpy`; Vita3K runs that import on the host, past the write
+traps of its buffer trapping (DoubleBuffer mapping), which keeps every range
+over 12 KB a draw reads by its address and copies it again only when it sees
+the guest write it. vitaGL hands the frame buffers addresses older frames had
+used: the indices and vertices past the first ones came from older frames,
+thin stretched triangles toward older poses. Draws under 12 KB (the 2D, the
+particles, the GPU-skinned parts' own small buffers) are copied at every draw,
+which is why only the big indexed ones broke. Not the real console's problem
+(it has no such cache), so not seen there.
+
+**Fix:** the frame's vertex and index buffers, and the meshes' own buffers
+(bind poses, their indices, meshes outside the pools), are made empty by
+`glBufferData(nullptr)` and written through `glMapBuffer` with the CPU's own
+`memcpy` (`uploadStream`; the pools were already written that way). Same
+bytes. `SOTC_GL_ARENA_CLIB=1`: as before.
+- Vita3K 222 MHz, `SOTC_GPU_SKIN=0` (the stress): before every gameplay shot
+  junk (r65fix/v3k-gs0, v3k-gs0ld0), after 10 of 12 clean (v3k-t2gs0; two shots
+  during the area load still broken: a remaining path with the GPU skinning
+  off only, not the default).
+- Vita3K 222 MHz, defaults, New Game through the shrine, the altar, the
+  bridge and the plain with Agro (r65fix/v3k-t2def, 38 shots): no spike, no
+  junk; r64 the same route (v3k-r64b, v3k-ov): spikes on Wander's legs.
+
+**2. The sky outside the shrine (Vita).** The Mac draws the GS's bloom chain
+since round 20 (a 256 x 256 mask, 128 / 64 reductions, the 64 x 64 history
+step, the 12-tap 8-bit blurs onto 64 and 128, stretched over the picture);
+the Vita still had round 18's narrow glow (the mask reduced 4 x 4, a few
+texels of blur, 0.46 of the strength by eye): the bright sky's edges stayed
+hard against the pillars, a flat bright band where the GS spreads its glow
+~30 PS2 pixels over them. Now the Vita runs the same chain (quad modes 15-18
+in Cg, the mask read from the picture's alpha that bloomMask writes, the
+targets made on the Vita too; `SOTC_BLOOM_GS_VITA=0`: as before). The sky
+itself: on the Mac the native picture matches the GS frame by frame out of
+the shrine (r65fix/ovx native_N vs frame_N, the sky dome, far landscape and
+draw order alike); no sky or layer was missing in the Vita3K shots either.
+The fades (the white fade at the shrine's start, the cutscene's) replay the
+same on both renderers (rpv-gl).
+
+**Open:** the two junk shots with `SOTC_GPU_SKIN=0`; Vita3K itself could
+compute the greatest index per draw and see `sceClibMemcpy`'s writes (its
+source is ../Vita3K, not changed here).
+
+**Deliverable:** build/agent-scratch/celosia-r65fix.vpk (on round 65).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

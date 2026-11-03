@@ -658,6 +658,55 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     sum += tex2D(uSrc, (base + float2(0, 3)) * uSize.xy).a + tex2D(uSrc, (base + float2(1, 3)) * uSize.xy).a;
     sum += tex2D(uSrc, (base + float2(2, 3)) * uSize.xy).a + tex2D(uSrc, (base + float2(3, 3)) * uSize.xy).a;
     return float4(uB.rgb * (sum / 16.0), 1.0);
+#elif MODE == 15
+    // Round 65b: the GS chain's mask at 256 x 256 (rows from the top) as the
+    // Mac's mode 15, from the mask in the picture's alpha (bloomMask) instead
+    // of its depth: bilinear over the PS2 frame's texels (p + 0.5) x (2, 1.75),
+    // each white where the picture's pixel there is in the mask; uB the mask
+    // colour, uSize.xy the picture's size.
+    float2 p = float2(floor(uv.x * 256.0), 255.0 - floor(uv.y * 256.0));
+    float2 t = (p + 0.5) * float2(2.0, 1.75) - 0.5;
+    float2 i0 = floor(t), f = t - i0;
+    float2 s = uSize.xy / float2(512.0, 448.0);
+    float2 a0 = clamp(i0, float2(0.0, 0.0), float2(511.0, 447.0)), a1 = clamp(i0 + 1.0, float2(0.0, 0.0), float2(511.0, 447.0));
+    float2 x0 = min(floor((a0 + 0.5) * s), uSize.xy - 1.0), x1 = min(floor((a1 + 0.5) * s), uSize.xy - 1.0);
+    float m00 = tex2D(uSrc, (float2(x0.x, uSize.y - 1.0 - x0.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+    float m10 = tex2D(uSrc, (float2(x1.x, uSize.y - 1.0 - x0.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+    float m01 = tex2D(uSrc, (float2(x0.x, uSize.y - 1.0 - x1.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+    float m11 = tex2D(uSrc, (float2(x1.x, uSize.y - 1.0 - x1.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+    return float4(uB.rgb * lerp(lerp(m00, m10, f.x), lerp(m01, m11, f.x), f.y), 1.0);
+#elif MODE == 16
+    // The GS chain's blur (the Mac's mode 16): the 64 x 64 source onto uA.x
+    // pixels, 12 shifted lerps in 8 bits, truncated, rows from the top.
+    float r = uA.x, k = 64.0 / r;
+    float2 p = float2(floor(uv.x * r), r - 1.0 - floor(uv.y * r));
+    float2 t0 = (p + 0.5) * k;
+    float3 acc = floor(tex2D(uSrc, float2(t0.x, 64.0 - t0.y) / 64.0).rgb * 255.0 + 0.5);
+#define GS_TAP(DX, DY, A) \
+    { \
+        float2 q = p - float2(DX, DY); \
+        if (q.x >= 0.0 && q.y >= 0.0 && q.x < r && q.y < r) \
+        { \
+            float2 tq = 0.5 + q * k; \
+            float3 c = floor(tex2D(uSrc, float2(tq.x, 64.0 - tq.y) / 64.0).rgb * 255.0 + 0.5); \
+            acc += floor((c - acc) * A); \
+        } \
+    }
+    GS_TAP(-1.0, 0.0, 0.5) GS_TAP(1.0, 0.0, 0.5) GS_TAP(0.0, -1.0, 0.5) GS_TAP(0.0, 1.0, 0.5)
+    GS_TAP(-2.0, 0.0, 0.25) GS_TAP(2.0, 0.0, 0.25) GS_TAP(0.0, -2.0, 0.25) GS_TAP(0.0, 2.0, 0.25)
+    GS_TAP(-3.0, 0.0, 0.125) GS_TAP(3.0, 0.0, 0.125) GS_TAP(0.0, -3.0, 0.125) GS_TAP(0.0, 3.0, 0.125)
+    return float4(acc / 255.0, 1.0);
+#elif MODE == 17
+    // The GS chain's temporal step (the Mac's mode 17): Cd + ((Cs - Cd) x uA.x)
+    // truncated, Cs the history (uSrc2).
+    float3 cd = floor(tex2D(uSrc, uv).rgb * 255.0 + 0.5), cs = floor(tex2D(uSrc2, uv).rgb * 255.0 + 0.5);
+    return float4((cd + floor((cs - cd) * uA.x)) / 255.0, 1.0);
+#elif MODE == 18
+    // The GS chain's composite (the Mac's mode 18): UV 0.5..256.5 over the
+    // PS2 frame; uA.xy render pixels per PS2 pixel, uSize.xy the picture's size.
+    float2 x = float2(uv.x * uSize.x, uSize.y - uv.y * uSize.y) / uA.xy - 0.5;
+    float2 g = (0.5 + x * float2(256.0 / 512.0, 256.0 / 448.0)) / 256.0;
+    return float4(tex2D(uSrc, float2(g.x, 1.0 - g.y)).rgb * uB.rgb * uB.a, 1.0);
 #else
     return float4(tex2D(uSrc, uv).rgb * uB.rgb * uB.a, 1.0);
 #endif
@@ -884,7 +933,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint mainProgram = 0, quadProgram = 0;
         GLuint skinProgram = 0; // the main program posing a skinned mesh's bind pose first (0: not built)
 #if defined(PS2X_NATIVE_VITA)
-        GLuint quadPrograms[15] = {}; // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused)
+        GLuint quadPrograms[19] = {}; // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused; 15-18 the GS bloom chain, round 65b)
 #endif
         GLuint quadBuffer = 0, blurBuffer = 0, vao = 0;
         // Uniform locations by (program, name): the names are string literals,
@@ -1386,7 +1435,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void useQuad(int mode)
         {
 #if defined(PS2X_NATIVE_VITA)
-            if (mode >= 0 && mode < 15 && quadPrograms[mode])
+            if (mode >= 0 && mode < 19 && quadPrograms[mode])
                 quadProgram = quadPrograms[mode];
 #else
             (void)mode;
@@ -1471,7 +1520,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const GLuint mainVertex = compile(GL_VERTEX_SHADER, kMainVertex);
             mainProgram = program(mainVertex, kMainFragment, {"aPos", "aNormal", "aColor", "aUV"});
 #if defined(PS2X_NATIVE_VITA)
-            for (int mode : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14})
+            for (int mode : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18})
             {
                 const std::string source = "#define MODE " + std::to_string(mode) + "\n" + kQuadFragment;
                 quadPrograms[mode] = program(mode == 3 ? kQuadVertexTurned : (mode == 8 ? kQuadVertexDepth : kQuadVertex), source.c_str(), {"aPos"});
@@ -1617,15 +1666,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             };
             uint32_t draws = 0;
             uint32_t programs = 0;
-            for (int which = 0; which < 23; ++which)
+            for (int which = 0; which < 27; ++which)
             {
-                // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45)
-                const GLuint p = which == 0 ? mainProgram : (which == 1 ? skinProgram : (which < 14 ? quadPrograms[which - 2] : mains[2 + which - 14].program));
+                // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45),
+                // the GS bloom chain's 15-18 (round 65b)
+                const GLuint p = which == 0 ? mainProgram
+                                            : (which == 1 ? skinProgram
+                                                          : (which < 14 ? quadPrograms[which - 2] : (which < 23 ? mains[2 + which - 14].program : quadPrograms[which - 8])));
                 if (!p)
                     continue;
                 ++programs;
                 glUseProgram(p);
-                const bool skinned = which == 1 || (which >= 18 && which < 22), quadMode = which >= 2 && which < 14;
+                const bool skinned = which == 1 || (which >= 18 && which < 22), quadMode = (which >= 2 && which < 14) || which >= 23;
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
                 for (GLuint i = 0; i < 6; ++i)
                 {
@@ -1929,14 +1981,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             makeTarget(refractionHalf, 128, 128, false);
             for (Target &t : bloomTex)
                 makeTarget(t, std::max(w / 4u, 1u), std::max(h / 4u, 1u), false);
-#if !defined(PS2X_NATIVE_VITA)
+            // The GS bloom chain's targets (the Vita too since round 65b).
             for (int i = 0; i < 7; ++i)
             {
                 const uint32_t size = (i == 0 || i == 6) ? 256u : ((i == 1 || i == 5) ? 128u : 64u);
                 makeTarget(gsBloom[i], size, size, false);
             }
             gsBloomHistory = false;
-#endif
             if (colorPlain.fbo)
                 glDeleteFramebuffers(1, &colorPlain.fbo);
             colorPlain = Target{};
@@ -2241,6 +2292,37 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                          (unsigned long long)(drawStats.calls - calls), differ, w * h, worst);
         }
 
+        // The frame's shared vertex / index buffer filled (bound to `target`).
+        // Round 65b, the Vita: glBufferData copies the data in with
+        // sceClibMemcpy, which Vita3K runs on the host without its write
+        // traps: a draw reading more than 12 KB of the buffer (Vita3K's
+        // buffer trapping keeps such ranges by address and copies them again
+        // only when the guest is seen writing them) got an older frame's
+        // vertices and indices where vitaGL had put this one's at the same
+        // address: thin white spikes out of Wander's and Agro's legs and body
+        // (the skinned parts posed on the CPU and the shadow volumes are drawn
+        // indexed from the start of this buffer); every frame junk with every
+        // skinned part posed on the CPU (SOTC_GPU_SKIN=0). The storage is made
+        // empty and written here with the CPU's own memcpy, which the traps
+        // see (the same bytes). SOTC_GL_ARENA_CLIB=1: glBufferData's copy.
+        static void uploadStream(GLenum target, const void *data, size_t bytes, GLenum usage = GL_STREAM_DRAW)
+        {
+#if defined(PS2X_NATIVE_VITA)
+            static const bool clib = std::getenv("SOTC_GL_ARENA_CLIB") && std::atoi(std::getenv("SOTC_GL_ARENA_CLIB")) != 0;
+            if (!clib)
+            {
+                glBufferData(target, static_cast<GLsizeiptr>(bytes), nullptr, usage);
+                if (void *to = glMapBuffer(target, GL_WRITE_ONLY))
+                {
+                    std::memcpy(to, data, bytes);
+                    glUnmapBuffer(target);
+                    return;
+                }
+            }
+#endif
+            glBufferData(target, static_cast<GLsizeiptr>(bytes), data, usage);
+        }
+
         // A mesh's triangles: the list as it is, or the indexed one's
         // indices (the frame's index buffer, bound with the frame's
         // vertices: the indices count from the start of the arena).
@@ -2252,8 +2334,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             }
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.dynamic ? indexBuffers[arenaIndex] : mesh.indexBuffer);
-            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.count), GL_UNSIGNED_INT,
-                           reinterpret_cast<const void *>(static_cast<uintptr_t>(mesh.dynamic ? mesh.firstIndex : 0u) * sizeof(uint32_t)));
+            const uintptr_t first = mesh.dynamic ? mesh.firstIndex : 0u;
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.count), GL_UNSIGNED_INT, reinterpret_cast<const void *>(first * sizeof(uint32_t)));
         }
     };
 
@@ -2436,7 +2518,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (!mesh.buffer)
                 glGenBuffers(1, &mesh.buffer);
             glBindBuffer(GL_ARRAY_BUFFER, mesh.buffer);
-            glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(count * sizeof(native_renderer::Vertex)), vertices, GL_STATIC_DRAW);
+            uploadStream(GL_ARRAY_BUFFER, vertices, count * sizeof(native_renderer::Vertex), GL_STATIC_DRAW); // (round 65b, see there)
         }
         mesh.count = count;
         mesh.bytes = static_cast<uint64_t>(count) * sizeof(native_renderer::Vertex);
@@ -2682,9 +2764,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         if (!mesh.indexBuffer)
             glGenBuffers(1, &mesh.indexBuffer);
         glBindBuffer(GL_ARRAY_BUFFER, mesh.buffer);
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(count * sizeof(native_renderer::SkinVertex)), vertices, GL_STATIC_DRAW);
+        // (Round 65b: written by the CPU on the Vita, see uploadStream: a bind
+        // pose at an address an evicted one had came out as the old one in Vita3K.)
+        uploadStream(GL_ARRAY_BUFFER, vertices, count * sizeof(native_renderer::SkinVertex), GL_STATIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indexCount * sizeof(uint32_t)), indices, GL_STATIC_DRAW);
+        uploadStream(GL_ELEMENT_ARRAY_BUFFER, indices, indexCount * sizeof(uint32_t), GL_STATIC_DRAW);
         mesh.count = indexCount;
         mesh.bytes = static_cast<uint64_t>(count) * sizeof(native_renderer::SkinVertex) + static_cast<uint64_t>(indexCount) * 4u;
         meshBytes += mesh.bytes;
@@ -3202,14 +3286,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (!arenaBuffers[arenaIndex])
                     glGenBuffers(1, &arenaBuffers[arenaIndex]);
                 glBindBuffer(GL_ARRAY_BUFFER, arenaBuffers[arenaIndex]);
-                glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(arena.size() * sizeof(native_renderer::Vertex)), arena.data(), GL_STREAM_DRAW);
+                uploadStream(GL_ARRAY_BUFFER, arena.data(), arena.size() * sizeof(native_renderer::Vertex));
             }
             if (!indexArena.empty())
             {
                 if (!indexBuffers[arenaIndex])
                     glGenBuffers(1, &indexBuffers[arenaIndex]);
                 glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffers[arenaIndex]);
-                glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indexArena.size() * sizeof(uint32_t)), indexArena.data(), GL_STREAM_DRAW);
+                uploadStream(GL_ELEMENT_ARRAY_BUFFER, indexArena.data(), indexArena.size() * sizeof(uint32_t));
             }
         }
         const bool fogOn = fog.enabled && fog.width > 0.0f;
@@ -4103,8 +4187,59 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const bool bloomSameFrame = bloomSameFrameOn && !(redrawSetting >= 1.5f ? native_renderer::inEmulator() : redrawSetting >= 0.5f);
         // The mask (alpha) reduced 4 x 4 in the mask colour, blurred, over
         // last frame's at the game's temporal share: bloomTex[2].
+        // Round 65b: the GS chain itself (the Mac's doBloom since round 20:
+        // a 256 x 256 mask, 128 and 64 reductions, the 64 x 64 history step,
+        // the 12-tap blurs onto 64 and 128, stretched over the picture), its
+        // mask read from the picture's alpha. Before (SOTC_BLOOM_GS_VITA=0)
+        // the Vita had the Mac's first glow: the mask reduced 4 x 4 at the
+        // picture's size and blurred a few texels, at 0.46 of the strength
+        // (set by eye): narrow, it left the bright sky's edges hard (the
+        // pillars outside the shrine against a flat white band) where the
+        // GS's spreads ~30 PS2 pixels over them.
+        static const bool gsChain = !std::getenv("SOTC_BLOOM_GS_VITA") || std::atoi(std::getenv("SOTC_BLOOM_GS_VITA")) != 0;
+        auto gsBloomChain = [&]
+        {
+            const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
+            useQuad(15);
+            const float size[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
+            glUniform4fv(uniform(false, "uSize"), 1, size);
+            bindTexture(0, color.texture);
+            quad(gsBloom[0], 15, QuadBlend::None, nullptr, maskColour);
+            bindTexture(0, gsBloom[0].texture);
+            quad(gsBloom[1], 0, QuadBlend::None);
+            bindTexture(0, gsBloom[1].texture);
+            quad(gsBloom[2], 0, QuadBlend::None);
+            const float alpha[4] = {gsBloomHistory ? bloom.temporal : 0.0f, 0, 0, 0};
+            bindTexture(0, gsBloom[2].texture);
+            bindTexture(1, gsBloom[4].texture);
+            quad(gsBloom[3], 17, QuadBlend::None, alpha);
+            const float r64[4] = {64, 0, 0, 0}, r128[4] = {128, 0, 0, 0};
+            bindTexture(0, gsBloom[3].texture);
+            quad(gsBloom[4], 16, QuadBlend::None, r64);
+            gsBloomHistory = true;
+            quad(gsBloom[5], 16, QuadBlend::None, r128);
+            bindTexture(0, gsBloom[5].texture);
+            quad(gsBloom[6], 0, QuadBlend::None);
+            bloomHistory = true;
+        };
+        // The chain's glow added to the picture (QuadBlend::Add keeps its alpha).
+        auto gsBloomAdd = [&]
+        {
+            useQuad(18);
+            const float size[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
+            glUniform4fv(uniform(false, "uSize"), 1, size);
+            const float scale[4] = {static_cast<float>(width) / 512.0f, static_cast<float>(height) / 448.0f, 0, 0};
+            const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
+            bindTexture(0, gsBloom[6].texture);
+            quad(color, 18, QuadBlend::Add, scale, colour);
+        };
         auto bloomReduce = [&]
         {
+            if (gsChain)
+            {
+                gsBloomChain();
+                return;
+            }
             useQuad(11);
             const float texel[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
             glUniform4fv(uniform(false, "uSize"), 1, texel);
@@ -4124,11 +4259,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             if (bloomHistory && !bloomSameFrame)
             {
-                // Strength x 0.46: this glow is the narrow one the Mac had
-                // before the GS chain (its strength was set by eye then).
-                const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3] * 0.46f};
-                bindTexture(0, bloomTex[2].texture);
-                quad(color, 10, QuadBlend::Add, nullptr, colour);
+                if (gsChain)
+                    gsBloomAdd();
+                else
+                {
+                    // Strength x 0.46: this glow is the narrow one the Mac had
+                    // before the GS chain (its strength was set by eye then).
+                    const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3] * 0.46f};
+                    bindTexture(0, bloomTex[2].texture);
+                    quad(color, 10, QuadBlend::Add, nullptr, colour);
+                }
             }
             float dt = 1.0f;
             if (bloom.zB > 0.0f)
@@ -4164,9 +4304,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (bloomSameFrame)
             {
                 bloomReduce();
-                const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3] * 0.46f};
-                bindTexture(0, bloomTex[2].texture);
-                quad(color, 10, QuadBlend::Add, nullptr, colour);
+                if (gsChain)
+                    gsBloomAdd();
+                else
+                {
+                    const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3] * 0.46f};
+                    bindTexture(0, bloomTex[2].texture);
+                    quad(color, 10, QuadBlend::Add, nullptr, colour);
+                }
                 glEnable(GL_DEPTH_TEST); // as the frame's pass left it
                 glDepthFunc(GL_LEQUAL);
                 return;
