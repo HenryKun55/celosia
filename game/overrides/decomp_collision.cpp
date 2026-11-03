@@ -64,7 +64,7 @@ namespace decomp_collision
         std::atomic<uint32_t> lastSurfFilter{0}, lastIdFilter{0};
     };
     Stats g_stats;
-    const bool g_statsOn = std::getenv("SOTC_COLLISION_STATS") != nullptr;
+    bool g_statsOn = std::getenv("SOTC_COLLISION_STATS") != nullptr; // (round 63: set again at install, after the Vita's env.txt)
 #define COLL_STAT(name) \
     do                  \
     {                   \
@@ -113,6 +113,17 @@ namespace decomp_collision
         std::fprintf(stderr, "[collision] r40: water surface %llu (recompiled %llu, with a triangle filter %llu)\n", (unsigned long long)g_stats.surface.load(),
                      (unsigned long long)g_stats.surfaceSlow.load(), (unsigned long long)g_stats.surfaceFiltered.load());
         std::fprintf(stderr, "[collision] r40: GetCollisionDBPlane %llu (made %llu)\n", (unsigned long long)g_stats.plane.load(), (unsigned long long)g_stats.planeMade.load());
+    }
+
+    // Round 63's census (decomp_collcensus.cpp, SOTC_COLL_CENSUS=1): each
+    // query's inputs hashed, to count repeats within a frame.
+    void (*g_queryNote)(int kind, uint64_t hash) = nullptr;
+    inline uint64_t mixHash(uint64_t h, uint64_t v) { return (h ^ v) * 0x100000001B3ull + (h >> 29); }
+    inline uint64_t hashQ(uint8_t *rdram, uint32_t a, uint64_t h)
+    {
+        uint64_t w[2];
+        std::memcpy(w, rdram + (a & 0x01FFFFF0u), 16);
+        return mixHash(mixHash(h, w[0]), w[1]);
     }
 
     // Guest code run from here (filters, vertex fetches, the recompiled
@@ -1231,6 +1242,93 @@ namespace decomp_collision
         uint32_t a0, a3, t1; // result, tree, parameters
     };
 
+    // ---- round 63: the leaf's plane test first (SOTC_COLL63=0 off) ----------
+    // A surface past the boundary cylinder goes, in the original, through
+    // the surface filter, the id filter and ClipCollisionDB, whose plane test
+    // throws out ~86% of them (the segment on one side of the surface's
+    // plane: ClipCollisionDB returns 0 having written only f0 = 0). With no
+    // surface filter, an id filter that is a pure read of the attribute bits
+    // (natively, never a guest call while the object's layout class is a
+    // plain one) and the plane cached, that outcome is known from the plane
+    // test alone: the filter and ClipCollisionDB are skipped. What they
+    // would have left: the id record's frame words (written as before) and
+    // f0 (0 when the filter passes, else as the cylinder test left it),
+    // which only matters if no later surface of the leaf writes f0: then the
+    // filter is asked at the leaf's end. SOTC_COLL63_VERIFY=1: every skip is
+    // run the original way too and its outcome compared ("[coll63] ...").
+    int g_coll63Verify = -1;
+    inline bool coll63On() { return sotc_decomp::switchOn(sotc_decomp::kColl63); }
+    inline bool coll63Verify()
+    {
+        if (__builtin_expect(g_coll63Verify < 0, 0))
+            g_coll63Verify = std::getenv("SOTC_COLL63_VERIFY") != nullptr ? 1 : 0;
+        return g_coll63Verify != 0;
+    }
+    struct Coll63Stats
+    {
+        uint64_t candidates = 0, skipped = 0, endAsked = 0, checks = 0, bad = 0;
+    } g_c63;
+    __attribute__((noinline, cold)) void coll63Report()
+    {
+        std::fprintf(stderr, "[coll63] surfaces past the cylinder %llu, skipped %llu, filters asked at the end %llu | verify: %llu checks, %llu differ\n",
+                     (unsigned long long)g_c63.candidates, (unsigned long long)g_c63.skipped, (unsigned long long)g_c63.endAsked,
+                     (unsigned long long)g_c63.checks, (unsigned long long)g_c63.bad);
+    }
+    // The id filters that are a pure read natively (idFilter's cases that
+    // write nothing, call nothing and fail only when the object's layout
+    // class is not a plain one) or none.
+    inline bool pureIdFilter(uint32_t f)
+    {
+        switch (f)
+        {
+        case 0u:
+        case 0x01123A58u: // CollisionPlaneJudgeCallbackCameraVisibility
+        case 0x01123C60u: // CollisionPlaneJudgeCallbackCameraLeave
+        case 0x01434C00u: // gamecoreSurfaceFilter
+        case 0x011292B0u: // collisionNotKind28Filter
+        case 0x014336A0u: // pathJudgeFunc
+            return true;
+        case 0x01444800u: // gamecore_sub_01444800
+        case 0x0110C790u: // manager_sub_0110C790
+            return sotc_decomp::camCollOn();
+        default:
+            return false;
+        }
+    }
+    // Whether ClipCollisionDB(a1, a2) of the independent surface `surface`
+    // of index `part` of class cls returns 0 at its plane test (the plane
+    // cached): the same distances as clipDBT's (round 49's NEON form when
+    // every operand is small, else the clamped chain), nothing written.
+    bool planeRejects(const G g, uint32_t cls, uint32_t part, uint32_t surface, uint32_t a1, uint32_t a2)
+    {
+        const uint32_t s2c = g.u32(g.u32(cls + 0x174u) + 0x24u) + part * 0x60u + 0x30u;
+        if (g.u8(g.u32(s2c + 8u) + surface) == 0u)
+            return false;
+        const uint32_t normal = g.u32(s2c + 0x14u) + surface * 16u;
+        const __m128 vf0 = g.ctx->vu0_vf[0];
+#if PS2X_VU_NEON_A32
+        {
+            bool small;
+            const uint64_t d = fast::planeDistances(g.q(normal), vf0, g.q(a1), g.q(a2), small);
+            if (small)
+                return fast::belowZero(static_cast<uint32_t>(d)) || fast::aboveZero(static_cast<uint32_t>(d >> 32));
+        }
+#endif
+        const __m128 n = vu::clamp(g.q(normal)), vf0c = vu::clamp(vf0);
+        auto distance = [&](uint32_t p)
+        {
+            const __m128 prod = vu::mulN(n, vu::clamp(g.q(p)));
+            __m128 acc = vu::addN(vf0c, lane<0>(prod));
+            acc = vu::addN(acc, lane<1>(prod));
+            const __m128 dd = vu::addN(acc, lane<2>(prod));
+            return x(vu::addN(dd, lane<3>(n)));
+        };
+        const float zero = 0.0f;
+        if (FPU_C_OLT_S(distance(a1), zero))
+            return true;
+        return FPU_C_OLT_S(zero, distance(a2));
+    }
+
     template <bool Fast>
     uint64_t leafT(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)
     {
@@ -1284,8 +1382,14 @@ namespace decomp_collision
 #if PS2X_VU_NEON_A32
         const bool check49 = Fast && fast::check49();
 #endif
+        // Round 63: the plane test first (see coll63On); the object's layout
+        // class read once (the leaf's surfaces are all the object's).
+        const bool c63 = coll63On();
+        bool c63Ready = false, c63Usable = false, pendingSkip = false;
+        uint32_t c63Cls = 0u;
         for (; count != 0u; --count, ids += 2u)
         {
+            pendingSkip = false;
 #if PS2X_VU_NEON_A32
             if constexpr (Fast)
             {
@@ -1458,6 +1562,59 @@ namespace decomp_collision
                 continue;
             flushFrame();
             COLL_STAT(cylinder);
+            bool c63Verifying = false, c63Pass = false;
+            if (c63)
+            {
+                if (!c63Ready)
+                {
+                    c63Ready = true;
+                    c63Usable = layoutClass(g, g.u32(p), c63Cls) && c63Cls != 0u;
+                }
+                const uint32_t idf = g.u32(p + 0x20u);
+                ++g_c63.candidates;
+                if (c63Usable && g.u32(p + 0x1Cu) == 0u && pureIdFilter(idf))
+                {
+                    const uint32_t surf = g.u16(ids);
+                    const bool rejects = mode == 1 ? (planeRejects(g, c63Cls, 0u, surf, sp, sp + 0x10u) && planeRejects(g, c63Cls, 0u, surf, sp + 0x10u, sp))
+                                                   : mode == 2 ? planeRejects(g, c63Cls, 0u, surf, sp + 0x10u, sp)
+                                                               : planeRejects(g, c63Cls, 0u, surf, sp, sp + 0x10u);
+                    if (rejects)
+                    {
+                        const uint32_t lo = g.u32(p), hi = static_cast<uint32_t>(surf) | 0x80000000u;
+                        g.put32(sp + idSlot, lo);
+                        g.put32(sp + idSlot + 4u, hi);
+                        g.put64(sp + 0x40u, static_cast<uint64_t>(lo) | (static_cast<uint64_t>(hi) << 32));
+                        if (__builtin_expect(coll63Verify(), 0))
+                        {
+                            // the original way below; its outcome checked
+                            c63Verifying = true;
+                            c63Pass = true;
+                            if (idf != 0u)
+                            {
+                                uint64_t seen = 0u;
+                                c63Pass = idFilter(g, idf, sp + 0x40u, g.u32(p + 0x24u), seen, sp) && seen != 0u;
+                            }
+                        }
+                        else
+                        {
+                            ++g_c63.skipped;
+                            pendingSkip = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+            auto c63Check = [&](bool clippedNothing)
+            {
+                if (!c63Verifying)
+                    return;
+                ++g_c63.checks;
+                const bool ok = clippedNothing && (!c63Pass || ctx->f[0] == 0.0f);
+                if (!ok)
+                    ++g_c63.bad;
+                if (!ok || g_c63.checks % 20000u == 0u)
+                    coll63Report();
+            };
             if (const uint32_t filter = g.u32(p + 0x1Cu); filter != 0u)
             {
                 COLL_STAT(surfFilter);
@@ -1484,7 +1641,11 @@ namespace decomp_collision
                 {
                     COLL_STAT(idFilterNative);
                     if (seen == 0u)
+                    {
+                        if (c63Verifying)
+                            c63Check(!c63Pass);
                         continue;
+                    }
                 }
                 else
                 {
@@ -1510,6 +1671,8 @@ namespace decomp_collision
                 clipped = clipDBT<Fast>(g, s.a0, sp + 0x10u, sp, sp + 0x40u, 0x112C434u, sp);
             else
                 clipped = clipDBT<Fast>(g, s.a0, sp, sp + 0x10u, sp + 0x40u, 0x112C06Cu, sp);
+            if (c63Verifying)
+                c63Check(c63Pass && clipped == 0u);
             if (clipped == 0u)
                 continue;
             hit = 1u;
@@ -1523,6 +1686,20 @@ namespace decomp_collision
         if (lastFast)
             g.f0(lastCy * lastCy); // as the plain rejection below leaves it
 #endif
+        if (pendingSkip)
+        {
+            // Round 63: the last surface was skipped: f0 as its filter and
+            // ClipCollisionDB would have left it.
+            ++g_c63.endAsked;
+            bool pass = true;
+            if (const uint32_t idf = g.u32(p + 0x20u); idf != 0u)
+            {
+                uint64_t seen = 0u;
+                pass = idFilter(g, idf, sp + 0x40u, g.u32(p + 0x24u), seen, sp) && seen != 0u;
+            }
+            if (pass)
+                g.f0(0.0f);
+        }
         flushFrame();
         return hit;
     }
@@ -3022,6 +3199,13 @@ namespace decomp_collision
         const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x270u;
         const uint32_t s5 = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), group = GPR_U32(ctx, 7);
         const uint32_t user = g.u32(spIn);
+        if (__builtin_expect(g_queryNote != nullptr, 0))
+        {
+            uint64_t h = hashQ(rdram, start, hashQ(rdram, end, 1469598103934665603ull));
+            for (uint32_t v : {group, GPR_U32(ctx, 8), GPR_U32(ctx, 9), GPR_U32(ctx, 10), GPR_U32(ctx, 11), user})
+                h = mixHash(h, v);
+            g_queryNote(0, h);
+        }
         g.put32(sp + 0x1A0u, start);
         g.put32(sp + 0x1A4u, GPR_U32(ctx, 8));
         g.put32(sp + 0x1A8u, GPR_U32(ctx, 9));
@@ -3951,6 +4135,13 @@ namespace decomp_collision
             return sotc_decomp::recompiled(self)(rdram, ctx, runtime);
         }
         uint32_t best = 0u;
+        if (__builtin_expect(g_queryNote != nullptr, 0))
+        {
+            uint64_t h = hashQ(rdram, a2, 1469598103934665603ull);
+            for (uint32_t v : {a0, a1, a3, static_cast<uint32_t>(n), g.u32(a3 + 0xCu), filter, user})
+                h = mixHash(h, v);
+            g_queryNote(Filtered ? 2 : 1, h);
+        }
         if (n != 0)
         {
             g.put(sp, g.q(a2));

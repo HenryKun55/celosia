@@ -9386,6 +9386,125 @@ stay on (exact, and less work); the particles' recompiled tail left
 **Deliverable:** build/agent-scratch/celosia-r62.vpk (with the menu item;
 the A/B runs had the build before it).
 
+## Round 63: the collision queries counted; the leaf's plane test first (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r63/` (attract.sh, v3k.sh,
+sample.sh; census222 / census222b / census222c: the Vita3K census runs;
+intro-verify, verify444: the checks; dt-on.log: the Mac difftest; ab222,
+ab222-cap0, ab300: the Vita3K A/B runs). A game-thread round, scoped as
+"collision as a whole subsystem".
+
+**The census first (`SOTC_COLL_CENSUS=1`, decomp_collcensus.cpp).** Every
+collision function the guest reaches through the function table (54 of
+them: the segment queries ClipCollisionDirect*, the finders, the keeps,
+the probes, the camera's checks, the DB lookups, the recompiled tree
+walkers) is wrapped; the outermost one running is a query, timed and
+counted by (function, return address), with the wrapped calls under it,
+the natives' own call counts (sotc_decomp::NativeCount, the direct host
+calls too) and, with `SOTC_COLLISION_STATS=1`, the path counts. A hash of
+each query's inputs counts the repeats within a frame.
+
+What it shows (Vita3K 222 MHz, the attract demo):
+- The heavy collision is not in the first 10 000 frames: ~1 ms a frame
+  there (the camera's checks). It starts in the title screen's world at
+  frame ~10 000 (Wander on foot and riding): 6.4-7.4 ms a frame with the
+  census's own clock reads (~1 ms of it), so ~5 ms.
+- It is ~800 small queries a frame from ~40 call sites, none above ~0.7 ms:
+  the character's finder build (GetCollisionDBCallBack, 2-3 a frame,
+  0.7-2 ms: the sphere against the trees, 18-41 surfaces kept), the
+  segment queries against objects (ClipCollisionDirectCallBack 12 a frame,
+  ObjAry 5, the camera's 6), the keeps over the finder's surfaces
+  (keepThenSlope 72-170 a frame, FinderWithKeep4DSlopeLimitCB),
+  GetCollisionDBAttributeAdr from guest code 196 a frame,
+  FlushModifiedManager 364 a frame (the per-frame caches).
+- Repeats of the same query in a frame: 3% of the segment queries, 10%
+  of the finder clips (one a frame), 0% of the callback form: a frame
+  cache of results has nothing to take.
+- Per frame in the title screen's world: ~1 400 tree node visits, ~100
+  leaves, ~1 100 surfaces, ~620 ClipCollisionDB calls of which ~86% end at
+  the plane test; per segment query ~4.5 objects and ~5.5 skinned parts.
+- The Mac's attract demo never reaches that part (its demo goes elsewhere
+  after frame ~9 000: 0.02 ms of collision a frame); the Mac checks ran on
+  the New Game route (build/agent-scratch/tools/intro.sh), whose riding
+  part makes the same kinds of queries.
+
+So no single structure dominates: the subsystem is already native end to
+end (rounds 10-58), its queries are distinct, and what is left is the
+per-surface work and the memory walks under ~40 kinds of query. A host
+acceleration structure per area was looked at and left: the boundary,
+plane and vertex caches it would mirror are the game's own per-frame
+caches in guest memory (flushed and refilled through EntryModifiedManager /
+FlushModifiedManager), and a hit's bits depend on the segment as the tree
+walk clips it at each split, so another structure would have to replay
+the same walk to give the same point.
+
+**What changed (`SOTC_COLL63=0` off; A/B `coll63`).** The leaf
+(0x112be58, leafT) ran every surface past its boundary cylinder through
+the surface filter, the id filter (GetCollisionDBAttributeAdr's chain of
+loads for the camera's and the probes' filters) and ClipCollisionDB,
+whose plane test then threw out ~86% of them. Now, with no surface
+filter, an id filter whose native form is a pure read of the attribute
+bits (CameraVisibility, CameraLeave, gamecoreSurface, notKind28,
+pathJudge, 01444800, 0110C790) or none, the object's layout class a plain
+one and the plane cached, the plane test comes first (the same distances
+as ClipCollisionDB's: round 49's NEON form when every operand is small,
+else the clamped chain); a surface the segment does not cross skips the
+filter and ClipCollisionDB. What they left behind is kept: the id
+record's frame words are written as before, and f0 (0 when the filter
+passes, else the cylinder test's value) is settled at the leaf's end by
+asking the filter then, when the skipped surface was the last to write
+f0. A plane not cached yet, a guest filter or a surface filter: as
+before.
+
+**Exactness.**
+- `SOTC_COLL63_VERIFY=1` (new): every skip is also made the original way
+  (filter, ClipCollisionDB) and its outcome compared (nothing clipped, f0
+  as predicted). Mac, the New Game route to frame 7 000 (r63/intro-verify):
+  2 140 000 checks, 0 differ. Vita3K 444 MHz, the Vita build (its NEON
+  plane test), the attract demo for 420 s (r63/verify444): 860 000 checks,
+  0 differ.
+- Mac difftest on the route (`SOTC_DIFFTEST` of ClipCollisionDirectCallBack,
+  ObjAry, camera_collision_check_direct, the leaf, the node and its two
+  sides, every 3rd call; r63/dt-on.log, stopped at frame ~2 400 after ~70
+  min): 742 600 checks, 0 mismatches.
+
+**Measured (Vita3K, attract demo, 420 s, `coll63` alternating in 60-frame
+windows; abframes.py / slips.py).**
+
+| | frames on / off | frame ms | game | render thread | > 40 ms |
+|---|---|---|---|---|---|
+| 222 MHz, frames < 7 000 (r63/ab222) | 3 492 / 3 461 | 32.50 / 33.10 | 19.30 / 20.12 | 17.39 / 17.35 | 6.4% / 6.8% |
+| 222 MHz, frames >= 7 000 (to ~10 200) | 1 679 / 1 706 | 38.23 / 38.08 | 32.34 / 32.32 | 20.95 / 19.69 | 23.3% / 28.1% |
+| 222 MHz, frames >= 10 000, cap off (r63/ab222-cap0, to 15 269) | 2 629 / 2 638 | 35.19 / 34.41 | 32.03 / 31.88 | 24.78 / 23.83 | 28.8% / 26.0% |
+| 300 MHz, frames < 7 000 (r63/ab300) | 3 489 / 3 462 | 21.71 / 22.58 | 15.41 / 16.02 | 10.26 / 10.62 | 0.4% / 0.7% |
+| 300 MHz, frames 7 000-9 999 | 1 489 / 1 490 | 20.70 / 20.24 | 13.06 / 13.24 | 18.99 / 18.38 | 0.0% / 0.0% |
+| 300 MHz, frames >= 10 000 (to 14 647) | 2 284 / 2 326 | 26.05 / 25.91 | 21.92 / 21.91 | 16.17 / 16.12 | 4.7% / 3.4% |
+
+The game thread -0.6 to -0.8 ms in the attract demo's first part in all
+three runs (the camera's segment queries over the flyover's large trees,
+where most of the leaf surfaces end at the plane test); in the title
+screen's world, where the collision is the character's finders and keeps,
+no change beyond the noise (+-0.7 ms). The first 222 MHz run
+(ab222-cap0) had `cap30=0` in Vita3K's settings.cfg: Vita3K's shutdown
+had saved the menu (a phantom input at exit; the file is put back from
+r62/settings.cfg.bak after each run now); with the cap off the demo runs
+faster and reaches frame 15 000, which gives the heavy part its frames.
+
+**Estimated on the console (an estimate, not measured):** the skipped
+work is the attribute chain's dependent loads (DRAM misses on the A9)
+and ClipCollisionDB's entry: up to ~1 ms of the camera-heavy frames, near
+nothing in the frames that slip now (the character's finders).
+
+**What is left in collision, by the census:** the finder build (the
+sphere walk and its leaf, ~0.7-2 ms in the title world), the keeps over
+its surfaces (clipCollisionKeep / clipKeepTest / movedPoint, ~0.5-1 ms),
+the segment queries' skinned parts (~5 a query), GetCollisionDBAttributeAdr
+from guest code (196 a frame). Each is a fraction of a millisecond at 222
+MHz; collision as a whole (~5 ms in the title world) cannot give the ~10
+ms the console needs.
+
+**Deliverable:** build/agent-scratch/celosia-r63.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

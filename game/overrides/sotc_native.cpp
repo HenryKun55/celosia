@@ -2954,7 +2954,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -10089,9 +10089,14 @@ namespace mdsjoin
     }
 }
 
+namespace decomp_collcensus
+{
+    void install(PS2Runtime &runtime);
+}
 // After sotc_decomp::install (the natives at these addresses wrapped too).
 void installSotcNativeLate(PS2Runtime &runtime)
 {
+    decomp_collcensus::install(runtime); // round 63, SOTC_COLL_CENSUS=1
     if (std::getenv("SOTC_NATIVE") && runtime.hasFunction(sotc_native::kModelDisp))
         mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
     mdstrace::install(runtime);
