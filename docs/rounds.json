@@ -304,6 +304,14 @@
    "focus": "Speed",
    "summary": "The particle geodisps' per-frame clip pass and the small functions every particle pass asks (the geodisp class, the emitter list) natively, checked against the recompiled code (0 mismatches in 272 700 checks); the kernel snapshot for the debug panel made only when asked; the 30 fps cap back in the Vita's Quality menu (on by default, a saved choice honoured).",
    "result": "Vita3K A/B: within the noise at 222 and 300 MHz (the functions were ~0.8% of the game thread). After rounds 60-62 the title screen's world at 222 MHz still slips about one frame in three; not 30 fps at 222 yet."
+  },
+  {
+   "round": "r63",
+   "date": "2026-11-03",
+   "commit": "b7fa574",
+   "focus": "Speed",
+   "summary": "The collision queries counted for the first time (a census of every query the game makes per frame): in the title screen's world ~800 distinct small queries a frame from ~40 call sites, ~5 ms in Vita3K at 222 MHz, almost none repeated, so no single structure to replace. The collision leaf now tests the surface's plane first and skips the id filter and the full surface test for surfaces the segment does not cross, checked both ways (3 million checks, 0 differences; Mac difftest 0 mismatches).",
+   "result": "Vita3K A/B: game thread -0.6 to -0.8 ms in the attract demo's first part at 222 and 300 MHz; no change beyond the noise in the title screen's world, where the character's finders and keeps dominate. Not 30 fps at 222 yet."
   }
  ]
 }
