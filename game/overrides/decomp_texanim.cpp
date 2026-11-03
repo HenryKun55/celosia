@@ -85,6 +85,16 @@ namespace decomp_texanim
         return !Ps2IsSpecialAddress(a) && !Ps2IsSpecialAddress(a + size - 1u) && (a & PS2_RAM_MASK) + size <= PS2_RAM_SIZE;
     }
 
+    // Round 64 (decomp_tex64.cpp): texAnim run off the game thread, on a
+    // context of the worker's own. iosGetSinf / iosGetCosf are then called
+    // straight (t_trig: the natives the table holds for them, pure: the
+    // context and their coefficients in RAM), and a case the recompiled code
+    // would take (before anything is written) is left to the game thread
+    // (t_bail set, nothing done).
+    thread_local PS2Runtime::RecompiledFunction t_trig[2] = {nullptr, nullptr}; // sin, cos
+    thread_local bool t_offThread = false, t_bail = false;
+    constexpr uint32_t kSinf = 0x001BDF00u, kCosf = 0x001BE020u;
+
     // Round 48's native, unchanged (SOTC_FASTNATIVE=0, and the fast path's
     // rare cases).
     __attribute__((noinline)) void texAnimExact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -119,7 +129,14 @@ namespace decomp_texanim
                  plain(ram.u32(s1 + 0x44u + id * 4u), 4u * 1024u);
         }
         if (!ok)
+        {
+            if (t_offThread)
+            {
+                t_bail = true;
+                return;
+            }
             return sotc_decomp::recompiled(kTexAnim)(rdram, ctx, runtime);
+        }
 
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp1 = sp0 - 0x50u;
         const float thirty = bits(0x41F00000u), piBits = bits(0x40490FDAu), two31 = bits(0x4F000000u);
@@ -129,7 +146,16 @@ namespace decomp_texanim
         {
             ctx->f[12] = x;
             ctx->fcr31 = fcr31;
-            sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, site), site + 8u, sp1);
+            if (t_offThread)
+            {
+                SET_GPR_U32(ctx, 31, site + 8u);
+                SET_GPR_U32(ctx, 29, sp1);
+                const uint32_t target = sotc_decomp::jalTarget(rdram, site);
+                ctx->pc = target;
+                t_trig[target == kCosf ? 1 : 0](rdram, ctx, runtime);
+            }
+            else
+                sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, site), site + 8u, sp1);
             fcr31 = ctx->fcr31;
             return ctx->f[0];
         };

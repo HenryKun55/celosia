@@ -511,6 +511,7 @@ namespace native_renderer
             kLog,
             kDma,  // round 60: the display list's chain walk (SOTC_DMA_ASYNC)
             kLane, // round 61: modelDispState's lane (SOTC_MDS_LANE)
+            kOffload, // round 64: the game's subsystems moved off the game thread (SOTC_TEX64 ...)
             kKinds
         };
         void place(Kind kind);

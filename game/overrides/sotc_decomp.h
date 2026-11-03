@@ -90,6 +90,9 @@ namespace sotc_decomp
     };
     inline LazyClip g_lazyClip;
     inline void (*g_clipJoin)() = nullptr;
+    // Round 64: the offload thread's work joined (decomp_tex64.cpp; sotc_native's
+    // hook joins call it: the frame's end, the heap's moves, the 2D / mesh hooks).
+    inline void (*g_offloadJoin)(int site) = nullptr;
     inline bool clipPending(const R5900Context *ctx) { return g_lazyClip.pending && g_lazyClip.ctx == ctx; }
     inline void clipNeeded(const R5900Context *ctx)
     {
@@ -520,11 +523,12 @@ namespace sotc_decomp
         kFastNative3,
         kParticles62, // round 62: the particle geodisps' clip pass (decomp_ptcl62)
         kColl63,      // round 63: the collision leaf's plane test first (decomp_collision)
+        kTex64,       // round 64: texReset's texture loop on the offload thread (decomp_tex64)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];

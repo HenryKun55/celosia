@@ -21,6 +21,12 @@ namespace decomp_texanim
     void texAnim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // decomp_texanim.cpp
 }
 
+namespace decomp_tex64
+{
+    bool post(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float f12, uint32_t frame); // decomp_tex64.cpp
+    void armWatch(uint8_t *rdram);
+}
+
 namespace decomp_texframe
 {
     constexpr uint32_t kTexReset = 0x010AB2A0u, kCamera = 0x0108F518u, kVramReset = 0x010ABF20u, kTexAnim = 0x010A9EA8u;
@@ -66,6 +72,7 @@ namespace decomp_texframe
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x20u;
         const uint64_t a1 = GPR_U64(ctx, 5);
         const float f12 = ctx->f[12];
+        uint32_t lastNode = 0u; // round 64: the loop's registers when it is handed over
         {
             const int32_t n = static_cast<int32_t>(u32(kSlots + 8u));
             if (n > 0)
@@ -82,6 +89,7 @@ namespace decomp_texframe
                 if (!okc(node, 0x10u) || ++count > (1u << 20) || (t = u32(node + 4u), !okc(t, 0x2Cu)) || (t = u32(t + 0x28u), !okc(t, 0x24u)) ||
                     (t = u32(t + 0x20u), !okc(t, 0x10u)) || (t = u32(t + 0xCu), !okc(t, 0x20u)))
                     return sotc_decomp::recompiled(kTexReset)(rdram, ctx, runtime);
+                lastNode = node;
             }
         }
         sotc_decomp::callGuest(rdram, ctx, runtime, kCamera, 0x010AB2C0u, frame);
@@ -147,6 +155,15 @@ namespace decomp_texframe
                 ctx->fcr31 |= 0x800000u;
             }
         }
+        else if (a1 != 0u && lastNode != 0u && decomp_tex64::post(rdram, ctx, runtime, f12, frame))
+        {
+            // Round 64: the loop is the offload thread's (decomp_tex64.cpp); a0 /
+            // v1 / v0 as it leaves them (the last node's).
+            const uint32_t tex = u32(u32(lastNode + 4u) + 0x28u), mid = u32(tex + 0x20u), rec = u32(mid + 0xCu);
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(tex));
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(mid));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(rec));
+        }
         else
         {
             for (uint32_t node = u32(0x0118C184u); node; node = u32(node + 0xCu))
@@ -162,6 +179,7 @@ namespace decomp_texframe
                     sotc_decomp::callGuest(rdram, ctx, runtime, kTexAnim, 0x010AB380u, frame);
                 }
             }
+            decomp_tex64::armWatch(rdram); // (SOTC_TEX64_VERIFY on the Mac)
         }
         SET_GPR_U32(ctx, 29, sp0);
         SET_GPR_U32(ctx, 31, ra0);

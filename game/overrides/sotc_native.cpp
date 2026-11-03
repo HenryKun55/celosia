@@ -2954,7 +2954,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4431,6 +4431,8 @@ namespace sotc_native
         void join(Site site)
         {
             mdslane::join(site == k_frame ? 5 : 3); // round 61: the lane first (kJFrame / kJHook)
+            if (sotc_decomp::g_offloadJoin) // round 64: the offload thread's work (decomp_tex64)
+                sotc_decomp::g_offloadJoin(100 + static_cast<int>(site));
 #if !defined(__vita__)
             struct CheckEnd // SOTC_KICK_DEFER_CHECK: after the held jobs ran
             {
@@ -10093,10 +10095,20 @@ namespace decomp_collcensus
 {
     void install(PS2Runtime &runtime);
 }
+namespace decomp_readcensus
+{
+    void install(PS2Runtime &runtime);
+}
+namespace decomp_tex64
+{
+    void install(PS2Runtime &runtime);
+}
 // After sotc_decomp::install (the natives at these addresses wrapped too).
 void installSotcNativeLate(PS2Runtime &runtime)
 {
     decomp_collcensus::install(runtime); // round 63, SOTC_COLL_CENSUS=1
+    decomp_readcensus::install(runtime); // round 64, SOTC_READ_CENSUS=<subsystem> (the Mac)
+    decomp_tex64::install(runtime);      // round 64: texReset's loop's join sites
     if (std::getenv("SOTC_NATIVE") && runtime.hasFunction(sotc_native::kModelDisp))
         mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
     mdstrace::install(runtime);

@@ -244,6 +244,13 @@ inline uint8_t ps2PathWatchExtractByteFromWrite(uint32_t writeAddr, uint32_t wat
 }
 
 inline bool g_ps2WatchWriteEnabled = std::getenv("PS2X_WATCH_WRITE") != nullptr;
+// Round 64 (the Mac's census of a subsystem's readers): while
+// g_ps2ReadWatchMap is set, every guest load of the recompiled code whose
+// 16-byte line has its byte in the map non-zero calls g_ps2ReadWatchHook
+// (the address, the size, the host return address in the generated code).
+// Off the Vita only (PS2X_GUEST_READ_WATCH).
+inline const uint8_t *volatile g_ps2ReadWatchMap = nullptr;
+inline void (*g_ps2ReadWatchHook)(uint32_t addr, uint32_t size, const void *hostPc) = nullptr;
 // Set by debugging hooks to log every guest store while true.
 inline bool g_ps2LogAllWrites = false;
 

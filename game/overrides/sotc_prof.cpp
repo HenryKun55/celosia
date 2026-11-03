@@ -117,6 +117,25 @@ namespace sotc_prof
         bool g_installed = false;
         double g_timerUs = 0.0; // one ticks() call, measured at start
 
+        // Round 64: SOTC_SUBSYS_PROF_TIMELINE=<first frame>[:<frames>] (the
+        // census of who runs when): every probe's enter and leave in those
+        // game frames, with its depth and the time since the frame began
+        // ("[timeline] frame F +T us > / < name").
+        struct TimelineEvent
+        {
+            uint64_t at;
+            int probe;
+            int depth;
+            bool enter;
+        };
+        std::vector<TimelineEvent> *g_timeline = nullptr;
+        uint64_t g_timelineFrom = ~0ull, g_timelineTo = 0, g_timelineT0 = 0;
+        inline void timelineNote(int probe, uint64_t now, bool enter, int depth)
+        {
+            if (__builtin_expect(g_timeline != nullptr, 0) && g_frameNow >= g_timelineFrom && g_frameNow < g_timelineTo)
+                g_timeline->push_back({now, probe, depth, enter});
+        }
+
         int newProbe(const char *name)
         {
             if (g_probeCount >= kMaxProbes)
@@ -136,6 +155,7 @@ namespace sotc_prof
             if (++g_serial == 0u)
                 g_serial = 1u;
             ++g_probes[probe].active;
+            timelineNote(probe, now, true, g_depth);
             g_stack[g_depth++] = Frame{probe, g_serial, now, 0u, 0u, ctx, ra, sp, false, false, 0u};
             return g_serial;
         }
@@ -160,6 +180,7 @@ namespace sotc_prof
         void closeAt(int i, uint64_t now, bool forced)
         {
             const Frame f = g_stack[i];
+            timelineNote(f.probe, now, false, i);
             const uint64_t elapsed = f.acc + (f.paused ? 0u : now - f.start);
             Probe &p = g_probes[f.probe];
             const uint64_t self = elapsed > f.child ? elapsed - f.child : 0u;
@@ -770,9 +791,29 @@ namespace sotc_prof
         calls::frameTick(frame);
         if (!g_installed)
             return;
+        const uint64_t now = ticks();
+        if (g_timeline && !g_timeline->empty() && g_frameNow >= g_timelineFrom && g_frameNow < g_timelineTo)
+        {
+            for (const TimelineEvent &e : *g_timeline)
+                std::fprintf(stderr, "[timeline] frame %llu +%.0f us %*s%c %s\n", static_cast<unsigned long long>(g_frameNow),
+                             (e.at > g_timelineT0 ? e.at - g_timelineT0 : 0u) * 1000.0 / kTicksPerMs, e.depth * 2, "", e.enter ? '>' : '<',
+                             g_probes[e.probe].name);
+            std::fprintf(stderr, "[timeline] frame %llu +%.0f us end\n", static_cast<unsigned long long>(g_frameNow),
+                         (now - g_timelineT0) * 1000.0 / kTicksPerMs);
+            g_timeline->clear();
+        }
+        if (!g_timeline)
+            if (const char *tl = std::getenv("SOTC_SUBSYS_PROF_TIMELINE"))
+            {
+                g_timeline = new std::vector<TimelineEvent>;
+                g_timeline->reserve(1 << 16);
+                g_timelineFrom = std::strtoull(tl, nullptr, 0);
+                const char *colon = std::strchr(tl, ':');
+                g_timelineTo = g_timelineFrom + (colon ? std::strtoull(colon + 1, nullptr, 0) : 1u);
+            }
+        g_timelineT0 = now;
         g_frameNow = frame;
         const bool on = native_renderer::tuning().subsysProf;
-        const uint64_t now = ticks();
         if (on != g_on)
         {
             g_on = on;

@@ -629,6 +629,13 @@ static PS2_FORCE_INLINE void Ps2FastWrite128(uint8_t *rdram, uint32_t addr, __m1
 #define PS2X_GUEST_WRITE_TRACE 1
 #endif
 #endif
+#ifndef PS2X_GUEST_READ_WATCH
+#if defined(__vita__)
+#define PS2X_GUEST_READ_WATCH 0
+#else
+#define PS2X_GUEST_READ_WATCH 1
+#endif
+#endif
 
 namespace ps2_guest_mem
 {
@@ -659,6 +666,25 @@ namespace ps2_guest_mem
     static PS2_FORCE_INLINE void store(uint8_t *rdram, uint32_t a, T v)
     {
         std::memcpy(rdram + a, &v, sizeof(T));
+    }
+    // The load watch (round 64, g_ps2ReadWatchMap), main RAM path.
+    // (Out of line: its return address is in the generated function that loads.)
+    [[gnu::noinline, gnu::cold]] inline void readWatchSlow(uint32_t a, uint32_t size)
+    {
+        const uint8_t *map = g_ps2ReadWatchMap;
+        auto hook = g_ps2ReadWatchHook;
+        if (map && hook && (map[a >> 4] || map[(a + size - 1u) >> 4]))
+            hook(a, size, __builtin_return_address(0));
+    }
+    template <typename T>
+    static PS2_FORCE_INLINE void readWatch(uint32_t a)
+    {
+#if PS2X_GUEST_READ_WATCH
+        if (PS2_EXPECT(g_ps2ReadWatchMap != nullptr, 0))
+            readWatchSlow(a, sizeof(T));
+#else
+        (void)a;
+#endif
     }
     // The store trace (PS2X_WATCH_WRITE), main RAM path.
     template <typename T>
@@ -753,8 +779,12 @@ namespace ps2_guest_mem
 
 #define PS2_GUEST_READ(T, fn, addr) ([&]() -> T {                                                          \
     const uint32_t _addr = (uint32_t)(addr);                                                               \
-    return PS2_EXPECT(_addr < PS2_RAM_SIZE, 1) ? ps2_guest_mem::load<T>(rdram, _addr)                      \
-                                               : ps2_guest_mem::fn##_slow(rdram, ctx, runtime, _addr); }())
+    if (PS2_EXPECT(_addr < PS2_RAM_SIZE, 1))                                                               \
+    {                                                                                                      \
+        ps2_guest_mem::readWatch<T>(_addr);                                                                \
+        return ps2_guest_mem::load<T>(rdram, _addr);                                                       \
+    }                                                                                                      \
+    return ps2_guest_mem::fn##_slow(rdram, ctx, runtime, _addr); }())
 #define PS2_GUEST_WRITE(T, fn, op, addr, val)                     \
     do                                                            \
     {                                                             \

@@ -9348,7 +9348,8 @@ profile. Now it is made when a reader asked since the last one
 **3. "30 fps cap" back in the Vita's Quality menu (the user's request).**
 Since round 36 the cap (cap30) was left out of the Vita's list and a saved
 cap30=0 was ignored. Now it is a menu item there too ("30 fps cap" /
-"Limite 30 fps", on / off): on by default, a saved value honoured,
+"Limite 30 fps", on / off): on by default (off by default since round
+64, the user's choice), a saved value honoured,
 `SOTC_CAP30` over both. The cap keeps round 36's rule (only for frames of
 150 draws or more, off on loading / black frames, `SOTC_CAP30_ALWAYS=1`).
 Checked in Vita3K (444 MHz, 100 s of the attract demo): with `cap30=0` in
@@ -9504,6 +9505,156 @@ MHz; collision as a whole (~5 ms in the title world) cannot give the ~10
 ms the console needs.
 
 **Deliverable:** build/agent-scratch/celosia-r63.vpk.
+
+## Round 64: texReset's texture loop on the offload thread; the readers' census; the 30 fps cap off by default (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r64/` (attract.sh, v3k.sh; prof222:
+the Vita3K profile the round started from; census1 / census2: the readers'
+census; verify1 / verify2: the Mac checks, verify444: the Vita build's; dt-on,
+dt-tex: the Mac difftests; ab222 / ab300: the Vita3K A/B runs, ab222.txt /
+ab300.txt their tables). A game-thread round, the first of "independent
+subsystems to cores 1-2".
+
+**Where the candidates are (prof222: Vita3K 222 MHz, frames 7 044-11 025,
+the game thread's samples by subsystem).** Collision 17%, the display walk
+and its clip / hook natives 9.5%, skeleton / motion / curves 7.5%, particles
+5.9%, texture animation (texAnimFast 1.03%, texReset's loop 0.37%, the rest
+0.7%) 2.1%, cloth (step, mesh, constraint) 1.8%, wind 0.9%, the hair
+strands 0.5%. Of the user's list only the texture animation is a block that
+runs once a frame on data no one else touches until later; the particles'
+step shares the free list, the VU0 random register (iosGetRandom) and guest
+calls (the parameter blend, the wind, iosFree) with the rest of the frame;
+the cloth's steps are interleaved with an owner callback (GetClothDynamics'
+jalr per catch-up step) and use VU0's R as well; the wind is asked
+synchronously by the emitters and the cloth.
+
+**The census first (new tools, the Mac).**
+- `PS2X_GUEST_READ_WATCH` (ps2_runtime_macros.h, on off the Vita): every
+  guest load of the generated code (and of the natives that use the READ
+  macros) checks a map of 16-byte lines while one is set and calls a hook
+  with the host return address. The Vita build compiles it out.
+- `SOTC_READ_CENSUS=tex` (decomp_readcensus.cpp): after each texReset, the
+  bytes its loop wrote are watched until its next call; per window the first
+  load's time and reader, over 300 frames every reader with its earliest
+  time.
+- `SOTC_SUBSYS_PROF_TIMELINE=<frame>[:<n>]` (sotc_prof.cpp, with
+  `SOTC_SUBSYS_PROF=1`): every probe's enter and leave in those frames with
+  the time since the frame began: the frame's order of tasks.
+
+What it shows (attract demo to frame 9 000, census2): graphFrameInit
+(texReset) is the frame's second task; then the control / AI tasks, the
+wind, the camera and the particle manager; the first load of anything the
+loop wrote comes 0.4-0.8 ms later on the Mac (median ~0.7 ms of a ~1.5 ms
+game frame), at the display walk's first sprite (texTransRequest). Every
+reader seen: texTransRequest, texResetVRAMRequest, texTransResolve (its
+records, decomp_hot46f), texInitialize / texDelete, and during a load the
+module loader (RelocateElfInfoHeader, DecodeSection, isysMoveModuleObj).
+The natives that read the state with plain loads (the model hooks' scroll
+rows, the uploads) run inside the display walk or the hook jobs.
+
+**How (`SOTC_TEX64=0` off; A/B `tex64`; decomp_tex64.cpp).**
+- texReset (decomp_texframe.cpp) makes its guest calls as before (the
+  camera's LOD, the slot arrays, vramReset), then hands the loop (each node:
+  the state record's transfer words cleared, texAnim) to a new thread
+  (`offload`, `native_renderer::threads::kOffload`, cores 1-2 on the Vita)
+  with a copy of the context, and returns with a0 / v1 / v0 as the loop
+  leaves them (the last node's).
+- The thread runs texAnimFast / texAnimExact on its own context, with the
+  game thread's floating-point mode (round toward zero, flush to zero:
+  without it the time word came out one bit off in 9 of 10 jobs), and
+  iosGetSinf / iosGetCosf called straight (their natives are pure). Taken
+  only when the table holds those natives and texReset's (no difftest
+  checker, profiler wrapper or SOTC_DECOMP_SKIP), and texAnim's trig call
+  sites are the expected ones; a node whose texAnim would go to the
+  recompiled code stops the thread there and the game thread runs the rest
+  at the join through the table (never seen: "stopped early 0").
+- Joins before every reader the census found (their table entries wrapped),
+  the display walk (DispDispObjGroupModel), spriteTexFast, modelDisp,
+  meshDisp, texSearchMopByName, manager_sub_010AB618, iosDlTrans (the DMA
+  kick: the animated palettes go out with the display list), the next
+  texReset, and every hook worker join (sotc_native: the frame's end, the
+  heap's moves, the 2D, mesh and particle hooks).
+- Not as the original: the scratch registers texAnim leaves (v0, f0-f5,
+  f12, fcr31's condition bit, at / a3 / t0, VU0 vf15-vf19 after a wave):
+  texReset now returns with the ones it was entered with. They are dead
+  there: graphFrameInit (native) calls glReset next, which writes f0 and
+  whose callee setLight writes v0, at, a3 and t0 before reading them;
+  neither reads the condition bit, and iosMakeNormalLightMatrix writes
+  vf15 / vf16 before reading them.
+
+**Exactness (`SOTC_TEX64_VERIFY=1`).** The loop runs on the game thread as
+before (the truth); the thread runs it on a copy of all of RAM made at the
+hand-over; at the join the bytes the loop writes (each node's state record
++0..+0x1f, the animation record's +0x40..+0x47 and +0x7c, the destination
+palette) are compared, the bytes it reads checked for a change in flight,
+and on the Mac every load of the written bytes between the hand-over and
+the join is counted with its reader.
+- Mac, attract demo to frame 9 000 (verify2): 8 726 jobs, 0 differ, 0
+  touched in flight, 0 written again before the join, 0 loads in flight.
+- Vita3K 444 MHz, the Vita build (verify444, 300 s): 2 576 jobs, 0 differ,
+  0 touched in flight.
+- Mac difftests with it on: texTransRequest 15 700 checks, texTransResolve
+  1 100, 0 mismatches (dt-tex, every 3rd call to frame 3 000);
+  `SOTC_DIFFTEST=all` (dt-on, every 25th call to 1 500: 73 functions, only
+  the two known noisy ones, isysWakeupSubThread's timer and
+  manager_sub_01102638's pad / frame timers; there texReset is behind its
+  checker, so the loop stays on the game thread).
+
+Where it joined (Vita3K 222 MHz): at the display walk in 95-100% of the
+frames, otherwise at the loader (RelocateElfInfoHeader), texTransRequest or
+texSearchMopByName (loading screens and menus). The thread's job took
+~0.2-0.7 ms (~310 nodes; 1.0 and 1.8 ms averaged over two 600-frame
+windows, the thread sharing cores 1-2 with the render thread and the hook
+worker), and the game thread waited for it only in the first 600 frames (7
+joins) and once more at 300 MHz.
+
+**Measured (Vita3K, attract demo, 480 s, `tex64` alternating in 60-frame
+windows; abframes.py / slips.py; game = the frame less hooks and wait).**
+
+| | frames on / off | frame ms | game | render thread | > 40 ms |
+|---|---|---|---|---|---|
+| 222 MHz, frames < 7 000 (r64/ab222) | 3 505 / 3 474 | 22.20 / 23.01 | 19.75 / 20.75 | 13.47 / 13.03 | 4.2% / 3.7% |
+| 222 MHz, frames 7 000-9 999 | 1 486 / 1 486 | 25.08 / 25.38 | 15.98 / 16.79 | 23.15 / 23.65 | 4.7% / 6.5% |
+| 222 MHz, frames >= 10 000 (to 14 065: on foot and riding) | 1 983 / 1 994 | 34.08 / 34.73 | 31.12 / 31.53 | 19.76 / 20.46 | 26.5% / 23.3% |
+| 300 MHz, frames < 7 000 (r64/ab300) | 3 456 / 3 427 | 18.44 / 18.62 | 15.64 / 16.18 | 10.28 / 10.14 | 0.4% / 0.5% |
+| 300 MHz, frames 7 000-9 999 | 1 479 / 1 484 | 20.58 / 20.79 | 12.49 / 12.95 | 18.89 / 18.75 | 0.0% / 0.0% |
+| 300 MHz, frames >= 10 000 (to 12 669) | 1 324 / 1 298 | 20.02 / 19.77 | 13.43 / 13.38 | 13.80 / 13.75 | 1.2% / 1.0% |
+
+The game thread -0.5 to -1.0 ms in the attract demo's first part and its
+flyover at both clocks (one to one and a half times the null A/B's +-0.7
+ms); in the heavy part at 222 MHz -0.4 ms and the frame -0.65 ms, within
+the noise (the two states' windows drew 28 draws apart, and the share of
+frames over 40 ms went the other way, 26.5% against 23.3%). At 300 MHz the
+demo ran faster with the cap off and its frames from 10 000 on were a
+lighter scene (~1 120 draws, game thread ~13 ms, not round 63's 22 ms):
+no change there. The loop was ~1.5% of the game thread in the profile
+(~0.5 ms at 222 MHz), so this is about what it can give: not 30 fps at 222
+MHz yet.
+
+**Estimated on the console (an estimate, not measured):** the loop is four
+dependent loads a node (~310 nodes) plus the palette copies, DRAM-bound on
+the A9 (Vita3K is ~1.5x optimistic there): ~0.6-1.2 ms of the ~56 ms heavy
+frames off the game thread; the offload thread's ~0.5-0.7 ms goes to cores
+1-2.
+
+**What is left for cores 1-2, and why it is small.** Nothing else in the
+heavy part's profile is a once-a-frame block that only its own later code
+reads: each of the rest is under ~1 ms at 222 MHz and shares state with the
+frame (above). Taking all of texture animation, cloth, wind and strands off
+would be ~1.5 ms of the game thread at 222 MHz; the ~20 ms the console still
+needs is in collision (17%), the display walk (9.5%) and the characters'
+motion (7.5%), whose results are used at once. The render thread (34.8% of
+the Vita3K samples, 20-25 ms a heavy frame): sceGxmDraw 26%,
+Renderer::planFrame 12.8% (the per-draw plan and merge, plus the draw sort
+1.7%), the draw lambda 10.9%, vitaGL's draw path ~20% (Task 3's first
+candidate: plan and sort the next frame on core 1 while core 2 draws).
+
+**Also (the user's request):** the Vita's "30 fps cap" / "Limite 30 fps"
+(Quality menu) is off by default now (native_renderer.cpp's Vita
+defaults); a saved value is still honoured and `SOTC_CAP30` overrides both.
+The A/B runs above had it off (the default, no settings.cfg entry).
+
+**Deliverable:** build/agent-scratch/celosia-r64.vpk.
 
 ## Vita3K calibration (2026-10-22)
 
