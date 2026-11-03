@@ -328,6 +328,14 @@
    "focus": "Speed",
    "summary": "Performance cuts the player chooses, in the Vita's Quality menu (Select twice), all off by default and saved: fewer camera checks (the camera's look and visibility tests every other frame; the test that keeps it out of walls still every frame), distant characters at half rate (the pose of a character far from the camera every other frame), effects at half rate (particles stepped every other frame with both frames' time) and a shorter draw distance (models the game already lets vanish go at 2/3 of their range), plus a Max performance row that turns all four on. With all of them off the game runs as before (Mac difftest of the touched functions: 0 mismatches beyond the known noise).",
    "result": "Vita3K 222 MHz, pooled A/B runs: effects at half rate saves ~2 ms of the game thread; the camera checks, the draw distance and the distant characters 0.2-1 ms each; all four together ~0.8-1.8 ms of the game thread (frames over 40 ms in the heavy part 24% against 26%). Useful in particle- and camera-heavy places, far from the ~20 ms a locked 30 fps on the console needs."
+  },
+  {
+   "round": "r66",
+   "date": "2026-11-03",
+   "commit": "fecaf3e",
+   "focus": "Speed",
+   "summary": "The Vita build's code layout, for the console's Cortex-A9 (small caches and TLBs) rather than Vita3K: every function in its own section and the 3 934 functions Vita3K profiles sampled linked hottest first at the start of the code, with vitaGL and the C libraries right after them. The 90% hot set now fits in ~2 MB instead of being spread over 34 MB (4 KB pages it touches 745 -> 530, 64 KB pages 146 -> 41). The guest RAM is page aligned (it was 8-byte aligned, so half of the 16-byte guest loads crossed two cache lines). Sized and not done: -Os for cold code (only 13% smaller), splitting cold blocks out of functions (GCC cannot with ARM exceptions), and a generator change for the remaining codegen overhead (the recompiled code is ~18% of the game thread now).",
+   "result": "Vita3K 222 MHz A/B (two runs each): the same within the noise, as expected (Vita3K does not model the console's caches). The effect can only show on the console: an estimate of 0.5-2 ms of the ~56 ms heavy frames, more if the Vita maps the code with large pages. A console profile run (SOTC_SUBSYS_PROF) is prepared."
   }
  ]
 }
