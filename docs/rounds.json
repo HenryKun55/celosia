@@ -212,7 +212,7 @@
   {
    "round": "r51",
    "date": "2026-11-02",
-   "commit": "",
+   "commit": "d76a9c8",
    "focus": "Fidelity",
    "summary": "The Vita's smear while the camera moves: cameraBlur's screenBlur fires on nearly every moving frame at 16-20 fps, 98% of the calls the identity; those are left out (the picture they draw is the picture itself), real zoom / shift blurs drawn as before.",
    "result": "Vita3K attract demo: frames drawing a screen blur 454 of 3 706 -> 7 of 3 982 (each also a full scene redraw saved); Mac Metal / GL native vs GS unchanged (RMSE 0.072 -> 0.069, 0.058 -> 0.056)."
