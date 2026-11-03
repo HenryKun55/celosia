@@ -8907,6 +8907,18 @@ host's one-second stalls left out, r57/lean222):** with `leandraw` (rounds
 frame 39.96 / 44.87 ms, render 23.75 / 27.48, game 32.95 / 34.63 (~400
 frames each, noisy). vb <= 2 in 82.2% of the frames (80.0% off). Window
 shots normal (r57/shots222).
+At 300 MHz (r57/lean300): render thread 14.28 / 16.39 ms (-2.1), frame
+31.98 / 32.82, game 16.81 / 17.69, vb <= 2 in 89.2% / 86.6% of the frames
+(p95 39.4 ms); the title screen's world 33.93 / 35.91 ms, game 23.8, render
+19.0, vb <= 2 82.5%.
+
+**Where this leaves 30 fps (rounds 56-57, stalls left out).** 222 MHz: the
+attract demo's first ~7 000 frames at 2 vblanks in ~82% of the frames
+(frames that slip have game + hooks ~28 ms and render ~25 ms on average: tails
+past 33 ms on either thread), the title screen's world ~40 ms (game thread
+~33 ms: collision 14.5% of it, the native renderer's hooks and DMA walk ~12%,
+recompiled code 7%). 300 MHz: ~89% / ~83% (title world ~34 ms). Not
+stable 30 at either clock.
 
 **Deliverable:** build/agent-scratch/celosia-r57.vpk.
 
