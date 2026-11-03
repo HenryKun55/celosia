@@ -320,6 +320,14 @@
    "focus": "Speed",
    "summary": "The first subsystem moved to the Vita's other cores: the frame's texture animation loop (each animated texture's scroll and palette, ~310 textures) runs on a new offload thread and is joined before its first reader. A census tool on the Mac (every guest load of the loop's output watched) found who reads it and when: nothing before the display walk. Checked both ways on the Mac and in Vita3K (11 300 frames, 0 differences, 0 reads in flight). The 30 fps cap in the Vita's Quality menu is off by default now, as the user asked.",
    "result": "Vita3K A/B: game thread -0.5 to -1.0 ms in the attract demo's first part at 222 and 300 MHz; within the noise in the heavy part (the loop was ~1.5% of the game thread). The other candidates (particles, cloth, wind) share state with the rest of the frame and are each under 1 ms. Not 30 fps at 222 yet."
+  },
+  {
+   "round": "r65",
+   "date": "2026-11-03",
+   "commit": "4a35c15",
+   "focus": "Speed",
+   "summary": "Performance cuts the player chooses, in the Vita's Quality menu (Select twice), all off by default and saved: fewer camera checks (the camera's look and visibility tests every other frame; the test that keeps it out of walls still every frame), distant characters at half rate (the pose of a character far from the camera every other frame), effects at half rate (particles stepped every other frame with both frames' time) and a shorter draw distance (models the game already lets vanish go at 2/3 of their range), plus a Max performance row that turns all four on. With all of them off the game runs as before (Mac difftest of the touched functions: 0 mismatches beyond the known noise).",
+   "result": "Vita3K 222 MHz, pooled A/B runs: effects at half rate saves ~2 ms of the game thread; the camera checks, the draw distance and the distant characters 0.2-1 ms each; all four together ~0.8-1.8 ms of the game thread (frames over 40 ms in the heavy part 24% against 26%). Useful in particle- and camera-heavy places, far from the ~20 ms a locked 30 fps on the console needs."
   }
  ]
 }
