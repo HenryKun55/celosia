@@ -1,8 +1,52 @@
 diff --git a/source/custom_shaders.c b/source/custom_shaders.c
-index 3b91d11..1a0b1e8 100644
+index 3b91d11..0665e14 100644
 --- a/source/custom_shaders.c
 +++ b/source/custom_shaders.c
-@@ -224,7 +224,7 @@ char vgl_file_cache_path[256];
+@@ -136,16 +136,26 @@ char vgl_file_cache_path[256];
+ 		disable_draw_attrib(i) \
+ 	}
+ 
++// celosia r56 (vglCeloLeanDraw bit 0): a draw's default uniform buffers
++// copied with the library's memcpy instead of the sceClibMemcpy import (a
++// few hundred bytes to 3 KB a draw, ~1 500 draws a frame).
++int vgl_celo_lean_draw = 0;
++static inline __attribute__((always_inline)) void celo_unif_copy(void *dst, const void *src, uint32_t size) {
++	if (vgl_celo_lean_draw & 1)
++		memcpy(dst, src, size);
++	else
++		vgl_fast_memcpy(dst, src, size);
++}
+ #ifndef HAVE_FFP_SHADER_SUPPORT
+ #define upload_uniforms() \
+ 	if (p->vert_uniforms && dirty_shader_vert_unifs) { \
+ 		void *buffer = vglReserveVertexUniformBuffer(p->vshader->unif_buf_size); \
+-		vgl_fast_memcpy(buffer, p->unif_vbuffer, p->vshader->unif_buf_size); \
++		celo_unif_copy(buffer, p->unif_vbuffer, p->vshader->unif_buf_size); \
+ 		dirty_shader_vert_unifs = GL_FALSE; \
+ 	} \
+ 	if (p->frag_uniforms && dirty_shader_frag_unifs) { \
+ 		void *buffer = vglReserveFragmentUniformBuffer(p->fshader->unif_buf_size); \
+-		vgl_fast_memcpy(buffer, p->unif_fbuffer, p->fshader->unif_buf_size); \
++		celo_unif_copy(buffer, p->unif_fbuffer, p->fshader->unif_buf_size); \
+ 		dirty_shader_frag_unifs = GL_FALSE; \
+ 	} \
+ 	if (p->vert_ubos) { \
+@@ -191,12 +201,12 @@ char vgl_file_cache_path[256];
+ 				vglSetUniformData(p->ffp_binds[FFP_NORMAL_MATRIX]->vptr, SCE_GXM_PARAMETER_TYPE_F32, 0, 3, 3, (const float *)normal_matrix, SCE_GXM_PARAMETER_TYPE_F32); \
+ 			} \
+ 		} \
+-		vgl_fast_memcpy(buffer, p->unif_vbuffer, p->vshader->unif_buf_size); \
++		celo_unif_copy(buffer, p->unif_vbuffer, p->vshader->unif_buf_size); \
+ 		dirty_shader_vert_unifs = GL_FALSE; \
+ 	} \
+ 	if (p->frag_uniforms && dirty_shader_frag_unifs) { \
+ 		void *buffer = vglReserveFragmentUniformBuffer(p->fshader->unif_buf_size); \
+-		vgl_fast_memcpy(buffer, p->unif_fbuffer, p->fshader->unif_buf_size); \
++		celo_unif_copy(buffer, p->unif_fbuffer, p->fshader->unif_buf_size); \
+ 		dirty_shader_frag_unifs = GL_FALSE; \
+ 	} \
+ 	if (p->vert_ubos) { \
+@@ -224,7 +234,7 @@ char vgl_file_cache_path[256];
  		p->blend_info.raw = blend_info.raw; \
  		rebuild_frag_shader(p->fshader->id, &p->fprog, (SceGxmProgram *)p->vshader->prog, is_fbo_float ? SCE_GXM_OUTPUT_REGISTER_FORMAT_HALF4 : SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4); \
  	} \
@@ -11,7 +55,7 @@ index 3b91d11..1a0b1e8 100644
  	
  #define align_attributes(attributes, streams) \
  	if (p->has_unaligned_attrs) { \
-@@ -304,6 +304,7 @@ typedef struct {
+@@ -304,6 +314,7 @@ typedef struct {
  	void *vptr;
  	uniform_type type;
  	uint8_t sampler_index;
@@ -19,7 +63,68 @@ index 3b91d11..1a0b1e8 100644
  } uniform;
  
  // Program status enum
-@@ -773,11 +774,26 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
+@@ -390,12 +401,13 @@ typedef struct {
+ 	uint8_t variant;
+ 	GLboolean is_packed;
+ 	GLboolean is_full_vbo;
++	GLboolean single; // celosia r56: every attribute on stream 0
+ 	SceGxmVertexAttribute attr[VERTEX_ATTRIBS_NUM];
+ 	SceGxmVertexStream stream[VERTEX_ATTRIBS_NUM];
+ 	SceGxmVertexProgram *vprog;
+ } vertex_layout_cache_entry;
+ 
+-#define VERTEX_LAYOUT_CACHE_ENTRIES 4
++#define VERTEX_LAYOUT_CACHE_ENTRIES 16 // celosia r56: was 4 (programs x pools x lean variants)
+ static uint32_t vertex_program_layout_current_ver = 0;
+ static vertex_layout_cache_entry vertex_layout_cache[VERTEX_LAYOUT_CACHE_ENTRIES] = {};
+ static uint8_t vertex_layout_cache_id = 0;
+@@ -421,8 +433,9 @@ static inline __attribute__((always_inline)) vertex_layout_cache_entry *vertex_l
+ }
+ 
+ static inline __attribute__((always_inline)) void vertex_layout_cache_insert(program *p, uint8_t type, uint8_t variant,
+-	GLboolean is_packed, GLboolean is_full_vbo, const SceGxmVertexAttribute *attributes, const SceGxmVertexStream *streams) {
++	GLboolean is_packed, GLboolean is_full_vbo, const SceGxmVertexAttribute *attributes, const SceGxmVertexStream *streams, GLboolean single) {
+ 	vertex_layout_cache_entry *entry = &vertex_layout_cache[vertex_layout_cache_id];
++	entry->single = single;
+ 	vertex_layout_cache_id = (vertex_layout_cache_id + 1) & (VERTEX_LAYOUT_CACHE_ENTRIES - 1);
+ 	entry->prog = p;
+ 	entry->vao = cur_vao;
+@@ -437,6 +450,34 @@ static inline __attribute__((always_inline)) void vertex_layout_cache_insert(pro
+ 	entry->vprog = p->vprog;
+ }
+ 
++// celosia r56 (vglCeloLeanDraw bit 1): a packed draw from one buffer
++// (every attribute active, one stride, one index source) patched with all
++// its attributes on stream 0: one sceGxmSetVertexStream a draw instead of
++// one per attribute, the same vertices read.
++static SceGxmVertexAttribute celo_attrs[VERTEX_ATTRIBS_NUM];
++static inline __attribute__((always_inline)) GLboolean celo_single_stream(program *p, const SceGxmVertexAttribute *attributes, const SceGxmVertexStream *streams) {
++	if (!(vgl_celo_lean_draw & 2) || p->has_unaligned_attrs || p->attr_num < 2)
++		return GL_FALSE;
++	for (int i = 0; i < p->attr_num; i++) {
++		if (!(cur_vao->vertex_attrib_state & (1 << p->attr_map[i])))
++			return GL_FALSE;
++		if (streams[i].stride != streams[0].stride || streams[i].indexSource != streams[0].indexSource)
++			return GL_FALSE;
++	}
++	for (int i = 0; i < p->attr_num; i++) {
++		celo_attrs[i] = attributes[i];
++		celo_attrs[i].streamIndex = 0;
++	}
++	return GL_TRUE;
++}
++
++void vglCeloLeanDraw(int bits) {
++	if (bits == vgl_celo_lean_draw)
++		return;
++	vgl_celo_lean_draw = bits;
++	vgl_memset(vertex_layout_cache, 0, sizeof(vertex_layout_cache));
++}
++
+ static inline __attribute__((always_inline)) void vertex_layout_setup_ptrs(program *p, GLboolean is_packed,
+ 	uint32_t first, uint32_t packed_count, uint32_t unpacked_count, void **ptrs) {
+ 	uint8_t first_attr_idx = p->attr_map[0];
+@@ -773,11 +814,26 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
  	shark_clear_output();
  #ifdef HAVE_SHADER_CACHE
  	SceUID f = sceIoOpen(cache_fname, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777);
@@ -46,7 +151,7 @@ index 3b91d11..1a0b1e8 100644
  #endif
  }
  
-@@ -839,7 +855,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+@@ -839,7 +895,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
  				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
  				tex->overridden = GL_FALSE;
  			}
@@ -55,7 +160,7 @@ index 3b91d11..1a0b1e8 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -900,7 +916,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+@@ -900,7 +956,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
  		SceGxmVertexStream *streams = layout_entry->stream;
  		vertex_layout_setup_ptrs(p, layout_entry->is_packed, lowest, highest - lowest, highest, ptrs);
  		p->vprog = layout_entry->vprog;
@@ -64,16 +169,19 @@ index 3b91d11..1a0b1e8 100644
  		upload_uniforms();
  		for (int j = 0; j < drawcount; j++) {
  			for (int i = 0; i < p->attr_num; i++) {
-@@ -1021,7 +1037,7 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+@@ -1019,9 +1075,9 @@ void _glMultiDrawArrays_CustomShadersIMPL(SceGxmPrimitiveType gxm_p, uint16_t *i
+ 	// Uploading new vertex program
+ 	patch_vertex_program(p->vshader->id, attributes, p->attr_num, streams, p->attr_num, &p->vprog);
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
- 	vertex_layout_cache_insert(p, VERTEX_LAYOUT_MULTI_DRAW, 0, is_packed, GL_FALSE, attributes, streams);
+-	vertex_layout_cache_insert(p, VERTEX_LAYOUT_MULTI_DRAW, 0, is_packed, GL_FALSE, attributes, streams);
++	vertex_layout_cache_insert(p, VERTEX_LAYOUT_MULTI_DRAW, 0, is_packed, GL_FALSE, attributes, streams, GL_FALSE);
  #endif
 -	sceGxmSetVertexProgram(gxm_context, p->vprog);
 +	vgl_set_vprog(p->vprog);
  
  	// Uploading both fragment and vertex uniforms data
  	upload_uniforms();
-@@ -1097,7 +1113,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+@@ -1097,7 +1153,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
  				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
  				tex->overridden = GL_FALSE;
  			}
@@ -82,25 +190,48 @@ index 3b91d11..1a0b1e8 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -1158,7 +1174,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+@@ -1158,8 +1214,11 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
  		void *ptrs[VERTEX_ATTRIBS_NUM];
  		vertex_layout_setup_ptrs(p, layout_entry->is_packed, first, count, count, ptrs);
  		p->vprog = layout_entry->vprog;
 -		sceGxmSetVertexProgram(gxm_context, p->vprog);
 +		vgl_set_vprog(p->vprog);
  		upload_uniforms();
++		if (layout_entry->single)
++			sceGxmSetVertexStream(gxm_context, 0, ptrs[0]);
++		else
  		for (int i = 0; i < p->attr_num; i++) {
  			uint8_t attr_idx = p->attr_map[i];
-@@ -1302,7 +1318,7 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ 			if (cur_vao->vertex_attrib_state & (1 << attr_idx)) {
+@@ -1298,11 +1357,12 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ #endif
+ 
+ 	// Uploading new vertex program
+-	patch_vertex_program(p->vshader->id, attributes, p->attr_num, streams, p->attr_num, &p->vprog);
++	const GLboolean celo_single = is_packed && target_vbo && celo_single_stream(p, attributes, streams);
++	patch_vertex_program(p->vshader->id, celo_single ? celo_attrs : attributes, p->attr_num, streams, celo_single ? 1 : p->attr_num, &p->vprog);
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
- 	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ARRAYS, layout_variant, is_packed, GL_FALSE, attributes, streams);
+-	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ARRAYS, layout_variant, is_packed, GL_FALSE, attributes, streams);
++	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ARRAYS, layout_variant, is_packed, GL_FALSE, attributes, streams, celo_single);
  #endif
 -	sceGxmSetVertexProgram(gxm_context, p->vprog);
 +	vgl_set_vprog(p->vprog);
  
  	// Uploading both fragment and vertex uniforms data
  	upload_uniforms();
-@@ -1383,7 +1399,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1311,7 +1371,10 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ 	for (int i = 0; i < p->attr_num; i++) {
+ 		uint8_t attr_idx = p->attr_map[i];
+ 		GLboolean is_active = (cur_vao->vertex_attrib_state & (1 << attr_idx)) ? GL_TRUE : GL_FALSE;
+-		if (is_active) {
++		if (celo_single) {
++			if (i == 0)
++				sceGxmSetVertexStream(gxm_context, 0, ptrs[0]);
++		} else if (is_active) {
+ #ifdef DRAW_SPEEDHACK
+ 			sceGxmSetVertexStream(gxm_context, i, ptrs[i]);
+ #else
+@@ -1383,7 +1446,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
  				vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
  				tex->overridden = GL_FALSE;
  			}
@@ -109,25 +240,48 @@ index 3b91d11..1a0b1e8 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -1463,7 +1479,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1463,8 +1526,11 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
  			void *ptrs[VERTEX_ATTRIBS_NUM];
  			vertex_layout_setup_ptrs(p, layout_entry->is_packed, 0, top_idx, top_idx, ptrs);
  			p->vprog = layout_entry->vprog;
 -			sceGxmSetVertexProgram(gxm_context, p->vprog);
 +			vgl_set_vprog(p->vprog);
  			upload_uniforms();
++			if (layout_entry->single)
++				sceGxmSetVertexStream(gxm_context, 0, ptrs[0]);
++			else
  			for (int i = 0; i < p->attr_num; i++) {
  				uint8_t attr_idx = p->attr_map[i];
-@@ -1639,7 +1655,7 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ 				if (cur_vao->vertex_attrib_state & (1 << attr_idx)) {
+@@ -1635,11 +1701,12 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ #endif
+ 
+ 	// Uploading new vertex program
+-	patch_vertex_program(p->vshader->id, attributes, p->attr_num, streams, p->attr_num, &p->vprog);
++	const GLboolean celo_single = is_packed && target_vbo && celo_single_stream(p, attributes, streams);
++	patch_vertex_program(p->vshader->id, celo_single ? celo_attrs : attributes, p->attr_num, streams, celo_single ? 1 : p->attr_num, &p->vprog);
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
- 	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ELEMENTS, (uint8_t)index_type, is_packed, is_full_vbo, attributes, streams);
+-	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ELEMENTS, (uint8_t)index_type, is_packed, is_full_vbo, attributes, streams);
++	vertex_layout_cache_insert(p, VERTEX_LAYOUT_ELEMENTS, (uint8_t)index_type, is_packed, is_full_vbo, attributes, streams, celo_single);
  #endif
 -	sceGxmSetVertexProgram(gxm_context, p->vprog);
 +	vgl_set_vprog(p->vprog);
  
  	// Uploading both fragment and vertex uniforms data
  	upload_uniforms();
-@@ -1688,7 +1704,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
+@@ -1648,7 +1715,10 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ 	for (int i = 0; i < p->attr_num; i++) {
+ 		uint8_t attr_idx = p->attr_map[i];
+ 		GLboolean is_active = (cur_vao->vertex_attrib_state & (1 << attr_idx)) ? GL_TRUE : GL_FALSE;
+-		if (is_active) {
++		if (celo_single) {
++			if (i == 0)
++				sceGxmSetVertexStream(gxm_context, 0, ptrs[0]);
++		} else if (is_active) {
+ #ifdef DRAW_SPEEDHACK
+ 			sceGxmSetVertexStream(gxm_context, i, ptrs[i]);
+ #else
+@@ -1688,7 +1758,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
  	setup_frag_program();
  
  	// Setting up required vertex shader
@@ -136,7 +290,7 @@ index 3b91d11..1a0b1e8 100644
  
  	// Uploading textures on relative texture units
  	for (int i = 0; i < p->max_frag_texunit_idx; i++) {
-@@ -1699,7 +1715,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
+@@ -1699,7 +1769,7 @@ void _vglDrawObjects_CustomShadersIMPL() {
  #ifndef TEXTURES_SPEEDHACK
  			tex->last_frame = vgl_framecount;
  #endif
@@ -145,7 +299,7 @@ index 3b91d11..1a0b1e8 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  			glsl_samplers_info *info = p->frag_texunits[i]->sampler;
  			if (info) {
-@@ -2521,6 +2537,7 @@ void glLinkProgram(GLuint progr) {
+@@ -2521,6 +2591,7 @@ void glLinkProgram(GLuint progr) {
  				u->vptr = NULL;
  				u->fptr = (uint8_t *)p->unif_fbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
  				u->type = UNIFORM_DATA;
@@ -153,7 +307,7 @@ index 3b91d11..1a0b1e8 100644
  #ifdef HAVE_GLSL_TEXTURE_SIZE
  				u->sampler = NULL;
  				const char *pname = sceGxmProgramParameterGetName(param);
-@@ -2609,6 +2626,7 @@ void glLinkProgram(GLuint progr) {
+@@ -2609,6 +2680,7 @@ void glLinkProgram(GLuint progr) {
  				u->ptr = param;
  				u->type = UNIFORM_DATA;
  				u->vptr = (uint8_t *)p->unif_vbuffer + sceGxmProgramParameterGetResourceIndex(param) * 4;
@@ -161,7 +315,7 @@ index 3b91d11..1a0b1e8 100644
  				u->fptr = get_uniform_alias_data_ptr(p->frag_uniforms, p->frag_uniforms_num, sceGxmProgramParameterGetName(param));
  			}
  			ptr += 4;
-@@ -2780,11 +2798,11 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
+@@ -2780,11 +2852,11 @@ GLint glGetUniformLocation(GLuint prog, const GLchar *name) {
  
  #define vgl_fill_uniform_data(p, type, size, count) \
  	if (u->vptr) { \

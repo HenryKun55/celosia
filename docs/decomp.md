@@ -8781,6 +8781,94 @@ by the hook) is not used by the native draw, a lead.
 
 **Deliverable:** build/agent-scratch/celosia-r55.vpk.
 
+## Round 56: vitaGL's per-draw work; Vita3K's one-second stalls under a locked screen (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r56/` (v3k.sh: a Vita3K run at a
+given clock with an env.txt from its arguments; win.sh: the 60-frame windows
+as a table; the runs' folders). New tools: `build/agent-scratch/tools/abframes.py`
+(the rotating A/B from the per-frame lines) and `abfit.py` (render-thread
+time against draws per A/B state). A render-side round, measured at 222 MHz
+(the target) and 300 MHz, 3 cores.
+
+**1. The measurement: one-second stalls in Vita3K while the Mac's screen is
+locked.** At the start of this round every run (r54's and r55's VPKs too,
+222 or 240 MHz, 3 or 4 cores, host v-sync on or off) showed 60-frame windows
+of ~49 ms where round 54 had 33.3 ms at the same scenes. The `[frame] slow`
+lines show why: a frame of 970-1010 ms every ~90 frames (120 in a 330 s
+run, ~25% of the run's time), with the guest's vblank count stopped during
+it; the frames between them are 33 ms (vb 2) as before. None in round 54's
+run (00:33, before the screen locked), 148 in round 55's A/B (03:46). It is
+the host: the Mac's screen is locked (`CGSSessionScreenIsLocked`), and the
+Vulkan present of Vita3K's window (MoltenVK, a `CAMetalLayer`) waits up to
+its one-second drawable timeout. Each 60-frame window holds about one, so
+its mean went to ~49 ms and its `render` / `present` / `wait` with it; round
+55's A/B (frame 59.3 -> 63.3 ms, present 32.4 -> 37.0) was taken in this
+state, so its present numbers are not evidence. Measuring from here on: the
+per-frame lines (`SOTC_FRAME_LOG_ALL=1`), frames of 700 ms or more left out
+and counted (`abframes.py`); A/B states compared on the same run. A null
+A/B (a flag the build does not have, so both states the same code:
+r56/null-ab-r55) gives the noise: frame +-1.1 ms, game +-0.7, render +-1.0.
+Window screenshots (`SHOTS`) still work with the screen locked.
+
+**2. What the render thread does (Vita3K 222 MHz, r55, attract demo,
+r56/base222 and prof2-r55).** The Vita3K build here bills each HLE import
+150 guest instructions, `sceGxmDraw` 1 650, `sceClibMemcpy` at 400 MB/s
+(Vita3K's "speed mode"), so its profile is the guest's billed time. The
+render thread: sceGxmDraw 24%, sceClibMemcpy 11-14% (the draws' default
+uniform buffers: vitaGL copies the whole buffer each draw whose uniforms
+changed, ~320 bytes for the main programs and ~3 KB for the skinned ones with
+their 192-qword palette), sceGxmSetVertexStream 9-10% (vitaGL sets one stream
+per attribute, 4 a draw, 6 skinned, all to the same address for our packed
+vertices), our draw loop 10%, planFrame 4-7.5% plus the library memcmp it
+calls 2-4%, uniform4 2.7%. Per frame the render thread costs ~11 ms plus
+~13 us a draw; the attract demo's heaviest scene (the title screen's world,
+frames ~7 200-7 600) records ~2 600 draws (~1 100 GL draw calls after the
+merges) and its render thread takes ~58 ms, its game thread 40-45 ms.
+
+**3. vitaGL's per-draw work (`SOTC_GL_LEAN_DRAW=0` off; A/B `leandraw`).**
+In our vitaGL (celosia.patch, `vglCeloLeanDraw`, set by the renderer each
+frame):
+- a packed draw from one vertex buffer (every attribute active, one stride,
+  one index source, no unaligned attributes) is patched with all its
+  attributes on stream 0 and one stream: one `sceGxmSetVertexStream` a draw
+  instead of 4 (6 skinned); the attributes' formats and offsets are the
+  same, the same vertices are read (in Vita3K also one copy of the vertex
+  data a draw instead of one per stream);
+- a draw's default uniform buffers are copied with the library's memcpy, not
+  the `sceClibMemcpy` import (the same bytes);
+- the vertex layout cache (a draw with a recent program / vertex layout
+  skips the patcher lookup) holds 16 entries, not 4.
+The layout cache is emptied when the setting changes. Also: planFrame's
+`sameDraw` compares the clip matrix, light and tints word by word inline
+instead of through the library memcmp (the same answer).
+
+Exactness: the same GPU work by construction (the vertex fetch reads the
+same bytes with the same formats; the uniform bytes are the same). Pictures:
+Vita3K window shots at 222 and 300 MHz over the attract demo (r56/shots1,
+shots300: the night canyon, Wander in the rain, the plain, Agro at the
+shrine's stairs; skinned bodies, world, sky as before). The Mac does not use
+vitaGL.
+
+**Measured (Vita3K, attract demo, 420 s, `leandraw` rotating, 60-frame
+windows, stalls left out):**
+
+| | frames on / off | frame ms | game | render thread | render vs draws |
+|---|---|---|---|---|---|
+| 222 MHz (r56/lean222) | 3 934 / 3 936 | 34.10 / 34.71 | 22.52 / 23.01 | 18.88 / 20.82 (-1.9, -9%) | 10.4 + 12.5 us x draws / 11.1 + 14.4 |
+| 300 MHz (r56/lean300) | 4 099 / 4 098 | 32.08 / 32.72 | 17.14 / 17.62 | 14.45 / 16.15 (-1.7, -11%) | 7.5 + 10.0 us x draws / 8.6 + 10.6 |
+
+At 1 900 draws the render thread is ~4 ms (222) / ~2.3 ms (300) shorter. The
+frame moves less (-0.6 ms): most frames are already 2 vblanks; vb <= 2 in
+81.6% of the frames at 222 (79.6% off), 88.9% at 300 (88.1%). The heavy
+scene (frames >= 7 000) at 222: frame 42.4 ms, game 35.0, render 26.3 - 30
+fps does not hold there; the game thread is its limit at 222 now.
+
+**Not 30 fps yet.** At 222 MHz the attract demo's first ~6 000 frames run at
+2 vblanks in ~82% of the frames (mean 34 ms), the title screen's world at
+~42 ms (the game thread ~35 ms, the render thread ~26 ms there).
+
+**Deliverable:** build/agent-scratch/celosia-r56.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

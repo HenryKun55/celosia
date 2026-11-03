@@ -240,6 +240,12 @@ namespace native_renderer
         // vertex program, a fragment program that writes nothing): the same
         // stencil, no fog / texture work per volume pixel (SOTC_GL_VOLUME_PROG=0/1).
         bool glVolumeProgram = true;
+        // Round 56 (the Vita): vitaGL's per-draw work made lighter, the same
+        // GPU commands' effect: a packed draw's attributes on one vertex
+        // stream (one sceGxmSetVertexStream, not four) and its default uniform
+        // buffers copied with the library's memcpy, not the sceClibMemcpy
+        // import (vglCeloLeanDraw). SOTC_GL_LEAN_DRAW=0/1; A/B name `leandraw`.
+        bool glLeanDraw = true;
         // the GS alpha test's two passes merged into one where they draw the
         // same: every pixel under AREF (the texture's and the mesh's
         // greatest alpha say), one pass without depth writes (SOTC_GL_AT_MERGE=0/1).

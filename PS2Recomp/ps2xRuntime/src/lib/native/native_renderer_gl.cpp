@@ -35,6 +35,7 @@ extern "C" unsigned int _newlib_heap_size_user;      // ps2_vita_runtime.cpp
 extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
 extern "C" uint32_t vgl_celo_scenes; // celosia.patch (round 45): scenes begun (vglCeloSceneStats)
 extern "C" void vglCeloOwnMips(int on); // celosia.patch (round 55): glTexImage2D levels >= 1 taken as given
+extern "C" void vglCeloLeanDraw(int bits); // celosia.patch (round 56): bit 0 uniform copies by memcpy, bit 1 one vertex stream
 #endif
 
 #include "ThreadNaming.h"
@@ -2831,6 +2832,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
     // Two draws drawn as one: everything the passes read the same, the
     // meshes plain triangle lists in one buffer.
+    // Round 56: the arrays' bits compared word by word inline (the library
+    // memcmp's calls from here were ~4% of the Vita render thread in the
+    // attract demo's heaviest scenes); the same answer as memcmp's == 0.
+    static inline bool sameBits(const void *a, const void *b, size_t bytes)
+    {
+        const unsigned char *x = static_cast<const unsigned char *>(a), *y = static_cast<const unsigned char *>(b);
+        for (size_t i = 0; i < bytes; i += 4)
+        {
+            uint32_t u, v;
+            std::memcpy(&u, x + i, 4);
+            std::memcpy(&v, y + i, 4);
+            if (u != v)
+                return false;
+        }
+        return true;
+    }
+
     static bool sameDraw(const Draw &a, const Draw &b)
     {
         const native_renderer::DrawState &x = a.state, &y = b.state;
@@ -2842,11 +2860,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             x.fresnel != y.fresnel || x.screenCopy != y.screenCopy || x.previousFrame != y.previousFrame || x.debugColour != y.debugColour ||
             x.lit != y.lit || x.skinPalette || y.skinPalette)
             return false;
-        if (std::memcmp(x.reflectionTint, y.reflectionTint, sizeof(x.reflectionTint)) || std::memcmp(x.mirrorRipple, y.mirrorRipple, sizeof(x.mirrorRipple)))
+        if (!sameBits(x.reflectionTint, y.reflectionTint, sizeof(x.reflectionTint)) || !sameBits(x.mirrorRipple, y.mirrorRipple, sizeof(x.mirrorRipple)))
             return false;
-        if ((x.lit || x.fresnel) && std::memcmp(x.light, y.light, sizeof(x.light)))
+        if ((x.lit || x.fresnel) && !sameBits(x.light, y.light, sizeof(x.light)))
             return false;
-        return std::memcmp(a.clip, b.clip, sizeof(a.clip)) == 0;
+        return sameBits(a.clip, b.clip, sizeof(a.clip));
     }
 
     void Renderer::planFrame()
@@ -3152,6 +3170,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
         const bool depthKeep = native_renderer::tuning().glDepthKeep;
         vglCeloScratchKeep(depthKeep ? 0 : -1);
+        vglCeloLeanDraw(native_renderer::tuning().glLeanDraw ? 3 : 0); // round 56
         vglCeloDepthKeep(0, depthKeep ? 0 : -1);
         auto keepDepth = [&](const Target &t, int keep)
         {

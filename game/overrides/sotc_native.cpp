@@ -2939,6 +2939,7 @@ namespace sotc_native
         ab("depthkeep", &native_renderer::Tuning::glDepthKeep);
         ab("fewcopies", &native_renderer::Tuning::glFewCopies);
         ab("sblurapart", &native_renderer::Tuning::blurApart); // round 55
+        ab("leandraw", &native_renderer::Tuning::glLeanDraw); // round 56
         ab("volprog", &native_renderer::Tuning::glVolumeProgram);
         ab("atmerge", &native_renderer::Tuning::alphaTestMerge);
         ab("shadowidx", &native_renderer::Tuning::shadowIndexed);
