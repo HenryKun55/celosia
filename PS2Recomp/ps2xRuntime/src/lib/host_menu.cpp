@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -533,6 +534,20 @@ void load()
                            g_fileValues.end());
 }
 
+namespace
+{
+    std::mutex g_noticeMutex;
+    std::string g_noticeText;
+    double g_noticeUntil = 0.0;
+}
+
+void notice(const char *text, double seconds)
+{
+    std::lock_guard<std::mutex> lock(g_noticeMutex);
+    g_noticeText = text ? text : "";
+    g_noticeUntil = GetTime() + seconds;
+}
+
 bool isOpen() { return g_open; }
 bool quitRequested() { return g_quit; }
 bool inputBlocked() { return g_open || g_holdBlock; }
@@ -637,6 +652,22 @@ void update()
 void drawPerfOverlay(int screenWidth, int screenHeight)
 {
     // The scene recorder's marker (Debug "Record scene"), top right.
+    if (!g_open)
+    {
+        std::string text;
+        {
+            std::lock_guard<std::mutex> lock(g_noticeMutex);
+            if (GetTime() < g_noticeUntil)
+                text = g_noticeText;
+        }
+        if (!text.empty())
+        {
+            const int size = std::max(10, screenHeight / 34 / 2 * 2);
+            const int w = MeasureText(text.c_str(), size) + 16, x = (screenWidth - w) / 2, y = 8;
+            DrawRectangle(x, y, w, size + 8, Color{0, 0, 0, 170});
+            DrawText(text.c_str(), x + 8, y + 4, size, Color{255, 220, 90, 255});
+        }
+    }
     if (!g_open)
     {
         bool recording = false;

@@ -24,6 +24,9 @@ namespace ps2_stats
     inline std::atomic<uint64_t> vif1Chains{0}; // ~game frames, ever (scripted runs' clock)
     inline std::atomic<uint64_t> vblanks{0};    // guest VBlanks, ever (the game's own clock)
     inline std::atomic<int> snapshotRequest{-1}; // PS2X_INPUT_SCRIPT SNAP entry waiting for a picture
+    inline std::atomic<int> markRequests{0};     // PS2X_INPUT_SCRIPT MARK entries so far (the input recorder's bug marker)
+    // sceCdSync told the guest its command is done (the input replay keys disc reads to the game's frames; game thread).
+    inline void (*cdSyncDone)() = nullptr;
 
     // The boot's timeline: seconds since the process started (the clock
     // starts with the static initialisers, before main) and "[boot] <s> <what>"

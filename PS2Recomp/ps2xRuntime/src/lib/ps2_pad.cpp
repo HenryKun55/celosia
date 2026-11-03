@@ -203,7 +203,8 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
     // guest RAM word to hold the value (WAIT presses nothing: an anchor for
     // the "+<n>v" entries after it), e.g. "@d7d824=0:WAIT;+300v:START:12".
     // SNAP saves the next presented frame as snap_<entry>.ppm (GPU backend,
-    // PS2X_SNAPSHOT_DIR). "+<n>v@<k>" starts n VBlanks after entry k's start.
+    // PS2X_SNAPSHOT_DIR). MARK marks the moment in an input recording
+    // (SOTC_INPUT_RECORD), as the player's marker does. "+<n>v@<k>" starts n VBlanks after entry k's start.
     // A start of "@3d" waits for 3D after a loading
     // screen: the first VBlank with VU1 programs after 60 without any.
     // A fourth field "r<n>" presses again every n VBlanks until 3D comes
@@ -235,7 +236,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         bool repeatOnMemory = false, repeatUntilEqual = false;
         uint32_t repeatAddress = 0, repeatValue = 0;
     };
-    static constexpr uint16_t kStickUp = 0xF001u, kStickDown = 0xF002u, kStickLeft = 0xF003u, kStickRight = 0xF004u, kSnap = 0xF005u, kRamDump = 0xF006u;
+    static constexpr uint16_t kStickUp = 0xF001u, kStickDown = 0xF002u, kStickLeft = 0xF003u, kStickRight = 0xF004u, kSnap = 0xF005u, kRamDump = 0xF006u, kMark = 0xF007u;
     static std::vector<ScriptEntry> script = []
     {
         std::vector<ScriptEntry> out;
@@ -246,7 +247,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             {"UP", PAD_UP}, {"DOWN", PAD_DOWN}, {"LEFT", PAD_LEFT}, {"RIGHT", PAD_RIGHT},
             {"CROSS", PAD_CROSS}, {"CIRCLE", PAD_CIRCLE}, {"SQUARE", PAD_SQUARE}, {"TRIANGLE", PAD_TRIANGLE},
             {"L1", PAD_L1}, {"L2", PAD_L2}, {"R1", PAD_R1}, {"R2", PAD_R2},
-            {"START", PAD_START}, {"SELECT", PAD_SELECT}, {"WAIT", 0}, {"SNAP", kSnap}, {"RAMDUMP", kRamDump},
+            {"START", PAD_START}, {"SELECT", PAD_SELECT}, {"WAIT", 0}, {"SNAP", kSnap}, {"RAMDUMP", kRamDump}, {"MARK", kMark},
             {"LS_UP", kStickUp}, {"LS_DOWN", kStickDown}, {"LS_LEFT", kStickLeft}, {"LS_RIGHT", kStickRight}};
         std::stringstream all(env);
         std::string item;
@@ -421,6 +422,9 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                     e.repeatValue = ramWord(e.repeatAddress);
                 if (e.mask == kSnap)
                     ps2_stats::snapshotRequest.store(static_cast<int>(i), std::memory_order_relaxed);
+                // MARK: the input recorder's bug marker (SOTC_INPUT_RECORD), as if pressed.
+                if (e.mask == kMark)
+                    ps2_stats::markRequests.fetch_add(1, std::memory_order_relaxed);
                 // RAMDUMP (debugging, finding anchors): guest RAM to <PS2X_SNAPSHOT_DIR>/ram_<entry>.bin.
                 if (e.mask == kRamDump && g_scriptRam)
                 {
@@ -454,6 +458,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             case 0:
             case kSnap:
             case kRamDump:
+            case kMark:
                 break;
             case kStickUp: setStick(6, 7, 0, -1); break;
             case kStickDown: setStick(6, 7, 0, 1); break;

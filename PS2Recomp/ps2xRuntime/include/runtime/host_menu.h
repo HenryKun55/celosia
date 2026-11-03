@@ -44,4 +44,7 @@ namespace hostmenu
     bool inputBlocked();
     // The player chose "Quit game".
     bool quitRequested();
+    // A short line drawn at the top of the screen for `seconds` (the input
+    // recorder's "MARK 3"); any thread.
+    void notice(const char *text, double seconds);
 }

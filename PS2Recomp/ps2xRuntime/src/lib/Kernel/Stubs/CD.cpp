@@ -727,11 +727,15 @@ namespace ps2_stubs
                                                         {
                                                             cd_async::finish();
                                                             setReturnS32(&resumed, 0);
+                                                            if (ps2_stats::cdSyncDone)
+                                                                ps2_stats::cdSyncDone();
                                                         });
             }
             cd_async::finish();
         }
         setReturnS32(ctx, 0); // 0 = completed/not busy
+        if (ps2_stats::cdSyncDone)
+            ps2_stats::cdSyncDone();
     }
 
     void sceCdGetError(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

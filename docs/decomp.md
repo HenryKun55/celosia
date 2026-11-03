@@ -10402,3 +10402,44 @@ The profile is flat: nothing above 2.5%.
 - modelDisp's 25% is mostly host code (native renderer, skinning): profile
   it on the host side.
 - Collision: ClipCollisionDB, GetLayoutClass, GetCollisionDBAttributeAdr.
+
+## Input replay (2026-11-03)
+
+Play once, mark what looks wrong, replay the same session on the Mac's GS
+path, the Mac's native renderer and Vita3K, and look at the marked frames
+side by side (`SOTC_INPUT_RECORD`, `SOTC_INPUT_REPLAY`,
+`tools/replay_compare.sh`; game/overrides/sotc_replay.cpp).
+
+The logic frame is GAMECORE's frame-time call (gamecore_sub_013455F8, once a
+frame: the "tick"). A recording holds per tick the timer count that call
+read (the step: SotC is variable-step on the EE timer), FlushPadHistory's
+per-frame pad state, the VBlank count as getVIntrCnt / setVIntrBaseTime /
+getVIntrDiffTime / addVIntrTime read it, the kernel main loop's frame count
+and its garbage pass choice, the loader's disc reads (issued / seen done, per
+guest thread, keyed to the tick and the GP thread's frame releases), and
+where Wander, Agro and the camera are every 30 ticks. A replay feeds all of
+those back at the same ticks; the GP thread's frame release waits up to 60
+VBlanks for disc reads the recording had done by then.
+
+Marks: front touch (the Vita; Vita3K: a click on its window), `M` on the
+Mac, `MARK` in `PS2X_INPUT_SCRIPT`. Pictures in a replay: the game thread
+holds the frame after each pictured tick; the Mac saves it, Vita3K's window
+is captured by the script ("[replay] hold <tick>").
+
+**How exact (measured):**
+- Vita3K recording (scripted route, 6 124 ticks) replayed in Vita3K twice:
+  to tick 3 000 (logos, title, the save's load, the shrine) Wander within
+  0.017 units at all checkpoints and the camera within 0.15 (one title
+  checkpoint off in each run); in the walk after it, one run held Wander
+  within 0.001 and the camera within 0.22, the other drifted to 0.25 and 11.
+  The marked frames show the same moment in both.
+- The same recording replayed on the Mac (GS and native): off from tick 120
+  (the logos / title); Wander 4-26 units off in the walk.
+- Mac recording replayed on the Mac: exact to tick 840, then the title
+  menu's idle timer starts the attract demo in one run and not the other.
+
+What still follows host time: the VBlank count read inline (the kernel main
+loop, the garbage pass's own time check 0x1c81b0), the sound driver's
+status, the render paths' completion, and a loader woken by state that has
+already drifted (60-VBlank waits that time out: 32-102 per Mac replay, 48 in
+Vita3K). The next step would be a VBlank count driven by ticks in both runs.

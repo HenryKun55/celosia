@@ -25,6 +25,7 @@ void installSotcNative(PS2Runtime &runtime); // sotc_native.cpp
 void installSotcNativeLate(PS2Runtime &runtime);
 #include "sotc_decomp.h"
 #include "sotc_prof.h"
+#include "sotc_replay.h"
 
 namespace
 {
@@ -995,6 +996,8 @@ namespace
             runtime.registerFunction(kGamecoreEntry, gamecoreEntryHook);
         }
         ps2_lean::afterOverrides(runtime);
+        // The input recorder / replay (SOTC_INPUT_RECORD, SOTC_INPUT_REPLAY).
+        sotc_replay::install(runtime);
         // Last: it wraps whatever is in the table by now (SOTC_SUBSYS_PROF).
         sotc_prof::install(runtime);
     }
