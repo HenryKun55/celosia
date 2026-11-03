@@ -285,6 +285,7 @@ xychart-beta
 | `CELOSIA_BUILD` | `./build` | build and generated code |
 | `CELOSIA_JOBS` | CPU count | parallel compile jobs |
 | `CELOSIA_CMAKE_ARGS` | | extra CMake configure arguments |
+| `CELOSIA_VITA_CMAKE_ARGS` | | extra CMake configure arguments of `./celosia vita`; e.g. (round 66) `-DPS2X_VITA_FUNCTION_SECTIONS=OFF` for the old code layout (no `-ffunction-sections`, no hot-code order), `-DPS2X_VITA_HOT_ORDER=<file>` for another order file than `game/overrides/vita_hot_order.ld` (written by `tools/vita_hot_order.py` from Vita3K profiles: the sampled functions hottest first at the start of `.text`) |
 
 ### Runtime switches (debugging)
 

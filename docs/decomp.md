@@ -9883,6 +9883,157 @@ source is ../Vita3K, not changed here).
 
 **Deliverable:** build/agent-scratch/celosia-r65fix.vpk (on round 65).
 
+## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,
+instmix.py: the sizing; vita / vitawt: the Vita builds, vitawt from a clean
+worktree of the tree plus this round's files; ab.sh / batch.sh: the Vita3K
+A/B, new1 / new2 (r66) against old1 / old2 (celosia-r65.vpk's eboot); final:
+the last VPK's boot and screenshots; dt-all: the Mac difftest;
+env-console-prof.txt: the console profile run's env.txt). Rounds 52-65 cut
+the game thread in Vita3K; the console's heavy frames (~63 ms, game thread
+~56 ms) are ~1.5x what Vita3K shows, and Vita3K's JIT models neither the
+Cortex-A9's 32 KB caches nor its TLBs nor its DRAM latency. This round looks
+at what only the console sees: where the code and the guest RAM sit.
+
+**What the Vita build was (measured, r65's ELF).** `.text` 35.9 MB (36 MB
+of code, 5 MB more of rodata / exidx / data), `.bss` 26.9 MB, eboot.bin 20.4
+MB (compressed SELF), the VPK 21.9 MB. The recompiled game is ~9 080 files
+in 32-file unity batches at -O2, the runtime and the natives at -O3, all
+`-mcpu=cortex-a9 -mfpu=neon -mthumb`, no `-ffunction-sections`, no LTO (the
+VitaSDK's GNU ld 2.46, GCC 15.2). 1 909 long-branch veneers (Thumb's bl
+reaches +-16 MB).
+
+**The hot set (tools/vita_hot_order.py, five Vita3K profiles of the attract
+demo at 222 MHz: r56, r57, r60, r61, r64; each profile weighs the same, all
+threads).** 3 934 functions were sampled, 10.9 MB of code; 50% of the
+samples are in 336 KB, 90% in 2.0 MB, 99% in 5.9 MB. In r65's layout those
+functions were spread over all 34 MB of `.text`: the 90% set (~500 functions)
+covered 745 4 KB pages and 146 64 KB pages (ideal: 511 and 32).
+
+**1. Hot code first (`PS2X_VITA_FUNCTION_SECTIONS`, default on; CMake).**
+Every target (ps2_runtime, ps2EntryRunner, ps2_iop) gets
+`-ffunction-sections`, and the link `-Wl,--section-ordering-file=` with
+`game/overrides/vita_hot_order.ld` (found in a runner directory, or
+`PS2X_VITA_HOT_ORDER=<file>`): the sampled functions hottest first, then
+whole libraries built without function sections or with hand-written hot
+parts (vitaGL ~400 KB and its libmathneon, the raylib shim, libgcc / the unwinder that carries
+the thread switch's exception, pthread, libm, libc, the C++ runtime), so the
+hot code and what it calls sit together in the first ~13 MB of `.text`. The
+order file is regenerated with
+`tools/vita_hot_order.py game/overrides/vita_hot_order.ld <prof>:<elf> ...`
+(profiles of older builds count: names are looked up in each one's own ELF).
+After it (r66's ELF): the 90% set covers 530 4 KB pages (-29%) and 41 64 KB
+pages (-72%), within the first ~2 MB of `.text` instead of 34 MB; the 50%
+set 140 / 13 pages (was 199 / 37). `.text` 35.93 MB (+36 KB of alignment),
+eboot.bin 20.83 MB (+0.45 MB: the SELF compresses the reordered text a
+little worse), VPK 22.36 MB. Veneers 3 137: calls from cold code to hot
+functions and from hot code to cold helpers (callGuestSlow, the collision
+natives' slow paths, a recompiled function a native replaced); no sampled
+function is reached through one from the hot region (objdump over the
+first 13 MB; vitaGL's NEON matrix helper matmul4_neon was, until
+libmathneon.a joined the order file). Exact by construction: the same instructions, placed
+elsewhere. The text segment starts at 0x81000000 (1 MB aligned); whether
+the Vita's loader maps it with 64 KB or 1 MB pages is not known from here
+(no console run this round): with 4 KB pages the gain is the 29% fewer
+pages, with larger ones much more.
+
+**2. The guest RAM page aligned (ps2_memory.cpp).** It was `new
+uint8_t[32 MB + 16]`, 8-byte aligned from newlib's malloc: a guest qword
+(lq / sq, the VU0 vectors, the natives' 16-byte loads) then straddled two of
+the A9's 32-byte cache lines one time in two, and a 64-byte guest record
+touched three lines instead of two. Now `operator new[]` with 4 KB alignment
+(the Vita build logs `[mem] guest RAM at 0x86912000 (32768 KB)`). Host
+addressing only: nothing the game sees changes.
+
+**3. -Os / -O1 for the cold code: sized, not done.** One unity batch of
+recompiled code: -O2 88.0 KB, -Os 76.9 KB (-13%), -O1 85.9 KB. On the ~29 MB
+of unsampled recompiled code that is ~3.5-4 MB less eboot; after item 1 the
+cold code sits apart from the hot code, so its size no longer costs the hot
+path cache lines or pages, and code the profiles did not see (fights not in
+the attract demo) would run slower. Not worth a split build.
+
+**4. Hot/cold split inside functions: not possible.** About half of a
+generated function's bytes are cold (the resume switch and the guest
+accesses' out-of-line slow paths: manager_sub_0113ACB8 is 4.3 KB, its
+straight path ~2.1 KB). GCC's `-freorder-blocks-and-partition` would move
+them to `.text.unlikely`, but "does not work with exceptions on this
+architecture" (ARM EHABI), and the generated code must unwind (the thread
+switch is an exception). The cold tails cost pages, not i-cache lines.
+
+**5. The recompiler's codegen overhead, sized.** Vita3K samples (r64 heavy
+part) put the recompiled code at ~17-19% of the game thread now (the natives
+~70%). Inside it, weighted by samples over the 120 hottest generated
+functions: ALU 33%, guest loads 28%, guest stores 12%, register loads from
+the context 12%, compares 5% (the guest-RAM range check, `cmp` + `bcs` per
+access), FPU / NEON 5%, branches 2%, context stores 1%, stack 1%. A guest
+access is `add` + `cmp` + `bcs` + the load (the slow path out of line, round
+31's trampoline); a GPR write is a `str` / `strd` to the context (rounds
+18 / 29 / 30 drop the dead ones). The levers left there (whole-function
+register allocation, 8-byte-aligned ldrd / strd for ld / sd) are each a few
+percent of ~18% of the game thread, ~0.5-1 ms of the console's 56, for a
+generator change and a full rebuild; rounds 5 and 18 measured the
+whole-function form as slower on the A9 (spills, 8 callee-saved registers).
+Not done this round.
+
+**6. The data side (the console profiles of rounds 10-24, above).** The
+console's dear part was the display walk's memory misses (~250 ns each, the
+A9's prefetch no help): modelDisp 2x, hook.packets 1.3x, iosGPFrameInit
+1.6x, the garbage pass 2.2x, the particles' vertex packets 2.7x Vita3K's
+time; the characters and collision (compute) ran at 0.7-0.95x. Since then
+the hook's packet work moved to the hook worker (round 23), modelDispState
+to its lane (61) and the DMA chain walk to a worker (60). What the game
+thread still does of it (Vita3K r64 heavy profile, share of the game
+thread): the native display walk (decomp_walk: dispDispObjGroupModel,
+glVertexKick, the clip tests, strips) ~6.5%, the model hooks' game-thread
+part (modelDispHook's front, scroll rows, palettes, meshDispHook) ~2.9%, the
+object prefetch ~0.8%, the lanes' joins ~0.7%, the particles' draw / vertex
+packets ~4.8%, collision ~8.3%. Those walks touch every object's records
+once a frame; on the console they should be ~1.5-2x their Vita3K share.
+Item 2 helps them a little (fewer lines per record); the real lever there is
+fewer distinct lines per object, which needs the console's numbers first.
+
+**Verification.** Mac (the RAM alignment is the only change there):
+`SOTC_DIFFTEST=all`, every 25th call to frame 1 500 (dt-all): ~240
+functions, ~124 000 checks, mismatches only in the two known noisy ones
+(isysWakeupSubThread's timer, manager_sub_01102638's pad / frame timers, as
+in round 64's dt-on). Vita3K: every run booted at the first try; the final
+VPK's attract demo pictures (final/shots) as before.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, the attract demo 480 s, frame
+log; two runs each, alternated; abframes.py / slips.py; another Vita3K of
+another agent ran on the Mac during all four).**
+
+| part | r66 (new1 / new2) frame, game | r65 (old1 / old2) frame, game | > 40 ms r66 / r65 |
+|---|---|---|---|
+| early (< 7 000) | 22.44 / 22.41, 20.10 / 20.01 | 22.49 / 22.78, 19.93 / 19.88 | 4.0, 3.9 / 4.0, 4.0% |
+| flyover (7 000-9 999) | 25.52 / 25.55, 16.07 / 16.44 | 25.56 / 24.01, 15.99 / 15.42 | |
+| heavy (>= 10 000) | 35.14 / 34.62, 32.34 / 31.58 | 35.80 / 35.40, 33.37 / 31.89 | 26.2, 24.5 / 29.7, 27.8% |
+
+The same within the noise, as expected: Vita3K translates by guest address
+and its host's caches hide the layout. Nothing got slower.
+
+**Estimated on the console (an estimate, not measured).** The console's
+~1.5x over Vita3K on the game thread is cache / TLB / DRAM. If the eboot's
+text is mapped with 4 KB pages, the hot path now touches ~29% fewer code
+pages (the A9's main TLB holds 128 entries, ~512 KB) and its code no longer
+shares the 16 MB veneer reach with cold code; a guess of 1-4% of the game
+thread (0.5-2 ms of the heavy 56 ms), more if large pages apply. The RAM
+alignment: a fraction of a ms in the natives that walk 16-byte records. The
+console run below is what will tell.
+
+**For the console run (the user's):** celosia-r66.vpk with
+`build/agent-scratch/r66/env-console-prof.txt` as ux0:data/celosia/env.txt
+(SOTC_FRAME_LOG, SOTC_FRAME_LOG_ALL, SOTC_AUDIO_LOG=0, SOTC_BODY_SHADOWS,
+SOTC_GL_SPIKE_LOG, SOTC_SUBSYS_PROF=1): the [prof] windows by subsystem on
+the console after rounds 60-65, and at start the profiler's [probe] lines
+(memory latency over 16 KB-64 MB, guest RAM loads, hot against cold calls
+into the generated code: the A9's i-cache / iTLB / DRAM costs). The probes
+cost ~15-30% of the frame; a plain run (r59's env-plain.txt) against r59's
+err-plain.txt gives the layout's effect.
+
+**Deliverable:** build/agent-scratch/celosia-r66.vpk (r65b + this round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

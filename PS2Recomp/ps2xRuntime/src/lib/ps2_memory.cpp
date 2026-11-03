@@ -268,6 +268,7 @@ namespace
 }
 
 const std::align_val_t PS2Memory::kGsVramAlignment{16384};
+namespace { const std::align_val_t kRdramAlignment{4096}; } // round 66: guest RAM, page aligned
 
 bool PS2Memory::onVu1Worker()
 {
@@ -466,7 +467,7 @@ PS2Memory::~PS2Memory()
         m_mtvuThread.join();
     if (m_rdram)
     {
-        delete[] m_rdram;
+        ::operator delete[](m_rdram, kRdramAlignment);
         m_rdram = nullptr;
     }
 
@@ -515,7 +516,8 @@ bool PS2Memory::initialize(size_t ramSize)
 {
     auto cleanup = [this]()
     {
-        delete[] m_rdram;
+        if (m_rdram)
+            ::operator delete[](m_rdram, kRdramAlignment);
         delete[] m_scratchpad;
         delete[] iop_ram;
         if (m_gsVRAM)
@@ -559,8 +561,15 @@ bool PS2Memory::initialize(size_t ramSize)
         // RAM in place on one compare (ps2_runtime_macros.h READ* / WRITE*),
         // they may touch it on an access
         // that starts in the last bytes (a guest access is aligned: never).
-        m_rdram = new uint8_t[ramSize + 16u];
+        // Round 66: page aligned. new[] gave 8-byte alignment (newlib's
+        // malloc on the Vita): a guest qword then straddled two of the
+        // Cortex-A9's 32-byte cache lines one time in two, and a guest
+        // 64-byte record touched three lines instead of two.
+        m_rdram = static_cast<uint8_t *>(::operator new[](ramSize + 16u, kRdramAlignment));
         std::memset(m_rdram, 0, ramSize + 16u);
+#if defined(PLATFORM_VITA)
+        std::fprintf(stderr, "[mem] guest RAM at %p (%u KB)\n", static_cast<void *>(m_rdram), static_cast<unsigned>(ramSize / 1024u));
+#endif
 
         // Allocate scratchpad
         m_scratchpad = new uint8_t[PS2_SCRATCHPAD_SIZE];

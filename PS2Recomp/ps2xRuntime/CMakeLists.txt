@@ -718,6 +718,35 @@ if(PS2X_IS_VITA)
             set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "-O2")
         endif()
     endforeach()
+    # Round 66: the hot code together at the start of .text. Every function
+    # in a section of its own, and the linker places the ones Vita3K
+    # profiles sampled (vita_hot_order.ld in a runner directory, written by
+    # tools/vita_hot_order.py; hottest first) before the rest: ~11 MB of the
+    # ~36 MB of code, 90% of the samples in its first ~2 MB, instead of
+    # spread over all of it (fewer pages / TLB entries / L2 sets for the
+    # console's Cortex-A9; Vita3K's JIT does not see the layout).
+    option(PS2X_VITA_FUNCTION_SECTIONS "Vita: -ffunction-sections and the hot-code order file" ON)
+    set(PS2X_VITA_HOT_ORDER "" CACHE FILEPATH "Vita: ld section-ordering file (empty: vita_hot_order.ld of a runner directory)")
+    if(PS2X_VITA_FUNCTION_SECTIONS)
+        foreach(PS2X_VITA_TARGET IN ITEMS ps2_runtime ps2EntryRunner ps2_iop)
+            if(TARGET ${PS2X_VITA_TARGET})
+                target_compile_options(${PS2X_VITA_TARGET} PRIVATE -ffunction-sections)
+            endif()
+        endforeach()
+        set(PS2X_VITA_HOT_ORDER_FILE "${PS2X_VITA_HOT_ORDER}")
+        if(NOT PS2X_VITA_HOT_ORDER_FILE)
+            foreach(PS2X_RUNNER_DIR IN LISTS PS2X_RUNNER_DIRS)
+                if(EXISTS "${PS2X_RUNNER_DIR}/vita_hot_order.ld")
+                    set(PS2X_VITA_HOT_ORDER_FILE "${PS2X_RUNNER_DIR}/vita_hot_order.ld")
+                endif()
+            endforeach()
+        endif()
+        if(PS2X_VITA_HOT_ORDER_FILE AND EXISTS "${PS2X_VITA_HOT_ORDER_FILE}")
+            message(STATUS "Vita: hot-code order from ${PS2X_VITA_HOT_ORDER_FILE}")
+            target_link_options(ps2EntryRunner PRIVATE "-Wl,--section-ordering-file=${PS2X_VITA_HOT_ORDER_FILE}")
+            set_property(TARGET ps2EntryRunner APPEND PROPERTY LINK_DEPENDS "${PS2X_VITA_HOT_ORDER_FILE}")
+        endif()
+    endif()
     target_link_options(ps2EntryRunner PRIVATE "-Wl,--allow-multiple-definition")
     target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_runtime.cpp)
     set_source_files_properties(src/lib/ps2_vita_runtime.cpp PROPERTIES
