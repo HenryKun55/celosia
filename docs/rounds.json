@@ -256,6 +256,14 @@
    "focus": "Speed",
    "summary": "vitaGL's per-draw work made lighter on the Vita: a packed draw's attributes on one vertex stream (one sceGxmSetVertexStream instead of 4-6), the default uniform buffers copied with memcpy instead of the sceClibMemcpy import, a 16-entry vertex layout cache (SOTC_GL_LEAN_DRAW). Found that Vita3K stalls ~1 s every ~90 frames while the Mac's screen is locked (host present), which had skewed the 60-frame averages.",
    "result": "Vita3K attract demo, stalls left out: render thread 20.8 -> 18.9 ms at 222 MHz (-9%), 16.2 -> 14.5 ms at 300 MHz; frame 34.7 -> 34.1 ms at 222, 32.7 -> 32.1 at 300. Not 30 fps: the title screen's world runs ~42 ms at 222 (game thread ~35 ms)."
+  },
+  {
+   "round": "r57",
+   "date": "2026-11-03",
+   "commit": "c7e02ff",
+   "focus": "Speed",
+   "summary": "vitaGL's glUniform copies (the skinned palettes, up to 3 KB a call) use the library memcpy instead of the sceClibMemcpy import, under SOTC_GL_LEAN_DRAW; planFrame's draw compare unrolled. A draw-pass range search was measured and dropped (no effect).",
+   "result": "Vita3K 222 MHz A/B (rounds 56+57 together): render thread 20.2 -> 18.1 ms, frame 34.5 -> 33.6 ms; the title screen's world 44.9 -> 40.0 ms (game thread ~33 ms there). Not 30 fps yet."
   }
  ]
 }
