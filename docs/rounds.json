@@ -288,6 +288,14 @@
    "focus": "Speed",
    "summary": "The frame's display list (the VIF1 DMA chain) is walked on a worker thread, as the PS2's DMA ran beside the EE: the kick hands it over and leaves the channel busy; its effects (VIF1 registers, the GS SIGNAL / FINISH / LABEL writes, MSKPATH3, the channel's completion and the GS interrupt) are applied on the game thread where the game could first see them (SOTC_DMA_ASYNC, default on). Checked: every chain's result and every byte it reads compared with a walk at the kick, 0 differences on the Mac and in Vita3K.",
    "result": "Vita3K A/B: game thread -1.9 ms (attract demo) / -1.7 ms (title screen's world) at 222 MHz, -1.6 / -1.7 ms at 300 MHz; frames over 40 ms in the title screen's world at 222 MHz 30.5% against 48.8%. Not 30 fps at 222 yet."
+  },
+  {
+   "round": "r61",
+   "date": "2026-11-03",
+   "commit": "539777c",
+   "focus": "Speed",
+   "summary": "The game's model display state (modelDispState: the part tree's camera tests, the layers' last surface, the shadow flag) runs on a thread of its own with the hook's part decision; the model jobs wait for it, and the VU0 CLIP register stays pending until a reader needs it (the box tests before each model record their judgements, every other reader joins). Checked at every hook against the old code on the same state, 0 differences on the Mac and in Vita3K (SOTC_MDS_LANE, default on).",
+   "result": "Vita3K A/B (game thread + hooks): -0.8 ms (attract demo) / -1.6 ms (title screen's world) at 222 MHz, -0.6 / -1.2 ms at 300 MHz; frames over 40 ms in the title screen's world at 222 MHz 30.5% against 46.6%. Not 30 fps at 222 yet."
   }
  ]
 }
