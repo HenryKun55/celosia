@@ -216,6 +216,14 @@
    "focus": "Fidelity",
    "summary": "The Vita's smear while the camera moves: cameraBlur's screenBlur fires on nearly every moving frame at 16-20 fps, 98% of the calls the identity; those are left out (the picture they draw is the picture itself), real zoom / shift blurs drawn as before.",
    "result": "Vita3K attract demo: frames drawing a screen blur 454 of 3 706 -> 7 of 3 982 (each also a full scene redraw saved); Mac Metal / GL native vs GS unchanged (RMSE 0.072 -> 0.069, 0.058 -> 0.056)."
+  },
+  {
+   "round": "r52",
+   "date": "2026-11-02",
+   "commit": "d486403",
+   "focus": "Speed",
+   "summary": "The EE scheduler's thread switch (a WaitSema / SleepThread that blocks, a SignalSema that wakes a higher thread: ~400 a second) made by returning through the generated code instead of throwing a C++ exception, which on the Vita is a full ARM EHABI unwind; host frames that go on after guest code rethrow at their level as before (PS2X_XFER_RETURN).",
+   "result": "Same state either way (Mac audit mode over the attract demo, the new-game intro and a save load / save screen: no frame went on). Vita3K 240 MHz A/B: game thread 23.45 -> 23.12 ms (-1.4%)."
   }
  ]
 }
