@@ -9,6 +9,8 @@
 
 #include "ps2_runtime_macros.h"
 
+#include <cstring>
+
 namespace
 {
     using sotc_decomp::returnTo;
@@ -17,9 +19,69 @@ namespace
     constexpr uint32_t kSelect = kBase + 0x2408u; // which buffer is current (0 / 1)
     constexpr uint32_t kCount = kBase + 0x2404u;  // copied out in a1, then from +0xc00
 
+    // Round 54 (SOTC_FASTNATIVE2): the same with host pointers, the buffer
+    // selector read once and each caller's word written once, when the
+    // caller's words and the count lie in plain RAM outside the key state
+    // (0x1217b00..0x1219f0c; the game's only caller passes 0x121b0b0 /
+    // 0x121b0ac) and the selector is 0 or 1 (it only ever flips): then
+    // nothing the loops write is read again, and the three read-modify-
+    // writes of a word leave what one does. Bit-exact with the loop below.
+    bool kbGetStatusFast(uint8_t *rdram, R5900Context *ctx)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), count = GPR_U32(ctx, 5);
+        constexpr uint32_t kLo = kBase, kHi = kSelect + 4u, kBytes = 256u * 12u;
+        auto apart = [&](uint32_t a, uint32_t n) { return (a & 3u) == 0u && a <= PS2_RAM_SIZE - n && (a + n <= kLo || a >= kHi); };
+        if (!apart(out, kBytes) || !apart(count, 4u))
+            return false;
+        auto rd = [rdram](uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + a, 4);
+            return v;
+        };
+        auto wr = [rdram](uint32_t a, uint32_t v) { std::memcpy(rdram + a, &v, 4); };
+        const uint32_t sel = rd(kSelect);
+        if (sel > 1u)
+            return false;
+        wr(count, rd(kCount));
+        const uint8_t *cur = rdram + kBase + 0xC04u + sel * 0xC00u;
+        const uint8_t *oth = rdram + kBase + 4u + (sel != 0u ? 0xC00u : 0x1800u);
+        uint8_t *o = rdram + out;
+        for (uint32_t t0 = 0; t0 < kBytes; t0 += 12u)
+        {
+            uint32_t c, p, w;
+            std::memcpy(&c, cur + t0, 4);
+            std::memcpy(&p, oth + t0, 4);
+            std::memcpy(&w, o + t0, 4);
+            c &= 1u;
+            p &= 1u;
+            w = (w & ~7u) | c | ((p ? 0u : c) << 1) | ((c ? 0u : p) << 2);
+            std::memcpy(o + t0, &w, 4);
+        }
+        const uint32_t next = sel ^ 1u;
+        wr(kSelect, next);
+        uint8_t *dst = rdram + kBase + 0xC04u + next * 0xC00u;
+        const uint8_t *raw = rdram + kBase;
+        for (uint32_t t0 = 0; t0 < kBytes; t0 += 12u)
+        {
+            uint32_t r, w;
+            std::memcpy(&r, raw + t0, 4);
+            std::memcpy(&w, dst + t0, 4);
+            w = (w & ~1u) | (r & 1u);
+            std::memcpy(dst + t0, &w, 4);
+        }
+        const uint32_t v0 = rd(kBase + 0xC00u);
+        wr(kCount, v0);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+        SET_GPR_U32(ctx, 3, kBase);
+        return true;
+    }
+
     // kbGetStatus(keys a0, count a1): v0 set, no return (the callers below).
     void kbGetStatusBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (sotc_decomp::fastNative2On() && kbGetStatusFast(rdram, ctx))
+            return;
         uint32_t out = GPR_U32(ctx, 4);
         WRITE32(GPR_U32(ctx, 5), READ32(kCount));
         for (uint32_t t0 = 0; t0 < 256u * 12u; t0 += 12u, out += 12u)

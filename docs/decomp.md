@@ -8534,6 +8534,60 @@ thread 23.12 ms with the switch by returning, 23.45 ms with the exception
 **Deliverable:** build/agent-scratch/celosia-r52.vpk; console A/B env:
 r52/console-ab/env.txt (`abrot.py` reads the err.txt).
 
+## Round 53: the keyboard state's fast path; the sound lock's wait measured (2026-11-03)
+
+Scripts and logs: `build/agent-scratch/r53/` (kb/ the Mac difftest, intro-dt,
+v3k-*-err.txt, prof.txt.120 / .300 with ps2EntryRunner.elf, console-ab/env.txt).
+
+**Target list (Vita3K 240 MHz, attract demo, r52's build, game thread,
+r52/prof-game.txt):** the DMA walk (feedT 2.4%, walkVif1Chain 2.1%, the GIF
+scanner 0.7%), motionMatrix 2.3%, hookScrolls 2.0%, glVertexKick 1.8%,
+memcpy 1.8%, mdsPlanPackets 1.7%, charaLinks 1.6%, texAnimFast 1.4% ... a
+flat list; and two cheap ones: the sound driver's status request spinning
+on the mixer's lock (pthread_mutex_trylock 0.38%, the CAS 0.36%, handleRpc
+0.38%) and kbGetStatusBody 0.42% (256 keys a frame, no keyboard there).
+
+**1. The sound lock (measured, not kept).** The status request (about two a
+game frame) waits for the mixer's 16-frame piece: 25-30 ms of lock wait per
+5 s on the game thread (`[audio-ticks]`). Tried behind a switch: pieces of 8
+frames and the request's spin watching a "rendering" flag instead of
+retrying the mutex. Rotating A/B (240 MHz, 67-69 windows each): with both,
+lock wait -10% and the game thread -0.17 ms, but the frame +2.0 ms (twice,
+r53/v3k-ab-loaded-err.txt and v3k-ab-err.txt: the mixer's extra lock rounds
+cost the other threads); the spin alone, nothing (r53/v3k-ab-spinonly-err.txt,
+game +0.44 / lock wait the same: the noise of one run is ~0.4 ms). Reverted:
+the wait is the mixer's piece itself.
+
+**2. kbGetStatus (`SOTC_FASTNATIVE2=0` off, a new switch for the rounds after
+49; `SOTC_AB_FLAG` takes `fastnative2`).** decomp_keyboard.cpp's kbGetStatusBody
+(called by kbGetStatus and usbdevFrameInit's tail) reads the buffer selector
+three times a key and writes each of the caller's words three times
+through the guest macros, because the caller's words could lie anywhere.
+The fast path checks that they do not (the 3 KB of caller words and the
+count word aligned, in plain RAM, outside the key state 0x1217b00..0x1219f0c;
+the selector 0 or 1), then reads the selector once and writes each word once
+with host pointers: nothing the loops write is read again, so it is the same
+result.
+- Exact: Mac difftest of kbGetStatus and usbdevFrameInit at every call over
+  the attract demo (r53/kb/dt-kb: 800 checks each, 0 mismatches) and the new
+  game's intro to 4 000 (r53/intro-dt, every 20th call: 300 checks each, 0
+  mismatches); the game has no keyboard, so the key bits are all zero there:
+  both loops also compared on random key state, selector and caller words
+  (2 000 cases, scratchpad test, 0 differences).
+- Measured: kbGetStatusBody 0.42% of the game thread (r52 profile) -> 0.03%
+  (r53/prof.txt, same clock and demo), ~0.08 ms a frame. The rotating A/B
+  (r53/v3k-fn2-err.txt) cannot see that much: game 20.77 with the old code,
+  21.14 with the fast path, inside one run's noise.
+
+**Next (r53 profile, game thread, r53/prof-game.txt):** the collision leaf
+(leafT 2.2% + leafScan 0.6%, nodeF / lowF / highF 2.1%), the DMA walk (feedT
+2.0%, walkVif1Chain 1.7%), motionMatrix 1.9%, memcpy 1.5% (callers in code
+outside the ELF's symbols), updateObjectGeo 1.2%, modelClipSolid 1.2%,
+windZones 1.2%, modelClipFast 1.1%.
+
+**Deliverable:** build/agent-scratch/celosia-r53.vpk; console A/B env:
+r53/console-ab/env.txt.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

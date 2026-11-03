@@ -482,11 +482,12 @@ namespace sotc_decomp
         kIsys,
         kHotList48,
         kFastNative,
+        kFastNative2,
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -557,6 +558,9 @@ namespace sotc_decomp
     // code. SOTC_FASTNATIVE=0 puts round 48's code paths back (read at first
     // use; each native checks it at its entry).
     inline bool fastNativeOn() { return switchOn(kFastNative); }
+    // Round 54: the next natives' fast paths (the same rules as round 49's),
+    // SOTC_FASTNATIVE2=0 puts the previous code back.
+    inline bool fastNative2On() { return switchOn(kFastNative2); }
 
     // Round 49's measurements. NativeCount: calls of a native (counted
     // whatever SOTC_FASTNATIVE says, at its entry); with
