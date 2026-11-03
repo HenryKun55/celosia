@@ -302,7 +302,7 @@
    "date": "2026-11-03",
    "commit": "1ecdaa4",
    "focus": "Speed",
-   "summary": "The particle geodisps' per-frame clip pass and the small functions every particle pass asks (the geodisp class, the emitter list) natively, checked against the recompiled code (0 mismatches in 272 700 checks); the kernel snapshot for the debug panel made only when asked; the 30 fps cap back in the Vita's Quality menu (on by default, a saved choice honoured).",
+   "summary": "The particle geodisps' per-frame clip pass and the small functions every particle pass asks (the geodisp class, the emitter list) natively, checked against the recompiled code (0 mismatches in 272 700 checks); the kernel snapshot for the debug panel made only when asked; the 30 fps cap back in the Vita's Quality menu (on by default then, off by default since round 64; a saved choice honoured).",
    "result": "Vita3K A/B: within the noise at 222 and 300 MHz (the functions were ~0.8% of the game thread). After rounds 60-62 the title screen's world at 222 MHz still slips about one frame in three; not 30 fps at 222 yet."
   },
   {
@@ -312,6 +312,14 @@
    "focus": "Speed",
    "summary": "The collision queries counted for the first time (a census of every query the game makes per frame): in the title screen's world ~800 distinct small queries a frame from ~40 call sites, ~5 ms in Vita3K at 222 MHz, almost none repeated, so no single structure to replace. The collision leaf now tests the surface's plane first and skips the id filter and the full surface test for surfaces the segment does not cross, checked both ways (3 million checks, 0 differences; Mac difftest 0 mismatches).",
    "result": "Vita3K A/B: game thread -0.6 to -0.8 ms in the attract demo's first part at 222 and 300 MHz; no change beyond the noise in the title screen's world, where the character's finders and keeps dominate. Not 30 fps at 222 yet."
+  },
+  {
+   "round": "r64",
+   "date": "2026-11-03",
+   "commit": "a873982",
+   "focus": "Speed",
+   "summary": "The first subsystem moved to the Vita's other cores: the frame's texture animation loop (each animated texture's scroll and palette, ~310 textures) runs on a new offload thread and is joined before its first reader. A census tool on the Mac (every guest load of the loop's output watched) found who reads it and when: nothing before the display walk. Checked both ways on the Mac and in Vita3K (11 300 frames, 0 differences, 0 reads in flight). The 30 fps cap in the Vita's Quality menu is off by default now, as the user asked.",
+   "result": "Vita3K A/B: game thread -0.5 to -1.0 ms in the attract demo's first part at 222 and 300 MHz; within the noise in the heavy part (the loop was ~1.5% of the game thread). The other candidates (particles, cloth, wind) share state with the rest of the frame and are each under 1 ms. Not 30 fps at 222 yet."
   }
  ]
 }
