@@ -2839,6 +2839,7 @@ namespace sotc_native
     // Names: bloom, vfog, zfog, glow, dof, shadows, sblur, feedback, ptcl,
     // reflect, refract, subtract, additive, overlays, sky; round 38:
     // alphatest, bgdepth, bodyshadows.
+    PS2Runtime *g_runtimeForLog = nullptr; // the [audio] line's thread and heap part
     void abSwitches()
     {
         static const char *flags = std::getenv("SOTC_AB_FLAG");
@@ -2908,6 +2909,12 @@ namespace sotc_native
         for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
             if (list.find(std::string(",") + switchNames[i] + ",") != std::string::npos)
                 sotc_decomp::setSwitch(i, isOff(switchNames[i]) ? false : switchStart[i]);
+        // Round 52: the thread switch by returning (PS2X_XFER_RETURN).
+        if (g_runtimeForLog && list.find(",xferreturn,") != std::string::npos)
+        {
+            static const bool xferStart = g_runtimeForLog->eeScheduler().xferReturn();
+            g_runtimeForLog->eeScheduler().setXferReturn(isOff("xferreturn") ? false : xferStart);
+        }
         ab("bloom", &native_renderer::Tuning::bloom);
         ab("vfog", &native_renderer::Tuning::vertexFog);
         ab("zfog", &native_renderer::Tuning::zFog);
@@ -3068,6 +3075,8 @@ namespace sotc_native
     void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_getCameraContext(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         g_cameraContext = GPR_U32(ctx, 2);
     }
 
@@ -3379,7 +3388,6 @@ namespace sotc_native
     // streams' reads are type 7, queued on list 0 by sheetMgrAdpcmIntLoad;
     // the running job at 0x118fe34): how many are waiting, and how long a
     // stream read waited to start (first seen queued -> gone from the lists).
-    PS2Runtime *g_runtimeForLog = nullptr; // the [audio] line's thread and heap part
     // The [loader] line (round 14, with the [audio] one): the console's ~50 s
     // with the loader busy and no disc reads after a colossus (console-r13).
     // Per frame: the running job (0x118fe34: its node, type +0) and how long
@@ -5491,6 +5499,8 @@ namespace sotc_native
         const bool shadow = ra == kShadowPopSkinned || ra == kShadowPopRigid;
         const uint32_t shadowModel = GPR_U32(ctx, 17), shadowChain = GPR_U32(ctx, 18);
         g_popLayer(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         if (shadow && (ra == kShadowPopRigid || native_renderer::tuning().bodyShadows))
         {
             syncFrame(rdram);
@@ -5521,6 +5531,8 @@ namespace sotc_native
         const uint32_t header = g_requested;
         const uint32_t layer = g_layers.empty() ? 2u : g_layers.back();
         g_meshDisp(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         HookTimer hookTimer;
         if (!g_cameraContext || g_ram[(object + 8u) & 0x1FFFFFFu] != '#')
             return;
@@ -6499,6 +6511,8 @@ namespace sotc_native
         const uint32_t a = GPR_U32(ctx, 4), count = GPR_U32(ctx, 5);
         const uint32_t header = g_requested, layer = g_layers.empty() ? 18u : g_layers.back();
         g_ptclVtx(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         HookTimer hookTimer;
         const bool off = !native_renderer::tuning().particles;
         const ParticleEnv &env = g_ptclEnvState;
@@ -7699,13 +7713,13 @@ namespace sotc_native
         }
         // modelDisp to its return (it can leave on a continuation).
         const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
-        g_modelDisp(rdram, ctx, runtime);
+        { g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); }
         while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
         {
             PS2Runtime::RecompiledFunction next = runtime->hasFunction(ctx->pc) ? runtime->lookupFunction(ctx->pc) : nullptr;
             if (!next)
                 break;
-            next(rdram, ctx, runtime);
+            { next(rdram, ctx, runtime); runtime->checkTransfer(); }
         }
         ++checks;
         if ((ctx->vu0_clip_flags & 0xFFFFFFu) != (clipMine & 0xFFFFFFu))
@@ -7988,7 +8002,7 @@ namespace sotc_native
         const bool ps2Lists = native_renderer::tuning().ps2Lists || !GS::skipRaster();
         static const bool check = std::getenv("SOTC_MODELDISP_CHECK") != nullptr;
         if (ps2Lists && !check)
-            g_modelDisp(rdram, ctx, runtime); // the emulated drawing goes on as before
+            { g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); } // the emulated drawing goes on as before
         else
         {
             // iosgluGetCameraContext -> get_cur_camera_context, as modelDisp asks.

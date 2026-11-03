@@ -292,6 +292,19 @@ public:
     {
         return m_unwinding;
     }
+    // Round 52: PS2X_XFER_RETURN, switchable while running (SOTC_AB_FLAG=xferreturn).
+    [[nodiscard]] bool xferReturn() const noexcept { return m_xferReturn; }
+    void setXferReturn(bool on) noexcept { m_xferReturn = on; }
+    // Round 52: a frame that cannot return early (it goes on after the guest
+    // code it runs) holds this while it runs it: a thread switch below throws.
+    struct ThrowScope
+    {
+        EeScheduler &ee;
+        explicit ThrowScope(EeScheduler &s) noexcept : ee(s) { ++ee.m_xferThrowDepth; }
+        ~ThrowScope() { --ee.m_xferThrowDepth; }
+        ThrowScope(const ThrowScope &) = delete;
+        ThrowScope &operator=(const ThrowScope &) = delete;
+    };
 
     // Kernel object API. All calls except postEvent/requestStop execute on the
     // EE executor and therefore need no host synchronization.
@@ -434,6 +447,14 @@ private:
     void makeDormant(GuestThread &thread);
     void removeFromWaitObject(GuestThread &thread);
     [[noreturn]] void blockCurrent(EeWaitState wait);
+    // Round 52: blockCurrent's state change, then back to the dispatcher by
+    // returning when every frame on the way can (leaveThread).
+    void blockCurrentOrReturn(EeWaitState wait);
+    void parkCurrent(EeWaitState wait);
+    // The thread switch itself: by returning (`unwinding` and `transferred`
+    // set) when PS2X_XFER_RETURN is on and no frame that cannot return is in
+    // the way (m_xferThrowDepth), else the EeDispatcherTransfer exception.
+    void leaveThread();
     void makeReady(GuestThread &thread, int result, bool interruptSafe);
     void requestPreemptionIfHigher(const GuestThread &readyThread, bool interruptSafe);
     void applyPendingPreemption();
@@ -509,6 +530,13 @@ private:
     // The clock lives in the runtime, where generated code reads it inline
     // (EeClock: the cycle count, the gate, the pending and unwinding flags).
     bool &m_unwinding;
+    // Round 52 (PS2X_XFER_RETURN=0: off): thread switches by returning
+    // instead of throwing. m_xferThrowDepth counts the frames on the host
+    // stack that cannot return early (a raw syscall in generated code, whose
+    // next instructions do not check; the dispatcher's completions).
+    bool m_xferReturn = true;
+    int m_xferThrowDepth = 0;
+    bool m_xferAudit = false; // PS2X_XFER_AUDIT=1 (Mac): see EeScheduler::checkpointSlow
     uint32_t m_pendingEeTimerInterrupts = 0;
     EeClock &m_clock;
     [[nodiscard]] uint64_t eeNow() const noexcept { return m_clock.now(); }

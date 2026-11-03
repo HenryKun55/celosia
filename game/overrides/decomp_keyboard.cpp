@@ -79,13 +79,13 @@ namespace
         SET_GPR_S32(ctx, 4, static_cast<int32_t>(kState));
         SET_GPR_U32(ctx, 31, kAfterJal);
         ctx->pc = kMouseGetStatus;
-        runtime->lookupFunction(kMouseGetStatus)(rdram, ctx, runtime);
+        { runtime->lookupFunction(kMouseGetStatus)(rdram, ctx, runtime); runtime->checkTransfer(); }
         while (!(ctx->pc == kAfterJal && GPR_U32(ctx, 29) == sp))
         {
             PS2Runtime::RecompiledFunction next = runtime->hasFunction(ctx->pc) ? runtime->lookupFunction(ctx->pc) : nullptr;
             if (!next)
                 break;
-            next(rdram, ctx, runtime);
+            { next(rdram, ctx, runtime); runtime->checkTransfer(); }
         }
         // a0 = s0 + 0x5c, a1 = s0 + 0x58; ld s0 / ra; j kbGetStatus; addiu sp, 0x10
         SET_GPR_S32(ctx, 4, static_cast<int32_t>(kState + 0x5Cu));

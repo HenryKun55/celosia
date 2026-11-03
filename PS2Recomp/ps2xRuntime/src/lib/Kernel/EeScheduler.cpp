@@ -18,6 +18,9 @@
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
+#if !defined(__vita__)
+#include <execinfo.h>
+#endif
 
 void (*g_eeDispatchProbe)(R5900Context *, int) = nullptr;
 
@@ -136,6 +139,13 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     // A/B switches for the dispatch fast paths (read here: on the Vita the
     // environment comes from env.txt, loaded after the runtime is built).
     {
+        const char *xfer = std::getenv("PS2X_XFER_RETURN");
+        m_xferReturn = !(xfer && xfer[0] == '0');
+        m_xferThrowDepth = 0;
+        m_clock.transferred = false;
+#if !defined(__vita__)
+        m_xferAudit = std::getenv("PS2X_XFER_AUDIT") != nullptr;
+#endif
         const char *gate = std::getenv("PS2X_EE_GATE");
         m_gateEnabled = !(gate && gate[0] == '0');
         const char *direct = std::getenv("PS2X_DIRECT_DISPATCH");
@@ -251,11 +261,13 @@ void EeScheduler::run()
             running->resumeCompletion = {};
             try
             {
+                const ThrowScope noReturn(*this);
                 completion(running->activeContext());
             }
             catch (const EeDispatcherTransfer &)
             {
             }
+            m_clock.transferred = false;
             if (m_currentThreadId == 0)
             {
                 continue;
@@ -289,11 +301,13 @@ void EeScheduler::run()
                 {
                     try
                     {
+                        const ThrowScope noReturn(*this);
                         completed.onComplete(completed.context, running->activeContext());
                     }
                     catch (const EeDispatcherTransfer &)
                     {
                     }
+                    m_clock.transferred = false;
                 }
                 continue;
             }
@@ -394,17 +408,27 @@ void EeScheduler::run()
             // set twice per dispatch; a release store is a barrier on ARM.
             m_guestExecuting.store(true, std::memory_order_relaxed);
             m_unwinding = false;
+            m_clock.transferred = false;
             updateGate();
             if (g_eeDispatchProbe)
                 g_eeDispatchProbe(&context, 0);
             function(m_rdram, &context, &m_runtime);
             m_guestExecuting.store(false, std::memory_order_relaxed);
             m_insideInterrupt = false;
+            // A switch made by returning (leaveThread) ends here as the
+            // exception's did in the catch below.
+            if (m_clock.transferred)
+            {
+                m_clock.transferred = false;
+                if (m_xferAudit)
+                    updateGate(); // closed by leaveThread for the audit
+            }
         }
         catch (const EeDispatcherTransfer &)
         {
             m_guestExecuting.store(false, std::memory_order_relaxed);
             m_insideInterrupt = false;
+            m_clock.transferred = false;
         }
         catch (...)
         {
@@ -467,6 +491,20 @@ bool EeScheduler::checkpointDue(uint32_t cycles) noexcept
 
 bool EeScheduler::checkpointSlow() noexcept
 {
+#if !defined(__vita__)
+    // PS2X_XFER_AUDIT=1: guest code ran after a thread switch made by
+    // returning, before the dispatcher took over: a host frame on the way
+    // went on after its guest call instead of returning or rethrowing
+    // (PS2Runtime::checkTransfer). Its backtrace, then abort.
+    if (m_xferAudit && m_clock.transferred)
+    {
+        std::fprintf(stderr, "[xfer] audit: guest code ran after a returned thread switch\n");
+        void *frames[64];
+        const int n = backtrace(frames, 64);
+        backtrace_symbols_fd(frames, n, 2);
+        std::abort();
+    }
+#endif
     syncAccounting();
 
     // Relaxed: these run every few guest instructions, and on ARM an acquire
@@ -819,7 +857,7 @@ void EeScheduler::sleepCurrent()
         setReturnS32(&self->activeContext(), KE_OK);
         return;
     }
-    blockCurrent(EeWaitState{EeWaitReason::Sleep, std::monostate{}});
+    blockCurrentOrReturn(EeWaitState{EeWaitReason::Sleep, std::monostate{}});
 }
 
 int EeScheduler::wakeupThread(int id, bool interruptSafe)
@@ -1018,7 +1056,7 @@ void EeScheduler::transferIfRequested(bool interruptSafe)
     m_rescheduleRequested = false;
     m_timeSliceExpired = false;
     publishSnapshot();
-    throw EeDispatcherTransfer{};
+    leaveThread();
 }
 
 int EeScheduler::createSemaphore(int initCount, int maxCount, uint32_t attr, uint32_t option)
@@ -1135,7 +1173,7 @@ void EeScheduler::waitSemaphore(int id)
     GuestThread *self = currentThread();
     assert(self != nullptr);
     object->waiters.push_back(self->id);
-    blockCurrent(EeWaitState{EeWaitReason::Semaphore, EeSemaphoreWait{id}});
+    blockCurrentOrReturn(EeWaitState{EeWaitReason::Semaphore, EeSemaphoreWait{id}});
 }
 
 int EeScheduler::createEventFlag(uint32_t initialBits, uint32_t attr, uint32_t option)
@@ -1258,7 +1296,7 @@ void EeScheduler::waitEventFlag(int id, uint32_t bits, uint32_t mode, uint32_t r
         return;
     }
     flag->waiters.push_back(self->id);
-    blockCurrent(EeWaitState{EeWaitReason::EventFlag,
+    blockCurrentOrReturn(EeWaitState{EeWaitReason::EventFlag,
                              EeEventFlagWait{id, bits, mode, resultAddress}});
 }
 
@@ -1985,7 +2023,72 @@ static bool traceScheduler()
     return enabled;
 }
 
-void EeScheduler::blockCurrent(EeWaitState wait)
+[[noreturn]] void EeScheduler::blockCurrent(EeWaitState wait)
+{
+    parkCurrent(std::move(wait));
+    throw EeDispatcherTransfer{};
+}
+
+void EeScheduler::blockCurrentOrReturn(EeWaitState wait)
+{
+    parkCurrent(std::move(wait));
+    leaveThread();
+}
+
+namespace
+{
+    // PS2X_XFER_STATS=1: thread switches by returning / by the exception,
+    // and the returned ones a host frame rethrew (checkTransfer), per second.
+    void noteLeave(int kind)
+    {
+        static const bool on = std::getenv("PS2X_XFER_STATS") != nullptr;
+        if (__builtin_expect(!on, 1))
+            return;
+        static uint64_t counts[3]{};
+        static auto last = std::chrono::steady_clock::now();
+        ++counts[kind];
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last >= std::chrono::seconds(5))
+        {
+            std::fprintf(stderr, "[xfer] thread switches/s: %llu returned (%llu of them rethrown), %llu thrown\n", (unsigned long long)(counts[0] / 5),
+                         (unsigned long long)(counts[2] / 5), (unsigned long long)(counts[1] / 5));
+            counts[0] = counts[1] = counts[2] = 0;
+            last = now;
+        }
+    }
+}
+
+void EeScheduler::leaveThread()
+{
+    // Round 52. The thread switch used to throw EeDispatcherTransfer to
+    // run(); on the Vita each throw is an ARM EHABI unwind (the table
+    // lookups, every frame's register pops, the personality routine's LSDA
+    // reads). Generated code returns at once when `unwinding` is set (its
+    // calls test it: PS2Runtime::callGuestFn / finishGuestCall), with
+    // ctx->pc where the thread resumes, exactly what the exception leaves.
+    // Host frames that go on after their guest calls rethrow at the first
+    // one (PS2Runtime::checkTransfer); frames that cannot do either hold a
+    // ThrowScope, and then this throws as before.
+    if (m_xferReturn && m_xferThrowDepth == 0)
+    {
+        m_unwinding = true;
+        m_clock.transferred = true;
+        if (m_xferAudit)
+            m_clock.closeGate(); // the next checkpoint reports a frame that went on
+        noteLeave(0);
+        return;
+    }
+    noteLeave(1);
+    throw EeDispatcherTransfer{};
+}
+
+void PS2Runtime::rethrowTransfer()
+{
+    noteLeave(2);
+    throw EeDispatcherTransfer{};
+}
+
+void EeScheduler::parkCurrent(EeWaitState wait)
 {
     GuestThread *self = currentThread();
     assert(self != nullptr);
@@ -2002,7 +2105,6 @@ void EeScheduler::blockCurrent(EeWaitState wait)
     self->status = self->suspendCount == 0 ? EeThreadStatus::Waiting : EeThreadStatus::WaitingSuspended;
     m_currentThreadId = 0;
     publishSnapshot();
-    throw EeDispatcherTransfer{};
 }
 
 void EeScheduler::makeReady(GuestThread &item, int result, bool interruptSafe)

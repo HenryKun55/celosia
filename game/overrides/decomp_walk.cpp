@@ -191,13 +191,13 @@ namespace decomp_walk
     // guest call): what sotc_decomp::callGuest does, from any pc.
     void runToReturn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, PS2Runtime::RecompiledFunction fn, uint32_t ra, uint32_t sp)
     {
-        fn(rdram, ctx, runtime);
+        { fn(rdram, ctx, runtime); runtime->checkTransfer(); }
         while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
         {
             PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
             if (!next)
                 break;
-            next(rdram, ctx, runtime);
+            { next(rdram, ctx, runtime); runtime->checkTransfer(); }
         }
     }
 
@@ -235,7 +235,7 @@ namespace decomp_walk
             SET_GPR_U32(ctx, 31, site + 8u);
             SET_GPR_U32(ctx, 29, sp);
             ctx->pc = target;
-            fn(rdram, ctx, runtime);
+            { fn(rdram, ctx, runtime); runtime->checkTransfer(); }
         }
     };
 

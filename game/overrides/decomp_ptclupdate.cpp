@@ -92,13 +92,13 @@ namespace decomp_ptclupdate
     // sotc_decomp::callGuest does, from any pc (a function entered at a label).
     void runToReturn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, PS2Runtime::RecompiledFunction fn, uint32_t ra, uint32_t sp)
     {
-        fn(rdram, ctx, runtime);
+        { fn(rdram, ctx, runtime); runtime->checkTransfer(); }
         while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
         {
             PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
             if (!next)
                 break;
-            next(rdram, ctx, runtime);
+            { next(rdram, ctx, runtime); runtime->checkTransfer(); }
         }
     }
 
@@ -124,7 +124,7 @@ namespace decomp_ptclupdate
             SET_GPR_U32(ctx, 31, site + 8u);
             SET_GPR_U32(ctx, 29, sp);
             ctx->pc = target;
-            fn(rdram, ctx, runtime);
+            { fn(rdram, ctx, runtime); runtime->checkTransfer(); }
             if (!(ctx->pc == site + 8u && GPR_U32(ctx, 29) == sp))
             {
                 // Left mid-way (a checkpoint in a recompiled fallback): run on to the return.

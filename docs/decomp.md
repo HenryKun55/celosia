@@ -8469,6 +8469,71 @@ next.
 
 **Deliverable:** build/agent-scratch/celosia-r51.vpk.
 
+## Round 52: the thread switch without the exception (2026-11-02)
+
+Scripts and logs: `build/agent-scratch/r52/` (attract.sh, load.sh; the
+runs' folders and logs; console-ab/env.txt). A runtime round.
+
+**What.** Round 50's NEXT: the EE scheduler switched guest threads by
+throwing `EeDispatcherTransfer` to its dispatcher, and on the Vita each throw
+is an ARM EHABI unwind (round 50 only cached its table lookup). A probe
+(Mac, attract demo) counted ~420 switches a second: ~300 blocks (WaitSema /
+SleepThread in iosSendMsg, iosSleepThread, kernel_sub_001B2CA0, sndBDOpen)
+and ~120 SignalSema / WakeupThread readying a higher thread (iosRecvMsg),
+none from exit or invocations; each from a shallow stack of generated
+functions, sometimes under a hook (iosRecvMsgHook).
+
+**How (`PS2X_XFER_RETURN=0` off; `SOTC_AB_FLAG` takes `xferreturn`).**
+- Generated code already returns to the dispatcher by itself when a
+  checkpoint sets `EeClock::unwinding` (every call tests it after the
+  callee, PS2Runtime::callGuestFn / finishGuestCall), with ctx->pc where the
+  thread resumes: the state the exception leaves. A block (waitSemaphore,
+  sleepCurrent, waitEventFlag) and transferIfRequested now end in
+  `EeScheduler::leaveThread`: `unwinding` and the new `EeClock::transferred`
+  set, and the handler returns; the syscall stubs end right after the
+  handler (`ctx->pc = ra; ps2_syscalls::X(...)`), so nothing more runs.
+- Host frames that go on after their guest code turn it back into the
+  exception at that frame (`PS2Runtime::checkTransfer`): sotc_decomp's
+  callGuest / callNative / callMaySleep / callNativeMaySleep, runToReturn,
+  finishGuestCall, callMaySleepRest, every raw call of a table pointer or
+  recompiled function in the natives that is not in tail position
+  (decomp_collision, gctick, keyboard, ptclupdate, textrans, walk, the
+  modelDisp checks). Hooks with nothing guest-visible left after their call
+  return instead (`transferPending`: iosRecvMsgHook, getCameraContext,
+  popLayer, meshDisp, ptclVtx, spriteDrawSprite, the heap / trace / dump /
+  math-check hooks); tail calls need nothing (their callers test it).
+- Still the exception: a raw `syscall` instruction in generated code
+  (handleSyscall: the next instructions do not test), the dispatcher's
+  resume / invocation completions, a checked difftest leg (each holds an
+  `EeScheduler::ThrowScope`), exit / invocations, waitVSync / waitExternal /
+  delayCurrent ([[noreturn]]). SleepThread no longer writes v0 after a
+  block that returned (the wake sets it, as before).
+- `PS2X_XFER_AUDIT=1` (Mac): after a returned switch the gate is closed; a
+  checkpoint reached before the dispatcher (a host frame that went on) prints
+  its backtrace and aborts. `PS2X_XFER_STATS=1`: returned / rethrown /
+  thrown switches a second.
+
+**Exactness.** The switch leaves the same state either way (the frames
+between return without running anything; from the first host frame up the
+exception runs as before).
+- Mac, `PS2X_XFER_AUDIT=1 PS2X_XFER_STATS=1`: the attract demo to 3 000
+  (r52/audit1), New Game through the opening cutscenes into the shrine to
+  6 000 (r52/intro-on), the user's card (a copy) loaded, played, the menu's
+  save screen ("Checking memory card") to 3 200 (r52/load-on): no audit
+  abort, no crash; ~400 switches a second, all returned (1 rethrown at boot,
+  0 thrown after it). Pictures right.
+- Against `PS2X_XFER_RETURN=0` with the same input: the load / save run's
+  pictures are the same shots (RMSE 0.005-0.03, the last three identical,
+  r52/load-off), the attract demo too (0.017-0.043, host timing; r52/attract-off).
+
+**Measured (Vita3K 240 MHz, 3 cores, attract demo, 330 s, `xferreturn`
+rotating in 60-frame windows, r52/v3k-ab-err.txt, 79 windows each):** game
+thread 23.12 ms with the switch by returning, 23.45 ms with the exception
+(-0.33 ms, -1.4%); the frame 34.86 / 34.80 (the render thread sets it there).
+
+**Deliverable:** build/agent-scratch/celosia-r52.vpk; console A/B env:
+r52/console-ab/env.txt (`abrot.py` reads the err.txt).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

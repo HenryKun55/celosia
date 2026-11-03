@@ -2003,6 +2003,9 @@ void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encod
                                  "This breaks the atomic basic block model and is structurally unsupported by the emulator.");
     }
 
+    // Generated code goes on after a syscall instruction without a test: a
+    // thread switch inside throws (round 52, EeScheduler::leaveThread).
+    const EeScheduler::ThrowScope noReturn(*m_eeScheduler);
     const uint32_t syscallId = (encodedSyscallId != 0u)
                                    ? encodedSyscallId
                                    : getRegU32(ctx, 3); // $v1 / $3 is the EE kernel syscall number

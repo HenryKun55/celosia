@@ -376,6 +376,8 @@ namespace ps2_syscalls
     {
         EeScheduler &ee = scheduler(rdram, ctx, runtime);
         ee.sleepCurrent();
+        if (runtime->m_eeClock.transferred)
+            return; // blocked, the switch made by returning (round 52): the wake sets v0
         setReturnS32(ctx, KE_OK);
     }
 

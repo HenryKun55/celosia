@@ -477,6 +477,20 @@ public:
     bool callGuestSlow(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
                        uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     bool finishGuestCall(R5900Context *ctx, uint32_t entryPc, uint32_t returnPc, uint32_t jumpSerial);
+    // Round 52: host code that ran guest code and goes on after it calls this
+    // when the guest code came back: a thread switch made by returning
+    // (EeClock::transferred) goes on from here as the EeDispatcherTransfer
+    // exception, which takes this frame and the ones above it off the stack
+    // as before.
+    __attribute__((always_inline)) void checkTransfer() const
+    {
+        if (__builtin_expect(m_eeClock.transferred, 0))
+            rethrowTransfer();
+    }
+    [[noreturn]] static void rethrowTransfer();
+    // The same test for a hook with nothing guest-visible left to do: it
+    // returns instead (its callers test it in turn).
+    __attribute__((always_inline)) bool transferPending() const noexcept { return __builtin_expect(m_eeClock.transferred, 0); }
     [[noreturn]] void eeWaitVSyncTicks(uint32_t ticks, uint32_t resumePc);
 
     struct EeExitHandlerRegistration

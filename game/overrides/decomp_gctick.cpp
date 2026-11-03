@@ -109,7 +109,7 @@ namespace decomp_gctick
                 cf.fn = count ? count : runtime->lookupFunction(cf.pc);
             }
             ctx->pc = cf.pc;
-            cf.fn(rdram, ctx, runtime);
+            { cf.fn(rdram, ctx, runtime); runtime->checkTransfer(); }
         }
         else
         {
@@ -117,6 +117,7 @@ namespace decomp_gctick
             ctx->pc = sotc_decomp::jalTarget(rdram, 0x001C81E0u);
             PS2Runtime::RecompiledFunction count = runtime->guestFunctionAt(ctx->pc);
             (count ? count : runtime->lookupFunction(ctx->pc))(rdram, ctx, runtime);
+            runtime->checkTransfer();
         }
         const uint64_t now = GPR_U64(ctx, 2);
         const uint64_t elapsed = now - ram.u64(0x0026D990u);

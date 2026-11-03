@@ -77,6 +77,8 @@ namespace
         const uint64_t n = g_tracedCount[Slot].fetch_add(1, std::memory_order_relaxed) + 1;
         const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), ra = GPR_U32(ctx, 31);
         g_tracedOriginal[Slot](rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return;
         static const uint64_t every = std::getenv("SOTC_TRACE_EVERY") ? std::strtoull(std::getenv("SOTC_TRACE_EVERY"), nullptr, 0) : 1000;
         if (n <= 3 || n % every == 0)
         {
@@ -230,6 +232,8 @@ namespace
     void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_getCameraOriginal(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         g_lastCameraContext = GPR_U32(ctx, 2);
     }
 
@@ -270,7 +274,7 @@ namespace
             g_modelDumpState = 2;
         }
         const uint32_t instance = GPR_U32(ctx, 4), matrix = GPR_U32(ctx, 5);
-        g_modelDispOriginal(rdram, ctx, runtime);
+        { g_modelDispOriginal(rdram, ctx, runtime); runtime->checkTransfer(); }
         if (g_modelDumpState == 1 && frame == at + 1u)
         {
             const uint32_t header = word(word(instance) + 0x20u);
@@ -290,6 +294,8 @@ namespace
     {
         const uint32_t arg = GPR_U32(ctx, 4);
         (*Original)(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return;
         static const uint64_t at = std::strtoull(std::getenv("SOTC_MODEL_DUMP"), nullptr, 10);
         if (g_modelDumpState == 1 && ps2_stats::vif1Chains.load(std::memory_order_relaxed) == at + 1u)
         {
@@ -337,6 +343,8 @@ namespace
         const float a = ctx->f[12], b = ctx->f[13];
         const uint32_t ra = GPR_U32(ctx, 31);
         m.original(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         const double want = m.ref(a, b), got = ctx->f[0];
         ++g_mathCalls[I];
         if (std::isfinite(want) && !(std::fabs(got - want) <= 1e-3))
@@ -460,6 +468,8 @@ namespace
             std::fprintf(stderr, "[spritepkt] begin obj=0x%08x\n", obj);
         }
         g_spriteDrawSprite(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         if (logWrites)
         {
             g_ps2LogAllWrites = false;
@@ -498,6 +508,8 @@ namespace
         const bool idlePoll = GPR_U32(ctx, 4) == kIdleQueue && GPR_U32(ctx, 6) == 0u;
         g_idlePolls += idlePoll ? 1u : 0u;
         g_iosRecvMsg(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         if (idlePoll)
             runtime->eeScheduler().idleWait();
     }
@@ -571,6 +583,8 @@ namespace
         if (Kind == 0 && !g_gamecoreEntered && ra == 0x001C8828u && !g_gamecoreImageAllocated)
             runtime->eeWaitVSyncTicks(1u, 0x001AFFD8u); // the letter post: after GAMECORE's image
         (Kind == 0 ? g_mallocAlign : Kind == 1 ? g_mallocNoCheck : g_free)(rdram, ctx, runtime);
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
         if (Kind == 0 && ra == 0x001B5558u && a1 == 0x0020AEA8u)
             g_gamecoreImageAllocated = true;
         static const bool log = std::getenv("SOTC_LOG_MALLOC") != nullptr;
@@ -614,6 +628,8 @@ namespace
         void initIntrSystem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             g_initIntr(rdram, ctx, runtime);
+            if (runtime->transferPending())
+                return; // a thread switch below (round 52): nothing more here
             runtime->memory().hostStopEeTimer(0);
             runtime->memory().hostStopEeTimer(1);
         }

@@ -3978,7 +3978,7 @@ namespace decomp_finderwalk
                 SET_GPR_U32(ctx, 31, site + 8u);
                 SET_GPR_U32(ctx, 29, sp);
                 ctx->pc = callback;
-                fn(rdram, ctx, runtime);
+                { fn(rdram, ctx, runtime); runtime->checkTransfer(); }
             }
             else
                 decomp_collision::guestCall(rdram, ctx, runtime, callback, site + 8u, sp);

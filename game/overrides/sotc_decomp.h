@@ -270,6 +270,7 @@ namespace sotc_decomp
 #endif
             return callGuestSlow(rdram, ctx, runtime, target, ra, sp);
         fn(rdram, ctx, runtime);
+        runtime->checkTransfer(); // a thread switch below: off the stack (round 52)
         if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != sp, 0))
             finishGuestCall(rdram, ctx, runtime, ra, sp);
     }
@@ -289,6 +290,7 @@ namespace sotc_decomp
 #endif
             return callGuest(rdram, ctx, runtime, target, ra, sp);
         known(rdram, ctx, runtime);
+        runtime->checkTransfer();
         if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != sp, 0))
             finishGuestCall(rdram, ctx, runtime, ra, sp);
     }
@@ -388,6 +390,7 @@ namespace sotc_decomp
         if (__builtin_expect(!fn, 0))
             return false; // the dispatcher looks it up (pc is on it)
         fn(rdram, ctx, runtime);
+        runtime->checkTransfer();
         if (__builtin_expect(ctx->pc == ra && GPR_U32(ctx, 29) == sp, 1))
             return true;
         return callMaySleepRest(rdram, ctx, runtime, ra, sp);
@@ -403,6 +406,7 @@ namespace sotc_decomp
         if (__builtin_expect(fn != known, 0))
             return callMaySleep(rdram, ctx, runtime, target, ra, sp);
         known(rdram, ctx, runtime);
+        runtime->checkTransfer();
         if (__builtin_expect(ctx->pc == ra && GPR_U32(ctx, 29) == sp, 1))
             return true;
         return callMaySleepRest(rdram, ctx, runtime, ra, sp);

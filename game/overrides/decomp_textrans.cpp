@@ -189,7 +189,7 @@ namespace decomp_textrans
             {
                 // The generated code from the loop head for this record.
                 ctx->pc = kLoopHead;
-                texTransResolveRecords_0x10a54f0(rdram, ctx, runtime);
+                { texTransResolveRecords_0x10a54f0(rdram, ctx, runtime); runtime->checkTransfer(); }
                 if (ctx->pc == kLoopHead)
                 {
                     e = r.u32(sp + 0x30u);

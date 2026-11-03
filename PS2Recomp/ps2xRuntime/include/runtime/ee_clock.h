@@ -48,6 +48,13 @@ struct EeClock
     // Until the scheduler re-dispatches, ctx->pc is the resume point of the
     // deepest pending call, not a callee's return.
     bool unwinding = false;
+    // Round 52: a thread switch made by returning (EeScheduler::leaveThread):
+    // the running thread blocked or yielded and every frame up to the
+    // dispatcher must return at once. Generated code does (it returns on
+    // `unwinding`); host code that called guest code and would go on after it
+    // (natives, hooks) rethrows the old exception instead
+    // (PS2Runtime::checkTransfer). Cleared by the dispatcher.
+    bool transferred = false;
 
     // The EE clock in cycles.
     [[nodiscard]] __attribute__((always_inline)) uint64_t now() const noexcept

@@ -3,6 +3,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/ee_scheduler.h"
 #include "runtime/ps2_fast_paths.h"
 #include "sotc_prof.h"
 #include "runtime/native_renderer.h"
@@ -131,12 +132,14 @@ namespace sotc_decomp
         {
             const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
             fn(rdram, ctx, runtime);
+            runtime->checkTransfer(); // round 52: a thread switch below takes this frame off as before
             while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
             {
                 PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
                 if (!next)
                     break;
                 next(rdram, ctx, runtime);
+                runtime->checkTransfer();
             }
         }
 
@@ -152,6 +155,9 @@ namespace sotc_decomp
                 c.recompiled(rdram, ctx, runtime);
                 return;
             }
+            // Round 52: a thread switch inside a checked leg throws, as it
+            // always did (the legs go on after their guest code).
+            const EeScheduler::ThrowScope noReturn(runtime->eeScheduler());
             if (n >= first)
             {
                 const uint64_t past = c.checks.load(std::memory_order_relaxed) > first ? c.checks.load(std::memory_order_relaxed) - first : 0u;
@@ -617,6 +623,7 @@ namespace sotc_decomp
             if (!next)
                 return false;
             next(rdram, ctx, runtime);
+            runtime->checkTransfer();
         }
         return true;
     }
@@ -630,6 +637,7 @@ namespace sotc_decomp
             if (!next)
                 break;
             next(rdram, ctx, runtime);
+            runtime->checkTransfer();
         }
     }
 
