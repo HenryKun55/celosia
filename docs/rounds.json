@@ -264,6 +264,14 @@
    "focus": "Speed",
    "summary": "vitaGL's glUniform copies (the skinned palettes, up to 3 KB a call) use the library memcpy instead of the sceClibMemcpy import, under SOTC_GL_LEAN_DRAW; planFrame's draw compare unrolled. A draw-pass range search was measured and dropped (no effect).",
    "result": "Vita3K 222 MHz A/B (rounds 56+57 together): render thread 20.2 -> 18.1 ms, frame 34.5 -> 33.6 ms; the title screen's world 44.9 -> 40.0 ms (game thread ~33 ms there). Not 30 fps yet."
+  },
+  {
+   "round": "r58",
+   "date": "2026-11-03",
+   "commit": "0bae9f4",
+   "focus": "Speed",
+   "summary": "Game thread: the heap garbage pass keeps its time check while no guest code ran and the EE clock has not moved (~400 checks a frame skipped), the collision finder's duplicate search over host memory, the model hook's scroll rows kept per plan a frame (SOTC_FASTNATIVE3, checked: 0 differences). The A/B runs' own cost cut: abSwitches no longer builds strings every frame (~1.3% of the game thread), and SOTC_AUDIO_LOG=0 in measuring runs.",
+   "result": "Vita3K A/B: game thread 22.5 -> 21.2 ms at 222 MHz, 17.1 -> 16.6 ms at 300 MHz (at the edge of the noise); frames at 2 vblanks 81% at 222 (84% of the attract demo's first 7 000 frames, ~51% in the title screen's world), 90% at 300. Not 30 fps yet."
   }
  ]
 }
