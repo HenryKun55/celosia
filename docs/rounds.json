@@ -232,6 +232,14 @@
    "focus": "Speed",
    "summary": "The keyboard state the game reads every frame (256 keys, no keyboard attached) read with host pointers and written once a key when the caller's words lie apart from it (SOTC_FASTNATIVE2, a new switch for the next fast paths). Also tried and reverted: a lighter wait for the sound mixer's lock.",
    "result": "Exact (difftest 0 mismatches; random-state test 0 differences). kbGetStatus 0.42% -> 0.03% of the Vita3K game thread (~0.08 ms a frame). The mixer change cut the game thread's lock wait 10% but cost the frame 2 ms: not kept."
+  },
+  {
+   "round": "r54",
+   "date": "2026-11-03",
+   "commit": "748a149",
+   "focus": "Speed",
+   "summary": "The wind zones' walk (~45 calls a frame over 80 mostly empty slots) skips the empty slots in a tight loop and moves its sorted records inline instead of through a library memmove (SOTC_FASTNATIVE2).",
+   "result": "Exact (difftest 121 600 checks, 0 mismatches). Vita3K 240 MHz: the walk's own share 1.16% -> 0.23% of the game thread; rounds 53-54 A/B: game thread 23.39 -> 22.98 ms."
   }
  ]
 }
