@@ -344,6 +344,38 @@
    "focus": "Speed",
    "summary": "For the console's DRAM latency (~250 ns a miss, no useful hardware prefetch on the Cortex-A9): the walks that touch every object's records once a frame on the game thread now ask for their lines ahead (SOTC_WALK67, on by default, switchable in one console run with SOTC_AB_FLAG=walk67): the display walk's objects 3 ahead with its own lines, the sort lists in stages, the part matrices and the GIF packet; the model hook's texture scroll chains level by level; the cloth grid in one block; the particle draw 4 particles ahead; the collision leaf's boundary records and the work flush. Only reads and prefetches: difftest exact. A Mac-side proxy (SOTC_LINES67) counts the cache lines each walk touches and how many were not asked for in time.",
    "result": "Mac proxy: the same distinct lines (the game's records), the exposed ones (likely console misses) down 55-61%: heavy part 3 257 -> 1 260 a frame, early 2 659 -> 1 211. Vita3K 222 MHz (which cannot show cache effects): the added reads cost ~0.2-0.5 ms of the game thread in light parts, heavy part within noise. Estimated on the console: ~0.25-0.5 ms; the prepared console A/B will tell."
+  },
+  {
+   "round": "r65e",
+   "date": "2026-11-03",
+   "commit": "7646bc7",
+   "focus": "Picture",
+   "summary": "The bloom, haze and redraw artefacts on the Vita compared with the PS2's GS stage by stage, the same frame logged on both sides: the blur taps now modulated by the temporal alpha as the GS does (the 64 x 64 history was 8-20% too bright, so the sky out of the shrine went white); the title's blur taps made branchless (Vita3K skipped them); the shrine's openings cut at the game's own layer-1 near plane with per-surface vertex fog; Vita3K's white streaks on Agro and Wander traced to the mid-frame redraw, now off by default; particles no longer write depth, so the sky's haze is masked as on the GS.",
+   "result": "With the modulated taps the GS's integer model of the blur reproduces the GS buffer exactly (100% of the pixels, two frames); the white sky out of the shrine and Vita3K's white streaks are gone; cloak and fades checked along the Load Game route. Picture only, no speed change."
+  },
+  {
+   "round": "r69",
+   "date": "2026-11-04",
+   "commit": "6250e06",
+   "focus": "Speed",
+   "summary": "Where the shrine's frame goes: the game thread everywhere (the render thread never waited on); at the altar 18 characters' geometry a frame (the doves and lizards), collision ~13 ms over ~50 query sites, the display walk. The walk's prefetch records are now deduplicated through a 64-slot hash instead of comparing every line pair (SOTC_PREF69; same prefetches in the same order).",
+   "result": "Vita3K 222 MHz, in-run A/B at the altar: game thread -1.6 / -1.7 ms (two runs) of ~60 ms; walking out of the shrine 55.1 -> 52.9 ms, the plain 38.5 -> 37.2 ms."
+  },
+  {
+   "round": "r70",
+   "date": "2026-11-04",
+   "commit": "d9b6db3",
+   "focus": "Speed",
+   "summary": "The characters' geometry measured callee by callee with probes only on a chosen list (SOTC_SUBSYS_PROF_ONLY): every callee above 0.4 ms is already native; a third of the 18 ms is collision under the walkers' root dynamics. A cloth mesh fast path was tried (exact, no gain, dropped). The console's game-thread waits are split by site in the frame log (| waits), and thread priority / core knobs added (SOTC_THREAD_PRIO, SOTC_THREAD_CORES).",
+   "result": "Vita3K 222 MHz with the console's settings: the altar 61.3 ms a frame (game thread 59.2), the plain 38.1 (37.0). On the console the game thread waits 12.6 ms a frame (Vita3K ~1): the next console run names the site."
+  },
+  {
+   "round": "r71",
+   "date": "2026-11-04",
+   "commit": "9a8d820",
+   "focus": "Speed",
+   "summary": "The walkers' collision at the shrine's altar (Wander's and the lizards' root dynamics, ~6 ms of the game thread in Vita3K): the slide's and the landing's finder filters native and called without guest round trips (manager_sub_010DF8F0, slideExceptionJudgeCB's attribute lookup), ClipCollisionFinderWithKeep native, the finder's duplicate search from the newest entry (70% of the surfaces that reach it are already in the finder), the finder leaf's plane distance on NEON. SOTC_COLL71, on by default, switchable with SOTC_AB_FLAG=coll71.",
+   "result": "Exact: Vita3K fast-path checks 4.4 M, 0 mismatches; difftest on the Mac and in Vita3K, 0 mismatches. Vita3K 222 MHz in-run A/B at the altar: game thread -1.00 / -0.18 / -0.50 ms (three runs, ~60 ms frames; the root dynamics' probes -0.54 ms); the plain unchanged. The finder leaf (~2 ms) and the finder clips (~2.5 ms) are the next pieces."
   }
  ]
 }

@@ -1,39 +1,39 @@
 {
- "updated": "2026-10-31",
- "commit": "6025c49",
+ "updated": "2026-11-04",
+ "commit": "9a8d820",
  "summary": {
   "by_functions": {
-   "native": 647,
+   "native": 670,
    "partial": 0,
    "total": 9024,
-   "percent": 7.17
+   "percent": 7.42
   },
   "by_code_size": {
-   "native": 333676,
+   "native": 339884,
    "partial": 0,
    "total": 2625144,
-   "percent": 12.71
+   "percent": 12.95
   },
   "by_calls": {
-   "native": 108589023,
+   "native": 210409522,
    "partial": 0,
-   "total": 167661665,
-   "percent": 64.77
+   "total": 318073410,
+   "percent": 66.15
   },
   "game_code_by_size": {
-   "native": 255116,
+   "native": 260036,
    "total": 2208056,
-   "percent": 11.55
+   "percent": 11.78
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
    "functions": 2128,
-   "native_functions": 349,
+   "native_functions": 353,
    "bytes": 405156,
-   "native_bytes": 66628,
+   "native_bytes": 67916,
    "partial_functions": 0,
-   "percent": 16.45
+   "percent": 16.76
   },
   "Math": {
    "functions": 131,
@@ -44,12 +44,12 @@
    "percent": 30.44
   },
   "Display and models": {
-   "functions": 971,
-   "native_functions": 43,
-   "bytes": 250772,
-   "native_bytes": 45736,
+   "functions": 974,
+   "native_functions": 60,
+   "bytes": 253420,
+   "native_bytes": 50488,
    "partial_functions": 0,
-   "percent": 18.24
+   "percent": 19.92
   },
   "Characters and motion": {
    "functions": 1204,
@@ -68,12 +68,12 @@
    "percent": 6.55
   },
   "Other game code": {
-   "functions": 2889,
-   "native_functions": 92,
-   "bytes": 1282972,
-   "native_bytes": 135916,
+   "functions": 2885,
+   "native_functions": 93,
+   "bytes": 1280268,
+   "native_bytes": 136028,
    "partial_functions": 0,
-   "percent": 10.59
+   "percent": 10.62
   },
   "Camera": {
    "functions": 281,
@@ -100,12 +100,12 @@
    "percent": 39.32
   },
   "Collision and physics": {
-   "functions": 337,
-   "native_functions": 47,
-   "bytes": 107512,
-   "native_bytes": 20016,
+   "functions": 338,
+   "native_functions": 48,
+   "bytes": 107568,
+   "native_bytes": 20072,
    "partial_functions": 0,
-   "percent": 18.62
+   "percent": 18.66
   },
   "Script and events": {
    "functions": 632,
@@ -121,6 +121,22 @@
    "address": "0x001000d0",
    "name": "ResolveRelocation",
    "bytes": 424,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_reloc.cpp"
+  },
+  {
+   "address": "0x00100278",
+   "name": "DecodeSection",
+   "bytes": 576,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_reloc.cpp"
+  },
+  {
+   "address": "0x001004b8",
+   "name": "RelocateElfInfoHeader",
+   "bytes": 216,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_reloc.cpp"
@@ -398,6 +414,14 @@
    "source": "game/overrides/sotc_overrides.cpp"
   },
   {
+   "address": "0x001b4c20",
+   "name": "isysMoveModuleObj",
+   "bytes": 384,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_tex64.cpp"
+  },
+  {
    "address": "0x001b9148",
    "name": "iosCopyMatrix",
    "bytes": 40,
@@ -564,6 +588,14 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_hot48b.cpp"
+  },
+  {
+   "address": "0x001c0058",
+   "name": "iosDlTrans",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_prof.cpp"
   },
   {
    "address": "0x001c00c8",
@@ -934,9 +966,49 @@
    "source": "game/overrides/decomp_hot48b.cpp"
   },
   {
+   "address": "0x010871c8",
+   "name": "setShadowEffect",
+   "bytes": 16,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x01087260",
+   "name": "clipBySphere",
+   "bytes": 160,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x01087300",
+   "name": "clipByMinMaxCube",
+   "bytes": 408,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
    "address": "0x0108a780",
    "name": "screenBlur",
    "bytes": 2440,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x0108c188",
+   "name": "manager_sub_0108C188",
+   "bytes": 1104,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x0108c9c0",
+   "name": "manager_sub_0108C9C0",
+   "bytes": 960,
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/sotc_native.cpp"
@@ -1004,6 +1076,30 @@
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x010993c8",
+   "name": "modelResetSurface",
+   "bytes": 24,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x01099768",
+   "name": "modelSetSurface",
+   "bytes": 296,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_hot48b.cpp"
+  },
+  {
+   "address": "0x01099a08",
+   "name": "manager_sub_01099A08",
+   "bytes": 584,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/sotc_native.cpp"
   },
   {
    "address": "0x01099c50",
@@ -1092,6 +1188,30 @@
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/decomp_isys48.cpp"
+  },
+  {
+   "address": "0x010aafa8",
+   "name": "texResetVRAMRequest",
+   "bytes": 224,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_hot43g.cpp"
+  },
+  {
+   "address": "0x010ab0f8",
+   "name": "texInitialize",
+   "bytes": 152,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_tex64.cpp"
+  },
+  {
+   "address": "0x010ab190",
+   "name": "texDelete",
+   "bytes": 112,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_tex64.cpp"
   },
   {
    "address": "0x010ab2a0",
@@ -1595,7 +1715,15 @@
    "bytes": 144,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_hot47c.cpp"
+   "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x010df8f0",
+   "name": "manager_sub_010DF8F0",
+   "bytes": 56,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
   },
   {
    "address": "0x010e1068",
@@ -1604,6 +1732,14 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_hot46e.cpp"
+  },
+  {
+   "address": "0x010ed688",
+   "name": "GetGeoDispClass",
+   "bytes": 32,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_walk.cpp"
   },
   {
    "address": "0x010eed58",
@@ -2011,7 +2147,7 @@
    "bytes": 640,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_hot46g.cpp"
+   "source": "game/overrides/decomp_collcensus.cpp"
   },
   {
    "address": "0x01123850",
@@ -2084,6 +2220,14 @@
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01125f90",
+   "name": "ClipCollisionFinderWithKeep",
+   "bytes": 256,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_hot44b.cpp"
   },
   {
    "address": "0x011288d0",
@@ -2179,7 +2323,7 @@
    "bytes": 3032,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_hot46g.cpp"
+   "source": "game/overrides/decomp_collcensus.cpp"
   },
   {
    "address": "0x01131c80",
@@ -2196,6 +2340,14 @@
    "status": "native",
    "area": "Math",
    "source": "game/overrides/decomp_math.cpp"
+  },
+  {
+   "address": "0x011333b8",
+   "name": "ClipPoint",
+   "bytes": 80,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_hot46i.cpp"
   },
   {
    "address": "0x01133548",
@@ -2334,12 +2486,44 @@
    "source": "game/overrides/decomp_ptcldraw.cpp"
   },
   {
+   "address": "0x0113f378",
+   "name": "get_top_emitter_list_from_particle_geodisp",
+   "bytes": 48,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_ptcl62.cpp"
+  },
+  {
    "address": "0x0113f500",
    "name": "doit_particle_geodisp",
    "bytes": 48,
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_ptclupdate.cpp"
+  },
+  {
+   "address": "0x0113f530",
+   "name": "clip_particle_geodisp",
+   "bytes": 208,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_ptcl62.cpp"
+  },
+  {
+   "address": "0x0113fdc8",
+   "name": "is_emitter_need_disp",
+   "bytes": 88,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_ptcl62.cpp"
+  },
+  {
+   "address": "0x01140c10",
+   "name": "manager_sub_01140C10",
+   "bytes": 112,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_ptcl62.cpp"
   },
   {
    "address": "0x01144f68",
@@ -2555,7 +2739,7 @@
    "bytes": 8232,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_hot46b.cpp"
+   "source": "game/overrides/sotc_replay.cpp"
   },
   {
    "address": "0x01395830",
