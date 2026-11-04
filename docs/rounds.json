@@ -384,6 +384,14 @@
    "focus": "Speed",
    "summary": "The console's ~12 ms a frame of the game thread waiting at the shrine (the frame log's hookjoin) turned out to be round 61's modelDispState lane, not the hook worker's model jobs: the lane (priority 191 on cores 1-2) gets a core only after the hook worker, audio and the render thread, so the game thread slept at the layer cache's and the CLIP register's joins. Now the lane's jobs are run by whoever holds their token, always the oldest first: a join of the game thread runs the jobs left itself, and the hook worker runs the ones its models need (SOTC_LANE_HELP, on by default, switchable in one console run with SOTC_AB_FLAG=lanehelp).",
    "result": "Exact: SOTC_LANE_HELP_CHECK compares each job's results at the hand-over with its real run: 0 of ~1.2 M on the Mac and 0 of 67 000 in Vita3K (with the help off, a late lane differs in 1-2 jobs per 157 000: the help makes jobs run sooner). Vita3K hides the wait (~1 ms); with the lane held 100 us a job to mimic the console, hookjoin 9.1 -> 0.3 ms and the game thread -3.3 ms; in plain Vita3K the game thread is 0.4-1.1 ms slower (it runs ~22 jobs a frame itself). Console A/B prepared (expected ~7-10 ms off the shrine's 74 ms frame)."
+  },
+  {
+   "round": "r73",
+   "date": "2026-11-04",
+   "commit": "3ebed39",
+   "focus": "Speed",
+   "summary": "The console's heavy frames are now bound by the GPU (present ~30 ms a frame, the render thread busy the whole frame). Fewer GPU scenes a frame with the same pixels (SOTC_GL_FEW_SCENES, on by default, A/B scenes73): the picture is shown as drawn (two pictures in turn) instead of copied for the host, the glow layer is drawn at the soft shadows' break so the darkening and the glow's composite share one scene of the picture, and the picture's last scene no longer stores its depth. Textures uploaded in GXM's swizzled layout (SOTC_GL_SWIZZLE, on; SOTC_GL_SWIZZLE_BOTH=1 makes it switchable per frame, A/B swizzle73). Plain texture reads for one-level textures tried and kept off (SOTC_GL_PLAIN_READS). New: SOTC_GL_FREEZE (a still frame for A/B window captures), SOTC_VGL_PARAM_KB, and the frame log's present / targets / scenes / verts columns.",
+   "result": "Exact: with the altar's frame frozen and the A/B rotating, every Vita3K capture of scenes73 / swizzle73 on and off is the same picture (46 and 36 captures); the plain reads came out 1 level apart on 0.6% of the pixels, so they stay off. The altar: 37 -> 35 GPU scenes, 36 -> 34 target binds, depth / stencil 12.3 -> 9.0 MB a frame. Vita3K hides GPU time (render thread unchanged within noise); console A/B prepared (env-console.txt)."
   }
  ]
 }
