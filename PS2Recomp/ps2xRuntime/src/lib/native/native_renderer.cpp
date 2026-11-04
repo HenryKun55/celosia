@@ -206,7 +206,9 @@ namespace native_renderer
                                              {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard},
                                          {"SOTC_GL_DEPTH_KEEP", &Tuning::glDepthKeep}, {"SOTC_GL_FEW_COPIES", &Tuning::glFewCopies}, {"SOTC_GL_VOLUME_PROG", &Tuning::glVolumeProgram},
                                          {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed},
-                                         {"SOTC_SBLUR_PINGPONG", &Tuning::blurApart}, {"SOTC_GL_LEAN_DRAW", &Tuning::glLeanDraw}})
+                                         {"SOTC_SBLUR_PINGPONG", &Tuning::blurApart}, {"SOTC_GL_LEAN_DRAW", &Tuning::glLeanDraw},
+                                         {"SOTC_GL_FEW_SCENES", &Tuning::glFewScenes}, {"SOTC_GL_SWIZZLE", &Tuning::glSwizzle},
+                                         {"SOTC_GL_PLAIN_READS", &Tuning::glPlainReads}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -283,7 +285,9 @@ namespace native_renderer
                                          {"SOTC_GL_LEAN", &Tuning::glLeanPrograms}, {"SOTC_GL_NODISCARD", &Tuning::glNoDiscard},
                                          {"SOTC_GL_DEPTH_KEEP", &Tuning::glDepthKeep}, {"SOTC_GL_FEW_COPIES", &Tuning::glFewCopies}, {"SOTC_GL_VOLUME_PROG", &Tuning::glVolumeProgram},
                                          {"SOTC_GL_AT_MERGE", &Tuning::alphaTestMerge}, {"SOTC_SHADOW_INDEXED", &Tuning::shadowIndexed},
-                                         {"SOTC_SBLUR_PINGPONG", &Tuning::blurApart}, {"SOTC_GL_LEAN_DRAW", &Tuning::glLeanDraw}})
+                                         {"SOTC_SBLUR_PINGPONG", &Tuning::blurApart}, {"SOTC_GL_LEAN_DRAW", &Tuning::glLeanDraw},
+                                         {"SOTC_GL_FEW_SCENES", &Tuning::glFewScenes}, {"SOTC_GL_SWIZZLE", &Tuning::glSwizzle},
+                                         {"SOTC_GL_PLAIN_READS", &Tuning::glPlainReads}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)

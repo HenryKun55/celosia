@@ -2975,6 +2975,9 @@ namespace sotc_native
             {"fewcopies", &native_renderer::Tuning::glFewCopies},
             {"sblurapart", &native_renderer::Tuning::blurApart}, // round 55
             {"leandraw", &native_renderer::Tuning::glLeanDraw},  // round 56
+            {"scenes73", &native_renderer::Tuning::glFewScenes}, // round 73
+            {"swizzle73", &native_renderer::Tuning::glSwizzle},  // round 73 (with SOTC_GL_SWIZZLE_BOTH=1)
+            {"plainread73", &native_renderer::Tuning::glPlainReads}, // round 73
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3389,20 +3392,20 @@ namespace sotc_native
                 native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
             }
             if (print && period > 50000u)
-                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u async %u/%u held %u (terrain %u)%s"
+                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.renderLockUs / 1000.0, c.renderUploadUs / 1000.0,
-                             c.renderDrawUs / 1000.0, c.renderSweepUs / 1000.0, c.renderRunCopies, c.renderRunScans, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets,
+                             c.renderDrawUs / 1000.0, c.renderSweepUs / 1000.0, c.renderRunCopies, c.renderRunScans, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, c.depthKB, (c.vertices + 500u) / 1000u,
                              c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "", (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
                              (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0, (mark.cdGameUs - lastMark.cdGameUs) / 1000.0,
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
             if (print && tune.frameLogAll && period <= 50000u)
-                native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f wait %.1f draws %u async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
+                native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u scenes %u verts %uk async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
-                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.waitUs / 1000.0, c.draws, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
+                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, (c.vertices + 500u) / 1000u, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
                              (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0, (unsigned long long)(mark.cdReads - lastMark.cdReads),
                              (mark.cdBytes - lastMark.cdBytes) / 1024.0, (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0,
                              (mark.sprUs - lastMark.sprUs) / 1000.0, (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0,
@@ -10666,6 +10669,6 @@ void installSotcNative(PS2Runtime &runtime)
 // overlaps" (round 55's text ended 0x2e0 below one). These 8 KB of read-only
 // data move the end past it; if that message comes back after code grows or
 // shrinks, change the size (any value that moves the text end more than
-// ~4.5 KB away from the boundary below it).
-extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[8192] = {1};
+// ~4.5 KB away from the boundary below it). Round 73: 16 KB.
+extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[16384] = {1};
 #endif

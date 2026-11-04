@@ -11109,6 +11109,172 @@ job.
 **Deliverable:** build/agent-scratch/celosia-r72.vpk (main 0730fe6 + this
 round).
 
+## Round 73: the render side: fewer GPU scenes, swizzled textures, the frame log's GPU columns (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r73/` (v3k.sh / ab.sh: round 72's
+with r73 paths, settings.cfg round 70's; tools/rt73.py: the render side per
+A/B state from the frame log (frame, render, present, wait, draws, targets,
+scenes, kverts; `--min-draws`); tools/shotcmp.py: Vita3K window captures
+compared pixel by pixel (title bar and fps box left out); runs/base-ev (the
+r72 VPK, the effects per frame), p2-freeze / p3-freeze / p4-freeze (the
+altar's frame frozen, A/B rotation, captures every 2 s; p2 also a Vita3K
+profile), p5-route6 (route 6 with the A/B); env-console*.txt). Build tree:
+build/agent-scratch/r69/wt (main ed6b0fa + this round), vitaGL from
+r69/vitagl with this round's celosia.patch.
+
+**Where the console's render side stands (r72/console4, 444 MHz, frames
+with 1 000+ draws).** Frame 59.8 ms; the render thread's draw part 27.9 ms
+(its CPU 23.6), `present` 30.3 (the host's swap: vitaGL's display queue
+waits for the GPU), the game thread's `wait` 24.2. The render thread is busy
+for the whole frame (draw + present ~ the frame): the GPU takes ~55-60 ms
+for a heavy frame, and it is the limit now, not the render thread's CPU.
+The picture is drawn at **512 x 448** (render scale 1; the display is 960 x
+544): the full-screen passes are 229 000 pixels each, and a scene of the
+picture moves ~0.9 MB of colour and ~1.1 MB of depth / stencil each way.
+
+**What a frame at the altar does (Vita3K, `SOTC_GL_EVENT_LOG`).** Events
+`8:-3 8:-2 9:-4 20:-8` (soft shadows and the glow layer at layer 8, the
+water's refraction copy at 9, the Vita bloom at 20), 37 GPU scenes, 36
+target binds, 12.3 MB of depth / stencil loaded and stored:
+
+| scenes | what |
+|---|---|
+| 2 | the background layer (512 x 448) and its 256 x 256 reduction |
+| 1 | the picture to layer 8, the shadow volumes' count, their mask in its alpha |
+| 3 | the shadow mask reduced 4 x 4 (128 x 112) and blurred |
+| 1 | the picture: the shadows' darkening |
+| 1 + 13 | the glow layer on the picture's depth (512 x 448) and its chain (256, 128, 64, 4 x 2 blurs at 64, 128, 256) |
+| 1 | the picture: the glow's composite |
+| 3 | the water's refraction copy (256, 128, 256) |
+| 1 | the picture to layer 20 and the bloom's mask in its alpha |
+| 7 | the GS bloom chain (256, 128, 64, the history step, 64, 128, 256) |
+| 1 | the picture: the bloom's add and the rest of the frame |
+| 1 + 1 | the host's copy of the picture, the display |
+
+The small scenes are chains (each reads the one before through the GPU's
+bilinear filter at 8 bits a step): merging two steps into one program
+would round differently. What does not depend on anything:
+
+**What changed (`SOTC_GL_FEW_SCENES`, default on; A/B `scenes73`).**
+1. The host's copy. The host showed a copy of the picture (`shownFrame`,
+   a scene of its own each frame), so that the next frame could draw into
+   the picture while the GPU still showed it, and feedbackBlur read the copy
+   as the last frame. Now there are two pictures (`colorAlt`, own depth and
+   stencil), swapped at each frame's start: the host draws the picture
+   itself onto the display (opaque, no blend: its alpha, the bloom's mask,
+   is not read), the GPU runs the scenes in order, and the picture not drawn
+   into this frame is the last frame shown (feedbackBlur and the water's /
+   haze's source 2 read only its colour). A frame that ends on the blur's
+   second picture (`blurApart`) is still copied (the next blur draws into
+   it mid-frame). The two host copies are made only if needed; the second
+   picture is +0.9 MB colour + 1.1 MB depth / stencil, the copies -1.8 MB.
+2. The glow layer at the shadows' break. When the soft shadows and the glow
+   layer stand at the same layer (the altar), the picture is put down for
+   the shadows' mask anyway; the glow layer is drawn on the picture's depth
+   and reduced right then (it reads the picture's depth only, and the
+   shadows' quads change neither the depth nor, after the mask, the
+   stencil), so the darkening and the glow's composite go into one scene of
+   the picture instead of two.
+3. The picture's last scene (begun by the last effect's write-back: the
+   bloom's add, the shadows' darkening or the glow's composite) does not
+   store its depth / stencil: nothing reads them after it (the next frame
+   clears them). Round 45's keep was set after that scene had begun.
+
+The altar's frame (frozen, A/B in one run): **37 -> 35 scenes, 36 -> 34
+target binds, depth / stencil 12 320 -> 8 960 KB a frame** (11 -> 8 loads /
+stores of the picture's 1.1 MB). Elsewhere (no glow): one scene and one bind
+fewer (the host's copy) and one store fewer.
+
+**Swizzled textures (`SOTC_GL_SWIZZLE`, default on; `SOTC_GL_SWIZZLE_BOTH=1`
++ A/B `swizzle73`).** vitaGL lays every texture out in rows (linear); the
+SGX fetches a bilinear quad's texels from two rows, and a texture walked
+across rows (a floor seen at a slant, a rotated sprite) touches a new memory
+burst per texel. GXM's swizzled layout (Morton order: texels near in both
+directions near in memory) is the layout the hardware is built for. Our
+vitaGL's `vglCeloTexImageSwizzled` takes a chain already swizzled (the
+renderer swizzles the PS2's own levels on upload: every SotC texture is a
+power of two; Vita3K's encode_morton: y on the even bits, x on the odd ones,
+the larger side's bits above), the same levels (down to the smaller side at
+1 texel), the same filters and wraps. The texels are the same; only where
+they lie changes. `_BOTH=1` keeps a linear and a swizzled copy of each
+texture so the A/B can switch per frame (twice the texture memory: ~18-25 MB
+more of vitaGL's ~60 MB free at the shrine; for the measurement only).
+Vita3K converts every texture to its own layout on the host: no timing
+there.
+
+**Tried, kept off (`SOTC_GL_PLAIN_READS`, default 0; A/B `plainread73`).**
+The lean programs read every texture with `tex2Dlod` at the LOD they
+compute (the PS2's K + L log2 1/Q), a read that waits for the program's
+arithmetic; for a texture of one level the LOD picks nothing, so `tex2D` at
+the interpolated UV reads the same texel with the same filter, and the GPU
+can fetch it before the program runs (eight more lean programs, `NOLOD`;
+~190 of the altar's draws a frame). In Vita3K the frozen frame came out up
+to 1 level apart on 12 816 pixels (0.6%) in the windows with it on (Vita3K's
+coordinates for such reads): not the same pixels, so off; env-console-plain
+.txt measures it on the console.
+
+**A parameter buffer knob (`SOTC_VGL_PARAM_KB`).** GXM's parameter buffer
+(16 MB) holds every scene in flight's transformed vertices and tile lists;
+when it fills, GXM renders the scene so far to free it (the picture stored
+and loaded again mid-scene) and the vertex work waits. The altar sends
+~115 000 vertices a frame (the frame log's new `verts`), each with three
+float4 varyings, and the GPU is a frame or two behind: close to that. The
+size can now be set (same pixels); env-console-pb32.txt tries 32 MB.
+
+**Picture checks.** Vita3K cannot read its render targets back, and two
+runs never reach the same frame, so a new debugging switch freezes the
+picture: `SOTC_GL_FREEZE=n,d` (from the n-th frame handed over with d draws
+or more, the render thread draws that frame again and again while the game
+goes on). With the altar's frame frozen and the A/B rotating every 60 game
+frames, the window captured every 2 s: p2-freeze (scenes73): 46 captures
+over 90 s, one picture; p3-freeze (scenes73, swizzle73 with `_BOTH`): 36
+captures over 70 s, one picture; p4-freeze (the three switches): the
+plainread73 windows' captures 1 level apart (above), the rest one picture.
+The bloom's history converges on the frozen frame (all captures of a state
+identical), so any difference between the states would show. Mac: the
+changed paths are the Vita's (the two pictures, the depth keep, the glow's
+place behind `PS2X_NATIVE_VITA`, the swizzle and NOLOD programs too); the
+Mac's OpenGL and Metal pictures do not change; it builds.
+
+**Measured in Vita3K (222 MHz).** Vita3K hides the GPU's cost; the render
+thread's draw part at the frozen altar frame, A/B in one run: 17.52 / 16.95
+(p2), 17.08 / 19.01 (p3), 16.71 / 16.60 ms (p4) with scenes73 on / off:
+no change beyond the noise (fewer GL calls, ~2 % of them).
+Route 6 (p5-route6, moving, so the states' frames differ in content):
+frames with 1 000+ draws 43.7 / 44.0 ms, the draw part 16.4 / 17.4, 27.7 /
+32.3 binds and 28.6 / 33.2 scenes (but +39 draws in the off windows).
+
+**The render thread's CPU (Vita3K profile, the frozen altar frame, 50 s).**
+sceGxmDraw 22.6%, planFrame 13.8%, the draw loop 13.3%, sceClibMemcpy 9.0%
+(from vitaGL's draw: the uniform buffers), vitaGL's draw 5.3%, uniform4
+2.6%, the draw order's sort 1.8%. In Vita3K every sceGxm and sceClib call
+is an emulated import, so its share is larger than on the console; on the
+console the GPU, not this thread, sets the frame (present ~30 ms): its CPU
+(23.6 ms) is the next limit once the GPU is under it.
+
+**On the console (the user's run).** env-console.txt: the frame log, body
+shadows, the spike log, `SOTC_GL_SWIZZLE_BOTH=1`, `SOTC_AB_FLAG=scenes73,
+swizzle73`, rotation every 60 frames (all on / scenes73 off / swizzle73 off
+in turn). Read with `python3 build/agent-scratch/r73/tools/rt73.py err.txt
+--min-draws 1000` (or `--from <frame>`): per state the frame, the render
+thread's CPU (`cpuRend`) and draw part, `present` (the GPU), `wait`,
+targets, scenes and kverts; "off minus on" rows: a positive `present` /
+frame there is the switch's gain. `[gl:scenes]` lines: depth / stencil KB a
+frame and the few-scenes counts. Optional: env-console-plain.txt (adds
+plainread73, on, not exact in Vita3K) and env-console-pb32.txt (a 32 MB
+parameter buffer, scenes73's A/B: compare its all-on windows' present with
+env-console.txt's run).
+
+**Left (largest first, by what the console shows).** If `present` stays
+~30 ms: the GPU's work per draw (1 300 draws, ~190 of them with dependent
+texture reads; the skinned draws' 3 KB palettes; partial renders), which
+the console's A/B of plainread73 and the 32 MB buffer will point at; then
+the render thread's CPU (vitaGL's per-draw uniform copies and sceGxmDraw,
+planFrame's lookups).
+
+**Deliverable:** build/agent-scratch/celosia-r73.vpk (main ed6b0fa + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

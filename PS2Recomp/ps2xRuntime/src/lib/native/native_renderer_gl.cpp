@@ -36,6 +36,7 @@ extern "C" unsigned int _newlib_heap_size_user;      // ps2_vita_runtime.cpp
 extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
 extern "C" uint32_t vgl_celo_scenes; // celosia.patch (round 45): scenes begun (vglCeloSceneStats)
 extern "C" void vglCeloOwnMips(int on); // celosia.patch (round 55): glTexImage2D levels >= 1 taken as given
+extern "C" GLboolean vglCeloTexImageSwizzled(GLsizei width, GLsizei height, GLint levels, const void *data); // celosia.patch (round 73)
 extern "C" void vglCeloLeanDraw(int bits); // celosia.patch (round 56): bit 0 uniform copies by memcpy, bit 1 one vertex stream
 extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia.patch (round 65c): uniform bytes reserved, pool wraps
 #endif
@@ -605,9 +606,17 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
 {
     float textured = uFogColour.w;
     float depth = vUV.z;
+#if NOLOD
+    // Round 73: a textured draw whose texture has one level: its texel read
+    // straight from the interpolated UV (the same texel and filter as at
+    // level 0; the GPU fetches it before the program runs), no LOD.
+    float4 t = tex2D(uTex, vUV.xy);
+    float alpha = saturate(t.a * 2.0 * vColor.a);
+#else
     float lod = uFogC.w > 0.0 ? clamp(log2(max(depth, 1e-3)) * uFogC.z + uFogC.y, 0.0, uFogC.w) : 0.0;
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
+#endif
 #if CUT
     if (vScreen.w < 0.0) // layer 1 nearer than its near plane (uGuard; such draws take the CUT programs)
         discard;
@@ -996,6 +1005,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const uint8_t *level0 = nullptr;
         uint32_t level0W = 0, level0H = 0;
         uint64_t level0Hash = 0;
+        // Round 73 (Tuning glSwizzle, the Vita): `name` holds the texels in
+        // GXM's swizzled layout (swizzled), or, with SOTC_GL_SWIZZLE_BOTH=1,
+        // a second texture `swz` holds them so while `name` stays linear
+        // (the A/B's `swizzle73` picks one per frame).
+        GLuint swz = 0;
+        bool swizzled = false;
     };
 
     struct Draw
@@ -1050,6 +1065,33 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target prefix[3], hazeSmall;
         Target shownFrame[2]; // what the host shows, alternately (the GPU draws later: never the target being drawn)
         int shownIndex = 0;
+        // Round 73 (Tuning glFewScenes, the Vita): a second picture, drawn in
+        // turn with `color` (swapped at each frame's start): the host shows
+        // the picture as drawn, no copy into shownFrame first, and the one
+        // not drawn into is the last frame shown (feedbackBlur's). Own depth
+        // and stencil (each frame clears them). colorAltPlain: its colour alone.
+        Target colorAlt, colorAltPlain;
+        void makeColorAlt(uint32_t w, uint32_t h)
+        {
+            makeTarget(colorAlt, w, h, true);
+            wantStencil(colorAlt);
+            if (colorAltPlain.fbo)
+                glDeleteFramebuffers(1, &colorAltPlain.fbo);
+            colorAltPlain = Target{};
+            colorAltPlain.texture = colorAlt.texture;
+            colorAltPlain.width = w;
+            colorAltPlain.height = h;
+            glGenFramebuffers(1, &colorAltPlain.fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, colorAltPlain.fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorAlt.texture, 0);
+#if defined(PS2X_NATIVE_VITA)
+            if (scratchDepthOn())
+                vglFramebufferScratchDepth(colorAltPlain.fbo, GL_TRUE);
+#endif
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            boundFbo = ~0u;
+        }
+        uint64_t shownDirect = 0, shownCopied = 0, glowHoisted = 0, plainReadDraws = 0; // round 73 ([gl:scenes])
         Target glowPrefix; // Vita3K: the picture below layer 8, apart (the glow layer's depth)
         // Round 55: screenBlur drawn on a second picture (blurApart): the
         // picture so far is copied into it and the blur's copies, read from the
@@ -1362,6 +1404,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (t.inHeap)
                 textureHeapBytes -= t.bytes;
         }
+        // Round 73: the GL texture a draw binds (the swizzled copy when there is one and the switch is on).
+        static GLuint drawName(const Texture &t) { return t.swz && native_renderer::tuning().glSwizzle ? t.swz : t.name; }
         std::vector<Draw> draws;
         std::vector<uint64_t> extraMeshes; // drawMulti's meshes past each draw's first (Draw::extraFirst)
         std::vector<Draw> expanded;        // expandDraws' room (the last frame's list)
@@ -1418,11 +1462,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t paletteSent = ~0ull; // frame << 32 | handle: what its palette holds
         };
         // Round 45: slot 10 the shadow volumes' program (kVolumeFragment).
-        static constexpr int kMainSlots = 11;
+        // Round 73: 11-18 the lean ones reading a one-level texture without a
+        // LOD (NOLOD; Tuning glPlainReads), at 11 + 4 x skinned + 2 x BG + CUT.
+        static constexpr int kMainSlots = 19;
         static constexpr int kVolumeSlot = 10;
+        static constexpr int kPlainSlot = 11;
         MainSlot mains[kMainSlots];
         int mainSlot = 0; // the one in use
-        GLuint leanProgram(bool skinned, bool bg, bool cut) const { return mains[2 + (skinned ? 4 : 0) + (bg ? 2 : 0) + (cut ? 1 : 0)].program; }
+        GLuint leanProgram(bool skinned, bool bg, bool cut, bool plain = false) const
+        {
+            return mains[(plain ? kPlainSlot : 2) + (skinned ? 4 : 0) + (bg ? 2 : 0) + (cut ? 1 : 0)].program;
+        }
         std::vector<float> palettes;      // this frame's skin palettes (framePalette)
         void uniform4(MainUniform slot, const float *v, int count)
         {
@@ -1517,6 +1567,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         struct
         {
             uint64_t missing = 0, uploads = 0, errors = 0;
+            uint64_t swizzled = 0; // round 73: uploads made swizzled (each copy)
             uint32_t lastError = 0;
         } texStats;
         void evictUnused(); // per-frame meshes no frame made for a while (the kept ones: GlBackend::evictKept)
@@ -1557,6 +1608,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t lockUs = 0, uploadUs = 0, drawUs = 0, sweepUs = 0; // round 36: renderUs by part
             uint32_t runCopies = 0, runScans = 0;                       // round 36: merged runs copied, scans for their room
             uint32_t targets = 0;
+            uint32_t scenes = 0, depthKB = 0; // round 73: GPU scenes begun, depth / stencil KB loaded + stored (the Vita)
+            uint32_t vertices = 0;            // round 73: vertices (indices) sent by the frame's 3D draws
         } stats;
         // SOTC_GL_SPIKE_LOG=1 (round 44, the console's 150-450 ms draw spikes):
         // the render thread's time between consecutive 3D draws of a frame,
@@ -1760,9 +1813,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return head + pose + body;
         }
 
-        static std::string worldFragment(bool bg, bool cut)
+        static std::string worldFragment(bool bg, bool cut, bool nolod = false)
         {
-            const std::string defines = std::string("#define BG ") + (bg ? "1" : "0") + "\n#define CUT " + (cut ? "1" : "0") + "\n";
+            const std::string defines = std::string("#define BG ") + (bg ? "1" : "0") + "\n#define CUT " + (cut ? "1" : "0") + "\n#define NOLOD " + (nolod ? "1" : "0") + "\n";
 #if defined(PS2X_NATIVE_VITA)
             return defines + kWorldFragment;
 #else
@@ -1832,17 +1885,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             mains[0].program = mainProgram;
             mains[1].program = skinProgram;
-            for (int skinned = 0; skinned < 2; ++skinned)
-                for (int bg = 0; bg < 2; ++bg)
-                    for (int cut = 0; cut < 2; ++cut)
-                    {
-                        if (skinned && !skinProgram)
-                            continue;
-                        const std::string fragment = worldFragment(bg != 0, cut != 0);
-                        mains[2 + skinned * 4 + bg * 2 + cut].program =
-                            skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
-                                    : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
-                    }
+#if defined(PS2X_NATIVE_VITA)
+            const int plainKinds = 2; // round 73: the NOLOD ones too
+#else
+            const int plainKinds = 1;
+#endif
+            for (int plain = 0; plain < plainKinds; ++plain)
+                for (int skinned = 0; skinned < 2; ++skinned)
+                    for (int bg = 0; bg < 2; ++bg)
+                        for (int cut = 0; cut < 2; ++cut)
+                        {
+                            if (skinned && !skinProgram)
+                                continue;
+                            const std::string fragment = worldFragment(bg != 0, cut != 0, plain != 0);
+                            mains[(plain ? kPlainSlot : 2) + skinned * 4 + bg * 2 + cut].program =
+                                skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
+                                        : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
+                        }
             mains[kVolumeSlot].program = program(mainVertex, kVolumeFragment, {"aPos", "aNormal", "aColor", "aUV"});
             if (!mains[kVolumeSlot].program)
                 std::cerr << "[native:gl] no shadow volume program: the volumes drawn with the main one" << std::endl;
@@ -1867,7 +1926,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 std::cerr << "[native:gl] the skinning program has no palette: skinned meshes posed on the CPU" << std::endl;
                 skinProgram = 0;
-                for (int i : {1, 6, 7, 8, 9})
+                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7})
                     mains[i].program = 0;
             }
             glUseProgram(quadProgram);
@@ -1939,18 +1998,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             };
             uint32_t draws = 0;
             uint32_t programs = 0;
-            for (int which = 0; which < 27; ++which)
+            for (int which = 0; which < 35; ++which)
             {
                 // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45),
-                // the GS bloom chain's 15-18 (round 65b)
+                // the GS bloom chain's 15-18 (round 65b), the 8 NOLOD lean ones (round 73)
                 const GLuint p = which == 0 ? mainProgram
                                             : (which == 1 ? skinProgram
-                                                          : (which < 14 ? quadPrograms[which - 2] : (which < 23 ? mains[2 + which - 14].program : quadPrograms[which - 8])));
+                                                          : (which < 14 ? quadPrograms[which - 2]
+                                                                        : (which < 23 ? mains[2 + which - 14].program
+                                                                                      : (which < 27 ? quadPrograms[which - 8] : mains[kPlainSlot + which - 27].program))));
                 if (!p)
                     continue;
                 ++programs;
                 glUseProgram(p);
-                const bool skinned = which == 1 || (which >= 18 && which < 22), quadMode = (which >= 2 && which < 14) || which >= 23;
+                const bool skinned = which == 1 || (which >= 18 && which < 22) || which >= 31, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
                 for (GLuint i = 0; i < 6; ++i)
                 {
@@ -2218,6 +2279,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     release(*t);
                 release(blurOutPlain, false); // (blurOut's texture)
                 release(blurOut);
+                release(colorAltPlain, false); // (colorAlt's texture)
+                release(colorAlt);
                 boundFbo = boundProgram = ~0u;
                 vglCollectGarbageNow();
             }
@@ -2231,8 +2294,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #endif
                 makeTarget(shadowMask, w, h, false);
             makeTarget(previous, w, h, false);
-            for (Target &t : shownFrame)
-                makeTarget(t, w, h, false);
+#if defined(PS2X_NATIVE_VITA)
+            // Round 73: the second picture; the host's copies made at their
+            // first use only when the picture is shown as drawn (glFewScenes).
+            makeColorAlt(w, h);
+            if (!native_renderer::tuning().glFewScenes)
+#endif
+                for (Target &t : shownFrame)
+                    makeTarget(t, w, h, false);
             makeTarget(glowLayer, w, h, false);
             for (int i = 0; i < 4; ++i)
                 makeTarget(glowSmall[i], i == 0 ? 256u : (i == 1 ? 128u : 64u), i == 0 ? 256u : (i == 1 ? 128u : 64u), false);
@@ -2308,7 +2377,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uint32_t made = 0;
                 for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &glowSmall[0], &glowSmall[1],
                                   &glowSmall[2], &glowSmall[3], &backgroundSmall, &reflection, &refraction, &hazeSmall, &refractionHalf, &bloomTex[0], &bloomTex[1],
-                                  &bloomTex[2], &colorPlain})
+                                  &bloomTex[2], &colorPlain, &colorAlt, &colorAltPlain})
                     if (t->fbo)
                     {
                         glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
@@ -2627,10 +2696,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t textureBytes = 0;
             textures.forEach([&](uint64_t, const Texture &t) { textureBytes += t.bytes; });
-            std::fprintf(stderr, "[gl:tex] frame %llu missing draws %llu uploads %llu gl errors %llu (last 0x%x) textures %zu (%.1f MB)\n",
+            std::fprintf(stderr, "[gl:tex] frame %llu missing draws %llu uploads %llu (swizzled %llu) gl errors %llu (last 0x%x) textures %u (%.1f MB)\n",
                          (unsigned long long)arenaFrame, (unsigned long long)texStats.missing, (unsigned long long)texStats.uploads,
-                         (unsigned long long)texStats.errors, texStats.lastError, textures.size(), textureBytes / 1048576.0);
-            texStats.missing = texStats.uploads = texStats.errors = 0;
+                         (unsigned long long)texStats.swizzled, (unsigned long long)texStats.errors, texStats.lastError, static_cast<unsigned>(textures.size()),
+                         textureBytes / 1048576.0);
+            texStats.missing = texStats.uploads = texStats.errors = texStats.swizzled = 0;
         }
 #if defined(PS2X_NATIVE_VITA)
         // SOTC_GL_TEX_VERIFY=1 (debugging, round 55): every 60 frames each
@@ -3049,6 +3119,57 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         cache.buffer = ~0u;
     }
 
+    // Round 73: an RGBA8 chain (levels one after the other, rows packed) in
+    // GXM's swizzled layout (Vita3K's encode_morton: y on the even bits, x on
+    // the odd ones, the larger side's bits past the smaller's above), the
+    // levels GXM takes (down to the smaller side at 1 texel) one after the
+    // other. Returns their count. w and h powers of two.
+    static uint32_t swizzleChain(const uint8_t *rgba, uint32_t w, uint32_t h, uint32_t levels, std::vector<uint8_t> &out)
+    {
+        uint32_t most = 1;
+        for (uint32_t a = w, b = h; a > 1u && b > 1u; a /= 2u, b /= 2u)
+            ++most;
+        const uint32_t n = std::min(std::max(levels, 1u), most);
+        size_t total = 0;
+        for (uint32_t l = 0; l < n; ++l)
+            total += static_cast<size_t>(std::max(w >> l, 1u)) * std::max(h >> l, 1u) * 4u;
+        out.resize(total);
+        auto spread = [](uint32_t x)
+        {
+            x &= 0x0000FFFFu;
+            x = (x ^ (x << 8)) & 0x00FF00FFu;
+            x = (x ^ (x << 4)) & 0x0F0F0F0Fu;
+            x = (x ^ (x << 2)) & 0x33333333u;
+            x = (x ^ (x << 1)) & 0x55555555u;
+            return x;
+        };
+        std::vector<uint32_t> px, py;
+        uint8_t *dst = out.data();
+        const uint8_t *src = rgba;
+        for (uint32_t l = 0, lw = w, lh = h; l < n; ++l)
+        {
+            const uint32_t least = std::min(lw, lh);
+            const uint32_t k = static_cast<uint32_t>(__builtin_ctz(least));
+            px.resize(lw);
+            py.resize(lh);
+            for (uint32_t x = 0; x < lw; ++x)
+                px[x] = (spread(x & (least - 1u)) << 1) | ((x >> k) << (2u * k));
+            for (uint32_t y = 0; y < lh; ++y)
+                py[y] = spread(y & (least - 1u)) | ((y >> k) << (2u * k));
+            for (uint32_t y = 0; y < lh; ++y)
+            {
+                const uint8_t *row = src + static_cast<size_t>(y) * lw * 4u;
+                for (uint32_t x = 0; x < lw; ++x)
+                    std::memcpy(dst + static_cast<size_t>(px[x] | py[y]) * 4u, row + static_cast<size_t>(x) * 4u, 4);
+            }
+            dst += static_cast<size_t>(lw) * lh * 4u;
+            src += static_cast<size_t>(lw) * lh * 4u;
+            lw = std::max(1u, lw / 2u);
+            lh = std::max(1u, lh / 2u);
+        }
+        return n;
+    }
+
     void Renderer::uploadTexture(uint64_t key, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels)
     {
         levels = std::max(1u, levels);
@@ -3093,19 +3214,40 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static const bool ownMips = !std::getenv("SOTC_GL_OWN_MIPS") || std::atoi(std::getenv("SOTC_GL_OWN_MIPS")) != 0;
         vglCeloOwnMips(ownMips ? 1 : 0);
 #endif
-        for (uint32_t level = 0, w = width, h = height; level < levels; ++level)
-        {
-            glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA,
-                         GL_UNSIGNED_BYTE, rgba);
-            if (const GLenum e = glGetError(); e != GL_NO_ERROR)
+        // Round 73 (Tuning glSwizzle): the texels in GXM's swizzled layout
+        // (the same texels; the GPU's fetches of nearby texels in both
+        // directions fall in fewer memory bursts than in rows). Powers of two
+        // only (the PS2's sizes are), with the texture's own levels.
+        // SOTC_GL_SWIZZLE_BOTH=1: a swizzled copy beside the linear texture,
+        // the A/B's `swizzle73` picking one each frame (twice the memory).
+        bool swizzledDone = false;
+        std::vector<uint8_t> chain;
+        uint32_t swzLevels = 0;
+#if defined(PS2X_NATIVE_VITA)
+        static const bool swizzleBoth = std::getenv("SOTC_GL_SWIZZLE_BOTH") && std::atoi(std::getenv("SOTC_GL_SWIZZLE_BOTH")) != 0;
+        const bool pow2 = width && height && !(width & (width - 1u)) && !(height & (height - 1u));
+        const bool wantSwizzle = (swizzleBoth || native_renderer::tuning().glSwizzle) && pow2 && (ownMips || levels == 1u);
+        if (wantSwizzle)
+            swzLevels = swizzleChain(rgba, width, height, levels, chain);
+        if (wantSwizzle && !swizzleBoth)
+            swizzledDone = vglCeloTexImageSwizzled(static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLint>(swzLevels), chain.data());
+        texStats.swizzled += swizzledDone ? 1u : 0u;
+#endif
+        t.swizzled = swizzledDone;
+        if (!swizzledDone)
+            for (uint32_t level = 0, w = width, h = height; level < levels; ++level)
             {
-                ++texStats.errors;
-                texStats.lastError = e;
+                glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, GL_RGBA,
+                             GL_UNSIGNED_BYTE, rgba);
+                if (const GLenum e = glGetError(); e != GL_NO_ERROR)
+                {
+                    ++texStats.errors;
+                    texStats.lastError = e;
+                }
+                rgba += static_cast<size_t>(w) * h * 4u;
+                w = std::max(1u, w / 2u);
+                h = std::max(1u, h / 2u);
             }
-            rgba += static_cast<size_t>(w) * h * 4u;
-            w = std::max(1u, w / 2u);
-            h = std::max(1u, h / 2u);
-        }
         textureBytes += t.bytes;
 #if !defined(PS2X_NATIVE_VITA)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levels - 1u));
@@ -3126,6 +3268,33 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+#if defined(PS2X_NATIVE_VITA)
+        if (wantSwizzle && swizzleBoth) // the swizzled copy beside it, its parameters the same
+        {
+            if (!t.swz)
+                glGenTextures(1, &t.swz);
+            glBindTexture(GL_TEXTURE_2D, t.swz);
+            if (vglCeloTexImageSwizzled(static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLint>(swzLevels), chain.data()))
+            {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, levels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                ++texStats.swizzled;
+            }
+            else
+            {
+                glDeleteTextures(1, &t.swz);
+                t.swz = 0;
+            }
+            glBindTexture(GL_TEXTURE_2D, t.name);
+        }
+        else if (t.swz) // (made again without its copy)
+        {
+            glDeleteTextures(1, &t.swz);
+            t.swz = 0;
+        }
+#endif
         t.clamp = 0;
         t.filter = 2;
         t.mipped = levels > 1u;
@@ -3491,6 +3660,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #else
         static const bool log = std::getenv("SOTC_GL_SCENE_LOG") != nullptr;
 #endif
+        stats.scenes = scenes; // round 73: the frame log's (this frame's)
+        stats.depthKB = loadKB + storeKB;
         sceneStats.scenes += scenes;
         sceneStats.loadKB += loadKB;
         sceneStats.storeKB += storeKB;
@@ -3499,16 +3670,32 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return;
         const double n = static_cast<double>(sceneStats.frames);
         if (log)
-            std::fprintf(stderr, "[gl:scenes] per frame over %llu frames: %.1f scenes, %.1f target binds, depth / stencil %.0f KB loaded, %.0f KB stored | depth keep %d, few copies %d, volume program %d, alpha merge %d\n",
+            std::fprintf(stderr, "[gl:scenes] per frame over %llu frames: %.1f scenes, %.1f target binds, depth / stencil %.0f KB loaded, %.0f KB stored | depth keep %d, few copies %d, volume program %d, alpha merge %d"
+                                 " | few scenes %d: shown as drawn %llu, copied %llu, glow at the shadows' break %llu | plain reads %d: %.0f draws a frame\n",
                          (unsigned long long)sceneStats.frames, sceneStats.scenes / n, sceneStats.binds / n, sceneStats.loadKB / n, sceneStats.storeKB / n,
                          native_renderer::tuning().glDepthKeep ? 1 : 0, native_renderer::tuning().glFewCopies ? 1 : 0, native_renderer::tuning().glVolumeProgram ? 1 : 0,
-                         native_renderer::tuning().alphaTestMerge ? 1 : 0);
+                         native_renderer::tuning().alphaTestMerge ? 1 : 0, native_renderer::tuning().glFewScenes ? 1 : 0, (unsigned long long)shownDirect,
+                         (unsigned long long)shownCopied, (unsigned long long)glowHoisted, native_renderer::tuning().glPlainReads ? 1 : 0, plainReadDraws / n);
+        shownDirect = shownCopied = glowHoisted = plainReadDraws = 0;
         sceneStats.frames = sceneStats.scenes = sceneStats.binds = sceneStats.loadKB = sceneStats.storeKB = 0;
     }
 
     void Renderer::render(uint32_t w, uint32_t h)
     {
         ensureTargets(w, h);
+        // Round 73 (Tuning glFewScenes): the two pictures in turn (switched
+        // either way, so that the frame after one shown as drawn never draws
+        // into it: it is feedbackBlur's last frame).
+#if defined(PS2X_NATIVE_VITA)
+        const bool fewScenes = native_renderer::tuning().glFewScenes;
+        if (colorAlt.fbo && native_renderer::detail::presentHook())
+        {
+            std::swap(color, colorAlt);
+            std::swap(colorPlain, colorAltPlain);
+        }
+#else
+        const bool fewScenes = false;
+#endif
         boundFbo = boundProgram = ~0u;
         // (a frame that drew its screen blur on the second picture: the
         // targets back in their places for the next one, whichever way it ends)
@@ -3916,7 +4103,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     bool cut = true;
                     if (noDiscard && leastAlpha >= 0.0f && !(guard[0] > 0.0f))
                         cut = !(leastAlpha >= 0.03f) || atSecond || atAllUnder; // the cut-out is at 0.02
-                    if (const GLuint lean = leanProgram(skinned, fogA[3] > 0.5f, cut))
+                    // Round 73 (Tuning glPlainReads): a texture of one level read with no LOD.
+                    const bool plain = textured == 1 && !tex->mipped && native_renderer::tuning().glPlainReads;
+                    GLuint lean = leanProgram(skinned, fogA[3] > 0.5f, cut, plain);
+                    if (plain && !lean)
+                        lean = leanProgram(skinned, fogA[3] > 0.5f, cut);
+                    else if (plain)
+                        ++plainReadDraws;
+                    if (lean)
                     {
                         program = lean;
                         drawStats.noDiscard += cut ? 0u : 1u;
@@ -3975,6 +4169,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     glEnable(GL_DEPTH_CLAMP); // the GS does not cut at the near plane
 #endif
                     drawMesh(mesh, firstVertex);
+                    stats.vertices += mesh.count;
                     ++shadowStats.volumes;
                     shadowStats.vertices += mesh.count;
                     if (shadowStats.lastFrame != arenaFrame)
@@ -4040,29 +4235,40 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (textured == 1)
                 {
                     tex->used = arenaFrame;
-                    if (cache.texture != tex->name)
+                    const GLuint texName = drawName(*tex);
+                    if (cache.texture != texName)
                     {
-                        bindTexture(0, tex->name);
-                        cache.texture = tex->name;
+                        bindTexture(0, texName);
+                        cache.texture = texName;
                     }
                     if (tex->clamp != (d.state.clamp & 3u)) // a texture's wrap is its own state: set when it changes
                     {
                         tex->clamp = d.state.clamp & 3u;
-                        bindTexture(0, tex->name); // unit 0 active (a refraction draw may have left unit 3)
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (d.state.clamp & 1u) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (d.state.clamp & 2u) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+                        for (const GLuint n : {tex->swz, tex->name}) // (both copies: round 73)
+                            if (n)
+                            {
+                                bindTexture(0, n); // unit 0 active (a refraction draw may have left unit 3)
+                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (d.state.clamp & 1u) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (d.state.clamp & 2u) ? GL_CLAMP_TO_EDGE : GL_REPEAT);
+                            }
+                        bindTexture(0, texName);
                     }
                     // Quality "Texture filtering": nearest, bilinear, trilinear (anisotropic: Metal only, trilinear here).
                     const uint32_t filter = d.state.screen ? 2u : static_cast<uint32_t>(std::clamp(native_renderer::tuning().textureFilter + 0.5f, 0.0f, 2.0f)); // 2D keeps the default
                     if (tex->filter != filter)
                     {
                         tex->filter = filter;
-                        bindTexture(0, tex->name);
                         const bool mipped = tex->mipped;
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                                        filter == 0 ? (mipped ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
-                                                    : (filter == 1 ? (mipped ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR) : (mipped ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR)));
-                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == 0 ? GL_NEAREST : GL_LINEAR);
+                        for (const GLuint n : {tex->swz, tex->name}) // (both copies: round 73)
+                            if (n)
+                            {
+                                bindTexture(0, n);
+                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                                                filter == 0 ? (mipped ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
+                                                            : (filter == 1 ? (mipped ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR) : (mipped ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR)));
+                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == 0 ? GL_NEAREST : GL_LINEAR);
+                            }
+                        bindTexture(0, texName);
                     }
                 }
                 const float misc[4] = {d.state.fresnel ? -1.0f : (d.state.lit ? 1.0f : 0.0f), d.state.opacity, d.state.uvOffset[0], d.state.uvOffset[1]};
@@ -4200,6 +4406,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 else
                     drawMesh(mesh, firstVertex);
+                stats.vertices += planned.run > 1 ? planned.mergedCount : mesh.count;
                 if (spike.on)
                 {
                     const uint64_t took = native_renderer::nowUs() - callStart;
@@ -4220,6 +4427,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(planned.mergedCount));
                     else
                         drawMesh(mesh, firstVertex);
+                    stats.vertices += planned.run > 1 ? planned.mergedCount : mesh.count;
                     ++drawStats.alphaSecond;
                     ++shadowStats.alphaSecond;
                 }
@@ -4401,6 +4609,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Vita3K the picture below layer 8 drawn again apart, see the
         // mid-frame redraw below), reduced and blurred.
         bool glowBuilt = false;
+        // Round 73 (glFewScenes): `hoistGlow`, the glow layer and its
+        // reductions are drawn at the soft shadows' break (same layer: they
+        // read the picture's depth only, not its colour); `lastEvent`, the
+        // effect being run is the frame's last: the scene of the picture its
+        // write-back begins is the picture's last, which need not store its
+        // depth / stencil (finalKeep, called just before that write-back).
+        bool hoistGlow = false, lastEvent = false, glowWasHoisted = false;
+        auto finalKeep = [&]
+        {
+            if (fewScenes && lastEvent)
+                keepDepth(color, 1);
+        };
         // The frame log's [gl:glow] line (round 24: the dead colossus's
         // coloured blobs on the console): how layer 8 went, every 120 frames
         // that have layer 8 draws.
@@ -4436,7 +4656,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         auto buildGlow = [&](Target &depthOf) -> bool
         {
 #if defined(PS2X_NATIVE_VITA)
-            bindTarget(depthOf); // drawn into this frame: its depth exists
+            if (!hoistGlow) // (round 73: hoisted, the picture was drawn into just before; a bind with no draw counts a target)
+                bindTarget(depthOf); // drawn into this frame: its depth exists
             if (!vglFramebufferShareDepth(glowLayer.fbo, depthOf.fbo))
             {
                 glowHow = "plain: the picture's depth could not be shared";
@@ -4479,8 +4700,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glowLog();
                 return;
             }
-            glowHow = glowBuilt ? "apart (on the picture drawn again)" : "apart (on the picture's depth)";
+            glowHow = glowWasHoisted ? "apart (on the picture's depth, drawn at the shadows' break)"
+                      : glowBuilt    ? "apart (on the picture drawn again)"
+                                     : "apart (on the picture's depth)";
             glowLog();
+            finalKeep();
             const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
             for (const auto &[source, amount] : layers)
             {
@@ -4550,6 +4774,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // the mask, as the mid-frame redraw does, cost Vita3K 2-4x the
                 // frame time in the plains). The quad clears what is left of the count.
                 shadowAlphaMask(color);
+                // Round 73: the glow layer at the same layer drawn now, while
+                // the picture is put down for the mask (see hoistGlow).
+                if (hoistGlow && !glowBuilt)
+                {
+                    glowBuilt = glowWasHoisted = buildGlow(color);
+                    glowHoisted += glowWasHoisted ? 1u : 0u;
+                }
+                finalKeep();
                 glEnable(GL_STENCIL_TEST);
                 glStencilMask(0xFF);
                 glStencilFunc(GL_ALWAYS, 0, 0xFF);
@@ -4849,6 +5081,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (bloomSameFrame)
             {
                 bloomReduce();
+                finalKeep();
                 if (gsChain)
                     gsBloomAdd();
                 else
@@ -5047,12 +5280,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
         uint32_t from = 0;
         bool loaded = false;
-        for (const Event &ev : events)
+        auto eventSkipped = [&](const Event &ev)
         {
-            if (ev.prefix >= 0 && ev.blur == -4)
-                continue; // its copies are made
-            if (hazeWithBlur && ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && !(haveRefraction && ev.order == 9u))
-                continue; // made by the blur at its layer (doBlurApart)
+            return (ev.prefix >= 0 && ev.blur == -4) || // its copies are made
+                   (hazeWithBlur && ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && !(haveRefraction && ev.order == 9u)); // made by the blur at its layer (doBlurApart)
+        };
+        size_t lastRun = events.size();
+        for (size_t i = 0; i < events.size(); ++i)
+            if (!eventSkipped(events[i]))
+                lastRun = i;
+        for (size_t ei = 0; ei < events.size(); ++ei)
+        {
+            const Event &ev = events[ei];
+            if (eventSkipped(ev))
+                continue;
+            lastEvent = ei == lastRun;
+#if defined(PS2X_NATIVE_VITA)
+            // Round 73: the glow layer at the shadows' layer (the shadows' event comes first there).
+            hoistGlow = fewScenes && ev.blur == -3 && ei + 1u < events.size() && events[ei + 1u].blur == -2 && events[ei + 1u].order == ev.order &&
+                        !eventSkipped(events[ei + 1u]);
+#endif
             // The picture's first scene starts from a clear (nothing to load);
             // every scene but its last is taken up again (stored). The scene a
             // pass begins takes the setting at its start: back to "both" as
@@ -5181,15 +5428,34 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             // The host shows a copy of its own: the next frame starts drawing
             // into `color` before the GPU has put this one on the screen.
-            shownIndex ^= 1;
-            copy(colorPlain, shownFrame[shownIndex]);
+            // Round 73 (glFewScenes, the Vita): the picture itself, as drawn:
+            // the next frame draws into the other one (colorAlt, swapped at
+            // its start), and the GPU runs the scenes in order (the host's
+            // scene reads it before the frame after next draws into it
+            // again). Not a frame that ended on blurOut (a blur drawn apart:
+            // the next one with a blur draws into it mid-frame): copied.
+            GLuint shownTexture = 0;
+            if (fewScenes && previousIsShown && colorAlt.fbo && !pictureSwapped)
+            {
+                shownTexture = colorPlain.texture;
+                ++shownDirect;
+            }
+            else
+            {
+                shownIndex ^= 1;
+                if (!shownFrame[shownIndex].fbo) // (glFewScenes: made at their first use)
+                    makeTarget(shownFrame[shownIndex], w, h, false);
+                copy(colorPlain, shownFrame[shownIndex]);
+                shownTexture = shownFrame[shownIndex].texture;
+                ++shownCopied;
+            }
             if (previousIsShown)
-                previousTexture = shownFrame[shownIndex].texture;
+                previousTexture = shownTexture;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = boundProgram = ~0u;
             const bool timed = native_renderer::tuning().frameTiming();
             const uint64_t start = timed ? native_renderer::nowUs() : 0u;
-            hook(shownFrame[shownIndex].texture, w, h);
+            hook(shownTexture, w, h);
             if (timed)
                 stats.presentUs += native_renderer::nowUs() - start;
             noteScenes();
@@ -5452,8 +5718,43 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 c.renderRunCopies += r->stats.runCopies;
                 c.renderRunScans += r->stats.runScans;
                 c.targets += r->stats.targets;
+                c.scenes += r->stats.scenes;
+                c.depthKB += r->stats.depthKB;
+                c.vertices += r->stats.vertices;
             }
             r->stats = {};
+            // SOTC_GL_FREEZE=n[,d] (round 73, debugging): from the n-th frame
+            // handed over that has d draws or more (default 1), the render
+            // thread draws that frame again and again (the game goes on; its
+            // uploads are still applied): a still picture whatever the game
+            // does, for window captures of the same frame with a switch on and
+            // off (SOTC_AB_FLAG; Vita3K's targets cannot be read back).
+            static const std::pair<uint64_t, uint64_t> freezeAt = []
+            {
+                unsigned long long n = 0, d = 1;
+                if (const char *e = std::getenv("SOTC_GL_FREEZE"))
+                    std::sscanf(e, "%llu,%llu", &n, &d);
+                return std::pair<uint64_t, uint64_t>(n, d);
+            }();
+            ++m_handOvers;
+            if (freezeAt.first && !m_frozen && m_handOvers >= freezeAt.first && m_rec.draws.size() >= freezeAt.second && !m_rec.hold)
+            {
+                m_frozen = true;
+                std::fprintf(stderr, "[gl:freeze] hand-over %llu: this frame (%u draws) drawn from now on\n", (unsigned long long)m_handOvers, static_cast<unsigned>(m_rec.draws.size()));
+            }
+            else if (m_frozen)
+            {
+                r->uploads.swap(m_rec.uploads);
+                r->hold = false;
+                m_rec.hold = false;
+                clearFrame();
+                m_rec.uploads.clear();
+                m_queued = true;
+                m_work.notify_one();
+                if (!native_renderer::tuning().renderThread)
+                    waitIdle(lock);
+                return;
+            }
             std::swap(r->draws, m_rec.draws);
             std::swap(r->extraMeshes, m_rec.extraMeshes);
             std::swap(r->arena, m_rec.arena);
@@ -5932,6 +6233,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     Texture *t = r->textures.find(c.id);
                     if (t->name)
                         r->deadTextures.push_back(t->name);
+                    if (t->swz)
+                        r->deadTextures.push_back(t->swz);
                     r->forget(*t);
                     r->textures.erase(c.id);
                     m_knownTextures.erase(c.id);
@@ -6112,6 +6415,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool m_started = false, m_initOk = false;
         bool m_queued = false; // a frame handed over, not started yet
         bool m_busy = false;   // the render thread drawing
+        uint64_t m_handOvers = 0; // round 73 (SOTC_GL_FREEZE)
+        bool m_frozen = false;
         bool m_uploadsOnly = false; // what is handed over is uploads alone (flushUploads, SOTC_GL_FLUSH_WAIT)
         std::vector<Renderer::Upload> m_side, m_sideApplying; // flushed uploads (flushUploads); the render thread's copy while it applies them
         uint64_t m_sideBytes = 0;

@@ -296,6 +296,19 @@ void InitWindow(int, int, const char *)
         return v > 0 ? v : fallback;
     };
     const int circularKb = kb("SOTC_VGL_CIRCULAR_KB", 3072), immediateKb = kb("SOTC_VGL_IMMEDIATE_KB", 64);
+    // Round 73: GXM's parameter buffer (the scenes' transformed vertices and
+    // tile lists, shared by every scene in flight; 16 MB as vitaGL). When it
+    // fills, GXM renders the scene so far to free it (a partial render: the
+    // picture stored and loaded again) and the vertex work waits. The
+    // shrine's frames send ~115 000 vertices, three float4 varyings each.
+    // SOTC_VGL_PARAM_KB: another size (to try on the console; the pixels
+    // are the same either way).
+    if (const char *e = std::getenv("SOTC_VGL_PARAM_KB"))
+    {
+        const int paramKb = kb("SOTC_VGL_PARAM_KB", 16384);
+        vglSetParamBufferSize(static_cast<uint32_t>(paramKb) * 1024u);
+        std::fprintf(stderr, "[vita] GXM parameter buffer %d KB (SOTC_VGL_PARAM_KB=%s)\n", paramKb, e);
+    }
     // Round 65c: vitaGL's uniform circular pool (every draw's vertex and
     // fragment uniforms; 2 MB in vitaGL) wraps without waiting for the GPU.
     // Measured ([gl:unif]): 455-705 KB a frame in the 3D (a skinned draw's

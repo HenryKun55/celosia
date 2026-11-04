@@ -460,6 +460,9 @@ namespace native_renderer
     struct FrameCounters
     {
         uint32_t draws = 0, targets = 0, texUploads = 0, meshUploads = 0;
+        // Round 73: the GPU scenes the last frame drawn began (the Vita: vitaGL's
+        // scene count; 0 elsewhere), and its depth / stencil KB loaded + stored.
+        uint32_t scenes = 0, depthKB = 0, vertices = 0;
         uint64_t texBytes = 0, meshBytes = 0;
         // Microseconds: backend endFrame (render: its CPU side, present: the
         // host's swap), uploads into the backend, texture decoding, the

@@ -246,6 +246,31 @@ namespace native_renderer
         // buffers copied with the library's memcpy, not the sceClibMemcpy
         // import (vglCeloLeanDraw). SOTC_GL_LEAN_DRAW=0/1; A/B name `leandraw`.
         bool glLeanDraw = true;
+        // Round 73 (the Vita): fewer GPU scenes a frame, the same pixels. The
+        // picture is shown as drawn (two pictures in turn, the one not drawn
+        // into this frame is the last one shown) instead of copied into a
+        // picture of the host's first; when the soft shadows and the glow
+        // layer stand at the same layer, the glow layer and its reductions
+        // are drawn while the picture is put down for the shadows' mask
+        // (they read its depth only), so the shadows' darkening and the
+        // glow's composite go into one scene of the picture; the picture's
+        // last scene does not store its depth / stencil (nothing reads them
+        // after it). SOTC_GL_FEW_SCENES=0/1; A/B name `scenes73`.
+        bool glFewScenes = true;
+        // Round 73 (the Vita): textures uploaded in GXM's swizzled layout (the
+        // same texels; vitaGL lays them out in rows), read at upload, so a
+        // change applies to textures uploaded after it. SOTC_GL_SWIZZLE=0/1;
+        // with SOTC_GL_SWIZZLE_BOTH=1 each texture also has the other copy
+        // and the A/B name `swizzle73` flips which one draws, per frame.
+        bool glSwizzle = true;
+        // Round 73 (the Vita): the plain world draws whose texture has one
+        // level read it straight from the interpolated UV (tex2D) instead of
+        // at a computed LOD (tex2Dlod: a read that waits for the program's
+        // arithmetic): the same texel and filter in principle, but Vita3K
+        // draws up to 1 level apart on ~0.6% of the altar's pixels (its
+        // texture coordinates for such reads), so off by default.
+        // SOTC_GL_PLAIN_READS=0/1; A/B name `plainread73` (with it on).
+        bool glPlainReads = false;
         // the GS alpha test's two passes merged into one where they draw the
         // same: every pixel under AREF (the texture's and the mesh's
         // greatest alpha say), one pass without depth writes (SOTC_GL_AT_MERGE=0/1).

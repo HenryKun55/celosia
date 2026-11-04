@@ -1051,7 +1051,7 @@ index aad6b0e..d964742 100644
  	// Invalidating viewport and culling
  	invalidate_viewport();
 diff --git a/source/textures.c b/source/textures.c
-index 7b5d704..fd127a8 100644
+index 7b5d704..900a3ff 100644
 --- a/source/textures.c
 +++ b/source/textures.c
 @@ -921,7 +921,10 @@ static inline __attribute__((always_inline)) void _glTexImage2D_FlatIMPL(texture
@@ -1076,12 +1076,56 @@ index 7b5d704..fd127a8 100644
  								fb->depthbuffer_ptr = NULL;
  								fb->depthbuffer_state = DEPTHBUFFER_MISSING;
  							}
-@@ -1868,6 +1872,9 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
+@@ -1868,6 +1872,53 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
  	}
  }
  
 +// celosia r55: glTexImage2D's levels >= 1 of RGBA8 textures taken as given (gpu_alloc_mipmap_data).
 +void vglCeloOwnMips(int on) { vgl_celo_own_mips = on; }
++
++// celosia r73: the bound 2D texture made from an RGBA8 chain already in GXM's
++// swizzled layout (each level w x h texels in Morton order, y on the even
++// bits, x on the odd ones, the larger side's extra bits above: Vita3K's
++// encode_morton; the levels one after the other, nothing between them),
++// width and height powers of two. The same texels as the linear chain
++// glTexImage2D makes; the GPU fetches a swizzled texture's texels near each
++// other in both directions. GL_FALSE: not done (the texture as it was).
++GLboolean vglCeloTexImageSwizzled(GLsizei width, GLsizei height, GLint levels, const void *data) {
++	THREAD_SAFE()
++	texture_unit *tex_unit = &texture_units[server_texture_unit];
++	int texture2d_idx = tex_unit->tex_id[0];
++	texture *tex = &texture_slots[texture2d_idx];
++	if (width <= 0 || height <= 0 || (width & (width - 1)) || (height & (height - 1)) || levels < 1 || levels > 15 || !data)
++		return GL_FALSE;
++	uint32_t size = 0;
++	for (int l = 0; l < levels; l++)
++		size += MAX((uint32_t)width >> l, 1) * MAX((uint32_t)height >> l, 1) * 4;
++	void *texture_data = gpu_alloc_mapped_for_gpu(size);
++	if (!texture_data)
++		return GL_FALSE;
++	if (tex->status == TEX_VALID)
++		gpu_free_texture_data(tex);
++	vgl_fast_memcpy(texture_data, data, size);
++	tex->mip_count = levels;
++	vglInitSwizzledTexture(&tex->gxm_tex, texture_data, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, width, height, levels);
++	tex->palette_data = NULL;
++	tex->status = TEX_VALID;
++	tex->data = texture_data;
++#ifndef TEXTURES_SPEEDHACK
++	tex->last_frame = OBJ_NOT_USED;
++#endif
++#ifdef HAVE_TEX_CACHE
++	mark_as_cacheable(tex)
++#endif
++	vglSetTexUMode(&tex->gxm_tex, tex->u_mode);
++	vglSetTexVMode(&tex->gxm_tex, tex->v_mode);
++	vglSetTexMinFilter(&tex->gxm_tex, tex->min_filter);
++	vglSetTexMagFilter(&tex->gxm_tex, tex->mag_filter);
++	vglSetTexMipFilter(&tex->gxm_tex, tex->mip_filter);
++	vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
++	vglSetTexMipmapCount(&tex->gxm_tex, tex->use_mips ? tex->mip_count : 0);
++	return GL_TRUE;
++}
 +
  void glTexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *data) {
  	THREAD_SAFE()
@@ -1843,10 +1887,10 @@ index 014e790..79bb11d 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..dfdab70 100644
+index eeec610..bb2b081 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1259,6 +1259,15 @@ void vglSetShaderAssociationPath(const char *path);
+@@ -1259,6 +1259,16 @@ void vglSetShaderAssociationPath(const char *path);
  
  // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
  void vglSetShaderCachePath(const char *path);
@@ -1856,13 +1900,14 @@ index eeec610..dfdab70 100644
 +void vglCollectGarbageNow(void); // celosia: after glFinish, frees what is marked for deletion at once
 +void vglCeloMemDump(const char *tag);
 +void vglFramebufferScratchDepth(GLuint fbo, GLboolean on); // celosia r35: the framebuffer never tests depth / stencil: one scratch depth per size // celosia r35: [vgl:dump] lines, what the pools hold by site
++GLboolean vglCeloTexImageSwizzled(GLsizei width, GLsizei height, GLint levels, const void *data); // celosia r73: the bound 2D texture from an RGBA8 chain in GXM's swizzled layout (powers of two)
 +void vglCeloDepthKeep(GLuint fbo, int keep); // celosia r45: its scenes load (1) / store (2) their depth and stencil; -1 as built; fbo 0 the display
 +void vglCeloScratchKeep(int keep); // celosia r45: the same for the scratch depth surfaces (vglFramebufferScratchDepth)
 +void vglCeloSceneStats(uint32_t *scenes, uint32_t *loadKB, uint32_t *storeKB); // celosia r45: scenes begun, depth / stencil KB loaded and stored since the last call
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
  void vglSetTextureCacheFrequency(GLuint freq);
-@@ -1274,6 +1283,8 @@ void vglSetVertexAttribPoolSize(uint32_t main_size, uint32_t aux_size);
+@@ -1274,6 +1284,8 @@ void vglSetVertexAttribPoolSize(uint32_t main_size, uint32_t aux_size);
  
  // Setup the vertex ring buffer size of sceGxm. Must be called before vglInit*. Default value: SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE.
  void vglSetVertexBufferSize(uint32_t size);
