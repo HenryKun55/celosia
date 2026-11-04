@@ -2255,7 +2255,7 @@ void EeScheduler::processDueDeadlines()
             const auto now = std::chrono::steady_clock::now();
             if (now < pacingDeadline)
             {
-                ps2_load::Wait pacing;
+                ps2_load::Wait pacing(ps2_load::kSitePacing);
                 m_eventCv.wait_until(lock, pacingDeadline, [this]()
                                      { return !m_events.empty() ||
                                               m_stopRequested.load(std::memory_order_acquire); });
@@ -2473,7 +2473,7 @@ void EeScheduler::waitForEvent()
     const bool hasTimerDeadline = timerCycles != std::numeric_limits<uint64_t>::max();
     if (m_deadlines.empty() && !hasTimerDeadline)
     {
-        ps2_load::Wait idle;
+        ps2_load::Wait idle(ps2_load::kSiteEvent);
         m_eventCv.wait(lock, [this]()
                        { return !m_events.empty() || m_stopRequested.load(std::memory_order_acquire); });
         return;
@@ -2507,7 +2507,7 @@ void EeScheduler::waitForEvent()
 
     const bool signaled = [&]
     {
-        ps2_load::Wait idle;
+        ps2_load::Wait idle(ps2_load::kSiteDeadline);
         return m_eventCv.wait_until(lock, hostDeadline, [this]()
                                     { return !m_events.empty() ||
                                              m_stopRequested.load(std::memory_order_acquire); });
@@ -2644,7 +2644,7 @@ void EeScheduler::idleWait()
             if (item.hostDeadline > now)
                 until = std::min(until, item.hostDeadline);
         }
-        ps2_load::Wait idle;
+        ps2_load::Wait idle(ps2_load::kSiteBlocked);
         const R5900Context *running = m_profileContext.exchange(nullptr, std::memory_order_relaxed);
         m_eventCv.wait_until(lock, until, [this]()
                              { return !m_events.empty() || m_stopRequested.load(std::memory_order_acquire); });

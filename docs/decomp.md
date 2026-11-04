@@ -10737,6 +10737,119 @@ thread is below it.
 **Deliverable:** build/agent-scratch/celosia-r69.vpk (main 7646bc7 + this
 round).
 
+## Round 70: the characters' geometry measured callee by callee; the console's game-thread waits split by site (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r70/` (v3k.sh / ab.sh: round 69's,
+runs in r70/runs, this round's own settings.cfg.orig; mac.sh / intro.sh: the
+Mac's Load Game and New Game routes with r69/mac; probes*.txt: the probe
+lists; tools/hostprof.py: the Mac host sampler's stacks symbolized, inclusive;
+cloth70/cloth70.diff: the cloth mesh fast path that was tried and dropped).
+Build tree: build/agent-scratch/r69/wt (moved to main 6250e06), its mac /
+vita build directories, vitaGL from r69/vitagl (celosia.patch).
+
+**The Vita3K tree's settings.** round 69's runs had `quality_preset=4` and
+`model_detail=2` (always the finest level of detail) saved in the tree's
+settings.cfg; the defaults and the console's own settings.cfg (r69/console)
+have `quality_preset=1`, `model_detail=0`. This round's runs use the console's
+file with `volume=0` (r70/settings.cfg.orig): the absolute numbers below are
+not comparable with round 69's.
+
+**Where the characters' geometry goes (the altar, Vita3K 222 MHz).** Round
+69's probe profile had ~2 000 default probes a frame (~1.3 us each, the
+timer is a system call) and the extra probes on top: GetLayoutClass x1 776
+and GetCharacterClass x962 alone added ~4 ms. `SOTC_SUBSYS_PROF_ONLY=1`
+(new) wraps only the EXTRA list. With ExecCharaGeometry and the whole guest
+subtree under it probed (r70/probes4.txt, runs/prof4; ms a frame, the frame
+82 ms with the probes; R_ = recompiled code, C_ = collision natives):
+
+| part (x calls a frame) | inclusive | self | what it is |
+|---|---|---|---|
+| ExecCharaGeometry (x16) | 17.6 | 1.0 | native since round 41 |
+| GetCharaRootDynamics (x10.5) | 7.7 | 0.5 | native (round 47) |
+| - xz, the walking kind (x2.8) | 6.0 | 0.3 | recompiled; its time is collision: |
+| -- charrootdyn_getCollisionDB -> GetCollisionDBCallBack (x4.4) | 2.1 | 2.3 | native; the skinned finder over each body of a group: 64 skinFinder calls, 15 tree walks, 64 finder leaves (~37 us a leaf, round 49's NEON scan) |
+| -- ClipCollisionFinderWithKeep / clipKeep / Keep4DSlope (x3.5 / x235 / x2.7) | 1.3 | 0.85 + 0.75 + 0.7 | collision natives |
+| -- slide / landing (x2.6 / x4.4) | 1.1 / 0.6 | ~0 | -> SlideCollisionFinder4D, ClipCollisionFinderCallBack (natives) |
+| - xzfit (x0.9) | 0.7 | 0.0 | collision likewise |
+| CalcNodeQuaternionWithIK (x16) | 2.8 | 0.8 | native; GetMotionMatrix and the IK callbacks inside |
+| GetClothDynamics (x13) | 2.4 | 1.9 | the driver recompiled (0.3), the rest natives: getClothDynamics, the strand solver gamecore_sub_013B8DC8, clothStep / clothVelocity / clothConstrain |
+| GetMotionMatrix (x25) | 1.9 | 1.9 | native (round 49's NEON pose) |
+| CalcRootFitting (x16) | 1.4 | 0.2 | recompiled wrapper; the fitting body (x1.8) 1.1, mostly GetMotionMatrix / ClipCollisionFinder / aimIk |
+| UpdateLayoutClassGeometry (x17) | 1.1 | 1.1 | native (fast path since round 49) |
+| the option nodes 010BC4F0, AddSubGeos, RootDynAfter, NodeInterp | 0.4 / 0.3 / 0.3 / 0.2 | | natives |
+| the remaining recompiled callees (~30 functions) | | 0.05-0.3 each | GetGeometryPointerPosition x55 0.30, GetGeometryPointerQuaternion x42 0.20, GetCharacterClassGazeAddMotions 0.21, UpdateLayoutClassPastGeometry 0.15, GetLayoutClassWindGeometry 0.15, ... |
+
+So there is no large guest callee left under ExecCharaGeometry: every
+callee above 0.4 ms is a native already (rounds 41-49), and the recompiled
+code in the subtree is ~2-3 ms spread over ~30 small functions (none above
+0.3 ms). A third of the 18 ms is collision under the root dynamics' walking
+kinds (Wander's and the lizards' xz / xzfit, ~6 ms), then the IK + motion
+matrices (~4.7), the cloth (~2.4), the root fitting (~1.4), the layout (1.1).
+The doves (10 of the 18) are cheap each; the three walkers carry the
+collision. The Mac's host sampler (tools/hostprof.py) is of no use at the
+altar: the Mac's Load Game route stops at the card check (both builds), and
+its game thread is ~5% of the samples.
+
+**Tried and dropped: the cloth mesh on host pointers (`SOTC_CLOTH70`,
+r70/cloth70/cloth70.diff).** manager_sub_01137F78 (the cloth's normals and
+mesh vertices, 0.85 ms x30 in round 69's probe run) re-reads the grid's,
+rows' and mesh's words at every point (each store into guest memory may
+alias them) and the vertex address twice a point. The fast path read them
+once after checking that no store range of its loops overlaps anything they
+read (all in main RAM), with the same PS2_V* statements and VU0 RSQRT
+status. Exact (Mac, New Game route to frame 7 000, `SOTC_DIFFTEST=cloth`
+every 20th call: 7 400 checks, ~2 900 of them through the fast path, 0
+mismatches), but no gain: in one rotation at the altar (rot-c70a, 1 107 /
+1 056 frames) the game thread was 60.49 ms with it off and 60.92 ms on
+(off - on -0.44 ms, inside the noise). Not shipped.
+
+**The console (r69/console/err.txt, 444 MHz, from frame 2 000).** The frame
+is 73.7 ms on average, the game thread's CPU 57.3 ms, and the game thread's
+scheduler waits (`sched`) 12.6 ms a frame (0 to ~30 ms, not quantised to
+VBlanks); in Vita3K the same scene has `sched` ~1.0 ms (round 69's
+final-rot), the game thread busy 98% against 71-78% on the console
+(`[load]`). The thread layout is as round 33 set it: the game thread alone on
+core 0 (`[threads] game ... cores 0x10000`), everything else on cores 1-2
+(the hook worker at priority 150 above the render, dma, lane, offload and
+loader threads at 191; audio at 64). So `sched` is not the game thread
+waiting for a core: it is the EE scheduler idle (every guest thread blocked)
+or pacing, waiting for something a thread on cores 1-2 (or a host deadline)
+releases. Two new tools for the next console run:
+- the frame log's `| waits <site> <ms> ...` (after `lag`): `sched` split by
+  site (`pace`, `event`, `deadline`, `blocked`, `vu1q`, `vu1sync`, `vif1`,
+  `hookjoin`, `tex`, `other`; README);
+- `SOTC_THREAD_PRIO=<kind>:<prio>,...` / `SOTC_THREAD_CORES=<kind>:<cores>,...`
+  to move a thread's priority or cores without a rebuild (e.g. the dma /
+  lane / offload threads above the worker: `SOTC_THREAD_PRIO=dma:140,lane:140,offload:140`).
+
+**Measured (Vita3K 222 MHz, 3 cores, muted, frame log on, the console's
+settings; frames of 700 ms or more left out; abframes.py).** The final
+build (main 6250e06 + this round: no game code changed, the probes' switch,
+the wait split, the thread knobs):
+- the altar (route 2, runs/fin-altar, from frame 3 300, 1 454 frames):
+  frame 61.26 ms, game thread 59.16, render thread 18.13;
+- the plain (route 6, runs/fin-plain, from frame 4 300, 731 frames): frame
+  38.06 ms, game thread 36.97, render thread 11.05.
+- In Vita3K the new `waits` split puts the altar's `sched` (~1.1 ms) on the
+  model jobs' join (1.03 ms) and `blocked` (0.07).
+The cloth A/B above is the round's only rotation (no gain, not shipped).
+
+**Next levers (largest first).**
+1. The console's `sched`: 12.6 ms a frame of the game thread waiting (Vita3K
+   ~1). Run this build on the console with the frame log on: the `waits`
+   column names the site; if it is `event` / `deadline` / `blocked` (the
+   guest threads idle on an interrupt or a host deadline that a thread on
+   cores 1-2 delivers late), try `SOTC_THREAD_PRIO` for the dma / lane /
+   offload threads above the worker. More than any geometry change could give.
+2. Collision under the walkers' root dynamics (~6 ms of the 18 at the altar):
+   the skinned finder's leaf scans (64 leaves, ~37 us each), the keep /
+   slope tests, the slide finder; the collision round.
+3. The IK and motion matrices (~4.7 ms) and the cloth (~2.4): natives
+   already; what is left there is per-bone / per-point arithmetic.
+
+**Deliverable:** build/agent-scratch/celosia-r70.vpk (main 6250e06 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

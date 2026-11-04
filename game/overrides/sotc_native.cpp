@@ -3355,6 +3355,18 @@ namespace sotc_native
             if (print && (period > 50000u || tune.frameLogAll))
             {
                 int at = std::snprintf(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
+                {
+                    // Round 70: this frame's game-thread waits ("sched") by site.
+                    static uint64_t lastSite[ps2_load::kSites] = {};
+                    at += std::snprintf(split + at, sizeof(split) - at, " | waits");
+                    for (int k = 0; k < ps2_load::kSites && at > 0 && static_cast<size_t>(at) < sizeof(split); ++k)
+                    {
+                        const uint64_t v = ps2_load::gameSiteUs[k].load(std::memory_order_relaxed);
+                        if (v != lastSite[k])
+                            at += std::snprintf(split + at, sizeof(split) - at, " %s %.1f", ps2_load::kSiteNames[k], (v - lastSite[k]) / 1000.0);
+                        lastSite[k] = v;
+                    }
+                }
                 splits(g_syncUs, hookjobs::g_lastSiteUs, 1.0, split + at, sizeof(split) - at);
                 at = static_cast<int>(std::strlen(split));
                 native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
@@ -8540,7 +8552,7 @@ namespace sotc_native
             if (g_done.load(std::memory_order_acquire) != g_pushed)
             {
                 const uint64_t t0 = native_renderer::nowUs();
-                ps2_load::Wait waiting;
+                ps2_load::Wait waiting(ps2_load::kSiteHookJoin);
                 waitDone(g_pushed - 1u);
                 g_joinWaitUs += native_renderer::nowUs() - t0;
                 ++g_joinWaits;

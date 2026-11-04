@@ -289,7 +289,7 @@ void PS2Memory::mtvuEnqueue(MtvuJob &&job)
                                        { mtvuWorkerLoop(); });
         if (m_mtvuQueuedBytes > kMtvuQueueHigh && !onVu1Worker())
         {
-            ps2_load::Wait waiting;
+            ps2_load::Wait waiting(ps2_load::kSiteVu1Space);
             m_mtvuSpace.wait(lock, [this]
                              { return m_mtvuQueuedBytes <= kMtvuQueueLow || m_mtvuStop; });
         }
@@ -367,7 +367,7 @@ void PS2Memory::mtvuWorkDone()
 
 void PS2Memory::mtvuSyncSlow()
 {
-    ps2_load::Wait waiting;
+    ps2_load::Wait waiting(ps2_load::kSiteVu1Sync);
     std::unique_lock<std::mutex> lock(m_mtvuMutex);
     m_mtvuIdle.wait(lock, [this]
                     { return m_mtvuOutstanding.load(std::memory_order_acquire) == 0u; });
@@ -3902,7 +3902,7 @@ bool PS2Memory::vif1AsyncJoin(int reason)
         {
             const uint64_t t0 = ps2_stats::nowUs();
             {
-                ps2_load::Wait waiting;
+                ps2_load::Wait waiting(ps2_load::kSiteVif1);
                 a.doneCv.wait(lock, [&a]
                               { return a.done; });
             }

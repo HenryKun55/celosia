@@ -1178,8 +1178,13 @@ namespace sotc_prof
                 runtime.registerFunction(address, wrappers[slot]);
                 ++slot;
             };
-            for (const Target &t : kTargets)
-                wrap(t.address, t.name);
+            // SOTC_SUBSYS_PROF_ONLY=1 (round 70): only the EXTRA list (the
+            // default set's ~2 000 probe calls a frame left out: a narrow
+            // breakdown with little of the probes' own cost in it).
+            const char *only = std::getenv("SOTC_SUBSYS_PROF_ONLY");
+            if (!only || std::atoi(only) == 0)
+                for (const Target &t : kTargets)
+                    wrap(t.address, t.name);
             // SOTC_SUBSYS_PROF_EXTRA=0xaddr:name,0xaddr,...
             static std::vector<std::string> extraNames;
             if (const char *extra = std::getenv("SOTC_SUBSYS_PROF_EXTRA"))

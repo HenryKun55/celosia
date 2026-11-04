@@ -1198,6 +1198,30 @@ namespace native_renderer
             default:
                 break;
             }
+            // Round 70 (console experiments): SOTC_THREAD_PRIO=<kind>:<prio>,...
+            // and SOTC_THREAD_CORES=<kind>:<mask bits 0-2>,... over the
+            // placement above (the console's frame log showed the game thread
+            // waiting 13-17 ms a frame where Vita3K shows ~1).
+            auto override = [&](const char *env, auto apply)
+            {
+                const char *e = std::getenv(env);
+                if (!e)
+                    return;
+                const std::string list(e), name(kNames[kind]);
+                size_t at = 0;
+                while (at < list.size())
+                {
+                    const size_t end = std::min(list.find(',', at), list.size());
+                    const std::string item = list.substr(at, end - at);
+                    at = end + 1;
+                    const size_t colon = item.find(':');
+                    if (colon != std::string::npos && item.compare(0, colon, name) == 0)
+                        apply(std::atoi(item.c_str() + colon + 1));
+                }
+            };
+            override("SOTC_THREAD_PRIO", [&](int v) { prio = v; });
+            override("SOTC_THREAD_CORES", [&](int v)
+                     { mask = ((v & 1) ? SCE_KERNEL_CPU_MASK_USER_0 : 0) | ((v & 2) ? SCE_KERNEL_CPU_MASK_USER_1 : 0) | ((v & 4) ? SCE_KERNEL_CPU_MASK_USER_2 : 0); });
             const int maskResult = mask ? sceKernelChangeThreadCpuAffinityMask(self, mask) : 0;
             const int prioResult = prio >= 64 && prio <= 191 ? sceKernelChangeThreadPriority(self, prio) : 0;
             SceKernelThreadInfo info{};

@@ -351,7 +351,7 @@ namespace decomp_tex64
         if (g_done.load(std::memory_order_acquire) < seq)
         {
             const auto t0 = std::chrono::steady_clock::now();
-            ps2_load::Wait waiting;
+            ps2_load::Wait waiting(ps2_load::kSiteTex);
             std::unique_lock<std::mutex> lock(g_mutex);
             g_waiting.store(true, std::memory_order_seq_cst);
             while (g_done.load(std::memory_order_acquire) < seq)
