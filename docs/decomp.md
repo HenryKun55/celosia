@@ -10243,6 +10243,14 @@ they come from a non-indexed per-frame mesh; not alone the 2D draws of layer
 and the cloth grids the Mac lists there, `[gl:dyn]`); vitaGL built without
 sceClibMemcpy, and the frame's buffers kept and written in place through
 glMapBuffer instead of orphaned each frame: the streaks stay. Not fixed.
+A layer bisection of the non-indexed per-frame draws
+(`SOTC_GL_DRAW_SKIP_MASK`, one Vita3K attract run each): layers 0-15
+skipped: streaks; 16-23: none seen; 16-19: none seen; 16-17: streaks; 19:
+streaks; 17-18: streaks; 18 alone (earlier): streaks. Not consistent: the
+demo's gallop does not repeat pose for pose between Vita3K runs, so a run
+without a streak in its ~25 shots is weak evidence. The 2D line primitives
+(GS PRIM 1/2, drawn as 1-pixel quads in flush2D; the attract demo has one
+batch, layer 31, black at alpha 4) were skipped alone: streaks.
 
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
