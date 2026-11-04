@@ -3747,9 +3747,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 static const int skipKind = std::getenv("SOTC_GL_DRAW_SKIP") ? std::atoi(std::getenv("SOTC_GL_DRAW_SKIP")) : 0; // debugging (round 65e)
                 if ((skipKind == 1 && d.state.overlay) || (skipKind == 2 && planned.mesh->skinned) || (skipKind == 3 && d.state.blend == native_renderer::Blend::Additive) ||
                     (skipKind == 5 && planned.mesh->skinned && d.state.blend != native_renderer::Blend::Opaque) || (skipKind == 6 && planned.mesh->skinned && d.state.blend == native_renderer::Blend::Opaque) ||
-                    (skipKind == 7 && planned.mesh->dynamic) || (skipKind == 8 && planned.mesh->indexed) || (skipKind == 9 && !planned.mesh->skinned && d.state.order >= 2u && d.state.order <= 3u))
+                    (skipKind == 7 && planned.mesh->dynamic) || (skipKind >= 100 && skipKind < 200 && d.state.screen && d.state.order == static_cast<uint32_t>(skipKind - 100)) ||
+                    (skipKind >= 200 && planned.mesh->dynamic && !planned.mesh->indexed && d.state.order == static_cast<uint32_t>(skipKind - 200)) || (skipKind == 8 && planned.mesh->indexed) || (skipKind == 9 && !planned.mesh->skinned && d.state.order >= 2u && d.state.order <= 3u))
                     continue;
                 Mesh &mesh = *planned.mesh;
+                if (bloomLog() && mesh.dynamic && !mesh.indexed && &target == &color) // (round 65e) the frame's non-indexed per-frame draws
+                    std::fprintf(stderr, "[gl:dyn] f=%llu order %u screen %d blend %d tex %llx count %u skinned %d overlay %d mesh %016llx\n",
+                                 (unsigned long long)bloomGameFrame, d.state.order, d.state.screen ? 1 : 0, static_cast<int>(d.state.blend),
+                                 (unsigned long long)d.state.texture, mesh.count, mesh.skinned ? 1 : 0, d.state.overlay ? 1 : 0, (unsigned long long)d.mesh);
                 if (spike.on)
                 {
                     const uint64_t now = native_renderer::nowUs();
@@ -5235,6 +5240,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_knownMeshes.insert(id);
             flushIfLarge();
         }
+        // SOTC_GL_UNINDEX=1 (testing, round 65e): the indexed per-frame meshes
+        // written out as triangle lists in the frame's arena.
+        static bool unindexFrameMeshes()
+        {
+            static const bool on = std::getenv("SOTC_GL_UNINDEX") && std::atoi(std::getenv("SOTC_GL_UNINDEX")) != 0;
+            return on;
+        }
+        std::vector<native_renderer::Vertex> m_unindexScratch;
         native_renderer::Vertex *frameMesh(uint32_t count) override
         {
             if (noArena())
@@ -5256,6 +5269,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (noArena())
             {
                 Backend::commitFrameMesh(id, count, indexCount);
+                return;
+            }
+            if (indexCount && unindexFrameMeshes())
+            {
+                // The triangle list written out in the arena in place of the
+                // indexed mesh (see unindexFrameMeshes).
+                m_unindexScratch.assign(m_rec.arena.data() + m_pendingFirst, m_rec.arena.data() + m_pendingFirst + count);
+                m_rec.arena.count = m_pendingFirst;
+                native_renderer::Vertex *to = m_rec.arena.grow(indexCount);
+                const uint32_t *idx = m_rec.indexArena.data() + m_pendingIndexFirst;
+                for (uint32_t i = 0; i < indexCount; ++i)
+                {
+                    const uint32_t k = idx[i] - static_cast<uint32_t>(m_pendingFirst);
+                    to[i] = k < count ? m_unindexScratch[k] : m_unindexScratch[0];
+                }
+                m_rec.indexArena.count = m_pendingIndexFirst;
+                m_rec.frameMeshes.push_back({id, static_cast<uint32_t>(m_pendingFirst), indexCount, 0u, false});
                 return;
             }
             m_rec.frameMeshes.push_back({id, static_cast<uint32_t>(m_pendingFirst), indexCount ? indexCount : count, static_cast<uint32_t>(m_pendingIndexFirst),

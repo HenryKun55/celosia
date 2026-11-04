@@ -10236,7 +10236,13 @@ shot of the gallop, Agro whole. So a per-frame mesh (a part posed on the
 CPU, drawn from the frame's shared vertex / index buffers) draws white
 streaks in Vita3K that it does not draw on the Mac: round 65b's kind (Vita3K
 reading those buffers stale: thin triangles stretched toward older poses).
-Not fixed yet.
+Further (all Vita3K, the same gallop): the streaks stay with the indexed
+meshes skipped (`SOTC_GL_DRAW_SKIP=8`: the body goes, the streaks stay), so
+they come from a non-indexed per-frame mesh; not alone the 2D draws of layer
+18, nor the per-frame draws of layer 6 or of layer 18 (the CPU-posed parts
+and the cloth grids the Mac lists there, `[gl:dyn]`); vitaGL built without
+sceClibMemcpy, and the frame's buffers kept and written in place through
+glMapBuffer instead of orphaned each frame: the streaks stay. Not fixed.
 
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
