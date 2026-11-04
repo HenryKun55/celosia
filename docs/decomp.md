@@ -10263,6 +10263,22 @@ the picture drawn again for a mid-frame effect (not used on the console).
 Not changed yet: turning the redraw off in Vita3K brings back what it was
 made for (round 19/55: copies taken mid-frame came back white).
 
+**Fix: the redraw off by default (Vita3K too).** Vita3K 222 MHz with
+`SOTC_GL_REDRAW=0` (diag18.vpk, then celosia-bloom.vpk with the new
+default): the attract demo from the canyon's rain to the plain (131 shots,
+`[gl:events]`: haze copies at 23 in most frames, water at 9, the glow at 8,
+blurs at 4): no white copy, no red mist, the field, the ruins and the bridge
+as with the redraw (pics/redraw_field_..., redraw_ruins_GS__vita3k-redraw-default__redraw0.png);
+the title's rows [120, 135, 231, 233, 217, 224, 191, 154] (GS [120, 134, 231,
+235, 217, 223, 190, 151]; with the redraw, late bloom, [123, 141, 225, 233,
+216, 223, 168, 154]); the shrine's altar rows [48, 113, 145, 159, 130, 70, 57,
+50] (GS [46, 113, 144, 158, 130, 73, 53, 46], redraw [52, 116, 147, 159, 131,
+69, 57, 49]; pics/altar_GS__vita3k-redraw-default__redraw0.png); Agro on the
+plain without streaks (pics/agro_plain_GS__vita3k-redraw-default__redraw0.png:
+the GS's Agro elsewhere, the Vita3K runs' path differs). Game fps (Vita3K
+`[stats]`): plain 25.5 -> 26.0, shrine 15.5 -> 16.1, the forest ruins 36 ->
+49 in one shot pair. The console never used the redraw (`inEmulator`).
+
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
 Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,

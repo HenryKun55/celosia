@@ -64,7 +64,13 @@ namespace native_renderer
         // Copies of the picture made mid-frame came out white in Vita3K when
         // the picture was taken up again after them: drawn again instead, so
         // the heat haze and the water read the PS2's 256 x 256 copy as on the Mac.
-        d.midFrameRedraw = 2.0f; // only in Vita3K (inEmulator)
+        // Round 65e: off (0), Vita3K too: drawn twice, the picture in Vita3K had
+        // white streaks along Agro's legs, and since round 55 (the blurs
+        // drawn apart, the haze's copy at the blur's layer) the copies it was
+        // made for come out right without it (the attract demo's water, haze
+        // and mist; the title's bloom then matches the GS's, same frame).
+        // SOTC_GL_REDRAW=2: as before (in Vita3K only), 1: always.
+        d.midFrameRedraw = 0.0f;
         // Render and present on a core of their own while the game makes the
         // next frame.
         d.renderThread = true;
