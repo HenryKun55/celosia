@@ -10284,6 +10284,22 @@ the GS's Agro elsewhere, the Vita3K runs' path differs). Game fps (Vita3K
 the same pattern and edges (pics/wander_cloak_closeup_GS__vita3k-r65c__vita3k-current.png):
 the speckled cloak of the r65fix reports was the hard shadows' facets, fixed
 in round 65c; nothing left to change here.
+The cloak panel's luma (mean / std): GS 35.8 / 15.9, current 34.0 / 15.3
+(-5% / -4%; blue 35.2 -> 32.3, -8%), r65c 30.9 / 10.5: under 10%, noted.
+
+**Fades (Vita3K vs the GS, round 65e).** The Load Game route (in_route2.txt)
+from boot: the Mac's CPU GS every 4 game frames (runs/fades, 575 pictures)
+against Vita3K's window every second (v3k/fades, 148 shots), placed by the
+`[stats]` frame count (tools/fades.py; ~1 s of slack: the shots are by the
+second). The logo's fade in and out, the title's fade from white, the
+title -> card check -> map dissolve, the load's black, the opening's white
+burst into the shrine and its dissolve to the altar follow each other the
+same way on both, with the same levels at the plateaus (logo, title 213 /
+214, map 96-108 / 96-109, the shrine 110 / 115; the cutscene's dim plateau
+60 / 65): pics/fades_intro_title_to_game_GS__vita3k.png,
+pics/fades_wake_cutscene_GS__vita3k.png (pairs GS | Vita3K, Vita3K up to a
+second behind). No stuck, black or white frame of its own. Frame by frame
+was not possible (Vita3K's window is caught once a second).
 
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
