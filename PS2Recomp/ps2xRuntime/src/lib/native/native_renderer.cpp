@@ -600,9 +600,10 @@ namespace native_renderer
             v.push_back(item);
         }
         {
-            // A new key: the earlier on / off one ("dbg_redraw") was saved on
-            // by default and would keep it on on the console.
-            TuningItem item{"dbg_redraw_mode", "Redraw for copies", "Redesenhar para cópias",
+            // A new key each time the default changes: older saved values
+            // ("dbg_redraw" on, then "dbg_redraw_mode" 2 = Vita3K only) would keep
+            // the redraw on, and it drew white streaks on posed meshes in Vita3K.
+            TuningItem item{"dbg_redraw_mode0", "Redraw for copies", "Redesenhar para cópias",
                             "OpenGL / Vita: water, heat haze and screen blur get the picture so far drawn again apart, instead of leaving the picture and taking it up again (white screens in Vita3K). Costs those draws twice in such frames. 0 off, 1 on, 2 only in Vita3K (the console copies at the layer).",
                             "OpenGL / Vita: água, calor e borrão de tela recebem a imagem até ali desenhada de novo à parte, em vez de largar a imagem e retomá-la (telas brancas no Vita3K). Custa esses desenhos duas vezes nesses quadros. 0 desligado, 1 ligado, 2 só no Vita3K (o console copia na camada).",
                             nullptr, &Tuning::midFrameRedraw, 0.0f, 2.0f, 1.0f, "SOTC_GL_REDRAW"};
@@ -708,7 +709,7 @@ namespace native_renderer
                            key == "effect_detail" || key == "sac_camcoll" || key == "sac_farchara" || key == "sac_fx" || key == "sac_drawdist" || key == "sac_max";
             if (key == "msaa" || key == "effect_detail")
                 item.backends = 1;
-            if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw_mode" || key == "dbg_glow_vita" || key == "dbg_bloom_sameframe" ||
+            if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw_mode0" || key == "dbg_glow_vita" || key == "dbg_bloom_sameframe" ||
                 key == "dbg_gpu_skin" || key == "dbg_render_thread" || key == "dbg_gl_pools" || key == "dbg_gl_merge" || key == "dbg_gl_lean" ||
                 key == "dbg_gl_nodiscard")
                 item.backends = 2;
