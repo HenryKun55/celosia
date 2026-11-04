@@ -1,4 +1,5 @@
 #include <map>
+#include <array>
 #include <chrono>
 #include "runtime/native_renderer.h"
 #include "runtime/ps2_stats.h"
@@ -689,6 +690,25 @@ namespace
 }
 #endif
 
+// SOTC_BLOOM_LOG: the picture (224, 512 x 448) in the bloom's mask (336) and outside it: mean R, % R >= 250.
+static void bloomRegionLog(const uint8_t *vram, uint64_t frame, const char *when)
+{
+    double inSum = 0.0, outSum = 0.0;
+    uint32_t in = 0, out = 0, inClip = 0;
+    for (uint32_t y = 0; y < 448u; ++y)
+        for (uint32_t x = 0; x < 512u; ++x)
+        {
+            const uint8_t r = vram[GSPSMCT32::addrPSMCT32(224u * 32u, 8u, x, y) % GSMem::MEMORY_SIZE];
+            const bool m = vram[GSPSMCT32::addrPSMCT32(336u * 32u, 8u, x, y) % GSMem::MEMORY_SIZE] > 127u;
+            if (m)
+                inSum += r, ++in, inClip += r >= 250u ? 1u : 0u;
+            else
+                outSum += r, ++out;
+        }
+    std::fprintf(stderr, "[bloom:gs] f=%llu picture %s: in the mask (%u px) R mean %.2f, %.2f%% >= 250; outside R mean %.2f\n", (unsigned long long)frame, when, in,
+                 in ? inSum / in : 0.0, in ? 100.0 * inClip / in : 0.0, out ? outSum / out : 0.0);
+}
+
 void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
@@ -788,6 +808,67 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
     // from 448), with the registers that decide them.
     if (ps2_stats::bloomLogNow())
     {
+        // Each draw into the picture (224) over the rectangle (SOTC_BLOOM_RECT, PS2 pixels; default the shrine's
+        // left opening): the registers that decide it and the rectangle's mean R before it.
+        static const std::array<int, 4> rect = []
+        {
+            std::array<int, 4> v = {95, 30, 125, 100};
+            if (const char *e = std::getenv("SOTC_BLOOM_RECT"))
+                std::sscanf(e, "%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3]);
+            return v;
+        }();
+        const auto &cc = batch.state.context;
+        static const bool anyFbp = std::getenv("SOTC_BLOOM_RECT_ANYFBP") != nullptr;
+        if (anyFbp && cc.frame.fbp != 224u && batch.state.prim.type != GS_PRIM_SPRITE)
+            std::fprintf(stderr, "[bloom:gs] f=%llu draw into fbp %u fbw %u prim %u tbp/32 %u zbp %u ztst %u\n", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed),
+                         cc.frame.fbp, cc.frame.fbw, (unsigned)batch.state.prim.type, cc.tex0.tbp0 / 32u, cc.zbuf.zbp, (unsigned)((cc.test >> 17) & 3u));
+        if (cc.frame.fbp == 224u)
+        {
+            float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;
+            for (uint32_t i = 0; i < batch.vertexCount; ++i)
+            {
+                bx0 = std::min(bx0, batch.vertices[i].x - (cc.xyoffset.ofx >> 4));
+                by0 = std::min(by0, batch.vertices[i].y - (cc.xyoffset.ofy >> 4));
+                bx1 = std::max(bx1, batch.vertices[i].x - (cc.xyoffset.ofx >> 4));
+                by1 = std::max(by1, batch.vertices[i].y - (cc.xyoffset.ofy >> 4));
+            }
+            if (bx1 >= rect[0] && bx0 < rect[2] && by1 >= rect[1] && by0 < rect[3])
+            {
+                flushPendingUnlocked("BloomLog");
+                // SOTC_BLOOM_RECT_DUMP=<dir>: the picture saved where the draws turn from triangles to sprites
+                static uint32_t lastPrim = 0, dumped = 0;
+                static const char *dumpDir = std::getenv("SOTC_BLOOM_RECT_DUMP");
+                if (dumpDir && batch.state.prim.type == GS_PRIM_SPRITE && lastPrim != GS_PRIM_SPRITE && dumped < 8)
+                {
+                    char path[512];
+                    std::snprintf(path, sizeof path, "%s/gs_%llu_%u.ppm", dumpDir, (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), dumped++);
+                    if (FILE *f = std::fopen(path, "wb"))
+                    {
+                        std::fprintf(f, "P6\n512 448\n255\n");
+                        for (uint32_t y = 0; y < 448u; ++y)
+                            for (uint32_t x = 0; x < 512u; ++x)
+                                std::fwrite(&m_vram[GSPSMCT32::addrPSMCT32(224u * 32u, 8u, x, y) % GSMem::MEMORY_SIZE], 1, 3, f);
+                        std::fclose(f);
+                    }
+                }
+                lastPrim = batch.state.prim.type;
+                double sum = 0.0;
+                for (int y = rect[1]; y < rect[3]; ++y)
+                    for (int x = rect[0]; x < rect[2]; ++x)
+                        sum += m_vram[GSPSMCT32::addrPSMCT32(224u * 32u, 8u, static_cast<uint32_t>(x), static_cast<uint32_t>(y)) % GSMem::MEMORY_SIZE];
+                const uint64_t al = cc.alpha, te = cc.test;
+                std::fprintf(stderr,
+                             "[bloom:gs] f=%llu rect R mean %.2f before: prim=%u n=%u tme=%u tbp/32=%u tbw=%u psm=0x%x tcc=%u tfx=%u abe=%u alpha A%u B%u C%u D%u fix=%u fge=%u "
+                             "ate=%u atst=%u aref=%u afail=%u zte=%u ztst=%u zmsk=%u fbmsk=0x%x bbox=(%.0f,%.0f)-(%.0f,%.0f) rgba=(%u,%u,%u,%u) fog=%u\n",
+                             (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), sum / ((rect[2] - rect[0]) * (rect[3] - rect[1])),
+                             (unsigned)batch.state.prim.type, batch.vertexCount, (unsigned)batch.state.prim.tme, cc.tex0.tbp0 / 32u, (unsigned)cc.tex0.tbw,
+                             (unsigned)cc.tex0.psm, (unsigned)cc.tex0.tcc, (unsigned)cc.tex0.tfx, (unsigned)batch.state.prim.abe, (unsigned)(al & 3u),
+                             (unsigned)((al >> 2) & 3u), (unsigned)((al >> 4) & 3u), (unsigned)((al >> 6) & 3u), (unsigned)((al >> 32) & 0xFFu),
+                             (unsigned)batch.state.prim.fge, (unsigned)(te & 1u), (unsigned)((te >> 1) & 7u), (unsigned)((te >> 4) & 0xFFu), (unsigned)((te >> 12) & 3u),
+                             (unsigned)((te >> 16) & 1u), (unsigned)((te >> 17) & 3u), (unsigned)cc.zbuf.zmask, cc.frame.fbmsk, bx0, by0, bx1, by1,
+                             batch.vertices[0].r, batch.vertices[0].g, batch.vertices[0].b, batch.vertices[0].a, (unsigned)batch.vertices[0].fog);
+            }
+        }
         // The picture just after the chain's add (at the next primitive).
         static uint64_t addSeen = ~0ull, afterLogged = ~0ull;
         if (addSeen == ps2_stats::vif1Chains.load(std::memory_order_relaxed) && afterLogged != addSeen && !(batch.state.prim.tme && batch.state.context.frame.fbp == 224u && batch.state.context.tex0.tbp0 == 448u * 32u))
@@ -799,6 +880,7 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
                 for (uint32_t x = 0; x < 512u; ++x)
                     sum += m_vram[GSPSMCT32::addrPSMCT32(224u * 32u, 8u, x, y) % GSMem::MEMORY_SIZE];
             std::fprintf(stderr, "[bloom:gs] f=%llu picture R mean after the add %.2f\n", (unsigned long long)addSeen, sum / (512.0 * 448.0));
+            bloomRegionLog(m_vram, addSeen, "after the add");
         }
         if (batch.state.prim.tme && batch.state.context.frame.fbp == 224u && batch.state.context.tex0.tbp0 == 448u * 32u && ((batch.state.context.alpha >> 2) & 3u) == 2u)
             addSeen = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
@@ -869,6 +951,7 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
                             sum += m_vram[(GSPSMCT32::addrPSMCT32(fbp * 32u, fbw, x, y) + 3u) % GSMem::MEMORY_SIZE];
                     return sum / (static_cast<double>(w) * h);
                 };
+                bloomRegionLog(m_vram, f, "before the add");
                 std::fprintf(stderr, "[bloom:gs] f=%llu alpha means at the add: temporal488 %.2f blur510 %.2f blur480 %.2f glow448 %.2f (tex0 tcc=%u tfx=%u)\n",
                              (unsigned long long)f, alphaMean(488, 1, 64, 64), alphaMean(510, 1, 64, 64), alphaMean(480, 2, 128, 128), alphaMean(448, 4, 256, 256),
                              (unsigned)c.tex0.tcc, (unsigned)c.tex0.tfx);

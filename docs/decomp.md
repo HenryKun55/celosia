@@ -10027,10 +10027,67 @@ Every stage within 0.4% of the GS's. Per frame (Mac, the Vita's code, the
 route's shrine with its windows, f 3000-4200, after): mean luma 171.5-173.8
 native / 168.2-170.1 GS, top-third luma 151-152 / 144-145, clipped 0 / 0,
 RMSE 13-14 (the animation a frame apart). Before (same code, other run
-instance): mean +5, top third +3 to +14. The rest of the gap is the picture
-under the bloom: before the add the native shrine is ~10 brighter than the
-GS's (164.5 / 154.7, f 4300): not the bloom (known_issues.md, "Native vs
-emulated").
+instance): mean +5, top third +3 to +14.
+
+**Part 2: the shrine's openings white (the picture under the bloom).** With
+the chain matching, the openings were still flat white natively where the GS
+shows the cliffs, sky and light shafts through them
+(pics/shrine_sky_f4200_GS__VitaGL-on-Mac_after.png). Logged in the bloom's
+mask (the openings) and outside it, before and after the add:
+
+    [bloom:gl] f=4200 picture before the add: in the mask (24730 px) R mean 193.35, 5.18% >= 250; outside R mean 160.39
+    [bloom:gl] f=4200 picture after the add:  in the mask (24730 px) R mean 253.00, 97.43% >= 250; outside R mean 168.71
+    [bloom:gs] f=4200 picture before the add: in the mask (24612 px) R mean 120.00, 0.00% >= 250; outside R mean 158.08
+    [bloom:gs] f=4200 picture after the add:  in the mask (24612 px) R mean 237.63, 60.10% >= 250; outside R mean 166.33
+
+Outside the openings the two agree; inside, the native picture was 73 levels
+brighter before the bloom, which then clipped 97% of it. Per layer over the
+left opening (`SOTC_BLOOM_RECT`, PS2 pixels 95,30-125,100): natively nothing
+after layer 1 touches it (the background image, 202.6 from the start of the
+picture to the bloom's layer); on the GS the frame starts with a sprite in
+FOGCOL (145), the sky (TBP 368 / 370) takes it to ~130 and the far
+scenery (TBP 378, FGE) to ~106, the light shafts (TBP 337, additive) to 113,
+the bloom's add to 250. In the native background pass, draw by draw
+(`SOTC_BLOOM_RECT_DRAWS`), one model took the opening from 127 to 202:
+header 0x3a8c60 (21 surfaces in layer 1, flag bit 14), a model around the
+camera inside the shrine whose walls filled the whole background image
+(pics/bg_before_native__gs.png). The GS draws none of it: no draw into the
+picture over the opening, and the only other targets drawn that frame are
+the shadow buffer (376) and the bloom's. Layer 1 has a camera packet of its
+own (native_renderer_map.md); its near distance is not the scene's.
+Dropping layer-1 triangles with a vertex nearer than w = 100 (w = 100 and
+the model is gone, the cliffs and sky stay; w = 1000 takes the far cliffs
+too; a guard band of 2-8 x w alone does not remove it) gives the GS's
+background, and the background image cleared to FOGCOL as the GS's frame
+(black before: where no layer-1 draw covers it):
+
+    [bloom:gl] f=4200 picture before the add: in the mask (24615 px) R mean 91.69, 0.07% >= 250; outside R mean 161.25
+    [bloom:gl] f=4200 picture after the add:  in the mask (24615 px) R mean 211.05, 33.09% >= 250; outside R mean 169.57
+
+The openings show the cliffs, the sky and the shafts as on the GS
+(pics/shrine_sky_f4200_GS__VitaGL-on-Mac_after-near-cull.png, Metal:
+..._GS__Metal_after-near-cull.png; Metal top-third luma 139.8 / GS 145.1).
+They are now ~28 levels darker than the GS's before the add (and 33% / 60%
+clipped after it): the GS fogs the far scenery (FGE, F ~127 towards FOGCOL)
+while the native background has no vertex fog (b2b1cdb's
+`SOTC_NATIVE_BGFOG=1` fogs every layer-1 draw, the sky too, which the GS
+does not: its sky batches have FGE 0). Left as it is.
+
+Fix (OpenGL / Vita CG / Metal): the main programs' vertex stage marks a
+vertex nearer than `uGuard.y` (layer 1 only), the fragment stage drops a
+triangle with any such vertex (the CUT programs and the general one; layer-1
+draws take a CUT program); `SOTC_BG_NEAR=<w>` (100; 0: off),
+`SOTC_BG_CLEAR_FOG=0` (black, as before).
+
+**Vita3K (222 MHz, 3 cores, celosia-bloom.vpk).** A run with
+`SOTC_BLOOM_LOG` over every frame came out white from the cutscene on: the
+log's read-backs (the rectangle after each layer) end the picture's scene
+mid-frame, which Vita3K loses (v3k/after2). Without the log (v3k/after3):
+the cutscene, the shrine and Wander at the altar as before, nothing white;
+the openings no longer show the stone wall but are still mostly bright
+(fog colour under the glow, a grey band of sky above; the far cliffs not
+seen there as on the Mac: not measured, Vita3K's targets cannot be read
+back).
 
 **Vita3K (222 MHz, 3 cores, celosia-bloom.vpk).** One run of the route: the
 chain runs late there (`path=vita-late`, the mid-frame redraw) with the

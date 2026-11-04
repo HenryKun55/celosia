@@ -40,6 +40,7 @@ struct VOut
     float4 color;
     float depth; // w
     float fog [[center_no_perspective]]; // GS vertex fog factor, 1: none; linear on the screen as the GS interpolates it
+    float culled; // > 0 inside a triangle with a vertex nearer than layer 1's near w (FogParams::nearCull): dropped
 };
 
 struct FogParams
@@ -58,7 +59,7 @@ struct FogParams
     int atst;      // the GS alpha test's ATST (-1: none, only alpha < 0.02 cut)
     float aref;    // its AREF (0x80 = 1)
     int atSide;    // 0: draw the pixels that pass, 1: those that fail
-    int atPad;
+    float nearCull; // > 0: layer 1's near w (round 65e, see the OpenGL renderer's guardFor): triangles with a vertex nearer dropped
 };
 
 // The GS's alpha test: A = texture alpha x vertex alpha >> 7 (0x80 = 1) against AREF.
@@ -102,6 +103,7 @@ vertex VOut nativeVertex(VIn in [[stage_in]], constant float4x4 &clip [[buffer(1
     // Depth from w (near plane at w = kNearW): z / w = 1 - kNearW / w.
     out.position = float4(c.x, c.y, c.w - kNearW, c.w);
     out.depth = c.w;
+    out.culled = fog.nearCull > 0.0 && c.w < fog.nearCull ? 1.0 : 0.0;
     out.fog = fog.vertexFog != 0 ? clamp(fog.base + fog.scale / max(c.w, 1e-3), 0.0, 255.0) / 255.0 : 1.0;
     out.normal = in.normal;
     out.uv = in.uv + light.uvOffset;
@@ -130,6 +132,8 @@ fragment float4 nativeFragment(VOut in [[stage_in]], texture2d<float> tex [[text
                                sampler sRepeat [[sampler(0)]], sampler sClampU [[sampler(1)]], sampler sClampV [[sampler(2)]],
                                sampler sClampUV [[sampler(3)]])
 {
+    if (in.culled > 0.0) // a layer-1 triangle nearer than its near w
+        discard_fragment();
     float3 shade = in.color.rgb;
     if (textured == 5)
     {
@@ -1114,8 +1118,11 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                     // The PS2 frame starts black; the mirror image is cleared to the fog
                     // colour (reflectionBegin: alpha 0x80); a layer drawn apart (on the
                     // scene's depth) to nothing.
-                    desc.colorAttachments[0].clearColor = mirror ? MTLClearColorMake(fog.colour[0], fog.colour[1], fog.colour[2], 1.0)
-                                                                 : MTLClearColorMake(0.0, 0.0, 0.0, apart ? 0.0 : 1.0);
+                    // Round 65e: the background image too (the GS draws the sky
+                    // over a sprite in FOGCOL; SOTC_BG_CLEAR_FOG=0: black).
+                    static const bool bgClearFog = !std::getenv("SOTC_BG_CLEAR_FOG") || std::atoi(std::getenv("SOTC_BG_CLEAR_FOG")) != 0;
+                    desc.colorAttachments[0].clearColor = (mirror || (backgroundOnly && bgClearFog)) ? MTLClearColorMake(fog.colour[0], fog.colour[1], fog.colour[2], 1.0)
+                                                                                                     : MTLClearColorMake(0.0, 0.0, 0.0, apart ? 0.0 : 1.0);
                     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
                     id<MTLTexture> depth = ms ? depthMS : (mirror ? reflectionDepth : this->depth);
                     desc.depthAttachment.texture = depth;
@@ -1167,6 +1174,8 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                     static const bool showFog = std::getenv("SOTC_NATIVE_SHOWFOG") != nullptr; // debugging
                     static const bool noOverlayFog = std::getenv("SOTC_FOG_NO_OVERLAY") != nullptr; // debugging
                     static const bool bgFog = std::getenv("SOTC_NATIVE_BGFOG") != nullptr; // every batch has FGE, the sky too
+                    // Round 65e: layer 1's near cull (SOTC_BG_NEAR, the OpenGL renderer's guardFor).
+                    static const float bgNearW = std::getenv("SOTC_BG_NEAR") ? static_cast<float>(std::atof(std::getenv("SOTC_BG_NEAR"))) : 100.0f;
                     const bool gsAlphaTestOn = native_renderer::tuning().alphaTest;
                     // Round 38: layer 1 (the sky and the far landscape: bgEnd copies it, as the
                     // GS drew it into the frame, Z tested, then sets Z to 1) drawn with the depth
@@ -1314,7 +1323,8 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             float ripple[2];
                             int atst;
                             float aref;
-                            int atSide, atPad;
+                            int atSide;
+                            float nearCull;
                         } fp = {fog.start, fog.width, (showFog && !d.state.screen) ? -1.0f : static_cast<float>(fog.steps), (!backgroundOnly && fogOn && d.state.fogged) ? 1 : 0,
                                 {static_cast<float>(w), static_cast<float>(h)},
                                 (fog.vertexFog && !d.state.screen && (!d.state.background || bgFog) && !(d.state.overlay && noOverlayFog)) ? 1 : 0, fog.base, fog.scale,
@@ -1322,7 +1332,8 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                                 {fog.colour[0], fog.colour[1], fog.colour[2], 0},
                                 {static_cast<float>(d.state.debugColour & 0xFFu) / 255.0f, static_cast<float>((d.state.debugColour >> 8) & 0xFFu) / 255.0f,
                                  static_cast<float>((d.state.debugColour >> 16) & 0xFFu) / 255.0f, d.state.debugColour ? 1.0f : 0.0f},
-                                d.state.clamp, drawFilter >= 3 ? 1 : 0, {d.state.mirrorRipple[0], d.state.mirrorRipple[1]}, -1, 0.0f, 0, 0};
+                                d.state.clamp, drawFilter >= 3 ? 1 : 0, {d.state.mirrorRipple[0], d.state.mirrorRipple[1]}, -1, 0.0f, 0,
+                                (d.state.background && !d.state.screen) ? bgNearW : 0.0f};
                         if (d.state.reflectionSample || d.state.refractionSample)
                         {
                             for (int k = 0; k < 3; ++k)

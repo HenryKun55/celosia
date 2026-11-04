@@ -9716,6 +9716,20 @@ namespace sotc_native
                                  static_cast<int>(surfaceBlend(s)), static_cast<unsigned long long>(state.texture), surface, word(s + 0x18u));
             }
             state.background = state.order == 1u;            // the sky
+            if (state.background && ps2_stats::bloomLogNow()) // SOTC_BLOOM_LOG: the layer-1 models of the frame
+            {
+                std::string regs;
+                char item[40];
+                for (uint32_t q = s + 0x20u; q < s + 0x100u; q += 16u)
+                    if ((word(q + 8u) & 0xFFu) == 0x06u || (word(q + 8u) & 0xFFu) == 0x42u)
+                    {
+                        std::snprintf(item, sizeof(item), " %02x:%08x%08x", word(q + 8u) & 0xFFu, word(q + 4u), word(q));
+                        regs += item;
+                    }
+                std::fprintf(stderr, "[bloom:game] f=%llu layer-1 model header %08x surface %u tex %llx fading %d info %d flags %08x regs%s\n",
+                             (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), header, surface, (unsigned long long)state.texture,
+                             fading ? 1 : 0, info ? 1 : 0, word(s + 0x18u), regs.c_str());
+            }
             // Flag bit 17 (drawn only while 0x1186290 bit 0 is set): modelDisp
             // binds bossDeathEffectBegin's mask instead (setBossEffectTexture):
             // no texture transfer, so no ROW scroll; TEX1 linear without mips,

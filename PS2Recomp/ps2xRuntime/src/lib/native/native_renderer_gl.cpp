@@ -57,6 +57,7 @@ extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosi
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <array>
 
 namespace
 {
@@ -118,6 +119,7 @@ uniform vec4 uClip[4], uDirections[4], uColours[4]; // matrix columns
 uniform vec4 uMisc;  // lit, opacity, uv offset
 uniform vec4 uFogB;  // size, vertex fog, base
 uniform vec4 uFogC;  // scale, lod K, lod scale, max lod
+uniform vec4 uGuard; // x > 0: layer 1's near cull (see Renderer::guardFor): triangles with a vertex nearer than w = y dropped
 out vec4 vUV;        // uv, w, fog x w (the fog factor is linear on the screen, as the GS's)
 out vec4 vColor;
 out vec4 vScreen;    // clip x, y, w
@@ -143,7 +145,10 @@ void main()
         vec4 light = uColours[0] * d.x + uColours[1] * d.y + uColours[2] * d.z + uColours[3];
         vColor.rgb = min(vColor.rgb * light.rgb, vec3(255.0 / 128.0));
     }
-    vScreen = vec4(c.x, c.y, c.w, 0.0);
+    // w: 1 at a vertex nearer than layer 1's near w; any such vertex makes
+    // the triangle's fragments > 0 (discarded): the whole triangle dropped.
+    float culled = uGuard.x > 0.0 && c.w < uGuard.y ? 1.0 : 0.0;
+    vScreen = vec4(c.x, c.y, c.w, culled);
 }
 )";
 
@@ -160,6 +165,8 @@ uniform vec4 uAlpha;     // alpha test: cut under x (at least 0.02), and at / ov
 out vec4 oColor;
 void main()
 {
+    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard)
+        discard;
     float textured = uFogColour.w;
     vec2 screen = vScreen.xy / vScreen.z * 0.5 + 0.5;
     float depth = vUV.z;
@@ -249,6 +256,8 @@ void main()
     vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(vec3(128.0 / 255.0), 1.0); // untextured: the GS takes the vertex colour as is (255 = white)
     float alpha = clamp(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a, 0.0, 1.0);
 #if CUT
+    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard; such draws take the CUT programs)
+        discard;
     if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
 #endif
@@ -498,7 +507,7 @@ void main()
     const char *kMainVertex = R"(
 void main(float3 aPos, float3 aNormal, float4 aColor, float2 aUV,
           uniform float4 uClip[4], uniform float4 uDirections[4], uniform float4 uColours[4],
-          uniform float4 uMisc, uniform float4 uFogB, uniform float4 uFogC,
+          uniform float4 uMisc, uniform float4 uFogB, uniform float4 uFogC, uniform float4 uGuard,
           float4 out oPosition : POSITION,
           float4 out vUV : TEXCOORD0,
           float4 out vColor : TEXCOORD1,
@@ -523,7 +532,9 @@ void main(float3 aPos, float3 aNormal, float4 aColor, float2 aUV,
         float4 light = uColours[0] * d.x + uColours[1] * d.y + uColours[2] * d.z + uColours[3];
         vColor.rgb = min(vColor.rgb * light.rgb, float3(255.0 / 128.0, 255.0 / 128.0, 255.0 / 128.0));
     }
-    vScreen = float4(c.x, c.y, c.w, 0.0);
+    // w: 1 at a vertex nearer than layer 1's near w (see the GLSL's).
+    float culled = (uGuard.x > 0.0 && c.w < uGuard.y) ? 1.0 : 0.0;
+    vScreen = float4(c.x, c.y, c.w, culled);
 }
 )";
 
@@ -532,6 +543,8 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
             uniform sampler2D uTex, uniform sampler2D uBackground, uniform sampler2D uReflection, uniform sampler2D uRefraction,
             uniform float4 uFogA, uniform float4 uFogC, uniform float4 uFogColour, uniform float4 uDebug, uniform float4 uAlpha) : COLOR
 {
+    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard)
+        discard;
     float textured = uFogColour.w;
     float2 screen = vScreen.xy / vScreen.z * 0.5 + 0.5;
     float depth = vUV.z;
@@ -597,6 +610,8 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
 #if CUT
+    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard; such draws take the CUT programs)
+        discard;
     if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
 #endif
@@ -1111,6 +1126,29 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return 100.0f * static_cast<float>(n) / static_cast<float>(t.width * t.height);
         }
         bool bloomLog() const { return ps2_stats::bloomLogFrame(bloomGameFrame); }
+        // The sky and far landscape (layer 1) have a near distance of their
+        // own on the PS2: what lies nearer is not drawn there (measured: the
+        // shrine's surroundings model, 0x3a8c60, sits around the camera inside
+        // the shrine; the GS draws none of it, the far cliffs and the sky
+        // only). Drawn natively, its walls filled the background image, which
+        // the shrine's openings show: a bright stone wall where the GS shows
+        // the cliffs, sky and fog, which the bloom then blew to white (round
+        // 65e). Triangles of layer-1 draws with a vertex nearer than w = 100
+        // are dropped. SOTC_BG_NEAR=<w> (0: off, as before).
+        // The background image cleared to the fog colour, as the GS's picture
+        // (a sprite in FOGCOL before the sky): where no sky or far scenery
+        // covers it the openings showed black (SOTC_BG_CLEAR_FOG=0: black).
+        static bool bgClearFog()
+        {
+            static const bool on = !std::getenv("SOTC_BG_CLEAR_FOG") || std::atoi(std::getenv("SOTC_BG_CLEAR_FOG")) != 0;
+            return on;
+        }
+        static void guardFor(const native_renderer::DrawState &st, float out[4])
+        {
+            static const float nearW = std::getenv("SOTC_BG_NEAR") ? static_cast<float>(std::atof(std::getenv("SOTC_BG_NEAR"))) : 100.0f;
+            if (st.background && !st.screen && nearW > 0.0f)
+                out[0] = 1.0f, out[1] = nearW;
+        }
         // The GS chain's blur taps (see kQuadFragment's mode 16): the source's alpha, of 128.
         float bloomTapAlpha() const { return native_renderer::bloomTapAlpha(bloom.temporal); }
         void logChain(const char *path, float dt)
@@ -1125,6 +1163,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                          static_cast<int>(16.0f * bloomTapAlpha() / 128.0f), gsBloomHistory ? 1 : 0, targetMean(gsBloom[0], 0), targetMean(gsBloom[1], 0),
                          targetMean(gsBloom[2], 0), targetMean(gsBloom[3], 0), targetMean(gsBloom[4], 0), targetMean(gsBloom[5], 0),
                          targetMean(gsBloom[6], 0));
+        }
+        // the picture in the bloom's mask (alpha >= 128) and outside it: mean R, % R >= 250
+        void logRegions(const Target &t, const char *when)
+        {
+            if (!bloomLog() || !t.fbo)
+                return;
+            std::vector<uint8_t> px(static_cast<size_t>(t.width) * t.height * 4u);
+            glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+            glReadPixels(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, boundFbo);
+            double inSum = 0.0, outSum = 0.0;
+            size_t in = 0, out = 0, inClip = 0;
+            for (size_t i = 0; i < px.size(); i += 4)
+            {
+                if (px[i + 3] >= 128u)
+                    inSum += px[i], ++in, inClip += px[i] >= 250u ? 1u : 0u;
+                else
+                    outSum += px[i], ++out;
+            }
+            std::fprintf(stderr, "[bloom:gl] f=%llu picture %s: in the mask (%zu px) R mean %.2f, %.2f%% >= 250; outside R mean %.2f\n",
+                         (unsigned long long)bloomGameFrame, when, in, in ? inSum / in : 0.0, in ? 100.0 * inClip / in : 0.0, out ? outSum / out : 0.0);
         }
         void logAdd(const char *path, const Target &onto, float before)
         {
@@ -1337,7 +1396,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // last values sent (kept across frames: nothing else sets them).
         enum MainUniform
         {
-            uClip, uDirections, uColours, uMisc, uFogA, uFogB, uFogC, uFogColour, uDebug, uAlphaTest, kMainUniforms
+            uClip, uDirections, uColours, uMisc, uFogA, uFogB, uFogC, uFogColour, uDebug, uAlphaTest, uGuard, kMainUniforms
         };
         // The programs drawing meshes, each with its uniforms' locations and
         // the last values sent (a program keeps its own; kept across frames:
@@ -1783,7 +1842,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (!p)
                     continue;
                 glUseProgram(p);
-                const char *names[kMainUniforms] = {"uClip", "uDirections", "uColours", "uMisc", "uFogA", "uFogB", "uFogC", "uFogColour", "uDebug", "uAlpha"};
+                const char *names[kMainUniforms] = {"uClip", "uDirections", "uColours", "uMisc", "uFogA", "uFogB", "uFogC", "uFogColour", "uDebug", "uAlpha", "uGuard"};
                 for (int i = 0; i < kMainUniforms; ++i)
                     m.location[i] = glGetUniformLocation(p, names[i]);
                 for (const auto &[name, unit] : {std::pair<const char *, int>{"uTex", 0}, {"uBackground", 1}, {"uReflection", 2}, {"uRefraction", 3}})
@@ -3550,6 +3609,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 if (mirror) // reflectionBegin clears with alpha 0x80
                     glClearColor(fog.colour[0], fog.colour[1], fog.colour[2], 1.0f);
+                else if (backgroundOnly && bgClearFog()) // the GS's frame starts from a sprite in FOGCOL under the sky (round 65e)
+                    glClearColor(fog.colour[0], fog.colour[1], fog.colour[2], 1.0f);
                 else
                     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 #if defined(PS2X_NATIVE_VITA)
@@ -3614,12 +3675,51 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             cache.blend = cache.depthTest = cache.depthMask = -1;
             cache.buffer = cache.texture = ~0u;
             const bool leanOn = native_renderer::tuning().glLeanPrograms, noDiscard = native_renderer::tuning().glNoDiscard;
+            // SOTC_BLOOM_LOG (with SOTC_BLOOM_RECT=x0,y0,x1,y1 in PS2 pixels, rows from the top;
+            // default the shrine's left opening): the picture's mean R there after each layer.
+            const bool rectLog = bloomLog() && (&target == &color || &target == &background) && !mirror;
+            uint32_t rectOrder = ~0u;
+            auto logRect = [&](const char *what)
+            {
+                static const std::array<int, 4> r = []
+                {
+                    std::array<int, 4> v = {95, 30, 125, 100};
+                    if (const char *e = std::getenv("SOTC_BLOOM_RECT"))
+                        std::sscanf(e, "%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3]);
+                    return v;
+                }();
+                const float sx = static_cast<float>(target.width) / 512.0f, sy = static_cast<float>(target.height) / 448.0f;
+                const int x0 = static_cast<int>(r[0] * sx), x1 = static_cast<int>(r[2] * sx), y0 = static_cast<int>(r[1] * sy), y1 = static_cast<int>(r[3] * sy);
+                std::vector<uint8_t> px(static_cast<size_t>(x1 - x0) * (y1 - y0) * 4u);
+                glReadPixels(x0, static_cast<int>(target.height) - y1, x1 - x0, y1 - y0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                double sum = 0.0, a = 0.0;
+                for (size_t i = 0; i < px.size(); i += 4)
+                    sum += px[i], a += px[i + 3];
+                const double n = static_cast<double>(px.size() / 4u);
+                std::fprintf(stderr, "[bloom:gl] f=%llu rect %s: R mean %.2f alpha mean %.2f\n", (unsigned long long)bloomGameFrame, what, sum / n, a / n);
+            };
             for (size_t k = 0; k < drawOrder.size(); ++k)
             {
                 const Planned &planned = plan[k];
                 if (!planned.run) // merged into an earlier draw
                     continue;
                 const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+                static const bool rectDraws = std::getenv("SOTC_BLOOM_RECT_DRAWS") != nullptr;
+                if (rectLog && rectDraws && backgroundOnly && d.state.background && d.state.order >= fromOrder && d.state.order < toOrder)
+                {
+                    char what[160];
+                    std::snprintf(what, sizeof what, "background before draw %zu (layer %u tex %llx blend %d opacity %.3f fogged %d alphaTest %u screen %d mesh %llx)", k,
+                                  d.state.order, (unsigned long long)d.state.texture, static_cast<int>(d.state.blend), d.state.opacity, d.state.fogged ? 1 : 0,
+                                  d.state.alphaTest, d.state.screen ? 1 : 0, (unsigned long long)d.mesh);
+                    logRect(what);
+                }
+                if (rectLog && d.state.order != rectOrder && d.state.order >= fromOrder && d.state.order < toOrder)
+                {
+                    char what[64];
+                    std::snprintf(what, sizeof what, "%s before layer %u", backgroundOnly ? "background" : "picture", d.state.order);
+                    logRect(what);
+                    rectOrder = d.state.order;
+                }
                 if (backgroundOnly && !d.state.background)
                     continue;
                 if (mirror != d.state.reflectionSource)
@@ -3752,10 +3852,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     atAllUnder = greatest < aref - 1.0f / 256.0f;
                 }
                 const bool atSecond = atOn && !atAllUnder && !(leastAlpha >= aref);
+                float guard[4] = {0, 0, 0, 0};
+                guardFor(d.state, guard);
                 if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour)
                 {
                     bool cut = true;
-                    if (noDiscard && leastAlpha >= 0.0f)
+                    if (noDiscard && leastAlpha >= 0.0f && !(guard[0] > 0.0f))
                         cut = !(leastAlpha >= 0.03f) || atSecond || atAllUnder; // the cut-out is at 0.02
                     if (const GLuint lean = leanProgram(skinned, fogA[3] > 0.5f, cut))
                     {
@@ -3926,6 +4028,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uniform4(uFogC, fogC, 1);
                 uniform4(uFogColour, fogColour, 1);
                 uniform4(uDebug, debug, 1);
+                uniform4(uGuard, guard, 1);
                 const float alphaCut[4] = {atSecond ? aref : 0.0f, atAllUnder ? aref : 0.0f, 0.0f, 0.0f};
                 if (atAllUnder)
                     ++alphaStats.merged;
@@ -4043,6 +4146,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
             }
             resolveShadows();
+            if (rectLog)
+            {
+                logRect(backgroundOnly ? "background after its pass" : "picture after the pass");
+                static const char *dumpDir = std::getenv("SOTC_BLOOM_RECT_DUMP");
+                static int dumped = 0;
+                if (dumpDir && dumped < 8)
+                {
+                    std::vector<uint8_t> px(static_cast<size_t>(target.width) * target.height * 4u);
+                    glReadPixels(0, 0, static_cast<GLsizei>(target.width), static_cast<GLsizei>(target.height), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                    char path[512];
+                    std::snprintf(path, sizeof path, "%s/gl_%llu_%d_%s.ppm", dumpDir, (unsigned long long)bloomGameFrame, dumped++, backgroundOnly ? "background" : "picture");
+                    if (FILE *f = std::fopen(path, "wb"))
+                    {
+                        std::fprintf(f, "P6\n%u %u\n255\n", target.width, target.height);
+                        for (uint32_t y = 0; y < target.height; ++y)
+                            for (uint32_t x = 0; x < target.width; ++x)
+                                std::fwrite(&px[(static_cast<size_t>(target.height - 1u - y) * target.width + x) * 4u], 1, 3, f);
+                        std::fclose(f);
+                    }
+                }
+            }
             for (GLuint i = 1; i < 6; ++i)
                 glDisableVertexAttribArray(i);
         };
@@ -4557,9 +4681,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const float scale[4] = {static_cast<float>(width) / 512.0f, static_cast<float>(height) / 448.0f, 0, 0};
             const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
             const float before = bloomLog() ? targetMean(color, 0) : 0.0f;
+            logRegions(color, "before the add");
             bindTexture(0, gsBloom[6].texture);
             quad(color, 18, QuadBlend::Add, scale, colour);
             logAdd(bloomSameFrame ? "vita-sameframe" : "vita-late", color, before);
+            logRegions(color, "after the add");
         };
         auto bloomReduce = [&]
         {
