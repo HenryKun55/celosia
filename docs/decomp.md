@@ -10279,6 +10279,12 @@ the GS's Agro elsewhere, the Vita3K runs' path differs). Game fps (Vita3K
 `[stats]`): plain 25.5 -> 26.0, shrine 15.5 -> 16.1, the forest ruins 36 ->
 49 in one shot pair. The console never used the redraw (`inEmulator`).
 
+**Wander's cloak (Vita3K, the shrine's altar, his back close up):** the GS
+(Mac CPU GS, route frame 2851), r65c's test3.vpk and this round's VPK show
+the same pattern and edges (pics/wander_cloak_closeup_GS__vita3k-r65c__vita3k-current.png):
+the speckled cloak of the r65fix reports was the hard shadows' facets, fixed
+in round 65c; nothing left to change here.
+
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
 Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,
