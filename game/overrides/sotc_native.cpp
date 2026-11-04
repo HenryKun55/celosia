@@ -49,6 +49,7 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <cmath>
 #if defined(__arm__) && defined(__ARM_NEON)
 #include <arm_neon.h>
@@ -129,6 +130,9 @@ namespace sotc_native
     namespace mdslane
     {
         extern bool g_frameOn, g_switch;
+        extern std::atomic<int> g_help;
+        extern uint64_t g_helpUs, g_helpJobs, g_helpJoins;
+        extern std::atomic<uint64_t> g_workerHelpFrame;
         void join(int site);
         void frameStart(bool hookWorkerOn);
     }
@@ -2989,7 +2993,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -3005,6 +3009,7 @@ namespace sotc_native
             sblurLazyAt = indexOf("sblurlazy");
             dmaAsyncAt = indexOf("dmaasync");
             mdsLaneAt = indexOf("mdslane");
+            laneHelpAt = indexOf("lanehelp");
             lazySnapAt = indexOf("lazysnap");
             sacAllAt = indexOf("sacall");
             return true;
@@ -3030,6 +3035,11 @@ namespace sotc_native
         {
             static const bool laneStart = [] { return !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0; }();
             mdslane::g_switch = isOffAt(mdsLaneAt) ? false : laneStart;
+        }
+        if (laneHelpAt >= 0) // round 72: the lane's jobs run by the joins / the worker
+        {
+            static const int helpStart = [] { return std::getenv("SOTC_LANE_HELP") ? std::atoi(std::getenv("SOTC_LANE_HELP")) & 3 : 3; }();
+            mdslane::g_help.store(isOffAt(laneHelpAt) ? 0 : helpStart, std::memory_order_relaxed);
         }
         if (dmaAsyncAt >= 0) // round 60: the display list's walk on the DMA worker
         {
@@ -3366,6 +3376,13 @@ namespace sotc_native
                             at += std::snprintf(split + at, sizeof(split) - at, " %s %.1f", ps2_load::kSiteNames[k], (v - lastSite[k]) / 1000.0);
                         lastSite[k] = v;
                     }
+                    // Round 72: the lane's jobs the game thread's joins ran
+                    // (work, not a wait) and the ones the hook worker ran.
+                    if (mdslane::g_helpJobs || mdslane::g_workerHelpFrame.load(std::memory_order_relaxed))
+                        at += std::snprintf(split + at, sizeof(split) - at, " | lanehelp %.1f (%llu jobs, %llu joins, worker %llu)", mdslane::g_helpUs / 1000.0,
+                                            (unsigned long long)mdslane::g_helpJobs, (unsigned long long)mdslane::g_helpJoins,
+                                            (unsigned long long)mdslane::g_workerHelpFrame.exchange(0, std::memory_order_relaxed));
+                    mdslane::g_helpUs = mdslane::g_helpJobs = mdslane::g_helpJoins = 0;
                 }
                 splits(g_syncUs, hookjobs::g_lastSiteUs, 1.0, split + at, sizeof(split) - at);
                 at = static_cast<int>(std::strlen(split));
@@ -8398,6 +8415,22 @@ namespace sotc_native
         std::condition_variable g_work, g_idle;
         std::atomic<bool> g_sleeping{false}, g_waiting{false};
         bool g_started = false;
+        // Round 72 (SOTC_LANE_HELP, default 3): the jobs are run by whoever
+        // holds g_token, always the oldest not done first (g_done), so they
+        // run in the hand-over order, one at a time, as on the lane alone.
+        // Bit 0: a join of the game thread runs the jobs left itself instead
+        // of sleeping until the lane gets a core (the console: the lane at
+        // priority 191 on cores 1-2 behind the hook worker and the render
+        // thread, ~12 ms a frame of the game thread waiting at the shrine);
+        // bit 1: the hook worker runs the jobs up to the one its model needs.
+        // g_helpWanted: the game is joining; the lane gives the token up
+        // after its job.
+        std::atomic<int> g_help{3};
+        std::atomic<bool> g_token{false}, g_helpWanted{false};
+        uint64_t g_helpUs = 0, g_helpJobs = 0, g_helpJoins = 0; // the game thread's, since the frame log's last line ("lanehelp")
+        uint64_t g_helpUs600 = 0, g_helpJobs600 = 0, g_helpJoins600 = 0; // ([mdslane] every 600 frames)
+        std::atomic<uint64_t> g_workerHelpJobs{0}, g_workerHelpFrame{0};
+        inline bool tryToken() { return !g_token.load(std::memory_order_relaxed) && !g_token.exchange(true, std::memory_order_acquire); }
         R5900Context g_laneCtx{}; // (modelDispState's ctx argument; the register goes through MdsIn)
         uint64_t g_jobs = 0, g_joinCount[kJSites] = {}, g_joinWaitUs = 0, g_joinWaits = 0;
         std::atomic<uint64_t> g_workerWaits{0};
@@ -8488,42 +8521,130 @@ namespace sotc_native
                     visit(visit, word(table + link), root, 1);
         }
 
+        // Round 72: job `seq` run (by the token's holder); its slot must hold
+        // it and it must not have run (counted, the [mdslane] help line).
+        std::atomic<uint64_t> g_orderErrors{0};
+        // SOTC_LANE_HELP_CHECK=1 (checking): at each hand-over the game
+        // thread first runs every job before it, then runs the new job on a
+        // copy as the lane would at once (its memory put back after) and
+        // keeps a digest of its results: the register, the out-of-view
+        // decision, the parts and what it wrote (the part table's +0x2c
+        // words, the layer cache, the flag). When the job really runs later
+        // (a join's help, the hook worker, the lane: whoever has the token)
+        // the same digest is made and compared: a job whose results depend
+        // on when or where it runs would differ.
+        bool g_check = false;
+        struct Digest
+        {
+            uint64_t part[5] = {};
+            bool operator!=(const Digest &o) const { return std::memcmp(part, o.part, sizeof(part)) != 0; }
+        };
+        Digest g_checkDigest[kRing];
+        bool g_checkHave[kRing] = {};
+        std::atomic<uint64_t> g_checks{0}, g_checkDiffer{0};
+        Digest checkDigest(const Job &j);
+        inline void runSeq(uint64_t seq)
+        {
+            Job &j = g_ring[seq % kRing];
+            if (j.seq != seq || g_done.load(std::memory_order_relaxed) != seq)
+                g_orderErrors.fetch_add(1, std::memory_order_relaxed);
+            run(j);
+            if (g_check && g_checkHave[seq % kRing])
+            {
+                g_checkHave[seq % kRing] = false;
+                g_checks.fetch_add(1, std::memory_order_relaxed);
+                const Digest now = checkDigest(j), then = g_checkDigest[seq % kRing];
+                if (now != then && g_checkDiffer.fetch_add(1, std::memory_order_relaxed) < 20u)
+                    std::fprintf(stderr, "[mdslane] help check: job %llu instance %08x table %08x DIFFERS from its run at the hand-over (parts: clip %d decision %d tree %d cache %d flag %d), run by %s; chained %d clip in %06x\n",
+                                 (unsigned long long)seq, j.instance, j.table, now.part[0] != then.part[0], now.part[1] != then.part[1], now.part[2] != then.part[2],
+                                 now.part[3] != then.part[3], now.part[4] != then.part[4],
+                                 hookjobs::t_hookWorker ? "the hook worker" : g_helpWanted.load(std::memory_order_relaxed) ? "a join" : "the lane", j.chained ? 1 : 0, j.in.clipIn);
+            }
+        }
+
         void loop()
         {
             native_renderer::threads::place(native_renderer::threads::kLane);
             ThreadNaming::SetCurrentThreadName("mdslane");
             static const uint32_t delayUs = std::getenv("SOTC_MDS_LANE_DELAY_US") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_MDS_LANE_DELAY_US"))) : 0u;
-            uint64_t next = 0;
             for (;;)
             {
                 uint64_t pushed = 0;
                 for (int spin = 0;; ++spin)
                 {
                     pushed = __atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE);
-                    if (pushed > next)
+                    if (pushed > g_done.load(std::memory_order_acquire))
                         break;
                     if (spin < 256)
                         continue;
                     std::unique_lock<std::mutex> lock(g_mutex);
                     g_sleeping.store(true, std::memory_order_seq_cst);
-                    if (__atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE) <= next)
+                    if (__atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE) <= g_done.load(std::memory_order_acquire))
                         g_work.wait(lock);
                     g_sleeping.store(false, std::memory_order_relaxed);
                     spin = 0;
                 }
-                for (; next < pushed; ++next)
+                // Round 72: the token (the game thread or the hook worker may
+                // be running the jobs: then wait a little and look again).
+                if (g_helpWanted.load(std::memory_order_seq_cst) || !tryToken())
+                {
+                    std::unique_lock<std::mutex> lock(g_mutex);
+                    g_work.wait_for(lock, std::chrono::microseconds(100));
+                    continue;
+                }
+                bool held = true;
+                for (uint64_t next = g_done.load(std::memory_order_relaxed); next < pushed; ++next)
                 {
                     if (delayUs)
+                    {
+                        // (the lane without a core: the token not held meanwhile)
+                        g_token.store(false, std::memory_order_release);
                         std::this_thread::sleep_for(std::chrono::microseconds(delayUs));
-                    run(g_ring[next % kRing]);
+                        if (g_helpWanted.load(std::memory_order_seq_cst) || !tryToken())
+                        {
+                            held = false;
+                            break;
+                        }
+                        next = g_done.load(std::memory_order_relaxed);
+                        if (next >= pushed)
+                            break;
+                    }
+                    runSeq(next);
                     g_done.store(next + 1u, std::memory_order_release);
                     if (g_waiting.load(std::memory_order_seq_cst))
                     {
                         std::lock_guard<std::mutex> lock(g_mutex);
                         g_idle.notify_all();
                     }
+                    if (g_helpWanted.load(std::memory_order_seq_cst))
+                        break; // the game thread takes the rest
                 }
+                if (held)
+                    g_token.store(false, std::memory_order_release);
             }
+        }
+
+        // Round 72: the jobs before `upto` run on the calling thread (the
+        // token held), from the oldest not done; false if another holds it.
+        bool runTo(uint64_t upto, uint64_t *ran = nullptr)
+        {
+            if (!tryToken())
+                return false;
+            uint64_t next = g_done.load(std::memory_order_relaxed);
+            if (ran)
+                *ran = upto > next ? upto - next : 0u;
+            for (; next < upto; ++next)
+            {
+                runSeq(next);
+                g_done.store(next + 1u, std::memory_order_release);
+            }
+            g_token.store(false, std::memory_order_release);
+            if (g_waiting.load(std::memory_order_seq_cst))
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_idle.notify_all();
+            }
+            return true;
         }
 
         // Until job `seq` is done (the hook worker, or the game thread's join).
@@ -8539,6 +8660,23 @@ namespace sotc_native
             g_waiting.store(false, std::memory_order_relaxed);
         }
 
+        // The hook worker's: lane job `seq` done before its model job runs.
+        void workerWait(uint64_t seq)
+        {
+            if (g_help.load(std::memory_order_relaxed) & 2)
+            {
+                uint64_t ran = 0;
+                if (runTo(seq + 1u, &ran))
+                {
+                    g_workerHelpJobs.fetch_add(ran, std::memory_order_relaxed);
+                    g_workerHelpFrame.fetch_add(ran, std::memory_order_relaxed);
+                    return;
+                }
+            }
+            g_workerWaits.fetch_add(1, std::memory_order_relaxed);
+            waitDone(seq);
+        }
+
         // The game thread: every job handed over done, the CLIP register put
         // back in its context.
         void join(int site)
@@ -8552,8 +8690,51 @@ namespace sotc_native
             if (g_done.load(std::memory_order_acquire) != g_pushed)
             {
                 const uint64_t t0 = native_renderer::nowUs();
-                ps2_load::Wait waiting(ps2_load::kSiteHookJoin);
-                waitDone(g_pushed - 1u);
+                if (g_help.load(std::memory_order_relaxed) & 1)
+                {
+                    // Round 72: the jobs left run here; while the lane (or
+                    // the worker) is inside one, wait for its token (the
+                    // game thread is alone on its core: a spin).
+                    g_helpWanted.store(true, std::memory_order_seq_cst);
+                    uint64_t helpStart = 0;
+                    {
+                        std::optional<ps2_load::Wait> waiting; // (only the spin is a wait: the jobs run here are work)
+                        for (uint32_t spin = 0; g_done.load(std::memory_order_acquire) != g_pushed; ++spin)
+                        {
+                            if (!g_token.load(std::memory_order_relaxed))
+                            {
+                                waiting.reset();
+                                helpStart = native_renderer::nowUs();
+                                uint64_t ran = 0;
+                                if (runTo(g_pushed, &ran))
+                                {
+                                    g_helpJobs += ran;
+                                    g_helpJobs600 += ran;
+                                    ++g_helpJoins;
+                                    ++g_helpJoins600;
+                                    break;
+                                }
+                                helpStart = 0;
+                            }
+                            if (!waiting)
+                                waiting.emplace(ps2_load::kSiteHookJoin);
+                            if (spin >= 4096u)
+                                std::this_thread::yield();
+                        }
+                    }
+                    g_helpWanted.store(false, std::memory_order_seq_cst);
+                    if (helpStart)
+                    {
+                        const uint64_t us = native_renderer::nowUs() - helpStart;
+                        g_helpUs += us;
+                        g_helpUs600 += us;
+                    }
+                }
+                else
+                {
+                    ps2_load::Wait waiting(ps2_load::kSiteHookJoin);
+                    waitDone(g_pushed - 1u);
+                }
                 g_joinWaitUs += native_renderer::nowUs() - t0;
                 ++g_joinWaits;
             }
@@ -8573,6 +8754,10 @@ namespace sotc_native
             {
                 g_switch = !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0;
                 g_verify = std::getenv("SOTC_MDS_LANE_VERIFY") != nullptr;
+                g_check = std::getenv("SOTC_LANE_HELP_CHECK") != nullptr;
+                g_help.store(std::getenv("SOTC_LANE_HELP") ? std::atoi(std::getenv("SOTC_LANE_HELP")) & 3 : 3, std::memory_order_relaxed);
+                std::fprintf(stderr, "[mdslane] help (SOTC_LANE_HELP): %d (bit 0 the game thread's joins run the jobs left, bit 1 the hook worker runs the ones its models need)\n",
+                             g_help.load(std::memory_order_relaxed));
                 return true;
             }();
             (void)envRead;
@@ -8593,6 +8778,11 @@ namespace sotc_native
                 for (int k = 0; k < kJSites && n > 0 && n < static_cast<int>(sizeof(line)); ++k)
                     n += std::snprintf(line + n, sizeof(line) - n, " %s %llu", kJoinNames[k], (unsigned long long)g_joinCount[k]);
                 std::fprintf(stderr, "%s\n", line);
+                std::fprintf(stderr, "[mdslane] help: the game thread's joins ran %llu jobs in %llu joins (%.2f ms), the hook worker %llu jobs; out of order %llu; check %llu jobs, %llu differ\n",
+                             (unsigned long long)g_helpJobs600, (unsigned long long)g_helpJoins600, g_helpUs600 / 1000.0,
+                             (unsigned long long)g_workerHelpJobs.exchange(0, std::memory_order_relaxed), (unsigned long long)g_orderErrors.load(std::memory_order_relaxed),
+                             (unsigned long long)g_checks.load(std::memory_order_relaxed), (unsigned long long)g_checkDiffer.load(std::memory_order_relaxed));
+                g_helpJobs600 = g_helpJoins600 = g_helpUs600 = 0;
                 if (g_verify)
                     std::fprintf(stderr, "[mdslane] verify: %llu jobs made both ways, %llu differ (memory, CLIP); decisions %llu, %llu differ; CLIP records %llu checked, %llu differ\n",
                                  (unsigned long long)g_verifyJobs, (unsigned long long)g_verifyDiffer, (unsigned long long)g_verifyDecisions,
@@ -8630,8 +8820,11 @@ namespace sotc_native
             }
             return j;
         }
+        void checkAtPush();
         void push(R5900Context *ctx)
         {
+            if (g_check)
+                checkAtPush();
             sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
             c.ctx = ctx;
             c.pending = true;
@@ -8668,6 +8861,67 @@ namespace sotc_native
             std::memcpy(ram + table, s.table.data(), s.table.size());
             std::memcpy(ram + cache, s.cache.data(), s.cache.size());
             std::memcpy(ram + 0x1186294u, &s.flag, 4);
+        }
+
+        // Round 72's check (SOTC_LANE_HELP_CHECK), above.
+        // Its parts (8 bits each in the digest): the register, the decision
+        // and parts, the part tree's +0x2c words (the nodes reached from the
+        // root by the 0x20 / 0x24 links, as the walks go), the layer cache,
+        // the flag.
+        Digest checkDigest(const Job &j)
+        {
+            Digest d;
+            uint64_t *const part = d.part;
+            const auto mix = [](uint64_t &h, uint64_t v) { h = (h ^ v) * 1099511628211ull + 1u; };
+            mix(part[0], j.in.clipOut);
+            mix(part[1], j.skip ? 1u : 0u);
+            mix(part[1], j.parts.size());
+            for (uint8_t p : j.parts)
+                mix(part[1], p);
+            if (j.table && j.table < PS2_RAM_SIZE - 4096u * 0x30u)
+            {
+                static std::vector<uint32_t> stack;
+                static std::vector<uint8_t> seen;
+                seen.assign(4096u, 0u);
+                stack.assign(1u, 0u);
+                uint32_t budget = 4096u;
+                while (!stack.empty() && budget--)
+                {
+                    const uint32_t i = stack.back();
+                    stack.pop_back();
+                    if (i >= 4096u || seen[i])
+                        continue;
+                    seen[i] = 1u;
+                    const uint32_t node = j.table + i * 0x30u;
+                    mix(part[2], (static_cast<uint64_t>(i) << 32) | word(node + 0x2Cu));
+                    for (uint32_t link : {0x20u, 0x24u})
+                        if (word(node + link) != 0xFFFFFFFFu)
+                            stack.push_back(word(node + link));
+                }
+            }
+            if (j.in.cache && j.in.cache < PS2_RAM_SIZE - 256u)
+                for (uint32_t a = 0; a < 256u; a += 4u)
+                    mix(part[3], word(j.in.cache + a));
+            mix(part[4], word(0x1186294u));
+            return d;
+        }
+        void checkAtPush()
+        {
+            // Every job before it run first (here, with the token).
+            g_helpWanted.store(true, std::memory_order_seq_cst);
+            while (g_done.load(std::memory_order_acquire) != g_pushed)
+                if (!runTo(g_pushed))
+                    std::this_thread::yield();
+            g_helpWanted.store(false, std::memory_order_seq_cst);
+            Job copy = g_ring[g_pushed % kRing];
+            static Snap pre;
+            snap(pre, copy.table, copy.in.cache);
+            const uint32_t lastClip = g_lastClipOut;
+            run(copy);
+            g_checkDigest[g_pushed % kRing] = checkDigest(copy);
+            g_checkHave[g_pushed % kRing] = true;
+            unsnap(pre, copy.table, copy.in.cache);
+            g_lastClipOut = lastClip;
         }
     }
 
@@ -9312,10 +9566,7 @@ namespace sotc_native
             {
                 mdslane::Job &l = mdslane::g_ring[m.laneSeq % mdslane::kRing];
                 if (mdslane::g_done.load(std::memory_order_acquire) <= m.laneSeq)
-                {
-                    mdslane::g_workerWaits.fetch_add(1, std::memory_order_relaxed);
-                    mdslane::waitDone(m.laneSeq);
-                }
+                    mdslane::workerWait(m.laneSeq); // round 72: runs them itself when the token is free (SOTC_LANE_HELP bit 1)
                 if (l.skip)
                     break; // out of view: modelDisp draws nothing (and keeps the last palette)
                 m.partVisible.swap(l.parts);

@@ -10969,6 +10969,146 @@ share.
 **Deliverable:** build/agent-scratch/celosia-r71.vpk (main d9b6db3 + this
 round).
 
+## Round 72: the console's ~12 ms join wait is modelDispState's lane, not the hook worker: the joins run the lane's jobs themselves (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r72/` (v3k.sh / ab.sh / intro.sh:
+round 71's with r72 paths, settings.cfg.orig round 70's; tools/waits72.py: the
+frame log's sched / waits / lanehelp / cpu columns averaged per A/B state;
+runs/rot1, rot2 (the altar's A/B), starve1 / starve2 (the same with the lane
+held 100 us a job), vchk1 (the check in Vita3K), chk1-chk10 (the Mac's checks);
+env-console.txt / env-console-prio.txt: the console run's env.txt). Build
+tree: build/agent-scratch/r69/wt (main 0730fe6 + this round), vitaGL from
+r69/vitagl.
+
+**What the console's wait is.** The r71 console log (r71/console/err.txt,
+444 MHz, the shrine from frame 9 020, 4 299 frames; waits72.py): frame 74.5
+ms, `sched` 13.2, of which `hookjoin` 12.3; the hook worker's own join (the
+frame log's `join` column) is 0.0. The `hookjoin` site is counted in one place
+only: `mdslane::join` (round 61's modelDispState lane), not the hook worker's
+`hookjobs::join`. So the game thread is not waiting for the model jobs
+(shadowDispDraw and the rest, ~20 ms a frame on the worker, all done before
+any join): it waits for the lane, whose jobs are ~5 ms of CPU a frame
+(`cpu ... lane 5.0`) but which is preempted ~22 times a frame
+(`lane 5.0 (22p ...)`). The `[mdslane]` lines agree: at the shrine 600 frames
+have 3 400-7 400 joins that waited, 5.8-9.1 s in all (~10-15 ms a frame), most
+all at the layer cache's users (`cache`: modelSetSurface and the model
+functions that read *0x118bfc8, ~12 a frame, one after nearly every model),
+and the hook worker waited for the lane 8 600-14 000 times. Why: the lane
+runs at priority 191 on cores 1-2 with the hook worker (150, ~17-23 ms a
+frame), the render thread (191, ~25 ms in draws that do not yield), audio
+(64, ~17 ms), dma, offload, build and loader; a lane at the render thread's
+priority does not get a core until the render thread blocks. In Vita3K the
+host has spare cores, so the same wait is ~1 ms.
+
+**The jobs' order.** A lane job is modelDispState for one model hook: the
+part tree's camera test written at +0x2c, the layers' last surface at
+*0x118bfc8, setShadowEffect's flag, the VU0 CLIP register (the next job's
+register in is this job's out, shifted by the CLIP records made since), and
+the hook's own part decision. Each depends on the one before (the register,
+the cache), so they cannot be split over two threads, but they need not run
+on the lane: any thread may run the next job as long as they run one at a
+time, in order, and before anything that reads their results (the joins
+are those readers, round 61).
+
+**What changed (`SOTC_LANE_HELP`, default 3; `SOTC_AB_FLAG` takes `lanehelp`).**
+- The jobs are run by whoever holds a token (an atomic flag, acquire /
+  release), always from the oldest not done (`g_done`): the lane as before,
+  or
+- bit 0: a join of the game thread: instead of sleeping until the lane gets
+  a core, it asks the lane to give the token up after its current job
+  (`g_helpWanted`) and runs every job left itself; it only waits (spins: it
+  is alone on core 0) while the lane or the worker is inside a job;
+- bit 1: the hook worker, when a model job needs a lane job not done yet,
+  runs the jobs up to that one itself when the token is free (else waits
+  as before).
+- The frame log's `| lanehelp <ms> (<n> jobs, <n> joins, worker <n>)`: the
+  jobs the game thread ran in its joins (work, no longer in `sched`) and the
+  worker's; `[mdslane] help:` every 600 frames with the same counts, the
+  jobs run out of order (a slot not holding its job, or a job run twice:
+  always 0) and the check below.
+Nothing else changed: the same function on the same job slots and the
+same globals (g_laneCtx, g_lastClipOut) under the token.
+
+**Exactness.** The jobs run in the same order, one at a time, by the same
+code, and finish no later than before (a join waited for them to finish
+anyway). `SOTC_LANE_HELP_CHECK=1` (new) checks that a job's results do not
+depend on when or where it runs: at each hand-over the game thread first
+runs every earlier job, then runs the new job on a copy as the lane would at
+once (its memory written back after) and keeps a digest of its results (CLIP
+register; decision and parts; the +0x2c words of the nodes reached from the
+root; the layer cache's 64 words; the flag); when the job really runs (a
+join, the worker or the lane), its digest is compared.
+- Mac, the New Game route to frame 4 000 / 6 000 with the worker on
+  (`SOTC_HOOK_ASYNC=1`), help on (runs/chk3, chk4, chk8, chk10, chk6 with
+  bit 0 only), the lane held 0-200 us a job so that the joins and the worker
+  run most jobs: 157 000-237 000 jobs checked a run, 17 000-23 000 of them
+  run by the game thread's joins and up to 1 250 by the worker, 0 differ,
+  0 out of order. `SOTC_HOOK_ASYNC_VERIFY=1` beside it (chk1, chk2): the
+  model jobs' inputs as at the hook, 0 differ.
+- With the help off and the lane held 50 us a job (runs/chk7, chk9; and chk5,
+  the worker's help only): 1-2 jobs of ~157 000 a run DIFFER, every one run
+  late by the lane (the register or the parts of a model run some hooks
+  after its hand-over): a rare dependence on when the lane runs, which round
+  61 has (its verify ran the job at the hook only) and which the console's
+  late lane hits most. The help makes the jobs run sooner, never later.
+  (A first version of the digest hashed 4 096 nodes past the table's start,
+  memory the job does not write: chk2's 2 differences; replaced by the
+  reached nodes.)
+- Vita3K 222 MHz (the Vita build, its NEON part test), the altar route to
+  frame 5 350 (runs/vchk1): 66 779 jobs checked, 0 differ, 0 out of order.
+
+**Measured (Vita3K 222 MHz, 3 cores, muted, the console's settings with
+`SOTC_BODY_SHADOWS=1`; the altar, route 2, from frame 3 300; frames of 700
+ms or more left out; `SOTC_AB_FLAG=lanehelp SOTC_AB_ROTATE=1
+SOTC_AB_PERIOD=60`; abframes.py and waits72.py).**
+
+| run | frames on / off | frame on / off (ms) | game thread on / off | off - on | waits hookjoin on / off | lanehelp on (ms, jobs, worker jobs) |
+|---|---|---|---|---|---|---|
+| rot1 (c72.vpk) | 1 146 / 1 166 | 62.34 / 61.96 | 60.50 / 60.11 | -0.39 | 0.20 / 1.15 | 0.61, 22.2, 4.3 |
+| rot2 (celosia-r72.vpk's code but for the delay below) | 1 164 / 1 187 | 62.19 / 61.11 | 60.21 / 59.10 | -1.12 | 0.16 / 1.09 | 0.67, 22.0, 4.5 |
+
+In Vita3K the game thread is 0.4-1.1 ms slower with the help on (two
+runs): the ~1 ms it waited is gone, but it now runs ~22 lane jobs a frame
+itself (~0.65 ms), while in Vita3K the lane would have finished them on an
+idle host core during that same wait; the rest is the noise of one run
+(~1 ms). The hook worker's critical path is unchanged (jobs 13.5 / 13.3 ms
+a frame).
+
+Vita3K cannot show the console's wait (the lane gets a host core at once):
+there the help removes the ~1 ms it has and adds ~0.6 ms of jobs to the game
+thread. To see the console's case, starve1 holds the lane 100 us before each
+job (as a lane without a core would be; the token not held while it
+sleeps, the final build; runs/starve2, 1 309 / 1 351 frames): with the help
+off the game thread waits 9.08 ms a frame in `hookjoin` (the console's
+picture), with it on 0.31 ms while its joins run ~49 jobs a frame (1.51 ms)
+and the worker ~9; the frame 60.79 / 63.40 ms, the game thread 58.66 /
+61.91: **-3.25 ms** of the game thread, -2.61 of the frame; the hook worker's
+jobs 12.1 / 14.7 ms a frame (it no longer waits for the lane either). An
+earlier version slept while holding the token (runs/starve1: the joins
+still spun 2.3 ms on it; game thread -1.67 ms). Mac, the final build with
+the lane held 50 us a job (runs/chk11): 160 846 jobs checked, 0 differ.
+
+**On the console (expected, the user's run).** The help side should lose
+most of the 12.3 ms `hookjoin` and gain at most the lane's own CPU (~5 ms a
+frame at 444 MHz, part of it already done by the lane before the joins), so
+~7-10 ms off the shrine's ~74 ms frame; the hook worker no longer waits for
+the lane either. Read in the log (r72/tools/waits72.py err.txt --from 9020):
+`waits hookjoin` (on side ~0-1 ms), `lanehelp` (the game thread's share),
+`cpu game` / `cpu lane`, and the frame / game columns of
+tools/abframes.py by state; `[mdslane] help:` lines (out of order 0).
+
+**Not done, and why.** (2) Kicking earlier / joining later: the joins are the
+readers of the lane's results (the CLIP register, the layer cache before
+modelSetSurface, setShadowEffect's flag), so they cannot move; (3)
+shadowDispDraw is on the hook worker, whose join waits 0 on the console: not
+on the game thread's path; (4) the priority knob is in env-console-prio.txt
+(`SOTC_THREAD_PRIO=lane:140`, the lane above the worker) for a second run;
+with the help on it should matter only when the lane is preempted inside a
+job.
+
+**Deliverable:** build/agent-scratch/celosia-r72.vpk (main 0730fe6 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
