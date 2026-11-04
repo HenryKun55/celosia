@@ -6,6 +6,7 @@
 // emulated one on screen (native_renderer::setShown).
 
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
 #include <string>
 #include <vector>
@@ -419,6 +420,29 @@ namespace native_renderer
     bool shown();
     // The last finished frame (RGBA8); false before the first.
     bool latestFrame(std::vector<uint8_t> &rgba, uint32_t &width, uint32_t &height);
+    // SOTC_BLOOM_DUMP=1 (the OpenGL renderer): the bloom chain's targets of
+    // the frame latestFrame returns (RGBA8, top row first).
+    struct BloomStage
+    {
+        std::string name;
+        uint32_t width = 0, height = 0;
+        std::vector<uint8_t> rgba;
+    };
+    bool latestBloomStages(std::vector<BloomStage> &out);
+    // The GS bloom chain's blur taps (0x109e2a0): their sprites are MODULATE
+    // with the texture's alpha (TCC 1), so each tap's alpha 64 / 32 / 16 is
+    // multiplied by the source's alpha, which the temporal step left at its
+    // own alpha (0x118c12c): the taps are (64 / 32 / 16 x that) >> 7, not 64 /
+    // 32 / 16 (round 65e; SOTC_BLOOM_TAPS=0: 128, the full taps as before).
+    // Returns that alpha, 0-128, from Bloom::temporal (alpha / 128).
+    inline float bloomTapAlpha(float temporal)
+    {
+        static const bool on = !std::getenv("SOTC_BLOOM_TAPS") || std::atoi(std::getenv("SOTC_BLOOM_TAPS")) != 0;
+        if (!on)
+            return 128.0f;
+        const float a = temporal * 128.0f + 0.5f;
+        return a < 0.0f ? 0.0f : (a > 128.0f ? 128.0f : static_cast<float>(static_cast<int>(a)));
+    }
 
     // The frame timing log (Debug 'Frame timing log', SOTC_FRAME_LOG): what
     // one game frame spent where, filled by the frontend, the backends and the

@@ -4,6 +4,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <utility>
+#include <vector>
 
 // Lightweight counters for diagnosing rendering (printed with PS2X_STATS).
 namespace ps2_stats
@@ -23,6 +27,34 @@ namespace ps2_stats
     inline std::atomic<uint64_t> gsPixels{0};
     inline std::atomic<uint64_t> vif1Chains{0}; // ~game frames, ever (scripted runs' clock)
     inline std::atomic<uint64_t> vblanks{0};    // guest VBlanks, ever (the game's own clock)
+    // SOTC_BLOOM_LOG=<from>-<to> (game frames, vif1Chains): the bloom's
+    // inputs and passes logged, GS side ([bloom:gs]), game side
+    // ([bloom:game]) and the native renderer's ([bloom:gl]), for those frames.
+    inline bool bloomLogFrame(uint64_t frame)
+    {
+        // "<a>-<b>[,<c>-<d>...]" (or single frames)
+        static const std::vector<std::pair<uint64_t, uint64_t>> ranges = []
+        {
+            std::vector<std::pair<uint64_t, uint64_t>> out;
+            const char *e = std::getenv("SOTC_BLOOM_LOG");
+            while (e && *e)
+            {
+                char *end = nullptr;
+                const uint64_t a = std::strtoull(e, &end, 10);
+                uint64_t b = a;
+                if (*end == '-')
+                    b = std::strtoull(end + 1, &end, 10);
+                out.push_back({a, b});
+                e = *end == ',' ? end + 1 : nullptr;
+            }
+            return out;
+        }();
+        for (const auto &r : ranges)
+            if (frame >= r.first && frame <= r.second)
+                return true;
+        return false;
+    }
+    inline bool bloomLogNow() { return bloomLogFrame(vif1Chains.load(std::memory_order_relaxed)); }
     inline std::atomic<int> snapshotRequest{-1}; // PS2X_INPUT_SCRIPT SNAP entry waiting for a picture
     inline std::atomic<int> markRequests{0};     // PS2X_INPUT_SCRIPT MARK entries so far (the input recorder's bug marker)
     // sceCdSync told the guest its command is done (the input replay keys disc reads to the game's frames; game thread).

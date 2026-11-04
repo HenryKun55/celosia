@@ -14,6 +14,7 @@
 #include "native_backend.h"
 #include "runtime/native_recorder.h"
 #include "runtime/native_tuning.h"
+#include "runtime/ps2_stats.h"
 
 #if defined(__APPLE__) || (defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM))
 
@@ -59,6 +60,11 @@ extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosi
 
 namespace
 {
+    // SOTC_BLOOM_DUMP: the GS bloom chain's targets by index (gsBloom[i]),
+    // the last drawn frame's, handed out by latestBloomStages.
+    const char *const kBloomStageNames[7] = {"mask256", "red128", "red64", "temporal64", "blur64", "blur128", "glow256"};
+    std::mutex g_bloomStageMutex;
+    std::vector<native_renderer::BloomStage> g_bloomStagesOut;
     constexpr float kNearW = 0.1f;
 
     // The host heap in use (the Vita's newlib heap, 160 MB; the Mac's malloc
@@ -276,6 +282,7 @@ void main()
     const char *kQuadVertex = R"(#version 330 core
 layout(location = 0) in vec2 aPos;
 uniform vec4 uQuad; // blur copy: scale, angle, offset (NDC); scale 0: plain
+uniform float uZ;   // the NDC z (SOTC_BLOOM_VITA: the Vita bloom mask's quad at the threshold's depth)
 out vec2 vUV;
 void main()
 {
@@ -286,7 +293,7 @@ void main()
         float s = sin(uQuad.y), k = cos(uQuad.y);
         p = vec2(c.x * k - c.y * s, c.x * s + c.y * k) + uQuad.zw;
     }
-    gl_Position = vec4(p, 0.0, 1.0);
+    gl_Position = vec4(p, uZ, 1.0);
     vUV = aPos * 0.5 + 0.5;
 }
 )";
@@ -295,7 +302,7 @@ void main()
 in vec2 vUV;
 uniform sampler2D uSrc, uSrc2, uDepth;
 uniform int uMode;
-uniform vec4 uA, uB, uC;
+uniform vec4 uA, uB, uC, uSize;
 out vec4 oColor;
 float gsZ(float d, float zA, float zB) { return d >= 1.0 ? 0.0 : zA + zB * (1.0 - d) / 0.1; }
 void main()
@@ -364,7 +371,7 @@ void main()
         }
         oColor = vec4(uB.rgb * mix(mix(m[0], m[1], f.x), mix(m[2], m[3], f.x), f.y), 1.0);
     }
-    else if (uMode == 16) // the GS chain's blur: the 64 x 64 source onto uA.x pixels, 12 shifted lerps (8-bit, truncated)
+    else if (uMode == 16) // the GS chain's blur: the 64 x 64 source onto uA.x pixels, 12 shifted lerps (8-bit, truncated), uA.y the tap alpha scale
     {
         // Worked with rows from the top as the GS's: the lerps weigh the later
         // taps more, so the glow drifts (down and right) as the game's does.
@@ -374,9 +381,12 @@ void main()
         vec3 acc = floor(texture(uSrc, vec2(t0.x, 64.0 - t0.y) / 64.0).rgb * 255.0 + 0.001);
         vec2 d[12] = vec2[12](vec2(-1, 0), vec2(1, 0), vec2(0, -1), vec2(0, 1), vec2(-2, 0), vec2(2, 0),
                               vec2(0, -2), vec2(0, 2), vec2(-3, 0), vec2(3, 0), vec2(0, -3), vec2(0, 3));
+        // The taps' alpha: 64 / 32 / 16 times the source's alpha (the temporal
+        // step's, uA.y of 128), truncated (the GS's MODULATE with TCC 1).
+        vec3 w = floor(vec3(64.0, 32.0, 16.0) * uA.y / 128.0) / 128.0;
         for (int i = 0; i < 12; ++i)
         {
-            float a = i < 4 ? 0.5 : (i < 8 ? 0.25 : 0.125);
+            float a = i < 4 ? w.x : (i < 8 ? w.y : w.z);
             vec2 q = p - d[i];
             if (any(lessThan(q, vec2(0.0))) || any(greaterThanEqual(q, vec2(r))))
                 continue;
@@ -397,6 +407,67 @@ void main()
         vec2 x = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y) / uA.xy - 0.5;
         vec2 uv = (0.5 + x * vec2(256.0 / 512.0, 256.0 / 448.0)) / 256.0;
         oColor = vec4(texture(uSrc, vec2(uv.x, 1.0 - uv.y)).rgb * uB.rgb * uB.a, 1.0);
+    }
+    // SOTC_BLOOM_VITA=1 (Mac): the Vita's bloom modes 8, 11, 15-18 (kQuadFragment's
+    // CG below) as 19-24, line for line, so that the Mac runs the Vita's bloom.
+    else if (uMode == 19) // Vita 8: the mask's alpha
+        oColor = vec4(0.0, 0.0, 0.0, uA.x);
+    else if (uMode == 20) // Vita 11: 4 x 4 reduction of the alpha mask in uB.rgb (uSize.xy: texel size)
+    {
+        vec2 base = floor(vUV / uSize.xy / 4.0) * 4.0 + 0.5;
+        float sum = 0.0;
+        for (int y = 0; y < 4; ++y)
+            for (int x = 0; x < 4; ++x)
+                sum += texture(uSrc, (base + vec2(x, y)) * uSize.xy).a;
+        oColor = vec4(uB.rgb * (sum / 16.0), 1.0);
+    }
+    else if (uMode == 21) // Vita 15: the GS chain's mask from the picture's alpha (uSize.xy its size)
+    {
+        vec2 uv = vUV;
+        vec2 p = vec2(floor(uv.x * 256.0), 255.0 - floor(uv.y * 256.0));
+        vec2 t = (p + 0.5) * vec2(2.0, 1.75) - 0.5;
+        vec2 i0 = floor(t), f = t - i0;
+        vec2 s = uSize.xy / vec2(512.0, 448.0);
+        vec2 a0 = clamp(i0, vec2(0.0), vec2(511.0, 447.0)), a1 = clamp(i0 + 1.0, vec2(0.0), vec2(511.0, 447.0));
+        vec2 x0 = min(floor((a0 + 0.5) * s), uSize.xy - 1.0), x1 = min(floor((a1 + 0.5) * s), uSize.xy - 1.0);
+        float m00 = texture(uSrc, (vec2(x0.x, uSize.y - 1.0 - x0.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+        float m10 = texture(uSrc, (vec2(x1.x, uSize.y - 1.0 - x0.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+        float m01 = texture(uSrc, (vec2(x0.x, uSize.y - 1.0 - x1.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+        float m11 = texture(uSrc, (vec2(x1.x, uSize.y - 1.0 - x1.y) + 0.5) / uSize.xy).a >= 0.5 ? 1.0 : 0.0;
+        oColor = vec4(uB.rgb * mix(mix(m00, m10, f.x), mix(m01, m11, f.x), f.y), 1.0);
+    }
+    else if (uMode == 22) // Vita 16: the 12-tap blur (from vUV)
+    {
+        float r = uA.x, k = 64.0 / r;
+        vec2 p = vec2(floor(vUV.x * r), r - 1.0 - floor(vUV.y * r));
+        vec2 t0 = (p + 0.5) * k;
+        vec3 acc = floor(texture(uSrc, vec2(t0.x, 64.0 - t0.y) / 64.0).rgb * 255.0 + 0.5);
+        vec2 d[12] = vec2[12](vec2(-1, 0), vec2(1, 0), vec2(0, -1), vec2(0, 1), vec2(-2, 0), vec2(2, 0),
+                              vec2(0, -2), vec2(0, 2), vec2(-3, 0), vec2(3, 0), vec2(0, -3), vec2(0, 3));
+        vec3 w = floor(vec3(64.0, 32.0, 16.0) * uA.y / 128.0) / 128.0;
+        for (int i = 0; i < 12; ++i)
+        {
+            float a = i < 4 ? w.x : (i < 8 ? w.y : w.z);
+            vec2 q = p - d[i];
+            if (q.x >= 0.0 && q.y >= 0.0 && q.x < r && q.y < r)
+            {
+                vec2 tq = 0.5 + q * k;
+                vec3 c = floor(texture(uSrc, vec2(tq.x, 64.0 - tq.y) / 64.0).rgb * 255.0 + 0.5);
+                acc += floor((c - acc) * a);
+            }
+        }
+        oColor = vec4(acc / 255.0, 1.0);
+    }
+    else if (uMode == 23) // Vita 17: the temporal step
+    {
+        vec3 cd = floor(texture(uSrc, vUV).rgb * 255.0 + 0.5), cs = floor(texture(uSrc2, vUV).rgb * 255.0 + 0.5);
+        oColor = vec4((cd + floor((cs - cd) * uA.x)) / 255.0, 1.0);
+    }
+    else if (uMode == 24) // Vita 18: the composite (uSize.xy the picture's size)
+    {
+        vec2 x = vec2(vUV.x * uSize.x, uSize.y - vUV.y * uSize.y) / uA.xy - 0.5;
+        vec2 g = (0.5 + x * vec2(256.0 / 512.0, 256.0 / 448.0)) / 256.0;
+        oColor = vec4(texture(uSrc, vec2(g.x, 1.0 - g.y)).rgb * uB.rgb * uB.a, 1.0);
     }
     else if (uMode == 12) // zFog: background (uSrc) by the depth's slice; uA = start, width, steps
     {
@@ -678,7 +749,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     return float4(uB.rgb * lerp(lerp(m00, m10, f.x), lerp(m01, m11, f.x), f.y), 1.0);
 #elif MODE == 16
     // The GS chain's blur (the Mac's mode 16): the 64 x 64 source onto uA.x
-    // pixels, 12 shifted lerps in 8 bits, truncated, rows from the top.
+    // pixels, 12 shifted lerps in 8 bits, truncated, rows from the top; uA.y
+    // the source's alpha (of 128) that scales the taps' (see below).
     float r = uA.x, k = 64.0 / r;
     float2 p = float2(floor(uv.x * r), r - 1.0 - floor(uv.y * r));
     float2 t0 = (p + 0.5) * k;
@@ -693,9 +765,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             acc += floor((c - acc) * A); \
         } \
     }
-    GS_TAP(-1.0, 0.0, 0.5) GS_TAP(1.0, 0.0, 0.5) GS_TAP(0.0, -1.0, 0.5) GS_TAP(0.0, 1.0, 0.5)
-    GS_TAP(-2.0, 0.0, 0.25) GS_TAP(2.0, 0.0, 0.25) GS_TAP(0.0, -2.0, 0.25) GS_TAP(0.0, 2.0, 0.25)
-    GS_TAP(-3.0, 0.0, 0.125) GS_TAP(3.0, 0.0, 0.125) GS_TAP(0.0, -3.0, 0.125) GS_TAP(0.0, 3.0, 0.125)
+    // The taps' alpha: 64 / 32 / 16 times the source's (the temporal step's,
+    // uA.y of 128), truncated: the GS modulates by the texture's alpha (TCC 1).
+    float3 w = floor(float3(64.0, 32.0, 16.0) * uA.y / 128.0) / 128.0;
+    GS_TAP(-1.0, 0.0, w.x) GS_TAP(1.0, 0.0, w.x) GS_TAP(0.0, -1.0, w.x) GS_TAP(0.0, 1.0, w.x)
+    GS_TAP(-2.0, 0.0, w.y) GS_TAP(2.0, 0.0, w.y) GS_TAP(0.0, -2.0, w.y) GS_TAP(0.0, 2.0, w.y)
+    GS_TAP(-3.0, 0.0, w.z) GS_TAP(3.0, 0.0, w.z) GS_TAP(0.0, -3.0, w.z) GS_TAP(0.0, 3.0, w.z)
     return float4(acc / 255.0, 1.0);
 #elif MODE == 17
     // The GS chain's temporal step (the Mac's mode 17): Cd + ((Cs - Cd) x uA.x)
@@ -1007,6 +1082,59 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool bloomHistory = false;
         // The GS chain (as Metal): 0 mask 256, 1 128, 2 64, 3 64 lerped, 4 64 history, 5 128, 6 256.
         Target gsBloom[7];
+        uint64_t bloomGameFrame = 0; // the game frame this frame's bloom came with (SOTC_BLOOM_LOG)
+        // SOTC_BLOOM_LOG: a target's mean (0-255) of channel c (3: alpha);
+        // -1 where it cannot be read back (Vita3K's targets read as black).
+        float targetMean(const Target &t, int c)
+        {
+            if (!t.fbo)
+                return -1.0f;
+            std::vector<uint8_t> px(static_cast<size_t>(t.width) * t.height * 4u);
+            glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+            glReadPixels(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, boundFbo);
+            double sum = 0.0;
+            for (size_t i = static_cast<size_t>(c); i < px.size(); i += 4)
+                sum += px[i];
+            return static_cast<float>(sum / (static_cast<double>(t.width) * t.height));
+        }
+        // the share (%) of a target's pixels with alpha >= 128 (the Vita bloom's mask)
+        float alphaCover(const Target &t)
+        {
+            std::vector<uint8_t> px(static_cast<size_t>(t.width) * t.height * 4u);
+            glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+            glReadPixels(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, boundFbo);
+            size_t n = 0;
+            for (size_t i = 3; i < px.size(); i += 4)
+                n += px[i] >= 128u ? 1u : 0u;
+            return 100.0f * static_cast<float>(n) / static_cast<float>(t.width * t.height);
+        }
+        bool bloomLog() const { return ps2_stats::bloomLogFrame(bloomGameFrame); }
+        // The GS chain's blur taps (see kQuadFragment's mode 16): the source's alpha, of 128.
+        float bloomTapAlpha() const { return native_renderer::bloomTapAlpha(bloom.temporal); }
+        void logChain(const char *path, float dt)
+        {
+            if (!bloomLog())
+                return;
+            std::fprintf(stderr,
+                         "[bloom:gl] f=%llu path=%s threshold=%.0f zA=%.2f zB=%.1f maskDepth=%.7f mask=(%.3f,%.3f,%.3f) temporal=%.4f taps=(%d,%d,%d)/128 history=%d "
+                         "means R: mask256 %.2f red128 %.2f red64 %.2f temporal64 %.2f blur64 %.2f blur128 %.2f glow256 %.2f\n",
+                         (unsigned long long)bloomGameFrame, path, bloom.threshold, bloom.zA, bloom.zB, dt, bloom.maskColor[0], bloom.maskColor[1],
+                         bloom.maskColor[2], bloom.temporal, static_cast<int>(64.0f * bloomTapAlpha() / 128.0f), static_cast<int>(32.0f * bloomTapAlpha() / 128.0f),
+                         static_cast<int>(16.0f * bloomTapAlpha() / 128.0f), gsBloomHistory ? 1 : 0, targetMean(gsBloom[0], 0), targetMean(gsBloom[1], 0),
+                         targetMean(gsBloom[2], 0), targetMean(gsBloom[3], 0), targetMean(gsBloom[4], 0), targetMean(gsBloom[5], 0),
+                         targetMean(gsBloom[6], 0));
+        }
+        void logAdd(const char *path, const Target &onto, float before)
+        {
+            if (!bloomLog())
+                return;
+            std::fprintf(stderr, "[bloom:gl] f=%llu path=%s add colour=(%.3f,%.3f,%.3f) strength=%.3f -> x%.3f; picture R mean %.2f -> %.2f\n",
+                         (unsigned long long)bloomGameFrame, path, bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3],
+                         bloom.color[0] * bloom.color[3], before, targetMean(onto, 0));
+        }
+        Target bloomShow; // SOTC_BLOOM_SHOW=1: the mask the chain read, 4 x 4 reduced, for pictures
         bool gsBloomHistory = false;
         uint32_t width = 0, height = 0;
         // What is bound now (render() starts from nothing known: the host
@@ -1016,6 +1144,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Vita bloom: after its mask is written into the picture's alpha
         // (bloomMask), the rest of the frame leaves the alpha alone.
         bool keepAlpha = false;
+#if !defined(PS2X_NATIVE_VITA)
+        // SOTC_BLOOM_VITA=1 (the Mac's OpenGL): the Vita's bloom drawn here,
+        // its mode numbers (8, 11, 15-18: the CG programs) taken by the GLSL
+        // ports 19-24 while its passes run.
+        bool vitaModes = false;
+        int macMode(int m) const
+        {
+            if (!vitaModes)
+                return m;
+            switch (m)
+            {
+            case 8: return 19;
+            case 11: return 20;
+            case 15: return 21;
+            case 16: return 22;
+            case 17: return 23;
+            case 18: return 24;
+            default: return m;
+            }
+        }
+#endif
         IdMap<Mesh> meshes;
         IdMap<Texture> textures;
         // Kept meshes share a few large vertex buffers (Tuning glMeshPools):
@@ -1374,6 +1523,42 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::vector<uint8_t> output;
         uint32_t outputWidth = 0, outputHeight = 0;
         bool hasOutput = false;
+        // SOTC_BLOOM_DUMP=1 (the Mac): every frame's bloom targets read back
+        // (top row first), handed out with the frame's picture
+        // (native_renderer::latestBloomStages), to compare stage by stage
+        // with the GS's buffers.
+        std::vector<native_renderer::BloomStage> bloomStages;
+        // SOTC_BLOOM_SHOW: 1 the mask, 2 the glow, 3 the picture / mask / glow in turn every 90 game frames.
+        int bloomShowMode() const
+        {
+            static const int mode = std::getenv("SOTC_BLOOM_SHOW") ? std::atoi(std::getenv("SOTC_BLOOM_SHOW")) : 0;
+            return mode == 3 ? static_cast<int>((bloomGameFrame / 90u) % 3u) : mode;
+        }
+        void bloomStage(const char *name, const Target &t)
+        {
+            static const bool on = std::getenv("SOTC_BLOOM_DUMP") && std::atoi(std::getenv("SOTC_BLOOM_DUMP")) != 0;
+            if (!on || !t.fbo)
+                return;
+            native_renderer::BloomStage st;
+            st.name = name;
+            st.width = t.width;
+            st.height = t.height;
+            std::vector<uint8_t> px(static_cast<size_t>(t.width) * t.height * 4u);
+            glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+            glReadPixels(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height), GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindFramebuffer(GL_FRAMEBUFFER, boundFbo);
+            st.rgba.resize(px.size());
+            const size_t row = static_cast<size_t>(t.width) * 4u;
+            for (uint32_t y = 0; y < t.height; ++y)
+                std::memcpy(st.rgba.data() + static_cast<size_t>(y) * row, px.data() + static_cast<size_t>(t.height - 1u - y) * row, row);
+            for (native_renderer::BloomStage &old : bloomStages)
+                if (old.name == st.name)
+                {
+                    old = std::move(st);
+                    return;
+                }
+            bloomStages.push_back(std::move(st));
+        }
 
         static GLuint compile(GLenum type, const char *source)
         {
@@ -2203,7 +2388,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
             glUniform1f(uniform(false, "uMode"), static_cast<float>(mode));
 #else
-            glUniform1i(uniform(false, "uMode"), mode);
+            glUniform1i(uniform(false, "uMode"), macMode(mode));
 #endif
             const float zero[4] = {0, 0, 0, 0};
             glUniform4fv(uniform(false, "uA"), 1, a ? a : zero);
@@ -3874,7 +4059,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const bool vitaBloom = bloom.enabled && bloom.color[3] > 0.0f;
         const bool dofOn = false;
 #else
-        const bool bloomOn = bloom.enabled;
+        // SOTC_BLOOM_VITA=1: the Vita's bloom (its mask in the picture's
+        // alpha, the chain from there) instead of the Mac's, to measure it
+        // against the GS on the same frames.
+        static const bool vitaBloomOnMac = std::getenv("SOTC_BLOOM_VITA") && std::atoi(std::getenv("SOTC_BLOOM_VITA")) != 0;
+        const bool bloomOn = bloom.enabled && !vitaBloomOnMac;
+        const bool vitaBloom = vitaBloomOnMac && bloom.enabled && bloom.color[3] > 0.0f;
         const bool dofOn = dof.enabled && dof.slices > 0;
 #endif
         auto doBloom = [&]
@@ -3896,17 +4086,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 bindTexture(0, gsBloom[2].texture);
                 bindTexture(1, gsBloom[4].texture);
                 quad(gsBloom[3], 17, QuadBlend::None, alpha);
-                const float r64[4] = {64, 0, 0, 0}, r128[4] = {128, 0, 0, 0};
+                const float taps = bloomTapAlpha();
+                const float r64[4] = {64, taps, 0, 0}, r128[4] = {128, taps, 0, 0};
                 bindTexture(0, gsBloom[3].texture);
                 quad(gsBloom[4], 16, QuadBlend::None, r64);
                 gsBloomHistory = true;
                 quad(gsBloom[5], 16, QuadBlend::None, r128);
                 bindTexture(0, gsBloom[5].texture);
                 quad(gsBloom[6], 0, QuadBlend::None);
+                for (int i = 0; i < 7; ++i)
+                    bloomStage(kBloomStageNames[i], gsBloom[i]);
+                float dtMac = 1.0f;
+                if (bloom.zB > 0.0f)
+                    dtMac = std::clamp(1.0f - 0.1f * (bloom.threshold + 1.0f - bloom.zA) / bloom.zB, 0.0f, 1.0f);
+                logChain("mac-depth", dtMac);
+                const float before = bloomLog() ? targetMean(colorPlain, 0) : 0.0f;
                 const float scale[4] = {static_cast<float>(width) / 512.0f, static_cast<float>(height) / 448.0f, 0, 0};
                 const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
                 bindTexture(0, gsBloom[6].texture);
                 quad(colorPlain, 18, QuadBlend::Add, scale, colour);
+                logAdd("mac-depth", colorPlain, before);
                 return;
             }
 #endif
@@ -4288,8 +4487,36 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // pillars outside the shrine against a flat white band) where the
         // GS's spreads ~30 PS2 pixels over them.
         static const bool gsChain = !std::getenv("SOTC_BLOOM_GS_VITA") || std::atoi(std::getenv("SOTC_BLOOM_GS_VITA")) != 0;
+#if !defined(PS2X_NATIVE_VITA)
+        // (the Mac with SOTC_BLOOM_VITA=1: the CG modes' GLSL ports while these run)
+        struct VitaModes
+        {
+            bool &on, was;
+            explicit VitaModes(bool &f) : on(f), was(f) { on = true; }
+            ~VitaModes() { on = was; }
+        };
+#define SOTC_VITA_MODES VitaModes vitaModesScope(vitaModes)
+#else
+#define SOTC_VITA_MODES
+#endif
         auto gsBloomChain = [&]
         {
+            SOTC_VITA_MODES;
+            bloomStage("picture", color); // its alpha: the mask the chain reads
+            if (bloomLog())
+                std::fprintf(stderr, "[bloom:gl] f=%llu mask in the picture's alpha: %.2f%% of the pixels (alpha mean %.2f)\n",
+                             (unsigned long long)bloomGameFrame, alphaCover(color), targetMean(color, 3));
+            if (bloomShowMode() == 1 || (std::getenv("SOTC_BLOOM_SHOW") && std::atoi(std::getenv("SOTC_BLOOM_SHOW")) == 3))
+            {
+                if (!bloomShow.texture)
+                    makeTarget(bloomShow, std::max(width / 4u, 1u), std::max(height / 4u, 1u), false);
+                useQuad(11);
+                const float texel[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
+                glUniform4fv(uniform(false, "uSize"), 1, texel);
+                const float white[4] = {1, 1, 1, 1};
+                bindTexture(0, color.texture);
+                quad(bloomShow, 11, QuadBlend::None, nullptr, white);
+            }
             const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
             useQuad(15);
             const float size[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
@@ -4304,7 +4531,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             bindTexture(0, gsBloom[2].texture);
             bindTexture(1, gsBloom[4].texture);
             quad(gsBloom[3], 17, QuadBlend::None, alpha);
-            const float r64[4] = {64, 0, 0, 0}, r128[4] = {128, 0, 0, 0};
+            const float taps = bloomTapAlpha();
+            const float r64[4] = {64, taps, 0, 0}, r128[4] = {128, taps, 0, 0};
             bindTexture(0, gsBloom[3].texture);
             quad(gsBloom[4], 16, QuadBlend::None, r64);
             gsBloomHistory = true;
@@ -4312,20 +4540,30 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             bindTexture(0, gsBloom[5].texture);
             quad(gsBloom[6], 0, QuadBlend::None);
             bloomHistory = true;
+            for (int i = 0; i < 7; ++i)
+                bloomStage(kBloomStageNames[i], gsBloom[i]);
+            float dtV = 1.0f;
+            if (bloom.zB > 0.0f)
+                dtV = std::clamp(1.0f - 0.1f * (bloom.threshold + 1.0f - bloom.zA) / bloom.zB, 0.0f, 1.0f);
+            logChain(bloomSameFrame ? "vita-sameframe" : "vita-late", dtV);
         };
         // The chain's glow added to the picture (QuadBlend::Add keeps its alpha).
         auto gsBloomAdd = [&]
         {
+            SOTC_VITA_MODES;
             useQuad(18);
             const float size[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
             glUniform4fv(uniform(false, "uSize"), 1, size);
             const float scale[4] = {static_cast<float>(width) / 512.0f, static_cast<float>(height) / 448.0f, 0, 0};
             const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
+            const float before = bloomLog() ? targetMean(color, 0) : 0.0f;
             bindTexture(0, gsBloom[6].texture);
             quad(color, 18, QuadBlend::Add, scale, colour);
+            logAdd(bloomSameFrame ? "vita-sameframe" : "vita-late", color, before);
         };
         auto bloomReduce = [&]
         {
+            SOTC_VITA_MODES;
             if (gsChain)
             {
                 gsBloomChain();
@@ -4348,6 +4586,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         };
         auto bloomMask = [&]
         {
+            SOTC_VITA_MODES;
             if (bloomHistory && !bloomSameFrame)
             {
                 if (gsChain)
@@ -4388,9 +4627,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 else
                     glDisable(GL_DEPTH_TEST);
                 glUniform4fv(uniform(false, "uA"), 1, a);
+#if defined(PS2X_NATIVE_VITA)
                 glUniform4fv(uniform(false, "uQuad"), 1, q);
+#else
+                const float plain[4] = {0, 0, 0, 0};
+                glUniform4fv(uniform(false, "uQuad"), 1, plain);
+                glUniform1f(uniform(false, "uZ"), q[0]);
+                glUniform1i(uniform(false, "uMode"), 19);
+#endif
                 glDrawArrays(GL_TRIANGLES, 0, 3);
             }
+#if !defined(PS2X_NATIVE_VITA)
+            glUniform1f(uniform(false, "uZ"), 0.0f);
+#endif
             glDepthFunc(GL_LEQUAL);
             if (bloomSameFrame)
             {
@@ -4487,10 +4736,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #endif
         if (bloomOn)
             events.push_back({bloom.order, -1});
-#if defined(PS2X_NATIVE_VITA)
         else if (vitaBloom)
             events.push_back({bloom.order, -8});
-#endif
         else
             bloomHistory = gsBloomHistory = false;
         for (size_t i = 0; i < blurs.size(); ++i)
@@ -4650,6 +4897,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         keepAlpha = false;
         if (bloomAdd)
             bloomReduce(); // round 18's order: added by the next frame's bloomMask
+        // SOTC_BLOOM_SHOW (debugging, the Vita's bloom): the picture replaced by
+        // the mask the chain read (1, white = in the mask) or the glow it made
+        // (2, gsBloom[6]), for pictures of what the chain works on (Vita3K's
+        // window: its render targets cannot be read back).
+        if (bloomShowMode() && gsBloomHistory)
+        {
+            const Target &from = bloomShowMode() == 1 ? bloomShow : gsBloom[6];
+            if (from.texture)
+            {
+                bindTexture(0, from.texture);
+                quad(color, 0, QuadBlend::None);
+            }
+        }
         // Round 45 (Tuning glFewCopies, the Vita): the host's copy below is the
         // last frame shown; without such a host (the Mac's read-back) a copy of its own.
 #if defined(PS2X_NATIVE_VITA)
@@ -4729,6 +4989,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         glBindFramebuffer(GL_FRAMEBUFFER, color.fbo);
         glReadPixels(0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h), GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (!bloomStages.empty())
+        {
+            std::lock_guard<std::mutex> stageLock(g_bloomStageMutex);
+            g_bloomStagesOut = bloomStages;
+        }
         std::lock_guard<std::mutex> lock(outputMutex);
         output.resize(pixels.size());
         const size_t row = static_cast<size_t>(w) * 4u;
@@ -4963,6 +5228,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             r->frameMeshes.swap(m_rec.frameMeshes);
             r->fog = m_rec.fog;
             r->bloom = m_rec.bloom;
+            r->bloomGameFrame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
             r->glow = m_rec.glow;
             r->dof = m_rec.dof;
             r->hold = m_rec.hold;
@@ -5615,6 +5881,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint64_t m_sideBytes = 0;
         uint32_t m_width = 0, m_height = 0;
     };
+}
+
+namespace native_renderer
+{
+    bool latestBloomStages(std::vector<BloomStage> &out)
+    {
+        std::lock_guard<std::mutex> lock(g_bloomStageMutex);
+        out = g_bloomStagesOut;
+        return !out.empty();
+    }
 }
 
 namespace native_renderer::detail

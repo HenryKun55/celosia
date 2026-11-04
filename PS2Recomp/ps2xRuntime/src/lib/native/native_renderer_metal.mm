@@ -276,10 +276,13 @@ fragment float4 bloomMaskGS(Quad in [[stage_in]], depth2d<float> depth [[texture
 // lerped over it (ALPHA 0x44) by 64, 32, 16 / 128, each sampling the source
 // bilinearly at u = 0.5 + (p - d) x 64 / R (the copy at (p + 0.5) x 64 / R),
 // a sprite covering only d <= p < d + R.
-fragment float4 bloomBlur12(Quad in [[stage_in]], texture2d<float> src [[texture(0)]], constant float &targetSize [[buffer(0)]])
+fragment float4 bloomBlur12(Quad in [[stage_in]], texture2d<float> src [[texture(0)]], constant float2 &targetTaps [[buffer(0)]])
 {
     constexpr sampler s(address::clamp_to_edge, filter::linear);
-    const float r = targetSize, k = 64.0 / r;
+    const float r = targetTaps.x, k = 64.0 / r;
+    // The taps' alpha: 64 / 32 / 16 times the source's (targetTaps.y of 128,
+    // the temporal step's alpha), truncated: the GS modulates by the texture's alpha.
+    const float3 w = floor(float3(64.0, 32.0, 16.0) * targetTaps.y / 128.0) / 128.0;
     const float2 p = floor(in.position.xy);
     // In 8-bit steps, each lerp truncated as the GS's ((Cs - Cd) x A >> 7):
     // through the history the truncation compounds frame after frame.
@@ -288,7 +291,7 @@ fragment float4 bloomBlur12(Quad in [[stage_in]], texture2d<float> src [[texture
                           float2(0, -2), float2(0, 2), float2(-3, 0), float2(3, 0), float2(0, -3), float2(0, 3)};
     for (int i = 0; i < 12; ++i)
     {
-        const float a = i < 4 ? 0.5 : (i < 8 ? 0.25 : 0.125);
+        const float a = i < 4 ? w.x : (i < 8 ? w.y : w.z);
         const float2 q = p - d[i];
         if (any(q < 0.0) || any(q >= r))
             continue;
@@ -1425,17 +1428,18 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             [e setFragmentTexture:gsBloom[4] atIndex:1];
                             [e setFragmentBytes:&alpha length:sizeof(alpha) atIndex:0];
                         });
-                        const float r64 = 64.0f, r128 = 128.0f;
+                        const float taps = native_renderer::bloomTapAlpha(bloom.temporal);
+                        const float r64[2] = {64.0f, taps}, r128[2] = {128.0f, taps};
                         quad(gsBloom[4], blur12Pipeline, false, [&](id<MTLRenderCommandEncoder> e)
                         {
                             [e setFragmentTexture:gsBloom[3] atIndex:0];
-                            [e setFragmentBytes:&r64 length:sizeof(r64) atIndex:0];
+                            [e setFragmentBytes:r64 length:sizeof(r64) atIndex:0];
                         });
                         gsBloomHistory = true;
                         quad(gsBloom[5], blur12Pipeline, false, [&](id<MTLRenderCommandEncoder> e)
                         {
                             [e setFragmentTexture:gsBloom[3] atIndex:0];
-                            [e setFragmentBytes:&r128 length:sizeof(r128) atIndex:0];
+                            [e setFragmentBytes:r128 length:sizeof(r128) atIndex:0];
                         });
                         quad(gsBloom[6], copySmall, false, [&](id<MTLRenderCommandEncoder> e) { [e setFragmentTexture:gsBloom[5] atIndex:0]; });
                         quad(color, compositeGsPipeline, true, [&](id<MTLRenderCommandEncoder> e)

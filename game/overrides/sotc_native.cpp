@@ -2805,6 +2805,15 @@ namespace sotc_native
         b.color[3] = static_cast<float>(word(0x118C14Cu) & 0xFFu) / 128.0f * scale;
         const uint32_t temporal = word(0x118C12Cu) & 0xFFu;
         b.temporal = temporal ? static_cast<float>(temporal) / 128.0f : 1.0f;
+        if (ps2_stats::bloomLogNow()) // SOTC_BLOOM_LOG: what the game set for the chain this frame, raw and as handed on
+            std::fprintf(stderr,
+                         "[bloom:game] f=%llu on=%d threshold=%u zA=%.2f zB=%.1f mask=(%u,%u,%u) blurA=(%u,%u,%u) temporal=%u add=(%u,%u,%u) addA=%u "
+                         "-> mask=(%.3f,%.3f,%.3f) color=(%.3f,%.3f,%.3f) strength=%.3f temporal=%.4f\n",
+                         (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), b.enabled ? 1 : 0, word(0x118C094u), b.zA, b.zB,
+                         word(0x118C0D0u) & 0xFFu, word(0x118C0D4u) & 0xFFu, word(0x118C0D8u) & 0xFFu, word(0x118C0FCu) & 0xFFu, word(0x118C10Cu) & 0xFFu,
+                         word(0x118C11Cu) & 0xFFu, temporal, word(0x118C140u) & 0xFFu, word(0x118C144u) & 0xFFu, word(0x118C148u) & 0xFFu,
+                         word(0x118C14Cu) & 0xFFu, b.maskColor[0], b.maskColor[1], b.maskColor[2], b.color[0], b.color[1], b.color[2], b.color[3],
+                         b.temporal);
         return b;
     }
 

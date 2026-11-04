@@ -3633,6 +3633,35 @@ void PS2Runtime::run()
                     const std::string nativePath = std::string(snapshotDir) + "/native_" + std::to_string(snapshotIndex) + ".png";
                     ExportImage(native, nativePath.c_str());
                 }
+                // SOTC_BLOOM_DUMP=1: the bloom chain stage by stage, both
+                // ways: the GS's memory as it stands (vram_N.bin, 4 MB: its
+                // buffers 336 / 448 / 480 / 488 / 510; exact with
+                // PS2X_GS_GPU=0) and the OpenGL renderer's targets of the
+                // frame native_N shows (bloom_N_<stage>.ppm, _a.pgm alpha).
+                static const bool bloomDump = std::getenv("SOTC_BLOOM_DUMP") && std::atoi(std::getenv("SOTC_BLOOM_DUMP")) != 0;
+                if (bloomDump)
+                {
+                    const std::string base = std::string(snapshotDir) + "/";
+                    if (const uint8_t *vram = m_memory.getGSVRAM())
+                        if (FILE *f = std::fopen((base + "vram_" + std::to_string(snapshotIndex) + ".bin").c_str(), "wb"))
+                        {
+                            std::fwrite(vram, 1, PS2_GS_VRAM_SIZE, f);
+                            std::fclose(f);
+                        }
+#if defined(__APPLE__)
+                    std::vector<native_renderer::BloomStage> stages;
+                    if (native_renderer::latestBloomStages(stages))
+                        for (const native_renderer::BloomStage &st : stages)
+                            for (int k = 0; k < 2; ++k)
+                                if (FILE *f = std::fopen((base + "bloom_" + std::to_string(snapshotIndex) + "_" + st.name + (k ? "_a.pgm" : ".ppm")).c_str(), "wb"))
+                                {
+                                    std::fprintf(f, "%s\n%u %u\n255\n", k ? "P5" : "P6", st.width, st.height);
+                                    for (size_t i = 0; i < st.rgba.size(); i += 4)
+                                        std::fwrite(&st.rgba[i + (k ? 3u : 0u)], 1, k ? 1u : 3u, f);
+                                    std::fclose(f);
+                                }
+#endif
+                }
                 if (FILE *index = std::fopen((std::string(snapshotDir) + "/index.txt").c_str(), snapshotIndex ? "a" : "w"))
                 {
                     std::fprintf(index, "%d %llu\n", snapshotIndex, static_cast<unsigned long long>(ps2_stats::vif1Chains.load(std::memory_order_relaxed)));

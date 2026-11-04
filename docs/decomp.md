@@ -9970,6 +9970,84 @@ out white in the user's r65fix shots, none in this round's bridge shots,
 where the GS has a bright but structured glow. The Mac's native picture has
 no glow there either, so the reference itself is doubtful; not changed here.
 
+## Round 65e: the bloom against the GS, stage by stage (2026-11-03)
+
+Scripts, runs, logs and pictures: `build/agent-scratch/bloom/` (route.sh /
+attract.sh: Mac runs with GS and native snapshots; tools/ana.py: per-frame
+luma, sky, clipped-white %, RMSE against the GS; tools/stage.py, sim.py,
+gsbuf.py: the GS chain's buffers read out of `vram_N.bin` and its steps
+redone in integers; v3k.sh: the Vita3K run; runs/log*, alog*: the logs below;
+pics/).
+
+**Report.** On the Vita the bloom much stronger than the GS's: the sky out of
+the shrine white, everything glowing.
+
+**Method: the same frame, logged on both sides** (`SOTC_BLOOM_LOG`). The Vita's
+bloom runs on the Mac (`SOTC_BLOOM_VITA=1`: its mask in the picture's alpha by
+a quad at the threshold's depth, the CG modes ported to GLSL), drawn beside
+the CPU GS (`PS2X_GS_GPU=0`) in one run. Per frame: what the game set
+(`[bloom:game]`), every GS sprite of the chain with its registers and the
+GS buffers' means at each step (`[bloom:gs]`), and what the native chain
+applied with each target's mean (`[bloom:gl]`).
+
+**The inputs agree** (shrine, f 2382): threshold 0, mask (255,255,255), taps
+64 / 32 / 16, temporal 118, add (175,175,165) x 128 on both sides; the GS's
+add sprite is ALPHA A0 B2 C0 D1 at full strength, as the native's.
+
+**The first stage that differs: the 64 x 64 history.** The mask and the
+reductions match (shrine f 2380: mask 10.81% native / 10.75% GS, red64 27.5
+/ ~27.2); the temporal step and the blurs after it do not:
+
+    before  [bloom:gl] f=2380 ... temporal=0.9219 means R: ... red64 27.54 temporal64 19.24 blur64 18.72 blur128 18.47 glow256 18.49
+            [bloom:gs] f=2380 means R: mask336 cover 10.75% temporal488 17.48 blur510 16.80 blur480 16.61 glow448 16.63
+    (title, static: native blur64 89.65 / GS 83.14 (+7.8%); attract f 7899: 5.17 / 4.30 (+20%))
+
+**The cause.** The 12 blur taps (into 510 and 480, from 488) are MODULATE
+with TCC 1 (logged `tcc=1 tfx=0`): each tap's alpha 64 / 32 / 16 is
+multiplied by the texture's alpha, and 488's alpha is the temporal step's own
+(0x118c12c: 0x76 in the shrine, 488's alpha read back 124 / 96 at
+temporal 124 / 96). The taps are (64 / 32 / 16 x A) >> 7: 59 / 29 / 14 at
+0x76, 29 / 14 / 7 where the temporal is 0x3b. The GS integer model with
+those weights gives 510 from 488 exactly (100% of the pixels, two frames;
+with 64 / 32 / 16: 83% and a mean 0.17 high). The native chain used the full
+taps: a little less lost to truncation each frame, and through the 92-98%
+history (x 12 to x 40) the glow stood 8-20% above the GS's, more where the
+temporal is low (the taps there are half: the glow narrower). The add's own
+alpha is not modulated (the GS picture's +84 at the title is the full add).
+
+**Fix (Metal, desktop OpenGL and the Vita's CG; `SOTC_BLOOM_TAPS=0`: as
+before).** The taps' alphas from the temporal alpha (`bloomTapAlpha`).
+
+    after   [bloom:gl] f=4300 ... temporal=0.9219 taps=(59,29,14)/128 ... red64 27.33 temporal64 17.41 blur64 16.73 blur128 16.53 glow256 16.55
+            [bloom:gs] f=4300 means R before the temporal step: ... red64(488) 27.25 history(510) 16.67
+            [bloom:gs] f=4300 means R: mask336 cover 10.67% temporal488 17.35 blur510 16.67 blur480 16.47 glow448 16.49
+    (attract f 7899, sky 47%: native temporal64 69.56 blur64 68.22 glow 68.0 / GS 69.64 68.30 68.16)
+
+Every stage within 0.4% of the GS's. Per frame (Mac, the Vita's code, the
+route's shrine with its windows, f 3000-4200, after): mean luma 171.5-173.8
+native / 168.2-170.1 GS, top-third luma 151-152 / 144-145, clipped 0 / 0,
+RMSE 13-14 (the animation a frame apart). Before (same code, other run
+instance): mean +5, top third +3 to +14. The rest of the gap is the picture
+under the bloom: before the add the native shrine is ~10 brighter than the
+GS's (164.5 / 154.7, f 4300): not the bloom (known_issues.md, "Native vs
+emulated").
+
+**Vita3K (222 MHz, 3 cores, celosia-bloom.vpk).** One run of the route: the
+chain runs late there (`path=vita-late`, the mid-frame redraw) with the
+logged taps (29,14,7 at temporal 0x3b; 59,29,14 at 0x76); Wander stood at
+the shrine's exit looking out between the pillars (f 2830-3900): the sky
+bright, the glow over the pillars' and his head's edges, no whole-picture
+wash (pics/shrine_exit_sky_vita3k_after.png). An earlier Vita3K run with
+`SOTC_BLOOM_SHOW=3` showed the mask the Vita reads: the shrine's openings and
+the sky only (v3k/diag).
+
+**Not verified.** Vita3K against the GS at the same frame (Vita3K's route
+does not reach the same frames as the Mac's; its targets cannot be read
+back); the console; Metal stage by stage (same chain and the same change,
+checked to run: route 1900-2300 within 1-5 luma of the GS). Why the user's
+earlier Vita3K pictures (r65fix) washed the whole picture is not reproduced
+here: no Vita3K shot of this round's builds shows it.
+
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
 Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,

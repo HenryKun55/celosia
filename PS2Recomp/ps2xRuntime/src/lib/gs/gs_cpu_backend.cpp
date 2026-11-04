@@ -783,6 +783,99 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
         }
     }
 
+    // SOTC_BLOOM_LOG: the bloom chain's sprites (0x109e2a0: drawn into or read
+    // from its buffers 336 / 448 / 480 / 488 / 510, or added over the picture
+    // from 448), with the registers that decide them.
+    if (ps2_stats::bloomLogNow())
+    {
+        // The picture just after the chain's add (at the next primitive).
+        static uint64_t addSeen = ~0ull, afterLogged = ~0ull;
+        if (addSeen == ps2_stats::vif1Chains.load(std::memory_order_relaxed) && afterLogged != addSeen && !(batch.state.prim.tme && batch.state.context.frame.fbp == 224u && batch.state.context.tex0.tbp0 == 448u * 32u))
+        {
+            afterLogged = addSeen;
+            flushPendingUnlocked("BloomLog");
+            double sum = 0.0;
+            for (uint32_t y = 0; y < 448u; ++y)
+                for (uint32_t x = 0; x < 512u; ++x)
+                    sum += m_vram[GSPSMCT32::addrPSMCT32(224u * 32u, 8u, x, y) % GSMem::MEMORY_SIZE];
+            std::fprintf(stderr, "[bloom:gs] f=%llu picture R mean after the add %.2f\n", (unsigned long long)addSeen, sum / (512.0 * 448.0));
+        }
+        if (batch.state.prim.tme && batch.state.context.frame.fbp == 224u && batch.state.context.tex0.tbp0 == 448u * 32u && ((batch.state.context.alpha >> 2) & 3u) == 2u)
+            addSeen = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+    }
+    if (batch.state.prim.type == GS_PRIM_SPRITE && ps2_stats::bloomLogNow())
+    {
+        const auto &c = batch.state.context;
+        auto chain = [](uint32_t fbp) { return fbp == 336u || fbp == 448u || fbp == 480u || fbp == 488u || fbp == 510u; };
+        const bool tex = batch.state.prim.tme != 0;
+        if (chain(c.frame.fbp) || (tex && (c.tex0.tbp0 % 32u) == 0u && chain(c.tex0.tbp0 / 32u)))
+        {
+            const GSVertex &a0 = batch.vertices[0], &a1 = batch.vertices[batch.vertexCount > 1 ? 1 : 0];
+            const uint64_t al = c.alpha, te = c.test;
+            std::fprintf(stderr,
+                         "[bloom:gs] f=%llu fbp=%u fbw=%u fbmsk=0x%x tex=%d tbp/32=%u tbw=%u abe=%u alpha A%u B%u C%u D%u fix=%u test ate=%u atst=%u aref=%u zte=%u ztst=%u "
+                         "zmsk=%u z=%.0f xy=(%.1f,%.1f)-(%.1f,%.1f) uv=(%.2f,%.2f)-(%.2f,%.2f) rgba=(%u,%u,%u,%u) n=%u tcc=%u tfx=%u\n",
+                         (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), c.frame.fbp, c.frame.fbw, c.frame.fbmsk, tex ? 1 : 0,
+                         c.tex0.tbp0 / 32u, (unsigned)c.tex0.tbw, (unsigned)batch.state.prim.abe, (unsigned)(al & 3u), (unsigned)((al >> 2) & 3u),
+                         (unsigned)((al >> 4) & 3u), (unsigned)((al >> 6) & 3u), (unsigned)((al >> 32) & 0xFFu), (unsigned)(te & 1u), (unsigned)((te >> 1) & 7u),
+                         (unsigned)((te >> 4) & 0xFFu), (unsigned)((te >> 16) & 1u), (unsigned)((te >> 17) & 3u), (unsigned)c.zbuf.zmask, a0.z,
+                         a0.x - (c.xyoffset.ofx >> 4), a0.y - (c.xyoffset.ofy >> 4), a1.x - (c.xyoffset.ofx >> 4), a1.y - (c.xyoffset.ofy >> 4),
+                         a0.u / 16.0, a0.v / 16.0, a1.u / 16.0, a1.v / 16.0, a0.r, a0.g, a0.b, a0.a, batch.vertexCount / 2u,
+                         (unsigned)c.tex0.tcc, (unsigned)c.tex0.tfx);
+            // The chain's add over the picture (from 448, ALPHA B = 0: Cs x As + Cd): its buffers as they stand
+            // (means of R, 0-255; the mask's cover) and the picture before it, for [bloom:gl]'s.
+            // The temporal step (510 drawn over 488 by alpha 0x76): the reductions as they stand before it.
+            static uint64_t reducedLogged = ~0ull;
+            if (tex && c.frame.fbp == 488u && c.tex0.tbp0 == 510u * 32u && batch.state.prim.abe && reducedLogged != ps2_stats::vif1Chains.load(std::memory_order_relaxed))
+            {
+                reducedLogged = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                flushPendingUnlocked("BloomLog");
+                auto m = [&](uint32_t fbp, uint32_t fbw, uint32_t w, uint32_t h)
+                {
+                    double sum = 0.0;
+                    for (uint32_t y = 0; y < h; ++y)
+                        for (uint32_t x = 0; x < w; ++x)
+                            sum += m_vram[GSPSMCT32::addrPSMCT32(fbp * 32u, fbw, x, y) % GSMem::MEMORY_SIZE];
+                    return sum / (static_cast<double>(w) * h);
+                };
+                std::fprintf(stderr, "[bloom:gs] f=%llu means R before the temporal step: mask256(448) %.2f red128(480) %.2f red64(488) %.2f history(510) %.2f\n",
+                             (unsigned long long)reducedLogged, m(448, 4, 256, 256), m(480, 2, 128, 128), m(488, 1, 64, 64), m(510, 1, 64, 64));
+            }
+            static uint64_t stagesLogged = ~0ull;
+            const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+            if (tex && c.frame.fbp == 224u && c.tex0.tbp0 == 448u * 32u && ((al >> 2) & 3u) == 2u && stagesLogged != f)
+            {
+                stagesLogged = f;
+                flushPendingUnlocked("BloomLog");
+                auto mean = [&](uint32_t fbp, uint32_t fbw, uint32_t w, uint32_t h, bool cover)
+                {
+                    double sum = 0.0;
+                    for (uint32_t y = 0; y < h; ++y)
+                        for (uint32_t x = 0; x < w; ++x)
+                        {
+                            const uint32_t a = GSPSMCT32::addrPSMCT32(fbp * 32u, fbw, x, y) % GSMem::MEMORY_SIZE;
+                            sum += cover ? (m_vram[a] > 127u ? 1.0 : 0.0) : m_vram[a];
+                        }
+                    return sum / (static_cast<double>(w) * h) * (cover ? 100.0 : 1.0);
+                };
+                std::fprintf(stderr, "[bloom:gs] f=%llu means R: mask336 cover %.2f%% temporal488 %.2f blur510 %.2f blur480 %.2f glow448 %.2f; picture R mean before the add %.2f\n",
+                             (unsigned long long)f, mean(336, 8, 512, 448, true), mean(488, 1, 64, 64, false), mean(510, 1, 64, 64, false),
+                             mean(480, 2, 128, 128, false), mean(448, 4, 256, 256, false), mean(224, 8, 512, 448, false));
+                auto alphaMean = [&](uint32_t fbp, uint32_t fbw, uint32_t w, uint32_t h)
+                {
+                    double sum = 0.0;
+                    for (uint32_t y = 0; y < h; ++y)
+                        for (uint32_t x = 0; x < w; ++x)
+                            sum += m_vram[(GSPSMCT32::addrPSMCT32(fbp * 32u, fbw, x, y) + 3u) % GSMem::MEMORY_SIZE];
+                    return sum / (static_cast<double>(w) * h);
+                };
+                std::fprintf(stderr, "[bloom:gs] f=%llu alpha means at the add: temporal488 %.2f blur510 %.2f blur480 %.2f glow448 %.2f (tex0 tcc=%u tfx=%u)\n",
+                             (unsigned long long)f, alphaMean(488, 1, 64, 64), alphaMean(510, 1, 64, 64), alphaMean(480, 2, 128, 128), alphaMean(448, 4, 256, 256),
+                             (unsigned)c.tex0.tcc, (unsigned)c.tex0.tfx);
+            }
+        }
+    }
+
     static const bool immediate = std::getenv("PS2X_GS_IMMEDIATE") != nullptr;
     UpdateTextureReadMode(batch);
     bool gpuFeedback = false;
