@@ -5,6 +5,9 @@
 #include <map>
 #include <tuple>
 #include <cstdlib>
+#include "runtime/ps2_stats.h"
+struct GSContext;
+static void bloomAdcCount(const GSContext &c, uint32_t fge, bool adc);
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "runtime/gs/gs_async_backend.h"
@@ -1179,6 +1182,8 @@ void GS::writeRegisterPacked(uint8_t regDesc, uint64_t lo, uint64_t hi)
             if (log && (++n % 50000u) == 0u)
                 std::fprintf(stderr, "[fogf] z %.0f f %u\n", vtx.z, static_cast<unsigned>(f));
         }
+        if (std::getenv("SOTC_BLOOM_LOG"))
+            bloomAdcCount(activeContext(), m_prim.fge ? 1u : 0u, adk);
         vertexKick(!adk);
         break;
     }
@@ -1801,6 +1806,28 @@ void GS::writeRegisterUnlocked(uint8_t regAddr, uint64_t value)
     }
 
     recordRegisterDebugEventUnlocked(regAddr, value);
+}
+
+// SOTC_BLOOM_LOG: per game frame, the vertices sent with ADC (no drawing kick:
+// the microcode's own cull) and without, by target and texture, for the
+// frames logged ([bloom:adc] lines at the next frame).
+static void bloomAdcCount(const GSContext &c, uint32_t fge, bool adc)
+{
+    static std::map<std::tuple<uint32_t, uint32_t, uint32_t>, std::pair<uint64_t, uint64_t>> counts;
+    static uint64_t frame = ~0ull;
+    const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+    if (f != frame)
+    {
+        for (const auto &[k, v] : counts)
+            std::fprintf(stderr, "[bloom:adc] f=%llu fbp %u tbp/32 %u fge %u: %llu vertices drawn, %llu with ADC\n", (unsigned long long)frame,
+                         std::get<0>(k), std::get<1>(k), std::get<2>(k), (unsigned long long)v.first, (unsigned long long)v.second);
+        counts.clear();
+        frame = f;
+    }
+    if (!ps2_stats::bloomLogFrame(f))
+        return;
+    auto &v = counts[{c.frame.fbp, c.tex0.tbp0 / 32u, fge}];
+    (adc ? v.second : v.first) += 1;
 }
 
 void GS::vertexKick(bool drawing)

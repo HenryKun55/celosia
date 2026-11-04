@@ -10089,6 +10089,49 @@ the openings no longer show the stone wall but are still mostly bright
 seen there as on the Mac: not measured, Vita3K's targets cannot be read
 back).
 
+**Part 3: the title screen blown out in Vita3K (the Vita's blur did
+nothing).** The user's Vita3K at the title: the sky and the upper half
+white. The title is static, so the 64 x 64 stages were put on the screen in
+turn (`SOTC_BLOOM_SHOW=8`: the reduction, the temporal step, the history)
+and read out of Vita3K's window shots (rows at 1/8 heights, tools/v3krows.py),
+against the same stages dumped on the Mac (the Vita's code, `SOTC_BLOOM_VITA=1`
+with Vita3K's order, `SOTC_GL_REDRAW=1`) at the static title:
+
+    Mac   red64      [255, 255, 255, 241, 227, 180,  92, 0]
+    Mac   temporal64 [134, 128, 121, 107,  89,  66,  29, 0]
+    Mac   blur64     [132, 126, 118, 104,  86,  64,  28, 0]
+    V3K   red64      [255, 255, 255, 242, 226, 186, 105, 0]
+    V3K   temporal64 [214, 214, 214, 201, 182, 123,  66, 0]   (before)
+    V3K   blur64     [214, 214, 214, 200, 182, 122,  65, 0]   (before)
+
+The reduction agrees; the history does not, and Vita3K's blur left its
+input as it was (temporal64 = blur64): with no blur, each texel settles
+where the temporal step's truncation stops (255 - 1 / (1 - 125/128) = 213,
+the 214 cap), twice the GS's glow over the sky. The CG blur (mode 16) put
+each of its 12 taps under an `if` (inside the target); Vita3K skipped them
+all (the same with the shaders compiled precise, `SOTC_SHADER_FAST=0`, or
+the quads' blend set explicitly). The taps are now branchless (a clamped
+sample, the step weighed by 0/1):
+
+    V3K   temporal64 [138, 132, 126, 111,  93,  70,  32, 0]   (after)
+    V3K   blur64     [136, 130, 123, 109,  90,  68,  31, 0]   (after)
+
+within ~4 of the Mac's (the two runs a few frames apart: red64 105 / 92
+at the 7th row). This was the Vita's own: the Mac's GLSL blur and Metal's
+were right. Not checked on the console (whether its GPU took the branches).
+`SOTC_BLOOM_SHOW=5/6/7/8` (the reduction, the history, the background image,
+the three stages in turn) were added for this.
+
+Vita3K's window at the title, the picture's row means at 1/8 heights (R):
+GS (Mac, CPU GS) [120, 134, 231, 235, 217, 223, 190, 151], Vita3K before
+[128, 143, 239, 252, 247, 227, 185, 154], after [123, 141, 225, 233, 216,
+223, 168, 154] (pics/title_GS__vita3k-before__vita3k-after.png, close-up
+pics/title_closeup_sky-tower_GS__before__after.png): the clouds and the
+tower back. The bridge of the opening in Vita3K after: clouds over a grey
+sky, no white wash (v3k/title-after2). `[bloom:adc]` (`SOTC_BLOOM_LOG`): per
+frame the vertices the GS was sent with and without ADC (the microcode's
+own cull), by target, texture and FGE, for item 4 below.
+
 **Vita3K (222 MHz, 3 cores, celosia-bloom.vpk).** One run of the route: the
 chain runs late there (`path=vita-late`, the mid-frame redraw) with the
 logged taps (29,14,7 at temporal 0x3b; 59,29,14 at 0x76); Wander stood at

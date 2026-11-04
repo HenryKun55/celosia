@@ -770,15 +770,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     float2 p = float2(floor(uv.x * r), r - 1.0 - floor(uv.y * r));
     float2 t0 = (p + 0.5) * k;
     float3 acc = floor(tex2D(uSrc, float2(t0.x, 64.0 - t0.y) / 64.0).rgb * 255.0 + 0.5);
+    // Branchless (round 65e): a tap outside the target adds nothing by its
+    // weight, not by an `if` (in Vita3K the taps under the branch were all
+    // skipped: the history was never blurred and the sky's glow saturated).
 #define GS_TAP(DX, DY, A) \
     { \
         float2 q = p - float2(DX, DY); \
-        if (q.x >= 0.0 && q.y >= 0.0 && q.x < r && q.y < r) \
-        { \
-            float2 tq = 0.5 + q * k; \
-            float3 c = floor(tex2D(uSrc, float2(tq.x, 64.0 - tq.y) / 64.0).rgb * 255.0 + 0.5); \
-            acc += floor((c - acc) * A); \
-        } \
+        float2 inside2 = step(float2(0.0, 0.0), q) * step(q, float2(r - 1.0, r - 1.0)); \
+        float2 tq = 0.5 + clamp(q, float2(0.0, 0.0), float2(r - 1.0, r - 1.0)) * k; \
+        float3 c = floor(tex2D(uSrc, float2(tq.x, 64.0 - tq.y) / 64.0).rgb * 255.0 + 0.5); \
+        acc += floor((c - acc) * A) * (inside2.x * inside2.y); \
     }
     // The taps' alpha: 64 / 32 / 16 times the source's (the temporal step's,
     // uA.y of 128), truncated: the GS modulates by the texture's alpha (TCC 1).
@@ -1587,10 +1588,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // (native_renderer::latestBloomStages), to compare stage by stage
         // with the GS's buffers.
         std::vector<native_renderer::BloomStage> bloomStages;
-        // SOTC_BLOOM_SHOW: 1 the mask, 2 the glow, 3 the picture / mask / glow in turn every 90 game frames.
+        // SOTC_BLOOM_SHOW: 1 the mask, 2 the glow, 3 the picture / mask / glow in turn every 90 game frames,
+        // 5 this frame's 64 x 64 reduction, 6 the 64 x 64 history, 7 the background image (256 x 256),
+        // 8 the reduction / the temporal step / the history in turn (5, 15, 25).
         int bloomShowMode() const
         {
             static const int mode = std::getenv("SOTC_BLOOM_SHOW") ? std::atoi(std::getenv("SOTC_BLOOM_SHOW")) : 0;
+            if (mode == 8) // the 64 x 64 stages in turn: this frame's reduction, the temporal step, the history (blurred)
+                return 5 + static_cast<int>((bloomGameFrame / 90u) % 3u) * 10;
             return mode == 3 ? static_cast<int>((bloomGameFrame / 90u) % 3u) : mode;
         }
         void bloomStage(const char *name, const Target &t)
@@ -5029,7 +5034,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // window: its render targets cannot be read back).
         if (bloomShowMode() && gsBloomHistory)
         {
-            const Target &from = bloomShowMode() == 1 ? bloomShow : gsBloom[6];
+            const int show = bloomShowMode();
+            const Target &from = show == 1 ? bloomShow
+                                 : show == 5 ? gsBloom[2]
+                                 : (show == 6 || show == 25) ? gsBloom[4]
+                                 : show == 15 ? gsBloom[3]
+                                 : show == 7 ? backgroundSmall
+                                             : gsBloom[6];
             if (from.texture)
             {
                 bindTexture(0, from.texture);
