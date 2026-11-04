@@ -10251,6 +10251,17 @@ demo's gallop does not repeat pose for pose between Vita3K runs, so a run
 without a streak in its ~25 shots is weak evidence. The 2D line primitives
 (GS PRIM 1/2, drawn as 1-pixel quads in flush2D; the attract demo has one
 batch, layer 31, black at alpha 4) were skipped alone: streaks.
+Colour tagging (`SOTC_GL_DYN_TINT`) on a static scene (the Load Game
+route to the plain, in_route6.txt, Agro arriving and standing): the streaks
+took no draw's colour in any mode (every draw tinted: still white / its own
+colour along the legs, not a tagged draw's), so they are not one draw's
+geometry. With the mid-frame redraw off (`SOTC_GL_REDRAW=0`; its default in
+Vita3K only, `inEmulator`) the same route shows none in 50 shots, Agro
+galloping in and standing (pics/agro_gallop_in_vita3k_redraw-default__redraw0.png),
+where every default run had them. The streaks come from Vita3K's handling of
+the picture drawn again for a mid-frame effect (not used on the console).
+Not changed yet: turning the redraw off in Vita3K brings back what it was
+made for (round 19/55: copies taken mid-frame came back white).
 
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 

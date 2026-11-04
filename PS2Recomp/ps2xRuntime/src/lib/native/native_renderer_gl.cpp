@@ -210,7 +210,7 @@ void main()
         discard;
     if (uDebug.w > 0.0)
     {
-        oColor = vec4(uDebug.rgb, 1.0);
+        oColor = vec4(uDebug.rgb, uDebug.w > 1.5 ? alpha : 1.0);
         return;
     }
     vec3 rgb = clamp(t.rgb * vColor.rgb, 0.0, 1.0);
@@ -576,7 +576,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
     if (uDebug.w > 0.0)
-        return float4(uDebug.rgb, 1.0);
+        return float4(uDebug.rgb, uDebug.w > 1.5 ? alpha : 1.0); // w 2: SOTC_GL_DYN_TINT (the draw's own alpha)
     float3 rgb = saturate(t.rgb * vColor.rgb);
     rgb = lerp(uFogColour.rgb, rgb, vUV.w / vUV.z);
     if (uFogA.w > 0.5)
@@ -3685,6 +3685,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             cache.blend = cache.depthTest = cache.depthMask = -1;
             cache.buffer = cache.texture = ~0u;
             const bool leanOn = native_renderer::tuning().glLeanPrograms, noDiscard = native_renderer::tuning().glNoDiscard;
+            uint32_t tintIndex = 0; // SOTC_GL_DYN_TINT
             // SOTC_BLOOM_LOG (with SOTC_BLOOM_RECT=x0,y0,x1,y1 in PS2 pixels, rows from the top;
             // default the shrine's left opening): the picture's mean R there after each layer.
             const bool rectLog = bloomLog() && (&target == &color || &target == &background) && !mirror;
@@ -3877,7 +3878,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const bool atSecond = atOn && !atAllUnder && !(leastAlpha >= aref);
                 float guard[4] = {0, 0, 0, 0};
                 guardFor(d.state, guard);
-                if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour)
+                // SOTC_GL_DYN_TINT=1 (debugging, round 65e): each non-indexed per-frame
+                // draw's colour replaced by one of 12 (in draw order within the frame;
+                // [gl:dyn] lines every 120 frames name them), its alpha kept.
+                static const bool dynTint = std::getenv("SOTC_GL_DYN_TINT") && std::atoi(std::getenv("SOTC_GL_DYN_TINT")) != 0;
+                static const int dynTintMode = std::getenv("SOTC_GL_DYN_TINT") ? std::atoi(std::getenv("SOTC_GL_DYN_TINT")) : 0;
+                const bool tintThis = dynTint && !d.state.shadowVolume && textured <= 1 &&
+                                      (dynTintMode == 2 ? true : dynTintMode == 3 ? (mesh.dynamic || mesh.skinned) : dynTintMode == 4 ? (!mesh.dynamic && !mesh.skinned && d.state.order >= 5u) : (mesh.dynamic && !mesh.indexed));
+                if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour && !tintThis)
                 {
                     bool cut = true;
                     if (noDiscard && leastAlpha >= 0.0f && !(guard[0] > 0.0f))
@@ -4044,6 +4052,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     for (int k = 0; k < 3; ++k)
                         debug[k] = d.state.reflectionTint[k];
                     debug[3] = -d.state.reflectionTint[3];
+                }
+                if (tintThis)
+                {
+                    static const uint32_t palette[12] = {0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF,
+                                                         0xFF8000, 0x8000FF, 0x00FF80, 0x804000, 0xFF0080, 0x808080};
+                    // mode 2/3: a colour per draw (index i: r = (i & 7) x 36, g = (i >> 3 & 7) x 36, b = (i >> 6 & 3) x 85)
+                    const uint32_t c = dynTintMode >= 2 ? ((((tintIndex & 7u) * 36u) << 16) | ((((tintIndex >> 3) & 7u) * 36u) << 8) | (((tintIndex >> 6) & 3u) * 85u))
+                                                        : palette[tintIndex % 12u];
+                    debug[0] = static_cast<float>((c >> 16) & 0xFFu) / 255.0f;
+                    debug[1] = static_cast<float>((c >> 8) & 0xFFu) / 255.0f;
+                    debug[2] = static_cast<float>(c & 0xFFu) / 255.0f;
+                    debug[3] = 2.0f;
+                    static uint64_t loggedFrame = ~0ull;
+                    if ((arenaFrame % 120u == 0u || loggedFrame == arenaFrame) && &target == &color)
+                    {
+                        loggedFrame = arenaFrame;
+                        std::fprintf(stderr, "[gl:dyn] frame %llu tint #%u %06x: order %u screen %d blend %d tex %llx count %u textured %d mesh %016llx indexed %d pool %d overlay %d alphaTest %x opacity %.3f\n",
+                                     (unsigned long long)arenaFrame, tintIndex, c, d.state.order, d.state.screen ? 1 : 0, static_cast<int>(d.state.blend),
+                                     (unsigned long long)d.state.texture, mesh.count, textured, (unsigned long long)d.mesh, mesh.indexed ? 1 : 0, mesh.pool,
+                                     d.state.overlay ? 1 : 0, d.state.alphaTest, d.state.opacity);
+                    }
+                    ++tintIndex;
                 }
                 uniform4(uMisc, misc, 1);
                 uniform4(uFogA, fogA, 1);
