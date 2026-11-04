@@ -10622,6 +10622,121 @@ and cause); the [prof] windows by subsystem as in r66's.
 
 **Deliverable:** build/agent-scratch/celosia-r67.vpk (main + this round).
 
+## Round 69: where the shrine's frame goes; the walk's prefetch records deduplicated by hash (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r69/` (v3k.sh: this round's own
+Vita3K, `r69/vita3k` with its `portable` link to ../vita3k-celosia-r69,
+222 MHz, 3 cores, muted, memcard copied, settings.cfg put back; ab.sh:
+alternated runs; tools/tl.py: 5 s timeline of `[stats]` and `[frame]`;
+tools/win.py, tools/phase.py: frame / game / render means by window or by
+the route's input entries, the host's ~1 s lock-screen stalls (frames >= 700
+ms) left out; tools/profself.py: `[prof]` windows by self time;
+tools/groups.py: a Vita3K profile by subsystem; runs/: b-log1 / b2-log1
+(timelines), b2-prof1 / b2-prof2 (SOTC_SUBSYS_PROF, the second with probes
+on ExecCharaGeometry's callees), b2-vprof1 (Vita3K profile, game thread in
+game.txt), b2-census (SOTC_COLL_CENSUS), rot-pref1/2 (the A/B), fin6-*,
+fin2-* (before / after)). Routes: bloom/in_route2.txt (Load Game, then
+Wander stands at the altar, Mono and the opening behind) and in_route6.txt
+(Load Game, turn, walk out of the shrine, the plain).
+
+**Which thread (frame log, 222 MHz).** The game thread, everywhere on both
+routes; the render thread is never waited on (`wait` ~0):
+
+| place | frame | game thread | render thread (draw part) | draws |
+|---|---|---|---|---|
+| the altar (route 2) | 60-66 ms | 58-63 | 24-26 | ~1 140 |
+| walking out of the shrine (route 6) | 53-56 | 51-54 | ~24 | 1 100-1 600 |
+| the plain (route 6) | 37-39 | 35-37 | 11-20 | ~830 |
+
+The shrine is not heavy for its pictures (the render thread at 40% of the
+frame) but for its creatures: the altar runs 18 characters' geometry a frame
+(ExecCharaGeometry x18, CharaCtrlAIControl x18: the small kites, i.e. the
+doves, nico_SmallKiteStart x7 / SpecialStart x3, and the lizards) against
+~6 on the way in (36 ms there).
+
+**The game thread at the altar (SOTC_SUBSYS_PROF, ~71 ms with the probes;
+self ms).** ExecCharaGeometry 9.9 (inclusive 18.0; with probes on its
+callees: GetCharaRootDynamics 5.9 inclusive for ~9 calls, GetClothDynamics
+2.2, CalcRootFitting 1.2), DispDispObjGroupModel 9.0 (inclusive 19.2),
+ClipCollisionDirectCallBack 4.3 (x12.8), doit_particle_geodisp 3.3 (x74),
+the character control 2.8, dispSort 2.4, CalcNodeQuaternionWithIK 2.3,
+GetMotionMatrix 2.1 (x28), doit_particle_manager 1.8, particleDraw 1.6,
+doit_game_camera 1.5; the rest below 1.5 each.
+
+**The same by Vita3K's sampler (game thread, 60 s at the altar; % of the
+game thread).** Collision 22% (~13 ms: clipDBT 3.1, the leaf 2.8,
+attributeAddress 1.2, the finder leaf 1.2, directCallBack 1.0, the node
+visitor ~2.8, leafScan 0.8, ...), recompiled code 16.5% (no function above
+0.4%), the walk's prefetch 4.2% (objectLines67 alone 3.2%), the skeleton
+3.4% (motionMatrix 3.3%), the walk 3.2%, our hooks 3.9%, light 2.6%, quat
+1.9%, memcpy 1.7%. The collision census (SOTC_COLL_CENSUS, ~15.6 ms with
+its own cost): ~50 query sites, none above 2.5 ms: the characters' root
+dynamics (charrootdyn_getCollisionDB 3 calls, 2.5 ms, 13 skinned finders a
+call; the slide and landing callbacks), FinderWithKeep (170 calls, 1.1 ms),
+the water probes, six camera segment tests (~0.3 ms each). The other
+threads (share of all samples): game 56%, render thread 23% (sceGxmDraw
+25% of it, vitaGL's vertex copies 10%, planFrame 10%), the hook worker
+12.8% (shadowDispDraw 36% of it), the DMA walker 3%.
+
+**What changed (`SOTC_PREF69`, default on; `SOTC_AB_FLAG` takes
+`pref69`).** objectLines67 (round 67) deduplicated each record's up to 28
+lines by comparing every line with every line kept before it (~330
+compares a record, a record per clip and per draw call: ~2 300 a frame at
+the altar), more than the walk's own code in Vita3K. Now a 64-slot open
+hash (a 64-bit mask of the taken slots, nothing to clear): the same first
+occurrences kept in the same order, so the same PLDs in the same order;
+no guest-visible effect either way (prefetches only). Checked on the host
+against the old loop over 5 000 000 random records (aliased and zero lines
+included): 0 differences.
+
+**Measured (Vita3K 222 MHz, 3 cores, muted, frame log on, stalls left
+out).** In one run, SOTC_AB_FLAG=pref69 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60
+at the altar (abframes.py from 400 frames after the last input):
+
+| run | windows' frames on / off | frame on / off (ms) | game thread on / off |
+|---|---|---|---|
+| rot-pref1 | 941 / 948 | 62.58 / 64.77 (+2.19) | 60.76 / 62.32 (+1.57) |
+| rot-pref2 | 1 029 / 1 036 | 60.70 / 62.36 (+1.66) | 58.91 / 60.59 (+1.68) |
+
+Before (main 7646bc7) / after, separate runs alternated:
+- the altar (route 2, t 110-205 s): 61.81 / 62.30 ms before, 62.95 / 60.65
+  after: the gain is inside the run-to-run noise (~2 ms) here; the rotation
+  above is what resolves it.
+- route 6, walking out of the shrine: 55.57 / 56.40 / 53.25 (55.1, 18.2 fps)
+  before, 55.16 / 50.77 / 52.91 (52.9, 18.9 fps) after; the plain 38.87 /
+  38.39 / 38.16 (38.5, 26.0 fps) before, 37.75 / 37.20 / 36.59 (37.2, 26.9
+  fps) after (each pair lower; the paths differ a little run to run).
+
+~1.7 ms of the altar's ~60 (3%): the shrine stays at ~16 fps in Vita3K.
+Not touched: rendering (no picture changed).
+
+**The redraw in these runs.** This round's Vita3K tree was copied with a
+settings.cfg holding `dbg_redraw_mode=2`, so every run above had the
+mid-frame redraw on in Vita3K (render thread ~25 ms at the altar). The
+final VPK includes 3d339ce (the key renamed `dbg_redraw_mode0`, the saved
+value no longer applies): its altar run (runs/final-rot, the same rotation)
+has the render thread at ~18 ms and the game thread unchanged, 60.92 ms
+with pref69 on against 62.40 off (+1.48).
+
+**Next levers (largest first).**
+1. Collision, ~13 ms at the altar, spread over ~50 query sites: the
+   doves' and lizards' root dynamics (ground, slide, landing with the
+   skinned finder over every skinned body near them), FinderWithKeep's 170
+   calls, the camera's six segment tests; a per-frame cache of the static
+   tree's answers is not exact (the queries move), so the lever is
+   cheaper leaves and fewer guest round trips (player_HellDangerDetect's
+   219 GetCollisionDBAttributeAdr calls a frame through the table).
+2. The 18 characters' geometry (~18 ms inclusive): ExecCharaGeometry's
+   guest callees (root dynamics, cloth, root fitting, the anime tables) as
+   natives called directly, and GetMotionMatrix (x28, ~2 ms).
+3. The display walk (DispDispObjGroupModel 19 ms inclusive at the altar,
+   9 self) and the particles (~6 ms).
+The render thread (~25 ms at the altar) is not the limit until the game
+thread is below it.
+
+**Deliverable:** build/agent-scratch/celosia-r69.vpk (main 7646bc7 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

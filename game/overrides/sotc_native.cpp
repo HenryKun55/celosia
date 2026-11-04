@@ -2985,7 +2985,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];

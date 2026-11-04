@@ -208,6 +208,10 @@ namespace decomp_prefetch
     // geometry class's own first line, its +4 key and +8 link), the
     // record's duplicates dropped (each PLD of
     // a line already asked for costs an issue slot and a fill buffer).
+    // SOTC_PREF69=0: round 67's pairwise dedupe (the same lines either way).
+    // (A sotc_decomp switch: SOTC_AB_FLAG takes `pref69`.)
+    bool dedupe69() { return sotc_decomp::pref69On(); }
+
     void objectLines67(const Ram m, uint32_t object, Record &r)
     {
         objectLines(m, object, r);
@@ -222,14 +226,46 @@ namespace decomp_prefetch
         if (lc)
             r.add(m.u32(lc + 0x140u));
         uint32_t n = 0;
-        for (uint32_t i = 0; i < r.count; ++i)
+        if (dedupe69())
         {
-            bool dup = false;
-            for (uint32_t j = 0; j < n && !dup; ++j)
-                dup = r.lines[j] == r.lines[i];
-            if (!dup)
-                r.lines[n++] = r.lines[i];
+            // Round 69: the same first occurrences kept, in the same order,
+            // through a 64-slot open hash (a bit mask says which slots are
+            // taken: nothing to clear) instead of comparing each line with
+            // every one kept before it (~330 compares a record, ~2 300
+            // records a frame at the shrine's altar: 3.2% of the game thread
+            // in Vita3K, more than the walk's own code).
+            uint64_t used = 0;
+            uint32_t keys[64];
+            for (uint32_t i = 0; i < r.count; ++i)
+            {
+                const uint32_t line = r.lines[i];
+                uint32_t slot = ((line >> 5) * 2654435761u) >> 26;
+                bool dup = false;
+                while ((used >> slot) & 1u)
+                {
+                    if (keys[slot] == line)
+                    {
+                        dup = true;
+                        break;
+                    }
+                    slot = (slot + 1u) & 63u;
+                }
+                if (dup)
+                    continue;
+                used |= 1ull << slot;
+                keys[slot] = line;
+                r.lines[n++] = line;
+            }
         }
+        else
+            for (uint32_t i = 0; i < r.count; ++i)
+            {
+                bool dup = false;
+                for (uint32_t j = 0; j < n && !dup; ++j)
+                    dup = r.lines[j] == r.lines[i];
+                if (!dup)
+                    r.lines[n++] = r.lines[i];
+            }
         r.count = n;
     }
 
