@@ -3744,6 +3744,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     resolveShadows();
                 if (!planned.mesh)
                     continue;
+                static const int skipKind = std::getenv("SOTC_GL_DRAW_SKIP") ? std::atoi(std::getenv("SOTC_GL_DRAW_SKIP")) : 0; // debugging (round 65e)
+                if ((skipKind == 1 && d.state.overlay) || (skipKind == 2 && planned.mesh->skinned) || (skipKind == 3 && d.state.blend == native_renderer::Blend::Additive) ||
+                    (skipKind == 5 && planned.mesh->skinned && d.state.blend != native_renderer::Blend::Opaque) || (skipKind == 6 && planned.mesh->skinned && d.state.blend == native_renderer::Blend::Opaque) ||
+                    (skipKind == 7 && planned.mesh->dynamic) || (skipKind == 8 && planned.mesh->indexed) || (skipKind == 9 && !planned.mesh->skinned && d.state.order >= 2u && d.state.order <= 3u))
+                    continue;
                 Mesh &mesh = *planned.mesh;
                 if (spike.on)
                 {
@@ -3814,7 +3819,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 }
                 Texture *tex = planned.tex;
-                const int textured = d.state.previousFrame ? 5 : d.state.reflectionSample ? 2 : (d.state.refractionSample ? 3 : (d.state.screenCopy ? 4 : (tex ? 1 : 0)));
+                const int textured = (skipKind == 4 && mesh.skinned) ? 0 : d.state.previousFrame ? 5 : d.state.reflectionSample ? 2 : (d.state.refractionSample ? 3 : (d.state.screenCopy ? 4 : (tex ? 1 : 0)));
                 const bool vertexFog = fog.vertexFog && !d.state.screen && (!d.state.background || bgFog || (d.state.backgroundFge && bgFgeOn()));
 #if defined(PS2X_NATIVE_VITA)
                 // No depth texture for the zFog pass: the world before its layer

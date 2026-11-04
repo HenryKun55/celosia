@@ -10219,6 +10219,25 @@ checked to run: route 1900-2300 within 1-5 luma of the GS). Why the user's
 earlier Vita3K pictures (r65fix) washed the whole picture is not reproduced
 here: no Vita3K shot of this round's builds shows it.
 
+**Part 6 (open): Agro's light dotted lines in Vita3K.** Vita3K, the attract
+demo's gallop (the lines are on every run): crisp white 1-2 px streaks along
+the legs. Not with the Mac's OpenGL drawing the Vita3K recording of the same
+frames (v3k/rec-demo2 -> rp-demo2: ~1 000 frames, no line). Ruled out in
+Vita3K (the lines stay): body shadows / all shadows off, GPU skinning off,
+the GS alpha test off, the discard-free variant off, merging / pools / the
+arena off, mips off, lean programs and lean draws off, vitaGL built without
+sceClibMemcpy (`NO_CLIB`, plain memcpy everywhere), the overlay passes
+skipped, Agro untextured (vertex colour x light). Flat debug colours
+(`SOTC_NATIVE_IDCOLOR=1`): no line. With the blending GPU-skinned draws
+skipped (`SOTC_GL_DRAW_SKIP=5`) Agro's body goes and the white streaks stay,
+alone, along the legs and hooves: they are a draw of their own. With the
+per-frame (arena) meshes skipped (`SOTC_GL_DRAW_SKIP=7`): no line in any
+shot of the gallop, Agro whole. So a per-frame mesh (a part posed on the
+CPU, drawn from the frame's shared vertex / index buffers) draws white
+streaks in Vita3K that it does not draw on the Mac: round 65b's kind (Vita3K
+reading those buffers stale: thin triangles stretched toward older poses).
+Not fixed yet.
+
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
 Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,
