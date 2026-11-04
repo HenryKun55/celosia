@@ -10183,6 +10183,26 @@ opening's mean R (960 x 544, x 150-330, y 20-130): GS 229.9, Vita3K before
 215.0, after 238.0 (the GS frame's camera a little lower: not the same
 frame).
 
+**Part 5: the white sky out of the shrine.** No change of its own: the same
+view through the three (input script bloom/in_route6.txt: the card prompt
+pressed until the 3D, then down, the camera centred with L1 and up out
+between the pillars and onto the dune; frame-clocked, so the Mac and Vita3K
+walk the same path; the pad script has no right stick, so "looking up" is
+this walk out under the sky). GS: the Mac's CPU GS, frames 2501 / 2553;
+Vita3K before: r65c's test3.vpk (round 65c, the user's); after: this
+round's VPK. The picture's top 200 rows (960 x 544), luma mean / std:
+
+    pillars  GS 206.8 / 47.9   Vita3K before 222.4 / 38.4   after 204.9 / 48.8
+    dune     GS 181.7 / 51.7   Vita3K before 204.2 / 47.0   after 194.8 / 50.7
+
+pics/exit_sky0_GS__vita3k-before__vita3k-after.png, exit_sky1_..., and the
+sky close-ups exit_sky0_closeup_... / exit_sky1_closeup_...: before, the sky
+a flat white over the pillars and the dune's horizon; after, the haze and
+the clouds' shading as on the GS. It was part 3's blur (Vita3K skipping the
+taps: the history saturated wherever the sky fills the mask). The dune's
+after shot stands a little nearer the edge than the GS's frame (Vita3K's
+shots are by the second).
+
 **Vita3K (222 MHz, 3 cores, celosia-bloom.vpk).** One run of the route: the
 chain runs late there (`path=vita-late`, the mid-frame redraw) with the
 logged taps (29,14,7 at temporal 0x3b; 59,29,14 at 0x76); Wander stood at
