@@ -348,6 +348,119 @@ namespace decomp_hot44b
     }
 }
 
+namespace decomp_hot44b
+{
+    // ---- ClipCollisionFinderWithKeep (0x1125f90), round 71 (SOTC_COLL71) -----
+    // The walkers' keep test over a finder's surfaces (charrootdyn's slide,
+    // ~170 surfaces a frame at the altar): a0 the result (+0 the point, +0x10
+    // the plane's, +0x20 the id pair), a1 the segment's other end, a2 the
+    // point (copied to +0 first), a3 the finder (+0 / +4 count / capacity, +0xc
+    // the id pairs), f12 the distance kept. For each id pair with a nonzero
+    // object: keepThenSlope (0x1129988; sp + 0x10 / sp its outputs); a hit
+    // takes sp + 0x50 and sp into +0 / +0x10 and the pair into +0x20. v0 1 if
+    // any hit. The loop as the MIPS runs it: its frame (0xb0: s0-s6, ra, f20)
+    // and s0-s6 / f20 hold the original's values at each call, v1 as it ends.
+    // A negative count (the MIPS would run 4G times) or the switch off: the
+    // recompiled code.
+    constexpr uint32_t kFinderWithKeep = 0x01125F90u;
+    void finderWithKeep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t a3 = GPR_U32(ctx, 7);
+        int32_t c0 = static_cast<int32_t>(READ32(a3)), c1 = static_cast<int32_t>(READ32(a3 + 4u));
+        const int32_t count = c1 < c0 ? c1 : c0;
+        if (!sotc_decomp::coll71On() || count < 0)
+            return fallback(kFinderWithKeep, rdram, ctx, runtime);
+        const uint64_t ra = GPR_U64(ctx, 31);
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0xB0u;
+        WRITE64(sp + 0x70u, GPR_U64(ctx, 18));
+        WRITE64(sp + 0x88u, GPR_U64(ctx, 21));
+        WRITE32(sp + 0xA0u, bf(ctx->f[20]));
+        WRITE64(sp + 0x60u, GPR_U64(ctx, 16));
+        WRITE64(sp + 0x68u, GPR_U64(ctx, 17));
+        WRITE64(sp + 0x78u, GPR_U64(ctx, 19));
+        WRITE64(sp + 0x80u, GPR_U64(ctx, 20));
+        WRITE64(sp + 0x90u, GPR_U64(ctx, 22));
+        WRITE64(sp + 0x98u, ra);
+        const uint64_t a0 = GPR_U64(ctx, 4), a1 = GPR_U64(ctx, 5);
+        const uint32_t s2 = static_cast<uint32_t>(a0);
+        SET_GPR_U64(ctx, 18, a0);
+        SET_GPR_U64(ctx, 21, a1);
+        SET_GPR_U32(ctx, 29, sp);
+        // lw s1 / lw v1 / slt / movn
+        SET_GPR_S64(ctx, 17, count);
+        SET_GPR_U64(ctx, 2, (c1 < c0) ? 1u : 0u);
+        SET_GPR_S64(ctx, 3, c1);
+        ctx->f[20] = FPU_MOV_S(ctx->f[12]);
+        uint64_t v0 = 0u;
+        if (count != 0)
+        {
+            ctx->r[2] = READ128(GPR_U32(ctx, 6));
+            uint32_t s0 = READ32(a3 + 0xCu);
+            int32_t s1 = count - 1;
+            SET_GPR_S64(ctx, 3, -1);
+            SET_GPR_U64(ctx, 20, 0u);
+            WRITE128(s2, ctx->r[2]);
+            SET_GPR_U64(ctx, 19, sx(s2 + 0x20u));
+            SET_GPR_S64(ctx, 22, -1);
+            uint64_t s4 = 0u;
+            for (;;)
+            {
+                const uint32_t object = READ32(s0);
+                SET_GPR_S64(ctx, 2, static_cast<int32_t>(object));
+                SET_GPR_U64(ctx, 8, sx(s0));
+                if (object != 0u)
+                {
+                    SET_GPR_U64(ctx, 16, sx(s0));
+                    SET_GPR_S64(ctx, 17, s1);
+                    SET_GPR_U64(ctx, 20, s4);
+                    SET_GPR_U64(ctx, 4, sx(sp + 0x10u));
+                    SET_GPR_U64(ctx, 5, sx(sp));
+                    SET_GPR_U64(ctx, 6, a1);
+                    SET_GPR_U64(ctx, 7, a0);
+                    ctx->f[12] = FPU_MOV_S(ctx->f[20]);
+                    sotc_decomp::callNative(rdram, ctx, runtime, kKeepThenSlope, keepThenSlope, 0x01126024u, sp);
+                    const uint64_t hit = GPR_U64(ctx, 2);
+                    ctx->r[3] = READ128(sp + 0x50u);
+                    if (hit != 0u)
+                    {
+                        s4 = 1u;
+                        SET_GPR_U64(ctx, 20, 1u);
+                        ctx->r[2] = READ128(sp);
+                        WRITE128(s2, ctx->r[3]);
+                        WRITE128(s2 + 0x10u, ctx->r[2]);
+                        const uint32_t w0 = READ32(s0);
+                        SET_GPR_S64(ctx, 3, static_cast<int32_t>(w0));
+                        WRITE32(s2 + 0x20u, w0);
+                        const uint32_t w1 = READ32(s0 + 4u);
+                        SET_GPR_S64(ctx, 2, static_cast<int32_t>(w1));
+                        WRITE32(s2 + 0x24u, w1);
+                    }
+                }
+                s1 -= 1;
+                s0 += 8u;
+                if (s1 == -1)
+                    break;
+            }
+            SET_GPR_S64(ctx, 17, -1);
+            SET_GPR_U64(ctx, 16, sx(s0));
+            v0 = s4 != 0u ? 1u : 0u;
+        }
+        SET_GPR_U64(ctx, 2, v0);
+        SET_GPR_U64(ctx, 16, READ64(sp + 0x60u));
+        SET_GPR_U64(ctx, 17, READ64(sp + 0x68u));
+        SET_GPR_U64(ctx, 18, READ64(sp + 0x70u));
+        SET_GPR_U64(ctx, 19, READ64(sp + 0x78u));
+        SET_GPR_U64(ctx, 20, READ64(sp + 0x80u));
+        SET_GPR_U64(ctx, 21, READ64(sp + 0x88u));
+        SET_GPR_U64(ctx, 22, READ64(sp + 0x90u));
+        SET_GPR_U64(ctx, 31, READ64(sp + 0x98u));
+        ctx->f[20] = fb(READ32(sp + 0xA0u));
+        SET_GPR_U32(ctx, 29, entrySp);
+        returnTo(ctx);
+    }
+}
+
 SOTC_DECOMP_FUNCTION(0x001BCB10u, GetQuaternionByEulerYXZ, decomp_hot44b::eulerYXZ);
+SOTC_DECOMP_FUNCTION(0x01125F90u, ClipCollisionFinderWithKeep, decomp_hot44b::finderWithKeep);
 SOTC_DECOMP_FUNCTION(0x01455AA0u, execCondition, decomp_hot44b::execCondition);
 SOTC_DECOMP_FUNCTION(0x01129988u, manager_sub_01129988, decomp_hot44b::keepThenSlope);

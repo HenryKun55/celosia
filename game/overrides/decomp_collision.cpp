@@ -64,6 +64,9 @@ namespace decomp_collision
     {
         std::atomic<uint64_t> clip{0}, clipSlow{0}, boundary{0}, boundarySlow{0}, leaf{0}, surfaces{0}, cylinder{0}, finder{0}, finderSlow{0}, clipPlane{0}, clipCross{0}, keep{0}, keepSlow{0}, direct{0}, directObjects{0}, directTree{0}, directSkinned{0}, vertices{0}, verticesGuest{0}, surfFilter{0}, idFilter{0}, idFilterNative{0}, water{0}, waterSlow{0}, wall{0}, wallGuest{0}, scr{0}, surface{0}, surfaceSlow{0}, surfaceFiltered{0}, plane{0}, planeMade{0};
         std::atomic<uint32_t> lastSurfFilter{0}, lastIdFilter{0};
+        // round 71: the finder leaf's surfaces by outcome
+        std::atomic<uint64_t> fLeaves{0}, fSurf{0}, fScanRej{0}, fBndRej{0}, fBndFilter{0}, fPlaneRej{0}, fIdNative{0}, fIdGuest{0}, fHas{0}, fHasLen{0}, fHasFound{0}, fEntry{0};
+        std::atomic<uint32_t> lastBndFilter{0};
     };
     Stats g_stats;
     bool g_statsOn = std::getenv("SOTC_COLLISION_STATS") != nullptr; // (round 63: set again at install, after the Vita's env.txt)
@@ -107,6 +110,12 @@ namespace decomp_collision
         std::fprintf(stderr, "[collision] vertices %llu (guest %llu)\n", (unsigned long long)g_stats.vertices.load(), (unsigned long long)g_stats.verticesGuest.load());
         std::fprintf(stderr, "[collision] direct %llu objects %llu tree %llu skinned %llu\n", (unsigned long long)g_stats.direct.load(), (unsigned long long)g_stats.directObjects.load(),
                      (unsigned long long)g_stats.directTree.load(), (unsigned long long)g_stats.directSkinned.load());
+        std::fprintf(stderr, "[collision] finder leaves %llu surfaces %llu: scan out %llu, boundary out %llu, boundary filter %llu (last %08x), plane out %llu, id filter native %llu guest %llu, has %llu (len %llu, found %llu), entries %llu\n",
+                     (unsigned long long)g_stats.fLeaves.load(), (unsigned long long)g_stats.fSurf.load(), (unsigned long long)g_stats.fScanRej.load(),
+                     (unsigned long long)g_stats.fBndRej.load(), (unsigned long long)g_stats.fBndFilter.load(), g_stats.lastBndFilter.load(),
+                     (unsigned long long)g_stats.fPlaneRej.load(), (unsigned long long)g_stats.fIdNative.load(), (unsigned long long)g_stats.fIdGuest.load(),
+                     (unsigned long long)g_stats.fHas.load(), (unsigned long long)g_stats.fHasLen.load(), (unsigned long long)g_stats.fHasFound.load(),
+                     (unsigned long long)g_stats.fEntry.load());
         std::fprintf(stderr, "[collision] keep %llu (recompiled %llu)\n", (unsigned long long)g_stats.keep.load(), (unsigned long long)g_stats.keepSlow.load());
         std::fprintf(stderr, "[collision] finder leaves %llu (recompiled %llu)\n", (unsigned long long)g_stats.finder.load(), (unsigned long long)g_stats.finderSlow.load());
         std::fprintf(stderr, "[collision] r40: water probe %llu (recompiled %llu) wall filter %llu (guest %llu) script callback %llu\n", (unsigned long long)g_stats.water.load(),
@@ -2117,16 +2126,36 @@ namespace decomp_collision
             {
                 const uint8_t *q = g.rdram + at + 4u;
                 uint64_t found = 0u;
-                for (uint32_t i = 0; i < n; ++i, q += 8)
+                if (sotc_decomp::coll71On())
                 {
-                    uint32_t v;
-                    std::memcpy(&v, q, 4);
-                    if (static_cast<uint64_t>(v & 0x00FFFFFFu) == surface)
-                    {
-                        found = 1u;
-                        break;
-                    }
+                    // Round 71: from the newest entry back (the answer is
+                    // whether any entry matches; a surface met again is most
+                    // often one the same walk entered a leaf or two ago).
+                    const uint32_t want = static_cast<uint32_t>(surface);
+                    if (want <= 0x00FFFFFFu)
+                        for (uint32_t i = n; i != 0u;)
+                        {
+                            --i;
+                            uint32_t v;
+                            std::memcpy(&v, q + i * 8u, 4);
+                            if ((v & 0x00FFFFFFu) == want)
+                            {
+                                found = 1u;
+                                break;
+                            }
+                        }
                 }
+                else
+                    for (uint32_t i = 0; i < n; ++i, q += 8)
+                    {
+                        uint32_t v;
+                        std::memcpy(&v, q, 4);
+                        if (static_cast<uint64_t>(v & 0x00FFFFFFu) == surface)
+                        {
+                            found = 1u;
+                            break;
+                        }
+                    }
                 if (__builtin_expect(sotc_decomp::fastCheckOn(), 0))
                 {
                     static sotc_decomp::FastCheck fc("collision.finderHas");
@@ -2292,6 +2321,11 @@ namespace decomp_collision
         uint32_t ids = g.u32(tree) + firstOffset;
         const uint32_t planes = g.u32(g.u32(cls + 0x174u) + 0x24u) + 0x30u;
         COLL_STAT(finder);
+        if (g_statsOn)
+        {
+            g_stats.fLeaves.fetch_add(1, std::memory_order_relaxed);
+            g_stats.fSurf.fetch_add(count, std::memory_order_relaxed);
+        }
         if (count == 0u)
         {
             SET_GPR_S32(ctx, 2, static_cast<int32_t>(firstOffset));
@@ -2305,6 +2339,8 @@ namespace decomp_collision
 #if PS2X_VU_NEON_A32
         const bool fastOn = sotc_decomp::fastNativeOn(), check49 = fastOn && fast::check49();
 #endif
+        const bool coll71 = sotc_decomp::coll71On();
+        (void)coll71;
         for (; count != 0u; --count, ids += 2u)
         {
 #if PS2X_VU_NEON_A32
@@ -2322,7 +2358,7 @@ namespace decomp_collision
                     if (n != 0u)
                     {
                         if (g_statsOn)
-                            g_stats.boundary.fetch_add(n, std::memory_order_relaxed);
+                            g_stats.boundary.fetch_add(n, std::memory_order_relaxed), g_stats.fScanRej.fetch_add(n, std::memory_order_relaxed);
                         g.f0(lastF0);
                         count -= n;
                         ids += n * 2u;
@@ -2363,7 +2399,10 @@ namespace decomp_collision
                 uint32_t f0Bits;
                 std::memcpy(&f0Bits, &f0, 4);
                 if (!(fast::key(dBits) < fast::key(f0Bits)))
+                {
+                    COLL_STAT(fBndRej);
                     continue;
+                }
             }
             else
 #endif
@@ -2372,10 +2411,16 @@ namespace decomp_collision
                 sq = PS2_VMUL(sq, sq);
                 const __m128 d = PS2_VADD(PS2_VADD(sq, lane<1>(sq)), lane<2>(sq));
                 if (!FPU_C_OLT_S(x(d), f0))
+                {
+                    COLL_STAT(fBndRej);
                     continue;
+                }
             }
             if (const uint32_t filter = g.u32(p + 0x28u); filter != 0u)
             {
+                COLL_STAT(fBndFilter);
+                if (g_statsOn)
+                    g_stats.lastBndFilter = filter;
                 SET_GPR_U32(ctx, 4, bnd);
                 SET_GPR_U32(ctx, 5, g.u32(p + 0xCu));
                 SET_GPR_U32(ctx, 6, g.u32(p + 0x30u));
@@ -2393,22 +2438,56 @@ namespace decomp_collision
                 plane(g, sp, slot);
                 entryModified(g, planes, surface, site.modified, sp);
             }
-            const __m128 n = vu::clamp(g.q(slot));
-            const __m128 prod = vu::mulN(n, vu::clamp(c));
-            __m128 acc = vu::addN(vu::clamp(vf0), lane<0>(prod));
-            acc = vu::addN(acc, lane<1>(prod));
+            auto exactDist = [&]()
+            {
+                const __m128 n = vu::clamp(g.q(slot));
+                const __m128 prod = vu::mulN(n, vu::clamp(c));
+                __m128 acc = vu::addN(vu::clamp(vf0), lane<0>(prod));
+                acc = vu::addN(acc, lane<1>(prod));
+                return x(vu::addN(vu::addN(acc, lane<2>(prod)), lane<3>(n)));
+            };
             (void)vf7one;
-            const float dist = x(vu::addN(vu::addN(acc, lane<2>(prod)), lane<3>(n)));
+            float dist;
+#if PS2X_VU_NEON_A32
+            // Round 71 (SOTC_COLL71, with SOTC_FASTNATIVE): the plane's
+            // distance as clipKeep's (round 49: the same chain without its
+            // clamps when every operand is small, the same bits).
+            bool smallP = false;
+            uint64_t pBits = 0u;
+            if (fastOn && coll71)
+            {
+                pBits = fast::planeDistances(g.q(slot), vf0, c, c, smallP);
+                if (check49)
+                {
+                    static sotc_decomp::FastCheck fc("collision.finderPlane71");
+                    const float e = exactDist();
+                    uint32_t eb;
+                    std::memcpy(&eb, &e, 4);
+                    fc.note(!smallP || eb == static_cast<uint32_t>(pBits));
+                    smallP = false;
+                }
+            }
+            if (smallP)
+                dist = fast::asFloat(static_cast<uint32_t>(pBits));
+            else
+#endif
+                dist = exactDist();
             g.f0(zero);
             if (FPU_C_OLT_S(dist, zero))
             {
                 const float neg = FPU_NEG_S(dist);
                 g.f0(neg);
                 if (!FPU_C_OLT_S(neg, radius))
+                {
+                    COLL_STAT(fPlaneRej);
                     continue;
+                }
             }
             else if (!FPU_C_OLT_S(dist, radius))
+            {
+                COLL_STAT(fPlaneRej);
                 continue;
+            }
             const uint64_t id = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(surface | 0x80000000u)));
             if (const uint32_t filter = g.u32(p + 0x2Cu); filter != 0u)
             {
@@ -2417,6 +2496,7 @@ namespace decomp_collision
                 uint64_t pass;
                 if (idFilter(g, filter, sp, g.u32(p + 0x30u), pass, sp))
                 {
+                    COLL_STAT(fIdNative);
                     if (pass == 0u)
                         continue;
                 }
@@ -2425,14 +2505,26 @@ namespace decomp_collision
                 SET_GPR_U32(ctx, 4, sp);
                 SET_GPR_U32(ctx, 5, g.u32(p + 0x30u));
                 if (g_statsOn)
-                    countGuestFilter(filter);
+                    countGuestFilter(filter), g_stats.fIdGuest.fetch_add(1, std::memory_order_relaxed);
                 guestCall(rdram, ctx, runtime, filter, site.idFilter, sp);
                 if (GPR_U64(ctx, 2) == 0u)
                     continue;
                 }
             }
+            if (g_statsOn)
+            {
+                COLL_STAT(fHas);
+                const int32_t a = static_cast<int32_t>(g.u32(g.u32(p) + 4u)), b = static_cast<int32_t>(g.u32(g.u32(p))), first = static_cast<int32_t>(g.u32(p + 0x34u));
+                const int32_t end = a < b ? a : b;
+                if (end > first)
+                    g_stats.fHasLen.fetch_add(static_cast<uint64_t>(end - first), std::memory_order_relaxed);
+            }
             if (finderHas(g, g.u32(p), static_cast<int32_t>(g.u32(p + 0x34u)), surface) != 0u)
+            {
+                COLL_STAT(fHasFound);
                 continue;
+            }
+            COLL_STAT(fEntry);
             SET_GPR_U32(ctx, 4, g.u32(p));
             SET_GPR_U32(ctx, 5, g.u32(p + 4u));
             SET_GPR_U64(ctx, 6, id);
@@ -2488,6 +2580,21 @@ namespace decomp_collision
             return sotc_decomp::recompiled(kAttributeAdr)(rdram, ctx, runtime);
         SET_GPR_U32(ctx, 2, v0);
         returnTo(ctx);
+    }
+
+    // Round 71 (SOTC_COLL71): GetCollisionDBAttributeAdr for a native caller
+    // without the table's round trip, while the table holds the native above
+    // (what that call would do: v0 the record; false: make the guest call).
+    bool attributeAdrDirect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t id)
+    {
+        if (!sotc_decomp::coll71On() || sotc_decomp::guestFunction(runtime, kAttributeAdr) != attributeAdr)
+            return false;
+        const G g{rdram, ctx, runtime};
+        uint32_t v0;
+        if (!attributeAddress(g, id, v0))
+            return false;
+        SET_GPR_U32(ctx, 2, v0);
+        return true;
     }
 
     // CollisionPlaneJudgeCallbackCameraVisibility (0x1123a58), the camera's
@@ -2893,6 +3000,43 @@ namespace decomp_collision
                        kGamecore13cb8e8 = 0x013CB8E8u, kAiJudgeColAttr = 0x013D5510u, kMoveCtrlWall = 0x014383F0u,
                        kIkColAttr = 0x01374F08u;
 
+    // ---- round 71: the root dynamics' two id filters natively (SOTC_COLL71) ----
+    // charrootdyn_slideExceptionJudgeCB (0x10dc808; decomp_hot47c.cpp has its
+    // table entry, which asked GetCollisionDBAttributeAdr through the table):
+    // the landing's and the slide's filter. manager_sub_010DF8F0 (recompiled
+    // until now): the slide callback's ClipCollisionFinderCallBack filter, 1
+    // unless the attribute's bits 26..30 are 0x30000000. Both read only the
+    // attribute word (and the user record's two words), so the native answer
+    // is the guest's; the guest's own frame (s0 / ra below sp) and its dead
+    // temporaries are not written, as for the other id filters here.
+    constexpr uint32_t kSlideJudge = 0x010DC808u, kNot30 = 0x010DF8F0u;
+    bool slideJudge(const G g, uint32_t id, uint32_t user, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        const uint64_t attr = attributeBits(g, record);
+        const uint64_t kind = attr & (0xF800ull << 20), bits = attr & 0x7C000000ull;
+        constexpr uint64_t kNoSlide = 0x9000ull << 19, kBits = 0x14000000ull;
+        if (user == 0u)
+            out = kind == kNoSlide ? 0u : (bits != kBits ? 1u : 0u);
+        else if (g.u32(user + 4u) == 0u && kind == kNoSlide)
+            out = 0u;
+        else if (g.u32(user) != 0u)
+            out = 1u;
+        else
+            out = bits != kBits ? 1u : 0u;
+        return true;
+    }
+    bool not30(const G g, uint32_t id, uint64_t &out)
+    {
+        uint32_t record;
+        if (!attributeAddress(g, id, record))
+            return false;
+        out = ((attributeBits(g, record) & 0x7C000000ull) ^ 0x30000000ull) != 0u ? 1u : 0u;
+        return true;
+    }
+
     // An id filter run natively when it is one of the above (false: run it as
     // guest code). sp: the stack pointer the guest filter would be called
     // with (0: unknown, the filters that call out go to the guest code).
@@ -2900,6 +3044,10 @@ namespace decomp_collision
     {
         switch (filter)
         {
+        case kSlideJudge:
+            return sotc_decomp::coll71On() && slideJudge(g, id, user, out);
+        case kNot30:
+            return sotc_decomp::coll71On() && not30(g, id, out);
         case kGamecore13cb8e8:
             return sotc_decomp::collProbeOn() && gamecore13cb8e8(g, id, out);
         case kAiJudgeColAttr:
@@ -2954,7 +3102,7 @@ namespace decomp_collision
     {
         const G g{rdram, ctx, runtime};
         uint64_t v0;
-        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : Which == 10 ? kNotKind80 : Which == 11 ? kGamecore13cb8e8 : Which == 12 ? kAiJudgeColAttr : Which == 14 ? kIkColAttr : kMoveCtrlWall;
+        constexpr uint32_t address = Which == 0 ? kCameraLeave : Which == 1 ? kCharaSurface : Which == 2 ? kGamecoreSurface : Which == 3 ? kNotKind28 : Which == 4 ? kPathJudge : Which == 5 ? kCameraMove : Which == 6 ? kPlayerCameraFilter : Which == 7 ? kAnySurface : Which == 8 ? kGamecore1395830 : Which == 9 ? kGamecore13958b8 : Which == 10 ? kNotKind80 : Which == 11 ? kGamecore13cb8e8 : Which == 12 ? kAiJudgeColAttr : Which == 14 ? kIkColAttr : Which == 15 ? kNot30 : kMoveCtrlWall;
         if (!idFilter(g, address, GPR_U32(ctx, 4), GPR_U32(ctx, 5), v0, GPR_U32(ctx, 29)))
             return sotc_decomp::recompiled(address)(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 2, v0);
@@ -4487,5 +4635,6 @@ SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterS
 SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlane);
 // Round 42 (SOTC_LEAVES=0: recompiled).
 SOTC_DECOMP_FUNCTION(0x01374F08u, character_ikcolattrfilter, decomp_collision::filterEntry<14>);
+SOTC_DECOMP_FUNCTION(0x010DF8F0u, manager_sub_010DF8F0, decomp_collision::filterEntry<15>);
 SOTC_DECOMP_FUNCTION(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWork);
 SOTC_DECOMP_FUNCTION(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWork);

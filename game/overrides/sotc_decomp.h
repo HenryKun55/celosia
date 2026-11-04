@@ -529,11 +529,12 @@ namespace sotc_decomp
         kTex64,       // round 64: texReset's texture loop on the offload thread (decomp_tex64)
         kWalk67,      // round 67: the per-object walks' lines asked for ahead (decomp_prefetch, decomp_walk, sotc_native, decomp_ptcldraw, decomp_collision)
         kPref69,      // round 69: the walk's prefetch records deduplicated through a hash (decomp_prefetch)
+        kColl71,      // round 71: the root dynamics' collision filters natively, the finder's leaf / duplicate test (decomp_collision)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -614,6 +615,7 @@ namespace sotc_decomp
     // written and called is the same either way).
     inline bool walk67On() { return switchOn(kWalk67); }
     inline bool pref69On() { return switchOn(kPref69); }
+    inline bool coll71On() { return switchOn(kColl71); }
 
     // Round 49's measurements. NativeCount: calls of a native (counted
     // whatever SOTC_FASTNATIVE says, at its entry); with

@@ -10850,6 +10850,125 @@ The cloth A/B above is the round's only rotation (no gain, not shipped).
 **Deliverable:** build/agent-scratch/celosia-r70.vpk (main 6250e06 + this
 round).
 
+## Round 71: the walkers' collision: fewer guest round trips, the finder's duplicate search from the newest entry (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r71/` (v3k.sh / ab.sh / intro.sh:
+round 70's, runs in r71/runs, settings.cfg the console's (r70's
+settings.cfg.orig); probes5.txt: the probe list below; runs/prof5 (the
+probes, main d9b6db3), stats1 (the finder leaf's surfaces by outcome),
+prof-on / prof-off (the probes with this round on / off), rot1-rot3 (the
+altar's A/B), rot-plain1 (the plain's), verify1 (SOTC_FASTNATIVE_CHECK), vdt1 /
+vdt2 (SOTC_DIFFTEST in Vita3K), dt0-dt3 (the Mac's difftests on the New Game
+route)). Build tree: build/agent-scratch/r69/wt (main d9b6db3), its mac / vita
+directories, vitaGL from r69/vitagl.
+
+**Where the walkers' collision goes (the altar, Vita3K 222 MHz, probes only
+on the list, ms a frame; runs/prof5).** GetCharaRootDynamics 10.7 inclusive
+(x11), its `xz` kind 9.2 (x3), `xzfit` 0.9. Under them: the skinned finder
+(skinFinder x64, 3.9 inclusive; 0.6 self) of which the finder leaf 2.5 (x72,
+~35 us a leaf), the finder's tree walk 0.4 self, EntryCollisionFinder 0.2;
+ClipCollisionFinderCallBack 2.0 (x23), ClipCollisionFinder 1.2 (x13),
+ClipCollisionFinderWithKeep 1.3 self (x4, recompiled; the keep tests under
+it: clipCollisionKeep x346 1.2, keepThenSlope), FinderWithKeep4DSlopeLimitCB
+1.4 (x3). The census (r69/runs/b2-census): GetCollisionDBCallBack's 3 calls a
+frame make 13 skinFinder calls, 3.7 tree walks, 18.7 finder leaves and 30
+EntryCollisionFinder each; ClipCollisionFinderCallBack from the landing (ra
+010dc7f8) asks GetCollisionDBAttributeAdr 34 times a call.
+
+**The finder leaf's surfaces (SOTC_COLLISION_STATS, new `[collision] finder
+leaves` line; runs/stats1).** ~10 surfaces a leaf: 29% thrown out by round
+49's boundary scan, 0.04% by the boundary test after it, 21% by the plane
+test; the other 50% reach the id filter (charaSurface, native) and the
+duplicate search over the entries this query added (24 on average), which
+finds 70% of them already there (a surface lies in several leaves of the
+same walk): 15% of the surfaces become entries. No boundary filter, no guest
+id filter.
+
+**What changed (`SOTC_COLL71`, default on; `SOTC_AB_FLAG` takes `coll71`).**
+- The two id filters of the root dynamics natively, in idFilter's table
+  (so ClipCollisionFinderCallBack and the leaves call them without a guest
+  call): manager_sub_010DF8F0 (the slide callback's filter, recompiled until
+  now: 1 unless the attribute's bits 26..30 are 0x30000000; also registered
+  in the function table) and charrootdyn_slideExceptionJudgeCB (the
+  landing's; its table entry, round 47's native, now asks
+  GetCollisionDBAttributeAdr's native straight instead of through the table,
+  while the table holds that native). Both read only the attribute word and
+  the user record's two words; as for the other native filters, the guest
+  filter's own frame below sp and its dead temporaries are not written.
+- ClipCollisionFinderWithKeep (0x1125f90) natively: the loop over the
+  finder's id pairs calling keepThenSlope (direct native call), its frame
+  (s0-s6, ra, f20), the s-registers at each call and v1 at the end as the
+  MIPS leaves them; a negative count goes to the recompiled code.
+- The finder's duplicate search (CheckCollisionFinderExistData and the leaf's
+  inline one, round 58's host-pointer loop) from the newest entry back: the
+  answer is whether any entry matches, so the order changes nothing, and a
+  surface met again was most often entered a leaf or two before.
+- The finder leaf's plane distance (Vita): clipKeep's round-49 NEON chain
+  (fast::planeDistances) when every operand is small, the same bits as the
+  clamped chain.
+
+**Exactness.**
+- Vita3K 444 MHz, the altar route, `SOTC_FASTNATIVE_CHECK=1` (runs/verify1):
+  collision.finderPlane71 2 572 288 checks, collision.finderHas (the
+  backward search against the exact forward loop) 1 818 624, 0 mismatches
+  (the other fast paths 0 as well).
+- `SOTC_DIFFTEST` in Vita3K (it runs on the Vita build too: its NEON paths;
+  the finder's walk left recompiled so the leaf is reached through the
+  table; runs/vdt1, vdt3): collisionFinderLeaf 200 checks, ClipCollisionFinder
+  100 + 100, ClipCollisionFinderCallBack, ClipCollisionFinderWithKeep and
+  FinderWithKeep4DSlopeLimitCB 1 each, 0 mismatches. The checks' 64 MB copies
+  slow the Load Game screen to ~0.2 fps, so these runs never reach the altar.
+- Mac, ClipCollisionFinderWithKeep on ClipCollisionFinder's inputs
+  (`SOTC_DIFFTEST_PROBE=ClipCollisionFinderWithKeep@ClipCollisionFinder`, the
+  same argument registers: a result, two points, a finder; runs/dt4), the New
+  Game route to frame 7 000: 3 700 checks, 0 mismatches.
+- Mac, the New Game route to frame 7 000 (the Mac never reaches the finder
+  leaf on its routes): ClipCollisionFinderCallBack 4 500 / 6 700 checks,
+  ClipCollisionFinder 2 500, charrootdyn_slideExceptionJudgeCB 200,
+  keepThenSlope 100, ClipCollisionFinderWithKeep 1 (the route calls it once),
+  0 mismatches but one (two in dt3) ClipCollisionFinderCallBack mismatch on a
+  single byte of a global (0x29126c / 0xd166cc, a different value each run)
+  that the same run with `SOTC_COLL71=0` shows too (runs/dt0): not this
+  round's.
+
+**Measured (Vita3K 222 MHz, 3 cores, muted, the console's settings; frames of
+700 ms or more left out; abframes.py; `SOTC_AB_FLAG=coll71 SOTC_AB_ROTATE=1
+SOTC_AB_PERIOD=60`).**
+
+| run | frames on / off | frame on / off (ms) | game thread on / off | off - on |
+|---|---|---|---|---|
+| the altar, rot1 (from frame 3 300) | 1 300 / 1 331 | 62.88 / 64.03 | 60.93 / 61.93 | +1.00 |
+| the altar, rot2 | 1 236 / 1 299 | 62.76 / 62.96 | 60.98 / 61.17 | +0.18 |
+| the altar, rot3 | 1 293 / 1 307 | 62.44 / 62.96 | 60.65 / 61.15 | +0.50 |
+| the plain, rot-plain1 (route 6, from frame 4 300) | 2 113 / 2 100 | 37.74 / 37.71 | 36.46 / 36.44 | -0.01 |
+
+At the altar the game thread is ~0.5 ms lower (+0.56 on average, the same
+sign in three runs, each within the ~1 ms noise of one run); the probes
+agree (runs/prof-on / prof-off, separate runs): GetCharaRootDynamics 8.88 /
+9.42 ms inclusive (-0.54), its `xz` kind 7.40 / 7.80, ClipCollisionFinderCallBack
+1.46 / 1.72, the finder leaf 2.04 / 2.20. The plain is unchanged (its
+walkers' collision is small). ~1% of the altar's frame: the shrine stays at
+~16 fps in Vita3K. On the console the guest round trips saved are dependent
+loads through the function table; an estimate, not measured: about the same
+share.
+
+**Next levers.**
+1. The finder leaf (~2 ms at the altar, ~3 us a surface in Vita3K): half its
+   surfaces pass the boundary and plane tests and 70% of those are
+   duplicates; a per-query host set of the entries (kept exact by the
+   finder's count and the query's first index, rebuilt after any guest call)
+   would make the duplicate test O(1), and the id filter could then run only
+   for surfaces not in the finder when it is a pure native (charaSurface's
+   GetCollisionDBPlane kinds excepted), with the frame words written as now.
+2. ClipCollisionFinder / ClipCollisionFinderCallBack (2.5 ms, ~36 calls over
+   ~30 candidates each): the plane test before the filter (round 63's trick
+   for the segment leaf), f0 settled at the end.
+3. The console's game-thread waits (round 70's first lever) remain larger
+   than anything here.
+
+**Deliverable:** build/agent-scratch/celosia-r71.vpk (main d9b6db3 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

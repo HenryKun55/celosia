@@ -65,6 +65,11 @@
 
 #include <cstring>
 
+namespace decomp_collision
+{
+    bool attributeAdrDirect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t id);
+}
+
 namespace decomp_hot47c
 {
     using sotc_decomp::callGuest;
@@ -120,7 +125,9 @@ namespace decomp_hot47c
         // s0 = a1 (the user record); a0 the surface, as the caller left it.
         const uint64_t user = GPR_U64(ctx, 5);
         SET_GPR_U64(ctx, 16, user);
-        callGuest(rdram, ctx, runtime, kGetAttr, 0x010DC81Cu, sp);
+        // Round 71 (SOTC_COLL71): the native lookup straight, no table round trip.
+        if (!decomp_collision::attributeAdrDirect(rdram, ctx, runtime, GPR_U32(ctx, 4)))
+            callGuest(rdram, ctx, runtime, kGetAttr, 0x010DC81Cu, sp);
 
         const uint64_t attr = READ64(GPR_U32(ctx, 2)); // ld v1, 0(v0)
         const uint64_t kind = attr & (0xF800ull << 20); // a1
