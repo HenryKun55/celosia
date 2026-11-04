@@ -376,6 +376,14 @@
    "focus": "Speed",
    "summary": "The walkers' collision at the shrine's altar (Wander's and the lizards' root dynamics, ~6 ms of the game thread in Vita3K): the slide's and the landing's finder filters native and called without guest round trips (manager_sub_010DF8F0, slideExceptionJudgeCB's attribute lookup), ClipCollisionFinderWithKeep native, the finder's duplicate search from the newest entry (70% of the surfaces that reach it are already in the finder), the finder leaf's plane distance on NEON. SOTC_COLL71, on by default, switchable with SOTC_AB_FLAG=coll71.",
    "result": "Exact: Vita3K fast-path checks 4.4 M, 0 mismatches; difftest on the Mac and in Vita3K, 0 mismatches. Vita3K 222 MHz in-run A/B at the altar: game thread -1.00 / -0.18 / -0.50 ms (three runs, ~60 ms frames; the root dynamics' probes -0.54 ms); the plain unchanged. The finder leaf (~2 ms) and the finder clips (~2.5 ms) are the next pieces."
+  },
+  {
+   "round": "r72",
+   "date": "2026-11-04",
+   "commit": "67d337a",
+   "focus": "Speed",
+   "summary": "The console's ~12 ms a frame of the game thread waiting at the shrine (the frame log's hookjoin) turned out to be round 61's modelDispState lane, not the hook worker's model jobs: the lane (priority 191 on cores 1-2) gets a core only after the hook worker, audio and the render thread, so the game thread slept at the layer cache's and the CLIP register's joins. Now the lane's jobs are run by whoever holds their token, always the oldest first: a join of the game thread runs the jobs left itself, and the hook worker runs the ones its models need (SOTC_LANE_HELP, on by default, switchable in one console run with SOTC_AB_FLAG=lanehelp).",
+   "result": "Exact: SOTC_LANE_HELP_CHECK compares each job's results at the hand-over with its real run: 0 of ~1.2 M on the Mac and 0 of 67 000 in Vita3K (with the help off, a late lane differs in 1-2 jobs per 157 000: the help makes jobs run sooner). Vita3K hides the wait (~1 ms); with the lane held 100 us a job to mimic the console, hookjoin 9.1 -> 0.3 ms and the game thread -3.3 ms; in plain Vita3K the game thread is 0.4-1.1 ms slower (it runs ~22 jobs a frame itself). Console A/B prepared (expected ~7-10 ms off the shrine's 74 ms frame)."
   }
  ]
 }
