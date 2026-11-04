@@ -2805,6 +2805,14 @@ namespace sotc_native
         b.color[3] = static_cast<float>(word(0x118C14Cu) & 0xFFu) / 128.0f * scale;
         const uint32_t temporal = word(0x118C12Cu) & 0xFFu;
         b.temporal = temporal ? static_cast<float>(temporal) / 128.0f : 1.0f;
+        if (ps2_stats::bloomLogNow() && g_cameraContext) // SOTC_BLOOM_LOG: the camera context's matrices (round 65e: layer 1's clip)
+            for (uint32_t off : {0x40u, 0x1A0u, 0x220u, 0x260u, 0x4A0u, 0x520u})
+            {
+                std::fprintf(stderr, "[bloom:game] f=%llu camera +0x%x:", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), off);
+                for (uint32_t i = 0; i < 16u; ++i)
+                    std::fprintf(stderr, " %g", real(g_cameraContext + off + i * 4u));
+                std::fprintf(stderr, "\n");
+            }
         if (ps2_stats::bloomLogNow()) // SOTC_BLOOM_LOG: what the game set for the chain this frame, raw and as handed on
             std::fprintf(stderr,
                          "[bloom:game] f=%llu on=%d threshold=%u zA=%.2f zB=%.1f mask=(%u,%u,%u) blurA=(%u,%u,%u) temporal=%u add=(%u,%u,%u) addA=%u "
@@ -3152,6 +3160,15 @@ namespace sotc_native
                 dof.rounds = std::clamp(static_cast<int32_t>(word(0x11862D4u)), 0, 4);
             }
             native_renderer::setDepthOfField(dof);
+        }
+        {
+            // Layer 1's near plane (0x1098e20's third camera packet, round 65e):
+            // max(getZFogNear (0x118c480 - 0x118c474 - 0x118c470) - *0x118c478, 10).
+            const float zFogNear = real(0x118C480u) - real(0x118C474u) - real(0x118C470u);
+            g_fog.skyNear = std::max(zFogNear - real(0x118C478u), 10.0f);
+            if (ps2_stats::bloomLogNow())
+                std::fprintf(stderr, "[bloom:game] f=%llu layer 1 near %.3f (zFog near %.3f, margin %.3f)\n", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed),
+                             g_fog.skyNear, zFogNear, real(0x118C478u));
         }
         native_renderer::setFog(g_fog);
         g_fog = native_renderer::Fog{};
@@ -9716,6 +9733,13 @@ namespace sotc_native
                                  static_cast<int>(surfaceBlend(s)), static_cast<unsigned long long>(state.texture), surface, word(s + 0x18u));
             }
             state.background = state.order == 1u;            // the sky
+            // Its GIF tag (+0xd0, PRE: PRIM in bits 47-57): FGE, bit 5 of
+            // PRIM, set on the far scenery, not on the sky (round 65e).
+            if (state.background)
+            {
+                const uint32_t tagHi = word(s + 0xD4u);
+                state.backgroundFge = ((tagHi >> 14) & 1u) != 0u && ((tagHi >> 20) & 1u) != 0u;
+            }
             if (state.background && ps2_stats::bloomLogNow()) // SOTC_BLOOM_LOG: the layer-1 models of the frame
             {
                 std::string regs;
@@ -9726,9 +9750,9 @@ namespace sotc_native
                         std::snprintf(item, sizeof(item), " %02x:%08x%08x", word(q + 8u) & 0xFFu, word(q + 4u), word(q));
                         regs += item;
                     }
-                std::fprintf(stderr, "[bloom:game] f=%llu layer-1 model header %08x surface %u tex %llx fading %d info %d flags %08x regs%s\n",
+                std::fprintf(stderr, "[bloom:game] f=%llu layer-1 model header %08x surface %u tex %llx fading %d info %d flags %08x regs%s tags c0 %08x%08x d0 %08x%08x\n",
                              (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), header, surface, (unsigned long long)state.texture,
-                             fading ? 1 : 0, info ? 1 : 0, word(s + 0x18u), regs.c_str());
+                             fading ? 1 : 0, info ? 1 : 0, word(s + 0x18u), regs.c_str(), word(s + 0xC4u), word(s + 0xC0u), word(s + 0xD4u), word(s + 0xD0u));
             }
             // Flag bit 17 (drawn only while 0x1186290 bit 0 is set): modelDisp
             // binds bossDeathEffectBegin's mask instead (setBossEffectTexture):

@@ -119,7 +119,7 @@ uniform vec4 uClip[4], uDirections[4], uColours[4]; // matrix columns
 uniform vec4 uMisc;  // lit, opacity, uv offset
 uniform vec4 uFogB;  // size, vertex fog, base
 uniform vec4 uFogC;  // scale, lod K, lod scale, max lod
-uniform vec4 uGuard; // x > 0: layer 1's near cull (see Renderer::guardFor): triangles with a vertex nearer than w = y dropped
+uniform vec4 uGuard; // x > 0: layer 1's near plane (see Renderer::guardFor): what lies nearer than w = y cut
 out vec4 vUV;        // uv, w, fog x w (the fog factor is linear on the screen, as the GS's)
 out vec4 vColor;
 out vec4 vScreen;    // clip x, y, w
@@ -145,10 +145,10 @@ void main()
         vec4 light = uColours[0] * d.x + uColours[1] * d.y + uColours[2] * d.z + uColours[3];
         vColor.rgb = min(vColor.rgb * light.rgb, vec3(255.0 / 128.0));
     }
-    // w: 1 at a vertex nearer than layer 1's near w; any such vertex makes
-    // the triangle's fragments > 0 (discarded): the whole triangle dropped.
-    float culled = uGuard.x > 0.0 && c.w < uGuard.y ? 1.0 : 0.0;
-    vScreen = vec4(c.x, c.y, c.w, culled);
+    // w: the view depth past layer 1's near plane (w - near; linear, so
+    // interpolated exactly): a fragment under 0 lies nearer and is cut, as
+    // the microcode's clipper cuts the triangle there.
+    vScreen = vec4(c.x, c.y, c.w, uGuard.x > 0.0 ? c.w - uGuard.y : 1.0);
 }
 )";
 
@@ -165,7 +165,7 @@ uniform vec4 uAlpha;     // alpha test: cut under x (at least 0.02), and at / ov
 out vec4 oColor;
 void main()
 {
-    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard)
+    if (vScreen.w < 0.0) // layer 1 nearer than its near plane (uGuard)
         discard;
     float textured = uFogColour.w;
     vec2 screen = vScreen.xy / vScreen.z * 0.5 + 0.5;
@@ -256,7 +256,7 @@ void main()
     vec4 t = textured > 0.5 ? textureLod(uTex, vUV.xy, lod) : vec4(vec3(128.0 / 255.0), 1.0); // untextured: the GS takes the vertex colour as is (255 = white)
     float alpha = clamp(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a, 0.0, 1.0);
 #if CUT
-    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard; such draws take the CUT programs)
+    if (vScreen.w < 0.0) // layer 1 nearer than its near plane (uGuard; such draws take the CUT programs)
         discard;
     if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
@@ -532,9 +532,8 @@ void main(float3 aPos, float3 aNormal, float4 aColor, float2 aUV,
         float4 light = uColours[0] * d.x + uColours[1] * d.y + uColours[2] * d.z + uColours[3];
         vColor.rgb = min(vColor.rgb * light.rgb, float3(255.0 / 128.0, 255.0 / 128.0, 255.0 / 128.0));
     }
-    // w: 1 at a vertex nearer than layer 1's near w (see the GLSL's).
-    float culled = (uGuard.x > 0.0 && c.w < uGuard.y) ? 1.0 : 0.0;
-    vScreen = float4(c.x, c.y, c.w, culled);
+    // w: the view depth past layer 1's near plane (see the GLSL's).
+    vScreen = float4(c.x, c.y, c.w, uGuard.x > 0.0 ? c.w - uGuard.y : 1.0);
 }
 )";
 
@@ -543,7 +542,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
             uniform sampler2D uTex, uniform sampler2D uBackground, uniform sampler2D uReflection, uniform sampler2D uRefraction,
             uniform float4 uFogA, uniform float4 uFogC, uniform float4 uFogColour, uniform float4 uDebug, uniform float4 uAlpha) : COLOR
 {
-    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard)
+    if (vScreen.w < 0.0) // layer 1 nearer than its near plane (uGuard)
         discard;
     float textured = uFogColour.w;
     float2 screen = vScreen.xy / vScreen.z * 0.5 + 0.5;
@@ -610,7 +609,7 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
 #if CUT
-    if (vScreen.w > 0.0) // a layer-1 triangle nearer than its near w (uGuard; such draws take the CUT programs)
+    if (vScreen.w < 0.0) // layer 1 nearer than its near plane (uGuard; such draws take the CUT programs)
         discard;
     if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
         discard;
@@ -1127,26 +1126,32 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return 100.0f * static_cast<float>(n) / static_cast<float>(t.width * t.height);
         }
         bool bloomLog() const { return ps2_stats::bloomLogFrame(bloomGameFrame); }
-        // The sky and far landscape (layer 1) have a near distance of their
-        // own on the PS2: what lies nearer is not drawn there (measured: the
-        // shrine's surroundings model, 0x3a8c60, sits around the camera inside
-        // the shrine; the GS draws none of it, the far cliffs and the sky
-        // only). Drawn natively, its walls filled the background image, which
-        // the shrine's openings show: a bright stone wall where the GS shows
-        // the cliffs, sky and fog, which the bloom then blew to white (round
-        // 65e). Triangles of layer-1 draws with a vertex nearer than w = 100
-        // are dropped. SOTC_BG_NEAR=<w> (0: off, as before).
+        // Layer 1 (the sky and the far scenery) is drawn by the PS2 through a
+        // projection of its own whose near plane lies far out (Fog::skyNear,
+        // ~170 in the shrine): the world microcode's clipper cuts what lies
+        // nearer. Drawn without it, a model around the camera inside the
+        // shrine (header 0x3a8c60, layer 1) filled the background image with
+        // its walls: a bright stone wall in the openings, which the bloom
+        // blew to white (round 65e). SOTC_BG_NEAR=<w> overrides (0: off).
         // The background image cleared to the fog colour, as the GS's picture
         // (a sprite in FOGCOL before the sky): where no sky or far scenery
         // covers it the openings showed black (SOTC_BG_CLEAR_FOG=0: black).
+        // Layer 1's vertex fog by each draw's FGE (round 65e; SOTC_BG_FGE=0:
+        // none on layer 1, as before; SOTC_NATIVE_BGFOG=1: on every one).
+        static bool bgFgeOn()
+        {
+            static const bool on = !std::getenv("SOTC_BG_FGE") || std::atoi(std::getenv("SOTC_BG_FGE")) != 0;
+            return on;
+        }
         static bool bgClearFog()
         {
             static const bool on = !std::getenv("SOTC_BG_CLEAR_FOG") || std::atoi(std::getenv("SOTC_BG_CLEAR_FOG")) != 0;
             return on;
         }
-        static void guardFor(const native_renderer::DrawState &st, float out[4])
+        void guardFor(const native_renderer::DrawState &st, float out[4]) const
         {
-            static const float nearW = std::getenv("SOTC_BG_NEAR") ? static_cast<float>(std::atof(std::getenv("SOTC_BG_NEAR"))) : 100.0f;
+            static const float forced = std::getenv("SOTC_BG_NEAR") ? static_cast<float>(std::atof(std::getenv("SOTC_BG_NEAR"))) : -1.0f;
+            const float nearW = forced >= 0.0f ? forced : fog.skyNear;
             if (st.background && !st.screen && nearW > 0.0f)
                 out[0] = 1.0f, out[1] = nearW;
         }
@@ -3210,7 +3215,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const native_renderer::DrawState &x = a.state, &y = b.state;
         if (x.texture != y.texture || x.clamp != y.clamp || x.blend != y.blend || x.order != y.order || x.opacity != y.opacity ||
             x.uvOffset[0] != y.uvOffset[0] || x.uvOffset[1] != y.uvOffset[1] || x.lodK != y.lodK || x.lodScale != y.lodScale || x.maxLod != y.maxLod ||
-            x.background != y.background || x.fogged != y.fogged || x.writeDepth != y.writeDepth || x.noDepthWrite != y.noDepthWrite ||
+            x.background != y.background || x.backgroundFge != y.backgroundFge || x.fogged != y.fogged || x.writeDepth != y.writeDepth || x.noDepthWrite != y.noDepthWrite ||
             x.overlay != y.overlay || x.screen != y.screen || x.screenDepthTest != y.screenDepthTest || x.shadowVolume || y.shadowVolume ||
             x.reflectionSource != y.reflectionSource || x.reflectionSample != y.reflectionSample || x.refractionSample != y.refractionSample ||
             x.fresnel != y.fresnel || x.screenCopy != y.screenCopy || x.previousFrame != y.previousFrame || x.debugColour != y.debugColour ||
@@ -3810,7 +3815,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 Texture *tex = planned.tex;
                 const int textured = d.state.previousFrame ? 5 : d.state.reflectionSample ? 2 : (d.state.refractionSample ? 3 : (d.state.screenCopy ? 4 : (tex ? 1 : 0)));
-                const bool vertexFog = fog.vertexFog && !d.state.screen && (!d.state.background || bgFog);
+                const bool vertexFog = fog.vertexFog && !d.state.screen && (!d.state.background || bgFog || (d.state.backgroundFge && bgFgeOn()));
 #if defined(PS2X_NATIVE_VITA)
                 // No depth texture for the zFog pass: the world before its layer
                 // blends to the background by its own depth here, slice for slice.

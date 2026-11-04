@@ -10132,6 +10132,57 @@ sky, no white wash (v3k/title-after2). `[bloom:adc]` (`SOTC_BLOOM_LOG`): per
 frame the vertices the GS was sent with and without ADC (the microcode's
 own cull), by target, texture and FGE, for item 4 below.
 
+**Part 4: layer 1's near plane (the GS's rule, in place of w = 100) and its
+fog by FGE.** The world microcode (game/overrides/sotc_vu1_world.cpp) marks
+with ADC the triangles wholly outside one plane of its clipping matrix C
+(vf5-vf8) and cuts those crossing it in its clipper (0x1410). `[bloom:vu1]`
+(`SOTC_BLOOM_LOG`) lists the C matrices of a frame: the world's (from the
+camera's +0x220 projection, near w 0.05) and, for layer 1, others from the
++0x40 projection whose z row puts the near plane at w = 170 (f 4200):
+
+    [bloom:vu1] f=4200 C (vf5-vf8 columns x y z w) used by 141 batches: 2.10902 0.0220754 0.0572233 0.0569272 ... 1.66099 -25.8362 -338.6 2.25
+    (z = 1.005 w - 340.9: near z >= -w at w = 170.0, far z <= w at 65 500)
+
+0x1098e20's third camera packet (layer 1) builds that projection itself:
+near = max(getZFogNear - *0x118c478, 10), getZFogNear = *0x118c480 -
+*0x118c474 - *0x118c470 (here 200 - 30 = 170), far the camera's +0x30.
+`Fog::skyNear` carries it to the renderers, which cut layer-1 fragments
+nearer than that view depth (the vertex stage passes w - near, exactly
+interpolated; a fragment under 0 is discarded, as the clipper cuts the
+triangle there). This replaces the w = 100 drop of part 2 (`SOTC_BG_NEAR=<w>`
+forces a value, 0: off):
+
+    [bloom:game] f=4200 layer 1 near 170.000 (zFog near 200.000, margin 30.000)
+
+The far scenery's fog: the surfaces' GIF tag at +0xd0 (PRE, PRIM in bits
+47-57) has FGE on the scenery (0x303ec000 / 0x307ec000: PRIM 0x7d / 0xfd)
+and not on the sky dome (0x302ec000: PRIM 0x5d; header 0x809d80 at
+f 4200), as the GS log shows (`[bloom:adc]`: TBP 368 / 370 FGE 0, 378 on
+FGE 1). `DrawState::backgroundFge` from that bit; layer-1 draws take the
+vertex fog when it is set (`SOTC_BG_FGE=0`: none, as before). The openings
+before the bloom's add, in the bloom's mask (the Vita's code on the Mac):
+
+    [bloom:gs] f=4200 picture before the add: in the mask (24497 px) R mean 119.72, 0.00% >= 250; outside R mean 156.32
+    [bloom:gl] f=4200 picture before the add: in the mask (24613 px) R mean 122.97, 0.02% >= 250; outside R mean 158.44
+    [bloom:gs] f=4200 picture after the add:  in the mask (24497 px) R mean 237.84, 59.88% >= 250
+    [bloom:gl] f=4200 picture after the add:  in the mask (24613 px) R mean 239.47, 63.25% >= 250
+
+(part 2: 193.35 / 97.4% clipped before any fix, 91.69 with the w = 100
+drop and no fog). The background image: the sky unfogged and the cliffs
+fogged as the GS's (pics/bg_fge_native__gs.png); below the horizon the GS's
+is a darker gradient than the native fog colour (not seen through the
+openings; open).
+
+Vita3K (222 MHz, 3 cores, celosia-bloom.vpk, the route's shrine; the input
+script's card prompt pressed again every 90 VBlanks until the 3D,
+in_route2.txt): pics/shrine_GS__vita3k-before__vita3k-after.png and the
+openings' close-up pics/shrine_openings_closeup_GS__before__after.png. Before
+(c912a31's build) the openings were a grey band over flat cream; after, the
+light shafts, the outside pillars and the haze as on the GS. The left
+opening's mean R (960 x 544, x 150-330, y 20-130): GS 229.9, Vita3K before
+215.0, after 238.0 (the GS frame's camera a little lower: not the same
+frame).
+
 **Vita3K (222 MHz, 3 cores, celosia-bloom.vpk).** One run of the route: the
 chain runs late there (`path=vita-late`, the mid-frame redraw) with the
 logged taps (29,14,7 at temporal 0x3b; 59,29,14 at 0x76); Wander stood at

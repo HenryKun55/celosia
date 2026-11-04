@@ -390,9 +390,47 @@ namespace
     }
 
     // Entry: the program's BAL vi14, 0x1140 (its delay slot is a NOP).
+    // SOTC_BLOOM_LOG (round 65e): each distinct clipping matrix C (vf5-vf8)
+    // the world loop runs with in the logged frames, and how many batches.
+    void logClipMatrix(const VU1State &S)
+    {
+        static const bool on = std::getenv("SOTC_BLOOM_LOG") != nullptr;
+        if (!on)
+            return;
+        static uint64_t frame = ~0ull;
+        static std::vector<std::pair<std::vector<float>, uint32_t>> seen;
+        const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+        if (f != frame)
+        {
+            for (const auto &[m, n] : seen)
+            {
+                std::fprintf(stderr, "[bloom:vu1] f=%llu C (vf5-vf8 columns x y z w) used by %u batches:", (unsigned long long)frame, n);
+                for (float x : m)
+                    std::fprintf(stderr, " %g", x);
+                std::fprintf(stderr, "\n");
+            }
+            seen.clear();
+            frame = f;
+        }
+        if (!ps2_stats::bloomLogFrame(f))
+            return;
+        std::vector<float> m;
+        for (int r = 5; r <= 8; ++r)
+            for (int c = 0; c < 4; ++c)
+                m.push_back(S.vf[r][c]);
+        for (auto &e : seen)
+            if (e.first == m)
+            {
+                ++e.second;
+                return;
+            }
+        seen.push_back({m, 1u});
+    }
+
     template <uint32_t Entry>
     uint32_t worldLoop(VU1State &S, uint8_t *data, uint32_t dataSize, uint64_t &cycles)
     {
+        logClipMatrix(S);
         DirectWorld direct;
         captureWorld(S, data, dataSize, direct);
         const uint32_t pc = worldLoopCpu<Entry>(S, data, dataSize, cycles);

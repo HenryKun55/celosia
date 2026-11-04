@@ -253,6 +253,9 @@ namespace native_renderer
         // to maxLod; maxLod <= 0: level 0.
         float lodK = 0.0f, lodScale = 1.0f, maxLod = 0.0f;
         bool background = false; // also drawn into the background image (what distance fades to)
+        // A layer-1 draw whose GIF tag has FGE (the far scenery; the sky has
+        // none): it takes the GS vertex fog like the world (round 65e).
+        bool backgroundFge = false;
         bool fogged = false;     // fades to the background image with distance (setFog)
         bool writeDepth = false; // write depth even when additive (a second pass follows)
         // No depth write at all: the GS's TEST AFAIL FB_ONLY with every pixel
@@ -352,6 +355,12 @@ namespace native_renderer
         bool vertexFog = false;
         float base = 255.0f, scale = 0.0f;
         float colour[3] = {0, 0, 0}; // 0..1
+        // Layer 1 (the sky, the far scenery) has a projection of its own
+        // (0x1098e20's third camera packet): near = max(getZFogNear -
+        // *0x118c478, 10). The world microcode clips what lies nearer (its
+        // clipping matrix's near plane): the native renderer cuts layer-1
+        // fragments nearer than this view depth (0: none). Round 65e.
+        float skyNear = 0.0f;
     };
     void setFog(const Fog &fog);
 
