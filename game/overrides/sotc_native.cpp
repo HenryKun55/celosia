@@ -6922,6 +6922,14 @@ namespace sotc_native
         state.blend = g_ptclBlend == 1u ? native_renderer::Blend::Additive : (g_ptclBlend == 2u ? native_renderer::Blend::Subtract : native_renderer::Blend::Normal);
         state.order = layer;
         state.fogged = false;
+        // Round 65e: the particles' TEST is ATST NEVER, AFAIL FB_ONLY (logged on
+        // the GS: no pixel passes, every one written to the frame only): they
+        // never write Z. Written natively, the clouds of mist over the bridge
+        // hid the sky from the bloom's mask (Z <= threshold + 1): 42% of the
+        // picture masked where the GS masks 95%, the sky grey instead of the
+        // GS's bright haze. SOTC_PTCL_DEPTH=1: they write depth, as before.
+        static const bool ptclDepth = std::getenv("SOTC_PTCL_DEPTH") && std::atoi(std::getenv("SOTC_PTCL_DEPTH")) != 0;
+        state.noDepthWrite = !ptclDepth;
         native_renderer::draw(mesh, camera, state);
         ++g_frameDraws;
     }
@@ -9740,7 +9748,7 @@ namespace sotc_native
                 const uint32_t tagHi = word(s + 0xD4u);
                 state.backgroundFge = ((tagHi >> 14) & 1u) != 0u && ((tagHi >> 20) & 1u) != 0u;
             }
-            if (state.background && ps2_stats::bloomLogNow()) // SOTC_BLOOM_LOG: the layer-1 models of the frame
+            if ((state.background || state.order == 18u) && ps2_stats::bloomLogNow()) // SOTC_BLOOM_LOG: the layer-1 (and 18) models of the frame
             {
                 std::string regs;
                 char item[40];
@@ -9750,7 +9758,7 @@ namespace sotc_native
                         std::snprintf(item, sizeof(item), " %02x:%08x%08x", word(q + 8u) & 0xFFu, word(q + 4u), word(q));
                         regs += item;
                     }
-                std::fprintf(stderr, "[bloom:game] f=%llu layer-1 model header %08x surface %u tex %llx fading %d info %d flags %08x regs%s tags c0 %08x%08x d0 %08x%08x\n",
+                std::fprintf(stderr, "[bloom:game] f=%llu layer-1/18 model header %08x surface %u tex %llx fading %d info %d flags %08x regs%s tags c0 %08x%08x d0 %08x%08x\n",
                              (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), header, surface, (unsigned long long)state.texture,
                              fading ? 1 : 0, info ? 1 : 0, word(s + 0x18u), regs.c_str(), word(s + 0xC4u), word(s + 0xC0u), word(s + 0xD4u), word(s + 0xD0u));
             }

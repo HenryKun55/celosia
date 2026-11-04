@@ -10301,6 +10301,25 @@ pics/fades_wake_cutscene_GS__vita3k.png (pairs GS | Vita3K, Vita3K up to a
 second behind). No stuck, black or white frame of its own. Frame by frame
 was not possible (Vita3K's window is caught once a second).
 
+**The sky's haze (the attract demo's bridge; the forest ruins the same).**
+At the same game frame on the Mac (CPU GS against the Vita's code), the GS's
+sky a bright haze, the native one grey with dark clouds: not the weather.
+`[bloom:gl]` / `[bloom:gs]` at f 4800: the bloom's mask 42% of the picture
+natively, 95% on the GS (threshold 0: what has no Z after bgEnd). Skipping
+the layer-18 per-frame draws (`SOTC_GL_DRAW_SKIP=218`) the mask is 98.6% /
+98.2%: the particles (ptcldraw type 7, layer 18, the mist) wrote depth. On
+the GS they are drawn with TEST ATST NEVER, AFAIL FB_ONLY (`[bloom:gs] rect`
+with the registers): frame only, no Z. Fix (sotc_native.cpp ptcl draw):
+`noDepthWrite` (`SOTC_PTCL_DEPTH=1`: as before). After, f 4800: mask 48.60% /
+GS 48.31%; frames 4550-4952 RMSE against the GS 17-22 (before 28-67). Also
+(native_renderer_gl.cpp): layer 1 drawn into the picture without zFog has its
+depth reset before layer 2, as bgEnd's Z = 1 (`SOTC_BG_DEPTH_RESET=0`: kept).
+Vita3K 222 MHz (pics/bridge_sky_GS__vita3k-before__vita3k-after.png, sky
+close-up ..._closeup_GS__before__after.png; GS frame 4750, Vita3K by eye at
+the same pose): the sky's top 220 rows luma GS 213.4, Vita3K before 137.6,
+after 209.9. Metal: the particles' change applies (the game side); the depth
+reset is OpenGL / Vita only.
+
 ## Round 66: the Vita build's code layout, the guest RAM's alignment (2026-11-03)
 
 Scripts and logs: `build/agent-scratch/r66/` (hotset.py, pages.py, classes.py,

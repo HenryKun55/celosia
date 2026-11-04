@@ -3686,6 +3686,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             cache.buffer = cache.texture = ~0u;
             const bool leanOn = native_renderer::tuning().glLeanPrograms, noDiscard = native_renderer::tuning().glNoDiscard;
             uint32_t tintIndex = 0; // SOTC_GL_DYN_TINT
+            bool bgDepthPending = false; // layer 1 drawn into the picture: its depth reset before layer 2
             // SOTC_BLOOM_LOG (with SOTC_BLOOM_RECT=x0,y0,x1,y1 in PS2 pixels, rows from the top;
             // default the shrine's left opening): the picture's mean R there after each layer.
             const bool rectLog = bloomLog() && (&target == &color || &target == &background) && !mirror;
@@ -3741,6 +3742,31 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     continue;
                 if (d.state.order < fromOrder || d.state.order >= toOrder)
                     continue;
+                // Round 65e: layer 1 drawn into the picture (no zFog this
+                // frame): after it, bgEnd sets the PS2's Z to 1 over the whole
+                // frame (a Z-only sprite), so the sky and the far scenery are
+                // "nothing drawn" for what follows: the bloom's mask (Z <= the
+                // threshold + 1) covers them on the GS. The depth cleared here
+                // as there (SOTC_BG_DEPTH_RESET=0: kept, as before: the bridge's
+                // far scenery out of the mask, its glow missing).
+                if (!backgroundOnly && !mirror && bgDepthPending && d.state.order > 1u)
+                {
+                    bgDepthPending = false;
+                    static const bool reset = !std::getenv("SOTC_BG_DEPTH_RESET") || std::atoi(std::getenv("SOTC_BG_DEPTH_RESET")) != 0;
+                    if (reset)
+                    {
+                        glDepthMask(GL_TRUE);
+#if defined(PS2X_NATIVE_VITA)
+                        glClearDepthf(1.0f);
+#else
+                        glClearDepth(1.0);
+#endif
+                        glClear(GL_DEPTH_BUFFER_BIT);
+                        cache.depthMask = -1;
+                    }
+                }
+                if (!backgroundOnly && !mirror && d.state.order == 1u)
+                    bgDepthPending = true;
                 if (shadowAmount && d.state.order > shadowOrder)
                     resolveShadows();
                 if (!planned.mesh)
