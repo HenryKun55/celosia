@@ -12616,6 +12616,241 @@ round); console env r83/env-console.txt (`SOTC_AB_FLAG=r83all,newdir`: all
 on / walk83 and ptcl83 off / rounds 78-83 off); read it with
 `python3 build/agent-scratch/r83/tools/ab83.py err.txt --from <frame>`.
 
+## Round 84: a fresh profile; the AI path's tests at path scale and the camera's water search kept (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r84/`:
+- build.sh: its own worktree `r84/wt` and build directory `r84/vita`.
+- v3k.sh: its own Vita3K, `r84/vita3k`, with its `portable` link to
+  ../vita3k-celosia-r84 (pref-path fixed to r84); 222 MHz, 3 cores, muted,
+  memcard copied, settings.cfg put back; it refuses a missing VPK and a
+  second start while the round's Vita3K runs.
+- chain.sh (absolute VPK path): the altar A/B, route 6 A/B, the attract demo
+  with the console env (660 s), check runs on route 6 and at the altar, then
+  shots.sh (the altar and route 6 pictures, `SOTC_PROBE84=1` / `0`).
+- tools/ab84.py: round 83's reader plus the round's `[probe84]` and `[find84]`
+  lines and `[seg80]`'s path callers. tools/grp84.py: a `vita_profile.py`
+  listing summed by subsystem.
+- runs/:
+  - profA / profR: the sampling profiles (the altar 200-300 s, route 6
+    300-450 s; game.txt by function).
+  - tlA: SOTC_SUBSYS_PROF with a timeline.
+  - censusA: SOTC_COLL_CENSUS.
+  - probeA / probeR: SOTC_SUBSYS_PROF_EXTRA probes on the suspects.
+  - seglogA: seg80's hits by caller.
+  - altar1-altar6, route2, route6, routeC, altarC: the A/Bs.
+  - check1, checkC, checkAC, checkF: the check modes.
+  - attractC, attract6: the attract demo.
+  - shotsA-* / shotsR-*: the pictures.
+- find84-dropped.diff: the first, unhashed finder memo.
+
+The Mac's screen was locked for the first runs (profiles, census, run 1)
+and unlocked later. The frame log readers leave frames over 700 ms out.
+SOTC_SUBSYS_PROF's `hook.sync` holds the lock-screen stalls (round 79), so
+it is left out of the table below.
+
+**Where the altar's game thread goes now (Vita3K 222 MHz, rounds 78-83 on;
+the sampler on the game thread, and probes for inclusive times).** The
+sampler, by subsystem (% of the game thread, altar / route 6):
+
+| subsystem | altar | route 6 |
+|---|---|---|
+| collision | 22.5 | 9.2 |
+| recompiled code | 17.1 | 21.4 |
+| other natives | 18.8 | 20.0 |
+| pose / skeleton | 7.1 | 7.6 |
+| render hooks | 5.9 | 6.6 |
+| the walk / clip | 5.4 | 7.2 |
+| particles | 4.8 | 6.6 |
+| character control | 3.1 | 4.6 |
+
+No function is above 3.5%.
+
+The probes, ms a frame at the altar (with their own cost):
+
+| item | ms | what is under it |
+|---|---|---|
+| Wander's ground step (xz, 0x10E7610) | 5.0 | finder fill (charrootdyn_getCollisionDB) 2.1; slide 0.7; landing 0.7 |
+| the particle manager | 3.5 | its own loop 1.2; the camera's water search 1.0-1.2; geodisps 1.1 |
+| the camera | 2.6 | |
+| the AI path work (updateUserPathWork, 4 calls) | 2.7 | the path's visibility tests (gamecore_sub_01434AE0 x6.6) 0.85; widePathCollisionDirect x2 0.7 |
+| the AI control of 18 creatures | 2.0 | |
+| the IK's foot search | 0.6 | |
+
+On route 6: the ground step 1.5, the AI path work 1.2, the camera 2.1, the
+particles 2.2.
+
+The collision census at the altar is ~12.4 ms a frame with its own clock reads:
+- Wander's finder fill (GetCollisionDBCallBack from getCollisionDB): 1.9 ms
+  for 1.5 calls, 55 candidate entries a call.
+- The keeps: 1.1 ms for 163 calls.
+- The path's visibility tests (ra 0x01434B04): 1.0 ms.
+- The camera's water search: 0.9 ms.
+- The slide's FinderWithKeep: 0.8 ms.
+- widePathCollisionDirect's test (ra 0x0142FD38): 0.7 ms.
+- The IK's foot search: 0.6 ms.
+
+Round 80's 1 cm memo answered 31% of the path's tests and 0% of
+widePath's (runs/seglogA).
+
+**What changed (`SOTC_PROBE84`, default on; `SOTC_AB_FLAG` takes `probe84`
+and `r84all`, and `newdir` now takes it in; decomp_collision.cpp,
+decomp_probe84.cpp).** Two world probes that the game repeats every frame for
+answers that change over metres, not millimetres:
+
+- **The AI path's visibility tests at path scale.**
+  - Callers: updateUserPathWork's segment tests between the user and the
+    path's points (gamecore_sub_01434AE0, and widePathCollisionDirect's
+    centre and side tests).
+  - The tests go through round 80's memo. Their end points may be within
+    `SOTC_PROBE84_EPS` (0.15 units) of a kept test's instead of 1 cm, and the
+    answer at most `SOTC_PROBE84_AGE` (10) game frames old instead of 5.
+  - They have a pool of 96 slots of their own, so the camera's tests do not
+    push them out of round 80's shared 48.
+  - These tests steer the path following of Agro and the AI, which works in
+    metres.
+  - The horse's own tests (updateHorseCtrlWork, gamecore_sub_01443250) were
+    in the first builds. 0-7% of them repeated at the altar and ~2% while
+    riding, so they were taken out again: the ride is not touched.
+- **The camera's water search kept.**
+  - The particle manager's environment step (manager_sub_0113A5A8, once a
+    frame) asks whether there is water around the camera. It probes straight
+    down first, and when that finds nothing it calls
+    IsWaterSurfaceExistAround over a radius of 50 units.
+  - That call runs a probe against every water object of the group:
+    0.9-1.2 ms at the altar.
+  - Its answer (v0 and the height it writes) is kept with its inputs: the
+    out pointer, the group, the two radii and the point.
+  - The kept answer is given back while the camera stays within
+    `SOTC_PROBE84_WATER_EPS` (0.25 units), for at most
+    `SOTC_PROBE84_WATER_AGE` (10) frames.
+  - Only that caller (ra 0x0113A740) goes through the memo; the player's own
+    water tests are untouched.
+- `SOTC_PROBE84_CHECK=1`: on every kept answer the game's code runs too, and
+  its answer is the one used. The two are compared (`[probe84]` lines for the
+  water, `[seg80] ... (check: n, hit or not differs m)` for the path).
+- `SOTC_PROBE84_LOG=1` (and `SOTC_SEG80_LOG=1`): hits by caller every 600
+  frames. Each miss is classed by the nearest kept test's distance.
+
+**Checked against the game's code (`SOTC_PROBE84_CHECK=1`).**
+
+| run | path tests checked | answer differs (hit vs no hit) | water searches checked | water differs |
+|---|---|---|---|---|
+| check1 (route 6, first build with the horse) | 25 463 | 19 (0.07%) | 9 206 | 0 |
+| checkC (route 6) | 21 745 | 0 | 10 470 | 0 |
+| checkAC (the altar) | 10 868 | 22 (0.2%, widePath's centre test) | 6 425 | 0 |
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, whole frame, in-run A/B
+`SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab84.py; off minus on).**
+
+| run | build | part | frames on / off | frame on / off (ms) | off minus on | matched by draws |
+|---|---|---|---|---|---|---|
+| altar1 | first (shared slots, with the horse) | from 3 300 | 3 264 / 3 296 | 41.84 / 42.83 | +1.00 | +1.35 |
+| altar2 | own pool | from 3 300 | 3 322 / 3 324 | 41.70 / 43.19 | +1.49 | +1.35 |
+| altarC | own pool | from 3 300 | 3 642 / 3 687 | 37.76 / 38.52 | +0.76 | +1.23 |
+| altar6 | shipped (no horse) | from 3 300 | 3 344 / 3 390 | 39.46 / 40.81 | +1.35 | +1.23 |
+| route2 (route 6) | own pool | from 3 000 / the plain from 4 300 | 6 210 / 6 203 | 26.10 / 26.48 | +0.38 | +0.45 / +0.14 |
+| route6 | shipped | from 3 000 / the plain from 4 300 | 6 117 / 6 104 | 26.11 / 26.38 | +0.27 | +0.30 / +0.05 |
+| attract6 (660 s, `r84all,newdir`) | shipped | < 7 000, `r84all` | 2 320 / 2 330 | 20.82 / 20.42 | -0.40 | -0.24 |
+| attract6 | shipped | 7 000-9 999, `r84all` | 1 018 / 998 | 21.02 / 20.99 | -0.03 | +0.09 |
+| attract6 | shipped | >= 10 000 (riding), `r84all` | 3 752 / 3 718 | 31.43 / 31.69 | +0.26 | +0.11 |
+| attract6 | shipped | >= 10 000, `newdir` (rounds 78-84 off) | 3 752 / 3 756 | 31.43 / 34.57 | +3.14 | +2.24 |
+
+How the shipped build's tests are answered:
+- At the altar: 44% of the path's tests and 13% of widePath's come from the
+  memo, and 89% of the water searches.
+- On route 6: about half of the path's tests and 87% of the water searches.
+- While riding: few repeat, and the attract demo is unchanged within the
+  noise.
+- The chain's attract run (attractC, with the horse's tests still in) read
+  -1.02 ms matched while riding. Those tests repeated 0-2% there, so that
+  reading is the riding part's noise. It is one more reason they are out.
+
+So the gain is ~1.2 ms at the altar, ~0.3 ms out of the shrine and none
+measurable on the plain or while riding.
+
+**Measured and left off: the ground finder's candidates per still object
+(`SOTC_FIND84`, default off; decomp_hot47j.cpp).** Round 80's find80 kept a
+whole group's candidates and almost never applied, because Wander's groups
+always hold moving characters (Mono, the birds, his own head).
+
+How SOTC_FIND84 works:
+- The unit is one object of the group: a layout object that is not a
+  character.
+- Its finder step's inputs form the key: the caller, the finder, the
+  object, f12, t1-t3 and what they point to, the stack word, its collision
+  flags, its scale and its world matrix.
+- When those match an earlier step's and both query points are within
+  `SOTC_FIND84_EPS` (3 cm), for at most `SOTC_FIND84_AGE` (5) frames, the
+  earlier step's (object, surface) pairs are entered again instead of the
+  tree walk.
+- Characters always run.
+
+Results:
+- checkF (the altar, `SOTC_FIND84_CHECK=1`): 75% of the still objects'
+  steps kept; 42 of 159 000 differ from the game's own step.
+- The first build compared the 52-word keys slot by slot (~50 steps a frame
+  x 64 slots) and was slower (altar3: -0.72 ms matched). That build is in
+  find84-dropped.diff.
+- With a hash in front (altar5): +0.96 ms raw, +0.93 matched.
+- That is below the round's 1 ms bar for a change to the ground under
+  Wander's feet, so it stays off.
+- Most of the ~50 finder steps a frame are of objects too far away to yield
+  anything (0.2-1.6 pairs a step). The ground step's time is in the near
+  objects' leaves and in the narrow phase (the keeps, the slide, the
+  landing), which this cannot skip.
+
+**Pictures and behaviour.**
+- The altar (runs/shotsA-on / -off: route 2, `SOTC_PROBE84=1` / `0`, the
+  window every 6 s from 90 s; pics/r84_A_*_on__off.png): Wander, Mono and
+  the shrine are the same in both.
+- Route 6 (runs/shotsR-*, pics/r84_R_*): the runs drift apart with the frame
+  rate as in every round, so the pairs are other moments; no missing or
+  broken picture in either.
+- Nothing this round draws differently. The water search's answer feeds the
+  camera's underwater and surface effects: it was identical to the game's in
+  every checked call (26 000).
+- The pictures were taken on the chain's build, which still had the horse's
+  tests; the shipped build only removes those from the memo.
+- No crash:
+  - the attract demo 660 s twice (attractC 20 720 frames, attract6 21 290
+    frames) with the A/B rotating;
+  - the altar 420 s x 6;
+  - route 6 480 s x 3;
+  - the check runs.
+- What can differ from the game:
+  - an AI path test answered for a segment up to 15 cm away, at most 10
+    frames (1/3 s) old: Agro or another follower may take a path corner up
+    to 1/3 s late;
+  - the water height near the camera up to 10 frames old, within 25 cm of
+    the camera.
+  - Climbing and colossus fights are not on these routes. The colossi's AI
+    path work (updateUserPathWork is also called by the AI's leader path)
+    goes through the same memo.
+
+**Before / after (Vita3K 222 MHz).**
+- The altar: 40.8 -> 39.5 ms (altar6; 43.3 in round 83's runs, which had
+  the locked screen).
+- Route 6: 26.4 -> 26.1 ms.
+- The attract demo: unchanged.
+- Rounds 78-84 together (`newdir`): -2.2 ms matched while riding,
+  -1.2 ms in the first part.
+
+**Not done (next).** The profile has no single item left above ~3%. Wander's
+ground step is still the largest piece at the altar (~5 ms with probes): its
+near objects' leaves and its keeps / slide / landing on ~55 candidates a
+call. The other pieces:
+- the particle manager's own loop (~1.2 ms);
+- the camera (~2.6 ms, of it ~1.5 its own recompiled code);
+- the AI control of the shrine's 18 creatures (~2 ms: not put off with their
+  geometry by round 78);
+- the path work's own code (~1 ms, with a selection sort of the path points
+  a frame).
+
+**Deliverable:** build/agent-scratch/celosia-r84.vpk (main 9b65abe + this
+round); console env r84/env-console.txt (`SOTC_AB_FLAG=r84all,newdir`: all
+on / probe84 off / rounds 78-84 off); read it with
+`python3 build/agent-scratch/r84/tools/ab84.py err.txt --from <frame>`.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

@@ -37,6 +37,8 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
 
+#include <algorithm>
+#include <span>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -3429,8 +3431,13 @@ namespace decomp_collision
         };
         constexpr int kSlots = 48;
         Slot g_slots[kSlots];
+        // Round 84: the path's tests in a pool of their own
+        // (they test many different segments a frame: in the shared 48 slots
+        // the camera's tests pushed them out).
+        constexpr int kPathSlots = 96;
+        Slot g_pathSlots[kPathSlots];
         uint64_t g_use = 0;
-        struct Stat { uint64_t hit = 0, miss = 0; };
+        struct Stat { uint64_t hit = 0, miss = 0, near[5] = {}, checked = 0, differ = 0; }; // near (round 84's log): the misses by the closest same-key slot's distance: none, <eps, <5 cm, <15 cm, <50 cm / more
         std::unordered_map<uint32_t, Stat> g_stats;
         uint64_t g_logFrame = 0;
         struct Key
@@ -3438,11 +3445,57 @@ namespace decomp_collision
             uint32_t fn, ra, group, filt[4], user, judge[6];
             float a[3], b[3];
         };
+        // Round 84 (SOTC_PROBE84, default on; SOTC_AB_FLAG probe84 / r84all /
+        // newdir): the AI path's segment tests (updateUserPathWork's
+        // visibility tests between the user and the path's points:
+        // gamecore_sub_01434AE0, widePathCollisionDirect's centre and side
+        // tests) answered at path scale: end points within SOTC_PROBE84_EPS (0.15
+        // units) and at most SOTC_PROBE84_AGE (10) frames old. They steer
+        // the AI's path following, which works in metres, not centimetres;
+        // at the altar seg80's 1 cm met 0% of widePath's and 31% of the
+        // path tests (Wander's idle sway moves their user end by more).
+        struct Path84
+        {
+            float eps = 0.15f;
+            uint32_t age = 10u;
+            int check = 0;
+            Path84()
+            {
+                if (const char *e = std::getenv("SOTC_PROBE84_CHECK"))
+                    check = std::atoi(e);
+                if (const char *e = std::getenv("SOTC_PROBE84_EPS"))
+                    eps = static_cast<float>(std::atof(e));
+                if (const char *e = std::getenv("SOTC_PROBE84_AGE"))
+                    age = static_cast<uint32_t>(std::atoi(e));
+            }
+        };
+        const Path84 &path84()
+        {
+            static const Path84 p;
+            return p;
+        }
+        inline bool pathCaller(uint32_t ra)
+        {
+            // (The horse's own tests, updateHorseCtrlWork's 0x0144268C and
+            // gamecore_sub_01443250's 0x01443678, were in the first build:
+            // 0-7% of them repeat at the altar, ~2% while riding, so they
+            // stay with seg80's 1 cm and the ride is not touched.)
+            return ra == 0x01434B04u ||                      // gamecore_sub_01434AE0 (the path's visibility test)
+                   (ra > 0x0142FC88u && ra < 0x01430058u);   // widePathCollisionDirect (centre and sides)
+        }
+        inline float epsFor(uint32_t ra)
+        {
+            return sotc_decomp::probe84On() && pathCaller(ra) ? path84().eps : params().eps;
+        }
+        inline uint32_t ageFor(uint32_t ra)
+        {
+            return sotc_decomp::probe84On() && pathCaller(ra) ? path84().age : params().age;
+        }
         bool same(const Slot &s, const Key &k)
         {
             if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || std::memcmp(s.filt, k.filt, sizeof k.filt) != 0 || std::memcmp(s.judge, k.judge, sizeof k.judge) != 0)
                 return false;
-            const float e = params().eps;
+            const float e = epsFor(k.ra);
             for (int i = 0; i < 3; ++i)
                 if (!(std::fabs(s.a[i] - k.a[i]) <= e) || !(std::fabs(s.b[i] - k.b[i]) <= e))
                     return false;
@@ -3455,7 +3508,14 @@ namespace decomp_collision
             g_logFrame = sotc_decomp::g_gameFrame;
             std::fprintf(stderr, "[seg80] frame %llu:", (unsigned long long)g_logFrame);
             for (auto &e : g_stats)
+            {
                 std::fprintf(stderr, " %08x %llu/%llu", e.first, (unsigned long long)e.second.hit, (unsigned long long)(e.second.hit + e.second.miss));
+                if (e.second.checked)
+                    std::fprintf(stderr, " (check: %llu, hit or not differs %llu)", (unsigned long long)e.second.checked, (unsigned long long)e.second.differ);
+                if (e.second.near[0] + e.second.near[1] + e.second.near[2] + e.second.near[3] + e.second.near[4])
+                    std::fprintf(stderr, " (miss: nokey %llu old %llu <5cm %llu <15cm %llu more %llu)", (unsigned long long)e.second.near[0], (unsigned long long)e.second.near[1],
+                                 (unsigned long long)e.second.near[2], (unsigned long long)e.second.near[3], (unsigned long long)e.second.near[4]);
+            }
             std::fprintf(stderr, "\n");
             g_stats.clear();
         }
@@ -3491,11 +3551,25 @@ namespace decomp_collision
         const uint64_t frame = sotc_decomp::g_gameFrame;
         seg80::log();
         auto &st = seg80::g_stats[k.ra];
-        seg80::Slot *victim = &seg80::g_slots[0];
-        for (seg80::Slot &s : seg80::g_slots)
+        const bool pathPool = sotc_decomp::probe84On() && seg80::pathCaller(k.ra);
+        seg80::Slot *const pool = pathPool ? seg80::g_pathSlots : seg80::g_slots;
+        const int poolSize = pathPool ? seg80::kPathSlots : seg80::kSlots;
+        seg80::Slot *victim = &pool[0];
+        for (seg80::Slot &s : std::span<seg80::Slot>(pool, poolSize))
         {
-            if (seg80::same(s, k) && s.frame + seg80::params().age >= frame)
+            if (seg80::same(s, k) && s.frame + seg80::ageFor(k.ra) >= frame)
             {
+                if (__builtin_expect(seg80::path84().check, 0) && sotc_decomp::probe84On() && seg80::pathCaller(k.ra))
+                {
+                    // SOTC_PROBE84_CHECK=1: the game's test runs too and is the answer used; counted against the kept one
+                    ++depth;
+                    body();
+                    --depth;
+                    ++st.checked;
+                    if (GPR_U64(ctx, 2) != s.v0)
+                        ++st.differ;
+                    return;
+                }
                 std::memcpy(rdram + out, s.rec, seg80::kRecord);
                 SET_GPR_U64(ctx, 2, s.v0);
                 ctx->f[0] = s.f0;
@@ -3507,6 +3581,23 @@ namespace decomp_collision
                 victim = &s;
         }
         ++st.miss;
+        if (seg80::params().log)
+        {
+            // the closest slot with the same key but the points: how far its points are
+            float best = -1.0f;
+            for (const seg80::Slot &s : std::span<seg80::Slot>(pool, poolSize))
+            {
+                if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || std::memcmp(s.filt, k.filt, sizeof k.filt) != 0 || std::memcmp(s.judge, k.judge, sizeof k.judge) != 0)
+                    continue;
+                float d = 0.0f;
+                for (int i = 0; i < 3; ++i)
+                    d = std::max(d, std::max(std::fabs(s.a[i] - k.a[i]), std::fabs(s.b[i] - k.b[i])));
+                if (best < 0.0f || d < best)
+                    best = d;
+            }
+            const float e = seg80::epsFor(k.ra);
+            ++st.near[best < 0.0f ? 0 : best <= e ? 1 : best < 0.05f ? 2 : best < 0.15f ? 3 : 4];
+        }
         const uint32_t ra = k.ra;
         ++depth;
         body();
