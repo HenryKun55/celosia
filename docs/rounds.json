@@ -440,6 +440,14 @@
    "focus": "Speed",
    "summary": "The display walk measured step by step (~16 ms of work at the altar: group pass 4.2, light pass 2.5, model draws ~5, particle draws 4.1; the profiler's larger means were the host's stalls landing in the frame change). The particle systems were the biggest piece: ~80 tiny systems (fog wisps, feathers) at ~100 us each, all kept by the game's own clip. A Vita-side visibility pass now tests each system's real particle bounds against the camera; a system outside the view is not drawn and its step is put off, with the world's time handed over in one step when it returns or after 0.25 s, so particles keep their speed and ages (SOTC_PTCL79, on, A/B ptcl79 / r79all).",
    "result": "Vita3K 222 MHz whole frame: altar 55.9 -> 50.4 ms (matched by draws -5.8; console env r79all -5.1), out of the shrine and the plain 38.3 -> 31.0 ms, attract demo -0.1..-0.9 ms. Attract demo 660 s with the A/B rotating, no crash; route and attract screenshots on/off show no missing effect. Local-frame emitters (half of the shrine's systems) are not culled yet. Console A/B prepared (env-console.txt, r79all)."
+  },
+  {
+   "round": "r80",
+   "date": "2026-11-05",
+   "commit": "a029e87",
+   "focus": "Speed",
+   "summary": "Measured first: Wander alone is 7.4 ms a frame of character geometry even standing still at the altar (root dynamics' collision 4.35, IK 1.7), and the segment tests (camera checks, the player's probes, horse path tests, AI perception: ~14 a frame) ~4 ms; almost none repeats the frame before exactly (idle pose and camera sway move them by millimetres). A segment test now reuses the answer of the same caller's earlier test when both end points are within 1 cm and that answer is at most 5 frames old (SOTC_SEG80, on, A/B seg80 / r80all). A new A/B group `newdir` turns rounds 78-80 off together for the console. Round 79's local-frame particle emitters turned out absent at the altar: nothing to enable. A ground-finder memo was tried and dropped (no gain).",
+   "result": "Vita3K 222 MHz whole frame, in-run A/B: altar 46.3 -> 44.8 ms (matched by draws -2.2), route 6 out of the shrine and the plain 30.3 -> 29.2 ms, attract demo unchanged (riding: 7% of tests reused). Rounds 78-80 together at the altar: 58.2 -> 44.8 ms. About half the segment tests reused when walking or standing. Attract demo 660 s without a crash; altar and route 6 screenshots on/off show nothing missing. Console A/B prepared (env-console.txt, r80all,newdir)."
   }
  ]
 }
