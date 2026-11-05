@@ -78,6 +78,14 @@
 
 #include <cstring>
 
+namespace charlod78 // decomp_charlod78.cpp (round 78)
+{
+    void afterClip(uint8_t *rdram, R5900Context *ctx, uint32_t obj, uint32_t cls);
+    bool timing();
+    uint64_t now();
+    void geoTime(uint32_t obj, uint64_t us);
+}
+
 namespace decomp_scriptvm3
 {
     using sotc_decomp::callGuest;
@@ -234,7 +242,14 @@ namespace decomp_scriptvm3
         li(ctx, 5, 0x014659C0u);
         move(ctx, 4, 16);
         move(ctx, 18, 2); // s2 = the character class
-        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CFC50u), 0x013CFC58u, kWorkStack); // ExecCharaGeometry
+        if (__builtin_expect(charlod78::timing(), 0))
+        {
+            const uint64_t t0 = charlod78::now();
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CFC50u), 0x013CFC58u, kWorkStack); // ExecCharaGeometry
+            charlod78::geoTime(GPR_U32(ctx, 16), charlod78::now() - t0);
+        }
+        else
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CFC50u), 0x013CFC58u, kWorkStack); // ExecCharaGeometry
         move(ctx, 4, 16);
         callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CFC58u), 0x013CFC60u, kWorkStack); // GetLayoutClass
         SET_GPR_S32(ctx, 4, (int32_t)READ32(GPR_U32(ctx, 2) + 0x134u)); // the layout's area
@@ -312,6 +327,7 @@ namespace decomp_scriptvm3
         loadF(rdram, ctx, runtime, 12, kGlobals + 0x188u);
         move(ctx, 4, 17);
         callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CF560u), 0x013CF568u, kWorkStack); // ViewIntervalClip
+        charlod78::afterClip(rdram, ctx, GPR_U32(ctx, 17), GPR_U32(ctx, 16)); // round 78: off-screen characters less often
         SET_GPR_S32(ctx, 2, (int8_t)READ8(GPR_U32(ctx, 16) + 0x534u));
         ctx->f[20] = FPU_MOV_S(ctx->f[0]);
         if (GPR_U64(ctx, 2) == 0u)

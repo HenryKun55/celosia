@@ -11796,6 +11796,98 @@ it is not the console's usual picture (its usual set: fewer particles only).
 **Deliverable:** build/agent-scratch/celosia-r77.vpk (main ff561f8 + this
 round).
 
+## Round 78: characters the camera cannot see update less often, through the game's own view interval (2026-11-05)
+
+The first round under the new rule (the port need not match the PS2 bit for
+bit; gameplay must feel the same and no picture may be lost). Scripts, runs
+and logs: `build/agent-scratch/r78/` (build.sh: its own worktree `r78/wt` and
+build directory `r78/vita`; v3k.sh: its own Vita3K, `r78/vita3k` with its
+`portable` link to ../vita3k-celosia-r78, 222 MHz, 3 cores, muted, memcard
+copied, settings.cfg put back; tools/ab78.py: frame / game by A/B state with
+a block matched by draws; runs/log1, log2 (the altar, A/B), r6log (route 6,
+A/B), attract1 (the attract demo, 660 s, A/B), shots6-on / shots6-off (route
+6 screenshots with it on / off), r6time (the time check below); pics/).
+
+**What the characters cost (SOTC_CHARLOD78_LOG, ExecCharaGeometry timed per
+character, Vita3K 222 MHz).** At the altar 18 characters a frame: Wander
+6.2-7.3 ms, Agro (collision sphere radius 0.68) 3.1-4.6 ms a call even when
+standing outside the shrine 47 units away and unseen, four small characters
+next to Wander 0.4-0.9 each, a walker 40 units away 0.9, and ten birds and
+lizards 100-300 units away 0.1-0.2 each, most of them behind the camera.
+
+**The game already has the mechanism.** The character type's tail
+(gamecore_sub_013CF4E0) asks ViewIntervalClip for an update interval from the
+character's size on screen; the world's time gathers in the class's +0x1164
+and ExecCharaGeometryPreprocess gets the time gathered since the last update
+(0 on the frames between: it sets no +0xcec, so no ExecCharaGeometry that
+frame, and the motion advances by the whole gathered time at the next one).
+The root dynamics and their collision, IK, the pose, cloth and the anime
+tables are all under ExecCharaGeometry, so a character updated every n-th
+frame costs about 1/n and keeps its own speed.
+
+**What changed (`SOTC_CHARLOD78`, default on; `SOTC_AB_FLAG` takes
+`charlod78`; decomp_charlod78.cpp, one call after ViewIntervalClip in
+decomp_scriptvm3's charaTail).** A character whose position (+0x134), with a
+margin of twice its collision sphere's radius plus 1, lies outside the
+camera's clip volume (the camera context's +0x5A0 matrix, the one the game's
+model clip uses: the planes w +- x, w +- y, w) this frame and the frame before
+has its update put off, as the game's own in-between frames do (+0x1164 keeps
+the time, +0x116c 0, f0 0), until 0.25 s have gathered (`SOTC_CHARLOD78_OFF`,
+radius below 0.3: birds, lizards) or 0.12 s (`SOTC_CHARLOD78_OFF_BIG`: Agro).
+Never put off: the player, anything within 12 of the player
+(`SOTC_CHARLOD78_NEAR`: what Wander holds, rides, stands on or climbs), a
+collision radius above 2 (`SOTC_CHARLOD78_MAXR`), the active colossus
+(bossStatGetActiveBoss's cached object, 0x1465ad4), anything visible this
+frame or the one before (so a character coming into view is current after at
+most one late update). `SOTC_CHARLOD78_FAR=<d>` / `_FAR_S` (off by default)
+would also slow visible characters past d. Nothing else of the game changes.
+
+**Measured (Vita3K 222 MHz, whole frame, `SOTC_AB_ROTATE=1
+SOTC_AB_PERIOD=60`, ab78.py; off minus on, matched by draws).**
+
+| run | part | frames on / off | frame on / off (ms) | matched |
+|---|---|---|---|---|
+| log1 (the altar, interval 0.1 s for all) | from frame 3 300 | 1 714 / 1 740 | 55.35 / 57.90 | +2.98 |
+| log2 (the altar, 0.25 s) | from frame 3 300 | 1 841 / 1 859 | 51.75 / 56.74 | +5.24 |
+| r6log (route 6, final settings) | out of the shrine and the plain, from 3 000 | 2 423 / 2 415 | 35.58 / 39.55 | +3.91 |
+| r6log | the plain, from 4 300 | 1 772 / 1 783 | 38.65 / 43.92 | +5.59 |
+| attract1 (attract demo, no input) | frames < 7 000 | 3 506 / 3 474 | 21.79 / 22.00 | +0.05 |
+| attract1 | frames >= 10 000 (the world, riding) | 5 740 / 5 757 | 38.54 / 39.92 | +1.22 |
+
+At the altar ~5 ms of ~57 (~9%), on the plain ~5.5 ms of ~44 (12%); the
+attract demo has few characters off screen (~1.2 ms in its heavy part).
+The probes' own clock reads (SOTC_CHARLOD78_LOG) were on in every run above,
+in both states.
+
+**Gameplay and pictures.**
+- Time: route 6 with it on (r6time), per 300-frame window, the time handed to
+  each character's pre-process against the player's (never put off): Agro
+  and the birds / lizards 9.60-10.28 s against the player's 9.68-10.28 s:
+  the same to within one pending interval, so they move at their own speed.
+- The visibility test checked against the log: the player visible in every
+  frame, Agro 176 of 240 frames near Wander on the plain, the far birds 0.
+- Riding: the attract demo (Wander on Agro across the plain and through the
+  ruins, pics/attract_t420-600.png) runs 660 s / 21 500 frames with the A/B
+  rotating, no crash, no stall.
+- Route 6 screenshots on and off (pics/route6_*_off__on.png): no missing or
+  broken character. The two runs end in different places, as any two runs of
+  a route do here (the input is held for frames and the game's step follows
+  the frame rate, so a faster run walks less far); Agro walks up to Wander in
+  the run without it; in the run with it Wander stops elsewhere and Agro is
+  off screen.
+- A frozen-frame A/B has nothing to show: a put-off character is outside the
+  picture by construction. What can show: a body shadow or a water reflection
+  of a character just outside the frame (its pose at 4-8 Hz), and its first
+  frame back in view (one late update).
+- Not checked here: climbing a colossus (no save near one; the colossus is
+  excluded as the active boss, and anything within 12 of Wander or in view is
+  never put off).
+
+**Deliverable:** build/agent-scratch/celosia-r78.vpk (main 80c7abb + this
+round); console env r78/env-console.txt (`SOTC_AB_FLAG=charlod78`); read it
+with `python3 build/agent-scratch/r78/tools/ab78.py err.txt --from <frame>`
+(the "matched" block).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
