@@ -230,11 +230,21 @@ namespace decomp_hot47e
             int n = 0;
             void add(const float p[3], float r)
             {
-                for (int i = 0; i < 3; ++i)
-                {
-                    lo[i] = std::fmin(lo[i], p[i] - r);
-                    hi[i] = std::fmax(hi[i], p[i] + r);
-                }
+                // Round 83 (SOTC_PTCL83): plain compares, no libm calls (a NaN
+                // box is rejected by outside() either way).
+                if (sotc_decomp::ptcl83On())
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        const float a = p[i] - r, b = p[i] + r;
+                        lo[i] = a < lo[i] ? a : lo[i];
+                        hi[i] = b > hi[i] ? b : hi[i];
+                    }
+                else
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        lo[i] = std::fmin(lo[i], p[i] - r);
+                        hi[i] = std::fmax(hi[i], p[i] + r);
+                    }
                 ++n;
             }
         };
@@ -324,6 +334,80 @@ namespace decomp_hot47e
                 }
             }
             return ems != 0u;
+        }
+    }
+
+    // ---- Round 83 (SOTC_PTCL83, default on; SOTC_AB_FLAG ptcl83 / r83all / newdir) ----
+    // The manager's per-system round trips: isysGroupForNext over the geodisp
+    // group (the step loop and the five layer loops: ~6 x 90 guest calls a
+    // frame at the shrine) and get_top_emitter_list_from_particle_geodisp (5 x
+    // 90) as host code: the same entries in the same order, the same
+    // iteration counts written (decomp_group.cpp's isysGroupForNext); the
+    // group's First / Exit (a semaphore) stay guest calls.
+    namespace ptcl83
+    {
+        constexpr uint32_t kEntries = 0x0021B900u;
+        inline bool ok(uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a; }
+        inline uint32_t rw(const uint8_t *rdram, uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + a, 4);
+            return v;
+        }
+        // isysGroupForNext(entry): false when something is outside main RAM (nothing written).
+        bool groupNext(uint8_t *rdram, uint32_t entry, uint32_t &result)
+        {
+            if (!ok(entry, 0x10u))
+                return false;
+            const uint32_t current = rw(rdram, entry);
+            uint32_t index = static_cast<uint16_t>(rw(rdram, entry + 0xCu) >> 16);
+            for (uint32_t steps = 0;; ++steps)
+            {
+                if (index == 0u)
+                {
+                    result = 0u;
+                    return true;
+                }
+                const uint32_t e = kEntries + index * 24u;
+                if (!ok(e, 0x10u) || steps > 0x10000u)
+                    return false;
+                if (rdram[e + 0xCu] != 0u)
+                {
+                    index = static_cast<uint16_t>(rw(rdram, e + 0xCu) >> 16);
+                    continue;
+                }
+                const uint32_t object = rw(rdram, e);
+                if (!ok(object, 0xCu) || !ok(current, 0xAu))
+                    return false;
+                if ((rdram[object + 0xAu] & 1u) != 0u)
+                {
+                    index = static_cast<uint16_t>(rw(rdram, e + 0xCu) >> 16);
+                    continue;
+                }
+                rdram[current + 9u] = static_cast<uint8_t>(rdram[current + 9u] - 1u);
+                rdram[object + 9u] = static_cast<uint8_t>(rdram[object + 9u] + 1u);
+                result = e;
+                return true;
+            }
+        }
+        float farDist()
+        {
+            static const float v = std::getenv("SOTC_PTCL83_FAR") ? static_cast<float>(std::atof(std::getenv("SOTC_PTCL83_FAR"))) : 0.0f;
+            return v;
+        }
+        uint64_t g_nNear[5] = {0, 0, 0, 0, 0}, g_nHalf = 0;
+        // get_top_emitter_list_from_particle_geodisp(gd): GetGeoDispClass(gd) + 0xe8 (0 for no gd).
+        inline bool topEmitters(const uint8_t *rdram, uint32_t gd, uint32_t &list)
+        {
+            if (gd == 0u)
+            {
+                list = 0u;
+                return true;
+            }
+            if (!ok(gd, 0x10u))
+                return false;
+            list = (rdram[gd + 8u] == 0x24u ? gd + 0x20u : 0u) + 0xE8u;
+            return true;
         }
     }
 
@@ -444,6 +528,15 @@ namespace decomp_hot47e
         }
         call(kView, 0x0113A480u);
 
+        const bool p83 = sotc_decomp::ptcl83On() && jalTarget(rdram, kSiteNext1) == 0x001C76D0u && jalTarget(rdram, kSiteNext2) == 0x001C76D0u &&
+                         runtime->guestFunctionAt(0x0113F378u) != nullptr;
+        float eyeBuf83[3];
+        const float *eye83 = nullptr;
+        if (p83 && sotc_decomp::g_cameraContextAddr != 0u && ptcl83::ok(sotc_decomp::g_cameraContextAddr + 0x140u, 16u))
+        {
+            std::memcpy(eyeBuf83, rdram + sotc_decomp::g_cameraContextAddr + 0x140u, 12);
+            eye83 = eyeBuf83;
+        }
         // Round 79: the camera's planes once for the geodisps below.
         const bool p79 = sotc_decomp::ptcl79On() && !skipStep;
         ++ptcl79::g_frame;
@@ -499,6 +592,35 @@ namespace decomp_hot47e
                     else if (st.pendCalls != 0u)
                         catch79 = true;
                     st79 = &st;
+                    // Round 83 (SOTC_PTCL83_FAR, units; 0 off): a system in view whose
+                    // nearest point is that far from the camera is stepped every other
+                    // frame with both frames' time (the same put-off / catch-up as
+                    // above): its particles keep their speed, ages and spawn counts;
+                    // it is drawn every frame (its billboards turn with the camera).
+                    if (p83 && ptcl83::farDist() > 0.0f && eligible && !st.culled && !put79 && !catch79 && eye83)
+                    {
+                        float c2 = 0.0f, r2 = 0.0f;
+                        for (int i = 0; i < 3; ++i)
+                        {
+                            const float c = 0.5f * (b.lo[i] + b.hi[i]) - eye83[i], h = 0.5f * (b.hi[i] - b.lo[i]);
+                            c2 += c * c;
+                            r2 += h * h;
+                        }
+                        const float d = std::sqrt(c2) - std::sqrt(r2);
+                        ++ptcl83::g_nNear[d < 10.0f ? 0 : d < 20.0f ? 1 : d < 40.0f ? 2 : d < 80.0f ? 3 : 4];
+                        if (d > ptcl83::farDist() && ((ptcl79::g_frame + (gd >> 4)) & 1u) != 0u)
+                        {
+                            put79 = true;
+                            static const uint32_t clocks[3] = {kClockA, kClockB, kClockC};
+                            for (int k = 0; k < 3; ++k)
+                            {
+                                st.pend[k] += fb(READ32(clocks[k]));
+                                st.pendFrames[k] += READ32(clocks[k] + 0xCu);
+                            }
+                            ++st.pendCalls;
+                            ++ptcl83::g_nHalf;
+                        }
+                    }
                 }
                 if (!skipStep && !put79)
                 {
@@ -564,10 +686,21 @@ namespace decomp_hot47e
                     }
                 }
                 SET_GPR_S32(ctx, 4, sp);
-                call(kAutoEnd, 0x0113A4B4u);
+                // Round 83: auto_end_check's common case (the geodisp still has emitters: nothing to free) here.
+                {
+                    const uint32_t gd83 = READ32(sp);
+                    if (p83 && ptcl83::ok(gd83, 0x110u) && rdram[gd83 + 8u] == 0x24u && ptcl83::rw(rdram, gd83 + 0x20u + 0xE8u) != 0u)
+                        SET_GPR_U64(ctx, 2, 0u);
+                    else
+                        call(kAutoEnd, 0x0113A4B4u);
+                }
                 SET_GPR_U64(ctx, 4, s0);
                 SET_GPR_U64(ctx, 5, 0u);
-                call(jalTarget(rdram, kSiteNext1), 0x0113A4C0u);
+                uint32_t next83;
+                if (p83 && ptcl83::groupNext(rdram, static_cast<uint32_t>(s0), next83))
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(next83));
+                else
+                    call(jalTarget(rdram, kSiteNext1), 0x0113A4C0u);
                 s0 = GPR_U64(ctx, 2);
                 SET_GPR_U64(ctx, 16, s0);
                 if (s0 == 0u)
@@ -592,6 +725,12 @@ namespace decomp_hot47e
                          (unsigned long long)ptcl79::g_frame, ptcl79::g_nSeen / 240.0, ptcl79::g_nIneligible / 240.0, ptcl79::g_nCulled / 240.0,
                          ptcl79::g_nSkipped / 240.0, ptcl79::g_nCatchUp / 240.0, static_cast<unsigned>(ptcl79::g_states.size()));
             ptcl79::g_nSeen = ptcl79::g_nIneligible = ptcl79::g_nCulled = ptcl79::g_nSkipped = ptcl79::g_nCatchUp = 0;
+            std::fprintf(stderr, "[ptcl83] frame %llu: in view by distance <10 %.1f, 10-20 %.1f, 20-40 %.1f, 40-80 %.1f, >80 %.1f; stepped every other frame %.1f\n",
+                         (unsigned long long)ptcl79::g_frame, ptcl83::g_nNear[0] / 240.0, ptcl83::g_nNear[1] / 240.0, ptcl83::g_nNear[2] / 240.0, ptcl83::g_nNear[3] / 240.0,
+                         ptcl83::g_nNear[4] / 240.0, ptcl83::g_nHalf / 240.0);
+            for (auto &n : ptcl83::g_nNear)
+                n = 0;
+            ptcl83::g_nHalf = 0;
         }
         // The five layers (s4 = 4 .. 0): each emitter of the layer stepped.
         SET_GPR_S32(ctx, 2, 0x01190000u);
@@ -612,7 +751,11 @@ namespace decomp_hot47e
                 {
                     SET_GPR_U64(ctx, 19, s3);
                     SET_GPR_U64(ctx, 4, s3);
-                    call(kTopEmitters, 0x0113A510u);
+                    uint32_t list83;
+                    if (p83 && ptcl83::topEmitters(rdram, static_cast<uint32_t>(s3), list83))
+                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(list83));
+                    else
+                        call(kTopEmitters, 0x0113A510u);
                     s1 = sx(READ32(GPR_U32(ctx, 2)));
                     SET_GPR_U64(ctx, 17, s1);
                     while (s1 != 0u)
@@ -638,7 +781,11 @@ namespace decomp_hot47e
                     }
                     SET_GPR_U64(ctx, 4, s2);
                     SET_GPR_U64(ctx, 5, 0u);
-                    call(jalTarget(rdram, kSiteNext2), 0x0113A558u);
+                    uint32_t next83;
+                    if (p83 && ptcl83::groupNext(rdram, static_cast<uint32_t>(s2), next83))
+                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(next83));
+                    else
+                        call(jalTarget(rdram, kSiteNext2), 0x0113A558u);
                     s2 = GPR_U64(ctx, 2);
                     SET_GPR_U64(ctx, 18, s2);
                     if (s2 == 0u)

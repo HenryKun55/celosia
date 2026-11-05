@@ -12435,6 +12435,187 @@ round); console env r82/env-console.txt (`SOTC_AB_FLAG=r82all,newdir`: all
 on / pose82 off / rounds 78-82 off); read it with
 `python3 build/agent-scratch/r82/tools/ab82.py err.txt --from <frame>`.
 
+## Round 83: the display walk's light colours kept while their inputs stay, the layout objects' clip as plain A9 code (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r83/`:
+- build.sh: its own worktree `r83/wt` and build directory `r83/vita`.
+- v3k.sh: its own Vita3K, `r83/vita3k`, with its `portable` link to
+  ../vita3k-celosia-r83 (config pref-path fixed to r83); 222 MHz, 3 cores,
+  muted, memcard copied, settings.cfg put back; refuses a missing VPK and a
+  second start while the round's Vita3K runs.
+- chain.sh (absolute VPK path): the altar A/B, route 6 A/B, the attract demo
+  with the console env (660 s, also the long run), a route 6 check run, then
+  shots.sh (the altar and route 6 pictures, `SOTC_WALK83=1` / `0`).
+- tools/ab83.py: round 82's reader plus the round's `[walk83l]`,
+  `[walk83c]`, `[ptcl83]` lines and round 79's `[walk79]` / `[ptcl79]`
+  timing by A/B state.
+- runs/: prof0 (the measurement below, round 82's build), check1 / check3 /
+  check6 (the new code against the game's), diag2, altar3 / altar5 (A/B per
+  build), prof3 (profile of the third build), the chain's altar1 / route1 /
+  attract1 / check1 and the pictures; pics/.
+
+**Where the walk's light and clip time went (Vita3K 222 MHz, the altar,
+round 82's build; `SOTC_WALK79_LOG=1` and a sampling profile, runs/prof0).**
+The group pass 4.3 ms a frame, of it ClipLayoutObjModel 2.4 ms for 146
+layout objects (16 us each); the light pass 2.3 ms. The clip was already
+native, but as a translation: two GetCameraContext guest calls, the model's
+sphere test (modelClipPoint) through the function table, every VU0 operation
+clamped and every VU0 register, ACC and CLIP history left as the PS2 leaves
+them. The light pass's cost is SetGeoDispClassLightColMan: ~85 us a call
+(host clock) for ~15-20 lit objects a frame, recompiled code around round
+41-49's natives (the global light volumes with an inverse matrix and a cube
+or ellipsoid test per light, the ambient grid's bilinear sample, the game's
+point lights, the blend, the light matrices), all of it remade every frame
+for objects that do not move under lights that do not change.
+
+**What changed (`SOTC_WALK83`, default on; `SOTC_AB_FLAG` takes `walk83`,
+`r83all`, and `newdir` now takes it in).**
+- **The light colours kept (decomp_hot43b.cpp, decomp_light.cpp).** The
+  light pass makes a signature of the frame's lights once (the work area's
+  ambient and three directional records, its counts and flags, every global
+  light volume's record but its per-object weight and distance, every point
+  light's record, the ambient grids' default colour). Each lit object's
+  colours (its light block's normal light matrix +0x40, colour matrix +0x80
+  and flag 2 of +0xc0, what SetGeoDispClassLightColMan makes) are kept with
+  the block's inputs (intensity, flags, colour manager) and its position;
+  while the signature and inputs are the same and the position is within
+  `SOTC_WALK83_TOL` (0.05 units, a few centimetres) of where they were made,
+  they are given back instead of the game's code running. Every entry is
+  made again at least every `SOTC_WALK83_REFRESH` passes (16, staggered by
+  address). The particle systems' light callback (calc_light_particle_geodisp)
+  goes through the same cache. CalcLightLayoutObj's other steps (the
+  attachment walk, the normal matrix's scale, the copies into the light's
+  display block, glSetLightColor / Vector) run as before.
+- **The layout objects' clip as plain code (decomp_walk.cpp, `clip83`).**
+  ClipLayoutObjModel -> modelClipSolid -> modelClipPoint ->
+  clipByMinMaxCube for a solid model in one host function: the camera
+  context read from its globals, no guest call, no guest frame, no VU0
+  state kept, the products and the clip judgements in NEON (the root box's
+  eight corners as two 4-lane groups). The same decisions in the same order:
+  the fade, the lens LOD scale, the never-drawn bit, the far cull, the
+  sphere (centre through the model, w grown by the projected radius), the
+  view depths into the instance's +0x230..+0x238, the LOD level by the
+  record's mode with its hysteresis and the Quality menu's two LOD cuts,
+  the root box only when the sphere is not clearly inside. Not here (the
+  previous code): skinned models, models that pick their own level, unknown
+  LOD modes, anything outside main RAM (~15% of the calls at the altar).
+- **The walk's own object's layout class** (GetLayoutClass of its a0, a
+  lookup the walk made once per object) once a walk.
+- `SOTC_WALK83_CHECK=1`: on every cache hit the game's code runs too and
+  the results are compared (`[walk83l]`: differences, the worst entry, how
+  many by 1/255 or more); `=2` also runs the previous clip after the new one
+  and compares level, LOD bits and depth keys (`[walk83c]`).
+  `SOTC_WALK83_LOG=<n>`: `[walk83l]` every n light passes (calls, hits, why
+  missed, the game code's host ms). `SOTC_WALK83_LIGHT=0` / `SOTC_WALK83_CLIP=0`
+  turn one half off (measuring).
+
+**Checked against the game's code.**
+- The clip (`SOTC_WALK83_CHECK=2`; check1: the altar, scalar build, 500 000
+  calls; check6: route 6, the NEON build, 800 000 calls): the level (drawn,
+  culled, none), the LOD bits and the three depth keys the same in every
+  call (keys within 1e-3 relative; none differed). ~85% of the calls take
+  the new path.
+- The light colours (`SOTC_WALK83_CHECK=1`): at the altar (check3) 53 of
+  33 800 hits differ from the game's code, by at most 0.0083 in a colour
+  entry (~2/255), the normal matrices never. On route 6 (check6) most hits
+  differ, by at most 0.0075 (~1.9/255), normals never: outdoors the swaying
+  objects (grass and trees in the wind) move by millimetres a frame, inside
+  the tolerance, and their colours follow by a fraction of a step. The
+  shipped build's route 6 check (runs/check1): 96 035 hits, 41 586 differ,
+  21 by a step of 1/255 or more, worst 0.0073. With
+  `SOTC_WALK83_TOL=0` (runs/tol0, route 6) the 4 282 hits (all indoors:
+  on the plain every lit object moves every frame, 0 hits) are identical to
+  the game's results: the differences are the tolerance's, not a missed
+  input.
+
+**Measured and dropped: the particle systems (`SOTC_PTCL83`, off by
+default).** At the altar after round 79 only ~5 particle systems a frame are
+in view and stepped (the shrine's ~55 others are outside it and put off);
+the manager's remaining cost is spread thin (the manager's own loop, the
+group iteration, the parameter blend, each a few tenths of a percent of the
+game thread). `SOTC_PTCL83=1` does the manager's per-system round trips on
+the host (isysGroupForNext over the geodisp group in the step loop and the
+five layer loops, the emitter list's head, auto_end_check's common case, the
+bounds' min / max without libm calls): +0.05 / +0.43 ms (altar3, raw /
+matched) and +0.88 / +0.63 (altar5): below the 1 ms bar, so off.
+`SOTC_PTCL83_FAR=<units>` (with it) steps a system in view past that
+distance every other frame with both frames' time: at the altar 3.4 of the
+in-view systems are nearer than 10 units and 0.1 a frame past 30
+(`[ptcl83]` lines), so it has nothing to work on there. Batching the visible
+systems' step and draw into one native loop would need the emitter step
+(~10 guest calls an emitter: the effect's name compared twice, the camera,
+the LOD planes, the parameter blend) and the packet code rewritten; with
+~5 systems in view that is worth well under 1 ms at the altar.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, whole frame, in-run A/B
+`SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab83.py; off minus on).**
+
+| run | build | part | frames on / off | frame on / off (ms) | off minus on | matched by draws |
+|---|---|---|---|---|---|---|
+| altar3 | light cache (exact position), scalar clip | from 3 300 | 1 765 / 1 823 | 41.07 / 42.82 | +1.75 | +2.92 |
+| altar5 | + position tolerance, NEON clip, the walk's own class once | from 3 300 | 1 586 / 1 616 | 43.70 / 47.22 | +3.52 | +3.12 |
+| altar2 | shipped | from 3 300 | 2 040 / 2 051 | 43.28 / 46.05 | +2.76 | +2.76 |
+| route1 (route 6) | shipped | out of the shrine and the plain, from 3 000 | 6 143 / 6 083 | 26.94 / 28.39 | +1.45 | +1.49 |
+| route1 | shipped | the plain, from 4 300 | 5 483 / 5 443 | 25.89 / 27.31 | +1.42 | +1.47 |
+| attract1 (attract demo, 660 s, `r83all,newdir`) | shipped | < 7 000, `r83all` | 2 316 / 2 315 | 20.82 / 21.40 | +0.59 | +0.49 |
+| attract1 | shipped | 7 000-9 999, `r83all` | 1 015 / 993 | 20.68 / 21.37 | +0.68 | +0.50 |
+| attract1 | shipped | >= 10 000 (the world, riding), `r83all` | 2 905 / 2 930 | 31.97 / 32.17 | +0.20 | +0.52 |
+| attract1 | shipped | >= 10 000, `newdir` (rounds 78-83 off) | 2 905 / 2 932 | 31.97 / 34.83 | +2.86 | +3.07 |
+
+The walk's own timing (`SOTC_WALK79_LOG`, host clock, the altar): the clip
+site 2.4 -> 1.3 ms a frame (diag2, scalar) and lower with NEON; the light
+pass 2.3 -> ~1.35 ms with ~85% of the lit objects' colours given back. The
+attract demo gains least: few lit layout objects in its views and few
+solid models in the walk while riding.
+
+**Pictures and behaviour.**
+- The altar (runs/shotsA-on / -off: route 2, `SOTC_WALK83=1` / `0`, the
+  window every 6 s from 90 s, 1920x1152 captures; pics/r83_A_*_on__off.png):
+  the shrine's lit pillars, the stone, Wander and Mono the same in both; the
+  right pillar's mean grey on / off 164.39 / 164.64, 164.85 / 164.74,
+  164.61 / 164.68 (the camera's small drift between runs included).
+- Route 6 (runs/shotsR-on / -off, pics/r83_R_*): not comparable as
+  pictures. The Mac's screen was locked from the second half of the chain
+  (sotc-vita3k-lock-stalls: ~1 s Vita3K stalls), the off run had 138 of
+  566 frames over 700 ms, so its wall-time captures are other moments and
+  camera angles than the on run's. What says the plain's lighting is
+  unchanged is the check: the colours handed to the renderer differ from
+  the game's by less than one step of 255 in all but 21 of 96 000 checked
+  hits, by at most ~1.9 steps, and the normals never; the clip makes the
+  same draw / cull / LOD decision in every checked call.
+- No crash: the attract demo 660 s (18 868 frames) with the A/B rotating,
+  route 6 480 s and 420 s (check), the altar 420 s x 4.
+- Run hygiene: the chain's first altar run (altar1) stayed in the menus
+  (the load never happened, 17 draws a frame from frame 1 240) and is not
+  used; the chain's route 6 check run reused the name check1 and replaced
+  the first altar check run (its result, 0 different clip calls in 500 000,
+  is in STATE.md).
+
+**Risks.**
+- The light cache trusts its signature: a light input it does not hash
+  (the ambient grids' palettes, a point light's fields past its first 0x60
+  bytes) changing while nothing hashed does shows up to 16 passes (~0.5 s)
+  late. None was seen in the checks (the differences match the tolerance:
+  TOL=0 makes every checked hit identical).
+- The tolerance: an object moving less than 5 cm keeps the colours made at
+  its first position; at a light volume's edge that is up to ~2 steps of
+  255 in a colour, for at most 16 passes.
+- The clip writes no VU0 registers, ACC, Q or CLIP history any more; the
+  callers read only v0 / f0 and the stored results (checked: the walk and
+  the draws read nothing else), as round 82's pose does.
+
+**Not done (next).** The display walk's group pass outside the clip
+(~1.9 ms: the per-object update callbacks, the sort insertions as guest
+calls, round 67's prefetch records), the draws themselves, the ground
+keep / slope / slide / landing tests (~3 ms at the altar, in the surfaces
+that pass), and the particle systems' step and packets (~5 in view at the
+altar: not worth a rewrite there).
+
+**Deliverable:** build/agent-scratch/celosia-r83.vpk (main f738ed0 + this
+round); console env r83/env-console.txt (`SOTC_AB_FLAG=r83all,newdir`: all
+on / walk83 and ptcl83 off / rounds 78-83 off); read it with
+`python3 build/agent-scratch/r83/tools/ab83.py err.txt --from <frame>`.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

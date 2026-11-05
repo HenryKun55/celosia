@@ -43,11 +43,17 @@
 //   |x| > 1 (its 0 / 0) and the tiny path's impossible "huge + x <= 1": the
 //   recompiled code from the start.
 #include "sotc_decomp.h"
+#include "sotc_prof.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <unordered_map>
 
 namespace decomp_hot43b
 {
@@ -81,6 +87,273 @@ namespace decomp_hot43b
     constexpr uint32_t kSetGeoDispClassLightColMan = 0x010F64C0u, kGlSetLightColor = 0x0108F478u, kGlSetLightVector = 0x0108F458u;
     // The relocated jal sites (iosScaleNormalLightMatrix, iosCopyMatrix twice).
     constexpr uint32_t kScaleNormalSite = 0x010F4F04u, kCopyMatrixSite1 = 0x010F4F4Cu, kCopyMatrixSite2 = 0x010F4F60u;
+
+
+    // ---- Round 83 (SOTC_WALK83, default on; SOTC_AB_FLAG walk83 / r83all / newdir) ----
+    // The light colours of an object (SetGeoDispClassLightColMan's results:
+    // the normal light matrix +0x40, the colour matrix +0x80 and flag 2 of
+    // +0xc0 of the object's light block) depend only on the block's position
+    // and flags (+0x10..+0x1f, +0xc0, +0xec) and on the frame's lights: the
+    // global light volumes, the game's point lights and the work area's
+    // directional and ambient records. A static object under unchanged lights
+    // gets the same colours, so they are kept per block and given back while
+    // the block's inputs and the lights' signature (made once per light pass)
+    // stay the same. Every entry is made again at least every
+    // SOTC_WALK83_REFRESH passes (16, staggered by address), so an input the
+    // signature does not see (outdoors the colours drift by up to ~2/255
+    // while every hashed input stays put) shows within half a second. SOTC_WALK83_CHECK=1 runs the game's code on every hit too and
+    // counts the differences ([walk83l] lines, SOTC_WALK83_LOG=<frames>).
+    namespace walk83light
+    {
+        struct Entry
+        {
+            uint64_t key = 0, env = 0;
+            uint64_t made = 0, used = 0;
+            uint32_t out[32];
+            uint32_t flag2 = 0;
+            uint32_t in[4] = {0, 0, 0, 0}, colMan = 0;
+            uint64_t flags = 0;
+        };
+        std::unordered_map<uint32_t, Entry> g_cache;
+        bool g_active = false;
+        uint64_t g_env = 0, g_pass = 0;
+        uint64_t g_dXyz = 0, g_dW = 0, g_dFlags = 0, g_dCol = 0, g_tGuest = 0, g_nGuest = 0;
+        uint64_t g_calls = 0, g_hits = 0, g_missKey = 0, g_missEnv = 0, g_refresh = 0, g_new = 0, g_checks = 0, g_bad = 0;
+        float g_worst = 0.0f, g_worstN = 0.0f, g_worstC = 0.0f;
+        uint64_t g_part = 0, g_visible = 0;
+        struct Params
+        {
+            int log = 0, refresh = 16;
+            float tol = 0.05f;
+            bool check = false;
+            Params()
+            {
+                if (const char *e = std::getenv("SOTC_WALK83_TOL"))
+                    tol = static_cast<float>(std::atof(e));
+                if (const char *e = std::getenv("SOTC_WALK83_LOG"))
+                    log = std::atoi(e);
+                if (const char *e = std::getenv("SOTC_WALK83_REFRESH"))
+                    refresh = std::max(1, std::atoi(e));
+                check = std::getenv("SOTC_WALK83_CHECK") && std::atoi(std::getenv("SOTC_WALK83_CHECK")) != 0;
+            }
+        };
+        const Params &params()
+        {
+            static const Params p;
+            return p;
+        }
+        struct Mem
+        {
+            uint8_t *rdram, *spr;
+            // A host pointer for [a, a + n) in main RAM or the scratchpad, else null.
+            const uint8_t *at(uint32_t a, uint32_t n) const
+            {
+                if (a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a)
+                    return rdram + a;
+                const uint32_t o = a - PS2_SCRATCHPAD_BASE;
+                if (o < PS2_SCRATCHPAD_SIZE && n <= PS2_SCRATCHPAD_SIZE - o)
+                    return spr + o;
+                return nullptr;
+            }
+            uint32_t u32(uint32_t a) const
+            {
+                const uint8_t *p = at(a & ~3u, 4u);
+                uint32_t v = 0;
+                if (p)
+                    std::memcpy(&v, p, 4);
+                return v;
+            }
+        };
+        inline uint64_t mix(uint64_t h, const uint8_t *p, uint32_t n)
+        {
+            for (uint32_t i = 0; i + 8u <= n; i += 8u)
+            {
+                uint64_t w;
+                std::memcpy(&w, p + i, 8);
+                h = (h ^ w) * 0x9E3779B97F4A7C15ull;
+                h ^= h >> 29;
+            }
+            return h;
+        }
+        // The lights' signature: false when it cannot be made (no cache this pass).
+        bool envSignature(const Mem &m, uint64_t &h)
+        {
+            const uint32_t work = m.u32(0x0118CB10u);
+            const uint8_t *w = m.at(work, 0x7C4u + 0x80u);
+            if (!w)
+                return false;
+            h = 0x51ED270B27FB0A4Dull ^ work;
+            h = mix(h, w + 0xF0u, 0x100u);  // the ambient record and the three directional records (+0xf0..+0x1ef)
+            h = mix(h, w + 0x500u, 0x30u);  // the counts and flags (+0x510 globals, +0x520 game lights, +0x52c)
+            uint32_t globals, games;
+            std::memcpy(&globals, w + 0x510u, 4);
+            std::memcpy(&games, w + 0x520u, 4);
+            if (globals > 32u || games > 32u)
+                return false;
+            for (uint32_t i = 0; i < globals; ++i)
+            {
+                uint32_t l;
+                std::memcpy(&l, w + 0x5C4u + i * 4u, 4);
+                const uint8_t *r = m.at(l, 0x148u);
+                if (!r)
+                    return false;
+                h = mix(h ^ l, r, 0x118u);           // all but the per-object weight (+0x11c) and distance (+0x128)
+                h = mix(h, r + 0x130u, 0x18u);
+            }
+            for (uint32_t i = 0; i < games; ++i)
+            {
+                uint32_t l;
+                std::memcpy(&l, w + 0x7C4u + i * 4u, 4);
+                const uint8_t *r = m.at(l, 0x60u);
+                if (!r)
+                    return false;
+                h = mix(h ^ l, r, 0x60u);
+            }
+            const uint8_t *def = m.at(0x0118BAE0u, 16u); // the ambient grids' default colour
+            if (def)
+                h = mix(h, def, 16u);
+            return true;
+        }
+        void report()
+        {
+            const Params &P = params();
+            if (P.log <= 0 || g_pass % static_cast<uint64_t>(P.log) != 0u)
+                return;
+            const double k = 1.0 / P.log;
+            std::fprintf(stderr, "[walk83l] key changes: xyz %.1f w %.1f flags %.1f colman %.1f | game code %.3f ms x%.1f\n", g_dXyz * k, g_dW * k, g_dFlags * k, g_dCol * k,
+                         g_tGuest * k / 1000.0, g_nGuest * k);
+            g_dXyz = g_dW = g_dFlags = g_dCol = g_tGuest = g_nGuest = 0;
+            std::fprintf(stderr, "[walk83l] passes %llu: calls %.1f hits %.1f miss key %.1f env %.1f refresh %.1f new %.1f | entries %u | check %llu bad %llu worst %.3g (normals %.3g, colours %.3g), a step of 1/255 or more %llu | particle systems %.1f\n",
+                         (unsigned long long)g_pass, g_calls * k, g_hits * k, g_missKey * k, g_missEnv * k, g_refresh * k, g_new * k, static_cast<unsigned>(g_cache.size()),
+                         (unsigned long long)g_checks, (unsigned long long)g_bad, g_worst, g_worstN, g_worstC, (unsigned long long)g_visible, g_part * k);
+            g_part = 0;
+            g_calls = g_hits = g_missKey = g_missEnv = g_refresh = g_new = 0;
+        }
+    }
+
+    // SetGeoDispClassLightColMan(block) through the cache; ra the call's return
+    // address (CalcLightLayoutObj's site, or the light pass's for a particle
+    // system), sp its frame. The block's position may have moved by up to
+    // SOTC_WALK83_TOL (0.05 units: a few centimetres) from where its colours
+    // were made: the light volumes, the ambient grid and the point lights
+    // change over metres, so the colours cannot change visibly within it.
+    void colMan83(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t block, uint32_t sp, uint32_t ra)
+    {
+        using namespace walk83light;
+        auto guest = [&]
+        {
+            const bool timed = params().log > 0;
+            const uint64_t t0 = timed ? sotc_prof::ticks() : 0u;
+            callGuest(rdram, ctx, runtime, kSetGeoDispClassLightColMan, ra, sp);
+            if (timed)
+            {
+                g_tGuest += sotc_prof::ticks() - t0;
+                ++g_nGuest;
+            }
+        };
+        static const bool lightPart83 = !(std::getenv("SOTC_WALK83_LIGHT") && std::getenv("SOTC_WALK83_LIGHT")[0] == '0');
+        if (!lightPart83 || !g_active || !sotc_decomp::walk83On() || block >= PS2_RAM_SIZE - 0x100u || (block & 0xFu) != 0u)
+            return guest();
+        uint8_t *b = rdram + block;
+        uint32_t colMan;
+        std::memcpy(&colMan, b + 0xECu, 4);
+        if (colMan == 0u)
+            return guest();
+        ++g_calls;
+        float pos[4];
+        std::memcpy(pos, b + 0x10u, 16);
+        uint64_t f;
+        std::memcpy(&f, b + 0xC0u, 8);
+        f &= ~2ull;
+        uint64_t key = 0xC2B2AE3D27D4EB4Full;
+        uint32_t wbits; // the intensity (+0x1c), exact
+        std::memcpy(&wbits, b + 0x1Cu, 4);
+        key = (key ^ wbits) * 0x9E3779B97F4A7C15ull;
+        key = (key ^ f) * 0x9E3779B97F4A7C15ull;
+        key = (key ^ colMan) * 0x9E3779B97F4A7C15ull;
+        const Params &P = params();
+        Entry &e = g_cache[block];
+        const bool known = e.made != 0u;
+        const bool stale = known && ((g_pass + (block >> 4)) % static_cast<uint64_t>(P.refresh)) == 0u;
+        float ep[4];
+        std::memcpy(ep, e.in, 16);
+        const float dx = pos[0] - ep[0], dy = pos[1] - ep[1], dz = pos[2] - ep[2];
+        const bool near = dx * dx + dy * dy + dz * dz <= P.tol * P.tol;
+        e.used = g_pass;
+        if (known && near && e.key == key && e.env == g_env && !stale)
+        {
+            ++g_hits;
+            if (P.check)
+            {
+                guest();
+                ++g_checks;
+                bool bad = false;
+                for (int i = 0; i < 32; ++i)
+                {
+                    float a, c;
+                    std::memcpy(&a, b + 0x40u + i * 4u, 4);
+                    std::memcpy(&c, &e.out[i], 4);
+                    const float d = std::fabs(a - c);
+                    if (!(d <= 1e-5f * (1.0f + std::fabs(a))))
+                    {
+                        bad = true;
+                        if (!(d <= g_worst))
+                            g_worst = d;
+                    }
+                    float &w = i < 16 ? g_worstN : g_worstC;
+                    if (!(d <= w))
+                        w = d;
+                }
+                uint64_t f2;
+                std::memcpy(&f2, b + 0xC0u, 8);
+                bad |= ((f2 >> 1) & 1u) != e.flag2;
+                g_bad += bad;
+                // A difference of a whole step of 255 in a colour (or 0.004 in a normal entry).
+                bool step = false;
+                for (int i = 0; i < 32; ++i)
+                {
+                    float a, c;
+                    std::memcpy(&a, b + 0x40u + i * 4u, 4);
+                    std::memcpy(&c, &e.out[i], 4);
+                    step |= !(std::fabs(a - c) < 1.0f / 255.0f);
+                }
+                g_visible += step;
+                return;
+            }
+            std::memcpy(b + 0x40u, e.out, 0x80u);
+            uint64_t f2;
+            std::memcpy(&f2, b + 0xC0u, 8);
+            f2 = (f2 & ~2ull) | (static_cast<uint64_t>(e.flag2) << 1);
+            std::memcpy(b + 0xC0u, &f2, 8);
+            SET_GPR_U64(ctx, 2, 1u);
+            return;
+        }
+        if (!known)
+            ++g_new;
+        else if (stale)
+            ++g_refresh;
+        else if (!near || e.key != key)
+        {
+            ++g_missKey;
+            g_dXyz += !near;
+            g_dW += pos[3] != ep[3];
+            g_dFlags += f != e.flags;
+            g_dCol += colMan != e.colMan;
+        }
+        else
+            ++g_missEnv;
+        guest();
+        e.key = key;
+        e.env = g_env;
+        std::memcpy(e.in, b + 0x10u, 16);
+        e.flags = f;
+        e.colMan = colMan;
+        e.made = g_pass + 1u;
+        std::memcpy(e.out, b + 0x40u, 0x80u);
+        uint64_t f2;
+        std::memcpy(&f2, b + 0xC0u, 8);
+        e.flag2 = static_cast<uint32_t>((f2 >> 1) & 1u);
+    }
 
     void calcLightLayoutObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -210,7 +483,7 @@ namespace decomp_hot43b
         SET_GPR_S32(ctx, 5, a1);
         SET_GPR_S32(ctx, 6, a2);
         SET_GPR_S32(ctx, 7, 0xFFFFFFFEu);
-        callGuest(rdram, ctx, runtime, kSetGeoDispClassLightColMan, 0x010F4EFCu, sp);
+        colMan83(rdram, ctx, runtime, frame0, sp, 0x010F4EFCu);
 
         // The normal light matrix (frame0 + 0x40, in place).
         const uint32_t normal = frame0 + 0x40u;
@@ -511,6 +784,67 @@ namespace decomp_hot43b
         ctx->fcr31 = fcr31;
         ctx->f[0] = result;
         returnTo(ctx);
+    }
+}
+
+namespace sotc_decomp
+{
+    // Round 83: the light pass's start (after LoopExecPreLightColMan: the frame's lights in the work area) and end.
+    void walk83LightBegin(uint8_t *rdram, PS2Runtime *runtime)
+    {
+        using namespace decomp_hot43b::walk83light;
+        ++g_pass;
+        g_active = false;
+        if (!walk83On())
+        {
+            if (!g_cache.empty())
+                g_cache.clear();
+            return;
+        }
+        const Mem m{rdram, runtime->memory().getScratchpad()};
+        g_active = envSignature(m, g_env);
+        if (g_pass % 64u == 0u)
+            for (auto it = g_cache.begin(); it != g_cache.end();)
+                it = it->second.used + 8u < g_pass ? g_cache.erase(it) : std::next(it);
+    }
+    // calc_light_particle_geodisp (0x113f600, a particle system's light
+    // callback in the light pass): its block (the geodisp class) at its first
+    // emitter's position, then the colours through the cache. False: not
+    // handled (the caller calls the game's code).
+    bool walk83ParticleLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t id, uint32_t sp, uint32_t ra)
+    {
+        using namespace decomp_hot43b::walk83light;
+        if (!g_active || !walk83On() || id >= PS2_RAM_SIZE - 0x200u || rdram[id + 8u] != 0x24u || jalTarget(rdram, 0x0113F640u) != 0x01140C80u)
+            return false;
+        const uint32_t cls = id + 0x20u;
+        uint32_t first;
+        std::memcpy(&first, rdram + cls + 0xE8u, 4);
+        SET_GPR_U32(ctx, 4, first);
+        callGuest(rdram, ctx, runtime, 0x01140C80u, ra, sp);
+        if (GPR_U64(ctx, 2) != 1u)
+            return true;
+        if (first >= PS2_RAM_SIZE - 0x40u)
+        {
+            SET_GPR_U32(ctx, 4, id);
+            callGuest(rdram, ctx, runtime, 0x0113F600u, ra, sp);
+            return true;
+        }
+        ++g_part;
+        std::memcpy(rdram + cls + 0x10u, rdram + first + 0x20u, 16);
+        uint64_t f;
+        std::memcpy(&f, rdram + cls + 0xC0u, 8);
+        f &= ~1ull;
+        std::memcpy(rdram + cls + 0xC0u, &f, 8);
+        const float one = 1.0f;
+        std::memcpy(rdram + cls + 0x1Cu, &one, 4);
+        SET_GPR_U32(ctx, 4, cls);
+        decomp_hot43b::colMan83(rdram, ctx, runtime, cls, sp, ra);
+        return true;
+    }
+    void walk83LightEnd()
+    {
+        decomp_hot43b::walk83light::g_active = false;
+        decomp_hot43b::walk83light::report();
     }
 }
 

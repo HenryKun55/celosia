@@ -1310,6 +1310,7 @@ namespace decomp_light
         call(kCameraContext, 0x010F4FDCu);
         SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2) + 320u);
         call(kReverb, 0x010F4FE4u);
+        sotc_decomp::walk83LightBegin(rdram, runtime); // round 83: the lights' signature for this pass
 
         // The objects' light callbacks.
         for (uint32_t obj = sorted.first(); obj != 0u; obj = sorted.next(obj))
@@ -1336,10 +1337,14 @@ namespace decomp_light
                 {
                     SET_GPR_U32(ctx, 4, id);
                     SET_GPR_U32(ctx, 5, obj);
-                    call(callback, 0x010F5074u);
+                    // Round 83: a particle system's light through the colours' cache.
+                    if (!(callback == 0x0113F600u && sotc_decomp::walk83ParticleLight(rdram, ctx, runtime, id, frame, 0x010F5074u + 8u)))
+                        call(callback, 0x010F5074u);
                 }
             }
         }
+
+        sotc_decomp::walk83LightEnd();
 
         // The layout objects' own lights (010F4A18) and their scale.
         float f0 = ctx->f[0];

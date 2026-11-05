@@ -72,6 +72,7 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -995,8 +996,347 @@ namespace decomp_walk
         modelClipSolidT<false>(rdram, ctx, runtime);
     }
 
+
+    // ---- Round 83 (SOTC_WALK83): ClipLayoutObjModel for a solid model as plain A9 code ----
+    // The same decisions as ClipLayoutObjModel -> modelClipSolid ->
+    // modelClipPoint / clipByMinMaxCube above, without their guest calls
+    // (the camera context read from its globals, no guest frame, no VU0
+    // registers kept, plain float maths: the results may differ from the
+    // PS2's in the last bits). The outputs the walk and the draw read: the
+    // sort record's level (+0x30, -1 none, -2 culled), fade (+0x34) and depth
+    // keys (+0x20..+0x28), the instance's LOD scale (+0x250), level bits
+    // (bits 40-42 of +0x250) and view depths (+0x230..+0x238); v0 the
+    // instance, f0 its +0x234. Not here (the code above): skinned models, a
+    // model that picks its own level (+0xc of its header), an unknown level
+    // mode, anything outside main RAM. SOTC_WALK83_CHECK=2 runs the code above
+    // after it and compares ([walk83c] lines).
+    namespace clip83
+    {
+        struct V4
+        {
+            float x, y, z, w;
+        };
+        inline const uint8_t *host(const uint8_t *rdram, uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a ? rdram + a : nullptr; }
+        inline float hf(const uint8_t *p, uint32_t o)
+        {
+            float v;
+            std::memcpy(&v, p + o, 4);
+            return v;
+        }
+        inline uint32_t hu(const uint8_t *p, uint32_t o)
+        {
+            uint32_t v;
+            std::memcpy(&v, p + o, 4);
+            return v;
+        }
+        inline V4 hq(const uint8_t *p, uint32_t o)
+        {
+            V4 v;
+            std::memcpy(&v, p + (o & ~0xFu), 16);
+            return v;
+        }
+        // r0 x v.x + r1 x v.y + r2 x v.z + r3 x w (the rows as the VU's vmula chain takes them).
+        inline V4 rows(const V4 r[4], float x, float y, float z, float w)
+        {
+#if defined(__ARM_NEON)
+            float32x4_t a = vmulq_n_f32(vld1q_f32(&r[3].x), w);
+            a = vmlaq_n_f32(a, vld1q_f32(&r[0].x), x);
+            a = vmlaq_n_f32(a, vld1q_f32(&r[1].x), y);
+            a = vmlaq_n_f32(a, vld1q_f32(&r[2].x), z);
+            V4 o;
+            vst1q_f32(&o.x, a);
+            return o;
+#else
+            return {r[0].x * x + r[1].x * y + r[2].x * z + r[3].x * w, r[0].y * x + r[1].y * y + r[2].y * z + r[3].y * w,
+                    r[0].z * x + r[1].z * y + r[2].z * z + r[3].z * w, r[0].w * x + r[1].w * y + r[2].w * z + r[3].w * w};
+#endif
+        }
+        inline void load4(const uint8_t *p, uint32_t o, V4 r[4])
+        {
+            std::memcpy(r, p + o, 64);
+        }
+        // The VU CLIP judgement's six bits (+x, -x, +y, -y, +z, -z against |w|).
+        inline uint32_t clipBits(const V4 &p)
+        {
+            const float w = std::fabs(p.w);
+            return (p.x > w ? 1u : 0u) | (p.x < -w ? 2u : 0u) | (p.y > w ? 4u : 0u) | (p.y < -w ? 8u : 0u) | (p.z > w ? 16u : 0u) | (p.z < -w ? 32u : 0u);
+        }
+        // The root box's eight corners through PM: true when all of them are
+        // out by one same plane (the AND of their CLIP bits is not 0).
+        inline bool boxOut(const V4 PM[4], const V4 &lo, const V4 &hi)
+        {
+#if defined(__ARM_NEON)
+            // Corners k = 0..3 have x = lo.x, k = 4..7 x = hi.x; y = (k & 2) ? hi : lo, z = (k & 1) ? hi : lo.
+            const float32x4_t ys = {lo.y, lo.y, hi.y, hi.y}, zs = {lo.z, hi.z, lo.z, hi.z};
+            float32x4_t cA[4], cB[4];
+            const float *pm = &PM[0].x;
+            for (int c = 0; c < 4; ++c)
+            {
+                float32x4_t t = vdupq_n_f32(pm[12 + c]);
+                t = vmlaq_n_f32(t, ys, pm[4 + c]);
+                t = vmlaq_n_f32(t, zs, pm[8 + c]);
+                cA[c] = vmlaq_n_f32(t, vdupq_n_f32(lo.x), pm[c]);
+                cB[c] = vmlaq_n_f32(t, vdupq_n_f32(hi.x), pm[c]);
+            }
+            const float32x4_t wA = vabsq_f32(cA[3]), wB = vabsq_f32(cB[3]);
+            const float32x4_t nwA = vnegq_f32(wA), nwB = vnegq_f32(wB);
+            auto all = [](uint32x4_t a, uint32x4_t b)
+            {
+                const uint32x4_t m = vandq_u32(a, b);
+                uint32x2_t h = vand_u32(vget_low_u32(m), vget_high_u32(m));
+                h = vpmin_u32(h, h);
+                return vget_lane_u32(h, 0) != 0u;
+            };
+            for (int c = 0; c < 3; ++c)
+                if (all(vcgtq_f32(cA[c], wA), vcgtq_f32(cB[c], wB)) || all(vcltq_f32(cA[c], nwA), vcltq_f32(cB[c], nwB)))
+                    return true;
+            return false;
+#else
+            uint32_t a = 0x3Fu;
+            for (int k = 0; k < 8 && a; ++k)
+                a &= clipBits(rows(PM, (k & 4) ? hi.x : lo.x, (k & 2) ? hi.y : lo.y, (k & 1) ? hi.z : lo.z, 1.0f));
+            return a != 0u;
+#endif
+        }
+        uint64_t g_calls = 0, g_fast = 0, g_checks = 0, g_bad = 0, g_frames = 0;
+        int checkMode()
+        {
+            static const int v = std::getenv("SOTC_WALK83_CHECK") ? std::atoi(std::getenv("SOTC_WALK83_CHECK")) : 0;
+            return v;
+        }
+        struct Out
+        {
+            uint32_t object, geo;
+            float f0;
+        };
+        // True when done (out set); false: the code above, nothing written.
+        bool clip(uint8_t *rdram, uint32_t object, Out &out)
+        {
+            ++g_calls;
+            const uint8_t *ob = host(rdram, object, 0x10u);
+            if (!ob)
+                return false;
+            const uint32_t index = static_cast<uint32_t>(ob[8]) - 9u;
+            if (index >= 0xEu)
+                return false;
+            const uint32_t target = hu(rdram, kClassTable + index * 4u);
+            const uint32_t s0 = target == 0x010F1A58u ? object + 0x20u : target == 0x010F1A98u ? object + 0x90u : 0u;
+            const uint8_t *c0 = s0 ? host(rdram, s0, 0x170u) : nullptr;
+            if (!c0)
+                return false;
+            const uint32_t s1 = hu(c0, 0x140u), geo = hu(c0, 0x144u);
+            uint8_t *rec = const_cast<uint8_t *>(host(rdram, s1, 0x40u));
+            if (!rec)
+                return false;
+            if (geo == 0u)
+            {
+                const float m1 = -1.0f;
+                std::memcpy(rec + 0x30u, &m1, 4);
+                out = {object, 0u, -1.0f};
+                return true;
+            }
+            uint8_t *gp = const_cast<uint8_t *>(host(rdram, geo, 0x260u));
+            if (!gp)
+                return false;
+            const uint8_t *model = host(rdram, hu(gp, 0u), 0x24u);
+            const uint8_t *hd = model ? host(rdram, hu(model, 0x20u), 0x60u) : nullptr;
+            if (!hd || (hu(hd, 0x18u) & 1u) != 0u || hu(hd, 0xCu) != 0u)
+                return false; // skinned, or a model that picks its own level
+            const uint8_t *lod = host(rdram, hu(hd, 8u), 0x40u);
+            const uint8_t *mx = host(rdram, hu(c0, 0x15Cu), 0x40u);
+            const uint32_t cam = hu(rdram, 0x0122A8F0u + (hu(rdram, 0x0118FE4Cu) << 2));
+            const uint8_t *cp = host(rdram, cam, 0x5E0u);
+            if (hu(hd, 8u) == 0u || !lod || !mx || !cp)
+                return false;
+            const int32_t count = static_cast<int32_t>(hu(hd, 0x1Cu));
+            if (count <= 0 || count > 8)
+                return false;
+            const uint32_t mode = hu(lod, 0x14u);
+            uint32_t modeTarget = 0u;
+            if (mode < 5u)
+            {
+                modeTarget = hu(rdram, kLodModes + mode * 4u);
+                if (modeTarget != 0x01098968u && modeTarget != 0x01098970u && modeTarget != 0x01098978u && modeTarget != 0x01098980u && modeTarget != 0x010989D0u)
+                    return false;
+            }
+            ++g_fast;
+            // ClipLayoutObjModel.
+            const float m1 = -1.0f;
+            std::memcpy(rec + 0x30u, &m1, 4);
+            const float fade = hf(gp, 0x244u);
+            std::memcpy(rec + 0x34u, &fade, 4);
+            if (!(fade < 1.0f))
+            {
+                out = {object, geo, fade};
+                return true;
+            }
+            float lens = 1.0f;
+            if (hu(lod, 0x3Cu) != 0u && cam != 0u)
+                lens = 500.0f / hf(cp, 0xCu);
+            const float lodScale = hf(c0, 0x9Cu) * lens;
+            std::memcpy(gp + 0x250u, &lodScale, 4);
+            // modelClipSolid.
+            float level;
+            const V4 eye = hq(cp, 0x140u);
+            V4 M[4];
+            load4(mx, 0u, M);
+            auto dist3 = [](float x, float y, float z) { return std::sqrt(x * x + y * y + z * z); };
+            bool done = false;
+            if ((hu(hd, 0x18u) >> 24) & 1u)
+            {
+                level = -2.0f;
+                done = true;
+            }
+            if (!done && hu(rdram, kLodOn) != 0u)
+            {
+                const float far = hf(lod, 0x30u);
+                if (0.0f < far && dist3(M[3].x - eye.x, M[3].y - eye.y, M[3].z - eye.z) < far)
+                {
+                    level = -2.0f;
+                    done = true;
+                }
+            }
+            if (!done)
+            {
+                // modelClipPoint: the sphere's centre in the world, its view depths, the CLIP of the
+                // centre with w grown by the radius's projected size.
+                const V4 c = hq(hd, 0x20u);
+                const float r = c.w * lodScale;
+                const V4 world = rows(M, c.x, c.y, c.z, 1.0f);
+                V4 P[4], VP[4], V[4];
+                load4(cp, 0x1E0u, P);
+                load4(cp, 0x5A0u, VP);
+                load4(cp, 0x1A0u, V);
+                const V4 pr = rows(P, r, 0.0f, 0.0f, 1.0f);
+                V4 clipP = rows(VP, world.x, world.y, world.z, 1.0f);
+                clipP.w += pr.x;
+                const bool crosses = clipBits(clipP) != 0u;
+                const V4 vc = rows(V, world.x, world.y, world.z, world.w); // V x (M x c): the centre in view space
+                const float keys[4] = {vc.z + r, vc.z, vc.z - r, vc.w};
+                std::memcpy(gp + 0x230u, keys, 16);
+                const float f21 = crosses ? dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z) : -1.0f;
+                float d = 0.0f;
+                switch (modeTarget)
+                {
+                case 0x01098968u: d = keys[1]; break;
+                case 0x01098970u: d = keys[2]; break;
+                case 0x01098978u: d = keys[0]; break;
+                case 0x01098980u: d = dist3(world.x - eye.x, 0.0f, world.z - eye.z); break;
+                case 0x010989D0u: d = dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z); break;
+                default: d = 0.0f; break;
+                }
+                const bool keepsLast = static_cast<int32_t>(hu(lod, 0x28u)) == 0;
+                if (native_renderer::tuning().sacLod && keepsLast)
+                    d *= 1.6f;
+                if (native_renderer::tuning().sacDrawDist && !keepsLast)
+                    d *= 1.5f;
+                uint64_t w250;
+                std::memcpy(&w250, gp + 0x250u, 8);
+                const Ram m{rdram};
+                float f12 = lodByDistance(m, hu(hd, 8u), d, static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
+                const int32_t lv = static_cast<int32_t>(f12);
+                float f20;
+                if (static_cast<uint64_t>(static_cast<int64_t>(lv)) < static_cast<uint64_t>(static_cast<int64_t>(count)))
+                    f20 = f12;
+                else
+                    f20 = keepsLast ? static_cast<float>(count - 1) : -1.0f;
+                if (f20 < 0.0f)
+                    level = -1.0f;
+                else if (f21 < 0.0f)
+                    level = f20;
+                else
+                {
+                    // The level's root box through camera x model: culled when every corner is out by one same plane.
+                    const uint32_t table = hu(hd, 0x30u + static_cast<uint32_t>(static_cast<int32_t>(f20)) * 4u);
+                    const uint8_t *tb = host(rdram, table, 0x20u);
+                    level = f20;
+                    if (tb)
+                    {
+                        V4 PM[4];
+                        for (int i = 0; i < 4; ++i)
+                            PM[i] = rows(VP, M[i].x, M[i].y, M[i].z, M[i].w);
+                        if (boxOut(PM, hq(tb, 0u), hq(tb, 0x10u)))
+                            level = -2.0f;
+                    }
+                }
+            }
+            // The level into bits 40-42 of +0x250, the sort record's keys.
+            uint64_t w250;
+            std::memcpy(&w250, gp + 0x250u, 8);
+            const int32_t lvl = static_cast<int32_t>(level);
+            w250 = (w250 & 0xFFFFF8FFFFFFFFFFull) | (static_cast<uint64_t>(static_cast<uint32_t>(lvl) & 7u) << 40);
+            std::memcpy(gp + 0x250u, &w250, 8);
+            const float lf = static_cast<float>(static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
+            std::memcpy(rec + 0x30u, &lf, 4);
+            std::memcpy(rec + 0x20u, gp + 0x230u, 4);
+            std::memcpy(rec + 0x28u, gp + 0x238u, 4);
+            std::memcpy(rec + 0x24u, gp + 0x234u, 4);
+            out = {object, geo, hf(gp, 0x234u)};
+            return true;
+        }
+    }
+
+    void clipLayoutObjModelOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     // ---- ClipLayoutObjModel (0x10f4890; a0 the object) ---------------------
     void clipLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool clipPart83 = !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0');
+        if (clipPart83 && sotc_decomp::walk83On())
+        {
+            const uint32_t object = GPR_U32(ctx, 4);
+            const int check = clip83::checkMode();
+            // (checking: the inputs the old code reads back, as they were)
+            uint8_t keep[0x28];
+            const uint32_t s0c = object + 0x20u;
+            uint32_t geoc = 0u, recc = 0u;
+            if (check == 2 && Ram::ok(s0c, 0x170u))
+            {
+                geoc = Ram{rdram}.u32(s0c + 0x144u);
+                recc = Ram{rdram}.u32(s0c + 0x140u);
+                if (Ram::ok(geoc, 0x260u))
+                    std::memcpy(keep, rdram + geoc + 0x230u, 0x28u);
+                else
+                    geoc = 0u;
+            }
+            clip83::Out o;
+            if (clip83::clip(rdram, object, o))
+            {
+                if (check == 2 && geoc != 0u && geoc == o.geo && Ram::ok(recc, 0x40u))
+                {
+                    uint8_t fastGeo[0x28], fastRec[0x18];
+                    std::memcpy(fastGeo, rdram + geoc + 0x230u, 0x28u);
+                    std::memcpy(fastRec, rdram + recc + 0x20u, 0x18u);
+                    std::memcpy(rdram + geoc + 0x230u, keep, 0x28u);
+                    clipLayoutObjModelOld(rdram, ctx, runtime);
+                    ++clip83::g_checks;
+                    float a[6], b[6];
+                    std::memcpy(a, fastRec, 0x18u);
+                    std::memcpy(b, rdram + recc + 0x20u, 0x18u);
+                    uint64_t fa, fb2;
+                    std::memcpy(&fa, fastGeo + 0x20u, 8);
+                    std::memcpy(&fb2, rdram + geoc + 0x250u, 8);
+                    bool bad = a[4] != b[4] || ((fa >> 40) & 7u) != ((fb2 >> 40) & 7u);
+                    for (int i = 0; i < 3; ++i)
+                        bad |= !(std::fabs(a[i] - b[i]) <= 1e-3f * (1.0f + std::fabs(b[i])));
+                    if (bad)
+                    {
+                        if (++clip83::g_bad <= 40u)
+                            std::fprintf(stderr, "[walk83c] object %08x fast level %.0f keys %.4g %.4g %.4g | old level %.0f keys %.4g %.4g %.4g\n", object, a[4], a[0], a[1], a[2], b[4], b[0], b[1], b[2]);
+                    }
+                    if (clip83::g_checks % 20000u == 0u)
+                        std::fprintf(stderr, "[walk83c] checks %llu bad %llu (fast %llu of %llu)\n", (unsigned long long)clip83::g_checks, (unsigned long long)clip83::g_bad,
+                                     (unsigned long long)clip83::g_fast, (unsigned long long)clip83::g_calls);
+                    return;
+                }
+                ctx->f[0] = o.f0;
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.geo));
+                returnTo(ctx);
+                return;
+            }
+        }
+        clipLayoutObjModelOld(rdram, ctx, runtime);
+    }
+    void clipLayoutObjModelOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
         const Ram m = g.m;
@@ -2283,6 +2623,9 @@ namespace decomp_walk
         uint32_t s4 = g.v0(), s3 = 0u;
         set(20, s4);
         QuatProduct qp{};
+        const bool walk83 = sotc_decomp::walk83On();
+        bool s6Known = false;
+        uint32_t s6Class = 0u;
         GroupRunner runner;
         if (w67 && Ram::ok(s4, 0x18u))
         {
@@ -2311,7 +2654,20 @@ namespace decomp_walk
             if (s0 != 0u)
             {
                 set(21, 1u);
-                const uint32_t s1 = layoutClass(g, s6, 0x010F5360u, sp);
+                // Round 83 (SOTC_WALK83): the walk's own object's layout class
+                // (GetLayoutClass(a0), a lookup) once a walk, not once an object.
+                uint32_t s1;
+                if (walk83)
+                {
+                    if (!s6Known)
+                    {
+                        s6Class = layoutClass(g, s6, 0x010F5360u, sp);
+                        s6Known = true;
+                    }
+                    s1 = s6Class;
+                }
+                else
+                    s1 = layoutClass(g, s6, 0x010F5360u, sp);
                 set(17, s1);
                 if (!Ram::ok(s0, 0x1C0u) || !Ram::ok(s1, 0x160u) || !Ram::ok(m.u32(s0 + 0x140u), 0x40u) || !Ram::ok(m.u32(s0 + 0x144u), 0x268u))
                     return resume(0x010F5348u);

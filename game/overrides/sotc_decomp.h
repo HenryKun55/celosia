@@ -534,18 +534,21 @@ namespace sotc_decomp
         kPtcl79,      // round 79: off-screen particle systems stepped at a lower rate with their time kept, not drawn (decomp_hot47e, decomp_walk)
         kSeg80,       // round 80: the segment tests' answers reused while the segment stays within 1 cm, for at most 5 frames (decomp_collision)
         kPose82,      // round 82: the characters' pose (GetMotionMatrix) and bone passes for the A9, not as VU0 code (decomp_pose82)
+        kWalk83,      // round 83: the display walk's light colours kept while their inputs stay, the layout objects' clip as plain A9 code (decomp_walk83)
+        kPtcl83,      // round 83: the particle manager's per-system round trips as host code (decomp_hot47e); off by default (below the bar)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
         if (__builtin_expect(v < 0, 0))
         {
             const char *e = std::getenv(kSwitchEnv[which]);
-            v = !(e && e[0] == '0');
+            // Round 83: ptcl83 measured below the 1 ms bar: off unless SOTC_PTCL83=1.
+            v = which == kPtcl83 ? (e && e[0] == '1') : !(e && e[0] == '0');
             g_switch[which] = v;
         }
         return v != 0;
@@ -624,10 +627,16 @@ namespace sotc_decomp
     inline bool ptcl79On() { return switchOn(kPtcl79); }
     inline bool seg80On() { return switchOn(kSeg80); }
     inline bool pose82On() { return switchOn(kPose82); }
+    inline bool walk83On() { return switchOn(kWalk83); }
+    inline bool ptcl83On() { return switchOn(kPtcl83); }
     // Round 79 (decomp_hot47e.cpp): the particle geodisp object the manager
     // found wholly outside the camera's clip volume this frame and the frame
     // before (its step put off, its draw not needed).
     bool ptcl79Culled(uint32_t object);
+    // Round 83 (decomp_hot43b.cpp): the light pass's start and end, the light colours' cache around them.
+    void walk83LightBegin(uint8_t *rdram, PS2Runtime *runtime);
+    void walk83LightEnd();
+    bool walk83ParticleLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t id, uint32_t sp, uint32_t ra);
 
     // Round 49's measurements. NativeCount: calls of a native (counted
     // whatever SOTC_FASTNATIVE says, at its entry); with
