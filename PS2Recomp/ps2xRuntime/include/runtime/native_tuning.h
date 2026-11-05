@@ -271,6 +271,27 @@ namespace native_renderer
         // texture coordinates for such reads), so off by default.
         // SOTC_GL_PLAIN_READS=0/1; A/B name `plainread73` (with it on).
         bool glPlainReads = false;
+        // Round 74 (the render thread's CPU, the same GL calls in the same
+        // order): each pass walks only the draws of its layers that are drawn
+        // (merged-away draws and other layers' left out: each pass read every
+        // draw of the frame before, ~7 passes at the altar), the frame's
+        // draws put in layer order by counting (stable, as the sort), and
+        // planFrame's state compare taking equal bits as equal before the
+        // float compares. SOTC_GL_LEAN_PASS=0/1; A/B name `pass74`.
+        bool glLeanPass = true;
+        // Round 74 (the Vita): vitaGL's vertex layout cache kept when only
+        // the vertex buffer changes (the attributes' formats, offsets and
+        // stride and which of them share a buffer unchanged): a switch to
+        // another mesh pool re-patched the vertex program before (a layout
+        // miss on the next draw: ~170 a frame at the altar). The same
+        // vertex programs and streams. SOTC_GL_KEEP_LAYOUT=0/1; A/B name `layout74`.
+        bool glKeepLayout = true;
+        // Round 74 (the console, an experiment): the render thread above the
+        // hook worker in priority (149; 191 before) while a frame is drawn:
+        // the console's render thread is ~13 ms a frame longer in the wall
+        // than its CPU time (the worker and the audio thread share its core
+        // at higher priority). SOTC_RENDER_PRIO=0/1 (default 0); A/B name `rprio74`.
+        bool renderPrio = false;
         // the GS alpha test's two passes merged into one where they draw the
         // same: every pixel under AREF (the texture's and the mesh's
         // greatest alpha say), one pass without depth writes (SOTC_GL_AT_MERGE=0/1).

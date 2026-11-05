@@ -11275,6 +11275,130 @@ planFrame's lookups).
 **Deliverable:** build/agent-scratch/celosia-r73.vpk (main ed6b0fa + this
 round).
 
+## Round 74: the render thread's own work per draw: passes over the drawn draws only, vitaGL's layout cache kept across buffer switches (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r74/` (v3k.sh / ab.sh: round 73's
+with r74 paths; tools/rt74.py: rt73.py plus the draw part by phase from the
+slow lines (`plan`, `pass`, `calls`, `ncalls`, `us/call`); tools/pclines.py;
+runs/base-prof (r73's build, the altar frozen, profile), stats-route6 (the
+merge statistics), p1-freeze / p3-freeze / p4-freeze (the altar frozen, A/B
+rotating, captures every 2 s; p3 also a profile), p2-route6 / p5-route6
+(route 6, A/B); env-console.txt). Build tree: build/agent-scratch/r69/wt
+(main 158f4f0 + this round), vitaGL from r69/vitagl with this round's
+celosia.patch.
+
+**Where the console stands (r73/console, frames with 1 000+ draws).** The
+render thread's draw part 38-44 ms (wall) for its ~30 ms of CPU, `present`
+16-20 ms; ~1 300-2 500 draws a frame. "Draws" in the frame log are the
+game's draw records; after the merges the GL calls are about a third of them
+(the altar: 1 140 records, 385 GL draw calls, plus ~100 alpha-test second
+passes and the effects' quads).
+
+**Fewer draws: not there.** `SOTC_GL_MERGE_STATS=1` (new, `[gl:merge]`)
+counts, for each draw left after the merges, why it was not merged into the
+one before it. Route 6's heaviest window: 420 left, of which 300 because
+the texture changes, 44 skinned with another palette, 23 the same mesh
+drawn again with another matrix, 16 another layer, 13 another state; the
+altar: ~270 of ~300 the texture. The draws next to each other already merge
+whenever their texture, state and matrix allow; merging across textures
+needs reordering (opaque draws with equal depth keep the later one: not the
+same pixels in general) or atlases (other filtering at the edges). Left as
+it is: this round cuts the cost of each draw instead.
+
+**What changed (each exact: the same GL calls, in the same order).**
+1. `SOTC_GL_LEAN_PASS` (default on, A/B `pass74`). Each pass (the
+   background, the mirror, the picture's segments between effects: ~7 at
+   the altar) walked every draw of the frame, reading its plan entry and its
+   ~320-byte record, to skip all but its own layers and the draws merged
+   away. Now the plan's draws not merged away are listed once and each pass
+   finds its layer range by binary search (the draws it skips did nothing
+   but the bloom log's rectangle checks, which keep the full walk). The
+   frame's draws are put in layer order by counting (the sort's order:
+   layer, then index); planFrame's state compare takes the six floats
+   (opacity, UV offset, LOD) as bits first (equal bits: equal; otherwise the
+   float compares as before: +0 / -0 still equal) instead of six
+   float compares with their flag transfers; the next draws' records and
+   mesh / texture hash slots are asked for ahead (prefetch: no effect in
+   Vita3K, for the console's memory).
+2. `SOTC_GL_KEEP_LAYOUT` (default on, A/B `layout74`; celosia.patch,
+   `vglCeloLeanDraw` bit 2). A switch to another vertex buffer (the mesh
+   pools, the frame's own vertices: ~170 a frame at the altar) calls
+   glVertexAttribPointer for each attribute; vitaGL bumped the layout
+   version on any change, buffer included, so the next draw missed its
+   layout cache: the vertex program patched again (vglCreateVertexProgram's
+   lookup and its compares) and the entry copied (the base profile's
+   sceClibMemcpy, 9% of the render thread, was this). The cached layout
+   depends on the buffers only through which attributes share one (packed)
+   and which have none (client memory); the pointers are taken at each
+   draw. Now a buffer-only change marks the vao, and the next draw bumps
+   the version only if that pattern changed.
+3. `SOTC_RENDER_PRIO` (default off; A/B `rprio74` with it set to 1): the
+   render thread at priority 149 (SOTC_RENDER_PRIO_VALUE) instead of its
+   191, above the hook worker (150) and the threads at 191 that share core
+   2 with it. On the console its draw part is ~13 ms longer than its CPU:
+   preempted or waiting on the GPU; the A/B tells which (Vita3K schedules
+   differently: not measured here).
+4. Measuring: `SOTC_GL_PHASE_LOG=1` puts `[plan pass calls n]` in the slow
+   lines' draw part (the order and merges, the world's passes, the draw
+   calls inside them: vitaGL + GXM, waits for the GPU's rings included) and
+   a `[gl:phases]` line every 300 frames (plus the frame's own vertices
+   sent: 256 KB, 0.7 ms a frame at the altar in Vita3K). The A/B name
+   `r74all` turns pass74 and layout74 off together.
+
+**Picture checks.** The altar's frame frozen (SOTC_GL_FREEZE=3300,1000), the
+A/B rotating every 60 game frames, the window captured every 2 s: p1-freeze
+(pass74, layout74, rprio74): 57 captures, one picture; p4-freeze (pass74,
+layout74, final build): 57 captures, one picture; p3-freeze: the 27 captures
+without the host's settings menu (it opened from ~170 to ~203 s, not our
+input script) one picture. The Mac (OpenGL) builds; pass74 is the same code
+there, layout74 / rprio74 are the Vita's.
+
+**Measured in Vita3K (222 MHz, in-run A/B).**
+
+| run | state | render (draw part) | draw calls | us / call |
+|---|---|---|---|---|
+| p5-route6, frames with 600+ draws | all on | 10.92 ms | 388 | 13.5 |
+| | r74all off | 11.90 (+0.98) | 434 | 16.9 |
+| | layout74 off | 11.78 (+0.86) | 434 | 16.7 |
+| | pass74 off | 11.83 (+0.91) | 497 | 14.8 |
+| p4-freeze (the altar, frozen) | all on | pass 12.34, calls 7.73 | 503 | 15.4 |
+| | layout74 off | pass 13.03 (+0.69), calls 8.45 | 494 | 17.1 |
+| | pass74 off | pass 12.96 (+0.62) | 499 | 15.3 |
+
+(Route 6 moves, so the windows' frames differ: the draws and calls per
+window differ by up to 10%; per call and per frozen frame the gains repeat
+in every run: layout74 1.8-3.2 us a call, pass74 0.6-1.6 ms of the passes.)
+The frozen frame's `render` column is not usable in Vita3K: with the frame
+frozen the render thread waits in the effects for Vita3K's GPU (the
+`[gl:phases]` rest, 28-50 ms there, 1-3 ms on the route). So in Vita3K the
+draw part is ~8% lighter at the same draws, and a draw call 13.5 instead
+of 16.9 us (the layout misses: layout74 alone 13.5 -> 16.7).
+
+**On the console (the user's run).** env-console.txt: the frame log, body
+shadows, the spike log, the phase log, the draw log,
+`SOTC_RENDER_PRIO=1`, `SOTC_AB_FLAG=r74all,pass74,layout74,rprio74`,
+rotation every 60 frames (all on / each off in turn). Read with
+`python3 build/agent-scratch/r74/tools/rt74.py err.txt --min-draws 1000`:
+per state the frame, `cpuRend` (the render thread's CPU), `render` (its draw
+part), `present`, `wait`, draws, targets, scenes, kverts and the phases
+(`plan`, `pass`, `calls`, `ncalls`, `us/call`); "off minus on" rows: a
+positive `cpuRend` / `render` there is the switch's gain (r74all: the
+round's). rprio74's row: a positive `render` with `cpuRend` unchanged says
+the render thread was preempted; no change says it waits for the GPU
+(`calls` is where the rings' waits land). `[gl:phases]` lines: the same per
+frame drawn, with the rest (effects) and the vertices sent.
+
+**Left.** The draw calls themselves (sceGxmDraw and vitaGL's per-draw
+uniform copies: ~400-550 a frame, ~3 KB each for the skinned ones' palette
+buffers); the frame's own vertices copied each frame (256 KB at the altar:
+written in place into GPU memory would save the copy, with fences per
+frame); planFrame's lookups (~1.5 ms in Vita3K). If the console's `calls`
+column is mostly waits (us/call far above Vita3K's ~14), the GPU is still
+the limit and the next round is on its side.
+
+**Deliverable:** build/agent-scratch/celosia-r74.vpk (main 158f4f0 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

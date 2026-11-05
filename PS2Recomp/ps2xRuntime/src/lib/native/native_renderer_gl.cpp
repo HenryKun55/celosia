@@ -899,6 +899,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
         }
         size_t size() const { return m_size; }
+        // Round 74: the cache lines a find(id) reads first, asked for ahead.
+        void prefetch(uint64_t id) const
+        {
+            if (m_keys.empty() || id == kEmpty || id == kErased)
+                return;
+            const size_t i = slot(id);
+            __builtin_prefetch(&m_keys[i]);
+            __builtin_prefetch(&m_values[i]);
+        }
         // f(id, value&); returning true from `erase` drops the entry.
         template <typename F>
         void forEach(F f)
@@ -1360,6 +1369,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool copyRun(size_t from, size_t to, uint32_t total, RunCopy &copy);
         std::vector<std::pair<uint32_t, uint32_t>> planRanges; // scratch: a run's (first, count)
         void planFrame();
+        void mergeStats();
+        std::vector<uint32_t> leaders; // round 74: the plan's draws not merged away (Tuning glLeanPass)
+        // Round 74 (SOTC_GL_PHASE_LOG=1): where the render thread's draw part
+        // goes, a [gl:phases] line every 300 frames: the order and plan, the
+        // passes (the world's draws) and within them the draw calls
+        // themselves (vitaGL + GXM, any wait for the GPU's rings included),
+        // the rest (effects, copies, uploads), present left out.
+        struct
+        {
+            bool on = false;
+            uint64_t start = 0, plan = 0, passes = 0, calls = 0, count = 0, total = 0, frames = 0;
+            uint64_t arenaUs = 0, arenaBytes = 0; // the frame's own vertices / indices sent
+        } phases;
+        void phaseEnd()
+        {
+            if (phases.on && phases.start)
+                phases.total += native_renderer::nowUs() - phases.start, phases.start = 0;
+        }
         struct
         {
             uint64_t frames = 0, draws = 0, calls = 0, merged = 0, ranges = 0, indexed = 0, noDiscard = 0, bufferSwitches = 0;
@@ -1606,6 +1633,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t renderUs = 0, presentUs = 0;
             uint64_t lockUs = 0, uploadUs = 0, drawUs = 0, sweepUs = 0; // round 36: renderUs by part
+            uint64_t planUs = 0, passUs = 0, callUs = 0, calls = 0; // round 74: drawUs by part (SOTC_GL_PHASE_LOG=1)
             uint32_t runCopies = 0, runScans = 0;                       // round 36: merged runs copied, scans for their room
             uint32_t targets = 0;
             uint32_t scenes = 0, depthKB = 0; // round 73: GPU scenes begun, depth / stencil KB loaded + stored (the Vita)
@@ -3379,11 +3407,29 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         return diff == 0;
     }
 
+    static bool sameState(const Draw &a, const Draw &b);
     static bool sameDraw(const Draw &a, const Draw &b)
     {
+        return sameState(a, b) && sameBits<sizeof(a.clip)>(a.clip, b.clip);
+    }
+    // Round 74 (Tuning glLeanPass): two floats differ unless their bits are
+    // equal (no float compare, whose flag transfer stalls the A9) or they
+    // compare equal (+0 and -0, as before). Bit-equal NaNs now count as the
+    // same: the merged draw sends the same bits either way.
+    static bool g_fastCompare = false;
+    static_assert(offsetof(native_renderer::DrawState, maxLod) - offsetof(native_renderer::DrawState, opacity) == 5u * sizeof(float),
+                  "opacity, uvOffset, lodK, lodScale, maxLod side by side");
+    static inline bool sameFloats(const native_renderer::DrawState &x, const native_renderer::DrawState &y)
+    {
+        if (g_fastCompare && sameBits<6u * sizeof(float)>(&x.opacity, &y.opacity)) // the six as bits at once
+            return true;
+        return x.opacity == y.opacity && x.uvOffset[0] == y.uvOffset[0] && x.uvOffset[1] == y.uvOffset[1] && x.lodK == y.lodK && x.lodScale == y.lodScale &&
+               x.maxLod == y.maxLod;
+    }
+    static bool sameState(const Draw &a, const Draw &b)
+    {
         const native_renderer::DrawState &x = a.state, &y = b.state;
-        if (x.texture != y.texture || x.clamp != y.clamp || x.blend != y.blend || x.order != y.order || x.opacity != y.opacity ||
-            x.uvOffset[0] != y.uvOffset[0] || x.uvOffset[1] != y.uvOffset[1] || x.lodK != y.lodK || x.lodScale != y.lodScale || x.maxLod != y.maxLod ||
+        if (x.texture != y.texture || x.clamp != y.clamp || x.blend != y.blend || x.order != y.order || !sameFloats(x, y) ||
             x.background != y.background || x.backgroundFge != y.backgroundFge || x.fogged != y.fogged || x.writeDepth != y.writeDepth || x.noDepthWrite != y.noDepthWrite ||
             x.overlay != y.overlay || x.screen != y.screen || x.screenDepthTest != y.screenDepthTest || x.shadowVolume || y.shadowVolume ||
             x.reflectionSource != y.reflectionSource || x.reflectionSample != y.reflectionSample || x.refractionSample != y.refractionSample ||
@@ -3394,15 +3440,29 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return false;
         if ((x.lit || x.fresnel) && !sameBits<sizeof(x.light)>(x.light, y.light))
             return false;
-        return sameBits<sizeof(a.clip)>(a.clip, b.clip);
+        return true;
     }
 
     void Renderer::planFrame()
     {
         const size_t n = drawOrder.size();
         plan.assign(n, Planned{});
+        const bool ahead = native_renderer::tuning().glLeanPass; // round 74: the next draws' records and lookups asked for ahead
+        g_fastCompare = ahead;
         for (size_t k = 0; k < n; ++k)
         {
+            if (ahead)
+            {
+                if (k + 8u < n)
+                    __builtin_prefetch(&draws[static_cast<size_t>(drawOrder[k + 8u] & 0xFFFFFFFFu)]);
+                if (k + 4u < n)
+                {
+                    const Draw &next = draws[static_cast<size_t>(drawOrder[k + 4u] & 0xFFFFFFFFu)];
+                    meshes.prefetch(next.mesh);
+                    if (next.state.texture)
+                        textures.prefetch(next.state.texture);
+                }
+            }
             const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
             Planned &p = plan[k];
             Mesh *m = meshes.find(d.mesh);
@@ -3573,6 +3633,99 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             k = end;
         }
+        mergeStats();
+    }
+
+    // Round 74 (SOTC_GL_MERGE_STATS=1, analysis): why two draws next to each
+    // other in the frame's order were not drawn as one, counted a frame and
+    // printed every 300 frames ([gl:merge]).
+    void Renderer::mergeStats()
+    {
+        static const bool on = std::getenv("SOTC_GL_MERGE_STATS") && std::atoi(std::getenv("SOTC_GL_MERGE_STATS")) != 0;
+        if (!on)
+            return;
+        enum
+        {
+            kLeaders, kSkinned, kIndexed, kVolume, kDynamic, kNoMesh, rVolume, rSkinSame, rSkinPalette, rSkinOther, rIndexed, rDynMix, rTex, rClipSameMesh, rClip,
+            rState, rCap, rApart, rLayer, kCount
+        };
+        static const char *const names[kCount] = {"leaders", "skinned", "indexed", "volume", "dynamic", "nomesh", "|vol", "skin-sameall-but-tex/mesh",
+                                                  "skin-palette", "skin-other", "indexed", "dyn/kept", "tex", "clip(same mesh)", "clip", "state", "cap", "apart", "layer"};
+        static uint64_t counts[kCount] = {};
+        static uint64_t frames = 0;
+        const size_t n = drawOrder.size();
+        const Draw *prev = nullptr;
+        const Planned *prevPlan = nullptr;
+        for (size_t k = 0; k < n; ++k)
+        {
+            const Planned &p = plan[k];
+            const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+            if (!p.mesh)
+            {
+                ++counts[kNoMesh];
+                continue;
+            }
+            if (!p.run)
+            {
+                prev = &d;
+                prevPlan = &p;
+                continue;
+            }
+            ++counts[kLeaders];
+            counts[kSkinned] += p.mesh->skinned;
+            counts[kIndexed] += p.mesh->indexed && !p.mesh->skinned;
+            counts[kVolume] += d.state.shadowVolume;
+            counts[kDynamic] += p.mesh->dynamic;
+            if (prev)
+            {
+                const Mesh *a = prevPlan->mesh, *b = p.mesh;
+                int r;
+                if (prev->state.order != d.state.order)
+                    r = rLayer;
+                else if (prev->state.shadowVolume || d.state.shadowVolume)
+                    r = rVolume;
+                else if (a->skinned || b->skinned)
+                {
+                    if (a->skinned && b->skinned)
+                    {
+                        native_renderer::DrawState x = prev->state, y = d.state;
+                        const bool palette = x.skinPalette == y.skinPalette && x.skinPaletteCount == y.skinPaletteCount;
+                        x.skinPalette = y.skinPalette = 0;
+                        Draw dx(0, prev->clip, x), dy(0, d.clip, y);
+                        dx.state.texture = dy.state.texture = 0;
+                        r = !palette ? rSkinPalette : (sameDraw(dx, dy) ? rSkinSame : rSkinOther);
+                    }
+                    else
+                        r = rSkinOther;
+                }
+                else if (a->indexed || b->indexed)
+                    r = rIndexed;
+                else if (a->dynamic != b->dynamic)
+                    r = rDynMix;
+                else if (prevPlan->tex != p.tex)
+                    r = rTex;
+                else if (!sameState(*prev, d))
+                    r = rState;
+                else if (!sameBits<sizeof(d.clip)>(prev->clip, d.clip))
+                    r = prev->mesh == d.mesh ? rClipSameMesh : rClip;
+                else
+                    r = rCap; // (the vertex cap, or a run apart not copied yet)
+                ++counts[r];
+            }
+            prev = &d;
+            prevPlan = &p;
+        }
+        if (++frames % 300u != 0u)
+            return;
+        std::string line = "[gl:merge] per frame:";
+        for (int i = 0; i < kCount; ++i)
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof buf, " %s %.1f", names[i], counts[i] / 300.0);
+            line += buf;
+            counts[i] = 0;
+        }
+        std::fprintf(stderr, "%s\n", line.c_str());
     }
 
     // A run's kept meshes copied side by side into a pool range of its own.
@@ -3661,6 +3814,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static const bool log = std::getenv("SOTC_GL_SCENE_LOG") != nullptr;
 #endif
         stats.scenes = scenes; // round 73: the frame log's (this frame's)
+        if (phases.on && ++phases.frames >= 300u)
+        {
+            const double f = static_cast<double>(phases.frames);
+            std::fprintf(stderr, "[gl:phases] per frame over %llu frames: render %.2f ms: plan %.2f, passes %.2f (draw calls %.2f: %.0f calls, %.1f us each), rest %.2f (the frame's vertices sent %.2f: %.0f KB) | lean pass %d, keep layout %d, render prio %d\n",
+                         (unsigned long long)phases.frames, phases.total / f / 1000.0, phases.plan / f / 1000.0, phases.passes / f / 1000.0, phases.calls / f / 1000.0,
+                         phases.count / f, phases.count ? static_cast<double>(phases.calls) / phases.count : 0.0, (phases.total - phases.plan - phases.passes) / f / 1000.0,
+                         phases.arenaUs / f / 1000.0, phases.arenaBytes / f / 1024.0,
+                         native_renderer::tuning().glLeanPass ? 1 : 0, native_renderer::tuning().glKeepLayout ? 1 : 0, native_renderer::tuning().renderPrio ? 1 : 0);
+            phases.plan = phases.passes = phases.calls = phases.count = phases.total = phases.frames = phases.arenaUs = phases.arenaBytes = 0;
+        }
         stats.depthKB = loadKB + storeKB;
         sceneStats.scenes += scenes;
         sceneStats.loadKB += loadKB;
@@ -3682,6 +3845,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
     void Renderer::render(uint32_t w, uint32_t h)
     {
+        static const bool phaseLog = std::getenv("SOTC_GL_PHASE_LOG") && std::atoi(std::getenv("SOTC_GL_PHASE_LOG")) != 0;
+        phases.on = phaseLog;
+        phases.start = phaseLog ? native_renderer::nowUs() : 0u;
         ensureTargets(w, h);
         // Round 73 (Tuning glFewScenes): the two pictures in turn (switched
         // either way, so that the frame after one shown as drawn never draws
@@ -3718,7 +3884,29 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
         const bool depthKeep = native_renderer::tuning().glDepthKeep;
         vglCeloScratchKeep(depthKeep ? 0 : -1);
-        vglCeloLeanDraw(native_renderer::tuning().glLeanDraw ? 3 : 0); // round 56
+        vglCeloLeanDraw((native_renderer::tuning().glLeanDraw ? 3 : 0) | (native_renderer::tuning().glKeepLayout ? 4 : 0)); // round 56 (bit 2: round 74)
+        {
+            // Round 74 (Tuning renderPrio, a console experiment): the render
+            // thread at SOTC_RENDER_PRIO_VALUE (default 149, above the hook
+            // worker's 150) while on, its own priority otherwise.
+            static const SceUID self = sceKernelGetThreadId();
+            static const int own = []
+            {
+                SceKernelThreadInfo info{};
+                info.size = sizeof(info);
+                return sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0 ? info.currentPriority : 191;
+            }();
+            static const int high = std::getenv("SOTC_RENDER_PRIO_VALUE") ? std::atoi(std::getenv("SOTC_RENDER_PRIO_VALUE")) : 149;
+            static int set = -1;
+            const int want = native_renderer::tuning().renderPrio ? high : own;
+            if (want != set && want >= 64 && want <= 191)
+            {
+                sceKernelChangeThreadPriority(self, want);
+                if (set < 0 || native_renderer::tuning().renderPrio)
+                    std::fprintf(stderr, "[gl] render thread priority %d (own %d)\n", want, own);
+                set = want;
+            }
+        }
         vglCeloDepthKeep(0, depthKeep ? 0 : -1);
         auto keepDepth = [&](const Target &t, int keep)
         {
@@ -3732,10 +3920,49 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #endif
         drawOrder.clear();
         drawOrder.reserve(draws.size());
-        for (size_t i = 0; i < draws.size(); ++i)
-            drawOrder.push_back((static_cast<uint64_t>(draws[i].state.order) << 32) | i);
-        std::sort(drawOrder.begin(), drawOrder.end());
+        // Round 74 (Tuning glLeanPass): read once a frame (the A/B flips it from the game thread).
+        const bool leanPass = native_renderer::tuning().glLeanPass;
+        uint32_t maxOrder = 0;
+        if (leanPass)
+            for (const Draw &d : draws)
+                maxOrder = std::max(maxOrder, d.state.order);
+        if (leanPass && maxOrder < 256u)
+        {
+            // In layer order by counting: the sort's order (layer, then index).
+            uint32_t at[257] = {};
+            for (const Draw &d : draws)
+                ++at[d.state.order + 1u];
+            for (uint32_t i = 1; i <= maxOrder; ++i)
+                at[i] += at[i - 1u];
+            drawOrder.resize(draws.size());
+            for (size_t i = 0; i < draws.size(); ++i)
+            {
+                const uint32_t order = draws[i].state.order;
+                drawOrder[at[order]++] = (static_cast<uint64_t>(order) << 32) | i;
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < draws.size(); ++i)
+                drawOrder.push_back((static_cast<uint64_t>(draws[i].state.order) << 32) | i);
+            std::sort(drawOrder.begin(), drawOrder.end());
+        }
         planFrame();
+        // The draws a pass may draw (not merged into an earlier one), in order.
+        leaders.clear();
+        if (leanPass)
+            for (size_t k = 0; k < plan.size(); ++k)
+                if (plan[k].run)
+                    leaders.push_back(static_cast<uint32_t>(k));
+        if (phases.on)
+        {
+            const uint64_t planned = native_renderer::nowUs() - phases.start;
+            phases.plan += planned;
+            stats.planUs += planned;
+        }
+        const uint64_t arenaStart = phases.on ? native_renderer::nowUs() : 0u;
+        if (phases.on)
+            phases.arenaBytes += arena.size() * sizeof(native_renderer::Vertex) + indexArena.size() * sizeof(uint32_t);
         if (!arena.empty() || !indexArena.empty())
         {
             // One upload for every dynamic mesh of the frame (in place of one
@@ -3756,6 +3983,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uploadStream(GL_ELEMENT_ARRAY_BUFFER, indexArena.data(), indexArena.size() * sizeof(uint32_t));
             }
         }
+        if (phases.on)
+            phases.arenaUs += native_renderer::nowUs() - arenaStart;
         const bool fogOn = fog.enabled && fog.width > 0.0f;
         bool haveMirror = false;
         for (const Draw &d : draws)
@@ -3796,6 +4025,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         auto pass = [&](Target &target, bool backgroundOnly, uint32_t fromOrder = 0, uint32_t toOrder = ~0u, bool load = false, bool mirror = false,
                         bool apart = false)
         {
+            struct PassTime // round 74 (phases)
+            {
+                Renderer *r;
+                uint64_t start;
+                ~PassTime()
+                {
+                    if (r->phases.on)
+                    {
+                        const uint64_t took = native_renderer::nowUs() - start;
+                        r->phases.passes += took;
+                        r->stats.passUs += took;
+                    }
+                }
+            } passTime{this, phases.on ? native_renderer::nowUs() : 0u};
             bindTarget(target);
             if (apart) // a layer of its own over the picture's depth: colour cleared to nothing
             {
@@ -3897,8 +4140,22 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const double n = static_cast<double>(px.size() / 4u);
                 std::fprintf(stderr, "[bloom:gl] f=%llu rect %s: R mean %.2f alpha mean %.2f\n", (unsigned long long)bloomGameFrame, what, sum / n, a / n);
             };
-            for (size_t k = 0; k < drawOrder.size(); ++k)
+            // Round 74 (Tuning glLeanPass): only this pass's layers' draws that
+            // are drawn (the rest went on at the layer test below, with nothing
+            // done for them but the bloom log's).
+            const bool byLeaders = leanPass && !rectLog;
+            size_t firstAt = 0, endAt = drawOrder.size();
+            if (byLeaders)
             {
+                auto layerOf = [&](uint32_t k) { return static_cast<uint32_t>(drawOrder[k] >> 32); };
+                firstAt = static_cast<size_t>(std::partition_point(leaders.begin(), leaders.end(), [&](uint32_t k) { return layerOf(k) < fromOrder; }) - leaders.begin());
+                endAt = static_cast<size_t>(std::partition_point(leaders.begin(), leaders.end(), [&](uint32_t k) { return layerOf(k) < toOrder; }) - leaders.begin());
+            }
+            for (size_t li = firstAt; li < endAt; ++li)
+            {
+                const size_t k = byLeaders ? leaders[li] : li;
+                if (byLeaders && li + 4u < endAt) // (the record four draws on, asked for ahead)
+                    __builtin_prefetch(&draws[static_cast<size_t>(drawOrder[leaders[li + 4u]] & 0xFFFFFFFFu)]);
                 const Planned &planned = plan[k];
                 if (!planned.run) // merged into an earlier draw
                     continue;
@@ -4397,7 +4654,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     drawStats.progOff += static_cast<GLuint>(cur) != boundProgram;
                     drawStats.progZero += cur == 0;
                 }
-                const uint64_t callStart = spike.on ? native_renderer::nowUs() : 0u;
+                const uint64_t callStart = spike.on || phases.on ? native_renderer::nowUs() : 0u;
                 if (planned.run > 1)
                 {
                     drawStats.merged += planned.run - 1u;
@@ -4407,6 +4664,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 else
                     drawMesh(mesh, firstVertex);
                 stats.vertices += planned.run > 1 ? planned.mergedCount : mesh.count;
+                if (phases.on)
+                {
+                    const uint64_t took = native_renderer::nowUs() - callStart;
+                    phases.calls += took, ++phases.count;
+                    stats.callUs += took, ++stats.calls;
+                }
                 if (spike.on)
                 {
                     const uint64_t took = native_renderer::nowUs() - callStart;
@@ -4423,10 +4686,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         glDepthMask(GL_FALSE);
                         cache.depthMask = 0;
                     }
+                    const uint64_t secondStart = phases.on ? native_renderer::nowUs() : 0u;
                     if (planned.run > 1)
                         glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(planned.mergedCount));
                     else
                         drawMesh(mesh, firstVertex);
+                    if (phases.on)
+                    {
+                        const uint64_t took = native_renderer::nowUs() - secondStart;
+                        phases.calls += took, ++phases.count;
+                        stats.callUs += took, ++stats.calls;
+                    }
                     stats.vertices += planned.run > 1 ? planned.mergedCount : mesh.count;
                     ++drawStats.alphaSecond;
                     ++shadowStats.alphaSecond;
@@ -5454,6 +5724,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = boundProgram = ~0u;
             const bool timed = native_renderer::tuning().frameTiming();
+            phaseEnd();
             const uint64_t start = timed ? native_renderer::nowUs() : 0u;
             hook(shownTexture, w, h);
             if (timed)
@@ -5461,6 +5732,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             noteScenes();
             return;
         }
+        phaseEnd();
         // Read back, top row first (the GL picture is y-up).
         std::vector<uint8_t> pixels(static_cast<size_t>(w) * h * 4u);
         glBindFramebuffer(GL_FRAMEBUFFER, color.fbo);
@@ -5715,6 +5987,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 c.renderUploadUs += r->stats.uploadUs;
                 c.renderDrawUs += r->stats.drawUs;
                 c.renderSweepUs += r->stats.sweepUs;
+                c.renderPlanUs += r->stats.planUs;
+                c.renderPassUs += r->stats.passUs;
+                c.renderCallUs += r->stats.callUs;
+                c.renderCalls += static_cast<uint32_t>(r->stats.calls);
                 c.renderRunCopies += r->stats.runCopies;
                 c.renderRunScans += r->stats.runScans;
                 c.targets += r->stats.targets;

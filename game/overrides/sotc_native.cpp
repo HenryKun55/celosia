@@ -2978,6 +2978,9 @@ namespace sotc_native
             {"scenes73", &native_renderer::Tuning::glFewScenes}, // round 73
             {"swizzle73", &native_renderer::Tuning::glSwizzle},  // round 73 (with SOTC_GL_SWIZZLE_BOTH=1)
             {"plainread73", &native_renderer::Tuning::glPlainReads}, // round 73
+            {"pass74", &native_renderer::Tuning::glLeanPass},        // round 74
+            {"layout74", &native_renderer::Tuning::glKeepLayout},    // round 74
+            {"rprio74", &native_renderer::Tuning::renderPrio},       // round 74 (with SOTC_RENDER_PRIO=1)
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -2996,7 +2999,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -3015,6 +3018,7 @@ namespace sotc_native
             laneHelpAt = indexOf("lanehelp");
             lazySnapAt = indexOf("lazysnap");
             sacAllAt = indexOf("sacall");
+            r74AllAt = indexOf("r74all");
             return true;
         }();
         (void)placesRead;
@@ -3052,6 +3056,13 @@ namespace sotc_native
         for (size_t i = 0; i < kTuningCount; ++i)
             if (tuningAt[i] >= 0)
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? false : start.*(kTuningFlags[i].field);
+        if (r74AllAt >= 0) // round 74: the round's render-thread savings off together
+        {
+            const bool off = isOffAt(r74AllAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if ((!std::strcmp(kTuningFlags[i].name, "pass74") || !std::strcmp(kTuningFlags[i].name, "layout74")) && (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
         if (sacAllAt >= 0) // round 65: every cut off together
         {
             const bool off = isOffAt(sacAllAt);
@@ -3392,11 +3403,11 @@ namespace sotc_native
                 native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
             }
             if (print && period > 50000u)
-                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
+                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.renderLockUs / 1000.0, c.renderUploadUs / 1000.0,
-                             c.renderDrawUs / 1000.0, c.renderSweepUs / 1000.0, c.renderRunCopies, c.renderRunScans, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, c.depthKB, (c.vertices + 500u) / 1000u,
+                             c.renderDrawUs / 1000.0, c.renderPlanUs / 1000.0, c.renderPassUs / 1000.0, c.renderCallUs / 1000.0, c.renderCalls, c.renderSweepUs / 1000.0, c.renderRunCopies, c.renderRunScans, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, c.depthKB, (c.vertices + 500u) / 1000u,
                              c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "", (mark.wait - lastMark.wait) / 1000.0, (mark.cdUs - lastMark.cdUs) / 1000.0,
                              (unsigned long long)(mark.cdReads - lastMark.cdReads), (mark.cdBytes - lastMark.cdBytes) / 1024.0, (mark.cdGameUs - lastMark.cdGameUs) / 1000.0,
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,

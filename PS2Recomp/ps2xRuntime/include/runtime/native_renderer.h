@@ -494,6 +494,10 @@ namespace native_renderer
         // (render(), present left out), the per-frame cache sweep.
         uint64_t renderLockUs = 0, renderUploadUs = 0, renderDrawUs = 0, renderSweepUs = 0;
         uint32_t renderRunCopies = 0, renderRunScans = 0; // merged runs copied, scans for their room
+        // Round 74 (SOTC_GL_PHASE_LOG=1): the draw part's plan (order, merges),
+        // its passes (the world's draws) and the draw calls within them.
+        uint64_t renderPlanUs = 0, renderPassUs = 0, renderCallUs = 0;
+        uint32_t renderCalls = 0;
     };
     FrameCounters &frameCounters();
     uint64_t nowUs();
