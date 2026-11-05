@@ -1,7 +1,7 @@
 {
  "updated": "2026-11-04",
  "label": "r71",
- "status_commit": "9a8d820",
+ "status_commit": "ed6b0fa",
  "note": "bytes: MIPS code size by area (decomp_status.json); time: % of the Vita game thread instructions (Vita3K profile)",
  "rows": [
   {
@@ -35,15 +35,15 @@
   {
    "area": "Display and models",
    "kind": "native",
-   "bytes": 50488,
-   "functions": 60,
+   "bytes": 50760,
+   "functions": 64,
    "time": 18.17
   },
   {
    "area": "Display and models",
    "kind": "recompiled",
-   "bytes": 202932,
-   "functions": 914,
+   "bytes": 202660,
+   "functions": 910,
    "time": 3.11
   },
   {
@@ -119,15 +119,15 @@
   {
    "area": "Particles and effects",
    "kind": "native",
-   "bytes": 11504,
-   "functions": 12,
+   "bytes": 11696,
+   "functions": 16,
    "time": 2.43
   },
   {
    "area": "Particles and effects",
    "kind": "recompiled",
-   "bytes": 17752,
-   "functions": 107,
+   "bytes": 17560,
+   "functions": 103,
    "time": 1.0
   },
   {
@@ -5213,16 +5213,16 @@
      "bytes": 680
     },
     {
-     "name": "43 more native functions",
+     "name": "47 more native functions",
      "kind": "native",
-     "bytes": 10296,
-     "more": 43
+     "bytes": 10568,
+     "more": 47
     },
     {
-     "name": "861 more MIPS functions",
+     "name": "857 more MIPS functions",
      "kind": "recompiled",
-     "bytes": 118060,
-     "more": 861
+     "bytes": 117788,
+     "more": 857
     }
    ],
    "time": [
@@ -6075,7 +6075,7 @@
     },
     {
      "name": "ptclmanEnd @ 0109a228",
-     "kind": "recompiled",
+     "kind": "native",
      "bytes": 88
     },
     {
@@ -6104,16 +6104,16 @@
      "bytes": 72
     },
     {
-     "name": "1 more native functions",
+     "name": "4 more native functions",
      "kind": "native",
-     "bytes": 48,
-     "more": 1
+     "bytes": 152,
+     "more": 4
     },
     {
-     "name": "48 more MIPS functions",
+     "name": "45 more MIPS functions",
      "kind": "recompiled",
-     "bytes": 1432,
-     "more": 48
+     "bytes": 1328,
+     "more": 45
     }
    ],
    "time": [
