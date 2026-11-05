@@ -400,6 +400,14 @@
    "focus": "Speed",
    "summary": "The render thread's own work per draw, with the same GL calls in the same order. Each pass now walks only the drawn draws of its layers instead of every draw of the frame (~7 passes at the altar), the frame's draws are ordered by counting and planFrame compares floats as bits first (SOTC_GL_LEAN_PASS, on, A/B pass74). vitaGL's vertex layout cache now survives vertex buffer switches, which re-patched the vertex program ~170 times a frame (SOTC_GL_KEEP_LAYOUT, on, A/B layout74). A render-thread priority experiment for the console (SOTC_RENDER_PRIO, off, A/B rprio74). New: SOTC_GL_PHASE_LOG (plan / pass / draw-call split of the draw part) and SOTC_GL_MERGE_STATS, which showed ~90% of unmerged neighbours differ in texture, so fewer draws would need reordering and is not exact.",
    "result": "Exact: with the altar frozen and the A/B rotating, every Vita3K capture is the same picture (57 and 57 captures). Vita3K route 6, frames with 600+ draws: the render thread's draw part 11.90 -> 10.92 ms and a draw call 16.9 -> 13.5 us; draws per frame unchanged. Console A/B prepared (env-console.txt, rt74.py)."
+  },
+  {
+   "round": "r75",
+   "date": "2026-11-04",
+   "commit": "640e2a1",
+   "focus": "Speed",
+   "summary": "With r74 the console's heavy frames wait on the GPU (present 35 ms). Two thirds of the GL calls ran a fragment program with discard, which on the Vita's SGX makes each tile wait on the program for visibility. Layer 1's near-plane cut is now skipped for background draws whose mesh bounds lie wholly past that plane (SOTC_GL_FAR_GUARD, on, A/B guard75): 338 of 400 such draws a frame, which then go without discard when their alphas allow. The alpha cut-out is done without discard (pixel drawn with alpha 0, leaving the target unchanged) for draws without depth writes that blend by source alpha into a target whose alpha is kept or unread, in the non-fogged program only, where the shader compiler produces the same arithmetic (SOTC_GL_SOFT_CUT, on, A/B soft75). New: discard counts in the draw log and a [gl:cut] line; rt75.py with a content-matched off-minus-on block.",
+   "result": "Exact: with a frame frozen and the A/B rotating, every Vita3K capture is the same picture (61 and 61 captures); the fogged variant and a discard-free full program were dropped because the compiler gave them other roundings (1-3 levels on scattered pixels). Discard calls 70% -> 68% of GL calls (no-discard 40% -> 43%): most far background draws still need the alpha cut-out. Vita3K cannot time the GPU; a 32 MB parameter buffer stays off (it would take 16 MB from a CDRAM pool that had 10 MB free on the console). Console A/B prepared (env-console.txt, 3 states)."
   }
  ]
 }
