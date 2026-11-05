@@ -3,16 +3,16 @@
  "commit": "ed6b0fa",
  "summary": {
   "by_functions": {
-   "native": 689,
+   "native": 712,
    "partial": 0,
    "total": 9024,
-   "percent": 7.64
+   "percent": 7.89
   },
   "by_code_size": {
-   "native": 343132,
+   "native": 344580,
    "partial": 0,
    "total": 2625144,
-   "percent": 13.07
+   "percent": 13.13
   },
   "by_calls": {
    "native": 120237043,
@@ -21,9 +21,9 @@
    "percent": 66.34
   },
   "game_code_by_size": {
-   "native": 263284,
+   "native": 264732,
    "total": 2208056,
-   "percent": 11.92
+   "percent": 11.99
   }
  },
  "areas": {
@@ -93,11 +93,11 @@
   },
   "Particles and effects": {
    "functions": 119,
-   "native_functions": 27,
+   "native_functions": 50,
    "bytes": 29256,
-   "native_bytes": 14480,
+   "native_bytes": 15928,
    "partial_functions": 0,
-   "percent": 49.49
+   "percent": 54.44
   },
   "Collision and physics": {
    "functions": 338,
@@ -2574,12 +2574,44 @@
    "source": "game/overrides/decomp_ptcldraw.cpp"
   },
   {
+   "address": "0x0113f370",
+   "name": "free_all_emitter_and_particle_particle_manager",
+   "bytes": 8,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
    "address": "0x0113f378",
    "name": "get_top_emitter_list_from_particle_geodisp",
    "bytes": 48,
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/decomp_ptcl62.cpp"
+  },
+  {
+   "address": "0x0113f3a8",
+   "name": "create_and_boot_particle_geodisp",
+   "bytes": 176,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f458",
+   "name": "check_free_particle_geodisp",
+   "bytes": 72,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f4a0",
+   "name": "auto_end_check_and_check_free_particle_geodisp",
+   "bytes": 96,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
   },
   {
    "address": "0x0113f500",
@@ -2612,6 +2644,158 @@
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_ptclgeodisp.cpp"
+  },
+  {
+   "address": "0x0113f700",
+   "name": "is_loop_particle",
+   "bytes": 72,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f748",
+   "name": "boot_particle_emitter",
+   "bytes": 24,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f760",
+   "name": "boot_particle_emitter_extend",
+   "bytes": 120,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f7d8",
+   "name": "stop_particle_emitter_geometry_pointer_reference",
+   "bytes": 48,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f808",
+   "name": "stop_particle_emitter_callback",
+   "bytes": 48,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f838",
+   "name": "set_generate_particle_flag",
+   "bytes": 64,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f878",
+   "name": "set_npe_blend_ratio_particle_emitter",
+   "bytes": 56,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f8b0",
+   "name": "end_particle_emitter",
+   "bytes": 72,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclctrl.cpp"
+  },
+  {
+   "address": "0x0113f8f8",
+   "name": "get_particle_effect_id_by_name",
+   "bytes": 296,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fa20",
+   "name": "get_particle_effect_id_from_sheet",
+   "bytes": 8,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fa28",
+   "name": "get_particle_name_from_effect_id",
+   "bytes": 24,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fa40",
+   "name": "get_particle_camera_follow_attr_from_effect_id",
+   "bytes": 48,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fa70",
+   "name": "get_particle_emitter_from_emitter_id",
+   "bytes": 24,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fa88",
+   "name": "get_main_particle_effect_lod_from_sheet",
+   "bytes": 8,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fa98",
+   "name": "get_top_particle_effect_from_lod",
+   "bytes": 8,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fac0",
+   "name": "reinit_particle_effect_lod",
+   "bytes": 24,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fb50",
+   "name": "set_particle_texture_by_id",
+   "bytes": 56,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fb98",
+   "name": "get_particle_printf_disp_level",
+   "bytes": 16,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
+  },
+  {
+   "address": "0x0113fbf0",
+   "name": "create_particle_effect_lod",
+   "bytes": 80,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclquery.cpp"
   },
   {
    "address": "0x0113fdc8",
