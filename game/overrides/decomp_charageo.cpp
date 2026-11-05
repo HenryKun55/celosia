@@ -55,6 +55,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <chrono>
+#include <map>
+#include <vector>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 
 namespace decomp_charageo
 {
@@ -262,14 +269,97 @@ namespace decomp_charageo
         }
     }
 
+    // Round 80 (SOTC_CHARGEO80_LOG=<n>, measurement only): each character's
+    // ExecCharaGeometry by callee, host clock: every n game frames a
+    // [chargeo80] line per object above 0.3 ms a frame (its total, its
+    // callees by target, ms a frame).
+    namespace geo80
+    {
+        uint32_t every()
+        {
+            static const uint32_t n = std::getenv("SOTC_CHARGEO80_LOG") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_CHARGEO80_LOG"))) : 0u;
+            return n;
+        }
+        uint64_t nowUs()
+        {
+#if defined(__vita__)
+            return sceKernelGetProcessTimeWide();
+#else
+            return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+        }
+        struct Obj
+        {
+            uint64_t total = 0, calls = 0;
+            std::map<uint32_t, std::pair<uint64_t, uint64_t>> callee; // target -> (us, calls)
+        };
+        std::map<uint32_t, Obj> g_objs;
+        uint32_t g_cur = 0;
+        int g_depth = 0;
+        uint64_t g_lastFrame = 0, g_startFrame = 0;
+        void report()
+        {
+            const uint64_t fr = sotc_decomp::g_gameFrame;
+            if (g_startFrame == 0)
+                g_startFrame = fr;
+            if (fr == g_lastFrame)
+                return;
+            g_lastFrame = fr;
+            if (fr - g_startFrame < every())
+                return;
+            const double frames = static_cast<double>(fr - g_startFrame);
+            g_startFrame = fr;
+            for (auto &o : g_objs)
+            {
+                if (o.second.total / frames < 300.0)
+                    continue;
+                std::fprintf(stderr, "[chargeo80] frame %llu obj %08x %.3f ms a frame (%.1f calls a frame):", (unsigned long long)fr, o.first, o.second.total / frames / 1000.0, o.second.calls / frames);
+                std::vector<std::pair<uint64_t, uint32_t>> v;
+                uint64_t sum = 0;
+                for (auto &c : o.second.callee)
+                    v.push_back({c.second.first, c.first}), sum += c.second.first;
+                std::sort(v.rbegin(), v.rend());
+                for (size_t i = 0; i < v.size() && i < 14; ++i)
+                    std::fprintf(stderr, " %08x %.3f", v[i].second, v[i].first / frames / 1000.0);
+                std::fprintf(stderr, " | self %.3f\n", (static_cast<double>(o.second.total) - static_cast<double>(sum)) / frames / 1000.0);
+            }
+            g_objs.clear();
+        }
+    }
+    void execCharaGeometryBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void execCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(geo80::every() == 0u, 1) || geo80::g_depth != 0)
+            return execCharaGeometryBody(rdram, ctx, runtime);
+        geo80::report();
+        const uint32_t obj = GPR_U32(ctx, 4);
+        geo80::g_cur = obj;
+        ++geo80::g_depth;
+        const uint64_t t0 = geo80::nowUs();
+        execCharaGeometryBody(rdram, ctx, runtime);
+        geo80::Obj &o = geo80::g_objs[obj];
+        o.total += geo80::nowUs() - t0;
+        ++o.calls;
+        --geo80::g_depth;
+        geo80::g_cur = 0;
+    }
+    void execCharaGeometryBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::motionOn() || !sitesOk(rdram))
             return sotc_decomp::recompiled(kExecCharaGeometry)(rdram, ctx, runtime);
         const Ram r{rdram};
         const uint32_t obj = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x110u;
-        auto call = [&](uint32_t site, uint32_t target) { sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, sp); };
+        auto call = [&](uint32_t site, uint32_t target)
+        {
+            if (__builtin_expect(geo80::g_cur == 0u, 1))
+                return sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, sp);
+            const uint64_t t0 = geo80::nowUs();
+            sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, sp);
+            auto &c = geo80::g_objs[obj].callee[target];
+            c.first += geo80::nowUs() - t0;
+            ++c.second;
+        };
         auto setF = [&](int reg, float v) { ctx->f[reg] = v; };
         auto cond = [&](bool c) { ctx->fcr31 = c ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u); return c; };
         // Round 47: the callee-saved registers s0-s7 / fp (and f20 / f21) hold

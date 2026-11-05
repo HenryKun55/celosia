@@ -43,6 +43,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include <unordered_map>
 
 namespace decomp_collision
 {
@@ -3380,7 +3381,176 @@ namespace decomp_collision
         bool replay(const G g, uint32_t ra, uint32_t out, uint32_t &nth);
         void keep(const G g, uint32_t ra, uint32_t nth, uint32_t out);
     }
+    // ---- Round 80 (SOTC_SEG80, default on; SOTC_AB_FLAG seg80 / r80all) ----
+    // The segment tests' answers reused while the segment stays put. A
+    // ClipCollisionDirectCallBack call whose caller (ra), group, filters
+    // (t0-t3), caller's stack word and judge data (its six words, when it
+    // points into RAM) equal an earlier call's, and whose two end points are
+    // each within SOTC_SEG80_EPS (0.01) of that call's, gets that call's
+    // answer (v0, f0, the 0x50-byte result record) if it was computed at
+    // most SOTC_SEG80_AGE (5) game frames before; otherwise it runs and its
+    // answer is kept. So a test is computed at least every sixth frame, and
+    // its answer is never for a segment more than 1 cm away. The camera's
+    // tests, the player's danger / water / IK probes, the horse's path tests
+    // and the AI's perception: at rest or slow they repeat almost the same
+    // segment every frame (exact repeats are ~1%: the idle pose and the
+    // camera's sway move them by millimetres). SOTC_SEG80_LOG=1: hits and
+    // misses by caller every 600 frames.
+    namespace seg80
+    {
+        struct Params
+        {
+            float eps = 0.01f;
+            uint32_t age = 5u;
+            bool log = false;
+            Params()
+            {
+                if (const char *e = std::getenv("SOTC_SEG80_EPS"))
+                    eps = static_cast<float>(std::atof(e));
+                if (const char *e = std::getenv("SOTC_SEG80_AGE"))
+                    age = static_cast<uint32_t>(std::atoi(e));
+                log = std::getenv("SOTC_SEG80_LOG") && std::atoi(std::getenv("SOTC_SEG80_LOG")) != 0;
+            }
+        };
+        const Params &params()
+        {
+            static const Params p;
+            return p;
+        }
+        constexpr uint32_t kRecord = 0x50u;
+        struct Slot
+        {
+            uint32_t fn = 0, ra = 0, group = 0, filt[4] = {}, user = 0, judge[6] = {};
+            float a[3] = {}, b[3] = {};
+            uint64_t frame = 0, v0 = 0, used = 0;
+            float f0 = 0;
+            bool live = false;
+            uint8_t rec[kRecord] = {};
+        };
+        constexpr int kSlots = 48;
+        Slot g_slots[kSlots];
+        uint64_t g_use = 0;
+        struct Stat { uint64_t hit = 0, miss = 0; };
+        std::unordered_map<uint32_t, Stat> g_stats;
+        uint64_t g_logFrame = 0;
+        struct Key
+        {
+            uint32_t fn, ra, group, filt[4], user, judge[6];
+            float a[3], b[3];
+        };
+        bool same(const Slot &s, const Key &k)
+        {
+            if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || std::memcmp(s.filt, k.filt, sizeof k.filt) != 0 || std::memcmp(s.judge, k.judge, sizeof k.judge) != 0)
+                return false;
+            const float e = params().eps;
+            for (int i = 0; i < 3; ++i)
+                if (!(std::fabs(s.a[i] - k.a[i]) <= e) || !(std::fabs(s.b[i] - k.b[i]) <= e))
+                    return false;
+            return true;
+        }
+        void log()
+        {
+            if (!params().log || sotc_decomp::g_gameFrame < g_logFrame + 600u)
+                return;
+            g_logFrame = sotc_decomp::g_gameFrame;
+            std::fprintf(stderr, "[seg80] frame %llu:", (unsigned long long)g_logFrame);
+            for (auto &e : g_stats)
+                std::fprintf(stderr, " %08x %llu/%llu", e.first, (unsigned long long)e.second.hit, (unsigned long long)(e.second.hit + e.second.miss));
+            std::fprintf(stderr, "\n");
+            g_stats.clear();
+        }
+    }
+    // The memo around a segment test with ClipCollisionDirectCallBack's
+    // arguments (a0 the result, a1 / a2 the points, a3 the group, t0-t3 the
+    // filters, the caller's stack word): `fn` tells the tests apart.
+    template <typename Body>
+    void segMemo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t fn, Body body)
+    {
+        static int depth = 0;
+        if (!sotc_decomp::seg80On() || depth != 0)
+            return body();
+        const G g{rdram, ctx, runtime};
+        const uint32_t out = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), spIn = GPR_U32(ctx, 29);
+        if (!G::plain(out, seg80::kRecord) || !G::plain(start, 16u) || !G::plain(end, 16u) || !G::plain(spIn, 4u))
+            return body();
+        seg80::Key k{};
+        k.ra = GPR_U32(ctx, 31);
+        k.fn = fn;
+        k.group = GPR_U32(ctx, 7);
+        for (int i = 0; i < 4; ++i)
+            k.filt[i] = GPR_U32(ctx, 8 + i);
+        k.user = g.u32(spIn);
+        if (k.user != 0u && G::plain(k.user, 24u))
+            for (int i = 0; i < 6; ++i)
+                k.judge[i] = g.u32(k.user + 4u * i);
+        for (int i = 0; i < 3; ++i)
+        {
+            std::memcpy(&k.a[i], rdram + start + 4u * i, 4);
+            std::memcpy(&k.b[i], rdram + end + 4u * i, 4);
+        }
+        const uint64_t frame = sotc_decomp::g_gameFrame;
+        seg80::log();
+        auto &st = seg80::g_stats[k.ra];
+        seg80::Slot *victim = &seg80::g_slots[0];
+        for (seg80::Slot &s : seg80::g_slots)
+        {
+            if (seg80::same(s, k) && s.frame + seg80::params().age >= frame)
+            {
+                std::memcpy(rdram + out, s.rec, seg80::kRecord);
+                SET_GPR_U64(ctx, 2, s.v0);
+                ctx->f[0] = s.f0;
+                s.used = ++seg80::g_use;
+                ++st.hit;
+                return returnTo(ctx);
+            }
+            if (!s.live || s.used < victim->used)
+                victim = &s;
+        }
+        ++st.miss;
+        const uint32_t ra = k.ra;
+        ++depth;
+        body();
+        --depth;
+        // (a native returns with pc = ra; the recompiled fallback too)
+        seg80::Slot &s = *victim;
+        s.live = true;
+        s.ra = k.ra;
+        s.group = k.group;
+        std::memcpy(s.filt, k.filt, sizeof k.filt);
+        s.user = k.user;
+        std::memcpy(s.judge, k.judge, sizeof k.judge);
+        std::memcpy(s.a, k.a, sizeof k.a);
+        std::memcpy(s.b, k.b, sizeof k.b);
+        s.frame = frame;
+        s.v0 = GPR_U64(ctx, 2);
+        s.f0 = ctx->f[0];
+        std::memcpy(s.rec, rdram + out, seg80::kRecord);
+        s.used = ++seg80::g_use;
+        s.fn = fn;
+        (void)ra;
+    }
+    void directCallBackBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        segMemo(rdram, ctx, runtime, 0u, [&] { directCallBackBody(rdram, ctx, runtime); });
+    }
+    // ClipCollisionDirectCallBackDoubleSide (0x1130490, the recompiled code):
+    // the same arguments and result, the same memo.
+    constexpr uint32_t kDirectDoubleSide = 0x01130490u;
+    void directDoubleSide(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        segMemo(rdram, ctx, runtime, 1u, [&]
+                {
+                    // as callGuest runs a callee, the recompiled code in place of the table's entry (this native)
+                    const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
+                    ctx->pc = kDirectDoubleSide;
+                    sotc_decomp::recompiled(kDirectDoubleSide)(rdram, ctx, runtime);
+                    runtime->checkTransfer();
+                    if (ctx->pc != ra || GPR_U32(ctx, 29) != sp)
+                        sotc_decomp::finishGuestCall(rdram, ctx, runtime, ra, sp);
+                });
+    }
+    void directCallBackBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         lines67::callAs(lines67::kColl);
         // Round 65 (Tuning::sacCamColl): the camera's "leave" attribute test
@@ -4632,6 +4802,7 @@ SOTC_DECOMP_FUNCTION(0x014383F0u, moveCtrlWallJudgeFunc, decomp_collision::filte
 SOTC_DECOMP_FUNCTION(0x0137D1A0u, SCRGetCollisionCallBack, decomp_collision::scrCollision);
 SOTC_DECOMP_FUNCTION(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbe);
 SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurface);
+SOTC_DECOMP_FUNCTION(0x01130490u, ClipCollisionDirectCallBackDoubleSide, decomp_collision::directDoubleSide);
 SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlane);
 // Round 42 (SOTC_LEAVES=0: recompiled).
 SOTC_DECOMP_FUNCTION(0x01374F08u, character_ikcolattrfilter, decomp_collision::filterEntry<14>);

@@ -113,16 +113,23 @@ namespace decomp_collcensus
     uint64_t g_lastFrame = 0, g_firstFrame = 0;
     // repeats within a frame: kind 0 direct, 1 finder clip, 2 its callback form
     std::vector<uint64_t> g_seen[3];
-    uint64_t g_noteFrame = 0, g_notes[3] = {}, g_repeats[3] = {};
+    uint64_t g_noteFrame = 0, g_notes[3] = {}, g_repeats[3] = {}, g_prevRepeats[3] = {};
+    std::vector<uint64_t> g_prev[3];
     void note(int kind, uint64_t h)
     {
         if (sotc_decomp::g_gameFrame != g_noteFrame)
         {
             g_noteFrame = sotc_decomp::g_gameFrame;
-            for (auto &v : g_seen)
-                v.clear();
+            for (int k = 0; k < 3; ++k)
+                g_prev[k].swap(g_seen[k]), g_seen[k].clear();
         }
         ++g_notes[kind];
+        for (uint64_t x : g_prev[kind]) // round 80: the same query in the frame before
+            if (x == h)
+            {
+                ++g_prevRepeats[kind];
+                break;
+            }
         for (uint64_t x : g_seen[kind])
             if (x == h)
             {
@@ -188,7 +195,9 @@ namespace decomp_collcensus
                      (unsigned long long)g_notes[0], (unsigned long long)g_repeats[1], (unsigned long long)g_notes[1], (unsigned long long)g_repeats[2],
                      (unsigned long long)g_notes[2]);
         std::fill(std::begin(g_notes), std::end(g_notes), 0ull);
+        std::fprintf(stderr, "[collcensus] the same query in the frame before: direct %llu, finder %llu, finder cb %llu\n", (unsigned long long)g_prevRepeats[0], (unsigned long long)g_prevRepeats[1], (unsigned long long)g_prevRepeats[2]);
         std::fill(std::begin(g_repeats), std::end(g_repeats), 0ull);
+        std::fill(std::begin(g_prevRepeats), std::end(g_prevRepeats), 0ull);
         if (decomp_collision::g_statsOn)
             decomp_collision::printStats();
         g_queries.clear();

@@ -41,9 +41,50 @@
 #include "runtime/ps2_memory.h"
 
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <map>
+#include <chrono>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 
 namespace decomp_ikquat
 {
+    // Round 80 (SOTC_IK80_LOG=<n>, measurement): the IK records' callbacks by
+    // (object, callback): host us a frame, calls a frame.
+    namespace ik80
+    {
+        uint32_t every()
+        {
+            static const uint32_t n = std::getenv("SOTC_IK80_LOG") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_IK80_LOG"))) : 0u;
+            return n;
+        }
+        uint64_t nowUs()
+        {
+#if defined(__vita__)
+            return sceKernelGetProcessTimeWide();
+#else
+            return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+        }
+        std::map<std::pair<uint32_t, uint32_t>, std::pair<uint64_t, uint64_t>> g_acc;
+        uint64_t g_start = 0, g_last = 0;
+        void tick()
+        {
+            const uint64_t fr = sotc_decomp::g_gameFrame;
+            if (!g_start) g_start = fr;
+            if (fr == g_last) return;
+            g_last = fr;
+            if (fr - g_start < every()) return;
+            const double n = static_cast<double>(fr - g_start);
+            g_start = fr;
+            for (auto &e : g_acc)
+                if (e.second.first / n > 20.0)
+                    std::fprintf(stderr, "[ik80] frame %llu obj %08x callback %08x: %.3f ms a frame, %.2f calls\n", (unsigned long long)fr, e.first.first, e.first.second, e.second.first / n / 1000.0, e.second.second / n);
+            g_acc.clear();
+        }
+    }
     using sotc_decomp::relocated;
     using sotc_decomp::returnTo;
 
@@ -288,7 +329,17 @@ namespace decomp_ikquat
             WRITE32(fp + 0x18u, rec + 8u);
             rec += 12u;
             SET_GPR_U32(ctx, 4, fp);
-            sotc_decomp::callGuest(rdram, ctx, runtime, callback, 0x010BBE60u, s7);
+            if (__builtin_expect(ik80::every() == 0u, 1))
+                sotc_decomp::callGuest(rdram, ctx, runtime, callback, 0x010BBE60u, s7);
+            else
+            {
+                ik80::tick();
+                const uint64_t t0 = ik80::nowUs();
+                sotc_decomp::callGuest(rdram, ctx, runtime, callback, 0x010BBE60u, s7);
+                auto &a = ik80::g_acc[{READ32(fp), callback}];
+                a.first += ik80::nowUs() - t0;
+                ++a.second;
+            }
             const uint32_t node = READ32(fp + 0x14u);
             const uint32_t tableA = READ32(fp + 0xECu);
             uint32_t at = tableA + (node << 2);

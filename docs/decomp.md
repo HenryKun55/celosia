@@ -12023,6 +12023,144 @@ remain the largest.
 round); console env r79/env-console.txt (`SOTC_AB_FLAG=r79all`); read it with
 `python3 build/agent-scratch/r79/tools/ab79.py err.txt --from <frame>`.
 
+## Round 80: where Wander's 7 ms go; the segment tests answered again while the segment stays put (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r80/` (build.sh: its own worktree
+`r80/wt` and build directory `r80/vita`; v3k.sh: its own Vita3K, `r80/vita3k`
+with its `portable` link to ../vita3k-celosia-r80, 222 MHz, 3 cores, muted,
+memcard copied, settings.cfg put back; tools/ab80.py: round 79's reader plus
+the round's `[seg80]` lines; runs/probe1-probe3 (the measurements below),
+census1 (the collision census), altar1 / route1 / altar3 / attract1 (the A/B
+runs), altar2 (find80, dropped), shots-* (screenshots); pics/;
+find80-hot47j.cpp.txt (the dropped finder memo)).
+
+**Where the characters' time goes (Vita3K 222 MHz, the altar, Wander
+idle, `SOTC_CHARGEO80_LOG=240`: each character's ExecCharaGeometry by
+callee, host clock; runs/probe1, probe2).** Wander 7.4 ms a frame, every
+frame:
+
+| callee | ms a frame |
+|---|---|
+| GetCharaRootDynamics (the walking kind `xz`: its collision) | 4.35 |
+| CalcNodeQuaternionWithIK (the IK; its records' callbacks 0.9, of them the foot search 0.55) | 1.70 |
+| CalcRootFitting | 0.45 |
+| GetClothDynamics | 0.35 |
+| the rest (option nodes, layout, pose, ...) | 0.55 |
+
+Under the root dynamics (`SOTC_SUBSYS_PROF` with round 71's probe list,
+runs/probe3; `SOTC_COLLDB80_LOG`, a measurement that is not kept):
+GetCollisionDBCallBack ~1.8 ms (four shrine layout objects in the group,
+~87 candidate surfaces a frame from two of them, no character), the keep /
+slope tests ~1.5, slide and landing ~1.5. Five more characters near Wander
+(within 1 unit, collision radius 0) are 0.4-0.9 ms each; Agro outside the
+shrine is round 78's.
+
+**Local-frame particle emitters (round 79's open item).** A probe of the
+particle draws' matrix (get_world_matrixSR, runs/probe1) and round 79's own
+counts without an A/B: at the altar, in a run with ptcl79 always on, the
+systems not eligible for the cull are 0.0 a frame (`[ptcl79]` lines, frames
+1 900-5 000: 48-87 systems, 40-78 outside the view). Round 79's "half the
+systems are local-frame" was its A/B: with the switch off in half the
+windows every system counts as not eligible. There are no local-frame
+emitters at the altar, so `SOTC_PTCL79_LOCAL` has nothing to win there; it
+stays off and unchecked. The draws' environment matrix is the camera's
+rotation only (0x01216E40: the camera context's +0x1A0 with its translation
+cleared, transposed), and the particles' positions are world positions.
+
+**The collision census (`SOTC_COLL_CENSUS=1`, runs/census1).** The segment
+tests (ClipCollisionDirectCallBack, ~14 a frame: the camera's checks, the
+player's danger / dead-position probes 0x1434ae0, the water probe, the
+horse's path tests, the AI's perception, the scripts') are ~4 ms of the
+altar's frame. A new census line counts the queries that equal one of the
+frame before exactly: 1% of the segment tests, 11% of the finder queries.
+With Wander idle and the camera still, the idle pose and the camera's sway
+move every segment by millimetres, so an exact memo has nothing to keep.
+
+**What changed (`SOTC_SEG80`, default on; `SOTC_AB_FLAG` takes `seg80`,
+`r80all` and `newdir`; decomp_collision.cpp).** The segment tests'
+answers reused while the segment stays put:
+- A ClipCollisionDirectCallBack call (and its DoubleSide form, 0x1130490,
+  the recompiled code under a new table entry) whose caller (ra), group,
+  filters (t0-t3), caller's stack word and judge data (its six words) equal
+  an earlier call's, and whose two end points are each within
+  `SOTC_SEG80_EPS` (0.01, a centimetre) of that call's on every axis, gets
+  that call's answer (v0, f0 and the 0x50-byte result record) when it was
+  computed at most `SOTC_SEG80_AGE` (5) game frames before. Otherwise it
+  runs and its answer is kept (48 slots, the least recently used replaced).
+- So a test runs at least every sixth frame, and no answer is for a segment
+  more than 1 cm away. Moving objects the segment could meet (a character
+  walking into a camera ray) are seen at most five frames late.
+- `SOTC_SEG80_LOG=1`: a `[seg80]` line every 600 frames, hits / calls by
+  caller.
+- `newdir` turns charlod78, ptcl79 and seg80 off together in its windows
+  (the port's new direction as one sum, for the console); `r80all` round
+  80's own.
+
+**Tried and dropped: the ground finder's candidates (`SOTC_FIND80`,
+find80-hot47j.cpp.txt).** GetCollisionDBCallBack's (object, surface) pairs
+kept and entered again through EntryCollisionFinder when the same query's
+points stayed within 1 cm (groups without characters only). At the altar
+24% of the calls matched (t1-t3's records and the points move) and the
+frame did not change (runs/altar2: -0.02 ms, matched -0.02). Not shipped.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, whole frame, in-run A/B
+`SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab80.py; off minus on).**
+
+| run | part | frames on / off | frame on / off (ms) | off minus on | matched by draws | from the memo |
+|---|---|---|---|---|---|---|
+| altar1 (route 2, the altar, `seg80`) | from 3 300 | 2 339 / 2 348 | 48.19 / 49.89 | +1.70 | +2.37 | 53% |
+| route1 (route 6, `seg80`) | out of the shrine and the plain, from 3 000 | 5 714 / 5 681 | 29.19 / 30.27 | +1.08 | +0.88 | 54% |
+| route1 | the plain, from 4 300 | 5 054 / 5 041 | 30.83 / 31.99 | +1.16 | +0.99 | 53% |
+| attract1 (attract demo, 660 s, `r80all,newdir`) | < 7 000, `r80all` | 2 326 / 2 335 | 21.76 / 21.90 | +0.14 | +0.09 | 26% |
+| attract1 | 7 000-9 999, `r80all` | 1 020 / 998 | 21.81 / 21.74 | -0.07 | +0.19 | 0% |
+| attract1 | >= 10 000 (the world, riding), `r80all` | 3 641 / 3 660 | 35.03 / 35.15 | +0.12 | -0.06 | 7% |
+| altar3 (the altar, the console's env `r80all,newdir`) | from 3 300, `r80all` | 1 002 / 1 067 | 44.79 / 46.29 | +1.51 | +2.19 | 50% |
+| altar3 | from 3 300, `newdir` (rounds 78-80 off) | 1 002 / 1 023 | 44.79 / 58.20 | +13.41 | +13.31 | |
+| attract1 | >= 10 000, `newdir` | 3 641 / 3 700 | 35.03 / 35.99 | +0.96 | +0.95 | |
+
+The memo answers about half the segment tests where Wander walks or stands
+(the camera's checks two in three, the player's probes a quarter to three
+quarters) and few while riding fast (7%): the gain follows, ~1.5-2.2 ms at the
+altar, ~1 ms out of the shrine and on the plain, nothing measurable in the
+attract demo's ride. The whole new direction (`newdir`: rounds 78-80
+together) is 13.3 ms of the altar's frame in Vita3K: 58.2 -> 44.8 ms.
+
+**Pictures and behaviour.**
+- The altar with Wander idle, seg80 on and off (runs/shotsA-on / -off,
+  pics/r80_altar_t0150 / t0210 / t0240_on__off.png): the same frame, the
+  camera in the same place, nothing missing.
+- Route 6 on and off (runs/shots6-on / -off, pics/r80_route6_*_on__off.png):
+  the camera follows Wander out of the shrine and across the plain without
+  clipping into the pillars or walls. The pairs are not the same moment: the
+  runs drift apart with the frame rate, and the run with it on ended on the
+  plain, the one without facing the gorge's wall, as round 79's two runs did
+  the other way round (its on run at the wall, its off run on the plain).
+- What can differ from computing every test: an answer up to five frames
+  old for a segment within 1 cm, so a character or object moving across a
+  still segment (Agro walking through the camera's line of sight) is seen up
+  to five frames late; the camera's placement test is among the memo's
+  callers (0x0140EF8C) with the same 1 cm bound. No visible effect in the
+  runs above.
+- No crash: the attract demo 660 s (21 060 frames, the ride across the plain
+  and the ruins) with the A/B rotating, the altar 300 s x 3, route 6 480 s.
+- Climbing a colossus: not reached on these routes (no save near one); its
+  segment tests (the grab's probes) go through the same memo, bounded the
+  same way.
+
+**Before / after (Vita3K 222 MHz).** The altar 46.3 -> 44.8 ms (this round; 58.2 with rounds 78-80 all off), route 6 out of the shrine and the plain 30.3 -> 29.2, the plain 32.0 -> 30.8, the attract demo unchanged. On the console the segment tests are the game thread's CPU (~1.5x Vita3K's): an estimated ~2-3 ms of the shrine's frame, ~20 ms for rounds 78-80 together.
+
+**Not done (next).** Wander's root dynamics (4.4 ms idle: the keep / slope,
+slide and landing tests on ~87 candidates, every frame, the same answer
+while he stands): a rest state that skips the step when its whole input is
+unchanged needs the step's writes outside the class known; the IK's foot
+search (0.55); the five small characters near Wander (2.5 ms together);
+the walk's static objects (round 79).
+
+**Deliverable:** build/agent-scratch/celosia-r80.vpk (main 775e874 + this
+round); console env r80/env-console.txt (`SOTC_AB_FLAG=r80all,newdir`: three
+states, all on / seg80 off / rounds 78-80 off); read it with
+`python3 build/agent-scratch/r80/tools/ab80.py err.txt --from <frame>`.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
