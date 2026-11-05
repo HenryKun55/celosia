@@ -24,6 +24,16 @@ namespace decomp_ptclpackets
     constexpr uint32_t kFogFactor1 = 0x01089BB0u;
 
     inline uint64_t sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+    inline bool on()
+    {
+        static const bool enabled = !std::getenv("SOTC_PTCLPACKETS") || std::atoi(std::getenv("SOTC_PTCLPACKETS")) != 0;
+        return enabled;
+    }
+    inline void fallback(uint32_t self, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ctx->pc = self;
+        sotc_decomp::recompiled(self)(rdram, ctx, runtime);
+    }
     inline uint32_t bf(float f)
     {
         uint32_t b;
@@ -35,6 +45,8 @@ namespace decomp_ptclpackets
     // ptclmanBuildMatPacket (0x01099E00)
     void buildMatPacket(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(kBuildMatPacket, rdram, ctx, runtime);
         (void)runtime;
         ctx->f[0] = 1.0f;
 
@@ -87,6 +99,8 @@ namespace decomp_ptclpackets
     // ptclmanBuildEnvPacket (0x0109A280)
     void buildEnvPacket(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(kBuildEnvPacket, rdram, ctx, runtime);
         const uint32_t sp0 = GPR_U32(ctx, 29);
         const uint32_t sp1 = sp0 - 0x40u;
         SET_GPR_U64(ctx, 29, sx(sp1));
@@ -172,6 +186,8 @@ namespace decomp_ptclpackets
     // ptclmanBuildVtxPacket (0x01099F38)
     void buildVtxPacket(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(kBuildVtxPacket, rdram, ctx, runtime);
         const uint32_t sp0 = GPR_U32(ctx, 29);
         const uint32_t sp1 = sp0 - 0x20u;
         SET_GPR_U64(ctx, 29, sx(sp1));

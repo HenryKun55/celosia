@@ -14,6 +14,18 @@ namespace decomp_fog_ptclman
     constexpr uint32_t kFogState = 0x012147D8u;
     constexpr uint32_t kPtclmanState = 0x01215BE8u;
 
+    inline bool on()
+    {
+        static const bool enabled = !std::getenv("SOTC_FOG_PTCLMAN") || std::atoi(std::getenv("SOTC_FOG_PTCLMAN")) != 0;
+        return enabled;
+    }
+
+    inline void fallback(uint32_t self, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ctx->pc = self;
+        sotc_decomp::recompiled(self)(rdram, ctx, runtime);
+    }
+
     inline uint64_t sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
     inline float fb(uint32_t b)
     {
@@ -25,6 +37,8 @@ namespace decomp_fog_ptclman
     // getFogFactor0 (0x01089B70)
     void getFogFactor0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x01089B70u, rdram, ctx, runtime);
         (void)runtime;
         SET_GPR_U64(ctx, 2, sx(kFogState));
         float rf_2 = fb(READ32(kFogState + 8u));
@@ -47,6 +61,8 @@ namespace decomp_fog_ptclman
     // getFogFactor1 (0x01089BB0)
     void getFogFactor1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x01089BB0u, rdram, ctx, runtime);
         (void)runtime;
         SET_GPR_U64(ctx, 2, sx(kFogState));
         float rf_2 = fb(READ32(kFogState + 12u));
@@ -74,6 +90,8 @@ namespace decomp_fog_ptclman
     // ptclmanGet (0x0109A3D8)
     void ptclmanGet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x0109A3D8u, rdram, ctx, runtime);
         (void)runtime;
         SET_GPR_U64(ctx, 3, sx(kPtclmanState));
         const uint32_t count = READ32(kPtclmanState + 4u);
@@ -86,6 +104,8 @@ namespace decomp_fog_ptclman
     // ptclmanPut (0x0109A3F8)
     void ptclmanPut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x0109A3F8u, rdram, ctx, runtime);
         (void)runtime;
         SET_GPR_U64(ctx, 3, sx(kPtclmanState));
         const uint32_t nextCount = READ32(kPtclmanState + 4u) + GPR_U32(ctx, 4);
@@ -97,6 +117,8 @@ namespace decomp_fog_ptclman
     // ptclmanBegin (0x0109A1F8)
     void ptclmanBegin(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x0109A1F8u, rdram, ctx, runtime);
         const uint32_t sp0 = GPR_U32(ctx, 29);
         const uint32_t sp = sp0 - 0x10u;
         SET_GPR_U64(ctx, 29, sx(sp));
@@ -113,6 +135,8 @@ namespace decomp_fog_ptclman
     // ptclmanEnd (0x0109A228)
     void ptclmanEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x0109A228u, rdram, ctx, runtime);
         const uint32_t sp0 = GPR_U32(ctx, 29);
         const uint32_t sp = sp0 - 0x10u;
         SET_GPR_U64(ctx, 29, sx(sp));
@@ -139,6 +163,8 @@ namespace decomp_fog_ptclman
     // ptclDisplayListGet (0x0109A1A8)
     void ptclDisplayListGet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x0109A1A8u, rdram, ctx, runtime);
         const uint32_t sp0 = GPR_U32(ctx, 29);
         const uint32_t sp = sp0 - 0x20u;
         SET_GPR_U64(ctx, 29, sx(sp));
@@ -166,6 +192,8 @@ namespace decomp_fog_ptclman
     // ptclDisplayListPut (0x0109A170)
     void ptclDisplayListPut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (!on())
+            return fallback(0x0109A170u, rdram, ctx, runtime);
         const uint32_t sp0 = GPR_U32(ctx, 29);
         const uint32_t sp = sp0 - 0x10u;
         SET_GPR_U64(ctx, 29, sx(sp));
