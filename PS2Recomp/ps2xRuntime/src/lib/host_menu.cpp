@@ -319,7 +319,18 @@ namespace
             if (item.action)
                 continue; // (the Debug group's "Mark": nothing to keep)
             double value = itemValue(item);
-            if (item.env && std::getenv(item.env))
+            // Round 77: under an A/B of the cuts (SOTC_AB_FLAG with a sac*
+            // name) the sac_* values are the rotation's, not the player's:
+            // the file's own value kept (or the key left out).
+            static const bool abCuts = std::getenv("SOTC_AB_FLAG") && std::strstr(std::getenv("SOTC_AB_FLAG"), "sac");
+            if (abCuts && !std::strncmp(item.key, "sac_", 4))
+            {
+                const KeptValue *file = findKept(g_fileValues, item.key);
+                if (!file)
+                    continue;
+                value = file->value;
+            }
+            else if (item.env && std::getenv(item.env))
             {
                 // Set by its variable at start: saved only once changed here.
                 const KeptValue *start = findKept(g_startValues, item.key);

@@ -3008,6 +3008,7 @@ namespace sotc_native
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
         static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1;
+        static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -3028,6 +3029,9 @@ namespace sotc_native
             sacAllAt = indexOf("sacall");
             r74AllAt = indexOf("r74all");
             log76At = indexOf("log76");
+            sacMaxAt = indexOf("sacmax");
+            sacPtclAt = indexOf("sacptcl");
+            sacLodAt = indexOf("saclod");
             return true;
         }();
         (void)placesRead;
@@ -3080,6 +3084,63 @@ namespace sotc_native
             for (size_t i = 0; i < kTuningCount; ++i)
                 if (!std::strncmp(kTuningFlags[i].name, "sac", 3) && (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
+        // Round 77: the opt-in cuts switched at run time, independent of the
+        // saved settings and of the start. With `sacmax` listed every cut
+        // (the four of SOTC_SAC_MAX and round 36's particles / detail) is on
+        // outside its windows and off in them; `saccam` / `sacchara` /
+        // `sacfx` / `sacdraw` / `sacptcl` / `saclod` (and `sacall`) then turn
+        // their own cut off in theirs, the rest on. Without `sacmax`,
+        // `sacptcl` / `saclod` are off in their windows against the start
+        // value, as the four's names are. Every site is safe to flip between
+        // frames: the camera memo and the far characters' pose replay only
+        // the frame just before (recorded only with the cut on), the effects'
+        // carried times go to the next stepping call either way, the detail
+        // and particle caps are read each call. Nothing here is saved
+        // (host_menu's save keeps the file's sac_* values under an A/B).
+        if (sacMaxAt >= 0 || sacPtclAt >= 0 || sacLodAt >= 0)
+        {
+            auto cutAt = [&](const char *name) -> int
+            {
+                for (size_t i = 0; i < kTuningCount; ++i)
+                    if (!std::strcmp(kTuningFlags[i].name, name))
+                        return tuningAt[i];
+                return -1;
+            };
+            static const int camAt = cutAt("saccam"), charaAt = cutAt("sacchara"), fxAt = cutAt("sacfx"), drawAt = cutAt("sacdraw");
+            const bool allOff = sacAllAt >= 0 && isOffAt(sacAllAt);
+            const struct
+            {
+                int at;
+                bool native_renderer::Tuning::*field;
+                bool alsoAll; // sacall's four
+            } cuts[] = {{camAt, &native_renderer::Tuning::sacCamColl, true}, {charaAt, &native_renderer::Tuning::sacFarChara, true},
+                        {fxAt, &native_renderer::Tuning::sacFxHalf, true}, {drawAt, &native_renderer::Tuning::sacDrawDist, true},
+                        {sacPtclAt, &native_renderer::Tuning::sacParticles, false}, {sacLodAt, &native_renderer::Tuning::sacLod, false}};
+            if (sacMaxAt >= 0)
+            {
+                const bool maxOff = isOffAt(sacMaxAt);
+                for (const auto &c : cuts)
+                    t.*(c.field) = !maxOff && !(c.at >= 0 && isOffAt(c.at)) && !(c.alsoAll && allOff);
+            }
+            else
+            {
+                if (sacPtclAt >= 0)
+                    t.sacParticles = isOffAt(sacPtclAt) ? false : start.sacParticles;
+                if (sacLodAt >= 0)
+                    t.sacLod = isOffAt(sacLodAt) ? false : start.sacLod;
+            }
+            // "[sac] frame F: cuts cam chara fx draw ptcl lod" at each change.
+            static int lastMask = -1;
+            int mask = 0;
+            for (size_t i = 0; i < sizeof(cuts) / sizeof(cuts[0]); ++i)
+                mask |= (t.*(cuts[i].field) ? 1 : 0) << i;
+            if (mask != lastMask)
+            {
+                lastMask = mask;
+                std::fprintf(stderr, "[sac] frame %llu: cuts%s%s%s%s%s%s%s\n", (unsigned long long)g_frame, mask ? "" : " none", (mask & 1) ? " cam" : "",
+                             (mask & 2) ? " chara" : "", (mask & 4) ? " fx" : "", (mask & 8) ? " draw" : "", (mask & 16) ? " ptcl" : "", (mask & 32) ? " lod" : "");
+            }
         }
         for (uint32_t layer = 0; layer < 32u; ++layer)
             if (layerAt[layer] >= 0)

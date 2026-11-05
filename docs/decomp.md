@@ -11693,6 +11693,109 @@ read census, for all of the walk's readers); (c) the opt-in cuts of round
 **Deliverable:** build/agent-scratch/celosia-r76.vpk (main ee37c68 + this
 round).
 
+## Round 77: the opt-in cuts switched at run time for the console's A/B (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r77/` (v3k.sh: round 76's with
+r77 paths; tools/gt77.py: round 76's gt76.py with the cuts each frame ran
+with, the share of frames over 33.4 / 50 ms and the same matched-by-draws
+block; runs/ab1 (`sacmax,soft75`, the console's env), runs/ab2 (`sacmax` and
+each cut's own name); r77.patch; env-console.txt). Build tree:
+build/agent-scratch/r69/wt (main ff561f8 + this round), vitaGL as round 74.
+
+**Why.** The console's heavy shrine frames are ~62-68 ms (game thread ~59 ms
+of CPU, GPU ~35 ms) and the exact levers are 1-3% each (round 76). The user
+needs to know how far the opt-in quality cuts (round 65's four and its
+"Desempenho máximo" preset, round 36's particles and detail) get on the
+console. They were set at start only (env or settings.cfg), so measuring
+them took separate sessions with different scene loads: not a valid
+comparison. The only valid one on the console is the in-run A/B rotation.
+
+**What changed.**
+1. `SOTC_AB_FLAG` takes `sacmax` (sotc_native.cpp abSwitches): outside its
+   windows every cut is on, whatever the saved settings or the start
+   (camera checks, distant characters, effects at half rate, shorter draw
+   distance: SOTC_SAC_MAX's four; plus round 36's fewer particles and
+   coarser detail); in its windows every cut is off. With `sacmax` listed,
+   `saccam` / `sacchara` / `sacfx` / `sacdraw` and the new `sacptcl` /
+   `saclod` (and `sacall`, the four) turn only their own cut off in their
+   windows, the rest on. Without `sacmax`, `sacptcl` / `saclod` work like the
+   four's names (off against the start value). A
+   `[sac] frame F: cuts cam chara fx draw ptcl lod` line (`cuts none`) at
+   each change of the set.
+2. host_menu save(): under an A/B naming a `sac*` switch the `sac_*` keys
+   are written with the file's own values (or left out), so a menu change
+   during such a run never saves the rotation's state into settings.cfg.
+
+**Safe to switch mid-run (read at every site).** The switch is applied at
+the frame's end (endFrame's abSwitches), as every A/B switch.
+- Camera checks (decomp_collision.cpp cammemo): an odd frame replays a
+  site's answer only when its slot was kept in the frame just before
+  (`s->frame + 1 == frame`), and slots are kept only with the cut on: turned
+  on, the first frame computes; turned off, nothing is read.
+- Distant characters (decomp_charageo.cpp farchara): the pose is left out
+  only when it was made the frame before into the same buffers, recorded
+  only with the cut on: the same.
+- Effects at half rate (decomp_hot47e.cpp): the carried times of a skipped
+  call are added by the next stepping call whether the cut is still on or
+  not (pendFrames is read outside the cut's test), so no time is lost.
+- Draw distance / detail (modelClipSolid): a factor on the call's distance.
+  Particles (decomp_ptclupdate.cpp): the rate factor and the live cap are
+  read per emitter call; a cap below the live count only stops new ones
+  (`want` is signed, <= 0 makes none).
+- A flip of detail / draw distance makes the GL side meet other levels'
+  meshes: they are built as any new mesh (no stale entry: the caches are
+  keyed by the mesh).
+Defaults unchanged: no `sacmax` / `sacptcl` / `saclod` in `SOTC_AB_FLAG`, no
+code path changes; the cuts stay off unless the env or the menu asks
+(the Vita's fewer particles stays on by default). "Limite 30 fps" stays off.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, in_route6: Load Game, the altar,
+out to the plain; 480 s, frames 1 000-9 000; gt77.py `--from 1000`; Vita3K
+has no CPU columns, `game` = frame - wait - sched).** No crash in either
+run; the `[sac]` lines follow the `[ab]` lines in every window (the cuts
+block of gt77 shows each state's frames all ran with the set it should).
+
+runs/ab1, `SOTC_AB_FLAG=sacmax,soft75` (the console's env):
+
+| state | frames | frame | game | > 33.4 ms | > 50 ms | matched by draws: frame / game, off minus on |
+|---|---|---|---|---|---|---|
+| all on (every cut on, soft75 on) | 2 634 | 53.14 | 52.45 | 83.8% | 69.8% | |
+| sacmax off (no cut) | 2 650 | 56.78 | 56.06 | 85.6% | 78.1% | +3.74 / +3.71 |
+| soft75 off (cuts on) | 2 692 | 54.17 | 53.49 | 81.9% | 72.4% | +1.57 / +1.55 |
+
+Medians: all on 54.7, sacmax off 57.7, soft75 off 55.5.
+
+runs/ab2, `sacmax` and each cut's own name (8 states, ~1 100 frames each):
+sacmax off against all on +4.65 / +4.12 matched (frame / game), the same
+size as ab1's. Each single cut off against all on, matched frame: camera
++0.36, distant characters -3.94, draw distance -1.20, effects -1.96, detail
+-1.51, particles +0.84. With 8 states each one samples the route at its
+own phase of a 480-frame cycle and has ~1 000 frames: their spread
+(+-2-4 ms, several "faster without the cut") is the noise, not the cuts. What
+is solid: **all six cuts together take ~3.7-4.7 ms of the game thread in
+Vita3K at 222 MHz (~7-8% of the frame)**, and the share of frames over
+50 ms goes from ~78% to ~70%. Round 65's attract-demo figure for the four
+was ~0.8-1.8 ms; the particles and detail cuts and the gameplay route make
+the difference.
+
+**On the console (estimate, not measured).** Vita3K is ~1.5x optimistic on
+the game thread, so ~5-7 ms of the ~59 ms: ~62-68 ms frames to ~56-62. Not
+30 fps; it settles what the cuts are worth. env-console.txt:
+the frame log, body shadows, the spike log, `SOTC_AB_FLAG=sacmax,soft75`,
+rotation every 60 frames: three states (all on: every cut on and soft75 on /
+sacmax off: no cut / soft75 off: every cut on, round 75's soft cut-out off,
+never measured on the console). Read with
+`python3 build/agent-scratch/r77/tools/gt77.py err.txt --from <the shrine's
+first frame>` (`--median` against hitches): the `sacmax` row's "off minus
+on" is what the cuts save (frame, cpu game, game, wait, present: whether it
+moves to the GPU), `o33` / `o50` the share of slow frames; the matched block
+(draws // 200) is the number to quote; the last block checks each state's
+frames ran with the cut set named. Note the all-on state has the cuts on, so
+it is not the console's usual picture (its usual set: fewer particles only).
+
+**Deliverable:** build/agent-scratch/celosia-r77.vpk (main ff561f8 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
