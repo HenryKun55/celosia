@@ -9,12 +9,10 @@
 // 01142030(particle), and sin / cos of its angle + pi/4 (iosGetSinCosf).
 // Then the env matrix and the packets (ptclman*), once.
 //
-// Natively: the prologue (its frame as the recompiled code writes it) and
-// the particle loop, the recompiled code's FPU / VU operations in the same
-// order; 01142030 (the fade) inline and iosGetSinCosf (decomp_math.cpp)
-// called straight (round 7: two guest calls a particle before). The rest (the
-// matrix, the packets, the epilogue) is the recompiled code from its label
-// 0x113eafc, entered with the registers and frame it expects there.
+// Natively: the prologue (its frame as the recompiled code writes it),
+// the particle loop (the recompiled code's FPU / VU operations in the same
+// order; 01142030 inline and iosGetSinCosf called straight), the VU0 matrix
+// multiply, the packet calls (ptclman*), and the epilogue.
 #include "sotc_decomp.h"
 #include "lines67.h"
 
@@ -57,10 +55,23 @@ namespace decomp_ptcldraw
             std::memcpy(&v, p(a), 4);
             return v;
         }
+        uint64_t u64(uint32_t a) const
+        {
+            uint64_t v;
+            std::memcpy(&v, p(a), 8);
+            return v;
+        }
+        __m128 q128(uint32_t a) const
+        {
+            __m128 v;
+            std::memcpy(&v, p(a & ~0xFu), 16);
+            return v;
+        }
         float f32(uint32_t a) const { return bits(u32(a)); }
         void putf(uint32_t a, float f) const { std::memcpy(p(a), &f, 4); }
         void put32(uint32_t a, uint32_t v) const { std::memcpy(p(a), &v, 4); }
         void put64(uint32_t a, uint64_t v) const { std::memcpy(p(a), &v, 8); }
+        void put128(uint32_t a, __m128 v) const { std::memcpy(p(a & ~0xFu), &v, 16); }
     };
 
     void draw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -100,24 +111,42 @@ namespace decomp_ptcldraw
         call(0x0108F7E0u, 0x0113E994u); // gluGetBrightness
         const float one = bits(0x3F800000u);
         float f0 = ctx->f[0], f1 = FPU_MUL_S(ram.f32(s4 + 0xB8u), f0), f2 = one;
-        if (!FPU_C_OLT_S(f2, f1))
+        const bool c0 = FPU_C_OLT_S(f2, f1);
+        ctx->fcr31 = c0 ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        if (!c0)
         {
             f0 = 0.0f;
             f2 = f0;
-            if (!FPU_C_OLT_S(f1, f0))
+            const bool c1 = FPU_C_OLT_S(f1, f0);
+            ctx->fcr31 = c1 ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+            if (!c1)
                 f2 = f1;
         }
-        auto enter = [&](uint32_t label)
+        auto finish = [&]()
+        {
+            SET_GPR_U64(ctx, 16, ram.u64(sp1 + 0x90u));
+            SET_GPR_U64(ctx, 17, ram.u64(sp1 + 0x98u));
+            SET_GPR_U64(ctx, 18, ram.u64(sp1 + 0xA0u));
+            SET_GPR_U64(ctx, 19, ram.u64(sp1 + 0xA8u));
+            SET_GPR_U64(ctx, 20, ram.u64(sp1 + 0xB0u));
+            SET_GPR_U64(ctx, 21, ram.u64(sp1 + 0xB8u));
+            SET_GPR_U64(ctx, 22, ram.u64(sp1 + 0xC0u));
+            SET_GPR_U64(ctx, 23, ram.u64(sp1 + 0xC8u));
+            SET_GPR_U64(ctx, 30, ram.u64(sp1 + 0xD0u));
+            SET_GPR_U64(ctx, 31, ram.u64(sp1 + 0xD8u));
+            ctx->f[21] = ram.f32(sp1 + 0xE8u);
+            ctx->f[20] = ram.f32(sp1 + 0xE0u);
+            SET_GPR_U32(ctx, 29, sp0);
+            sotc_decomp::returnTo(ctx);
+        };
+        SET_GPR_U64(ctx, 22, 0u); // s6
+        if (s7 == 0u)
         {
             ctx->f[0] = f0;
             ctx->f[1] = f1;
             ctx->f[2] = f2;
-            ctx->pc = label;
-            sotc_decomp::recompiled(kDraw)(rdram, ctx, runtime);
-        };
-        SET_GPR_U64(ctx, 22, 0u); // s6
-        if (s7 == 0u)
-            return enter(0x0113EC08u);
+            return finish();
+        }
 
         f0 = FPU_SUB_S(one, f2);
         f1 = ram.f32(s4 + 0xB4u);
@@ -263,15 +292,73 @@ namespace decomp_ptcldraw
         SET_GPR_U32(ctx, 16, s0);
         SET_GPR_U32(ctx, 21, s5);
         SET_GPR_U32(ctx, 22, s6);
-        // iosScaleMatrix(sp, +0x50, +0x54, 1), then the recompiled code.
+        // iosScaleMatrix(sp, +0x50, +0x54, 1), then the VU0 matrix multiply and ptclman* packets.
         ctx->f[20] = one;
         SET_GPR_U32(ctx, 4, sp1);
         ctx->f[12] = ram.f32(s4 + 0x50u);
         ctx->f[13] = ram.f32(s4 + 0x54u);
         ctx->f[14] = one;
         call(sotc_decomp::jalTarget(rdram, 0x0113EAF4u), 0x0113EAFCu);
-        ctx->pc = 0x0113EAFCu;
-        sotc_decomp::recompiled(kDraw)(rdram, ctx, runtime);
+        constexpr uint32_t kEnvMat = 0x01216E40u;
+        SET_GPR_U32(ctx, 2, kEnvMat);
+        ctx->vu0_vf[14] = ram.q128(kEnvMat + 0x00u);
+        ctx->vu0_vf[15] = ram.q128(kEnvMat + 0x10u);
+        ctx->vu0_vf[16] = ram.q128(kEnvMat + 0x20u);
+        ctx->vu0_vf[17] = ram.q128(kEnvMat + 0x30u);
+        ctx->vu0_vf[24] = ram.q128(sp1 + 0x00u);
+        ctx->vu0_vf[25] = ram.q128(sp1 + 0x10u);
+        ctx->vu0_vf[26] = ram.q128(sp1 + 0x20u);
+        ctx->vu0_vf[27] = ram.q128(sp1 + 0x30u);
+        for (int i = 24; i <= 27; ++i)
+        {
+            const __m128 v = ctx->vu0_vf[i];
+            ctx->vu0_acc = PS2_VMUL(ctx->vu0_vf[14], _mm_shuffle_ps(v, v, _MM_SHUFFLE(0, 0, 0, 0)));
+            ctx->vu0_acc = PS2_VADD_K(1, 1, ctx->vu0_acc, PS2_VMUL(ctx->vu0_vf[15], _mm_shuffle_ps(v, v, _MM_SHUFFLE(1, 1, 1, 1))));
+            ctx->vu0_acc = PS2_VADD_K(1, 1, ctx->vu0_acc, PS2_VMUL(ctx->vu0_vf[16], _mm_shuffle_ps(v, v, _MM_SHUFFLE(2, 2, 2, 2))));
+            ctx->vu0_vf[i] = PS2_VADD_K(1, 1, ctx->vu0_acc, PS2_VMUL(ctx->vu0_vf[17], _mm_shuffle_ps(v, v, _MM_SHUFFLE(3, 3, 3, 3))));
+        }
+        ram.put128(sp1 + 0x00u, ctx->vu0_vf[24]);
+        ram.put128(sp1 + 0x10u, ctx->vu0_vf[25]);
+        ram.put128(sp1 + 0x20u, ctx->vu0_vf[26]);
+        ram.put128(sp1 + 0x30u, ctx->vu0_vf[27]);
+        SET_GPR_U32(ctx, 16, s2 + 0x90u);
+        if (s5 == 0u)
+            return finish();
+        SET_GPR_U32(ctx, 2, 0x01190000u);
+        SET_GPR_U32(ctx, 3, ram.u32(0x0118CFF0u));
+        if (GPR_U64(ctx, 3) == 0u)
+            return finish();
+        SET_GPR_U64(ctx, 4, GPR_U64(ctx, 21));
+        call(0x0109A170u, 0x0113EB94u); // ptclDisplayListPut
+        SET_GPR_U32(ctx, 4, 7u);
+        call(0x01114B50u, 0x0113EB9Cu); // transMicroCode
+        call(0x0109A1F8u, 0x0113EBA4u); // ptclmanBegin
+        ctx->f[13] = ram.f32(s4 + 0x5Cu);
+        ctx->f[12] = ram.f32(s4 + 0x58u);
+        ram.putf(sp1 + 0x84u, ctx->f[13]);
+        ram.putf(sp1 + 0x80u, ctx->f[12]);
+        ram.put32(sp1 + 0x88u, 0u);
+        ram.put32(sp1 + 0x8Cu, 0u);
+        const uint64_t m0 = ram.u64(sp1 + 0x80u);
+        SET_GPR_U64(ctx, 2, m0);
+        SET_GPR_U32(ctx, 4, ram.u32(fp + 0x14u));
+        const uint64_t m1 = ram.u64(sp1 + 0x88u);
+        SET_GPR_U64(ctx, 3, m1);
+        ram.put64(sp1 + 0x70u, m0);
+        ram.put64(sp1 + 0x78u, m1);
+        call(0x01099E00u, 0x0113EBD4u); // ptclmanBuildMatPacket
+        SET_GPR_U32(ctx, 4, sp1 + 0x70u);
+        SET_GPR_U64(ctx, 7, GPR_U64(ctx, 16));
+        SET_GPR_U32(ctx, 6, sp1);
+        ctx->f[12] = FPU_SUB_S(ctx->f[20], ram.f32(s4 + 0x24u));
+        SET_GPR_U32(ctx, 8, sp1 + 0x40u);
+        SET_GPR_U32(ctx, 5, 4u);
+        call(0x0109A280u, 0x0113EBF4u); // ptclmanBuildEnvPacket
+        SET_GPR_U64(ctx, 4, GPR_U64(ctx, 23));
+        SET_GPR_U64(ctx, 5, GPR_U64(ctx, 21));
+        call(0x01099F38u, 0x0113EC00u); // ptclmanBuildVtxPacket
+        call(0x0109A228u, 0x0113EC08u); // ptclmanEnd
+        finish();
     }
 }
 
