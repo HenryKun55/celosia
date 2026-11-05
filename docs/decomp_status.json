@@ -1,29 +1,29 @@
 {
  "updated": "2026-11-04",
- "commit": "9a8d820",
+ "commit": "ed6b0fa",
  "summary": {
   "by_functions": {
-   "native": 670,
+   "native": 678,
    "partial": 0,
    "total": 9024,
-   "percent": 7.42
+   "percent": 7.51
   },
   "by_code_size": {
-   "native": 339884,
+   "native": 340348,
    "partial": 0,
    "total": 2625144,
-   "percent": 12.95
+   "percent": 12.96
   },
   "by_calls": {
-   "native": 210409522,
+   "native": 120237043,
    "partial": 0,
-   "total": 318073410,
-   "percent": 66.15
+   "total": 181251649,
+   "percent": 66.34
   },
   "game_code_by_size": {
-   "native": 260036,
+   "native": 260500,
    "total": 2208056,
-   "percent": 11.78
+   "percent": 11.8
   }
  },
  "areas": {
@@ -45,11 +45,11 @@
   },
   "Display and models": {
    "functions": 974,
-   "native_functions": 60,
+   "native_functions": 64,
    "bytes": 253420,
-   "native_bytes": 50488,
+   "native_bytes": 50760,
    "partial_functions": 0,
-   "percent": 19.92
+   "percent": 20.03
   },
   "Characters and motion": {
    "functions": 1204,
@@ -93,11 +93,11 @@
   },
   "Particles and effects": {
    "functions": 119,
-   "native_functions": 12,
+   "native_functions": 16,
    "bytes": 29256,
-   "native_bytes": 11504,
+   "native_bytes": 11696,
    "partial_functions": 0,
-   "percent": 39.32
+   "percent": 39.98
   },
   "Collision and physics": {
    "functions": 338,
@@ -990,6 +990,22 @@
    "source": "game/overrides/decomp_walk.cpp"
   },
   {
+   "address": "0x01089b70",
+   "name": "getFogFactor0",
+   "bytes": 64,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
+  },
+  {
+   "address": "0x01089bb0",
+   "name": "getFogFactor1",
+   "bytes": 72,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
+  },
+  {
    "address": "0x0108a780",
    "name": "screenBlur",
    "bytes": 2440,
@@ -1126,12 +1142,60 @@
    "source": "game/overrides/decomp_hot46j.cpp"
   },
   {
+   "address": "0x0109a170",
+   "name": "ptclDisplayListPut",
+   "bytes": 56,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_hot46j.cpp"
+  },
+  {
+   "address": "0x0109a1a8",
+   "name": "ptclDisplayListGet",
+   "bytes": 80,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_hot46j.cpp"
+  },
+  {
+   "address": "0x0109a1f8",
+   "name": "ptclmanBegin",
+   "bytes": 48,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_hot46j.cpp"
+  },
+  {
+   "address": "0x0109a228",
+   "name": "ptclmanEnd",
+   "bytes": 88,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_hot46j.cpp"
+  },
+  {
    "address": "0x0109a280",
    "name": "ptclmanBuildEnvPacket",
    "bytes": 344,
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_hot46j.cpp"
+  },
+  {
+   "address": "0x0109a3d8",
+   "name": "ptclmanGet",
+   "bytes": 32,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
+  },
+  {
+   "address": "0x0109a3f8",
+   "name": "ptclmanPut",
+   "bytes": 24,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
   },
   {
    "address": "0x0109ab80",
