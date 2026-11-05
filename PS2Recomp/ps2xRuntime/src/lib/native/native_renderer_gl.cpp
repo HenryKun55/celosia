@@ -617,7 +617,20 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
     float4 t = textured > 0.5 ? tex2Dlod(uTex, float4(vUV.xy, 0.0, lod)) : float4(0.50196, 0.50196, 0.50196, 1.0); // untextured: the vertex colour as is (255 = white)
     float alpha = saturate(t.a * (textured > 0.5 ? 2.0 : 1.0) * vColor.a);
 #endif
-#if CUT
+#if CUT && SOFT
+    // Round 75: the cut-out without `discard`, for draws that write no depth
+    // or stencil and blend by the source alpha into a target whose alpha is
+    // kept or never read again: a cut pixel leaves 0 x its colour + the
+    // destination x 1, the destination as it was (a discard makes the
+    // SGX's tile wait on the program for the pixel's visibility). Used
+    // without BG only: libshacccg (fast precision) compiles this one to
+    // the CUT program's arithmetic instruction for instruction (operands
+    // swapped in two commutative ones), but the BG one without the discard
+    // takes the colour product in float where the CUT one takes it in half
+    // (other roundings: Vita3K's captures 1-3 levels apart on scattered
+    // pixels), and half casts in the source do not change its choice.
+    bool away = vScreen.w < 0.0 || alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y);
+#elif CUT
     if (vScreen.w < 0.0) // layer 1 nearer than its near plane (uGuard; such draws take the CUT programs)
         discard;
     if (alpha < max(0.02, uAlpha.x) || (uAlpha.y > 0.0 && alpha >= uAlpha.y)) // the cut-out, the GS alpha test's side (DrawState::alphaTest)
@@ -635,7 +648,11 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
         rgb = lerp(rgb, tex2D(uBackground, screen).rgb, f);
     }
 #endif
+#if CUT && SOFT
+    return away ? float4(0.0, 0.0, 0.0, 0.0) : float4(rgb, alpha);
+#else
     return float4(rgb, alpha);
+#endif
 }
 )";
 
@@ -997,6 +1014,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint64_t frame = 0;   // the arena it went into (debugging)
         uint64_t used = 0;    // the last frame that drew it (eviction)
         uint64_t bytes = 0;
+        // Round 75: a kept, unskinned mesh's bounds (its vertices' least and
+        // greatest x, y, z): the least clip w of a draw (planFrame's minW).
+        bool box = false;
+        float lo[3] = {}, hi[3] = {};
     };
 
     struct Texture
@@ -1341,6 +1362,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint32_t runFirst = 0;
             uint8_t minAlpha = 0;      // the least vertex alpha of its mesh(es) (0: not known)
             uint8_t maxAlpha = 0xFF;   // round 45: the greatest (0xFF: not known)
+            float minW = -1.0f;        // round 75: a background draw's least clip w over its mesh(es)' bounds (-1: not known)
         };
         std::vector<Planned> plan;
         // Merged runs whose meshes lie apart in the pools: their vertices
@@ -1392,6 +1414,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t frames = 0, draws = 0, calls = 0, merged = 0, ranges = 0, indexed = 0, noDiscard = 0, bufferSwitches = 0;
             uint64_t progOff = 0, progZero = 0; // SOTC_GL_PROG_CHECK=1: draws with another GL program bound than the cache says / none
             uint64_t alphaSecond = 0; // the alpha test's second passes (round 38)
+            uint64_t cut = 0, cutDepth = 0, soft = 0; // round 75: GL calls with discard (with depth writes), through the SOFT programs
+            uint64_t vertsCut = 0, vertsSoft = 0, vertsMain = 0, vertsPlain = 0, mainKind[6] = {}, cutWhy[6] = {}, guarded = 0, guardOff = 0; // round 75: vertices by program kind; the full program's draws by textured
         } drawStats;
         // Round 45: the alpha test's passes ([shadow] line): second passes whose
         // mesh's least alpha is not known (the frame's own meshes), draws
@@ -1491,15 +1515,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Round 45: slot 10 the shadow volumes' program (kVolumeFragment).
         // Round 73: 11-18 the lean ones reading a one-level texture without a
         // LOD (NOLOD; Tuning glPlainReads), at 11 + 4 x skinned + 2 x BG + CUT.
-        static constexpr int kMainSlots = 19;
+        // Round 75: 19-20 the cut-out without discard (SOFT, without BG; Tuning
+        // glSoftCut), at 19 + skinned.
+        static constexpr int kMainSlots = 21;
         static constexpr int kVolumeSlot = 10;
         static constexpr int kPlainSlot = 11;
+        static constexpr int kSoftSlot = 19;
         MainSlot mains[kMainSlots];
         int mainSlot = 0; // the one in use
         GLuint leanProgram(bool skinned, bool bg, bool cut, bool plain = false) const
         {
             return mains[(plain ? kPlainSlot : 2) + (skinned ? 4 : 0) + (bg ? 2 : 0) + (cut ? 1 : 0)].program;
         }
+        GLuint softProgram(bool skinned) const { return mains[kSoftSlot + (skinned ? 1 : 0)].program; }
         std::vector<float> palettes;      // this frame's skin palettes (framePalette)
         void uniform4(MainUniform slot, const float *v, int count)
         {
@@ -1841,9 +1869,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return head + pose + body;
         }
 
-        static std::string worldFragment(bool bg, bool cut, bool nolod = false)
+        static std::string worldFragment(bool bg, bool cut, bool nolod = false, bool soft = false)
         {
-            const std::string defines = std::string("#define BG ") + (bg ? "1" : "0") + "\n#define CUT " + (cut ? "1" : "0") + "\n#define NOLOD " + (nolod ? "1" : "0") + "\n";
+            const std::string defines = std::string("#define BG ") + (bg ? "1" : "0") + "\n#define CUT " + (cut ? "1" : "0") + "\n#define NOLOD " + (nolod ? "1" : "0") +
+                                        "\n#define SOFT " + (soft ? "1" : "0") + "\n";
 #if defined(PS2X_NATIVE_VITA)
             return defines + kWorldFragment;
 #else
@@ -1930,6 +1959,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                                 skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
                                         : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
                         }
+#if defined(PS2X_NATIVE_VITA)
+            for (int skinned = 0; skinned < 2; ++skinned) // round 75: the cut-out without discard (not BG: see kWorldFragment)
+            {
+                if (skinned && !skinProgram)
+                    continue;
+                const std::string fragment = worldFragment(false, true, false, true);
+                mains[kSoftSlot + skinned].program = skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
+                                                             : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
+            }
+#endif
             mains[kVolumeSlot].program = program(mainVertex, kVolumeFragment, {"aPos", "aNormal", "aColor", "aUV"});
             if (!mains[kVolumeSlot].program)
                 std::cerr << "[native:gl] no shadow volume program: the volumes drawn with the main one" << std::endl;
@@ -1954,7 +1993,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 std::cerr << "[native:gl] the skinning program has no palette: skinned meshes posed on the CPU" << std::endl;
                 skinProgram = 0;
-                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7})
+                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7, kSoftSlot + 1})
                     mains[i].program = 0;
             }
             glUseProgram(quadProgram);
@@ -2026,20 +2065,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             };
             uint32_t draws = 0;
             uint32_t programs = 0;
-            for (int which = 0; which < 35; ++which)
+            for (int which = 0; which < 37; ++which)
             {
                 // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45),
-                // the GS bloom chain's 15-18 (round 65b), the 8 NOLOD lean ones (round 73)
+                // the GS bloom chain's 15-18 (round 65b), the 8 NOLOD lean ones (round 73), the 2 SOFT ones (round 75)
                 const GLuint p = which == 0 ? mainProgram
                                             : (which == 1 ? skinProgram
                                                           : (which < 14 ? quadPrograms[which - 2]
                                                                         : (which < 23 ? mains[2 + which - 14].program
-                                                                                      : (which < 27 ? quadPrograms[which - 8] : mains[kPlainSlot + which - 27].program))));
+                                                                                      : (which < 27 ? quadPrograms[which - 8]
+                                                                                                    : (which < 35 ? mains[kPlainSlot + which - 27].program : mains[kSoftSlot + which - 35].program)))));
                 if (!p)
                     continue;
                 ++programs;
                 glUseProgram(p);
-                const bool skinned = which == 1 || (which >= 18 && which < 22) || which >= 31, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
+                const bool skinned = which == 1 || (which >= 18 && which < 22) || (which >= 31 && which < 35) || which == 36, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
                 for (GLuint i = 0; i < 6; ++i)
                 {
@@ -2857,13 +2897,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             mesh.pool = -1;
         }
         uint8_t minAlpha = 0xFF, maxAlpha = 0;
+        float lo[3] = {INFINITY, INFINITY, INFINITY}, hi[3] = {-INFINITY, -INFINITY, -INFINITY};
         for (uint32_t i = 0; i < count; ++i)
         {
             minAlpha = std::min(minAlpha, vertices[i].a);
             maxAlpha = std::max(maxAlpha, vertices[i].a);
+            const float v[3] = {vertices[i].x, vertices[i].y, vertices[i].z};
+            for (int a = 0; a < 3; ++a)
+                lo[a] = std::min(lo[a], v[a]), hi[a] = std::max(hi[a], v[a]);
         }
         mesh.minAlpha = count ? minAlpha : 0;
         mesh.maxAlpha = count ? maxAlpha : 0xFF;
+        mesh.box = count && std::isfinite(lo[0] + lo[1] + lo[2] + hi[0] + hi[1] + hi[2]); // (NaN / inf positions: not known)
+        std::memcpy(mesh.lo, lo, sizeof(lo));
+        std::memcpy(mesh.hi, hi, sizeof(hi));
         int pool = -1;
         uint32_t first = 0;
         if (count && native_renderer::tuning().glMeshPools && poolAlloc(count, pool, first))
@@ -3117,6 +3164,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         mesh.dynamic = false;
         mesh.skinned = true;
         mesh.indexed = true;
+        mesh.box = false; // posed by its palette
         uint8_t minAlpha = 0xFF, maxAlpha = 0;
         for (uint32_t i = 0; i < count; ++i)
         {
@@ -3373,6 +3421,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             mesh.minAlpha = 0;
             mesh.maxAlpha = 0xFF;
+            mesh.box = false;
             mesh.dynamic = true;
             mesh.frame = arenaFrame;
             mesh.first = f.first;
@@ -3472,6 +3521,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 p.mesh = m;
                 p.minAlpha = m->dynamic ? 0 : m->minAlpha;
                 p.maxAlpha = m->dynamic ? 0xFF : m->maxAlpha;
+                if (d.state.background && m->box && !m->dynamic && !m->skinned)
+                {
+                    // Round 75: the least clip w over the box (c.w is linear in
+                    // the position: least at the corner each axis picks by its sign).
+                    const float *c = d.clip;
+                    float w = c[15];
+                    for (int a = 0; a < 3; ++a)
+                        w += c[4 * a + 3] * (c[4 * a + 3] >= 0.0f ? m->lo[a] : m->hi[a]);
+                    p.minW = std::isfinite(w) ? w : -1.0f;
+                }
             }
             if (d.state.texture)
                 if (Texture *t = textures.find(d.state.texture))
@@ -3550,10 +3609,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              live ? 100.0 * free / (live * double(kPoolVertices)) : 0.0, static_cast<unsigned>(meshes.size()), meshBytes / 1048576.0);
                 const double f = 300.0;
                 std::fprintf(stderr, "[gl:draws] per frame: draws %.0f, GL draw calls %.0f (all passes), merged away %.0f in %.0f ranges + %.0f run copies, "
-                                     "no-discard %.0f, vertex buffer switches %.0f | pools %u, run copies %u (%.0f KB) | program off %.0f, none %.0f\n",
+                                     "no-discard %.0f, discard %.0f (%.0f writing depth), soft cut %.0f, vertex buffer switches %.0f | pools %u, run copies %u (%.0f KB) | program off %.0f, none %.0f\n",
                              drawStats.draws / f, drawStats.calls / f, drawStats.merged / f, drawStats.ranges / f, drawStats.indexed / f,
-                             drawStats.noDiscard / f, drawStats.bufferSwitches / f, static_cast<unsigned>(pools.size()), static_cast<unsigned>(runs.size()),
+                             drawStats.noDiscard / f, drawStats.cut / f, drawStats.cutDepth / f, drawStats.soft / f, drawStats.bufferSwitches / f, static_cast<unsigned>(pools.size()), static_cast<unsigned>(runs.size()),
                              runVertices * sizeof(native_renderer::Vertex) / 1024.0, drawStats.progOff / f, drawStats.progZero / f);
+                std::fprintf(stderr, "[gl:cut] per frame: vertices through discard %.0f, soft cut %.0f, no cut %.0f, the full program %.0f | the full program's calls by textured 0-5: %.0f %.0f %.0f %.0f %.0f %.0f | depth-writing discards: alpha test %.0f, layer 1's near plane %.0f, least alpha not known: frame mesh %.0f, fresnel %.0f, other %.0f; under 0.03 %.0f | layer 1's near plane: %.0f draws, %.0f wholly past it\n",
+                             drawStats.vertsCut / f, drawStats.vertsSoft / f, drawStats.vertsPlain / f, drawStats.vertsMain / f, drawStats.mainKind[0] / f,
+                             drawStats.mainKind[1] / f, drawStats.mainKind[2] / f, drawStats.mainKind[3] / f, drawStats.mainKind[4] / f, drawStats.mainKind[5] / f,
+                             drawStats.cutWhy[0] / f, drawStats.cutWhy[1] / f, drawStats.cutWhy[2] / f, drawStats.cutWhy[3] / f, drawStats.cutWhy[4] / f, drawStats.cutWhy[5] / f, drawStats.guarded / f, drawStats.guardOff / f);
                 const uint64_t frames = drawStats.frames;
                 drawStats = {};
                 drawStats.frames = frames;
@@ -3595,6 +3658,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     next = o->first + o->count;
                     p.minAlpha = std::min(p.minAlpha, plan[j].minAlpha);
                     p.maxAlpha = std::max(p.maxAlpha, plan[j].maxAlpha);
+                    p.minW = std::min(p.minW, plan[j].minW); // (-1 if any is not known)
                     key = (key ^ draws[static_cast<size_t>(drawOrder[j] & 0xFFFFFFFFu)].mesh) * 0xff51afd7ed558ccdull;
                     key ^= key >> 29;
                 }
@@ -4115,6 +4179,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             cache.blend = cache.depthTest = cache.depthMask = -1;
             cache.buffer = cache.texture = ~0u;
             const bool leanOn = native_renderer::tuning().glLeanPrograms, noDiscard = native_renderer::tuning().glNoDiscard;
+            // Round 75 (glSoftCut): the cut-out without discard where a cut pixel
+            // drawn with colour and alpha 0 leaves the target as it was: the
+            // glow layer's alpha is read by its composite; every other target
+            // the world passes draw into has its alpha either kept (the Vita
+            // bloom's mask: keepAlpha) or not read again (the shadows' and the
+            // bloom's masks overwrite all of it first; copies, fog, mirror and
+            // display read the colour only).
+#if defined(PS2X_NATIVE_VITA)
+            const bool softOn = native_renderer::tuning().glSoftCut && &target != &glowLayer;
+#else
+            const bool softOn = false;
+#endif
             uint32_t tintIndex = 0; // SOTC_GL_DYN_TINT
             bool bgDepthPending = false; // layer 1 drawn into the picture: its depth reset before layer 2
             // SOTC_BLOOM_LOG (with SOTC_BLOOM_RECT=x0,y0,x1,y1 in PS2 pixels, rows from the top;
@@ -4348,6 +4424,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const bool atSecond = atOn && !atAllUnder && !(leastAlpha >= aref);
                 float guard[4] = {0, 0, 0, 0};
                 guardFor(d.state, guard);
+                // Round 75 (glFarGuard): a background draw lying wholly past
+                // layer 1's near plane (its mesh's bounds say, with a margin
+                // for the GPU's rounding) has no pixel for the guard to cut:
+                // drawn without it (and, its alphas allowing, without discard).
+                if (guard[0] > 0.0f)
+                {
+                    ++drawStats.guarded;
+                    if (native_renderer::tuning().glFarGuard && planned.minW > guard[1] * 1.001f + 0.001f)
+                    {
+                        guard[0] = guard[1] = 0.0f;
+                        ++drawStats.guardOff;
+                    }
+                }
                 // SOTC_GL_DYN_TINT=1 (debugging, round 65e): each non-indexed per-frame
                 // draw's colour replaced by one of 12 (in draw order within the frame;
                 // [gl:dyn] lines every 120 frames name them), its alpha kept.
@@ -4355,6 +4444,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 static const int dynTintMode = std::getenv("SOTC_GL_DYN_TINT") ? std::atoi(std::getenv("SOTC_GL_DYN_TINT")) : 0;
                 const bool tintThis = dynTint && !d.state.shadowVolume && textured <= 1 &&
                                       (dynTintMode == 2 ? true : dynTintMode == 3 ? (mesh.dynamic || mesh.skinned) : dynTintMode == 4 ? (!mesh.dynamic && !mesh.skinned && d.state.order >= 5u) : (mesh.dynamic && !mesh.indexed));
+                // Round 75: the draw blends by the source alpha (a pixel of alpha 0
+                // leaves the colour as it was) and writes no depth (nor stencil:
+                // the world draws have it off): see softOn.
+                const bool blendsBySourceAlpha = d.state.blend == native_renderer::Blend::Normal || d.state.blend == native_renderer::Blend::Additive ||
+                                                 d.state.blend == native_renderer::Blend::Subtract;
+                const bool backdropDraw = d.state.screen || d.state.background;
+                const bool writesNoDepth = d.state.overlay || (d.state.blend == native_renderer::Blend::Additive && !d.state.writeDepth) || d.state.noDepthWrite || d.state.screenDepthTest || atAllUnder;
+                const bool softHere = softOn && blendsBySourceAlpha && !backdropDraw && !d.state.shadowVolume;
+                GLuint softSecond = 0; // the alpha test's second pass (no depth writes) through the SOFT program
+                bool cutUsed = false, softUsed = false;
                 if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour && !tintThis)
                 {
                     bool cut = true;
@@ -4367,15 +4466,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         lean = leanProgram(skinned, fogA[3] > 0.5f, cut);
                     else if (plain)
                         ++plainReadDraws;
+                    if (cut && softHere && !plain && !(fogA[3] > 0.5f)) // (not BG: see kWorldFragment's SOFT)
+                    {
+                        const GLuint soft = softProgram(skinned);
+                        if (soft && writesNoDepth)
+                            lean = soft, softUsed = true;
+                        else if (soft && atSecond)
+                            softSecond = soft;
+                    }
                     if (lean)
                     {
                         program = lean;
                         drawStats.noDiscard += cut ? 0u : 1u;
+                        cutUsed = cut && !softUsed;
                     }
                 }
                 useProgram(program);
-                if (skinned)
+                auto sendPalette = [&]
                 {
+                    if (!skinned)
+                        return;
                     // The draw's palette (each program keeps the last one sent).
                     MainSlot &m = mains[mainSlot];
                     const uint64_t key = (arenaFrame << 32) | (static_cast<uint64_t>(d.state.skinPalette) << 8) | std::min(d.state.skinPaletteCount, 255u);
@@ -4386,7 +4496,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         glUniform4fv(m.palette, static_cast<GLsizei>(count), palettes.data() + from);
                         m.paletteSent = key;
                     }
-                }
+                };
+                sendPalette();
                 uniform4(uClip, d.clip, 4);
                 if (d.state.lit || d.state.fresnel) // read by the vertex program only then
                 {
@@ -4646,6 +4757,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 }
                 ++drawStats.calls;
+                drawStats.cut += cutUsed ? 1u : 0u;
+                drawStats.cutDepth += cutUsed && cache.depthMask ? 1u : 0u;
+                if (cutUsed && cache.depthMask) // round 75: why a depth-writing draw keeps its discard
+                    ++drawStats.cutWhy[atSecond ? 0 : guard[0] > 0.0f ? 1 : leastAlpha < 0.0f ? (mesh.dynamic ? 2 : d.state.fresnel ? 3 : 4) : 5];
+                drawStats.soft += softUsed ? 1u : 0u;
+                {
+                    const uint32_t nv = planned.run > 1 ? planned.mergedCount : mesh.count;
+                    const bool full = program == mainProgram || program == skinProgram;
+                    (cutUsed ? drawStats.vertsCut : softUsed ? drawStats.vertsSoft : full ? drawStats.vertsMain : drawStats.vertsPlain) += nv;
+                    if (full)
+                        ++drawStats.mainKind[std::min(textured, 5)];
+                }
                 static const bool progCheck = std::getenv("SOTC_GL_PROG_CHECK") != nullptr;
                 if (progCheck)
                 {
@@ -4680,6 +4803,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 {
                     // The pixels under AREF: colour, no depth write.
                     const float under[4] = {0.0f, aref, 0.0f, 0.0f};
+                    if (softSecond)
+                    {
+                        // Round 75: through the SOFT program (its own uniforms).
+                        useProgram(softSecond);
+                        sendPalette();
+                        uniform4(uClip, d.clip, 4);
+                        if (d.state.lit || d.state.fresnel)
+                        {
+                            uniform4(uDirections, d.state.light, 4);
+                            uniform4(uColours, d.state.light + 16, 4);
+                        }
+                        uniform4(uMisc, misc, 1);
+                        uniform4(uFogA, fogA, 1);
+                        uniform4(uFogB, fogB, 1);
+                        uniform4(uFogC, fogC, 1);
+                        uniform4(uFogColour, fogColour, 1);
+                        uniform4(uDebug, debug, 1);
+                        uniform4(uGuard, guard, 1);
+                        ++drawStats.soft;
+                    }
+                    else if (cutUsed)
+                        ++drawStats.cut;
                     uniform4(uAlphaTest, under, 1);
                     if (cache.depthMask != 0)
                     {

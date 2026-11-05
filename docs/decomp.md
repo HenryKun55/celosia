@@ -11399,6 +11399,144 @@ the limit and the next round is on its side.
 **Deliverable:** build/agent-scratch/celosia-r74.vpk (main 158f4f0 + this
 round).
 
+## Round 75: the GPU's discards: the cut-out without discard where it leaves the target as it was, layer 1's near-plane cut only where it can cut (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r75/` (v3k.sh / ab.sh: round 74's
+with r75 paths; tools/rt75.py: rt74.py plus `--median` and a "matched" block
+(off minus on within frames of the same GPU scene count and draws in 200s,
+weighted by the frames both states have there; r74's console run: the
+plain off-minus-on rows put r74all at +8.7 ms a frame, the matched one at
++4.1, because its windows saw other places: 19 vs 35 scenes);
+tools/shotgrp.sh: the window captures grouped by an ImageMagick hash, fast;
+runs/p2-freeze .. p6-freeze, p4-guard (frozen frames, A/B rotating,
+captures every 2 s), stats-on / stats-off (both switches on / off, a
+frozen frame, the draw log); env-console.txt). Build tree:
+build/agent-scratch/r69/wt (main 86acdba + this round), vitaGL as round 74.
+
+**What the console says.** r74's in-run A/B: in heavy frames (1 000+
+draws) `present` is 35 ms with r74 on (21 off): the render thread now waits
+for the GPU. The picture is 512 x 448, ~1 200 draws -> ~530 GL calls, ~25
+scenes, ~130 000 vertices a frame.
+
+**Static evidence: the discards.** Vita3K logs the GPU programs libshacccg
+made (vita3k-celosia-r69/shaderlog/.../*.dsm: the real compiler's USSE
+code, the console's binaries). The plain world program with the cut-out
+(lean CUT, no BG) is 50 instructions in two phases: the texture read, the
+alpha and the near-plane tests, `KILL p1; NOP; PHAS`, then the colour. A
+fragment program with a discard is GXM's DISCARD pass type: the SGX's ISP
+cannot settle a tile's visibility (depth, and so hidden surface removal)
+for those pixels until the program has run. The new draw log
+(`SOTC_GL_DRAW_LOG=1`: `[gl:draws]` discard / soft counts, a new `[gl:cut]`
+line) at frozen frames in Vita3K (the counts are the console's: the same
+draws):
+
+| frame (frozen) | GL calls | with discard | writing depth | why the depth-writing ones keep it |
+|---|---|---|---|---|
+| both switches off (stats-off; its last 300-frame window, 3 609 draws a frame) | 1 242 | 866 (70%) | 531 | layer 1's near plane 389, alpha test 130, other 12 |
+| this round (stats-on; a frozen 2 342-draw frame) | 744 | 509 (68%) | 393 | layer 1's near plane 62, alpha under 0.03 147, alpha test 128, least alpha not known 56 |
+
+So two thirds of the GL calls run a program with a discard, and the
+largest class was **layer 1's near-plane cut** (`uGuard`, round 38: the
+background's far landscape cut where it comes nearer than its own near
+plane): every background draw took the CUT program for it, all ~400 a
+frame, though almost none of them come near that plane.
+
+**What changed.**
+1. `SOTC_GL_FAR_GUARD` (default on, A/B `guard75`): a kept, unskinned mesh
+   now has its bounds (least / greatest x, y, z, from its vertices at
+   upload); planFrame takes a background draw's least clip w over them (c.w
+   is linear in the position: least at the corner each axis picks by its
+   coefficient's sign; a merged run takes its members' least). A draw lying
+   wholly past the near plane (least w > near x 1.001 + 0.001: the GPU's
+   rounding) cannot have a pixel the guard cuts (the interpolated w - near
+   stays above 0), so it is drawn without the guard (uGuard.x 0) and, its
+   alphas allowing (least alpha >= 0.03), through the program without
+   discard. Stats-on: 338 of 400 guarded draws a frame lie wholly past; most
+   of them still need the alpha cut-out (their textures have texels under
+   0.03: "under 0.03" 2 -> 147), so the share of calls with a discard moves
+   less than the class did (70% -> 68%; no-discard calls 40% -> 43%).
+   OpenGL and Vita (exact on both).
+2. `SOTC_GL_SOFT_CUT` (default on, A/B `soft75`, Vita): the cut-out without
+   discard where a cut pixel drawn with colour and alpha 0 leaves the target
+   as it was. The draw writes no depth (the alpha test's second passes,
+   particles, overlays, `screenDepthTest`; no world draw has the stencil
+   on), blends by the source alpha (normal: Cs x 0 + Cd x 1; additive: Cs x
+   0 + Cd; subtract: Cd - Cs x 0), is not a backdrop, and draws into a
+   target whose alpha is kept (after the Vita bloom's mask: keepAlpha, the
+   alpha blend ZERO, ONE) or never read again: the shadows' and the bloom's
+   masks rewrite the whole alpha before reading it (their first quad, no
+   depth test), the copies, fog, mirror, water and the display read the
+   colour only; the glow layer's alpha is read by its composite, so it is
+   left out. The SOFT program (`#define SOFT 1`) computes the same and
+   returns `away ? 0 : float4(rgb, alpha)`: one phase, no KILL (53
+   instructions). The alpha test's second pass switches to it (its
+   uniforms sent to that program) when the first pass needed the discard
+   for its depth.
+   **Only without BG.** The shader logs show libshacccg compiling the SOFT
+   program without BG to the CUT one's arithmetic instruction for
+   instruction (two commutative operands swapped, alpha x k + 0 for x k),
+   but the BG one without its discard took the texel x vertex colour
+   product in float (VMAD) where the CUT one takes it in half (VF16MUL):
+   other roundings, and Vita3K's captures came out 1-3 levels apart on
+   scattered pixels of a fogged grass band (p2 / p3). Half casts in the
+   source did not change the compiler's choice (the cache binaries are the
+   same bytes), so the fogged (BG) draws keep the discard. On the zFogged
+   plains that leaves few soft draws (stats-on: 39 calls a frame, ~20 in p6's
+   frozen frame), more where there is no fog.
+3. Tried and dropped: the full program without its near-plane discard for
+   the mirror's / water's / last frame's draws (textured 2, 3, 5): it still
+   kept the haze branch's KILL and compiled to other float / half choices
+   (148 -> 144 instructions, other roundings), 1-3 calls a frame.
+
+**Picture checks.** Frozen frames, the A/B rotating every 60 game frames,
+captures every 2 s (tools/shotgrp.sh: title bar cut, fps box blanked):
+p4-guard (guard75 alone, a 1 992-draw frame): 61 captures, one picture per
+segment (one change at 234 s for all states: the frozen frame's uploads),
+never alternating; p6-freeze (the final build, soft75 and guard75, a 1 760-
+draw frame): 61 captures, the same (one change at 214 s). p2 / p3 (SOFT with
+BG and the dropped full program) alternated with the states: what found the
+roundings above. The Mac (OpenGL) builds; guard75 is the same code there.
+
+**The parameter buffer.** No GXM call reports a partial render (razor's
+PBUFFER_USAGE metric is a devkit's). Its size: ~130 000 vertices x (16 B
+position + three float4 varyings, 48 B) ~ 8.5 MB a frame plus the tile
+lists; the largest single scene (the picture's world segment) is well under
+16 MB, so a partial render (one scene overflowing it) is unlikely, and a full
+buffer only stops the vertex work running further ahead of the fragment
+work, which does not matter while the GPU's fragments are the limit. Not
+the default at 32 MB: vitaGL does not set SCE_GXM_INITIALIZE_FLAG_PB_LPDDR,
+so the buffer is in CDRAM (112 MB free before vitaGL, the 16 MB buffer, then
+vitaGL's 96 MB pool), and r74's console run had 10.4 MB of that pool free at
+its lowest: 32 MB would take 16 MB more out of it. env-console-pb32.txt
+(round 73) still measures it if wanted.
+
+**Bandwidth.** Already: no MSAA, swizzled textures, the depth loads /
+stores cut (rounds 45, 73). Left: the textures are RGBA8888 expanded from
+the PS2's 4 / 8-bit palettes; GXM samples P8 / P4 with a palette (4x / 8x
+fewer texel bytes), but whether its filtering matches the expanded copy's
+needs the console (Vita3K converts textures on the host).
+
+**On the console (the user's run).** env-console.txt: the frame log, body
+shadows, the spike log, the phase log, the draw log, `SOTC_AB_FLAG=soft75,
+guard75`, rotation every 60 frames: three states (all on / soft75 off /
+guard75 off). Read with `python3 build/agent-scratch/r75/tools/rt75.py
+err.txt --min-draws 1000` (add `--median` against hitches): per state
+frame, cpuRend, render, `present` (the GPU), wait, draws, targets, scenes,
+kverts, the phases; then the "matched" block: off minus on within frames of
+the same scenes and draws: a positive `present` / frame there is the
+switch's gain. The `[gl:draws]` / `[gl:cut]` lines give the console's
+discard counts (they mix the states: every 300 frames).
+
+**Left.** The depth-writing discards that are real: the alpha test's first
+passes (~130 a frame) and draws whose textures have texels under 0.03
+(~150): exact only by ordering (opaque draws without discard first: equal
+depths keep the later draw, not exact in general) or per-texture-region
+alphas; the BG SOFT program if libshacccg can be made to keep the half
+product (or the fog's BG work moved out of these draws); palettized textures.
+
+**Deliverable:** build/agent-scratch/celosia-r75.vpk (main 86acdba + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

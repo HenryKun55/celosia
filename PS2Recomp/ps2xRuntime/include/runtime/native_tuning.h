@@ -286,6 +286,26 @@ namespace native_renderer
         // miss on the next draw: ~170 a frame at the altar). The same
         // vertex programs and streams. SOTC_GL_KEEP_LAYOUT=0/1; A/B name `layout74`.
         bool glKeepLayout = true;
+        // Round 75 (the Vita's GPU): the plain world draws' cut-out (alpha
+        // under 0.02, the GS alpha test's side, layer 1's near plane) without
+        // `discard` where the draw writes no depth or stencil, blends by the
+        // source alpha (normal, additive, subtract) and draws into a target
+        // whose alpha is kept or not read again (all but the glow layer), in
+        // the program without BG (the BG one compiles to other roundings): the
+        // cut pixel is drawn with colour and alpha 0, which leaves the
+        // destination as it was. The alpha test's second passes, particles
+        // and overlays: a discard makes the SGX's tile wait on the program
+        // for the pixel's visibility. SOTC_GL_SOFT_CUT=0/1; A/B name `soft75`.
+        bool glSoftCut = true;
+        // Round 75: a background (layer 1) draw whose mesh lies wholly past
+        // layer 1's near plane (its bounds' least clip w, a margin for the
+        // GPU's rounding) is drawn without the near-plane cut (uGuard): no
+        // pixel of it could be cut, and with alphas that cannot fall under
+        // the cut-out it takes the program without discard. Every guarded
+        // draw carried a discard for it; 338 of 400 a frame lie wholly past
+        // (Vita3K, a frozen 2 342-draw frame).
+        // SOTC_GL_FAR_GUARD=0/1; A/B name `guard75`.
+        bool glFarGuard = true;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

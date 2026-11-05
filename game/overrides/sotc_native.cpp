@@ -2981,6 +2981,8 @@ namespace sotc_native
             {"pass74", &native_renderer::Tuning::glLeanPass},        // round 74
             {"layout74", &native_renderer::Tuning::glKeepLayout},    // round 74
             {"rprio74", &native_renderer::Tuning::renderPrio},       // round 74 (with SOTC_RENDER_PRIO=1)
+            {"soft75", &native_renderer::Tuning::glSoftCut},         // round 75
+            {"guard75", &native_renderer::Tuning::glFarGuard},       // round 75
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
