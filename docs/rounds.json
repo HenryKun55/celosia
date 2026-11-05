@@ -464,6 +464,14 @@
    "focus": "Speed",
    "summary": "Profiled the characters' animation at the altar: the pose (GetMotionMatrix) was the largest piece, ~1.5 ms a frame over ~16 calls and ~480 bones, because the code still walked the skeleton the PS2 way (recursion through matrix and quaternion stacks in emulated VU0 memory, every operation clamped). Rewrote the bone pipeline as plain Vita code instead of a translation: the pose as one NEON loop, the layout matrices with no guest calls, the skinning matrices and the cloth mesh's normals on host pointers (SOTC_POSE82, on, A/B pose82 / r82all; newdir now includes it). A check mode compares against the old code: largest pose difference 3e-6.",
    "result": "Vita3K 222 MHz whole frame, in-run A/B matched by draws: altar 48.1 -> 46.1 ms (-2.0), route 6 -0.4..-0.7 ms, attract demo riding -1.1 ms; rounds 78-82 together while riding -3.3 ms. Attract demo 660 s without a crash; close-ups of Wander, his head, Mono and Agro on/off show the same picture (no seams). Console A/B prepared (env-console.txt, r82all,newdir)."
+  },
+  {
+   "round": "r83",
+   "date": "2026-11-05",
+   "commit": "62d56d4",
+   "focus": "Speed",
+   "summary": "Measured the display walk at the altar: the layout objects' clip cost 2.4 ms a frame (146 objects, 16 us each: a translation with guest calls and every VU0 register kept) and the light pass 2.3 ms (the lights' colour manager, ~85 us an object, remade every frame for objects that do not move under lights that do not change). Redesigned both for the Vita (SOTC_WALK83, on, A/B walk83 / r83all; newdir includes it): each object's light colours are kept and given back while the frame's lights, its light inputs and its position (within 5 cm) stay the same, remade at least every 16 frames; the clip is one host function with NEON products and box test and no guest calls. The particle manager's round trips (SOTC_PTCL83) measured below the bar and left off.",
+   "result": "Vita3K 222 MHz whole frame, in-run A/B matched by draws: altar 46.1 -> 43.3 ms (-2.8), route 6 -1.5 ms (shrine and plain alike), attract demo -0.5 ms; rounds 78-83 together while riding -3.1 ms. The clip agrees with the old code in 2.1 million checked calls; the light colours differ by a step of 1/255 or more in 21 of 96 000 checked hits (worst ~1.9/255, normals never). Attract demo 660 s without a crash; altar pictures on/off show the same lighting (the route 6 pairs were spoiled by the locked screen; the plain is covered by the check). Console A/B prepared (env-console.txt, r83all,newdir)."
   }
  ]
 }
