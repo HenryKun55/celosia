@@ -456,6 +456,14 @@
    "focus": "Speed",
    "summary": "Wander standing still at the altar costs ~4.4 ms of root-dynamics collision a frame. Mapped everything that step writes (a whole-RAM diff), then tried two ways to cut it. First: skip the step while he is at rest. He never quite is: the idle motion moves his root up to ~3 mm a frame. Second: an exact ground patch for the collision finder's leaves, testing only the surfaces near the character. Named the characters around him: his head and Mono's body, head and hair. Their cost is pose, layout and cloth, not collision.",
    "result": "Nothing shipped for speed. Vita3K 222 MHz, in-run A/B at the altar: the rest skip gained at best +1.2 ms (below the 2 ms bar), and the ground patch -0.14 ms mean / +0.20 median (exact: wrong 0 on route 6; at the shrine it keeps 88% of the surfaces). Both dropped. Two probes stay, off by default (SOTC_REST81_PROBE, SOTC_REST81_NAMES). Next levers: Wander's pose (IK + GetMotionMatrix, 1.7 ms), the head's and Mono's pose / layout / cloth (~2.7 ms), the ground queries' surviving narrow phase (~3 ms), the render walk."
+  },
+  {
+   "round": "r82",
+   "date": "2026-11-05",
+   "commit": "2bb906c",
+   "focus": "Speed",
+   "summary": "Profiled the characters' animation at the altar: the pose (GetMotionMatrix) was the largest piece, ~1.5 ms a frame over ~16 calls and ~480 bones, because the code still walked the skeleton the PS2 way (recursion through matrix and quaternion stacks in emulated VU0 memory, every operation clamped). Rewrote the bone pipeline as plain Vita code instead of a translation: the pose as one NEON loop, the layout matrices with no guest calls, the skinning matrices and the cloth mesh's normals on host pointers (SOTC_POSE82, on, A/B pose82 / r82all; newdir now includes it). A check mode compares against the old code: largest pose difference 3e-6.",
+   "result": "Vita3K 222 MHz whole frame, in-run A/B matched by draws: altar 48.1 -> 46.1 ms (-2.0), route 6 -0.4..-0.7 ms, attract demo riding -1.1 ms; rounds 78-82 together while riding -3.3 ms. Attract demo 660 s without a crash; close-ups of Wander, his head, Mono and Agro on/off show the same picture (no seams). Console A/B prepared (env-console.txt, r82all,newdir)."
   }
  ]
 }
