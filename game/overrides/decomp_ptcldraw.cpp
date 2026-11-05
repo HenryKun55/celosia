@@ -111,11 +111,15 @@ namespace decomp_ptcldraw
         call(0x0108F7E0u, 0x0113E994u); // gluGetBrightness
         const float one = bits(0x3F800000u);
         float f0 = ctx->f[0], f1 = FPU_MUL_S(ram.f32(s4 + 0xB8u), f0), f2 = one;
-        if (!FPU_C_OLT_S(f2, f1))
+        const bool c0 = FPU_C_OLT_S(f2, f1);
+        ctx->fcr31 = c0 ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        if (!c0)
         {
             f0 = 0.0f;
             f2 = f0;
-            if (!FPU_C_OLT_S(f1, f0))
+            const bool c1 = FPU_C_OLT_S(f1, f0);
+            ctx->fcr31 = c1 ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+            if (!c1)
                 f2 = f1;
         }
         auto finish = [&]()

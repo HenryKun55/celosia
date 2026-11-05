@@ -1147,7 +1147,7 @@
    "bytes": 56,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_hot46j.cpp"
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
   },
   {
    "address": "0x0109a1a8",
@@ -1155,7 +1155,7 @@
    "bytes": 80,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_hot46j.cpp"
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
   },
   {
    "address": "0x0109a1f8",
@@ -1163,7 +1163,7 @@
    "bytes": 48,
    "status": "native",
    "area": "Particles and effects",
-   "source": "game/overrides/decomp_hot46j.cpp"
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
   },
   {
    "address": "0x0109a228",
@@ -1171,7 +1171,7 @@
    "bytes": 88,
    "status": "native",
    "area": "Particles and effects",
-   "source": "game/overrides/decomp_hot46j.cpp"
+   "source": "game/overrides/decomp_fog_ptclman.cpp"
   },
   {
    "address": "0x0109a280",
@@ -1179,7 +1179,7 @@
    "bytes": 344,
    "status": "native",
    "area": "Particles and effects",
-   "source": "game/overrides/decomp_hot46j.cpp"
+   "source": "game/overrides/decomp_ptclpackets.cpp"
   },
   {
    "address": "0x0109a3d8",
