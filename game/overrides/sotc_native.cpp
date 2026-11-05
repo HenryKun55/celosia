@@ -3003,11 +3003,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, newDirAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, newDirAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3030,6 +3030,7 @@ namespace sotc_native
             r74AllAt = indexOf("r74all");
             r79AllAt = indexOf("r79all");
             r80AllAt = indexOf("r80all");
+            r82AllAt = indexOf("r82all");
             newDirAt = indexOf("newdir");
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
@@ -3049,13 +3050,18 @@ namespace sotc_native
         // switch of the port's new direction (rounds 78-80: charlod78, ptcl79
         // and round 80's) off together.
         {
+            // Round 82: `r82all` the round's switches (pose82) off together;
+            // `newdir` takes them in too.
             static const int r80Switches[] = {static_cast<int>(sotc_decomp::kSeg80)};
-            static const int newDirSwitches[] = {static_cast<int>(sotc_decomp::kCharLod78), static_cast<int>(sotc_decomp::kPtcl79), static_cast<int>(sotc_decomp::kSeg80)};
-            if (r80AllAt >= 0 || newDirAt >= 0)
+            static const int r82Switches[] = {static_cast<int>(sotc_decomp::kPose82)};
+            static const int newDirSwitches[] = {static_cast<int>(sotc_decomp::kCharLod78), static_cast<int>(sotc_decomp::kPtcl79), static_cast<int>(sotc_decomp::kSeg80),
+                                                 static_cast<int>(sotc_decomp::kPose82)};
+            if (r80AllAt >= 0 || r82AllAt >= 0 || newDirAt >= 0)
                 for (int i : newDirSwitches)
                 {
                     const bool groupOff = (newDirAt >= 0 && isOffAt(newDirAt)) ||
                                           (r80AllAt >= 0 && isOffAt(r80AllAt) && std::find(std::begin(r80Switches), std::end(r80Switches), i) != std::end(r80Switches)) ||
+                                          (r82AllAt >= 0 && isOffAt(r82AllAt) && std::find(std::begin(r82Switches), std::end(r82Switches), i) != std::end(r82Switches)) ||
                                           (i == static_cast<int>(sotc_decomp::kPtcl79) && r79AllAt >= 0 && isOffAt(r79AllAt));
                     if (groupOff)
                         sotc_decomp::setSwitch(i, false);

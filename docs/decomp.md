@@ -12293,6 +12293,148 @@ The committed code is the two probes (off by default; GetCharaRootDynamics
 is now registered through decomp_rest81.cpp's wrapper, which calls round
 47's native). runs/sanity: route 2 to the altar, 270 s, names logged, no crash.
 
+## Round 82: the characters' bone pipeline written for the A9 (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r82/`:
+- build.sh: its own worktree `r82/wt` and build directory `r82/vita`.
+- v3k.sh: its own Vita3K, `r82/vita3k`, with its `portable` link to
+  ../vita3k-celosia-r82; 222 MHz, 3 cores, muted, memcard copied,
+  settings.cfg put back. It now refuses a VPK path that does not exist
+  (a relative path once left the app directory empty and Vita3K showed
+  "Failed to start game threads"), as do shots.sh and chain.sh.
+- tools/ab82.py: round 81's reader plus the round's `[pose82]` lines.
+- runs/: prof1 (the sampling profile below, on round 81's build),
+  check1 / check6 (the new code against the previous one, the altar and
+  route 6), altar1-altar3 (A/B at the altar, one per build), route1,
+  attract1 (A/B on route 6 and the attract demo), shotsA-* / shotsR-*
+  (pictures); pics/.
+
+**Where the characters' animation time goes (Vita3K 222 MHz, the altar,
+Wander idle; `PROF` sampling of the game thread, 80 s window, runs/prof1).**
+The largest single item of the animation is the pose: GetMotionMatrix
+(round 49's `r49::motionMatrix`) 2.98% of the game thread, ~1.5 ms a frame.
+It is not one call per character: ~16 calls a frame, ~240-480 bones,
+because the IK step makes a pose of its own before the final one (Wander,
+his head, Mono's hair) and the option nodes ask for poses too. Then
+UpdateLayoutClassGeometry 1.14% (~0.57 ms), the cloth (step, constraints,
+velocities, tension, mesh) ~1.6% together, the motion keys' decoder 0.9%.
+The IK's own code is small; what makes Wander's IK 1.7 ms is the foot
+search's collision (round 80), not the pose math.
+
+Why the pose cost that much: the PS2 code walks the skeleton recursively
+through the boot ELF's matrix and quaternion stacks (VU0 memory and a guest
+RAM array), and the translation (rounds 41-49) keeps all of it: every VU0
+operation clamped as the unit does, the stacks pushed and popped in guest
+memory, the context's VU0 registers and GPRs as the original leaves them
+after every bone, a 0xb0-byte guest frame a bone.
+
+**What changed (`SOTC_POSE82`, default on; `SOTC_AB_FLAG` takes `pose82`,
+`r82all` and `newdir`; decomp_pose82.cpp).** Four passes rewritten as plain
+A9 code, not as translations; floats may differ from the PS2's in the last
+bits:
+- **The pose** (GetMotionMatrix, every caller): one loop over the bones with
+  an explicit host stack; the parent's matrix and quaternion stay in NEON
+  registers; the bone's rotation is built from three vectors whose lanes
+  the multiplies take straight from the d registers (no lane extraction to
+  ARM registers, no scalar VFP chain); reciprocal square roots by vrsqrte
+  and two Newton steps; no clamps. A first pass over the skeleton's links
+  checks the indices and depth before anything is written (else the
+  previous code). Written: the bone matrices, the bone quaternions, the
+  normalised local rotations, and what the original leaves that a caller
+  could read (the quaternion stack's top entry, vf1-vf4 as the unit matrix
+  moved to the root, v0). Not written any more: the dead guest frames and
+  the stacks above their tops.
+- **UpdateLayoutClassGeometry**: the rigid inverses, the scaled matrices
+  and the two chained products with the boot ELF's scale-matrix helpers
+  (three guest calls) folded into the loops; all ranges checked once.
+- **The skinning matrices** in ExecCharaGeometry (+0x160 = +0x15c x
+  +0x2d8): host pointers and NEON multiply-accumulate instead of a guest
+  re-read of the three pointers per bone and clamped VU0 products.
+- **The cloth mesh** (manager_sub_01137F78's two loops: the grid's normals,
+  then positions and unit normals into the mesh's vertices): host pointers,
+  the mesh layout read once, NEON cross products and rsqrt.
+- `SOTC_POSE82_CHECK=1`: the new pose made into host buffers and the
+  previous code run (its results kept), compared (`[pose82c]`); the layout
+  pass likewise (`[pose82l]`). `SOTC_POSE82_LOG=<n>`: `[pose82]` lines,
+  GetMotionMatrix calls, bones and host ms a frame by path.
+
+**Checked against the previous code (check1: the altar; check6: route 6,
+the shrine and the plain).** ~5 000 poses per 300 frames, none off by more
+than 1e-3: largest difference 3e-6 in a rotation entry, 6e-5 in a
+translation (positions of tens of units: float rounding), 4e-7 in a
+quaternion. Layout: the inverses, the scaled matrices and the first product
+identical, the second product within 1e-4 (relative). These are the bones
+Wander's head and Mono's parts hang from: no seam can open from them.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, whole frame, in-run A/B
+`SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab82.py; off minus on).**
+
+| run | build | part | frames on / off | frame on / off (ms) | off minus on | matched by draws |
+|---|---|---|---|---|---|---|
+| altar1 | pose, layout, skinning (scalar quaternion math) | from 3 300 | 2 286 / 2 287 | 48.91 / 49.84 | +0.93 | +1.06 |
+| altar2 | + the cloth mesh | from 3 300 | 2 396 / 2 409 | 45.89 / 46.60 | +0.71 | +1.14 |
+| altar3 | all NEON (the shipped code) | from 3 300 | 2 124 / 2 169 | 46.08 / 48.06 | +1.98 | +1.98 |
+| route1 (route 6) | shipped | out of the shrine and the plain, from 3 000 | 2 831 / 2 817 | 36.34 / 36.92 | +0.58 | +0.66 |
+| route1 | shipped | the plain, from 4 300 | 2 171 / 2 177 | 35.15 / 35.81 | +0.66 | +0.35 |
+| attract3 (attract demo, 660 s, `r82all,newdir`) | shipped | < 7 000, `r82all` | 2 325 / 2 336 | 21.21 / 21.92 | +0.71 | +0.78 |
+| attract3 | shipped | 7 000-9 999, `r82all` | 1 020 / 999 | 21.41 / 21.84 | +0.43 | +0.61 |
+| attract3 | shipped | >= 10 000 (the world, riding), `r82all` | 4 126 / 4 099 | 34.73 / 35.21 | +0.48 | +1.14 |
+| attract3 | shipped | >= 10 000, `newdir` (rounds 78-82 off) | 4 126 / 4 139 | 34.73 / 37.73 | +2.99 | +3.31 |
+`[pose82]` at the altar (altar3, host clock, both paths timed alike): the
+new pose 0.80 ms a frame for ~16 calls / ~480 bones against 1.49 ms for the
+previous code. Vita3K runs NEON through its JIT (round 39's calibration:
+float-heavy code ~1.3x slower than the console's A9 relative to the rest),
+so the console should gain at least as much.
+
+The pieces were measured together under one switch (a piece of ~0.3 ms
+alone is below what an in-run A/B can resolve); the sum is above the
+round's 1 ms bar at the altar.
+
+**Pictures and behaviour.**
+- Close-ups at the altar (runs/shotsA-on / -off: route 2, `SOTC_POSE82=1` / `0`,
+  the window every 6 s of wall time from 90 s, 1920x1152 window captures (960x544 game picture at 2x);
+  pics/r82_A_*_on__off.png): Wander from behind at a metre, his head on his
+  neck, Mono's body, head and hair on the altar. The same picture in both
+  states: the head sits on the neck with no gap, the cape's top edge, the
+  arms and the hair strands are where they are without the switch. (The
+  cape's straight top edge is the game's own: it is there with the switch
+  off too.)
+- Riding (runs/shotsR-on / -off: the attract demo, every 15 s from 330 s;
+  pics/r82_R_*_on__off.png): the title, the demo's opening and Agro standing
+  on the shrine's steps in close-up (pics/r82_agro_on420__off405.png: the
+  on run at 420 s, the off run at 405 s, the same shot a few seconds apart):
+  legs, neck, head, bridle and mane whole in both, no gap at the joints.
+  Wall-time captures drift with the frame rate, so the pairs are not the
+  same moment.
+- By construction the pose differs from the previous code by at most 3e-6
+  in a rotation entry and 6e-5 units in a position (check1 / check6); a
+  pixel is ~0.005 units at a metre, so no difference can show.
+- No crash: the attract demo 660 s (22 368 frames, attract3) with the A/B
+  rotating, the altar 420 s x 3, route 6 480 s and 300 s (check6).
+- Run hygiene, for the record: attract1 and attract2 are not valid runs.
+  attract1 stopped logging at frame 3 905 (cause not recorded: the
+  Vita3K log was overwritten by the next run; v3k.sh now keeps it), and attract2's Vita3K was killed
+  (SIGKILL) by a second copy of the round's own chain script that a
+  `pkill -f r82/chain.sh` had missed (it was started as `./chain.sh`).
+  v3k.sh now refuses to start while the round's Vita3K is running.
+
+**Considered and not done.**
+- Running characters' pose / cloth on cores 1-2: after this round a
+  character's pose is ~10-50 us and its layout less; a cross-core hand-off
+  and join costs about as much, and every pass's results are read by guest
+  code later in the same ExecCharaGeometry (the head reads Wander's neck
+  bone, the cloth's pins read the scaled bone matrices), so nothing could run
+  ahead without a join per character.
+- The cloth step (round 49's fast path, ~0.4 ms at the altar) and the motion
+  keys' decoder (~0.45 ms): already NEON loops; a rewrite would give a few
+  tenths of a ms each, below the bar.
+- Wander's IK: its time is the foot search's collision, not pose math.
+
+**Deliverable:** build/agent-scratch/celosia-r82.vpk (main c5fff24 + this
+round); console env r82/env-console.txt (`SOTC_AB_FLAG=r82all,newdir`: all
+on / pose82 off / rounds 78-82 off); read it with
+`python3 build/agent-scratch/r82/tools/ab82.py err.txt --from <frame>`.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

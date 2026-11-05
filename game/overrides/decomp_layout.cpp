@@ -23,6 +23,13 @@
 
 #include <cstring>
 
+namespace pose82
+{
+    bool layout(uint8_t *ram, R5900Context *ctx);
+    bool checkOn();
+    void layoutCheck(uint8_t *ram, R5900Context *ctx);
+}
+
 namespace decomp_layout
 {
     using sotc_decomp::returnTo;
@@ -476,6 +483,19 @@ namespace decomp_layout
     void updateLayoutClassGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         g_count.hit();
+        // Round 82: the A9 form (decomp_pose82.cpp, SOTC_POSE82) first.
+        if (sotc_decomp::pose82On() && !pose82::checkOn() && pose82::layout(rdram, ctx))
+            return;
+        if (__builtin_expect(pose82::checkOn(), 0))
+        {
+            R5900Context in = *ctx;
+            if (sotc_decomp::fastNativeOn())
+                updateImpl<true>(rdram, ctx, runtime);
+            else
+                updateImpl<false>(rdram, ctx, runtime);
+            pose82::layoutCheck(rdram, &in);
+            return;
+        }
         if (sotc_decomp::fastNativeOn())
             return updateImpl<true>(rdram, ctx, runtime);
         updateImpl<false>(rdram, ctx, runtime);

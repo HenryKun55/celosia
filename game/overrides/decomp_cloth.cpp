@@ -19,6 +19,11 @@
 
 #include <cstring>
 
+namespace pose82
+{
+    bool clothMesh(uint8_t *ram, R5900Context *ctx, uint32_t o, uint32_t grid, uint32_t rows0, int32_t rows);
+}
+
 namespace decomp_cloth
 {
     constexpr uint32_t kCloth = 0x01137F78u;
@@ -83,6 +88,10 @@ namespace decomp_cloth
         const __m128 w = _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0));
         __m128 vf7 = ctx->vu0_vf[7];
         const int32_t rows = static_cast<int32_t>(ram.u32(grid + 4u));
+        // Round 82 (SOTC_POSE82): the two loops for the A9 (host pointers,
+        // plain NEON, the mesh's layout read once).
+        if (!(sotc_decomp::pose82On() && pose82::clothMesh(rdram, ctx, o, grid, rows0, rows)))
+        {
         for (int32_t r = 0; r < rows; ++r)
         {
             const uint32_t row = rows0 + r * 0x18u;
@@ -122,7 +131,7 @@ namespace decomp_cloth
             }
         }
         ctx->vu0_vf[7] = vf7;
-
+        }
         // 0x11381c8: the layer index, then the recompiled code from 0x1138200.
         const uint32_t a0 = ram.u32(model + 0x144u);
         const float f0 = ram.f32(ram.u32(a0 + 0xCu) + 0xDCu);

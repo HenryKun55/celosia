@@ -533,11 +533,12 @@ namespace sotc_decomp
         kCharLod78,   // round 78: off-screen characters' geometry at a lower rate through the game's own view interval (decomp_charlod78)
         kPtcl79,      // round 79: off-screen particle systems stepped at a lower rate with their time kept, not drawn (decomp_hot47e, decomp_walk)
         kSeg80,       // round 80: the segment tests' answers reused while the segment stays within 1 cm, for at most 5 frames (decomp_collision)
+        kPose82,      // round 82: the characters' pose (GetMotionMatrix) and bone passes for the A9, not as VU0 code (decomp_pose82)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -622,6 +623,7 @@ namespace sotc_decomp
     inline bool charLod78On() { return switchOn(kCharLod78); }
     inline bool ptcl79On() { return switchOn(kPtcl79); }
     inline bool seg80On() { return switchOn(kSeg80); }
+    inline bool pose82On() { return switchOn(kPose82); }
     // Round 79 (decomp_hot47e.cpp): the particle geodisp object the manager
     // found wholly outside the camera's clip volume this frame and the frame
     // before (its step put off, its draw not needed).

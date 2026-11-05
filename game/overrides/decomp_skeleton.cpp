@@ -28,6 +28,12 @@
 #include <cstring>
 #include <vector>
 
+namespace pose82
+{
+    bool motionMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void after(uint8_t *rdram);
+}
+
 namespace decomp_skeleton
 {
     using sotc_decomp::returnTo;
@@ -1501,7 +1507,16 @@ namespace decomp_skeleton
         }
     }
 
+    void motionMatrixPrev(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round 82: the pose for the A9 (decomp_pose82.cpp, SOTC_POSE82) first.
     void motionMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (pose82::motionMatrix(rdram, ctx, runtime))
+            return;
+        motionMatrixPrev(rdram, ctx, runtime);
+        pose82::after(rdram);
+    }
+    void motionMatrixPrev(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         static sotc_decomp::NativeCount count("GetMotionMatrix");
         count.hit();

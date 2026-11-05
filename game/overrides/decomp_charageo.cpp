@@ -67,6 +67,10 @@ namespace rest81
 {
     void nameCharacter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t obj);
 }
+namespace pose82
+{
+    bool boneProducts(uint8_t *ram, uint32_t out, uint32_t a, uint32_t b, int count);
+}
 
 namespace decomp_charageo
 {
@@ -1034,7 +1038,9 @@ namespace decomp_charageo
                 SET_GPR_U32(ctx, 4, s0);
                 call(updateSite, 0x010F26D0u);
                 uint8_t f1bc = r.u8(s0 + 0x1BCu);
-                if ((f1bc & 8u) != 0u && r.s16(s0 + 0x1B4u) > 0)
+                if ((f1bc & 8u) != 0u && r.s16(s0 + 0x1B4u) > 0 && sotc_decomp::pose82On() && pose82::boneProducts(rdram, r.u32(s0 + 0x160u), r.u32(s0 + 0x15Cu), r.u32(s0 + 0x2D8u), r.s16(s0 + 0x1B4u)))
+                    f1bc = r.u8(s0 + 0x1BCu);
+                else if ((f1bc & 8u) != 0u && r.s16(s0 + 0x1B4u) > 0)
                 {
                     __m128 rows[4], cols[4], lastAcc = acc;
                     int32_t a2 = 0;
