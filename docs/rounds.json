@@ -412,7 +412,7 @@
   {
    "round": "r76",
    "date": "2026-11-04",
-   "commit": "",
+   "commit": "773e323",
    "focus": "Speed",
    "summary": "The console's game thread, measured: in the shrine it runs 53-69 ms of CPU a frame (the kernel's run clock, alone on core 0) with only 0.4-2.4 ms of scheduler waits, so it is CPU, not waiting. The frame's order in Vita3K (character tasks ~28 ms, camera 4.4, particles 4.8, display walk ~19, then the frame ends) has no exact parallel split: each step reads what the one before wrote, and the characters share collision bodies, the VU0 random register and guest callbacks. Vita3K's sampler at the altar: collision 23.7% of the game thread, recompiled code 16.7%, the rest below 4.3% each. The frame log's per-frame lines are now formatted on a thread of their own (SOTC_LOG76, on, A/B log76): 0.88 ms a frame of the console's game thread in r74's log.",
    "result": "Exact (logging only; the same text, matched by frame number). Vita3K 222 MHz A/B at the altar: log76 -0.5 ms a frame (its log part 0.35 -> 0); the lane off +0.9; the walk prefetch off -2.1 (host caches). Console A/B prepared for the two game-thread switches never measured on the console alone: the modelDispState lane (mdslane; on the console the game thread's joins already run 85% of its jobs) and the walk's prefetch records (walk67). The 30 fps target needs ~half of the game thread's CPU: no exact lever of that size is left at this structure (speculative parallel characters or a frame-behind walk on copies would be rounds of their own; or the opt-in cuts)."
