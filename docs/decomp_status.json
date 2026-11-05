@@ -3,16 +3,16 @@
  "commit": "ed6b0fa",
  "summary": {
   "by_functions": {
-   "native": 678,
+   "native": 689,
    "partial": 0,
    "total": 9024,
-   "percent": 7.51
+   "percent": 7.64
   },
   "by_code_size": {
-   "native": 340348,
+   "native": 343132,
    "partial": 0,
    "total": 2625144,
-   "percent": 12.96
+   "percent": 13.07
   },
   "by_calls": {
    "native": 120237043,
@@ -21,9 +21,9 @@
    "percent": 66.34
   },
   "game_code_by_size": {
-   "native": 260500,
+   "native": 263284,
    "total": 2208056,
-   "percent": 11.8
+   "percent": 11.92
   }
  },
  "areas": {
@@ -93,11 +93,11 @@
   },
   "Particles and effects": {
    "functions": 119,
-   "native_functions": 16,
+   "native_functions": 27,
    "bytes": 29256,
-   "native_bytes": 11696,
+   "native_bytes": 14480,
    "partial_functions": 0,
-   "percent": 39.98
+   "percent": 49.49
   },
   "Collision and physics": {
    "functions": 338,
@@ -2494,6 +2494,22 @@
    "source": "game/overrides/decomp_ptclupdate.cpp"
   },
   {
+   "address": "0x0113acb8",
+   "name": "ptclDispEmitterList",
+   "bytes": 576,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclgeodisp.cpp"
+  },
+  {
+   "address": "0x0113b408",
+   "name": "ptclEmitterLightDir",
+   "bytes": 520,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclemitter.cpp"
+  },
+  {
    "address": "0x0113b610",
    "name": "manager_sub_0113B610",
    "bytes": 792,
@@ -2516,6 +2532,14 @@
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_particles.cpp"
+  },
+  {
+   "address": "0x0113d988",
+   "name": "disp_particle_emitter",
+   "bytes": 624,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclemitter.cpp"
   },
   {
    "address": "0x0113dbf8",
@@ -2574,6 +2598,22 @@
    "source": "game/overrides/decomp_ptcl62.cpp"
   },
   {
+   "address": "0x0113f600",
+   "name": "calc_light_particle_geodisp",
+   "bytes": 168,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclgeodisp.cpp"
+  },
+  {
+   "address": "0x0113f6a8",
+   "name": "disp_particle_geodisp",
+   "bytes": 88,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclgeodisp.cpp"
+  },
+  {
    "address": "0x0113fdc8",
    "name": "is_emitter_need_disp",
    "bytes": 88,
@@ -2582,12 +2622,60 @@
    "source": "game/overrides/decomp_ptcl62.cpp"
   },
   {
+   "address": "0x01140418",
+   "name": "get_world_matrixSR",
+   "bytes": 40,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclemitter.cpp"
+  },
+  {
    "address": "0x01140c10",
    "name": "manager_sub_01140C10",
    "bytes": 112,
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_ptcl62.cpp"
+  },
+  {
+   "address": "0x01140c80",
+   "name": "ptclLightListPass",
+   "bytes": 96,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclgeodisp.cpp"
+  },
+  {
+   "address": "0x01140e60",
+   "name": "ptclEmitterNeedLight",
+   "bytes": 112,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclgeodisp.cpp"
+  },
+  {
+   "address": "0x01140ed0",
+   "name": "ptclDispEmitterNode",
+   "bytes": 128,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclemitter.cpp"
+  },
+  {
+   "address": "0x01141e80",
+   "name": "ptclEmitterMatrixMode",
+   "bytes": 40,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclemitter.cpp"
+  },
+  {
+   "address": "0x01141ea8",
+   "name": "ptclWorldMatrixSR",
+   "bytes": 392,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_ptclemitter.cpp"
   },
   {
    "address": "0x01144f68",
