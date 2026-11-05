@@ -432,6 +432,14 @@
    "focus": "Speed",
    "summary": "First round under the new rule (a port, not a PS2 copy: same gameplay, no picture loss). The game already updates characters at an interval of its own (ViewIntervalClip gathers the world's time; ExecCharaGeometry and everything under it, collision included, is skipped on in-between frames and the motion advances by the whole gathered time later). Characters the camera cannot see (outside the clip volume this frame and the one before) now wait 0.25 s (birds, lizards) or 0.12 s (Agro) between updates; never the player, anything within 12 of the player, large bodies or the active colossus (SOTC_CHARLOD78, on, A/B charlod78). At the altar Agro alone cost 3-4.6 ms a frame unseen outside the shrine.",
    "result": "Vita3K 222 MHz, whole frame matched by draws: altar -5.2 ms (51.8 vs 56.7), plain -5.6 ms (38.7 vs 43.9), attract demo heavy part -1.2 ms. Time handed to put-off characters equals the player's within one interval; attract demo with riding 660 s without a crash; route screenshots show no missing characters. Not checked: climbing a colossus (excluded by design). Console A/B prepared (env-console.txt, charlod78)."
+  },
+  {
+   "round": "r79",
+   "date": "2026-11-05",
+   "commit": "ca4300d",
+   "focus": "Speed",
+   "summary": "The display walk measured step by step (~16 ms of work at the altar: group pass 4.2, light pass 2.5, model draws ~5, particle draws 4.1; the profiler's larger means were the host's stalls landing in the frame change). The particle systems were the biggest piece: ~80 tiny systems (fog wisps, feathers) at ~100 us each, all kept by the game's own clip. A Vita-side visibility pass now tests each system's real particle bounds against the camera; a system outside the view is not drawn and its step is put off, with the world's time handed over in one step when it returns or after 0.25 s, so particles keep their speed and ages (SOTC_PTCL79, on, A/B ptcl79 / r79all).",
+   "result": "Vita3K 222 MHz whole frame: altar 55.9 -> 50.4 ms (matched by draws -5.8; console env r79all -5.1), out of the shrine and the plain 38.3 -> 31.0 ms, attract demo -0.1..-0.9 ms. Attract demo 660 s with the A/B rotating, no crash; route and attract screenshots on/off show no missing effect. Local-frame emitters (half of the shrine's systems) are not culled yet. Console A/B prepared (env-console.txt, r79all)."
   }
  ]
 }
