@@ -10605,11 +10605,11 @@ void installSotcNative(PS2Runtime &runtime)
     }
     if (runtime.hasFunction(kPtclEnv) && runtime.hasFunction(kPtclVtx))
     {
-        g_ptclEnv = runtime.lookupFunction(kPtclEnv);
+        g_ptclEnv = sotc_decomp::behindHook(runtime, kPtclEnv);
         runtime.registerFunction(kPtclEnv, ptclEnvHook);
-        g_ptclVtx = runtime.lookupFunction(kPtclVtx);
+        g_ptclVtx = sotc_decomp::behindHook(runtime, kPtclVtx);
         runtime.registerFunction(kPtclVtx, ptclVtxHook);
-        g_ptclMat = runtime.lookupFunction(kPtclMat);
+        g_ptclMat = sotc_decomp::behindHook(runtime, kPtclMat);
         runtime.registerFunction(kPtclMat, ptclMatHook);
     }
     if (runtime.hasFunction(kScreenBlur))
