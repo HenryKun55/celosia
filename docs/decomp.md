@@ -12161,6 +12161,138 @@ round); console env r80/env-console.txt (`SOTC_AB_FLAG=r80all,newdir`: three
 states, all on / seg80 off / rounds 78-80 off); read it with
 `python3 build/agent-scratch/r80/tools/ab80.py err.txt --from <frame>`.
 
+## Round 81: Wander at rest and a ground patch, both measured and dropped; the near characters named (2026-11-05)
+
+Nothing of this round changes the game's behaviour or speed: the two
+changes tried did not pay off and are not in the code. What stays is two
+probes, both off by default (decomp_rest81.cpp). Scripts, runs and logs:
+`build/agent-scratch/r81/`:
+- build.sh: its own worktree `r81/wt` and build directory `r81/vita`.
+- v3k.sh: its own Vita3K, `r81/vita3k`, with its `portable` link to
+  ../vita3k-celosia-r81; 222 MHz, 3 cores, muted, memcard copied,
+  settings.cfg put back.
+- tools/ab81.py: round 80's reader.
+- runs/: probe1 / probe2 (write sets), geo1-geo3 (the rest test's reasons),
+  altar1-altar5 / loose1 (the rest skip's A/Bs), check6 (the patch's
+  check), altarG (the patch's A/B), sanity (the committed code).
+- The dropped code: rest81-dropped.cpp.txt and ground81-dropped.diff.
+
+The Vita3K altar frame of these runs is ~54-56 ms in the "all on" windows,
+where round 80 measured 44.8 ms with the same code. The Mac was slower
+today (other load); each A/B below compares windows of one run.
+
+**What GetCharaRootDynamics writes (`SOTC_REST81_PROBE=240`: the whole
+guest RAM diffed across Wander's step, runs/probe1, probe2).** Standing at
+the altar:
+- Inside his object (obj .. obj+0x1200):
+  - the position (+0xa0) and its copies (+0x550, +0x158.., +0xf88..,
+    +0x1008..);
+  - the velocity (the class's +0x30 = obj+0xc0), +0x788, +0xab0, +0x5ac;
+  - the frame's 1 / time (+0x168);
+  - a count (+0xeb0);
+  - two list links (+0x1040, +0x10f0).
+- Outside it:
+  - two linked lists unlinked and linked again every frame (0x00bad9e4,
+    0x015cb25c / 70, 0x01bcd7xx, and his own blocks through obj+0xec0);
+  - the parent two-way link with the ground's object (0x01be69xx,
+    0x01ea3bdc);
+  - one float of his sub-structure (through obj+0x22c, +0x84);
+  - the wind manager's result list at 0x01217100 (transient, refilled at
+    every query).
+- Nothing else.
+
+**Wander is not at rest when he stands.** The trace (SOTC_REST81_TRACE
+in the dropped code, runs/altar4) shows the idle motion moving his root
+at up to 0.1 units a second (up to ~3 mm a frame), with the velocity
+changing from frame to frame. The step follows it with its collision every
+frame, and over a minute the root drifts 2-7 cm. A memo of an exact fixed
+point never matches (geo1-geo3: "learning" every frame).
+
+**The rest skip (SOTC_REST81, dropped).**
+- A walking-kind character (the xz kind) whose last runs only carried the
+  root on (moved less than 5 mm a frame, as position + velocity x time
+  says within 2 mm, velocity below 0.2, rotation kept, pointers and flags
+  in its object unchanged, floats alike within tolerance) was not run
+  again while:
+  - pad 0 was idle;
+  - no moving character with a collision radius (or any above radius 2,
+    a colossus) was within 3 units plus its radius;
+  - its object held what the last run left, apart from the words others
+    change every frame, learnt as it ran;
+  - the step's arguments were the same.
+- On a skipped frame the words the last run changed were written back,
+  the root carried on at the last velocity, and v0 / f0 returned.
+- A real run happened at least every 10th frame (every 5th from altar4 on).
+- Vita3K 222 MHz, whole frame, the altar from frame 3 300, `SOTC_AB_FLAG=rest81
+  SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, off minus on:
+
+| run | rule | Wander's frames skipped | off minus on (matched by draws) |
+|---|---|---|---|
+| altar1 | exact fixed point | ~0 (another character skipped) | -0.71 (-0.26) |
+| altar2 | floats within 0.01 | ~30% | +0.30 (+0.45) |
+| altar3 | + rotation check | ~57% | +0.04 (-0.01) |
+| altar4 | + root carried at its velocity | ~46% | +0.49 (+0.49) |
+| altar5 | floats within 0.5 / 10% | ~53% | +1.18 (+1.18) |
+| loose1 | loose bounds, for measuring only | ~77% | +1.20 |
+
+- Wander's GetCharaRootDynamics in loose1: 4.5 -> 2.8 ms a frame
+  (SOTC_CHARGEO80_LOG, both states).
+- The best safe form gained ~1.2 ms at the altar, below the 2 ms the round
+  asked for. Its rules lean on many tolerances for a motion that never
+  stops, and it was not worth the risk to the idle, walking-off and being
+  pushed cases. Not shipped.
+
+**The ground patch (SOTC_GROUND81, dropped).**
+- In the finder's leaf (decomp_collision's finderLeaf, under the walking
+  characters' ground queries) a patch was a sphere of 1 unit in the
+  tree's own space around a query's center.
+- Per leaf it kept only the surfaces whose boundary sphere comes within
+  reach of any query whose center is in the patch.
+- A query in the patch ran the leaf's same tests on those surfaces only,
+  in their order: the same finder entries, exactly.
+- `SOTC_GROUND81_CHECK=1` on route 6 (runs/check6): `wrong 0` in every
+  window. 25-35% of a leaf's surfaces kept out of the shrine and on the
+  plain, ~14 leaf queries a frame.
+- At the altar the patch keeps 88% of the surfaces: the shrine's surfaces
+  are large, and their boundary spheres reach the patch.
+- A/B (runs/altarG): +0.14 ms mean the wrong way, -0.20 ms median: nothing.
+- The leaves are small (~9 surfaces each). A rejected surface is already
+  one NEON compare (round 49's finderScan). The leaf's time is in the
+  surfaces that pass (the filters, the plane, the duplicate search, the
+  entry), which a patch cannot leave out.
+
+**The characters near Wander (`SOTC_REST81_NAMES=1`).** Round 80's five
+unidentified characters within ~1 unit of Wander at the altar:
+
+| layout | what | ms a frame | its cost |
+|---|---|---|---|
+| `player_A_head_LV1.nmo` | Wander's head (a separate character on his neck) | 0.83-0.86 | sub geometries 0.2, IK 0.13, pose 0.12, layout 0.11, cloth 0.1 |
+| `girl_A.nmo` | Mono's body on the altar | 0.6-0.65 | layout 0.23, pose 0.21 |
+| `girl_A_hair.nmo` | Mono's hair | 0.75-0.8 | cloth 0.25, IK 0.14, pose / layout 0.11 each |
+| `girl_A_head.nmo` | Mono's head | 0.43-0.46 | pose / layout 0.11 each, cloth 0.05 |
+
+Wander's body is `player_A_dummy.nmo`.
+- None of these costs is collision: it is the pose (GetMotionMatrix),
+  UpdateLayoutClassGeometry and the cloth.
+- The head follows Wander's neck every frame. Updating it less often would
+  open a seam at the neck.
+- Mono's three parts would have to update together.
+
+**Where the next gain is.**
+- Wander's own pose work: IK with its GetMotionMatrix, 1.7 ms. It is a
+  pose, not a collision.
+- The pose / layout / cloth of the head and of Mono's three parts: ~2.7 ms
+  at the altar.
+- The surviving narrow phase of the ground queries: the keep / slope,
+  slide and landing tests, ~3 ms.
+- The render side (round 79's display walk: the light pass, the static
+  objects' group pass).
+
+**Deliverable:** no VPK and no console A/B this round: nothing changes speed.
+The committed code is the two probes (off by default; GetCharaRootDynamics
+is now registered through decomp_rest81.cpp's wrapper, which calls round
+47's native). runs/sanity: route 2 to the altar, 270 s, names logged, no crash.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

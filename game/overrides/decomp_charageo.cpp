@@ -63,6 +63,11 @@
 #include <psp2/kernel/processmgr.h>
 #endif
 
+namespace rest81
+{
+    void nameCharacter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t obj);
+}
+
 namespace decomp_charageo
 {
     using sotc_decomp::relocated;
@@ -329,6 +334,7 @@ namespace decomp_charageo
     void execCharaGeometryBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void execCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        rest81::nameCharacter(rdram, ctx, runtime, GPR_U32(ctx, 4));
         if (__builtin_expect(geo80::every() == 0u, 1) || geo80::g_depth != 0)
             return execCharaGeometryBody(rdram, ctx, runtime);
         geo80::report();

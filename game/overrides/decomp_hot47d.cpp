@@ -1036,4 +1036,4 @@ namespace decomp_hot47d
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010D9FC0u, GetCharaRootDynamics, decomp_hot47d::rootDynamics);
+// Registered by decomp_rest81.cpp (round 81: its probe wrapper calls this; with no probe asked it is this function).
