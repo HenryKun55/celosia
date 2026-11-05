@@ -531,11 +531,12 @@ namespace sotc_decomp
         kPref69,      // round 69: the walk's prefetch records deduplicated through a hash (decomp_prefetch)
         kColl71,      // round 71: the root dynamics' collision filters natively, the finder's leaf / duplicate test (decomp_collision)
         kCharLod78,   // round 78: off-screen characters' geometry at a lower rate through the game's own view interval (decomp_charlod78)
+        kPtcl79,      // round 79: off-screen particle systems stepped at a lower rate with their time kept, not drawn (decomp_hot47e, decomp_walk)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -618,6 +619,11 @@ namespace sotc_decomp
     inline bool pref69On() { return switchOn(kPref69); }
     inline bool coll71On() { return switchOn(kColl71); }
     inline bool charLod78On() { return switchOn(kCharLod78); }
+    inline bool ptcl79On() { return switchOn(kPtcl79); }
+    // Round 79 (decomp_hot47e.cpp): the particle geodisp object the manager
+    // found wholly outside the camera's clip volume this frame and the frame
+    // before (its step put off, its draw not needed).
+    bool ptcl79Culled(uint32_t object);
 
     // Round 49's measurements. NativeCount: calls of a native (counted
     // whatever SOTC_FASTNATIVE says, at its entry); with

@@ -39,6 +39,8 @@ namespace sotc_prof
         kHookPlan,      // a draw plan made (buildPlan, round 14)
         kHookHash,      // packetId's full content hash (round 14)
         kHookMoves,     // packetId's garbage-move lookups and memo carry (round 14)
+        kHookSync,      // round 79: modelDispHook's syncFrame
+        kHookPs2List,   // round 79: the original modelDisp run by the hook
         kHookCount
     };
 

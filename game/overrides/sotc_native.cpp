@@ -3003,11 +3003,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3028,6 +3028,7 @@ namespace sotc_native
             lazySnapAt = indexOf("lazysnap");
             sacAllAt = indexOf("sacall");
             r74AllAt = indexOf("r74all");
+            r79AllAt = indexOf("r79all");
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
             sacPtclAt = indexOf("sacptcl");
@@ -3038,6 +3039,10 @@ namespace sotc_native
         for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
             if (switchAt[i] >= 0)
                 sotc_decomp::setSwitch(i, isOffAt(switchAt[i]) ? false : switchStart[i]);
+        if (r79AllAt >= 0) // round 79: the round's switches off together
+            for (int i : {static_cast<int>(sotc_decomp::kPtcl79)})
+                if (isOffAt(r79AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r79AllAt) ? false : switchStart[i]);
         // Round 52: the thread switch by returning (PS2X_XFER_RETURN).
         if (g_runtimeForLog && xferAt >= 0)
         {
@@ -9198,7 +9203,7 @@ namespace sotc_native
 
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        syncFrame(rdram);
+        { SOTC_PROF_SCOPE(kHookSync); syncFrame(rdram); }
         const lines67::Scope l67(lines67::kHook, true);
         static const ModelDispEnv env;
         const uint32_t instance = GPR_U32(ctx, 4), matrix = GPR_U32(ctx, 5);
@@ -9234,7 +9239,7 @@ namespace sotc_native
         const bool ps2Lists = native_renderer::tuning().ps2Lists || !GS::skipRaster();
         static const bool check = std::getenv("SOTC_MODELDISP_CHECK") != nullptr;
         if (ps2Lists && !check)
-            { g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); } // the emulated drawing goes on as before
+            { SOTC_PROF_SCOPE(kHookPs2List); g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); } // the emulated drawing goes on as before
         else
         {
             // iosgluGetCameraContext -> get_cur_camera_context, as modelDisp asks.

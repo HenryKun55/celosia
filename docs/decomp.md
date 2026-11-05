@@ -11888,6 +11888,141 @@ round); console env r78/env-console.txt (`SOTC_AB_FLAG=charlod78`); read it
 with `python3 build/agent-scratch/r78/tools/ab78.py err.txt --from <frame>`
 (the "matched" block).
 
+## Round 79: particle systems the camera cannot see are neither stepped nor drawn; where the display walk's time really goes (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r79/` (build.sh: its own worktree
+`r79/wt` and build directory `r79/vita`; v3k.sh: its own Vita3K, `r79/vita3k`
+with its `portable` link to ../vita3k-celosia-r79, 222 MHz, 3 cores, muted,
+memcard copied, settings.cfg put back; tools/ab79.py: round 78's ab78.py plus
+the round's `[ptcl79]` lines; runs/prof0-prof10 (the measurements below),
+ab1 (first A/B), altar4 / route4 / attract4 (the A/B of the shipped code),
+inv1 / inv2 / inv0off (the culled-only / no-particle / reference pictures),
+shots6-on / shots6-off / shotsA-on / shotsA-off (screenshots with it on and
+off); pics/).
+
+**Where the display walk's ~18 ms goes (Vita3K 222 MHz, the altar;
+`SOTC_WALK79_LOG=1`, a `[walk79]` line every 120 walks: the walk by step and
+callee, host clock).** 259 objects a frame (179 layout objects, ~80 particle
+geodisps), ~130 shown and drawn:
+
+| step | ms a frame | what |
+|---|---|---|
+| the group pass | 4.2 | ClipLayoutObjModel x146 (the layout objects' +0xd8) 2.3, the walk's own 1.9 |
+| the second sort list | 0.3 | |
+| the light pass | 2.5 | SetEnviroment + dispSort_010F4FB8 (~50 lit objects) |
+| the models' draws | ~5 | DispLayoutObjModel x49 (modelDisp and its hook, cloth x30, skin palettes, shadows) |
+| the particle systems' draws | 4.1 | the geodisps' draw callback x80 (particleDraw and the ptclman packets) |
+| iosDlLockObj | 0.15 | |
+
+The particle manager before the walk (`[ptcl79]` lines): 5.9 ms a frame, of
+it the geodisps' steps 3.9 ms for ~80 geodisps. Together the particle systems
+are ~10 ms of the altar's frame: **~80 systems of one emitter and 1-3 particles
+each** (`HOME_IN_FOG` / `HOME_IN_FOG_SPIRAL`: the shrine's fog wisps, 55;
+`KITE_FEATHER` / `BIRD_FEATHER`: the birds' feathers, 23; stone dust), ~48 us a
+step and ~50 us a draw each for ~110 particles in all: the cost is the
+per-system work (the emitter's set-up, its guest calls, the packets), not the
+particles. The game's own clip (is_emitter_need_disp's sphere) keeps every one
+of them (`hidden` 0.0 a frame), so the walk draws all ~80.
+
+The walk's model draws are not the 26-56 ms the walk log's means show:
+`SOTC_SUBSYS_PROF` (and the round's `[walk79]` means) put ~30 ms a frame into
+modelDisp's "self" and DispDispObjGroupModel; a probe on the hook's syncFrame
+(`hook.sync`, new) has all of it, and a per-frame line showed its median at
+32 us: the host's ~1 s stalls (the Mac's lock screen,
+sotc-vita3k-lock-stalls) land in the frame change, which the first modelDisp
+of a frame makes, and dominate a 120-frame mean. The frame log and the A/B
+readers leave frames over 700 ms out; the profiler's means do not. Read
+profiler windows with stalls in them with that in mind.
+
+**What changed (`SOTC_PTCL79`, default on; `SOTC_AB_FLAG` takes `ptcl79`, and
+`r79all` for the round; decomp_hot47e.cpp's particle manager,
+decomp_walk.cpp's geodisp branch).** A Vita-side visibility pass for the
+particle systems, before their step:
+- Bounds: for each geodisp, every emitter's position (its node's +0x20) and
+  every live particle's position (+0) grown by its size times the draw's scale
+  (+0x4c x the system's +0x144), its speed (+0x10) times the time it may be put
+  off, and `SOTC_PTCL79_MARGIN` (2.0). Tested as a box against the camera's
+  clip volume (the camera context's +0x5A0: w +- x, w +- y, w), the camera of
+  this frame (the manager runs after the camera).
+- A system outside this frame and the frame before is not stepped: the three
+  particle clocks' steps and whole frames (0x01216E08 / 18 / 28) are gathered
+  for it, until `SOTC_PTCL79_OFF` (0.25 s) have gathered or it is no longer
+  outside; then one step with the gathered time (the clocks written for that
+  call and put back), so its particles keep their speed, ages and spawn
+  counts, as round 65's half-rate effects do for all of them.
+- The display walk does not add such a system to the sort list: it is not
+  drawn (it is outside the view, its bounds made from the very positions the
+  draw would write).
+- Not put off: emitters whose particles live in the emitter's own frame
+  (record types 2 / 3, ~half the shrine's systems: `SOTC_PTCL79_LOCAL=1`
+  bounds them by the frame's point, unchecked, off), anything outside main
+  RAM, every system on the frames round 65's half-rate cut skips. A system
+  freed and another made at the same address with another emitter list starts
+  afresh.
+- `SOTC_PTCL79_LOG=1`: a `[ptcl79]` line every 240 frames (systems seen, not
+  eligible, outside, put off, caught up). `SOTC_PTCL79_INVERT=1` (checking)
+  draws only the culled systems, `=2` none.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, whole frame, `SOTC_AB_FLAG=ptcl79
+SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab79.py; off minus on).**
+
+| run | part | frames on / off | frame on / off (ms) | off minus on | matched by draws |
+|---|---|---|---|---|---|
+| altar4 (route 2, the altar) | from 3 300 | 997 / 1 041 | 50.40 / 55.90 | +5.50 (median +6.5) | +5.76 |
+| route4 (route 6) | out of the shrine and the plain, from 3 000 | 3 601 / 3 531 | 30.97 / 38.33 | +7.37 | +5.20 |
+| route4 | the plain, from 4 300 | 2 955 / 2 908 | 30.02 / 37.45 | +7.44 | +2.76 (381 frames) |
+| attract4 (attract demo, 660 s) | < 7 000 | 3 450 / 3 430 | 21.79 / 22.28 | +0.49 | +0.23 |
+| attract4 | 7 000-9 999 | 1 485 / 1 482 | 20.39 / 20.49 | +0.10 | +0.02 |
+| attract4 | >= 10 000 (the world, riding) | 2 761 / 2 761 | 34.83 / 35.76 | +0.93 | +0.38 |
+
+The console's env (`SOTC_AB_FLAG=r79all`, runs/all79, the altar): 50.36 /
+55.45 ms, +5.08 (matched +5.30): the group switch turns ptcl79 off in its
+windows.
+
+The match by draws understates it: the culled systems are draws, so the two
+states' draw counts differ at the same place (on the plain few bins overlap).
+The first A/B (ab1, before the draw scale was added to the bounds): altar
+51.05 / 55.75. The shrine gains most (its ~80 fog wisps and feathers, half of
+them world-space, ~half of those behind or beside the camera at any time); the
+attract demo's world has few particle systems off screen. Part of the gain is
+the render thread's: fewer large blended sprites.
+
+**Pictures and behaviour.**
+- By construction a culled system has nothing in the view: its box holds every
+  particle's position plus its drawn size and 2 units, and the walk uses the
+  same frame's camera. A system put off for up to 0.25 s and coming back into
+  view is stepped with the gathered time before it is drawn; what can show is
+  a particle an emitter would have spawned off its own position (a spawn shape
+  wider than the margin) up to 0.25 s late.
+- Screenshots on and off (route 6 and the attract demo, every 30 s of wall
+  time; pics/r79_route6_*_on__off.png, pics/r79_attract_*_on__off.png): no
+  missing or broken effect, the shrine's light shafts and fog as before. The
+  pairs are not the same moment (a route's runs drift apart with the frame
+  rate, as in round 78), so they show breakage, not a pixel match; the
+  construction above is what says nothing visible is left out.
+- Culled-only against none at the altar (inv1 / inv2, pics/inv_*): the same
+  picture within the runs' camera difference.
+- No crash: attract demo 660 s (15 600 frames) with the A/B rotating, route 6
+  480 s, the altar 270 s.
+
+**Before / after (Vita3K 222 MHz, the same runs' states).** The altar 55.9 ->
+50.4 ms, route 6 out of the shrine and the plain 38.3 -> 31.0, the attract
+demo's riding part 35.8 -> 34.8. On the console the step and draw are the
+game thread's CPU (~1.5x Vita3K's): an estimated ~7-9 ms of the shrine's ~59.
+
+**Not done (next).** The other half of the shrine's systems (local-frame
+emitters: the frame's matrix from the emitter's directions and point is
+known to the step, not checked against the draw here); the per-system cost of
+the visible ones (~100 us for 1-3 particles: a native emitter set-up without
+the guest calls, packets made once per system kind); the walk's static
+objects (ClipLayoutObjModel x146, the light pass): ~2-4 ms together, no
+single item near 10 ms; the characters (Wander alone 6-7 ms) and collision
+remain the largest.
+
+**Deliverable:** build/agent-scratch/celosia-r79.vpk (main 7db01d8 + this
+round); console env r79/env-console.txt (`SOTC_AB_FLAG=r79all`); read it with
+`python3 build/agent-scratch/r79/tools/ab79.py err.txt --from <frame>`.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

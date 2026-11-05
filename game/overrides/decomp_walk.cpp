@@ -66,6 +66,7 @@
 // anything is written.
 #include "sotc_decomp.h"
 #include "lines67.h"
+#include "sotc_prof.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -75,6 +76,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <algorithm>
+#include <string>
 
 namespace decomp_prefetch
 {
@@ -466,6 +469,66 @@ namespace decomp_walk
             ask(m, entry + 0x17u);
         }
     };
+
+
+    // ---- Round 79's measurement (SOTC_WALK79_LOG=1): the walk's time by step and callee ----
+    namespace wprof
+    {
+        inline bool on()
+        {
+            static const bool v = std::getenv("SOTC_WALK79_LOG") && std::atoi(std::getenv("SOTC_WALK79_LOG")) != 0;
+            return v;
+        }
+        struct Slot
+        {
+            char kind;
+            uint32_t target;
+            uint64_t t, n;
+        };
+        static Slot g_slots[256];
+        static int g_used = 0;
+        static uint64_t g_phase[8], g_cnt[8], g_frames = 0;
+        inline void add(char kind, uint32_t target, uint64_t dt)
+        {
+            for (int i = 0; i < g_used; ++i)
+                if (g_slots[i].kind == kind && g_slots[i].target == target)
+                {
+                    g_slots[i].t += dt;
+                    ++g_slots[i].n;
+                    return;
+                }
+            if (g_used < 256)
+                g_slots[g_used++] = {kind, target, dt, 1u};
+        }
+        inline uint64_t now() { return on() ? sotc_prof::ticks() : 0u; }
+        void report()
+        {
+            if (++g_frames % 120u)
+                return;
+#ifdef PLATFORM_VITA
+            const double k = 1.0 / 1000.0 / 120.0;
+#else
+            const double k = 1.0 / 1e6 / 120.0;
+#endif
+            std::fprintf(stderr, "[walk79] frames %llu: all %.2f grp %.2f copy %.2f light %.2f draw %.2f ms | objs %.1f layout %.1f geo %.1f shown %.1f drawn %.1f\n",
+                         (unsigned long long)g_frames, g_phase[0] * k, g_phase[1] * k, g_phase[2] * k, g_phase[3] * k, g_phase[4] * k,
+                         g_cnt[0] / 120.0, g_cnt[1] / 120.0, g_cnt[2] / 120.0, g_cnt[3] / 120.0, g_cnt[4] / 120.0);
+            std::sort(g_slots, g_slots + g_used, [](const Slot &a, const Slot &b) { return a.t > b.t; });
+            std::string line = "[walk79] sites:";
+            for (int i = 0; i < g_used && i < 40; ++i)
+            {
+                char b[64];
+                std::snprintf(b, sizeof b, " %c%08x %.2f/x%.1f", g_slots[i].kind, g_slots[i].target, g_slots[i].t * k, g_slots[i].n / 120.0);
+                line += b;
+            }
+            std::fprintf(stderr, "%s\n", line.c_str());
+            g_used = 0;
+            for (auto &v : g_phase)
+                v = 0;
+            for (auto &v : g_cnt)
+                v = 0;
+        }
+    }
 
     void clipLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void dispLayoutObjModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -2195,6 +2258,8 @@ namespace decomp_walk
         m.put32(sp + 0x20u, group);
         if (m.u32(kWalkOn) == 0u)
             return finish();
+        const bool wp = wprof::on(); uint64_t wt0 = wp ? sotc_prof::ticks() : 0u;
+        const uint64_t wstart = wt0;
         set(30, 0x01190000u);
         g.callRel(0x010F5310u, sp); // isysObjWaitSema
         set(19, 0u);
@@ -2242,6 +2307,7 @@ namespace decomp_walk
             set(19, s3);
             const uint32_t s0 = layoutClass(g, s3, 0x010F5348u, sp);
             set(16, s0);
+            if (wp) { ++wprof::g_cnt[0]; ++wprof::g_cnt[s0 ? 1 : 2]; }
             if (s0 != 0u)
             {
                 set(21, 1u);
@@ -2349,22 +2415,32 @@ namespace decomp_walk
                 {
                     ctx->f[12] = 0.0f;
                     g.a(4, s0);
-                    g.call(kUpdateSimple, 0x010F54E4u, sp);
+                    {
+                        const uint64_t t0_ = wprof::now();
+                        g.call(kUpdateSimple, 0x010F54E4u, sp);
+                        if (wp) wprof::add('S', kUpdateSimple, sotc_prof::ticks() - t0_);
+                    }
                 }
                 if (m.s8(s0 + 0x1B8u) != 0)
                 {
                     if (const uint32_t update = m.u32(s2 + 0xD8u))
                     {
                         g.a(4, s3);
-                        g.call(update, 0x010F5504u, sp);
+                        {
+                            const uint64_t t0_ = wprof::now();
+                            g.call(update, 0x010F5504u, sp);
+                            if (wp) wprof::add('U', update, sotc_prof::ticks() - t0_);
+                        }
                     }
                     if (const uint32_t clip = m.u32(s2 + 0xDCu))
                     {
                         g.a(4, s3);
+                        const uint64_t t0_ = wprof::now();
                         if (clip == kClip)
                             g.callNative(clipLayoutObjModel, kClip, 0x010F5518u, sp);
                         else
                             g.call(clip, 0x010F5518u, sp);
+                        if (wp) wprof::add('C', clip, sotc_prof::ticks() - t0_);
                         s7 = GPR_U64(ctx, 2);
                         SET_GPR_U64(ctx, 23, s7);
                     }
@@ -2390,7 +2466,11 @@ namespace decomp_walk
                         {
                             g.a(4, s3);
                             SET_GPR_U64(ctx, 5, s5);
-                            g.call(told, 0x010F5580u, sp);
+                            {
+                                const uint64_t t0_ = wprof::now();
+                                g.call(told, 0x010F5580u, sp);
+                                if (wp) wprof::add('T', told, sotc_prof::ticks() - t0_);
+                            }
                         }
                 }
                 if (s5 == 0u)
@@ -2401,6 +2481,7 @@ namespace decomp_walk
                     g.a(5, s2);
                     g.a(4, m.u32(kSortList));
                     g.call(kAddSortObj, 0x010F559Cu, sp);
+                    if (wp) ++wprof::g_cnt[3];
                 }
                 const uint32_t geo = m.u32(s0 + 0x144u);
                 m.put64(geo + 0x260u, (m.u64(geo + 0x260u) & ~0x100ull) | (s5 << 8));
@@ -2412,19 +2493,29 @@ namespace decomp_walk
                 if (const uint32_t update = m.u32(gdc + 0xD8u))
                 {
                     g.a(4, s3);
-                    g.call(update, 0x010F55E0u, sp);
+                    {
+                        const uint64_t t0_ = wprof::now();
+                        g.call(update, 0x010F55E0u, sp);
+                        if (wp) wprof::add('u', update, sotc_prof::ticks() - t0_);
+                    }
                 }
                 const float f1 = m.f32(gdc + 0x20u);
                 if (FPU_C_OLT_S(0.0f, f1))
                 {
                     const float f0 = m.f32(gdc + 0x30u);
                     ctx->f[0] = f0;
-                    if (FPU_C_OLE_S(0.0f, f0))
+                    // Round 79: a particle system wholly outside the view is not drawn.
+                    // SOTC_PTCL79_INVERT=1 (checking): only those are drawn; =2: no particle system.
+                    static const int invert79 = std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0;
+                    const bool culled79 = sotc_decomp::ptcl79Culled(s3);
+                    const bool draw79 = invert79 == 0 ? !culled79 : invert79 == 1 ? culled79 : false;
+                    if (FPU_C_OLE_S(0.0f, f0) && draw79)
                     {
                         m.putf(gdc + 4u, f1);
                         g.a(5, gdc);
                         g.a(4, m.u32(kSortList));
                         g.call(kAddSortObj, 0x010F5614u, sp);
+                        if (wp) ++wprof::g_cnt[3];
                     }
                 }
             }
@@ -2450,6 +2541,7 @@ namespace decomp_walk
             SET_GPR_U64(ctx, 5, 0u);
             g.callRel(0x010F5640u, sp); // isysGroupForExit
         }
+        if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[1] += t - wt0; wt0 = t; }
         // The second list: the first one without the objects with bit 4 of +0x260.
         clearSortList(m, m.u32(kSortList2));
         static std::vector<uint32_t> order;
@@ -2484,6 +2576,7 @@ namespace decomp_walk
             s0 = s1;
         }
         set(16, kSortList2);
+        if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[2] += t - wt0; wt0 = t; }
         if (firstSortObj(m, m.u32(kSortList2)) != 0u)
         {
             g.call(kSetEnviroment, 0x010F56D8u, sp);
@@ -2491,6 +2584,7 @@ namespace decomp_walk
             g.a(6, m.u32(sp + 0x20u));
             g.a(5, s6);
             g.call(kLightPass, 0x010F56E8u, sp);
+            if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[3] += t - wt0; wt0 = t; }
             const uint32_t list = m.u32(kSortList2);
             set(19, list);
             if (w67)
@@ -2520,22 +2614,30 @@ namespace decomp_walk
                     if (obj != 0u)
                     {
                         g.a(4, obj);
+                        const uint64_t t0_ = wprof::now();
                         g.callRel(0x010F5728u, sp); // iosDlLockObj
+                        if (wp) wprof::add('K', 0u, sotc_prof::ticks() - t0_);
                     }
                     if (const uint32_t lights = m.u32(cls + 0xD4u))
                     {
                         g.a(6, m.u32(cls + 0xE4u));
                         g.a(4, s6);
                         g.a(5, obj);
-                        g.call(lights, 0x010F5744u, sp);
+                        {
+                            const uint64_t t0_ = wprof::now();
+                            g.call(lights, 0x010F5744u, sp);
+                            if (wp) wprof::add('L', lights, sotc_prof::ticks() - t0_);
+                        }
                     }
                     const uint32_t draw = m.u32(cls + 0xD0u);
                     g.a(5, obj);
                     g.a(4, s6);
+                    const uint64_t t0_ = wprof::now();
                     if (draw == kDisp)
                         g.callNative(dispLayoutObjModel, kDisp, 0x010F5754u, sp);
                     else
                         g.call(draw, 0x010F5754u, sp);
+                    if (wp) { wprof::add('D', draw, sotc_prof::ticks() - t0_); ++wprof::g_cnt[4]; }
                 }
                 else
                 {
@@ -2549,12 +2651,17 @@ namespace decomp_walk
                     const uint32_t draw = m.u32(cls + 0xD0u);
                     g.a(5, obj);
                     g.a(4, s6);
-                    g.call(draw, 0x010F578Cu, sp);
+                    {
+                        const uint64_t t0_ = wprof::now();
+                        g.call(draw, 0x010F578Cu, sp); ++wprof::g_cnt[4];
+                        if (wp) wprof::add('d', draw, sotc_prof::ticks() - t0_);
+                    }
                 }
                 s2 = nextSortObj(m, list, s2);
                 set(18, s2);
             }
         }
+        if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[4] += t - wt0; wprof::g_phase[0] += t - wstart; wprof::report(); }
         g.callRel(0x010F57ACu, sp); // isysObjSignalSema
         m.put32(kStripsOff, 0u);
         finish();

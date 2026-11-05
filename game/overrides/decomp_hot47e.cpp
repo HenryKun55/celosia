@@ -43,6 +43,12 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
+#include "sotc_prof.h"
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <unordered_map>
 
 #include <cstring>
 
@@ -86,8 +92,245 @@ namespace decomp_hot47e
     constexpr uint32_t kClockA = 0x01216E08u, kClockB = 0x01216E18u, kClockC = 0x01216E28u;
     constexpr uint32_t kArg0 = 0x0118CFE0u, kArg1 = 0x0118CFE4u, kArg2 = 0x0118CFECu, kCleared = 0x0118CFF4u;
 
+    // Round 79's measurement (SOTC_WALK79_LOG=1): the geodisps' steps by last frame's clip (+0x30 of the class).
+    namespace pprof
+    {
+        inline bool on()
+        {
+            static const bool v = std::getenv("SOTC_WALK79_LOG") && std::atoi(std::getenv("SOTC_WALK79_LOG")) != 0;
+            return v;
+        }
+        static uint64_t tVis, tHid, nVis, nHid, tEmit, nEmit, tAll, frames;
+        static uint64_t bT[6], bN[6], bP[6];
+        inline int bucket(uint32_t n) { return n == 0 ? 0 : n == 1 ? 1 : n <= 3 ? 2 : n <= 8 ? 3 : n <= 32 ? 4 : 5; }
+        void report()
+        {
+            if (++frames % 120u)
+                return;
+#ifdef PLATFORM_VITA
+            const double k = 1.0 / 1000.0 / 120.0;
+#else
+            const double k = 1.0 / 1e6 / 120.0;
+#endif
+            std::fprintf(stderr, "[ptcl79] frames %llu: manager %.2f ms | step shown %.2f x%.1f hidden %.2f x%.1f | emitters %.2f x%.1f\n", (unsigned long long)frames, tAll * k,
+                         tVis * k, nVis / 120.0, tHid * k, nHid / 120.0, tEmit * k, nEmit / 120.0);
+            std::fprintf(stderr, "[ptcl79] by particles 0 / 1 / 2-3 / 4-8 / 9-32 / more: ");
+            for (int b = 0; b < 6; ++b)
+                std::fprintf(stderr, " %.2f ms x%.1f emitters %.0f |", bT[b] * k, bN[b] / 120.0, bP[b] / 120.0);
+            std::fprintf(stderr, "\n");
+            for (int b = 0; b < 6; ++b)
+                bT[b] = bN[b] = bP[b] = 0;
+            tVis = tHid = nVis = nHid = tEmit = nEmit = tAll = 0;
+        }
+    }
+
+
+    // ---- Round 79 (SOTC_PTCL79, default on; SOTC_AB_FLAG ptcl79 / r79all) --
+    // A particle geodisp whose particles (and emitters) lie wholly outside
+    // the camera's clip volume, with a margin, this frame and the one before
+    // is neither stepped nor drawn: its step is put off and the world's time
+    // gathered for it (the three clocks' steps and whole frames), until
+    // SOTC_PTCL79_OFF seconds (0.25) have gathered or it comes back into
+    // the volume; then one step with the gathered time (the clocks written
+    // for that call and put back), so its particles keep their speed, ages
+    // and spawn counts. The bounds: every emitter's position (its node's
+    // +0x20) and every live particle's position (+0) grown by its size
+    // (+0x4c) and its speed (+0x10) times the time put off, plus
+    // SOTC_PTCL79_MARGIN (2.0). Emitters whose particles live in a local
+    // frame (record types 2 / 3; SOTC_PTCL79_LOCAL=1 bounds them by the frame's point, unchecked) or anything outside main RAM: never put off. The particle size is taken times the draw's scale (+0x144).
+    namespace ptcl79
+    {
+        struct Params
+        {
+            float off = 0.25f, margin = 2.0f;
+            bool log = false;
+            Params()
+            {
+                if (const char *e = std::getenv("SOTC_PTCL79_OFF"))
+                    off = static_cast<float>(std::atof(e));
+                if (const char *e = std::getenv("SOTC_PTCL79_MARGIN"))
+                    margin = static_cast<float>(std::atof(e));
+                log = std::getenv("SOTC_PTCL79_LOG") && std::atoi(std::getenv("SOTC_PTCL79_LOG")) != 0;
+            }
+        };
+        const Params &params()
+        {
+            static const Params p;
+            return p;
+        }
+        struct State
+        {
+            uint32_t sig = 0;
+            uint64_t seen = 0;
+            bool outPrev = false, culled = false;
+            float pend[3] = {0, 0, 0};
+            uint32_t pendFrames[3] = {0, 0, 0};
+            uint32_t pendCalls = 0;
+        };
+        std::unordered_map<uint32_t, State> g_states;
+        uint64_t g_frame = 0;
+        uint64_t g_nSeen = 0, g_nCulled = 0, g_nSkipped = 0, g_nCatchUp = 0, g_nIneligible = 0;
+        inline bool plainRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+        inline float rf(uint8_t *rdram, uint32_t a)
+        {
+            float v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 4);
+            return v;
+        }
+        inline uint32_t rw(uint8_t *rdram, uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 4);
+            return v;
+        }
+        // The camera's clip planes (w - x, w + x, w - y, w + y, w), normalised.
+        struct Planes
+        {
+            float n[5][4];
+            bool ok = false;
+        };
+        Planes planesNow(uint8_t *rdram)
+        {
+            Planes P;
+            const uint32_t cam = sotc_decomp::g_cameraContextAddr;
+            if (!cam || !plainRam(cam + 0x5A0u, 64u))
+                return P;
+            float m[16];
+            for (int i = 0; i < 16; ++i)
+                m[i] = rf(rdram, cam + 0x5A0u + i * 4u);
+            float rx[4], ry[4], rwv[4];
+            for (int c = 0; c < 4; ++c)
+            {
+                rx[c] = m[c * 4 + 0];
+                ry[c] = m[c * 4 + 1];
+                rwv[c] = m[c * 4 + 3];
+            }
+            const float sgn[5] = {-1, 1, -1, 1, 0};
+            for (int k = 0; k < 5; ++k)
+            {
+                const float *b = k < 2 ? rx : ry;
+                float len = 0;
+                for (int c = 0; c < 4; ++c)
+                    P.n[k][c] = rwv[c] + (k < 4 ? sgn[k] * b[c] : 0.0f);
+                len = std::sqrt(P.n[k][0] * P.n[k][0] + P.n[k][1] * P.n[k][1] + P.n[k][2] * P.n[k][2]);
+                if (!(len > 1e-12f))
+                    return P;
+                for (int c = 0; c < 4; ++c)
+                    P.n[k][c] /= len;
+            }
+            P.ok = true;
+            return P;
+        }
+        // True when every point (with its radius) is outside one same plane:
+        // the box of the points against each plane (conservative).
+        struct Bounds
+        {
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            float grow = 0.0f;
+            int n = 0;
+            void add(const float p[3], float r)
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    lo[i] = std::fmin(lo[i], p[i] - r);
+                    hi[i] = std::fmax(hi[i], p[i] + r);
+                }
+                ++n;
+            }
+        };
+        bool outside(const Planes &P, const Bounds &b)
+        {
+            if (!P.ok || b.n == 0)
+                return false;
+            for (int i = 0; i < 3; ++i)
+                if (!(b.lo[i] <= b.hi[i]) || !(b.hi[i] - b.lo[i] < 1e6f))
+                    return false; // NaN or absurd: seen
+            for (int k = 0; k < 5; ++k)
+            {
+                // The box's corner furthest along the plane's normal.
+                float d = P.n[k][3];
+                for (int i = 0; i < 3; ++i)
+                    d += P.n[k][i] * (P.n[k][i] >= 0.0f ? b.hi[i] : b.lo[i]);
+                if (d < -b.grow)
+                    return true;
+            }
+            return false;
+        }
+        // The geodisp's bounds; false when it may not be put off.
+        bool bounds(uint8_t *rdram, uint32_t geodisp, float pendTime, Bounds &b, uint32_t &sig)
+        {
+            const uint32_t cls = geodisp + 0x20u;
+            if (!plainRam(cls, 0xF0u))
+                return false;
+            sig = rw(rdram, cls + 0xE8u);
+            const float margin = params().margin;
+            uint32_t ems = 0;
+            for (uint32_t node = sig; node != 0u; node = rw(rdram, node + 0x1B0u))
+            {
+                if (!plainRam(node, 0x1C0u) || ++ems > 32u)
+                    return false;
+                const uint32_t rec = rw(rdram, node), E = node + 0x10u;
+                if (!plainRam(rec, 0x50u))
+                    return false;
+                const uint32_t mr = rw(rdram, rec + 0x48u);
+                if (!plainRam(mr, 0xE0u))
+                    return false;
+                const uint32_t kind = rw(rdram, mr + 0xD4u) + rw(rdram, E + 0x118u) * 0x1BCu;
+                if (!plainRam(kind, 4u))
+                    return false;
+                const uint32_t type = rw(rdram, kind);
+                // Types 2 / 3: the particles in the emitter's own frame (its
+                // matrix from the directions at E+0x20 / E+0x50 and the point
+                // at E+0x40): bounded by a sphere around that point and the
+                // emitter's position, radius the furthest particle's |p|
+                // times the directions' length.
+                const bool local = type == 2u || type == 3u;
+                static const bool localOk = std::getenv("SOTC_PTCL79_LOCAL") && std::atoi(std::getenv("SOTC_PTCL79_LOCAL")) != 0;
+                if (local && !localOk)
+                    return false; // not put off: the frame's matrix is not checked here (SOTC_PTCL79_LOCAL=1 tries it)
+                const float drawScale = std::fmax(1.0f, std::fabs(rf(rdram, E + 0x144u))); // the draw's size scale
+                float pos[3] = {rf(rdram, node + 0x20u), rf(rdram, node + 0x24u), rf(rdram, node + 0x28u)};
+                b.add(pos, margin);
+                float far = 0.0f;
+                const int32_t count = static_cast<int32_t>(rw(rdram, E + 0x124u));
+                uint32_t p = rw(rdram, E + 0x128u);
+                for (int32_t i = 0; i < count && p != 0u; ++i, p = rw(rdram, p + 0xA8u))
+                {
+                    if (!plainRam(p, 0xB0u) || i > 512)
+                        return false;
+                    const float q[3] = {rf(rdram, p), rf(rdram, p + 4u), rf(rdram, p + 8u)};
+                    const float v[3] = {rf(rdram, p + 0x10u), rf(rdram, p + 0x14u), rf(rdram, p + 0x18u)};
+                    const float speed = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                    const float size = std::fabs(rf(rdram, p + 0x4Cu)) * drawScale;
+                    const float r = margin + size + (speed < 1e4f ? speed : 1e4f) * (pendTime + params().off);
+                    if (local)
+                        far = std::fmax(far, std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]) + r);
+                    else
+                        b.add(q, r);
+                }
+                if (local)
+                {
+                    float scale = 1.0f;
+                    for (uint32_t d : {E + 0x20u, E + 0x50u})
+                    {
+                        const float x = rf(rdram, d), y = rf(rdram, d + 4u), z = rf(rdram, d + 8u);
+                        scale = std::fmax(scale, std::sqrt(x * x + y * y + z * z));
+                    }
+                    if (!(scale < 100.0f))
+                        return false;
+                    const float t[3] = {rf(rdram, E + 0x40u), rf(rdram, E + 0x44u), rf(rdram, E + 0x48u)};
+                    b.add(t, far * scale + margin);
+                    b.add(pos, far * scale + margin);
+                }
+            }
+            return ems != 0u;
+        }
+    }
+
     void manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        const bool pp = pprof::on();
+        const uint64_t pt0 = pp ? sotc_prof::ticks() : 0u;
         if (!sotc_decomp::hotList47On())
             return fallback(kManager, rdram, ctx, runtime);
         float *f = ctx->f;
@@ -201,6 +444,10 @@ namespace decomp_hot47e
         }
         call(kView, 0x0113A480u);
 
+        // Round 79: the camera's planes once for the geodisps below.
+        const bool p79 = sotc_decomp::ptcl79On() && !skipStep;
+        ++ptcl79::g_frame;
+        const ptcl79::Planes planes79 = p79 ? ptcl79::planesNow(rdram) : ptcl79::Planes{};
         // Every geodisp: its step and the auto-end check.
         uint64_t s1 = 0u;
         SET_GPR_S32(ctx, 4, kGroups);
@@ -216,8 +463,106 @@ namespace decomp_hot47e
                 SET_GPR_U64(ctx, 17, s1);
                 SET_GPR_U64(ctx, 4, s1);
                 WRITE32(sp + 0u, static_cast<uint32_t>(s1));
-                if (!skipStep)
+                // Round 79: put off when wholly outside the view (see ptcl79).
+                bool put79 = false, catch79 = false;
+                ptcl79::State *st79 = nullptr;
+                if (!skipStep && s1 != 0u && (p79 || !ptcl79::g_states.empty()))
+                {
+                    const uint32_t gd = static_cast<uint32_t>(s1);
+                    ptcl79::State &st = ptcl79::g_states[gd];
+                    ptcl79::Bounds b;
+                    uint32_t sig = 0;
+                    const float pendTime = st.pend[0];
+                    const bool eligible = ptcl79::bounds(rdram, gd, pendTime, b, sig) && p79;
+                    if (st.seen != 0u && st.sig != sig)
+                        st = ptcl79::State{}; // another geodisp at that address
+                    st.sig = sig;
+                    st.seen = ptcl79::g_frame;
+                    const bool out = eligible && ptcl79::outside(planes79, b);
+                    st.culled = out && st.outPrev;
+                    st.outPrev = out;
+                    ++ptcl79::g_nSeen;
+                    ptcl79::g_nIneligible += !eligible;
+                    ptcl79::g_nCulled += st.culled;
+                    if (st.culled && st.pend[0] + fb(READ32(kClockA)) < ptcl79::params().off)
+                    {
+                        put79 = true;
+                        static const uint32_t clocks[3] = {kClockA, kClockB, kClockC};
+                        for (int k = 0; k < 3; ++k)
+                        {
+                            st.pend[k] += fb(READ32(clocks[k]));
+                            st.pendFrames[k] += READ32(clocks[k] + 0xCu);
+                        }
+                        ++st.pendCalls;
+                        ++ptcl79::g_nSkipped;
+                    }
+                    else if (st.pendCalls != 0u)
+                        catch79 = true;
+                    st79 = &st;
+                }
+                if (!skipStep && !put79)
+                {
+                    const uint64_t t0 = pp ? sotc_prof::ticks() : 0u;
+                    const bool hidden = s1 != 0u && fb(READ32(static_cast<uint32_t>(s1) + 0x50u)) < 0.0f;
+                    static const uint32_t clocks79[3] = {kClockA, kClockB, kClockC};
+                    uint32_t saved79[3][4];
+                    if (catch79)
+                    {
+                        // The gathered time and frames in the three clocks for this call.
+                        for (int k = 0; k < 3; ++k)
+                        {
+                            for (int w = 0; w < 4; ++w)
+                                saved79[k][w] = READ32(clocks79[k] + w * 4u);
+                            const float dt = st79->pend[k] + fb(saved79[k][0]);
+                            WRITE32(clocks79[k], bf(dt));
+                            WRITE32(clocks79[k] + 4u, bf(dt * dt * 0.5f));
+                            WRITE32(clocks79[k] + 0xCu, saved79[k][3] + st79->pendFrames[k]);
+                        }
+                        ++ptcl79::g_nCatchUp;
+                    }
                     call(kGeodisp, 0x0113A4ACu);
+                    if (catch79)
+                    {
+                        for (int k = 0; k < 3; ++k)
+                            for (int w = 0; w < 4; ++w)
+                                WRITE32(clocks79[k] + w * 4u, saved79[k][w]);
+                        // (looked up again: nothing in the step writes the map)
+                        ptcl79::State &st = ptcl79::g_states[static_cast<uint32_t>(s1)];
+                        st.pend[0] = st.pend[1] = st.pend[2] = 0.0f;
+                        st.pendFrames[0] = st.pendFrames[1] = st.pendFrames[2] = 0u;
+                        st.pendCalls = 0u;
+                    }
+                    if (pp)
+                    {
+                        const uint64_t dt = sotc_prof::ticks() - t0;
+                        if (hidden) { pprof::tHid += dt; ++pprof::nHid; }
+                        else { pprof::tVis += dt; ++pprof::nVis; }
+                        const uint32_t cls = static_cast<uint32_t>(s1) + 0x20u;
+                        uint32_t parts = 0, ems = 0;
+                        for (uint32_t node = READ32(cls + 0xE8u); node != 0u && ems < 64u; node = READ32(node + 0x1B0u), ++ems)
+                            parts += READ32(node + 0x10u + 0x124u);
+                        if (pprof::frames % 600u == 599u)
+                        {
+                            const uint32_t node = READ32(cls + 0xE8u);
+                            char name[24] = "?";
+                            if (node)
+                            {
+                                const uint32_t rec = READ32(node), mr = READ32(rec + 0x48u), nm = mr ? READ32(READ32(mr + 0xD8u) + 0x24u) : 0u;
+                                if (nm && nm < 0x2000000u)
+                                    for (int i = 0; i < 23; ++i)
+                                        if (!(name[i] = static_cast<char>(READ8(nm + i))))
+                                            break;
+                                name[23] = 0;
+                                const float *pos = reinterpret_cast<const float *>(rdram + ((node + 0x20u) & 0x1FFFFF0u));
+                                std::fprintf(stderr, "[ptcl79] geodisp %08x emitters %u particles %u name %s at %.1f %.1f %.1f step %.3f ms\n", static_cast<uint32_t>(s1), ems, parts, name, pos[0], pos[1], pos[2], dt / 1000.0);
+                            }
+                        }
+                        const int b = pprof::bucket(parts);
+                        pprof::bT[b] += dt;
+                        ++pprof::bN[b];
+                        pprof::bP[b] += ems;
+                    }
+                }
                 SET_GPR_S32(ctx, 4, sp);
                 call(kAutoEnd, 0x0113A4B4u);
                 SET_GPR_U64(ctx, 4, s0);
@@ -238,6 +583,16 @@ namespace decomp_hot47e
             call(jalTarget(rdram, kSiteExit1), 0x0113A4DCu);
         }
 
+        if (ptcl79::g_frame % 64u == 0u)
+            for (auto it = ptcl79::g_states.begin(); it != ptcl79::g_states.end();)
+                it = it->second.seen + 8u < ptcl79::g_frame ? ptcl79::g_states.erase(it) : std::next(it);
+        if (ptcl79::params().log && ptcl79::g_frame % 240u == 0u)
+        {
+            std::fprintf(stderr, "[ptcl79] frame %llu: per frame geodisps %.1f (not eligible %.1f), outside %.1f, put off %.1f, caught up %.1f; states %u\n",
+                         (unsigned long long)ptcl79::g_frame, ptcl79::g_nSeen / 240.0, ptcl79::g_nIneligible / 240.0, ptcl79::g_nCulled / 240.0,
+                         ptcl79::g_nSkipped / 240.0, ptcl79::g_nCatchUp / 240.0, static_cast<unsigned>(ptcl79::g_states.size()));
+            ptcl79::g_nSeen = ptcl79::g_nIneligible = ptcl79::g_nCulled = ptcl79::g_nSkipped = ptcl79::g_nCatchUp = 0;
+        }
         // The five layers (s4 = 4 .. 0): each emitter of the layer stepped.
         SET_GPR_S32(ctx, 2, 0x01190000u);
         WRITE32(kCleared, 0u);
@@ -273,7 +628,9 @@ namespace decomp_hot47e
                             SET_GPR_S32(ctx, 16, s0e);
                             SET_GPR_S32(ctx, 5, READ32(record + 0x48u));
                             SET_GPR_S32(ctx, 4, s0e);
+                            const uint64_t t0 = pp ? sotc_prof::ticks() : 0u;
                             call(kEmitterStep, 0x0113A53Cu);
+                            if (pp) { pprof::tEmit += sotc_prof::ticks() - t0; ++pprof::nEmit; }
                             WRITE32(s0e + 0x198u, GPR_U32(ctx, 2));
                         }
                         s1 = sx(READ32(emitter + 0x1B0u));
@@ -298,6 +655,7 @@ namespace decomp_hot47e
         }
         SET_GPR_S32(ctx, 20, 0xFFFFFFFFu);
         SET_GPR_S32(ctx, 4, kGroups);
+        if (pp) { pprof::tAll += sotc_prof::ticks() - pt0; pprof::report(); }
 
         SET_GPR_U64(ctx, 16, READ64(sp + 0x10u));
         SET_GPR_U64(ctx, 17, READ64(sp + 0x18u));
@@ -551,6 +909,17 @@ namespace decomp_hot47e
         SET_GPR_U64(ctx, 31, ra);
         SET_GPR_U64(ctx, 29, entrySp);
         ctx->pc = static_cast<uint32_t>(ra);
+    }
+}
+
+namespace sotc_decomp
+{
+    bool ptcl79Culled(uint32_t object)
+    {
+        if (!ptcl79On())
+            return false;
+        const auto it = decomp_hot47e::ptcl79::g_states.find(object);
+        return it != decomp_hot47e::ptcl79::g_states.end() && it->second.culled && it->second.seen == decomp_hot47e::ptcl79::g_frame;
     }
 }
 
