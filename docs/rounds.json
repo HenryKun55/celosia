@@ -448,6 +448,14 @@
    "focus": "Speed",
    "summary": "Measured first: Wander alone is 7.4 ms a frame of character geometry even standing still at the altar (root dynamics' collision 4.35, IK 1.7), and the segment tests (camera checks, the player's probes, horse path tests, AI perception: ~14 a frame) ~4 ms; almost none repeats the frame before exactly (idle pose and camera sway move them by millimetres). A segment test now reuses the answer of the same caller's earlier test when both end points are within 1 cm and that answer is at most 5 frames old (SOTC_SEG80, on, A/B seg80 / r80all). A new A/B group `newdir` turns rounds 78-80 off together for the console. Round 79's local-frame particle emitters turned out absent at the altar: nothing to enable. A ground-finder memo was tried and dropped (no gain).",
    "result": "Vita3K 222 MHz whole frame, in-run A/B: altar 46.3 -> 44.8 ms (matched by draws -2.2), route 6 out of the shrine and the plain 30.3 -> 29.2 ms, attract demo unchanged (riding: 7% of tests reused). Rounds 78-80 together at the altar: 58.2 -> 44.8 ms. About half the segment tests reused when walking or standing. Attract demo 660 s without a crash; altar and route 6 screenshots on/off show nothing missing. Console A/B prepared (env-console.txt, r80all,newdir)."
+  },
+  {
+   "round": "r81",
+   "date": "2026-11-05",
+   "commit": "60407e9",
+   "focus": "Speed",
+   "summary": "Wander standing still at the altar costs ~4.4 ms of root-dynamics collision a frame. Mapped everything that step writes (a whole-RAM diff), then tried two ways to cut it. First: skip the step while he is at rest. He never quite is: the idle motion moves his root up to ~3 mm a frame. Second: an exact ground patch for the collision finder's leaves, testing only the surfaces near the character. Named the characters around him: his head and Mono's body, head and hair. Their cost is pose, layout and cloth, not collision.",
+   "result": "Nothing shipped for speed. Vita3K 222 MHz, in-run A/B at the altar: the rest skip gained at best +1.2 ms (below the 2 ms bar), and the ground patch -0.14 ms mean / +0.20 median (exact: wrong 0 on route 6; at the shrine it keeps 88% of the surfaces). Both dropped. Two probes stay, off by default (SOTC_REST81_PROBE, SOTC_REST81_NAMES). Next levers: Wander's pose (IK + GetMotionMatrix, 1.7 ms), the head's and Mono's pose / layout / cloth (~2.7 ms), the ground queries' surviving narrow phase (~3 ms), the render walk."
   }
  ]
 }
