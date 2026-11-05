@@ -562,6 +562,16 @@ namespace native_renderer
         // when it prints (line).
         void sample();
         int line(char *out, size_t room, double frames, bool reset, bool lastFrame = false);
+        // Round 76 (SOTC_LOG76): the last sample's numbers taken as they are
+        // (no text), and the same column as line(..., lastFrame = true) made
+        // from them later on another thread.
+        struct Snapshot
+        {
+            uint64_t cpu[kKinds] = {}, pre[kKinds] = {}, mov[kKinds] = {};
+            uint32_t kinds = 0; // the kinds with a thread noted (bit per kind)
+        };
+        void lastFrame(Snapshot &out);
+        int lineOf(const Snapshot &s, char *out, size_t room);
         int layout(); // SOTC_THREADS as read (0 / 1)
     }
 

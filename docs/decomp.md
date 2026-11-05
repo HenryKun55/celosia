@@ -11537,6 +11537,162 @@ product (or the fog's BG work moved out of these draws); palettized textures.
 **Deliverable:** build/agent-scratch/celosia-r75.vpk (main 86acdba + this
 round).
 
+## Round 76: the game thread on the console: its own CPU, not waits; the frame in order; the frame log off it (2026-11-04)
+
+Scripts, runs and logs: `build/agent-scratch/r76/` (v3k.sh / ab.sh: round 75's
+with r76 paths; intro.sh: round 72's Mac route; tools/gt76.py: the game
+thread's frame by A/B state from a console err.txt, with a "matched" block
+by draws; tools/tlsum.py: a `[timeline]` frame as spans; runs/prof1
+(SOTC_SUBSYS_PROF at the altar), tl1 (SOTC_SUBSYS_PROF_TIMELINE=3600:2),
+vprof1 (Vita3K's sampler, the altar window 130-200 s, game.txt by
+function), mlog-on / mlog-off (the Mac, log76 on / off), ab1 (Vita3K, the
+A/B); env-console.txt). Build tree: build/agent-scratch/r69/wt (main ee37c68
++ this round), vitaGL as round 74.
+
+**The console's game thread (r74/console/err.txt, gt76.py).** In the shrine
+part of the run (frames 2 000-2 600, ~800-1 900 draws), per frame:
+
+| state | frames | frame | cpu game | wait (for the render thread) | sched | hooks | lanehelp | frame log |
+|---|---|---|---|---|---|---|---|---|
+| all on | 120 | 67.8 | 59.3 | 6.8 | 1.5 | 2.2 | 0.9 | 0.88 |
+| the other four states | 466 | 70-74 | 53-69 | 3-18 | 0.4-2.4 | 2.2-5.3 | 1.3-1.7 | 0.86-0.90 |
+
+`cpu game` is the kernel's run clock of the game thread (alone on core 0):
+it is CPU, not waiting. Its waits are small: `sched` (every site of round
+70's `| waits`) 0.4-2.4 ms, `hookjoin` 0.1-0.8; `wait` (the hand-over to a
+render thread still drawing the frame before) is a block, not CPU (cpu game
++ wait ~ frame). In the heavy frames of the earlier part (1 000+ draws,
+r75's table) the game thread waited 26 ms for the render thread (the GPU);
+in the shrine it is the limit itself: 53-69 ms of CPU a frame against the
+~30 the target needs. So the round's question is which CPU work can leave
+core 0.
+
+The lane (round 61) barely runs on the console: its `[mdslane]` lines at
+the shrine (frames 1 800-2 400) have 24 460 jobs, 20 701 of them run by the
+game thread's joins (555 ms, 0.93 ms a frame), 1 134 by the hook worker, ~2
+600 by the lane, whose own CPU is still 1.8-2.8 ms a frame (`cpu lane`):
+its loop retries the token every 100 us while a join holds it. Whether the
+lane pays on the console at all is the first A/B below.
+
+**The game thread's frame in order (Vita3K 222 MHz, the altar, frame 3 600
+of runs/tl1, ~66 ms; SOTC_SUBSYS_PROF_TIMELINE).** From execScript's start:
+
+| ms | what |
+|---|---|
+| 0-6 | texReset's task (2.1), the player's control (DebugControl 1.8: charaLinks 1.3), the AI control (0.4) |
+| 7-35 | the characters' tasks: ExecCharaGeometry x18 (one of 7.7 ms, one of 3.5, the rest 0.3-1.3), Preprocess, the anime and collision under them |
+| 36-40 | the camera (doit_cameraman_manager 4.4: its six segment tests) |
+| 40-45 | the particle manager (4.8) |
+| 45-64 | the display walk (DispDispObjGroupModel ~19): the objects' clip pass 0-6 ms, the light pass 6.1-7.9, then each object's draw (modelDisp and its hook x52, cloth meshes x32, the particle systems' draws x55 with their ptclman packets x67, texTransRequest x82) |
+| 64-66 | the frame's end (letter manager, the heap's garbage tick, iosGPFrameInit's DMA kick) |
+
+Each step reads what the one before wrote: the walk reads every object's
+matrices the characters and the camera just made, the camera the
+characters' positions, the particles the camera; and nothing after the
+walk is left to overlap with it (the frame ends 2 ms later). The next
+frame's first steps (control, the characters) write the same objects the
+walk reads, so the walk cannot run beside them without a copy of what it
+reads (the objects, their geometries, the sort lists: no bounded set). The
+characters cannot be split between threads either: their root dynamics ask
+the collision about the other characters' skinned bodies (round 69: 13
+skinned finders a call) whose bones the others' geometry writes, the cloth
+and particles share the VU0 random register, and their callbacks are guest
+code (round 64). So there is no exact split of the frame into parallel
+parts at this level.
+
+**Where the CPU is (Vita3K's sampler, the altar, 70 s; game.txt by
+group, % of the game thread).** Collision 23.7 (leafT 3.2, clipDBT 3.2, the
+node walk 3.2, finderLeaf 1.2, directCallBack 1.2, attributeAddress 1.1,
+leafScan 0.9, ...), recompiled code 16.7 (no function above 0.4), our hooks
+4.3 (of it sceKernelGetProcessTimeWide in hookjobs::push 0.56: the frame
+log's job timing), the skeleton 3.4 (motionMatrix 3.2), the walk 3.1, light
+2.6, the walk's prefetch records 2.3, quaternions 1.9, memcpy 1.8, the rest
+below 1.4 each. The probes (runs/prof1): ExecCharaGeometry 18.4 ms
+inclusive, DispDispObjGroupModel 18.8, ClipCollisionDirectCallBack 4.7 x14,
+doit_particle_geodisp 4.3 x80, the player's control 3.9, the light pass
+2.4. The same flat picture as rounds 69-71: no single piece above ~3%.
+
+**What changed.**
+1. `SOTC_LOG76` (default on, A/B `log76`): the frame log's per-frame lines
+   (`[frame] each` / `[frame] slow`, what SOTC_FRAME_LOG_ALL prints) are
+   formatted on a thread of their own (`framelog`, the log kind: cores 1-2)
+   instead of the game thread. The console run's `sync ... log` part, the
+   frame log's own time on the game thread, is 0.86-0.90 ms a frame in
+   every state (~60 float conversions, two long vsnprintf and the threads'
+   CPU column a frame on the Cortex-A9); every console measurement since
+   round 32 carries it, and the user's console env has the frame log on.
+   The game thread now copies the numbers (the frame's counters, the waits'
+   sites since the last line, the lane's help counts, the frame change's
+   parts and joins, the threads' last run clocks:
+   `native_renderer::threads::lastFrame`) into a 64-slot ring; the thread
+   writes the same text from them (`threads::lineOf` the same CPU column).
+   A full ring (never seen) formats on the game thread as before. The
+   lines come out a little later than other lines; the readers (abframes,
+   rt75, gt76) match them by frame number. Nothing the game computes reads
+   any of it. Mac (runs/mlog-on / mlog-off, 1 500 frames of the New Game
+   route): every frame has its line, the lines' text the same shape with
+   and without (the numbers are the runs' own timings).
+2. Nothing else: the round found no exact move of a larger subsystem (above).
+
+**Measured.** Vita3K 222 MHz, the altar route, `SOTC_AB_FLAG=log76,mdslane,
+walk67`, rotation every 60 frames (runs/ab1, gt76.py; Vita3K has no CPU
+columns, so `game` = frame - wait - sched):
+
+| state | frames | frame (ms) | game | sched | hooks | frame log part | matched by draws: frame / game, off minus on |
+|---|---|---|---|---|---|---|---|
+| all on | 954 | 62.51 | 61.99 | 0.48 | 2.41 | 0.00 | |
+| log76 off | 956 | 62.69 | 62.39 | 0.26 | 2.25 | 0.35 | +0.50 / +0.60 |
+| mdslane off | 915 | 62.98 | 62.83 | 0.11 | 3.38 | 0.01 | +0.92 / +1.27 |
+| walk67 off | 956 | 60.32 | 60.07 | 0.22 | 2.75 | 0.00 | -2.09 / -1.86 |
+
+- log76: the frame log's part goes from 0.35 ms to 0 on Vita3K's host
+  (the console's was 0.88); frame -0.5 ms with it on.
+- The lane off costs Vita3K ~1 ms (there the lane has a host core of its
+  own; its jobs move back into the hooks: hooks +1.0). On the console the
+  joins run 85% of its jobs already, so the answer can differ.
+- The walk's prefetch records off are ~2 ms faster in Vita3K: their
+  bookkeeping (objectLines67 and the windows, 2.3% of the game thread in
+  the sampler) costs and the host's caches need no prefetch. Round 67 kept
+  them for the console's memory, whose gain was estimated (0.25-0.5 ms),
+  never measured: if the console agrees with Vita3K, the default flips.
+- The Mac and Vita3K logs have the same frames as before (the only gaps
+  are the frame counter's own steps at boot, there in round 75's runs too);
+  `[log] lines dropped` never appears.
+
+Vita3K's host formats the line quickly and has spare cores for the lane, so
+it cannot show the console's costs; the console run below can.
+
+**On the console (the user's run).** env-console.txt: the frame log, body
+shadows, the spike log, `SOTC_AB_FLAG=mdslane,walk67`, rotation every 60
+frames: three states (all on / the lane off: modelDispState back on the
+game thread at each hook, as before round 61 / the walk's prefetch records
+off: round 67). Both are exact switches whose effect on the console's game
+thread was never measured on its own; log76 is on in every state (its
+effect is the `log` column: 0.88 ms in r74's run, ~0 expected). Read with
+`python3 build/agent-scratch/r76/tools/gt76.py err.txt --from <the shrine's
+first frame>` (`--median` against hitches): per state frame, cpu game,
+game, wait, sched, hooks, lanehelp, sync and its log part, cpu lane /
+worker / render, present; then the matched block (by draws // 200). Play
+the same stretch of the shrine for a few minutes: the game thread's load
+changes with the place far more than the draws say (r74's run: 53-69 ms
+between windows of similar draws), so only many alternations settle a 1-2
+ms difference. Not in the env (three states at most): round 75's soft75 /
+guard75, still not measured on the console.
+
+**What the 30 fps target needs from the game thread.** ~59 ms of CPU in
+the shrine against ~30: half. The exact levers left are each 1-3% (the
+sampler's top functions), and the frame has no exact parallel split (the
+order above). What would cut it in half: (a) characters' geometry run in
+parallel with each other speculatively (on copies, checked against the
+order's results, redone when they differ): a round of its own, with the
+copies bounded per character; (b) the display walk a frame behind, on
+copies of what it reads, which needs that set made explicit (round 64's
+read census, for all of the walk's readers); (c) the opt-in cuts of round
+65, which the user decides.
+
+**Deliverable:** build/agent-scratch/celosia-r76.vpk (main ee37c68 + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

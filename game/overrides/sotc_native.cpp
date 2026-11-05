@@ -137,6 +137,12 @@ namespace sotc_native
         void frameStart(bool hookWorkerOn);
     }
 
+    // Round 76: the frame log's lines on a thread of their own (below, before frameLog).
+    namespace log76
+    {
+        extern bool g_switch;
+    }
+
     const uint8_t *g_ram = nullptr;
     // Round 34, -DSOTC_READ_TRACK (check builds, r34/rt): the guest words the
     // thread reads while t_readTrack (4-byte granules, g_readBits), for
@@ -3001,7 +3007,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1;
         static const bool placesRead = [&]
         {
             for (size_t i = 0; i < kTuningCount; ++i)
@@ -3021,6 +3027,7 @@ namespace sotc_native
             lazySnapAt = indexOf("lazysnap");
             sacAllAt = indexOf("sacall");
             r74AllAt = indexOf("r74all");
+            log76At = indexOf("log76");
             return true;
         }();
         (void)placesRead;
@@ -3045,6 +3052,8 @@ namespace sotc_native
             static const bool laneStart = [] { return !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0; }();
             mdslane::g_switch = isOffAt(mdsLaneAt) ? false : laneStart;
         }
+        if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
+            log76::g_switch = !isOffAt(log76At);
         if (laneHelpAt >= 0) // round 72: the lane's jobs run by the joins / the worker
         {
             static const int helpStart = [] { return std::getenv("SOTC_LANE_HELP") ? std::atoi(std::getenv("SOTC_LANE_HELP")) & 3 : 3; }();
@@ -3275,6 +3284,147 @@ namespace sotc_native
         w = Window{};
     }
 
+    // Round 76 (SOTC_LOG76, default on; A/B `log76`): the frame log's
+    // per-frame lines ("[frame] each" / "[frame] slow") formatted on a thread
+    // of their own (`log`, cores 1-2 on the Vita) instead of the game thread.
+    // The console's r74 log: the game thread spent 0.88 ms a frame in the
+    // frame log (`sync ... log 0.9`, the shrine's frames), ~60 float
+    // conversions and two long vsnprintf a frame on the Cortex-A9. The game
+    // thread now takes the numbers as they are (a copy of the frame's
+    // counters, the waits' and joins' sites, the threads' run clocks) and
+    // hands them over; the text is the same, made from the same numbers.
+    // Only when the lines come out changes: a little later than other lines
+    // (the readers match lines by frame number). Nothing the game computes
+    // depends on it. A full queue (the thread behind) formats on the game
+    // thread as before. SOTC_LOG76=0: as before.
+    namespace log76
+    {
+        struct Line
+        {
+            bool slow = false;
+            unsigned long long frame = 0;
+            double periodMs = 0;
+            native_renderer::FrameCounters c;
+            double schedMs = 0, cdMs = 0, cdKB = 0, cdGameMs = 0, sprMs = 0, sprKB = 0, dtMs = 0;
+            unsigned long long cdReads = 0, vblanks = 0, sprs = 0;
+            uint32_t siteMask = 0;
+            double siteMs[ps2_load::kSites] = {};
+            bool lane = false;
+            double laneMs = 0;
+            unsigned long long laneJobs = 0, laneJoins = 0, laneWorker = 0;
+            uint64_t sync[kSyncParts] = {}, joinSite[hookjobs::kSites] = {};
+            native_renderer::threads::Snapshot cpu;
+        };
+        bool g_switch = true; // the A/B's (applied each frame)
+        bool on()
+        {
+            static const bool start = [] { const char *e = std::getenv("SOTC_LOG76"); return !e || std::atoi(e) != 0; }();
+            return start && g_switch;
+        }
+        constexpr uint32_t kRing = 64u;
+        Line g_ring[kRing];
+        std::atomic<uint32_t> g_head{0}, g_tail{0};
+        std::mutex g_mutex;
+        std::condition_variable g_wake;
+        std::atomic<bool> g_sleeping{false};
+        bool g_started = false;
+        uint64_t g_full = 0;
+
+        // The frame change's parts and the joins by site (frameLog's `splits`).
+        void splits(const uint64_t *syncUs, const uint64_t *siteUs, double n, char *out, size_t room)
+        {
+            uint64_t total = 0;
+            for (int k = 0; k < kSyncParts; ++k)
+                total += syncUs[k];
+            int at = std::snprintf(out, room, " | sync %.1f (join %.1f end %.1f log %.1f audio %.1f idle %.1f rest %.1f) | joins", total / n / 1000.0,
+                                   syncUs[kSyncJoin] / n / 1000.0, syncUs[kSyncEnd] / n / 1000.0, syncUs[kSyncLog] / n / 1000.0, syncUs[kSyncAudio] / n / 1000.0,
+                                   syncUs[kSyncIdle] / n / 1000.0, syncUs[kSyncRest] / n / 1000.0);
+            bool any = false;
+            for (int k = 0; k < hookjobs::kSites && at > 0 && static_cast<size_t>(at) < room; ++k)
+                if (siteUs[k])
+                {
+                    at += std::snprintf(out + at, room - at, " %s %.2f", hookjobs::kSiteNames[k], siteUs[k] / n / 1000.0);
+                    any = true;
+                }
+            if (!any && at > 0 && static_cast<size_t>(at) < room)
+                std::snprintf(out + at, room - at, " none");
+        }
+        // The line as frameLog writes it.
+        void write(const Line &L)
+        {
+            const native_renderer::FrameCounters &c = L.c;
+            char split[640];
+            int at = std::snprintf(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
+            at += std::snprintf(split + at, sizeof(split) - at, " | waits");
+            for (int k = 0; k < ps2_load::kSites && at > 0 && static_cast<size_t>(at) < sizeof(split); ++k)
+                if (L.siteMask & (1u << k))
+                    at += std::snprintf(split + at, sizeof(split) - at, " %s %.1f", ps2_load::kSiteNames[k], L.siteMs[k]);
+            if (L.lane && at > 0 && static_cast<size_t>(at) < sizeof(split))
+                at += std::snprintf(split + at, sizeof(split) - at, " | lanehelp %.1f (%llu jobs, %llu joins, worker %llu)", L.laneMs, L.laneJobs, L.laneJoins, L.laneWorker);
+            if (at > 0 && static_cast<size_t>(at) < sizeof(split))
+                splits(L.sync, L.joinSite, 1.0, split + at, sizeof(split) - at);
+            at = static_cast<int>(std::strlen(split));
+            native_renderer::threads::lineOf(L.cpu, split + at, sizeof(split) - at);
+            if (L.slow)
+                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
+                                     " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
+                             L.frame, L.periodMs, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
+                             c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.renderLockUs / 1000.0, c.renderUploadUs / 1000.0,
+                             c.renderDrawUs / 1000.0, c.renderPlanUs / 1000.0, c.renderPassUs / 1000.0, c.renderCallUs / 1000.0, c.renderCalls, c.renderSweepUs / 1000.0, c.renderRunCopies, c.renderRunScans, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, c.depthKB, (c.vertices + 500u) / 1000u,
+                             c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "", L.schedMs, L.cdMs,
+                             L.cdReads, L.cdKB, L.cdGameMs, L.vblanks, L.dtMs, L.sprMs, L.sprs, L.sprKB, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
+            else
+                native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u scenes %u verts %uk async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
+                             L.frame, L.periodMs, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
+                             (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, (c.vertices + 500u) / 1000u, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
+                             L.schedMs, L.cdMs, L.cdReads, L.cdKB, L.vblanks, L.dtMs, L.sprMs, L.sprs, L.sprKB, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
+        }
+        void run()
+        {
+            ThreadNaming::SetCurrentThreadName("framelog");
+            native_renderer::threads::place(native_renderer::threads::kLog);
+            for (;;)
+            {
+                uint32_t tail = g_tail.load(std::memory_order_relaxed);
+                if (tail == g_head.load(std::memory_order_acquire))
+                {
+                    std::unique_lock<std::mutex> lock(g_mutex);
+                    g_sleeping.store(true, std::memory_order_seq_cst);
+                    g_wake.wait_for(lock, std::chrono::milliseconds(100), [&] { return tail != g_head.load(std::memory_order_acquire); });
+                    g_sleeping.store(false, std::memory_order_relaxed);
+                    continue;
+                }
+                write(g_ring[tail % kRing]);
+                g_tail.store(tail + 1u, std::memory_order_release);
+            }
+        }
+        // The slot the game thread fills (nullptr: the queue is full, write it there).
+        Line *slot()
+        {
+            if (!g_started)
+            {
+                g_started = true;
+                std::thread(run).detach();
+            }
+            const uint32_t head = g_head.load(std::memory_order_relaxed);
+            if (head - g_tail.load(std::memory_order_acquire) >= kRing)
+            {
+                ++g_full;
+                return nullptr;
+            }
+            return &g_ring[head % kRing];
+        }
+        void post()
+        {
+            g_head.store(g_head.load(std::memory_order_relaxed) + 1u, std::memory_order_seq_cst);
+            if (g_sleeping.load(std::memory_order_seq_cst))
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_wake.notify_one();
+            }
+        }
+    }
+
     // The frame timing log: every 60 frames the average and the slowest
     // frame (ms), split into the game's own work (what is left), the native
     // hooks (decoding and uploads included), the backend's CPU side and the
@@ -3378,12 +3528,56 @@ namespace sotc_native
             }
 #endif
             ++cpuFrames;
-            if (print && (period > 50000u || tune.frameLogAll))
+            // Round 76: the line's numbers to the frame log's thread (log76 above).
+            log76::Line *line76 = (print && (period > 50000u || tune.frameLogAll) && log76::on()) ? log76::slot() : nullptr;
+            static uint64_t lastSite[ps2_load::kSites] = {};
+            if (line76)
+            {
+                log76::Line &L = *line76;
+                L.slow = period > 50000u;
+                L.frame = (unsigned long long)g_frame;
+                L.periodMs = period / 1000.0;
+                L.c = c;
+                L.schedMs = (mark.wait - lastMark.wait) / 1000.0;
+                L.cdMs = (mark.cdUs - lastMark.cdUs) / 1000.0;
+                L.cdReads = (unsigned long long)(mark.cdReads - lastMark.cdReads);
+                L.cdKB = (mark.cdBytes - lastMark.cdBytes) / 1024.0;
+                L.cdGameMs = (mark.cdGameUs - lastMark.cdGameUs) / 1000.0;
+                L.vblanks = (unsigned long long)(mark.vblanks - lastMark.vblanks);
+                L.dtMs = gameDt * 1000.0;
+                L.sprMs = (mark.sprUs - lastMark.sprUs) / 1000.0;
+                L.sprs = (unsigned long long)(mark.sprs - lastMark.sprs);
+                L.sprKB = (mark.sprBytes - lastMark.sprBytes) / 1024.0;
+                L.siteMask = 0;
+                for (int k = 0; k < ps2_load::kSites; ++k)
+                {
+                    const uint64_t v = ps2_load::gameSiteUs[k].load(std::memory_order_relaxed);
+                    if (v != lastSite[k])
+                    {
+                        L.siteMask |= 1u << k;
+                        L.siteMs[k] = (v - lastSite[k]) / 1000.0;
+                    }
+                    lastSite[k] = v;
+                }
+                L.lane = mdslane::g_helpJobs || mdslane::g_workerHelpFrame.load(std::memory_order_relaxed);
+                if (L.lane)
+                {
+                    L.laneMs = mdslane::g_helpUs / 1000.0;
+                    L.laneJobs = (unsigned long long)mdslane::g_helpJobs;
+                    L.laneJoins = (unsigned long long)mdslane::g_helpJoins;
+                    L.laneWorker = (unsigned long long)mdslane::g_workerHelpFrame.exchange(0, std::memory_order_relaxed);
+                }
+                mdslane::g_helpUs = mdslane::g_helpJobs = mdslane::g_helpJoins = 0;
+                std::memcpy(L.sync, g_syncUs, sizeof(L.sync));
+                std::memcpy(L.joinSite, hookjobs::g_lastSiteUs, sizeof(L.joinSite));
+                native_renderer::threads::lastFrame(L.cpu);
+                log76::post();
+            }
+            else if (print && (period > 50000u || tune.frameLogAll))
             {
                 int at = std::snprintf(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
                 {
                     // Round 70: this frame's game-thread waits ("sched") by site.
-                    static uint64_t lastSite[ps2_load::kSites] = {};
                     at += std::snprintf(split + at, sizeof(split) - at, " | waits");
                     for (int k = 0; k < ps2_load::kSites && at > 0 && static_cast<size_t>(at) < sizeof(split); ++k)
                     {
@@ -3404,7 +3598,7 @@ namespace sotc_native
                 at = static_cast<int>(std::strlen(split));
                 native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
             }
-            if (print && period > 50000u)
+            if (!line76 && print && period > 50000u)
                 native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
@@ -3415,7 +3609,7 @@ namespace sotc_native
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
-            if (print && tune.frameLogAll && period <= 50000u)
+            if (!line76 && print && tune.frameLogAll && period <= 50000u)
                 native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u scenes %u verts %uk async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, (c.vertices + 500u) / 1000u, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",

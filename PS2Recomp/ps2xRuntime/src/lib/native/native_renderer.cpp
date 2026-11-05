@@ -1303,10 +1303,51 @@ namespace native_renderer
                     g_cpuUs[k] = g_preempts[k] = g_moves[k] = 0;
             return at;
         }
+        // Round 76: line(..., lastFrame = true)'s numbers, and its text from them.
+        void lastFrame(Snapshot &s)
+        {
+            s.kinds = 0;
+            for (int k = 0; k < kKinds; ++k)
+            {
+                s.cpu[k] = g_lastCpuUs[k];
+                s.pre[k] = g_lastPreempts[k];
+                s.mov[k] = g_lastMoves[k];
+            }
+            for (int i = 0; i < g_slotCount.load(std::memory_order_acquire); ++i)
+                s.kinds |= 1u << g_slots[i].kind;
+        }
+        int lineOf(const Snapshot &s, char *out, size_t room)
+        {
+            int at = 0;
+            if (room)
+                out[0] = 0;
+            uint64_t total = 0;
+            for (int k = 0; k < kKinds; ++k)
+                total += s.cpu[k] + s.pre[k] + s.mov[k];
+            if (!total)
+                return 0;
+            bool any = false;
+            for (int k = 0; k < kKinds && static_cast<size_t>(at) < room; ++k)
+            {
+                if (!(s.kinds & (1u << k)))
+                    continue;
+                at += std::snprintf(out + at, room - at, "%s %s %.1f (%.0fp %.0fm)", any ? "," : " | cpu", kNames[k], s.cpu[k] / 1.0 / 1000.0,
+                                    s.pre[k] / 1.0, s.mov[k] / 1.0);
+                any = true;
+            }
+            return at;
+        }
 #else
         void place(Kind) {}
         void sample() {}
         int line(char *out, size_t room, double, bool, bool)
+        {
+            if (room)
+                out[0] = 0;
+            return 0;
+        }
+        void lastFrame(Snapshot &s) { s = Snapshot{}; }
+        int lineOf(const Snapshot &, char *out, size_t room)
         {
             if (room)
                 out[0] = 0;
