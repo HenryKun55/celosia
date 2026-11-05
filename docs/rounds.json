@@ -420,7 +420,7 @@
   {
    "round": "r77",
    "date": "2026-11-04",
-   "commit": "",
+   "commit": "e00e85d",
    "focus": "Speed",
    "summary": "The opt-in quality cuts (round 65's camera checks, distant characters, effects at half rate, shorter draw distance; round 36's fewer particles and coarser detail) can now be switched at run time by the A/B rotation, so the console can measure them in one run at the same places: SOTC_AB_FLAG takes sacmax (every cut on outside its windows, all off in them, whatever the saved settings), plus sacptcl / saclod beside the existing per-cut names. Each site was checked to be safe to flip between frames, a [sac] line logs each change, and the settings menu never saves the rotation's state.",
    "result": "Vita3K 222 MHz, Load Game -> altar -> plain, 480 s, no crash: all cuts together save 3.7 ms a frame matched by draws (53.1 vs 56.8 ms; frames over 50 ms 70% vs 78%), 4.7 ms in a second run; single cuts are within the noise at ~1 000 frames each. Estimated on the console ~5-7 ms of ~59: not 30 fps. Console A/B prepared (sacmax, soft75: 3 states)."
