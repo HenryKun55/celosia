@@ -13347,6 +13347,103 @@ too). shmask87 changes only the water's copy (resampled differently).
 **Deliverables:** build/agent-scratch/celosia-r87.vpk;
 build/agent-scratch/r87/env-console.txt; tools/ab87.py.
 
+## Round 88: round 87's two GPU wins on by default, the lane's lost wake-up, what the console's frame times say, two more GPU candidates (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r88/`:
+- build.sh / v3k.sh / shots.sh / freeze.sh / run1.sh / hashes.sh: round 87's
+  with r88 paths (worktree `r88/wt`, build `r88/vita`, Vita3K `r88/vita3k`
+  with its `portable` link to ../vita3k-celosia-r88; absolute VPK paths only);
+  freeze.sh / shots.sh / run1.sh rotate or switch opaque88 / mirror88.
+- tools/ab88.py: ab87.py reading the 3D's frames only by default (draws >=
+  300; `--all` for every frame), per state the frame time's p50 / p90 / share
+  over 33.3 ms and the frames by whole vblanks, the `[gpu86]` lines by the
+  draws of the frame before them, bgsmall87 / vol87 now "OFF(flip)" rows (on
+  by default), the `[r88]` lines.
+- celosia-r88.vpk; env-console.txt (`SOTC_AB_FLAG=opaque88,mirror88`).
+
+**Defaults.** The console's round 87 A/B (r87/console, err-ab1 / err-ab2):
+bgsmall87 -5.2 ms a frame matched (-8.3 ms on the 3D's frames alone; the
+background scene ~20 ms of GPU -> ~1 ms), vol87 -2.0 ms (-1.9 on the 3D's
+frames), inflight87 +3.7 ms (the GPU idle between frames), shmask87 0.
+`SOTC_GL_BGSMALL87` and `SOTC_GL_VOL87` now default to 1 on the Vita (0 on
+the Mac); their A/B windows (`bgsmall87`, `vol87`) turn them off. inflight87
+and shmask87 stay 0.
+
+**The lane's lost wake-up (the freeze hunt, build/agent-scratch/fz).** The
+modelDispState lane's push stored the job count with a release store and then
+loaded `g_sleeping`; the lane stores `g_sleeping` and then loads the count: a
+Dekker pair, and a release store does not keep the later load after it on ARM,
+so both sides could miss each other and the lane slept in an untimed
+`g_work.wait` with a job pending (the joins run it then, so it showed as a
+stall rather than a hang). Both sides are now seq_cst and the wait is timed
+(5 ms).
+
+**The console's frame times are not bimodal in the 3D.** Round 87's reading
+(p50 ~19 ms, p90 ~48 ms, 28-30% over 33.3 ms, frame mean 40 ms) came from two
+things in the log, not from the game:
+1. A frame over 50 ms is a `[frame] slow` line, not `[frame] each`. Reading
+   the "each" lines alone drops every frame over 50 ms (in err-ab2 621 of the
+   3D's 831 frames).
+2. After frame 300 the log holds ~800 title / loading / menu frames (under 300
+   draws) at 60 Hz, ~16.7 ms each: the p50's mode. The means over all frames
+   (ab87.py's "frame 40.5 ms", `cpuGame` ~26) mix them with the 3D.
+The 3D's frames alone (draws >= 300, "each" and "slow" lines): err-ab1 1 157
+frames p50 61 ms / mean 63; err-ab2 831 frames p50 58 / mean 60; 92-100% over
+33.3 ms. They sit on whole vblanks (3: 50 ms and 4: 66.7 ms the most) because
+the present is vsync'd (vitaGL: three display buffers, two entries pending),
+and drift with the scene (lag-1 autocorrelation 0.73-0.75), not heavy / light
+alternation. Pacing wastes nothing: in the 3D the GPU is busy ~57 of ~58 ms a
+frame (`[gpu86]` idle 0-7 ms), the game thread's own wait for the VBlank
+(`sched`) ~0.35 ms. Nothing to fix there, and no cap added. What the 3D's
+frames do say: the GPU's frame is ~58-60 ms, AND the game thread's own CPU is
+~43-46 ms (`cpu game` 48-59 ms at frames 2 000+ of err-ab2, where `wait` is 0):
+the game thread alone would hold the 3D near 22 fps.
+
+**GPU candidates (Vita / OpenGL; default 0; each A/B window turns its switch
+on).**
+1. `SOTC_GL_OPAQUE88` (`opaque88`). The picture's pass 0-8 (the world, the
+   characters, the shadow volumes) is the slowest scene (22-25 ms in sampled
+   frames). Every world draw blends (Normal) on the PS2, so on the console's
+   GPU each one's pixels are all shaded and read the tile: no hidden surface
+   removal. A Normal-blend draw drawn without discard whose alpha cannot be
+   under 1 (the texture's least texel alpha x the mesh's least vertex alpha x
+   the opacity, the values the cut-out's choice already reads; the GPU clamps
+   the source alpha to 1) blends to its own colour (Cs x 1 + Cd x 0), so it is
+   drawn with blending off: the same pixels, and the draw becomes opaque to
+   the GPU. The source alpha is written either way (Normal's alpha factors are
+   ONE / ZERO); not while the picture's alpha is kept (the Vita bloom's mask).
+   `[r88]` lines count the draws drawn so and those that stay blended.
+2. `SOTC_GL_MIRROR88` (`mirror88`). The mirror (the scene drawn again mirrored
+   for the water, 4-12 ms on the console) was drawn at 512 x 448 on the Vita
+   (a 256 x 256 target "did not hold" in an early round; round 87's 256 x 256
+   background target holds). Drawn into a 256 x 256 target, the PS2's own size
+   and the Mac's: ~3.5x fewer pixels; the water reads it by screen position,
+   rippled, as before.
+
+**Vita3K (cannot time the GPU: only that it runs and the picture).**
+- freeze1 (the altar frozen, `SOTC_GL_FREEZE=3300,1000`, opaque88 / mirror88
+  rotating, 76 captures): the captures fall into two pictures by time (the
+  frozen frame changed once) and are identical across the A/B states.
+- freezeR (route 6, the plain by the shrine's bridge frozen,
+  `SOTC_GL_FREEZE=4400,700`): opaque88's windows identical to the base pixel
+  for pixel; mirror88's windows differ in 1 790 pixels by at most 1 level (the
+  bridge's corner). No captured frame shows a large reflection, so mirror88's
+  look on wide water is not checked here: the console run should glance at
+  water (the shrine's pools) with it on.
+- shotsA / shotsR (moving runs, on / off): the same look; vol87 is now on by
+  default (`[shadow]` ISP-only volumes = all volumes, 84/s at the altar),
+  bgsmall87 too (16.8/s). With opaque88 on, `[r88]`: 107 draws / 44 600
+  vertices a frame drawn with blending off at the altar, 34 draws / 4 500
+  vertices stay blended (alpha under 1), none of unknown alpha; on the plain
+  58 / 22 800. The mirror is drawn every frame on the plain too, with no water
+  in view.
+- No crash in any run (freeze1 300 s, shots 4 x 216-330 s, freezeR 300 s).
+
+**Console env (env-console.txt):** the usual log lines and
+`SOTC_AB_FLAG=opaque88,mirror88`, `SOTC_AB_ROTATE=1`, `SOTC_AB_PERIOD=60`
+(bgsmall87 and vol87 now on everywhere outside their own windows). Read it
+with `tools/ab88.py err.txt` (the 3D's frames; `--all` for every frame).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

@@ -1352,6 +1352,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target color, background, backgroundSmall, reflection, refraction, refractionHalf, snapshot, shadowMask;
         uint64_t bgSmallFrames = 0, bgSmallLogged = 0; // round 87: frames drawn with glBgSmall87
         Target backgroundLow; // round 87 (Tuning glBgSmall87): the background layer drawn at 256 x 256, made at its first use
+        Target reflectionLow; // round 88 (Tuning glMirror88): the mirror drawn at 256 x 256, made at its first use
+        Target *mirrorTarget = &reflection; // round 88: the mirror target this frame's passes read
+        // Round 88 ([r88] line with [shadow]): draws / vertices drawn with
+        // blending off (glOpaque88); Normal-blend draws without discard that
+        // keep their blend (alpha under 1 or not known) and why; mirror frames at 256.
+        struct
+        {
+            uint64_t opaque = 0, opaqueVerts = 0, blended = 0, blendedVerts = 0, unknown = 0, unknownVerts = 0, keepAlpha = 0, mirrorLow = 0, mirrors = 0;
+        } r88Stats;
         Target previous; // the last frame shown (feedbackBlur)
         // Round 45 (Tuning glFewCopies, a host that shows a copy of its own):
         // the last frame shown is that copy (shownFrame), not a copy of its own.
@@ -3916,6 +3925,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              (unsigned long long)shadowStats.framesWithVolumes, native_renderer::tuning().bodyShadows ? 1 : 0, native_renderer::tuning().shadows ? 1 : 0,
                              shadowStats.alphaSecond / secs, alphaStats.secondUnknown / secs, alphaStats.merged / secs, shadowStats.ispVolumes / secs, shadowStats.maskFused / secs, (bgSmallFrames - bgSmallLogged) / secs);
                 bgSmallLogged = bgSmallFrames;
+                const double fr = 300.0;
+                std::fprintf(stderr, "[r88] per frame: opaque88 %d: blending off %.1f draws (%.0f vertices); Normal-blend draws without discard kept blended: alpha under 1 %.1f (%.0f vertices), "
+                                     "alpha not known %.1f (%.0f vertices), the picture's alpha kept %.1f | mirror88 %d: mirrors %.2f, at 256 x 256 %.2f\n",
+                             native_renderer::tuning().glOpaque88 ? 1 : 0, r88Stats.opaque / fr, r88Stats.opaqueVerts / fr, r88Stats.blended / fr, r88Stats.blendedVerts / fr,
+                             r88Stats.unknown / fr, r88Stats.unknownVerts / fr, r88Stats.keepAlpha / fr, native_renderer::tuning().glMirror88 ? 1 : 0, r88Stats.mirrors / fr, r88Stats.mirrorLow / fr);
+                r88Stats = {};
                 alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
@@ -4691,7 +4706,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 bindTexture(1, backgroundSmall.texture);
             if (!mirror)
             {
-                bindTexture(2, reflection.texture);
+                bindTexture(2, mirrorTarget->texture); // round 88: the 256 x 256 one under glMirror88
                 bindTexture(3, refraction.texture);
             }
             glEnable(GL_DEPTH_TEST);
@@ -4730,6 +4745,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             cache.blend = cache.depthTest = cache.depthMask = -1;
             cache.buffer = cache.texture = ~0u;
             const bool leanOn = native_renderer::tuning().glLeanPrograms, noDiscard = native_renderer::tuning().glNoDiscard;
+            const bool opaque88 = native_renderer::tuning().glOpaque88; // round 88
             // Round 75 (glSoftCut): the cut-out without discard where a cut pixel
             // drawn with colour and alpha 0 leaves the target as it was: the
             // glow layer's alpha is read by its composite; every other target
@@ -5004,7 +5020,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const bool writesNoDepth = d.state.overlay || (d.state.blend == native_renderer::Blend::Additive && !d.state.writeDepth) || d.state.noDepthWrite || d.state.screenDepthTest || atAllUnder;
                 const bool softHere = softOn && blendsBySourceAlpha && !backdropDraw && !d.state.shadowVolume;
                 GLuint softSecond = 0; // the alpha test's second pass (no depth writes) through the SOFT program
-                bool cutUsed = false, softUsed = false;
+                bool cutUsed = false, softUsed = false, leanNoCut = false;
                 if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour && !tintThis)
                 {
                     bool cut = true;
@@ -5030,6 +5046,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         program = lean;
                         drawStats.noDiscard += cut ? 0u : 1u;
                         cutUsed = cut && !softUsed;
+                        leanNoCut = !cut;
                     }
                 }
                 useProgram(program);
@@ -5126,10 +5143,40 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     cache.blend = cache.depthTest = cache.depthMask = -1;
                     continue;
                 }
-                if (static_cast<int>(d.state.blend) != cache.blend)
+                // Round 88 (Tuning glOpaque88, a console A/B candidate): a
+                // Normal-blend draw without discard whose alpha cannot be under
+                // 1 (the same least alpha the cut-out's choice reads: the
+                // texture's least texel x the mesh's least vertex alpha x the
+                // opacity; the GPU clamps the source alpha to 1) blends to its
+                // own colour: drawn with blending off, the same pixels, and the
+                // GPU's hidden surface removal can take it. The source alpha is
+                // written either way (Normal's alpha factors are ONE / ZERO);
+                // not under keepAlpha (the Vita bloom's mask: its blend keeps
+                // the destination's alpha).
+                native_renderer::Blend drawBlend = d.state.blend;
+                if (d.state.blend == native_renderer::Blend::Normal && leanNoCut)
                 {
-                    setBlend(d.state.blend, keepAlpha);
-                    cache.blend = static_cast<int>(d.state.blend);
+                    const uint32_t nv = planned.run > 1 ? planned.mergedCount : mesh.count;
+                    if (keepAlpha)
+                        ++r88Stats.keepAlpha;
+                    else if (leastAlpha >= 1.0f)
+                    {
+                        if (opaque88)
+                        {
+                            drawBlend = native_renderer::Blend::Opaque;
+                            ++r88Stats.opaque;
+                            r88Stats.opaqueVerts += nv;
+                        }
+                    }
+                    else if (leastAlpha < 0.0f)
+                        ++r88Stats.unknown, r88Stats.unknownVerts += nv;
+                    else
+                        ++r88Stats.blended, r88Stats.blendedVerts += nv;
+                }
+                if (static_cast<int>(drawBlend) != cache.blend)
+                {
+                    setBlend(drawBlend, keepAlpha);
+                    cache.blend = static_cast<int>(drawBlend);
                 }
                 // The depth function is always LEQUAL here (the GS's GEQUAL: a
                 // surface drawn again in place passes); test and writes vary.
@@ -5447,8 +5494,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glDisableVertexAttribArray(i);
         };
 
+        // Round 88 (Tuning glMirror88, a console A/B candidate): the mirror
+        // drawn into a 256 x 256 target (the PS2's size, the Mac's), made at
+        // its first use; the water reads it by its screen position.
+        mirrorTarget = &reflection;
         if (haveMirror)
-            pass(reflection, false, 0, ~0u, false, true);
+        {
+            if (native_renderer::tuning().glMirror88)
+            {
+                if (!reflectionLow.texture)
+                    makeTarget(reflectionLow, 256, 256, true);
+#if defined(PS2X_NATIVE_VITA)
+                if (reflectionLow.fbo)
+                    vglCeloDepthKeep(reflectionLow.fbo, depthKeep ? 0 : -1);
+#endif
+                if (reflectionLow.fbo)
+                    mirrorTarget = &reflectionLow;
+            }
+            ++r88Stats.mirrors;
+            r88Stats.mirrorLow += mirrorTarget == &reflectionLow ? 1u : 0u;
+            pass(*mirrorTarget, false, 0, ~0u, false, true);
+        }
         // Round 87 (Tuning glBgSmall87, a console A/B candidate). With fog on,
         // the background layer (sky and far scenery, ~450 alpha-tested draws
         // at the title) is drawn into its own 512 x 448 target only to be

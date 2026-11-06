@@ -2995,6 +2995,8 @@ namespace sotc_native
             {"shmask87", &native_renderer::Tuning::glShmask87},      // round 87 (GPU candidate: its windows flip it)
             {"inflight87", &native_renderer::Tuning::glInflight87},  // round 87 (GPU candidate: its windows flip it)
             {"bgsmall87", &native_renderer::Tuning::glBgSmall87},    // round 87 (GPU candidate: its windows flip it)
+            {"opaque88", &native_renderer::Tuning::glOpaque88},      // round 88 (GPU candidate: its windows flip it)
+            {"mirror88", &native_renderer::Tuning::glMirror88},      // round 88 (GPU candidate: its windows flip it)
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3143,9 +3145,13 @@ namespace sotc_native
         // in the window when off at the start, the console's A/B measures them
         // without extra env lines). `r87all` turns the round's switches off
         // together (sort87, and the candidates); `newdir` takes sort87 in.
+        // Round 88: bgsmall87 and vol87 now start on (the Vita): their
+        // windows turn them off. opaque88 / mirror88 (round 88's GPU
+        // candidates) start off and their windows turn them on, likewise.
         for (size_t i = 0; i < kTuningCount; ++i)
             if (tuningAt[i] >= 0 && (!std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "shmask87") ||
-                                     !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87")))
+                                     !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87") ||
+                                     !std::strcmp(kTuningFlags[i].name, "opaque88") || !std::strcmp(kTuningFlags[i].name, "mirror88")))
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? !(start.*(kTuningFlags[i].field)) : start.*(kTuningFlags[i].field);
         if (r87AllAt >= 0 || newDirAt >= 0)
         {
@@ -8935,9 +8941,17 @@ namespace sotc_native
                     if (spin < 256)
                         continue;
                     std::unique_lock<std::mutex> lock(g_mutex);
+                    // Round 88 (the freeze hunt): the push stores g_pushed
+                    // and then loads g_sleeping; this side stores g_sleeping
+                    // and then loads g_pushed (a Dekker pair). Both sides
+                    // seq_cst: with a release store on the push side ARM may
+                    // let its g_sleeping load pass the store, and both sides
+                    // miss each other (a lost wake-up). The wait is timed as
+                    // well (5 ms), so a wake-up lost any other way costs at
+                    // most that, never an untimed sleep.
                     g_sleeping.store(true, std::memory_order_seq_cst);
-                    if (__atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE) <= g_done.load(std::memory_order_acquire))
-                        g_work.wait(lock);
+                    if (__atomic_load_n(&g_pushed, __ATOMIC_SEQ_CST) <= g_done.load(std::memory_order_seq_cst))
+                        g_work.wait_for(lock, std::chrono::milliseconds(5));
                     g_sleeping.store(false, std::memory_order_relaxed);
                     spin = 0;
                 }
@@ -9187,7 +9201,9 @@ namespace sotc_native
             c.pending = true;
             c.known = c.shifts = 0;
             ++g_jobs;
-            __atomic_store_n(&g_pushed, g_pushed + 1u, __ATOMIC_RELEASE);
+            // Round 88: seq_cst (not release), so the g_sleeping load below
+            // cannot be ordered before this store (see loop()).
+            __atomic_store_n(&g_pushed, g_pushed + 1u, __ATOMIC_SEQ_CST);
             if (g_sleeping.load(std::memory_order_seq_cst))
             {
                 std::lock_guard<std::mutex> lock(g_mutex);

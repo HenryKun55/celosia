@@ -331,23 +331,54 @@ namespace native_renderer
         // count drawn with the fragment program disabled (GXM's depth /
         // stencil-only primitives: the ISP alone, no USSE program, no blend)
         // instead of a program writing 0 under a ZERO / ONE blend.
-        // SOTC_GL_VOL87=0/1 (default 0); A/B name `vol87` (its windows flip it).
+        // Round 88: the console's A/B measured it -2.0 ms a frame (matched):
+        // the Vita's default (the Mac has no GXM: unused there).
+        // SOTC_GL_VOL87=0/1 (Vita default 1); A/B name `vol87` (its windows flip it).
+#if defined(__vita__)
+        bool glVol87 = true;
+#else
         bool glVol87 = false;
+#endif
         // Round 87 (GPU, console A/B candidate): the soft shadows' mask (the
         // 512 x 448 picture put down, its 4 x 4 reduction and blur, taken up
         // again) without the picture's own break; see native_renderer_gl.cpp.
+        // Round 88: the console measured 0 ms: stays off.
         // SOTC_GL_SHMASK87=0/1 (default 0); A/B name `shmask87` (its windows flip it).
         bool glShmask87 = false;
         // Round 87 (GPU, console A/B candidate): a frame begins its scenes only
         // once the GPU has finished the frame before (at most one frame on the
-        // GPU). SOTC_GL_INFLIGHT87=0/1 (default 0); A/B name `inflight87` (its
-        // windows flip it).
+        // GPU). Round 88: the console measured it +3.7 ms a frame (the GPU
+        // sits idle between frames): stays off. SOTC_GL_INFLIGHT87=0/1
+        // (default 0); A/B name `inflight87` (its windows flip it).
         bool glInflight87 = false;
         // Round 87 (GPU, console A/B candidate): with fog on, the background
         // layer drawn straight into a 256 x 256 target (all that is read of it
         // is its 256 x 256 reduction) instead of 512 x 448 and reduced.
-        // SOTC_GL_BGSMALL87=0/1 (default 0); A/B name `bgsmall87` (its windows flip it).
+        // Round 88: the console's A/B measured it -5.2 ms a frame (matched;
+        // the background scene ~20 ms of GPU -> ~1 ms): the Vita's default.
+        // SOTC_GL_BGSMALL87=0/1 (Vita default 1, Mac 0); A/B name `bgsmall87` (its windows flip it).
+#if defined(__vita__)
+        bool glBgSmall87 = true;
+#else
         bool glBgSmall87 = false;
+#endif
+        // Round 88 (GPU, console A/B candidate): a Normal-blend draw whose
+        // alpha cannot be under 1 (the texture's least texel alpha x the
+        // mesh's least vertex alpha x the draw's opacity, as the cut-out's
+        // test reads them) and that is drawn without discard is drawn with
+        // blending off: Cs x 1 + Cd x 0 is Cs, the same pixels, but the
+        // GPU's hidden surface removal can take it (a blended draw's pixels
+        // are all shaded and read the tile, the scene's overdraw in full).
+        // Not where the picture's alpha must be kept (the Vita bloom's mask).
+        // SOTC_GL_OPAQUE88=0/1 (default 0); A/B name `opaque88` (its windows flip it).
+        bool glOpaque88 = false;
+        // Round 88 (GPU, console A/B candidate): the mirror (the reflection
+        // the water reads, the scene drawn again mirrored) drawn into a
+        // 256 x 256 target, the PS2's own size (and the Mac's), instead of
+        // 512 x 448: ~3.5x fewer pixels; the water reads it by its screen
+        // position, rippled, as before.
+        // SOTC_GL_MIRROR88=0/1 (default 0); A/B name `mirror88` (its windows flip it).
+        bool glMirror88 = false;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

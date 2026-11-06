@@ -213,7 +213,7 @@ namespace native_renderer
                                          {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard},
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
                                          {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
-                                         {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}})
+                                         {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -297,7 +297,7 @@ namespace native_renderer
                                          {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard},
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
                                          {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
-                                         {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}})
+                                         {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)
