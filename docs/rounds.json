@@ -480,6 +480,14 @@
    "focus": "Speed",
    "summary": "Profiled the game thread again with rounds 78-83 on: collision is still the largest group at the altar (22.5%), with no function above 3.5%. The largest pieces were Wander's ground step (~5 ms), the particle manager (3.5 ms, a third of it a water search around the camera), the AI path work (2.7 ms, half of it segment tests) and the camera (2.6 ms). Redesigned two world probes that the game redid every frame for answers that change over metres (SOTC_PROBE84, on, A/B probe84 / r84all; newdir includes it): the AI path's visibility tests answered from round 80's memo at path scale (15 cm, up to 10 frames, a pool of their own), and the camera's water search kept while the camera stays within 25 cm (up to 10 frames). A memo of the ground finder's candidates per still object (SOTC_FIND84) measured just below the bar and stays off.",
    "result": "Vita3K 222 MHz whole frame, in-run A/B matched by draws: altar 40.8 -> 39.5 ms (-1.2, steady over four runs), route 6 -0.3 ms, the plain and the attract demo unchanged; rounds 78-84 together while riding -2.2 ms. Check mode: the path answers differ from the game's in 0-0.2% of checked tests, the water answers in none of 26 000. Attract demo 660 s twice without a crash; altar pictures on/off the same. Console A/B prepared (env-console.txt, r84all,newdir)."
+  },
+  {
+   "round": "r86",
+   "date": "2026-11-05",
+   "commit": "12bd733",
+   "focus": "Speed",
+   "summary": "Found why the game thread waits for the render thread on the console: the hand-over waits until the render thread is idle, and the render thread is busy until its present returns, where vitaGL's swap blocks while the GPU still has the two frames before. So the wait is the GPU's backlog, and the console's frames are either bound by the render side (the shadow-volume frames, render 15.6 + present 23.5 ms) or by the game thread, never both; the run's averages mixed the two. Redesigned the hand-over so the render thread gives the frame's data back before the present (SOTC_GL_PRESENT86, on, A/B present86 / r86all; newdir includes it): the game thread no longer waits for the swap, with the same GL commands in the same order. Added the GPU's own timeline from vitaGL's scene notifications ([gpu86] / [gpu86s], on with the console's frame log) so the next console run names the GPU scenes that make the present.",
+   "result": "Vita3K 222 MHz, the altar, in-run A/B: unchanged where the game thread is longer (Vita3K's own GPU never makes the swap wait); with a simulated console swap wait, 0.9-1.6 ms a frame faster where the render side is as long as the game thread or longer. Attract demo 660 s with the console env without a crash; altar and route 6 pictures on/off the same, no tearing or old frames. Console A/B prepared (env-console.txt, r86all,newdir, GPU timeline on)."
   }
  ]
 }
