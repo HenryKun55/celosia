@@ -3015,7 +3015,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3045,6 +3045,11 @@ namespace sotc_native
             r86AllAt = indexOf("r86all");
             r87AllAt = indexOf("r87all");
             r89AllAt = indexOf("r89all");
+            aud90vAt = indexOf("aud90v"); // round 90: the mixer's paths (ps2x::iop::audio_stats::mix90*)
+            aud90cAt = indexOf("aud90c");
+            r90AllAt = indexOf("r90all");
+            chunk90At = indexOf("chunk90");
+            flush90At = indexOf("revflush90");
             newDirAt = indexOf("newdir");
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
@@ -3096,6 +3101,30 @@ namespace sotc_native
                     else if (switchAt[i] < 0)
                         sotc_decomp::setSwitch(i, switchStart[i]);
                 }
+        }
+        // Round 90: the sound mixer's voice / core paths (`aud90v`, `aud90c`,
+        // `r90all` both); exact, so only the audio thread's time changes.
+        if (aud90vAt >= 0 || aud90cAt >= 0 || r90AllAt >= 0)
+        {
+            namespace as = ps2x::iop::audio_stats;
+            static const bool voiceStart = as::mix90Voice(), coreStart = as::mix90Core();
+            const bool all = r90AllAt >= 0 && isOffAt(r90AllAt);
+            as::setMix90Voice((all || (aud90vAt >= 0 && isOffAt(aud90vAt))) ? false : voiceStart);
+            as::setMix90Core((all || (aud90cAt >= 0 && isOffAt(aud90cAt))) ? false : coreStart);
+        }
+        if (flush90At >= 0 || r90AllAt >= 0) // round 90: the reverb's residue clear (`revflush90`)
+        {
+            namespace as = ps2x::iop::audio_stats;
+            static const bool flushStart = as::mix90Flush();
+            const bool off = (flush90At >= 0 && isOffAt(flush90At)) || (r90AllAt >= 0 && isOffAt(r90AllAt));
+            as::setMix90Flush(off ? false : flushStart);
+        }
+        if (chunk90At >= 0 || r90AllAt >= 0) // round 90: the mix piece, 16 frames in its windows
+        {
+            namespace as = ps2x::iop::audio_stats;
+            static const int chunkStart = as::mix90Chunk();
+            const bool off = (chunk90At >= 0 && isOffAt(chunk90At)) || (r90AllAt >= 0 && isOffAt(r90AllAt));
+            as::setMix90Chunk(off ? 16 : chunkStart);
         }
         // Round 52: the thread switch by returning (PS2X_XFER_RETURN).
         if (g_runtimeForLog && xferAt >= 0)
@@ -4203,9 +4232,25 @@ namespace sotc_native
                            vb = as::voiceBlocks.load(std::memory_order_relaxed), mb = as::mixBlocks.load(std::memory_order_relaxed);
             static uint64_t r0 = 0, l0 = 0;
             const uint64_t r = as::rpcUs.load(std::memory_order_relaxed), l = as::rpcLockUs.load(std::memory_order_relaxed);
-            native_renderer::logf( "[audio-ticks] vblank thread %u sound %u | mix voices %.1f ms cores %.1f ms, %.1f voices playing | driver %.1f ms (lock wait %.1f)\n",
+            // Round 90: the reverb's 24 kHz steps per core, worked out / skipped (idle).
+            static uint64_t s0[2] = {}, i0[2] = {}, o0[2] = {}, f0[2] = {};
+            uint64_t st[2], id[2], ld[2], fd[2];
+            uint32_t qm[2], qw[2];
+            for (int k = 0; k < 2; ++k)
+                st[k] = as::reverbSteps[k].load(std::memory_order_relaxed), id[k] = as::reverbIdle[k].load(std::memory_order_relaxed),
+                ld[k] = as::reverbLoud[k].load(std::memory_order_relaxed), fd[k] = as::reverbFed[k].load(std::memory_order_relaxed),
+                qm[k] = as::reverbQuietMax[k].exchange(0, std::memory_order_relaxed), qw[k] = as::reverbQuietWordMax[k].exchange(0, std::memory_order_relaxed);
+            native_renderer::logf( "[audio-ticks] vblank thread %u sound %u | mix voices %.1f ms cores %.1f ms, %.1f voices playing | driver %.1f ms (lock wait %.1f) | reverb steps %llu/%llu (not silent %llu/%llu, fed %llu/%llu, unfed max return %u/%u word %u/%u) idle %llu/%llu cleared %llu/%llu (areas %x-%x%s %x-%x%s%s) | mix90 v%d c%d f%d\n",
                          ticks - ticksBefore, sound - soundBefore, (v - v0) / 1000.0, (c - c0) / 1000.0, mb > mb0 ? double(vb - vb0) / double(mb - mb0) : 0.0,
-                         (r - r0) / 1000.0, (l - l0) / 1000.0);
+                         (r - r0) / 1000.0, (l - l0) / 1000.0, (unsigned long long)(st[0] - s0[0]), (unsigned long long)(st[1] - s0[1]),
+                         (unsigned long long)(ld[0] - o0[0]), (unsigned long long)(ld[1] - o0[1]), (unsigned long long)(fd[0] - f0[0]), (unsigned long long)(fd[1] - f0[1]),
+                         qm[0], qm[1], qw[0], qw[1], (unsigned long long)(id[0] - i0[0]), (unsigned long long)(id[1] - i0[1]),
+                         (unsigned long long)as::reverbFlushes[0].exchange(0, std::memory_order_relaxed), (unsigned long long)as::reverbFlushes[1].exchange(0, std::memory_order_relaxed),
+                         as::reverbStart[0].load(std::memory_order_relaxed), as::reverbEnd[0].load(std::memory_order_relaxed), as::reverbOnNow[0].load(std::memory_order_relaxed) ? " on" : "",
+                         as::reverbStart[1].load(std::memory_order_relaxed), as::reverbEnd[1].load(std::memory_order_relaxed), as::reverbOnNow[1].load(std::memory_order_relaxed) ? " on" : "",
+                         as::reverbShared.load(std::memory_order_relaxed) ? ", shared" : "", as::mix90Voice() ? 1 : 0, as::mix90Core() ? 1 : 0, as::mix90Flush() ? 1 : 0);
+            for (int k = 0; k < 2; ++k)
+                s0[k] = st[k], i0[k] = id[k], o0[k] = ld[k], f0[k] = fd[k];
             v0 = v; c0 = c; vb0 = vb; mb0 = mb; r0 = r; l0 = l;
         }
         ticksBefore = ticks;

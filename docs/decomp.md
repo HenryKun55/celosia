@@ -13587,6 +13587,174 @@ matched block).
 **Deliverable:** build/agent-scratch/celosia-r89.vpk (main 81efc5d + this
 round).
 
+## Round 90: the audio thread's mix a block at a time (exact), the reverb skipped while silent; guest RAM pages looked at (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r90/`:
+- build.sh: its own worktree `r90/wt` and build directory `r90/vita`.
+- v3k.sh: its own Vita3K, `r90/vita3k`, `portable` -> ../vita3k-celosia-r90
+  (pref-path fixed to r90); 222 MHz, 3 cores, memcard copied, settings.cfg put
+  back. **Sound on**: rounds 85-89's v3k.sh wrote `PS2X_NO_SPU2_AUDIO=1` (the
+  SPU2 silent, the audio thread idle); now only with `NOSND=1`, and the tree's
+  Vita3K plays at volume 100.
+- ab1.sh (p1: aud90v / aud90c windows), ab2.sh (p2: r90all, check at the
+  altar), ab3.sh (p3: a check on route 6, the mix piece's size), listen.sh
+  (recordings on / off).
+- tools/ab90.py: `[audio]` / `[audio-ticks]` / `[frame]` lines by A/B state
+  (a 5 s audio line counts for a state when it lies inside one window).
+- The Mac's harness (outside the repo, copied to r90/tools/harness.cpp):
+  SoundMixer with random ADPCM data, voices, keys, pitches, envelopes,
+  routing, reverb and PCM input, every piece checked.
+
+**Where the audio thread's CPU goes.** The audio thread is SDL's callback
+thread (`SDLAudioP2`, 2 048 frames a call, 42.7 ms); all of its work is
+`SoundMixer::readOutput` -> `render` (the native sound driver's mixer, pull
+mode): there is no IOP emulation, no resampling (48 kHz in, 48 kHz out) and no
+format conversion behind it. The console's figures (round 59's run with the
+split timers on): the mix 5.5-9.3 ms a callback (13-22% of a core; round 87's
+`cpu audio` 10-25 ms a 60 ms frame is the same), of which per 5 s:
+- the two cores' sample loop ~415 ms whatever plays (8% of a core): the PCM
+  input check, the routing, the PS2 reverb at 24 kHz, the master volume, one
+  sample at a time;
+- the voices ~65 ms each per 5 s (2.5-10 playing at once there; 20-28 in the
+  attract demo's later scenes): pitch stepping, ADPCM, envelope, 4-point
+  interpolation (round 23 already did the interpolation four samples at a time).
+The driver's side on the game thread is small (11-17 ms per 5 s, 1-3 of it
+waiting for the mixer's lock).
+
+The reverb: studio C on both cores (iop_sg2's setEffect), 14 320 words each.
+In Vita3K's attract demo its work area is all zero and nothing is sent to it
+(~100% of the steps can be skipped); at the altar and on route 6 both cores'
+reverbs run at the full 24 kHz (120 000 steps per 5 s each).
+
+**What changed (all exact: the same samples, the same sound RAM, the same
+voice and reverb state).** `SOTC_MIX90_VOICE` / `SOTC_MIX90_CORE` (default 1;
+A/B `aud90v`, `aud90c`, `r90all`):
+- The voices a block at a time (mixVoice90): the envelope's levels first (one
+  compare when its next step is past the block: all one level), then the ADPCM
+  samples the block needs copied out of the decoded blocks in runs (block
+  ends, loop flags and the end of the data at the same samples as
+  nextSample), then each output sample's four history samples read from that
+  run at its pitch position (counter c0 + (i + 1) pitch: the samples taken are
+  its high bits, the interpolation's t its low 12), then round 23's NEON
+  interpolation. A voice ending in the block (its data's end flag, or its
+  release reaching 0) ends at the same output sample with the same state.
+  Nothing is added for a sum the core's routing does not read, or for a voice
+  at volume 0 (its state still moves).
+- The cores a block at a time (renderCores90): the routing's sums one loop per
+  term (the bits read once a block); the reverb's 24 kHz steps through 28
+  pointers when no offset wraps inside the block (no wrap compare per word;
+  a block in ~500 wraps falls back); the reverb skipped while its work area is
+  provably all zero and nothing is sent to it. "Provably": a count of steps in
+  a row whose 8 written words were all 0; once it reaches the area's size
+  every written offset has passed over every word of the area with zeros, and
+  a step with no input then reads zeros, writes zeros and returns 0. Any write
+  into sound RAM over the area, a new area or preset, or a step on the older
+  path starts the count again; with the two areas sharing words (never seen)
+  the older loop runs (the cores' steps interleave there).
+- **The one change that is not exact**: the reverb's residue cleared
+  (`SOTC_MIX90_REVFLUSH`, default 1, `SOTC_MIX90_REVFLUSH_MAX` default 4; A/B
+  `revflush90`, `r90all`). Studio C's arithmetic rounds down (`(a * b) >> 15`),
+  so a tail never decays to 0: on route 6, once something was sent to the
+  reverb, both cores kept running their reverb at 24 kHz for a residue of
+  +-2 (of 32 768) for the rest of the run (Vita3K's diag4: 38 of ~60 lines,
+  "fed 0, unfed max return 2/1 word 2/1"). Now a reverb with nothing sent in
+  for a whole pass over its work area, every word written and every return
+  within +-4, has its area set to zero and is then skipped until something is
+  sent again. The output changes by at most that residue times the return
+  volume (below -78 dBFS), a constant, not a sound. Off under
+  `PS2X_MIX_CHECK=90` (the check compares the exact paths).
+- `PS2X_MIX_CHECK=90` (`PS2X_MIX_CHECK_EVERY=<n>`, `PS2X_MIX_CHECK_ALL=1`):
+  one piece in 64 (or n, or all) also mixed by the older paths on a copy of
+  the mixer, samples / sound RAM / state compared. `PS2X_MIX_SPLIT=0`: no
+  clock reads a 16-frame piece with the log on (in Vita3K those host calls were
+  most of the "cores" figure).
+- `SOTC_MIX90_CHUNK` (A/B `chunk90`: 16 in its windows): the frames mixed
+  under the lock at a time.
+
+**Measured (Vita3K 222 MHz, 3 cores; in-run A/B, `r90all` windows of 450
+frames, `SOTC_AUDIO_LOG=1 PS2X_MIX_SPLIT=0`; the mix a 2 048-frame callback
+(42.7 ms) from the `[audio]` lines, frames 3 600 on for the routes, 600 on for
+the attract demo).** Vita3K times the CPU ~1.5x optimistically overall, and
+its HLE lock / clock calls weigh more than the console's; the console's `cpu
+audio` column under `r90all` is the figure that counts.
+
+| | all on | `r90all` off | |
+|---|---|---|---|
+| route 6 (shrine, plain, Agro) | 4.81 ms | 15.06 ms | -68% (reverbs idle once their residue is cleared) |
+| the altar (reverb fed by the shrine's ambience) | 11.96 | 17.30 | -31% |
+| the attract demo (title music and the demo's scenes) | 5.55 | 12.84 | -57% |
+
+The audio thread: ~11% of a core instead of ~35% on route 6. The driver's
+waits for the mixer's lock on the game thread (`[audio-ticks]` "lock wait",
+per 5 s): 18 vs 54 ms (route 6), 81 vs 98 (altar), 20 vs 55 (attract). The
+frame (mean of the windows, not matched by draws; Vita3K runs the audio thread
+on a host thread of its own, so the frame only sees it through those waits and
+the host's load): 26.4 vs 27.9 ms (route 6), 42.8 vs 42.2 (altar), 24.1 vs 24.8
+(attract): within noise to -1.5 ms.
+
+Step by step (earlier builds, same windows): the voices a block at a time:
+per playing voice 61-67 ms per 5 s vs 107-110 (altar, route 6; with the split
+timers on); p2's whole core / voice paths: 12.3 vs 16.5 (altar), 11.2 vs 14.8
+(route 6), 6.4 vs 11.3 (attract); the 32-frame piece against 16 (`chunk90`):
+10.5 vs 11.6 (route 6), 10.8 vs 12.6 (altar), the lock waits lower too
+(42 vs 50, 75 vs 100: fewer lock hand-overs). The reverb idle skip alone: the
+attract demo's reverbs are idle ~100% of the time; on route 6 they were not,
+until the residue clear.
+
+**Exactness checks.** The Mac harness (r90/tools/harness.cpp, random ADPCM,
+voices, keys, pitches up to 0x3FFF, envelopes, routing changes, reverb on /
+off, writes into the work area, PCM input): every piece compared over 12
+seeds (~1.7 M pieces), 0 differ; deliberate one-off mutations in the voice
+positions, the idle step and the pointer steps are caught. Vita3K,
+`PS2X_MIX_CHECK=90`: the attract demo 8 192 pieces (p1), the altar 4 096 (p2),
+route 6 with both reverbs running 2 048+ (p3, one piece in 512): 0 differ.
+
+**Listen test (Vita3K, p5, `PS2X_SPU2_WAV` recordings: the mix on the IOP
+clock's timeline, 48 kHz; r90/listen.sh, r90/tools/wavcmp.py; the .wav files
+in r90/wav).** From boot through the title music (130 s), round
+90's paths on (defaults) against off (`SOTC_MIX90_VOICE=0 SOTC_MIX90_CORE=0`):
+the music starts 0.38 s apart (the boot's timing); aligned on its first note,
+the two recordings are identical for the first 0.72 s and then never differ by
+more than 1 (of 32 768) over 120 s: the difference's RMS -141 to -147 dBFS
+(single +-1 samples: the reverb residue cleared). Route 6 (load, the shrine,
+riding Agro on the plain), on against off: the two runs' sound events drift
+apart in time after 5.3 s (the game's own timing between runs, as on any two
+runs), so they are compared by loudness: the 5 s windows' RMS track each
+other (within ~1-3 dB as events move between windows); the exact paths on
+route 6 are covered by the in-run check above. No colossus roar was
+recorded: the input scripts reach none.
+
+### Guest RAM pages (investigated, not changed)
+
+- Where it lives: `PS2Memory::initialize` (ps2xRuntime/src/lib/ps2_memory.cpp) takes the 32 MB (+16 B tail) with
+  `::operator new[](size, 4 KB alignment)` (round 66): on the Vita that is newlib's heap, one `USER_RW` memory block of
+  `_newlib_heap_size_user` = 160 MB made at start (ps2_vita_runtime.cpp). The console's log puts it at 0x86312000.
+- The memory types the VitaSDK offers (psp2common/kernel/sysmem.h): USER_MAIN_RW / USER_RW 0x0C20D060, USER_MAIN_NC_RW 0x0C208060,
+  USER_MAIN_GAME_RW 0x0C50D060, USER_MAIN_PHYCONT_RW 0x0C80D060 (physically contiguous), USER_MAIN_PHYCONT_NC_RW, CDRAM types
+  (0x09408060, GPU memory, uncached for the CPU or L1WBWA), CDIALOG / TOOL. The options struct only carries an alignment, a physical
+  address, a mirror and a pid: there is no attribute that picks a virtual address, and none that names a page size.
+- Page size: the SDK documents none. Physically contiguous blocks (PHYCONT, CDRAM) are the ones the kernel can map with 64 KB / 1 MB
+  descriptors; a USER_RW block is built from scattered physical pages, so 4 KB small pages are the likely mapping (the same as the
+  heap the RAM sits in now). Not confirmable here: Vita3K has no TLB model, and the console is out of bounds this round.
+- Why nothing was changed:
+  - PHYCONT for the whole 32 MB does not fit: the console reports 26 MB of PHYCONT free before vitaGL (round 87's log), and vitaGL
+    takes PHYCONT for its pools.
+  - Splitting (hot part in large pages) is not possible with this API: the guest RAM has to be one virtual range (host address =
+    base + guest address, every recompiled load / store), and two memory blocks cannot be placed side by side at chosen addresses.
+  - Moving the RAM out of the heap into its own USER_RW block gains nothing for the TLB if the block is still on 4 KB pages, and
+    it costs 32 MB: the heap is a fixed 160 MB made at start (the RAM's 32 MB in it would sit unused), and vitaGL's RAM pool is
+    "free memory minus 96 MB", so a new 32 MB block before vitaGL comes out of vitaGL's pool (31 MB -> ~0). A boot-time crash risk
+    for an unmeasurable gain.
+- What would answer it: one console run with a test build that allocates a 2 MB PHYCONT block and a 2 MB USER_RW block and times
+  a strided walk over each (TLB-miss bound) against the heap; if PHYCONT is clearly faster, the guest RAM (the game's data: the
+  recompiled code itself is host code in the executable) could only benefit through a different memory layout (the 32 MB as
+  PHYCONT, which needs vitaGL's PHYCONT pool moved elsewhere and more than the 26 MB the console offers), a design change, not a flag.
+
+**Console env** (r90/env-console.txt): `SOTC_AB_FLAG=opaque88,mirror88,r90all`,
+`SOTC_AB_ROTATE=1`, `SOTC_AB_PERIOD=60` (4 states: all on, opaque88 / mirror88
+turned on in theirs, round 90's mixer all off in `r90all`'s); the console's
+`cpu audio` column by state is the measure. VPK: build/agent-scratch/celosia-r90.vpk.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

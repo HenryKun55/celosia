@@ -90,8 +90,13 @@ namespace ps2x::iop::detail
 
         // Reverb: on/off, work area (word addresses, inclusive) and the 22
         // offsets / 10 coefficients of a preset.
-        void setReverbOn(int core, bool on) { m_cores[core].reverbOn = on; }
+        void setReverbOn(int core, bool on);
         void setReverbArea(int core, uint32_t startWord, uint32_t endWord);
+        // Round 90 (PS2X_MIX_CHECK=90, checking): the mixer's state copied
+        // from another one, and compared with it (0: the same).
+        void copyStateFrom(const SoundMixer &other);
+        [[nodiscard]] int compareState(const SoundMixer &other) const;
+        void renderForCheck(int16_t *destination, uint32_t frames) { render(destination, frames); }
         void setReverbPreset(int core, const uint16_t (&offsets)[22], const uint16_t (&coefficients)[10]);
 
         void writeRam(uint32_t byteAddress, const uint8_t *source, uint32_t bytes);
@@ -109,6 +114,7 @@ namespace ps2x::iop::detail
         size_t readOutput(int16_t *destination, size_t frames);
         [[nodiscard]] static bool pullMode();
         [[nodiscard]] static bool reverbFast();
+        [[nodiscard]] static bool mixSplit(); // round 90: PS2X_MIX_SPLIT=0, no clock reads a piece (the log's split)
 
     private:
         enum class Phase : uint8_t
@@ -162,6 +168,16 @@ namespace ps2x::iop::detail
             std::array<uint32_t, 30> revWrapped{};
             uint32_t revWrappedSize = 0;
             bool revWrappedDirty = true;
+            // Round 90: reverb steps in a row that wrote only zeros with no
+            // input (once it reaches the area's size, the whole work area is
+            // zero: each of the 8 written offsets has passed over every word
+            // of it, and the steps that follow, with no input, would write
+            // zeros and give zeros). Any write into sound RAM, a new area
+            // or preset, or a step on the older path starts it again.
+            uint32_t zeroSteps = 0;
+            // Round 90's residue clear: steps in a row with nothing sent in and
+            // every written word / return within audio_stats::mix90FlushMax().
+            uint32_t quietSteps = 0;
         };
 
         static constexpr uint32_t kRamWords = RamBytes / 2u;
@@ -179,6 +195,23 @@ namespace ps2x::iop::detail
         void mixVoiceBlock(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
         void reverb(Core &core, int32_t inL, int32_t inR, int32_t &outL, int32_t &outR);
         void render(int16_t *destination, uint32_t frames);
+        // Round 90 (audio_stats::mix90Voice / mix90Core): the same results.
+        uint32_t takeSamples(Voice &voice, int16_t *out, uint32_t want);
+        void mixVoice90(Voice &voice, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR, uint32_t frames);
+        static void mixSamples(const int16_t *h0, const int16_t *h1, const int16_t *h2, const int16_t *h3, const uint32_t *count, const int32_t *level,
+                               uint32_t n, int32_t volL, int32_t volR, int32_t *dryL, int32_t *dryR, int32_t *wetL, int32_t *wetR);
+        void renderCores90(int32_t (&sums)[2][4][kBlock], int16_t *destination, uint32_t n, uint32_t &pcmUnder, uint32_t (&steps)[2], uint32_t (&idle)[2]);
+        void reverb90(Core &core, int32_t inL, int32_t inR, int32_t &outL, int32_t &outR, uint32_t &steps, uint32_t &idle, uint16_t *const *lin = nullptr, uint32_t j = 0);
+        static void wrapReverb(Core &core, uint32_t size);
+        // A write into sound RAM over [first, first + words): the reverb
+        // work areas it touches are no longer known to be zero.
+        void ramWritten(uint32_t first, uint32_t words);
+        void updateReverbOverlap();
+        bool m_revOverlap = true; // the two cores' work areas share words: no idle skip
+        uint32_t m_revFlushes[2] = {0, 0};
+        bool m_flush90 = false; // render()'s: the residue clear this piece
+        uint32_t m_revLoud[2] = {0, 0}, m_revFed[2] = {0, 0}, m_revQuietMax[2] = {0, 0}, m_revQuietWordMax[2] = {0, 0}; // round 90's log: reverb steps whose return was not 0
+        int m_pathOverride = -1; // round 90's checking: 0 the older paths, 1 round 90's, -1 the switches
         void pushOutput(const int16_t *frames, size_t count);
 
         std::mutex m_lock;
