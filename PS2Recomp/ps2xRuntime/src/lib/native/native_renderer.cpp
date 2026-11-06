@@ -210,7 +210,8 @@ namespace native_renderer
                                          {"SOTC_GL_FEW_SCENES", &Tuning::glFewScenes}, {"SOTC_GL_SWIZZLE", &Tuning::glSwizzle},
                                          {"SOTC_GL_PLAIN_READS", &Tuning::glPlainReads}, {"SOTC_GL_LEAN_PASS", &Tuning::glLeanPass},
                                          {"SOTC_GL_KEEP_LAYOUT", &Tuning::glKeepLayout}, {"SOTC_RENDER_PRIO", &Tuning::renderPrio},
-                                         {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard}})
+                                         {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard},
+                                         {"SOTC_GL_PRESENT86", &Tuning::glPresent86}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -291,7 +292,8 @@ namespace native_renderer
                                          {"SOTC_GL_FEW_SCENES", &Tuning::glFewScenes}, {"SOTC_GL_SWIZZLE", &Tuning::glSwizzle},
                                          {"SOTC_GL_PLAIN_READS", &Tuning::glPlainReads}, {"SOTC_GL_LEAN_PASS", &Tuning::glLeanPass},
                                          {"SOTC_GL_KEEP_LAYOUT", &Tuning::glKeepLayout}, {"SOTC_RENDER_PRIO", &Tuning::renderPrio},
-                                         {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard}})
+                                         {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard},
+                                         {"SOTC_GL_PRESENT86", &Tuning::glPresent86}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)

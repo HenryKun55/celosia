@@ -39,6 +39,9 @@ extern "C" void vglCeloOwnMips(int on); // celosia.patch (round 55): glTexImage2
 extern "C" GLboolean vglCeloTexImageSwizzled(GLsizei width, GLsizei height, GLint levels, const void *data); // celosia.patch (round 73)
 extern "C" void vglCeloLeanDraw(int bits); // celosia.patch (round 56): bit 0 uniform copies by memcpy, bit 1 one vertex stream
 extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia.patch (round 65c): uniform bytes reserved, pool wraps
+#include <psp2/gxm.h>
+extern "C" SceGxmNotification query_fence;          // vitaGL's (buffers.c): every scene's end notification, value+1 a scene
+extern "C" volatile unsigned long long ps2x_vita_swap_us; // raylib_vita.cpp (round 86): time in vglSwapBuffers, summed
 #endif
 
 #include "ThreadNaming.h"
@@ -59,9 +62,233 @@ extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosi
 #include <unordered_set>
 #include <vector>
 #include <array>
+#include <atomic>
 
 namespace
 {
+    // Round 86 (SOTC_GPU86_LOG, the Vita; on by default with
+    // SOTC_FRAME_LOG_ALL=1): the GPU's own timeline. vitaGL ends every GXM
+    // scene with one notification (query_fence: its value counts the scenes
+    // sent, the word at its address the scenes the GPU has finished). A
+    // thread of its own reads both every 0.5 ms: when each scene was seen
+    // finished, and how long the GPU had work outstanding (busy) or none
+    // (idle). The render thread notes the value at each target bind (which
+    // scene draws into which target) and at each present (the frame's last
+    // scene, the scenes still on the GPU when the swap begins). Every 30
+    // presents a [gpu86] line: the GPU's time a frame (the frame's last scene
+    // finished to the next frame's), busy / idle, the backlog, the present
+    // and its swap; every 600 a [gpu86s] line: one frame's slowest scenes
+    // (their target, the time from the later of the scene before finishing
+    // and their own sending to their finishing).
+    namespace gpu86
+    {
+#if defined(PS2X_NATIVE_VITA)
+        bool on()
+        {
+            static const bool v = []
+            {
+                if (const char *e = std::getenv("SOTC_GPU86_LOG"))
+                    return std::atoi(e) != 0;
+                const char *a = std::getenv("SOTC_FRAME_LOG_ALL");
+                return a && std::atoi(a) != 0;
+            }();
+            return v;
+        }
+        constexpr uint32_t kRing = 4096u;
+        std::atomic<uint32_t> g_tag[kRing];
+        std::atomic<uint64_t> g_doneAt[kRing], g_sentAt[kRing]; // first seen finished / sent
+        std::atomic<uint32_t> g_sentTag[kRing];
+        std::atomic<uint64_t> g_busyUs{0}, g_idleUs{0};
+        uint32_t sent() { return *const_cast<volatile uint32_t *>(&query_fence.value); }
+        uint32_t done() { return query_fence.address ? *const_cast<volatile uint32_t *>(query_fence.address) : 0u; }
+        void poller()
+        {
+            ThreadNaming::SetCurrentThreadName("Gpu86");
+            uint32_t last = done(), lastSent = sent();
+            uint64_t prev = native_renderer::nowUs();
+            bool busy = false;
+            for (;;)
+            {
+                std::this_thread::sleep_for(std::chrono::microseconds(500));
+                const uint64_t now = native_renderer::nowUs();
+                const uint32_t d = done(), s = sent();
+                if (d - last < kRing)
+                    for (uint32_t v = last + 1u; v - last <= d - last; ++v)
+                    {
+                        g_doneAt[v & (kRing - 1u)].store(now, std::memory_order_relaxed);
+                        g_tag[v & (kRing - 1u)].store(v, std::memory_order_release);
+                    }
+                last = d;
+                if (s - lastSent < kRing)
+                    for (uint32_t v = lastSent + 1u; v - lastSent <= s - lastSent; ++v)
+                    {
+                        g_sentAt[v & (kRing - 1u)].store(now, std::memory_order_relaxed);
+                        g_sentTag[v & (kRing - 1u)].store(v, std::memory_order_release);
+                    }
+                lastSent = s;
+                (busy ? g_busyUs : g_idleUs).fetch_add(now - prev, std::memory_order_relaxed);
+                busy = static_cast<int32_t>(s - d) > 0;
+                prev = now;
+            }
+        }
+        void start()
+        {
+            static const bool started = []
+            {
+                std::thread(poller).detach();
+                std::fprintf(stderr, "[gpu86] GPU timeline on (vitaGL's scene notifications read every 0.5 ms)\n");
+                return true;
+            }();
+            (void)started;
+        }
+        bool doneTime(uint32_t v, uint64_t &t)
+        {
+            if (g_tag[v & (kRing - 1u)].load(std::memory_order_acquire) != v)
+                return false;
+            t = g_doneAt[v & (kRing - 1u)].load(std::memory_order_relaxed);
+            return true;
+        }
+        bool sentTime(uint32_t v, uint64_t &t)
+        {
+            if (g_sentTag[v & (kRing - 1u)].load(std::memory_order_acquire) != v)
+                return false;
+            t = g_sentAt[v & (kRing - 1u)].load(std::memory_order_relaxed);
+            return true;
+        }
+        struct Bind
+        {
+            uint32_t value, fbo, w, h;
+        };
+        struct Frame
+        {
+            uint32_t last = 0;
+            std::vector<Bind> binds;
+        };
+        constexpr uint32_t kFrames = 8u;
+        Frame g_frames[kFrames];
+        std::vector<Bind> g_binds; // the frame being drawn's
+        uint64_t g_presents = 0, g_checked = 0;
+        // The 120 presents' sums.
+        double g_presentUs = 0, g_swapUs = 0, g_backlog = 0, g_gpuFrameUs = 0;
+        uint64_t g_gpuFrames = 0, g_lastSwap = 0, g_busy0 = 0, g_idle0 = 0, g_n = 0;
+        void bind(uint32_t fbo, uint32_t w, uint32_t h)
+        {
+            if (!on())
+                return;
+            start();
+            if (g_binds.size() < 256u)
+                g_binds.push_back(Bind{sent(), fbo, w, h});
+        }
+        uint32_t backlog() { return on() ? sent() - done() : 0u; }
+        // The scene that finished as `w`: begun after the last bind noted with
+        // value w - 2 (its draw ended the scene before). A frame's first scene
+        // follows the swap, which leaves no scene open: its frame's first bind.
+        const Bind *labelOf(uint32_t w, const Frame &f, const Frame &before)
+        {
+            if (w == before.last + 1u)
+                return f.binds.empty() ? nullptr : &f.binds.front();
+            const Bind *found = nullptr;
+            for (const Frame *fr : {&before, &f})
+                for (const Bind &b : fr->binds)
+                    if (b.value == w - 2u)
+                        found = &b;
+            return found;
+        }
+        void presented(uint64_t tookUs, uint32_t backlogAtStart)
+        {
+            if (!on())
+                return;
+            start();
+            const uint64_t swap = ps2x_vita_swap_us;
+            Frame &f = g_frames[g_presents % kFrames];
+            f.last = sent();
+            f.binds.swap(g_binds);
+            g_binds.clear();
+            ++g_presents;
+            ++g_n;
+            g_presentUs += static_cast<double>(tookUs);
+            g_swapUs += static_cast<double>(swap - g_lastSwap);
+            g_lastSwap = swap;
+            g_backlog += backlogAtStart;
+            // Frames 3+ presents old whose last scene and the one before's are seen finished.
+            while (g_checked + 3u < g_presents)
+            {
+                const Frame &a = g_frames[g_checked % kFrames], &b = g_frames[(g_checked + 1u) % kFrames];
+                uint64_t ta = 0, tb = 0;
+                if (g_checked && doneTime(a.last, ta) && doneTime(b.last, tb) && tb >= ta)
+                {
+                    g_gpuFrameUs += static_cast<double>(tb - ta);
+                    ++g_gpuFrames;
+                }
+                // Every 600 presents: frame b's scenes, the slowest first.
+                if ((g_checked + 1u) % 600u == 0u && b.last - a.last < 128u)
+                {
+                    struct Row
+                    {
+                        uint64_t us;
+                        uint32_t index;
+                        const Bind *label;
+                    };
+                    std::vector<Row> rows;
+                    uint64_t tPrev = 0;
+                    bool havePrev = doneTime(a.last, tPrev);
+                    for (uint32_t v = a.last + 1u; v - a.last <= b.last - a.last; ++v)
+                    {
+                        uint64_t t = 0;
+                        if (!doneTime(v, t))
+                        {
+                            havePrev = false;
+                            continue;
+                        }
+                        // From the later of the scene before finishing and this one sent (the GPU idle in between left out).
+                        uint64_t ts = 0, from = tPrev;
+                        if (sentTime(v, ts) && ts > from)
+                            from = ts;
+                        if (havePrev && t >= from)
+                            rows.push_back(Row{t - from, v - a.last, labelOf(v, b, a)});
+                        tPrev = t;
+                        havePrev = true;
+                    }
+                    std::sort(rows.begin(), rows.end(), [](const Row &x, const Row &y) { return x.us > y.us; });
+                    char line[1024];
+                    int at = std::snprintf(line, sizeof(line), "[gpu86s] present %llu: %u scenes; slowest (scene: target, ms from the one before):", (unsigned long long)(g_checked + 1u),
+                                           b.last - a.last);
+                    for (size_t i = 0; i < rows.size() && i < 10u && at > 0 && static_cast<size_t>(at) < sizeof(line); ++i)
+                    {
+                        const Bind *l = rows[i].label;
+                        if (l && l->fbo == 0u)
+                            at += std::snprintf(line + at, sizeof(line) - at, " %u: display %.2f;", rows[i].index, rows[i].us / 1000.0);
+                        else if (l)
+                            at += std::snprintf(line + at, sizeof(line) - at, " %u: fbo %u %ux%u %.2f;", rows[i].index, l->fbo, l->w, l->h, rows[i].us / 1000.0);
+                        else
+                            at += std::snprintf(line + at, sizeof(line) - at, " %u: ? %.2f;", rows[i].index, rows[i].us / 1000.0);
+                    }
+                    std::fprintf(stderr, "%s\n", line);
+                }
+                ++g_checked;
+            }
+            if (g_n >= 30u)
+            {
+                const uint64_t busy = g_busyUs.load(std::memory_order_relaxed), idle = g_idleUs.load(std::memory_order_relaxed);
+                const double n = static_cast<double>(g_n);
+                std::fprintf(stderr, "[gpu86] presents %llu: gpu frame %.2f ms (%llu frames), gpu busy %.2f idle %.2f ms a present, backlog at present %.1f scenes, present %.2f ms (swap %.2f)\n",
+                             (unsigned long long)g_presents, g_gpuFrames ? g_gpuFrameUs / g_gpuFrames / 1000.0 : 0.0, (unsigned long long)g_gpuFrames,
+                             (busy - g_busy0) / n / 1000.0, (idle - g_idle0) / n / 1000.0, g_backlog / n, g_presentUs / n / 1000.0, g_swapUs / n / 1000.0);
+                g_busy0 = busy;
+                g_idle0 = idle;
+                g_n = 0;
+                g_presentUs = g_swapUs = g_backlog = g_gpuFrameUs = 0;
+                g_gpuFrames = 0;
+            }
+        }
+#else
+        bool on() { return false; }
+        void bind(uint32_t, uint32_t, uint32_t) {}
+        uint32_t backlog() { return 0u; }
+        void presented(uint64_t, uint32_t) {}
+#endif
+    }
+
     // SOTC_BLOOM_DUMP: the GS bloom chain's targets by index (gsBloom[i]),
     // the last drawn frame's, handed out by latestBloomStages.
     const char *const kBloomStageNames[7] = {"mask256", "red128", "red64", "temporal64", "blur64", "blur128", "glow256"};
@@ -1432,6 +1659,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t frames = 0, scenes = 0, binds = 0, loadKB = 0, storeKB = 0;
         } sceneStats;
         void noteScenes(); // SOTC_GL_DRAW_LOG: every 300 frames
+        // Round 86 (Tuning glPresent86): the render thread's loop asks render
+        // to leave the present to it (deferPresent); render then keeps what it
+        // would have shown here, and the loop shows it after giving the
+        // frame's data back to the game thread.
+        bool deferPresent = false, presentPending = false;
+        GLuint pendingTexture = 0;
+        uint32_t pendingWidth = 0, pendingHeight = 0;
+        uint64_t presentNow(); // the present's time (frame timing on), added to stats unless deferPresent
         // Round 38: the shadow pass, counted always, one [shadow] line every
         // 300 frames (the console's log): volume draws and their vertices,
         // the darkening passes, the frames with any volume.
@@ -2546,6 +2781,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glViewport(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height));
             boundFbo = t.fbo;
             ++stats.targets;
+            gpu86::bind(t.fbo, t.width, t.height);
         }
 
         static void bindTexture(int unit, GLuint texture)
@@ -3868,6 +4104,50 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
     // Round 45: the frame's GXM scenes, binds and depth traffic, a [gl:scenes]
     // line every 300 frames (the console's log; elsewhere SOTC_GL_SCENE_LOG=1).
+    // Round 86: the host's present of the picture render kept (the swap:
+    // vitaGL's display queue, which waits while the GPU is two frames behind).
+    uint64_t Renderer::presentNow()
+    {
+        if (!presentPending)
+            return 0u;
+        presentPending = false;
+        const auto &hook = native_renderer::detail::presentHook();
+        if (!hook)
+            return 0u;
+        const bool timed = native_renderer::tuning().frameTiming();
+        gpu86::bind(0u, 0u, 0u); // the display's scene
+        const uint64_t start = native_renderer::nowUs();
+        const uint32_t backlog = gpu86::backlog();
+        hook(pendingTexture, pendingWidth, pendingHeight);
+        const uint64_t took = native_renderer::nowUs() - start;
+        gpu86::presented(took, backlog);
+        // Round 86 (Vita3K testing): SOTC_PRESENT86_SIM_MS=<ms> waits until
+        // that long after the present began, a console GPU's wait in the
+        // swap, to see the hand-over's overlap where the host GPU never makes
+        // the swap wait.
+        // SOTC_PRESENT86_SIM_VSYNC=1: and it ends on the next 60 Hz vblank
+        // after that, as the console's swap returns when a flip frees the
+        // display queue.
+        static const int simMs = std::getenv("SOTC_PRESENT86_SIM_MS") ? std::atoi(std::getenv("SOTC_PRESENT86_SIM_MS")) : 0;
+        static const bool simVsync = std::getenv("SOTC_PRESENT86_SIM_VSYNC") && std::atoi(std::getenv("SOTC_PRESENT86_SIM_VSYNC")) != 0;
+        if (simMs > 0)
+        {
+            uint64_t until = start + static_cast<uint64_t>(simMs) * 1000u;
+            if (simVsync)
+            {
+                constexpr uint64_t kVblankUs = 16667u;
+                until = (until + kVblankUs - 1u) / kVblankUs * kVblankUs;
+            }
+            const uint64_t now = native_renderer::nowUs();
+            if (until > now)
+                std::this_thread::sleep_for(std::chrono::microseconds(until - now));
+        }
+        const uint64_t all = timed ? native_renderer::nowUs() - start : 0u;
+        if (!deferPresent)
+            stats.presentUs += all;
+        return all;
+    }
+
     void Renderer::noteScenes()
     {
         uint32_t scenes = 0, loadKB = 0, storeKB = 0;
@@ -5868,13 +6148,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 previousTexture = shownTexture;
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             boundFbo = boundProgram = ~0u;
-            const bool timed = native_renderer::tuning().frameTiming();
             phaseEnd();
-            const uint64_t start = timed ? native_renderer::nowUs() : 0u;
-            hook(shownTexture, w, h);
-            if (timed)
-                stats.presentUs += native_renderer::nowUs() - start;
+            pendingTexture = shownTexture;
+            pendingWidth = w;
+            pendingHeight = h;
+            presentPending = true;
             noteScenes();
+            if (!deferPresent)
+                presentNow();
             return;
         }
         phaseEnd();
@@ -6120,7 +6401,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const bool timed = native_renderer::tuning().frameTiming();
             const uint64_t start = timed ? native_renderer::nowUs() : 0u;
             std::unique_lock<std::mutex> lock(m_mutex);
-            waitIdle(lock);
+            waitData(lock);
             // The render thread waits: what it holds changes hands. What the
             // last frame drawn cost goes into this frame's counters.
             if (timed)
@@ -6751,6 +7032,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     const uint64_t uploaded = native_renderer::nowUs();
                     r->stats.uploadUs += uploaded - start;
                     r->expandDraws();
+                    // Round 86: the present after the data is given back (below).
+                    r->deferPresent = native_renderer::tuning().glPresent86 && native_renderer::tuning().renderThread;
                     if (!r->hold) // held: the last picture stays on screen
                     {
                         // SOTC_GL_SELFCHECK=N (debugging, with bloom and the
@@ -6760,7 +7043,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         // the two pictures compared.
                         static const int check = std::getenv("SOTC_GL_SELFCHECK") ? std::atoi(std::getenv("SOTC_GL_SELFCHECK")) : 0;
                         if (check > 0 && r->arenaFrame % static_cast<uint64_t>(check) == 0u)
+                        {
+                            r->deferPresent = false;
                             r->selfCheck(width, height);
+                        }
                         else
                             r->render(width, height);
                     }
@@ -6788,6 +7074,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     r->evictUnused();
                     r->stats.sweepUs += native_renderer::nowUs() - drawn;
                     r->stats.renderUs += (native_renderer::nowUs() - start) - (r->stats.presentUs - present);
+                    // Round 86 (glPresent86): the frame's data back to the game
+                    // thread first (it may hand the next frame over now), then
+                    // the present, still under the GL lock; the next frame
+                    // starts when it returns. Its time goes into the counters
+                    // under the hand-over's mutex (the game thread reads them there).
+                    if (r->presentPending)
+                    {
+                        lock.lock();
+                        m_busy = false;
+                        m_presenting = true;
+                        m_idle.notify_all();
+                        lock.unlock();
+                        const uint64_t took = r->presentNow();
+                        lock.lock();
+                        r->stats.presentUs += took;
+                        m_presenting = false;
+                        m_idle.notify_all();
+                        lock.unlock();
+                    }
+                    r->deferPresent = false;
                 }
                 lock.lock();
                 m_busy = false;
@@ -6830,9 +7136,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static constexpr std::chrono::milliseconds kRecheck{2};
         void waitIdle(std::unique_lock<std::mutex> &lock)
         {
+            while (m_queued || m_busy || m_presenting)
+                m_idle.wait_for(lock, kRecheck);
+        }
+        // Round 86: the hand-over's own wait: the frame drawn done with (its
+        // present may still be running, glPresent86).
+        void waitData(std::unique_lock<std::mutex> &lock)
+        {
             while (m_queued || m_busy)
                 m_idle.wait_for(lock, kRecheck);
         }
+        bool m_presenting = false; // round 86: the render thread in a deferred present
         bool m_started = false, m_initOk = false;
         bool m_queued = false; // a frame handed over, not started yet
         bool m_busy = false;   // the render thread drawing

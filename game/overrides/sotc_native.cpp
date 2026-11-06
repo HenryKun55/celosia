@@ -2989,6 +2989,7 @@ namespace sotc_native
             {"rprio74", &native_renderer::Tuning::renderPrio},       // round 74 (with SOTC_RENDER_PRIO=1)
             {"soft75", &native_renderer::Tuning::glSoftCut},         // round 75
             {"guard75", &native_renderer::Tuning::glFarGuard},       // round 75
+            {"present86", &native_renderer::Tuning::glPresent86},    // round 86
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3007,7 +3008,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, newDirAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r86AllAt = -1, newDirAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3033,6 +3034,7 @@ namespace sotc_native
             r82AllAt = indexOf("r82all");
             r83AllAt = indexOf("r83all");
             r84AllAt = indexOf("r84all");
+            r86AllAt = indexOf("r86all");
             newDirAt = indexOf("newdir");
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
@@ -3116,6 +3118,15 @@ namespace sotc_native
             const bool off = isOffAt(r74AllAt);
             for (size_t i = 0; i < kTuningCount; ++i)
                 if ((!std::strcmp(kTuningFlags[i].name, "pass74") || !std::strcmp(kTuningFlags[i].name, "layout74")) && (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
+        // Round 86: `r86all` the round's switches (present86) off together;
+        // `newdir` takes them in too.
+        if (r86AllAt >= 0 || newDirAt >= 0)
+        {
+            const bool off = (r86AllAt >= 0 && isOffAt(r86AllAt)) || (newDirAt >= 0 && isOffAt(newDirAt));
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if (!std::strcmp(kTuningFlags[i].name, "present86") && (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
         }
         if (sacAllAt >= 0) // round 65: every cut off together

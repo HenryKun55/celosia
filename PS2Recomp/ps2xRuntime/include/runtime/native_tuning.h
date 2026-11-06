@@ -306,6 +306,14 @@ namespace native_renderer
         // (Vita3K, a frozen 2 342-draw frame).
         // SOTC_GL_FAR_GUARD=0/1; A/B name `guard75`.
         bool glFarGuard = true;
+        // Round 86: the render thread gives the frame's data back to the game
+        // thread before it puts the picture on screen (the host's present,
+        // where vitaGL's display queue waits for the GPU), not after: the
+        // game hands the next frame over while the swap waits, and the
+        // render thread starts it as soon as the swap returns. Nothing the
+        // present reads (the picture's texture, the host's menu) is part of
+        // the hand-over. SOTC_GL_PRESENT86=0/1; A/B name `present86`.
+        bool glPresent86 = true;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

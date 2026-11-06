@@ -405,10 +405,18 @@ void BeginDrawing(void)
 
 extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillCount, size_t *spillTotal, size_t *spillPeak); // celosia.patch (round 34)
 
+// Round 86: the time spent in vglSwapBuffers (its display queue waits while
+// two frames are still on the GPU), summed; read by the renderer's [gpu86].
+extern "C" volatile unsigned long long ps2x_vita_swap_us = 0;
+
 void EndDrawing(void)
 {
     if (g_glReady)
+    {
+        const uint64_t swapStart = sceKernelGetProcessTimeWide();
         vglSwapBuffers(GL_FALSE);
+        ps2x_vita_swap_us += sceKernelGetProcessTimeWide() - swapStart;
+    }
     static bool firstShown = false;
     if (!firstShown)
     {

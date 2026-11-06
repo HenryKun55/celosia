@@ -12851,6 +12851,129 @@ round); console env r84/env-console.txt (`SOTC_AB_FLAG=r84all,newdir`: all
 on / probe84 off / rounds 78-84 off); read it with
 `python3 build/agent-scratch/r84/tools/ab84.py err.txt --from <frame>`.
 
+## Round 86: why the game thread waits for the render thread; the hand-over before the present; the GPU's own timeline (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r86/`:
+- build.sh / v3k.sh / shots.sh: round 84's with r86 paths (worktree `r86/wt`,
+  build `r86/vita`, Vita3K `r86/vita3k` with its `portable` link to
+  ../vita3k-celosia-r86; absolute VPK paths only).
+- run1.sh, run2.sh, run3.sh (absolute VPK path): the altar A/Bs of
+  `present86` with and without a simulated swap wait, the attract demo with
+  the console env (660 s), the pictures.
+- tools/ab86.py: round 84's frame table by A/B state (matched by draws),
+  plus the round's `[gpu86]` lines by state and `[gpu86s]` summed by target.
+- runs/: altar (no simulation), altarS / altarS26 / altarS35 (a swap of at
+  least 17 / 26 / 35 ms), altarV10 / altarV17 (at least 10 / 17 ms and
+  ending on a 60 Hz vblank), attract, shotsA-* / shotsR-*; pics/: the pairs.
+- p1-p3.vpk; final.vpk = p3 = celosia-r86.vpk.
+
+**What the wait is (the console's r84 log, read again, and the code).**
+The hand-over is `endFrame` of the GL renderer's threaded front
+(native_renderer_gl.cpp): the game thread records frame N+1 into its own
+lists while the render thread draws frame N; at the end of N+1 it waits
+until the render thread is idle (`waitIdle`: nothing queued, not busy),
+swaps the lists and goes on. The render thread is busy until the end of
+its present: the picture drawn, then the present hook (`drawHostFrame`:
+the picture on the display, the menu, `EndDrawing` -> `vglSwapBuffers`).
+vitaGL runs three display buffers with `displayQueueMaxPendingCount` 2:
+`sceGxmDisplayQueueAddEntry` blocks while two swaps are still pending, that
+is, while the GPU has not finished the two frames before. So `present` is
+the GPU's backlog (round 73 found the same), and the frames in flight are:
+the game thread on N+1, the render thread on N, the GPU on N-1 and N-2.
+No shared buffer or vsync wait other than that one.
+
+Binned by place, the console's frames are one of two kinds, never both:
+- the render side longer (frames 1500-2200, ~250 draws, 17-22 targets, the
+  shadow volumes in every frame): frame 40.3 ms = render 15.6 + present 23.5
+  (the render thread busy the whole frame), the game thread 26.4 and its
+  wait 13.3;
+- the game thread longer (frames 3950 on): frame 46.6 = the game thread
+  46.5, render 19.0 + present 1.4, wait 0.0.
+The run's means (frame 49.0, game 36.5, render 19 + present 17) mix the two:
+the mean of max(game, render + present) is not max(mean game, mean render
+side). Where the game thread waits, the render thread plus the GPU's
+backlog *is* the frame; another frame in flight cannot make the GPU faster.
+What the hand-over itself cost: the game thread could not start a frame
+until the swap returned (at a vblank), even with its data free.
+
+**What changed.**
+1. `SOTC_GL_PRESENT86` (default 1; A/B `present86`, `r86all`, `newdir`):
+   the render thread gives the frame's data back before the present. render()
+   keeps the picture it would show (`presentPending`); the loop finishes the
+   frame's sweep and counters, marks itself not busy (the game thread may
+   swap lists and hand the next frame over), then presents under the GL
+   lock and starts the next frame when the swap returns. The GL commands and
+   their order do not change (same thread, same sequence): no extra frame of
+   GPU latency, no stale picture, no tearing; the game thread may be one
+   swap's time further ahead. Waits other than the hand-over's (flushes,
+   finishFrames) still wait for the present (`m_presenting`). The present's
+   time goes into the counters under the hand-over's mutex.
+2. `SOTC_GPU86_LOG` (on with `SOTC_FRAME_LOG_ALL=1` on the Vita): the GPU's
+   own timeline. vitaGL ends every GXM scene with one notification
+   (`query_fence`: its value counts the scenes sent, the word at its address
+   the scenes the GPU finished); a thread reads both every 0.5 ms, and the
+   render thread notes the value at each target bind and each present.
+   `[gpu86]` every 30 presents: the GPU's time a frame (one frame's last
+   scene finished to the next's), GPU busy / idle a present, the scenes
+   still on the GPU when the present begins, the present and the time in
+   `vglSwapBuffers` (raylib_vita.cpp now sums it). `[gpu86s]` every 600
+   presents: one frame's slowest GPU scenes with their target (from the
+   later of the scene before finishing and their own sending to their
+   finishing). It works in Vita3K (whose GPU timing means nothing); on the
+   console it names the scenes that make `present`.
+3. `SOTC_PRESENT86_SIM_MS` / `SOTC_PRESENT86_SIM_VSYNC` (testing): each
+   present lasts at least that long (and ends on a 60 Hz vblank), the
+   console GPU's wait in the swap, so Vita3K shows the hand-over's effect.
+
+**Measured in Vita3K (222 MHz, the altar, in-run A/B every 60 frames,
+present86 off minus on; positive = the switch's gain).**
+
+| run | frame on | raw | matched | wait on / off |
+|---|---|---|---|---|
+| no simulation | 41.60 | -0.09 | -0.13 | 0.03 / 0.03 |
+| swap >= 17 ms | 43.40 | +0.19 | - | 1.28 / 1.11 |
+| swap >= 26 ms | 45.51 | +1.06 | +1.17 | 10.22 / 10.67 |
+| swap >= 35 ms | 52.24 | +1.84 | +1.62 | 17.93 / 19.85 |
+| swap >= 10 ms, on a vblank | 42.51 | +0.90 | +0.90 | 0.05 / 1.06 |
+| swap >= 17 ms, on a vblank | 44.55 | +0.76 | +1.28 | 7.76 / 8.36 |
+
+Without a simulated wait Vita3K's swap does not wait and the game thread is
+the longer one: no change. With the render side as long as the game thread
+or longer, ~1-1.8 ms a frame: the frame comes to the render thread's own
+draw + present plus ~1 ms instead of ~2-3. The attract demo with the console
+env (r86all,newdir, 660 s, 18 142 frames): no crash; r86all -0.28 raw /
+-0.37 matched (the game thread longer there: noise). Pictures (shots.sh:
+the altar every 6 s, route 6 every 10 s, present86 on / off): the same
+pictures, no tearing or old frames.
+
+**Expected on the console.** Where the game thread is the longer one,
+nothing. Where the render side is (the shadow-volume frames, the heavy
+shrine frames), ~1-2 ms a frame from the overlap; the frame stays the render
+thread's draw plus the GPU's backlog. The large lever is the GPU and the
+render thread's draw, not the hand-over: frames 1500-2200 spend 23.5 ms of
+40 in the swap with ~250 draws, so the GPU is slow there per pixel, not per
+draw. The next console run's `[gpu86s]` lines (env-console.txt has
+SOTC_FRAME_LOG_ALL=1, so they are on) name the scenes; the shadow volumes'
+stencil fill and the picture's scene breaks around the soft-shadow mask
+(4-5 extra scenes of the 512 x 448 picture, each a colour + depth / stencil
+load and store) are the suspects. Then the render thread's draw at 1 000+
+draws (~1.7 ms per 100 draws on the console): fewer GL calls (merging,
+instancing) and less state work per draw.
+
+**Risks.** The present now runs while the game thread swaps the lists: it
+reads only the picture's texture and the host menu (nothing the hand-over
+touches), and the counters it writes are taken under the mutex. A present
+that waits long (the GPU behind) lets the game thread hand over one more
+frame before it waits; the uploads travel with their frame in order as
+before. The GPU timeline's thread wakes 2 000 times a second while the
+frame log is on (console runs); off otherwise.
+
+**Deliverables:** build/agent-scratch/celosia-r86.vpk;
+build/agent-scratch/r86/env-console.txt (the frame log, body shadows, the
+spike log, `SOTC_AB_FLAG=r86all,newdir`, rotation every 60 frames; the GPU
+timeline on through SOTC_FRAME_LOG_ALL); read it with
+`python3 build/agent-scratch/r86/tools/ab86.py err.txt --from 1500`.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
