@@ -496,6 +496,14 @@
    "focus": "Speed",
    "summary": "Found why the game thread waits for the render thread on the console: the hand-over waits until the render thread is idle, and the render thread is busy until its present returns, where vitaGL's swap blocks while the GPU still has the two frames before. So the wait is the GPU's backlog, and the console's frames are either bound by the render side (the shadow-volume frames, render 15.6 + present 23.5 ms) or by the game thread, never both; the run's averages mixed the two. Redesigned the hand-over so the render thread gives the frame's data back before the present (SOTC_GL_PRESENT86, on, A/B present86 / r86all; newdir includes it): the game thread no longer waits for the swap, with the same GL commands in the same order. Added the GPU's own timeline from vitaGL's scene notifications ([gpu86] / [gpu86s], on with the console's frame log) so the next console run names the GPU scenes that make the present.",
    "result": "Vita3K 222 MHz, the altar, in-run A/B: unchanged where the game thread is longer (Vita3K's own GPU never makes the swap wait); with a simulated console swap wait, 0.9-1.6 ms a frame faster where the render side is as long as the game thread or longer. Attract demo 660 s with the console env without a crash; altar and route 6 pictures on/off the same, no tearing or old frames. Console A/B prepared (env-console.txt, r86all,newdir, GPU timeline on)."
+  },
+  {
+   "round": "r87",
+   "date": "2026-11-06",
+   "commit": "4dce591",
+   "focus": "Speed",
+   "summary": "The console's run with the GPU timeline showed the GPU is now the limit everywhere (about 62 ms a frame, whatever the game thread does), with the slowest work in the full-size picture scenes. Made the GPU log name each slow scene by what the renderer drew in it, added a per-layer draw summary, and prepared four GPU changes the console can switch on in rotation: fewer frames queued on the GPU (inflight87), the fogged background layer drawn at the size actually used (bgsmall87), shadow volumes counted without a fragment program (vol87), and one picture scene fewer around the altar's soft shadows (shmask87). All four ship off. A sort of the draws by texture to merge more of them was measured slower and stays off.",
+   "result": "Vita3K cannot time the GPU: the candidates are neutral there, and the 660 s attract demo ran without a crash with them rotating. Pictures: shadows unchanged with vol87, frozen altar frames identical with shmask87, the far scenery within 31 levels with bgsmall87. The draw sort made the render thread 0.9 / 0.55 ms slower (altar / route 6). Console A/B prepared (env-console.txt: inflight87, bgsmall87)."
   }
  ]
 }
