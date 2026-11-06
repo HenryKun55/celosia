@@ -504,6 +504,14 @@
    "focus": "Speed",
    "summary": "The console's run with the GPU timeline showed the GPU is now the limit everywhere (about 62 ms a frame, whatever the game thread does), with the slowest work in the full-size picture scenes. Made the GPU log name each slow scene by what the renderer drew in it, added a per-layer draw summary, and prepared four GPU changes the console can switch on in rotation: fewer frames queued on the GPU (inflight87), the fogged background layer drawn at the size actually used (bgsmall87), shadow volumes counted without a fragment program (vol87), and one picture scene fewer around the altar's soft shadows (shmask87). All four ship off. A sort of the draws by texture to merge more of them was measured slower and stays off.",
    "result": "Vita3K cannot time the GPU: the candidates are neutral there, and the 660 s attract demo ran without a crash with them rotating. Pictures: shadows unchanged with vol87, frozen altar frames identical with shmask87, the far scenery within 31 levels with bgsmall87. The draw sort made the render thread 0.9 / 0.55 ms slower (altar / route 6). Console A/B prepared (env-console.txt: inflight87, bgsmall87)."
+  },
+  {
+   "round": "r88",
+   "date": "2026-11-06",
+   "commit": "18afc09",
+   "focus": "Speed",
+   "summary": "Round 87's two GPU wins are now on by default on the Vita: the fogged background layer drawn at the size actually used (bgsmall87) and shadow volumes counted without a fragment program (vol87); inflight87 and shmask87 stay off. Fixed a lost wake-up in the modelDispState lane found by the freeze hunt (a release store followed by a load on the other flag can reorder on ARM; now seq_cst on both sides and a timed wait). Read the console's frame times again: they only looked bimodal because frames over 50 ms are logged on separate 'slow' lines and the title/loading frames at 60 Hz were mixed in; the 3D's frames are one group around 58-61 ms, on whole vblanks, with no pacing waste (GPU busy ~57 of ~58 ms, the game thread ~43-46 ms of CPU). Prepared two GPU changes for the console A/B: world draws whose alpha is provably 1 drawn with blending off, the same pixels but visible to the GPU's hidden surface removal (opaque88), and the water's mirror drawn at 256 x 256, the PS2's own size (mirror88).",
+   "result": "Console (round 87's eboot, matched in-run A/B): bgsmall87 -5.2 ms a frame (-8.3 on the 3D's frames), vol87 -2.0, inflight87 +3.7, shmask87 0. 3D frames: p50 58-61 ms, 92-100% over 33.3 ms. Vita3K cannot time the GPU; there, opaque88 turns ~107 draws / 45k vertices a frame opaque at the altar (58 / 23k on the plain) with frozen frames identical pixel for pixel, and mirror88 is drawn every frame (also on the plain). Console A/B prepared (env-console.txt: opaque88, mirror88)."
   }
  ]
 }
