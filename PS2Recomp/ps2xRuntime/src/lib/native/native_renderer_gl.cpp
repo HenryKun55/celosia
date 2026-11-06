@@ -297,6 +297,19 @@ namespace
                             at += std::snprintf(line + at, sizeof(line) - at, " %u: ? %.2f;", rows[i].index, rows[i].us / 1000.0);
                     }
                     std::fprintf(stderr, "%s\n", line);
+                    // Round 93: that frame's target binds in order (each scene's
+                    // first work), the frame's whole scene structure.
+                    std::string seq = "[scene93] present " + std::to_string(g_checked + 1u) + ": " + std::to_string(b.binds.size()) + " binds:";
+                    for (const Bind &bd : b.binds)
+                    {
+                        char one[64];
+                        if (bd.fbo == 0u)
+                            std::snprintf(one, sizeof one, " display;");
+                        else
+                            std::snprintf(one, sizeof one, " %ux%u %s;", bd.w, bd.h, bd.what);
+                        seq += one;
+                    }
+                    std::fprintf(stderr, "%s\n", seq.c_str());
                 }
                 ++g_checked;
             }
@@ -967,6 +980,18 @@ void main(float2 aPos, uniform float4 uQuad,
     vUV = float4(aPos * 0.5 + 0.5, 0.0, 0.0);
 }
 )";
+    // Round 93 (modes 19 / 20): the texture position an affine function of
+    // the screen position, made per vertex: uQuad.xy x the position (0..1)
+    // + uQuad.zw (exact: the quad's varyings interpolate linearly).
+    const char *kQuadVertexAffine = R"(
+void main(float2 aPos, uniform float4 uQuad,
+          float4 out oPosition : POSITION,
+          float4 out vUV : TEXCOORD0)
+{
+    oPosition = float4(aPos, 0.0, 1.0);
+    vUV = float4((aPos * 0.5 + 0.5) * uQuad.xy + uQuad.zw, 0.0, 0.0);
+}
+)";
 
     // No depth textures: the depth modes (8, 11, 12) of the Mac are not used
     // on the Vita; 8 and 11 are the bloom's there (its mask kept in the
@@ -976,7 +1001,13 @@ void main(float2 aPos, uniform float4 uQuad,
     // the real GPU's branching) handles well.
     const char *kQuadFragment = R"(
 float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uSrc2,
-            uniform float4 uA, uniform float4 uB, uniform float4 uSize) : COLOR
+            uniform float4 uA, uniform float4 uB, uniform float4 uSize
+#if MODE == 20
+            , uniform float4 uW[4]
+#elif MODE == 21
+            , uniform float4 uW[5]
+#endif
+            ) : COLOR
 {
     float2 uv = vUV.xy;
 #if MODE == 0
@@ -1095,6 +1126,56 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     float2 x = float2(uv.x * uSize.x, uSize.y - uv.y * uSize.y) / uA.xy - 0.5;
     float2 g = (0.5 + x * float2(256.0 / 512.0, 256.0 / 448.0)) / 256.0;
     return float4(tex2D(uSrc, float2(g.x, 1.0 - g.y)).rgb * uB.rgb * uB.a, 1.0);
+#elif MODE == 19
+    // Round 93 (Tuning glPost93): mode 18 with its texture position made in
+    // the vertex program (kQuadVertexAffine: the screen position + a
+    // constant; the render scale cancels out).
+    return float4(tex2D(uSrc, uv).rgb * uB.rgb * uB.a, 1.0);
+#elif MODE == 20
+    // Round 93 (Tuning glBlur93, not the same picture): mode 16 as one
+    // weighted sum: the centre texel and the 12 taps (the same positions;
+    // uA.xy the taps' base offset, uA.z the step of one tap) by the weights
+    // of the 12 chained lerps (uW[0..2] the taps in mode 16's order, uW[3].x
+    // the centre), without the 8-bit truncation after each tap; taps past
+    // the edge read the edge texel (mode 16 leaves them out).
+    float2 b = uv + uA.xy;
+    float s = uA.z;
+    float3 acc = tex2D(uSrc, uv).rgb * uW[3].x;
+    acc += tex2D(uSrc, b + float2(s, 0.0)).rgb * uW[0].x;
+    acc += tex2D(uSrc, b + float2(-s, 0.0)).rgb * uW[0].y;
+    acc += tex2D(uSrc, b + float2(0.0, -s)).rgb * uW[0].z;
+    acc += tex2D(uSrc, b + float2(0.0, s)).rgb * uW[0].w;
+    acc += tex2D(uSrc, b + float2(2.0 * s, 0.0)).rgb * uW[1].x;
+    acc += tex2D(uSrc, b + float2(-2.0 * s, 0.0)).rgb * uW[1].y;
+    acc += tex2D(uSrc, b + float2(0.0, -2.0 * s)).rgb * uW[1].z;
+    acc += tex2D(uSrc, b + float2(0.0, 2.0 * s)).rgb * uW[1].w;
+    acc += tex2D(uSrc, b + float2(3.0 * s, 0.0)).rgb * uW[2].x;
+    acc += tex2D(uSrc, b + float2(-3.0 * s, 0.0)).rgb * uW[2].y;
+    acc += tex2D(uSrc, b + float2(0.0, -3.0 * s)).rgb * uW[2].z;
+    acc += tex2D(uSrc, b + float2(0.0, 3.0 * s)).rgb * uW[2].w;
+    // uW[3].y: the mean of what the GS's truncations take off (half a level
+    // a lerp, carried through the lerps after it): the blur feeds the next
+    // frame's temporal step, where an unbiased sum settled at about twice
+    // the glow (a Python model of the chain: mean 26.9 vs 14.0; with the
+    // bias taken off 13.8, within 3 levels everywhere).
+    return float4(max(acc - uW[3].y, float3(0.0, 0.0, 0.0)), 1.0);
+#elif MODE == 21
+    // Round 93 (Tuning glGlow93, not the same picture): one direction of the
+    // glow's binomial blur, rgba: tap k (0..16) at uv + (k - 8) x uA.xy,
+    // weight uW[k / 4][k % 4] (zero past the kernel's order).
+    float4 acc = tex2D(uSrc, uv) * uW[2].x;
+    acc += (tex2D(uSrc, uv - 1.0 * uA.xy) * uW[1].w + tex2D(uSrc, uv + 1.0 * uA.xy) * uW[2].y);
+    acc += (tex2D(uSrc, uv - 2.0 * uA.xy) * uW[1].z + tex2D(uSrc, uv + 2.0 * uA.xy) * uW[2].z);
+    acc += (tex2D(uSrc, uv - 3.0 * uA.xy) * uW[1].y + tex2D(uSrc, uv + 3.0 * uA.xy) * uW[2].w);
+    acc += (tex2D(uSrc, uv - 4.0 * uA.xy) * uW[1].x + tex2D(uSrc, uv + 4.0 * uA.xy) * uW[3].x);
+    if (uA.z > 4.5)
+    {
+        acc += (tex2D(uSrc, uv - 5.0 * uA.xy) * uW[0].w + tex2D(uSrc, uv + 5.0 * uA.xy) * uW[3].y);
+        acc += (tex2D(uSrc, uv - 6.0 * uA.xy) * uW[0].z + tex2D(uSrc, uv + 6.0 * uA.xy) * uW[3].z);
+        acc += (tex2D(uSrc, uv - 7.0 * uA.xy) * uW[0].y + tex2D(uSrc, uv + 7.0 * uA.xy) * uW[3].w);
+        acc += (tex2D(uSrc, uv - 8.0 * uA.xy) * uW[0].x + tex2D(uSrc, uv + 8.0 * uA.xy) * uW[4].x);
+    }
+    return acc;
 #else
     return float4(tex2D(uSrc, uv).rgb * uB.rgb * uB.a, 1.0);
 #endif
@@ -1340,7 +1421,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint mainProgram = 0, quadProgram = 0;
         GLuint skinProgram = 0; // the main program posing a skinned mesh's bind pose first (0: not built)
 #if defined(PS2X_NATIVE_VITA)
-        GLuint quadPrograms[19] = {}; // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused; 15-18 the GS bloom chain, round 65b)
+        GLuint quadPrograms[22] = {}; // (19-21: round 93's, the Vita) // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused; 15-18 the GS bloom chain, round 65b)
 #endif
         GLuint quadBuffer = 0, blurBuffer = 0, vao = 0;
         // Uniform locations by (program, name): the names are string literals,
@@ -1374,6 +1455,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t noScreen = 0, noScreenVerts = 0, halfCut = 0, px = 0, tex = 0, half = 0;
         } r92Stats;
+        // Round 93 ([r93] line with [shadow]): mirror passes skipped (mirror93);
+        // draws / vertices drawn with blending off by atop93 (and why: the
+        // alpha test's first pass at AREF >= 0x80, or a cut draw of least
+        // alpha 1); the alpha test's first passes by AREF (under 0x40, under
+        // 0x80, 0x80, over), and those that stay blended; bloom composites
+        // through post93 / blurs through blur93 / glow blurs through glow93.
+        struct
+        {
+            uint64_t mirrorSkip = 0, mirrorDrawn = 0, atop = 0, atopVerts = 0, atopTest = 0, atopLeast = 0, aref[4] = {}, atBlended = 0, atBlendedVerts = 0, post = 0, blur = 0, glow = 0;
+        } r93Stats;
+        GLuint bloomSource93 = 0; // round 93: what the GS bloom composite reads (gsBloom[6], or gsBloom[5] under glBlur93)
         GLuint diagTexture = 0; // round 92 (glDiag92Tex): one grey texel (128, 128, 128, 128), made at its first use
         Target previous; // the last frame shown (feedbackBlur)
         // Round 45 (Tuning glFewCopies, a host that shows a copy of its own):
@@ -2115,7 +2207,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void useQuad(int mode)
         {
 #if defined(PS2X_NATIVE_VITA)
-            if (mode >= 0 && mode < 19 && quadPrograms[mode])
+            if (mode >= 0 && mode < 22 && quadPrograms[mode])
                 quadProgram = quadPrograms[mode];
 #else
             (void)mode;
@@ -2211,6 +2303,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glUseProgram(quadProgram);
                 glUniform1i(uniform(false, "uSrc"), 0);
                 glUniform1i(uniform(false, "uSrc2"), 1);
+            }
+            // Round 93: the modes 19 / 20 (post93 / blur93); without them those stay off.
+            for (int mode : {19, 20, 21})
+            {
+                const std::string source = "#define MODE " + std::to_string(mode) + "\n" + kQuadFragment;
+                quadPrograms[mode] = program(kQuadVertexAffine, source.c_str(), {"aPos"});
+                if (!quadPrograms[mode])
+                {
+                    std::fprintf(stderr, "[native:gl] round 93 quad program %d did not build\n", mode);
+                    continue;
+                }
+                quadProgram = quadPrograms[mode];
+                glUseProgram(quadProgram);
+                glUniform1i(uniform(false, "uSrc"), 0);
             }
             quadProgram = quadPrograms[0];
 #else
@@ -4038,6 +4144,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              native_renderer::tuning().glNoScreen92 ? 1 : 0, r92Stats.noScreen / fr, r92Stats.noScreenVerts / fr, (unsigned long long)r92Stats.px,
                              (unsigned long long)r92Stats.tex, (unsigned long long)r92Stats.half, r92Stats.halfCut / fr);
                 r92Stats = {};
+                std::fprintf(stderr, "[r93] per frame: mirror93 %d: mirrors skipped %.2f, drawn %.2f | atop93 %d: blending off %.1f draws (%.0f vertices; alpha test at AREF >= 0x80 %.1f, cut with least alpha 1 %.1f); "
+                                     "alpha test first passes by AREF <0x40 %.1f <0x80 %.1f =0x80 %.1f >0x80 %.1f, kept blended %.1f (%.0f vertices) | post93 %d: %.2f | blur93 %d: %.2f | glow93 %d: %.2f\n",
+                             native_renderer::tuning().glMirror93 ? 1 : 0, r93Stats.mirrorSkip / fr, r93Stats.mirrorDrawn / fr, native_renderer::tuning().glAtOpaque93 ? 1 : 0,
+                             r93Stats.atop / fr, r93Stats.atopVerts / fr, r93Stats.atopTest / fr, r93Stats.atopLeast / fr, r93Stats.aref[0] / fr, r93Stats.aref[1] / fr, r93Stats.aref[2] / fr,
+                             r93Stats.aref[3] / fr, r93Stats.atBlended / fr, r93Stats.atBlendedVerts / fr, native_renderer::tuning().glPost93 ? 1 : 0, r93Stats.post / fr,
+                             native_renderer::tuning().glBlur93 ? 1 : 0, r93Stats.blur / fr,
+                             native_renderer::tuning().glGlow93 ? 1 : 0, r93Stats.glow / fr);
+                r93Stats = {};
                 alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
@@ -4714,13 +4828,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         if (phases.on)
             phases.arenaUs += native_renderer::nowUs() - arenaStart;
         const bool fogOn = fog.enabled && fog.width > 0.0f;
-        bool haveMirror = false;
+        bool haveMirror = false, mirrorRead = false;
         for (const Draw &d : draws)
-            if (d.state.reflectionSource)
-            {
-                haveMirror = true;
+        {
+            haveMirror = haveMirror || d.state.reflectionSource;
+            mirrorRead = mirrorRead || d.state.reflectionSample;
+            if (haveMirror && mirrorRead)
                 break;
-            }
+        }
+        // Round 93 (Tuning glMirror93): no draw reads the mirror this frame
+        // (no water reflection sent): it is not drawn (nothing samples it).
+        if (haveMirror && !mirrorRead && native_renderer::tuning().glMirror93)
+        {
+            haveMirror = false;
+            ++r93Stats.mirrorSkip;
+        }
+        else if (haveMirror)
+            ++r93Stats.mirrorDrawn;
 #if defined(PS2X_NATIVE_VITA)
         // The soft path draws a separate mask that must test the picture's
         // stencil; vitaGL framebuffers cannot share it, so the mask covered
@@ -5298,6 +5422,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     else
                         ++r88Stats.blended, r88Stats.blendedVerts += nv;
                 }
+                // Round 93 (Tuning glAtOpaque93): every pixel the draw leaves has
+                // alpha 1: the alpha test's first pass at AREF >= 0x80 (pixels
+                // under AREF are cut; the alpha is clamped to 1), or a draw with
+                // a discard whose least alpha is 1. Blending off, as opaque88.
+                // Not the SOFT programs (a cut pixel there is alpha 0, blended).
+                const bool atFirstCut = atSecond; // its first pass cuts at AREF (alphaCut.x)
+                if (atFirstCut)
+                    ++r93Stats.aref[aref < 0.5f ? 0 : aref < 1.0f ? 1 : aref == 1.0f ? 2 : 3];
+                if (d.state.blend == native_renderer::Blend::Normal && drawBlend == native_renderer::Blend::Normal && !keepAlpha && !softUsed && textured <= 1 &&
+                    !d.state.debugColour && !tintThis && ((atFirstCut && aref >= 1.0f) || leastAlpha >= 1.0f))
+                {
+                    if (native_renderer::tuning().glAtOpaque93)
+                    {
+                        drawBlend = native_renderer::Blend::Opaque;
+                        ++r93Stats.atop;
+                        r93Stats.atopVerts += planned.run > 1 ? planned.mergedCount : mesh.count;
+                        ++(atFirstCut && aref >= 1.0f ? r93Stats.atopTest : r93Stats.atopLeast);
+                    }
+                }
+                else if (atFirstCut && d.state.blend == native_renderer::Blend::Normal)
+                    ++r93Stats.atBlended, r93Stats.atBlendedVerts += planned.run > 1 ? planned.mergedCount : mesh.count;
                 if (static_cast<int>(drawBlend) != cache.blend)
                 {
                     setBlend(drawBlend, keepAlpha);
@@ -5584,6 +5729,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     else if (cutUsed)
                         ++drawStats.cut;
                     uniform4(uAlphaTest, under, 1);
+                    if (static_cast<int>(d.state.blend) != cache.blend) // round 93: the first pass drawn opaque (atop93); the second blends
+                    {
+                        setBlend(d.state.blend, keepAlpha);
+                        cache.blend = static_cast<int>(d.state.blend);
+                    }
                     if (cache.depthMask != 0)
                     {
                         glDepthMask(GL_FALSE);
@@ -5946,6 +6096,39 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (glow.rounds > 1)
                 {
                     reduce(glowSmall[1], glowSmall[2], 0.0f);
+#if defined(PS2X_NATIVE_VITA)
+                    // Round 93 (Tuning glGlow93, a candidate): the rounds + 1
+                    // half-texel copies there and back are each a 2 x 2 box
+                    // (a [1 2 1] / 4 tent a pair, separable): together the
+                    // binomial kernel of order 2 (rounds + 1) each way, drawn as
+                    // two passes (across, then down) instead of 2 (rounds + 1).
+                    const int n = glow.rounds + 1;
+                    if (glow.rounds > 2 && n <= 8 && native_renderer::tuning().glGlow93 && quadPrograms[21])
+                    {
+                        const int order = 2 * n; // taps 0..order, centred at order / 2
+                        float wts[20] = {};
+                        double c = 1.0;
+                        for (int k = 0; k <= order; ++k)
+                        {
+                            wts[8 - order / 2 + k] = static_cast<float>(c / std::ldexp(1.0, order));
+                            c = c * (order - k) / (k + 1);
+                        }
+                        const float identity[4] = {1.0f, 1.0f, 0.0f, 0.0f};
+                        for (int pass = 0; pass < 2; ++pass)
+                        {
+                            const Target &from = pass ? glowSmall[3] : glowSmall[2];
+                            const Target &to = pass ? glowSmall[2] : glowSmall[3];
+                            useQuad(21);
+                            glUniform4fv(uniform(false, "uW"), 5, wts);
+                            const float dir[4] = {pass ? 0.0f : 1.0f / static_cast<float>(from.width), pass ? 1.0f / static_cast<float>(from.height) : 0.0f,
+                                                  static_cast<float>(order / 2), 0.0f};
+                            bindTexture(0, from.texture);
+                            quad(to, 21, QuadBlend::None, dir, nullptr, identity);
+                        }
+                        ++r93Stats.glow;
+                    }
+                    else
+#endif
                     if (glow.rounds > 2)
                         for (int i = 0; i <= glow.rounds; ++i)
                         {
@@ -6259,11 +6442,58 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const float taps = bloomTapAlpha();
             const float r64[4] = {64, taps, 0, 0}, r128[4] = {128, taps, 0, 0};
             bindTexture(0, gsBloom[3].texture);
+#if defined(PS2X_NATIVE_VITA)
+            // Round 93 (Tuning glBlur93, a candidate): the blurs as one
+            // weighted sum (mode 20), and the composite reads the 128 x 128
+            // blur itself (no stretched copy into gsBloom[6]).
+            if (native_renderer::tuning().glBlur93 && quadPrograms[20])
+            {
+                auto blurSum = [&](Target &to, float r)
+                {
+                    const float k = 64.0f / r;
+                    float a[12];
+                    for (int g = 0; g < 3; ++g)
+                        for (int i = 0; i < 4; ++i)
+                            a[g * 4 + i] = std::floor(static_cast<float>(64 >> g) * taps / 128.0f) / 128.0f;
+                    float wts[16] = {};
+                    float keep = 1.0f; // what the later lerps leave of a tap
+                    for (int i = 11; i >= 0; --i)
+                    {
+                        wts[i] = a[i] * keep;
+                        keep *= 1.0f - a[i];
+                    }
+                    wts[12] = keep; // the centre (uW[3].x)
+                    float lost = 0.0f; // uW[3].y: the truncations' mean loss, in 8-bit levels / 255
+                    for (int i = 0; i < 12; ++i)
+                    {
+                        float later = 1.0f;
+                        for (int j = i + 1; j < 12; ++j)
+                            later *= 1.0f - a[j];
+                        lost += 0.5f * later;
+                    }
+                    wts[13] = lost / 255.0f;
+                    useQuad(20);
+                    glUniform4fv(uniform(false, "uW"), 4, wts);
+                    const float base = (0.5f - 0.5f * k) / 64.0f;
+                    const float params[4] = {base, -base, k / 64.0f, 0.0f}, identity[4] = {1.0f, 1.0f, 0.0f, 0.0f};
+                    quad(to, 20, QuadBlend::None, params, nullptr, identity);
+                    ++r93Stats.blur;
+                };
+                blurSum(gsBloom[4], 64.0f);
+                gsBloomHistory = true;
+                blurSum(gsBloom[5], 128.0f);
+                bloomSource93 = gsBloom[5].texture;
+            }
+            else
+#endif
+            {
             quad(gsBloom[4], 16, QuadBlend::None, r64);
             gsBloomHistory = true;
             quad(gsBloom[5], 16, QuadBlend::None, r128);
             bindTexture(0, gsBloom[5].texture);
             quad(gsBloom[6], 0, QuadBlend::None);
+            bloomSource93 = gsBloom[6].texture;
+            }
             bloomHistory = true;
             for (int i = 0; i < 7; ++i)
                 bloomStage(kBloomStageNames[i], gsBloom[i]);
@@ -6283,7 +6513,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
             const float before = bloomLog() ? targetMean(color, 0) : 0.0f;
             logRegions(color, "before the add");
-            bindTexture(0, gsBloom[6].texture);
+            bindTexture(0, bloomSource93 ? bloomSource93 : gsBloom[6].texture);
+#if defined(PS2X_NATIVE_VITA)
+            // Round 93 (Tuning glPost93): mode 18's texture position, (u + 1/1024,
+            // v - (0.5 - 128/448) / 256) whatever the render scale, made per vertex.
+            if (native_renderer::tuning().glPost93 && quadPrograms[19])
+            {
+                const float affine[4] = {1.0f, 1.0f, 1.0f / 1024.0f, -(0.5f - 128.0f / 448.0f) / 256.0f};
+                quad(color, 19, QuadBlend::Add, nullptr, colour, affine);
+                ++r93Stats.post;
+            }
+            else
+#endif
             quad(color, 18, QuadBlend::Add, scale, colour);
             logAdd(bloomSameFrame ? "vita-sameframe" : "vita-late", color, before);
             logRegions(color, "after the add");

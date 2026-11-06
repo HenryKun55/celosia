@@ -370,15 +370,25 @@ namespace native_renderer
         // GPU's hidden surface removal can take it (a blended draw's pixels
         // are all shaded and read the tile, the scene's overdraw in full).
         // Not where the picture's alpha must be kept (the Vita bloom's mask).
-        // SOTC_GL_OPAQUE88=0/1 (default 0); A/B name `opaque88` (its windows flip it).
+        // SOTC_GL_OPAQUE88=0/1 (default 1 on the Vita since round 93, 0
+        // elsewhere); A/B name `opaque88` (its windows flip it).
+#if defined(__vita__)
+        bool glOpaque88 = true;
+#else
         bool glOpaque88 = false;
+#endif
         // Round 88 (GPU, console A/B candidate): the mirror (the reflection
         // the water reads, the scene drawn again mirrored) drawn into a
         // 256 x 256 target, the PS2's own size (and the Mac's), instead of
         // 512 x 448: ~3.5x fewer pixels; the water reads it by its screen
         // position, rippled, as before.
-        // SOTC_GL_MIRROR88=0/1 (default 0); A/B name `mirror88` (its windows flip it).
+        // SOTC_GL_MIRROR88=0/1 (default 1 on the Vita since round 93, 0
+        // elsewhere); A/B name `mirror88` (its windows flip it).
+#if defined(__vita__)
+        bool glMirror88 = true;
+#else
         bool glMirror88 = false;
+#endif
         // Round 92 (GPU diagnostics for the console's A/B, default 0, the
         // picture WRONG while on; each A/B window turns its switch on):
         // diag92px: every target's viewport an eighth of its width and height
@@ -405,6 +415,52 @@ namespace native_renderer
 #else
         bool glNoScreen92 = false;
 #endif
+        // Round 93 (the Vita's GPU). Exact ones (default 1 on the Vita; A/B
+        // windows turn them off, `r93all` all together):
+        // mirror93: the mirror (the scene drawn again mirrored) only in frames
+        // where some draw reads it (the water's reflection draws); before, it
+        // was drawn whenever the game sent mirrored draws, water in view or
+        // not. SOTC_GL_MIRROR93=0/1; A/B `mirror93`.
+        // atop93: a Normal-blend draw whose every drawn pixel has alpha 1
+        // (the GS alpha test's first pass at AREF >= 0x80: only pixels at
+        // AREF or over are drawn and the alpha is clamped to 1; or a draw
+        // with a discard whose least alpha is 1) is drawn with blending off,
+        // as opaque88 does for the draws without discard: Cs x 1 + Cd x 0.
+        // Not the SOFT programs (they rely on blending), not while the
+        // picture's alpha is kept. SOTC_GL_ATOP93=0/1; A/B `atop93`.
+        // post93: the GS bloom composite's (mode 18) texture position from
+        // the vertex program (it is the screen position plus a constant) and
+        // its colour premultiplied on the CPU: one texture read and one
+        // multiply a pixel over the whole picture instead of ~14 operations
+        // and a dependent read. SOTC_GL_POST93=0/1; A/B `post93`.
+#if defined(__vita__)
+        bool glMirror93 = true;
+        bool glAtOpaque93 = true;
+        bool glPost93 = true;
+#else
+        bool glMirror93 = false;
+        bool glAtOpaque93 = false;
+        bool glPost93 = false;
+#endif
+        // Round 93 candidates, NOT the same picture (default 0; their A/B
+        // windows turn them on):
+        // blur93: the GS bloom chain's 12-tap blur (mode 16, 64 x 64 and
+        // 128 x 128, ~270 instructions a pixel) as one weighted sum of the 13
+        // texels (the weights of the 12 chained lerps, computed on the CPU),
+        // the GS's 8-bit truncation after each tap replaced by its mean loss
+        // taken off the sum (the blur feeds the next frame's temporal step:
+        // without that the glow settled at about twice its strength), the
+        // taps past the edge read at the edge; the composite reads the
+        // 128 x 128 blur itself (no stretched 256 x 256 copy). Within a few
+        // levels of the chain. SOTC_GL_BLUR93=0/1; A/B `blur93`.
+        // glow93: the glow layer's 64 x 64 blur (bossDeathEffect: rounds + 1
+        // shifted half-texel copies there and back, 8 scenes at the altar's
+        // 3 rounds) as two passes of the same binomial kernel (across, then
+        // down; the taps' weights of the repeated 2 x 2 box): without the
+        // 8-bit rounding between the copies and with one edge clamp instead
+        // of eight. SOTC_GL_GLOW93=0/1; A/B `glow93`.
+        bool glBlur93 = false;
+        bool glGlow93 = false;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

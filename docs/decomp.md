@@ -14124,3 +14124,93 @@ depth on the host GPU, so only the console can check it: for a later run.
 `SOTC_AB_PERIOD=60`. Read with `tools/ab92.py err.txt`: the `[gpu86]` busy per
 window and the split at the end. Not the frame times (the game thread holds
 them), and not the pictures in those windows (wrong by design).
+
+## Round 93: the console's GPU: round 88's two cuts on by default, the alpha-tested draws that blend for nothing, the bloom and glow chains' passes (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r93/`:
+- build.sh / v3k.sh / freeze.sh: round 92's with r93 paths (worktree `r93/wt`,
+  build `r93/vita`, vitaGL `r93/vitagl` = round 92's, Vita3K `r93/vita3k` with
+  its `portable` link to ../vita3k-celosia-r93; absolute VPK paths only).
+- tools/ab93.py: ab92.py judged by the GPU's busy time first (`[gpu86]` lines
+  wholly inside one window, with the standard error), opaque88 / mirror88 now
+  "OFF(flip)" rows, blur93 / glow93 "ON(flip)" rows, the `[r93]` and
+  `[scene93]` lines.
+- runs/: freezeA / freezeC / freezeD (the altar frozen), freezeR / freezeE
+  (route 6's plain frozen), env1 (route 6 moving, the console env).
+- celosia-r93.vpk; env-console.txt (`SOTC_AB_FLAG=r93all,blur93,glow93`).
+
+**The fragment programs (libshacccg's output, Vita3K's shader log).** The lean
+world programs are short already: 12 instructions (one-level texture, no
+background fog, no cut-out), 34 with the cut-out, 38 with the background fog,
+60 with both; the LOD variants 28-76 (a log and a dependent read), but no
+texture in the routes checked has mip levels (`tex->mipped` never set), so
+the LOD programs carry only untextured draws. The full main program is 148.
+Mostly F16 already (fast precision). The outlier is the GS bloom chain's
+12-tap blur (mode 16): 272 instructions a pixel at 64 x 64 and 128 x 128. With
+texture traffic ~1 ms of the 56 (diag92tex), the pixels' 35 ms are blending,
+discards and overdraw, plus the full-screen passes.
+
+**Where the frame's scenes go (`[scene93]`, Vita3K, the altar).** 35 target
+binds a frame: the mirror, the background, the picture (pass 0-8), the soft
+shadows' three small passes, the glow layer apart and its 13 reductions (9 of
+them 64 x 64 ping-pong copies), the shadow darkening, the picture again (pass
+9-20), the bloom chain (7 small passes) and its composite. Every bind is a GXM
+scene with its own load / store.
+
+**Defaults.** `SOTC_GL_OPAQUE88` and `SOTC_GL_MIRROR88` are now 1 on the Vita
+(round 90's console A/B: `[gpu86]` busy -12 and -15 ms); their windows turn
+them off. Vita3K: the frozen altar's 76 captures identical with either off;
+route 6's frozen plain identical but one capture (1 level, 1 pixel: mirror88,
+as in round 88).
+
+**Exact, default 1 on the Vita (A/B `r93all` turns all three off).**
+1. `SOTC_GL_ATOP93` (`atop93`): blending off for a Normal-blend draw whose every
+   drawn pixel has alpha 1: the alpha test's first pass at AREF >= 0x80, or a
+   draw with discard whose least alpha is 1 (opaque88 took only the draws
+   without discard). Not the SOFT programs (they rely on blending), not while
+   the picture's alpha is kept; the alpha test's second pass gets its blend
+   back. The game's alpha-tested draws all use AREF under 0x80 (`[r93]`: 55-98
+   first passes a frame, all < 0x80), so the gain is the cut draws of least
+   alpha 1: 18-43 draws (7-15k vertices) a frame at the plain and the altar.
+2. `SOTC_GL_MIRROR93` (`mirror93`): the mirror is drawn only in frames where a
+   draw reads it. At the altar and route 6's plain the water's draws are always
+   sent (0 skipped there); it skips the mirror in loading / menu frames.
+3. `SOTC_GL_POST93` (`post93`): the bloom composite (mode 18, every bloom frame,
+   the whole picture) took its texture position from ~14 operations a pixel; it
+   is the screen position plus (1/1024, -(0.5 - 128/448) / 256) whatever the
+   render scale, now made in a vertex program (kQuadVertexAffine, mode 19).
+Vita3K: route 6's frozen plain (freezeE, 41 captures over the r93all windows)
+and the altar (freezeA) identical pixel for pixel on / off.
+
+**Candidates, not the same picture (default 0; their windows turn them on).**
+1. `SOTC_GL_BLUR93` (`blur93`): mode 16's 12 chained lerps (each truncated to 8
+   bits) as one weighted sum of the 13 texels (mode 20; the weights computed on
+   the CPU; checked in Python: equal to the untruncated chain to 1e-13). The
+   blur feeds the next frame's temporal step, so dropping the truncations
+   settled the glow at about twice its strength (a Python model of the chain at
+   temporal 0.92 / taps 59-29-14: mean 26.9 vs 14.0): the mean loss of the
+   truncations (half a level a lerp, carried) is taken off (model: 13.8, within
+   3 levels). The composite reads the 128 x 128 blur directly (no stretched
+   256 x 256 copy: one scene less). Vita3K (freezeD, the altar): the sky's glow
+   1.3 levels brighter on average, 63k of 2.2M capture pixels over 8 levels,
+   45 at most, along the bright sky's edges.
+2. `SOTC_GL_GLOW93` (`glow93`): the glow layer's blur (rounds + 1 half-texel
+   copies there and back at 64 x 64, 8 scenes at the altar) as two passes of
+   the same binomial kernel (mode 21, across then down). Vita3K (freezeD):
+   within 2 levels of the copies.
+(A per-pixel-LOD replacement was written and dropped: no mipmapped textures in
+the routes, so it changed nothing.)
+
+**Not done: a direct-GXM world pass.** vitaGL's per-draw work (uniform buffers
+reserved and copied, state words) is what GXM itself needs per draw; a direct
+path would cut the render thread's CPU, not the GPU's busy time, which grows
+with draws through GXM's own per-draw state and per-tile program loads either
+way. Fewer draws / scenes is the lever there.
+
+**Console env (env-console.txt):** the usual log lines and
+`SOTC_AB_FLAG=r93all,blur93,glow93`, `SOTC_AB_ROTATE=1`, `SOTC_AB_PERIOD=60`
+(opaque88 / mirror88 on everywhere). Read with `tools/ab93.py err.txt`: the GPU
+busy per window first. `r93all off`: a positive busy is what the three exact
+switches save; `blur93 ON(flip)` / `glow93 ON(flip)`: a negative busy is the
+candidate's gain. A separate run with `SOTC_VGL_DEPTH_TILED=1` (round 92's
+experiment, read at start-up, not switchable in a window) is still open.
