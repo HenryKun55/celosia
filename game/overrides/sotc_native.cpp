@@ -3004,11 +3004,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r86AllAt = -1, newDirAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, newDirAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3034,6 +3034,7 @@ namespace sotc_native
             r82AllAt = indexOf("r82all");
             r83AllAt = indexOf("r83all");
             r84AllAt = indexOf("r84all");
+            r85AllAt = indexOf("r85all");
             r86AllAt = indexOf("r86all");
             newDirAt = indexOf("newdir");
             log76At = indexOf("log76");
@@ -3062,10 +3063,12 @@ namespace sotc_native
             static const int r83Switches[] = {static_cast<int>(sotc_decomp::kWalk83), static_cast<int>(sotc_decomp::kPtcl83)};
             // Round 84: `r84all` (probe84) likewise, in `newdir` too.
             static const int r84Switches[] = {static_cast<int>(sotc_decomp::kProbe84)};
+            // Round 85: `r85all` (ground85) likewise, in `newdir` too.
+            static const int r85Switches[] = {static_cast<int>(sotc_decomp::kGround85)};
             static const int newDirSwitches[] = {static_cast<int>(sotc_decomp::kCharLod78), static_cast<int>(sotc_decomp::kPtcl79), static_cast<int>(sotc_decomp::kSeg80),
                                                  static_cast<int>(sotc_decomp::kPose82), static_cast<int>(sotc_decomp::kWalk83), static_cast<int>(sotc_decomp::kPtcl83),
-                                                 static_cast<int>(sotc_decomp::kProbe84)};
-            if (r80AllAt >= 0 || r82AllAt >= 0 || r83AllAt >= 0 || r84AllAt >= 0 || newDirAt >= 0)
+                                                 static_cast<int>(sotc_decomp::kProbe84), static_cast<int>(sotc_decomp::kGround85)};
+            if (r80AllAt >= 0 || r82AllAt >= 0 || r83AllAt >= 0 || r84AllAt >= 0 || r85AllAt >= 0 || newDirAt >= 0)
                 for (int i : newDirSwitches)
                 {
                     const bool groupOff = (newDirAt >= 0 && isOffAt(newDirAt)) ||
@@ -3073,6 +3076,7 @@ namespace sotc_native
                                           (r82AllAt >= 0 && isOffAt(r82AllAt) && std::find(std::begin(r82Switches), std::end(r82Switches), i) != std::end(r82Switches)) ||
                                           (r83AllAt >= 0 && isOffAt(r83AllAt) && std::find(std::begin(r83Switches), std::end(r83Switches), i) != std::end(r83Switches)) ||
                                           (r84AllAt >= 0 && isOffAt(r84AllAt) && std::find(std::begin(r84Switches), std::end(r84Switches), i) != std::end(r84Switches)) ||
+                                          (r85AllAt >= 0 && isOffAt(r85AllAt) && std::find(std::begin(r85Switches), std::end(r85Switches), i) != std::end(r85Switches)) ||
                                           (i == static_cast<int>(sotc_decomp::kPtcl79) && r79AllAt >= 0 && isOffAt(r79AllAt));
                     if (groupOff)
                         sotc_decomp::setSwitch(i, false);
@@ -10988,6 +10992,6 @@ void installSotcNative(PS2Runtime &runtime)
 // overlaps" (round 55's text ended 0x2e0 below one). These 8 KB of read-only
 // data move the end past it; if that message comes back after code grows or
 // shrinks, change the size (any value that moves the text end more than
-// ~4.5 KB away from the boundary below it). Round 73: 16 KB.
-extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[16384] = {1};
+// ~4.5 KB away from the boundary below it). Round 73: 16 KB. Round 85: 24 KB.
+extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[24576] = {1};
 #endif

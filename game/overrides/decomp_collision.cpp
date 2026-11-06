@@ -47,6 +47,16 @@
 #include <initializer_list>
 #include <unordered_map>
 
+// Round 85 (decomp_hot47j's ground85): the finder leaf's entries recorded while
+// one object's step is being captured (the surface, its boundary sphere and
+// plane as the leaf tested them, the leaf's query centre and radius).
+#include "ground85_capture.h"
+namespace ground85
+{
+    Capture g_cap;
+    View g_view;
+}
+
 namespace decomp_collision
 {
     using sotc_decomp::returnTo;
@@ -2300,6 +2310,26 @@ namespace decomp_collision
     }
 #endif
 
+    // Round 85: a leaf entry (or a surface already entered) of the captured object.
+    inline void capture85(const G g, uint32_t center, float radius, uint32_t bnd, uint32_t slot, uint32_t id, bool dup)
+    {
+        ground85::Capture &k = ground85::g_cap;
+        float cv[4], bq[4], pq[4];
+        const __m128 c = g.q(center), b = g.q(bnd), pl = g.q(slot);
+        std::memcpy(cv, &c, 16);
+        std::memcpy(bq, &b, 16);
+        std::memcpy(pq, &pl, 16);
+        if (!k.query)
+        {
+            std::memcpy(k.c, cv, 16);
+            k.r = radius;
+            k.query = true;
+        }
+        else if (std::memcmp(k.c, cv, 12) != 0 || k.r != radius)
+            k.queryDiffers = true;
+        k.record(id, dup, bq, pq);
+    }
+
     template <bool ByteCount>
     void finderLeaf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -2525,9 +2555,13 @@ namespace decomp_collision
             if (finderHas(g, g.u32(p), static_cast<int32_t>(g.u32(p + 0x34u)), surface) != 0u)
             {
                 COLL_STAT(fHasFound);
+                if (__builtin_expect(ground85::g_cap.on, 0) && g.u32(p + 4u) == ground85::g_cap.obj)
+                    capture85(g, center, radius, bnd, slot, static_cast<uint32_t>(id), true);
                 continue;
             }
             COLL_STAT(fEntry);
+            if (__builtin_expect(ground85::g_cap.on, 0) && g.u32(p + 4u) == ground85::g_cap.obj)
+                capture85(g, center, radius, bnd, slot, static_cast<uint32_t>(id), false);
             SET_GPR_U32(ctx, 4, g.u32(p));
             SET_GPR_U32(ctx, 5, g.u32(p + 4u));
             SET_GPR_U64(ctx, 6, id);
@@ -4694,6 +4728,11 @@ namespace decomp_collision
     // CallBack variant asks t0(id, t1) first (the id filters natively when
     // known, else a guest call). A negative count goes to the recompiled
     // code (nothing written yet). v0 / f0 as the original leaves them.
+    inline int ground85Check()
+    {
+        static const int v = std::getenv("SOTC_GROUND85_CHECK") ? std::atoi(std::getenv("SOTC_GROUND85_CHECK")) : 0;
+        return v;
+    }
     template <bool Filtered>
     void finderClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -4723,14 +4762,59 @@ namespace decomp_collision
         {
             g.put(sp, g.q(a2));
             uint32_t cand = g.u32(a3 + 0xCu);
+            // Round 85: the ground fill's candidates with their sphere and plane in host
+            // arrays (ground85::View): a candidate the segment cannot reach (both ends on
+            // one side of its plane, as clipDB's first test, or the segment farther from
+            // its boundary sphere than the radius, as its second) is passed over without
+            // the filter and clipDB, which would answer "no hit" for it.
+            ground85::View &view = ground85::g_view;
+            const bool hostView = view.finder == a3 && view.list == cand && view.count >= n && sotc_decomp::ground85On() &&
+                                  ground85::listSum(g.rdram, cand, view.count) == view.sum;
+            const int check85 = hostView ? ground85Check() : 0;
+            view.uses += hostView;
             for (int32_t k = 0; k < n; ++k, cand += 8u)
             {
                 if (g.u32(cand) == 0u)
                     continue;
+                bool skip85 = false;
+                if (hostView && k < ground85::View::kMax && view.valid[k])
+                {
+                    ++view.tested;
+                    const __m128 qa = g.q(a1), qb = g.q(sp);
+                    float pa[4], pb[4];
+                    std::memcpy(pa, &qa, 16);
+                    std::memcpy(pb, &qb, 16);
+                    const float *pl = view.plane[k], *b = view.bnd[k];
+                    const float d0 = pl[0] * pa[0] + pl[1] * pa[1] + pl[2] * pa[2] + pl[3];
+                    const float d1 = pl[0] * pb[0] + pl[1] * pb[1] + pl[2] * pb[2] + pl[3];
+                    const float eps = 1e-3f * (1.0f + std::fabs(pl[3]));
+                    bool miss = d0 < -eps || d1 > eps;
+                    if (!miss)
+                    {
+                        // the segment's nearest point to the sphere's centre
+                        const float ux = pb[0] - pa[0], uy = pb[1] - pa[1], uz = pb[2] - pa[2];
+                        const float wx = b[0] - pa[0], wy = b[1] - pa[1], wz = b[2] - pa[2];
+                        const float uu = ux * ux + uy * uy + uz * uz;
+                        float t = uu > 0.0f ? (wx * ux + wy * uy + wz * uz) / uu : 0.0f;
+                        t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+                        const float ex = wx - t * ux, ey = wy - t * uy, ez = wz - t * uz;
+                        const float reach = b[3] * 1.001f + 1e-3f;
+                        miss = ex * ex + ey * ey + ez * ez > reach * reach;
+                    }
+                    if (miss)
+                    {
+                        ++view.rejected;
+                        if (check85 == 0)
+                            continue;
+                        skip85 = true;
+                    }
+                }
                 if (Filtered && !directFilter(g, filter, cand, user, filterSite + 8u, sp))
                     continue;
                 if (clipDB(g, a0, a1, sp, cand, clipSite + 8u, sp) == 0u)
                     continue;
+                if (skip85)
+                    ++view.wrong; // the check: a hit the host test called a miss (the game's answer is used)
                 g.put(sp, g.q(a0 + 0x40u));
                 best = cand;
             }
@@ -4791,9 +4875,28 @@ namespace decomp_finderwalk
             else
                 decomp_collision::guestCall(rdram, ctx, runtime, callback, site + 8u, sp);
         }
+        // Round 85: the capture's split stack back to where this walk began; the box once.
+        static void popTo85(int base)
+        {
+            if (ground85::g_cap.on)
+                ground85::g_cap.depth = base;
+        }
+        void capBox85(float margin) const
+        {
+            ground85::Capture &k = ground85::g_cap;
+            float b[4] = {f32(box), f32(box + 4u), f32(box + 8u), margin};
+            if (!k.box)
+            {
+                std::memcpy(k.b, b, 16);
+                k.box = true;
+            }
+            else if (std::memcmp(k.b, b, 16) != 0)
+                k.boxDiffers = true;
+        }
         void walk(uint32_t node, uint32_t spIn) const
         {
             const uint32_t sp = spIn - 0x40u;
+            const int base85 = ground85::g_cap.depth;
             float f2 = f32(query + 0x10u);
             const float margin = f32(box + 0xCu);
             for (;;)
@@ -4805,8 +4908,15 @@ namespace decomp_finderwalk
                 SET_GPR_U32(ctx, 2, axisAt);
                 float f0 = FPU_ADD_S(FPU_MUL_S(f1, f2), margin);
                 const float coord = f32(axisAt);
+                ground85::Capture &k85 = ground85::g_cap;
+                const bool cap85 = __builtin_expect(k85.on, 0);
+                if (cap85)
+                    capBox85(margin);
                 if (FPU_C_OLE_S(coord, f0))
                 {
+                    if (cap85 && k85.depth < ground85::Capture::kDepth)
+                        k85.stack[k85.depth] = {static_cast<uint8_t>(word & 3u), 1u, FPU_MUL_S(f1, f2)};
+                    k85.depth += cap85;
                     if (((word >> 16) & 1u) == 0u)
                     {
                         // jal 0x1128f38 at 0x1128fec: the same box, tree, callback, query
@@ -4815,19 +4925,23 @@ namespace decomp_finderwalk
                     }
                     else
                         leaf((word >> 2) & 0x3FFFu, 0x01128FC0u, sp);
+                    k85.depth -= cap85;
                     f1 = f32(n);
                     f2 = f32(query + 0x10u);
                 }
                 f0 = FPU_SUB_S(FPU_MUL_S(f1, f2), margin);
                 ctx->f[0] = f0;
                 if (!FPU_C_OLE_S(f0, coord))
-                    return;
+                    return popTo85(base85);
+                if (cap85 && k85.depth < ground85::Capture::kDepth)
+                    k85.stack[k85.depth] = {static_cast<uint8_t>(word & 3u), 0u, FPU_MUL_S(f1, f2)};
+                k85.depth += cap85;
                 const uint32_t high = u32(n + 4u);
                 SET_GPR_U32(ctx, 2, high);
                 if (static_cast<int32_t>(high) < 0)
                 {
                     leaf((high >> 17) & 0x3FFFu, 0x01129028u, sp);
-                    return;
+                    return popTo85(base85);
                 }
                 SET_GPR_U32(ctx, 2, high >> 17);
                 node = (high >> 17) & 0x3FFFu;

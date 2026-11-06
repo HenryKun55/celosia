@@ -12851,6 +12851,256 @@ round); console env r84/env-console.txt (`SOTC_AB_FLAG=r84all,newdir`: all
 on / probe84 off / rounds 78-84 off); read it with
 `python3 build/agent-scratch/r84/tools/ab84.py err.txt --from <frame>`.
 
+## Round 85: Wander's ground fill from a patch of host arrays; the AI control's LOD measured and dropped (2026-11-05)
+
+Scripts, runs and logs: `build/agent-scratch/r85/`:
+- build.sh: its own worktree `r85/wt` and build directory `r85/vita`.
+- v3k.sh: its own Vita3K, `r85/vita3k`, with its `portable` link to
+  ../vita3k-celosia-r85 (pref-path fixed to r85); 222 MHz, 3 cores, muted,
+  memcard copied, settings.cfg put back; it refuses a missing VPK and a
+  second start while the round's Vita3K runs.
+- chain.sh (absolute VPK path): the altar A/B, route 6 A/B, the route 6
+  check, the behaviour script on / off (in_behave85.txt), the attract demo
+  with the console env (660 s), then shots.sh (the altar and route 6
+  pictures, `SOTC_GROUND85=1` / `0`).
+- tools/ab85.py: round 84's reader plus the round's `[ground85]` lines.
+- runs/: probeA / probeP / bis1 / bis2 (the AI LOD), probeG (the ground
+  fill by object), checkG6 / checkG7 / checkC / check10 (the check),
+  altarG7 / altarG8 / altarC / altar8 / altar10, routeC, attractC /
+  attract8 / attract10 (the A/Bs), behaveC-on / -off, behave8-on /
+  behave8-on2, behave84 (round 84's build), shots* (pictures in pics/).
+- ailod85-dropped.diff: the AI control LOD.
+
+**The AI control's LOD (`SOTC_AILOD85`): measured, then dropped.**
+- CharaCtrlAIControl (0x10cbf78) runs once a frame for every AI character.
+  It asks ViewIntervalClip for the time gathered since the character's
+  last update; with the class's +0x1070 set it takes the whole frame time.
+  It then hands that time to the control step (manager_sub_010CABA0), every
+  frame, even when the time is 0.
+- The test build wrapped it with round 78's rules. A small creature
+  (collision radius below 0.3), off screen this frame and the one before,
+  more than 12 units from Wander, not the player and not the active
+  colossus, gathered its time and ran its control step every 0.25 s, with
+  the whole gathered time.
+- Per creature at the altar (runs/bis2, host clock, Vita3K 222 MHz,
+  `SOTC_AILOD85_LOG`):
+
+  | creatures | control step, ms a frame each |
+  |---|---|
+  | ~12 far birds and lizards | 0.04-0.09 (~0.75 together) |
+  | Agro (excluded by the rules) | 0.53 |
+  | the near ones | 0.05-0.25 |
+
+  So the most the LOD could save at the altar is ~0.6 ms, below the bar.
+- It also broke the game:
+  - p1: from the title, the game went to another scene (5 500 draws, the
+    same picture for minutes). The title's actors had their control put
+    off.
+  - p3 added a guard: only while the camera is within 30 units of Wander.
+    It hung the game thread twice (in the title, and at the start of play).
+- Taken out. The code is in ailod85-dropped.diff. Off-screen creatures'
+  geometry stays slowed by round 78.
+- The AI path work (updateUserPathWork) is ~2.2 ms at the altar for ~3
+  calls a frame. Its callers are the horse's and the AI leader's paths, not
+  one call per creature, so a per-creature LOD has nothing to slow there.
+
+**Where Wander's ground fill goes (`SOTC_GROUND85_LOG=1`, runs/probeG,
+Vita3K 222 MHz, the altar, frames 5 000-8 700).**
+- The walking characters' ground fill is getCollisionDB's walk over the
+  group with GetCollisionDBCallBack, running each object's finder step.
+- It takes ~1.95 ms a frame, for 2.4 fills of ~12 objects each.
+- Almost all of that time is in two still shrine objects:
+
+  | object | ms a frame | surfaces entered a frame |
+  |---|---|---|
+  | 01c59920 | 1.15 | 52 |
+  | 01e3eab0 | 0.44 | 26 |
+
+- The ~10 other objects of the group: their step finds nothing (bounding
+  sphere rejected) and costs 0.001-0.03 ms each.
+- So the fill's time is the near objects' leaves: the tree walk, the
+  boundary and plane tests, the filters, the duplicate search and the
+  entry. That is ~20 us for each surface entered, every frame, for
+  surfaces that do not change.
+
+**What changed (`SOTC_GROUND85`, default on; `SOTC_AB_FLAG` takes `ground85`
+and `r85all`, and `newdir` now takes it in; decomp_hot47j.cpp,
+decomp_collision.cpp, ground85_capture.h).** The fill per still object comes
+from a patch kept in host arrays, and the finder clips after it read the same
+arrays.
+- **The patch (built rarely).** For a still layout object (not a character),
+  the key is: the caller, the finder, the object, its matrix (64 bytes),
+  scale, collision flags and DB, the filters and their records.
+  - The object's finder step runs once with the query radius grown by
+    `SOTC_GROUND85_MARGIN` (1 unit).
+  - The finder leaf records every surface it enters, and every surface it
+    finds already entered (decomp_collision's capture). For each it keeps
+    the boundary sphere and the plane as the leaf tested them.
+  - The tree walk records, for each leaf, the splits on the way to it:
+    axis, split x scale, and the side taken.
+  - The leaf's query (centre, radius) and the walk's box (centre, margin)
+    are kept too.
+  - Those entries are then taken out of the finder again, as the game's own
+    undo path does (DeleteCollisionFinder, the count put back).
+- **Each fill after it (the step not run).** This holds while the query
+  stays inside the grown one: the segment's middle moved by d, and d plus
+  half the segment's length plus the radius within the grown reach. It
+  holds for at most `SOTC_GROUND85_AGE` (60) frames.
+  - The query's box, centre and radius are moved and scaled from the kept
+    ones.
+  - One host loop runs the recorded surfaces through the walk's splits and
+    then the leaf's two tests: the boundary sphere within reach, and the
+    plane nearer than the radius.
+  - The surfaces that pass are entered in the step's order, each at its
+    first leaf that passes.
+  - Every surface the step would enter for the smaller query also passes
+    for the grown one, so it is among the recorded ones. The filters'
+    answers depend only on the key.
+- **Always the game's step:** objects whose step enters anything the leaf
+  did not record (triangle meshes, skinned parts), whose walk ran with more
+  than one box or query, or that would fill the finder.
+- **The finder clips after the fill.** ClipCollisionFinder and
+  ClipCollisionFinderCallBack on that list (the landing test, the IK's foot
+  search, ~13 calls a frame at the altar) read a host view of it: each
+  candidate's sphere and plane, made at the end of the fill and used while
+  the list's words are unchanged.
+  - A candidate is passed over when both ends of the segment are on one
+    side of its plane (with a small margin), or when the segment cannot
+    reach its boundary sphere.
+  - Passed over means no surface filter and no clipDB. clipDB's first two
+    tests answer "no hit" for exactly these candidates.
+  - At the altar, 620 of ~770 candidates a frame are passed over that way.
+- `SOTC_GROUND85_CHECK=1`: the step and the clips run as the game's, and
+  the game's answers are used.
+  - The patch's set is compared with the step's: missing, extra, order.
+  - A candidate the view passes over is run anyway; a hit is counted.
+
+**Checked against the game's code (`SOTC_GROUND85_CHECK=1`).**
+
+| run | steps checked | differ (missing / extra) | another order | clip candidates passed over | of them hit |
+|---|---|---|---|---|---|
+| checkG6 (the altar) | 116 208 | 22 (6 / 41), all in the first window | 0 | (not in this build) | |
+| checkG7 (the altar) | 116 668 | 18 (1 / 37) | 0 | ~620 a frame | 0 |
+| checkC (route 6) | 89 496 | 6 (2 / 5) | 6 | ~60 a frame | 0 |
+| check10 (route 6, shipped) | 87 458 | 0 | 7 | ~35 a frame | 0 |
+
+- A difference is a surface on the edge of a test, which the host float tests
+  and the game's PS2 floats answer differently. That happens in ~2 steps in
+  10 000.
+- A missing surface is one the narrow phase did not consider that frame,
+  at the very edge of the query's reach. An extra one is tested by the
+  narrow phase and found not hit.
+- The clips' passing over matched the game's "no hit" in every checked
+  case.
+
+**Riding.** The first attract demo A/B (attractC) read r85all -0.2..-0.6 ms
+matched, the wrong way. While riding, Agro's and Wander's queries leave their
+patches within a few frames: 2.25 builds a frame against 2.54 kept answers,
+and a build costs a grown step plus its undo. Two rules were added:
+- A patch rebuilt before it was used twice is not built again for
+  `SOTC_GROUND85_COOL` (30) frames.
+- No patch is built while the query's middle moves more than an eighth of
+  the margin a frame. The game's step runs then, as before.
+
+**Measured (Vita3K 222 MHz, CORES=3, muted, whole frame, in-run A/B
+`SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab85.py; off minus on).**
+
+| run | build | part | frames on / off | frame on / off (ms) | off minus on | matched by draws |
+|---|---|---|---|---|---|---|
+| altarG7 | patch | from 3 300 | 3 690 / 3 700 | 39.57 / 40.89 | +1.32 | +1.27 |
+| altarG8 | + host view | from 3 300 | 3 519 / 3 534 | 41.22 / 41.56 | +0.34 | +0.25 (game +1.11, the render thread bound the frame) |
+| altarC | + host view | from 3 300 | 3 373 / 3 404 | 40.15 / 41.18 | +1.02 | +1.24 |
+| altar8 | + cooling | from 3 300 | 4 200 / 4 199 | 41.40 / 42.75 | +1.35 | +1.26 |
+| altar10 | shipped | from 3 300 | 3 439 / 3 502 | 37.40 / 38.55 | +1.15 | +1.03 |
+| altar11 | shipped, on top of round 86 | from 3 300 | 3 305 / 3 319 | 40.68 / 41.70 | +1.01 | +1.18 |
+| routeC (route 6) | + host view | from 3 000 / the plain from 4 300 | 8 086 / 8 036 | 25.81 / 25.91 | +0.10 | +0.08 / -0.08 |
+| attractC (660 s, `r85all,newdir`) | + host view | < 7 000 / 7 000-9 999 / riding | | | | -0.34 / -0.22 / -0.63 |
+| attract8 | + cooling | the same | | | | -0.05 / -0.17 / -0.29 |
+| attract10 | shipped | < 7 000, `r85all` | 2 313 / 2 325 | 20.51 / 20.94 | +0.44 | +0.39 |
+| attract10 | shipped | 7 000-9 999, `r85all` | 1 016 / 996 | 20.94 / 20.91 | -0.03 | +0.20 |
+| attract10 | shipped | >= 10 000 (riding), `r85all` | 3 209 / 3 237 | 31.74 / 33.11 | +1.37 | +0.93 |
+| attract10 | shipped | >= 10 000, `newdir` (rounds 78-85 off) | 3 209 / 3 262 | 31.74 / 35.35 | +3.61 | +3.85 |
+| attract11 (on round 86) | shipped | < 7 000 / 7 000-9 999 / riding, `r85all` | | | | -0.28 / -0.08 / -0.51 |
+| attract11 | shipped | riding, `newdir` (rounds 78-86 off) | | | | +2.76 |
+
+How it runs:
+- At the altar (checkG7): ~27 finder steps a frame go through the patch.
+  ~26 of them are answered from it, ~1.3 are builds.
+- The clips' host view passes over ~620 of ~770 candidates a frame.
+- On route 6 the ground fill is small (0.4 ms a frame), and the change is
+  within the noise there.
+
+**Behaviour and pictures.**
+- The behaviour script (in_behave85.txt): route 6 out of the shrine, down
+  its stairs and slopes and onto the plain, with jumps (TRIANGLE), CROSS,
+  CIRCLE (Agro called), R1 grabs and turns.
+  - Run with the change on (behave8-on, behave8-on2) and off (behaveC-off),
+    and with round 84's build (behave84).
+  - In every run Wander leaves the shrine, crosses the bridge's slopes,
+    reaches the plain, and Agro comes up to him (behaveC-off/t0260-t0324
+    and behave8-on/t0260-t0324).
+  - The runs drift apart with the frame rate, as every route here does.
+- The altar (shotsA-on): Wander, Mono and the shrine are drawn as in round
+  84's pictures.
+  - The off run (shotsA-off) stayed in the opening light for its whole
+    216 s, so its pairs show other moments.
+  - That run's title took another path: its route's menu presses came at
+    other times, and the same happened to the AI LOD's first build.
+- Route 6 (pics/r85_R_*): the plain on and off, the same ground, shadow and
+  stance.
+- Nothing draws differently: the change only decides which surfaces the
+  ground step and its clips test.
+- What can differ from the game:
+  - About 2 steps in 10 000 at the altar have a surface at the very edge of
+    the query's reach entered or left out differently from the game's PS2
+    floats.
+  - The narrow phase that frame tests one surface more or one less at that
+    edge.
+  - No clip candidate the view passed over was a hit (every checked frame).
+- No crash: the attract demo 660 s four times (19 261 / 18 111 / 19 711 /
+  19 300 frames),
+  route 6 480 s, the altar 420 s x 5, the checks.
+- **Two runs hung the game thread** and are not explained:
+  - altarG6: in the title, before any ground fill had run.
+  - behaveC-on: at the start of play. All output stopped there.
+  - The same build and settings ran through in hang1, altarG7, behave8-on
+    and behave8-on2.
+  - round 84's build ran the behaviour script through once (behave84).
+  - The AI LOD's two hangs (probeA, probeP) were with that code in.
+  - The risk is open: watch the console's first runs for a freeze at the
+    title or at the start of play.
+- Climbing and colossus fights are not on these routes.
+  - The patch only stands for still layout objects (not characters).
+  - So a colossus's body still goes through the game's own step, as before.
+
+**Before / after (Vita3K 222 MHz).**
+- The altar: ~38.5-42.8 -> ~37.4-41.4 ms (the A/Bs above: +1.0..+1.3 ms
+  matched in five of six).
+- Route 6: unchanged.
+- The attract demo: unchanged within its noise (r85all matched riding +0.93
+  in attract10 and -0.51 in attract11, same code; the run-to-run spread of the
+  riding part is about +-0.5 ms).
+- Rounds 78-85 together (`newdir`) while riding: -3.9 ms.
+- Still above the 25-30 ms target at the altar: ~37-41 ms in these runs.
+
+**Not done (next).**
+- The slide's keep tests (ClipCollisionFinderWithKeep4DSlopeLimitCB,
+  ~0.7 ms at the altar) could use the same host view. Their slope probe
+  may still turn a miss into a hit, so its reach has to be known first.
+- The particle manager's own loop (~1.2 ms) was not reached this round.
+- The AI path work (~2.2 ms at the altar, ~3 calls a frame) is the horse's
+  and the leader's path following.
+
+**Build note.** Round 86 (the render side) landed on main while this round
+ran. This round is rebased onto it and the VPK is built with both. The runs
+above are on main 60c68fc, except altar11 / attract11 (on round 86).
+vita-elf-create's "segment 1 overlaps" came back with the two together:
+`sotc_vita_elf_room` is now 24 KB.
+
+**Deliverable:** build/agent-scratch/celosia-r85.vpk (main ca41da3, round 86,
++ this round); console env r85/env-console.txt (`SOTC_AB_FLAG=r85all,newdir`: all
+on / ground85 off / rounds 78-85 off); read it with
+`python3 build/agent-scratch/r85/tools/ab85.py err.txt --from <frame>`.
 ## Round 86: why the game thread waits for the render thread; the hand-over before the present; the GPU's own timeline (2026-11-05)
 
 Scripts, runs and logs: `build/agent-scratch/r86/`:

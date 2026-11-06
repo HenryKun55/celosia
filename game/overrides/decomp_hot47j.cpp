@@ -94,6 +94,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include <chrono>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
+
+#include "ground85_capture.h"
 
 namespace decomp_hot47j
 {
@@ -666,6 +672,224 @@ namespace decomp_hot47j
         }
     }
 
+
+    // Round 85 (measuring): SOTC_GROUND85_LOG=1, the walking characters'
+    // ground queries (getCollisionDB's two sites) per object of the group:
+    // steps, host time of the filter + step, entries added, every 600 frames.
+    namespace probe85
+    {
+        inline uint64_t nowUs()
+        {
+#if defined(__vita__)
+            return sceKernelGetProcessTimeWide();
+#else
+            return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+        }
+        inline bool on()
+        {
+            static const bool v = std::getenv("SOTC_GROUND85_LOG") && std::atoi(std::getenv("SOTC_GROUND85_LOG")) != 0; // at first use: the Vita's env.txt comes after static init
+            return v;
+        }
+        struct Rec
+        {
+            uint32_t obj = 0;
+            uint8_t type = 0;
+            uint64_t steps = 0, filtered = 0, added = 0, zero = 0;
+            double us = 0.0, zeroUs = 0.0, filterUs = 0.0;
+            float dist = 0.0f;
+        };
+        Rec g_rec[128];
+        uint64_t g_logFrame = 0, g_calls = 0, g_objs = 0;
+        double g_callUs = 0.0;
+        Rec &rec(uint32_t obj)
+        {
+            for (Rec &r : g_rec)
+                if (r.obj == obj || r.obj == 0u)
+                {
+                    r.obj = obj;
+                    return r;
+                }
+            return g_rec[127];
+        }
+        void log()
+        {
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            if (frame < g_logFrame + 600u)
+                return;
+            const double n = double(frame - g_logFrame);
+            std::fprintf(stderr, "[ground85] frame %llu: %.2f fills a frame, %.3f ms a frame in them, %.1f objects a fill\n", (unsigned long long)frame, g_calls / n, g_callUs / 1000.0 / n,
+                         g_calls ? double(g_objs) / g_calls : 0.0);
+            for (Rec &r : g_rec)
+                if (r.obj && r.steps)
+                    std::fprintf(stderr, "[ground85]   obj %08x type %u dist %.1f: steps %.2f filtered out %.2f a frame, %.3f ms a frame (filter %.3f), entries %.2f a frame, empty steps %.2f (%.3f ms)\n", r.obj, r.type, r.dist,
+                                 r.steps / n, r.filtered / n, r.us / 1000.0 / n, r.filterUs / 1000.0 / n, r.added / n, r.zero / n, r.zeroUs / 1000.0 / n);
+            for (Rec &r : g_rec)
+                r = Rec{};
+            g_calls = g_objs = 0;
+            g_callUs = 0.0;
+            g_logFrame = frame;
+        }
+    }
+
+    // Round 85 (SOTC_GROUND85, default on; SOTC_AB_FLAG ground85 / r85all /
+    // newdir): the walking characters' ground fill (getCollisionDB's group
+    // walk) from a patch of each still object's surfaces kept in host arrays.
+    //
+    // Measured first (SOTC_GROUND85_LOG): at the altar the fill is ~1.9 ms a
+    // frame (2.4 fills), almost all of it in two still shrine objects whose
+    // finder steps hand ~37 and ~19 surfaces a fill to the finder; the ~10
+    // other objects of the group are rejected by their bounding sphere for
+    // a few microseconds each.
+    //
+    // A still layout object (not a character; its matrix, scale, collision
+    // flags, the filters and their records unchanged: the key) gets its
+    // finder step run once with the query's radius grown by
+    // SOTC_GROUND85_MARGIN (1 unit). The finder leaf records the surfaces it
+    // entered (decomp_collision's capture: each surface's boundary sphere and
+    // plane as the leaf tested them, and the leaf's query centre and
+    // radius); those entries are taken out of the finder again (as the game's
+    // own undo path does: DeleteCollisionFinder, the count put back). While
+    // later queries' spheres stay inside that grown one (the centre moved by
+    // d, d + the radius within the grown radius) and for at most
+    // SOTC_GROUND85_AGE (60) frames, the step is not run: the kept surfaces
+    // go through the leaf's own two tests against the query (the boundary
+    // sphere within reach of the query sphere, the plane nearer than its
+    // radius) in one host loop, and the ones that pass are entered
+    // (EntryCollisionFinder) in the step's order. Every surface the step
+    // would enter for the smaller query passes both tests for the grown one
+    // (so it is among the kept ones), and the filters' answers depend only
+    // on the key. Objects whose step enters anything the leaf did not
+    // record (triangle meshes, skinned parts), or that would fill the
+    // finder, always run the step.
+    //
+    // A patch the query leaves before it was used twice (an object passed at
+    // speed, Agro galloping) is not built again for SOTC_GROUND85_COOL (30)
+    // frames, and none is built while the query moves more than an eighth of
+    // the margin a frame: building it costs more than the step, so the step
+    // runs.
+    //
+    // The walk's own test is kept too: the leaf records the tree's splits on
+    // the way to it (axis, split x scale, side), and a kept surface is only a
+    // candidate when the query's box (its centre and margin, moved and scaled
+    // as the leaf's query) would reach its leaf.
+    //
+    // The finder clips that follow the fill (ClipCollisionFinder and
+    // ...CallBack on the same list: the landing test, the IK's foot search)
+    // read the patch's spheres and planes from a host view of the list
+    // (ground85::View, made at the end of the fill; used while the list's
+    // words are unchanged): a candidate with both ends of the segment on one
+    // side of its plane, or whose boundary sphere the segment cannot reach,
+    // is passed over without the surface filter and clipDB (whose first two
+    // tests answer "no hit" for it).
+    //
+    // SOTC_GROUND85_CHECK=1: on a kept answer the game's step runs too (and
+    // is used); the two sets are compared ([ground85] lines); a clip
+    // candidate the view passes over is run anyway and a hit counted.
+    namespace g85
+    {
+        struct Params
+        {
+            float margin = 1.0f;
+            uint32_t age = 60u, cool = 30u;
+            int check = 0;
+            Params()
+            {
+                if (const char *e = std::getenv("SOTC_GROUND85_MARGIN"))
+                    margin = static_cast<float>(std::atof(e));
+                if (const char *e = std::getenv("SOTC_GROUND85_AGE"))
+                    age = static_cast<uint32_t>(std::atoi(e));
+                if (const char *e = std::getenv("SOTC_GROUND85_CHECK"))
+                    check = std::atoi(e);
+                if (const char *e = std::getenv("SOTC_GROUND85_COOL"))
+                    cool = static_cast<uint32_t>(std::atoi(e));
+            }
+        };
+        const Params &params()
+        {
+            static const Params p;
+            return p;
+        }
+        constexpr int kKey = 52;
+        constexpr int kMax = ground85::Capture::kMax;
+        struct Slot
+        {
+            bool live = false, bad = false;
+            uint64_t h = 0, frame = 0, used = 0;
+            uint32_t hits = 0;       // fills answered since it was built
+            uint64_t coolUntil = 0;  // rebuilt before it was used: the game's step until this frame
+            float last[3] = {};      // the query's middle at its last fill, and that frame
+            uint64_t lastFrame = 0;
+            uint32_t key[kKey] = {};
+            float mid[3] = {}, reach = 0.0f; // the grown query in the caller's terms (segment middle, half length + radius + margin)
+            float c[3] = {}, r = 0.0f;       // the leaf's grown query (centre, radius)
+            float b[4] = {};                 // the tree walk's grown box (centre, margin)
+            int n = 0, entries = 0;
+            uint32_t ids[kMax];
+            uint16_t path[kMax], len[kMax];
+            float bx[kMax], by[kMax], bz[kMax], br[kMax];
+            float nx[kMax], ny[kMax], nz[kMax], nw[kMax];
+            std::vector<ground85::Split> splits;
+        };
+        constexpr int kSlots = 64;
+        Slot g_slots[kSlots];
+        uint64_t g_use = 0;
+        struct Stats
+        {
+            uint64_t steps = 0, hits = 0, builds = 0, bad = 0, entered = 0, kept = 0, checked = 0, differ = 0, missing = 0, extra = 0, outside = 0, order = 0, cool = 0;
+        } g_stats;
+        uint64_t g_logFrame = 0;
+        void log(uint64_t frame)
+        {
+            if (!probe85::on() || frame < g_logFrame + 600u)
+                return;
+            const double n = double(frame - g_logFrame);
+            std::fprintf(stderr, "[ground85] frame %llu: g85 steps %.2f kept %.2f builds %.2f not eligible %.2f cooling %.2f a frame, entered %.1f of %.1f kept surfaces a hit; check %llu differ %llu (missing %llu extra %llu) order %llu\n",
+                         (unsigned long long)frame, g_stats.steps / n, g_stats.hits / n, g_stats.builds / n, g_stats.bad / n, g_stats.cool / n, g_stats.hits ? double(g_stats.entered) / g_stats.hits : 0.0,
+                         g_stats.hits ? double(g_stats.kept) / g_stats.hits : 0.0, (unsigned long long)g_stats.checked, (unsigned long long)g_stats.differ, (unsigned long long)g_stats.missing,
+                         (unsigned long long)g_stats.extra, (unsigned long long)g_stats.order);
+            ground85::View &v = ground85::g_view;
+            std::fprintf(stderr, "[ground85] frame %llu: finder clips with the host view %.2f a frame, candidates tested %.1f rejected %.1f a frame; check: rejected but hit %llu\n", (unsigned long long)frame,
+                         v.uses / n, v.tested / n, v.rejected / n, (unsigned long long)v.wrong);
+            v.uses = v.tested = v.rejected = v.wrong = 0;
+            g_stats = Stats{};
+            g_logFrame = frame;
+        }
+        // The kept surfaces against the query: the tree walk's splits on the way to
+        // each one's leaf (box: centre, margin), then the leaf's two tests (centre
+        // c, radius r); a surface enters once, at its first leaf that passes, in
+        // the walk's order.
+        int select(const Slot &s, const float c[3], float r, const float box[4], uint32_t *out)
+        {
+            int m = 0;
+            for (int i = 0; i < s.n; ++i)
+            {
+                const ground85::Split *sp = s.splits.data() + s.path[i];
+                bool visit = true;
+                for (int j = 0; visit && j < s.len[i]; ++j)
+                {
+                    const float coord = box[sp[j].axis & 3u];
+                    visit = sp[j].low ? coord <= sp[j].value + box[3] : sp[j].value - box[3] <= coord;
+                }
+                if (!visit)
+                    continue;
+                const float dx = s.bx[i] - c[0], dy = s.by[i] - c[1], dz = s.bz[i] - c[2];
+                const float reach = s.br[i] + r;
+                if (!(dx * dx + dy * dy + dz * dz < reach * reach))
+                    continue;
+                const float d = s.nx[i] * c[0] + s.ny[i] * c[1] + s.nz[i] * c[2] + s.nw[i];
+                if (!(std::fabs(d) < r))
+                    continue;
+                bool seen = false;
+                for (int j = 0; j < m && !seen; ++j)
+                    seen = out[j] == s.ids[i];
+                if (!seen)
+                    out[m++] = s.ids[i];
+            }
+            return m;
+        }
+    }
+
     void collisionDB(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::hotList47On())
@@ -725,9 +949,293 @@ namespace decomp_hot47j
             WRITE32(sp, READ32(sp + 0xA0u));
             call(kFinderStep, ret);
         };
+        // Round 85: the ground fill's patch (g85 above), for getCollisionDB's two sites.
+        auto deleteEntries = [&](int32_t from, int32_t to)
+        {
+            for (int32_t i = from; i < to; ++i)
+            {
+                SET_GPR_U64(ctx, 4, finder64);
+                SET_GPR_U64(ctx, 5, static_cast<uint64_t>(static_cast<int64_t>(i)));
+                call(kDeleteFinder, 0x01124E90u);
+            }
+            WRITE32(finder, static_cast<uint32_t>(from));
+        };
+        auto ground = [&](uint64_t object, uint32_t ret) -> bool
+        {
+            const uint32_t obj = static_cast<uint32_t>(object);
+            const uint32_t pa = READ32(sp + 0x24u), pb = READ32(sp + 0x28u);
+            if (!find84::plainRam(obj, 16u) || !find84::plainRam(pa, 16u) || !find84::plainRam(pb, 16u) || !find84::plainRam(finder, 0x14u))
+                return false;
+            const uint8_t type = READ8(obj + 8u);
+            if (type == 9u || type == 0x16u || type < 9u || type > 22u)
+                return false;
+            const uint32_t target = READ32(0x01194070u + (type - 9u) * 4u);
+            const uint32_t layout = target == 0x010F1A58u ? obj + 0x20u : target == 0x010F1A98u ? obj + 0x90u : 0u;
+            const uint32_t matrix = layout ? READ32(layout + 0x158u) : 0u;
+            if (layout == 0u || !find84::plainRam(matrix, 64u))
+                return false;
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            g85::log(frame);
+            ++g85::g_stats.steps;
+            uint32_t key[g85::kKey] = {};
+            int n = 0;
+            key[n++] = static_cast<uint32_t>(ra);
+            key[n++] = finder;
+            key[n++] = obj;
+            key[n++] = READ32(sp + 0xA0u);
+            key[n++] = READ8(layout + 0x1B8u) | (static_cast<uint32_t>(READ8(layout + 0x1BBu)) << 8);
+            for (uint32_t w = 0x90u; w < 0xA0u; w += 4u)
+                key[n++] = READ32(layout + w);
+            key[n++] = READ32(layout + 0x184u);
+            key[n++] = matrix;
+            for (uint32_t w = 0; w < 64u; w += 4u)
+                key[n++] = READ32(matrix + w);
+            for (uint32_t off : {0x2Cu, 0x30u, 0x34u})
+            {
+                const uint32_t v = READ32(sp + off);
+                key[n++] = v;
+                if (find84::plainRam(v, 16u))
+                    for (uint32_t w = 0; w < 16u; w += 4u)
+                        key[n++] = READ32(v + w);
+                else
+                    n += 4;
+            }
+            uint64_t h = 1469598103934665603ull;
+            for (int i = 0; i < n; ++i)
+                h = (h ^ key[i]) * 1099511628211ull;
+            float qa[3], qb[3], mid[3];
+            float l2 = 0.0f;
+            for (int i = 0; i < 3; ++i)
+            {
+                qa[i] = fb(READ32(pa + 4u * i));
+                qb[i] = fb(READ32(pb + 4u * i));
+                mid[i] = 0.5f * (qa[i] + qb[i]);
+                l2 += (qa[i] - qb[i]) * (qa[i] - qb[i]);
+            }
+            const float r = f[20];
+            if (!(r >= 0.0f) || !(r < 1e4f))
+                return false;
+            const float need = 0.5f * std::sqrt(l2) + r; // the query's reach from its middle
+            const g85::Params &P = g85::params();
+            g85::Slot *slot = nullptr, *victim = &g85::g_slots[0];
+            for (g85::Slot &sl : g85::g_slots)
+            {
+                if (sl.live && sl.h == h && std::memcmp(sl.key, key, sizeof key) == 0)
+                {
+                    slot = &sl;
+                    break;
+                }
+                if (!sl.live || sl.used < victim->used)
+                    victim = &sl;
+            }
+            if (slot && slot->bad && slot->frame + 600u >= frame)
+            {
+                ++g85::g_stats.bad;
+                return false;
+            }
+            const int32_t before = static_cast<int32_t>(READ32(finder)), cap = static_cast<int32_t>(READ32(finder + 4u));
+            auto inside = [&](const g85::Slot &sl)
+            {
+                const float dx = mid[0] - sl.mid[0], dy = mid[1] - sl.mid[1], dz = mid[2] - sl.mid[2];
+                return std::sqrt(dx * dx + dy * dy + dz * dz) + need <= sl.reach * 0.999f - 1e-3f;
+            };
+            const bool hit = slot && !slot->bad && slot->frame + P.age >= frame && inside(*slot);
+            float speed = 0.0f; // the query's middle, units a frame since the slot's last fill
+            if (slot && slot->lastFrame && frame > slot->lastFrame)
+            {
+                const float dx = mid[0] - slot->last[0], dy = mid[1] - slot->last[1], dz = mid[2] - slot->last[2];
+                speed = std::sqrt(dx * dx + dy * dy + dz * dz) / static_cast<float>(frame - slot->lastFrame);
+            }
+            if (slot)
+            {
+                std::memcpy(slot->last, mid, sizeof mid);
+                slot->lastFrame = frame;
+            }
+            if (!hit && slot && speed > P.margin * 0.125f)
+            {
+                // moving fast (riding, falling): a patch would last a few frames; the step runs
+                ++g85::g_stats.cool;
+                return false;
+            }
+            if (!hit && slot && !slot->bad)
+            {
+                // A query that leaves its patch before using it twice (an object passed at speed,
+                // Agro galloping): building costs more than the step, so the step runs for a while.
+                if (frame < slot->coolUntil)
+                {
+                    ++g85::g_stats.cool;
+                    return false;
+                }
+                if (slot->hits < 2u && slot->frame + P.age >= frame)
+                {
+                    slot->coolUntil = frame + P.cool;
+                    ++g85::g_stats.cool;
+                    return false;
+                }
+            }
+            if (!hit)
+            {
+                // Build: the step with the radius grown, its entries recorded by the leaf and taken out again.
+                g85::Slot &sl = slot ? *slot : *victim;
+                ground85::Capture &k = ground85::g_cap;
+                k.on = true;
+                k.obj = obj;
+                k.n = 0;
+                k.pool = 0;
+                k.depth = 0;
+                k.overflow = k.query = k.queryDiffers = k.box = k.boxDiffers = false;
+                const float saved = f[20];
+                f[20] = r + P.margin;
+                realStep(object, ret);
+                f[20] = saved;
+                k.on = false;
+                const int32_t after = static_cast<int32_t>(READ32(finder));
+                ++g85::g_stats.builds;
+                sl.live = true;
+                sl.h = h;
+                std::memcpy(sl.key, key, sizeof key);
+                sl.frame = frame;
+                sl.used = ++g85::g_use;
+                sl.hits = 0;
+                sl.coolUntil = 0;
+                std::memcpy(sl.last, mid, sizeof mid);
+                sl.lastFrame = frame;
+                const int32_t added = after - before;
+                const uint32_t ids = READ32(finder + 0xCu);
+                int fresh = 0;
+                for (int i = 0; i < k.n; ++i)
+                    fresh += !k.rec[i].dup;
+                bool ok = after >= before && after < cap && !k.overflow && !k.queryDiffers && !k.boxDiffers && added == fresh && (k.n == 0 || (k.query && k.box));
+                for (int i = 0, e = 0; ok && i < k.n; ++i)
+                    if (!k.rec[i].dup)
+                    {
+                        ok = READ32(ids + 8u * (before + e)) == obj && READ32(ids + 8u * (before + e) + 4u) == k.rec[i].id;
+                        ++e;
+                    }
+                if (after > before)
+                    deleteEntries(before, after < cap ? after : cap);
+                else
+                    WRITE32(finder, static_cast<uint32_t>(before));
+                if (!ok)
+                {
+                    sl.bad = true;
+                    realStep(object, ret);
+                    return true;
+                }
+                sl.bad = false;
+                std::memcpy(sl.mid, mid, sizeof mid);
+                sl.reach = need + P.margin;
+                if (k.n)
+                {
+                    std::memcpy(sl.c, k.c, 12);
+                    sl.r = k.r;
+                    std::memcpy(sl.b, k.b, 16);
+                }
+                else
+                {
+                    // nothing entered: nothing to select
+                    std::memcpy(sl.c, mid, 12);
+                    sl.r = sl.reach;
+                    std::memcpy(sl.b, mid, 12);
+                    sl.b[3] = sl.reach;
+                }
+                sl.n = k.n;
+                sl.entries = fresh;
+                sl.splits.assign(k.splits, k.splits + k.pool);
+                for (int i = 0; i < k.n; ++i)
+                {
+                    const ground85::CapRec &cr = k.rec[i];
+                    sl.ids[i] = cr.id;
+                    sl.path[i] = cr.path;
+                    sl.len[i] = cr.len;
+                    sl.bx[i] = cr.bnd[0];
+                    sl.by[i] = cr.bnd[1];
+                    sl.bz[i] = cr.bnd[2];
+                    sl.br[i] = cr.bnd[3];
+                    sl.nx[i] = cr.plane[0];
+                    sl.ny[i] = cr.plane[1];
+                    sl.nz[i] = cr.plane[2];
+                    sl.nw[i] = cr.plane[3];
+                }
+                slot = &sl;
+                if (!inside(sl))
+                {
+                    ++g85::g_stats.outside;
+                    realStep(object, ret);
+                    return true;
+                }
+            }
+            else
+            {
+                ++g85::g_stats.hits;
+                ++slot->hits;
+                slot->used = ++g85::g_use;
+            }
+            // The leaf's query for this one: its grown centre moved with the middle, its radius scaled from the reach.
+            const g85::Slot &sl = *slot;
+            float c[3], box[4];
+            const float scale = need / sl.reach;
+            for (int i = 0; i < 3; ++i)
+            {
+                c[i] = sl.c[i] + (mid[i] - sl.mid[i]);
+                box[i] = sl.b[i] + (mid[i] - sl.mid[i]);
+            }
+            box[3] = sl.b[3] * scale;
+            const float rq = sl.r * scale;
+            uint32_t pick[g85::kMax];
+            const int m = g85::select(sl, c, rq, box, pick);
+            g85::g_stats.entered += m;
+            g85::g_stats.kept += sl.entries;
+            if (P.check)
+            {
+                realStep(object, ret);
+                const int32_t after = static_cast<int32_t>(READ32(finder));
+                const uint32_t ids = READ32(finder + 0xCu);
+                ++g85::g_stats.checked;
+                int found = 0;
+                bool differ = false;
+                for (int32_t i = before; i < after && i < cap; ++i)
+                {
+                    const uint32_t id = READ32(ids + 8u * i + 4u);
+                    bool in = false;
+                    for (int j = 0; j < m && !in; ++j)
+                        in = pick[j] == id;
+                    if (in)
+                        ++found;
+                    else
+                    {
+                        ++g85::g_stats.missing;
+                        differ = true;
+                    }
+                }
+                if (found != m)
+                {
+                    g85::g_stats.extra += static_cast<uint64_t>(m - found);
+                    differ = true;
+                }
+                g85::g_stats.differ += differ;
+                bool sameOrder = !differ && after - before == m;
+                for (int j = 0; sameOrder && j < m; ++j)
+                    sameOrder = READ32(ids + 8u * (before + j) + 4u) == pick[j];
+                g85::g_stats.order += !differ && !sameOrder;
+                return true;
+            }
+            for (int j = 0; j < m; ++j)
+            {
+                SET_GPR_U64(ctx, 4, finder64);
+                SET_GPR_U32(ctx, 5, obj);
+                SET_GPR_U64(ctx, 6, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(pick[j]))));
+                call(kEntryFinder84, ret);
+            }
+            SET_GPR_U64(ctx, 2, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(READ32(finder) - static_cast<uint32_t>(before)))));
+            return true;
+        };
+        const bool ground85Here = sotc_decomp::ground85On() && (ra == 0x010D4668u || ra == 0x010D46B0u);
         // Round 84: the step through find84's memo for still layout objects.
         auto step = [&](uint64_t object, uint32_t ret)
         {
+            if (ground85Here && ground(object, ret))
+                return;
             if (!sotc_decomp::find84On())
                 return realStep(object, ret);
             find84::log();
@@ -841,12 +1349,67 @@ namespace decomp_hot47j
                 sl.pairs.emplace_back(READ32(ids + 8u * i), READ32(ids + 8u * i + 4u));
         };
         // The object filter (jalr fp: object, the caller's word): v0.
-        auto filtered = [&](uint64_t object, uint32_t ret) -> bool
+        auto filteredReal = [&](uint64_t object, uint32_t ret) -> bool
         {
             SET_GPR_S32(ctx, 5, READ32(sp + 0xA0u));
             SET_GPR_U64(ctx, 4, object);
             call(static_cast<uint32_t>(filter), ret);
             return GPR_U64(ctx, 2) != 0u;
+        };
+        const bool probe = probe85::on() && (ra == 0x010D4668u || ra == 0x010D46B0u);
+        uint64_t probeT0 = 0;
+        if (probe)
+        {
+            probe85::log();
+            ++probe85::g_calls;
+            probeT0 = probe85::nowUs();
+        }
+        auto filtered = [&](uint64_t object, uint32_t ret) -> bool
+        {
+            if (!probe)
+                return filteredReal(object, ret);
+            const uint64_t t0 = probe85::nowUs();
+            const bool v = filteredReal(object, ret);
+            probe85::Rec &r = probe85::rec(static_cast<uint32_t>(object));
+            r.filterUs += double(probe85::nowUs() - t0);
+            if (!v)
+            {
+                ++r.steps;
+                ++r.filtered;
+            }
+            return v;
+        };
+        auto stepProbe = [&](uint64_t object, uint32_t ret)
+        {
+            if (!probe)
+                return step(object, ret);
+            const uint32_t obj = static_cast<uint32_t>(object);
+            const int32_t before = static_cast<int32_t>(READ32(finder));
+            const uint64_t t0 = probe85::nowUs();
+            step(object, ret);
+            const double us = double(probe85::nowUs() - t0);
+            const int32_t added = static_cast<int32_t>(READ32(finder)) - before;
+            probe85::Rec &r = probe85::rec(obj);
+            ++probe85::g_objs;
+            r.type = READ8(obj + 8u);
+            ++r.steps;
+            r.us += us;
+            r.added += added > 0 ? added : 0;
+            if (added <= 0)
+            {
+                ++r.zero;
+                r.zeroUs += us;
+            }
+            const uint32_t pa = READ32(sp + 0x24u);
+            const uint8_t type = r.type;
+            const uint32_t tgt = (type >= 9u && type <= 22u) ? READ32(0x01194070u + (type - 9u) * 4u) : 0u;
+            const uint32_t layout = tgt == 0x010F1A58u ? obj + 0x20u : tgt == 0x010F1A98u ? obj + 0x90u : 0u;
+            const uint32_t m = layout ? READ32(layout + 0x158u) : 0u;
+            if (m && pa)
+            {
+                const float dx = fb(READ32(m + 0x30u)) - fb(READ32(pa)), dy = fb(READ32(m + 0x34u)) - fb(READ32(pa + 4u)), dz = fb(READ32(m + 0x38u)) - fb(READ32(pa + 8u));
+                r.dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+            }
         };
         auto groupCall = [&](uint32_t site, uint64_t a0, uint32_t ret)
         {
@@ -873,7 +1436,7 @@ namespace decomp_hot47j
                 if (!room)
                     break;
                 if (filter == 0u || filtered(s1, 0x01124D34u))
-                    step(s1, 0x01124D6Cu);
+                    stepProbe(s1, 0x01124D6Cu);
                 groupCall(kSiteNextA, it, 0x01124D78u);
             }
             SET_GPR_U64(ctx, 2, 0u); // v0 0 at 0x1124d98 on both exits
@@ -897,7 +1460,7 @@ namespace decomp_hot47j
                     const bool room = static_cast<int32_t>(used) < static_cast<int32_t>(READ32(finder + 4u));
                     const uint64_t s6 = room ? sx(used) : ~0ull; // the count before (-1: full)
                     SET_GPR_U64(ctx, 22, s6);
-                    step(s7, 0x01124E2Cu);
+                    stepProbe(s7, 0x01124E2Cu);
                     const int64_t added = GPR_S64(ctx, 2); // s2
                     SET_GPR_U64(ctx, 18, static_cast<uint64_t>(added));
                     bool undo = static_cast<int64_t>(sx(READ32(sp + 0x38u))) < added;
@@ -947,6 +1510,55 @@ namespace decomp_hot47j
                 groupCall(kSiteExitB, s7, 0x01124ED0u);
         }
 
+        if (ground85Here)
+        {
+            // The host view of the filled list for the ClipCollisionFinder* calls that follow.
+            ground85::View &v = ground85::g_view;
+            const int32_t count = static_cast<int32_t>(READ32(finder)), capacity = static_cast<int32_t>(READ32(finder + 4u));
+            const int32_t n = count < capacity ? count : capacity;
+            const uint32_t list = READ32(finder + 0xCu);
+            v.finder = finder;
+            v.list = list;
+            v.count = -1;
+            if (n >= 0 && n <= ground85::View::kMax && find84::plainRam(list, 8u * static_cast<uint32_t>(n) + 8u))
+            {
+                const uint64_t frame = sotc_decomp::g_gameFrame;
+                const g85::Slot *last = nullptr;
+                for (int32_t i = 0; i < n; ++i)
+                {
+                    const uint32_t obj = READ32(list + 8u * i), id = READ32(list + 8u * i + 4u);
+                    v.valid[i] = false;
+                    if (!last || last->key[2] != obj)
+                    {
+                        last = nullptr; // the object's most recently used patch
+                        for (const g85::Slot &sl : g85::g_slots)
+                            if (sl.live && !sl.bad && sl.frame + g85::params().age >= frame && sl.key[0] == static_cast<uint32_t>(ra) && sl.key[1] == finder && sl.key[2] == obj &&
+                                (!last || sl.used > last->used))
+                                last = &sl;
+                    }
+                    if (!last)
+                        continue;
+                    for (int j = 0; j < last->n; ++j)
+                        if (last->ids[j] == id)
+                        {
+                            v.valid[i] = true;
+                            v.bnd[i][0] = last->bx[j];
+                            v.bnd[i][1] = last->by[j];
+                            v.bnd[i][2] = last->bz[j];
+                            v.bnd[i][3] = last->br[j];
+                            v.plane[i][0] = last->nx[j];
+                            v.plane[i][1] = last->ny[j];
+                            v.plane[i][2] = last->nz[j];
+                            v.plane[i][3] = last->nw[j];
+                            break;
+                        }
+                }
+                v.count = n;
+                v.sum = ground85::listSum(rdram, list, n);
+            }
+        }
+        if (probe)
+            probe85::g_callUs += double(probe85::nowUs() - probeT0);
         SET_GPR_U64(ctx, 16, READ64(sp + 0x40u));
         SET_GPR_U64(ctx, 17, READ64(sp + 0x48u));
         SET_GPR_U64(ctx, 18, READ64(sp + 0x50u));

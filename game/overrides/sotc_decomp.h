@@ -538,11 +538,12 @@ namespace sotc_decomp
         kPtcl83,      // round 83: the particle manager's per-system round trips as host code (decomp_hot47e); off by default (below the bar)
         kProbe84,     // round 84: the world probes that need no per-frame answer (the AI path's segment tests at path scale, the camera's water search) (decomp_collision, decomp_probe84)
         kFind84,      // round 84 (measuring, off by default): the collision finder's candidate surfaces of a still object kept while the query stays within 3 cm (decomp_hot47j)
+        kGround85,    // round 85: Wander's ground step's near surfaces in a host array (decomp_ground85)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -633,6 +634,7 @@ namespace sotc_decomp
     inline bool ptcl83On() { return switchOn(kPtcl83); }
     inline bool probe84On() { return switchOn(kProbe84); }
     inline bool find84On() { return switchOn(kFind84); }
+    inline bool ground85On() { return switchOn(kGround85); }
     // Round 79 (decomp_hot47e.cpp): the particle geodisp object the manager
     // found wholly outside the camera's clip volume this frame and the frame
     // before (its step put off, its draw not needed).
