@@ -482,6 +482,14 @@
    "result": "Vita3K 222 MHz whole frame, in-run A/B matched by draws: altar 40.8 -> 39.5 ms (-1.2, steady over four runs), route 6 -0.3 ms, the plain and the attract demo unchanged; rounds 78-84 together while riding -2.2 ms. Check mode: the path answers differ from the game's in 0-0.2% of checked tests, the water answers in none of 26 000. Attract demo 660 s twice without a crash; altar pictures on/off the same. Console A/B prepared (env-console.txt, r84all,newdir)."
   },
   {
+   "round": "r85",
+   "date": "2026-11-05",
+   "commit": "6392efa",
+   "focus": "Speed",
+   "summary": "Measured Wander's ground fill at the altar: ~1.95 ms a frame, nearly all in two still shrine objects whose finder steps enter ~56 surfaces a fill. Redesigned it (SOTC_GROUND85, on, A/B ground85 / r85all; newdir includes it): each still object's step runs once with a grown radius while the leaf records its surfaces (sphere, plane, the tree walk's splits) into host arrays; later fills pick the entries with one host loop while the query stays inside, and the landing / IK finder clips skip candidates the segment cannot reach from the same arrays. Patches are not built at speed (the ride). The AI control LOD for off-screen far creatures was measured (~0.6 ms possible) and dropped: it broke the title flow.",
+   "result": "Vita3K 222 MHz whole frame, in-run A/B matched by draws: altar +1.03..+1.27 ms in five of six runs (+1.18 on top of round 86), route 6 and the attract demo unchanged within noise; rounds 78-85 riding -3.9 ms. Check mode: 116 668 altar steps, 18 differ by an edge surface; route 6 87 458, 0 differ; no skipped clip candidate was a hit. Behaviour script on/off the same; attract demo 660 s x4 without a crash; two unexplained hangs in ~25 runs did not repeat. Console A/B prepared (env-console.txt, r85all,newdir)."
+  },
+  {
    "round": "r86",
    "date": "2026-11-05",
    "commit": "12bd733",
