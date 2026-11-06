@@ -41,6 +41,7 @@ extern "C" void vglCeloLeanDraw(int bits); // celosia.patch (round 56): bit 0 un
 extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia.patch (round 65c): uniform bytes reserved, pool wraps
 #include <psp2/gxm.h>
 extern "C" SceGxmNotification query_fence;          // vitaGL's (buffers.c): every scene's end notification, value+1 a scene
+extern "C" SceGxmContext *gxm_context;              // vitaGL's (gxm.c): round 87 (glVol87) disables the volumes' fragment program
 extern "C" volatile unsigned long long ps2x_vita_swap_us; // raylib_vita.cpp (round 86): time in vglSwapBuffers, summed
 #endif
 
@@ -50,6 +51,8 @@ extern "C" volatile unsigned long long ps2x_vita_swap_us; // raylib_vita.cpp (ro
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <functional>
+#include <map>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -155,9 +158,19 @@ namespace
             t = g_sentAt[v & (kRing - 1u)].load(std::memory_order_relaxed);
             return true;
         }
+        // Round 87: what the renderer was doing at each bind (the scene's
+        // first work: "pass 9-20", "q9" a full-screen quad of mode 9, "copy"),
+        // printed with the [gpu86s] scenes.
+        char g_label[24] = "";
+        void label(const char *fmt, int a = 0, int b = 0)
+        {
+            if (on())
+                std::snprintf(g_label, sizeof g_label, fmt, a, b);
+        }
         struct Bind
         {
             uint32_t value, fbo, w, h;
+            char what[24];
         };
         struct Frame
         {
@@ -177,9 +190,28 @@ namespace
                 return;
             start();
             if (g_binds.size() < 256u)
-                g_binds.push_back(Bind{sent(), fbo, w, h});
+            {
+                Bind b{sent(), fbo, w, h, {}};
+                std::memcpy(b.what, g_label, sizeof b.what);
+                g_binds.push_back(b);
+            }
         }
         uint32_t backlog() { return on() ? sent() - done() : 0u; }
+        // Round 87 (Tuning glInflight87): the scene count at the last present,
+        // and the render thread's time waiting for the GPU to reach it.
+        uint32_t g_lastPresentScene = 0;
+        std::atomic<uint64_t> g_inflightWaitUs{0};
+        uint64_t g_inflight0 = 0;
+        void waitPreviousFrame()
+        {
+            if (!query_fence.address)
+                return;
+            const uint32_t target = g_lastPresentScene;
+            const uint64_t start = native_renderer::nowUs();
+            while (static_cast<int32_t>(done() - target) < 0 && native_renderer::nowUs() - start < 100000u)
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+            g_inflightWaitUs.fetch_add(native_renderer::nowUs() - start, std::memory_order_relaxed);
+        }
         // The scene that finished as `w`: begun after the last bind noted with
         // value w - 2 (its draw ended the scene before). A frame's first scene
         // follows the swap, which leaves no scene open: its frame's first bind.
@@ -196,6 +228,7 @@ namespace
         }
         void presented(uint64_t tookUs, uint32_t backlogAtStart)
         {
+            g_lastPresentScene = sent();
             if (!on())
                 return;
             start();
@@ -250,7 +283,7 @@ namespace
                         havePrev = true;
                     }
                     std::sort(rows.begin(), rows.end(), [](const Row &x, const Row &y) { return x.us > y.us; });
-                    char line[1024];
+                    char line[2048];
                     int at = std::snprintf(line, sizeof(line), "[gpu86s] present %llu: %u scenes; slowest (scene: target, ms from the one before):", (unsigned long long)(g_checked + 1u),
                                            b.last - a.last);
                     for (size_t i = 0; i < rows.size() && i < 10u && at > 0 && static_cast<size_t>(at) < sizeof(line); ++i)
@@ -259,7 +292,7 @@ namespace
                         if (l && l->fbo == 0u)
                             at += std::snprintf(line + at, sizeof(line) - at, " %u: display %.2f;", rows[i].index, rows[i].us / 1000.0);
                         else if (l)
-                            at += std::snprintf(line + at, sizeof(line) - at, " %u: fbo %u %ux%u %.2f;", rows[i].index, l->fbo, l->w, l->h, rows[i].us / 1000.0);
+                            at += std::snprintf(line + at, sizeof(line) - at, " %u: fbo %u %ux%u %.2f [%s];", rows[i].index, l->fbo, l->w, l->h, rows[i].us / 1000.0, l->what);
                         else
                             at += std::snprintf(line + at, sizeof(line) - at, " %u: ? %.2f;", rows[i].index, rows[i].us / 1000.0);
                     }
@@ -271,9 +304,12 @@ namespace
             {
                 const uint64_t busy = g_busyUs.load(std::memory_order_relaxed), idle = g_idleUs.load(std::memory_order_relaxed);
                 const double n = static_cast<double>(g_n);
-                std::fprintf(stderr, "[gpu86] presents %llu: gpu frame %.2f ms (%llu frames), gpu busy %.2f idle %.2f ms a present, backlog at present %.1f scenes, present %.2f ms (swap %.2f)\n",
+                const uint64_t inflight = g_inflightWaitUs.load(std::memory_order_relaxed);
+                std::fprintf(stderr, "[gpu86] presents %llu: gpu frame %.2f ms (%llu frames), gpu busy %.2f idle %.2f ms a present, backlog at present %.1f scenes, present %.2f ms (swap %.2f) | r87 in-flight wait %.2f ms\n",
                              (unsigned long long)g_presents, g_gpuFrames ? g_gpuFrameUs / g_gpuFrames / 1000.0 : 0.0, (unsigned long long)g_gpuFrames,
-                             (busy - g_busy0) / n / 1000.0, (idle - g_idle0) / n / 1000.0, g_backlog / n, g_presentUs / n / 1000.0, g_swapUs / n / 1000.0);
+                             (busy - g_busy0) / n / 1000.0, (idle - g_idle0) / n / 1000.0, g_backlog / n, g_presentUs / n / 1000.0, g_swapUs / n / 1000.0,
+                             (inflight - g_inflight0) / n / 1000.0);
+                g_inflight0 = inflight;
                 g_busy0 = busy;
                 g_idle0 = idle;
                 g_n = 0;
@@ -284,6 +320,8 @@ namespace
 #else
         bool on() { return false; }
         void bind(uint32_t, uint32_t, uint32_t) {}
+        void label(const char *, int = 0, int = 0) {}
+        void waitPreviousFrame() {}
         uint32_t backlog() { return 0u; }
         void presented(uint64_t, uint32_t) {}
 #endif
@@ -1312,6 +1350,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::vector<UniformEntry> uniforms;
         Target colorPlain; // the picture's colour alone (passes that read its depth)
         Target color, background, backgroundSmall, reflection, refraction, refractionHalf, snapshot, shadowMask;
+        uint64_t bgSmallFrames = 0, bgSmallLogged = 0; // round 87: frames drawn with glBgSmall87
+        Target backgroundLow; // round 87 (Tuning glBgSmall87): the background layer drawn at 256 x 256, made at its first use
         Target previous; // the last frame shown (feedbackBlur)
         // Round 45 (Tuning glFewCopies, a host that shows a copy of its own):
         // the last frame shown is that copy (shownFrame), not a copy of its own.
@@ -1619,6 +1659,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::vector<std::pair<uint32_t, uint32_t>> planRanges; // scratch: a run's (first, count)
         void planFrame();
         void mergeStats();
+        void sortFree(); // round 87 (Tuning glSort87)
+        struct SortKey87
+        {
+            uint64_t tex, state, where;
+            uint32_t k;
+        };
+        std::vector<SortKey87> sortKeys;
+        std::vector<uint64_t> sortOrder;
+        std::vector<Planned> sortPlan;
+        struct
+        {
+            uint64_t frames = 0, draws = 0, free = 0, segments = 0, moved = 0;
+        } sortStats;
         std::vector<uint32_t> leaders; // round 74: the plan's draws not merged away (Tuning glLeanPass)
         // Round 74 (SOTC_GL_PHASE_LOG=1): where the render thread's draw part
         // goes, a [gl:phases] line every 300 frames: the order and plan, the
@@ -1673,6 +1726,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         struct
         {
             uint64_t frames = 0, framesWithVolumes = 0, volumes = 0, vertices = 0, darkens = 0, alphaSecond = 0, lastFrame = ~0ull;
+            uint64_t ispVolumes = 0, maskFused = 0; // round 87: volumes drawn ISP-only (glVol87); soft masks without the picture's break (glShmask87)
             double since = 0.0;
         } shadowStats;
         // What they hold (GPU memory: on the Vita vitaGL's pools, else the
@@ -2801,6 +2855,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void quad(const Target &target, int mode, QuadBlend blend, const float a[4] = nullptr, const float b[4] = nullptr,
                   const float quadParams[4] = nullptr, bool corners = false)
         {
+            gpu86::label("q%d", mode);
             bindTarget(target);
             useQuad(mode);
             glDisable(GL_DEPTH_TEST);
@@ -3807,6 +3862,46 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
             }
         }
+        if (native_renderer::tuning().glSort87 && native_renderer::tuning().glMergeDraws)
+            sortFree();
+        // Round 87 (SOTC_PASS87_LOG=<n>): every n frames, the frame's draws by
+        // layer: count, vertices, blends (opaque / normal / additive /
+        // subtract), screen-space draws, the full program's kinds (2 mirror,
+        // 3 water, 4 screen copy, 5 last frame), volumes, alpha-tested,
+        // background: what each segment of the picture carries.
+        static const int passLog = std::getenv("SOTC_PASS87_LOG") ? std::atoi(std::getenv("SOTC_PASS87_LOG")) : 0;
+        if (passLog > 0 && arenaFrame % static_cast<uint64_t>(passLog) == 0u)
+        {
+            struct L
+            {
+                unsigned draws = 0, verts = 0, blend[4] = {}, screen = 0, kind[6] = {}, vol = 0, at = 0, bg = 0, skinned = 0;
+            };
+            std::map<uint32_t, L> layers;
+            for (size_t k = 0; k < n; ++k)
+            {
+                const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+                L &l = layers[d.state.order];
+                ++l.draws;
+                l.verts += plan[k].mesh ? plan[k].mesh->count : 0u;
+                ++l.blend[std::min<unsigned>(static_cast<unsigned>(d.state.blend), 3u)];
+                l.screen += d.state.screen || d.state.screenDepthTest;
+                const int kind = d.state.previousFrame ? 5 : d.state.reflectionSample ? 2 : d.state.refractionSample ? 3 : d.state.screenCopy ? 4 : 0;
+                ++l.kind[kind];
+                l.vol += d.state.shadowVolume;
+                l.at += (d.state.alphaTest & 1u) ? 1u : 0u;
+                l.bg += d.state.background;
+                l.skinned += plan[k].mesh && plan[k].mesh->skinned;
+            }
+            std::string line = "[pass87] frame " + std::to_string(arenaFrame) + ":";
+            for (const auto &[order, l] : layers)
+            {
+                char b[200];
+                std::snprintf(b, sizeof b, " L%u d%u v%u b%u/%u/%u/%u s%u k%u/%u/%u/%u vol%u at%u bg%u sk%u;", order, l.draws, l.verts, l.blend[2], l.blend[0], l.blend[1], l.blend[3],
+                              l.screen, l.kind[2], l.kind[3], l.kind[4], l.kind[5], l.vol, l.at, l.bg, l.skinned);
+                line += b;
+            }
+            std::fprintf(stderr, "%s\n", line.c_str());
+        }
         {
             const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (shadowStats.since == 0.0)
@@ -3815,10 +3910,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 const double secs = std::max(now - shadowStats.since, 1e-3);
                 std::fprintf(stderr, "[shadow] %llu frames in %.1f s: volumes %.1f/s (%.0f vertices/s), darken passes %.1f/s, frames with volumes %llu; "
-                                     "body shadows %d, shadows %d; alpha-test second passes %.1f/s (%.1f/s on meshes of unknown least alpha), %.1f/s drawn in one pass (all under AREF)\n",
+                                     "body shadows %d, shadows %d; alpha-test second passes %.1f/s (%.1f/s on meshes of unknown least alpha), %.1f/s drawn in one pass (all under AREF); "
+                                     "r87: volumes ISP-only %.1f/s, masks without the break %.1f/s, background at 256 %.1f/s\n",
                              (unsigned long long)shadowStats.frames, secs, shadowStats.volumes / secs, shadowStats.vertices / secs, shadowStats.darkens / secs,
                              (unsigned long long)shadowStats.framesWithVolumes, native_renderer::tuning().bodyShadows ? 1 : 0, native_renderer::tuning().shadows ? 1 : 0,
-                             shadowStats.alphaSecond / secs, alphaStats.secondUnknown / secs, alphaStats.merged / secs);
+                             shadowStats.alphaSecond / secs, alphaStats.secondUnknown / secs, alphaStats.merged / secs, shadowStats.ispVolumes / secs, shadowStats.maskFused / secs, (bgSmallFrames - bgSmallLogged) / secs);
+                bgSmallLogged = bgSmallFrames;
                 alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
@@ -3934,6 +4031,154 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             k = end;
         }
         mergeStats();
+    }
+
+    // Round 87 (Tuning glSort87): within each layer, the draws that may go in
+    // any order are put in texture order between the ones that keep their
+    // place. A draw is free when nothing it draws depends on what was drawn
+    // before it except through the depth test: opaque (Blend::Opaque, or
+    // Normal with a least alpha of 1: Cs x 1 + Cd x 0), depth tested and
+    // written, no alpha test that can fail (its second pass blends), not an
+    // overlay / screen / volume / mirror / water / copy draw. Free draws
+    // never move past a draw that keeps its place, so every blended draw sees
+    // the same draws before it. Two free draws meeting at exactly the same
+    // depth keep the later one (LEQUAL), so there the other may show: the
+    // only change. Key: the texture, then the state and matrix (sameDraw's
+    // fields, hashed), then where the mesh lies (pool, first vertex): the
+    // merges need neighbours with the same texture, state and matrix, and a
+    // contiguous range or a run copy (made once a run repeats: the order is
+    // the same each frame for the same draws).
+    void Renderer::sortFree()
+    {
+        const size_t n = drawOrder.size();
+        if (n < 3)
+            return;
+        sortKeys.clear();
+        sortStats.frames++;
+        auto freeDraw = [&](size_t k) -> bool
+        {
+            const Planned &p = plan[k];
+            const Mesh *m = p.mesh;
+            if (!m || !m->count)
+                return false;
+            const native_renderer::DrawState &st = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)].state;
+            // Layer 1's far scenery and sky meet at the far plane (their
+            // depths round to 1.0 there): ties everywhere, so they keep their
+            // order (a frozen frame showed a 2 x 2 pixel speck of far landscape
+            // swapped with them sorted).
+            if (st.background || st.overlay || st.screen || st.screenDepthTest || st.noDepthWrite || st.shadowVolume || st.reflectionSource || st.reflectionSample ||
+                st.refractionSample || st.screenCopy || st.previousFrame || st.fresnel || st.debugColour)
+                return false;
+            if (st.texture && !p.tex)
+                return false;
+            float least = -1.0f; // alpha = texel a x 2 x vertex a / 128 x opacity, at least
+            if (p.minAlpha)
+            {
+                least = static_cast<float>(p.minAlpha) / 128.0f * st.opacity;
+                if (p.tex)
+                    least *= static_cast<float>(p.tex->minAlpha) / 255.0f * 2.0f;
+            }
+            if (st.blend == native_renderer::Blend::Normal)
+            {
+                if (!(least >= 1.0f))
+                    return false;
+            }
+            else if (st.blend != native_renderer::Blend::Opaque)
+                return false;
+            const uint32_t at = st.alphaTest;
+            if (at & 1u)
+            {
+                const float aref = static_cast<float>((at >> 4) & 0xFFu) / 128.0f;
+                if (!(least >= aref))
+                    return false;
+            }
+            return true;
+        };
+        auto hashState = [&](const Draw &d) -> uint64_t
+        {
+            const native_renderer::DrawState &x = d.state;
+            uint64_t h = 0xcbf29ce484222325ull;
+            auto mix = [&h](uint64_t v) { h = (h ^ v) * 0x100000001b3ull; h ^= h >> 31; };
+            uint32_t words[16];
+            std::memcpy(words, d.clip, sizeof words);
+            for (uint32_t w : words)
+                mix(w);
+            uint32_t f[6];
+            std::memcpy(f, &x.opacity, sizeof f);
+            for (uint32_t w : f)
+                mix(w);
+            mix(static_cast<uint64_t>(x.clamp) | static_cast<uint64_t>(x.blend) << 8 | static_cast<uint64_t>(x.background) << 16 | static_cast<uint64_t>(x.backgroundFge) << 17 |
+                static_cast<uint64_t>(x.fogged) << 18 | static_cast<uint64_t>(x.writeDepth) << 19 | static_cast<uint64_t>(x.lit) << 20 |
+                static_cast<uint64_t>(x.skinPalette) << 32);
+            if (x.lit)
+            {
+                uint32_t l[32];
+                std::memcpy(l, x.light, sizeof l);
+                for (uint32_t w : l)
+                    mix(w);
+            }
+            return h;
+        };
+        size_t k = 0;
+        while (k < n)
+        {
+            const uint64_t layer = drawOrder[k] >> 32;
+            if (!freeDraw(k))
+            {
+                ++k;
+                continue;
+            }
+            size_t end = k + 1;
+            while (end < n && (drawOrder[end] >> 32) == layer && freeDraw(end))
+                ++end;
+            if (end - k >= 3)
+            {
+                sortKeys.clear();
+                for (size_t j = k; j < end; ++j)
+                {
+                    const Draw &d = draws[static_cast<size_t>(drawOrder[j] & 0xFFFFFFFFu)];
+                    const Mesh *m = plan[j].mesh;
+                    const uint64_t where = (m->skinned ? 1ull << 63 : 0ull) | (m->indexed ? 1ull << 62 : 0ull) | (m->dynamic ? 1ull << 61 : 0ull) |
+                                           (static_cast<uint64_t>(static_cast<uint32_t>(m->pool + 1) & 0xFFFFu) << 32) | m->first;
+                    sortKeys.push_back({d.state.texture, hashState(d), where, static_cast<uint32_t>(j)});
+                }
+                std::sort(sortKeys.begin(), sortKeys.end(), [](const auto &a, const auto &b)
+                {
+                    if (a.tex != b.tex)
+                        return a.tex < b.tex;
+                    if (a.state != b.state)
+                        return a.state < b.state;
+                    if (a.where != b.where)
+                        return a.where < b.where;
+                    return a.k < b.k;
+                });
+                sortOrder.clear();
+                sortPlan.clear();
+                for (const auto &key : sortKeys)
+                {
+                    sortOrder.push_back(drawOrder[key.k]);
+                    sortPlan.push_back(plan[key.k]);
+                }
+                for (size_t j = k; j < end; ++j)
+                {
+                    sortStats.moved += sortOrder[j - k] != drawOrder[j];
+                    drawOrder[j] = sortOrder[j - k];
+                    plan[j] = sortPlan[j - k];
+                }
+                sortStats.free += end - k;
+                ++sortStats.segments;
+            }
+            k = end;
+        }
+        sortStats.draws += n;
+        static const bool log = std::getenv("SOTC_GL_DRAW_LOG") != nullptr || std::getenv("SOTC_SORT87_LOG") != nullptr;
+        if (log && sortStats.frames % 300u == 0u)
+        {
+            const double f = 300.0;
+            std::fprintf(stderr, "[sort87] per frame: draws %.0f, free %.0f in %.0f segments, moved %.0f\n", sortStats.draws / f, sortStats.free / f,
+                         sortStats.segments / f, sortStats.moved / f);
+            sortStats = {};
+        }
     }
 
     // Round 74 (SOTC_GL_MERGE_STATS=1, analysis): why two draws next to each
@@ -4192,6 +4437,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static const bool phaseLog = std::getenv("SOTC_GL_PHASE_LOG") && std::atoi(std::getenv("SOTC_GL_PHASE_LOG")) != 0;
         phases.on = phaseLog;
         phases.start = phaseLog ? native_renderer::nowUs() : 0u;
+        // Round 87 (Tuning glInflight87, a console A/B candidate): the frame
+        // begins its scenes only once the GPU has finished the frame before
+        // (at most this frame on the GPU, instead of the 2-3 the display
+        // queue allows). Same commands, same picture. If the console's GPU
+        // time a frame drops with it, the frames in flight were costing the
+        // GPU itself (GXM's parameter buffer, 16 MB, shared by every scene in
+        // flight: ~120 000 vertices a frame with three float4 varyings fill
+        // ~8.5 MB, so two or three frames in flight overflow it and GXM
+        // renders scenes in parts, the picture stored and loaded again each time).
+#if defined(PS2X_NATIVE_VITA)
+        if (native_renderer::tuning().glInflight87)
+            gpu86::waitPreviousFrame();
+#endif
         ensureTargets(w, h);
         // Round 73 (Tuning glFewScenes): the two pictures in turn (switched
         // either way, so that the frame after one shown as drawn never draws
@@ -4366,6 +4624,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const bool softShadows = softOrder != 0;
         static const bool bgFog = std::getenv("SOTC_NATIVE_BGFOG") != nullptr;
 
+        // Round 87 (Tuning glShmask87): the soft shadows' darkening (and the
+        // glow composite after it) left for the picture's next scene, which
+        // runs it before its draws (see maskFuse below).
+        std::function<void()> pendingResolve;
         auto pass = [&](Target &target, bool backgroundOnly, uint32_t fromOrder = 0, uint32_t toOrder = ~0u, bool load = false, bool mirror = false,
                         bool apart = false)
         {
@@ -4383,7 +4645,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 }
             } passTime{this, phases.on ? native_renderer::nowUs() : 0u};
+            gpu86::label(backgroundOnly ? "bg %d-%d" : mirror ? "mirror %d-%d" : apart ? "apart %d-%d" : "pass %d-%d", static_cast<int>(fromOrder),
+                         toOrder == ~0u ? 99 : static_cast<int>(toOrder));
             bindTarget(target);
+            if (pendingResolve && load && !backgroundOnly && !mirror && !apart && &target == &color)
+            {
+                const std::function<void()> resolve = std::move(pendingResolve);
+                pendingResolve = nullptr;
+                resolve();
+                bindTarget(target);
+            }
             if (apart) // a layer of its own over the picture's depth: colour cleared to nothing
             {
                 glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -4798,12 +5069,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     uniform4(uDebug, none, 1);
                     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 #if defined(PS2X_NATIVE_VITA)
+                    // Round 87 (Tuning glVol87, a console A/B candidate): the
+                    // count drawn as GXM's depth / stencil-only primitives (the
+                    // fragment program disabled: the ISP alone, as vitaGL's own
+                    // depth / stencil clears), no blend: the volume's pixels
+                    // never reach the USSE or the tile's colour.
+                    const bool volIsp = native_renderer::tuning().glVol87;
+                    if (volIsp)
+                    {
+                        glDisable(GL_BLEND);
+                        sceGxmSetFrontFragmentProgramEnable(gxm_context, SCE_GXM_FRAGMENT_PROGRAM_DISABLED);
+                        sceGxmSetBackFragmentProgramEnable(gxm_context, SCE_GXM_FRAGMENT_PROGRAM_DISABLED);
+                        ++shadowStats.ispVolumes;
+                    }
+                    else
+                    {
                     // vitaGL bakes the colour mask into the fragment program's
                     // blend info, which did not hold (the volumes were painted
                     // over the horizon): blend so the colour cannot change too.
                     glEnable(GL_BLEND);
                     glBlendEquation(GL_FUNC_ADD);
                     glBlendFunc(GL_ZERO, GL_ONE);
+                    }
 #endif
                     glDepthMask(GL_FALSE);
                     glEnable(GL_DEPTH_TEST);
@@ -4817,6 +5104,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     glEnable(GL_DEPTH_CLAMP); // the GS does not cut at the near plane
 #endif
                     drawMesh(mesh, firstVertex);
+#if defined(PS2X_NATIVE_VITA)
+                    if (volIsp)
+                    {
+                        sceGxmSetFrontFragmentProgramEnable(gxm_context, SCE_GXM_FRAGMENT_PROGRAM_ENABLED);
+                        sceGxmSetBackFragmentProgramEnable(gxm_context, SCE_GXM_FRAGMENT_PROGRAM_ENABLED);
+                    }
+#endif
                     stats.vertices += mesh.count;
                     ++shadowStats.volumes;
                     shadowStats.vertices += mesh.count;
@@ -5155,10 +5449,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
         if (haveMirror)
             pass(reflection, false, 0, ~0u, false, true);
+        // Round 87 (Tuning glBgSmall87, a console A/B candidate). With fog on,
+        // the background layer (sky and far scenery, ~450 alpha-tested draws
+        // at the title) is drawn into its own 512 x 448 target only to be
+        // reduced to 256 x 256 (bgEnd's copy), which is all that is read
+        // after it: the fog's colour source and the sky image stretched back
+        // over the picture (the PS2 shows that reduced copy too). Drawn
+        // straight at 256 x 256: ~3.5x fewer pixels for the layer's whole
+        // overdraw (every draw blends and most cut out, so none is hidden).
+        // Its pixels are sampled once instead of averaged from ~2 x 2, then
+        // stretched back as before.
         if (fogOn)
         {
-            pass(background, true);
-            copy(background, backgroundSmall); // bgEnd: reduced to 256 x 256
+            if (native_renderer::tuning().glBgSmall87)
+            {
+                if (!backgroundLow.texture)
+                    makeTarget(backgroundLow, 256, 256, true);
+#if defined(PS2X_NATIVE_VITA)
+                if (backgroundLow.fbo)
+                    vglCeloDepthKeep(backgroundLow.fbo, depthKeep ? 0 : -1);
+#endif
+            }
+            if (native_renderer::tuning().glBgSmall87 && backgroundLow.fbo)
+            {
+                pass(backgroundLow, true);
+                copy(backgroundLow, backgroundSmall);
+                ++bgSmallFrames;
+            }
+            else
+            {
+                pass(background, true);
+                copy(background, backgroundSmall); // bgEnd: reduced to 256 x 256
+            }
         }
 #if defined(PS2X_NATIVE_VITA)
         const bool bloomOn = false; // the Mac's reads depth; the Vita's is vitaBloom
@@ -5316,6 +5638,52 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (fewScenes && lastEvent)
                 keepDepth(color, 1);
         };
+        // Round 87 (Tuning glShmask87, a console A/B candidate). The soft
+        // shadows' mask needs the picture put down (its alpha reduced 4 x 4
+        // and blurred elsewhere), and the darkening takes it up again. Where
+        // the next thing the frame does is the water's copy of the picture
+        // (the altar: shadows and the glow layer at 8, the copy at 9, nothing
+        // drawn into the picture between them), that scene of the picture
+        // held only the darkening and the glow's composite before it was put
+        // down again for the copy. Now the copy is made from the picture as
+        // the mask left it and gets the darkening and the composite itself
+        // (the same quads at 256 x 256), and the picture gets them at the
+        // start of its next scene: one scene of the 512 x 448 picture (its
+        // colour and depth / stencil loaded and stored) fewer a frame.
+        bool maskFuse = false, maskPending = false, glowPending = false;
+        auto resolveMask = [&](Target &t)
+        {
+            const bool picture = &t == &color;
+            if (picture)
+            {
+                glEnable(GL_STENCIL_TEST);
+                glStencilMask(0xFF);
+                glStencilFunc(GL_ALWAYS, 0, 0xFF);
+                glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
+            }
+            const float amount[4] = {softAmount, 0, 0, 0};
+            bindTexture(0, bloomTex[0].texture);
+            quad(t, 9, QuadBlend::Darken, amount);
+            if (picture)
+            {
+                glDisable(GL_STENCIL_TEST);
+                ++shadowStats.darkens;
+            }
+            if (glowPending)
+            {
+                const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
+                for (const auto &[source, amount] : layers)
+                {
+                    if (!(amount > 0.0f))
+                        continue;
+                    const float tint[4] = {glow.tint[0], glow.tint[1], glow.tint[2], amount};
+                    bindTexture(0, source->texture);
+                    quad(t, 14, QuadBlend::Over, tint);
+                }
+                if (picture)
+                    glowPending = false;
+            }
+        };
         // The frame log's [gl:glow] line (round 24: the dead colossus's
         // coloured blobs on the console): how layer 8 went, every 120 frames
         // that have layer 8 draws.
@@ -5399,6 +5767,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                       : glowBuilt    ? "apart (on the picture drawn again)"
                                      : "apart (on the picture's depth)";
             glowLog();
+            if (maskPending) // round 87: after the deferred darkening (doRefraction)
+            {
+                glowPending = true;
+                return;
+            }
             finalKeep();
             const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
             for (const auto &[source, amount] : layers)
@@ -5475,6 +5848,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 {
                     glowBuilt = glowWasHoisted = buildGlow(color);
                     glowHoisted += glowWasHoisted ? 1u : 0u;
+                }
+                if (maskFuse)
+                {
+                    // Round 87: the darkening waits for the water's copy (doRefraction).
+                    maskPending = true;
+                    return;
                 }
                 finalKeep();
                 glEnable(GL_STENCIL_TEST);
@@ -5560,9 +5939,22 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (haze == 0 || water == 0)
             {
                 copy(direct ? color : snapshot, refraction);
+#if defined(PS2X_NATIVE_VITA)
+                if (maskPending)
+                    resolveMask(refraction); // round 87: the copy gets what the picture will
+#endif
                 copy(refraction, refractionHalf);
                 copy(refractionHalf, refraction);
             }
+#if defined(PS2X_NATIVE_VITA)
+            if (maskPending)
+            {
+                // Round 87: and the picture at the start of its next scene.
+                maskPending = false;
+                pendingResolve = [&] { resolveMask(color); };
+                ++shadowStats.maskFused;
+            }
+#endif
             // Each draw binds its source (textured 3 / 4 in pass).
         };
         auto doFog = [&]
@@ -5980,6 +6372,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return (ev.prefix >= 0 && ev.blur == -4) || // its copies are made
                    (hazeWithBlur && ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && !(haveRefraction && ev.order == 9u)); // made by the blur at its layer (doBlurApart)
         };
+#if defined(PS2X_NATIVE_VITA)
+        // Round 87 (glShmask87): the shadows' event followed (after the glow
+        // layer at its own layer, hoisted) by the water's copy at 9, made from
+        // the picture itself, and nothing drawn into the picture between.
+        if (softShadows && fewScenes && native_renderer::tuning().glShmask87)
+        {
+            const native_renderer::Tuning &tu = native_renderer::tuning();
+            const int haze = static_cast<int>(tu.hazeSource + 0.5f), water = static_cast<int>(tu.waterSource + 0.5f);
+            const bool directCopy = tu.glFewCopies && haze != 1 && water != 1 && (haze == 0 || water == 0);
+            for (size_t i = 0; i < events.size() && directCopy; ++i)
+            {
+                if (events[i].blur != -3)
+                    continue;
+                size_t j = i + 1;
+                const bool glowAt = j < events.size() && events[j].blur == -2 && events[j].order == events[i].order && !eventSkipped(events[j]);
+                if (glowAt)
+                    ++j;
+                if (j < events.size() && events[j].blur == -4 && !eventSkipped(events[j]) && haveRefraction && events[j].order == 9u && events[j].order > events[i].order)
+                {
+                    bool empty = true;
+                    for (const Draw &d : draws)
+                        if (d.state.order >= events[i].order && d.state.order < events[j].order && !(glowAt && d.state.order == glow.order))
+                        {
+                            empty = false;
+                            break;
+                        }
+                    maskFuse = empty;
+                }
+                break;
+            }
+        }
+#endif
         size_t lastRun = events.size();
         for (size_t i = 0; i < events.size(); ++i)
             if (!eventSkipped(events[i]))

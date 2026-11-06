@@ -314,6 +314,40 @@ namespace native_renderer
         // present reads (the picture's texture, the host's menu) is part of
         // the hand-over. SOTC_GL_PRESENT86=0/1; A/B name `present86`.
         bool glPresent86 = true;
+        // Round 87: within a layer, the draws whose order cannot change a
+        // pixel (opaque, depth tested and written, no alpha test that can
+        // fail, no overlay / volume / screen / mirror / water state) are put
+        // in texture order between the draws that keep their place, so that
+        // more neighbours share texture, state and matrix and merge into one
+        // GL call. Equal depths keep the later draw: two such draws meeting
+        // at exactly the same depth may swap which one shows. Layer 1 (far
+        // scenery at the far plane: ties everywhere) keeps its order.
+        // Measured: the render thread 0.55-0.90 ms SLOWER a frame (Vita3K 222
+        // MHz, altar and route 6, matched): the world's neighbours differ by
+        // matrix as well as texture, so sorting by texture buys few merges and
+        // costs the sort. Off by default (SOTC_GL_SORT87=1 to try; A/B name `sort87`).
+        bool glSort87 = false;
+        // Round 87 (GPU, console A/B candidate): the shadow volumes' stencil
+        // count drawn with the fragment program disabled (GXM's depth /
+        // stencil-only primitives: the ISP alone, no USSE program, no blend)
+        // instead of a program writing 0 under a ZERO / ONE blend.
+        // SOTC_GL_VOL87=0/1 (default 0); A/B name `vol87` (its windows flip it).
+        bool glVol87 = false;
+        // Round 87 (GPU, console A/B candidate): the soft shadows' mask (the
+        // 512 x 448 picture put down, its 4 x 4 reduction and blur, taken up
+        // again) without the picture's own break; see native_renderer_gl.cpp.
+        // SOTC_GL_SHMASK87=0/1 (default 0); A/B name `shmask87` (its windows flip it).
+        bool glShmask87 = false;
+        // Round 87 (GPU, console A/B candidate): a frame begins its scenes only
+        // once the GPU has finished the frame before (at most one frame on the
+        // GPU). SOTC_GL_INFLIGHT87=0/1 (default 0); A/B name `inflight87` (its
+        // windows flip it).
+        bool glInflight87 = false;
+        // Round 87 (GPU, console A/B candidate): with fog on, the background
+        // layer drawn straight into a 256 x 256 target (all that is read of it
+        // is its 256 x 256 reduction) instead of 512 x 448 and reduced.
+        // SOTC_GL_BGSMALL87=0/1 (default 0); A/B name `bgsmall87` (its windows flip it).
+        bool glBgSmall87 = false;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

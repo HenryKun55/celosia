@@ -2990,6 +2990,11 @@ namespace sotc_native
             {"soft75", &native_renderer::Tuning::glSoftCut},         // round 75
             {"guard75", &native_renderer::Tuning::glFarGuard},       // round 75
             {"present86", &native_renderer::Tuning::glPresent86},    // round 86
+            {"sort87", &native_renderer::Tuning::glSort87},          // round 87
+            {"vol87", &native_renderer::Tuning::glVol87},            // round 87 (GPU candidate: its windows flip it)
+            {"shmask87", &native_renderer::Tuning::glShmask87},      // round 87 (GPU candidate: its windows flip it)
+            {"inflight87", &native_renderer::Tuning::glInflight87},  // round 87 (GPU candidate: its windows flip it)
+            {"bgsmall87", &native_renderer::Tuning::glBgSmall87},    // round 87 (GPU candidate: its windows flip it)
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3008,7 +3013,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, newDirAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, newDirAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3036,6 +3041,7 @@ namespace sotc_native
             r84AllAt = indexOf("r84all");
             r85AllAt = indexOf("r85all");
             r86AllAt = indexOf("r86all");
+            r87AllAt = indexOf("r87all");
             newDirAt = indexOf("newdir");
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
@@ -3132,6 +3138,31 @@ namespace sotc_native
             for (size_t i = 0; i < kTuningCount; ++i)
                 if (!std::strcmp(kTuningFlags[i].name, "present86") && (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
+        // Round 87: the GPU candidates ship off; their windows flip them (on
+        // in the window when off at the start, the console's A/B measures them
+        // without extra env lines). `r87all` turns the round's switches off
+        // together (sort87, and the candidates); `newdir` takes sort87 in.
+        for (size_t i = 0; i < kTuningCount; ++i)
+            if (tuningAt[i] >= 0 && (!std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "shmask87") ||
+                                     !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87")))
+                t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? !(start.*(kTuningFlags[i].field)) : start.*(kTuningFlags[i].field);
+        if (r87AllAt >= 0 || newDirAt >= 0)
+        {
+            const bool r87Off = r87AllAt >= 0 && isOffAt(r87AllAt), dirOff = newDirAt >= 0 && isOffAt(newDirAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+            {
+                const bool sort = !std::strcmp(kTuningFlags[i].name, "sort87");
+                const bool gpu = !std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "shmask87") ||
+                                 !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87");
+                if (!sort && !gpu)
+                    continue;
+                const bool off = r87Off || (sort && dirOff);
+                if (off)
+                    t.*(kTuningFlags[i].field) = false;
+                else if (tuningAt[i] < 0)
+                    t.*(kTuningFlags[i].field) = start.*(kTuningFlags[i].field);
+            }
         }
         if (sacAllAt >= 0) // round 65: every cut off together
         {

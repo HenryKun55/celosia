@@ -13224,6 +13224,129 @@ spike log, `SOTC_AB_FLAG=r86all,newdir`, rotation every 60 frames; the GPU
 timeline on through SOTC_FRAME_LOG_ALL); read it with
 `python3 build/agent-scratch/r86/tools/ab86.py err.txt --from 1500`.
 
+## Round 87: the console's GPU, per scene and per pass: scenes named in the GPU log, four GPU candidates for the console's A/B, the draw sort measured and dropped (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r87/`:
+- build.sh / v3k.sh: round 86's with r87 paths (worktree `r87/wt`, build
+  `r87/vita`, vitaGL copied from r86, Vita3K `r87/vita3k` with its `portable`
+  link to ../vita3k-celosia-r87; absolute VPK paths only).
+- run1.sh (altar and route 6 with the A/B, the attract demo 660 s with the
+  console env), freeze.sh (the altar's frame frozen, `SOTC_GL_FREEZE=3300,1000`,
+  the A/B rotating, captures every 2 s), shots.sh (the GPU candidates on /
+  off, altar and route 6), hashes.sh (each capture's hash, in time order).
+- tools/ab87.py: the frame table by A/B state with the render thread's draw
+  part and a block matched by draws and scenes; `[gpu86]` and `[gpu86s]` per
+  A/B state, the scenes by target and label. tools/pdiff.sh: two captures'
+  differing pixels, largest difference and box, with a crop. tools/shotgrp.sh
+  (round 75's).
+- runs/: altar, route6, attract (p3: sort87 / the first candidates),
+  freeze1-3, fz-* (per switch), diag (the console env and the pass log),
+  shotsA-* / shotsR-*, attract6 (the final VPK, the console env, 660 s);
+  pics/: the on / off pairs.
+- p1-p6.vpk; celosia-r87.vpk = p6 (main 44c1b2e, round 85, + this round).
+
+**What the console says (round 85's run, r85/console/err.txt, read with
+ab86.py --from 1500).** The GPU is the limit everywhere: `gpuFrame` 61.9 /
+64.1 / 62.7 ms in the three states, the frame ~60 ms; newdir took the game
+thread from 50 to 40 ms and the frame did not move (matched +0.4). The
+slowest scenes are on two 512 x 448 targets: the picture (11.9 ms mean, seen
+~3 times a frame, one scene 50.6 ms) and a second one (16.7 ms mean,
+probably the background layer's own target). Frames 500-650 (the title) send
+8 meshes and the render thread draws for ~5 ms, but `present` is 45-125 ms.
+In Vita3K (`SOTC_PASS87_LOG`, below) the title's frame is ~1 000 draws:
+layer 1 (sky and far scenery, drawn into the background's own target) 455
+draws / 79 000 vertices, layer 2 209, layer 3 114, layer 13 150, every one of
+them alpha tested and blended (Normal): each cuts out (discard) and blends,
+so the GPU's hidden surface removal never drops a pixel and the whole
+overdraw is shaded, in two 512 x 448 targets.
+
+**Measuring tools (new).**
+1. `[gpu86s]` scenes carry what the renderer did at the scene's first bind:
+   `pass a-b` (the picture's layers a..b-1), `bg a-b` (the background
+   layer's target), `apart` (the glow layer), `mirror`, `qN` (a full-screen
+   quad of mode N: 0 copy, 1 blur, 8/19 the shadow or bloom mask into alpha,
+   9 the soft shadows' darkening, 11/20 the 4 x 4 reduction, 13 the glow
+   reductions, 14 the glow composite, 15-18 / 21-24 the GS bloom chain).
+   The next console run names the slow scenes by what they draw.
+2. `SOTC_PASS87_LOG=<n>`: every n frames the frame's draws by layer (count,
+   vertices, blends, screen-space, mirror / water / copy / last-frame draws,
+   volumes, alpha tested, background, skinned): `[pass87]`.
+3. `[gpu86]` ends with the render thread's wait for the GPU under inflight87.
+
+**GPU candidates (Vita; default 0; each A/B window FLIPS the switch, so with
+them off the window is the candidate on, and the console env needs no extra
+lines; `r87all` turns them off together).**
+1. `SOTC_GL_INFLIGHT87` (`inflight87`): a frame begins its scenes only once
+   the GPU has finished the frame before (the render thread waits on vitaGL's
+   scene notifications, at most 100 ms). Same commands, same picture. The
+   console keeps 2-3 frames on the GPU (backlog 50-57 scenes at the present);
+   GXM's 16 MB parameter buffer holds every scene in flight, and a frame's
+   ~120 000 vertices with three float4 varyings fill ~8.5 MB of it: two or
+   three frames overflow it, and GXM then renders scenes in parts (the
+   picture's colour and depth stored and loaded again each time: a 50 ms
+   picture scene fits). If `gpuFrame` drops in its windows, that is the cost
+   and the fix is fewer frames in flight / smaller varyings / a larger buffer.
+2. `SOTC_GL_BGSMALL87` (`bgsmall87`): with fog on, the background layer is
+   drawn into its own 512 x 448 target only to be reduced to 256 x 256
+   (bgEnd's copy, the only thing read after it: the fog's colour and the sky
+   image stretched back over the picture, as the PS2 shows it). Drawn straight
+   into a 256 x 256 target: ~3.5x fewer pixels for the layer's whole overdraw.
+   Frozen altar frame: the far scenery's pixels differ by up to 31 levels
+   (sampled once instead of averaged over ~2 x 2, then stretched), the rest
+   the same; side by side the same picture.
+3. `SOTC_GL_VOL87` (`vol87`): the shadow volumes' stencil count drawn with the
+   fragment program disabled (`sceGxmSetFront/BackFragmentProgramEnable`, as
+   vitaGL's own depth / stencil clears): the ISP alone, no program, no blend,
+   instead of a program writing 0 under a ZERO / ONE blend (a translucent
+   pass the ISP must hand to the USSE pixel by pixel). Captures with it on:
+   the soft shadows the same (route 6, Wander on the plain; the altar), no
+   colour painted (round 45's horizon bug).
+4. `SOTC_GL_SHMASK87` (`shmask87`): where the soft shadows' event is followed
+   (after the glow layer at the same layer) by the water's copy at layer 9
+   with nothing drawn into the picture between (the altar), the scene that
+   held only the darkening and the glow composite is gone: the copy is made
+   from the picture as the mask left it and gets the darkening and the
+   composite itself (the same quads at 256 x 256), and the picture gets them
+   at the start of its next scene. One 512 x 448 scene (colour and depth /
+   stencil loaded and stored) fewer a frame there. Frozen altar frames with it
+   rotating: one picture (the water included).
+
+Vita3K cannot time any of them (its GPU never makes the swap wait): in-run
+A/B at the altar and in the attract demo, each window within noise (frame
+-0.9..+0.3 ms, render thread -0.2..0.0). Attract demo 660 s with
+vol87,shmask87 rotating (p3) and with inflight87,bgsmall87 rotating (p6):
+no crash.
+
+**The draw sort, measured and dropped (`SOTC_GL_SORT87`, default 0; A/B
+`sort87`).** Within a layer the draws whose order cannot change a pixel
+(opaque or least alpha 1, depth tested and written, no alpha test that can
+fail, no special state; layer 1 excluded: its far scenery ties at the far
+plane, a frozen frame showed a 2 x 2 speck swapped) sorted by texture, state
+and matrix, and mesh place, for more merges. The render thread's draw part
+got slower, not faster: altar 15.63 ms off, 16.42 on (0.90 slower matched), route 6
+0.55 slower matched: the world's neighbours differ by matrix as well as texture,
+so few more merge, and the sort costs. Off.
+
+**On the console (the user's run).** env-console.txt: the frame log (all
+frames, the GPU timeline on), body shadows, the spike log,
+`SOTC_AB_FLAG=inflight87,bgsmall87`, rotation every 60 frames: base /
+inflight87 on / bgsmall87 on. Read with
+`python3 build/agent-scratch/r87/tools/ab87.py err.txt --from 1500`: a
+NEGATIVE `frame` / `present` / `gpuFrame` in a candidate's row ("window minus
+all on") is its gain; the `[gpu86s]` tables by state name the slow scenes by
+what they draw. vol87 and shmask87 are the next pair (shadow frames, altar).
+
+**Risks.** inflight87 makes the render thread wait for the GPU (up to 100
+ms) before a frame: if the parameter buffer is not the cost, the frame gets
+longer in its windows by the lost overlap. bgsmall87: the far scenery in fog
+sampled at 256 x 256 may shimmer more when the camera moves (its edges are
+no longer averaged). vol87 relies on the console honouring the fragment
+program's disable for stencil-only primitives (vitaGL's clears rely on it
+too). shmask87 changes only the water's copy (resampled differently).
+
+**Deliverables:** build/agent-scratch/celosia-r87.vpk;
+build/agent-scratch/r87/env-console.txt; tools/ab87.py.
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster
