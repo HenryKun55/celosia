@@ -535,23 +535,25 @@ namespace sotc_decomp
         kSeg80,       // round 80: the segment tests' answers reused while the segment stays within 1 cm, for at most 5 frames (decomp_collision)
         kPose82,      // round 82: the characters' pose (GetMotionMatrix) and bone passes for the A9, not as VU0 code (decomp_pose82)
         kWalk83,      // round 83: the display walk's light colours kept while their inputs stay, the layout objects' clip as plain A9 code (decomp_walk83)
-        kPtcl83,      // round 83: the particle manager's per-system round trips as host code (decomp_hot47e); off by default (below the bar)
+        kPtcl83,      // round 83: the particle manager's per-system round trips as host code (decomp_hot47e); on by default since round 89
         kProbe84,     // round 84: the world probes that need no per-frame answer (the AI path's segment tests at path scale, the camera's water search) (decomp_collision, decomp_probe84)
         kFind84,      // round 84 (measuring, off by default): the collision finder's candidate surfaces of a still object kept while the query stays within 3 cm (decomp_hot47j)
         kGround85,    // round 85: Wander's ground step's near surfaces in a host array (decomp_ground85)
+        kPtcl89,      // round 89: the particle emitters' frame without its leaf round trips (the camera context, the effect's name and step kind, as host code; decomp_ptclupdate)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
         if (__builtin_expect(v < 0, 0))
         {
             const char *e = std::getenv(kSwitchEnv[which]);
-            // Round 83: ptcl83 measured below the 1 ms bar: off unless SOTC_PTCL83=1.
-            v = (which == kPtcl83 || which == kFind84) ? (e && e[0] == '1') : !(e && e[0] == '0'); // round 84: find84 likewise, off unless SOTC_FIND84=1
+            // Round 83 left ptcl83 off (below its 1 ms bar); round 89 turns it on (exact, a gain in all three
+            // places measured: -0.16 ms riding, -0.23 the altar, -0.42 route 6). Round 84: find84 off unless SOTC_FIND84=1.
+            v = (which == kFind84) ? (e && e[0] == '1') : !(e && e[0] == '0');
             g_switch[which] = v;
         }
         return v != 0;
@@ -635,6 +637,7 @@ namespace sotc_decomp
     inline bool probe84On() { return switchOn(kProbe84); }
     inline bool find84On() { return switchOn(kFind84); }
     inline bool ground85On() { return switchOn(kGround85); }
+    inline bool ptcl89On() { return switchOn(kPtcl89); }
     // Round 79 (decomp_hot47e.cpp): the particle geodisp object the manager
     // found wholly outside the camera's clip volume this frame and the frame
     // before (its step put off, its draw not needed).

@@ -13444,6 +13444,149 @@ on).**
 (bgsmall87 and vol87 now on everywhere outside their own windows). Read it
 with `tools/ab88.py err.txt` (the 3D's frames; `--all` for every frame).
 
+## Round 89: the game thread ranked again, by subsystem; the console's CPU budget; the particle emitters' leaf round trips (ptcl89) and ptcl83 on (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r89/`:
+- build.sh: its own worktree `r89/wt` and build directory `r89/vita`.
+- v3k.sh: its own Vita3K, `r89/vita3k`, with its `portable` link to
+  ../vita3k-celosia-r89 (pref-path fixed to r89); 222 MHz, 3 cores, muted,
+  memcard copied, settings.cfg put back.
+- step1-6.sh: the profiles (base.vpk = round 88's VPK); ab1.sh: the A/B
+  (attract demo, altar, route 6); shots.sh; final.sh.
+- tools/incl.py (`[prof]` windows by inclusive time), tools/tl.py (a
+  `[timeline]` over the frame label's boundary), tools/ab89.py (round 85's
+  reader).
+- runs/: profA / profR / profD (SOTC_SUBSYS_PROF at the altar, route 6, the
+  attract demo), tlA / tlR (timelines, SOTC_CHARLOD78_LOG), walkA / walkD
+  (SOTC_WALK79_LOG, SOTC_PTCL79_LOG), geoD (SOTC_CHARGEO80_LOG), ptclD (the
+  particle step's callees, SOTC_SUBSYS_PROF_ONLY), attract1 / altar1 / route1
+  (the A/B), shotsA-* / shotsR-*, finalD.
+
+The Mac's screen was locked: SOTC_SUBSYS_PROF's `hook.sync` holds the host's
+~1 s stalls (8 ms in a 120-frame window per stall); it is taken out of the
+figures below.
+
+**The console's game thread (round 87's console runs, err-ab1 / err-ab2).**
+`cpu game` of the 3D frames by frame number: ~23 ms (frames 500-750), 33-36
+(1 250-1 750), 51-59 (1 750 on; err-ab1 frames 1 800-1 830: cpu game 56-66,
+the frame 70-75, the game thread waiting 10-17 ms for the render side). The
+other threads in the same frames: render 22-50 ms of CPU (core 2), audio
+10-25, worker 14-16 (mesh jobs, ~300 KB of meshes a frame, lag 5-6 ms), lane
+2-4, build 3-4, loader 3-4, dma 3, log 3 (the frame log itself), offload 3,
+main 1.5 (cores 1-2). The game thread has core 0 to itself; cores 1 and 2 are
+~70-85% busy. So moving game-thread work to "idle" cores has ~25 ms of a
+core to work with on the plain, not two cores; and a 33 ms frame needs the
+whole machine's CPU (~150 ms a frame across the three cores now) down by a
+third, not only the game thread's.
+
+**The game thread by subsystem (Vita3K 222 MHz, ms a frame, inclusive, with
+the probes' own cost, ~1.2x).**
+
+| subsystem | the altar (~46) | route 6, the plain standing (~29) | attract demo, the world (~41) |
+|---|---|---|---|
+| display walk (DispDispObjGroupModel) | 10.6 (own 5.3: group pass 2.9, light 1.1; modelDisp 2.4, sort 1.3, particle draws 1.1, cloth meshes 0.8) | 7.4 (own 4.0) | 9.5 (own 5.8; particle draws 1.7-1.8 for ~40 systems) |
+| characters' geometry (ExecCharaGeometry) | 11.1 (Wander 6.4, his head 0.8, Mono's three parts ~1.9, Agro out of view 1.5, the rest ~0.9) | 4.5 (Wander 2.7, head 0.8, Agro out of view 0.8) | 8.0 (Wander 3.6-4.9, Agro in view 3.0-5.3, head 0.5) |
+| particle manager (the systems' step) | 2.4 (~20 systems) | 2.9 | 4.2 (~42 systems stepped, mostly Agro's hoof effects) |
+| camera (doit_cameraman_manager) | 2.7 | 2.2 | 3.0 |
+| character control (charaCtrl x 10-19) | 3.2 | 2.3 | 2.1 |
+| collision callbacks (ClipCollisionDirectCallBack) | 2.3 | 1.2 | 2.6 |
+| AI control | 2.0 | 1.3 | 2.2 |
+| player control | 1.4 | 1.0 | |
+| frame start (graphFrameInit, InitLayoutObjMatrix) | 2.1 | 2.0 | 2.1 |
+| geometry pre-process (x 8-18) | 1.7 | 0.7 | 0.8 |
+
+Inside the characters (SOTC_CHARGEO80_LOG, the attract demo): Wander's
+GetCharaRootDynamics 2.2-3.5 ms (the altar ~4.4: rounds 80-85), IK 0.6-0.7,
+cloth 0.4; Agro's root dynamics 0.7-2.6, IK 0.65-0.94, CalcRootFitting
+0.62-0.85, cloth 0.35, gaze 0.24. Agro put off out of view (round 78) costs
+4.2-4.6 ms each 0.12 s.
+
+The particle systems in the world (SOTC_PTCL79_LOG): ~63 geodisps a frame,
+17 out of view; the most common are Agro's hoof effects (HORSE_GRASS_CHIP /
+DUST / BROKEN, HORSE_MUD_*: three single-emitter systems of 1-3 particles per
+footfall), then OP1 fog and kite feathers. Each costs ~60 us to step and
+~45 us to draw (ptclD: the emitter's frame 39 us own time, 258 camera-context
+calls a frame). Their cost is the per-system path, not the particles.
+
+**What this says.** No item above is more than ~3 ms on its own once the
+rounds 78-88 cuts are in; the larger blocks (the walk, a character's
+geometry) are each a chain where each step reads what the one before wrote
+(round 76). The cuts that would halve the game thread are parallel ones, and
+every remaining large block is recompiled guest code or natives that call
+guest code: running it on another core needs (a) a guest context, stack and
+scratchpad per host thread, (b) no guest thread switch / checkpoint on that
+thread, (c) host locks around the shared guest structures it touches (the
+kernel's group links and their free list, which both the particle manager's
+group walk and the display walk's iosDlLockObj write; the game heap, which
+the particle step frees into). None of that exists yet; with it, the
+candidates are the particle manager a frame behind (the walk reads its
+bounds at the group pass, so not beside the walk), the walk's draw stage
+beside the next frame's control and AI, and Agro's geometry beside Wander's
+when Agro is not ridden. That is the next round's design work, not this
+one's.
+
+**What changed.**
+- `SOTC_PTCL89` (default on; A/B `ptcl89`, `r89all`, `newdir`;
+  decomp_ptclupdate.cpp): the emitter's frame (0113B610) reads the camera
+  context (get_cur_camera_context: *(0x0122A8F0 + *(0x0118FE4C) x 4)), the
+  effect's name against the two named ones (strcmp == 0, the guest strings
+  compared on the host) and the step kind (01141090: +0xc8 == 2 and +0xc0 ==
+  2) straight, instead of 7-8 guest round trips per emitter. Exact: the same
+  values; the leaves' scratch registers are not left as they leave them (dead
+  at the caller) and iosgluGetCameraContext's ra save below sp is not
+  written. Anything outside main RAM goes to the guest calls as before.
+- `SOTC_PTCL83` (round 83's particle manager round trips as host code) is
+  now on by default: exact, and a gain in all three places below.
+
+**Measured (Vita3K 222 MHz, in-run A/B, `SOTC_PTCL83=1 SOTC_AB_FLAG=ptcl89,ptcl83
+SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py, matched by draws, off minus on).**
+
+| run | part | ptcl89 | ptcl83 |
+|---|---|---|---|
+| attract1 | the world from frame 10 000 (frame ~30.4 ms) | +0.11 | +0.16 |
+| altar1 | from 3 300 (~41.3 ms) | +0.14 | +0.23 |
+| route1 | from 3 000 (~28.7 ms) | +0.21 | +0.41 |
+| route1 | the plain from 4 300 | +0.14 | +0.44 |
+
+Small, as the profile said: Vita3K's guest call is cheap. On the console a
+guest round trip costs more (the A9's branch prediction and I-cache over the
+recompiled code), so the console's share may be larger; within its noise
+either way.
+
+**Gameplay and pictures.** Both switches are exact. The A/B runs played the
+altar route (Wander walks to the altar, Agro outside), route 6 (out of the
+shrine, down the stairs, onto the plain) and the attract demo (the world,
+Agro galloping) with both rotating every 60 frames: no crash, no stall.
+shots.sh: route 6 with ptcl89 on and off, pics/ (the same wall-clock
+moments; the two runs drift apart, as every route pair here): no missing or
+broken effect. The altar's off run did not boot cleanly at its retry (20
+frames): no altar pairs; the altar A/B run covered both states. The final VPK
+(ptcl83 on by default) with the console env: the attract demo 660 s, 21 680
+frames, both switches rotating to the end, no crash (runs/finalD). Not checked:
+climbing and a colossus (no save or input script reaches one here).
+
+**Not done, for the record.**
+- A far-system half rate for particles (round 83's `SOTC_PTCL83_FAR`) and
+  half-rate effects (round 65's `sacfx`) exist already; the hoof effects are
+  10-15 units from the camera, so a distance rule would halve the near ones,
+  which shows.
+- The guest RAM's page size on the console: it is one 32 MB block of the
+  newlib heap (a USER_RW memblock); whether the Vita maps it with 4 KB or
+  larger pages is not known here, and the phycont pool (26 MB free) cannot
+  hold it. With 4 KB pages the A9's 128-entry main TLB covers 512 KB of
+  scattered game data: a likely part of the console's ~1.5-2x over Vita3K.
+  Needs a console experiment.
+- The audio thread's 10-25 ms a frame on cores 1-2 (priority 64, above the
+  worker and the render thread) is the largest non-render consumer there.
+
+**Console A/B (env-console.txt).** `SOTC_AB_FLAG=ptcl89,ptcl83`, rotation every
+60 frames (both start on; their windows turn them off). Read with
+`python3 build/agent-scratch/r89/tools/ab89.py err.txt --from <frame>` (the
+matched block).
+
+**Deliverable:** build/agent-scratch/celosia-r89.vpk (main 81efc5d + this
+round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

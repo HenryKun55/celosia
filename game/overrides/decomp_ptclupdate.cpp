@@ -62,6 +62,7 @@ namespace decomp_ptclupdate
     }
     inline bool inRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE; }
 
+
     struct Mem
     {
         uint8_t *rdram;
@@ -87,6 +88,54 @@ namespace decomp_ptclupdate
         __m128 q(uint32_t a) const { return _mm_castsi128_ps(q128(a)); }
         void putq(uint32_t a, __m128 v) const { put128(a, _mm_castps_si128(v)); }
     };
+
+    // ---- Round 89 (SOTC_PTCL89, default on; A/B `ptcl89`, `r89all`, `newdir`) --
+    // The emitter's frame (0113B610) asks small leaf functions for what it
+    // needs, each a guest round trip (~35 emitters a frame while riding, ~20 at
+    // the altar): get_cur_camera_context through iosgluGetCameraContext (four
+    // or five a frame each), strcmp twice (the effect's name against two
+    // names), 01141090 (the effect's step kind). They are pure reads; here
+    // they are read straight. The same values: the camera context is
+    // *(0x0122A8F0 + *(0x0118FE4C) x 4) (get_cur_camera_context, v1 the index
+    // x 4 as it leaves it), the names compared as strcmp's == 0, 01141090 is
+    // (+0xc8 == 2 && +0xc0 == 2). Not as the original: the scratch registers
+    // the leaves leave (dead at their callers: every caller writes a0-a3
+    // before its next call and reads only v0) and iosgluGetCameraContext's ra
+    // save below sp.
+    namespace ptcl89
+    {
+        constexpr uint32_t kStrcmp = 0x00128E6Cu, kCamIndex = 0x0118FE4Cu, kCamTable = 0x0122A8F0u;
+        // strcmp(a, b) == 0 for guest strings; false when either leaves main RAM (then the caller asks the guest).
+        inline bool strEq(const Mem &m, uint32_t a, uint32_t b, bool &ok)
+        {
+            for (uint32_t i = 0; i < 256u; ++i)
+            {
+                if (!inRam(a + i, 1u) || !inRam(b + i, 1u))
+                {
+                    ok = false;
+                    return false;
+                }
+                const uint8_t x = *m.p(a + i), y = *m.p(b + i);
+                if (x != y)
+                    return false;
+                if (x == 0u)
+                    return true;
+            }
+            ok = false;
+            return false;
+        }
+        // get_cur_camera_context: false when the table entry leaves main RAM.
+        inline bool camera(const Mem &m, uint32_t &ctxOut, uint32_t &v1)
+        {
+            const uint32_t idx4 = m.u32(kCamIndex) << 2;
+            const uint32_t at = kCamTable + idx4;
+            if (!inRam(at, 4u))
+                return false;
+            ctxOut = m.u32(at);
+            v1 = idx4;
+            return true;
+        }
+    }
 
     // Runs recompiled code until it returns to ra with sp: what
     // sotc_decomp::callGuest does, from any pc (a function entered at a label).
@@ -910,20 +959,45 @@ namespace decomp_ptclupdate
         // The frame step by the effect's name: the two named ones 0x1216e28,
         // else 01141090 says 0x1216e18 or 0x1216e08.
         uint32_t stepPtr;
-        g.a(4, m.u32(m.u32(Mr + 0xD8u) + 0x24u));
-        g.a(5, 0x011958C0u);
-        regs();
-        g.callRel(0x0113B64Cu, sp);
-        bool named = g.v0() == 0u;
-        if (!named)
+        // Round 89: the two names and the step kind read straight (see ptcl89).
+        const bool p89 = sotc_decomp::ptcl89On() && sotc_decomp::jalTarget(rdram, 0x0113B64Cu) == ptcl89::kStrcmp &&
+                         sotc_decomp::jalTarget(rdram, 0x0113B664u) == ptcl89::kStrcmp;
+        bool named = false, nameOk = p89;
+        if (p89)
+        {
+            const uint32_t name = m.u32(m.u32(Mr + 0xD8u) + 0x24u);
+            named = ptcl89::strEq(m, name, 0x011958C0u, nameOk);
+            if (nameOk && !named)
+                named = ptcl89::strEq(m, name, 0x011958D0u, nameOk);
+        }
+        if (!nameOk)
         {
             g.a(4, m.u32(m.u32(Mr + 0xD8u) + 0x24u));
-            g.a(5, 0x011958D0u);
-            g.callRel(0x0113B664u, sp);
+            g.a(5, 0x011958C0u);
+            regs();
+            g.callRel(0x0113B64Cu, sp);
             named = g.v0() == 0u;
+            if (!named)
+            {
+                g.a(4, m.u32(m.u32(Mr + 0xD8u) + 0x24u));
+                g.a(5, 0x011958D0u);
+                g.callRel(0x0113B664u, sp);
+                named = g.v0() == 0u;
+            }
+        }
+        else
+        {
+            regs();
+            SET_GPR_U64(ctx, 2, named ? 0u : 1u);
         }
         if (named)
             stepPtr = 0x01216E28u;
+        else if (p89)
+        {
+            const uint64_t kind = (m.u32(Mr + 0xC8u) == 2u && m.u32(Mr + 0xC0u) == 2u) ? 1u : 0u;
+            SET_GPR_U64(ctx, 2, kind);
+            stepPtr = kind == s1 ? 0x01216E18u : 0x01216E08u;
+        }
         else
         {
             g.a(4, Mr);
@@ -954,7 +1028,15 @@ namespace decomp_ptclupdate
         {
             g.a64(16, s0);
             g.a64(17, s1);
-            g.call(0x0108F518u, site, sp);
+            uint32_t cc = 0u, v1 = 0u;
+            if (p89 && ptcl89::camera(m, cc, v1))
+            {
+                // get_cur_camera_context's v0 / v1 (iosgluGetCameraContext tail-jumps into it).
+                g.a(2, cc);
+                g.a(3, v1);
+            }
+            else
+                g.call(0x0108F518u, site, sp);
             r[2] = GPR_U32(ctx, 2);
         };
         camera(0x0113B6C8u);
