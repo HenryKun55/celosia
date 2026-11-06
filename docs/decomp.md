@@ -14013,3 +14013,114 @@ loop, the garbage pass's own time check 0x1c81b0), the sound driver's
 status, the render paths' completion, and a loader woken by state that has
 already drifted (60-VBlank waits that time out: 32-102 per Mac replay, 48 in
 Vita3K). The next step would be a VBlank count driven by ticks in both runs.
+
+## Round 92: what the console's GPU time is made of (three diagnostics for its A/B), the screen varying dropped where nothing reads it, the live render scale change's leak and crash (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r92/`:
+- build.sh / v3k.sh / freeze.sh: round 90's with r92 paths (worktree `r92/wt`,
+  build `r92/vita`, vitaGL `r92/vitagl` rebuilt with this round's
+  celosia.patch, Vita3K `r92/vita3k` with its `portable` link to
+  ../vita3k-celosia-r92; absolute VPK paths only).
+- tools/ab92.py: ab88.py with the diag92 windows as "ON(flip)" rows, a
+  `[gpu86]` line counted only when its 30 presents lie in one A/B state
+  (`--loose`: every line), the `[r92]` lines, and at the end the split of the
+  GPU's busy time (below).
+- runs/: scale1-3 / guard1 (the title with `SOTC_SCALE_CYCLE=60`), freeze1 (the
+  altar frozen, noscreen92 rotating), diag1 (route 6, the console env).
+- celosia-r92.vpk; env-console.txt (`SOTC_AB_FLAG=diag92px,diag92tex,diag92half`).
+
+**What the console logs of round 90 say about the GPU.**
+1. The frame time is the wrong meter for the GPU now. In the 3D the game
+   thread alone is ~46-52 ms, so a window that saves GPU time shows it as GPU
+   idle, not as a shorter frame. Round 88's GPU candidates, read by `[gpu86]`
+   lines lying wholly inside one window (err-ab1): all on busy 58.2 ms a
+   present (gpuFrame 61.6: GPU-bound), opaque88 on busy 46.1 (-12.2, idle
+   +11), mirror88 on busy 43.6 (-14.6, idle +14), r90all off 53.2. Only 4-7
+   lines a state, but both cut the GPU's time a lot; their frame did not
+   drop because the game thread then held it (opaque88's "+4.9 ms matched"
+   is game-thread time, +11 ms in the same windows, not the GPU).
+2. The render scale test (err-scale) ran at the title, where the frame sits at
+   30 fps (vsync and the CPU), so its frame times (29.6 vs 29.1) say nothing.
+   Its `[gpu86]` busy by the 30 presents each line covers: 0.5x ~4-9 ms, 1x
+   ~11-16, 1.5x ~14-23, 2x ~31-36: the GPU time does scale with the pixels
+   there. "0.5x barely helps in play" is again the game thread's floor.
+
+**What vitaGL does (our build, celosia.patch), per draw and per scene.**
+- Per draw (`_glDrawArrays_CustomShadersIMPL`): the fragment program patched
+  only when the blend changes; each sampler's texture set only on a change
+  (round 56); the vertex layout cache (a hit skips the attribute set-up and
+  the vertex program lookup, round 13/74); the vertex and fragment default
+  uniform buffers reserved and copied from vitaGL's circular uniform pool
+  every draw; one `sceGxmSetVertexStream` (round 56); then `sceGxmDraw` with an
+  identity U16 index list for glDrawArrays (the world's meshes are triangle
+  lists: 36 bytes a vertex, three per triangle, no vertex reuse).
+- Per scene (`scene_reset`): the open scene ended with the query notification
+  (what `[gpu86]` reads), `sceGxmBeginScene` on the framebuffer's render target
+  with no fragment sync object for framebuffers, every GXM state invalidated
+  (sent again at the next draw), the depth / stencil force-load / store set
+  per round 45's keep bits, the viewport and region clip set again. Depth /
+  stencil surfaces are LINEAR (DF32M, + S8 where a stencil is asked for);
+  the picture's scenes load and store ~9 MB of them a 3D frame
+  (`[frame]` "scenes 23 (depth 8960 KB)").
+- Per swap: the last scene ended, a display queue entry (three buffers), the
+  garbage collector's job waited for and started.
+Nothing in this path waits for the GPU besides the swap's queue and the
+glFinish calls at start-up / scale changes. The per-draw GPU work is the
+uniform loads and state words; the obvious waste found: the screen varying
+written where no fragment program reads it (below), linear depth surfaces for
+the loads / stores (an experiment below), and vitaGL keeping every stencil.
+
+**Diagnostics for the console (default off; their windows turn them on; the
+picture is wrong in them).**
+1. `SOTC_GL_DIAG92_PX` (`diag92px`): every target's viewport an eighth of its
+   width and height: the same draws, vertices, scenes, state and tile stores,
+   ~1/64 of the pixels. Its busy drop is what the pixels cost (shading,
+   texturing, blending, overdraw).
+2. `SOTC_GL_DIAG92_TEX` (`diag92tex`): every game texture read as one grey
+   texel (128, 128, 128, 128): the same programs and pixels without texture
+   memory traffic. Its drop is the texture side of the pixels' cost.
+3. `SOTC_GL_DIAG92_HALF` (`diag92half`): each mesh draw (world, characters,
+   shadow volumes, the merged runs) sends the first half of its triangles: the
+   same draws and state changes, half the vertices and about half the pixels.
+   Vertices ~ 2 x (its drop) - (diag92px's drop); the rest of the busy time
+   (draws, scenes, fixed) ~ busy - pixels - vertices. ab92.py prints the split.
+Vita3K (diag1, route 6, 300 s, the console env): 11 629 frames, no crash; in
+diag92half's windows ~40k vertices a 3D frame are left out.
+
+**`SOTC_GL_NOSCREEN92` (`noscreen92`, `r92all`; default 1 on the Vita).** The
+lean world programs without BG and without the cut-out read no screen
+position, but the main vertex program wrote it (TEXCOORD2: a fourth float4 a
+vertex in GXM's parameter buffer, stored and read back for every tile the
+triangle touches). Those draws now go through a copy of the vertex program
+without that output (and without uGuard), linked to kWorldFragment with
+`NOSCREEN` (the input not declared). Slots 21-24 of the main programs (2 x
+NOLOD + skinned), warmed with the rest (41 programs). Vita3K freeze1: the
+frozen altar's 76 captures fall into two pictures by time only, identical with
+noscreen92 on and off. 42-99 draws / 10-67k vertices a frame take it (the
+fogged draws with BG keep the varying).
+
+**The live render scale change (err-scale's crash, and 2x from the menu in
+the 3D).** `SOTC_VGL_MEMDUMP` in Vita3K (scale2): one vitaGL site grew every
+change, 0.55 -> 16.1 MB over six cycles: the stencil surfaces.
+glDeleteFramebuffers (and glFramebufferRenderbuffer) freed a framebuffer's own
+depth but not its stencil, so every target with a stencil (the picture, the
+effects' prefixes) left 0.2-0.9 MB behind at every change; vitaGL's VRAM
+filled (Vita3K at 2x: 70 -> 95 of 96 MB by the second cycle). Fixed in
+celosia.patch (scale3: the stencil site holds the current size's two only).
+And a change to a larger picture is now made only when vitaGL's pools hold
+~64 bytes a pixel of the new size plus `SOTC_GL_SCALE_GUARD_MB` (default 8),
+counting what the current targets give back; else `[native:gl] render scale
+refused` and the picture stays (guard1: refused with a huge guard, no crash).
+The console's exact crash was not seen (the log ends after the last targets
+were made); the leak plus 2x's ~60 MB of targets are the likely cause.
+
+**`SOTC_VGL_DEPTH_TILED=1` (experiment, off).** vitaGL's depth / stencil
+surfaces in GXM's tiled layout (`vglCeloDepthTiled`, before vglInit). The same
+depth tests; the scenes that keep depth move it in whole tiles. Vita3K keeps
+depth on the host GPU, so only the console can check it: for a later run.
+
+**Console env (env-console.txt):** the usual log lines and
+`SOTC_AB_FLAG=diag92px,diag92tex,diag92half`, `SOTC_AB_ROTATE=1`,
+`SOTC_AB_PERIOD=60`. Read with `tools/ab92.py err.txt`: the `[gpu86]` busy per
+window and the split at the end. Not the frame times (the game thread holds
+them), and not the pictures in those windows (wrong by design).

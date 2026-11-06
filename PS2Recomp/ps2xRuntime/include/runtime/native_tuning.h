@@ -379,6 +379,32 @@ namespace native_renderer
         // position, rippled, as before.
         // SOTC_GL_MIRROR88=0/1 (default 0); A/B name `mirror88` (its windows flip it).
         bool glMirror88 = false;
+        // Round 92 (GPU diagnostics for the console's A/B, default 0, the
+        // picture WRONG while on; each A/B window turns its switch on):
+        // diag92px: every target's viewport an eighth of its width and height
+        // (the same draws, vertices, scenes and tile stores; ~1/64 of the
+        // pixels shaded, textured and blended): what the pixels cost.
+        // diag92tex: every game texture read as one grey texel (the same
+        // programs and pixels, no texture memory traffic). diag92half: each
+        // world / character / shadow draw sends the first half of its
+        // triangles (the same draws and state changes, half the vertices).
+        // SOTC_GL_DIAG92_PX / SOTC_GL_DIAG92_TEX / SOTC_GL_DIAG92_HALF=0/1.
+        bool glDiag92Px = false;
+        bool glDiag92Tex = false;
+        bool glDiag92Half = false;
+        // Round 92 (the Vita's GPU): the plain world draws without BG and
+        // without the cut-out (their fragment program reads no screen
+        // position) through a vertex program that does not write the screen
+        // position varying (TEXCOORD2): three varyings a vertex instead of
+        // four in GXM's parameter buffer (every vertex is stored there and
+        // read back for each tile it touches). The same positions, the same
+        // fragment arithmetic. SOTC_GL_NOSCREEN92=0/1 (default 1 on the
+        // Vita); A/B name `noscreen92` (its window turns it off; r92all too).
+#if defined(__vita__)
+        bool glNoScreen92 = true;
+#else
+        bool glNoScreen92 = false;
+#endif
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

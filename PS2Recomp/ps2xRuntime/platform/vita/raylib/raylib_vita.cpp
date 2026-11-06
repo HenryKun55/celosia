@@ -321,6 +321,16 @@ void InitWindow(int, int, const char *)
     std::fprintf(stderr, "[vita] vitaGL uniform pool %d KB\n", uniformKb);
     vglSetCircularPoolSize(static_cast<uint32_t>(circularKb) * 1024u);
     std::fprintf(stderr, "[vita] vitaGL circular pool %d KB, immediate pool %d KB\n", circularKb, immediateKb);
+    // Round 92 (a console experiment, off by default): vitaGL's depth /
+    // stencil surfaces in GXM's tiled layout instead of linear (the same
+    // depth tests; the ~9 MB a frame of depth / stencil the picture's
+    // scenes load and store moved in whole tiles). Set before vglInit (the
+    // display's depth is made there). SOTC_VGL_DEPTH_TILED=0/1.
+    if (const char *e = std::getenv("SOTC_VGL_DEPTH_TILED"))
+    {
+        vglCeloDepthTiled(std::atoi(e) != 0 ? 1 : 0);
+        std::fprintf(stderr, "[vita] vitaGL depth / stencil surfaces %s (SOTC_VGL_DEPTH_TILED=%s)\n", std::atoi(e) != 0 ? "tiled" : "linear", e);
+    }
     const char *pools = std::getenv("SOTC_VGL_POOLS");
     if (pools && std::strcmp(pools, "console") == 0)
     {

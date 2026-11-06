@@ -541,7 +541,7 @@ index 11937c4..cbe951e 100644
  		ffp_vertex_attrib_state = (1 << FFP_ATTRIB_POSITION) | (1 << FFP_ATTRIB_COLOR);
  		if (zero_lights) {
 diff --git a/source/framebuffers.c b/source/framebuffers.c
-index 15e59ea..47cd53b 100644
+index 15e59ea..6a5a43a 100644
 --- a/source/framebuffers.c
 +++ b/source/framebuffers.c
 @@ -217,6 +217,8 @@ inline __attribute__((always_inline)) void glGenFramebuffers(GLsizei n, GLuint *
@@ -553,12 +553,17 @@ index 15e59ea..47cd53b 100644
  		}
  		if (j >= n)
  			break;
-@@ -281,9 +283,12 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
+@@ -281,9 +283,16 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
  			}
  #ifndef DEPTH_STENCIL_HACK
  			if (fb->depthbuffer_ptr) {
-+				if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
- 				mark_as_dirty(fb->depthbuffer_ptr->depthData);
+-				mark_as_dirty(fb->depthbuffer_ptr->depthData);
++				if (fb->depthbuffer_ptr == &fb->depthbuffer) { // not one shared from another framebuffer (vglFramebufferShareDepth)
++					mark_as_dirty(fb->depthbuffer_ptr->depthData);
++					if (fb->depthbuffer_ptr->stencilData) // celosia r92: its stencil too (leaked before: ~0.2-0.9 MB a target with stencil, each render scale change)
++						mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++				}
++				fb->depthbuffer_ptr = NULL;
  			}
  #endif
 +			vgl_celo_scratch_release(fb);
@@ -566,17 +571,20 @@ index 15e59ea..47cd53b 100644
  		}
  	}
  }
-@@ -365,7 +370,8 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
+@@ -365,7 +374,11 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
  	// Discarding any previously bound hidden depth buffers
  	if (fb->depthbuffer_ptr) {
  #ifndef DEPTH_STENCIL_HACK
 -		mark_as_dirty(fb->depthbuffer_ptr->depthData);
-+		if (fb->depthbuffer_ptr == &fb->depthbuffer) // not one shared from another framebuffer (vglFramebufferShareDepth)
++		if (fb->depthbuffer_ptr == &fb->depthbuffer) { // not one shared from another framebuffer (vglFramebufferShareDepth)
 +				mark_as_dirty(fb->depthbuffer_ptr->depthData);
++				if (fb->depthbuffer_ptr->stencilData) // celosia r92: its stencil too
++					mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++		}
  #endif
  	}
  	fb->depthbuffer_ptr = NULL;
-@@ -397,7 +403,8 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
+@@ -397,7 +410,8 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
  	// Discarding any previously bound hidden depth buffers
  	if (fb->depthbuffer_ptr) {
  #ifndef DEPTH_STENCIL_HACK
@@ -586,7 +594,7 @@ index 15e59ea..47cd53b 100644
  #endif
  		fb->depthbuffer_ptr = NULL;
  	}
-@@ -840,11 +847,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+@@ -840,11 +854,11 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
  	sceGxmSetBackPolygonMode(gxm_context, SCE_GXM_POLYGON_MODE_TRIANGLE_FILL);
  
  	// Set framebuffer blit shader
@@ -601,7 +609,7 @@ index 15e59ea..47cd53b 100644
  	
  	// Set fragment texture to read framebuffer bound color attachment
  	framebuffer *read_fb = (framebuffer *)readFramebuffer;
-@@ -858,7 +865,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
+@@ -858,7 +872,7 @@ void glBlitNamedFramebuffer(GLuint readFramebuffer, GLuint drawFramebuffer, GLin
  		vglSetTexMinFilter(tex, SCE_GXM_TEXTURE_FILTER_POINT);
  		vglSetTexMipmapCount(tex, 0);
  	}
@@ -610,7 +618,7 @@ index 15e59ea..47cd53b 100644
  	
  	// Set stencil func to keep original data
  	sceGxmSetFrontStencilFunc(gxm_context,
-@@ -984,3 +991,197 @@ void glReadBuffer(GLenum mode) {
+@@ -984,3 +998,197 @@ void glReadBuffer(GLenum mode) {
  #endif
  	}
  }
@@ -809,7 +817,7 @@ index 15e59ea..47cd53b 100644
 +		vgl_celo_depth_store += kb;
 +}
 diff --git a/source/gxm.c b/source/gxm.c
-index 4cbb40b..f6a8d95 100644
+index 4cbb40b..eb95b0c 100644
 --- a/source/gxm.c
 +++ b/source/gxm.c
 @@ -69,6 +69,10 @@ static GLboolean needs_scene_reset = GL_TRUE; // Flag for when a scene reset is
@@ -890,7 +898,30 @@ index 4cbb40b..f6a8d95 100644
  GLboolean start_shader_compiler(void) {
  	shark_set_allocators(vglMalloc, vglFree);
  	is_shark_online = shark_init(NULL) >= 0;
-@@ -589,6 +637,14 @@ void scene_reset(void) {
+@@ -479,6 +527,13 @@ void init_display_color_surfaces(GLboolean is_swap) {
+ 	}
+ }
+ 
++// celosia r92: depth / stencil surfaces in GXM's tiled layout (vglCeloDepthTiled,
++// before vglInit for the display's): the same values, the loads / stores of
++// the scenes that keep them in whole tiles. Off: linear, as vitaGL.
++int vgl_celo_depth_tiled = 0;
++void vglCeloDepthTiled(int on) {
++	vgl_celo_depth_tiled = on ? 1 : 0;
++}
+ void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface *surface, GLboolean has_stencil) {
+ 	// Calculating sizes for depth and stencil surfaces
+ 	unsigned int depth_stencil_width = VGL_ALIGN(w, SCE_GXM_TILE_SIZEX);
+@@ -507,7 +562,7 @@ void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface
+ 	// Initializing depth and stencil surfaces
+ 	vglDepthStencilSurfaceInit(surface,
+ 		has_stencil ? SCE_GXM_DEPTH_STENCIL_FORMAT_DF32M_S8 : SCE_GXM_DEPTH_STENCIL_FORMAT_DF32M,
+-		SCE_GXM_DEPTH_STENCIL_SURFACE_LINEAR,
++		vgl_celo_depth_tiled ? SCE_GXM_DEPTH_STENCIL_SURFACE_TILED : SCE_GXM_DEPTH_STENCIL_SURFACE_LINEAR,
+ 		msaa_mode == SCE_GXM_MULTISAMPLE_4X ? depth_stencil_width * 2 : depth_stencil_width,
+ #ifdef DEPTH_STENCIL_HACK
+ 		// Vita's GPU can run without actual depth/stencil memory as far as no partial rendering is hit
+@@ -589,6 +644,14 @@ void scene_reset(void) {
  			scene_end();
  		} else {
  			if (legacy_pool_size) {
@@ -905,7 +936,7 @@ index 4cbb40b..f6a8d95 100644
  				legacy_pool = (float *)gpu_alloc_mapped_temp(legacy_pool_size);
  				legacy_pool_ptr = legacy_pool;
  #ifndef SKIP_ERROR_HANDLING
-@@ -618,6 +674,8 @@ void scene_reset(void) {
+@@ -618,6 +681,8 @@ void scene_reset(void) {
  				shared_fb_info.vsync = vsync_interval;
  				gxm_back_buffer_index = (shared_fb_info.index + 1) % 2;
  			}
@@ -914,7 +945,7 @@ index 4cbb40b..f6a8d95 100644
  			int r = sceGxmBeginScene(gxm_context, 0, gxm_render_target,
  				NULL, NULL,
  				gxm_sync_objects[gxm_back_buffer_index],
-@@ -634,10 +692,15 @@ void scene_reset(void) {
+@@ -634,10 +699,15 @@ void scene_reset(void) {
  				_glFramebufferTexture2D(active_write_fb, GL_COLOR_ATTACHMENT0, active_write_fb->tex, 1);
  			}
  			
@@ -932,7 +963,7 @@ index 4cbb40b..f6a8d95 100644
  				active_write_fb->depthbuffer_state |= DEPTHBUFFER_READY;
  			}
  
-@@ -663,13 +726,16 @@ void scene_reset(void) {
+@@ -663,13 +733,16 @@ void scene_reset(void) {
  				}
  			}
  #endif
@@ -949,7 +980,7 @@ index 4cbb40b..f6a8d95 100644
  			int r = sceGxmBeginScene(gxm_context, 0, active_write_fb->target,
  #endif
  					NULL, NULL, NULL,
-@@ -790,6 +856,20 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -790,6 +863,20 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  
  	vgl_framecount++;
  #if !defined(DISABLE_CIRCULAR_POOL) && !defined(CIRCULAR_POOL_SPEEDHACK)
@@ -970,7 +1001,7 @@ index 4cbb40b..f6a8d95 100644
  #ifdef HAVE_DEBUG_INTERFACE
  	vgl_circular_pool_frame_peak = (uint32_t)circular_data_pool_ptr[vgl_circular_idx] - (uint32_t)circular_data_pool[vgl_circular_idx];
  	if (vgl_circular_pool_frame_peak > vgl_circular_pool_global_peak) {
-@@ -975,13 +1055,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -975,13 +1062,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  void glFinish(void) {
  	THREAD_SAFE()
  
@@ -1967,10 +1998,10 @@ index 014e790..79bb11d 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..bb2b081 100644
+index eeec610..0b88696 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1259,6 +1259,16 @@ void vglSetShaderAssociationPath(const char *path);
+@@ -1259,6 +1259,17 @@ void vglSetShaderAssociationPath(const char *path);
  
  // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
  void vglSetShaderCachePath(const char *path);
@@ -1984,10 +2015,11 @@ index eeec610..bb2b081 100644
 +void vglCeloDepthKeep(GLuint fbo, int keep); // celosia r45: its scenes load (1) / store (2) their depth and stencil; -1 as built; fbo 0 the display
 +void vglCeloScratchKeep(int keep); // celosia r45: the same for the scratch depth surfaces (vglFramebufferScratchDepth)
 +void vglCeloSceneStats(uint32_t *scenes, uint32_t *loadKB, uint32_t *storeKB); // celosia r45: scenes begun, depth / stencil KB loaded and stored since the last call
++void vglCeloDepthTiled(int on); // celosia r92: depth / stencil surfaces made after it in GXM's tiled layout (1) or linear (0, as built)
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
  void vglSetTextureCacheFrequency(GLuint freq);
-@@ -1274,6 +1284,8 @@ void vglSetVertexAttribPoolSize(uint32_t main_size, uint32_t aux_size);
+@@ -1274,6 +1285,8 @@ void vglSetVertexAttribPoolSize(uint32_t main_size, uint32_t aux_size);
  
  // Setup the vertex ring buffer size of sceGxm. Must be called before vglInit*. Default value: SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE.
  void vglSetVertexBufferSize(uint32_t size);

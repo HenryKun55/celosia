@@ -859,7 +859,13 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
 
     // The plain world draws' fragment stage (see the GLSL one).
     const char *kWorldFragment = R"(
-float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : TEXCOORD2,
+#ifndef NOSCREEN
+#define NOSCREEN 0
+#endif
+float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1,
+#if !NOSCREEN
+            float4 vScreen : TEXCOORD2,
+#endif
             uniform sampler2D uTex,
 #if BG
             uniform sampler2D uBackground, uniform float4 uFogA,
@@ -1361,6 +1367,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t opaque = 0, opaqueVerts = 0, blended = 0, blendedVerts = 0, unknown = 0, unknownVerts = 0, keepAlpha = 0, mirrorLow = 0, mirrors = 0;
         } r88Stats;
+        // Round 92 ([r92] line with [shadow]): draws / vertices through the
+        // vertex program without the screen varying (glNoScreen92); vertices
+        // left out by diag92half; frames with each diagnostic on.
+        struct
+        {
+            uint64_t noScreen = 0, noScreenVerts = 0, halfCut = 0, px = 0, tex = 0, half = 0;
+        } r92Stats;
+        GLuint diagTexture = 0; // round 92 (glDiag92Tex): one grey texel (128, 128, 128, 128), made at its first use
         Target previous; // the last frame shown (feedbackBlur)
         // Round 45 (Tuning glFewCopies, a host that shows a copy of its own):
         // the last frame shown is that copy (shownFrame), not a copy of its own.
@@ -1815,10 +1829,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // LOD (NOLOD; Tuning glPlainReads), at 11 + 4 x skinned + 2 x BG + CUT.
         // Round 75: 19-20 the cut-out without discard (SOFT, without BG; Tuning
         // glSoftCut), at 19 + skinned.
-        static constexpr int kMainSlots = 21;
+        // Round 92: 21-24 the lean ones without BG and CUT through the vertex
+        // program without the screen varying (Tuning glNoScreen92), at
+        // 21 + 2 x NOLOD + skinned.
+        static constexpr int kMainSlots = 25;
         static constexpr int kVolumeSlot = 10;
         static constexpr int kPlainSlot = 11;
         static constexpr int kSoftSlot = 19;
+        static constexpr int kNoScreenSlot = 21;
         MainSlot mains[kMainSlots];
         int mainSlot = 0; // the one in use
         GLuint leanProgram(bool skinned, bool bg, bool cut, bool plain = false) const
@@ -2266,6 +2284,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 mains[kSoftSlot + skinned].program = skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
                                                              : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
             }
+            // Round 92 (Tuning glNoScreen92): the main vertex program without
+            // its screen varying (TEXCOORD2; the uGuard uniform goes with it),
+            // for the lean programs without BG and CUT, whose fragment program
+            // reads no screen position (kWorldFragment's NOSCREEN: the input
+            // not declared, the same arithmetic).
+            {
+                std::string ns = kMainVertex;
+                const std::string param = ",\n          float4 out vScreen : TEXCOORD2)";
+                const size_t at = ns.find(param);
+                const size_t line = ns.find("    vScreen = float4(");
+                const size_t lineEnd = line == std::string::npos ? line : ns.find('\n', line);
+                if (at != std::string::npos && lineEnd != std::string::npos)
+                {
+                    ns.erase(line, lineEnd + 1 - line);
+                    ns.replace(at, param.size(), ")");
+                    const GLuint nsVertex = compile(GL_VERTEX_SHADER, ns.c_str());
+                    const std::string nsSkin = skinProgram ? skinnedVertex(ns.c_str()) : std::string();
+                    const GLuint nsSkinVertex = nsSkin.empty() ? 0 : compile(GL_VERTEX_SHADER, nsSkin.c_str());
+                    for (int plain = 0; plain < 2; ++plain)
+                        for (int skinned = 0; skinned < 2; ++skinned)
+                        {
+                            if (skinned && !nsSkinVertex)
+                                continue;
+                            const std::string fragment = "#define NOSCREEN 1\n" + worldFragment(false, false, plain != 0);
+                            mains[kNoScreenSlot + plain * 2 + skinned].program =
+                                skinned ? program(nsSkinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
+                                        : program(nsVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
+                        }
+                }
+                else
+                    std::cerr << "[native:gl] no vertex program without the screen varying (round 92): the main one drawn" << std::endl;
+            }
 #endif
             mains[kVolumeSlot].program = program(mainVertex, kVolumeFragment, {"aPos", "aNormal", "aColor", "aUV"});
             if (!mains[kVolumeSlot].program)
@@ -2291,7 +2341,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 std::cerr << "[native:gl] the skinning program has no palette: skinned meshes posed on the CPU" << std::endl;
                 skinProgram = 0;
-                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7, kSoftSlot + 1})
+                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7, kSoftSlot + 1, kNoScreenSlot + 1, kNoScreenSlot + 3})
                     mains[i].program = 0;
             }
             glUseProgram(quadProgram);
@@ -2363,7 +2413,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             };
             uint32_t draws = 0;
             uint32_t programs = 0;
-            for (int which = 0; which < 37; ++which)
+            for (int which = 0; which < 41; ++which)
             {
                 // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45),
                 // the GS bloom chain's 15-18 (round 65b), the 8 NOLOD lean ones (round 73), the 2 SOFT ones (round 75)
@@ -2372,12 +2422,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                                                           : (which < 14 ? quadPrograms[which - 2]
                                                                         : (which < 23 ? mains[2 + which - 14].program
                                                                                       : (which < 27 ? quadPrograms[which - 8]
-                                                                                                    : (which < 35 ? mains[kPlainSlot + which - 27].program : mains[kSoftSlot + which - 35].program)))));
+                                                                                                    : (which < 35 ? mains[kPlainSlot + which - 27].program
+                                                                                                                  : (which < 37 ? mains[kSoftSlot + which - 35].program : mains[kNoScreenSlot + which - 37].program))))));
                 if (!p)
                     continue;
                 ++programs;
                 glUseProgram(p);
-                const bool skinned = which == 1 || (which >= 18 && which < 22) || (which >= 31 && which < 35) || which == 36, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
+                const bool skinned = which == 1 || (which >= 18 && which < 22) || (which >= 31 && which < 35) || which == 36 || which == 38 || which == 40, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
                 for (GLuint i = 0; i < 6; ++i)
                 {
@@ -2604,6 +2655,44 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return on;
         }
 #endif
+
+        // Round 92: a live render scale change only when vitaGL's pools can
+        // hold the new picture-sized targets (the console crashed changing
+        // to 2x in the 3D, and after a few changes at the title: vitaGL kept
+        // every target's stencil, ~2-4 MB a change; fixed in celosia.patch).
+        // ~64 bytes a pixel: 7 colour targets and 4 depths made here, the
+        // second picture's, the passes' copies and the effects' prefixes made
+        // at their first use. Refused: the picture stays at its size (asked
+        // again only for another size). SOTC_GL_SCALE_GUARD_MB: memory kept
+        // free besides (default 8; testing: a large value refuses).
+        uint32_t refusedW = 0, refusedH = 0;
+        void fitTargets(uint32_t &w, uint32_t &h)
+        {
+#if defined(PS2X_NATIVE_VITA)
+            if (!color.texture || (w == width && h == height))
+                return;
+            if (w == refusedW && h == refusedH)
+            {
+                w = width, h = height;
+                return;
+            }
+            static const double reserve = (std::getenv("SOTC_GL_SCALE_GUARD_MB") ? std::atof(std::getenv("SOTC_GL_SCALE_GUARD_MB")) : 8.0) * 1048576.0;
+            const double perPixel = 64.0;
+            const double free = static_cast<double>(vglMemFree(VGL_MEM_VRAM)) + static_cast<double>(vglMemFree(VGL_MEM_RAM)) + static_cast<double>(vglMemFree(VGL_MEM_PHYCONT));
+            const double have = free + perPixel * width * height, need = perPixel * w * h + reserve;
+            if (need > have && w * h > width * height)
+            {
+                std::fprintf(stderr, "[native:gl] render scale refused: %ux%u needs ~%.1f MB, vitaGL's pools have %.1f MB free (+%.1f MB from the %ux%u targets): kept at %ux%u\n", w, h,
+                             need / 1048576.0, free / 1048576.0, perPixel * width * height / 1048576.0, width, height, width, height);
+                refusedW = w, refusedH = h;
+                w = width, h = height;
+                return;
+            }
+            refusedW = refusedH = 0;
+#else
+            (void)w, (void)h;
+#endif
+        }
 
         void ensureTargets(uint32_t w, uint32_t h)
         {
@@ -2841,7 +2930,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (t.fbo == boundFbo)
                 return;
             glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
-            glViewport(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height));
+            if (native_renderer::tuning().glDiag92Px) // round 92 diagnostic (picture wrong): an eighth each way
+                glViewport(0, 0, static_cast<GLsizei>(std::max(t.width / 8u, 1u)), static_cast<GLsizei>(std::max(t.height / 8u, 1u)));
+            else
+                glViewport(0, 0, static_cast<GLsizei>(t.width), static_cast<GLsizei>(t.height));
             boundFbo = t.fbo;
             ++stats.targets;
             gpu86::bind(t.fbo, t.width, t.height);
@@ -3038,14 +3130,25 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // vertices: the indices count from the start of the arena).
         void drawMesh(const Mesh &mesh, GLint firstVertex)
         {
+            const uint32_t count = diagHalf(mesh.count);
             if (!mesh.indexed)
             {
-                glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(mesh.count));
+                glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(count));
                 return;
             }
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.dynamic ? indexBuffers[arenaIndex] : mesh.indexBuffer);
             const uintptr_t first = mesh.dynamic ? mesh.firstIndex : 0u;
-            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(mesh.count), GL_UNSIGNED_INT, reinterpret_cast<const void *>(first * sizeof(uint32_t)));
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, reinterpret_cast<const void *>(first * sizeof(uint32_t)));
+        }
+        // Round 92 diagnostic (Tuning glDiag92Half, picture wrong): a mesh
+        // draw's first half of its triangles (at least one).
+        uint32_t diagHalf(uint32_t count)
+        {
+            if (!native_renderer::tuning().glDiag92Half || count < 6u)
+                return count;
+            const uint32_t half = count / 6u * 3u;
+            r92Stats.halfCut += count - half;
+            return half;
         }
     };
 
@@ -3931,6 +4034,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              native_renderer::tuning().glOpaque88 ? 1 : 0, r88Stats.opaque / fr, r88Stats.opaqueVerts / fr, r88Stats.blended / fr, r88Stats.blendedVerts / fr,
                              r88Stats.unknown / fr, r88Stats.unknownVerts / fr, r88Stats.keepAlpha / fr, native_renderer::tuning().glMirror88 ? 1 : 0, r88Stats.mirrors / fr, r88Stats.mirrorLow / fr);
                 r88Stats = {};
+                std::fprintf(stderr, "[r92] per frame: noscreen92 %d: %.1f draws (%.0f vertices) without the screen varying | diag92 frames px %llu tex %llu half %llu (%.0f vertices a frame left out)\n",
+                             native_renderer::tuning().glNoScreen92 ? 1 : 0, r92Stats.noScreen / fr, r92Stats.noScreenVerts / fr, (unsigned long long)r92Stats.px,
+                             (unsigned long long)r92Stats.tex, (unsigned long long)r92Stats.half, r92Stats.halfCut / fr);
+                r92Stats = {};
                 alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
@@ -4465,7 +4572,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         if (native_renderer::tuning().glInflight87)
             gpu86::waitPreviousFrame();
 #endif
+        fitTargets(w, h);
         ensureTargets(w, h);
+        r92Stats.px += native_renderer::tuning().glDiag92Px ? 1u : 0u;
+        r92Stats.tex += native_renderer::tuning().glDiag92Tex ? 1u : 0u;
+        r92Stats.half += native_renderer::tuning().glDiag92Half ? 1u : 0u;
         // Round 73 (Tuning glFewScenes): the two pictures in turn (switched
         // either way, so that the frame after one shown as drawn never draws
         // into it: it is feedbackBlur's last frame).
@@ -5047,6 +5158,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         drawStats.noDiscard += cut ? 0u : 1u;
                         cutUsed = cut && !softUsed;
                         leanNoCut = !cut;
+                        // Round 92 (glNoScreen92): without BG and CUT the fragment
+                        // program reads no screen position: the vertex program
+                        // that does not write it.
+                        if (!cut && !softUsed && !(fogA[3] > 0.5f) && native_renderer::tuning().glNoScreen92)
+                        {
+                            const bool plainUsed = plain && lean == leanProgram(skinned, false, false, true);
+                            const GLuint ns = mains[kNoScreenSlot + (plainUsed ? 2 : 0) + (skinned ? 1 : 0)].program;
+                            if (ns)
+                            {
+                                program = ns;
+                                ++r92Stats.noScreen;
+                                r92Stats.noScreenVerts += planned.run > 1 ? planned.mergedCount : mesh.count;
+                            }
+                        }
                     }
                 }
                 useProgram(program);
@@ -5224,7 +5349,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (textured == 1)
                 {
                     tex->used = arenaFrame;
-                    const GLuint texName = drawName(*tex);
+                    GLuint texName = drawName(*tex);
+                    if (native_renderer::tuning().glDiag92Tex) // round 92 diagnostic (picture wrong): one grey texel
+                    {
+                        if (!diagTexture)
+                        {
+                            const uint8_t grey[4] = {128, 128, 128, 128};
+                            glActiveTexture(GL_TEXTURE0);
+                            diagTexture = newTexture(1, 1, false);
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, grey);
+                            cache.texture = ~0u;
+                        }
+                        texName = diagTexture;
+                    }
                     if (cache.texture != texName)
                     {
                         bindTexture(0, texName);
@@ -5403,7 +5540,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 {
                     drawStats.merged += planned.run - 1u;
                     ++(planned.runPool >= 0 ? drawStats.indexed : drawStats.ranges);
-                    glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(planned.mergedCount));
+                    glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(diagHalf(planned.mergedCount)));
                 }
                 else
                     drawMesh(mesh, firstVertex);
@@ -5454,7 +5591,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                     const uint64_t secondStart = phases.on ? native_renderer::nowUs() : 0u;
                     if (planned.run > 1)
-                        glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(planned.mergedCount));
+                        glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(diagHalf(planned.mergedCount)));
                     else
                         drawMesh(mesh, firstVertex);
                     if (phases.on)

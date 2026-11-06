@@ -2997,6 +2997,10 @@ namespace sotc_native
             {"bgsmall87", &native_renderer::Tuning::glBgSmall87},    // round 87 (GPU candidate: its windows flip it)
             {"opaque88", &native_renderer::Tuning::glOpaque88},      // round 88 (GPU candidate: its windows flip it)
             {"mirror88", &native_renderer::Tuning::glMirror88},      // round 88 (GPU candidate: its windows flip it)
+            {"diag92px", &native_renderer::Tuning::glDiag92Px},      // round 92 (GPU diagnostic, picture wrong: its windows flip it)
+            {"diag92tex", &native_renderer::Tuning::glDiag92Tex},    // round 92 (GPU diagnostic, picture wrong: its windows flip it)
+            {"diag92half", &native_renderer::Tuning::glDiag92Half},  // round 92 (GPU diagnostic, picture wrong: its windows flip it)
+            {"noscreen92", &native_renderer::Tuning::glNoScreen92},  // round 92 (r92all too)
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3015,7 +3019,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r92AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3050,6 +3054,7 @@ namespace sotc_native
             r90AllAt = indexOf("r90all");
             chunk90At = indexOf("chunk90");
             flush90At = indexOf("revflush90");
+            r92AllAt = indexOf("r92all"); // round 92: the round's GPU fixes (noscreen92) off together
             newDirAt = indexOf("newdir");
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
@@ -3185,8 +3190,16 @@ namespace sotc_native
         for (size_t i = 0; i < kTuningCount; ++i)
             if (tuningAt[i] >= 0 && (!std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "shmask87") ||
                                      !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87") ||
-                                     !std::strcmp(kTuningFlags[i].name, "opaque88") || !std::strcmp(kTuningFlags[i].name, "mirror88")))
+                                     !std::strcmp(kTuningFlags[i].name, "opaque88") || !std::strcmp(kTuningFlags[i].name, "mirror88") ||
+                                     !std::strncmp(kTuningFlags[i].name, "diag92", 6)))
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? !(start.*(kTuningFlags[i].field)) : start.*(kTuningFlags[i].field);
+        if (r92AllAt >= 0) // round 92: the round's GPU fixes off together
+        {
+            const bool off = isOffAt(r92AllAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if (!std::strcmp(kTuningFlags[i].name, "noscreen92") && (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
         if (r87AllAt >= 0 || newDirAt >= 0)
         {
             const bool r87Off = r87AllAt >= 0 && isOffAt(r87AllAt), dirOff = newDirAt >= 0 && isOffAt(newDirAt);
