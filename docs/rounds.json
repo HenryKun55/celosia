@@ -536,6 +536,14 @@
   "focus": "Speed",
   "summary": "Looked for what the console's GPU spends its ~50 ms a 3D frame on. The frame time can no longer show GPU savings: the game thread alone takes ~46-52 ms, so a cut in GPU work shows up as GPU idle time, not a faster frame. Read that way, round 88's two GPU candidates both cut the GPU's busy time a lot (12-15 ms) even though the frame did not move, and the render-scale test's GPU time does grow with the pixel count. Added three debug switches for the console's A/B that deliberately break the picture to split the GPU's time: almost no pixels drawn, textures replaced by one texel, and half the vertices sent. Shipped one exact saving (world draws that never read their screen position no longer pass it from the vertex stage) and fixed the live resolution change: vitaGL never freed a render target's stencil memory, so every change leaked a few MB until the GPU memory ran out; a change to a larger picture is now refused when the memory is not there.",
   "result": "Vita3K: the frozen altar is identical pixel for pixel with the new vertex program on and off; route 6 with the three diagnostics rotating ran 300 s without a crash; the scale cycle's leaked stencil memory went from 16 MB after six cycles to none, and a forced refusal kept the picture without a crash. GPU timings need the console: env-console.txt rotates diag92px, diag92tex, diag92half (read with ab92.py's split of the GPU's busy time)."
+ },
+ {
+  "round": "r93",
+  "date": "2026-11-06",
+  "commit": "3c4545e",
+  "focus": "Speed",
+  "summary": "Worked on the console's GPU time (~56 ms of busy time a 3D frame). Round 88's two GPU cuts (world draws that cannot be see-through drawn without blending, and the water's mirror drawn at the PS2's 256 x 256) are now on by default on the Vita: the console had measured them at 12 and 15 ms less GPU work. Added three exact savings, on by default: more draws drawn without blending (alpha-tested ones whose pixels are all fully opaque), the mirror skipped in frames where nothing reads it, and the bloom's final full-screen pass made cheaper. Read the GPU programs' compiled sizes: the world's are already short; the outlier is the bloom's blur at ~270 instructions a pixel. Two console candidates that change the picture slightly, off by default: the bloom blur as one weighted sum (its rounding modelled so the glow keeps its strength) and the glow layer's 8-pass blur as 2 passes.",
+  "result": "Vita3K cannot time the GPU: pictures and stability only. The frozen altar and the frozen plain are identical pixel for pixel with the three exact savings on and off, and with round 88's cuts (one pixel at 1 level). Candidates: the bloom blur brightens the sky's glow ~1 level on average (up to 45 on bright edges), the glow blur within 2 levels. Route 6 300 s with the console env, no crash. Console A/B prepared (env-console.txt: r93all, blur93, glow93), read by GPU busy time with ab93.py."
  }
  ]
 }
