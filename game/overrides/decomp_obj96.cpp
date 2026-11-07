@@ -1,5 +1,5 @@
 // Round 96: small creatures the camera cannot see run their whole frame less
-// often (SOTC_OBJ96, default on; SOTC_AB_FLAG takes `obj96`, `r96all`).
+// often (SOTC_OBJ96, default off since the 2026-11-07 console run; SOTC_AB_FLAG takes `obj96`, `r96all`).
 //
 // The script objects' pass (manager_sub_01102638, decomp_hot44d scriptPass)
 // wakes every object's sub-thread once a frame. For a character object (type
