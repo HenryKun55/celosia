@@ -1446,7 +1446,6 @@ index 8abf57b..b4a63aa 100644
  
  #endif
 diff --git a/source/utils/gxm_utils.c b/source/utils/gxm_utils.c
-index 61803f3..1327472 100644
 --- a/source/utils/gxm_utils.c
 +++ b/source/utils/gxm_utils.c
 @@ -1,3 +1,4 @@
@@ -1477,23 +1476,125 @@ index 61803f3..1327472 100644
  
  void *vgl_def_frag_buf = NULL;
  void *vgl_def_vert_buf = NULL;
-@@ -226,6 +241,7 @@ void vglSetupUniformCircularPool() {
+@@ -224,8 +239,98 @@
+ 	}
+ }
  
++// celosia (the 5th colossus's texture corruption, 2026-11-07): the pool no
++// longer comes round onto uniforms the GPU has not read yet. The console
++// keeps ~3 frames of scenes queued (~80 scenes at the present, [gpu86]) and
++// a frame at Avion reserves ~0.8 MB: the 2 MB pool came round within those
++// frames and later draws' values went to draws still queued (wrong UV
++// offsets, texture LOD, the textured flag, tints: surfaces untextured grey or
++// in other draws' colours, Wander speckled). The pool is watched by quarter:
++// leaving a quarter notes the scene open then (the last scene to read what
++// was written there, query_fence.value + 1); before a quarter is written
++// again, if the GPU has not finished that scene (*query_fence.address), the
++// pool grows (twice the size, up to vgl_celo_unif_pool_max; the old one freed
++// by the garbage collector once the frames in flight are done), or at the
++// largest size the render thread waits for that scene. Off
++// (vglCeloUniformGuard(0)): counted only (vgl_celo_unif_hazards), as before.
++uint32_t vgl_celo_unif_pool_max = 8 * 1024 * 1024;
++int vgl_celo_unif_guard = 1;
++uint32_t vgl_celo_unif_hazards = 0, vgl_celo_unif_grows = 0, vgl_celo_unif_waits = 0, vgl_celo_unif_wait_us = 0, vgl_celo_unif_unsafe = 0;
++static uint32_t celo_unif_mark[4];
++static uint8_t celo_unif_marked[4];
++static uint32_t celo_unif_q = 0, celo_unif_edge = 0;
++void vglCeloUniformGuard(int on, uint32_t max_size) {
++	vgl_celo_unif_guard = on;
++	if (max_size)
++		vgl_celo_unif_pool_max = max_size;
++}
++void vglCeloUniformPool(uint32_t *size, uint32_t *hazards, uint32_t *grows, uint32_t *waits, uint32_t *wait_us, uint32_t *unsafe) {
++	if (size)
++		*size = vgl_celo_unif_pool_size;
++	if (hazards)
++		*hazards = vgl_celo_unif_hazards;
++	if (grows)
++		*grows = vgl_celo_unif_grows;
++	if (waits)
++		*waits = vgl_celo_unif_waits;
++	if (wait_us)
++		*wait_us = vgl_celo_unif_wait_us;
++	if (unsafe)
++		*unsafe = vgl_celo_unif_unsafe;
++}
++// The write position passed a quarter's end or came round: the quarters
++// entered checked (unif_idx is the end of the reservation just made, `size`
++// bytes). Returns the new pool when it grew (the reservation at its start).
++static uint8_t *celo_unif_cross(uint32_t size) {
++	const uint32_t quarter = UNIFORM_CIRCULAR_POOL_SIZE >> 2;
++	uint32_t q = (unif_idx - 1) / quarter;
++	if (q > 3)
++		q = 3;
++	while (celo_unif_q != q) {
++		celo_unif_mark[celo_unif_q] = query_fence.value + 1;
++		celo_unif_marked[celo_unif_q] = 1;
++		celo_unif_q = (celo_unif_q + 1) & 3;
++		const uint32_t need = celo_unif_mark[celo_unif_q];
++		if (!celo_unif_marked[celo_unif_q] || (int32_t)(*(volatile uint32_t *)query_fence.address - need) >= 0)
++			continue;
++		vgl_celo_unif_hazards++;
++		if (!vgl_celo_unif_guard)
++			continue;
++		if (UNIFORM_CIRCULAR_POOL_SIZE < vgl_celo_unif_pool_max) {
++			uint32_t bigger = UNIFORM_CIRCULAR_POOL_SIZE * 2;
++			if (bigger > vgl_celo_unif_pool_max)
++				bigger = vgl_celo_unif_pool_max;
++			uint8_t *pool = (uint8_t *)gpu_alloc_mapped_for_cpu(bigger);
++			if (pool) {
++				mark_as_dirty(unif_pool);
++				unif_pool = pool;
++				vgl_celo_unif_pool_size = bigger;
++				vgl_celo_unif_grows++;
++				sceClibMemset(celo_unif_marked, 0, sizeof(celo_unif_marked));
++				celo_unif_q = 0;
++				celo_unif_edge = bigger >> 2;
++				unif_idx = size;
++				return pool;
++			}
++		}
++		// The largest pool: the scene that read it waited for (only one
++		// already sent: a scene that wrote a whole pool cannot be).
++		if ((int32_t)(query_fence.value - need) >= 0) {
++			const uint64_t start = sceKernelGetProcessTimeWide();
++			while ((int32_t)(*(volatile uint32_t *)query_fence.address - need) < 0 && sceKernelGetProcessTimeWide() - start < 200000)
++				sceKernelDelayThread(100);
++			vgl_celo_unif_waits++;
++			vgl_celo_unif_wait_us += (uint32_t)(sceKernelGetProcessTimeWide() - start);
++		} else
++			vgl_celo_unif_unsafe++;
++	}
++	celo_unif_edge = (celo_unif_q + 1) * quarter;
++	return NULL;
++}
++
  void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
  	void *r;
 +	vgl_celo_unif_bytes += size;
  	if (unif_idx + size >= UNIFORM_CIRCULAR_POOL_SIZE) {
  #ifndef SKIP_ERROR_HANDLING
  		static uint32_t last_frame_swap = 0;
-@@ -236,6 +252,7 @@ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
+@@ -236,9 +341,18 @@
  #endif
  		r = unif_pool;
  		unif_idx = size;
 +		vgl_celo_unif_wraps++;
++		uint8_t *grown = celo_unif_cross(size);
++		if (grown)
++			r = grown;
  	} else {
  		r = (unif_pool + unif_idx);
  		unif_idx += size;
-@@ -255,6 +272,17 @@ void *vglReserveUniformCircularPoolBuffer(uint32_t size) {
++		if (unif_idx > celo_unif_edge) {
++			uint8_t *grown = celo_unif_cross(size);
++			if (grown)
++				r = grown;
++		}
+ 	}
+ 	return r;
+ }
+@@ -255,6 +369,17 @@
  		dst += align_size; \
  	}
  
@@ -1511,7 +1612,7 @@ index 61803f3..1327472 100644
  void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, const int offset, const uint32_t count, const uint32_t componentCount, const void *sourceData, const SceGxmParameterType input_type) {
  	if (offset != 0) {
  		switch (t) {
-@@ -286,29 +314,29 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -286,29 +411,29 @@
  			case SCE_GXM_PARAMETER_TYPE_F32:
  			case SCE_GXM_PARAMETER_TYPE_U32:
  			case SCE_GXM_PARAMETER_TYPE_S32:
@@ -1546,7 +1647,7 @@ index 61803f3..1327472 100644
  						src += componentCount;
  						uniformBuffer += align_size;
  					}
-@@ -316,11 +344,11 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -316,11 +441,11 @@
  				break;
  			case SCE_GXM_PARAMETER_TYPE_F16:
  				if (componentCount == 4) {
@@ -1560,7 +1661,7 @@ index 61803f3..1327472 100644
  						src += componentCount;
  						uniformBuffer += 8;
  					}
-@@ -328,17 +356,17 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -328,17 +453,17 @@
  				break;
  			case SCE_GXM_PARAMETER_TYPE_U32:
  			case SCE_GXM_PARAMETER_TYPE_S32:
@@ -1581,7 +1682,7 @@ index 61803f3..1327472 100644
  						src += componentCount;
  						uniformBuffer += align_size;
  					}
-@@ -347,12 +375,12 @@ void vglSetUniformData(uint8_t *uniformBuffer, const SceGxmParameterType t, cons
+@@ -347,12 +472,12 @@
  			case SCE_GXM_PARAMETER_TYPE_U8:
  			case SCE_GXM_PARAMETER_TYPE_S8:
  				if (componentCount == 4) {
@@ -1998,10 +2099,9 @@ index 014e790..79bb11d 100644
 +	(void)path; // needs a newer vitaShaRK than the SDK has
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index eeec610..0b88696 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1259,6 +1259,17 @@ void vglSetShaderAssociationPath(const char *path);
+@@ -1259,6 +1259,17 @@
  
  // Overloads the shader cache path when HAVE_SHADER_CACHE=1 is used. Must be called before vglInit*. Default value: ux0:data/shader_cache.
  void vglSetShaderCachePath(const char *path);
@@ -2019,12 +2119,14 @@ index eeec610..0b88696 100644
  
  // Change the lifetime for a texture to be considered cacheable. Requires HAVE_TEXTURE_CACHE.
  void vglSetTextureCacheFrequency(GLuint freq);
-@@ -1274,6 +1285,8 @@ void vglSetVertexAttribPoolSize(uint32_t main_size, uint32_t aux_size);
+@@ -1274,6 +1285,10 @@
  
  // Setup the vertex ring buffer size of sceGxm. Must be called before vglInit*. Default value: SCE_GXM_DEFAULT_VERTEX_RING_BUFFER_SIZE.
  void vglSetVertexBufferSize(uint32_t size);
 +void vglCeloSetUniformPoolSize(uint32_t size); // celosia r65c: the uniform circular pool (default 2 MB), before vglInit
 +void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia r65c: uniform bytes reserved and pool wraps so far
++void vglCeloUniformGuard(int on, uint32_t max_size); // celosia: the uniform pool grows (up to max_size; 0 keeps it) or waits instead of coming round onto uniforms the GPU has not read (1, the default), or only counts those (0)
++void vglCeloUniformPool(uint32_t *size, uint32_t *hazards, uint32_t *grows, uint32_t *waits, uint32_t *wait_us, uint32_t *unsafe); // celosia: the uniform pool's size now; times it came round onto unread uniforms, grew, waited (and for how long), could not help it
  
  // Change the priority and affinity to use for the garbage collector thread. Must be called before vglInit*.
  void vglSetupGarbageCollector(int priority, int affinity);

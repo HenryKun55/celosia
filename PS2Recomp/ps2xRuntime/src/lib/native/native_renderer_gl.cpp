@@ -8269,10 +8269,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // draws' uniforms).
                 uint32_t bytes = 0, wraps = 0;
                 vglCeloUniformStats(&bytes, &wraps);
+                // 2026-11-07: the guard against coming round onto uniforms
+                // the GPU has not read (celosia.patch, raylib_vita.cpp): the
+                // pool's size, the times it would have (hazards; with the
+                // guard off each one is draws drawn with other draws'
+                // uniforms), grew, waited, could not help it.
+                uint32_t poolSize = 0, hazards = 0, grows = 0, waits = 0, waitUs = 0, unsafe = 0;
+                vglCeloUniformPool(&poolSize, &hazards, &grows, &waits, &waitUs, &unsafe);
                 const uint64_t frames = r->arenaFrame > m_unifFrame ? r->arenaFrame - m_unifFrame : 1u;
-                std::fprintf(stderr, "[gl:unif] %.0f KB of uniforms a frame over %llu frames, pool wraps %u\n",
-                             static_cast<double>(bytes - m_unifBytes) / 1024.0 / static_cast<double>(frames), static_cast<unsigned long long>(frames), wraps - m_unifWraps);
+                std::fprintf(stderr, "[gl:unif] %.0f KB of uniforms a frame over %llu frames, pool wraps %u | pool %u KB, came round onto unread %u, grew %u, waited %u (%.1f ms), unhelped %u\n",
+                             static_cast<double>(bytes - m_unifBytes) / 1024.0 / static_cast<double>(frames), static_cast<unsigned long long>(frames), wraps - m_unifWraps,
+                             poolSize / 1024u, hazards - m_unifHazards, grows - m_unifGrows, waits - m_unifWaits, (waitUs - m_unifWaitUs) / 1000.0, unsafe - m_unifUnsafe);
                 m_unifBytes = bytes, m_unifWraps = wraps, m_unifFrame = r->arenaFrame;
+                m_unifHazards = hazards, m_unifGrows = grows, m_unifWaits = waits, m_unifWaitUs = waitUs, m_unifUnsafe = unsafe;
             }
 #endif
             m_pressureSpared = 0;
@@ -8653,6 +8662,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint32_t m_flushes = 0, m_evictedAged = 0, m_evictedBudget = 0, m_evictedPressure = 0, m_skipped = 0;
         uint32_t m_pressureSpared = 0; // round 33: kept under pressure (in vitaGL's pools, not the heap)
         uint32_t m_unifBytes = 0, m_unifWraps = 0; // round 65c: vglCeloUniformStats at the last [gl:unif] line
+        uint32_t m_unifHazards = 0, m_unifGrows = 0, m_unifWaits = 0, m_unifWaitUs = 0, m_unifUnsafe = 0; // vglCeloUniformPool's at the last [gl:unif] line
         uint64_t m_unifFrame = 0;
         uint64_t m_evictedBudgetBytes = 0, m_evictedPressureBytes = 0;
         // The hand-over.

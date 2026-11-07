@@ -318,7 +318,22 @@ void InitWindow(int, int, const char *)
     // SOTC_VGL_UNIFORM_KB: its size (default 2048, as vitaGL).
     const int uniformKb = kb("SOTC_VGL_UNIFORM_KB", 2048);
     vglCeloSetUniformPoolSize(static_cast<uint32_t>(uniformKb) * 1024u);
-    std::fprintf(stderr, "[vita] vitaGL uniform pool %d KB\n", uniformKb);
+    // 2026-11-07 (the 5th colossus): the pool came round onto uniforms the
+    // GPU had not read. The console keeps ~3 frames of scenes queued
+    // ([gpu86] backlog ~80 scenes) and Avion's frames reserve 0.75-0.8 MB:
+    // 2 MB held fewer frames than were queued, and queued draws took later
+    // draws' UV offsets, texture LOD, textured flag, tints (surfaces grey or
+    // in other draws' colours, Wander speckled). celosia.patch's guard: the
+    // pool, watched by quarter against the scenes the GPU has finished,
+    // grows (twice, up to SOTC_VGL_UNIFORM_MAX_KB, default 8192) before it
+    // would write over unread uniforms; at the largest size the render
+    // thread waits for the GPU. SOTC_VGL_UNIFORM_GUARD=0: counted only
+    // ([gl:unif] "came round onto unread"), as before.
+    const int uniformMaxKb = kb("SOTC_VGL_UNIFORM_MAX_KB", 8192);
+    const char *guardEnv = std::getenv("SOTC_VGL_UNIFORM_GUARD");
+    const bool uniformGuard = !guardEnv || std::atoi(guardEnv) != 0;
+    vglCeloUniformGuard(uniformGuard ? 1 : 0, static_cast<uint32_t>(std::max(uniformMaxKb, uniformKb)) * 1024u);
+    std::fprintf(stderr, "[vita] vitaGL uniform pool %d KB, guard %s (up to %d KB)\n", uniformKb, uniformGuard ? "on" : "off", std::max(uniformMaxKb, uniformKb));
     vglSetCircularPoolSize(static_cast<uint32_t>(circularKb) * 1024u);
     std::fprintf(stderr, "[vita] vitaGL circular pool %d KB, immediate pool %d KB\n", circularKb, immediateKb);
     // Round 92 (a console experiment, off by default): vitaGL's depth /
