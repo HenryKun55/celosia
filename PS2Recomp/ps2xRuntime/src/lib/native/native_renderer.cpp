@@ -214,7 +214,7 @@ namespace native_renderer
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
                                          {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
-                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}})
+                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -299,7 +299,7 @@ namespace native_renderer
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
                                          {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
-                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}})
+                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)

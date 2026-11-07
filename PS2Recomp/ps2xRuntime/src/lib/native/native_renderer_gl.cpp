@@ -993,6 +993,21 @@ void main(float2 aPos, uniform float4 uQuad,
 }
 )";
 
+    // Round 94: a quad over a region of the target (uRect: the unit square's
+    // NDC scale and offset; drawn as two triangles, so nothing past the
+    // region is drawn whatever the viewport), its texture position an
+    // affine function of the position in the region (uQuad, as kQuadVertexAffine).
+    const char *kQuadVertexRegion = R"(
+void main(float2 aPos, uniform float4 uQuad, uniform float4 uRect,
+          float4 out oPosition : POSITION,
+          float4 out vUV : TEXCOORD0)
+{
+    float2 u = aPos * 0.5 + 0.5;
+    oPosition = float4(u * uRect.xy + uRect.zw, 0.0, 1.0);
+    vUV = float4(u * uQuad.xy + uQuad.zw, 0.0, 0.0);
+}
+)";
+
     // No depth textures: the depth modes (8, 11, 12) of the Mac are not used
     // on the Vita; 8 and 11 are the bloom's there (its mask kept in the
     // picture's alpha, see Renderer::bloomMask).
@@ -1007,16 +1022,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #elif MODE == 21
             , uniform float4 uW[5]
 #endif
+#if defined(CLAMPED)
+            , uniform float4 uClamp
+#endif
             ) : COLOR
 {
     float2 uv = vUV.xy;
+    // Round 94 (CLAMPED: the region programs): a source that is a region of
+    // a shared target read as its own texture would be, every read held
+    // inside the region's texel centres (uClamp: lowest xy, highest zw), as
+    // the texture's clamp to the edge did.
+#if defined(CLAMPED)
+#define SRC(P) tex2D(uSrc, clamp((P), uClamp.xy, uClamp.zw))
+#else
+#define SRC(P) tex2D(uSrc, (P))
+#endif
 #if MODE == 0
-    return float4(tex2D(uSrc, uv).rgb, 1.0);
+    return float4(SRC(uv).rgb, 1.0);
 #elif MODE == 1
-    float4 c = tex2D(uSrc, uv) * 0.30;
-    c += (tex2D(uSrc, uv + uA.xy) + tex2D(uSrc, uv - uA.xy)) * 0.235;
-    c += (tex2D(uSrc, uv + uA.xy * 2.0) + tex2D(uSrc, uv - uA.xy * 2.0)) * 0.12;
-    c += (tex2D(uSrc, uv + uA.xy * 3.0) + tex2D(uSrc, uv - uA.xy * 3.0)) * 0.05;
+    float4 c = SRC(uv) * 0.30;
+    c += (SRC(uv + uA.xy) + SRC(uv - uA.xy)) * 0.235;
+    c += (SRC(uv + uA.xy * 2.0) + SRC(uv - uA.xy * 2.0)) * 0.12;
+    c += (SRC(uv + uA.xy * 3.0) + SRC(uv - uA.xy * 3.0)) * 0.05;
     return c;
 #elif MODE == 2
     // The bloom's temporal step as the GS does it (round 20): Cd + ((Cs - Cd)
@@ -1051,10 +1078,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #elif MODE == 8
     return float4(0.0, 0.0, 0.0, uA.x);
 #elif MODE == 9
-    return float4(0.0, 0.0, 0.0, saturate(tex2D(uSrc, uv).r * uA.x));
+    return float4(0.0, 0.0, 0.0, saturate(SRC(uv).r * uA.x));
 #elif MODE == 13
     // Plain copy, alpha kept, shifted by uA.xy (the glow layer's reductions).
-    return tex2D(uSrc, uv + uA.xy);
+    return SRC(uv + uA.xy);
 #elif MODE == 14
     // The glow layer over the picture: rgb x uA.rgb, alpha x uA.a.
     float4 g = tex2D(uSrc, uv);
@@ -1130,7 +1157,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // Round 93 (Tuning glPost93): mode 18 with its texture position made in
     // the vertex program (kQuadVertexAffine: the screen position + a
     // constant; the render scale cancels out).
-    return float4(tex2D(uSrc, uv).rgb * uB.rgb * uB.a, 1.0);
+    return float4(SRC(uv).rgb * uB.rgb * uB.a, 1.0);
 #elif MODE == 20
     // Round 93 (Tuning glBlur93, not the same picture): mode 16 as one
     // weighted sum: the centre texel and the 12 taps (the same positions;
@@ -1163,19 +1190,56 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // Round 93 (Tuning glGlow93, not the same picture): one direction of the
     // glow's binomial blur, rgba: tap k (0..16) at uv + (k - 8) x uA.xy,
     // weight uW[k / 4][k % 4] (zero past the kernel's order).
-    float4 acc = tex2D(uSrc, uv) * uW[2].x;
-    acc += (tex2D(uSrc, uv - 1.0 * uA.xy) * uW[1].w + tex2D(uSrc, uv + 1.0 * uA.xy) * uW[2].y);
-    acc += (tex2D(uSrc, uv - 2.0 * uA.xy) * uW[1].z + tex2D(uSrc, uv + 2.0 * uA.xy) * uW[2].z);
-    acc += (tex2D(uSrc, uv - 3.0 * uA.xy) * uW[1].y + tex2D(uSrc, uv + 3.0 * uA.xy) * uW[2].w);
-    acc += (tex2D(uSrc, uv - 4.0 * uA.xy) * uW[1].x + tex2D(uSrc, uv + 4.0 * uA.xy) * uW[3].x);
+    float4 acc = SRC(uv) * uW[2].x;
+    acc += (SRC(uv - 1.0 * uA.xy) * uW[1].w + SRC(uv + 1.0 * uA.xy) * uW[2].y);
+    acc += (SRC(uv - 2.0 * uA.xy) * uW[1].z + SRC(uv + 2.0 * uA.xy) * uW[2].z);
+    acc += (SRC(uv - 3.0 * uA.xy) * uW[1].y + SRC(uv + 3.0 * uA.xy) * uW[2].w);
+    acc += (SRC(uv - 4.0 * uA.xy) * uW[1].x + SRC(uv + 4.0 * uA.xy) * uW[3].x);
     if (uA.z > 4.5)
     {
-        acc += (tex2D(uSrc, uv - 5.0 * uA.xy) * uW[0].w + tex2D(uSrc, uv + 5.0 * uA.xy) * uW[3].y);
-        acc += (tex2D(uSrc, uv - 6.0 * uA.xy) * uW[0].z + tex2D(uSrc, uv + 6.0 * uA.xy) * uW[3].z);
-        acc += (tex2D(uSrc, uv - 7.0 * uA.xy) * uW[0].y + tex2D(uSrc, uv + 7.0 * uA.xy) * uW[3].w);
-        acc += (tex2D(uSrc, uv - 8.0 * uA.xy) * uW[0].x + tex2D(uSrc, uv + 8.0 * uA.xy) * uW[4].x);
+        acc += (SRC(uv - 5.0 * uA.xy) * uW[0].w + SRC(uv + 5.0 * uA.xy) * uW[3].y);
+        acc += (SRC(uv - 6.0 * uA.xy) * uW[0].z + SRC(uv + 6.0 * uA.xy) * uW[3].z);
+        acc += (SRC(uv - 7.0 * uA.xy) * uW[0].y + SRC(uv + 7.0 * uA.xy) * uW[3].w);
+        acc += (SRC(uv - 8.0 * uA.xy) * uW[0].x + SRC(uv + 8.0 * uA.xy) * uW[4].x);
     }
     return acc;
+#elif MODE == 22
+    // Round 94 (glow94): the glow layer's 256 x 256 reduction (bilinear at
+    // its texel centres) and its two exact 2 x 2 boxes (-> 128 -> 64) as one
+    // 4 x 4 mean of those 16 bilinear reads; uSize.xy one 256 x 256 texel.
+    float4 g = float4(0.0, 0.0, 0.0, 0.0);
+#define G22(A, B) g += tex2D(uSrc, uv + float2(A, B) * uSize.xy);
+    G22(-1.5, -1.5) G22(-0.5, -1.5) G22(0.5, -1.5) G22(1.5, -1.5)
+    G22(-1.5, -0.5) G22(-0.5, -0.5) G22(0.5, -0.5) G22(1.5, -0.5)
+    G22(-1.5, 0.5) G22(-0.5, 0.5) G22(0.5, 0.5) G22(1.5, 0.5)
+    G22(-1.5, 1.5) G22(-0.5, 1.5) G22(0.5, 1.5) G22(1.5, 1.5)
+    return g * 0.0625;
+#elif MODE == 23
+    // Round 94 (bloom94): mode 17 (the GS chain's temporal step) with the
+    // history (uSrc2) read in its region of bloomAtlas: uv x uSize.xy + uSize.zw.
+    float3 cd = floor(tex2D(uSrc, uv).rgb * 255.0 + 0.5);
+    float3 cs = floor(tex2D(uSrc2, uv * uSize.xy + uSize.zw).rgb * 255.0 + 0.5);
+    return float4((cd + floor((cs - cd) * uA.x)) / 255.0, 1.0);
+#elif MODE == 24
+    // Round 94 (fx94): the soft shadows' mask, its 4 x 4 reduction (mode 11
+    // from the picture's alpha, white, stored in 8 bits) and the across blur
+    // (mode 1) in one pass: each tap's 4 x 4 block as four bilinear reads at
+    // its 2 x 2 quarters' corners. uv the block's centre (picture uv), uA.x
+    // one tap (k reduced texels), uSize.xy one picture pixel, uClamp.x / .z
+    // the first / last block centre (the reduction's edge clamp).
+    float v = 0.0;
+#define T24(D, W) { float2 c = float2(clamp(uv.x + (D) * uA.x, uClamp.x, uClamp.z), uv.y); \
+        float m = tex2D(uSrc, c - uSize.xy).a + tex2D(uSrc, c + float2(uSize.x, -uSize.y)).a + tex2D(uSrc, c + float2(-uSize.x, uSize.y)).a + tex2D(uSrc, c + uSize.xy).a; \
+        v += floor(m * 0.25 * 255.0 + 0.5) * (W); }
+    T24(0.0, 0.30) T24(1.0, 0.235) T24(-1.0, 0.235) T24(2.0, 0.12) T24(-2.0, 0.12) T24(3.0, 0.05) T24(-3.0, 0.05)
+    v /= 255.0;
+    return float4(v, v, v, 1.0);
+#elif MODE == 25
+    // Round 94 (fx94): the water's copy (the picture -> 256 x 256 bilinear,
+    // -> 128 x 128 an exact 2 x 2 box) as the mean of the four bilinear
+    // reads at the 256 x 256 texels' centres; uSize.xy half a 256 texel.
+    float3 r = tex2D(uSrc, uv - uSize.xy).rgb + tex2D(uSrc, uv + float2(uSize.x, -uSize.y)).rgb + tex2D(uSrc, uv + float2(-uSize.x, uSize.y)).rgb + tex2D(uSrc, uv + uSize.xy).rgb;
+    return float4(r * 0.25, 1.0);
 #else
     return float4(tex2D(uSrc, uv).rgb * uB.rgb * uB.a, 1.0);
 #endif
@@ -1421,7 +1485,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint mainProgram = 0, quadProgram = 0;
         GLuint skinProgram = 0; // the main program posing a skinned mesh's bind pose first (0: not built)
 #if defined(PS2X_NATIVE_VITA)
-        GLuint quadPrograms[22] = {}; // (19-21: round 93's, the Vita) // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused; 15-18 the GS bloom chain, round 65b)
+        GLuint quadPrograms[22] = {}; // (19-21: round 93's, the Vita)
+        GLuint regionPrograms[26] = {}; // round 94 (the Vita): kQuadVertexRegion + CLAMPED by mode (0, 1, 9, 16, 19-25)
+        static constexpr int kRegionModes[] = {0, 1, 9, 13, 16, 19, 20, 21, 22, 23, 24, 25};
+        bool regionReady = false; // every one of them built // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused; 15-18 the GS bloom chain, round 65b)
 #endif
         GLuint quadBuffer = 0, blurBuffer = 0, vao = 0;
         // Uniform locations by (program, name): the names are string literals,
@@ -1465,6 +1532,33 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t mirrorSkip = 0, mirrorDrawn = 0, atop = 0, atopVerts = 0, atopTest = 0, atopLeast = 0, aref[4] = {}, atBlended = 0, atBlendedVerts = 0, post = 0, blur = 0, glow = 0;
         } r93Stats;
+        bool bloomDirect94 = false; // round 94: this frame's composite reads bloomAtlas's B region (bloom94 with blur93 and post93)
+        // Round 93's blur93 weights (see gsBloomChain): the 12 chained lerps' and the centre's, the truncations' mean loss in wts[13].
+        static void blur93Weights(float taps, float wts[16])
+        {
+            float a[12];
+            for (int g = 0; g < 3; ++g)
+                for (int i = 0; i < 4; ++i)
+                    a[g * 4 + i] = std::floor(static_cast<float>(64 >> g) * taps / 128.0f) / 128.0f;
+            for (int i = 0; i < 16; ++i)
+                wts[i] = 0.0f;
+            float keep = 1.0f; // what the later lerps leave of a tap
+            for (int i = 11; i >= 0; --i)
+            {
+                wts[i] = a[i] * keep;
+                keep *= 1.0f - a[i];
+            }
+            wts[12] = keep; // the centre (uW[3].x)
+            float lost = 0.0f; // uW[3].y: the truncations' mean loss, in 8-bit levels / 255
+            for (int i = 0; i < 12; ++i)
+            {
+                float later = 1.0f;
+                for (int j = i + 1; j < 12; ++j)
+                    later *= 1.0f - a[j];
+                lost += 0.5f * later;
+            }
+            wts[13] = lost / 255.0f;
+        }
         GLuint bloomSource93 = 0; // round 93: what the GS bloom composite reads (gsBloom[6], or gsBloom[5] under glBlur93)
         GLuint diagTexture = 0; // round 92 (glDiag92Tex): one grey texel (128, 128, 128, 128), made at its first use
         Target previous; // the last frame shown (feedbackBlur)
@@ -1550,7 +1644,47 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         Target bloomTex[3];
         bool bloomHistory = false;
         // The GS chain (as Metal): 0 mask 256, 1 128, 2 64, 3 64 lerped, 4 64 history, 5 128, 6 256.
+        struct Region
+        {
+            uint32_t x = 0, y = 0, w = 0, h = 0;
+            // uv of this region inside its target (scale xy, offset zw), and its
+            // texel centres' bounds (lowest xy, highest zw), for its readers
+            void uvOf(const Target &t, float out[4]) const
+            {
+                out[0] = static_cast<float>(w) / static_cast<float>(t.width);
+                out[1] = static_cast<float>(h) / static_cast<float>(t.height);
+                out[2] = static_cast<float>(x) / static_cast<float>(t.width);
+                out[3] = static_cast<float>(y) / static_cast<float>(t.height);
+            }
+            void clampOf(const Target &t, float out[4]) const
+            {
+                out[0] = (static_cast<float>(x) + 0.5f) / static_cast<float>(t.width);
+                out[1] = (static_cast<float>(y) + 0.5f) / static_cast<float>(t.height);
+                out[2] = (static_cast<float>(x + w) - 0.5f) / static_cast<float>(t.width);
+                out[3] = (static_cast<float>(y + h) - 0.5f) / static_cast<float>(t.height);
+            }
+        };
         Target gsBloom[7];
+        // Round 94: the shared targets the small passes draw as regions of
+        // (one scene for several): fxAtlas[0] the shadows' across blur (SH),
+        // the glow's 64 x 64 reduction (GR), the water's 128 x 128 copy (RD);
+        // fxAtlas[1] the shadows' mask (SV) and the glow's across blur (GH).
+        // bloomAtlas: the GS bloom chain's two blurs, 128 x 128 (B) and the
+        // 64 x 64 history (A). Made with the picture-sized targets.
+        Target fxAtlas[2], bloomAtlas;
+        bool bloomAtlasHistory = false; // the GS chain's history is in bloomAtlas (bloom94), else in gsBloom[4]
+        Region fxSH() const { return Region{0, 0, bloomTex[0].width, bloomTex[0].height}; }
+        Region fxGR() const { return Region{bloomTex[0].width, 0, 64, 64}; }
+        Region fxRD() const { return Region{bloomTex[0].width + 64u, 0, 128, 128}; }
+        static Region bloomB() { return Region{0, 0, 128, 128}; }
+        static Region bloomA() { return Region{128, 0, 64, 64}; }
+        GLuint bgSource = 0; // round 94 (glBgCopy94): the 256 x 256 background the passes read (backgroundLow / backgroundLow94, or backgroundSmall)
+        Target backgroundLow94; // round 94 (glBgCopy94): backgroundLow's partner, drawn in turn (the background pass reads the other: last frame's)
+        bool bgFlip94 = false;
+        struct
+        {
+            uint64_t copies = 0, emptyPass = 0, bgCopy = 0, glow = 0, fxShadow = 0, fxGlow = 0, fxWater = 0, fxFuse = 0, bloom = 0, bloomDirect = 0, histMove = 0;
+        } r94Stats;
         uint64_t bloomGameFrame = 0; // the game frame this frame's bloom came with (SOTC_BLOOM_LOG)
         // SOTC_BLOOM_LOG: a target's mean (0-255) of channel c (3: alpha);
         // -1 where it cannot be read back (Vita3K's targets read as black).
@@ -2209,6 +2343,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
             if (mode >= 0 && mode < 22 && quadPrograms[mode])
                 quadProgram = quadPrograms[mode];
+            else if (quadPrograms[0]) // (round 94: never a region program left in place)
+                quadProgram = quadPrograms[0];
 #else
             (void)mode;
 #endif
@@ -2317,6 +2453,25 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 quadProgram = quadPrograms[mode];
                 glUseProgram(quadProgram);
                 glUniform1i(uniform(false, "uSrc"), 0);
+            }
+            // Round 94: the region programs (fewer scenes: several small passes
+            // drawn as regions of one target); without them those stay off.
+            regionReady = true;
+            for (int mode : kRegionModes)
+            {
+                const std::string source = "#define CLAMPED 1\n#define MODE " + std::to_string(mode) + "\n" + kQuadFragment;
+                regionPrograms[mode] = program(kQuadVertexRegion, source.c_str(), {"aPos"});
+                if (!regionPrograms[mode])
+                {
+                    std::fprintf(stderr, "[native:gl] round 94 region program %d did not build\n", mode);
+                    regionReady = false;
+                    continue;
+                }
+                quadProgram = regionPrograms[mode];
+                glUseProgram(quadProgram);
+                glUniform1i(uniform(false, "uSrc"), 0);
+                if (mode == 23)
+                    glUniform1i(uniform(false, "uSrc2"), 1);
             }
             quadProgram = quadPrograms[0];
 #else
@@ -2573,6 +2728,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     ++draws;
                 }
                 glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            }
+            // Round 93's affine programs and round 94's region ones (quad blends).
+            {
+                std::vector<GLuint> extra = {quadPrograms[19], quadPrograms[20], quadPrograms[21]};
+                for (int mode : kRegionModes)
+                    extra.push_back(regionPrograms[mode]);
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+                for (GLuint i = 1; i < 6; ++i)
+                    glDisableVertexAttribArray(i);
+                for (GLuint p : extra)
+                {
+                    if (!p)
+                        continue;
+                    ++programs;
+                    glUseProgram(p);
+                    for (const BlendState &b : blends)
+                    {
+                        if (!b.mask)
+                            continue;
+                        if (b.on)
+                        {
+                            glEnable(GL_BLEND);
+                            glBlendEquationSeparate(b.rgbEq, GL_FUNC_ADD);
+                            glBlendFuncSeparate(b.rgbSrc, b.rgbDst, b.aSrc, b.aDst);
+                        }
+                        else
+                            glDisable(GL_BLEND);
+                        glDrawArrays(GL_TRIANGLES, 0, 3);
+                        ++draws;
+                    }
+                }
             }
             glFinish();
             glDisable(GL_BLEND);
@@ -2836,7 +3023,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 };
                 release(colorPlain, false); // (color's texture)
                 for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &reflection,
-                                  &prefix[0], &prefix[1], &prefix[2], &glowPrefix, &bloomTex[0], &bloomTex[1], &bloomTex[2]})
+                                  &prefix[0], &prefix[1], &prefix[2], &glowPrefix, &bloomTex[0], &bloomTex[1], &bloomTex[2], &fxAtlas[0], &fxAtlas[1]})
                     release(*t);
                 release(blurOutPlain, false); // (blurOut's texture)
                 release(blurOut);
@@ -2891,6 +3078,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 makeTarget(gsBloom[i], size, size, false);
             }
             gsBloomHistory = false;
+#if defined(PS2X_NATIVE_VITA)
+            // Round 94: the shared targets of the small passes (see fxAtlas).
+            for (Target &t : fxAtlas)
+                makeTarget(t, std::max(w / 4u, 1u) + 192u, std::max(std::max(h / 4u, 1u), 128u), false);
+            makeTarget(bloomAtlas, 192, 128, false);
+            bloomAtlasHistory = false;
+#endif
             if (colorPlain.fbo)
                 glDeleteFramebuffers(1, &colorPlain.fbo);
             colorPlain = Target{};
@@ -2938,7 +3132,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uint32_t made = 0;
                 for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &glowSmall[0], &glowSmall[1],
                                   &glowSmall[2], &glowSmall[3], &backgroundSmall, &reflection, &refraction, &hazeSmall, &refractionHalf, &bloomTex[0], &bloomTex[1],
-                                  &bloomTex[2], &colorPlain, &colorAlt, &colorAltPlain})
+                                  &bloomTex[2], &colorPlain, &colorAlt, &colorAltPlain, &fxAtlas[0], &fxAtlas[1], &bloomAtlas})
                     if (t->fbo)
                     {
                         glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
@@ -3104,6 +3298,76 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             for (GLuint i = 1; i < 4; ++i)
                 glDisableVertexAttribArray(i);
             glDrawArrays(GL_TRIANGLES, 0, corners ? 6 : 3);
+        }
+
+        // Round 94: a region of a target (pixels x, y, w, h; rows from the
+        // bottom as GL's), drawn with the region program of `mode`: uv runs
+        // over the region as uvAffine (scale xy, offset zw) of 0..1; reads of
+        // uSrc held inside `clampRect` (lowest uv xy, highest zw; null: the
+        // whole texture). Several regions of one target drawn one after the
+        // other stay in one scene (one bind). The caller binds the textures.
+        void quadRegion(const Target &target, const Region &r, int mode, QuadBlend blend, const float a[4] = nullptr, const float b[4] = nullptr,
+                        const float uvAffine[4] = nullptr, const float clampRect[4] = nullptr, const float size[4] = nullptr)
+        {
+#if defined(PS2X_NATIVE_VITA)
+            gpu86::label("r%d", mode);
+            bindTarget(target);
+            glViewport(0, 0, static_cast<GLsizei>(target.width), static_cast<GLsizei>(target.height));
+            useRegion(mode);
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            glDisable(GL_CULL_FACE);
+            switch (blend)
+            {
+            case QuadBlend::None:
+                glDisable(GL_BLEND);
+                break;
+            case QuadBlend::Add:
+                glEnable(GL_BLEND);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE);
+                break;
+            case QuadBlend::Over:
+                glEnable(GL_BLEND);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+                break;
+            case QuadBlend::Darken:
+                glEnable(GL_BLEND);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+                break;
+            }
+            const float zero[4] = {0, 0, 0, 0}, identity[4] = {1, 1, 0, 0}, whole[4] = {0, 0, 1, 1};
+            const float tw = static_cast<float>(target.width), th = static_cast<float>(target.height);
+            const float rect[4] = {2.0f * static_cast<float>(r.w) / tw, 2.0f * static_cast<float>(r.h) / th, 2.0f * static_cast<float>(r.x) / tw - 1.0f,
+                                   2.0f * static_cast<float>(r.y) / th - 1.0f};
+            glUniform4fv(uniform(false, "uA"), 1, a ? a : zero);
+            glUniform4fv(uniform(false, "uB"), 1, b ? b : zero);
+            glUniform4fv(uniform(false, "uQuad"), 1, uvAffine ? uvAffine : identity);
+            glUniform4fv(uniform(false, "uRect"), 1, rect);
+            const GLint clampAt = uniform(false, "uClamp");
+            if (clampAt >= 0)
+                glUniform4fv(clampAt, 1, clampRect ? clampRect : whole);
+            if (size)
+                glUniform4fv(uniform(false, "uSize"), 1, size);
+            glBindBuffer(GL_ARRAY_BUFFER, blurBuffer);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+            for (GLuint i = 1; i < 4; ++i)
+                glDisableVertexAttribArray(i);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            // (bindTarget sets the whole target's viewport only at a bind: it is the whole target already)
+#else
+            (void)target, (void)r, (void)mode, (void)blend, (void)a, (void)b, (void)uvAffine, (void)clampRect, (void)size;
+#endif
+        }
+        Region whole(const Target &t) const { return Region{0, 0, t.width, t.height}; }
+        // The region program of `mode` in use (uniform() then finds its uniforms).
+        void useRegion(int mode)
+        {
+            quadProgram = regionPrograms[mode];
+            useProgram(quadProgram);
         }
 
         // The colour of `from` into `to` (bilinear: reducing blurs it).
@@ -4152,6 +4416,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              native_renderer::tuning().glBlur93 ? 1 : 0, r93Stats.blur / fr,
                              native_renderer::tuning().glGlow93 ? 1 : 0, r93Stats.glow / fr);
                 r93Stats = {};
+                std::fprintf(stderr, "[r94] per frame: bgcopy94 %d: %.2f | glow94 %d: %.2f | fx94 %d: shadows %.2f, glow in the atlas %.2f, water copy %.2f (fused into the copy %.2f), 2-pass copies %.2f, empty picture scenes skipped %.2f | bloom94 %d: %.2f (composite from the atlas %.2f), history moves %llu\n",
+                             native_renderer::tuning().glBgCopy94 ? 1 : 0, r94Stats.bgCopy / fr, native_renderer::tuning().glGlow94 ? 1 : 0, r94Stats.glow / fr,
+                             native_renderer::tuning().glFx94 ? 1 : 0, r94Stats.fxShadow / fr, r94Stats.fxGlow / fr, r94Stats.fxWater / fr, r94Stats.fxFuse / fr, r94Stats.copies / fr, r94Stats.emptyPass / fr,
+                             native_renderer::tuning().glBloom94 ? 1 : 0, r94Stats.bloom / fr, r94Stats.bloomDirect / fr, (unsigned long long)r94Stats.histMove);
+                r94Stats = {};
                 alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
@@ -4933,12 +5202,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 // The background as the PS2 shows it: bgEnd's reduced copy, stretched back.
                 glDisable(GL_STENCIL_TEST);
-                bindTexture(0, backgroundSmall.texture);
+                bindTexture(0, bgSource ? bgSource : backgroundSmall.texture);
                 quad(target, 0, QuadBlend::None);
             }
             useProgram(mainProgram);
             if (!backgroundOnly)
-                bindTexture(1, backgroundSmall.texture);
+                bindTexture(1, bgSource ? bgSource : backgroundSmall.texture);
             if (!mirror)
             {
                 bindTexture(2, mirrorTarget->texture); // round 88: the 256 x 256 one under glMirror88
@@ -5823,16 +6092,52 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     vglCeloDepthKeep(backgroundLow.fbo, depthKeep ? 0 : -1);
 #endif
             }
-            if (native_renderer::tuning().glBgSmall87 && backgroundLow.fbo)
+            // Round 94: the background layer's fogged draws read uBackground
+            // (unit 1), which pass() binds for every pass but this one: it was
+            // whatever unit 1 held, the mirror pass's backgroundSmall when the
+            // mirror is drawn, else the bloom chain's history (gsBloom[4], bound
+            // by its temporal step): the sky took the glow's state into the
+            // picture (and with it every change to the chain's targets). Now
+            // last frame's background, always.
+            // Round 94 (Tuning glBgCopy94): read where it was drawn (the copy
+            // at the same size is the same texels: one scene fewer). The
+            // background pass's own fogged draws read uBackground (unit 1):
+            // last frame's background, as the copy gave them; so two targets
+            // drawn in turn, the pass reading the other one (never the target
+            // it draws into).
+            const bool bgCopy94 = native_renderer::tuning().glBgCopy94 && native_renderer::tuning().glBgSmall87 && backgroundLow.fbo;
+            if (bgCopy94 && !backgroundLow94.texture)
             {
+                makeTarget(backgroundLow94, 256, 256, true);
+#if defined(PS2X_NATIVE_VITA)
+                if (backgroundLow94.fbo)
+                    vglCeloDepthKeep(backgroundLow94.fbo, depthKeep ? 0 : -1);
+#endif
+            }
+            if (bgCopy94 && backgroundLow94.fbo)
+            {
+                Target &into = bgFlip94 ? backgroundLow94 : backgroundLow;
+                bgFlip94 = !bgFlip94;
+                bindTexture(1, bgSource ? bgSource : backgroundSmall.texture); // (last frame's)
+                pass(into, true);
+                bgSource = into.texture;
+                ++r94Stats.bgCopy;
+                ++bgSmallFrames;
+            }
+            else if (native_renderer::tuning().glBgSmall87 && backgroundLow.fbo)
+            {
+                bindTexture(1, backgroundSmall.texture); // (round 94: last frame's; see below)
                 pass(backgroundLow, true);
                 copy(backgroundLow, backgroundSmall);
+                bgSource = backgroundSmall.texture;
                 ++bgSmallFrames;
             }
             else
             {
+                bindTexture(1, backgroundSmall.texture); // (round 94: last frame's; see below)
                 pass(background, true);
                 copy(background, backgroundSmall); // bgEnd: reduced to 256 x 256
+                bgSource = backgroundSmall.texture;
             }
         }
 #if defined(PS2X_NATIVE_VITA)
@@ -5921,6 +6226,32 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 quad(color, 3, QuadBlend::Over, alpha, nullptr, params, true);
             }
         };
+#if defined(PS2X_NATIVE_VITA)
+        const bool fx94On = native_renderer::tuning().glFx94 && regionReady && fxAtlas[0].fbo && fxAtlas[1].fbo;
+        const bool glow94On = native_renderer::tuning().glGlow94 && regionReady;
+#else
+        const bool fx94On = false, glow94On = false;
+#endif
+        // The PS2's 256 x 256 copy of the picture blurred once through
+        // 128 x 128 (picture -> `to` -> refractionHalf -> `to`); round 94
+        // (fx94): two passes, the mean of the four 256 x 256 reads straight
+        // into refractionHalf (mode 25), then stretched into `to`.
+        auto blurCopy = [&](const Target &from, Target &to)
+        {
+            if (fx94On)
+            {
+                const float half[4] = {0.5f / 256.0f, 0.5f / 256.0f, 0, 0};
+                bindTexture(0, from.texture);
+                quadRegion(refractionHalf, whole(refractionHalf), 25, QuadBlend::None, nullptr, nullptr, nullptr, nullptr, half);
+                bindTexture(0, refractionHalf.texture);
+                quadRegion(to, whole(to), 0, QuadBlend::None);
+                ++r94Stats.copies;
+                return;
+            }
+            copy(from, to);
+            copy(to, refractionHalf);
+            copy(refractionHalf, to);
+        };
         // Round 55 (blurApart): the blur on a second picture. The picture so
         // far (`color`, complete: nothing is drawn into it after this) is
         // copied into blurOut (where a copy smaller than the screen leaves
@@ -5947,9 +6278,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const int hazeFrom = static_cast<int>(t.hazeSource + 0.5f);
                 if (hazeFrom == 0)
                 {
-                    copy(color, hazeSmall); // the PS2's 256 x 256, blurred once through 128 x 128
-                    copy(hazeSmall, refractionHalf);
-                    copy(refractionHalf, hazeSmall);
+                    blurCopy(color, hazeSmall); // the PS2's 256 x 256, blurred once through 128 x 128
                     hazeSourceTexture = hazeSmall.texture;
                 }
                 else
@@ -6004,6 +6333,32 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // start of its next scene: one scene of the 512 x 448 picture (its
         // colour and depth / stencil loaded and stored) fewer a frame.
         bool maskFuse = false, maskPending = false, glowPending = false;
+        // Round 94: what the glow composite reads as the blurred glow
+        // (glowSmall[0], or glowSmall[1] under glow94), what the darkening
+        // reads as the shadows' mask (bloomTex[0], or fxAtlas[1]'s SV region
+        // under fx94), and whether the water's copy is waiting in fxAtlas[0].
+        const Target *glowBlurred = &glowSmall[0];
+        struct
+        {
+            bool region = false;
+            float uv[4] = {1, 1, 0, 0}, clamp[4] = {0, 0, 1, 1};
+        } shadowFrom;
+        bool fxWaterReady = false;
+        // The soft shadows' darkening of `t` (the picture, or the water's copy).
+        auto darken = [&](Target &t)
+        {
+            const float amount[4] = {softAmount, 0, 0, 0};
+            if (shadowFrom.region)
+            {
+                bindTexture(0, fxAtlas[1].texture);
+                quadRegion(t, whole(t), 9, QuadBlend::Darken, amount, nullptr, shadowFrom.uv, shadowFrom.clamp);
+            }
+            else
+            {
+                bindTexture(0, bloomTex[0].texture);
+                quad(t, 9, QuadBlend::Darken, amount);
+            }
+        };
         auto resolveMask = [&](Target &t)
         {
             const bool picture = &t == &color;
@@ -6014,9 +6369,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glStencilFunc(GL_ALWAYS, 0, 0xFF);
                 glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
             }
-            const float amount[4] = {softAmount, 0, 0, 0};
-            bindTexture(0, bloomTex[0].texture);
-            quad(t, 9, QuadBlend::Darken, amount);
+            darken(t);
             if (picture)
             {
                 glDisable(GL_STENCIL_TEST);
@@ -6024,7 +6377,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             if (glowPending)
             {
-                const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
+                const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {glowBlurred, glow.amountB}};
                 for (const auto &[source, amount] : layers)
                 {
                     if (!(amount > 0.0f))
@@ -6069,7 +6422,94 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             lastLog = arenaFrame;
             std::fprintf(stderr, "%s\n", line);
         };
-        auto buildGlow = [&](Target &depthOf) -> bool
+        // Round 94 (Tuning glGlow94): the glow's chain in three passes: the
+        // 4 x 4 mean of the 256 x 256 reduction's reads straight to 64 x 64
+        // (mode 22), glow93's binomial blur across, then down into the
+        // 128 x 128 target (its bilinear read of the 64 x 64 blur is the
+        // chain's 64 -> 128 copy); the composite reads that. With `atlas`
+        // (fx94): the first two passes are regions of fxAtlas[0] / [1],
+        // drawn by the caller's scenes (with the shadows' passes); only the
+        // weights and the last pass here then.
+        auto glow94Fits = [&]
+        {
+            return glow94On && (glow.rounds == 2 || (glow.rounds > 2 && glow.rounds + 1 <= 8));
+        };
+        auto glow94Weights = [&](float wts[20]) -> int
+        {
+            const int order = 2 * (glow.rounds + 1);
+            for (int k = 0; k < 20; ++k)
+                wts[k] = 0.0f;
+            double c = 1.0;
+            for (int k = 0; k <= order; ++k)
+            {
+                wts[8 - order / 2 + k] = static_cast<float>(c / std::ldexp(1.0, order));
+                c = c * (order - k) / (k + 1);
+            }
+            return order;
+        };
+        static const bool glow94Up = std::getenv("SOTC_GL_GLOW94_UP") && std::atoi(std::getenv("SOTC_GL_GLOW94_UP")) != 0;
+        // (glow.rounds 2: no blur at 64 x 64, the 64 x 64 reduction copied up into glowSmall[1].)
+        auto glow94Chain = [&](const char *atlas)
+        {
+            float wts[20];
+            const int order = glow94Weights(wts);
+            if (glow.rounds == 2)
+            {
+                if (!atlas)
+                {
+                    const float step[4] = {1.0f / 256.0f, 1.0f / 256.0f, 0, 0};
+                    bindTexture(0, glowLayer.texture);
+                    quadRegion(glowSmall[2], whole(glowSmall[2]), 22, QuadBlend::None, nullptr, nullptr, nullptr, nullptr, step);
+                    bindTexture(0, glowSmall[2].texture);
+                    quadRegion(glowSmall[1], whole(glowSmall[1]), 13, QuadBlend::None); // (alpha kept: the composite reads it)
+                }
+                else
+                {
+                    const Region gr = fxGR();
+                    float uv[4], clampTo[4];
+                    gr.uvOf(fxAtlas[0], uv);
+                    gr.clampOf(fxAtlas[0], clampTo);
+                    bindTexture(0, fxAtlas[0].texture);
+                    quadRegion(glowSmall[1], whole(glowSmall[1]), 13, QuadBlend::None, nullptr, nullptr, uv, clampTo); // (alpha kept)
+                }
+            }
+            else if (!atlas)
+            {
+                const float step[4] = {1.0f / 256.0f, 1.0f / 256.0f, 0, 0};
+                bindTexture(0, glowLayer.texture);
+                quadRegion(glowSmall[2], whole(glowSmall[2]), 22, QuadBlend::None, nullptr, nullptr, nullptr, nullptr, step);
+                useRegion(21);
+                glUniform4fv(uniform(false, "uW"), 5, wts);
+                const float across[4] = {1.0f / 64.0f, 0.0f, static_cast<float>(order / 2), 0.0f};
+                bindTexture(0, glowSmall[2].texture);
+                quadRegion(glowSmall[3], whole(glowSmall[3]), 21, QuadBlend::None, across);
+                const float down[4] = {0.0f, 1.0f / 64.0f, static_cast<float>(order / 2), 0.0f};
+                bindTexture(0, glowSmall[3].texture);
+                quadRegion(glowSmall[1], whole(glowSmall[1]), 21, QuadBlend::None, down);
+            }
+            else
+            {
+                // (fxAtlas[1]'s GH region holds the across blur)
+                useRegion(21);
+                glUniform4fv(uniform(false, "uW"), 5, wts);
+                const Region gh = fxGR();
+                float uv[4], clampTo[4];
+                gh.uvOf(fxAtlas[1], uv);
+                gh.clampOf(fxAtlas[1], clampTo);
+                const float down[4] = {0.0f, 1.0f / static_cast<float>(fxAtlas[1].height), static_cast<float>(order / 2), 0.0f};
+                bindTexture(0, fxAtlas[1].texture);
+                quadRegion(glowSmall[1], whole(glowSmall[1]), 21, QuadBlend::None, down, nullptr, uv, clampTo);
+            }
+            glowBlurred = &glowSmall[1];
+            if (glow94Up) // (comparison: the chain's last 128 -> 256 copy kept)
+            {
+                bindTexture(0, glowSmall[1].texture);
+                quadRegion(glowSmall[0], whole(glowSmall[0]), 13, QuadBlend::None);
+                glowBlurred = &glowSmall[0];
+            }
+            ++r94Stats.glow;
+        };
+        auto buildGlow = [&](Target &depthOf, bool apartOnly = false) -> bool
         {
 #if defined(PS2X_NATIVE_VITA)
             if (!hoistGlow) // (round 73: hoisted, the picture was drawn into just before; a bind with no draw counts a target)
@@ -6083,6 +6523,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             (void)depthOf;
 #endif
             pass(glowLayer, false, glow.order, glow.order + 1u, true, false, true);
+            if (apartOnly)
+                return true;
+            if (glow94Fits())
+            {
+                glow94Chain(nullptr);
+                return true;
+            }
             auto reduce = [&](const Target &from, const Target &to, float shift)
             {
                 const float offset[4] = {shift / static_cast<float>(from.width), shift / static_cast<float>(from.height), 0, 0};
@@ -6159,7 +6606,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             }
             finalKeep();
-            const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {&glowSmall[0], glow.amountB}};
+            const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {glowBlurred, glow.amountB}};
             for (const auto &[source, amount] : layers)
             {
                 if (!(amount > 0.0f))
@@ -6176,7 +6623,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // reduced 4 x 4 (mode 11, from the alpha) into bloomTex[0] (free: the
         // GS bloom chain has targets of its own) and blurred as the Mac's.
         static const int shadowBlurRounds = std::getenv("SOTC_SHADOW_BLUR") ? std::atoi(std::getenv("SOTC_SHADOW_BLUR")) : 1;
-        auto shadowAlphaMask = [&](const Target &t)
+        auto shadowAlphaMask = [&](const Target &t, bool reduce = true)
         {
             bindTarget(t);
             useQuad(8);
@@ -6207,6 +6654,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glDrawArrays(GL_TRIANGLES, 0, 3);
             }
             glDisable(GL_STENCIL_TEST);
+            if (!reduce)
+                return;
             useQuad(11);
             const float texel[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
             glUniform4fv(uniform(false, "uSize"), 1, texel);
@@ -6214,6 +6663,88 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             bindTexture(0, t.texture);
             quad(bloomTex[0], 11, QuadBlend::None, nullptr, white);
             blur(shadowBlurRounds);
+        };
+        // Round 94 (Tuning glFx94): the shadows' mask, the glow's reduction /
+        // across blur (glow94, when the glow is drawn at the shadows' break)
+        // and the water's copy (when it follows with nothing drawn between:
+        // maskFuse) as regions of two shared targets: fxAtlas[0] {SH: the
+        // 4 x 4 reduction and the across blur from the picture's alpha (mode
+        // 24); GR: the glow's 64 x 64 reduction (mode 22); RD: the water's
+        // 128 x 128 copy (mode 25)}, then fxAtlas[1] {SV: the down blur; GH:
+        // the glow's across blur}, then the glow's down blur into glowSmall[1].
+        // Two scenes (three with the glow) for what took 3 + 7 + 3.
+        auto fxShadowBlock = [&]
+        {
+            shadowAlphaMask(color, false);
+            const bool glowHere = hoistGlow && !glowBuilt && glow94Fits();
+            if (glowHere)
+            {
+                glowBuilt = glowWasHoisted = buildGlow(color, true);
+                glowHoisted += glowWasHoisted ? 1u : 0u;
+            }
+            const bool glowAtlas = glowHere && glowBuilt;
+            const float k = static_cast<float>(width) / 512.0f; // as blur(): one tap, k reduced texels
+            const float lw = static_cast<float>(bloomTex[0].width);
+            Target &a0 = fxAtlas[0], &a1 = fxAtlas[1];
+            const Region sh = fxSH(), gr = fxGR(), rd = fxRD();
+            {
+                const float across[4] = {k / lw, 0, 0, 0}, px[4] = {1.0f / static_cast<float>(width), 1.0f / static_cast<float>(height), 0, 0};
+                const float ends[4] = {0.5f / lw, 0.0f, (lw - 0.5f) / lw, 1.0f};
+                bindTexture(0, color.texture);
+                quadRegion(a0, sh, 24, QuadBlend::None, across, nullptr, nullptr, ends, px);
+            }
+            if (glowAtlas)
+            {
+                const float step[4] = {1.0f / 256.0f, 1.0f / 256.0f, 0, 0};
+                bindTexture(0, glowLayer.texture);
+                quadRegion(a0, gr, 22, QuadBlend::None, nullptr, nullptr, nullptr, nullptr, step);
+            }
+            if (maskFuse)
+            {
+                const float half[4] = {0.5f / 256.0f, 0.5f / 256.0f, 0, 0};
+                bindTexture(0, color.texture);
+                quadRegion(a0, rd, 25, QuadBlend::None, nullptr, nullptr, nullptr, nullptr, half);
+                fxWaterReady = true;
+                ++r94Stats.fxWater;
+            }
+            {
+                float uv[4], clampTo[4];
+                sh.uvOf(a0, uv);
+                sh.clampOf(a0, clampTo);
+                const float down[4] = {0, k / static_cast<float>(a0.height), 0, 0};
+                bindTexture(0, a0.texture);
+                quadRegion(a1, sh, 1, QuadBlend::None, down, nullptr, uv, clampTo);
+                shadowFrom.region = true;
+                sh.uvOf(a1, shadowFrom.uv);
+                sh.clampOf(a1, shadowFrom.clamp);
+            }
+            if (glowAtlas && glow.rounds == 2)
+            {
+                glow94Chain("fx");
+                ++r94Stats.fxGlow;
+            }
+            else if (glowAtlas)
+            {
+                float wts[20];
+                const int order = glow94Weights(wts);
+                useRegion(21);
+                glUniform4fv(uniform(false, "uW"), 5, wts);
+                float uv[4], clampTo[4];
+                gr.uvOf(a0, uv);
+                gr.clampOf(a0, clampTo);
+                const float across[4] = {1.0f / static_cast<float>(a0.width), 0.0f, static_cast<float>(order / 2), 0.0f};
+                bindTexture(0, a0.texture);
+                quadRegion(a1, gr, 21, QuadBlend::None, across, nullptr, uv, clampTo);
+                glow94Chain("fx");
+                ++r94Stats.fxGlow;
+            }
+            ++r94Stats.fxShadow;
+            // The glow layer at this layer not taken by the atlas (no glow94): as before.
+            if (hoistGlow && !glowBuilt)
+            {
+                glowBuilt = glowWasHoisted = buildGlow(color);
+                glowHoisted += glowWasHoisted ? 1u : 0u;
+            }
         };
 #endif
         auto doShadow = [&]
@@ -6227,7 +6758,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // shadows; the picture below the volumes drawn again apart for
                 // the mask, as the mid-frame redraw does, cost Vita3K 2-4x the
                 // frame time in the plains). The quad clears what is left of the count.
-                shadowAlphaMask(color);
+                if (fx94On && shadowBlurRounds == 1)
+                    fxShadowBlock(); // round 94 (the glow at this layer too)
+                else
+                    shadowAlphaMask(color);
                 // Round 73: the glow layer at the same layer drawn now, while
                 // the picture is put down for the mask (see hoistGlow).
                 if (hoistGlow && !glowBuilt)
@@ -6246,9 +6780,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glStencilMask(0xFF);
                 glStencilFunc(GL_ALWAYS, 0, 0xFF);
                 glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
-                const float amount[4] = {softAmount, 0, 0, 0};
-                bindTexture(0, bloomTex[0].texture);
-                quad(color, 9, QuadBlend::Darken, amount);
+                darken(color);
                 glDisable(GL_STENCIL_TEST);
                 ++shadowStats.darkens;
                 return;
@@ -6322,7 +6854,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const bool direct = t.glFewCopies && haze != 1 && water != 1;
             if (!direct)
                 snapshotColor();
-            if (haze == 0 || water == 0)
+            if ((haze == 0 || water == 0) && fxWaterReady && direct)
+            {
+                // Round 94 (fx94): the 128 x 128 copy made with the shadows'
+                // passes (fxAtlas[0]'s RD), stretched back; the darkening and
+                // the glow composite on it after (before the blur, as round 87, not).
+                const Region rd = fxRD();
+                float uv[4], clampTo[4];
+                rd.uvOf(fxAtlas[0], uv);
+                rd.clampOf(fxAtlas[0], clampTo);
+                bindTexture(0, fxAtlas[0].texture);
+                quadRegion(refraction, whole(refraction), 0, QuadBlend::None, nullptr, nullptr, uv, clampTo);
+#if defined(PS2X_NATIVE_VITA)
+                if (maskPending)
+                {
+                    resolveMask(refraction);
+                    ++r94Stats.fxFuse;
+                }
+#endif
+            }
+            else if ((haze == 0 || water == 0) && !maskPending)
+                blurCopy(direct ? color : snapshot, refraction);
+            else if (haze == 0 || water == 0)
             {
                 copy(direct ? color : snapshot, refraction);
 #if defined(PS2X_NATIVE_VITA)
@@ -6332,6 +6885,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 copy(refraction, refractionHalf);
                 copy(refractionHalf, refraction);
             }
+            fxWaterReady = false;
 #if defined(PS2X_NATIVE_VITA)
             if (maskPending)
             {
@@ -6426,6 +6980,101 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 quad(bloomShow, 11, QuadBlend::None, nullptr, white);
             }
             const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
+            bloomDirect94 = false;
+#if defined(PS2X_NATIVE_VITA)
+            // Round 94 (Tuning glBloom94): the two blurs as regions of
+            // bloomAtlas (one scene; the history in its A region, read by the
+            // temporal step there: mode 23 = mode 17 with the history's
+            // region), the composite reading the 128 x 128 blur there (blur93
+            // and post93) or its stretched copy (gsBloom[6]) as before. The
+            // same stored values and programs as the chain's: exact (its
+            // temporal step is multi-stable, so nothing it reads may change).
+            const bool chain94 = native_renderer::tuning().glBloom94 && regionReady && bloomAtlas.fbo;
+            if (chain94)
+            {
+                float histUv[4], histClamp[4];
+                bloomA().uvOf(bloomAtlas, histUv);
+                bloomA().clampOf(bloomAtlas, histClamp);
+                if (gsBloomHistory && !bloomAtlasHistory) // (the history from gsBloom[4]: the switch just turned on)
+                {
+                    bindTexture(0, gsBloom[4].texture);
+                    quadRegion(bloomAtlas, bloomA(), 0, QuadBlend::None);
+                    ++r94Stats.histMove;
+                }
+                useQuad(15);
+                const float size15[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
+                glUniform4fv(uniform(false, "uSize"), 1, size15);
+                bindTexture(0, color.texture);
+                quad(gsBloom[0], 15, QuadBlend::None, nullptr, maskColour);
+                bindTexture(0, gsBloom[0].texture);
+                quad(gsBloom[1], 0, QuadBlend::None);
+                bindTexture(0, gsBloom[1].texture);
+                quad(gsBloom[2], 0, QuadBlend::None);
+                const float share[4] = {gsBloomHistory ? bloom.temporal : 0.0f, 0, 0, 0};
+                bindTexture(0, gsBloom[2].texture);
+                bindTexture(1, bloomAtlas.texture);
+                quadRegion(gsBloom[3], whole(gsBloom[3]), 23, QuadBlend::None, share, nullptr, nullptr, nullptr, histUv);
+                const float taps = bloomTapAlpha();
+                bindTexture(0, gsBloom[3].texture);
+                const bool sum = native_renderer::tuning().glBlur93;
+                for (int which = 0; which < 2; ++which)
+                {
+                    const Region to = which ? bloomB() : bloomA();
+                    const float r = which ? 128.0f : 64.0f;
+                    if (sum)
+                    {
+                        float wts[16];
+                        blur93Weights(taps, wts);
+                        useRegion(20);
+                        glUniform4fv(uniform(false, "uW"), 4, wts);
+                        const float k = 64.0f / r, base = (0.5f - 0.5f * k) / 64.0f;
+                        const float params[4] = {base, -base, k / 64.0f, 0.0f};
+                        quadRegion(bloomAtlas, to, 20, QuadBlend::None, params);
+                        ++r93Stats.blur;
+                    }
+                    else
+                    {
+                        const float rr[4] = {r, taps, 0, 0};
+                        quadRegion(bloomAtlas, to, 16, QuadBlend::None, rr);
+                    }
+                }
+                gsBloomHistory = bloomAtlasHistory = true;
+                if (sum && native_renderer::tuning().glPost93)
+                {
+                    bloomDirect94 = true;
+                    ++r94Stats.bloomDirect;
+                }
+                else
+                {
+                    float bUv[4], bClamp[4];
+                    bloomB().uvOf(bloomAtlas, bUv);
+                    bloomB().clampOf(bloomAtlas, bClamp);
+                    bindTexture(0, bloomAtlas.texture);
+                    quadRegion(gsBloom[6], whole(gsBloom[6]), 0, QuadBlend::None, nullptr, nullptr, bUv, bClamp);
+                    bloomSource93 = gsBloom[6].texture;
+                }
+                ++r94Stats.bloom;
+                bloomHistory = true;
+                float dt94 = 1.0f;
+                if (bloom.zB > 0.0f)
+                    dt94 = std::clamp(1.0f - 0.1f * (bloom.threshold + 1.0f - bloom.zA) / bloom.zB, 0.0f, 1.0f);
+                logChain(bloomSameFrame ? "vita-sameframe" : "vita-late", dt94);
+                return;
+            }
+            if (bloomAtlasHistory) // (the switch just turned off: the history back into gsBloom[4])
+            {
+                if (gsBloomHistory)
+                {
+                    float histUv[4], histClamp[4];
+                    bloomA().uvOf(bloomAtlas, histUv);
+                    bloomA().clampOf(bloomAtlas, histClamp);
+                    bindTexture(0, bloomAtlas.texture);
+                    quadRegion(gsBloom[4], whole(gsBloom[4]), 0, QuadBlend::None, nullptr, nullptr, histUv, histClamp);
+                    ++r94Stats.histMove;
+                }
+                bloomAtlasHistory = false;
+            }
+#endif
             useQuad(15);
             const float size[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
             glUniform4fv(uniform(false, "uSize"), 1, size);
@@ -6451,27 +7100,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 auto blurSum = [&](Target &to, float r)
                 {
                     const float k = 64.0f / r;
-                    float a[12];
-                    for (int g = 0; g < 3; ++g)
-                        for (int i = 0; i < 4; ++i)
-                            a[g * 4 + i] = std::floor(static_cast<float>(64 >> g) * taps / 128.0f) / 128.0f;
-                    float wts[16] = {};
-                    float keep = 1.0f; // what the later lerps leave of a tap
-                    for (int i = 11; i >= 0; --i)
-                    {
-                        wts[i] = a[i] * keep;
-                        keep *= 1.0f - a[i];
-                    }
-                    wts[12] = keep; // the centre (uW[3].x)
-                    float lost = 0.0f; // uW[3].y: the truncations' mean loss, in 8-bit levels / 255
-                    for (int i = 0; i < 12; ++i)
-                    {
-                        float later = 1.0f;
-                        for (int j = i + 1; j < 12; ++j)
-                            later *= 1.0f - a[j];
-                        lost += 0.5f * later;
-                    }
-                    wts[13] = lost / 255.0f;
+                    float wts[16];
+                    blur93Weights(taps, wts);
                     useQuad(20);
                     glUniform4fv(uniform(false, "uW"), 4, wts);
                     const float base = (0.5f - 0.5f * k) / 64.0f;
@@ -6505,6 +7135,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // The chain's glow added to the picture (QuadBlend::Add keeps its alpha).
         auto gsBloomAdd = [&]
         {
+#if defined(PS2X_NATIVE_VITA)
+            if (bloomDirect94) // round 94: the 128 x 128 blur read in bloomAtlas (post93's texture position, then the region's)
+            {
+                const float colour[4] = {bloom.color[0], bloom.color[1], bloom.color[2], bloom.color[3]};
+                const float sx = 128.0f / 192.0f, cx = 1.0f / 1024.0f, cy = -(0.5f - 128.0f / 448.0f) / 256.0f;
+                const float affine[4] = {sx, 1.0f, cx * sx, cy};
+                float bClamp[4];
+                bloomB().clampOf(bloomAtlas, bClamp);
+                const float before = bloomLog() ? targetMean(color, 0) : 0.0f;
+                logRegions(color, "before the add");
+                bindTexture(0, bloomAtlas.texture);
+                quadRegion(color, whole(color), 19, QuadBlend::Add, nullptr, colour, affine, bClamp);
+                ++r93Stats.post;
+                logAdd(bloomSameFrame ? "vita-sameframe" : "vita-late", color, before);
+                logRegions(color, "after the add");
+                return;
+            }
+#endif
             SOTC_VITA_MODES;
             useQuad(18);
             const float size[4] = {static_cast<float>(width), static_cast<float>(height), 0, 0};
@@ -6820,7 +7468,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Round 87 (glShmask87): the shadows' event followed (after the glow
         // layer at its own layer, hoisted) by the water's copy at 9, made from
         // the picture itself, and nothing drawn into the picture between.
-        if (softShadows && fewScenes && native_renderer::tuning().glShmask87)
+        if (softShadows && fewScenes && (native_renderer::tuning().glShmask87 || (fx94On && shadowBlurRounds == 1)))
         {
             const native_renderer::Tuning &tu = native_renderer::tuning();
             const int haze = static_cast<int>(tu.hazeSource + 0.5f), water = static_cast<int>(tu.waterSource + 0.5f);
@@ -6869,7 +7517,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // soon as the first one is open (an effect's quads on the picture
             // begin the next one).
             keepDepth(color, loaded ? 3 : 2);
-            pass(color, false, from, ev.order, loaded);
+            // Round 94 (fx94): no draw between the last effect and this one
+            // and nothing waiting for the picture: not bound (a bind with no
+            // draw is a scene of its own; the effect's quads bind what they draw on).
+            bool emptyRange = false;
+            if (fx94On && loaded && !pendingResolve)
+            {
+                const auto at = std::lower_bound(drawOrder.begin(), drawOrder.end(), static_cast<uint64_t>(from) << 32);
+                emptyRange = at == drawOrder.end() || (*at >> 32) >= ev.order;
+            }
+            if (emptyRange)
+                ++r94Stats.emptyPass;
+            else
+                pass(color, false, from, ev.order, loaded);
             keepDepth(color, 3);
             loaded = true;
             from = ev.order;

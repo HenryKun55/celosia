@@ -461,6 +461,59 @@ namespace native_renderer
         // of eight. SOTC_GL_GLOW93=0/1; A/B `glow93`.
         bool glBlur93 = false;
         bool glGlow93 = false;
+        // Round 94 (the Vita's GPU: fewer scenes). Each render-target bind is
+        // a GXM scene with a fixed cost (the firmware kick, the tiles set up,
+        // colour / depth loaded and stored): 35 a frame at the altar before.
+        // bgcopy94 (exact): the 256 x 256 background (bgsmall87) read where it
+        // was drawn, not copied into backgroundSmall first (a copy at the same
+        // size, texel for texel). SOTC_GL_BGCOPY94=0/1; A/B `bgcopy94`.
+        // glow94: the glow layer's chain (512 x 448 -> 256 -> 128 -> 64, the
+        // 64 x 64 blur, -> 128 -> 256: 7 scenes with glow93, 13 without) as
+        // three: the 4 x 4 box of the 256 x 256 reduction straight to 64 x 64
+        // (16 bilinear reads), glow93's binomial blur across, then down into
+        // the 128 x 128 target (its bilinear read is the 64 -> 128 copy), the
+        // composite reading that (one 2x stretch fewer). SOTC_GL_GLOW94=0/1;
+        // A/B `glow94`.
+        // fx94: the soft shadows' mask (4 x 4 reduction + the across blur in
+        // one pass from the picture's alpha, then the down blur), the glow's
+        // reduction / across blur (with glow94) and the water's copy (down to
+        // 128 x 128 in one pass) drawn as regions of two shared targets
+        // (one scene each instead of one a step); where the water's copy
+        // follows the shadows with nothing drawn between (the altar), the
+        // darkening and the glow composite go to the copy and to the start
+        // of the picture's next scene (shmask87's order): one 512 x 448
+        // scene fewer. SOTC_GL_FX94=0/1; A/B `fx94`.
+        // bloom94: the GS bloom chain's two blurs (64 x 64, the next frame's
+        // history, and 128 x 128) drawn as regions of one target, one scene
+        // instead of two; with blur93 and post93 the composite reads the
+        // 128 x 128 blur there (no stretched copy). The same programs and
+        // stored values: exact. (A fused mask + reductions + temporal pass
+        // was tried: the GS temporal step's truncation makes the glow
+        // multi-stable (a history up to ~50 levels under the frame's value
+        // never rises), so its rounding differences settled the glow into a
+        // much brighter state in Vita3K.) SOTC_GL_BLOOM94=0/1; A/B `bloom94`.
+        // `r94all`: all four off together; `r94on`: all four on together.
+        // All four ship OFF (console candidates; their A/B windows turn them
+        // on, `r94on` all four together). Vita3K: with the bloom off, the
+        // frozen altar is identical with bgcopy94, within 1 level with fx94
+        // (~1.7k of 2.1M capture pixels), glow94 up to ~22 levels where the
+        // glow meets the screen's edge (glow93's kernel); bloom94 runs the
+        // same programs on the same stored values. But with the bloom on, the
+        // altar's sky glow settled in a different state (bright, vs r93's
+        // dim) in every window with any of them on, the bloom mask itself
+        // identical: the GS chain's temporal step is multi-stable and which
+        // state it reaches could not be pinned down in Vita3K.
+#if defined(__vita__)
+        bool glBgCopy94 = false;
+        bool glGlow94 = false;
+        bool glFx94 = false;
+        bool glBloom94 = false;
+#else
+        bool glBgCopy94 = false;
+        bool glGlow94 = false;
+        bool glFx94 = false;
+        bool glBloom94 = false;
+#endif
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

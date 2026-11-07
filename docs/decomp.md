@@ -14398,3 +14398,123 @@ busy per window first. `r93all off`: a positive busy is what the three exact
 switches save; `blur93 ON(flip)` / `glow93 ON(flip)`: a negative busy is the
 candidate's gain. A separate run with `SOTC_VGL_DEPTH_TILED=1` (round 92's
 experiment, read at start-up, not switchable in a window) is still open.
+
+## Round 94: fewer GPU scenes (the glow, shadows, water and bloom chains as regions of shared targets), the background pass's stray texture (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r94/`:
+- build.sh / v3k.sh / freeze.sh (`PERIOD=` sets the A/B window) / freeze6.sh:
+  round 93's with r94 paths (worktree `r94/wt`, build `r94/vita`, vitaGL
+  `r94/vitagl` = round 92's, Vita3K `r94/vita3k` with its `portable` link to
+  ../vita3k-celosia-r94; absolute VPK paths only).
+- abwatch.sh (epoch-stamps the run's `[ab]` lines live) and shotstates.py
+  (each window capture's A/B state by its file time, grouped by picture),
+  imgdiff.sh (pixels differing, over 2 / 8 levels, max, mean).
+- tools/ab94.py: ab93.py with the round's switches (all four ship off: their
+  windows turn them on, "ON(flip)"; `r94on` all four on together), the `[r94]`
+  lines and the `[scene93]` binds per window.
+- runs/: fzA-fzP (the altar or the shrine's arches frozen, windows rotating;
+  the frozen frame differs between runs), env1 (route 6, the console env).
+- celosia-r94.vpk; env-console.txt (`SOTC_AB_FLAG=r94on,glow94,fx94`).
+
+**Why scenes.** Every render-target bind is a GXM scene: a firmware kick, the
+tiles set up, colour (and depth / stencil where kept) loaded and stored. Round
+93's `[scene93]` counted 35 a frame at the altar: the mirror, the background
+and its copy, the picture's first scene, the soft shadows' 3 small passes, the
+glow layer and its 13 reductions / copies, the shadow darkening (a picture
+scene of its own), the water's 3 copies, the picture again, the bloom chain's 7
+and its composite (the picture's last scene), the display.
+
+**A tiled GPU cannot read in a scene what that scene draws**, so a chain of
+dependent passes stays a chain of scenes; what can be merged are independent
+passes (into regions of one shared target: one scene) and dependent steps
+whose arithmetic can be folded into one pass. Round 94's region programs
+(`kQuadVertexRegion` + the `CLAMPED` fragment variants): a quad over a
+rectangle of the target (two triangles: nothing drawn past it whatever the
+viewport), its texture position an affine function of the position in the
+region, and every read of a source that is itself a region held inside that
+region's texel centres (what the texture's clamp to the edge did).
+
+**The switches (all ship OFF; A/B windows turn them on; `r94on` all four
+together, `r94all` all four off).**
+1. `SOTC_GL_BGCOPY94` (`bgcopy94`): the 256 x 256 background (bgsmall87) read
+   where it was drawn instead of copied texel for texel into backgroundSmall
+   first (one scene). Two targets in turn: the background pass's own fogged
+   draws read last frame's background, never the target being drawn.
+2. `SOTC_GL_GLOW94` (`glow94`): the glow layer's chain (512 x 448 -> 256 ->
+   128 -> 64, the 64 x 64 blur, -> 128 -> 256: 13 scenes at the altar, 7 with
+   glow93, 5 at route 6's glow.rounds 2) as three: mode 22, the 4 x 4 mean of the
+   256 x 256 reduction's bilinear reads straight to 64 x 64 (16 reads: the two
+   2 x 2 boxes are exact); glow93's binomial kernel across; then down INTO the
+   128 x 128 target (its bilinear read of the 64 x 64 blur is the chain's 64 ->
+   128 copy); the composite reads that (one 2x stretch fewer;
+   `SOTC_GL_GLOW94_UP=1` keeps it). Vita3K (bloom off, fzE / fzF): mean 0.6-0.7
+   levels, up to ~20-22 where the glow meets the screen's edge: that is
+   glow93's kernel (one edge clamp where the chain clamps at all eight copies;
+   glow94 vs glow93 within 3 levels).
+3. `SOTC_GL_FX94` (`fx94`): the soft shadows' mask, the glow's reduction and
+   across blur (with glow94) and the water's copy as regions of two shared
+   targets: fxAtlas[0] {SH: the 4 x 4 reduction of the picture's alpha and the
+   across blur in one pass (mode 24: each tap's block as four bilinear reads of
+   the 0 / 1 alpha at its quarters' corners, the 8-bit store of the reduction
+   reproduced); GR: the glow's 64 x 64 reduction; RD: the water's copy straight
+   to 128 x 128 (mode 25)}, fxAtlas[1] {SV: the down blur; GH: the glow's
+   across blur}, then the glow's down blur into glowSmall[1]: 2-3 scenes for
+   3 + 13 + 3. Where the water's copy follows the shadows with nothing drawn
+   between (the altar), the darkening and the glow composite go to the copy
+   and to the start of the picture's next scene (shmask87's order: one 512 x 448
+   picture scene fewer). Also the other 256 / 128 / 256 copies (the haze's) as
+   two passes, and a picture pass with no draws between two effects not bound.
+   Vita3K (bloom off, fzE): within 1 level on ~1.7k of 2.1M capture pixels.
+4. `SOTC_GL_BLOOM94` (`bloom94`): the GS bloom chain's two blurs (64 x 64, the
+   next frame's history, and 128 x 128) as regions of one target (one scene);
+   the temporal step reads the history there (mode 23 = mode 17 with the
+   history's region); with blur93 and post93 the composite reads the 128 x 128
+   blur in place (no stretched copy). The same programs on the same stored
+   values. A fused mask + reductions + temporal pass was tried first and
+   dropped (below).
+
+**Scenes a frame** (`[scene93]` and the frame log's `scenes`, Vita3K): the
+altar 35 -> 17 with all four (fzP: the mirror, the background, the picture,
+the glow layer apart, the two shared targets, the 128 x 128 glow, the water's
+copy, the picture, the bloom chain's mask / two reductions / temporal step /
+shared blurs / stretch, the picture, the display; 16 with blur93 and post93;
+14-15 in p2 when bloom94 still fused the reductions). Route 6 moving with the
+console env (env2, 300 s, 7874 frames, no crash; the 3D frames): 22.7 a frame
+in the base windows, 15.1 in the `r94on` windows, glow94 alone 19.4, fx94
+alone 21.7. (A first `r94on` left the switches on after its window; fixed.)
+
+**The GS bloom chain is multi-stable.** Its temporal step Cd + floor((Cs - Cd) x
+0.98), truncated: a history up to ~50 levels under this frame's value never
+rises (floor(-0.98 d) = -d for d <= 50). So the glow's state depends on its past,
+and any rounding difference in what it reads picks another stable state that
+persists. A fused mask + reductions pass (rounding as round-to-nearest where
+the GPU's own bilinear reads and 8-bit stores did it) settled a much brighter
+glow in Vita3K (gsBloom[3] ~2x, fzC / fzS): dropped; bloom94 now changes no
+stored value.
+
+**A stray texture in the background pass (fixed, every path).** The
+background layer's fogged draws read uBackground (unit 1), which pass() binds
+for every pass but this one: they read whatever unit 1 held, the mirror pass's
+backgroundSmall when the mirror is drawn, else the bloom chain's history
+(gsBloom[4], bound by its temporal step). Now last frame's background, always.
+
+**Not settled: the altar's sky glow in Vita3K.** With the bloom on, the frozen
+altar's sky glow settled bright in every window where any of the switches was
+on and dim (r93's picture) in the base windows, the bloom mask itself
+identical (SOTC_BLOOM_SHOW=1, fzM) and gsBloom[6] bright vs nearly black
+(SHOW=2, fzO), even in windows running r93's own chain code (bloom94 off). The
+shrine's arches spot showed only a cloud-texture pattern changing the same
+way. Which state the console reaches is the question its windows answer (the
+picture flips every 60 frames in `r94on` windows if it differs). Hence all four
+ship off.
+
+**Overdraw: not done.** sort87 already orders the order-free opaque draws by
+state; the SGX's hidden surface removal shades an opaque draw without discard
+once whatever its order, so a front-to-back sort gains nothing there; the
+rest blend (their order is the picture). No Vita3K counter of drawn pixels.
+
+**Console env (env-console.txt):** the usual log lines and
+`SOTC_AB_FLAG=r94on,glow94,fx94`, `SOTC_AB_ROTATE=1`, `SOTC_AB_PERIOD=60`. Read
+with `tools/ab94.py err.txt`: `[gpu86]` busy per window first (a NEGATIVE busy
+in an ON(flip) row is the gain); the `scenes` column and `[scene94]` give the
+binds. `r94on` is the round's total; glow94 and fx94 the two big parts.

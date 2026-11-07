@@ -3007,6 +3007,10 @@ namespace sotc_native
             {"post93", &native_renderer::Tuning::glPost93},          // round 93 (r93all too)
             {"blur93", &native_renderer::Tuning::glBlur93},          // round 93 (candidate, not the same picture: its windows flip it)
             {"glow93", &native_renderer::Tuning::glGlow93},          // round 93 (candidate, not the same picture: its windows flip it)
+            {"bgcopy94", &native_renderer::Tuning::glBgCopy94},      // round 94 (its windows flip it; r94all too)
+            {"glow94", &native_renderer::Tuning::glGlow94},          // round 94 (its windows flip it; r94all too)
+            {"fx94", &native_renderer::Tuning::glFx94},              // round 94 (its windows flip it; r94all too)
+            {"bloom94", &native_renderer::Tuning::glBloom94},        // round 94 (its windows flip it; r94all too)
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3025,7 +3029,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3062,6 +3066,8 @@ namespace sotc_native
             flush90At = indexOf("revflush90");
             r92AllAt = indexOf("r92all"); // round 92: the round's GPU fixes (noscreen92) off together
             r93AllAt = indexOf("r93all"); // round 93: the round's exact GPU savings (mirror93, atop93, post93) off together
+            r94AllAt = indexOf("r94all"); // round 94: the round's scene savings (bgcopy94, glow94, fx94, bloom94) off together
+            r94OnAt = indexOf("r94on");   // round 94: the same four ON together (they ship off)
             newDirAt = indexOf("newdir");
             r91AllAt = indexOf("r91all"); // round 91: the guest worker's job (ptcl91)
             log76At = indexOf("log76");
@@ -3203,7 +3209,9 @@ namespace sotc_native
                                      !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87") ||
                                      !std::strcmp(kTuningFlags[i].name, "opaque88") || !std::strcmp(kTuningFlags[i].name, "mirror88") ||
                                      !std::strncmp(kTuningFlags[i].name, "diag92", 6) || !std::strcmp(kTuningFlags[i].name, "blur93") ||
-                                     !std::strcmp(kTuningFlags[i].name, "glow93")))
+                                     !std::strcmp(kTuningFlags[i].name, "glow93") || !std::strcmp(kTuningFlags[i].name, "bgcopy94") ||
+                                     !std::strcmp(kTuningFlags[i].name, "glow94") || !std::strcmp(kTuningFlags[i].name, "fx94") ||
+                                     !std::strcmp(kTuningFlags[i].name, "bloom94")))
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? !(start.*(kTuningFlags[i].field)) : start.*(kTuningFlags[i].field);
         if (r92AllAt >= 0) // round 92: the round's GPU fixes off together
         {
@@ -3217,6 +3225,24 @@ namespace sotc_native
             const bool off = isOffAt(r93AllAt);
             for (size_t i = 0; i < kTuningCount; ++i)
                 if ((!std::strcmp(kTuningFlags[i].name, "mirror93") || !std::strcmp(kTuningFlags[i].name, "atop93") || !std::strcmp(kTuningFlags[i].name, "post93")) &&
+                    (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
+        if (r94OnAt >= 0) // round 94: the round's four switches on together in its window (outside it: their start, or their own window's)
+        {
+            const bool on = isOffAt(r94OnAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if ((!std::strcmp(kTuningFlags[i].name, "bgcopy94") || !std::strcmp(kTuningFlags[i].name, "glow94") || !std::strcmp(kTuningFlags[i].name, "fx94") ||
+                     !std::strcmp(kTuningFlags[i].name, "bloom94")) &&
+                    (on || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = on ? true : start.*(kTuningFlags[i].field);
+        }
+        if (r94AllAt >= 0) // round 94: the round's scene savings off together
+        {
+            const bool off = isOffAt(r94AllAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if ((!std::strcmp(kTuningFlags[i].name, "bgcopy94") || !std::strcmp(kTuningFlags[i].name, "glow94") || !std::strcmp(kTuningFlags[i].name, "fx94") ||
+                     !std::strcmp(kTuningFlags[i].name, "bloom94")) &&
                     (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
         }
