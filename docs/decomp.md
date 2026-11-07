@@ -14774,5 +14774,5 @@ ms a job (the job longer, the setter's early joins), which is what early95 and
 the setter's deferral remove; the console A/B (below) decides whether round
 91's worker pays at all.
 
-**Deliverable:** build/agent-scratch/celosia-r95.vpk (= r95/p9.vpk: main
-c86b1f8, round 94, + this round).
+**Deliverable:** build/agent-scratch/celosia-r95.vpk (= r95/p10.vpk: p9 rebuilt on main
+dc39b8d, the Vita defaults from the console A/B, + this round).
