@@ -433,6 +433,7 @@ extern "C" void vglCeloMemStats(size_t *used, size_t *spillBytes, size_t *spillC
 // Round 86: the time spent in vglSwapBuffers (its display queue waits while
 // two frames are still on the GPU), summed; read by the renderer's [gpu86].
 extern "C" volatile unsigned long long ps2x_vita_swap_us = 0;
+extern "C" void ps2x_vita_heap_tick(double now, size_t heapUsed); // ps2_vita_runtime.cpp
 
 void EndDrawing(void)
 {
@@ -477,6 +478,7 @@ void EndDrawing(void)
                      vglMemTotal(VGL_MEM_VRAM) / MB, used[VGL_MEM_RAM] / MB, vglMemTotal(VGL_MEM_RAM) / MB, used[VGL_MEM_PHYCONT] / MB,
                      vglMemTotal(VGL_MEM_PHYCONT) / MB, used[VGL_MEM_BUDGET] / MB, vglMemTotal(VGL_MEM_BUDGET) / MB, static_cast<unsigned>(spills), spill / MB,
                      spillPeak / MB, spillTotal / MB);
+        ps2x_vita_heap_tick(now, mi.uordblks); // round mem99: the emergency reserve, SOTC_HEAP_PROF's [heap] lines
         // Round 35, SOTC_VGL_MEMDUMP=<seconds> (0: off): what vitaGL's pools
         // hold by the code that asked for it, the circular pool's peak and
         // the render targets ([vgl:dump] lines; sites resolve against the ELF

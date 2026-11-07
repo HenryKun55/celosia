@@ -10115,6 +10115,33 @@ namespace sotc_native
                 std::vector<float>().swap(job.ptcl.data);
             break;
         }
+        // Round mem99: the same for every other vector of the slot. Each of
+        // the 512 slots kept the largest of each it ever held (and flush2D's
+        // swap traded the 2D batches' room around the ring): the console's
+        // 9-minute session grew the heap 58 -> 135 MB and died of bad_alloc
+        // (SOTC_HEAP_PROF in Vita3K, route 6 at 210 s: 2D batches 14.7 MB in
+        // 446 slots, up to 144 KB each; palettes, cloth grids, shadow
+        // palettes ~2 MB each). What a usual job holds stays (no allocation
+        // a frame for it); a big one's room goes after its run.
+        // SOTC_JOB_KEEP_KB (default 16; 0: keep everything, as before).
+        static const size_t keep = []
+        {
+            const char *e = std::getenv("SOTC_JOB_KEEP_KB");
+            return e ? static_cast<size_t>(std::max(0, std::atoi(e))) * 1024u : size_t(16u * 1024u);
+        }();
+        if (keep)
+        {
+            auto trim = [](auto &v)
+            {
+                if (v.capacity() * sizeof(v[0]) > keep)
+                    std::remove_reference_t<decltype(v)>().swap(v);
+            };
+            trim(job.draw2d.batch);
+            trim(job.model.palette);
+            trim(job.model.scrolls);
+            trim(job.mesh.grid);
+            trim(job.shadow.palette);
+        }
     }
 
     void modelDispDraw(const ModelDispJob &job, const bool onWorker)
@@ -11181,5 +11208,6 @@ void installSotcNative(PS2Runtime &runtime)
 // data move the end past it; if that message comes back after code grows or
 // shrinks, change the size (any value that moves the text end more than
 // ~4.5 KB away from the boundary below it). Round 73: 16 KB. Round 85: 24 KB.
-extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[24576] = {1};
+// Round mem99: 32 KB.
+extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[32768] = {1};
 #endif

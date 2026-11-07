@@ -748,6 +748,8 @@ if(PS2X_IS_VITA)
         endif()
     endif()
     target_link_options(ps2EntryRunner PRIVATE "-Wl,--allow-multiple-definition")
+    # Round mem99: malloc & co. through ps2_vita_runtime.cpp (SOTC_HEAP_PROF).
+    target_link_options(ps2EntryRunner PRIVATE "-Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=memalign")
     target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_runtime.cpp)
     set_source_files_properties(src/lib/ps2_vita_runtime.cpp PROPERTIES
         SKIP_UNITY_BUILD_INCLUSION TRUE
