@@ -552,6 +552,14 @@
   "focus": "Speed",
   "summary": "Built the runtime piece round 89 asked for: recompiled game code can now run on a second CPU core, beside the main game thread. The worker thread has its own copy of the CPU registers, its own stack, scratchpad and matrix stack, and a stand-in for the runtime so it never meets the PS2 kernel's scheduler. It may only run the code it owns (the particle and wind system) and a list of pure maths functions while the game thread runs; anything else (memory allocation, object deletion, collision, character motion) makes it wait until the game thread arrives, after which it finishes alone. Moved the particle systems' per-frame step onto it, running while the display walk sorts the scene; the walk now handles particle objects at the end of its pass. Positions of effects attached to characters (Agro's hoof dust) are asked on the main thread first, and deletions are queued to the end. One crash found and fixed during bring-up. Off by default (not bit-exact: a sub-effect spawned during a step appears one frame later, deletions come later in the frame, particles use their own random-number stream), so the console can A/B it.",
   "result": "Vita3K 222 MHz in-run A/B matched by draws, frame time saved with the worker on: attract demo -1.4 ms (riding -1.9), the altar -0.9, route 6 -1.6 (the plain -1.7). While riding the job takes ~3.2 ms on the worker and the main thread still waits ~1.6 ms for it at the walk. 660 s attract runs with the console env (flag rotating): no crash on three builds; stairs, plain walking and riding played; pictures on/off show no missing effect (climbing and a colossus not reached). Console A/B prepared (env-console.txt: SOTC_PTCL91=1, opaque88, mirror88, r91all)."
- }
+ },
+  {
+   "round": "r94",
+   "date": "2026-11-06",
+   "commit": "f26b51d",
+   "focus": "Speed",
+   "summary": "Cut the number of GPU scenes a frame (every switch of render target is a scene with a fixed cost on the Vita's tiled GPU; 35 a frame at the altar). The glow layer's 13-step chain became 3 passes, the soft shadows' mask, the glow's first passes and the water's copy now share two targets drawn as regions, the bloom's two blurs share one target, and the background is read where it is drawn instead of copied. Also fixed the background layer reading a stray texture (the bloom's history) in frames without a water mirror. All four new switches ship off: console candidates.",
+   "result": "Vita3K: the altar 35 -> 17 scenes a frame with all four on; route 6 22.7 -> 15.1 (300 s, no crash). With the bloom off the frozen altar is identical (background), within 1 level (shadows / water) or up to ~22 levels at the screen edge (glow). With the bloom on, the altar's sky glow settled in a different, brighter state whenever any switch was on, although the bloom's mask was identical: the bloom's temporal step can hold several stable states and this could not be pinned down in Vita3K, so they ship off. Console A/B prepared (env-console.txt: r94on, glow94, fx94), read by GPU busy time with ab94.py."
+  }
  ]
 }
