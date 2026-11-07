@@ -2878,6 +2878,9 @@ namespace sotc_native
             g_zFog(rdram, ctx, runtime);
     }
 
+    // Round mem99: the hook jobs' room trim (runJob) off in `keep99` A/B windows.
+    bool g_jobTrimOff = false;
+
     // SOTC_AB_FLAG=<name>[,<name>...] SOTC_AB_PERIOD=<n> (fidelity A/B, round 37):
     // those tuning switches off in every other window of n frames (from
     // frame n on), so pictures 30 frames apart of one run compare the
@@ -3036,7 +3039,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3081,6 +3084,7 @@ namespace sotc_native
             r96AllAt = indexOf("r96all"); // round 96: the round's game-thread cuts (obj96, ...) off together
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
             log76At = indexOf("log76");
+            keep99At = indexOf("keep99"); // round mem99: the hook jobs' room trim
             sacMaxAt = indexOf("sacmax");
             sacPtclAt = indexOf("sacptcl");
             sacLodAt = indexOf("saclod");
@@ -3186,6 +3190,8 @@ namespace sotc_native
             static const bool laneStart = [] { return !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0; }();
             mdslane::g_switch = isOffAt(mdsLaneAt) ? false : laneStart;
         }
+        if (keep99At >= 0) // round mem99
+            g_jobTrimOff = isOffAt(keep99At);
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
         if (laneHelpAt >= 0) // round 72: the lane's jobs run by the joins / the worker
@@ -10129,7 +10135,7 @@ namespace sotc_native
             const char *e = std::getenv("SOTC_JOB_KEEP_KB");
             return e ? static_cast<size_t>(std::max(0, std::atoi(e))) * 1024u : size_t(16u * 1024u);
         }();
-        if (keep)
+        if (keep && !g_jobTrimOff)
         {
             auto trim = [](auto &v)
             {
