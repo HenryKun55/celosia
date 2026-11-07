@@ -459,7 +459,13 @@ namespace native_renderer
         // down; the taps' weights of the repeated 2 x 2 box): without the
         // 8-bit rounding between the copies and with one edge clamp instead
         // of eight. SOTC_GL_GLOW93=0/1; A/B `glow93`.
+        // blur93: console A/B 2026-11-06 busy -7.6 ms, frame -2.9 ms, the
+        // sky glow judged the same on the console: default on on the Vita.
+#if defined(__vita__)
+        bool glBlur93 = true;
+#else
         bool glBlur93 = false;
+#endif
         bool glGlow93 = false;
         // Round 94 (the Vita's GPU: fewer scenes). Each render-target bind is
         // a GXM scene with a fixed cost (the firmware kick, the tiles set up,
@@ -503,11 +509,14 @@ namespace native_renderer
         // dim) in every window with any of them on, the bloom mask itself
         // identical: the GS chain's temporal step is multi-stable and which
         // state it reaches could not be pinned down in Vita3K.
+        // Console A/B 2026-11-06 (r94on: [gpu86] busy -9.9 ms, 3D frame
+        // -5.4 ms; the altar's sky glow did not flicker): default on on the
+        // Vita, their windows now turn them off.
 #if defined(__vita__)
-        bool glBgCopy94 = false;
-        bool glGlow94 = false;
-        bool glFx94 = false;
-        bool glBloom94 = false;
+        bool glBgCopy94 = true;
+        bool glGlow94 = true;
+        bool glFx94 = true;
+        bool glBloom94 = true;
 #else
         bool glBgCopy94 = false;
         bool glGlow94 = false;
