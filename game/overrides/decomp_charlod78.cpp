@@ -313,3 +313,25 @@ namespace charlod78
         r.geoUs += static_cast<double>(us);
     }
 }
+
+// Round 96 (decomp_obj96.cpp): the player and the view test's last answer for
+// the script pass's whole-object skip.
+namespace charlod78
+{
+    uint32_t player(uint8_t *rdram)
+    {
+        g_ram = rdram;
+        return playerObj();
+    }
+    // Was obj outside the view at the last character tail that tested it (and
+    // the frame before)? false when it has no record or was seen. The tail's
+    // own camera (the one GetCameraContext gave it just before), not whatever
+    // camera the script pass finds in the global.
+    bool unseenAtLastTest(uint32_t obj)
+    {
+        for (const Rec &r : g_rec)
+            if (r.obj == obj)
+                return r.last != 0u && (r.seenFrame == ~0ull || r.seenFrame + 1u < r.last);
+        return false;
+    }
+}

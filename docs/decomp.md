@@ -14776,3 +14776,150 @@ the setter's deferral remove; the console A/B (below) decides whether round
 
 **Deliverable:** build/agent-scratch/celosia-r95.vpk (= r95/p10.vpk: p9 rebuilt on main
 dc39b8d, the Vita defaults from the console A/B, + this round).
+
+## Round 96: the game thread by subsystem again; unseen creatures woken less often (obj96); ground85's surface tests reordered (sel96) (2026-11-07)
+
+Scripts, runs and logs: `build/agent-scratch/r96/`:
+- build.sh: the round's worktree and build directory `r96/vita` (vitaGL: the
+  Avion fix's build, `avion/vitagl`, after the rebase on c6d59df).
+- v3k.sh: its own Vita3K, `r96/vita3k` -> ../vita3k-celosia-r96 (pref-path
+  fixed to r96); v3kb.sh: a second tree (`r96/vita3kb` ->
+  ../vita3k-celosia-r96b, runs in `runsb/`) for pictures and samples beside
+  the A/Bs. 222 MHz, 3 cores, muted, memcard copied, settings.cfg put back.
+- prof.sh (SOTC_SUBSYS_PROF at the altar, route 6, the attract demo),
+  subsys.py (the `[prof]` windows summed by subsystem, script tasks named by
+  their entry), diag.sh / objtab.py (the round's `[obj96]` lines by object
+  kind), samp.sh (the Vita3K sampler), ab.sh, shots.sh, finalR.sh,
+  read96.sh (the console reader), env-console.txt.
+- runs/: profA0 / profR0 / profD0 (the profiles, base = celosia-r95.vpk),
+  diagA1, altar4 / attract4 / route5 (obj96 A/B), altar6 (rest96, dropped),
+  altar9 / route9 (obj96 + sel96), finalD; runsb/: sampA (sampler), shotsA-*,
+  finalR, finalA; pics/.
+
+**The game thread by subsystem (Vita3K 222 MHz, SOTC_SUBSYS_PROF, ms a frame
+inclusive with the probes' ~1.2x; hook.sync, the host's stalls, taken out of
+the walk; base = round 95's VPK).** "Scripts" are the script objects'
+sub-threads' own time (the creatures' AI scripts, the managers' scripts),
+without the probed natives inside them.
+
+| subsystem | the altar (~77 wall with probes) | route 6, the plain (~60) | riding, attract 10 400-15 200 (~49) |
+|---|---|---|---|
+| display walk (DispDispObjGroupModel) | 18.4 | 11.9 | 10.8 |
+| characters' geometry (ExecCharaGeometry + pre / post) | 17.7 | 13.3 | 9.5 |
+| scripts (sub-threads' own time) | 14.4: Agro 3.6, the doves (nico_SmallKite x10) 3.3, managers 6.2, Wander's 1.1 | 10.1: Agro 2.4, birds 2.4, managers 4.4 | 5.5: managers 2.6, birds 1.2, Agro 1.2 |
+| character control (CharaCtrlAIControl + Playable; charaCtrl x19 / x10) | 4.6 | 3.3 | 2.4 |
+| camera (doit_cameraman_manager) | 3.8 | 2.7 | 3.1 |
+| particle manager | 3.4 | 2.0 | 3.6 |
+| frame start (task 01346318) | 3.1 | 2.3 | 2.1 |
+| display list send (iosDlTrans, GPFrameInit, DMA) | 1.9 | 1.2 | 0.8 |
+| texAnim (x345 / x327) | 1.0 | 0.7 | 0.8 |
+
+Nested in the rows above: the segment tests (ClipCollisionDirectCallBack)
+3.6 / 2.2 / 2.4, the finders 2.1 / 1.7 / 1.0, IK 2.4 / 1.9 / 1.5. The
+console's log (combo94/console/err.txt) has only the whole game thread
+(`cpu game` 36-48 ms in the 3D frames), no split.
+
+**Where the creatures' time is (`SOTC_OBJ96_LOG`, the script pass's wakes,
+host clock, own time without nested wakes).** At the altar, per frame: Agro
+(radius 0.68, 28-31 units off, outside the shrine) 4.2-4.5 ms a wake, every
+frame, while round 78 already puts off his geometry (1.1 ms of it); the
+eleven small creatures (doves and far birds, radius 0-0.05, 100-300 units
+off, unseen ~84% of their frames) 2.3 ms together; the eight near objects
+(Wander, his head, Mono's body / head / hair, a dove beside the altar) 9-12
+ms. One wake of a creature's sub-thread is its whole frame: its AI script,
+its control step, its character tail (ViewIntervalClip, round 78's test) and
+its geometry. Round 85 slowed only the control step of unseen creatures
+(~0.6 ms possible, dropped); round 78 only the geometry.
+
+**What changed.**
+- **`SOTC_OBJ96` (default on; A/B `obj96`, `r96all`; decomp_obj96.cpp,
+  decomp_hot44d.cpp's script pass).** The script objects' pass
+  (manager_sub_01102638) leaves a character object's sub-thread asleep for a
+  frame, as if it had slept through it (v0 0: the pass goes on to the next
+  object; nothing of it runs), when:
+  - it is a small creature (collision radius below `SOTC_OBJ96_MAXR`, 0.3:
+    birds, lizards) farther than `SOTC_OBJ96_NEAR_SMALL` (6) from Wander, or
+    a larger one up to `SOTC_OBJ96_MAXR_BIG` (2: Agro) farther than
+    `SOTC_OBJ96_NEAR` (12);
+  - not the player, not the active colossus (0x1465ad4), not in its first
+    wake, its start or a pending init;
+  - round 78's view test found it outside the view at its last character
+    tail and the frame before (the tail's own camera: the script pass finds
+    another camera in g_cameraContextAddr, which first made Agro look
+    visible through the shrine's walls in every frame);
+  - and it was woken less than `SOTC_OBJ96_PERIOD` (4, small) /
+    `SOTC_OBJ96_PERIOD_BIG` (2, Agro) frames ago.
+  A skipped creature is not tested, so one coming into view is seen at its
+  next wake (at most 3 frames, ~100 ms, late for a small one, 1 for Agro)
+  and runs every frame from then on. The motion keeps its speed:
+  ViewIntervalClip hands the geometry the time since the character's last
+  update from an absolute clock (+0x1168), so the frames slept through are
+  in the next step, as with round 78's put-off updates. What slows while a
+  creature is unseen is its script's per-frame logic (timers that count
+  the frames it runs, steering decided at 7.5 / 15 Hz).
+  `SOTC_OBJ96_LOG=<n>`: `[obj96]` lines every n frames, the pass's objects
+  by own wake time.
+- **`SOTC_SEL96` (default on; A/B `sel96`, `r96all`; decomp_hot47j.cpp,
+  g85::select).** The Vita3K sampler at the altar put round 85's
+  ground-patch selection at 2.1% of the game thread: for each kept surface
+  the tree walk's splits (up to 64), then the boundary sphere, then the
+  plane. Now the sphere and the plane first and the splits only for the
+  surfaces that pass them. Exact: all three must pass, each reads only its
+  inputs, the surfaces enter in the same order.
+- `[obj96]`'s per-object records are an open hash (the first build's
+  linear search was 0.8% of the altar's game thread in the sampler).
+
+**Tried and dropped: rest96** (a character with no collision sphere whose
+bone matrices and position came out bit for bit the same 8 wakes in a row,
+woken once in 4 frames: Mono's three parts on the altar). Mono's matrices
+change in every frame (her idle motion), so nothing ever rested; the A/B
+was noise (-0.96 ms, runs/altar6). Not in the code.
+
+**Measured (Vita3K 222 MHz, in-run A/B `SOTC_AB_ROTATE=1
+SOTC_AB_PERIOD=60`, ab89.py matched by draws, off minus on; the Mac under
+another load of ~40-47, so single runs move by ~1 ms).**
+
+| run | part | obj96 | sel96 |
+|---|---|---|---|
+| altar4 (obj96 only) | from 3 300 (frame ~42.7 ms) | +3.36 (game +3.52) | |
+| altar9 (with a picture run beside it) | from 3 300 (~42.2) | +5.06 | -1.15 (noise) |
+| route5 | from 3 000 | +3.03 | |
+| route5 | the plain from 4 300 | +2.85 | |
+| route9 | from 3 000 (~26.6) | +2.09 | -0.28 |
+| route9 | the plain from 4 300 | +1.99 | -0.06 |
+| attract4 | 10 400-15 200 (~26.7) | +1.07 (game +1.27) | |
+| attract4 | from 10 000 | +0.47 | |
+| finalR (p10, console env, 600 s; r96all +3.08) | route 6 from 3 000 | +3.54 | -0.15 |
+| finalD (p10, console env, 660 s, beside finalR; r96all +0.55) | from 10 000 | +1.91 (game +1.20) | +0.27 |
+| finalD | riding, from 13 000 | +3.44 (game +2.24; ~500 frames a state) | +2.94 (noise) |
+
+sel96 is within the noise in Vita3K: it ships on as an exact change (its
+console window will show whether the A9 sees the 2%).
+
+**Gameplay and pictures.**
+- Played with obj96 rotating on / off every 60 frames: the altar route
+  (Wander walks to the altar; the doves around and above, Agro outside),
+  route 6 (out of the shrine, down the stairs, the plain with birds and
+  Agro), the attract demo (title scenes, the world, riding Agro) 600 s;
+  the final build with the console env: attract 660 s (15 500 frames:
+  two emulators at once), route 6 600 s (14 200 frames), the altar 300 s.
+  No fault, no hang, no stall (round 85's title hang did not happen: here
+  a skipped sub-thread is left asleep as a whole, never half-run).
+- Pictures (runsb/shotsA-on / -off, pics/r96_A_*_on__off.png; window
+  captures work again): the altar with obj96 + sel96 on and off, every 15 s:
+  the same picture within the two runs' drift. By construction a skipped
+  creature is outside the view at its last wake; what can show is a small
+  creature coming into view up to 3 frames late (it appears where it was,
+  then moves on at its own speed) and Agro up to a frame late.
+- Not checked: climbing a colossus (no save reaches one here; the active
+  colossus is never skipped, and climbing creatures, if any, are near
+  Wander).
+
+**Console A/B (r96/env-console.txt).** `SOTC_AB_FLAG=obj96,sel96,r96all`
+(both start on; their windows turn them off), `SOTC_OBJ96_LOG=600`. Read
+with `build/agent-scratch/r96/read96.sh err.txt <from>`. Experiments that need
+no build: `SOTC_OBJ96_PERIOD_BIG=4` (Agro unseen at a quarter rate),
+`SOTC_OBJ96_PERIOD=8`.
+
+**Deliverable:** build/agent-scratch/celosia-r96.vpk (= r96/p10.vpk: main
+c6d59df, the Avion vitaGL fix, + this round).

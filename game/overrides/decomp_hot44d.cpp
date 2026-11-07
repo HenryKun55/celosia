@@ -59,6 +59,15 @@
 
 #include <cstring>
 
+namespace obj96 // decomp_obj96.cpp (round 96)
+{
+    bool skipWake(uint8_t *rdram, uint32_t obj, uint32_t scriptClass);
+    bool timing();
+    uint64_t now();
+    void wakeBegin();
+    void wakeTime(uint32_t obj, uint64_t us);
+}
+
 namespace decomp_hot44d
 {
     using sotc_decomp::callGuest;
@@ -560,10 +569,25 @@ namespace decomp_hot44d
                 SET_GPR_U32(ctx, 2, v0);
                 SET_GPR_U64(ctx, 3, 1u);
                 uint64_t s0;
-                if (v0 == 1u)
+                if (v0 == 1u && obj96::skipWake(rdram, static_cast<uint32_t>(s2), c))
+                {
+                    // Round 96: an unseen small creature left asleep this frame (as a
+                    // sub-thread that did not end: v0 0, the pass goes on).
+                    s0 = 0u;
+                    SET_GPR_U64(ctx, 2, 0u);
+                }
+                else if (v0 == 1u)
                 {
                     SET_GPR_U64(ctx, 4, s2);
-                    callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x011026ACu), 0x011026B4u, sp); // isysWakeupSubThread
+                    if (__builtin_expect(obj96::timing(), 0))
+                    {
+                        obj96::wakeBegin();
+                        const uint64_t t0 = obj96::now();
+                        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x011026ACu), 0x011026B4u, sp); // isysWakeupSubThread
+                        obj96::wakeTime(static_cast<uint32_t>(s2), obj96::now() - t0);
+                    }
+                    else
+                        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x011026ACu), 0x011026B4u, sp); // isysWakeupSubThread
                     s0 = GPR_U64(ctx, 2);
                 }
                 else

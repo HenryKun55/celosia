@@ -862,6 +862,39 @@ namespace decomp_hot47j
         int select(const Slot &s, const float c[3], float r, const float box[4], uint32_t *out)
         {
             int m = 0;
+            if (sotc_decomp::sel96On())
+            {
+                // Round 96 (SOTC_SEL96): the same three tests, all of which must pass, with
+                // the two cheap ones (the boundary sphere, the plane) first and the tree
+                // walk's splits (up to 64 per surface) only for the surfaces that pass
+                // them: the same surfaces, in the same order (each test reads only its
+                // own inputs).
+                for (int i = 0; i < s.n; ++i)
+                {
+                    const float dx = s.bx[i] - c[0], dy = s.by[i] - c[1], dz = s.bz[i] - c[2];
+                    const float reach = s.br[i] + r;
+                    if (!(dx * dx + dy * dy + dz * dz < reach * reach))
+                        continue;
+                    const float d = s.nx[i] * c[0] + s.ny[i] * c[1] + s.nz[i] * c[2] + s.nw[i];
+                    if (!(std::fabs(d) < r))
+                        continue;
+                    const ground85::Split *sp = s.splits.data() + s.path[i];
+                    bool visit = true;
+                    for (int j = 0; visit && j < s.len[i]; ++j)
+                    {
+                        const float coord = box[sp[j].axis & 3u];
+                        visit = sp[j].low ? coord <= sp[j].value + box[3] : sp[j].value - box[3] <= coord;
+                    }
+                    if (!visit)
+                        continue;
+                    bool seen = false;
+                    for (int j = 0; j < m && !seen; ++j)
+                        seen = out[j] == s.ids[i];
+                    if (!seen)
+                        out[m++] = s.ids[i];
+                }
+                return m;
+            }
             for (int i = 0; i < s.n; ++i)
             {
                 const ground85::Split *sp = s.splits.data() + s.path[i];
