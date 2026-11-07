@@ -38,6 +38,7 @@
 #include "runtime/ee_scheduler.h"
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
+#include "sotc_worker.h"
 #include "lines67.h"
 #include "lean_hot.h"
 #include "ThreadNaming.h"
@@ -3020,11 +3021,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r92AllAt = -1, r93AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3062,6 +3063,7 @@ namespace sotc_native
             r92AllAt = indexOf("r92all"); // round 92: the round's GPU fixes (noscreen92) off together
             r93AllAt = indexOf("r93all"); // round 93: the round's exact GPU savings (mirror93, atop93, post93) off together
             newDirAt = indexOf("newdir");
+            r91AllAt = indexOf("r91all"); // round 91: the guest worker's job (ptcl91)
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
             sacPtclAt = indexOf("sacptcl");
@@ -3113,6 +3115,9 @@ namespace sotc_native
                         sotc_decomp::setSwitch(i, switchStart[i]);
                 }
         }
+        // Round 91: `r91all` the round's switch (ptcl91) off in its windows.
+        if (r91AllAt >= 0)
+            sotc_decomp::setSwitch(sotc_decomp::kPtcl91, isOffAt(r91AllAt) ? false : switchStart[sotc_decomp::kPtcl91]);
         // Round 90: the sound mixer's voice / core paths (`aud90v`, `aud90c`,
         // `r90all` both); exact, so only the audio thread's time changes.
         if (aud90vAt >= 0 || aud90cAt >= 0 || r90AllAt >= 0)
@@ -5224,6 +5229,7 @@ namespace sotc_native
                              eye[0], eye[1], eye[2]);
             }
             sotc_prof::frameTick(frame);
+            sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
             sotc_decomp::g_gameFrame = frame;
             sotc_decomp::fastStatsTick(frame);
             ps2_lean::frameTick(frame);
@@ -10978,6 +10984,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
     decomp_collcensus::install(runtime); // round 63, SOTC_COLL_CENSUS=1
     decomp_readcensus::install(runtime); // round 64, SOTC_READ_CENSUS=<subsystem> (the Mac)
     decomp_tex64::install(runtime);      // round 64: texReset's loop's join sites
+    sotc_worker::install(runtime);       // round 91: the guest worker's join sites (the particle / wind module, the loader, the heap's moves)
     if (std::getenv("SOTC_NATIVE") && runtime.hasFunction(sotc_native::kModelDisp))
         mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
     mdstrace::install(runtime);

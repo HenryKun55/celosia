@@ -65,6 +65,7 @@
 // with the registers it has there, the callbacks from their entry before
 // anything is written.
 #include "sotc_decomp.h"
+#include "sotc_worker.h"
 #include "lines67.h"
 #include "sotc_prof.h"
 
@@ -2633,10 +2634,74 @@ namespace decomp_walk
             for (int i = 0; i < 4; ++i)
                 runner.step(m);
         }
+        // A geodisp object of the group (the walk's else branch: its class's
+        // update callback, the visible test, the sort list).
+        auto geodispObject = [&](const uint32_t s3)
+        {
+            const uint32_t gdc = geoDispClass(m, s3);
+            set(16, gdc);
+            if (const uint32_t update = m.u32(gdc + 0xD8u))
+            {
+                g.a(4, s3);
+                {
+                    const uint64_t t0_ = wprof::now();
+                    g.call(update, 0x010F55E0u, sp);
+                    if (wp) wprof::add('u', update, sotc_prof::ticks() - t0_);
+                }
+            }
+            const float f1 = m.f32(gdc + 0x20u);
+            if (FPU_C_OLT_S(0.0f, f1))
+            {
+                const float f0 = m.f32(gdc + 0x30u);
+                ctx->f[0] = f0;
+                // Round 79: a particle system wholly outside the view is not drawn.
+                // SOTC_PTCL79_INVERT=1 (checking): only those are drawn; =2: no particle system.
+                static const int invert79 = std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0;
+                const bool culled79 = sotc_decomp::ptcl79Culled(s3);
+                const bool draw79 = invert79 == 0 ? !culled79 : invert79 == 1 ? culled79 : false;
+                if (FPU_C_OLE_S(0.0f, f0) && draw79)
+                {
+                    m.putf(gdc + 4u, f1);
+                    g.a(5, gdc);
+                    g.a(4, m.u32(kSortList));
+                    g.call(kAddSortObj, 0x010F5614u, sp);
+                    if (wp) ++wprof::g_cnt[3];
+                }
+            }
+        };
+        // Round 91 (ptcl91, sotc_worker.cpp): while the particle step runs on
+        // the guest worker, the particle geodisps (their class's update in the
+        // particle module: the clip from their particles) wait for the join
+        // after the group pass, then go through the same branch in the group's
+        // order; one the job's auto-end check freed is left out (the original
+        // freed it before the walk). Their sort keys put them where they would
+        // have gone (AddSortObj sorts by key; only equal keys can differ).
+        const bool defer91 = sotc_worker::busy();
+        static std::vector<uint32_t> deferred91;
+        deferred91.clear();
+        auto flush91 = [&]()
+        {
+            if (!defer91)
+                return;
+            sotc_worker::join(sotc_worker::kSiteWalk);
+            uint64_t saved[8];
+            for (int r = 0; r < 8; ++r)
+                saved[r] = GPR_U64(ctx, 16 + r);
+            for (const uint32_t obj : deferred91)
+                if (!sotc_decomp::ptcl91Freed(obj))
+                {
+                    set(19, obj);
+                    geodispObject(obj);
+                }
+            deferred91.clear();
+            for (int r = 0; r < 8; ++r)
+                SET_GPR_U64(ctx, 16 + r, saved[r]);
+        };
         while (s4 != 0u)
         {
             if (!Ram::ok(s4, 0x10u) || !Ram::ok(m.u32(s4), 0x10u))
             {
+                flush91();
                 set(19, Ram::ok(s4, 4u) ? m.u32(s4) : s3);
                 set(20, s4);
                 return resume(0x010F5348u);
@@ -2670,7 +2735,10 @@ namespace decomp_walk
                     s1 = layoutClass(g, s6, 0x010F5360u, sp);
                 set(17, s1);
                 if (!Ram::ok(s0, 0x1C0u) || !Ram::ok(s1, 0x160u) || !Ram::ok(m.u32(s0 + 0x140u), 0x40u) || !Ram::ok(m.u32(s0 + 0x144u), 0x268u))
+                {
+                    flush91();
                     return resume(0x010F5348u);
+                }
                 const uint32_t s2 = m.u32(s0 + 0x140u);
                 set(18, s2);
                 uint64_t s5 = 1u, s7 = 1u;
@@ -2844,36 +2912,15 @@ namespace decomp_walk
             }
             else
             {
-                const uint32_t gdc = geoDispClass(m, s3);
-                set(16, gdc);
-                if (const uint32_t update = m.u32(gdc + 0xD8u))
+                const uint32_t gdc91 = geoDispClass(m, s3);
+                const uint32_t update91 = m.u32(gdc91 + 0xD8u);
+                if (defer91 && update91 >= 0x01139CA0u && update91 < 0x01147530u)
                 {
-                    g.a(4, s3);
-                    {
-                        const uint64_t t0_ = wprof::now();
-                        g.call(update, 0x010F55E0u, sp);
-                        if (wp) wprof::add('u', update, sotc_prof::ticks() - t0_);
-                    }
+                    set(16, gdc91);
+                    deferred91.push_back(s3);
                 }
-                const float f1 = m.f32(gdc + 0x20u);
-                if (FPU_C_OLT_S(0.0f, f1))
-                {
-                    const float f0 = m.f32(gdc + 0x30u);
-                    ctx->f[0] = f0;
-                    // Round 79: a particle system wholly outside the view is not drawn.
-                    // SOTC_PTCL79_INVERT=1 (checking): only those are drawn; =2: no particle system.
-                    static const int invert79 = std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0;
-                    const bool culled79 = sotc_decomp::ptcl79Culled(s3);
-                    const bool draw79 = invert79 == 0 ? !culled79 : invert79 == 1 ? culled79 : false;
-                    if (FPU_C_OLE_S(0.0f, f0) && draw79)
-                    {
-                        m.putf(gdc + 4u, f1);
-                        g.a(5, gdc);
-                        g.a(4, m.u32(kSortList));
-                        g.call(kAddSortObj, 0x010F5614u, sp);
-                        if (wp) ++wprof::g_cnt[3];
-                    }
-                }
+                else
+                    geodispObject(s3);
             }
             uint32_t next;
             if (groupNext(m, s4, next))
@@ -2897,6 +2944,7 @@ namespace decomp_walk
             SET_GPR_U64(ctx, 5, 0u);
             g.callRel(0x010F5640u, sp); // isysGroupForExit
         }
+        flush91(); // round 91: the particle step's join, the particle geodisps
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[1] += t - wt0; wt0 = t; }
         // The second list: the first one without the objects with bit 4 of +0x260.
         clearSortList(m, m.u32(kSortList2));

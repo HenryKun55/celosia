@@ -1154,7 +1154,7 @@ namespace native_renderer
             std::mutex g_slotMutex;
             uint64_t g_cpuUs[kKinds] = {}, g_preempts[kKinds] = {}, g_moves[kKinds] = {};
             uint64_t g_lastCpuUs[kKinds] = {}, g_lastPreempts[kKinds] = {}, g_lastMoves[kKinds] = {}; // the last sample's alone
-            const char *const kNames[kKinds] = {"game", "worker", "render", "build", "audio", "main", "loader", "recorder", "log", "dma", "lane", "offload"};
+            const char *const kNames[kKinds] = {"game", "worker", "render", "build", "audio", "main", "loader", "recorder", "log", "dma", "lane", "offload", "guest"};
         }
         void place(Kind kind)
         {
@@ -1200,6 +1200,13 @@ namespace native_renderer
                 // Round 60: beside the hook worker and the render thread
                 // (a walk of 1-2 ms a frame, off the game thread's core).
                 mask = SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2;
+                break;
+            case kGuest:
+                // Round 91: the guest worker (sotc_worker.cpp), cores 1-2, above
+                // the render thread and the hook worker (its job is on the game
+                // thread's path: the display walk joins it); SOTC_THREAD_PRIO=guest:<n>.
+                mask = SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2;
+                prio = 140;
                 break;
             case kLog:
                 // The default priority (the pthreads' own; it only has to

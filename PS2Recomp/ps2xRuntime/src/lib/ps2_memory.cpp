@@ -4153,31 +4153,31 @@ namespace ps2_guest_mem
     {
         if (const uint8_t *p = spr<1>(runtime, a))
             return *p;
-        return Ps2IsSpecialAddress(a) ? runtime->Load8(rdram, ctx, a) : Ps2FastRead8(rdram, a);
+        return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load8(rdram, ctx, a) : Ps2FastRead8(rdram, a);
     }
     uint16_t read16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<2>(runtime, a))
             return sprLoad<uint16_t>(p);
-        return Ps2IsSpecialAddress(a) ? runtime->Load16(rdram, ctx, a) : Ps2FastRead16(rdram, a);
+        return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load16(rdram, ctx, a) : Ps2FastRead16(rdram, a);
     }
     uint32_t read32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<4>(runtime, a))
             return sprLoad<uint32_t>(p);
-        return Ps2IsSpecialAddress(a) ? runtime->Load32(rdram, ctx, a) : Ps2FastRead32(rdram, a);
+        return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load32(rdram, ctx, a) : Ps2FastRead32(rdram, a);
     }
     uint64_t read64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<8>(runtime, a))
             return sprLoad<uint64_t>(p);
-        return Ps2IsSpecialAddress(a) ? runtime->Load64(rdram, ctx, a) : Ps2FastRead64(rdram, a);
+        return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load64(rdram, ctx, a) : Ps2FastRead64(rdram, a);
     }
     __m128i read128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<16>(runtime, a))
             return sprLoad<__m128i>(p);
-        return Ps2IsSpecialAddress(a) ? runtime->Load128(rdram, ctx, a) : Ps2FastRead128(rdram, a);
+        return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load128(rdram, ctx, a) : Ps2FastRead128(rdram, a);
     }
     void write8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint8_t v)
     {
@@ -4187,7 +4187,7 @@ namespace ps2_guest_mem
             return;
         }
         if (Ps2IsSpecialAddress(a))
-            return runtime->Store8(rdram, ctx, a, v);
+            return ps2_worker::real(runtime)->Store8(rdram, ctx, a, v);
         trace<uint8_t>(rdram, a, v, "WRITE8", ctx);
         Ps2FastWrite8(rdram, a, v);
     }
@@ -4199,7 +4199,7 @@ namespace ps2_guest_mem
             return;
         }
         if (Ps2IsSpecialAddress(a))
-            return runtime->Store16(rdram, ctx, a, v);
+            return ps2_worker::real(runtime)->Store16(rdram, ctx, a, v);
         trace<uint16_t>(rdram, a, v, "WRITE16", ctx);
         Ps2FastWrite16(rdram, a, v);
     }
@@ -4211,7 +4211,7 @@ namespace ps2_guest_mem
             return;
         }
         if (Ps2IsSpecialAddress(a))
-            return runtime->Store32(rdram, ctx, a, v);
+            return ps2_worker::real(runtime)->Store32(rdram, ctx, a, v);
         trace<uint32_t>(rdram, a, v, "WRITE32", ctx);
         Ps2FastWrite32(rdram, a, v);
     }
@@ -4223,7 +4223,7 @@ namespace ps2_guest_mem
             return;
         }
         if (Ps2IsSpecialAddress(a))
-            return runtime->Store64(rdram, ctx, a, v);
+            return ps2_worker::real(runtime)->Store64(rdram, ctx, a, v);
         trace<uint64_t>(rdram, a, v, "WRITE64", ctx);
         Ps2FastWrite64(rdram, a, v);
     }
@@ -4235,7 +4235,7 @@ namespace ps2_guest_mem
             return;
         }
         if (Ps2IsSpecialAddress(a))
-            return runtime->Store128(rdram, ctx, a, v);
+            return ps2_worker::real(runtime)->Store128(rdram, ctx, a, v);
         trace<__m128i>(rdram, a, v, "WRITE128", ctx);
         Ps2FastWrite128(rdram, a, v);
     }

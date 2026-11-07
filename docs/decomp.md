@@ -13755,6 +13755,190 @@ recorded: the input scripts reach none.
 turned on in theirs, round 90's mixer all off in `r90all`'s); the console's
 `cpu audio` column by state is the measure. VPK: build/agent-scratch/celosia-r90.vpk.
 
+## Round 91: recompiled guest code on a second thread (the guest worker); the particle step moved onto it beside the display walk (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r91/`:
+- build.sh (worktree `r91/wt`, build directory `r91/vita`), v3k.sh (`r91/vita3k`,
+  `portable` -> ../vita3k-celosia-r91, sound on), ab1.sh / ab2.sh (the A/B: attract
+  demo, altar, route 6, `ptcl91` windows of 60 frames; ab2 also the attract demo
+  with the guest thread at priority 191), shots.sh / shots2.sh, final.sh;
+  p1-p10.vpk (the bring-up's builds), tools/ab89.py.
+- runs/: test1-4 (bring-up), attract1 / altar1 / route1 (p4's A/B), attract2 /
+  attract2p191 / altar2 / route2 (p9's), shots[ARDE]-on/off, finalD (p10); pics/.
+
+**Why.** Round 89: the game thread's profile is flat (nothing above ~3 ms) and
+the cuts that would halve it are parallel ones, which need recompiled guest
+code running on another core: its own guest context, stack and scratchpad, no
+EE kernel switches on that thread, and rules for the shared guest structures.
+
+### The infrastructure (game/overrides/sotc_worker.cpp, ps2_runtime.h `ps2_worker`)
+
+- **One host thread** (`threads::kGuest`, "guest" in the frame log's thread
+  line; cores 1-2 on the Vita, priority 140, above the render thread and the
+  hook worker; `SOTC_THREAD_PRIO=guest:<n>`). The game thread hands it a *job*:
+  host code (a native) that calls guest code with the usual
+  `sotc_decomp::callGuest`, recompiled or native.
+- **Its own state**: a guest context (a copy of the game thread's at the
+  hand-over, sp on its own stack; VU0's R register its own stream from the first
+  job on), a 32 KB guest stack in the EE kernel area
+  (`reserveAsyncCallbackStack`, where the runtime's handler stacks live), its own
+  16 KB scratchpad and VU0 data memory (the matrix stack: vi15 / vf1-vf4 are
+  context registers, the stack is VU0 data; copied from the game thread's at
+  each hand-over).
+- **A runtime shell**: generated code reads a few `PS2Runtime` members inline
+  (the EE clock, the host stack floor, the jump serial). The worker passes its
+  own `PS2Runtime*`: zeroed storage the size of `PS2Runtime` where only those
+  are set (a clock gate that is never reached: no EE scheduler on the worker;
+  the stack floor at the top of the address space, so every call and jump goes
+  out of line), and its memory member holds RAM, the worker's scratchpad and
+  VU0 data (`PS2Memory::bindWorkerShell`). Out of line, the runtime sends the
+  shell's calls, jumps, dispatches, syscalls, breaks and VU0 microprograms to
+  the worker's hooks (`callGuestSlow`, `jumpGuestSlow`, `dispatchGuestBranch`,
+  `tailGuestKnown` (one compare per tail jump on the game thread),
+  `handleSyscall`, `handleBreak`, `executeVU0Microprogram`,
+  `eeCheckpointSlow`); the guest memory slow paths map the shell back to the
+  real runtime for anything but the scratchpad. `sotc_decomp::callGuest` and
+  friends do the same for natives.
+- **Ownership, checked at every call** (`admit`): beside the game thread the
+  worker runs only the job's own module (here the particle / wind module,
+  0x01139CA0-0x01147530) and a list of pure functions (`kPure`: math, matrix,
+  quaternion arithmetic on arguments or the worker's own VU0 state, string
+  helpers, the camera context, the screen size, the geometry pointers' own
+  switch). Anything else (the heap, isys objects and groups, collision, motion,
+  letters, an emitter's end callback, the kernel) *parks* the worker until the
+  game thread joins; from then on the game thread waits, so the worker runs the
+  rest alone, as the game thread would have. In that exclusive part the kernel
+  calls are answered by the worker (the semaphores as uncontended, GetThreadId
+  = the game's EE thread, cache flushes nothing; anything else in libkernel, a
+  syscall instruction or a VU0 microprogram is a logged fault + abort, never
+  seen), and the isys natives that call the EE kernel straight
+  (decomp_isys / decomp_isys48, 0x1BF000-0x1C9000) run as their recompiled code.
+- **The game thread joins** before it enters the module (its 177 entries'
+  table slots wrapped), at the heap's garbage moves, the module loader
+  (RelocateElfInfoHeader, DecodeSection, isysMoveModuleObj), the next hand-over
+  and the frame's end; the job's user joins where it needs the results.
+- Off when the table carries per-call tools (SOTC_SUBSYS_PROF, SOTC_DIFFTEST,
+  the call statistics); `SOTC_WORKER91=0` turns the worker off (jobs run on the
+  game thread). `[worker91]` every 600 frames: jobs, the job's time on the
+  worker, the share parked and where, the joins' waits by site.
+
+### What moved: the particle systems' step (SOTC_PTCL91=1; A/B `ptcl91`, `r91all`; default off)
+
+Frame order: ... the camera, doit_particle_manager, disp_particle_manager, the
+display walk. The walk reads the particles only for the particle geodisps (their
+class's update: the clip from the particles; their draws). So:
+- the manager (game thread) does the clocks and the view, walks the geodisp
+  group as before (isysGroupForFirst / Next / Exit: the entries' counts are
+  touched on the game thread only), asks, for every emitter attached to a
+  geometry pointer (+0xc4 == 1: a character's node, a collision surface,
+  cloth: Agro's hoof effects while riding), GetGeometryPointerPosition and
+  GetGeometryPointerQuaternion itself into the worker's answer area
+  (`sotc_worker::prepare`: the job's calls with that pointer copy the answer;
+  only the game thread may read the characters' motion), and hands every
+  geodisp to the worker: each one's step (round 79 / 83 put-off included), its
+  auto-end check, then the five layers;
+- what a dying emitter or an ended geodisp asks outside the module (the
+  effect tracker's isysDeleteObj from SequenceKickParticle's end callback, the
+  collision finder's check and release, iosFree, the geodisp's isysDeleteObj)
+  nobody reads the result of: kept and made at the job's end, once the game
+  thread has joined (`sotc_worker::deferCall`), in the same order;
+- disp_particle_manager, reached while the job runs, is called after the job on
+  the worker (`callAfterJob`);
+- the display walk's group pass leaves the particle geodisps (update callback in
+  the module) for after its loop: then it joins, and runs them through the same
+  branch in the group's order, skipping those the job's auto-end check freed.
+
+Not as the original (picture-level, not bit-exact): a sub-effect geodisp created
+by a step is stepped and drawn from the next frame on (the original could step
+it in the same loop); a dead emitter's / ended geodisp's deletions and frees
+come at the job's end instead of at once (nothing reads them in between); the
+attached emitters' position and turn are asked a moment earlier (nothing moves
+the characters in between), GetGeometryPointerQuaternion also when 01141080
+would have skipped it; the worker's random
+numbers are their own stream; the job's guest calls charge no EE cycles; the
+sort list's order can differ only between equal keys.
+
+### Bring-up (what the ownership rule found, in order)
+
+- p1: the job parked at once at GetGeometryPointerPosition (attached emitters),
+  so it ran alone at the join: no overlap. Its own code (a switch reading the
+  pointer's sources) and GetGeometryPointerQuaternion's went into `kPure`.
+- p2: then at GetMotionNodeQuaternionPosToolCoord (a character's node).
+- p3: the attached geodisps stepped on the game thread first: **crash** at the
+  altar (Vita3K, frame ~430): in the exclusive part the job reached
+  isysDeleteObj, whose native (decomp_isys48) calls ps2_syscalls::GetThreadId /
+  PollSema straight with the shell. p4: the isys natives' recompiled code on the
+  worker (its kernel calls come to the worker's answers). No crash since.
+- p4's A/B: +0.37 ms riding, +0.41 the altar, +1.02 route 6 (a third of the
+  geodisps, the attached ones, still on the game thread; parked 20-30% at a
+  dead emitter's end callback).
+- p6-p8: the attached emitters' queries prepared on the game thread (all
+  geodisps on the worker); a dead emitter's end callback, finder release and
+  iosFree kept for the job's end. p7 searched the answers on every call (job
+  6 ms: fixed in p8).
+- p9: an ended geodisp's isysDeleteObj kept for the job's end too (p8 parked in
+  half the riding frames ~0.25 ms in, at the first hoof effect that ended).
+  Riding: parked 1-5%, the job 3.25 ms on the worker, the walk's join waits
+  1.56 ms: the group pass hides ~1.7 ms of it.
+- p10: the volume tests (the wind emitters' falloff, GetRateInOutCube...)
+  into `kPure`: the attract demo's last scene parked 74% there.
+
+### Measured (Vita3K 222 MHz, in-run A/B `SOTC_PTCL91=1 SOTC_AB_FLAG=ptcl91 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py matched by draws, off minus on)
+
+| run (p9) | part | frame (on) | ptcl91 |
+|---|---|---|---|
+| attract2 | the world from frame 10 000 | ~28.5 | +1.44 |
+| attract2 | riding from 13 000 | | +1.93 |
+| attract2p191 | the same, guest thread at priority 191 | | +1.10 / +1.12 |
+| altar2 | from 3 300 | ~40 | +0.94 |
+| route2 | from 3 000 | 28.51 vs 30.13 | +1.62 |
+| route2 | the plain from 4 300 | | +1.67 |
+
+Another round's Vita3K ran on the same Mac during these runs: the absolute
+frame times are noisier than usual; the A/B is in-run and matched by draws.
+Vita3K is not the console: the console's cores 1-2 are 70-85% busy (round 89),
+so the worker's job may wait for a core there (priority 140 puts it above the
+render thread and the hook worker); the console A/B (`r91all` windows) is the
+measure.
+
+**Gameplay, pictures, crashes.** The A/B runs played the altar route (Wander
+to the altar), route 6 (out of the shrine, down the stairs, onto the plain) and
+the attract demo (the world, riding Agro at a gallop, its hoof effects), the
+switch rotating every 60 frames: no crash, no fault, no stall (attract2 18 653
+frames, attract2p191 18 490, altar2 7 098, route2 9 868; p4's ab1 22 070 /
+7 597 / 11 808). With the console env (opaque88, mirror88, r91all rotating,
+`SOTC_PTCL91=1`), the attract demo 660 s: p10 17 185 frames, the final VPK (p11:
+p10 rebased on round 93, main cd392de) 16 910 frames, p5 (the attached geodisps
+still on the game thread) 22 231: no crash, no `[worker91] FAULT`. Their matched
+`r91all`: p10 +2.07 ms (from frame 10 000) / +1.57 (riding), p11 +1.36 / +3.75
+(four states rotating: fewer frames a state, noisier). Pictures (shots.sh, shots2.sh, pics/): the altar,
+route 6 and the attract demo's riding with ptcl91 on and off, the same
+wall-clock moments (the runs drift apart as every pair here): no missing or broken effect seen; while riding with ptcl91 on, Agro's hoof dust
+trails him as with it off (r91_E_*, r91_E_on_strip.png). The pairs show the same
+moments of two drifting runs, not the same frames: they cannot show a
+one-frame difference (a sub-effect appearing a frame later).
+Not checked: climbing and a colossus (no save or input script reaches one), and
+the console.
+
+**What the worker does not do yet.** The display walk's join comes at the end
+of its group pass (~1.7 ms riding in Vita3K): the job (~3.2 ms riding) is longer,
+so the game thread still waits ~1.6 ms for it. A later join (after the light
+pass, the particle geodisps added to both sort lists then) or a job that starts
+earlier would hide more. The other round 89 candidates (the walk's draw stage
+beside the next frame's control, Agro's geometry beside Wander's) touch the
+characters' motion, the collision finders and the display lists: each needs
+its own ownership rules on top of this infrastructure.
+
+**Console A/B (env-console.txt).** `SOTC_PTCL91=1`,
+`SOTC_AB_FLAG=opaque88,mirror88,r91all`, `SOTC_AB_ROTATE=1`, `SOTC_AB_PERIOD=60`
+(four states; `r91all` turns the worker's job off in its windows). Read with
+`python3 build/agent-scratch/r91/tools/ab89.py err.txt --from <frame>` (the
+matched block) and the `[worker91]` lines (the job's time on the worker, parks,
+the joins' waits); the frame log's thread line has a `guest` column. Default
+off: the picture is not provably the same (see "Not as the original").
+
+**Deliverable:** build/agent-scratch/celosia-r91.vpk (main cd392de + this round).
+
 ## Vita3K calibration (2026-10-22)
 
 Vita3K at the Vita's own clock (MHZ=444) runs the game ~1.85x faster

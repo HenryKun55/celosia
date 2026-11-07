@@ -429,6 +429,16 @@ public:
     const uint8_t *getVU0Code() const { return m_vu0Code; }
     uint8_t *getVU0Data() { return m_vu0Data; }
     const uint8_t *getVU0Data() const { return m_vu0Data; }
+    // Round 91 (game/overrides/sotc_worker.cpp): the worker thread's runtime
+    // shell is zeroed storage; generated code reads only these pointers of its
+    // memory (the scratchpad through the slow path, VU0 data for the matrix
+    // stack): the worker's own scratchpad and VU0 data, RAM shared.
+    void bindWorkerShell(uint8_t *rdram, uint8_t *scratchpad, uint8_t *vu0Data)
+    {
+        m_rdram = rdram;
+        m_scratchpad = scratchpad;
+        m_vu0Data = vu0Data;
+    }
 
     bool isPath3Masked() const { return m_path3Masked; }
     void flushMaskedPath3Packets(bool drainImmediately = true);

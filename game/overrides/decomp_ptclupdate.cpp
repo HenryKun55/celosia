@@ -19,6 +19,7 @@
 // statements on locals (lifted from build/runner). Pointers outside main
 // RAM go to the recompiled code before anything is written.
 #include "sotc_decomp.h"
+#include "sotc_worker.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1358,16 +1359,21 @@ namespace decomp_ptclupdate
                         }
                         g.a(4, static_cast<uint32_t>(s0));
                         regs();
-                        g.call(0x0112A450u, 0x0113AC40u, sp); // CheckCollisionFinderAlive
-                        if (g.v0() != 0u)
+                        // Round 91: on the guest worker, kept for the job's end (sotc_worker::deferCall).
+                        if (!sotc_worker::deferCall(0x0112A450u, 0x0112A380u, static_cast<uint32_t>(s0), 0u, 0u, 0u, 0x0113AC48u))
                         {
-                            g.a(4, static_cast<uint32_t>(s0));
-                            g.call(0x0112A380u, 0x0113AC50u, sp); // ReleaseCollisionFinder
+                            g.call(0x0112A450u, 0x0113AC40u, sp); // CheckCollisionFinderAlive
+                            if (g.v0() != 0u)
+                            {
+                                g.a(4, static_cast<uint32_t>(s0));
+                                g.call(0x0112A380u, 0x0113AC50u, sp); // ReleaseCollisionFinder
+                            }
                         }
                     }
                     g.a(4, m.u32(static_cast<uint32_t>(s1)));
                     regs();
-                    g.callRel(0x0113AC5Cu, sp); // iosFree
+                    if (!sotc_worker::deferCall(sotc_decomp::jalTarget(rdram, 0x0113AC5Cu), 0u, m.u32(static_cast<uint32_t>(s1)), 0u, 0u, 0u, 0x0113AC64u))
+                        g.callRel(0x0113AC5Cu, sp); // iosFree
                     m.put32(static_cast<uint32_t>(s1), static_cast<uint32_t>(s3));
                     v0 = m.u32(sp);
                 }

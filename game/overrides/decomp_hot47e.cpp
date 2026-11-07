@@ -39,6 +39,7 @@
 // v1 where the code leaves them before a call; at / t0 - t3 not), and the
 // loops' EE checkpoints (left out).
 #include "sotc_decomp.h"
+#include "sotc_worker.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -48,7 +49,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <algorithm>
 #include <unordered_map>
+#include <vector>
 
 #include <cstring>
 
@@ -411,6 +414,368 @@ namespace decomp_hot47e
         }
     }
 
+    // ---- the manager's parts (round 91: the step loop's body, the auto-end
+    // check and the five layers as functions, for the guest worker's job) ----
+    struct StepEnv
+    {
+        bool pp = false, skipStep = false, p79 = false, p83 = false;
+        ptcl79::Planes planes79;
+        float eyeBuf[3] = {0.0f, 0.0f, 0.0f};
+        const float *eye83 = nullptr;
+    };
+
+    // One geodisp of the group (s1): put off (rounds 79 / 83) or stepped
+    // (doit_particle_geodisp), then auto_end_check_and_check_free_particle_geodisp
+    // with sp + 0 the geodisp word. True when the auto-end check freed it.
+    bool stepOne(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, uint64_t s1, const StepEnv &e)
+    {
+        auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
+        SET_GPR_U64(ctx, 17, s1);
+        SET_GPR_U64(ctx, 4, s1);
+        WRITE32(sp + 0u, static_cast<uint32_t>(s1));
+        // Round 79: put off when wholly outside the view (see ptcl79).
+        bool put79 = false, catch79 = false;
+        ptcl79::State *st79 = nullptr;
+        if (!e.skipStep && s1 != 0u && (e.p79 || !ptcl79::g_states.empty()))
+        {
+            const uint32_t gd = static_cast<uint32_t>(s1);
+            ptcl79::State &st = ptcl79::g_states[gd];
+            ptcl79::Bounds b;
+            uint32_t sig = 0;
+            const float pendTime = st.pend[0];
+            const bool eligible = ptcl79::bounds(rdram, gd, pendTime, b, sig) && e.p79;
+            if (st.seen != 0u && st.sig != sig)
+                st = ptcl79::State{}; // another geodisp at that address
+            st.sig = sig;
+            st.seen = ptcl79::g_frame;
+            const bool out = eligible && ptcl79::outside(e.planes79, b);
+            st.culled = out && st.outPrev;
+            st.outPrev = out;
+            ++ptcl79::g_nSeen;
+            ptcl79::g_nIneligible += !eligible;
+            ptcl79::g_nCulled += st.culled;
+            if (st.culled && st.pend[0] + fb(READ32(kClockA)) < ptcl79::params().off)
+            {
+                put79 = true;
+                static const uint32_t clocks[3] = {kClockA, kClockB, kClockC};
+                for (int k = 0; k < 3; ++k)
+                {
+                    st.pend[k] += fb(READ32(clocks[k]));
+                    st.pendFrames[k] += READ32(clocks[k] + 0xCu);
+                }
+                ++st.pendCalls;
+                ++ptcl79::g_nSkipped;
+            }
+            else if (st.pendCalls != 0u)
+                catch79 = true;
+            st79 = &st;
+            // Round 83 (SOTC_PTCL83_FAR, units; 0 off): a system in view whose
+            // nearest point is that far from the camera is stepped every other
+            // frame with both frames' time (the same put-off / catch-up as
+            // above): its particles keep their speed, ages and spawn counts;
+            // it is drawn every frame (its billboards turn with the camera).
+            if (e.p83 && ptcl83::farDist() > 0.0f && eligible && !st.culled && !put79 && !catch79 && e.eye83)
+            {
+                float c2 = 0.0f, r2 = 0.0f;
+                for (int i = 0; i < 3; ++i)
+                {
+                    const float c = 0.5f * (b.lo[i] + b.hi[i]) - e.eye83[i], h = 0.5f * (b.hi[i] - b.lo[i]);
+                    c2 += c * c;
+                    r2 += h * h;
+                }
+                const float d = std::sqrt(c2) - std::sqrt(r2);
+                ++ptcl83::g_nNear[d < 10.0f ? 0 : d < 20.0f ? 1 : d < 40.0f ? 2 : d < 80.0f ? 3 : 4];
+                if (d > ptcl83::farDist() && ((ptcl79::g_frame + (gd >> 4)) & 1u) != 0u)
+                {
+                    put79 = true;
+                    static const uint32_t clocks[3] = {kClockA, kClockB, kClockC};
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        st.pend[k] += fb(READ32(clocks[k]));
+                        st.pendFrames[k] += READ32(clocks[k] + 0xCu);
+                    }
+                    ++st.pendCalls;
+                    ++ptcl83::g_nHalf;
+                }
+            }
+        }
+        if (!e.skipStep && !put79)
+        {
+            const uint64_t t0 = e.pp ? sotc_prof::ticks() : 0u;
+            const bool hidden = s1 != 0u && fb(READ32(static_cast<uint32_t>(s1) + 0x50u)) < 0.0f;
+            static const uint32_t clocks79[3] = {kClockA, kClockB, kClockC};
+            uint32_t saved79[3][4];
+            if (catch79)
+            {
+                // The gathered time and frames in the three clocks for this call.
+                for (int k = 0; k < 3; ++k)
+                {
+                    for (int w = 0; w < 4; ++w)
+                        saved79[k][w] = READ32(clocks79[k] + w * 4u);
+                    const float dt = st79->pend[k] + fb(saved79[k][0]);
+                    WRITE32(clocks79[k], bf(dt));
+                    WRITE32(clocks79[k] + 4u, bf(dt * dt * 0.5f));
+                    WRITE32(clocks79[k] + 0xCu, saved79[k][3] + st79->pendFrames[k]);
+                }
+                ++ptcl79::g_nCatchUp;
+            }
+            call(kGeodisp, 0x0113A4ACu);
+            if (catch79)
+            {
+                for (int k = 0; k < 3; ++k)
+                    for (int w = 0; w < 4; ++w)
+                        WRITE32(clocks79[k] + w * 4u, saved79[k][w]);
+                // (looked up again: nothing in the step writes the map)
+                ptcl79::State &st = ptcl79::g_states[static_cast<uint32_t>(s1)];
+                st.pend[0] = st.pend[1] = st.pend[2] = 0.0f;
+                st.pendFrames[0] = st.pendFrames[1] = st.pendFrames[2] = 0u;
+                st.pendCalls = 0u;
+            }
+            if (e.pp)
+            {
+                const uint64_t dt = sotc_prof::ticks() - t0;
+                if (hidden) { pprof::tHid += dt; ++pprof::nHid; }
+                else { pprof::tVis += dt; ++pprof::nVis; }
+                const uint32_t cls = static_cast<uint32_t>(s1) + 0x20u;
+                uint32_t parts = 0, ems = 0;
+                for (uint32_t node = READ32(cls + 0xE8u); node != 0u && ems < 64u; node = READ32(node + 0x1B0u), ++ems)
+                    parts += READ32(node + 0x10u + 0x124u);
+                if (pprof::frames % 600u == 599u)
+                {
+                    const uint32_t node = READ32(cls + 0xE8u);
+                    char name[24] = "?";
+                    if (node)
+                    {
+                        const uint32_t rec = READ32(node), mr = READ32(rec + 0x48u), nm = mr ? READ32(READ32(mr + 0xD8u) + 0x24u) : 0u;
+                        if (nm && nm < 0x2000000u)
+                            for (int i = 0; i < 23; ++i)
+                                if (!(name[i] = static_cast<char>(READ8(nm + i))))
+                                    break;
+                        name[23] = 0;
+                        const float *pos = reinterpret_cast<const float *>(rdram + ((node + 0x20u) & 0x1FFFFF0u));
+                        std::fprintf(stderr, "[ptcl79] geodisp %08x emitters %u particles %u name %s at %.1f %.1f %.1f step %.3f ms\n", static_cast<uint32_t>(s1), ems, parts, name, pos[0], pos[1], pos[2], dt / 1000.0);
+                    }
+                }
+                const int b = pprof::bucket(parts);
+                pprof::bT[b] += dt;
+                ++pprof::bN[b];
+                pprof::bP[b] += ems;
+            }
+        }
+        SET_GPR_S32(ctx, 4, sp);
+        // Round 83: auto_end_check's common case (the geodisp still has emitters: nothing to free) here.
+        {
+            const uint32_t gd83 = READ32(sp);
+            if (e.p83 && ptcl83::ok(gd83, 0x110u) && rdram[gd83 + 8u] == 0x24u && ptcl83::rw(rdram, gd83 + 0x20u + 0xE8u) != 0u)
+                SET_GPR_U64(ctx, 2, 0u);
+            // Round 91: on the guest worker, a geodisp with no emitter left is
+            // ended as auto_end does (the word at sp cleared, v0 = 1), its
+            // isysDeleteObj kept for the job's end (sotc_worker::deferCall).
+            else if (sotc_worker::onWorker() && ptcl83::ok(gd83, 0x110u) && rdram[gd83 + 8u] == 0x24u && ptcl83::rw(rdram, gd83 + 0x20u + 0xE8u) == 0u &&
+                     sotc_worker::deferCall(jalTarget(rdram, 0x0113F4D0u), 0u, gd83, 0u, 0u, 0u, 0x0113F4D8u))
+            {
+                WRITE32(sp, 0u);
+                SET_GPR_U64(ctx, 2, 1u);
+            }
+            else
+                call(kAutoEnd, 0x0113A4B4u);
+        }
+        return GPR_U64(ctx, 2) != 0u;
+    }
+
+    // After the step loop: round 79's states of geodisps gone, its log.
+    void afterSteps()
+    {
+        if (ptcl79::g_frame % 64u == 0u)
+            for (auto it = ptcl79::g_states.begin(); it != ptcl79::g_states.end();)
+                it = it->second.seen + 8u < ptcl79::g_frame ? ptcl79::g_states.erase(it) : std::next(it);
+        if (ptcl79::params().log && ptcl79::g_frame % 240u == 0u)
+        {
+            std::fprintf(stderr, "[ptcl79] frame %llu: per frame geodisps %.1f (not eligible %.1f), outside %.1f, put off %.1f, caught up %.1f; states %u\n",
+                         (unsigned long long)ptcl79::g_frame, ptcl79::g_nSeen / 240.0, ptcl79::g_nIneligible / 240.0, ptcl79::g_nCulled / 240.0,
+                         ptcl79::g_nSkipped / 240.0, ptcl79::g_nCatchUp / 240.0, static_cast<unsigned>(ptcl79::g_states.size()));
+            ptcl79::g_nSeen = ptcl79::g_nIneligible = ptcl79::g_nCulled = ptcl79::g_nSkipped = ptcl79::g_nCatchUp = 0;
+            std::fprintf(stderr, "[ptcl83] frame %llu: in view by distance <10 %.1f, 10-20 %.1f, 20-40 %.1f, 40-80 %.1f, >80 %.1f; stepped every other frame %.1f\n",
+                         (unsigned long long)ptcl79::g_frame, ptcl83::g_nNear[0] / 240.0, ptcl83::g_nNear[1] / 240.0, ptcl83::g_nNear[2] / 240.0, ptcl83::g_nNear[3] / 240.0,
+                         ptcl83::g_nNear[4] / 240.0, ptcl83::g_nHalf / 240.0);
+            for (auto &n : ptcl83::g_nNear)
+                n = 0;
+            ptcl83::g_nHalf = 0;
+        }
+    }
+
+    // The five layers (s4 = 4 .. 0): each emitter of the layer stepped
+    // (manager_sub_011408E0 into its +0x1a8). list: round 91's job, the
+    // geodisps the step loop saw (those auto_end freed left out), instead of
+    // the group's iteration.
+    void layers(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, bool pp, bool p83, const std::vector<uint32_t> *list,
+                const std::vector<uint32_t> *freed)
+    {
+        auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
+        uint64_t s1 = 0u;
+        auto perGeodisp = [&](int32_t s4, uint64_t s3)
+        {
+            SET_GPR_U64(ctx, 19, s3);
+            SET_GPR_U64(ctx, 4, s3);
+            uint32_t list83;
+            if (p83 && ptcl83::topEmitters(rdram, static_cast<uint32_t>(s3), list83))
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(list83));
+            else
+                call(kTopEmitters, 0x0113A510u);
+            s1 = sx(READ32(GPR_U32(ctx, 2)));
+            SET_GPR_U64(ctx, 17, s1);
+            while (s1 != 0u)
+            {
+                const uint32_t emitter = static_cast<uint32_t>(s1);
+                const uint32_t record = READ32(emitter);
+                SET_GPR_S32(ctx, 3, record);
+                const uint64_t layer = sx(READ32(record + 0x28u));
+                SET_GPR_U64(ctx, 2, layer);
+                if (layer == sx(static_cast<uint32_t>(s4)))
+                {
+                    const uint32_t s0e = emitter + 0x10u;
+                    SET_GPR_S32(ctx, 16, s0e);
+                    SET_GPR_S32(ctx, 5, READ32(record + 0x48u));
+                    SET_GPR_S32(ctx, 4, s0e);
+                    const uint64_t t0 = pp ? sotc_prof::ticks() : 0u;
+                    call(kEmitterStep, 0x0113A53Cu);
+                    if (pp) { pprof::tEmit += sotc_prof::ticks() - t0; ++pprof::nEmit; }
+                    WRITE32(s0e + 0x198u, GPR_U32(ctx, 2));
+                }
+                s1 = sx(READ32(emitter + 0x1B0u));
+                SET_GPR_U64(ctx, 17, s1);
+            }
+        };
+        SET_GPR_S32(ctx, 2, 0x01190000u);
+        WRITE32(kCleared, 0u);
+        for (int32_t s4 = 4; s4 >= 0; --s4)
+        {
+            SET_GPR_S32(ctx, 20, static_cast<uint32_t>(s4));
+            if (list)
+            {
+                for (const uint32_t gd : *list)
+                    if (gd != 0u && std::find(freed->begin(), freed->end(), gd) == freed->end())
+                        perGeodisp(s4, gd);
+                continue;
+            }
+            SET_GPR_S32(ctx, 4, kGroups);
+            SET_GPR_U64(ctx, 5, 0u);
+            call(jalTarget(rdram, kSiteFirst2), 0x0113A4F8u);
+            uint64_t s2 = GPR_U64(ctx, 2), s3 = 0u;
+            SET_GPR_U64(ctx, 18, s2);
+            SET_GPR_U64(ctx, 19, 0u);
+            if (s2 != 0u)
+            {
+                s3 = sx(READ32(static_cast<uint32_t>(s2)));
+                for (;;)
+                {
+                    perGeodisp(s4, s3);
+                    SET_GPR_U64(ctx, 4, s2);
+                    SET_GPR_U64(ctx, 5, 0u);
+                    uint32_t next83;
+                    if (p83 && ptcl83::groupNext(rdram, static_cast<uint32_t>(s2), next83))
+                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(next83));
+                    else
+                        call(jalTarget(rdram, kSiteNext2), 0x0113A558u);
+                    s2 = GPR_U64(ctx, 2);
+                    SET_GPR_U64(ctx, 18, s2);
+                    if (s2 == 0u)
+                        break;
+                    s3 = sx(READ32(static_cast<uint32_t>(s2)));
+                }
+            }
+            SET_GPR_U64(ctx, 4, s3);
+            if (s3 != 0u)
+            {
+                SET_GPR_U64(ctx, 5, 0u);
+                call(jalTarget(rdram, kSiteExit2), 0x0113A574u);
+            }
+        }
+    }
+
+    // ---- Round 91 (SOTC_PTCL91; A/B ptcl91, r91all): the step loop and the
+    // layers on the guest worker (sotc_worker.cpp) ------------------------------
+    // The manager (game thread) does the clocks and the view, then walks the
+    // geodisp group as before (isysGroupForFirst / Next / Exit, the entries'
+    // counts) and hands the list to the worker; the job steps each one,
+    // checks its auto-end and runs the five layers over the same list (those
+    // freed left out), while the game thread goes on (the display walk's
+    // group pass; its particle geodisps wait for the join: decomp_walk.cpp).
+    // Not as the original: the geodisps stepped are the group's at the
+    // manager's call (one created by a step, a sub-effect, is stepped and
+    // drawn from the next frame on; the original stepped it in the same loop
+    // when it was linked behind the cursor); the auto-end frees happen with
+    // the group's iteration finished (the object is deleted at once, not at
+    // the iteration's next step).
+    struct Job91
+    {
+        std::vector<uint32_t> gds, entries, freed; // the geodisps, their group entries (s0 at each step), those freed
+        std::vector<uint32_t> here;               // stepped on the game thread before the hand-over (attached emitters)
+        StepEnv env;
+        uint32_t frame = 0; // the frame for the calls when run on the game thread (mode 3)
+    };
+    Job91 g_job91;
+    uint64_t g_here91 = 0;
+    // Round 91: a geodisp's attached emitters (+0xc4 == 1): 0113AEF8 asks
+    // GetGeometryPointerPosition (a0 = E + 0x10) and, unless 01141080 says
+    // otherwise, GetGeometryPointerQuaternion (a0 = E + 0x20) for the pointer at
+    // E + 0xd0. Both are asked here (the game thread may read the characters'
+    // motion) into the worker's answer area, and the job's calls with that
+    // pointer take the answers (sotc_worker::prepare). Nothing between here and
+    // the step moves what they read (the characters' geometry ran before).
+    // False when there is no room: the geodisp is stepped here.
+    constexpr uint32_t kGeoPos91 = 0x01131D80u, kGeoQuat91 = 0x01132098u;
+    bool prepare91(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, uint32_t gd, uint32_t &answers)
+    {
+        uint32_t need = 0, n = 0;
+        for (uint32_t node = ptcl83::rw(rdram, gd + 0x20u + 0xE8u); node != 0u; node = ptcl83::rw(rdram, node + 0x1B0u))
+        {
+            if (!ptcl83::ok(node, 0x1C0u) || ++n > 64u)
+                return false;
+            need += ptcl83::rw(rdram, node + 0x10u + 0xC4u) == 1u ? 2u : 0u;
+        }
+        if (sotc_worker::prepareOut(answers + need) == 0u)
+            return false;
+        for (uint32_t node = ptcl83::rw(rdram, gd + 0x20u + 0xE8u); node != 0u; node = ptcl83::rw(rdram, node + 0x1B0u))
+        {
+            const uint32_t E = node + 0x10u;
+            if (ptcl83::rw(rdram, E + 0xC4u) != 1u)
+                continue;
+            for (const uint32_t target : {kGeoPos91, kGeoQuat91})
+            {
+                const uint32_t out = sotc_decomp::guestFunction(runtime, target) ? sotc_worker::prepareOut(answers++) : 0u;
+                if (out == 0u)
+                    return false;
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(out));
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(E + 0xD0u));
+                callGuest(rdram, ctx, runtime, target, 0x0113A4ACu, sp);
+                sotc_worker::prepare(target, E + 0xD0u, out);
+            }
+        }
+        return true;
+    }
+    void job91Run(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, Job91 &j)
+    {
+        j.env.eye83 = j.env.eye83 ? j.env.eyeBuf : nullptr;
+        SET_GPR_U64(ctx, 17, 0u);
+        SET_GPR_S32(ctx, 21, 0x01210000u);
+        for (size_t i = 0; i < j.gds.size(); ++i)
+        {
+            SET_GPR_U64(ctx, 16, sx(j.entries[i]));
+            if (stepOne(rdram, ctx, runtime, sp, sx(j.gds[i]), j.env))
+                j.freed.push_back(j.gds[i]);
+        }
+        afterSteps();
+        // The layers over every geodisp of the step loop (those stepped on the game thread first, then the job's).
+        j.gds.insert(j.gds.begin(), j.here.begin(), j.here.end());
+        layers(rdram, ctx, runtime, sp, j.env.pp, j.env.p83, &j.gds, &j.freed);
+    }
+    void job91(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, void *arg)
+    {
+        Job91 &j = *static_cast<Job91 *>(arg);
+        job91Run(rdram, ctx, shell, (GPR_U32(ctx, 29) - 0x50u) & ~0xFu, j);
+    }
+
     void manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const bool pp = pprof::on();
@@ -542,158 +907,44 @@ namespace decomp_hot47e
         ++ptcl79::g_frame;
         const ptcl79::Planes planes79 = p79 ? ptcl79::planesNow(rdram) : ptcl79::Planes{};
         // Every geodisp: its step and the auto-end check.
+        StepEnv env;
+        env.pp = pp;
+        env.skipStep = skipStep;
+        env.p79 = p79;
+        env.p83 = p83;
+        env.planes79 = planes79;
+        if (eye83)
+        {
+            std::memcpy(env.eyeBuf, eye83, sizeof(env.eyeBuf));
+            env.eye83 = env.eyeBuf;
+        }
+        const int mode91 = !skipStep && sotc_decomp::ptcl91On() ? sotc_decomp::ptcl91Mode() : 0;
         uint64_t s1 = 0u;
         SET_GPR_S32(ctx, 4, kGroups);
         SET_GPR_U64(ctx, 5, 0u);
         call(jalTarget(rdram, kSiteFirst1), 0x0113A48Cu);
         uint64_t s0 = GPR_U64(ctx, 2);
         SET_GPR_U64(ctx, 16, s0);
+        if (mode91 >= 1 && mode91 <= 3)
+        {
+            g_job91.gds.clear();
+            g_job91.entries.clear();
+            g_job91.here.clear();
+        }
         if (s0 != 0u)
         {
             s1 = sx(READ32(static_cast<uint32_t>(s0)));
             for (;;)
             {
-                SET_GPR_U64(ctx, 17, s1);
-                SET_GPR_U64(ctx, 4, s1);
-                WRITE32(sp + 0u, static_cast<uint32_t>(s1));
-                // Round 79: put off when wholly outside the view (see ptcl79).
-                bool put79 = false, catch79 = false;
-                ptcl79::State *st79 = nullptr;
-                if (!skipStep && s1 != 0u && (p79 || !ptcl79::g_states.empty()))
+                if (mode91 >= 1 && mode91 <= 3)
                 {
-                    const uint32_t gd = static_cast<uint32_t>(s1);
-                    ptcl79::State &st = ptcl79::g_states[gd];
-                    ptcl79::Bounds b;
-                    uint32_t sig = 0;
-                    const float pendTime = st.pend[0];
-                    const bool eligible = ptcl79::bounds(rdram, gd, pendTime, b, sig) && p79;
-                    if (st.seen != 0u && st.sig != sig)
-                        st = ptcl79::State{}; // another geodisp at that address
-                    st.sig = sig;
-                    st.seen = ptcl79::g_frame;
-                    const bool out = eligible && ptcl79::outside(planes79, b);
-                    st.culled = out && st.outPrev;
-                    st.outPrev = out;
-                    ++ptcl79::g_nSeen;
-                    ptcl79::g_nIneligible += !eligible;
-                    ptcl79::g_nCulled += st.culled;
-                    if (st.culled && st.pend[0] + fb(READ32(kClockA)) < ptcl79::params().off)
-                    {
-                        put79 = true;
-                        static const uint32_t clocks[3] = {kClockA, kClockB, kClockC};
-                        for (int k = 0; k < 3; ++k)
-                        {
-                            st.pend[k] += fb(READ32(clocks[k]));
-                            st.pendFrames[k] += READ32(clocks[k] + 0xCu);
-                        }
-                        ++st.pendCalls;
-                        ++ptcl79::g_nSkipped;
-                    }
-                    else if (st.pendCalls != 0u)
-                        catch79 = true;
-                    st79 = &st;
-                    // Round 83 (SOTC_PTCL83_FAR, units; 0 off): a system in view whose
-                    // nearest point is that far from the camera is stepped every other
-                    // frame with both frames' time (the same put-off / catch-up as
-                    // above): its particles keep their speed, ages and spawn counts;
-                    // it is drawn every frame (its billboards turn with the camera).
-                    if (p83 && ptcl83::farDist() > 0.0f && eligible && !st.culled && !put79 && !catch79 && eye83)
-                    {
-                        float c2 = 0.0f, r2 = 0.0f;
-                        for (int i = 0; i < 3; ++i)
-                        {
-                            const float c = 0.5f * (b.lo[i] + b.hi[i]) - eye83[i], h = 0.5f * (b.hi[i] - b.lo[i]);
-                            c2 += c * c;
-                            r2 += h * h;
-                        }
-                        const float d = std::sqrt(c2) - std::sqrt(r2);
-                        ++ptcl83::g_nNear[d < 10.0f ? 0 : d < 20.0f ? 1 : d < 40.0f ? 2 : d < 80.0f ? 3 : 4];
-                        if (d > ptcl83::farDist() && ((ptcl79::g_frame + (gd >> 4)) & 1u) != 0u)
-                        {
-                            put79 = true;
-                            static const uint32_t clocks[3] = {kClockA, kClockB, kClockC};
-                            for (int k = 0; k < 3; ++k)
-                            {
-                                st.pend[k] += fb(READ32(clocks[k]));
-                                st.pendFrames[k] += READ32(clocks[k] + 0xCu);
-                            }
-                            ++st.pendCalls;
-                            ++ptcl83::g_nHalf;
-                        }
-                    }
+                    // Round 91: the list for the job (the step and the auto-end check there).
+                    SET_GPR_U64(ctx, 17, s1);
+                    g_job91.gds.push_back(static_cast<uint32_t>(s1));
+                    g_job91.entries.push_back(static_cast<uint32_t>(s0));
                 }
-                if (!skipStep && !put79)
-                {
-                    const uint64_t t0 = pp ? sotc_prof::ticks() : 0u;
-                    const bool hidden = s1 != 0u && fb(READ32(static_cast<uint32_t>(s1) + 0x50u)) < 0.0f;
-                    static const uint32_t clocks79[3] = {kClockA, kClockB, kClockC};
-                    uint32_t saved79[3][4];
-                    if (catch79)
-                    {
-                        // The gathered time and frames in the three clocks for this call.
-                        for (int k = 0; k < 3; ++k)
-                        {
-                            for (int w = 0; w < 4; ++w)
-                                saved79[k][w] = READ32(clocks79[k] + w * 4u);
-                            const float dt = st79->pend[k] + fb(saved79[k][0]);
-                            WRITE32(clocks79[k], bf(dt));
-                            WRITE32(clocks79[k] + 4u, bf(dt * dt * 0.5f));
-                            WRITE32(clocks79[k] + 0xCu, saved79[k][3] + st79->pendFrames[k]);
-                        }
-                        ++ptcl79::g_nCatchUp;
-                    }
-                    call(kGeodisp, 0x0113A4ACu);
-                    if (catch79)
-                    {
-                        for (int k = 0; k < 3; ++k)
-                            for (int w = 0; w < 4; ++w)
-                                WRITE32(clocks79[k] + w * 4u, saved79[k][w]);
-                        // (looked up again: nothing in the step writes the map)
-                        ptcl79::State &st = ptcl79::g_states[static_cast<uint32_t>(s1)];
-                        st.pend[0] = st.pend[1] = st.pend[2] = 0.0f;
-                        st.pendFrames[0] = st.pendFrames[1] = st.pendFrames[2] = 0u;
-                        st.pendCalls = 0u;
-                    }
-                    if (pp)
-                    {
-                        const uint64_t dt = sotc_prof::ticks() - t0;
-                        if (hidden) { pprof::tHid += dt; ++pprof::nHid; }
-                        else { pprof::tVis += dt; ++pprof::nVis; }
-                        const uint32_t cls = static_cast<uint32_t>(s1) + 0x20u;
-                        uint32_t parts = 0, ems = 0;
-                        for (uint32_t node = READ32(cls + 0xE8u); node != 0u && ems < 64u; node = READ32(node + 0x1B0u), ++ems)
-                            parts += READ32(node + 0x10u + 0x124u);
-                        if (pprof::frames % 600u == 599u)
-                        {
-                            const uint32_t node = READ32(cls + 0xE8u);
-                            char name[24] = "?";
-                            if (node)
-                            {
-                                const uint32_t rec = READ32(node), mr = READ32(rec + 0x48u), nm = mr ? READ32(READ32(mr + 0xD8u) + 0x24u) : 0u;
-                                if (nm && nm < 0x2000000u)
-                                    for (int i = 0; i < 23; ++i)
-                                        if (!(name[i] = static_cast<char>(READ8(nm + i))))
-                                            break;
-                                name[23] = 0;
-                                const float *pos = reinterpret_cast<const float *>(rdram + ((node + 0x20u) & 0x1FFFFF0u));
-                                std::fprintf(stderr, "[ptcl79] geodisp %08x emitters %u particles %u name %s at %.1f %.1f %.1f step %.3f ms\n", static_cast<uint32_t>(s1), ems, parts, name, pos[0], pos[1], pos[2], dt / 1000.0);
-                            }
-                        }
-                        const int b = pprof::bucket(parts);
-                        pprof::bT[b] += dt;
-                        ++pprof::bN[b];
-                        pprof::bP[b] += ems;
-                    }
-                }
-                SET_GPR_S32(ctx, 4, sp);
-                // Round 83: auto_end_check's common case (the geodisp still has emitters: nothing to free) here.
-                {
-                    const uint32_t gd83 = READ32(sp);
-                    if (p83 && ptcl83::ok(gd83, 0x110u) && rdram[gd83 + 8u] == 0x24u && ptcl83::rw(rdram, gd83 + 0x20u + 0xE8u) != 0u)
-                        SET_GPR_U64(ctx, 2, 0u);
-                    else
-                        call(kAutoEnd, 0x0113A4B4u);
-                }
+                else
+                    stepOne(rdram, ctx, runtime, sp, s1, env);
                 SET_GPR_U64(ctx, 4, s0);
                 SET_GPR_U64(ctx, 5, 0u);
                 uint32_t next83;
@@ -715,90 +966,70 @@ namespace decomp_hot47e
             SET_GPR_U64(ctx, 5, 0u);
             call(jalTarget(rdram, kSiteExit1), 0x0113A4DCu);
         }
-
-        if (ptcl79::g_frame % 64u == 0u)
-            for (auto it = ptcl79::g_states.begin(); it != ptcl79::g_states.end();)
-                it = it->second.seen + 8u < ptcl79::g_frame ? ptcl79::g_states.erase(it) : std::next(it);
-        if (ptcl79::params().log && ptcl79::g_frame % 240u == 0u)
+        if (mode91 >= 1 && mode91 <= 3)
         {
-            std::fprintf(stderr, "[ptcl79] frame %llu: per frame geodisps %.1f (not eligible %.1f), outside %.1f, put off %.1f, caught up %.1f; states %u\n",
-                         (unsigned long long)ptcl79::g_frame, ptcl79::g_nSeen / 240.0, ptcl79::g_nIneligible / 240.0, ptcl79::g_nCulled / 240.0,
-                         ptcl79::g_nSkipped / 240.0, ptcl79::g_nCatchUp / 240.0, static_cast<unsigned>(ptcl79::g_states.size()));
-            ptcl79::g_nSeen = ptcl79::g_nIneligible = ptcl79::g_nCulled = ptcl79::g_nSkipped = ptcl79::g_nCatchUp = 0;
-            std::fprintf(stderr, "[ptcl83] frame %llu: in view by distance <10 %.1f, 10-20 %.1f, 20-40 %.1f, 40-80 %.1f, >80 %.1f; stepped every other frame %.1f\n",
-                         (unsigned long long)ptcl79::g_frame, ptcl83::g_nNear[0] / 240.0, ptcl83::g_nNear[1] / 240.0, ptcl83::g_nNear[2] / 240.0, ptcl83::g_nNear[3] / 240.0,
-                         ptcl83::g_nNear[4] / 240.0, ptcl83::g_nHalf / 240.0);
-            for (auto &n : ptcl83::g_nNear)
-                n = 0;
-            ptcl83::g_nHalf = 0;
-        }
-        // The five layers (s4 = 4 .. 0): each emitter of the layer stepped.
-        SET_GPR_S32(ctx, 2, 0x01190000u);
-        WRITE32(kCleared, 0u);
-        for (int32_t s4 = 4; s4 >= 0; --s4)
-        {
-            SET_GPR_S32(ctx, 20, static_cast<uint32_t>(s4));
-            SET_GPR_S32(ctx, 4, kGroups);
-            SET_GPR_U64(ctx, 5, 0u);
-            call(jalTarget(rdram, kSiteFirst2), 0x0113A4F8u);
-            uint64_t s2 = GPR_U64(ctx, 2), s3 = 0u;
-            SET_GPR_U64(ctx, 18, s2);
-            SET_GPR_U64(ctx, 19, 0u);
-            if (s2 != 0u)
+            Job91 &j = g_job91;
+            j.freed.clear();
+            j.env = env;
+            j.frame = sp;
+            // The geodisps with an emitter attached to a geometry pointer (its
+            // +0xc4 == 1: 0113AEF8 asks GetGeometryPointerPosition /
+            // Quaternion for a character's node, a collision surface, cloth)
+            // are stepped here first: those queries read the characters'
+            // motion, which only the game thread may touch; the job takes the
+            // rest (the order of the geodisps' steps is not the group's then).
+            if (mode91 != 3)
             {
-                s3 = sx(READ32(static_cast<uint32_t>(s2)));
-                for (;;)
+                size_t keep = 0;
+                uint32_t answers = 0;
+                for (size_t i = 0; i < j.gds.size(); ++i)
                 {
-                    SET_GPR_U64(ctx, 19, s3);
-                    SET_GPR_U64(ctx, 4, s3);
-                    uint32_t list83;
-                    if (p83 && ptcl83::topEmitters(rdram, static_cast<uint32_t>(s3), list83))
-                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(list83));
-                    else
-                        call(kTopEmitters, 0x0113A510u);
-                    s1 = sx(READ32(GPR_U32(ctx, 2)));
-                    SET_GPR_U64(ctx, 17, s1);
-                    while (s1 != 0u)
+                    const uint32_t gd = j.gds[i];
+                    bool attached = false;
+                    if (gd != 0u && ptcl83::ok(gd, 0x110u) && rdram[gd + 8u] == 0x24u)
                     {
-                        const uint32_t emitter = static_cast<uint32_t>(s1);
-                        const uint32_t record = READ32(emitter);
-                        SET_GPR_S32(ctx, 3, record);
-                        const uint64_t layer = sx(READ32(record + 0x28u));
-                        SET_GPR_U64(ctx, 2, layer);
-                        if (layer == sx(static_cast<uint32_t>(s4)))
-                        {
-                            const uint32_t s0e = emitter + 0x10u;
-                            SET_GPR_S32(ctx, 16, s0e);
-                            SET_GPR_S32(ctx, 5, READ32(record + 0x48u));
-                            SET_GPR_S32(ctx, 4, s0e);
-                            const uint64_t t0 = pp ? sotc_prof::ticks() : 0u;
-                            call(kEmitterStep, 0x0113A53Cu);
-                            if (pp) { pprof::tEmit += sotc_prof::ticks() - t0; ++pprof::nEmit; }
-                            WRITE32(s0e + 0x198u, GPR_U32(ctx, 2));
-                        }
-                        s1 = sx(READ32(emitter + 0x1B0u));
-                        SET_GPR_U64(ctx, 17, s1);
+                        uint32_t n = 0;
+                        for (uint32_t node = ptcl83::rw(rdram, gd + 0x20u + 0xE8u); node != 0u && !attached; node = ptcl83::rw(rdram, node + 0x1B0u))
+                            attached = !ptcl83::ok(node, 0x1C0u) || ++n > 64u || ptcl83::rw(rdram, node + 0x10u + 0xC4u) == 1u;
                     }
-                    SET_GPR_U64(ctx, 4, s2);
-                    SET_GPR_U64(ctx, 5, 0u);
-                    uint32_t next83;
-                    if (p83 && ptcl83::groupNext(rdram, static_cast<uint32_t>(s2), next83))
-                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(next83));
+                    if (attached && prepare91(rdram, ctx, runtime, sp, gd, answers))
+                        attached = false; // its emitters' positions and turns asked here: the job's
+                    if (attached)
+                    {
+                        SET_GPR_U64(ctx, 16, sx(j.entries[i]));
+                        if (stepOne(rdram, ctx, runtime, sp, sx(gd), env))
+                            j.freed.push_back(gd);
+                        j.here.push_back(gd);
+                        ++g_here91;
+                    }
                     else
-                        call(jalTarget(rdram, kSiteNext2), 0x0113A558u);
-                    s2 = GPR_U64(ctx, 2);
-                    SET_GPR_U64(ctx, 18, s2);
-                    if (s2 == 0u)
-                        break;
-                    s3 = sx(READ32(static_cast<uint32_t>(s2)));
+                    {
+                        j.gds[keep] = gd;
+                        j.entries[keep] = j.entries[i];
+                        ++keep;
+                    }
+                }
+                j.gds.resize(keep);
+                j.entries.resize(keep);
+                static uint64_t calls = 0, jobGds = 0;
+                jobGds += keep;
+                if (++calls % 600u == 0u)
+                {
+                    std::fprintf(stderr, "[ptcl91] %llu calls: geodisps a frame %.1f on the worker, %.1f on the game thread (attached emitters)\n",
+                                 (unsigned long long)calls, jobGds / 600.0, g_here91 / 600.0);
+                    jobGds = g_here91 = 0;
                 }
             }
-            SET_GPR_U64(ctx, 4, s3);
-            if (s3 != 0u)
-            {
-                SET_GPR_U64(ctx, 5, 0u);
-                call(jalTarget(rdram, kSiteExit2), 0x0113A574u);
-            }
+            const bool kicked = mode91 != 3 && sotc_worker::kick(rdram, runtime, *ctx, job91, &j);
+            if (!kicked)
+                job91Run(rdram, ctx, runtime, sp, j);
+            else if (mode91 == 2)
+                sotc_worker::join(sotc_worker::kSiteKick);
+        }
+        else
+        {
+            afterSteps();
+            layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
         }
         SET_GPR_S32(ctx, 20, 0xFFFFFFFFu);
         SET_GPR_S32(ctx, 4, kGroups);
@@ -1061,6 +1292,11 @@ namespace decomp_hot47e
 
 namespace sotc_decomp
 {
+    bool ptcl91Freed(uint32_t object)
+    {
+        const std::vector<uint32_t> &f = decomp_hot47e::g_job91.freed;
+        return std::find(f.begin(), f.end(), object) != f.end();
+    }
     bool ptcl79Culled(uint32_t object)
     {
         if (!ptcl79On())

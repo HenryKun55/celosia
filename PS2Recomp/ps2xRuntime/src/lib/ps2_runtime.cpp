@@ -1849,6 +1849,13 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t *rdram,
 {
     ctx->pc = targetPc;
     const bool isCall = (kind == GuestBranchKind::DirectCall || kind == GuestBranchKind::IndirectCall);
+    if (ps2_worker::isShell(this)) // round 91: the worker thread (sotc_worker.cpp)
+    {
+        if (isCall)
+            return ps2_worker::g_hooks.call(this, rdram, ctx, targetPc, fallthroughPc);
+        ++m_guestJumpSerial;
+        return false; // pc on the target: the worker's loops go on from there
+    }
 
     // Every inter-function transfer is also a deterministic EE safe point.
     // Backward edges inside generated functions use eeCheckpointDue(), while
@@ -1903,6 +1910,8 @@ bool PS2Runtime::dispatchGuestBranch(uint8_t *rdram,
 bool PS2Runtime::callGuestSlow(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
                                uint32_t sourcePc, GuestBranchKind kind, const char *debugName)
 {
+    if (ps2_worker::isShell(this)) // round 91: every call of the worker thread (sotc_worker.cpp)
+        return ps2_worker::g_hooks.call(this, rdram, ctx, target, returnPc);
     // No function there (reported by dispatchGuestBranch), or the fast paths
     // are off (PS2X_DIRECT_DISPATCH=0).
     if (!m_directDispatch || !guestFunctionAt(target))
@@ -1913,8 +1922,10 @@ bool PS2Runtime::callGuestSlow(uint8_t *rdram, R5900Context *ctx, uint32_t targe
     return false;
 }
 
-void PS2Runtime::jumpGuestSlow(RecompiledFunction fn)
+void PS2Runtime::jumpGuestSlow(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx)
 {
+    if (ps2_worker::isShell(this)) // round 91: every jump of the worker thread (sotc_worker.cpp)
+        return ps2_worker::g_hooks.jump(this, rdram, ctx, fn, ctx->pc);
     // jumpGuestFn's cases off its fast path, in the order it had them: no
     // function or the fast paths off (ctx->pc left on the target for the
     // scheduler), then the checkpoint, then the host stack's floor.
@@ -1960,6 +1971,8 @@ void PS2Runtime::SignalException(R5900Context *ctx, PS2Exception exception)
 
 void PS2Runtime::executeVU0Microprogram(uint8_t *rdram, R5900Context *ctx, uint32_t address)
 {
+    if (ps2_worker::isShell(this)) // round 91: the VU0 interpreter is the game thread's
+        return ps2_worker::g_hooks.fault(this, rdram, ctx, "VU0 microprogram");
     (void)rdram;
 
     uint8_t *const vu0Code = m_memory.getVU0Code();
@@ -2002,6 +2015,8 @@ void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx)
 
 void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encodedSyscallId)
 {
+    if (ps2_worker::isShell(this)) // round 91: the kernel is the game thread's
+        return ps2_worker::g_hooks.fault(this, rdram, ctx, "syscall");
     if (ctx->in_delay_slot)
     {
         throw std::runtime_error("Attempted to execute a syscall inside a branch delay slot! "
@@ -2038,6 +2053,8 @@ void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encod
 
 void PS2Runtime::handleBreak(uint8_t *rdram, R5900Context *ctx)
 {
+    if (ps2_worker::isShell(this)) // round 91
+        return ps2_worker::g_hooks.fault(this, rdram, ctx, "break");
     raiseCop0Exception(ctx, EXCEPTION_BREAKPOINT);
 }
 
@@ -2784,6 +2801,11 @@ void PS2Runtime::postEeEvent(EeEvent event)
 
 bool PS2Runtime::eeCheckpointSlow() noexcept
 {
+    if (ps2_worker::isShell(this)) // round 91: the worker's clock has no scheduler (its gate is not reached)
+    {
+        m_eeClock.run = 0;
+        return false;
+    }
     return m_eeScheduler->checkpointSlow();
 }
 
