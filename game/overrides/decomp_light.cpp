@@ -1344,6 +1344,37 @@ namespace decomp_light
             }
         }
 
+        // Round 95 (join95): the display walk's particle geodisps, held back
+        // while the guest worker steps them, joined and put in the list here,
+        // after the layout objects' light callbacks; then their own callbacks
+        // (the same branch as above, in the order the walk returns them).
+        if (const sotc_decomp::LightMid95 mid = sotc_decomp::g_lightMid95)
+        {
+            sotc_decomp::g_lightMid95 = nullptr;
+            static std::vector<uint32_t> nodes;
+            nodes.clear();
+            const float fs0 = ctx->f[0], fs1 = ctx->f[1], fs2 = ctx->f[2];
+            const uint32_t fcr = ctx->fcr31;
+            mid(rdram, ctx, runtime, frame, nodes);
+            ctx->f[0] = fs0;
+            ctx->f[1] = fs1;
+            ctx->f[2] = fs2;
+            ctx->fcr31 = fcr;
+            for (const uint32_t obj : nodes)
+            {
+                const uint32_t id = m.u32(obj);
+                const uint32_t geo = rdram[(id + 8u) & PS2_RAM_MASK] == 0x24u ? id + 32u : 0u; // GetGeoDispClass
+                uint32_t callback;
+                if (geo != 0u && (callback = m.u32(geo + 224u)) != 0u)
+                {
+                    SET_GPR_U32(ctx, 4, id);
+                    SET_GPR_U32(ctx, 5, obj);
+                    if (!(callback == 0x0113F600u && sotc_decomp::walk83ParticleLight(rdram, ctx, runtime, id, frame, 0x010F5074u + 8u)))
+                        call(callback, 0x010F5074u);
+                }
+            }
+        }
+
         sotc_decomp::walk83LightEnd();
 
         // The layout objects' own lights (010F4A18) and their scale.

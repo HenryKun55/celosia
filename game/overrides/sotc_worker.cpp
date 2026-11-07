@@ -104,6 +104,14 @@ namespace sotc_worker
         };
         constexpr int kModuleCount = sizeof(kModuleEntries) / sizeof(kModuleEntries[0]);
         constexpr uint32_t kDispParticleManager = 0x0113F220u; // called after the job (callAfterJob), not joined
+        // Round 95: set_npe_blend_ratio_particle_emitter (a1 the emitter's handle,
+        // f12 the ratio into its +0x16c; v0 1 when found): the console's run
+        // joined here in 293 of 480 jobs (a dissolve geodisp's update in the
+        // walk's group pass tail-jumps to it), waiting 4.6 ms. Called after the
+        // job instead, on the worker: the step it would follow in the original
+        // order has run by then; v0 = 1 (its callers do not read it).
+        constexpr uint32_t kSetBlendRatio = 0x0113F878u;
+        bool afterJobF(uint32_t target, uint32_t ra, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, float f12);
 
         // Pure functions outside the module, [entry, next function): they read
         // and write only their arguments, the context's registers, the
@@ -158,6 +166,8 @@ namespace sotc_worker
             {0x001E0010u, 0x001E00E8u}, // floorf
             {0x001E00E8u, 0x001E01B0u}, // scalbnf
             {0x001E01B0u, 0x001E01F0u}, // copysignf
+            {0x01087260u, 0x01087300u}, // clipBySphere (round 95: the clip's emitter bounds; the camera context's matrices, VU0 and its clip flags the context's)
+            {0x01087498u, 0x010874E8u}, // getZ (round 95: a point through a view matrix, vf24-vf28 the context's)
             {0x0108F518u, 0x0108F530u}, // iosgluGetCameraContext (sotc_native's hook notes the same address again)
             {0x010ED688u, 0x010ED6A8u}, // GetGeoDispClass
             // An attached emitter's position / turn: their own code is a switch
@@ -239,6 +249,7 @@ namespace sotc_worker
         struct After
         {
             uint32_t target, ra, a[4];
+            float f12;
         };
         std::vector<After> g_after;
         std::atomic<bool> g_busy{false}; // the game thread's view: kicked, not joined
@@ -246,7 +257,7 @@ namespace sotc_worker
         thread_local bool t_onWorker = false, t_exclusive = false;
 
         // Statistics (the game thread's, but g_parkAt / g_parkUs / g_jobUs: the worker's, read at the join).
-        uint64_t g_jobs = 0, g_refused = 0, g_parks = 0, g_joinWaits = 0, g_joinWaitUs = 0, g_jobUsSum = 0, g_parkUsSum = 0, g_afterCalls = 0;
+        uint64_t g_startLatUs = 0, g_jobs = 0, g_refused = 0, g_parks = 0, g_joinWaits = 0, g_joinWaitUs = 0, g_jobUsSum = 0, g_parkUsSum = 0, g_afterCalls = 0;
         uint64_t g_siteJoins[kSiteCount] = {}, g_siteWaitUs[kSiteCount] = {};
         uint64_t g_kickUs = 0, g_jobStartUs = 0, g_parkStartUs = 0, g_jobUs = 0, g_parkAtUs = 0;
         bool g_jobParked = false;
@@ -487,6 +498,7 @@ namespace sotc_worker
                     lock.unlock();
                     for (int i = 0; i < 4; ++i)
                         SET_GPR_S32(ctx, 4 + i, static_cast<int32_t>(a.a[i]));
+                    ctx->f[12] = a.f12;
                     sotc_decomp::callGuest(g_rdram, ctx, g_shell, a.target, a.ra, g_stackTop - 0x100u);
                     lock.lock();
                 }
@@ -541,13 +553,31 @@ namespace sotc_worker
 
         // ---- the game thread's joins at the module's entries -------------------
         PS2Runtime::RecompiledFunction g_orig[kModuleCount] = {};
+        bool g_gated = false;     // round 95: the module entries are wrapped (install ran)
+        bool g_walked = false;    // round 95: the display walk ran this frame (noteWalk; cleared at the frame's end)
+        int g_lastJoinSite = -1;  // round 95: unused bookkeeping
+        uint64_t g_frameJoins = 0;
+        uint32_t g_skipEntry = 0; // round 95 (early95): the game thread's next call of this entry returns at once
         template <int I>
         void gate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
+            if (g_skipEntry == kModuleEntries[I] && !t_onWorker)
+            {
+                g_skipEntry = 0;
+                ctx->pc = GPR_U32(ctx, 31);
+                return;
+            }
             if (g_busy.load(std::memory_order_relaxed) && !t_onWorker)
             {
+                if (kModuleEntries[I] == kSetBlendRatio &&
+                    afterJobF(kSetBlendRatio, GPR_U32(ctx, 31), GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), ctx->f[12]))
+                {
+                    SET_GPR_S32(ctx, 2, 1);
+                    ctx->pc = GPR_U32(ctx, 31);
+                    return;
+                }
                 if (kModuleEntries[I] == kDispParticleManager &&
-                    callAfterJob(kDispParticleManager, GPR_U32(ctx, 31), GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7)))
+                    afterJobF(kDispParticleManager, GPR_U32(ctx, 31), GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), ctx->f[12]))
                 {
                     // disp_particle_manager (the particles' screen matrix,
                     // from the camera context) after the job, on the worker.
@@ -596,7 +626,19 @@ namespace sotc_worker
     }
 
     bool onWorker() { return t_onWorker; }
+    void skipEntryOnce(uint32_t entry) { g_skipEntry = entry; }
+    bool gated() { return g_gated; }
+    bool skipPending() { return g_skipEntry != 0u; }
+    void noteWalk() { g_walked = true; }
+    bool walked() { return g_walked; }
     bool busy() { return g_busy.load(std::memory_order_relaxed); }
+    bool done()
+    {
+        if (!g_busy.load(std::memory_order_relaxed) || t_onWorker)
+            return false;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        return g_phase == kDone;
+    }
     uint32_t stackTop() { return g_stackTop; }
 
     bool kick(uint8_t *rdram, PS2Runtime *runtime, const R5900Context &from, Job job, void *arg)
@@ -667,6 +709,7 @@ namespace sotc_worker
         g_joinWaits += waited;
         g_joinWaitUs += wait;
         g_jobUsSum += g_jobUs;
+        g_startLatUs += g_jobStartUs > g_kickUs ? g_jobStartUs - g_kickUs : 0u; // round 95: the hand-over's wake-up
         if (g_jobParked)
         {
             ++g_parks;
@@ -691,12 +734,24 @@ namespace sotc_worker
         return true;
     }
 
+    namespace
+    {
+        bool afterJobF(uint32_t target, uint32_t ra, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, float f12)
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            if (g_phase != kRunning)
+                return false;
+            g_after.push_back({target, ra, {a0, a1, a2, a3}, f12});
+            ++g_afterCalls;
+            return true;
+        }
+    }
     bool callAfterJob(uint32_t target, uint32_t ra, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_phase != kRunning)
             return false;
-        g_after.push_back({target, ra, {a0, a1, a2, a3}});
+        g_after.push_back({target, ra, {a0, a1, a2, a3}, 0.0f});
         ++g_afterCalls;
         return true;
     }
@@ -706,6 +761,7 @@ namespace sotc_worker
         if (!wanted())
             return;
         installGates(runtime, std::make_integer_sequence<int, kModuleCount>{});
+        g_gated = runtime.hasFunction(kModuleEntries[0]);
         for (int i = 0; i < 3; ++i)
             if (runtime.hasFunction(kLoaderSites[i]))
             {
@@ -719,12 +775,14 @@ namespace sotc_worker
     void frameTick(uint64_t frame)
     {
         join(kSiteFrame);
+        g_frameJoins += g_lastJoinSite == kSiteFrame ? 1u : 0u;
+        g_walked = false;
         if (++g_frames % 600u != 0u || g_jobs == 0u)
             return;
         const double n = static_cast<double>(g_jobs);
-        std::fprintf(stderr, "[worker91] frame %llu: %llu jobs (%llu refused), job %.3f ms on the worker, parked in %.0f%% (after %.3f ms), "
+        std::fprintf(stderr, "[worker91] frame %llu: %llu jobs (%llu refused), start %.3f ms after the hand-over, job %.3f ms on the worker, parked in %.0f%% (after %.3f ms), "
                              "%llu calls after the job, %llu prepared answers used, %llu calls kept for the end; joins waited %llu (%.3f ms a job):",
-                     (unsigned long long)frame, (unsigned long long)g_jobs, (unsigned long long)g_refused, g_jobUsSum / n / 1000.0, 100.0 * g_parks / n,
+                     (unsigned long long)frame, (unsigned long long)g_jobs, (unsigned long long)g_refused, g_startLatUs / n / 1000.0, g_jobUsSum / n / 1000.0, 100.0 * g_parks / n,
                      g_parks ? g_parkUsSum / static_cast<double>(g_parks) / 1000.0 : 0.0, (unsigned long long)g_afterCalls, (unsigned long long)g_answered, (unsigned long long)g_keptCalls,
                      (unsigned long long)g_joinWaits, g_joinWaitUs / n / 1000.0);
         for (int s = 0; s < kSiteCount; ++s)
@@ -745,6 +803,7 @@ namespace sotc_worker
         for (size_t i = 0; i < causes.size() && i < 6u; ++i)
             std::fprintf(stderr, " %08x x%llu", causes[i].second, (unsigned long long)causes[i].first);
         std::fprintf(stderr, "\n");
+        g_startLatUs = 0;
         g_jobs = g_refused = g_parks = g_joinWaits = g_joinWaitUs = g_jobUsSum = g_parkUsSum = g_afterCalls = g_answered = g_keptCalls = 0;
         for (int s = 0; s < kSiteCount; ++s)
             g_siteJoins[s] = g_siteWaitUs[s] = 0;

@@ -711,10 +711,13 @@ namespace decomp_hot47e
     {
         std::vector<uint32_t> gds, entries, freed; // the geodisps, their group entries (s0 at each step), those freed
         std::vector<uint32_t> here;               // stepped on the game thread before the hand-over (attached emitters)
+        std::vector<uint32_t> clipped;            // round 95: their clip run by the job (clip_particle_geodisp)
+        bool clip95 = false;                      // round 95 (join95): the job runs the geodisps' clip after the layers
         StepEnv env;
         uint32_t frame = 0; // the frame for the calls when run on the game thread (mode 3)
     };
     Job91 g_job91;
+    bool g_early95 = false; // round 95: the manager is being called at the camera manager's entry (its job then runs no clip)
     uint64_t g_here91 = 0;
     // Round 91: a geodisp's attached emitters (+0xc4 == 1): 0113AEF8 asks
     // GetGeometryPointerPosition (a0 = E + 0x10) and, unless 01141080 says
@@ -725,6 +728,7 @@ namespace decomp_hot47e
     // the step moves what they read (the characters' geometry ran before).
     // False when there is no room: the geodisp is stepped here.
     constexpr uint32_t kGeoPos91 = 0x01131D80u, kGeoQuat91 = 0x01132098u;
+    constexpr uint32_t kClip95 = 0x0113F530u; // clip_particle_geodisp (the particle geodisps' class update)
     bool prepare91(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, uint32_t gd, uint32_t &answers)
     {
         uint32_t need = 0, n = 0;
@@ -769,6 +773,24 @@ namespace decomp_hot47e
         // The layers over every geodisp of the step loop (those stepped on the game thread first, then the job's).
         j.gds.insert(j.gds.begin(), j.here.begin(), j.here.end());
         layers(rdram, ctx, runtime, sp, j.env.pp, j.env.p83, &j.gds, &j.freed);
+        // Round 95 (join95): each live geodisp's clip (its class's update,
+        // clip_particle_geodisp 0113F530: its first emitter's position through
+        // the camera's view matrix into the sort key +0x20 / +0x24 / +0x28 and
+        // the shown flag +0x30), which the display walk's group pass would
+        // call: it reads only what the step just wrote and the camera, which
+        // nothing moves before the walk. The walk leaves those out.
+        if (j.clip95)
+            for (const uint32_t gd : j.gds)
+            {
+                if (gd == 0u || !ptcl83::ok(gd, 0x110u) || rdram[gd + 8u] != 0x24u ||
+                    std::find(j.freed.begin(), j.freed.end(), gd) != j.freed.end())
+                    continue;
+                if (ptcl83::rw(rdram, gd + 0x20u + 0xD8u) != kClip95)
+                    continue;
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(gd));
+                callGuest(rdram, ctx, runtime, kClip95, 0x010F55E0u, sp);
+                j.clipped.push_back(gd);
+            }
     }
     void job91(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, void *arg)
     {
@@ -970,6 +992,8 @@ namespace decomp_hot47e
         {
             Job91 &j = g_job91;
             j.freed.clear();
+            j.clipped.clear();
+            j.clip95 = mode91 == 1 && sotc_decomp::join95On() && !g_early95;
             j.env = env;
             j.frame = sp;
             // The geodisps with an emitter attached to a geometry pointer (its
@@ -1044,6 +1068,64 @@ namespace decomp_hot47e
         SET_GPR_U64(ctx, 31, ra);
         SET_GPR_U64(ctx, 29, entrySp);
         ctx->pc = static_cast<uint32_t>(ra);
+    }
+
+    // ---- Round 95 (SOTC_EARLY95=1, default off): the particle manager at the
+    // camera manager's entry -----------------------------------------------------
+    // The frame's tasks run the camera (task 013451C0: doit_cameraman_manager),
+    // the camera finalizer, 01345390, then the particle task (01345110:
+    // ptclmanFrameInit, then doit_particle_manager(0x1465880, 0x1465890,
+    // GAMEUTIL_get_player_obj(), 01345410(), f12 = *0x14657d0, f13 =
+    // *0x14657c0), disp_particle_manager). Here the manager is called first,
+    // with those arguments, so its job (round 91) is handed to the guest worker
+    // a camera earlier, and its own call later returns at once
+    // (sotc_worker::skipEntryOnce: no join there). Not as the original: the
+    // step reads the camera of the frame before (ptclmanFrameInit's copy, the
+    // planes and eye the manager takes, the camera context while the camera
+    // writes it); the geodisps' clip is left to the walk (the camera final by
+    // then); disp_particle_manager and the draws are where they were.
+    constexpr uint32_t kCameraManager95 = 0x0141D280u, kPlayerObj95 = 0x01343410u, kArg3Getter95 = 0x01345410u, kTaskBlock95 = 0x01465650u;
+
+    uint64_t g_early95Calls = 0;
+    bool g_early95Kicked = false; // an early hand-over since the display walk last asked (sotc_decomp::early95Kicked)
+    void cameraEarly95(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const auto camera = sotc_decomp::recompiled(kCameraManager95);
+        if (sotc_worker::skipPending())
+        {
+            // The manager's own call was not reached since the last early one (its task did not run): no early call now.
+            sotc_worker::skipEntryOnce(0u);
+            return camera(rdram, ctx, runtime);
+        }
+        if (!sotc_decomp::early95On() || !sotc_decomp::ptcl91On() || sotc_decomp::ptcl91Mode() != 1 || !sotc_worker::gated() || sotc_worker::busy() || sotc_worker::walked() ||
+            native_renderer::tuning().sacFxHalf || runtime->guestFunctionAt(kPlayerObj95) == nullptr || runtime->guestFunctionAt(kArg3Getter95) == nullptr)
+            return camera(rdram, ctx, runtime);
+        uint64_t saved[32];
+        for (int r = 0; r < 32; ++r)
+            saved[r] = GPR_U64(ctx, r);
+        const float f12 = ctx->f[12], f13 = ctx->f[13];
+        const uint32_t sp = GPR_U32(ctx, 29) - 0x40u, ra = GPR_U32(ctx, 31);
+        callGuest(rdram, ctx, runtime, kPlayerObj95, ra, sp);
+        const uint64_t a2 = GPR_U64(ctx, 2);
+        callGuest(rdram, ctx, runtime, kArg3Getter95, ra, sp);
+        const uint64_t a3 = GPR_U64(ctx, 2);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(kTaskBlock95 + 0x230u));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(kTaskBlock95 + 0x240u));
+        SET_GPR_U64(ctx, 6, a2);
+        SET_GPR_U64(ctx, 7, a3);
+        ctx->f[12] = fb(READ32(kTaskBlock95 + 0x180u));
+        ctx->f[13] = fb(READ32(kTaskBlock95 + 0x170u));
+        g_early95 = true;
+        g_early95Kicked = true;
+        callGuest(rdram, ctx, runtime, kManager, ra, sp);
+        g_early95 = false;
+        sotc_worker::skipEntryOnce(kManager);
+        ++g_early95Calls;
+        for (int r = 0; r < 32; ++r)
+            SET_GPR_U64(ctx, r, saved[r]);
+        ctx->f[12] = f12;
+        ctx->f[13] = f13;
+        camera(rdram, ctx, runtime);
     }
 
     // ---- get_particle_parameter_blend_doit ----------------------------------
@@ -1297,6 +1379,17 @@ namespace sotc_decomp
         const std::vector<uint32_t> &f = decomp_hot47e::g_job91.freed;
         return std::find(f.begin(), f.end(), object) != f.end();
     }
+    bool early95Kicked()
+    {
+        const bool k = decomp_hot47e::g_early95Kicked;
+        decomp_hot47e::g_early95Kicked = false;
+        return k;
+    }
+    bool ptcl95Clipped(uint32_t object)
+    {
+        const std::vector<uint32_t> &c = decomp_hot47e::g_job91.clipped;
+        return std::find(c.begin(), c.end(), object) != c.end();
+    }
     bool ptcl79Culled(uint32_t object)
     {
         if (!ptcl79On())
@@ -1307,4 +1400,5 @@ namespace sotc_decomp
 }
 
 SOTC_DECOMP_FUNCTION(0x0113A340u, doit_particle_manager, decomp_hot47e::manager);
+SOTC_DECOMP_FUNCTION(0x0141D280u, doit_cameraman_manager_early95, decomp_hot47e::cameraEarly95);
 SOTC_DECOMP_FUNCTION(0x01144F68u, get_particle_parameter_blend_doit, decomp_hot47e::blend);

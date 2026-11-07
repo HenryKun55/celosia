@@ -33,6 +33,18 @@ namespace sotc_worker
     void join(Site site);
     // A job handed over and not joined yet (the game thread's view).
     bool busy();
+    // Round 95 (early95): the game thread's next call of the module entry
+    // `entry` returns at once (it ran earlier this frame), without a join.
+    void skipEntryOnce(uint32_t entry);
+    // Round 95: the module's entries are wrapped (the joins and skipEntryOnce work).
+    bool gated();
+    // Round 95: a skipEntryOnce not reached yet.
+    bool skipPending();
+    // Round 95: the display walk ran this frame (it calls noteWalk; cleared at the frame's end).
+    void noteWalk();
+    bool walked();
+    // Round 95: the job handed over has ended (a join now would not wait); false when none is running.
+    bool done();
     // On the worker thread.
     bool onWorker();
     // The game thread asks for the guest function at `target` to be called

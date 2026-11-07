@@ -73,6 +73,7 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -80,6 +81,7 @@
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 
 namespace decomp_prefetch
 {
@@ -2553,6 +2555,115 @@ namespace decomp_walk
         returnTo(ctx);
     }
 
+    // ---- Round 95 (join95): the particle geodisps held back by the group pass
+    // while the guest worker steps them, joined inside the light pass (after
+    // the layout objects' light callbacks: decomp_light calls late95 there
+    // through sotc_decomp::g_lightMid95), or here when the light pass is not
+    // reached. Each one as the group pass's geodisp branch would have done it
+    // (its clip, unless the job ran it; the shown test; the key), then
+    // straight into the second list, where the copy loop puts every geodisp
+    // (no layout class); the first list is left without them (its chains
+    // already relinked into the second: nothing reads it after the copy).
+    // `nodes` gets the sort nodes added, for their light callbacks. Their
+    // order among equal keys can differ (added last).
+    namespace late95
+    {
+        std::vector<uint32_t> g_deferred;
+        uint64_t g_walks = 0, g_inLight = 0, g_objects = 0, g_waitUs = 0, g_early = 0, g_forced = 0, g_atEnd = 0, g_inDraw = 0, g_earlyWalks = 0;
+        // draw95: each drawn particle geodisp's sort key in the walk before
+        // (the turn its draw is predicted to take in this one: the join is
+        // made no later than that bucket).
+        std::unordered_map<uint32_t, float> g_lastKey;
+        // The bucket AddSortObj (decomp_dl) puts a key in.
+        int32_t bucketOf(const Ram m, uint32_t list, float key)
+        {
+            const int32_t count = m.s32(list + 4u);
+            const int32_t word = FPU_CVT_W_S(FPU_MUL_S(key, m.f32(list + 8u)));
+            int32_t index = word < count ? (word < 0 ? 0 : word) : count - 1;
+            if (m.s32(list + 0xCu) == 1)
+                index = count - index - 1;
+            return index;
+        }
+        int32_t predictedFirst(const Ram m, uint32_t list)
+        {
+            int32_t first = 0x7FFFFFFF;
+            for (const uint32_t obj : g_deferred)
+                if (const auto it = g_lastKey.find(obj); it != g_lastKey.end())
+                    first = std::min(first, bucketOf(m, list, it->second));
+            return first;
+        }
+        void run(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, std::vector<uint32_t> &nodes)
+        {
+            const Ram m{rdram};
+            const auto t0 = std::chrono::steady_clock::now();
+            sotc_worker::join(sotc_worker::kSiteWalk);
+            g_waitUs += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count());
+            static const int invert79 = std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0;
+            for (const uint32_t obj : g_deferred)
+            {
+                if (sotc_decomp::ptcl91Freed(obj))
+                    continue;
+                ++g_objects;
+                const uint32_t gdc = geoDispClass(m, obj);
+                if (gdc == 0u)
+                    continue;
+                if (const uint32_t update = m.u32(gdc + 0xD8u))
+                    if (!sotc_decomp::ptcl95Clipped(obj))
+                    {
+                        SET_GPR_S32(ctx, 4, static_cast<int32_t>(obj));
+                        sotc_decomp::callGuest(rdram, ctx, runtime, update, 0x010F55E0u, sp);
+                    }
+                const float f1 = m.f32(gdc + 0x20u);
+                if (!FPU_C_OLT_S(0.0f, f1))
+                    continue;
+                const float f0 = m.f32(gdc + 0x30u);
+                ctx->f[0] = f0;
+                const bool culled79 = sotc_decomp::ptcl79Culled(obj);
+                const bool draw79 = invert79 == 0 ? !culled79 : invert79 == 1 ? culled79 : false;
+                if (!(FPU_C_OLE_S(0.0f, f0) && draw79))
+                    continue;
+                m.putf(gdc + 4u, f1);
+                // Straight into the second list: the first one's chains were
+                // relinked into the second by its copy loop (adding to it now
+                // would walk the second list's links and could link the node
+                // twice: a cycle, the hang p1 met).
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(gdc));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(kSortList2)));
+                sotc_decomp::callGuest(rdram, ctx, runtime, kAddSortObj, 0x010F56B0u, sp);
+                nodes.push_back(gdc);
+                if (g_lastKey.size() > 4096u)
+                    g_lastKey.clear();
+                g_lastKey[obj] = f1;
+            }
+            g_deferred.clear();
+        }
+        std::vector<uint32_t> g_lightNodes; // SOTC_DRAW95_CHECK: the nodes lit inside the light pass
+        uint64_t g_checked = 0, g_differ = 0;
+        void inLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, std::vector<uint32_t> &nodes)
+        {
+            ++g_inLight;
+            run(rdram, ctx, runtime, sp, nodes);
+            g_lightNodes = nodes;
+        }
+        bool checkOn()
+        {
+            static const bool on = std::getenv("SOTC_DRAW95_CHECK") && std::atoi(std::getenv("SOTC_DRAW95_CHECK")) != 0;
+            return on;
+        }
+        void report()
+        {
+            if (++g_walks % 600u != 0u)
+                return;
+            std::fprintf(stderr, "[early95] %llu walks: after an early hand-over %.0f%%\n", (unsigned long long)g_walks, 100.0 * g_earlyWalks / 600.0);
+            g_earlyWalks = 0;
+            std::fprintf(stderr, "[join95] %llu walks: joined in the light pass %.0f%%, in the draw loop %.0f%% (at its turn, not done: %.0f%%; at the loop's end %.0f%%), "
+                                 "%.1f particle geodisps a walk, %.2f drawn out of turn, join wait %.3f ms a walk\n",
+                         (unsigned long long)g_walks, 100.0 * g_inLight / 600.0, 100.0 * g_inDraw / 600.0, 100.0 * g_forced / 600.0, 100.0 * g_atEnd / 600.0,
+                         g_objects / 600.0, g_early / 600.0, g_waitUs / 600.0 / 1000.0);
+            g_inLight = g_objects = g_waitUs = g_early = g_forced = g_atEnd = g_inDraw = 0;
+        }
+    }
+
     // ---- DispDispObjGroupModel (0x10f52c8; a0 the camera object) -------------
     void dispDispObjGroupModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -2636,11 +2747,12 @@ namespace decomp_walk
         }
         // A geodisp object of the group (the walk's else branch: its class's
         // update callback, the visible test, the sort list).
+        bool joined91 = false; // round 95: the job's results readable (after the walk's join)
         auto geodispObject = [&](const uint32_t s3)
         {
             const uint32_t gdc = geoDispClass(m, s3);
             set(16, gdc);
-            if (const uint32_t update = m.u32(gdc + 0xD8u))
+            if (const uint32_t update = m.u32(gdc + 0xD8u); update != 0u && !(joined91 && sotc_decomp::ptcl95Clipped(s3)))
             {
                 g.a(4, s3);
                 {
@@ -2684,6 +2796,7 @@ namespace decomp_walk
             if (!defer91)
                 return;
             sotc_worker::join(sotc_worker::kSiteWalk);
+            joined91 = true;
             uint64_t saved[8];
             for (int r = 0; r < 8; ++r)
                 saved[r] = GPR_U64(ctx, 16 + r);
@@ -2944,7 +3057,24 @@ namespace decomp_walk
             SET_GPR_U64(ctx, 5, 0u);
             g.callRel(0x010F5640u, sp); // isysGroupForExit
         }
-        flush91(); // round 91: the particle step's join, the particle geodisps
+        // Round 91: the particle step's join, the particle geodisps; round 95
+        // (join95): held until the light pass (late95 above).
+        // Not after an early hand-over (early95): the job started a camera before and is
+        // mostly done or waiting for its kept calls here; holding the geodisps longer only
+        // costs (p5: riding, join95 + draw95 on top of early95 1.4 ms slower than without).
+        const bool early95 = sotc_decomp::early95Kicked();
+        const bool late95 = defer91 && !deferred91.empty() && sotc_decomp::join95On() && !early95;
+        late95::g_earlyWalks += early95 ? 1u : 0u;
+        sotc_worker::noteWalk(); // round 95: a camera manager call after this in the frame makes no early hand-over
+        if (late95)
+        {
+            late95::g_deferred.assign(deferred91.begin(), deferred91.end());
+            deferred91.clear();
+        }
+        else
+            flush91();
+        if (defer91)
+            late95::report();
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[1] += t - wt0; wt0 = t; }
         // The second list: the first one without the objects with bit 4 of +0x260.
         clearSortList(m, m.u32(kSortList2));
@@ -2979,6 +3109,11 @@ namespace decomp_walk
             }
             s0 = s1;
         }
+        // Round 95: no light pass ahead (nothing in the second list): the held
+        // particle geodisps now, so the light pass below sees them as before.
+        std::vector<uint32_t> nodes95;
+        if (late95 && firstSortObj(m, m.u32(kSortList2)) == 0u)
+            late95::run(rdram, ctx, runtime, sp, nodes95);
         set(16, kSortList2);
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[2] += t - wt0; wt0 = t; }
         if (firstSortObj(m, m.u32(kSortList2)) != 0u)
@@ -2987,19 +3122,147 @@ namespace decomp_walk
             g.a(4, m.u32(kSortList2));
             g.a(6, m.u32(sp + 0x20u));
             g.a(5, s6);
+            // Round 95 (draw95): the held particle geodisps wait for the draw
+            // loop (below); otherwise (join95) the light pass joins them.
+            bool pending95 = !late95::g_deferred.empty() && sotc_decomp::draw95On();
+            if (!late95::g_deferred.empty() && !pending95)
+                sotc_decomp::g_lightMid95 = late95::inLight;
             g.call(kLightPass, 0x010F56E8u, sp);
+            // A particle geodisp's light callback (the light pass's geodisp branch).
+            auto light95 = [&](uint32_t node)
+            {
+                const uint32_t id = m.u32(node), cls = geoDispClass(m, id);
+                if (const uint32_t light = cls ? m.u32(cls + 0xE0u) : 0u)
+                {
+                    g.a(4, id);
+                    g.a(5, node);
+                    g.call(light, 0x010F5074u, sp);
+                }
+            };
+            // SOTC_DRAW95_CHECK=1 (with draw95 off): each particle geodisp lit
+            // inside the light pass lit again after it (as draw95 does), its
+            // class's bytes compared, then put back as the pass left them.
+            if (late95::checkOn() && !late95::g_lightNodes.empty() && sotc_decomp::g_lightMid95 == nullptr)
+            {
+                for (const uint32_t node : late95::g_lightNodes)
+                {
+                    const uint32_t id = m.u32(node);
+                    if (!Ram::ok(id, 0x140u))
+                        continue;
+                    uint8_t before[0x120], after[0x120];
+                    std::memcpy(before, rdram + id + 0x20u, sizeof(before));
+                    light95(node);
+                    std::memcpy(after, rdram + id + 0x20u, sizeof(after));
+                    ++late95::g_checked;
+                    if (std::memcmp(before, after, sizeof(before)) != 0)
+                    {
+                        if (++late95::g_differ <= 8u)
+                            for (uint32_t i = 0; i < sizeof(before); i += 4)
+                                if (std::memcmp(before + i, after + i, 4) != 0)
+                                {
+                                    uint32_t b, a2;
+                                    std::memcpy(&b, before + i, 4);
+                                    std::memcpy(&a2, after + i, 4);
+                                    std::fprintf(stderr, "[draw95chk] geodisp %08x class +%03x: in the pass %08x, after it %08x\n", id, i, b, a2);
+                                }
+                        std::memcpy(rdram + id + 0x20u, before, sizeof(before));
+                    }
+                }
+                late95::g_lightNodes.clear();
+                if (late95::g_checked % 2000u < 40u)
+                    std::fprintf(stderr, "[draw95chk] %llu lit again after the light pass, %llu differ\n", (unsigned long long)late95::g_checked, (unsigned long long)late95::g_differ);
+            }
+            if (!pending95 && (sotc_decomp::g_lightMid95 != nullptr || !late95::g_deferred.empty()))
+            {
+                // The light pass went to the recompiled code: the held ones
+                // after it, their light callbacks then.
+                sotc_decomp::g_lightMid95 = nullptr;
+                nodes95.clear();
+                late95::run(rdram, ctx, runtime, sp, nodes95);
+                for (const uint32_t node : nodes95)
+                    light95(node);
+            }
             if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[3] += t - wt0; wt0 = t; }
             const uint32_t list = m.u32(kSortList2);
             set(19, list);
             if (w67)
                 sortOrder(m, list, order);
             turn = 0;
+            // Round 95 (draw95): a held particle geodisp's draw (the draw loop's geodisp branch).
+            auto drawGeo95 = [&](uint32_t node)
+            {
+                const uint32_t obj = m.u32(node), cls = geoDispClass(m, obj);
+                set(16, obj);
+                set(17, cls);
+                if (obj != 0u)
+                {
+                    g.a(4, obj);
+                    g.callRel(0x010F577Cu, sp); // iosDlLockObj
+                }
+                g.a(5, obj);
+                g.a(4, s6);
+                g.call(m.u32(cls + 0xD0u), 0x010F578Cu, sp);
+            };
+            // The join, before the draw of `next` (0: the loop's end): the held
+            // ones into both lists (late95::run) and their light callbacks; those
+            // the loop will not reach from `next` any more (their bucket passed)
+            // drawn now, in the list's order; the rest in their turn.
+            // SOTC_DRAW95_ORDER=1: also join (waiting) when the loop reaches the
+            // first bucket the held geodisps' keys of the walk before predict, so
+            // they keep their turn; default 0: no wait in the loop (p3 measured
+            // the turn coming early: most of the wait stayed), those whose turn
+            // has passed are drawn when the job is done or at the loop's end.
+            static const bool order95 = std::getenv("SOTC_DRAW95_ORDER") && std::atoi(std::getenv("SOTC_DRAW95_ORDER")) != 0;
+            const int32_t first95 = pending95 && order95 ? late95::predictedFirst(m, list) : 0x7FFFFFFF;
+            auto insert95 = [&](uint32_t next)
+            {
+                pending95 = false;
+                ++late95::g_inDraw;
+                nodes95.clear();
+                late95::run(rdram, ctx, runtime, sp, nodes95);
+                for (const uint32_t node : nodes95)
+                    light95(node);
+                if (nodes95.empty())
+                    return;
+                const uint32_t index = m.u32(list + 16u);
+                static std::vector<uint32_t> reach, all;
+                reach.clear();
+                all.clear();
+                for (uint32_t x = next; x != 0u && reach.size() < 4096u; x = nextSortObj(m, list, x))
+                    reach.push_back(x);
+                for (uint32_t x = firstSortObj(m, list); x != 0u && all.size() < 4096u; x = nextSortObj(m, list, x))
+                    all.push_back(x);
+                m.put32(list + 16u, index);
+                for (const uint32_t x : all)
+                    if (std::find(nodes95.begin(), nodes95.end(), x) != nodes95.end() && std::find(reach.begin(), reach.end(), x) == reach.end())
+                    {
+                        drawGeo95(x);
+                        ++late95::g_early;
+                    }
+                set(18, next);
+            };
             uint32_t s2 = firstSortObj(m, list);
             set(18, s2);
             while (s2 != 0u)
             {
                 if (!Ram::ok(s2, 0x10u))
+                {
+                    if (pending95)
+                    {
+                        pending95 = false;
+                        nodes95.clear();
+                        late95::run(rdram, ctx, runtime, sp, nodes95);
+                        for (const uint32_t node : nodes95)
+                            light95(node);
+                        set(18, s2);
+                    }
                     return resume(0x010F5710u);
+                }
+                if (pending95 && (static_cast<int32_t>(m.u32(list + 16u)) >= first95 || sotc_worker::done()))
+                {
+                    late95::g_forced += sotc_worker::done() ? 0u : 1u;
+                    insert95(s2);
+                }
                 if (w67)
                 {
                     if (turn < order.size() && order[turn] == s2)
@@ -3063,6 +3326,11 @@ namespace decomp_walk
                 }
                 s2 = nextSortObj(m, list, s2);
                 set(18, s2);
+            }
+            if (pending95)
+            {
+                ++late95::g_atEnd;
+                insert95(0u);
             }
         }
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[4] += t - wt0; wprof::g_phase[0] += t - wstart; wprof::report(); }

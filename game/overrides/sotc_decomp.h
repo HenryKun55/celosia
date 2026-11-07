@@ -557,11 +557,14 @@ namespace sotc_decomp
         kGround85,    // round 85: Wander's ground step's near surfaces in a host array (decomp_ground85)
         kPtcl89,      // round 89: the particle emitters' frame without its leaf round trips (the camera context, the effect's name and step kind, as host code; decomp_ptclupdate)
         kPtcl91,      // round 91: the particle systems' step on the guest worker thread beside the display walk's group pass (sotc_worker, decomp_hot47e, decomp_walk)
+        kJoin95,      // round 95: with ptcl91, the particle geodisps' clip in the job and the walk's join inside the light pass (decomp_walk, decomp_light, decomp_hot47e)
+        kDraw95,      // round 95: with join95, the walk's join moved into its draw loop (the particle geodisps put in the drawn list when the job is done or their turn comes; decomp_walk)
+        kEarly95,     // round 95 (default off): with ptcl91, the particle manager (and its job's hand-over) run before the camera manager (decomp_hot47e)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -571,7 +574,7 @@ namespace sotc_decomp
             // Round 83 left ptcl83 off (below its 1 ms bar); round 89 turns it on (exact, a gain in all three
             // places measured: -0.16 ms riding, -0.23 the altar, -0.42 route 6). Round 84: find84 off unless SOTC_FIND84=1.
             // Round 91: ptcl91 off unless SOTC_PTCL91=1 (or 2: the job handed over and joined at once, 3: run here through the same split).
-            v = (which == kFind84 || which == kPtcl91) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
+            v = (which == kFind84 || which == kPtcl91 || which == kEarly95) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
             g_switch[which] = v;
         }
         return v != 0;
@@ -667,6 +670,31 @@ namespace sotc_decomp
         }();
         return m;
     }
+    // Round 95 (SOTC_JOIN95, default on; only with ptcl91): the job also runs
+    // the particle geodisps' clip (their class's update, clip_particle_geodisp)
+    // after the layers, and the display walk joins it inside the light pass,
+    // after the layout objects' light callbacks (decomp_walk, decomp_light).
+    inline bool join95On() { return switchOn(kJoin95); }
+    // Round 95 (SOTC_DRAW95, default on; only with join95): the walk joins
+    // inside its draw loop instead, the held particle geodisps put in the
+    // second list then (those whose turn has passed drawn at once), their
+    // light callbacks after the light pass (its result copied to RAM by
+    // LoopExecAfterLightColMan, read through the same pointer).
+    inline bool draw95On() { return switchOn(kDraw95); }
+    // Round 95 (SOTC_EARLY95=1, default off; only with ptcl91 mode 1): the
+    // particle manager is called at the camera manager's entry (the same
+    // arguments its task would give it) and skipped at its own call, so the
+    // job starts a camera earlier. Not exact: the step sees the camera of the
+    // frame before (culling, distances); the clip is left to the walk.
+    inline bool early95On() { return switchOn(kEarly95); }
+    // Round 95: an early hand-over happened since the last call (the display walk asks once a walk; decomp_hot47e).
+    bool early95Kicked();
+    // Round 95: the geodisp's clip was run by the last job (decomp_hot47e; read after the join).
+    bool ptcl95Clipped(uint32_t object);
+    // Round 95: the light pass's hook after its light callbacks (decomp_light calls it when set, then the
+    // light callbacks of the sort nodes it returns; the display walk sets it around its light pass call).
+    using LightMid95 = void (*)(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, std::vector<uint32_t> &nodes);
+    inline LightMid95 g_lightMid95 = nullptr;
     // Round 79 (decomp_hot47e.cpp): the particle geodisp object the manager
     // found wholly outside the camera's clip volume this frame and the frame
     // before (its step put off, its draw not needed).

@@ -14518,3 +14518,261 @@ rest blend (their order is the picture). No Vita3K counter of drawn pixels.
 with `tools/ab94.py err.txt`: `[gpu86]` busy per window first (a NEGATIVE busy
 in an ON(flip) row is the gain); the `scenes` column and `[scene94]` give the
 binds. `r94on` is the round's total; glow94 and fx94 the two big parts.
+
+## Round 95: round 91's particle job without the display walk's wait: the join later (join95, draw95), the hand-over a camera earlier (early95) (2026-11-06)
+
+Scripts, runs and logs: `build/agent-scratch/r95/`:
+- build.sh (the worktree `.claude/worktrees/agent-a1bd19cff386d4631`, build
+  directory `r95/vita`, vitaGL as round 93/94), v3k.sh (`r95/vita3k`,
+  `portable` -> ../vita3k-celosia-r95, sound on), ab.sh (the A/B: attract demo,
+  altar, route 6, 60-frame windows, `SOTC_PTCL91=1`; a run whose Vita3K is
+  killed from outside is run again once), shots.sh, read95.sh (the reader:
+  ab89.py's matched block, `[worker91]`, `[join95]`, `[early95]`,
+  `[draw95chk]`, faults), tools/tl2.py (a `[timeline]` frame as spans).
+- base.vpk (round 91's final), p0-p7.vpk; runs/: profD (the base's attract
+  demo with SOTC_WALK79_LOG / SOTC_CHARGEO80_LOG), attract1 (p1: the hang),
+  attract3-killed, attract4 (p4), attract5 (p5), attract7 / altar7 / route7
+  (p7, the console env), shotsE-on / -off, pics/.
+
+**Where the game thread stood (Vita3K 222 MHz, the attract demo riding, the
+base with `SOTC_PTCL91=1`).** The particle job 3.1-3.8 ms on the worker, the
+display walk's join waiting 1.46-1.71 ms a frame for it (round 91: ~1.6). The
+walk's own steps riding (`[walk79]`): group pass 3.4-4.1 ms with that wait in
+it, the sort copy 0.02-0.04, the light pass 0.2-0.4, the draws the rest. The
+characters' geometry (`[chargeo80]`): Wander 3.5-4.6 ms (root dynamics
+2.1-3.2), Agro 3.1-3.9 (root dynamics 0.7-1.5, IK 0.65-0.8, root fitting
+0.6-0.7, cloth 0.33-0.37), Wander's head ~0.5. So a join moved past the light
+pass hides ~0.3 ms riding, not 1.6: the job had to end later or start earlier.
+
+**Why nothing else moved onto the worker this round.** The other large blocks
+the brief named were looked at again with this profile: the characters'
+geometry is root dynamics, IK, root fitting and cloth, all of which query the
+collision (the finders, the ground probes, the cloth's ground test) whose
+natives keep host caches (dozens of statics in decomp_collision.cpp alone) and
+guest work areas that are not thread-safe, and Wander's root follows Agro's
+while riding (round 76, round 89); the cloth (GetClothDynamics, 0.3-0.4 ms a
+character) asks the ground probe and owner callbacks; the walk's draws build
+the display list in order on the game thread (modelDisp's hook, the particle
+draws' packets); the camera and the walk's clip pass need the camera / the
+characters just made. Each of those needs the collision made safe for two
+threads first: a round of its own (the census of the collision natives'
+state, then a lock-free or per-thread copy of each cache). What the worker can
+take without that is the particle module's own work, so this round makes that
+job overlap instead of waiting for it.
+
+### What changed (all only with `SOTC_PTCL91=1`, which stays default off)
+
+- **`join95`** (`SOTC_JOIN95`, default 1; A/B `join95`, `r95all`): the job
+  also runs the particle geodisps' clip (clip_particle_geodisp 0113F530: the
+  first emitter's position through the camera's view matrix into the sort
+  key, the shown flag) after its layers, the walk then leaves it out; its
+  callees clipBySphere and getZ are pure (`kPure`: the camera context's
+  matrices, the context's VU0 registers and clip flags). The walk holds its
+  particle geodisps past the group pass and the sort copy to the light pass:
+  decomp_light calls the walk back (`sotc_decomp::g_lightMid95`) after the
+  layout objects' light callbacks; there it joins, puts the held geodisps
+  straight into the second sort list (the first one's chains are relinked into
+  the second by the copy loop: adding to it again linked a node twice, a cycle,
+  p1's hang at frame 1 202) and their light callbacks run. Not as the original:
+  the particle systems' light callbacks come after the layout objects' (each
+  reads only the frame's lights and its own block); equal keys can change
+  order.
+- **`draw95`** (`SOTC_DRAW95`, default 1; A/B `draw95`, `r95all`): the join
+  goes on into the draw loop: before each draw the walk asks the worker
+  without waiting (`sotc_worker::done()`); when the job is done, or at the
+  loop's end, it joins, puts the held geodisps into the list and lights them
+  (after the light pass: its result is read through *(0x118CB10), which
+  LoopExecAfterLightColMan moves from the scratchpad to its RAM copy, so the
+  same lights), and draws at once, in the list's order, those whose bucket the
+  loop has passed; the rest in their turn. Not as the original: a particle
+  system whose turn has passed is drawn later than its sort key says (riding
+  ~20-28 of ~50-60 a frame in p4/p5, most at the loop's end). Depth testing
+  keeps them behind opaque geometry; what can change is the blending order
+  against other transparent draws near them. `SOTC_DRAW95_ORDER=1` also waits
+  at the bucket the held geodisps' keys of the walk before predict (keeps
+  their turn): p3 measured that turn coming early (20% of the walks waited
+  there, the wait mostly stayed), so it is off. `SOTC_DRAW95_CHECK=1` (with
+  `SOTC_DRAW95=0`): every particle light made inside the pass made again after
+  it and compared (`[draw95chk]`).
+- **`early95`** (`SOTC_EARLY95=1`, default 0; A/B `early95`, `r95all`): the
+  frame's tasks run the camera (task 013451C0: doit_cameraman_manager), the
+  camera finalizer, the fog light manager (01345390), then the particle task
+  (01345110: ptclmanFrameInit, doit_particle_manager(0x1465880, 0x1465890,
+  GAMEUTIL_get_player_obj(), 01345410(), f12 = *0x14657d0, f13 = *0x14657c0),
+  disp_particle_manager). A native at doit_cameraman_manager's entry calls the
+  manager first with those arguments (its game-thread part and the hand-over),
+  and the manager's own call later returns at once
+  (`sotc_worker::skipEntryOnce`: no join there; a skip not reached by the next
+  camera call is dropped and no early call made that frame). The job then
+  runs beside the camera (~2.5-4 ms in Vita3K) as well as the walk's group
+  pass. Not as the original: the step sees the frame before's camera
+  (ptclmanFrameInit's copy, the culling planes and eye the manager takes, the
+  camera context while the camera writes it: floats, no pointers); the clip is
+  left to the walk (camera final by then); disp_particle_manager and the draws
+  stay where they were. After an early hand-over the walk takes round 91's path
+  (join at the group pass's end, `sotc_decomp::early95Kicked`): the job is then
+  done or only waiting for its kept calls, and holding the geodisps longer cost
+  (p5, below).
+
+### Bring-up
+
+- p1 (join95, light pass): a hang at frame 1 202 (the held geodisps added to
+  the first list as well: the cycle above). Fixed in p3.
+- p3 (draw95 with the predicted turn): 20-23% of the walks waited at the turn,
+  the wait ~1.2 ms a walk stayed. p4: no wait at the turn.
+- p4: the job 9-11 ms on the worker, parked 8-22% at clipBySphere (the clip's
+  emitter bounds, not in `kPure`): those jobs ran their rest only at the join.
+  p5: clipBySphere pure.
+- Three runs were killed from outside (Vita3K `Killed: 9` with no fault in the
+  log, 22:13, 22:32 and once at p1's end; another round's Vita3K and builds
+  ran on the Mac): ab.sh runs a killed run again.
+
+### Measured (Vita3K 222 MHz, in-run A/B, ab89.py matched by draws, off minus on; riding = the attract demo from frame 13 000)
+
+| build, flags | part | join95 | draw95 | early95 |
+|---|---|---|---|---|
+| p4: `join95,draw95` (no early95) | riding | +0.97 | +1.30 | |
+| p4 | from 10 000 | -0.03 | -0.21 | |
+| p5: `join95,draw95,early95`, `SOTC_EARLY95=1` | riding | -1.38 | +0.82 | +2.62 |
+| p5 | from 10 000 | -0.29 | -0.14 | +0.71 |
+
+p4 (join95 and draw95 alone): riding the walk's join waited 1.9 ms a job in
+round 91's windows and the job ended at the draw loop's end in ~2/3 of the
+draw95 walks (the draw loop is short in Vita3K riding). p5: with early95 the
+job (started at the camera) is done or waiting only for its kept calls by the
+walk; then join95 / draw95 only cost (-1.38: the all-on state is the slower
+one), hence the bypass after an early hand-over (p7).
+
+**The console env's A/B (p7: rebased on round 94; `SOTC_PTCL91=1 SOTC_EARLY95=1`,
+`SOTC_AB_FLAG=r91all,r95all,early95`; matched by draws, off minus on: a
+positive figure is what the all-on state saves against that window's state).**
+
+| run | part | r91all (no worker job) | r95all (round 91 as it was) | early95 (join95 + draw95 instead) |
+|---|---|---|---|---|
+| attract7 (660 s, 18 391 frames) | from 10 000 | +2.02 | +1.51 | +0.51 |
+| attract7 | riding, from 13 000 | +3.62 | +1.08 | +1.60 |
+| altar7 (300 s, 7 454 frames) | from 3 300 | +1.28 | +0.45 | -0.50 |
+| route7 (420 s, 14 444 frames) | from 3 000 | +1.20 | +0.19 | -0.47 |
+| route7 | the plain, from 4 300 | +0.72 | -0.14 | -0.38 |
+
+Riding (the particle-heavy part, Agro's hoof effects) the all-on state is the
+fastest by 1.1-3.6 ms; at the altar and on route 6 (fewer particle systems)
+join95 + draw95 alone is ~0.5 ms better than the early hand-over and round 95
+is within noise of round 91 on the plain. The `[worker91]` joins riding: the
+walk's join 1.2 ms a job in the four-state mix (0.4 in its last window),
+p8's change below aside.
+
+p8 (the final build): in p5 / p7 about a fifth of the jobs were joined only at
+the frame's end, waiting 1-2 ms there: an early hand-over made by a camera
+manager call after the frame's display walk (the attract demo calls it more
+than once in some frames). p8 makes no early hand-over once the walk has run in
+the frame (`sotc_worker::noteWalk`, cleared at the frame's end): the frame-end
+joins fell to 63 a 600-frame window, then 1, waiting 0.06-0.8 ms. Its own A/B
+(attract8, 660 s, 24 591 frames; the Mac carried another round's Vita3K):
+
+| run | part | r91all | r95all | early95 |
+|---|---|---|---|---|
+| attract8 | from 10 000 | +2.00 | +0.44 | +0.36 |
+| attract8 | riding, from 13 000 | +2.23 | -0.32 | +0.39 |
+
+So against round 91 the round's gain in Vita3K is between -0.3 and +1.5 ms
+depending on the run (p4 +1.0 / +1.3 riding for join95 / draw95 alone, p5
++2.6 riding for early95, p7 +1.1, p8 -0.3): the four-state rotation and the
+other emulator on the Mac make these runs noisier than the job's own numbers
+(the walk's join wait, 1.5-1.7 ms riding in round 91, is 0.05-0.4 ms a job in
+p8's last windows). Vita3K's 3 emulated cores also hide the cost the worker
+pays on the console, where cores 1-2 are busy. The console A/B decides.
+
+**Gameplay, pictures, crashes.** The A/B runs played the attract demo (the
+world, riding Agro at a gallop with his hoof effects), the altar route (Wander
+to the altar) and route 6 (out of the shrine, down the stairs, onto the plain)
+with the switches rotating every 60 frames: attract7 660 s / 18 391 frames,
+altar7 300 s / 7 454, route7 420 s / 14 444, attract8 (final build) 660 s /
+24 591, plus attract4 / attract5 / altar4-5: no `[worker91] FAULT`, no stall,
+no crash of the game. p1 hung (fixed, above); three runs were killed from
+outside the game (`Killed: 9`, no fault logged). Pictures: none this round: shots.sh's window captures came out empty (no
+`t*.png` written in shotsE-on; the Mac's screen capture of the Vita3K window
+did not work during the run), so early95 / draw95 on / off were not compared
+by eye; their non-exact parts (the camera of the frame before for the step,
+late particle draws) are listed above and are what the console's eye check
+should look at (Agro's hoof dust while riding, effects entering the screen
+edge while the camera turns). Not checked:
+climbing, a colossus (no save or input script reaches one), the console.
+
+### The console's verdict on round 91 (arrived during this round: build/agent-scratch/combo94/console/err.txt)
+
+The real Vita with celosia-r94 (rounds 91 + 93 + 94, `SOTC_PTCL91=1`,
+`SOTC_AB_FLAG=r91all,r94on,blur93`): with the worker's job **off** the 3D
+frames were faster, matched by draws and scenes over 864 frames: frame -2.56 ms,
+game thread -2.82 ms (unmatched -2.4). So on the console round 91 costs the
+game thread ~2.5-3 ms instead of saving 1-2 ms. What its log says:
+- `[worker91]` by 600 frames: the job 2.6-5.6 ms on the worker (Vita3K ~3.2),
+  the walk's join waiting 1.3-4.1 ms a job: in every window the wait is about
+  the job less 1.3-1.7 ms, i.e. only the group pass overlaps it, as in Vita3K,
+  but the job is longer. In frames 6 618-7 218 293 of 480 jobs were joined at
+  a module entry instead, set_npe_blend_ratio_particle_emitter (0113F878),
+  waiting 4.6 ms: a dissolve geodisp's update (updateParticleDissolveGeo) in
+  the walk's group pass tail-jumps to it, so there was no overlap at all.
+- The thread line (3D frames with 300+ draws, by state): all on frame 41.3,
+  game 36.8, guest 3.3 ms of CPU a frame, render 20.9, hook worker 9.0; with
+  r91all off: 39.9 / 36.3 / 1.3 / 19.4 / 7.9. The guest thread's CPU (~2-3 ms
+  for the job) is below its wall time (2.6-5.6 ms): it waits for a core part of
+  the time, and the render thread and hook worker take more CPU in its windows
+  (the cores' shared L2 and bus; core 2 is the render thread's alone, the guest
+  shares cores 1-2 with it, the hook worker, audio, lane, build, loader, log,
+  dma and offload threads, ~45 ms of CPU a 41 ms frame on two cores).
+- So the loss is: the join wait (job - 1.5 ms) plus the hand-over's own costs
+  (the attached emitters' answers, the kick, the deferred calls, the walk's
+  second pass over the particle geodisps), against the step done inline.
+
+What this round changes for it (console-meaningful, all in the console env):
+- the job overlaps the camera too (`early95`): on the console the camera is
+  ~4-6 ms (round 76: 4.4 ms at the altar in Vita3K, the console ~1.5x), more
+  than the job's 2.6-5.6, so the walk's join should no longer wait;
+- `set_npe_blend_ratio_particle_emitter` reached while the job runs is called
+  after the job on the worker (`kSetBlendRatio`, with its f12; v0 = 1, its
+  callers do not read it): the original order had the step before it anyway;
+- `[worker91]` now also prints the hand-over's wake-up (`start ... ms after
+  the hand-over`): the next console log tells a starved worker (late start, or
+  job wall > guest CPU) from a slow job.
+- An experiment needing no build, for the console: the guest thread on core 1
+  only, away from the render thread's core 2 (`SOTC_THREAD_CORES=guest:2`;
+  its priority 140 is already above the render thread and the hook worker,
+  below the audio thread's 64).
+If early95's windows on the console still show the job costing more than it
+saves, the particle job should stay off (r91all) and the worker kept for work
+that overlaps a longer stretch.
+
+**Console A/B (env-console.txt).** `SOTC_PTCL91=1 SOTC_EARLY95=1
+SOTC_JOIN95=1 SOTC_DRAW95=1`, `SOTC_AB_FLAG=r91all,r95all,early95`,
+`SOTC_AB_ROTATE=1`, `SOTC_AB_PERIOD=60`: four states: all on (early hand-over,
+round 91's join), `r91all off` (no job: the particle step on the game thread),
+`r95all off` (round 91 as it was), `early95 off` (join95 + draw95, the join in
+the draw loop). Read with `build/agent-scratch/r95/read95.sh err.txt <from>`
+(the matched block by state; `[worker91]` the job's time and the joins' waits
+by site; `[join95]` / `[early95]`). The console's cores 1-2 are 70-85% busy
+(round 89): the worker's job may wait for a core there; the console A/B is the
+measure.
+
+**Final build p9** (p8 + the blend-ratio setter after the job + the wake-up in
+`[worker91]`): the console env, attract9 660 s / 21 080 frames and route9 420 s / 7 267 (Vita3K slow in that run, ~17 fps)
+frames, no fault, no crash. The hand-over's wake-up in Vita3K 0.03 ms; the
+module joins only at disp_particle_manager after a finished job. Its A/B, off
+minus on:
+
+| run | part | r91all | r95all | early95 |
+|---|---|---|---|---|
+| attract9 | from 10 000 | +1.60 | -0.21 | -0.61 |
+| attract9 | riding, from 13 000 | +1.59 | +0.17 | -0.51 |
+| route9 | from 3 000 | +1.25 | +1.64 | +3.20 |
+
+Taken together (p7, p8, p9) Vita3K shows no steady gain of round 95 over round
+91 (-0.3 to +1.6 ms by run, early95 -0.6 to +3.2): the worker's job already
+overlapped most of its time in Vita3K, whose three emulated cores are not the
+console's. Round 95's case is the console's: there the join waits were 1.3-4.6
+ms a job (the job longer, the setter's early joins), which is what early95 and
+the setter's deferral remove; the console A/B (below) decides whether round
+91's worker pays at all.
+
+**Deliverable:** build/agent-scratch/celosia-r95.vpk (= r95/p9.vpk: main
+c86b1f8, round 94, + this round).
