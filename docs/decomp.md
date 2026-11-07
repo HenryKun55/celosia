@@ -14907,7 +14907,10 @@ console window will show whether the A9 sees the 2%).
   a skipped sub-thread is left asleep as a whole, never half-run).
 - Pictures (runsb/shotsA-on / -off, pics/r96_A_*_on__off.png; window
   captures work again): the altar with obj96 + sel96 on and off, every 15 s:
-  the same picture within the two runs' drift. By construction a skipped
+  the same picture within the two runs' drift; riding (runs/shotsD-*,
+  pics/r96_D_*: the attract demo from 470 s every 20 s, final build): Agro
+  and Wander galloping in both, at different moments (the runs drift), no
+  missing or broken character or effect. By construction a skipped
   creature is outside the view at its last wake; what can show is a small
   creature coming into view up to 3 frames late (it appears where it was,
   then moves on at its own speed) and Agro up to a frame late.
