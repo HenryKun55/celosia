@@ -14926,3 +14926,166 @@ no build: `SOTC_OBJ96_PERIOD_BIG=4` (Agro unseen at a quarter rate),
 
 **Deliverable:** build/agent-scratch/celosia-r96.vpk (= r96/p10.vpk: main
 c6d59df, the Avion vitaGL fix, + this round).
+
+## Round 98: the main picture's pixels: where they go (a pixel estimate per draw class), the textured draws' reads before the program, the fog's background read where it fogs nothing, the alpha test's second pass behind the depth test (2026-11-07)
+
+Scripts, runs and logs: `build/agent-scratch/r98/`:
+- build.sh / v3k.sh / freeze.sh / freeze6.sh: round 96's / 94's with r98 paths
+  (worktree `.claude/worktrees/agent-a77e1da186ab32f15`, build `r98/vita`,
+  vitaGL `r98/vitagl` = round 96's (the c6d59df uniform-ring fix), Vita3K
+  `r98/vita3k` with its `portable` link to ../vita3k-celosia-r98; absolute VPK
+  paths only). fz.sh: a freeze run with abwatch.sh's epoch-stamped `[ab]` lines
+  and shotstates.py's grouping of the captures by picture; px.sh: a frozen
+  frame with the pixel estimate and no A/B.
+- tools/ab98.py: ab94.py with the round's switches (`SHIP_ON98`), the diag98
+  windows split by class ("diag98 cN" rows), `[gpu86]` lines of any length
+  (`| every N`), and a busy table paired by window (each window minus the
+  "all on" windows next to it). tools/px98ab.py: the `[px98]` estimate per A/B
+  state (a frozen run: the frozen frame's measurements only).
+- runs/: pxA (the estimate, the altar), fzA-fzE (the altar frozen, the round's
+  switches rotating), fzR (route 6's plain frozen), env1 (the console env).
+- celosia-r98.vpk; env-console.txt (`SOTC_AB_FLAG=r98all,diag98,plainread73`).
+
+**Why pixels.** Round 92's console diagnostics put ~35 of the altar's 56 ms of
+GPU busy time in the pixels (textures ~1 of it), round 94 took the scenes
+from 35 to 17, and the console's last run (combo94) has the 512 x 448 picture
+pass as the slowest scene (~29-47 ms). Vita3K cannot time the GPU, so this
+round first measured where the picture's pixels go.
+
+**A pixel estimate (`SOTC_GL_PX98=<n>`, new).** Every n frames (with 300+
+draws), each mesh draw's triangles are clipped on the CPU (the near plane at w
+0.1, the four sides) and projected into its target: the pixels it covers, no
+depth test (an upper bound of what is shaded; the opaque draws the SGX's
+hidden surface removal shades once). The vertices come from the frame's arena,
+a pool's mapped memory, or a copy kept for this (meshes in their own buffers,
+the skinned ones posed by the frame's palettes). `[px98]` lines: the frame's
+draws by class (pass, target, program slot, blend N / A / O / S, the alpha
+test's first / second pass, untextured / mipped), by layer, the full-screen
+and region passes by mode, each weighed by its fragment program's instruction
+count (libshacccg's output in Vita3K's shader log, round 93).
+`SOTC_GL_PX98_DETAIL=<hex layer mask>`: those layers' draws one by one
+(`[px98d]`: texture, alphas, the vertices' clip w range, the draw's mip K / L
+/ max, the fog).
+
+**What it found (the altar's frozen frames, Vita3K).**
+1. The passes cover ~3.4-3.6 M pixels a frame (the 512 x 448 picture is
+   229 k): ~15 screens. The largest classes: layer 3's alpha-tested draws
+   (each drawn twice, the GS alpha test's two passes: ~440 k pixels each
+   pass, through the LOD + background-fog + discard program, 76
+   instructions), layer 2's opaque world (~780 k, hidden surface removal),
+   layer 18's additive light shafts (~350-700 k), the background layer at
+   256 x 256 (~330-420 k), and two full-screen untextured draws (a tint at
+   alpha 16 / 128, layer 20, and an 18-vertex veil, layer 27: ~460 k)
+   through the discard program.
+2. **Every textured world pixel went through the LOD programs.** Round 73's
+   plain reads (`SOTC_GL_PLAIN_READS`: a one-level texture read with `tex2D`
+   at the interpolated UV, which the GPU fetches before the program runs)
+   were left off because Vita3K drew 1 level apart on 0.6% of the pixels,
+   and no console run measured them. Without them every textured draw reads
+   with `tex2Dlod` at a computed LOD (log2, a multiply-add, clamps: a read
+   that waits for the program), and the untextured draws (textured 0) ran
+   the same program and dropped its read.
+3. **The fog's background read where it fogs nothing.** zFog's layers (1-3
+   here: the fog's order is 4; start 200, width 40 at the altar) draw with
+   the BG programs (a dependent read of the background at the screen
+   position, ~25 more instructions and the screen varying). ~1.65 M of the
+   BG draws' ~1.70 M pixels belong to draws whose meshes lie wholly nearer
+   than the fog's start: fogged by saturate(negative) = 0.
+4. The alpha test's second pass (the pixels under AREF, no depth write) is
+   drawn over the whole draw again under LEQUAL: the first pass's pixels
+   (which wrote that very depth) pass and are shaded only to be cut.
+
+**What changed (all default ON on the Vita, OFF elsewhere; each has its A/B
+window turning it off; `r98all` turns all of them off together, plainread73
+included).**
+1. `SOTC_GL_PLAIN_READS` (`plainread73`) **now 1 on the Vita.** The same
+   texel and filter on the GPU (a one-level texture at LOD 0 or at the
+   interpolated UV); Vita3K: at most 1-2 levels on 0.2-0.3% of the frozen
+   altar's pixels (its coordinates for such reads, as in round 73).
+2. `SOTC_GL_UNTEX98` (`untex98`): untextured draws through programs without
+   the texel read and its LOD (`UNTEX`: the LOD program's own untextured
+   values, the same arithmetic after them; slots 25-36: lean x skinned x BG
+   x CUT, SOFT, no-screen), and a small untextured frame mesh (up to 64
+   vertices: the tints and veils) has its vertex alphas read, so that one
+   whose least alpha cannot be cut (layer 20's tint, alpha 16 / 128) is
+   drawn without the discard. Exact (identical captures).
+3. `SOTC_GL_NOFOG98` (`nofog98`): a fogged draw whose mesh bounds' greatest
+   clip w is under the fog's start (x 0.999) is drawn without the background
+   read (the program without BG: no screen varying, and the cut-out without
+   discard where round 75 allows it). Kept, unskinned meshes (their bounds,
+   round 75's), merged runs by their members' greatest. 74-124 draws a frame
+   at the altar; identical captures.
+4. `SOTC_GL_AT98` (`at98`): the alpha test's second pass with GL_LESS: the
+   first pass's pixels fail the depth test and are never shaded; only the
+   pixels the first pass cut are. Differs only where an earlier surface lies
+   at exactly the draw's depth (and it no longer double-draws a pixel both
+   passes keep through rounding). 60-110 second passes a frame; Vita3K: ~1 000
+   of 2.1 M capture pixels differ, at most 5 levels, ~20 over 2 levels.
+5. `SOTC_GL_LOD0_98` (`lod0_98`): a mipped texture drawn with maxLod <= 0
+   (the GS's TEX1 at level 0: the LOD program's lod is 0) read by the plain
+   program with its sampling held to level 0 (a non-mipmap min filter, which
+   in vitaGL sets the texture's mip count to one, while such draws read it).
+   1-5 draws a frame at the altar (most level-0 draws' textures have one
+   level: plain reads take them). Identical captures.
+6. `SOTC_GL_PSOFT98` (`psoft98`): the plain programs get round 75's cut-out
+   without discard too (NOLOD SOFT, slots 37-38): 44-53 draws a frame at the
+   altar (the light shafts, the alpha test's second passes). Identical captures.
+7. `SOTC_GL_GLOW98` (`glow98`): the glow layer's two full-screen composites
+   (the sharp layer, then the blurred one, each Over) as one premultiplied
+   pass reading both (mode 26, QuadBlend::Premul): one full-screen blended
+   pass fewer where both are drawn (2 a frame in one frozen altar frame, none
+   in another); within a level by construction; identical captures.
+
+**The estimate with and without them** (the frozen altar, fzE, `r98all`
+rotating every 240 frames, the estimate every 120): the same ~3.46 M pixels;
+instruction-weighted 197 M with them off, 109 M on (-45%); the blended
+classes alone 149 M -> 87 M. (The model counts a draw's whole area: at98's
+second passes are not credited, nor the GPU's reads before the program.)
+
+**A console diagnostic (`SOTC_GL_DIAG98`, A/B `diag98`, default 0, the
+picture wrong in its windows).** Each window leaves one class of the
+picture's draws out, the class moving on at each window
+(`SOTC_GL_DIAG98_CLASSES`, default 1,2,3,4,5,6; `[diag98]` lines name each
+window's class): 1 the alpha test's second passes, 2 the blended draws of
+layers 9 and up (water, effects, particles), 3 the draws through a discard,
+4 the fogged draws still on the BG programs, 5 the characters, 6 the blended
+world draws of layers 2-8. A window's busy drop is that class's GPU cost.
+`SOTC_GPU86_EVERY=<n>` (new, default 30): `[gpu86]` lines every n presents, so
+that more of them lie wholly inside one 60-frame window.
+
+**Pictures (Vita3K, frozen frames, window captures every 2 s grouped by
+picture and A/B state).** The altar (fzB-fzE): untex98, nofog98, lod0_98,
+psoft98 and glow98 windows identical to the all-on ones; plainread73's
+windows 1-2 levels on ~4-7 k of 2.1 M capture pixels; at98's at most 5
+levels on ~1 000; `r98all` (all of them off) vs all on: ~16-19 k pixels
+differ, at most 6-7 levels, ~100 over 2 levels (no visible change side by
+side). Route 6's plain (fzR, `r98all,at98`): at98 at most 10 levels on 3
+pixels (6.6 k differ, ~200 over 2 levels); the estimate there 106 M -> 75 M
+instruction-weighted with the round on.
+
+**No fault or hang**: route 6 with the console env 420 s (env1, 10 471
+frames: the altar, the stairs, the plain; diag98's four classes and
+plainread73 / r98all windows), the altar and route 6 frozen 300 s x 6, the
+attract demo with the console env 600 s (attract1, 15 385 frames).
+
+**Console A/B (r98/env-console.txt).** `SOTC_AB_FLAG=r98all,diag98,plainread73`,
+`SOTC_GL_DIAG98_CLASSES=1,2,3,6`, `SOTC_GPU86_EVERY=10`, rotation every 60
+frames. Read with `python3 build/agent-scratch/r98/tools/ab98.py err.txt`:
+the `[gpu86]` busy per window first, then the paired table. `r98all
+OFF(flip)`: a POSITIVE busy is what the round saves on the GPU;
+`plainread73 OFF(flip)`: its own share; `diag98 cN ON(flip)`: a NEGATIVE busy
+is the class's cost (1 the alpha test's second passes, 2 the blended draws
+of layers 9+, 3 the discard draws, 6 the blended world of layers 2-8). As
+with every GPU round, the frame time is held by the game thread (~46-52 ms):
+read the busy, not the frame.
+
+**Left.** The estimate's largest classes after this round: the opaque world
+(hidden surface removal), the additive light shafts (layer 18, ~350-700 k
+pixels, now the plain SOFT program), the background layer at 256 x 256, the
+mipped textures' draws at maxLod > 0 (still the LOD programs: a GS-exact
+per-pixel LOD; a hardware-LOD variant would be a picture change), and the
+alpha test's first passes (discard, blended). diag98's console windows
+say which of them the GPU actually pays for.
+
+**Deliverable:** build/agent-scratch/celosia-r98.vpk (= r98/p10.vpk: main
+f31c6ed + this round).

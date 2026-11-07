@@ -3011,6 +3011,13 @@ namespace sotc_native
             {"glow94", &native_renderer::Tuning::glGlow94},          // round 94 (its windows flip it; r94all too)
             {"fx94", &native_renderer::Tuning::glFx94},              // round 94 (its windows flip it; r94all too)
             {"bloom94", &native_renderer::Tuning::glBloom94},        // round 94 (its windows flip it; r94all too)
+            {"diag98", &native_renderer::Tuning::glDiag98},          // round 98 (GPU diagnostic, picture wrong: its windows flip it)
+            {"at98", &native_renderer::Tuning::glAt98},              // round 98 (r98all too)
+            {"untex98", &native_renderer::Tuning::glUntex98},        // round 98 (r98all too)
+            {"glow98", &native_renderer::Tuning::glGlow98},          // round 98 (r98all too)
+            {"nofog98", &native_renderer::Tuning::glNoFog98},        // round 98 (r98all too)
+            {"lod0_98", &native_renderer::Tuning::glLod0_98},        // round 98 (r98all too)
+            {"psoft98", &native_renderer::Tuning::glPlainSoft98},    // round 98 (r98all too)
             {"volprog", &native_renderer::Tuning::glVolumeProgram},
             {"atmerge", &native_renderer::Tuning::alphaTestMerge},
             {"shadowidx", &native_renderer::Tuning::shadowIndexed},
@@ -3029,7 +3036,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3072,6 +3079,7 @@ namespace sotc_native
             r91AllAt = indexOf("r91all"); // round 91: the guest worker's job (ptcl91)
             r95AllAt = indexOf("r95all"); // round 95: the round's switches (join95, ...) off together
             r96AllAt = indexOf("r96all"); // round 96: the round's game-thread cuts (obj96, ...) off together
+            r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
             log76At = indexOf("log76");
             sacMaxAt = indexOf("sacmax");
             sacPtclAt = indexOf("sacptcl");
@@ -3223,7 +3231,7 @@ namespace sotc_native
                                      !std::strncmp(kTuningFlags[i].name, "diag92", 6) || !std::strcmp(kTuningFlags[i].name, "blur93") ||
                                      !std::strcmp(kTuningFlags[i].name, "glow93") || !std::strcmp(kTuningFlags[i].name, "bgcopy94") ||
                                      !std::strcmp(kTuningFlags[i].name, "glow94") || !std::strcmp(kTuningFlags[i].name, "fx94") ||
-                                     !std::strcmp(kTuningFlags[i].name, "bloom94")))
+                                     !std::strcmp(kTuningFlags[i].name, "bloom94") || !std::strcmp(kTuningFlags[i].name, "diag98")))
                 t.*(kTuningFlags[i].field) = isOffAt(tuningAt[i]) ? !(start.*(kTuningFlags[i].field)) : start.*(kTuningFlags[i].field);
         if (r92AllAt >= 0) // round 92: the round's GPU fixes off together
         {
@@ -3255,6 +3263,16 @@ namespace sotc_native
             for (size_t i = 0; i < kTuningCount; ++i)
                 if ((!std::strcmp(kTuningFlags[i].name, "bgcopy94") || !std::strcmp(kTuningFlags[i].name, "glow94") || !std::strcmp(kTuningFlags[i].name, "fx94") ||
                      !std::strcmp(kTuningFlags[i].name, "bloom94")) &&
+                    (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
+        if (r98AllAt >= 0) // round 98: the round's GPU switches off together
+        {
+            const bool off = isOffAt(r98AllAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if ((!std::strcmp(kTuningFlags[i].name, "at98") || !std::strcmp(kTuningFlags[i].name, "untex98") || !std::strcmp(kTuningFlags[i].name, "glow98") ||
+                     !std::strcmp(kTuningFlags[i].name, "nofog98") || !std::strcmp(kTuningFlags[i].name, "lod0_98") || !std::strcmp(kTuningFlags[i].name, "psoft98") ||
+                     !std::strcmp(kTuningFlags[i].name, "plainread73")) &&
                     (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
         }

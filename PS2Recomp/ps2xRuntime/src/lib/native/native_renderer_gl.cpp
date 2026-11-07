@@ -313,15 +313,22 @@ namespace
                 }
                 ++g_checked;
             }
-            if (g_n >= 30u)
+            // Round 98 (SOTC_GPU86_EVERY, default 30): the presents a line covers
+            // (shorter lines: more of them lie wholly inside one A/B window).
+            static const uint32_t every = []
+            {
+                const char *e = std::getenv("SOTC_GPU86_EVERY");
+                return static_cast<uint32_t>(std::clamp(e ? std::atoi(e) : 30, 2, 600));
+            }();
+            if (g_n >= every)
             {
                 const uint64_t busy = g_busyUs.load(std::memory_order_relaxed), idle = g_idleUs.load(std::memory_order_relaxed);
                 const double n = static_cast<double>(g_n);
                 const uint64_t inflight = g_inflightWaitUs.load(std::memory_order_relaxed);
-                std::fprintf(stderr, "[gpu86] presents %llu: gpu frame %.2f ms (%llu frames), gpu busy %.2f idle %.2f ms a present, backlog at present %.1f scenes, present %.2f ms (swap %.2f) | r87 in-flight wait %.2f ms\n",
+                std::fprintf(stderr, "[gpu86] presents %llu: gpu frame %.2f ms (%llu frames), gpu busy %.2f idle %.2f ms a present, backlog at present %.1f scenes, present %.2f ms (swap %.2f) | r87 in-flight wait %.2f ms | every %u\n",
                              (unsigned long long)g_presents, g_gpuFrames ? g_gpuFrameUs / g_gpuFrames / 1000.0 : 0.0, (unsigned long long)g_gpuFrames,
                              (busy - g_busy0) / n / 1000.0, (idle - g_idle0) / n / 1000.0, g_backlog / n, g_presentUs / n / 1000.0, g_swapUs / n / 1000.0,
-                             (inflight - g_inflight0) / n / 1000.0);
+                             (inflight - g_inflight0) / n / 1000.0, every);
                 g_inflight0 = inflight;
                 g_busy0 = busy;
                 g_idle0 = idle;
@@ -875,6 +882,9 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1, float4 vScreen : 
 #ifndef NOSCREEN
 #define NOSCREEN 0
 #endif
+#ifndef UNTEX
+#define UNTEX 0
+#endif
 float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1,
 #if !NOSCREEN
             float4 vScreen : TEXCOORD2,
@@ -890,7 +900,12 @@ float4 main(float4 vUV : TEXCOORD0, float4 vColor : TEXCOORD1,
 {
     float textured = uFogColour.w;
     float depth = vUV.z;
-#if NOLOD
+#if UNTEX
+    // Round 98 (Tuning glUntex98): an untextured draw: the LOD program's own
+    // untextured values (its texel read and LOD were made and dropped).
+    float4 t = float4(0.50196, 0.50196, 0.50196, 1.0);
+    float alpha = saturate(t.a * 1.0 * vColor.a);
+#elif NOLOD
     // Round 73: a textured draw whose texture has one level: its texel read
     // straight from the interpolated UV (the same texel and filter as at
     // level 0; the GPU fetches it before the program runs), no LOD.
@@ -1240,6 +1255,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // reads at the 256 x 256 texels' centres; uSize.xy half a 256 texel.
     float3 r = tex2D(uSrc, uv - uSize.xy).rgb + tex2D(uSrc, uv + float2(uSize.x, -uSize.y)).rgb + tex2D(uSrc, uv + float2(-uSize.x, uSize.y)).rgb + tex2D(uSrc, uv + uSize.xy).rgb;
     return float4(r * 0.25, 1.0);
+#elif MODE == 26
+    // Round 98 (glow98): the glow layer's two composites (mode 14 Over, the
+    // sharp layer then the blurred one) as one pass, premultiplied: drawn
+    // with ONE / ONE_MINUS_SRC_ALPHA, dst x (1 - a1)(1 - a2) + the two
+    // layers' colours (the first one's 8-bit store between them left out).
+    float4 g1 = saturate(float4(tex2D(uSrc, uv).rgb * uA.rgb, tex2D(uSrc, uv).a * uA.a));
+    float4 g2 = saturate(float4(tex2D(uSrc2, uv).rgb * uB.rgb, tex2D(uSrc2, uv).a * uB.a));
+    return float4(g2.rgb * g2.a + g1.rgb * (g1.a * (1.0 - g2.a)), 1.0 - (1.0 - g1.a) * (1.0 - g2.a));
 #else
     return float4(tex2D(uSrc, uv).rgb * uB.rgb * uB.a, 1.0);
 #endif
@@ -1485,7 +1508,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint mainProgram = 0, quadProgram = 0;
         GLuint skinProgram = 0; // the main program posing a skinned mesh's bind pose first (0: not built)
 #if defined(PS2X_NATIVE_VITA)
-        GLuint quadPrograms[22] = {}; // (19-21: round 93's, the Vita)
+        GLuint quadPrograms[27] = {}; // (19-21: round 93's, the Vita; 26: round 98's glow98)
         GLuint regionPrograms[26] = {}; // round 94 (the Vita): kQuadVertexRegion + CLAMPED by mode (0, 1, 9, 16, 19-25)
         static constexpr int kRegionModes[] = {0, 1, 9, 13, 16, 19, 20, 21, 22, 23, 24, 25};
         bool regionReady = false; // every one of them built // by mode (8 and 11: the bloom mask's, see kQuadFragment; 12 unused; 15-18 the GS bloom chain, round 65b)
@@ -1685,6 +1708,159 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             uint64_t copies = 0, emptyPass = 0, bgCopy = 0, glow = 0, fxShadow = 0, fxGlow = 0, fxWater = 0, fxFuse = 0, bloom = 0, bloomDirect = 0, histMove = 0;
         } r94Stats;
+        // Round 98 (SOTC_GL_PX98=<n>, a measuring tool): every n frames, the
+        // pixels each draw covers (its triangles clipped to the view and
+        // projected; no depth test, so an upper bound of what is shaded) by
+        // class (target, program, blend, alpha-test pass) and by layer, and
+        // the full-screen / region passes' pixels by mode, each weighed by
+        // its fragment program's instruction count (libshacccg's output, round
+        // 93): "[px98]" lines. Vita3K cannot time the GPU: this says which
+        // draws carry the main picture's pixels.
+        struct Px98
+        {
+            int every = 0;
+            bool frame = false; // this frame is measured
+            uint64_t measured = 0;
+            struct Acc
+            {
+                uint32_t draws = 0;
+                double px = 0.0, cost = 0.0;
+            };
+            std::map<std::string, Acc> cls, layers, quads;
+            double targetPx = 0.0; // the measured frame's target areas, summed per bind (overdraw's denominator)
+            float wlo = 0.0f, whi = 0.0f; // the last draw's vertices' least / greatest clip w
+            // Kept meshes the CPU cannot read back (own buffers): their
+            // positions (x y z) / skinned vertices (x y z, bones, weights) and indices.
+            std::unordered_map<uint64_t, std::vector<float>> pos, skin;
+            std::unordered_map<uint64_t, std::vector<uint32_t>> skinIdx;
+        } px98;
+        static int px98Instr(int slot)
+        {
+            // slots: 0 main / 1 skinned main (148); lean 2 + 4 sk + 2 BG + CUT (LOD: 28 / 50 / 53 / 76);
+            // NOLOD 11 + ... (12 / 34 / 38 / 60); 10 volumes (ISP only); SOFT 19-20 (~50); noscreen 21 + 2 NOLOD + sk.
+            static const int lod[4] = {28, 50, 53, 76}, nolod[4] = {12, 34, 38, 60};
+            if (slot <= 1)
+                return 148;
+            if (slot >= 2 && slot <= 9)
+                return lod[(slot - 2) & 3];
+            if (slot == 10)
+                return 0;
+            if (slot >= 11 && slot <= 18)
+                return nolod[(slot - 11) & 3];
+            if (slot == 19 || slot == 20)
+                return 50;
+            if (slot >= 21 && slot <= 24)
+                return slot >= 23 ? 12 : 28;
+            if (slot >= 25 && slot <= 32) // untextured (round 98): see the .dsm counts
+            {
+                static const int untex[4] = {10, 30, 35, 55};
+                return untex[(slot - 25) & 3];
+            }
+            if (slot == 33 || slot == 34)
+                return 30;
+            if (slot == 35 || slot == 36)
+                return 10;
+            if (slot == 37 || slot == 38)
+                return 34;
+            return 50;
+        }
+        static const char *px98SlotName(int slot)
+        {
+            static const char *names[39] = {"main", "mainSk", "lean", "leanCut", "leanBG", "leanBGCut", "leanSk", "leanSkCut", "leanSkBG", "leanSkBGCut",
+                                            "vol", "plain", "plainCut", "plainBG", "plainBGCut", "plainSk", "plainSkCut", "plainSkBG", "plainSkBGCut",
+                                            "soft", "softSk", "ns", "nsSk", "nsPlain", "nsPlainSk",
+                                            "untex", "untexCut", "untexBG", "untexBGCut", "untexSk", "untexSkCut", "untexSkBG", "untexSkBGCut",
+                                            "untexSoft", "untexSoftSk", "nsUntex", "nsUntexSk", "plainSoft", "plainSoftSk"};
+            return slot >= 0 && slot < 39 ? names[slot] : "?";
+        }
+        // One triangle's covered pixels in a w x h target: clipped in clip
+        // space (the near plane at w 0.1: z = w - 0.2 against -w; the four
+        // sides), projected, its area.
+        static double px98Tri(const float a[4], const float b[4], const float c[4], float tw, float th)
+        {
+            float poly[2][9][3];
+            int n = 3;
+            const float *in[3] = {a, b, c};
+            for (int i = 0; i < 3; ++i)
+                poly[0][i][0] = in[i][0], poly[0][i][1] = in[i][1], poly[0][i][2] = in[i][3];
+            int cur = 0;
+            for (int plane = 0; plane < 5 && n >= 3; ++plane)
+            {
+                auto dist = [plane](const float *v)
+                {
+                    switch (plane)
+                    {
+                    case 0: return v[2] - 0.1f;
+                    case 1: return v[2] - v[0];
+                    case 2: return v[2] + v[0];
+                    case 3: return v[2] - v[1];
+                    default: return v[2] + v[1];
+                    }
+                };
+                int m = 0;
+                for (int i = 0; i < n && m < 8; ++i)
+                {
+                    const float *p = poly[cur][i], *q = poly[cur][(i + 1) % n];
+                    const float dp = dist(p), dq = dist(q);
+                    if (dp >= 0.0f)
+                    {
+                        std::memcpy(poly[cur ^ 1][m++], p, sizeof(float) * 3);
+                    }
+                    if ((dp >= 0.0f) != (dq >= 0.0f) && m < 8)
+                    {
+                        const float t = dp / (dp - dq);
+                        for (int k = 0; k < 3; ++k)
+                            poly[cur ^ 1][m][k] = p[k] + (q[k] - p[k]) * t;
+                        ++m;
+                    }
+                }
+                n = m;
+                cur ^= 1;
+            }
+            if (n < 3)
+                return 0.0;
+            double area = 0.0;
+            float sx[9], sy[9];
+            for (int i = 0; i < n; ++i)
+            {
+                const float w = std::max(poly[cur][i][2], 1e-6f);
+                sx[i] = (poly[cur][i][0] / w * 0.5f + 0.5f) * tw;
+                sy[i] = (poly[cur][i][1] / w * 0.5f + 0.5f) * th;
+            }
+            for (int i = 0; i < n; ++i)
+            {
+                const int j = (i + 1) % n;
+                area += static_cast<double>(sx[i]) * sy[j] - static_cast<double>(sx[j]) * sy[i];
+            }
+            return std::fabs(area) * 0.5;
+        }
+        double px98Draw(const Draw &d, const Mesh &m, float tw, float th);
+        void px98Add(const char *kind, const Target &target, size_t k, int slot, int blend, int atPass, bool kept);
+        void px98Quad(const char *what, int mode, double px)
+        {
+            if (!px98.frame)
+                return;
+            static const int instr[26] = {2, 13, 0, 0, 0, 2, 0, 0, 2, 2, 0, 0, 0, 0, 4, 81, 272, 0, 6, 4, 40, 28, 40, 28, 60, 30};
+            char key[64];
+            std::snprintf(key, sizeof key, "%s q%d", what, mode);
+            Px98::Acc &a = px98.quads[key];
+            ++a.draws;
+            a.px += px;
+            a.cost += px * (mode >= 0 && mode < 26 ? std::max(instr[mode], 2) : 8);
+        }
+        void px98Flush();
+        struct
+        {
+            uint64_t atLess = 0; // glAt98: second passes drawn with LESS
+            uint64_t untex = 0;  // glUntex98: untextured draws through the UNTEX programs
+            uint64_t glow = 0;   // glGlow98: glow composites in one pass
+            uint64_t noFog = 0;  // glNoFog98: fogged draws drawn without the background read
+            uint64_t lod0 = 0;   // glLod0_98: mipped textures read at level 0 by the plain programs
+            uint64_t plainSoft = 0; // glPlainSoft98: plain draws through the plain SOFT programs
+        } r98Stats;
+        bool diag98Was = false; // round 98 (glDiag98)
+        int diag98Class = 0;
+        uint64_t diag98Windows = 0, diag98Skipped = 0;
         uint64_t bloomGameFrame = 0; // the game frame this frame's bloom came with (SOTC_BLOOM_LOG)
         // SOTC_BLOOM_LOG: a target's mean (0-255) of channel c (3: alpha);
         // -1 where it cannot be read back (Vita3K's targets read as black).
@@ -1879,6 +2055,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint8_t minAlpha = 0;      // the least vertex alpha of its mesh(es) (0: not known)
             uint8_t maxAlpha = 0xFF;   // round 45: the greatest (0xFF: not known)
             float minW = -1.0f;        // round 75: a background draw's least clip w over its mesh(es)' bounds (-1: not known)
+            float maxW = -1.0f;        // round 98: a draw's greatest clip w over its mesh(es)' bounds (-1: not known; nofog98)
         };
         std::vector<Planned> plan;
         // Merged runs whose meshes lie apart in the pools: their vertices
@@ -2058,7 +2235,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Round 92: 21-24 the lean ones without BG and CUT through the vertex
         // program without the screen varying (Tuning glNoScreen92), at
         // 21 + 2 x NOLOD + skinned.
-        static constexpr int kMainSlots = 25;
+        // Round 98: 25-32 the lean ones for untextured draws (UNTEX; Tuning
+        // glUntex98) at 25 + 4 x skinned + 2 x BG + CUT, 33-34 their SOFT
+        // ones, 35-36 their no-screen ones (at + skinned).
+        // 37-38 the plain (NOLOD) SOFT ones (Tuning glPlainSoft98).
+        static constexpr int kMainSlots = 39;
+        static constexpr int kPlainSoftSlot = 37;
+        static constexpr int kUntexSlot = 25;
+        static constexpr int kUntexSoftSlot = 33;
+        static constexpr int kUntexNoScreenSlot = 35;
         static constexpr int kVolumeSlot = 10;
         static constexpr int kPlainSlot = 11;
         static constexpr int kSoftSlot = 19;
@@ -2341,7 +2526,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void useQuad(int mode)
         {
 #if defined(PS2X_NATIVE_VITA)
-            if (mode >= 0 && mode < 22 && quadPrograms[mode])
+            if (mode >= 0 && mode < 27 && quadPrograms[mode])
                 quadProgram = quadPrograms[mode];
             else if (quadPrograms[0]) // (round 94: never a region program left in place)
                 quadProgram = quadPrograms[0];
@@ -2413,10 +2598,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return head + pose + body;
         }
 
-        static std::string worldFragment(bool bg, bool cut, bool nolod = false, bool soft = false)
+        static std::string worldFragment(bool bg, bool cut, bool nolod = false, bool soft = false, bool untex = false)
         {
             const std::string defines = std::string("#define BG ") + (bg ? "1" : "0") + "\n#define CUT " + (cut ? "1" : "0") + "\n#define NOLOD " + (nolod ? "1" : "0") +
-                                        "\n#define SOFT " + (soft ? "1" : "0") + "\n";
+                                        "\n#define SOFT " + (soft ? "1" : "0") + "\n#define UNTEX " + (untex ? "1" : "0") + "\n";
 #if defined(PS2X_NATIVE_VITA)
             return defines + kWorldFragment;
 #else
@@ -2426,10 +2611,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
         bool init()
         {
+            if (const char *e = std::getenv("SOTC_GL_PX98")) // round 98 (the pixel estimate's frames)
+                px98.every = std::max(std::atoi(e), 0);
             const GLuint mainVertex = compile(GL_VERTEX_SHADER, kMainVertex);
             mainProgram = program(mainVertex, kMainFragment, {"aPos", "aNormal", "aColor", "aUV"});
 #if defined(PS2X_NATIVE_VITA)
-            for (int mode : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18})
+            for (int mode : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 26})
             {
                 const std::string source = "#define MODE " + std::to_string(mode) + "\n" + kQuadFragment;
                 quadPrograms[mode] = program(mode == 3 ? kQuadVertexTurned : (mode == 8 ? kQuadVertexDepth : kQuadVertex), source.c_str(), {"aPos"});
@@ -2545,6 +2732,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 mains[kSoftSlot + skinned].program = skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
                                                              : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
             }
+            // Round 98 (Tuning glUntex98): the untextured lean / SOFT programs.
+            for (int skinned = 0; skinned < 2; ++skinned)
+            {
+                if (skinned && !skinProgram)
+                    continue;
+                for (int bg = 0; bg < 2; ++bg)
+                    for (int cut = 0; cut < 2; ++cut)
+                    {
+                        const std::string fragment = worldFragment(bg != 0, cut != 0, false, false, true);
+                        mains[kUntexSlot + skinned * 4 + bg * 2 + cut].program =
+                            skinned ? program(skinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
+                                    : program(mainVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
+                    }
+                const std::string soft = worldFragment(false, true, false, true, true);
+                mains[kUntexSoftSlot + skinned].program = skinned ? program(skinVertex, soft.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
+                                                                  : program(mainVertex, soft.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
+                const std::string plainSoft = worldFragment(false, true, true, true);
+                mains[kPlainSoftSlot + skinned].program = skinned ? program(skinVertex, plainSoft.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
+                                                                  : program(mainVertex, plainSoft.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
+            }
             // Round 92 (Tuning glNoScreen92): the main vertex program without
             // its screen varying (TEXCOORD2; the uGuard uniform goes with it),
             // for the lean programs without BG and CUT, whose fragment program
@@ -2563,13 +2770,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     const GLuint nsVertex = compile(GL_VERTEX_SHADER, ns.c_str());
                     const std::string nsSkin = skinProgram ? skinnedVertex(ns.c_str()) : std::string();
                     const GLuint nsSkinVertex = nsSkin.empty() ? 0 : compile(GL_VERTEX_SHADER, nsSkin.c_str());
-                    for (int plain = 0; plain < 2; ++plain)
+                    for (int plain = 0; plain < 3; ++plain) // (2: round 98's untextured)
                         for (int skinned = 0; skinned < 2; ++skinned)
                         {
                             if (skinned && !nsSkinVertex)
                                 continue;
-                            const std::string fragment = "#define NOSCREEN 1\n" + worldFragment(false, false, plain != 0);
-                            mains[kNoScreenSlot + plain * 2 + skinned].program =
+                            const std::string fragment = "#define NOSCREEN 1\n" + worldFragment(false, false, plain == 1, false, plain == 2);
+                            mains[(plain == 2 ? kUntexNoScreenSlot : kNoScreenSlot + plain * 2) + skinned].program =
                                 skinned ? program(nsSkinVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV", "aBones", "aWeights"})
                                         : program(nsVertex, fragment.c_str(), {"aPos", "aNormal", "aColor", "aUV"});
                         }
@@ -2602,7 +2809,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 std::cerr << "[native:gl] the skinning program has no palette: skinned meshes posed on the CPU" << std::endl;
                 skinProgram = 0;
-                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7, kSoftSlot + 1, kNoScreenSlot + 1, kNoScreenSlot + 3})
+                for (int i : {1, 6, 7, 8, 9, kPlainSlot + 4, kPlainSlot + 5, kPlainSlot + 6, kPlainSlot + 7, kSoftSlot + 1, kNoScreenSlot + 1, kNoScreenSlot + 3,
+                              kUntexSlot + 4, kUntexSlot + 5, kUntexSlot + 6, kUntexSlot + 7, kUntexSoftSlot + 1, kUntexNoScreenSlot + 1, kPlainSoftSlot + 1})
                     mains[i].program = 0;
             }
             glUseProgram(quadProgram);
@@ -2671,10 +2879,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 {true, true, GL_FUNC_ADD, GL_ONE, GL_ONE, GL_ZERO, GL_ONE},
                 {true, true, GL_FUNC_ADD, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE},
                 {true, false, GL_FUNC_ADD, GL_ZERO, GL_ONE, GL_ZERO, GL_ONE},
+                {true, true, GL_FUNC_ADD, GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE}, // round 98 (QuadBlend::Premul)
             };
             uint32_t draws = 0;
             uint32_t programs = 0;
-            for (int which = 0; which < 41; ++which)
+            for (int which = 0; which < 55; ++which) // (41-54: round 98's untextured and plain SOFT ones, mains[25..38])
             {
                 // main, skin, the 12 quad programs, the 8 lean ones, the shadow volumes' (round 45),
                 // the GS bloom chain's 15-18 (round 65b), the 8 NOLOD lean ones (round 73), the 2 SOFT ones (round 75)
@@ -2684,12 +2893,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                                                                         : (which < 23 ? mains[2 + which - 14].program
                                                                                       : (which < 27 ? quadPrograms[which - 8]
                                                                                                     : (which < 35 ? mains[kPlainSlot + which - 27].program
-                                                                                                                  : (which < 37 ? mains[kSoftSlot + which - 35].program : mains[kNoScreenSlot + which - 37].program))))));
+                                                                                                                  : (which < 37 ? mains[kSoftSlot + which - 35].program
+                                                                                                                                : (which < 41 ? mains[kNoScreenSlot + which - 37].program : mains[kUntexSlot + which - 41].program)))))));
                 if (!p)
                     continue;
                 ++programs;
                 glUseProgram(p);
-                const bool skinned = which == 1 || (which >= 18 && which < 22) || (which >= 31 && which < 35) || which == 36 || which == 38 || which == 40, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
+                const bool skinned = which == 1 || (which >= 18 && which < 22) || (which >= 31 && which < 35) || which == 36 || which == 38 || which == 40 || (which >= 45 && which < 49) || which == 50 || which == 52 || which == 54, quadMode = (which >= 2 && which < 14) || (which >= 23 && which < 27);
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
                 for (GLuint i = 0; i < 6; ++i)
                 {
@@ -2731,7 +2941,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             // Round 93's affine programs and round 94's region ones (quad blends).
             {
-                std::vector<GLuint> extra = {quadPrograms[19], quadPrograms[20], quadPrograms[21]};
+                std::vector<GLuint> extra = {quadPrograms[19], quadPrograms[20], quadPrograms[21], quadPrograms[26]};
                 for (int mode : kRegionModes)
                     extra.push_back(regionPrograms[mode]);
                 glEnableVertexAttribArray(0);
@@ -3252,6 +3462,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             Add,        // Cs + Cd, alpha kept
             Over,       // Cs x As + Cd x (1 - As), alpha kept
             Darken,     // Cd x (1 - As)
+            Premul,     // Cs + Cd x (1 - As), alpha kept (round 98)
         };
         void quad(const Target &target, int mode, QuadBlend blend, const float a[4] = nullptr, const float b[4] = nullptr,
                   const float quadParams[4] = nullptr, bool corners = false)
@@ -3282,6 +3493,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
                 glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
                 break;
+            case QuadBlend::Premul:
+                glEnable(GL_BLEND);
+                glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+                glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+                break;
             }
 #if defined(PS2X_NATIVE_VITA)
             glUniform1f(uniform(false, "uMode"), static_cast<float>(mode));
@@ -3298,6 +3514,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             for (GLuint i = 1; i < 4; ++i)
                 glDisableVertexAttribArray(i);
             glDrawArrays(GL_TRIANGLES, 0, corners ? 6 : 3);
+            if (px98.frame)
+            {
+                char what[32];
+                std::snprintf(what, sizeof what, "%ux%u", target.width, target.height);
+                px98Quad(what, mode, static_cast<double>(target.width) * target.height);
+            }
         }
 
         // Round 94: a region of a target (pixels x, y, w, h; rows from the
@@ -3357,6 +3579,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             for (GLuint i = 1; i < 4; ++i)
                 glDisableVertexAttribArray(i);
             glDrawArrays(GL_TRIANGLES, 0, 6);
+            if (px98.frame)
+            {
+                char what[40];
+                std::snprintf(what, sizeof what, "%ux%u region", target.width, target.height);
+                px98Quad(what, mode, static_cast<double>(r.w) * r.h);
+            }
             // (bindTarget sets the whole target's viewport only at a bind: it is the whole target already)
 #else
             (void)target, (void)r, (void)mode, (void)blend, (void)a, (void)b, (void)uvAffine, (void)clampRect, (void)size;
@@ -3715,6 +3943,20 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         mesh.bytes = static_cast<uint64_t>(count) * sizeof(native_renderer::Vertex);
         meshBytes += mesh.bytes;
         cache.buffer = ~0u;
+#if defined(PS2X_NATIVE_VITA)
+        const bool px98Copy = px98.every && mesh.pool < 0; // (a pool's mapped memory is read in place)
+#else
+        const bool px98Copy = px98.every != 0;
+#endif
+        if (px98Copy) // round 98: the CPU's copy for the pixel estimate
+        {
+            std::vector<float> &p = px98.pos[id];
+            p.resize(static_cast<size_t>(count) * 3u);
+            for (uint32_t i = 0; i < count; ++i)
+                p[3u * i] = vertices[i].x, p[3u * i + 1u] = vertices[i].y, p[3u * i + 2u] = vertices[i].z;
+        }
+        else if (px98.every)
+            px98.pos.erase(id);
     }
 
     // First fit over the pools' free ranges; a new pool when none has room
@@ -3966,6 +4208,208 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         meshBytes += mesh.bytes;
         skinnedBytes += mesh.bytes;
         cache.buffer = ~0u;
+        if (px98.every) // round 98: the CPU's copy for the pixel estimate
+        {
+            std::vector<float> &s = px98.skin[id];
+            s.resize(static_cast<size_t>(count) * 9u);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                const native_renderer::SkinVertex &v = vertices[i];
+                const float f[9] = {v.x, v.y, v.z, v.bone[0], v.bone[1], v.bone[2], v.weight[0], v.weight[1], v.weight[2]};
+                std::memcpy(&s[static_cast<size_t>(i) * 9u], f, sizeof(f));
+            }
+            px98.skinIdx[id].assign(indices, indices + indexCount);
+        }
+    }
+
+    // Round 98 (SOTC_GL_PX98): a draw's covered pixels in a tw x th target,
+    // its triangles read where the CPU has them (the frame's arena, a pool's
+    // mapped memory, the copies kept for this).
+    double Renderer::px98Draw(const Draw &d, const Mesh &m, float tw, float th)
+    {
+        const float *c = d.clip;
+        auto project = [c, this](float x, float y, float z, float out[4])
+        {
+            for (int k = 0; k < 4; ++k)
+                out[k] = c[k] * x + c[4 + k] * y + c[8 + k] * z + c[12 + k];
+            px98.wlo = std::min(px98.wlo, out[3]);
+            px98.whi = std::max(px98.whi, out[3]);
+        };
+        double px = 0.0;
+        float v[3][4];
+        if (m.skinned)
+        {
+            auto s = px98.skin.find(d.mesh);
+            auto ix = px98.skinIdx.find(d.mesh);
+            if (s == px98.skin.end() || ix == px98.skinIdx.end() || !d.state.skinPalette)
+                return 0.0;
+            const size_t from = static_cast<size_t>(d.state.skinPalette - 1u) * 4u;
+            const size_t nv = s->second.size() / 9u;
+            for (size_t t = 0; t + 2 < ix->second.size(); t += 3)
+            {
+                bool ok = true;
+                for (int j = 0; j < 3 && ok; ++j)
+                {
+                    const uint32_t i = ix->second[t + static_cast<size_t>(j)];
+                    if (i >= nv)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    const float *f = &s->second[static_cast<size_t>(i) * 9u];
+                    float p[3] = {0, 0, 0};
+                    for (int b = 0; b < 3; ++b)
+                    {
+                        const size_t q = from + static_cast<size_t>(f[3 + b] + 0.5f) * 4u;
+                        if (q + 16u > palettes.size())
+                        {
+                            ok = false;
+                            break;
+                        }
+                        const float *M = &palettes[q];
+                        for (int a = 0; a < 3; ++a)
+                            p[a] += f[6 + b] * (M[a] * f[0] + M[4 + a] * f[1] + M[8 + a] * f[2] + M[12 + a]);
+                    }
+                    project(p[0], p[1], p[2], v[j]);
+                }
+                if (ok)
+                    px += px98Tri(v[0], v[1], v[2], tw, th);
+            }
+            return px;
+        }
+        const float *base = nullptr;
+        size_t stride = sizeof(native_renderer::Vertex) / sizeof(float), avail = 0;
+        if (m.dynamic)
+        {
+            base = reinterpret_cast<const float *>(arena.data());
+            avail = arena.size();
+        }
+#if defined(PS2X_NATIVE_VITA)
+        else if (m.pool >= 0 && pools[static_cast<size_t>(m.pool)].mapped)
+        {
+            base = reinterpret_cast<const float *>(pools[static_cast<size_t>(m.pool)].mapped) + static_cast<size_t>(m.first) * stride;
+            avail = m.count;
+        }
+#endif
+        else
+        {
+            auto p = px98.pos.find(d.mesh);
+            if (p == px98.pos.end())
+                return 0.0;
+            base = p->second.data();
+            stride = 3;
+            avail = p->second.size() / 3u;
+        }
+        auto vertexAt = [&](uint32_t i, float out[4]) -> bool
+        {
+            if (i >= avail)
+                return false;
+            const float *f = base + static_cast<size_t>(i) * stride;
+            project(f[0], f[1], f[2], out);
+            return true;
+        };
+        for (uint32_t t = 0; t + 2 < m.count; t += 3)
+        {
+            bool ok = true;
+            for (uint32_t j = 0; j < 3 && ok; ++j)
+            {
+                uint32_t i = t + j;
+                if (m.dynamic && m.indexed)
+                {
+                    const size_t at = static_cast<size_t>(m.firstIndex) + i;
+                    if (at >= indexArena.size())
+                        return px;
+                    i = indexArena.data()[at];
+                }
+                else if (m.dynamic)
+                    i += m.first;
+                ok = vertexAt(i, v[j]);
+            }
+            if (ok)
+                px += px98Tri(v[0], v[1], v[2], tw, th);
+        }
+        return px;
+    }
+
+    void Renderer::px98Add(const char *kind, const Target &target, size_t k, int slot, int blend, int atPass, bool kept)
+    {
+        if (!px98.frame)
+            return;
+        const Planned &planned = plan[k];
+        const uint32_t run = std::max(planned.run, 1u);
+        double px = 0.0;
+        px98.wlo = 1e30f, px98.whi = -1e30f;
+        for (uint32_t j = 0; j < run && k + j < plan.size(); ++j)
+        {
+            const Draw &dj = draws[static_cast<size_t>(drawOrder[k + j] & 0xFFFFFFFFu)];
+            if (plan[k + j].mesh)
+                px += px98Draw(dj, *plan[k + j].mesh, static_cast<float>(target.width), static_cast<float>(target.height));
+        }
+        const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+        static const char *blends[4] = {"N", "A", "O", "S"};
+        const int instr = px98Instr(slot);
+        char key[160];
+        std::snprintf(key, sizeof key, "%s %ux%u %s %s%s%s%s%s%s%s", kind, target.width, target.height, px98SlotName(slot), blends[std::clamp(blend, 0, 3)],
+                      atPass == 1 ? " at1" : atPass == 2 ? " at2" : "", d.state.screen ? " scr" : "", d.state.overlay ? " ovl" : "",
+                      d.state.background ? " bg" : "", kept ? "" : " cut", !planned.tex ? " untex" : planned.tex->mipped ? " mip" : "");
+        // SOTC_GL_PX98_DETAIL=<mask of layers, hex>: those layers' draws one by one.
+        static const uint32_t detail = std::getenv("SOTC_GL_PX98_DETAIL") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_GL_PX98_DETAIL"), nullptr, 16)) : 0u;
+        if (((detail >> (d.state.order & 31u)) & 1u) && px >= 64.0)
+        {
+            const Texture *t = planned.tex;
+            unsigned vlo = 255, vhi = 0, r0 = 0, g0 = 0, b0 = 0;
+            if (planned.mesh && planned.mesh->dynamic && !planned.mesh->indexed && planned.mesh->first + planned.mesh->count <= arena.size())
+                for (uint32_t i = 0; i < planned.mesh->count; ++i)
+                {
+                    const native_renderer::Vertex &v = arena.data()[planned.mesh->first + i];
+                    vlo = std::min<unsigned>(vlo, v.a), vhi = std::max<unsigned>(vhi, v.a);
+                    if (!i)
+                        r0 = v.r, g0 = v.g, b0 = v.b;
+                }
+            std::fprintf(stderr, "[px98d] dynamic vertex alpha %u..%u rgb0 %u %u %u | w %.2f..%.2f | lod K %.3f S %.3f max %.2f | fog start %.2f width %.2f steps %.0f order %u on %d\n", vlo, vhi, r0, g0, b0,
+                         px98.wlo, px98.whi, d.state.lodK, d.state.lodScale, d.state.maxLod, fog.start, fog.width, static_cast<float>(fog.steps), fog.order, fog.enabled ? 1 : 0);
+            std::fprintf(stderr, "[px98d] %s L%u px %.0f run %u verts %u %s blend %d tex %llx alpha tex %u..%u mesh %u..%u opacity %.3f at %x screen %d ovl %d fogged %d lit %d fresnel %d dyn %d idx %d\n",
+                         kind, d.state.order, px, run, planned.mesh ? planned.mesh->count : 0u, key, blend, (unsigned long long)d.state.texture, t ? t->minAlpha : 0u,
+                         t ? t->maxAlpha : 0u, planned.minAlpha, planned.maxAlpha, d.state.opacity, d.state.alphaTest, d.state.screen ? 1 : 0, d.state.overlay ? 1 : 0,
+                         d.state.fogged ? 1 : 0, d.state.lit ? 1 : 0, d.state.fresnel ? 1 : 0, planned.mesh && planned.mesh->dynamic ? 1 : 0,
+                         planned.mesh && planned.mesh->indexed ? 1 : 0);
+        }
+        Px98::Acc &a = px98.cls[key];
+        a.draws += run;
+        a.px += px;
+        a.cost += px * std::max(instr, 1);
+        char lk[64];
+        std::snprintf(lk, sizeof lk, "%s L%u %s", kind, d.state.order, blend == 2 ? "O" : "B");
+        Px98::Acc &l = px98.layers[lk];
+        l.draws += run;
+        l.px += px;
+        l.cost += px * std::max(instr, 1);
+    }
+
+    void Renderer::px98Flush()
+    {
+        if (!px98.frame)
+            return;
+        px98.frame = false;
+        auto dump = [&](const char *table, std::map<std::string, Px98::Acc> &m, size_t top)
+        {
+            std::vector<std::pair<std::string, Px98::Acc>> v(m.begin(), m.end());
+            std::sort(v.begin(), v.end(), [](const auto &x, const auto &y) { return x.second.cost > y.second.cost; });
+            double px = 0.0, cost = 0.0;
+            for (const auto &e : v)
+                px += e.second.px, cost += e.second.cost;
+            std::fprintf(stderr, "[px98] frame %llu %s: %zu entries, px %.0f, cost %.0f (Mpx-instr %.1f)\n", (unsigned long long)arenaFrame, table, v.size(), px, cost, cost / 1e6);
+            for (size_t i = 0; i < v.size() && i < top; ++i)
+                std::fprintf(stderr, "[px98]   %-48s draws %5u px %9.0f cost %11.0f (%4.1f%%)\n", v[i].first.c_str(), v[i].second.draws, v[i].second.px, v[i].second.cost,
+                             cost > 0.0 ? 100.0 * v[i].second.cost / cost : 0.0);
+            m.clear();
+        };
+        dump("classes", px98.cls, 40);
+        dump("layers", px98.layers, 40);
+        dump("quads", px98.quads, 30);
+        std::fprintf(stderr, "[px98] frame %llu: mesh passes' target pixels %.0f\n", (unsigned long long)arenaFrame, px98.targetPx);
+        px98.targetPx = 0.0;
+        ++px98.measured;
     }
 
     // Round 73: an RGBA8 chain (levels one after the other, rows packed) in
@@ -4269,6 +4713,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     {
         const size_t n = drawOrder.size();
         plan.assign(n, Planned{});
+        // Round 98 (Tuning glNoFog98): the fog's start, when the draws' greatest depths are wanted.
+        const float fogFar98 = native_renderer::tuning().glNoFog98 && fog.enabled && fog.width > 0.0f ? fog.start : 0.0f;
         const bool ahead = native_renderer::tuning().glLeanPass; // round 74: the next draws' records and lookups asked for ahead
         g_fastCompare = ahead;
         for (size_t k = 0; k < n; ++k)
@@ -4304,6 +4750,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         w += c[4 * a + 3] * (c[4 * a + 3] >= 0.0f ? m->lo[a] : m->hi[a]);
                     p.minW = std::isfinite(w) ? w : -1.0f;
                 }
+                if (fogFar98 > 0.0f && m->box && !m->dynamic && !m->skinned && d.state.order < 16u)
+                {
+                    // Round 98 (Tuning glNoFog98): the greatest clip w over the box
+                    // (the corner each axis picks by its coefficient's sign).
+                    const float *c = d.clip;
+                    float w = c[15];
+                    for (int a = 0; a < 3; ++a)
+                        w += c[4 * a + 3] * (c[4 * a + 3] >= 0.0f ? m->hi[a] : m->lo[a]);
+                    p.maxW = std::isfinite(w) && w > 0.0f ? w : -1.0f;
+                }
             }
             if (d.state.texture)
                 if (Texture *t = textures.find(d.state.texture))
@@ -4316,6 +4772,25 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // and greatest vertex alpha read from the frame's arena once (on
             // the console's route ~65% of the second passes were on meshes of
             // unknown alpha). Only these meshes, once a frame each.
+            // Round 98 (Tuning glUntex98): a small untextured frame mesh (the
+            // full-screen tints and veils): its vertex alphas read, so that one
+            // whose least alpha cannot be cut is drawn without the discard.
+            if (m && m->dynamic && !m->indexed && m->count && m->count <= 64u && !d.state.texture && !(d.state.alphaTest & 1u) &&
+                native_renderer::tuning().glUntex98 && static_cast<size_t>(m->first) + m->count <= arena.size())
+            {
+                if (m->alphaFrame != arenaFrame)
+                {
+                    const native_renderer::Vertex *v = arena.data() + m->first;
+                    uint8_t lo = 0xFF, hi = 0;
+                    for (uint32_t i = 0; i < m->count; ++i)
+                        lo = std::min(lo, v[i].a), hi = std::max(hi, v[i].a);
+                    m->alphaFrame = arenaFrame;
+                    m->frameMinAlpha = lo;
+                    m->frameMaxAlpha = hi;
+                }
+                p.minAlpha = m->frameMinAlpha;
+                p.maxAlpha = m->frameMaxAlpha;
+            }
             if (m && m->dynamic && !m->indexed && m->count && native_renderer::tuning().alphaTestMerge && native_renderer::tuning().alphaTest)
             {
                 const uint32_t at = d.state.alphaTest;
@@ -4421,6 +4896,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              native_renderer::tuning().glFx94 ? 1 : 0, r94Stats.fxShadow / fr, r94Stats.fxGlow / fr, r94Stats.fxWater / fr, r94Stats.fxFuse / fr, r94Stats.copies / fr, r94Stats.emptyPass / fr,
                              native_renderer::tuning().glBloom94 ? 1 : 0, r94Stats.bloom / fr, r94Stats.bloomDirect / fr, (unsigned long long)r94Stats.histMove);
                 r94Stats = {};
+                std::fprintf(stderr, "[r98] per frame: at98 %d: second passes with LESS %.1f | untex98 %d: untextured draws %.1f | glow98 %d: %.2f | nofog98 %d: %.1f | lod0_98 %d: %.1f | psoft98 %d: %.1f | diag98 class %d: draws left out %.1f\n",
+                             native_renderer::tuning().glAt98 ? 1 : 0, r98Stats.atLess / fr, native_renderer::tuning().glUntex98 ? 1 : 0, r98Stats.untex / fr,
+                             native_renderer::tuning().glGlow98 ? 1 : 0, r98Stats.glow / fr, native_renderer::tuning().glNoFog98 ? 1 : 0, r98Stats.noFog / fr,
+                             native_renderer::tuning().glLod0_98 ? 1 : 0, r98Stats.lod0 / fr, native_renderer::tuning().glPlainSoft98 ? 1 : 0, r98Stats.plainSoft / fr, diag98Class,
+                             diag98Skipped / fr);
+                r98Stats = {};
+                diag98Skipped = 0;
                 alphaStats = {};
                 const uint64_t last = shadowStats.lastFrame;
                 shadowStats = {};
@@ -4497,6 +4979,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     p.minAlpha = std::min(p.minAlpha, plan[j].minAlpha);
                     p.maxAlpha = std::max(p.maxAlpha, plan[j].maxAlpha);
                     p.minW = std::min(p.minW, plan[j].minW); // (-1 if any is not known)
+                    p.maxW = (p.maxW < 0.0f || plan[j].maxW < 0.0f) ? -1.0f : std::max(p.maxW, plan[j].maxW); // (round 98)
                     key = (key ^ draws[static_cast<size_t>(drawOrder[j] & 0xFFFFFFFFu)].mesh) * 0xff51afd7ed558ccdull;
                     key ^= key >> 29;
                 }
@@ -4957,6 +5440,41 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #endif
         fitTargets(w, h);
         ensureTargets(w, h);
+        {
+            // Round 98 (Tuning glDiag98, a console diagnostic): at each window's
+            // start the next class of SOTC_GL_DIAG98_CLASSES; 0 outside.
+            static const std::vector<int> classes = []
+            {
+                std::vector<int> v;
+                const char *e = std::getenv("SOTC_GL_DIAG98_CLASSES");
+                std::string s = e ? e : "1,2,3,4,5,6";
+                for (size_t at = 0; at < s.size();)
+                {
+                    const size_t comma = s.find(',', at);
+                    const int c = std::atoi(s.substr(at, comma == std::string::npos ? std::string::npos : comma - at).c_str());
+                    if (c > 0)
+                        v.push_back(c);
+                    if (comma == std::string::npos)
+                        break;
+                    at = comma + 1;
+                }
+                if (v.empty())
+                    v.push_back(1);
+                return v;
+            }();
+            const bool on = native_renderer::tuning().glDiag98;
+            if (on && !diag98Was)
+            {
+                diag98Class = classes[diag98Windows % classes.size()];
+                ++diag98Windows;
+                std::fprintf(stderr, "[diag98] window %llu frame %llu: class %d\n", (unsigned long long)diag98Windows, (unsigned long long)arenaFrame, diag98Class);
+            }
+            else if (!on)
+                diag98Class = 0;
+            diag98Was = on;
+        }
+        px98Flush(); // round 98: the frame measured before (SOTC_GL_PX98)
+        px98.frame = px98.every > 0 && arenaFrame % static_cast<uint64_t>(px98.every) == 0u && draws.size() >= 300u;
         r92Stats.px += native_renderer::tuning().glDiag92Px ? 1u : 0u;
         r92Stats.tex += native_renderer::tuning().glDiag92Tex ? 1u : 0u;
         r92Stats.half += native_renderer::tuning().glDiag92Half ? 1u : 0u;
@@ -5166,6 +5684,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             } passTime{this, phases.on ? native_renderer::nowUs() : 0u};
             gpu86::label(backgroundOnly ? "bg %d-%d" : mirror ? "mirror %d-%d" : apart ? "apart %d-%d" : "pass %d-%d", static_cast<int>(fromOrder),
                          toOrder == ~0u ? 99 : static_cast<int>(toOrder));
+            const char *passKind = backgroundOnly ? "bg" : mirror ? "mirror" : apart ? "apart" : "pass"; // round 98 (px98)
+            if (px98.frame)
+                px98.targetPx += static_cast<double>(target.width) * target.height;
             bindTarget(target);
             if (pendingResolve && load && !backgroundOnly && !mirror && !apart && &target == &color)
             {
@@ -5249,6 +5770,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             cache.blend = cache.depthTest = cache.depthMask = -1;
             cache.buffer = cache.texture = ~0u;
             const bool leanOn = native_renderer::tuning().glLeanPrograms, noDiscard = native_renderer::tuning().glNoDiscard;
+            const bool untex98 = native_renderer::tuning().glUntex98; // round 98
             const bool opaque88 = native_renderer::tuning().glOpaque88; // round 88
             // Round 75 (glSoftCut): the cut-out without discard where a cut pixel
             // drawn with colour and alpha 0 leaves the target as it was: the
@@ -5454,7 +5976,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #else
                 const bool zFogged = false;
 #endif
-                const float fogA[4] = {fog.start, fog.width, static_cast<float>(fog.steps), (!backgroundOnly && fogOn && (d.state.fogged || zFogged)) ? 1.0f : 0.0f};
+                bool fogThis = !backgroundOnly && fogOn && (d.state.fogged || zFogged);
+                // Round 98 (Tuning glNoFog98): a fogged draw lying wholly nearer
+                // than the fog's start (its bounds' greatest clip w, a margin for
+                // the GPU's rounding) is fogged by 0 at every pixel (saturate of
+                // a negative): drawn without the background read.
+                if (fogThis && planned.maxW > 0.0f && planned.maxW < fog.start * 0.999f && native_renderer::tuning().glNoFog98)
+                {
+                    fogThis = false;
+                    ++r98Stats.noFog;
+                }
+                const float fogA[4] = {fog.start, fog.width, static_cast<float>(fog.steps), fogThis ? 1.0f : 0.0f};
                 // The program: a lean one for the plain world draws (only the
                 // samplers they read; without the cut-out when no pixel can be
                 // cut), the full one for the rest.
@@ -5524,22 +6056,44 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const bool writesNoDepth = d.state.overlay || (d.state.blend == native_renderer::Blend::Additive && !d.state.writeDepth) || d.state.noDepthWrite || d.state.screenDepthTest || atAllUnder;
                 const bool softHere = softOn && blendsBySourceAlpha && !backdropDraw && !d.state.shadowVolume;
                 GLuint softSecond = 0; // the alpha test's second pass (no depth writes) through the SOFT program
-                bool cutUsed = false, softUsed = false, leanNoCut = false;
+                bool cutUsed = false, softUsed = false, leanNoCut = false, lod0Draw = false;
                 if (leanOn && !d.state.shadowVolume && textured <= 1 && !d.state.debugColour && !tintThis)
                 {
                     bool cut = true;
                     if (noDiscard && leastAlpha >= 0.0f && !(guard[0] > 0.0f))
                         cut = !(leastAlpha >= 0.03f) || atSecond || atAllUnder; // the cut-out is at 0.02
                     // Round 73 (Tuning glPlainReads): a texture of one level read with no LOD.
-                    const bool plain = textured == 1 && !tex->mipped && native_renderer::tuning().glPlainReads;
+                    // Round 98 (Tuning glLod0_98): a mipped texture drawn at level 0
+                    // (the draw's maxLod <= 0: the LOD program's lod is 0) read as a
+                    // one-level one, the texture's sampling held to level 0 (below).
+                    const bool lod0 = textured == 1 && tex->mipped && !(d.state.maxLod > 0.0f) && native_renderer::tuning().glLod0_98 &&
+                                      native_renderer::tuning().glPlainReads;
+                    const bool plain = textured == 1 && (!tex->mipped || lod0) && native_renderer::tuning().glPlainReads;
+                    lod0Draw = lod0;
                     GLuint lean = leanProgram(skinned, fogA[3] > 0.5f, cut, plain);
                     if (plain && !lean)
                         lean = leanProgram(skinned, fogA[3] > 0.5f, cut);
                     else if (plain)
                         ++plainReadDraws;
-                    if (cut && softHere && !plain && !(fogA[3] > 0.5f)) // (not BG: see kWorldFragment's SOFT)
+                    // Round 98 (Tuning glUntex98): an untextured draw through the
+                    // programs without the texel read and its LOD.
+                    bool untex = false;
+                    if (textured == 0 && untex98)
+                        if (const GLuint u = mains[kUntexSlot + (skinned ? 4 : 0) + (fogA[3] > 0.5f ? 2 : 0) + (cut ? 1 : 0)].program)
+                        {
+                            lean = u;
+                            untex = true;
+                            ++r98Stats.untex;
+                        }
+                    // Round 98 (Tuning glPlainSoft98): the plain (NOLOD) draws get the
+                    // cut-out without discard too (round 75 made only the LOD one).
+                    const bool plainSoft = plain && lean == leanProgram(skinned, fogA[3] > 0.5f, cut, true) && native_renderer::tuning().glPlainSoft98 &&
+                                           mains[kPlainSoftSlot + (skinned ? 1 : 0)].program;
+                    if (cut && softHere && (!plain || plainSoft) && !(fogA[3] > 0.5f)) // (not BG: see kWorldFragment's SOFT)
                     {
-                        const GLuint soft = softProgram(skinned);
+                        const GLuint softU = untex ? mains[kUntexSoftSlot + (skinned ? 1 : 0)].program : plainSoft ? mains[kPlainSoftSlot + (skinned ? 1 : 0)].program : 0;
+                        const GLuint soft = softU ? softU : softProgram(skinned);
+                        r98Stats.plainSoft += plainSoft ? 1u : 0u;
                         if (soft && writesNoDepth)
                             lean = soft, softUsed = true;
                         else if (soft && atSecond)
@@ -5557,7 +6111,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         if (!cut && !softUsed && !(fogA[3] > 0.5f) && native_renderer::tuning().glNoScreen92)
                         {
                             const bool plainUsed = plain && lean == leanProgram(skinned, false, false, true);
-                            const GLuint ns = mains[kNoScreenSlot + (plainUsed ? 2 : 0) + (skinned ? 1 : 0)].program;
+                            const GLuint ns = untex ? mains[kUntexNoScreenSlot + (skinned ? 1 : 0)].program : mains[kNoScreenSlot + (plainUsed ? 2 : 0) + (skinned ? 1 : 0)].program;
                             if (ns)
                             {
                                 program = ns;
@@ -5794,7 +6348,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         bindTexture(0, texName);
                     }
                     // Quality "Texture filtering": nearest, bilinear, trilinear (anisotropic: Metal only, trilinear here).
-                    const uint32_t filter = d.state.screen ? 2u : static_cast<uint32_t>(std::clamp(native_renderer::tuning().textureFilter + 0.5f, 0.0f, 2.0f)); // 2D keeps the default
+                    uint32_t filter = d.state.screen ? 2u : static_cast<uint32_t>(std::clamp(native_renderer::tuning().textureFilter + 0.5f, 0.0f, 2.0f)); // 2D keeps the default
+                    // Round 98 (glLod0_98): 3 / 4 = level 0 only, nearest / bilinear
+                    // (vitaGL: a non-mipmap min filter sets the texture's mip count to one).
+                    if (lod0Draw && tex->mipped)
+                    {
+                        filter = filter == 0u ? 3u : 4u;
+                        ++r98Stats.lod0;
+                    }
                     if (tex->filter != filter)
                     {
                         tex->filter = filter;
@@ -5804,9 +6365,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                             {
                                 bindTexture(0, n);
                                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                                                filter == 0 ? (mipped ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
+                                                filter == 3 ? GL_NEAREST : filter == 4 ? GL_LINEAR
+                                                : filter == 0 ? (mipped ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
                                                             : (filter == 1 ? (mipped ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR) : (mipped ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR)));
-                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == 0 ? GL_NEAREST : GL_LINEAR);
+                                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (filter == 0 || filter == 3) ? GL_NEAREST : GL_LINEAR);
                             }
                         bindTexture(0, texName);
                     }
@@ -5928,6 +6490,23 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         seq = nullptr;
                     }
                 }
+                if (diag98Class > 1 && !mirror && !backgroundOnly) // round 98 diagnostic (picture wrong): one class left out
+                {
+                    const bool blended = drawBlend != native_renderer::Blend::Opaque;
+                    const bool skip = diag98Class == 2   ? blended && d.state.order >= 9u
+                                      : diag98Class == 3 ? cutUsed
+                                      : diag98Class == 4 ? fogA[3] > 0.5f
+                                      : diag98Class == 5 ? skinned
+                                      : diag98Class == 6 ? blended && d.state.order >= 2u && d.state.order <= 8u
+                                                         : false;
+                    if (skip)
+                    {
+                        ++diag98Skipped;
+                        continue;
+                    }
+                }
+                if (px98.frame)
+                    px98Add(passKind, target, k, mainSlot, static_cast<int>(drawBlend), atSecond ? 1 : 0, !cutUsed);
                 ++drawStats.calls;
                 drawStats.cut += cutUsed ? 1u : 0u;
                 drawStats.cutDepth += cutUsed && cache.depthMask ? 1u : 0u;
@@ -5971,7 +6550,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     if (took > spike.callMax)
                         spike.callMax = took, spike.callIndex = spike.drawn - 1u;
                 }
-                if (atSecond)
+                if (atSecond && !(diag98Class == 1 && !mirror && !backgroundOnly && ++diag98Skipped)) // (round 98 diagnostic class 1: the second pass left out)
                 {
                     // The pixels under AREF: colour, no depth write.
                     const float under[4] = {0.0f, aref, 0.0f, 0.0f};
@@ -6008,11 +6587,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         glDepthMask(GL_FALSE);
                         cache.depthMask = 0;
                     }
+                    // Round 98 (Tuning glAt98): the second pass's depth test
+                    // strict (LESS): the pixels the first pass drew wrote this
+                    // very depth, so the GPU's depth test drops them before
+                    // their program runs (with LEQUAL they were all shaded
+                    // again, to be cut: alpha at AREF or over); only the pixels
+                    // the first pass cut (no depth written) are shaded. Differs
+                    // only where an earlier surface lies at exactly the same depth.
+                    const bool less98 = native_renderer::tuning().glAt98 && cache.depthTest == 1;
+                    if (less98)
+                    {
+                        glDepthFunc(GL_LESS);
+                        ++r98Stats.atLess;
+                    }
+                    if (px98.frame)
+                        px98Add(less98 ? "pass-less" : passKind, target, k, mainSlot, static_cast<int>(d.state.blend), 2, !softSecond && !cutUsed);
                     const uint64_t secondStart = phases.on ? native_renderer::nowUs() : 0u;
                     if (planned.run > 1)
                         glDrawArrays(GL_TRIANGLES, firstVertex, static_cast<GLsizei>(diagHalf(planned.mergedCount)));
                     else
                         drawMesh(mesh, firstVertex);
+                    if (less98)
+                        glDepthFunc(GL_LEQUAL);
                     if (phases.on)
                     {
                         const uint64_t took = native_renderer::nowUs() - secondStart;
@@ -6338,6 +6934,30 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // reads as the shadows' mask (bloomTex[0], or fxAtlas[1]'s SV region
         // under fx94), and whether the water's copy is waiting in fxAtlas[0].
         const Target *glowBlurred = &glowSmall[0];
+        // The glow layer's composite onto `onto`: the sharp layer (amountA)
+        // then the blurred one (amountB), each Over (mode 14); round 98
+        // (Tuning glGlow98): both in one pass (mode 26) when both are drawn.
+        auto glowComposite = [&](const Target &onto)
+        {
+            if (native_renderer::tuning().glGlow98 && glow.amountA > 0.0f && glow.amountB > 0.0f && quadPrograms[26])
+            {
+                const float a[4] = {glow.tint[0], glow.tint[1], glow.tint[2], glow.amountA}, b[4] = {glow.tint[0], glow.tint[1], glow.tint[2], glow.amountB};
+                bindTexture(1, glowBlurred->texture);
+                bindTexture(0, glowLayer.texture);
+                quad(onto, 26, QuadBlend::Premul, a, b);
+                ++r98Stats.glow;
+                return;
+            }
+            const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {glowBlurred, glow.amountB}};
+            for (const auto &[source, amount] : layers)
+            {
+                if (!(amount > 0.0f))
+                    continue;
+                const float tint[4] = {glow.tint[0], glow.tint[1], glow.tint[2], amount};
+                bindTexture(0, source->texture);
+                quad(onto, 14, QuadBlend::Over, tint);
+            }
+        };
         struct
         {
             bool region = false;
@@ -6377,15 +6997,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             if (glowPending)
             {
-                const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {glowBlurred, glow.amountB}};
-                for (const auto &[source, amount] : layers)
-                {
-                    if (!(amount > 0.0f))
-                        continue;
-                    const float tint[4] = {glow.tint[0], glow.tint[1], glow.tint[2], amount};
-                    bindTexture(0, source->texture);
-                    quad(t, 14, QuadBlend::Over, tint);
-                }
+                glowComposite(t);
                 if (picture)
                     glowPending = false;
             }
@@ -6606,15 +7218,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             }
             finalKeep();
-            const std::pair<const Target *, float> layers[2] = {{&glowLayer, glow.amountA}, {glowBlurred, glow.amountB}};
-            for (const auto &[source, amount] : layers)
-            {
-                if (!(amount > 0.0f))
-                    continue;
-                const float tint[4] = {glow.tint[0], glow.tint[1], glow.tint[2], amount};
-                bindTexture(0, source->texture);
-                quad(color, 14, QuadBlend::Over, tint);
-            }
+            glowComposite(color);
         };
 #if defined(PS2X_NATIVE_VITA)
         // Round 65c: the soft shadows' mask on the Vita. The counted pixels

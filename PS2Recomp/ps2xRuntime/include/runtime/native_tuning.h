@@ -270,7 +270,18 @@ namespace native_renderer
         // draws up to 1 level apart on ~0.6% of the altar's pixels (its
         // texture coordinates for such reads), so off by default.
         // SOTC_GL_PLAIN_READS=0/1; A/B name `plainread73` (with it on).
+        // Round 98: on by default on the Vita. Round 92's diagnostics put the
+        // console's GPU time in the pixels, and round 98's pixel estimate put
+        // every textured world pixel through the LOD programs (a texel read
+        // that waits for the program's arithmetic); the 1 level on ~0.6% of
+        // the pixels is Vita3K's texture coordinates for such reads (a
+        // one-level texture read at LOD 0 or at the interpolated UV is the
+        // same texel and filter on the GPU). Its window and r98all turn it off.
+#if defined(__vita__)
+        bool glPlainReads = true;
+#else
         bool glPlainReads = false;
+#endif
         // Round 74 (the render thread's CPU, the same GL calls in the same
         // order): each pass walks only the draws of its layers that are drawn
         // (merged-away draws and other layers' left out: each pass read every
@@ -522,6 +533,78 @@ namespace native_renderer
         bool glGlow94 = false;
         bool glFx94 = false;
         bool glBloom94 = false;
+#endif
+        // Round 98 (a GPU diagnostic for the console's A/B, default 0, the
+        // picture WRONG while on; its A/B window turns it on): the main
+        // picture's draws of ONE class left out, the class moving on at each
+        // window (SOTC_GL_DIAG98_CLASSES, default 1,2,3,4,5,6; "[diag98]"
+        // lines name each window's class): 1 the alpha test's second passes,
+        // 2 the blended draws of layers 9 and up (water, effects, particles),
+        // 3 the draws through a discard (CUT programs), 4 the fogged draws
+        // (the BG programs), 5 the characters (skinned), 6 the blended world
+        // draws of layers 2-8. A window's busy drop is the class's GPU cost.
+        // SOTC_GL_DIAG98=0/1; A/B `diag98`.
+        bool glDiag98 = false;
+        // Round 98 (the Vita's GPU): the GS alpha test's second pass (the
+        // pixels under AREF, no depth write) drawn with a strict depth test
+        // (LESS): the pixels its first pass drew wrote that very depth, so
+        // the GPU drops them before their fragment program runs (with
+        // LEQUAL every pixel of the draw was shaded a second time, those
+        // at AREF or over only to be cut). Differs only where an earlier
+        // surface lies at exactly the same depth as the draw's own cut
+        // pixels. SOTC_GL_AT98=0/1; A/B `at98` (r98all too).
+#if defined(__vita__)
+        bool glAt98 = true;
+#else
+        bool glAt98 = false;
+#endif
+        // Round 98 (the Vita's GPU): untextured world draws (the full-screen
+        // tints and veils of layers 20 / 27, untextured scenery) drew through
+        // the LOD programs, which make the texel's LOD and read (a dependent
+        // read) before dropping it for the untextured values; now through
+        // programs with those values alone (the same arithmetic after them).
+        // SOTC_GL_UNTEX98=0/1; A/B `untex98` (r98all too).
+#if defined(__vita__)
+        bool glUntex98 = true;
+#else
+        bool glUntex98 = false;
+#endif
+        // Round 98 (the Vita's GPU): the glow layer's two composites over the
+        // whole picture (the sharp layer, then the blurred one, each Over)
+        // as one premultiplied pass reading both: one full-screen blended
+        // pass fewer (the first one's 8-bit store between them left out:
+        // within a level). SOTC_GL_GLOW98=0/1; A/B `glow98` (r98all too).
+#if defined(__vita__)
+        bool glGlow98 = true;
+#else
+        bool glGlow98 = false;
+#endif
+        // Round 98 (the Vita's GPU), the world programs' pixels:
+        // nofog98: a fogged draw (zFog's layers before the fog's own, or a
+        // fogged model) whose mesh lies wholly nearer than the fog's start
+        // (its bounds' greatest clip w) is fogged by 0 at every pixel: drawn
+        // through the program without the background read (and so without
+        // the screen varying, and with the cut-out without discard where it
+        // may). At the altar ~1.6 M of the BG programs' ~1.7 M pixels a frame.
+        // SOTC_GL_NOFOG98=0/1; A/B `nofog98`.
+        // lod0_98: a mipped texture drawn with maxLod <= 0 (the GS's TEX1 at
+        // level 0: the LOD program's lod is 0) is read by the plain program
+        // (a texel read the GPU makes before the program runs, no LOD) with
+        // the texture's sampling held to level 0 (a non-mipmap min filter:
+        // vitaGL's mip count one) while such draws read it. At the altar
+        // ~2.1 M of the LOD programs' ~3.1 M pixels a frame.
+        // SOTC_GL_LOD0_98=0/1; A/B `lod0_98`.
+        // psoft98: the plain (one-level read) draws get round 75's cut-out
+        // without discard too (only the LOD programs had it).
+        // SOTC_GL_PSOFT98=0/1; A/B `psoft98`. (All in r98all.)
+#if defined(__vita__)
+        bool glNoFog98 = true;
+        bool glLod0_98 = true;
+        bool glPlainSoft98 = true;
+#else
+        bool glNoFog98 = false;
+        bool glLod0_98 = false;
+        bool glPlainSoft98 = false;
 #endif
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
