@@ -85,6 +85,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
 #if defined(__vita__)
 #include <psp2/kernel/threadmgr.h>
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
+extern "C" void ps2x_vita_pace_ab(int on);                // raylib_vita.cpp (round 110)
 #endif
 #include <vector>
 
@@ -3408,6 +3409,14 @@ namespace sotc_native
                 char104::setAb109(on(1), on(2), on(3));
             }
         }
+#if defined(__vita__)
+        {
+            // Round 110: `pace110` (the per-picture display timing) off in its windows.
+            static const int at110 = indexOf("pace110");
+            if (at110 >= 0)
+                ps2x_vita_pace_ab(isOffAt(at110) ? 0 : 1);
+        }
+#endif
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
         // Round 105: `worker105`, `build105`, `log105`, `render105` each off

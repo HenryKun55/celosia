@@ -36,21 +36,421 @@ namespace
 {
     std::atomic<uint32_t> g_shownHist[8];
     std::atomic<uint32_t> g_swaps{0}, g_shown{0}; // pictures handed to vitaGL / to the display
-    unsigned int g_lastShownVcount = 0;
-    bool g_shownAny = false;
-    void displayShown(void *)
+}
+
+// Round 110 (SOTC_PACE110): each picture shown on the refresh its game time
+// asks for. The game's frame release (sotc_overrides.cpp cap20) is counted and
+// timed here (ps2x_vita_pace_release); the native renderer's hand-over tags the
+// frame's picture with that count, the render thread passes it on with the
+// present (ps2x_vita_pace_tag; EndDrawing puts it in a queue beside vitaGL's
+// display queue: one entry a swap, in order), and vitaGL's display callback
+// (on the display queue's thread, before sceDisplaySetFrameBuf) takes it back.
+// On: the picture is set on the refresh before its slot, T = the previous
+// picture's slot + its frame's release interval (the game's step, in VBlanks;
+// at least the display's minimum hold: 3 in Steady 20, 2 with the 30 fps cap),
+// so it stays on screen as long as the game's time moved. A picture that comes
+// after its slot is shown at the next refresh and the slots go on from it (one
+// interval longer, none shorter after it). Latency: the slots aim at the floor
+// A = the least arrival latency (swap + 2 refreshes - release) of the last 64
+// pictures. After a hitch (a release gap or 12+ refreshes on screen, or a
+// picture 6+ refreshes late) the pictures queued behind it are shown a refresh
+// apart (at least) until the latency is back at A ("catch-up": the hitch is the
+// glitch, nothing after it); otherwise, when 6 pictures in a row were already
+// queued as the one before went on screen and the latency is above A + 1, one
+// slot comes a refresh earlier ("pull": the 60.00 Hz game against the 59.94 Hz
+// display adds a refresh every ~17 s). vitaGL's own vsync wait is then 1 (the
+// slot is held here). Off: as before (vitaGL's interval), the same statistics.
+// [pace110] every 600 pictures (on / off apart): refreshes each picture stayed,
+// shown against the release interval and against the game's dt, latency
+// release -> on screen, late pictures, pulls, and the same for the quiet
+// pictures (20+ after a hitch).
+namespace pace110
+{
+    constexpr double kRefreshUs = 1000000.0 / 59.94; // the display's refresh
+    constexpr double kVBlankUs = 1000000.0 / 60.0;   // the game's VBlank (EeScheduler)
+    std::atomic<uint64_t> g_vcLast{0};
+    // sceDisplayGetVcount unwrapped to 64 bits (Vita3K gives 16), one count for every thread.
+    uint64_t vc64()
+    {
+        const uint64_t raw = static_cast<uint64_t>(static_cast<uint32_t>(sceDisplayGetVcount()) & 0xFFFFu);
+        uint64_t base = g_vcLast.load(std::memory_order_relaxed);
+        if (base == 0u)
+        {
+            uint64_t zero = 0u;
+            g_vcLast.compare_exchange_strong(zero, 0x100000u + raw, std::memory_order_relaxed);
+            base = g_vcLast.load(std::memory_order_relaxed);
+        }
+        int64_t d = static_cast<int64_t>((raw - (base & 0xFFFFu)) & 0xFFFFu);
+        if (d >= 0x8000)
+            d -= 0x10000;
+        const uint64_t v = base + d;
+        while (v > base && !g_vcLast.compare_exchange_weak(base, v, std::memory_order_relaxed))
+        {
+        }
+        return v;
+    }
+    uint64_t nowUs() { return sceKernelGetProcessTimeWide(); }
+
+    struct Release
+    {
+        std::atomic<uint32_t> seq{0}, dtSeq{0};
+        uint64_t us = 0, vc = 0;
+        uint32_t dtUs = 0; // the game's dt of this release's frame (given at the next release)
+    };
+    Release g_rel[128];
+
+    struct Tag
+    {
+        uint32_t seq = 0;
+        uint64_t swapVc = 0, swapUs = 0;
+    };
+    Tag g_fifo[32];
+    std::atomic<uint32_t> g_fifoHead{0}, g_fifoTail{0};
+    thread_local uint32_t t_tag = 0;
+
+    std::atomic<int> g_minHold{1}; // SetTargetFPS: 1, 2 (30 fps cap), 3 (Steady 20)
+    std::atomic<int> g_ab{1};      // SOTC_AB_FLAG pace110: off in its windows
+    int envInt(const char *name, int def)
+    {
+        const char *e = std::getenv(name);
+        return e ? std::atoi(e) : def;
+    }
+    // Read once before the display callback is set (it takes no static-init guard: no lock there).
+    int g_setting = 1, g_calmNeed = 6, g_traceMax = 0, g_traced = 0;
+    void init()
+    {
+        g_setting = envInt("SOTC_PACE110", 1);
+        // A pull: after this many pictures in a row that were already queued when the one before
+        // them went on screen (ready a whole interval early: the slots run later than needed).
+        g_calmNeed = envInt("SOTC_PACE110_CALM", 6);
+        g_traceMax = envInt("SOTC_PACE110_TRACE", 0);
+    }
+    int setting() { return g_setting; } // SOTC_PACE110 (0 / 1)
+    bool on() { return setting() != 0 && g_ab.load(std::memory_order_relaxed) != 0; }
+
+    void push(uint32_t seq) // EndDrawing, before the swap (under the GL lock: one producer at a time)
+    {
+        const uint32_t head = g_fifoHead.load(std::memory_order_relaxed);
+        if (head - g_fifoTail.load(std::memory_order_acquire) >= 32u)
+            return; // (cannot happen: vitaGL holds at most 2 pending)
+        Tag &t = g_fifo[head & 31u];
+        t.seq = seq;
+        t.swapVc = vc64();
+        t.swapUs = nowUs();
+        g_fifoHead.store(head + 1u, std::memory_order_release);
+    }
+    bool pop(Tag &out)
+    {
+        const uint32_t tail = g_fifoTail.load(std::memory_order_relaxed);
+        if (tail == g_fifoHead.load(std::memory_order_acquire))
+            return false;
+        out = g_fifo[tail & 31u];
+        g_fifoTail.store(tail + 1u, std::memory_order_release);
+        return true;
+    }
+
+    struct Window
+    {
+        uint32_t pics = 0, untagged = 0, late = 0, lateRefreshes = 0, pulls = 0, resets = 0;
+        uint32_t shown[8] = {};  // refreshes between this picture and the previous one
+        uint32_t errRel[5] = {}; // shown - the release interval (refreshes): <=-2, -1, 0, +1, >=+2
+        uint32_t errDt[5] = {};  // shown - the game's dt, rounded to refreshes
+        double absErrDtMs = 0, shownMs = 0, gameMs = 0;
+        uint32_t dtN = 0;
+        double latSum = 0;
+        uint32_t latN = 0, latMin = ~0u, latMax = 0, latHist[8] = {}; // release -> on screen (refreshes)
+        double waitSum = 0;                                            // refreshes waited here for the slot
+        // Quiet: pictures 20 or more after a hitch (a picture 6+ refreshes late, a chain reset; in
+        // Vita3K its ~1 s host stalls every few seconds).
+        uint32_t quiet = 0, shownQ[8] = {}, errRelQ[5] = {}, catchUps = 0, hitches = 0;
+    };
+    Window g_win[2];
+    int g_winHold = -1;
+
+    struct State
+    {
+        bool haveS = false, chain = false;
+        uint64_t S = 0, T = 0, relUs = 0;
+        uint32_t seq = 0;
+        int calm = 0;
+        int applied = -1; // vitaGL's interval as set from here
+        // The pictures' arrival latency (swap + 2 refreshes - release), the last 64: their minimum is
+        // the latency the slots aim at (A); pulls stop at A + 1.
+        uint32_t arr[64] = {};
+        uint32_t arrN = 0;
+        bool catchUp = false;
+        uint32_t sinceHitch = 0;
+        // The game's dt of a frame is known at the next release: a picture shown sooner is
+        // compared with it at the next picture.
+        uint32_t dtSeq = 0;
+        int64_t dtShown = 0;
+        uint32_t floor() const
+        {
+            uint32_t m = ~0u;
+            for (uint32_t i = 0; i < std::min<uint32_t>(arrN, 64u); ++i)
+                m = std::min(m, arr[i]);
+            return arrN ? m : 0u;
+        }
+    } g_st;
+
+    // The display callback must not block on a kernel lock (no stdio there: in Vita3K a guest
+    // callback waiting on a lock while the display queue waits for it ends in a host
+    // condition_variable error): the windows and the trace are handed to the presenting
+    // thread, which prints them after its swap (printPending, EndDrawing).
+    Window g_done[2];
+    int g_doneHold[2] = {};
+    std::atomic<int> g_doneReady[2] = {};
+    void summary(int which, int hold)
+    {
+        if (g_doneReady[which].load(std::memory_order_acquire) == 0)
+        {
+            g_done[which] = g_win[which];
+            g_doneHold[which] = hold;
+            g_doneReady[which].store(1, std::memory_order_release);
+        }
+        g_win[which] = Window{};
+    }
+    struct TraceRec
+    {
+        uint32_t seq;
+        bool tagged, pace, late, pulled, reset, caught;
+        uint64_t entry, slot, shown, relVc, swapVc;
+        int64_t since;
+        int interval;
+        double dtMs, swapRelMs;
+        uint64_t waited;
+    };
+    TraceRec g_trace[256];
+    std::atomic<uint32_t> g_traceHead{0}, g_traceTail{0};
+    void printPending()
+    {
+        for (int which = 0; which < 2; ++which)
+        {
+            if (g_doneReady[which].load(std::memory_order_acquire) == 0)
+                continue;
+            const Window &w = g_done[which];
+            const int hold = g_doneHold[which];
+            const char *mode = hold >= 3 ? "steady20" : hold == 2 ? "cap30" : "auto";
+            std::fprintf(stderr,
+                         "[pace110] %s pace %s %u pictures: shown (refreshes) 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u | vs release interval -2:%u -1:%u 0:%u +1:%u +2:%u"
+                         " | vs game dt -2:%u -1:%u 0:%u +1:%u +2:%u (n %u, mean |err| %.2f ms, display/game %.4f) | latency (refreshes) min %u mean %.2f max %u"
+                         " [<=3:%u 4:%u 5:%u 6:%u 7:%u 8:%u 9+:%u] | late %u (+%u refreshes), pulls %u, resets %u, untagged %u, waited %.2f refreshes/picture"
+                         " | quiet %u: shown 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u vs release -2:%u -1:%u 0:%u +1:%u +2:%u | hitches %u, catch-up pictures %u\n",
+                         mode, which ? "on" : "off", w.pics, w.shown[1], w.shown[2], w.shown[3], w.shown[4], w.shown[5], w.shown[6], w.shown[7], w.errRel[0], w.errRel[1],
+                         w.errRel[2], w.errRel[3], w.errRel[4], w.errDt[0], w.errDt[1], w.errDt[2], w.errDt[3], w.errDt[4], w.dtN, w.dtN ? w.absErrDtMs / w.dtN : 0.0,
+                         w.gameMs > 0 ? w.shownMs / w.gameMs : 0.0, w.latN ? w.latMin : 0u, w.latN ? w.latSum / w.latN : 0.0, w.latMax, w.latHist[1], w.latHist[2],
+                         w.latHist[3], w.latHist[4], w.latHist[5], w.latHist[6], w.latHist[7], w.late, w.lateRefreshes, w.pulls, w.resets, w.untagged,
+                         w.pics ? w.waitSum / w.pics : 0.0, w.quiet, w.shownQ[1], w.shownQ[2], w.shownQ[3], w.shownQ[4], w.shownQ[5], w.shownQ[6], w.shownQ[7],
+                         w.errRelQ[0], w.errRelQ[1], w.errRelQ[2], w.errRelQ[3], w.errRelQ[4], w.hitches, w.catchUps);
+            g_doneReady[which].store(0, std::memory_order_release);
+        }
+        uint32_t tail = g_traceTail.load(std::memory_order_relaxed);
+        const uint32_t head = g_traceHead.load(std::memory_order_acquire);
+        if (head - tail > 256u)
+            tail = head - 256u; // (overrun: the oldest lost)
+        for (; tail != head; ++tail)
+        {
+            const TraceRec &t = g_trace[tail & 255u];
+            std::fprintf(stderr,
+                         "[pace110t] seq %u%s entry %llu slot %llu shown %llu (+%lld) | release vc %llu (latency %lld), interval %d, dt %.2f ms | swap vc %llu, swap-release %.1f ms | %s%s%s%s waited %llu\n",
+                         t.seq, t.tagged ? "" : " (untagged)", (unsigned long long)t.entry, (unsigned long long)t.slot, (unsigned long long)t.shown, (long long)t.since,
+                         (unsigned long long)t.relVc, (long long)(t.shown - t.relVc), t.interval, t.dtMs, (unsigned long long)t.swapVc, t.swapRelMs, t.pace ? "on" : "off",
+                         t.late ? " late" : "", t.pulled ? " pull" : "", t.reset ? (t.caught ? " reset catch-up" : " reset") : (t.caught ? " catch-up" : ""), (unsigned long long)t.waited);
+        }
+        g_traceTail.store(tail, std::memory_order_release);
+    }
+
+    // vitaGL's display callback: the picture is set (shown from the next refresh) when this returns.
+    void show(void *)
     {
         g_shown.fetch_add(1u, std::memory_order_relaxed);
-        const unsigned int vc = static_cast<unsigned int>(sceDisplayGetVcount());
-        if (g_shownAny)
+        const int calmNeed = g_calmNeed;
+        State &st = g_st;
+        const uint64_t entry = vc64();
+        const int hold = std::clamp(g_minHold.load(std::memory_order_relaxed), 1, 4);
+        const bool pace = on();
+        const int want = pace ? 1 : hold;
+        if (want != st.applied)
         {
-            const unsigned int n = vc - g_lastShownVcount;
-            g_shownHist[std::min(n, 7u)].fetch_add(1u, std::memory_order_relaxed);
+            st.applied = want;
+            eglSwapInterval(nullptr, want);
         }
-        g_lastShownVcount = vc;
-        g_shownAny = true;
+        if (hold != g_winHold)
+        {
+            if (g_winHold >= 0) // windows of one display mode only
+                g_win[0] = g_win[1] = Window{};
+            g_winHold = hold;
+        }
+        Window &w = g_win[pace ? 1 : 0];
+        Tag tag;
+        const bool popped = pop(tag);
+        const Release &rel = g_rel[tag.seq & 127u];
+        const bool tagged = popped && tag.seq != 0u && rel.seq.load(std::memory_order_acquire) == tag.seq;
+        const uint64_t relUs = tagged ? rel.us : 0u, relVc = tagged ? rel.vc : 0u;
+        int nRel = 0;
+        if (tagged && st.chain && tag.seq > st.seq && relUs > st.relUs)
+            nRel = static_cast<int>(static_cast<double>(relUs - st.relUs) / kVBlankUs + 0.5);
+        uint64_t T = 0;
+        bool reset = false, pulled = false, late = false;
+        if (nRel >= 1 && nRel <= 8)
+            T = st.T + static_cast<uint64_t>(std::max(nRel, hold));
+        else
+        {
+            T = std::max(entry + 1u, st.haveS ? st.S + static_cast<uint64_t>(hold) : 0u);
+            reset = tagged;
+        }
+        // After a hitch the queued pictures are shown a refresh apart (at least) until the latency is
+        // back at the floor: the catch-up rides on the hitch, not spread over later pictures as pulls.
+        bool caught = false;
+        const uint32_t A = st.floor();
+        if (pace && tagged && A)
+        {
+            if (reset && nRel != 0)
+                st.catchUp = true; // (a reset after a long gap: a hitch; nRel 0: the chain was broken)
+            if (st.catchUp)
+            {
+                const uint64_t want = std::max({entry + 1u, st.haveS ? st.S + 1u : 0u, relVc + A});
+                if (want < T)
+                    T = want, caught = true;
+                if (T <= relVc + A + 1u)
+                    st.catchUp = false;
+            }
+            else if (!reset && st.calm >= calmNeed && T > relVc + A + 1u && T - 1u >= st.S + 1u && T - 1u > tag.swapVc + 1u)
+            {
+                --T;
+                pulled = true;
+                st.calm = 0;
+            }
+        }
+        const uint64_t nominal = T;
+        uint64_t waited = 0;
+        if (pace)
+        {
+            if (T < entry + 1u)
+                T = entry + 1u;
+            for (uint64_t v = vc64(); v + 1u < T; v = vc64())
+            {
+                sceDisplayWaitVblankStart();
+                ++waited;
+            }
+        }
+        const uint64_t S = vc64() + 1u; // shown from the next refresh
+        late = pace && S > nominal;
+        // A hitch (the same rule on and off: the release gap or the time on screen 12+ refreshes).
+        const bool hitch = tagged && ((reset && nRel != 0) || (st.haveS && S >= st.S + 12u));
+        if (hitch)
+            st.sinceHitch = 0;
+        if (pace && tagged && (hitch || (late && S >= nominal + 6u)))
+            st.catchUp = true;
+        // Statistics (on and off alike).
+        if (st.haveS)
+            g_shownHist[std::min<uint64_t>(S - st.S, 7u)].fetch_add(1u, std::memory_order_relaxed); // the [cap20] line's
+        if (tagged)
+        {
+            ++w.pics;
+            int64_t thisShown = -1;
+            if (st.haveS && nRel > 0)
+            {
+                const int64_t shownN = static_cast<int64_t>(S - st.S);
+                ++w.shown[std::min<int64_t>(shownN, 7)];
+                ++w.errRel[std::clamp<int64_t>(shownN - nRel, -2, 2) + 2];
+                if (st.sinceHitch >= 20u)
+                {
+                    ++w.quiet;
+                    ++w.shownQ[std::min<int64_t>(shownN, 7)];
+                    ++w.errRelQ[std::clamp<int64_t>(shownN - nRel, -2, 2) + 2];
+                }
+                thisShown = shownN;
+            }
+            for (int pass = 0; pass < 2; ++pass) // the pending one first, then this one
+            {
+                if (pass == 1 && thisShown >= 0)
+                    st.dtSeq = tag.seq, st.dtShown = thisShown;
+                if (st.dtSeq == 0u)
+                    continue;
+                const Release &dr = g_rel[st.dtSeq & 127u];
+                const int64_t shownN = st.dtShown;
+                if (dr.dtSeq.load(std::memory_order_acquire) == st.dtSeq && dr.dtUs)
+                {
+                    st.dtSeq = 0u;
+                    const double ms = shownN * kRefreshUs / 1000.0, dtMs = dr.dtUs / 1000.0;
+                    const double err = ms - dtMs;
+                    ++w.errDt[std::clamp(static_cast<int>(std::lround(err * 1000.0 / kRefreshUs)), -2, 2) + 2];
+                    w.absErrDtMs += std::fabs(err);
+                    w.shownMs += ms;
+                    w.gameMs += dtMs;
+                    ++w.dtN;
+                }
+                else if (pass == 0 && thisShown >= 0)
+                    st.dtSeq = 0u; // (its dt never came: given up)
+            }
+            const uint32_t lat = static_cast<uint32_t>(S - relVc);
+            w.latSum += lat;
+            ++w.latN;
+            w.latMin = std::min(w.latMin, lat);
+            w.latMax = std::max(w.latMax, lat);
+            ++w.latHist[lat <= 3u ? 1u : std::min(lat - 2u, 7u)];
+            if (late)
+                ++w.late, w.lateRefreshes += static_cast<uint32_t>(S - nominal);
+            if (pulled)
+                ++w.pulls;
+            if (reset)
+                ++w.resets;
+            if (hitch)
+                ++w.hitches;
+            if (caught)
+                ++w.catchUps;
+            w.waitSum += static_cast<double>(waited);
+        }
+        else
+            ++w.untagged;
+        if (g_traced < g_traceMax)
+        {
+            ++g_traced;
+            const uint32_t head = g_traceHead.load(std::memory_order_relaxed);
+            TraceRec &t = g_trace[head & 255u];
+            t.seq = tag.seq;
+            t.tagged = tagged;
+            t.pace = pace;
+            t.late = late;
+            t.pulled = pulled;
+            t.reset = reset;
+            t.caught = caught;
+            t.entry = entry;
+            t.slot = nominal;
+            t.shown = S;
+            t.relVc = relVc;
+            t.swapVc = tag.swapVc;
+            t.since = st.haveS ? static_cast<int64_t>(S - st.S) : 0;
+            t.interval = nRel;
+            t.dtMs = rel.dtSeq.load(std::memory_order_relaxed) == tag.seq ? rel.dtUs / 1000.0 : -1.0;
+            t.swapRelMs = tagged ? (static_cast<double>(tag.swapUs) - static_cast<double>(relUs)) / 1000.0 : 0.0;
+            t.waited = waited;
+            g_traceHead.store(head + 1u, std::memory_order_release);
+        }
+        // The chain goes on from this picture's slot (a late one: where it showed).
+        if (tagged)
+        {
+            st.chain = true;
+            st.seq = tag.seq;
+            st.relUs = relUs;
+            const bool queued = st.haveS && entry <= st.S && nRel >= 2 && !late && !pulled;
+            st.calm = queued ? st.calm + 1 : 0;
+            if (tag.swapVc >= relVc)
+                st.arr[st.arrN++ & 63u] = static_cast<uint32_t>(tag.swapVc + 2u - relVc);
+            ++st.sinceHitch;
+        }
+        else
+            st.chain = false;
+        st.T = pace ? std::max(nominal, S) : S;
+        st.S = S;
+        st.haveS = true;
+        for (int k = 0; k < 2; ++k)
+            if (g_win[k].pics >= 600u)
+                summary(k, hold);
     }
 }
+
 // Pictures swapped that the display has not taken yet (waiting for the GPU or
 // for the previous picture's vsync wait).
 extern "C" int ps2x_vita_display_pending(void)
@@ -58,6 +458,25 @@ extern "C" int ps2x_vita_display_pending(void)
     return static_cast<int>(g_swaps.load(std::memory_order_relaxed) - g_shown.load(std::memory_order_relaxed));
 }
 extern "C" unsigned int ps2x_vita_vcount(void) { return static_cast<unsigned int>(sceDisplayGetVcount()); }
+// Round 110: a frame release (sotc_overrides.cpp cap20): its time, and the
+// game's dt of the frame before it (that frame's step).
+extern "C" void ps2x_vita_pace_release(uint32_t seq, uint32_t prevDtUs)
+{
+    pace110::Release &r = pace110::g_rel[seq & 127u];
+    r.us = pace110::nowUs();
+    r.vc = pace110::vc64();
+    r.seq.store(seq, std::memory_order_release);
+    if (prevDtUs && seq > 1u)
+    {
+        pace110::Release &p = pace110::g_rel[(seq - 1u) & 127u];
+        p.dtUs = prevDtUs;
+        p.dtSeq.store(seq - 1u, std::memory_order_release);
+    }
+}
+// The next swap on this thread shows the frame of release `seq` (the native renderer's present).
+extern "C" void ps2x_vita_pace_tag(uint32_t seq) { pace110::t_tag = seq; }
+// SOTC_AB_FLAG pace110 (sotc_native.cpp): off in its windows.
+extern "C" void ps2x_vita_pace_ab(int on) { pace110::g_ab.store(on ? 1 : 0, std::memory_order_relaxed); }
 extern "C" void ps2x_vita_present_hist(uint32_t *out8)
 {
     for (int i = 0; i < 8; ++i)
@@ -396,7 +815,9 @@ void InitWindow(int, int, const char *)
         vglInitWithCustomThreshold(immediateKb * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
                                    SCE_GXM_MULTISAMPLE_NONE);
     bootMark("window: vitaGL up");
-    vglSetDisplayCallback(displayShown); // round 107: the shown pictures' intervals ([cap20])
+    pace110::init();
+    vglSetDisplayCallback(pace110::show); // round 107: the shown pictures' intervals ([cap20]); round 110: the pacing
+    std::fprintf(stderr, "[pace110] per-picture display timing %s (SOTC_PACE110)\n", pace110::setting() ? "on" : "off");
     if (!std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0)
         seedShaderCache(); // vitaGL made the cache's folders (the seed holds the fast binaries)
     bootMark("window: shader cache seeded");
@@ -432,7 +853,9 @@ void SetConfigFlags(unsigned int) {}
 // Presentation follows the display's vsync: 30 or less shows each picture
 // for at least two vblanks (interval 2), 20 or less three (round 107's
 // Steady 20), else every vblank.
-void SetTargetFPS(int fps) { eglSwapInterval(nullptr, fps > 0 && fps <= 20 ? 3 : fps > 0 && fps <= 30 ? 2 : 1); }
+// Round 110: the display callback (pace110::show) sets vitaGL's interval: 1
+// with the pacing on (the slots are held there), else this minimum.
+void SetTargetFPS(int fps) { pace110::g_minHold.store(fps > 0 && fps <= 20 ? 3 : fps > 0 && fps <= 30 ? 2 : 1, std::memory_order_relaxed); }
 int GetFPS(void) { return g_fps; }
 
 double GetTime(void)
@@ -483,9 +906,12 @@ void EndDrawing(void)
     {
         const uint64_t swapStart = sceKernelGetProcessTimeWide();
         g_swaps.fetch_add(1u, std::memory_order_relaxed); // (before: the display may take it at once)
+        pace110::push(pace110::t_tag); // round 110: this swap's display entry, in order
+        pace110::t_tag = 0u;
         vglSwapBuffers(GL_FALSE);
         ps2x_vita_swap_us += sceKernelGetProcessTimeWide() - swapStart;
     }
+    const bool pacePrint = g_glReady;
     static bool firstShown = false;
     if (!firstShown)
     {
@@ -493,6 +919,8 @@ void EndDrawing(void)
         bootMark("first picture on screen");
     }
     ps2xVitaGlMutex().unlock();
+    if (pacePrint)
+        pace110::printPending(); // round 110: the display callback's [pace110] lines (it must not print)
     // Logs go to files on ux0: keep them current in case the app is killed.
     std::fflush(stdout);
     std::fflush(stderr);

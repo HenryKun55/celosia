@@ -43,6 +43,7 @@ extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosi
 extern "C" SceGxmNotification query_fence;          // vitaGL's (buffers.c): every scene's end notification, value+1 a scene
 extern "C" SceGxmContext *gxm_context;              // vitaGL's (gxm.c): round 87 (glVol87) disables the volumes' fragment program
 extern "C" volatile unsigned long long ps2x_vita_swap_us; // raylib_vita.cpp (round 86): time in vglSwapBuffers, summed
+extern "C" void ps2x_vita_pace_tag(uint32_t seq);        // raylib_vita.cpp (round 110): the next swap's frame release
 #endif
 
 #include "ThreadNaming.h"
@@ -2364,6 +2365,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         GLuint indexBuffers[3] = {};                 // the same for indexArena
         int arenaIndex = 0;
         uint64_t arenaFrame = 0;
+        uint32_t paceSeq = 0; // round 110: the frame release this frame started at (native_renderer::g_paceSeq at its hand-over)
         // [gl:tex] every 300 frames (the Vita's log; SOTC_GL_TEX_LOG elsewhere):
         // draws whose texture is not here (drawn white), uploads, GL errors.
         struct
@@ -5371,6 +5373,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         gpu86::bind(0u, 0u, 0u); // the display's scene
         const uint64_t start = native_renderer::nowUs();
         const uint32_t backlog = gpu86::backlog();
+#if defined(PS2X_NATIVE_VITA)
+        ps2x_vita_pace_tag(paceSeq); // round 110: this picture's swap carries its frame's release
+#endif
         hook(pendingTexture, pendingWidth, pendingHeight);
         const uint64_t took = native_renderer::nowUs() - start;
         gpu86::presented(took, backlog);
@@ -8640,6 +8645,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             m_width = width;
             m_height = height;
+            m_paceSeq = native_renderer::g_paceSeq.load(std::memory_order_relaxed); // round 110
             m_queued = true;
             m_work.notify_one();
             wake105();
@@ -9206,6 +9212,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_queued = false;
                 m_busy = true;
                 const uint32_t width = m_width, height = m_height;
+                r->paceSeq = m_paceSeq; // round 110 (read here: a deferred present runs after the next hand-over may begin)
                 const bool uploadsOnly = m_uploadsOnly; // flushUploads (SOTC_GL_FLUSH_WAIT)
                 m_uploadsOnly = false;
                 lock.unlock();
@@ -9361,6 +9368,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::vector<Renderer::Upload> m_side, m_sideApplying; // flushed uploads (flushUploads); the render thread's copy while it applies them
         uint64_t m_sideBytes = 0;
         uint32_t m_width = 0, m_height = 0;
+        uint32_t m_paceSeq = 0; // round 110: the hand-over's frame release (Renderer::paceSeq)
     };
 }
 

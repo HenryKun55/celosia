@@ -736,6 +736,11 @@ namespace native_renderer
     // screen), set by the game's frame release (sotc_overrides.cpp cap20),
     // read by the host loop, which sets the display's interval from it.
     inline std::atomic<bool> g_cap20Active{false};
+    // Round 110 (SOTC_PACE110): the game's frame releases counted (sotc_overrides.cpp
+    // cap20, every release); the native renderer's hand-over tags each picture with the
+    // count of the release its frame started at, carried through the render thread to the
+    // present (the Vita's display queue shows it on the refresh its game time asks for).
+    inline std::atomic<uint32_t> g_paceSeq{0};
 
     struct PerfStats
     {

@@ -31,6 +31,7 @@ void installSotcNativeLate(PS2Runtime &runtime);
 #if defined(__vita__)
 extern "C" void ps2x_vita_present_hist(uint32_t *out8); // raylib_vita.cpp (round 107)
 extern "C" int ps2x_vita_display_pending(void);
+extern "C" void ps2x_vita_pace_release(uint32_t seq, uint32_t prevDtUs); // raylib_vita.cpp (round 110)
 #endif
 #include <chrono>
 namespace
@@ -563,6 +564,47 @@ namespace
         constexpr double kVBlank = 0.016667;                        // the guest's VBlank period (EeScheduler kVBlankPeriod)
         constexpr double kOnTime = 0.004;                           // a poll within this of a VBlank's time is on the grid
         bool g_scene = false, g_active = false, g_haveRelease = false, g_lateHeld = false, g_queueHeld = false;
+        // Round 110 (SOTC_PACE110_HYST, Auto only): a floor for the frame's
+        // length in VBlanks with hysteresis, so Auto's cadence does not flip
+        // between 2 / 3 / 4 VBlanks frame to frame. Each frame's own length
+        // (the first poll that finds the game thread waiting) goes into a ring;
+        // the floor goes up one when 5 of the last 15 frames needed more than
+        // it, down one when at most 3 of the last 30 needed more than one less
+        // (1..3; 1 = no hold). Releases are held to the floor as Steady 20
+        // holds them to 3 (the same grid rules), so the game's step is the
+        // time each picture is shown; scenes only (the round-36 rule).
+        namespace hyst
+        {
+            uint8_t g_ring[32] = {};
+            uint32_t g_count = 0;
+            int g_floor = 1;
+            bool g_seen = false; // this frame's own length taken
+            uint32_t g_floorHist[4] = {}, g_switches = 0;
+            int floorNow() { return g_floor; }
+            void frameLength(int n) // at the first poll with the game thread waiting
+            {
+                g_ring[g_count++ & 31u] = static_cast<uint8_t>(std::clamp(n, 1, 7));
+                auto over = [&](int k, int limit)
+                {
+                    int c = 0;
+                    for (uint32_t i = 0; i < static_cast<uint32_t>(k) && i < g_count; ++i)
+                        c += g_ring[(g_count - 1u - i) & 31u] > limit ? 1 : 0;
+                    return c;
+                };
+                if (g_floor < 3 && g_count >= 15u && over(15, g_floor) >= 5)
+                {
+                    ++g_floor;
+                    ++g_switches;
+                    g_count = 0; // a fresh look at the new floor
+                }
+                else if (g_floor > 1 && g_count >= 30u && over(30, g_floor - 1) <= 3)
+                {
+                    --g_floor;
+                    ++g_switches;
+                    g_count = 0;
+                }
+            }
+        }
         uint64_t g_lastRelease = 0;
         double g_releaseTime = 0;
         // The [cap20] line (every 600 frames released while on, or with the
@@ -602,10 +644,13 @@ namespace
 #endif
             std::fprintf(stderr,
                          "[cap20] %s %u frames: released after (VBlanks) 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u, held %u polls (late %u, latency %u) | step (VBlanks) 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u,"
-                         " within 1 ms of 50: %u, mean %.2f ms min %.1f max %.1f | game time / wall %.3f (%.1f s / %.1f s)%s\n",
+                         " within 1 ms of 50: %u, mean %.2f ms min %.1f max %.1f | game time / wall %.3f (%.1f s / %.1f s)%s | auto floor (round 110) 1:%u 2:%u 3:%u, %u switches\n",
                          active ? "steady20" : "auto", w.frames, w.release[1], w.release[2], w.release[3], w.release[4], w.release[5], w.release[6], w.release[7], w.held,
                          w.lateHeld, w.queueHeld, w.dt[1], w.dt[2], w.dt[3], w.dt[4], w.dt[5], w.dt[6], w.dt[7], w.dtExact, w.frames ? w.dtSum / w.frames * 1000.0 : 0.0,
-                         w.dtMin * 1000.0, w.dtMax * 1000.0, wall > 0 ? w.dtSum / wall : 0.0, w.dtSum, wall, shown);
+                         w.dtMin * 1000.0, w.dtMax * 1000.0, wall > 0 ? w.dtSum / wall : 0.0, w.dtSum, wall, shown, hyst::g_floorHist[1], hyst::g_floorHist[2],
+                         hyst::g_floorHist[3], hyst::g_switches);
+            hyst::g_floorHist[1] = hyst::g_floorHist[2] = hyst::g_floorHist[3] = 0;
+            hyst::g_switches = 0;
             w = Window{};
             w.wallStart = wallNow();
         }
@@ -673,9 +718,21 @@ namespace
             return g_gpReleaseFrame(rdram, ctx, runtime); // the frame still runs: the poll finds nobody (as without the hook)
         const double now = wallNow();
         const double since = g_haveRelease ? now - g_releaseTime : 0.0;
-        if (active && g_haveRelease)
+        // Round 110: Auto's floor with hysteresis (SOTC_PACE110_HYST, scenes only).
+        static const bool hystOn = [] { const char *e = std::getenv("SOTC_PACE110_HYST"); return e ? std::atoi(e) != 0 : false; }();
+        uint32_t need = active ? 3u : 0u;
+        if (!active && hystOn && g_scene && g_haveRelease)
         {
-            if (tick < g_lastRelease + 3u)
+            if (!hyst::g_seen)
+            {
+                hyst::g_seen = true;
+                hyst::frameLength(static_cast<int>(since / kVBlank + 0.5));
+            }
+            need = hyst::floorNow() >= 2 ? static_cast<uint32_t>(hyst::floorNow()) : 0u;
+        }
+        if (need >= 2u && g_haveRelease)
+        {
+            if (tick < g_lastRelease + need)
             {
                 ++g_w.held;
                 return; // held: the GP thread polls again at the next VBlank
@@ -684,7 +741,7 @@ namespace
             // last release (late polls come in a burst as the frame ends).
             const int n = static_cast<int>(since / kVBlank + 0.5);
             const double off = since - n * kVBlank;
-            if (since < 2.5 * kVBlank)
+            if (since < (need - 0.5) * kVBlank)
             {
                 ++g_w.held;
                 return; // early on the wall clock (a burst of VBlanks): a later one
@@ -721,7 +778,21 @@ namespace
         g_releaseTime = now;
         g_haveRelease = true;
         g_lateHeld = g_queueHeld = false;
+        hyst::g_seen = false;
+        ++hyst::g_floorHist[std::clamp(need, 1u, 3u)];
         released(rdram, since, active);
+        {
+            // Round 110: the release counted (native_renderer::g_paceSeq: the hand-over tags the
+            // frame's picture with it); on the Vita its time and the step of the frame that ends
+            // here (the game's dt, as the frame used it) go to the display's pacing.
+            const uint32_t seq = native_renderer::g_paceSeq.load(std::memory_order_relaxed) + 1u;
+#if defined(__vita__)
+            float dt = 0.0f;
+            std::memcpy(&dt, rdram + kGameDt, 4);
+            ps2x_vita_pace_release(seq, dt > 0.0f && dt < 4.0f ? static_cast<uint32_t>(dt * 1e6f + 0.5f) : 0u);
+#endif
+            native_renderer::g_paceSeq.store(seq, std::memory_order_release);
+        }
         g_gpReleaseFrame(rdram, ctx, runtime);
     }
 
