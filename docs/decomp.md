@@ -16670,3 +16670,124 @@ leaves: next round's candidate (~0.7-1 ms console where the haze is on screen).
 `SOTC_AB_FLAG=fat116` rotating every 60 frames). Read with `python3 build/agent-scratch/r116/ab116.py err.txt --from
 <frame>` (and `--slow` for the draw part's plan / pass / calls, which only the slow lines carry): fat116's row, render
 and rdraw / plan positive = its gain on the console.
+
+## Round 115: collision as a Vita-native system, slice 1: the segment test's walk and leaves on host-format data (coll115); seg80's reuse off with it (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r115/`: build.sh pN (worktree build, `r115/vita`), v3k.sh / v3kb.sh (own trees
+../vita3k-celosia-r115 / -r115b, 222 MHz, 3 cores), run115.sh <a|b> <load|altar|route6|attract> <vpk> <name> <secs> [env],
+ab.sh (in-run A/B, 60-frame windows), read115.sh (the console / Vita3K reader: ab89's matched block, the [coll115*] lines,
+faults), env-console.txt, STATE.md. p7 (main 025e264, rounds 112 and 116, + this round) = celosia-r115.vpk.
+
+**Why.** Round 113's item 1: the segment test (ClipCollisionDirectCallBack and the object-array test) was ~4.8 of ~6.1 ms
+of collision queries a frame riding in Vita3K, ~19 segments a frame at 150-350 us each: a whole terrain tile's split
+tree walked in the guest's layout with the PS2's FPU and VU0 operations and guest frames per level, and per leaf every
+surface's world boundary gathered from a per-frame guest cache and put through the segment's matrix.
+
+**What changed (`SOTC_COLL115`, default on; A/B name `coll115`; coll115.h).**
+- The walk: the guest's 8-byte split nodes read in place, on plain floats (the same order: the side the segment starts
+  on first, the segment clipped at each split, the first leaf with a hit ends the walk), no guest frames, no f0 writes;
+  at unit split scale the compares are integer keys of the float bits (no VFP compare and flag move per test). A host
+  stack of 128 second sides (the deepest seen: 15); deeper: the original walk from the start (nothing is written to
+  the result record before a hit).
+- The leaves: each leaf's surfaces as a host block built at the leaf's first visit from the model's own data (the
+  class's collision DB, part 0's vertex record: the index list and the packed / float vertices, as manager_sub_01114C70
+  reads them before its matrix): per triangle a bounding sphere and the game's plane (the unit normal of
+  (v0 - v1) x (v1 - v2), w = -n.v0) in local space, four surfaces a block in structure of arrays. A leaf is one NEON
+  pass: the piece put into local space once (the tree's space is the local space times the class's uniform scale,
+  checked per walk: class +0x15c is k times the leaf's +0xc matrix, the same translation, no mirror; else the
+  original), each sphere against the piece (closest point) and the piece against each plane the way the side mode asks
+  (mode 0: start in front, end behind; 2 the other way; 1 either), both with 2 mm margins, the tests as signs of
+  differences in integer lanes (GCC makes NEON float compares four VFP compares without -funsafe-math-optimizations).
+  Only the surfaces that pass go on to the surface / id filters (judge functions: pure) and the original
+  ClipCollisionDB, which makes the hit, the record, the point and u / v as before. So the answers are the original's
+  but for the piece ends at the splits (plain floats instead of the PS2's: sub-millimetre).
+- Lifetime: models keyed by the tree's address, checked once a game frame (the tree's and the record's pointers, the
+  root node, the first vertex and index words), each leaf on every visit (its leaf word); a 16-entry cache of the
+  per-walk class checks (by tree, class and the two matrices' 128 bytes, within a frame); kept under `SOTC_COLL115_MB`
+  (2) MB (riding: up to ~1.7 MB, 0.1-0.5 leaves built a frame, ~11 surfaces each). Game thread only: the worker lane
+  (round 108) runs the original, its natives unchanged.
+- Callers: ClipCollisionDirectCallBack's tree branch (the camera, the player and the horse, AI and scripts) and the
+  object-array test's root sides (hot46g's ObjAry, its four call sites); the recompiled walkers for trees with +0x10
+  set or a DB kind < 3 stay as they are.
+- **seg80 under coll115**: the 1 cm / 5-frame reuse of the camera's, the characters' and the horse's segment answers is
+  off (every segment answered every frame) unless `SOTC_SEG80=1`; round 84's AI path tests keep probe84's own memo
+  (path scale, steering only, nothing drawn). With coll115 off (the A/B's off windows) seg80 is as before.
+- Measuring: `SOTC_COLL115_LOG=1` ([coll115]: walks, nodes, leaves, surfaces, candidates, clips, hits, overflows and the
+  deepest stack, leaves built, models / MB; [coll115o]: the object loop's objects / near / parts / skinned surfaces;
+  [coll115t]: each query's host time and its tree walks' by state). Checks: `SOTC_COLL115_CHECK=1` each
+  ClipCollisionDirectCallBack the original way, then this way from the same context and result record ([coll115c] by
+  caller); `=2` each walk both ways ([coll115w] direct / objary; [coll115m] the first 40 differences in full).
+
+### Checks (Vita3K, the answers against the original's: hit or not, the surface hit, the hit point's distance)
+
+| run | build | level | compared | hit / no hit differ | other surface | hit point max / mean |
+|---|---|---|---|---|---|---|
+| runs/chkA1, attract 600 s | p1 | walk | 122 354 direct + 99 427 object array | 0 | 0 | 0.15 mm / 0.007 mm |
+| runsb/chkA4, attract 600 s | p4 | walk | 142 263 + 116 841 | 0 | 0 | 0.10 mm |
+| runsb/chkR2, route 6 300 s | p2 | walk | 164 215 + 47 364 | 0 | 0 | 0.14 mm |
+| runsb/chkR3, route 6 420 s | p2 | walk | 227 591 + 83 226 | 0 | 0 | 0.20 mm |
+| runsb/chkR6, route 6 420 s | p6 | walk | 60 630 + 13 709 | 0 | 0 | 0.35 mm |
+| runs/chkS1, the console card's shrine save 300 s | p3 | query | ~43 000 (14 callers) | 0 | 0 | 0.13 mm |
+| runsb/chkS6, the same | p6 | query | 41 590 (11 callers) | 0 | 0 | 0.43 mm |
+| runsb/chkR1, route 6 420 s | p1 | walk | 260 772 + 50 038 | **5** | **1 (7.07 m)** | (mean 0.25 mm) |
+
+chkR1's six all fell in frames 1079-2879 (the shrine just after the load) and came back in none of the six later runs
+(~1.4 M walks, the same route and the same shrine). p1 had no detail log; the candidates: an object put in place in
+the first frames after a load while the game's own world caches (boundaries, planes: flushed only when a script moves
+the object) still held it where it was, so the original culled with old spheres and coll115 with the model's current
+place (the original would then be the stale one); or a host block built from data still being written. Since p2
+every difference prints in full ([coll115m]): none since.
+
+### Measured (Vita3K 222 MHz, in-run A/B matched by draws, off minus on: positive = coll115 saves)
+
+| run | part | frame | game thread |
+|---|---|---|---|
+| attractL2 (p2, log on) | riding, from 10 000 | +1.70 | +1.72 |
+| attractL4 (p4, log on) | riding | +1.18 | +1.13 |
+| attractF6 (p6) | riding | +1.02 | +1.57 |
+| attractF7 (p7, route 6's seg80 run beside it: 388 matched frames riding) | riding | +0.31 | +0.46 |
+| attractZ (p7 = celosia-r115, alone) | riding, from 10 000 / the world before it, 3 000-10 000 | +0.86 / +0.56 | +0.41 / +0.40 |
+| altarF6 (p6, a check run beside it) | the altar, from 3 300 | +4.22 | +4.30 |
+| altarF7 (p7, beside the attract run) | the altar | +0.18 | -0.11 |
+| runsb/final (p7, the console card's shrine save, console env, 300 s) | from 1 500 | +0.55 | +0.82 |
+| shrineZ (p7 alone, the same save, 500 s) | from 1 500 | -0.50 | -0.49 |
+| routeF6 (p6: probe84's memo off too, a check run beside it) | route 6 from 3 000 / the plain from 4 300 | -2.10 / -2.61 | -1.58 / -1.71 |
+| routeF7 (p7, alone) | route 6 from 3 000 / the plain from 4 300 | -0.19 / +0.05 | -0.29 / +0.04 |
+
+**Reading it.** Riding (the field, where round 113 put collision at 9.6 ms of the console's 60.5) coll115 wins in
+every run, +0.4..+1.7 ms of the game thread in Vita3K (~0.3-1.1 on the console at round 113's ~0.65 factor); at the
+shrine, the altar and on route 6 it is even within the A/B's +-0.5 ms (shrine save +0.82 / -0.49, altar -0.11, route
+6 -0.29 / +0.04): there seg80's reuse answered many segments that barely move, and coll115's ~4x faster walk only
+about makes up for answering them every frame. Default on: a win in the field, even elsewhere, and no segment answer
+reused (the rule). The console's own A/B decides.
+
+Per query riding ([coll115t], log on): the original 191-262 us (seg80's answers included), coll115 125-149 us; its tree
+walks 29-55 us -> 13-15 us; ~13 queries a frame, ~45 walks, ~700 nodes, ~55 leaves, ~560 surfaces, 2-5 candidates.
+
+**seg80's reuse dropped (the cost of the exact answer every frame)**: `SOTC_SEG80=1` (seg80 on under coll115) with
+`SOTC_AB_FLAG=seg80` (its windows: off), off minus on: attract riding -0.21 frame / -0.35 game, the altar -0.41 / -0.41,
+route 6 -0.02 / -0.02 from 3 000 and +0.79 / +0.46 on the plain from 4 300. So answering every segment every frame
+costs nothing measurable riding or at the altar (seg80's own lookup, 48 slots compared per query, about pays for its
+hits once the test itself is ~130 us) and ~0.5 ms of the game thread walking slowly over the plain, where the
+segments barely move between frames (which is also why coll115 is even, not ahead, on route 6). The rule holds: no segment
+answer is reused, a character walking into a camera ray is seen the same frame.
+
+**Where the remaining collision time is** (the sampler, attract riding, p3): of collision's ~7.3% of the game thread
+the segment path is now ~4.5% (the object loop: directCallBackBody 0.9, cylinder 0.5, guest calls 0.2; the walk 0.8
+and leaf 0.8 before p4's two cuts; ClipCollisionDB 0.65; the id filters' attribute reads ~0.3); the rest is the
+finders, the keep / slope probes, FlushModifiedManager and the ground fill (hot47j's collisionDB 0.8, g85 0.7).
+
+### Not done (next slices)
+- The camera's rays as one bundle: they come from five call sites at different points of the camera's code (the
+  placing ray, the target's visibility, the offsets, the leave attribute), each with its own segment, group and
+  filters; a bundle needs the camera's recompiled code rewritten around it. Each ray is now one ~130 us query.
+- The object loop (~80 us of a query: the segment's matrix, the isys group walk with its guest calls, per object the
+  class, its cylinder; per part two transforms and iosAbsVector): a host table of the group's objects, cylinders in
+  NEON four at a time.
+- Slice 2 / 3 of the plan: the ground fill's skinned finders against one transformed copy a frame; per-character
+  contact sets for the ground / slide / landing / IK / cloth probes (the finders, clipCollisionKeep, the slope probes).
+
+**Console.** build/agent-scratch/celosia-r115.vpk (p7) with r115/env-console.txt (`SOTC_COLL115_LOG=1
+SOTC_AB_FLAG=coll115`): read with `build/agent-scratch/r115/read115.sh err.txt <from>`. coll115's row positive = its
+gain on the console (expected ~+0.7-1 ms riding from Vita3K's ~0.65 factor; the off windows run the old path with
+seg80); [coll115t] gives each state's query time on the console.

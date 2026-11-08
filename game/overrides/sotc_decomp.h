@@ -608,8 +608,9 @@ namespace sotc_decomp
             // Console recheck: with seg80, probe84 and ground85 back on the reveal played in full; on again.
             // Round 106: oan106 is exact (0 differences) but measured no faster than the recompiled code (the
             // sampler: 0.30% of the game thread either way); off unless SOTC_OAN106=1.
-            // Round 115: coll115 on (SOTC_COLL115=0 off): the answers the original's (checks: 0 differ), faster in
-            // every A/B; with it seg80's reuse is off (every segment answered each frame) unless SOTC_SEG80=1.
+            // Round 115: coll115 on (SOTC_COLL115=0 off): the answers the original's (checks: 0 differ since p2),
+            // faster riding, even at the shrine / altar / route 6, with seg80's reuse off (every segment answered
+            // each frame) unless SOTC_SEG80=1.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
             g_switch[which] = v;
