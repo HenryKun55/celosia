@@ -15847,3 +15847,92 @@ for all four; worker105 / render105 alone).
   out ([cd100]: 104 MB read ahead, 57 MB copied in 345 s); worth a look at what the loader threads do per frame.
 - The skin palette read back out of the VU1 packet at the hook and again at the kick (game thread ~0.75%) and the haze
   strips' GIF packet (~0.4%) stay (round 103's reasons).
+
+## Round 107: Frame rate "Steady 20": an even 50 ms cadence on the game's own clock (2026-11-08)
+
+**Why.** The console's frames (r103 console log, 6 637 3D frames) take 2, 3 or 4 VBlanks
+(27 / 48 / 15%, 3% more): the game's step (dt) follows (27% 2, 52% 3, 15% 4 VBlanks) and the
+display shows each picture as soon as the render thread has it, so the motion alternates 33 / 50 /
+67 ms. The work is mostly between 33 and 50 ms (median period 48.1 ms): a fixed 50 ms cadence holds
+for ~82% of the frames as they are.
+
+**What the game does.** SotC's frame starts when its GP thread, polling at each VBlank once the GS has
+finished the previous frame, receives the game thread's message on the bufferless frame box (0x1c8078,
+iosRecvMsg(0x26d9a8, 0, 0): a poll; the game thread waits on the box's sender list +0x18). The step is
+the EE clock (T0) between frame starts (round 10). The EE clock catches up with the host's when the game
+thread parks; while a long frame runs the guest's VBlanks fall behind and are delivered in a burst at
+its end, off the VBlank grid on the wall clock.
+
+**Steady 20** (menu: Renderer, "Frame rate" / "Taxa de quadros": Auto | Steady 20 / 20 estável;
+`frame_rate` in settings.cfg; `SOTC_CAP20=0/1` over it; default Auto, never forced):
+
+- The release (sotc_overrides.cpp `cap20`, always hooked now; Auto passes every poll through) waits
+  until 3 guest VBlanks have passed since the previous release and the wall time since it is within
+  4 ms of a whole number of VBlanks (at least 2.5): a poll that comes late (the burst at a long frame's
+  end) waits for the next VBlank, once. So a frame that fits starts 50 ms after the previous one, a long
+  one 66.7 ms (the next VBlank after it ends), and the cadence counts from that release: no short frame
+  after a long one. The game thread waits in its own frame wait: the other guest threads, the VBlank
+  thread and the sound run on. Input is read at the frame's start as before.
+- Only in frames with a scene (the round-36 rule of the 30 fps cap: 150 draws or more on, under 40
+  off): loading screens, logos and menus over black run as in Auto (the loader steps once a frame).
+  `[cap20] steady 20 on/off at vblank V` at each switch.
+- The Vita's display holds each picture 3 refreshes (`g_cap20Active` -> the host loop's SetTargetFPS(20)
+  -> vitaGL vsync interval 3: the display queue sets the picture and waits 3 VBlanks; a late picture is
+  set when it is ready and shown from the next refresh, the next one 3 or more after it). Over the 30 fps
+  cap. Tried and dropped (p6): the display callback (vglSetDisplayCallback, before vitaGL's vsync wait)
+  setting vsync_interval to the latest release's interval, so a picture after a long frame would stay 4+
+  refreshes like the game's step. The latest release is not the picture's own when pictures queue: a 5
+  or 6 given to an older picture slowed the display, the swap blocked (present 35 ms, wait 16), frames
+  ran over and released at 5-6, and it fed itself (final600b: releases 3: 2 671, 4: 2 086, 5: 1 238,
+  6: 699; final600, p5, the same card and route: 581-585 of 600 at 3 after the first heavy minute). Doing
+  it right needs each picture tagged with its frame's release through the render thread. With the fixed
+  minimum, where frames run over (Vita3K's first heavy minute of the card's save, releases 4: 572 of
+  600) the pictures came 3: 104, 4: 374, 5: 70 refreshes apart as the render thread's time moved.
+- Latency: at most one picture waits for the display at a release (the game's 60.00 Hz VBlanks against
+  a 59.94 Hz display, or a picture the render thread finished late, would fill vitaGL's 2-entry queue):
+  with 2 or more waiting the release waits one VBlank (`SOTC_CAP20_QUEUE`, 0 off). A frame's picture
+  is shown at the first 3-refresh slot after Auto would show it: at most one frame (50 ms) later.
+- `[cap20] steady20|auto N frames` every 600 frames (while on, or with the frame log): the wall time
+  between releases and the step in VBlanks, the step within 1 ms of 50, game time / wall, and on the Vita
+  each picture's time on screen in display refreshes (vglSetDisplayCallback: the display's VBlank count
+  between two pictures handed to the display). `SOTC_CAP20_TRACE=<n>`: `[cap20t]` per release.
+  `PS2X_SETTINGS_PRESS=<key>` (testing): a menu item changed once at start as X does, and saved.
+
+**Measured (own Vita3K tree, 222 MHz, route 6: Load Game -> altar -> out to the plain; the host had two
+other Vita3K instances and builds running, load ~16-18, and ~1 s Vita3K stalls every ~4 s).**
+
+| run | 3D frames | release intervals (VBlanks, wall) | step vs the wall interval | shown (refreshes) |
+|---|---|---|---|---|
+| s20c, Steady 20 (p3) | 4 157 released while on | 3: 3 739, 4: 382, 5: 29, 6+: 7; the 3s 50.05 ms sd 1.14 | within 2 ms in 99.4%; game / wall 0.981 | quiet windows: 3: 581-584 of 600, the rest 1 + 7+ pairs at the host stalls; the walk: 3: 260, 4: 223, 5: 71 (Vita3K at 222 MHz runs that scene over 50 ms) |
+| autob, Auto (p2) | 5 951 | 1: 2 349, 2: 2 841, 3: 425, 4: 284 | within 2 ms in 85.2%; game / wall 0.938 (3D frames 20-130 ms) | mixed 1 / 2 / 3 (e.g. 1: 222, 2: 371) |
+
+- Game speed: the route's input is timed in VBlanks; Wander's position by VBlank (SOTC_POS_LOG,
+  r107/poscmp.py) follows Auto's within 5-22 units along the walk (the path is chaotic in frame timing,
+  round 10) and ends 5.4 units from Auto's end point (s20a, p1: 4.1). The step tracks the wall clock
+  closer than in Auto (0.981 against 0.938): each frame start follows a park, where the EE clock catches up.
+- A first version (p2) anchored the release to the wall grid and held polls more than 4 ms early with no
+  limit: when the guest's VBlanks came out of phase with the anchor the game thread was held 1-27 s
+  (s20b). Every off-grid hold is now once per release (p3+).
+- Settings: `PS2X_SETTINGS_PRESS=frame_rate` (runs/press) set Steady 20 as X does and saved
+  `frame_rate=1`; runs on that file without SOTC_CAP20 started Steady 20 from it.
+- 600 s, the final build (p5 = main 5d00aa0 + this round): runs/final600, the console's card
+  (avion/console/Mcd001-console.ps2 copied into r107's own Vita3K tree), Load Game, the settings file
+  above, the console env's logs: 7 271 frames, no crash or fault; after the save's first heavy minute
+  (frames over 50 ms in Vita3K: releases 4: 572 of 600, shown 3: 104, 4: 374, 5: 70) every window had
+  578-590 of 600 releases at 3 VBlanks and 581-585 pictures shown 3 refreshes (the rest: Vita3K's ~1 s
+  host stalls, a 7+ and a 1 each). The ELF has no `:128` / `:256` NEON access at an sp-based address
+  (r107/spalign.py over the whole disassembly; it finds round 103's seven in r103/p2.elf).
+
+**The spike causes (console r103, spike100.py --local 15).** The game thread's own CPU (28%) and the
+render thread (draw 20%, present / GPU 20%) are most of the spikes' excess; "sched: blocked" (11%) is
+not the disc: 305 3D frames had more than 5 ms blocked, 227 of them with no disc read at all
+(r107/blocked.py): it is the game waiting for the next VBlank (every guest thread waiting, the frame
+release), which Steady 20 makes the cadence. "join: move" (5%) is the hook worker's join before a heap
+move (round 105's code) and "frame end" (3%) the hand-over waiting for the render thread. Nothing cheap
+and exact was left to cut in this round's scope.
+
+**Console.** build/agent-scratch/celosia-r107.vpk (main 5d00aa0 + this round). Steady 20 is off unless
+chosen: Select twice, R1 to the Renderer tab, "Frame rate" (just above "30 fps cap", near the end of the
+list), X switches Auto / Steady 20 and saves at once. r107/env-console.txt has the frame and spike logs and
+no A/B (the cadence is judged by playing). Read the log with `build/agent-scratch/r107/vbdist.py err.txt`
+(3D frames by VBlanks per frame and step, and the `[cap20]` lines: the shown refreshes per 600 frames).
