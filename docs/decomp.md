@@ -15392,6 +15392,7 @@ SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py matched by draws, off minus on):
 | route4 | from 3 000 (34.8 ms) | -0.77 | -0.84 | -0.10 |
 | route4 | the plain, from 4 300 | -0.63 | -0.58 | -0.49 |
 | attract4 (600 s) | the world and riding, from 10 000 (31.8 ms) | +0.71 | -0.08 | +0.10 |
+| finalR (route 6, 600 s, the console env, alone) | the plain, from 4 300 | +0.20 | +0.05 | +0.24 |
 
 All within the in-run A/B's noise (about +-1 ms in one run, with the second
 Vita3K tree running the sampler beside it): the ~0.4-0.8 ms the sampler
