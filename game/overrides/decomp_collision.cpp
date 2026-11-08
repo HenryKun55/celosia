@@ -2145,10 +2145,17 @@ namespace decomp_collision
     // in that level's own frame).
     namespace walk101
     {
+        // No alignas(16) here (fix103): walk101Run takes Ends by value, and on
+        // the Vita GCC places a by-value argument where the caller's stack
+        // put it (8-byte aligned under the AAPCS) yet still read it with
+        // 16-byte-aligned NEON loads (vld1.64 [ip :128]): an alignment fault
+        // on the console whenever the caller's sp was not 16-aligned (the
+        // save-load crash of celosia-r103; Vita3K does not check alignment).
+        // ld / st go through memcpy, so nothing needs the alignment.
         struct Ends
         {
-            alignas(16) float a[4];
-            alignas(16) float b[4];
+            float a[4];
+            float b[4];
         };
         struct Pending
         {

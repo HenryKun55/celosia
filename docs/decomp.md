@@ -15600,3 +15600,19 @@ runsb/checkA2 (the altar, `SOTC_PTCL103_CHECK=1`) 252 000 particle draws, 0 diff
 
 **Console.** build/agent-scratch/celosia-r103.vpk (main 9be600e + this round) with r103/env-console.txt
 (`SOTC_AB_FLAG=r103all,ptcl103,solid103`), read with `build/agent-scratch/r103/read103.sh err.txt <from>`.
+
+## Fix 103: the console crash loading a save (walk101's ends read 16-aligned on an 8-aligned stack) (2026-11-08)
+
+celosia-r103.vpk crashed on the console during the area load after Load Game (~frame 776). Both core dumps
+(build/agent-scratch/r103/console/psp2core-*.psp2dmp.tmp, parsed with vita-parse-core, symbolized with r103/p2.elf whose
+eboot is byte-identical to the console's) stop the game thread on a data abort at
+`decomp_collision::walk101Run(WalkCtx&, walk101::Ends, ...)+0x12a`: `vld1.64 {d16-d17}, [ip :128]`, ip = sp + 0xce0 =
+0x911ffd28 / 0x910ffc68 (8-aligned, not 16), called from rootF.
+
+Cause: `walk101::Ends` had `alignas(16)` members and walk101Run takes it by value. Under the AAPCS part of it arrives in
+r2/r3 and the rest on the caller's stack; GCC stores r2/r3 below the stacked part (`sub sp, #8`) and uses the argument in
+place, so it is only as aligned as the caller's sp (8), yet GCC reads it with 16-byte-aligned NEON loads. A data abort
+whenever the call path leaves sp 8 mod 16 (the save load's does); Vita3K does not check alignment, so no Vita3K run showed it.
+
+Fix: no `alignas` on Ends (ld / st go through memcpy). The fixed ELF has no `:128` / `:256` access at an sp-based address
+anywhere (a scan of the whole disassembly; the r103 ELF had 7, all in walk101Run). Build: build/agent-scratch/celosia-fix103.vpk.
