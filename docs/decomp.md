@@ -16987,3 +16987,114 @@ turns it off). r114/env-console.txt: round 110's log flags, `SOTC_THREAD_CORES=g
 its windows). Read with `build/agent-scratch/r114/read114.sh err.txt <from>`: ab89's matched block (char104 positive =
 the jobs gain on the console's cores), `[char114]` (the hand-overs' start and the open queue's wake histograms: on the
 console most should be under 25-50 µs; net114's windows and pauses), `[char104]` / `[char111]` / `[char104g]`.
+
+## Round 117: the particle frame's remaining guest code and PS2 layers as host code (leaf117, pkt117, draw117); the immediate-mode quads (the heat haze strips, the particle quads) in one pass (glv117) (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r117/` (build.sh, v3k.sh / v3kb.sh: two own Vita3K trees
+../vita3k-celosia-r117 and -r117b, 222 MHz, 3 cores; run.sh / runb.sh scene runs; ab116.py (round 116's reader);
+gen_aef8.py / gen_1142350.py (VU0 blocks lifted from build/runner); share117.py / touched117.py (two sampler runs
+compared); env-console.txt; STATE.md). Measured on main 025e264
+(= celosia-r116.vpk) + the round (p10 / p12); shipped rebased on main 07ab1ae (rounds 114, 115, 118: p13).
+
+**What the particle frame still spent, riding (runs/attS0, the sampler on celosia-r116, the attract demo frames
+~9 200-13 900).** Item 3 of round 113's plan, re-measured: the particle area 10.1% of the game thread. By function:
+the per-particle step (particleUpdate and its helpers) 2.5%, the parameter blend 1.0%, the wind 0.9%, the emitter /
+list / step natives 1.6%, the manager's layers and group walk 0.6%, texTransRequest per drawn emitter 0.4%, the
+recompiled draw chain (disp_particle_geodisp, 0113ACB8, 01140ED0, disp_particle_emitter, 01141EA8) 0.95%, the
+recompiled emitter leaves (0113AEF8, 011410D0, 01141150, 01141230, 01141400) 0.5%, the ptclman packets (BuildEnv /
+Vtx / Mat / End, display list get / put, transMicroCode) 0.9%, the spawn (0113C1A8) 0.2%. And outside the particle
+area, the immediate-mode vertices: glVertexKick 2.0%, glVertex3fv 0.24, glBeginWithDlLayerNo 0.26, glEnd 0.18 plus
+its hook, the 2D assembler's vertex2D / feed2D 0.45: ~3.3%. `SOTC_GLV116_LOG`: 108 kicks a frame over the run, 98 of
+them the heat haze strips (Wander's haze segments: 12 strip pairs of 2 x 4 vertices), the rest the quads drawer
+01141D20 -> 01142350 (one glBegin / glEnd per particle) where it draws. Each particle system is 1-3 particles: the
+cost is per emitter (its guest calls, PS2 frames, packets), not per particle.
+
+**Why not a separate host-format particle system.** Every emitter, particle and geodisp is created, positioned and
+freed by guest code (the scripts' effect starts, the nodes the emitters follow, the walk's class callbacks, the
+free list the step and the list share); a host system would have to mirror each of those writes both ways. What the
+plan's item 3 asks for instead (the emitter frame's remaining guest leaves, the draw chain native, no PS2 shape
+per emitter) can be done exactly, checked against the original in the same run, and was.
+
+**What changed (each default on; A/B names `leaf117`, `pkt117`, `draw117`, `glv117`, all four `r117all`).**
+- **leaf117** (`SOTC_LEAF117`; decomp_ptclupdate.cpp, decomp_hot47e.cpp): the emitter frame's leaf calls as host
+  code called straight: 0113AEF8 (last frame's position / orientation / direction kept; for a node-attached emitter
+  the node's position and orientation (guest calls) and the direction by the jump table's six VU0 blocks, generated
+  from the recompiled statements), 011410D0 (the distance fade), 01141150 with get_particle_lod_base_size /
+  GetScreenRadiusParticle (the LOD index from the screen radius), 01141230 and 01141400 when they have nothing to do
+  (their work paths stay guest calls), the parameter blend called straight with its two leaves inline (01145C70 the
+  other set's record, 01145CD0 the weights). Same memory writes, f0 - f2, condition bit, VU0 registers.
+- **pkt117** (`SOTC_PKT117`; decomp_hot46j.cpp, sotc_native.cpp `ptclDirect117`): round 103's particleDraw cut for
+  the three other packet drawers (0113DBF8, 0113E6C8, 0113DEA0): the Mat / Env / Vtx hooks' state and job made from
+  the packets' inputs, in the same order; no ptclDisplayListPut, transMicroCode, ptclmanBegin / BuildMat / BuildEnv
+  / BuildVtx / End.
+- **draw117** (`SOTC_DRAW117`; decomp_ptcl117.cpp, new): the draw chain from the walk's class callback:
+  disp_particle_geodisp (GetGeoDispClass inline), 0113ACB8 (the layer, the runs of one draw key, the stack array
+  and qsort for longer runs), 01140ED0 with 0113B408 (the emitter's fog-blended colour and view direction once a
+  frame) and disp_particle_emitter (the drawer by kind). The recompiled code's frames, s-registers at every guest call
+  and epilogues; callees through the table.
+- **glv117** (`SOTC_GLV117`; decomp_walk.cpp `quad117`): the heat haze strips' four vertices between each glBegin and
+  glEnd in one pass: glColor4f, glTexCoord2f, glVertex3fv's own part and the kick as before for each (the colour /
+  ST words, the ring slot, the state words, the GIF pairs, UV through iosFTOI4Vector inline, the CLIP history,
+  +0x1b4, the ADC byte, the ring index), the three matrices read and clamped once for the four (the VU0 clamp is
+  idempotent: the same products and sums), no kick frame or register saves (dead stack), VU0 / Q / f0 - f2 / v0 /
+  a0 / ra set once as the fourth kick leaves them. glBegin / glEnd and the GIF packet stay: the glEnd hook draws the
+  same pairs. Anything else (no camera, untransformed vertices, another UV mode, a full ring) takes the calls.
+  The particle quads drawer's 01142350 (one particle a call from 01141D20) is native too, its four corners through the
+  same pass (glTexCoord2fv / glVertex4fv write the same words): the frame (the corner block, the size pair), the
+  rotation (iosRotMatrixAxis, a guest call), the VU0 block (generated from build/runner by r117/gen_1142350.py),
+  glBegin, glColor4fv, the quad, glEnd.
+
+**Checks (in-run, every n-th call both ways from the same state, the original's result kept).**
+- `SOTC_LEAF117_CHECK=<n>`: each native leaf against its guest call: the emitter's 0x200 bytes (the blend's 0x160-byte
+  block), f0 - f7, the condition bit, vf8 / vf10 / vf14 - vf17 / ACC. runs/chkA8 (the attract demo, 900 s to frame
+  24 800): 226 000 checks, 0 differ (keepFrame 56 500, distanceFade / lodIndex / blend 56 500 each); runs/chkL8 (the
+  console card's load: shrine, plain) 180 000, 0 differ.
+- `SOTC_PTCL103_CHECK=1` (round 103's, now also for pkt117's three drawers): the direct job kept, the packets built and
+  hooked, the hooks' job compared field by field: chkA8 326 000 particle draws, chkL8 262 000, 0 differ.
+- `SOTC_DRAW117_CHECK=<n>` (new): disp_particle_emitter and 0113ACB8 run recompiled and native from the same state
+  with every callee replaced by a recorder (target, the argument registers it reads, ra, sp, s0 - s7, fp, f12), the
+  call lists and the saved registers / frame compared; 0113B408 against the recompiled one (the emitter, its frame,
+  vf5 - vf8, ACC, Q, f0 - f2). chkA8: 31 800 / 31 800 / 32 300, 0 differ apart from 2 viewOnce VU0-only differences:
+  the upper half of vf6 (a qmtc2 of v1, whose upper 64 bits the default colour's `lq v1` had set); fixed in the
+  shipped build (the lq now sets the whole register). chkL8 23 600 each, 0 differ.
+- `SOTC_GLV117_CHECK=<n>` (new): quad117 against the four vertices through the calls: the gl block (0x5300 bytes from
+  0x1186390), the packet's next 0x100 bytes, VU0 / ACC / Q / CLIP, f0 - f2. chkA8 95 500 strip quads, chkA11 65 000
+  (with 01142350's particle quads: 138 500 of the run's 1.02 M kicks), 0 differ.
+- The shipped build (rebased on rounds 114 / 115 / 118) again: runs/chkA13 (the attract demo 700 s) / chkL13 (the console
+  card's load 500 s): leaf 170 000 / 144 000, packet jobs 252 000 / 244 000, the draw chain 23 600 / 22 000 per
+  function (viewOnce included), quads 64 500: 0 differ.
+
+**Measured (Vita3K 222 MHz; the Mac ran six other Vita3K instances of rounds 114 / 115 the whole time).**
+- Sampler, the attract demo riding (runs/sampOn / sampOff: the same VPK with the four switches on / off, two trees at
+  the same time, the 500 -> 700 s window = frames ~11 000-14 050 in both): the particle frame 12.43% -> 10.45% of the
+  game thread, the immediate-mode vertices 4.03% -> 3.32% (glVertexKick 1.76% + glVertex3fv 0.38% -> quad117 1.42%);
+  together 16.46% -> 13.77%: **the game thread ~3.1% shorter riding** (r117/share117.py). The functions removed
+  3.79% -> 0.08%, those added or changed 2.63% -> 4.10% (touched117.py: -2.2% net). The next window (700 -> 900 s)
+  covers different scenes in the two runs (18 075 / 18 353 at its end) and is not comparable.
+- In-run A/B (`SOTC_AB_FLAG=r117all`, two states, 150-frame windows, ab116.py, off minus on; positive = the round's
+  gain): the attract demo from frame 10 000 (runs/abA2, 5 600 frames a state): game thread +0.20 ms (matched by draws
+  +0.33) of 25.6; route 6 from 3 000 (runs/abR2, 4 000 a state): +0.20 (matched +0.65) of 36.4. Five-state rotations
+  (abA1 / abL1 / abL0) were dominated by the host's load (window-to-window 28-65 ms) and are not used; abL0 (the console
+  card's load with sac_particles=0) r117all +1.58 ms of 70.4 is in that noise too.
+- On the console (round 113's scaling: field game thread 60.5 ms, particles 8.5% sampled): expect ~-1 to -2 ms riding
+  where the haze and the particle quads are on screen, less at the shrine. Below round 113's -3 ms estimate: the
+  per-particle step (particleUpdate, 2.5%), the parameter blend's 85 fields (0.7-0.8%), the wind (0.9%), the spawn and
+  the manager's group walk are untouched and are now the particle frame's bulk.
+- sac_particles: the round changes no particle count; with sac_particles=0 the console has twice the live particles
+  per emitter (the per-particle step doubles, the per-emitter work saved here does not change).
+
+**Pictures and behaviour.** The four switches are exact (the checks above compare everything the original writes and
+every call it makes, so the renderer gets the same jobs and GIF pairs). Round 116's frozen frames cannot show a
+game-thread switch (`SOTC_GL_FREEZE` re-draws the render thread's last frame); the window captures of the attract demo
+with the round on and off (runs/picOn / picOff, the same VPK, two trees at once) drift ~30 s apart under the host's
+load, but the same scenes show the same particles (the falling leaves over the river at on t0180 / off t0150, the fog,
+Agro's dust). No fault: the attract demo 900 s x4 (to frame 24 800), route 6 620 s, the console card's load 620 s x2
+(sac_particles 1 and 0).
+
+**Console.** build/agent-scratch/celosia-r117.vpk (main 07ab1ae, with rounds 114 / 115 / 118, + this round, every switch
+on; the checks re-run on it: runs/chkA13 / chkL13) with r117/env-console.txt
+(round 116's logs and phase log, `SOTC_AB_FLAG=r117all,glv117,leaf117,draw117,pkt117` rotating every 60 frames). Read
+with `python3 build/agent-scratch/r117/ab116.py err.txt --from <frame>`: each switch's row, game (and cpuGame) positive =
+its gain. A five-state rotation needs a long log (~2 000 frames a state) to beat the scene noise; `SOTC_AB_FLAG=r117all`
+alone gives the round's total with a third of the frames. Build note: spalign105 0 sp-based NEON accesses; no
+vita-elf-create overlap (sotc_vita_elf_room unchanged at 48 KB).
