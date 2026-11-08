@@ -632,6 +632,14 @@
    "focus": "Speed",
    "summary": "Tried to run the body work (pose, IK, cloth, ground collision) of characters away from Wander on a second processor core while the game thread goes on with the other creatures' scripts. Built the hand-over and its safety rules: the second core runs the original game code, waits before anything shared (memory allocation, sound, the object lists), and the game thread waits for it before touching the same things; a check mode compares every result with the normal one-core run.",
    "result": "Identical results: the check found no difference in 52 characters run side by side and 185 run on the other core alone (altar route). But it is slower, not faster, so it stays off: the characters that can run apart are the cheap ones (birds, Mono's parts, about 3 ms at the altar), the game's shared lists stop them within a fraction of a millisecond, and the other core runs the slower original code. Vita3K A/B: 14.7 ms slower at the altar, 15.2 on route 6, 3.9 riding. No crash in 600 s. Written down for a next try: collision code safe for two cores and the collision lists copied for the second core."
+  },
+  {
+   "round": "r105",
+   "date": "2026-11-08",
+   "commit": "fe24458",
+   "focus": "Speed",
+   "summary": "Made room on the Vita's second and third processor cores, where the model-drawing helper thread, the sound mixer and several smaller threads share two cores beside the renderer. The helper thread spent half its time building character shadows, much of it in a slow byte-comparison routine and a slow rounding call; both are now done with faster code that gives exactly the same results. Two threads (the background mesh builder and the renderer) woke up every 2 ms even with nothing to do; they now sleep until they are given work. The timing log's own text formatting no longer uses the slow standard number conversion. Each change has its own switch and a check mode.",
+   "result": "Check modes compared 14 000 shadow draws (215 MB of model data, 6.5 million shadow vertices) and every log line against the old code: no difference, so the picture is the same. Vita3K profiler at the altar: the helper thread 12% less CPU, the background builder 54% less, the log thread about 75% less; in-run A/B: the helper thread saves 1.8 ms a frame at the altar and 0.6-0.7 ms on the plain. The frame rate in Vita3K is unchanged (the game thread sets it); the idle wake-ups cost far more on the real console than in Vita3K. No crash in 600 s runs or loading a save from the console's memory card. Console A/B prepared (env-console.txt: r105all, worker105, render105)."
   }
  ]
 }
