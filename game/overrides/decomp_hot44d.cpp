@@ -68,6 +68,13 @@ namespace obj96 // decomp_obj96.cpp (round 96)
     void wakeTime(uint32_t obj, uint64_t us);
 }
 
+namespace char104 // round 104 (decomp_char104.cpp)
+{
+    void wake();
+    void beforeWake();
+    void groupEnd();
+}
+
 namespace decomp_hot44d
 {
     using sotc_decomp::callGuest;
@@ -525,6 +532,7 @@ namespace decomp_hot44d
     {
         if (!sotc_decomp::hotList44On())
             return fallback(kScriptPass, rdram, ctx, runtime);
+        char104::wake();
         const uint32_t sp = GPR_U32(ctx, 29) - 0x30u;
         SET_GPR_U32(ctx, 29, sp);
         SET_GPR_U64(ctx, 5, 0u);
@@ -578,6 +586,7 @@ namespace decomp_hot44d
                 }
                 else if (v0 == 1u)
                 {
+                    char104::beforeWake();
                     SET_GPR_U64(ctx, 4, s2);
                     if (__builtin_expect(obj96::timing(), 0))
                     {
@@ -644,6 +653,7 @@ namespace decomp_hot44d
             }
         }
         // 0x110273c
+        char104::groupEnd(); // round 104: a character's job joined by the group's end
         SET_GPR_U64(ctx, 4, s2);
         if (s2 != 0u)
         {

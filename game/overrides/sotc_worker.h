@@ -22,6 +22,9 @@ namespace sotc_worker
         kSiteMove,   // the heap's garbage moves, the module loader
         kSiteFrame,  // the frame's end
         kSiteKick,   // the next hand-over
+        kSiteChar,   // round 104: a character's job joined where its results are needed (decomp_char104.cpp)
+        kSiteAccess, // round 104: the game thread named the job's character (an accessor, a geometry pointer)
+        kSiteChan,   // round 104: the game thread reached a shared channel (the heap, the random numbers, ...)
         kSiteCount
     };
 
@@ -47,6 +50,28 @@ namespace sotc_worker
     bool done();
     // On the worker thread.
     bool onWorker();
+    // Round 104: a hand-over with its own rule of what the worker may run
+    // beside the game thread (admit: true = may run; the rest parks until the
+    // join), `setup` called on the game thread after the previous job's join
+    // and before the worker starts (the worker's context, scratchpad and VU0
+    // data are set by then and may be changed), `joined` on the game thread
+    // after this job's join (any site). Both get `arg`.
+    using Admit = bool (*)(uint32_t target);
+    bool kickAs(uint8_t *rdram, PS2Runtime *runtime, const R5900Context &from, Job job, void *arg, Admit admit, void (*setup)(void *),
+                void (*joined)(void *));
+    // The worker's own state (round 104: the character jobs copy into / out of them at the hand-over and the join).
+    R5900Context *ownContext();
+    uint8_t *ownScratchpad();
+    uint8_t *ownVu0Data();
+    // The job parked (waits for the join): the game thread's view, while busy.
+    bool parked();
+    // The last joined job parked at some point (round 104's checks).
+    bool lastJobParked();
+    // Round 104: the worker's call targets counted (SOTC_CHAR104_CALLS): printed and cleared (game thread, idle worker).
+    void setCallCensus(bool on);
+    // Round 104: the next kickAs's job runs the recompiled code (not the natives) while beside the game thread.
+    void recompiledNext();
+    void callCensusReport(const char *tag);
     // The game thread asks for the guest function at `target` to be called
     // after the job, on the worker, with its context (a0-a3 as given, ra the
     // caller's return). False when no job is running any more: the caller

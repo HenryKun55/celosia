@@ -86,6 +86,14 @@ namespace charlod78 // decomp_charlod78.cpp (round 78)
     void geoTime(uint32_t obj, uint64_t us);
 }
 
+namespace char104 // decomp_char104.cpp (round 104)
+{
+    bool logging();
+    void geoBegin(uint8_t *rdram, uint32_t obj);
+    void geoEnd(uint32_t obj);
+    bool tryKick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t obj, uint32_t cls);
+}
+
 namespace decomp_scriptvm3
 {
     using sotc_decomp::callGuest;
@@ -242,7 +250,19 @@ namespace decomp_scriptvm3
         li(ctx, 5, 0x014659C0u);
         move(ctx, 4, 16);
         move(ctx, 18, 2); // s2 = the character class
-        if (__builtin_expect(charlod78::timing(), 0))
+        if (char104::tryKick(rdram, ctx, runtime, GPR_U32(ctx, 16), GPR_U32(ctx, 18)))
+        {
+            // Round 104: the geometry, the area test and the Postprocess on the guest worker.
+        }
+        else
+        {
+        if (__builtin_expect(char104::logging(), 0))
+        {
+            char104::geoBegin(rdram, GPR_U32(ctx, 16));
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CFC50u), 0x013CFC58u, kWorkStack); // ExecCharaGeometry
+            char104::geoEnd(GPR_U32(ctx, 16));
+        }
+        else if (__builtin_expect(charlod78::timing(), 0))
         {
             const uint64_t t0 = charlod78::now();
             callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x013CFC50u), 0x013CFC58u, kWorkStack); // ExecCharaGeometry
@@ -255,6 +275,7 @@ namespace decomp_scriptvm3
         SET_GPR_S32(ctx, 4, (int32_t)READ32(GPR_U32(ctx, 2) + 0x134u)); // the layout's area
         callGuest(rdram, ctx, runtime, kAreaExist, 0x013CFC68u, kWorkStack);
         WRITE8(GPR_U32(ctx, 18) + 0x539u, (uint8_t)GPR_U32(ctx, 2));
+        }
         const uint32_t f = leaveWork(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 16, READ64(f + 0u));
         SET_GPR_U64(ctx, 17, READ64(f + 8u));

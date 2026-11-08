@@ -39,6 +39,12 @@
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
 #include "sotc_worker.h"
+namespace char104 // round 104 (decomp_char104.cpp)
+{
+    void install(PS2Runtime &runtime);
+    void frameTick(uint64_t frame);
+    void setAb(bool on);
+}
 #include "lines67.h"
 #include "lean_hot.h"
 #include "ThreadNaming.h"
@@ -3102,7 +3108,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1, sblur100At = -1, r100AllAt = -1, r101AllAt = -1, fmt102At = -1, r102AllAt = -1, r103AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1, sblur100At = -1, r100AllAt = -1, r101AllAt = -1, fmt102At = -1, r102AllAt = -1, r103AllAt = -1, char104At = -1, r104AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3155,6 +3161,8 @@ namespace sotc_native
             r100AllAt = indexOf("r100all");   // round 100: the round's switches off together
             fmt102At = indexOf("fmt102");     // round 102: the game's vsprintf fast path
             r102AllAt = indexOf("r102all");   // round 102: the round's switches (sw102, fmt102) off together
+            char104At = indexOf("char104");   // round 104: the characters' geometry on the guest worker
+            r104AllAt = indexOf("r104all");   // round 104: the round's switches off together
             sacMaxAt = indexOf("sacmax");
             sacPtclAt = indexOf("sacptcl");
             sacLodAt = indexOf("saclod");
@@ -3290,6 +3298,8 @@ namespace sotc_native
         if (r102AllAt >= 0)
             if (isOffAt(r102AllAt) || switchAt[sotc_decomp::kSw102] < 0)
                 sotc_decomp::setSwitch(sotc_decomp::kSw102, isOffAt(r102AllAt) ? false : switchStart[sotc_decomp::kSw102]);
+        if (char104At >= 0 || r104AllAt >= 0) // round 104
+            char104::setAb(!((char104At >= 0 && isOffAt(char104At)) || (r104AllAt >= 0 && isOffAt(r104AllAt))));
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
         if (laneHelpAt >= 0) // round 72: the lane's jobs run by the joins / the worker
@@ -5416,6 +5426,7 @@ namespace sotc_native
             }
             sotc_prof::frameTick(frame);
             sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
+            char104::frameTick(frame);     // round 104
             sotc_decomp::g_gameFrame = frame;
             sotc_decomp::fastStatsTick(frame);
             ps2_lean::frameTick(frame);
@@ -11286,6 +11297,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
     decomp_readcensus::install(runtime); // round 64, SOTC_READ_CENSUS=<subsystem> (the Mac)
     decomp_tex64::install(runtime);      // round 64: texReset's loop's join sites
     sotc_worker::install(runtime);       // round 91: the guest worker's join sites (the particle / wind module, the loader, the heap's moves)
+    char104::install(runtime);           // round 104: the characters' census (SOTC_CHAR104_LOG)
     if (std::getenv("SOTC_NATIVE") && runtime.hasFunction(sotc_native::kModelDisp))
         mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
     mdstrace::install(runtime);

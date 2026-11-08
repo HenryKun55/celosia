@@ -42,6 +42,11 @@
 
 #include <cstring>
 
+namespace char104 // round 104 (decomp_char104.cpp)
+{
+    bool postDone(uint32_t obj);
+}
+
 namespace decomp_scriptvm
 {
     using sotc_decomp::callMaySleep;
@@ -258,7 +263,7 @@ namespace decomp_scriptvm
         if (GPR_U64(ctx, 3) != 0u && !call(0x013CFBE0u, 0x013CF3C4u))
             return;
         moveS0ToA0(ctx);
-        if (!call(jalTarget(rdram, 0x013CF3C4u), 0x013CF3CCu)) // ExecCharaGeometryPostprocess
+        if (!char104::postDone(GPR_U32(ctx, 16)) && !call(jalTarget(rdram, 0x013CF3C4u), 0x013CF3CCu)) // ExecCharaGeometryPostprocess (round 104: or in the geometry's job)
             return;
         if (!discardAt(0x013CF3CCu) || !sleepAt(0x013CF3D4u))
             return;

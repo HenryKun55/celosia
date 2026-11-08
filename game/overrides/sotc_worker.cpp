@@ -264,7 +264,14 @@ namespace sotc_worker
         std::unordered_map<uint32_t, uint64_t> g_parkCauses, g_moduleJoins;
         uint32_t g_parkTarget = 0;
         uint64_t g_frames = 0;
-        const char *const kSiteNames[kSiteCount] = {"walk", "module", "move", "frame", "kick"};
+        const char *const kSiteNames[kSiteCount] = {"walk", "module", "move", "frame", "kick", "char", "access", "chan"};
+        // Round 104: the job's own admit rule, its set-up and its after-join call.
+        Admit g_admitFn = nullptr;
+        void (*g_joinedFn)(void *) = nullptr;
+        void *g_joinedArg = nullptr;
+        bool g_census = false;
+        bool g_nextRecomp = false; // the next kickAs's job runs the recompiled code beside the game thread
+        std::unordered_map<uint32_t, uint64_t> g_calls; // the worker's call targets (census), written by the worker only
 
         inline uint64_t nowUs() { return native_renderer::nowUs(); }
 
@@ -278,6 +285,8 @@ namespace sotc_worker
 
         bool safe(uint32_t at)
         {
+            if (g_admitFn)
+                return g_admitFn(at);
             if (at >= kModuleBegin && at < kModuleEnd)
                 return true;
             const Range *r = std::upper_bound(std::begin(kPure), std::end(kPure), at, [](uint32_t a, const Range &x) { return a < x.begin; });
@@ -340,9 +349,13 @@ namespace sotc_worker
         // (ps2_syscalls::GetThreadId / PollSema, the scheduler): on the worker
         // their recompiled code runs instead, whose kernel calls come here.
         constexpr uint32_t kIsysBegin = 0x001BF000u, kIsysEnd = 0x001C9000u, kTexTransRequest = 0x010AAD48u;
+        bool g_recompOnly = false; // round 104: beside the game thread, the recompiled code instead of the natives (no host state shared)
         inline PS2Runtime::RecompiledFunction ownFunction(PS2Runtime *shell, uint32_t target)
         {
             PS2Runtime::RecompiledFunction fn = shell->guestFunctionAt(target);
+            if (g_recompOnly && !t_exclusive)
+                if (const PS2Runtime::RecompiledFunction r = sotc_decomp::recompiled(target))
+                    return r;
             if ((target >= kIsysBegin && target < kIsysEnd) || target == kTexTransRequest)
                 if (const PS2Runtime::RecompiledFunction r = sotc_decomp::recompiled(target))
                     fn = r;
@@ -368,7 +381,7 @@ namespace sotc_worker
                     ctx->pc = GPR_U32(ctx, 31);
                     continue;
                 }
-                const PS2Runtime::RecompiledFunction fn = shell->guestFunctionAt(pc);
+                const PS2Runtime::RecompiledFunction fn = g_recompOnly ? ownFunction(shell, pc) : shell->guestFunctionAt(pc);
                 if (!fn)
                     fault("no function", pc, ctx);
                 fn(rdram, ctx, shell);
@@ -395,6 +408,8 @@ namespace sotc_worker
                 ctx->pc = returnPc;
                 return true;
             }
+            if (__builtin_expect(g_census, 0))
+                ++g_calls[target];
             admit(target);
             ctx->pc = target;
             if (kernel(target, ctx))
@@ -419,13 +434,15 @@ namespace sotc_worker
         {
             ctx->pc = target;
             ++shell->m_guestJumpSerial;
+            if (__builtin_expect(g_census, 0))
+                ++g_calls[target];
             admit(target);
             if (kernel(target, ctx))
             {
                 ctx->pc = GPR_U32(ctx, 31);
                 return;
             }
-            if (!fn || (target >= kIsysBegin && target < kIsysEnd) || target == kTexTransRequest)
+            if (!fn || (target >= kIsysBegin && target < kIsysEnd) || target == kTexTransRequest || g_recompOnly)
                 fn = ownFunction(shell, target);
             if (!fn)
                 fault("no function", target, ctx);
@@ -643,12 +660,47 @@ namespace sotc_worker
 
     bool kick(uint8_t *rdram, PS2Runtime *runtime, const R5900Context &from, Job job, void *arg)
     {
+        return kickAs(rdram, runtime, from, job, arg, nullptr, nullptr, nullptr);
+    }
+    R5900Context *ownContext() { return g_own ? &g_own->ctx : nullptr; }
+    uint8_t *ownScratchpad() { return g_own ? g_own->scratchpad : nullptr; }
+    uint8_t *ownVu0Data() { return g_own ? g_own->vu0Data : nullptr; }
+    bool parked()
+    {
+        if (!g_busy.load(std::memory_order_relaxed) || t_onWorker)
+            return false;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        return g_parked;
+    }
+    bool lastJobParked() { return g_jobParked; }
+    void setCallCensus(bool on) { g_census = on; }
+    void recompiledNext() { g_nextRecomp = true; }
+    void callCensusReport(const char *tag)
+    {
+        std::vector<std::pair<uint64_t, uint32_t>> v;
+        for (const auto &[at, c] : g_calls)
+            v.push_back({c, at});
+        std::sort(v.rbegin(), v.rend());
+        std::fprintf(stderr, "[%s] %zu call targets on the worker:", tag, v.size());
+        for (const auto &[c, at] : v)
+            std::fprintf(stderr, " %08x x%llu%s", at, (unsigned long long)c, safe(at) ? "" : "!");
+        std::fprintf(stderr, "\n");
+        g_calls.clear();
+    }
+
+    bool kickAs(uint8_t *rdram, PS2Runtime *runtime, const R5900Context &from, Job job, void *arg, Admit admitFn, void (*setup)(void *), void (*joined)(void *))
+    {
         if (t_onWorker || !wanted() || ps2_worker::isShell(runtime) || !start(rdram, runtime))
         {
             ++g_refused;
             return false;
         }
         join(kSiteKick);
+        g_admitFn = admitFn;
+        g_recompOnly = g_nextRecomp;
+        g_nextRecomp = false;
+        g_joinedFn = joined;
+        g_joinedArg = arg;
         // Its context: the game thread's, sp on its own stack; VU0's R its own stream.
         const __m128 r = g_own->ctx.vu0_r;
         g_own->ctx = from;
@@ -659,6 +711,8 @@ namespace sotc_worker
         SET_GPR_U32(&g_own->ctx, 31, 0u);
         std::memcpy(g_own->vu0Data, runtime->memory().getVU0Data(), PS2_VU0_DATA_SIZE);
         g_eeThread = runtime->eeScheduler().currentThreadId();
+        if (setup)
+            setup(arg);
         g_answers.swap(g_pending);
         g_pending.clear();
         g_answerTargets[0] = g_answers.empty() ? 0u : g_answers.front().target;
@@ -704,6 +758,12 @@ namespace sotc_worker
         }
         g_busy.store(false, std::memory_order_relaxed);
         const uint64_t wait = nowUs() - t0;
+        if (g_joinedFn)
+        {
+            void (*fn)(void *) = g_joinedFn;
+            g_joinedFn = nullptr;
+            fn(g_joinedArg);
+        }
         ++g_siteJoins[site];
         g_siteWaitUs[site] += wait;
         g_joinWaits += waited;
