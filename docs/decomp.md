@@ -16037,3 +16037,141 @@ ai106 32 800, oan106 49 000 / 65 000 / 82 000, 0 differ; runs/finalR4 (the conso
 **Console.** build/agent-scratch/celosia-r106.vpk (p4: main 4e18b7f + this round) with r106/env-console.txt
 (`SOTC_AB_FLAG=r106all,grp106,ai106`), read with `build/agent-scratch/r106/read106.sh err.txt <from>`. The ELF has no
 sp-based :128 / :256 NEON access (tools/spalign.py: 0 of 542).
+
+## Round 108: the character jobs' blockers as infrastructure: the collision natives per thread, the worker on the natives, the isys group walks from a snapshot (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r108/` (build.sh pN, v3k.sh / v3kb.sh: own trees ../vita3k-celosia-r108 /
+-r108b, 222 MHz, 3 cores; run.sh <a|b> <vpk> <name> <secs> <route2|route6|load|none> [env]; read108.sh; tools/globals108.py
+(an override object's writable data: the host state audit); env-console.txt; STATE.md). p1-p6 on main 5d00aa0 (round 105),
+p7 rebased on 4e18b7f (round 107), p8 on 3a1b641 (round 106) = celosia-r108.vpk.
+
+**Why.** The first of the rounds aimed at real parallelism of the game thread. Round 104 put far characters' geometry on
+round 91's guest worker: exact but slower, for three reasons it named: (1) the collision natives keep host caches the game
+thread uses, so the worker ran the recompiled code (2-3x slower); (2) 40-46% of batches parked at isysGroupForFirst (the isys
+kernel's global lock) or the anime tables; (3) the game thread hits gates ~2 ms after the hand-over. This round removes what
+can be removed as infrastructure, with nothing changed on the game thread, and measures what is left. `SOTC_CHAR104` stays 0.
+
+### What changed
+
+- **Lanes** (always on; sotc_decomp.h `lane()` / `onWorkerLane()`: 0 the game thread, 1 the guest worker, told by its runtime
+  shell, one compare; no TLS: the Vita's `thread_local` is emutls). The host state was found by listing every override
+  object's writable data (tools/globals108.py) and reading the natives under ExecCharaGeometry:
+  - decomp_collision: the epoch (`g_guestRuns`, now one per lane with `g_guestRunsW`; both go up at a job's hand-over and
+    join), round 101's kept matrices (the leaf's `keptM` / `keptM2`) and the plane-table, boundary and attribute "chains":
+    one per lane. They live within one native entry, so each lane's values are good exactly as before.
+  - The memos (answers kept across entries and frames): seg80 and round 84's path pool, round 65's cammemo, probe84's water
+    probe, decomp_hot47j's find84 and g85, probe85's records, ground85's capture (`g_cap`: its depth stack is now only written
+    while capturing) and view (`g_view`). Lane 0's only: on the worker the computation runs (the original's), so a job
+    neither reads the game thread's kept answers nor fills them, and the game thread's hits are its own calls'.
+  - Stats-only state (NativeCount, FastCheck, the log counters, env switches) is left as it is.
+- **nat108** (`SOTC_NAT108`, 1 with `SOTC_CHAR104=1`): beside the game thread a job runs 81 natives of an audited list
+  (sotc_worker.cpp `kNat108`: ExecCharaGeometry itself, the motion / IK / cloth / layout natives, the collision finder,
+  leaf, node, clipDB, keep, boundary, plane, attribute, vertices, EntryModified / FlushModified, FlushCollisionWork, ...)
+  instead of their recompiled code; any other native stays recompiled. Each was read for host state (none but statistics,
+  or laned) and for direct C++ calls into code the worker may not run beside the game thread (none: their guest calls go
+  through callGuest / callNative, so through hookCall's admit and park, as the recompiled code's do).
+- **snap108** (`SOTC_SNAP108`, 1 with `SOTC_CHAR104=1`): isysGroupForFirst / Next / Exit of the groups jobs walk are
+  answered on the worker from a copy of their lists the game thread makes at the hand-over (sotc_worker `snapGroups`: each
+  group's links as the walk functions would find them then), without the isys lock (taken and given back, nothing else)
+  and without the objects' walk counts (+9): the job's walks keep their own counts, so a walk of another group (the
+  recompiled code's) keeps the real ones, and a count a walk leaves raised goes into +9 at the join (0 in every run). The
+  groups are learned (a job's ForFirst of a group not in the copy parks as before and names it; kept while walked, dropped
+  after 600 frames, up to 64): the collision object group 0x0146588c, 0x014658a4 / 0x01465884, and each cloth's
+  string-object group (the cloth velocity step's walk at 0x01137728). A character queued behind a running batch is refused
+  when a copied group changed since the copy (appends refused: 0 in every run).
+- **anime108** (`SOTC_ANIME108`, default 0): ExecAnimeTableInfo's calls (ExecCharaGeometry's last step) kept with their
+  context and 0x400 bytes of stack and made at the batch's end after the join, each character's area test and Postprocess
+  after its own (sotc_worker `deferNext` / `deferHost`). Not exact: the check found 100 words differing in 165 checks (0
+  without it): the tables' events read the game's state of the moment they run (the running sub-thread's object at
+  0x1e1550, which the game thread has moved on by then), so their sound / effect records differ. Left off.
+- admitGeo: the anime tables' deny range now ends at 0x01169B70 (and rand / srand 0x0116AD00-0x0116AD80): the path data
+  getters, the segment / triangle test at 0x0116A0D4 (a native), qsort and rintf between them run beside the game thread.
+- Measuring: `[char108]` every 600 frames (the worker's time before it parked within each batch's hand-over-to-join window,
+  "beside the game thread"; the game thread's time in those windows; its waits; snapshot answers / misses / links / left
+  counts / groups; appends refused; anime tables kept), `[worker91]`'s park sites (target / caller), `[char104g]`'s joins by
+  gate and caller and whether a FlushCollisionWork / UpdateLayoutClassParentGeometry a0 is one of the batch's characters.
+  Check reference `SOTC_CHAR108_REF` (bit 1, default on: the same natives; bit 0: the snapshot too; by default the isys
+  functions themselves). A/B names `nat108`, `snap108`, `anime108`, `r108all`.
+
+### Checks (`SOTC_CHAR104=1 SOTC_CHAR104_CHECK=<n>`: a one-character batch run beside the game thread against the same calls on the worker alone from the same state, the isys walks real)
+
+| run | build / switches | checks | words the serial run wrote | differ (live words) | dead slots (work stack / sub-thread) | scratchpad / VU0 data | registers |
+|---|---|---|---|---|---|---|---|
+| runsb/chk5n | p5, nat108 + snap108 | 129 (19 skipped: parked) | 352 065 | **0** | 6 914 / 4 100 | 0 / 0 | 3 |
+| runs/chk3 | p3, + anime108 (tables only at the end) | 133 | 319 128 | 2 (0x270c84, 0x270e44: an effect pool's pointer) | 8 393 / 5 502 | 0 / 0 | 26 |
+| runs/chk5 | p5, + anime108 (tables and tails at the end) | 165 | 435 847 | 100 (0x1e0bf0, 0x233780.., 0x235d90..: the tables' records) | 10 052 / 6 109 | 0 / 0 | 27 |
+| runs/chk1 | p1, nat108 + snap108 (CHECK=20: too slow to leave the shrine) | 1 (2 skipped) | 1 029 | 0 | 17 / 86 | 0 / 0 | 0 |
+
+The reference has the job's natives (SOTC_CHAR108_REF=2) and the real isys walks (with their lock and walk counts), so the
+0 covers the snapshot's answers and the natives' lanes beside the game thread; round 104's chk8R covered natives against
+the recompiled code. The registers left at the job's end differ where a batch parked (caller-saved values; nothing reads
+them, as round 104 found). Skipped: batches whose job parked (their rest ran at the join).
+
+### Measured (Vita3K 222 MHz, in-run A/B, `SOTC_CHAR104=1`, matched by draws, off minus on)
+
+| run | part | char104 (the worker's cost) | nat108 (its natives) | snap108 | anime108 |
+|---|---|---|---|---|---|
+| r104 runs/altar7 (round 104, for comparison) | altar from 3 300 | -14.66 | | | |
+| runsb/altarAB1 (p1) | altar from 3 300 | -10.72 | +5.11 | -0.95 | |
+| runsb/altarAB3 (p3) | altar from 3 300 | -8.90 | +10.83 | +0.42 | +1.09 (not exact) |
+| runs/altarAB6 (p6) | altar from 3 300 | -9.34 | +6.55 | -0.02 | |
+| runsb/finalR6 (p6, route 6 600 s, console env: guest on core 1) | from 4 300, 13 236 frames | -5.61 | +0.02 | -0.39 | |
+| runsb/finalR7 (p7, the same, rebased on round 107) | from 4 300 | -5.46 (14 922 frames) | +0.13 | -0.17 | |
+| runsb/finalR8 (p8 = the shipped build, rebased on round 106, the same; a loaded host: 9 480 frames) | from 4 300 | -9.27 | +6.82 | -0.45 | |
+
+The worker's natives are worth 5-11 ms a frame at the altar (the jobs' time on the worker: 8-12 ms a frame for 11-14
+characters, ~1.0-1.2 ms a batch, round 104's ~2-3x the natives brought down); the snapshot is worth nothing measurable by
+itself (it takes the isysGroupForFirst parks away, 1 000-1 300 per 600 frames, but those batches then stop at the anime
+tables a little later). char104 still costs 9 ms a frame at the altar and 5.6 on route 6: the game thread waits for almost
+all of the worker's time. No fault: the checks, the A/B runs, runsb/finalR6 (600 s, 13 236 frames), runs/load6 (the console's
+memory card's save loaded, 300 s, 6 084 frames, SOTC_CHAR104=1, console env), runsb/finalR7 (p7, 600 s, 14 922 frames), runs/load7 (p7, the console card's save, default env, 300 s, 7 294 frames), runsb/finalR8 and runs/load8 (p8, the console env, the card's save, 300 s).
+
+### What is left (where the game thread still waits)
+
+At the altar, a frame (p6, altarAB6, all-on windows, 600-frame reports): 11-14 characters in 8-10 batches; the worker
+8-12 ms; **beside the game thread 1.2-1.5 ms**, the game thread's own time in the hand-over-to-join windows 3.7-4.5 ms, its
+waits 9.3-13.8 ms. Per batch the job takes ~1.0-1.2 ms and the game thread meets a join ~0.45 ms after the hand-over.
+
+- The worker still parks in 44-49% of the batches, after ~0.17 ms, at the anime tables (ExecAnimeTableInfo from
+  ExecCharaGeometry+0xea0: every character with its tables in reach, its last step), 1 800-1 950 per 600 frames. With the
+  snapshot the isysGroupForFirst parks (the cloth string's walk, 0x01137728) are gone (0-2 per 600 frames).
+- The game thread's joins, per 600 frames (chan ~4 a frame at 1.2-1.7 ms, kick ~4 a frame at 0.19 ms, access ~0.7 a frame at
+  0.33 ms), by gate and caller:
+  - FlushCollisionWork from st_collisionalias+0x30, 900-1 440: a script that moves a collision object every frame flushes
+    its own collision work first (its a0 is never one of the batch's characters). A real dependency when the job tests
+    against that object (its next steps move its matrix, which the gate does not cover either).
+  - UpdateLayoutClassParentGeometry from nico_weaponUpdateGeometry+0x24, 420-480: Wander's weapon's children (a0 never a
+    batch character).
+  - iosMallocAlign from create_letter+0x68, 420-480: the letters between objects (the heap's order: a job's allocation must
+    come before the game thread's).
+  - ExecAnimeTableInfo from manager_sub_01107090+0x160, 400-460: the script animation objects' tables (the tables' order).
+  - iosGetRandom from AI_GetRandomVelocity and three other AI sites, ~100 (the VU0 R stream's order).
+  - kick: the next eligible character while the worker no longer takes items (it finished its queue or parked).
+- anime108 shows what the anime tables need to run at the batch's end exactly: the game's state of the moment they ran
+  (0x1e1550, the running sub-thread's object, at least).
+
+### Next round
+
+The order, each with a check mode and an A/B:
+1. **The anime tables exactly at the batch's end** (anime108's mechanism, kept): put back around each kept call the guest
+   state of its moment that the game thread has moved on since (0x1e1550 first; the check names the rest), then made at
+   the join while the game thread waits; with each character's tail after its own tables. Removes the worker's last
+   frequent park (45% of the batches).
+2. **Gates by object, not by function**: FlushCollisionWork / the object's collision update (st_collisionalias) and
+   UpdateLayoutClassParentGeometry join only when the object can meet a job: its collision bounds within reach of a batch
+   character's (the job's finders only enter objects whose boundary meets the character's query: a sphere test on the
+   collision record's bounds at the hand-over), or the weapon's children holding a batch character. ~2.5-3 joins a frame
+   at the altar.
+3. **The worker keeps its queue open** until the join (it waits for the next item instead of ending): kick joins become
+   appends (~4 a frame), one batch per gate-free stretch.
+4. **The letters' allocations**: create_letter's iosMallocAlign without a join while the job has not allocated (a job
+   that reaches the heap parks; then the game thread's allocation would come first: hand that case back as a join).
+5. Then the bigger unit (round 104's (4)): with (1)-(4) the far characters' geometry runs beside the script pass's other
+   objects until the display walk reads them (25-29 ms at the altar); the next candidates are the AI steps of far
+   creatures (round 106's natives) and Agro while not ridden.
+
+**Console.** build/agent-scratch/celosia-r108.vpk (p8: main 3a1b641, rounds 106 and 107, + this round). The lanes are always on (the game thread's
+state as before); everything else needs `SOTC_CHAR104=1`. r108/env-console.txt (`SOTC_CHAR104=1 SOTC_THREAD_CORES=guest:2
+SOTC_AB_FLAG=char104,nat108,snap108`): read with `build/agent-scratch/r108/read108.sh err.txt <from>` (ab89's matched block,
+`[char104]` / `[char108]` / `[char104g]` / `[worker91]`). char104's windows are expected slower; nat108 / snap108 say what
+the worker's natives and the snapshot are worth on the console's cores.
