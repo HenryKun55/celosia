@@ -592,6 +592,14 @@
    "focus": "Speed",
    "summary": "Looked inside the game thread's two biggest blocks, the scene's draw walk and the characters' bodies, with the emulator's sampling profiler, aiming at cuts that change nothing on screen. The time turned out to be spread very thin: no single function is above about 3% of the thread, and with five earlier shortcuts now switched off (they cut Avion's intro short on the console), collision checks are the largest block. Four small exact cuts: a character-link search that scanned the same list twice now scans it once, the AI path-point sort no longer searches the area list again for every point, the model-plan lookup avoids a slow software division, and a ground-surface test runs four at a time (only active when its parent feature is on). Some small math helpers are now inlined.",
    "result": "Vita3K 222 MHz: the profiler shows about 0.4% of the game thread saved (~0.2 ms a frame); in-run A/B differences are within the noise (+-1 ms). Check modes for the two search cuts found no difference in 92 000 and 6 million calls. No crash or fault in 600 s attract and route-6 runs and a 300 s altar run; altar pictures with the round on and off match. Exact local rewrites like these cannot reach the 30 ms goal on their own. Console A/B prepared (env-console.txt: r97all, links97, path97)."
+  },
+  {
+   "round": "r100",
+   "date": "2026-11-07",
+   "commit": "4775393",
+   "focus": "Stutter",
+   "summary": "Went after stutter rather than average speed: every slow 3D frame in the recent console logs (over 1.4x the typical frame) was split by what made it slow. On the latest settings about 10% of 3D frames are spikes. The largest share is the game's own work on its thread (about 44%, round 97's area); then the game waiting for the disc (12%), the GPU running behind (9%; 34-60% in the earlier GPU-heavy runs) and the game waiting for the model-drawing worker at the camera-blur and heap-move points (about 14% together). Four changes, all with the same picture: the camera-blur hook no longer waits for the worker when it draws nothing (nearly always); the GPU is kept at most two frames behind instead of three; the game's disc reads are read ahead in the background so the next request is usually already in memory; and the disc reader threads run above the model worker so the game is not left waiting on them. New readers report p50/p90/p99 and the spike share per A/B state, and the cause table.",
+   "result": "Vita3K cannot show the console's causes (no worker backlog, no GPU lag): there the switches are within noise once its host stalls are left out, and two 600 s runs of route 6 and a 600 s attract demo had no fault or hang. The read-ahead served 81% of the game's disc reads on route 6. Console A/B prepared (env-console.txt: r100all, sblur100, inflight100), read with tools/ab100.py."
   }
  ]
 }
