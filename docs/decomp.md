@@ -16030,7 +16030,10 @@ The runs above are on p1 (main b419fc5 + the round) and p2 (rebased on main 8299
 rebased on main 5d00aa0 (round 105), p3: runsb/checkA3 (the altar 330 s, every call checked, oan106 on) grp106 2.4 M
 leaf compares, ai106 16 400, oan106 49 000 / 49 000 / 82 000, 0 differ; runs/finalR3 (the console env and the console
 memcard, Load Game, route 6 600 s to frame 19 233, 322 A/B windows) no fault, r106all +0.18 ms matched on the plain.
+Rebased again on main 4e18b7f (round 107), p4 = the shipped build: runsb/checkA4 (the altar 330 s) grp106 2.6 M,
+ai106 32 800, oan106 49 000 / 65 000 / 82 000, 0 differ; runs/finalR4 (the console env and memcard, route 6 600 s,
+249 A/B windows) no fault, r106all +0.24 ms matched.
 
-**Console.** build/agent-scratch/celosia-r106.vpk (p3: main 5d00aa0 + this round) with r106/env-console.txt
+**Console.** build/agent-scratch/celosia-r106.vpk (p4: main 4e18b7f + this round) with r106/env-console.txt
 (`SOTC_AB_FLAG=r106all,grp106,ai106`), read with `build/agent-scratch/r106/read106.sh err.txt <from>`. The ELF has no
 sp-based :128 / :256 NEON access (tools/spalign.py: 0 of 542).
