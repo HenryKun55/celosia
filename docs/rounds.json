@@ -640,6 +640,14 @@
    "focus": "Speed",
    "summary": "Made room on the Vita's second and third processor cores, where the model-drawing helper thread, the sound mixer and several smaller threads share two cores beside the renderer. The helper thread spent half its time building character shadows, much of it in a slow byte-comparison routine and a slow rounding call; both are now done with faster code that gives exactly the same results. Two threads (the background mesh builder and the renderer) woke up every 2 ms even with nothing to do; they now sleep until they are given work. The timing log's own text formatting no longer uses the slow standard number conversion. Each change has its own switch and a check mode.",
    "result": "Check modes compared 14 000 shadow draws (215 MB of model data, 6.5 million shadow vertices) and every log line against the old code: no difference, so the picture is the same. Vita3K profiler at the altar: the helper thread 12% less CPU, the background builder 54% less, the log thread about 75% less; in-run A/B: the helper thread saves 1.8 ms a frame at the altar and 0.6-0.7 ms on the plain. The frame rate in Vita3K is unchanged (the game thread sets it); the idle wake-ups cost far more on the real console than in Vita3K. No crash in 600 s runs or loading a save from the console's memory card. Console A/B prepared (env-console.txt: r105all, worker105, render105)."
+  },
+  {
+   "round": "r107",
+   "date": "2026-11-08",
+   "commit": "2a4e29f",
+   "focus": "Stutter",
+   "summary": "Added a player option in the settings menu (Select twice, Renderer tab): Frame rate, Auto or Steady 20. Auto is the default and unchanged. Steady 20 makes every picture stay on screen for exactly three screen refreshes (20 fps) in the game's scenes, and starts each game frame exactly 50 ms after the previous one, so the game moves the world by the same step every time and the motion is even instead of alternating between 33, 50 and 67 ms. A frame that takes longer shows at the next refresh, and that picture stays as long as the game's step, so there is no short frame after a long one. Loading screens and menus are not held.",
+   "result": "Vita3K (own tree, route 6): with Steady 20 the game's step matched the time between frame starts within 2 ms in 99.4% of frames, frame starts 50.05 ms apart (standard deviation 1.1 ms), and in quiet scenes 581-585 of every 600 pictures stayed exactly three refreshes (the rest were Vita3K's own one-second host pauses). Game speed unchanged: Wander's position by game clock followed Auto's along the walk and ended within about 5 units of it. The option saves and loads from settings.cfg; no crash in 600 s runs, including loading the save from the console's memory card. The slow-frame causes that cost little to fix were looked at: the 'blocked' waits are the game waiting for the next refresh, not the disc; the rest belong to other rounds' code."
   }
  ]
 }
