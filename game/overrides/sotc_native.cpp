@@ -3098,11 +3098,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1, sblur100At = -1, r100AllAt = -1, r101AllAt = -1, fmt102At = -1, r102AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1, sblur100At = -1, r100AllAt = -1, r101AllAt = -1, fmt102At = -1, r102AllAt = -1, r103AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3147,6 +3147,7 @@ namespace sotc_native
             r96AllAt = indexOf("r96all"); // round 96: the round's game-thread cuts (obj96, ...) off together
             r97AllAt = indexOf("r97all"); // round 97: the round's game-thread cuts off together
             r101AllAt = indexOf("r101all"); // round 101: the collision rewrites off together
+            r103AllAt = indexOf("r103all"); // round 103: the display path's PS2-only layers back on together
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
             log76At = indexOf("log76");
             keep99At = indexOf("keep99"); // round mem99: the hook jobs' room trim
@@ -3227,6 +3228,11 @@ namespace sotc_native
             for (int i : {static_cast<int>(sotc_decomp::kWalk101), static_cast<int>(sotc_decomp::kSkin101), static_cast<int>(sotc_decomp::kLeaf101), static_cast<int>(sotc_decomp::kObj101)})
                 if (isOffAt(r101AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r101AllAt) ? false : switchStart[i]);
+        // Round 103: `r103all` the round's switches off in its windows.
+        if (r103AllAt >= 0)
+            for (int i : {static_cast<int>(sotc_decomp::kPtcl103), static_cast<int>(sotc_decomp::kSolid103)})
+                if (isOffAt(r103AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r103AllAt) ? false : switchStart[i]);
         // Round 90: the sound mixer's voice / core paths (`aud90v`, `aud90c`,
         // `r90all` both); exact, so only the audio thread's time changes.
         if (aud90vAt >= 0 || aud90cAt >= 0 || r90AllAt >= 0)
@@ -7286,18 +7292,20 @@ namespace sotc_native
         g_ptclMat(rdram, ctx, runtime);
     }
 
-    void ptclEnvHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // ptclmanBuildEnvPacket's inputs into g_ptclEnvState (the matrix from
+    // the guest at `mat`, or from `host` when given: round 103's direct path).
+    void ptclEnvTake(uint32_t vec, uint32_t type, uint32_t mat, const float *host, uint32_t lightAt, uint32_t shadeAt, float fade)
     {
-        syncFrame(rdram);
         ParticleEnv &e = g_ptclEnvState;
-        const uint32_t vec = GPR_U32(ctx, 4), mat = GPR_U32(ctx, 6);
-        e.type = GPR_U32(ctx, 5);
-        e.fade = ctx->f[12];
-        for (int i = 0; i < 16; ++i)
-            e.m[i] = real(mat + i * 4u);
+        e.type = type;
+        e.fade = fade;
+        if (host)
+            std::memcpy(e.m, host, sizeof(e.m));
+        else
+            for (int i = 0; i < 16; ++i)
+                e.m[i] = real(mat + i * 4u);
         e.vec[0] = real(vec);
         e.vec[1] = real(vec + 4u);
-        const uint32_t lightAt = GPR_U32(ctx, 7), shadeAt = GPR_U32(ctx, 8);
         for (int i = 0; i < 4; ++i)
         {
             if (lightAt)
@@ -7312,8 +7320,26 @@ namespace sotc_native
         for (int r = 0; r < 3; ++r)
             for (int c = 0; c < 3; ++c)
                 e.axes[c][r] = consts ? e.k[c] * real(consts + r * 16u + c * 4u) : 0.0f;
+    }
+
+    void ptclEnvHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        syncFrame(rdram);
+        ptclEnvTake(GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), nullptr, GPR_U32(ctx, 7), GPR_U32(ctx, 8), ctx->f[12]);
         g_ptclEnv(rdram, ctx, runtime);
     }
+
+    void ptclVtxTake(uint32_t a, uint32_t count, uint32_t header, uint32_t layer);
+    // Round 103's check (SOTC_PTCL103_CHECK): the direct path's job, compared
+    // with the hooks' at the next ptclVtxTake.
+    struct Ptcl103Check
+    {
+        bool pending = false;
+        uint32_t count = 0, header = 0, layer = 0, blend = 0;
+        ParticleEnv env;
+        std::vector<float> data;
+        uint64_t checks = 0, differ = 0, missed = 0;
+    } g_ptcl103Check;
 
     void ptclVtxHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -7323,7 +7349,30 @@ namespace sotc_native
         g_ptclVtx(rdram, ctx, runtime);
         if (runtime->transferPending())
             return; // a thread switch below (round 52): nothing more here
+        ptclVtxTake(a, count, header, layer);
+    }
+
+    // ptclVtxHook's job: the particles at `a` (12 words each) with the
+    // environment, blend, texture and layer taken so far.
+    void ptclVtxTake(const uint32_t a, const uint32_t count, const uint32_t header, const uint32_t layer)
+    {
         HookTimer hookTimer;
+        if (Ptcl103Check &c = g_ptcl103Check; c.pending)
+        {
+            c.pending = false;
+            ++c.checks;
+            std::vector<float> now(count * 12u);
+            guestBlock(a, count * 48u, now.data());
+            const bool same = c.count == count && c.header == header && c.layer == layer && c.blend == g_ptclBlend &&
+                              std::memcmp(&c.env, &g_ptclEnvState, sizeof(ParticleEnv)) == 0 && c.data.size() == now.size() &&
+                              std::memcmp(c.data.data(), now.data(), now.size() * sizeof(float)) == 0;
+            if (!same && c.differ++ < 20u)
+                std::fprintf(stderr, "[ptcl103c] DIFFERS: count %u/%u header %08x/%08x layer %u/%u blend %u/%u env %d data %d\n", c.count, count, c.header, header, c.layer,
+                             layer, c.blend, g_ptclBlend, std::memcmp(&c.env, &g_ptclEnvState, sizeof(ParticleEnv)) == 0 ? 1 : 0,
+                             c.data.size() == now.size() && std::memcmp(c.data.data(), now.data(), now.size() * sizeof(float)) == 0 ? 1 : 0);
+            if (c.checks % 2000u == 0u)
+                std::fprintf(stderr, "[ptcl103c] %llu particle draws checked, %llu differ\n", (unsigned long long)c.checks, (unsigned long long)c.differ);
+        }
         const bool off = !native_renderer::tuning().particles;
         const ParticleEnv &env = g_ptclEnvState;
         if (off || !g_cameraContext || count == 0u || count > 4096u || (!(env.type >= 1u && env.type <= 5u) && env.type != 7u))
@@ -7344,8 +7393,7 @@ namespace sotc_native
         job.env.resize(sizeof(ParticleEnv));
         std::memcpy(job.env.data(), &env, sizeof(ParticleEnv));
         job.data.resize(count * 12u);
-        for (uint32_t i = 0; i < count * 12u; ++i)
-            job.data[i] = real(a + i * 4u);
+        guestBlock(a, count * 48u, job.data.data()); // (the same words as real() one by one)
         if (!hookjobs::g_on)
         {
             ptclVtxDraw(job, env);
@@ -7353,6 +7401,52 @@ namespace sotc_native
         }
         hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobPtcl;
         hookjobs::push();
+    }
+
+    // Round 103 (ptcl103, decomp_ptcldraw.cpp): particleDraw's packets
+    // (ptclmanBuildMatPacket / BuildEnvPacket / BuildVtxPacket) made for the
+    // PS2's VU1 only; the job the three hooks would make from their inputs,
+    // made here from the same inputs, without the guest's packets. False
+    // (nothing done) when the hooks are not the drawing path.
+    bool ptclDirect103(uint32_t data, uint32_t count, uint32_t blend, uint32_t vec, uint32_t type, const float mat[16], uint32_t lightAt, uint32_t shadeAt,
+                       float fade)
+    {
+        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+            return false;
+        syncFrame(const_cast<uint8_t *>(g_ram));
+        // SOTC_PTCL103_CHECK=1: the job this path would make kept, the
+        // original packets built and hooked as before, and the hooks' job
+        // compared with it at ptclVtxTake ([ptcl103c] every 2000 checks).
+        static const bool check = std::getenv("SOTC_PTCL103_CHECK") && std::atoi(std::getenv("SOTC_PTCL103_CHECK")) != 0;
+        if (check)
+        {
+            const ParticleEnv savedEnv = g_ptclEnvState;
+            const uint32_t savedBlend = g_ptclBlend;
+            ptclEnvTake(vec, type, 0u, mat, lightAt, shadeAt, fade);
+            Ptcl103Check &c = g_ptcl103Check;
+            c.pending = true;
+            c.count = count;
+            c.header = g_requested;
+            c.layer = g_layers.empty() ? 18u : g_layers.back();
+            c.blend = blend;
+            std::memcpy(&c.env, &g_ptclEnvState, sizeof(ParticleEnv));
+            c.data.resize(count * 12u);
+            guestBlock(data, count * 48u, c.data.data());
+            g_ptclEnvState = savedEnv;
+            g_ptclBlend = savedBlend;
+            return false;
+        }
+        g_ptclBlend = blend; // ptclMatHook
+        ptclEnvTake(vec, type, 0u, mat, lightAt, shadeAt, fade); // ptclEnvHook
+        ptclVtxTake(data, count, g_requested, g_layers.empty() ? 18u : g_layers.back()); // ptclVtxHook
+        return true;
+    }
+
+    // Round 103: the model hook is installed and draws natively (no PS2
+    // lists built for it, the GS rasterizes nothing).
+    bool nativeDraws()
+    {
+        return g_modelDisp != nullptr && !native_renderer::tuning().ps2Lists && GS::skipRaster();
     }
 
     void ptclVtxDraw(const PtclVtxJob &job, const ParticleEnv &e)

@@ -78,6 +78,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <vector>
 #include <algorithm>
 #include <string>
@@ -89,6 +90,11 @@ namespace decomp_prefetch
     void aheadDisp(const uint8_t *rdram, uint32_t object);
     void aheadWalkClip(const uint8_t *rdram, uint32_t object);
     void aheadWalkDisp(const uint8_t *rdram, uint32_t object);
+}
+
+namespace sotc_native
+{
+    bool nativeDraws(); // round 103: the model hook draws natively (no PS2 lists, no GS raster)
 }
 
 namespace decomp_walk
@@ -1486,7 +1492,37 @@ namespace decomp_walk
             const int32_t index = (i << 2) + ((i + 1) >> 6);
             return static_cast<uint32_t>(index << 4) + base;
         };
-        if (s0 == 0u)
+        // Round 103 (SOTC_SOLID103, A/B `solid103`, `r103all`): with the
+        // native renderer drawing, the parts' matrix blocks (the camera's
+        // +0x1a0 x each part's matrix, into the instance packet's +0x104
+        // block) are the PS2's VU1 input only: the model hook draws from the
+        // parts' own matrices (a1) and the camera's +0x5a0, and nothing
+        // native reads the blocks. Left out (with their camera lookup) for a
+        // model without a shadow (shadowDisp's rigid matrix comes from its
+        // packets) whose LOD record asks for no lens scale (which rescales
+        // the blocks). Everything else as before.
+        const auto lensScaled = [&]
+        {
+            const uint32_t lodRecord = m.u32(m.u32(m.u32(m.u32(s1 + 0x144u)) + 0x20u) + 8u);
+            return lodRecord != 0u && m.u32(lodRecord + 0x3Cu) != 0u;
+        };
+        if (s0 == 0u && sotc_decomp::solid103On() && sotc_native::nativeDraws() && m.u32(m.u32(s1 + 0x144u) + 0x280u) == 0u && !lensScaled())
+        {
+            const int32_t s2 = m.s16(s1 + 0x1B4u);
+            SET_GPR_S32(ctx, 18, s2);
+            ctx->f[0] = 1.0f;
+            // SOTC_SOLID103_POISON=1 (checking): the skipped blocks filled with
+            // NaNs, so any reader left would show (a model gone or broken).
+            static const bool poison = std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0;
+            if (poison)
+            {
+                const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());
+                for (int32_t i = 0; i < s2 && i < 256; ++i)
+                    for (uint32_t k = 0; k < 4u; ++k)
+                        m.putq(block(i) + k * 0x10u, nan);
+            }
+        }
+        else if (s0 == 0u)
         {
             const int32_t s2 = m.s16(s1 + 0x1B4u);
             SET_GPR_S32(ctx, 18, s2);

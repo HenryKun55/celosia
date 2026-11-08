@@ -28,6 +28,12 @@ namespace decomp_math
     void getSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 
+namespace sotc_native
+{
+    bool ptclDirect103(uint32_t data, uint32_t count, uint32_t blend, uint32_t vec, uint32_t type, const float mat[16], uint32_t lightAt, uint32_t shadeAt,
+                       float fade);
+}
+
 namespace decomp_ptcldraw
 {
     constexpr uint32_t kDraw = 0x0113E940u;
@@ -62,6 +68,89 @@ namespace decomp_ptcldraw
         void put32(uint32_t a, uint32_t v) const { std::memcpy(p(a), &v, 4); }
         void put64(uint32_t a, uint64_t v) const { std::memcpy(p(a), &v, 8); }
     };
+
+    // ---- Round 103 (SOTC_PTCL103, A/B `ptcl103`, `r103all`): the tail from
+    // 0x113eafc without the PS2's packets. The original: the environment
+    // matrix (*0x1216e40's four rows x the scale matrix at sp, VU0, into sp),
+    // then, with particles written (s5) and *0x118cff0 set:
+    // ptclDisplayListPut(s5), transMicroCode(7), ptclmanBegin,
+    // ptclmanBuildMatPacket(material +0x14), ptclmanBuildEnvPacket(vec
+    // (+0x58, +0x5c of the effect record, 0, 0) at sp + 0x70, type 4, the
+    // matrix at sp, the light at s2 + 0x90, the shade at sp + 0x40, fade 1 -
+    // record +0x24), ptclmanBuildVtxPacket(the particles at s7, s5),
+    // ptclmanEnd: a VU1 microcode upload and three packets chained into the
+    // display list, which the native renderer never reads (the hooks on
+    // Mat / Env / Vtx copy their inputs and draw from those). Here the
+    // hooks' job is made from the same inputs (sotc_native::ptclDirect103)
+    // and nothing is put in the display list: the particles' 48-byte
+    // records stay in the list's free room (ptclDisplayListGet's), copied
+    // into the job before anything else writes there. The same draw, in the
+    // same place of the job order. VU0 left as the matrix block leaves it
+    // (vf14..17, vf24..27, ACC); the epilogue as the original's.
+    bool tail103(uint8_t *rdram, R5900Context *ctx, uint32_t s2, uint32_t s4, uint32_t s5, uint32_t s7, uint32_t fp, uint32_t sp, uint64_t e16, uint64_t e17,
+                 uint64_t e18, uint64_t e19, uint64_t e20, uint64_t e21, uint64_t e22, uint64_t e23, uint64_t e30, uint64_t e31)
+    {
+        const Ram ram{rdram};
+        constexpr uint32_t kRows = 0x01216E40u;
+        __m128 row[4], col[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            std::memcpy(&row[i], ram.p(kRows + i * 16u), 16);
+            std::memcpy(&col[i], ram.p(sp + i * 16u), 16);
+        }
+        __m128 acc = ctx->vu0_acc;
+        for (int i = 0; i < 4; ++i)
+        {
+            const __m128 v = col[i];
+            acc = PS2_VMUL(row[0], _mm_shuffle_ps(v, v, _MM_SHUFFLE(0, 0, 0, 0)));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL(row[1], _mm_shuffle_ps(v, v, _MM_SHUFFLE(1, 1, 1, 1))));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL(row[2], _mm_shuffle_ps(v, v, _MM_SHUFFLE(2, 2, 2, 2))));
+            col[i] = PS2_VADD_K(1, 1, acc, PS2_VMUL(row[3], _mm_shuffle_ps(v, v, _MM_SHUFFLE(3, 3, 3, 3))));
+        }
+        const bool drawn = s5 != 0u && ram.u32(0x0118CFF0u) != 0u;
+        float mat[16];
+        for (int i = 0; i < 4; ++i)
+            std::memcpy(mat + i * 4, &col[i], 16);
+        if (drawn)
+        {
+            // ptclmanBuildEnvPacket's vec at sp + 0x70 (+0x80 .. +0x8c as the original writes them).
+            const float vx = ram.f32(s4 + 0x58u), vy = ram.f32(s4 + 0x5Cu);
+            ram.putf(sp + 0x80u, vx);
+            ram.putf(sp + 0x84u, vy);
+            ram.put32(sp + 0x88u, 0u);
+            ram.put32(sp + 0x8Cu, 0u);
+            ram.putf(sp + 0x70u, vx);
+            ram.putf(sp + 0x74u, vy);
+            ram.put32(sp + 0x78u, 0u);
+            ram.put32(sp + 0x7Cu, 0u);
+            const float fade = FPU_SUB_S(ctx->f[20], ram.f32(s4 + 0x24u));
+            if (!sotc_native::ptclDirect103(s7, s5, ram.u32(fp + 0x14u), sp + 0x70u, 4u, mat, s2 + 0x90u, sp + 0x40u, fade))
+                return false; // (nothing written yet but the frame's scratch: the recompiled tail from 0x113eafc)
+        }
+        for (int i = 0; i < 4; ++i)
+        {
+            std::memcpy(ram.p(sp + i * 16u), &col[i], 16);
+            ctx->vu0_vf[14 + i] = row[i];
+            ctx->vu0_vf[24 + i] = col[i];
+        }
+        ctx->vu0_acc = acc;
+        // The epilogue (0x113ec08): the saved registers back, f20 / f21 from the frame.
+        SET_GPR_U64(ctx, 16, e16);
+        SET_GPR_U64(ctx, 17, e17);
+        SET_GPR_U64(ctx, 18, e18);
+        SET_GPR_U64(ctx, 19, e19);
+        SET_GPR_U64(ctx, 20, e20);
+        SET_GPR_U64(ctx, 21, e21);
+        SET_GPR_U64(ctx, 22, e22);
+        SET_GPR_U64(ctx, 23, e23);
+        SET_GPR_U64(ctx, 30, e30);
+        SET_GPR_U64(ctx, 31, e31);
+        ctx->f[21] = ram.f32(sp + 0xE8u);
+        ctx->f[20] = ram.f32(sp + 0xE0u);
+        SET_GPR_U32(ctx, 29, sp + 0xF0u);
+        sotc_decomp::returnTo(ctx);
+        return true;
+    }
 
     void draw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -270,6 +359,8 @@ namespace decomp_ptcldraw
         ctx->f[13] = ram.f32(s4 + 0x54u);
         ctx->f[14] = one;
         call(sotc_decomp::jalTarget(rdram, 0x0113EAF4u), 0x0113EAFCu);
+        if (sotc_decomp::ptcl103On() && tail103(rdram, ctx, s2, s4, s5, s7, fp, sp1, e16, e17, e18, e19, e20, e21, e22, e23, e30, e31))
+            return;
         ctx->pc = 0x0113EAFCu;
         sotc_decomp::recompiled(kDraw)(rdram, ctx, runtime);
     }
