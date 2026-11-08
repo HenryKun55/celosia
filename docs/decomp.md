@@ -16175,3 +16175,139 @@ state as before); everything else needs `SOTC_CHAR104=1`. r108/env-console.txt (
 SOTC_AB_FLAG=char104,nat108,snap108`): read with `build/agent-scratch/r108/read108.sh err.txt <from>` (ab89's matched block,
 `[char104]` / `[char108]` / `[char104g]` / `[worker91]`). char104's windows are expected slower; nat108 / snap108 say what
 the worker's natives and the snapshot are worth on the console's cores.
+
+## Round 109: the character jobs beside the game thread: the anime tables when no event is due, the worker's open queue, the gates by object; what still joins (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r109/` (build.sh pN, v3k.sh / v3kb.sh: own trees ../vita3k-celosia-r109 /
+-r109b, 222 MHz, 3 cores; run.sh, ab.sh, read109.sh, env-console.txt, STATE.md). p1-p3 on main 6c652cc (round 108); p3 =
+celosia-r109.vpk.
+
+**Why.** Round 108 left char104 (far characters' geometry on round 91's guest worker) exact but a loss: at the altar only
+1.2-1.5 ms of the worker's 8-12 ms a frame ran beside the game thread, the worker parked in ~45% of the batches at the anime
+tables and the game thread waited 9-14 ms a frame at its joins. This round takes the plan's steps 1-4 as far as they go
+exactly, each with a switch, a check and an A/B.
+
+### What changed (all under `SOTC_CHAR104=1`, which stays 0 by default)
+
+- **anime109** (`SOTC_ANIME109`, 1): ExecAnimeTableInfo (0x1169020: a0 the table info, a1 the object, f12 the time) read
+  from the code: per list (+0 / +8 non-zero, cursor +4 / +0xc, 8-byte entries: time, handle) it writes the tables' globals
+  (0x118fe88-0x118fe98 and three quads at 0x122b860) and from the cursor either ends the list (a handle with no owner, the
+  empty owner 0x1e0ed4, or one that resolves to 0: cursor cleared), stops (the entry's time above f12: cursor kept) or runs
+  the entry's event (manager_sub_011688A8: sounds, particles, sequences, rand) and goes on. A call that runs no event
+  ("quiet") writes only the globals, its cursors and its frame; the globals are read only by the events' code (xref:
+  manager_sub_01167928 .. 011688A8, reached only from ExecAnimeTableInfo / ExecEff, which write them first), so they are
+  dead between calls.
+  - On the worker a quiet call runs beside the game thread (sotc_worker `setAdmitCtx`: a refused target admitted from its
+    arguments); a call with an event due still parks.
+  - On the game thread a quiet call (manager_sub_01107090's script animation tables) goes on without the join; the
+    globals it leaves are put back at the join (the game thread's calls come after the job's in the original order). Not
+    in a checked batch (the reference would write the job's globals last).
+  - ExecEff (0x1169388, also writes and reads the globals) joins (new gate).
+  - The predictor (p3): an event's handlers read the game's state of their moment (the player, the camera, the effect
+    pools), so an event run late after a park is not exact (the long check of p2 found it: 3 words in 1 of 125 batches,
+    the effect pool's heads 0x270c14 / 0x270c84 and an event sub-thread's stack word). Each table info's time of its last
+    calls (game thread and worker) gives the next one; a character with a cursor entry not above last + 2 steps is not
+    handed over (it runs on the game thread, the batch joined at its geometry's gate). A miss is counted ("events on the
+    worker").
+- **open109** (`SOTC_OPEN109`, 1): the worker waits for the next character at the end of its queue until the game thread
+  joins (sotc_worker `setJoinHook`: every join first closes the queue), so a character reached while the worker is idle is
+  an append instead of a join and a new batch.
+- **obj109** (`SOTC_OBJ109`, 1; `SOTC_OBJ109_R`, 40): FlushCollisionWork / UpdateLayoutClassParentGeometry (and the
+  object's own FlushCollisionWorkByWorkStruct / FlushModifiedManager inside) go on without the join when the object's
+  position (its layout class's +0x150, the class by FlushCollisionWork's type table) is farther than R from every
+  character of the batch. A monitor checks it: the worker's GetLayoutClass (a visit) and EntryCollisionFinder (an entry)
+  calls with the game thread's sequence number of the gates let go; a visit / entry of such an object after it was let go
+  is a violation (`[obj109]`). In checked batches too.
+- **cur109** (`SOTC_CUR109`, 1, no A/B): while the worker runs exclusive (after a park; the game thread waits), 0x1e1550
+  (the running sub-thread's object) holds the value of the current character's hand-over (sotc_worker `setResumeHook`),
+  the game thread's put back at the batch's end.
+- Measuring: `[char109]` every 600 frames (quiet calls on the worker / game thread, globals put back, characters held for
+  an event, events on the worker, open-queue waits and appends, gates let go and why kept (near: object and distance; the
+  batch's; no position), violations, sub-thread object swaps, access joins by accessor / caller); `[worker91]`'s heap
+  functions called in the exclusive part (target / caller). A/B names `anime109`, `open109`, `obj109`, `r109all`.
+
+### Checks (`SOTC_CHAR104=1 SOTC_CHAR104_CHECK=<n>`)
+
+Every n-th batch (one character) run beside the game thread against the same calls on the worker alone from the same state
+(round 104 / 108's check: natives as the job's, the isys walks real). obj109 is on in checked batches (an object let go
+that the job read would differ); the game thread's quiet anime calls are not let go in them.
+
+| run | build | checks | skipped (parked) | words the serial run wrote | differ (live words) | dead slots (work stack / sub-thread) | scratchpad / VU0 data | registers |
+|---|---|---|---|---|---|---|---|---|
+| runsb/chk1 (CHECK=40, 300 s) | p1 | 65 | 0 | 182 471 | 0 | 1 574 / 1 575 | 0 / 0 | 0 |
+| runsb/chk2 (CHECK=100, 600 s, to the altar and on) | p2 | 125 | 6 | 302 119 | **3** (0x270c14, 0x270c84: the effect pools' heads; 0x121cd08: an event sub-thread's stack) | 4 064 / 5 010 | 0 / 0 | 7 |
+| runsb/chk3 (CHECK=100, 600 s) | p3 (the predictor) | 120 | 0 | 324 642 | **0** | 3 909 / 4 122 | 0 / 0 | 2 |
+
+chk2's 3 words are one batch whose character's tables fired an event on the worker after the game thread had joined: its
+handlers ran against the game's state of the join, not of the character's moment (the same words round 108's anime108
+check and round 47's difftest named). Round 108's checks never saw such a batch because a park beside the game thread
+skipped the check; this round's parks are rare enough that the case came through. The predictor (p3) keeps those
+characters on the game thread (characters held for an event: ~0.8-1.7 a frame at the altar); its misses ("events on the
+worker", the event then runs late as before) were 0-4 per 600 frames (~4 000 batches) in chk3 and altarAB3. obj109's
+monitor: 0 visits and 0 entries of an object after its gate was let go in every run.
+
+### Measured (Vita3K 222 MHz, in-run A/B `SOTC_AB_FLAG=char104,anime109,open109`, matched by draws, off minus on)
+
+| run | part | char104 (all of it) | anime109 | open109 |
+|---|---|---|---|---|
+| r108 runs/altarAB6 (round 108, for comparison) | altar from 3 300 | -9.34 | | |
+| runs/altarAB2 (p2) | altar from 3 300 | -6.08 | +2.80 | +3.16 |
+| runs/altarAB3 (p3, the predictor) | altar from 3 300 | -6.44 | +3.55 | +3.04 |
+| runsb/finalR2 (p2, route 6 600 s, the console env: guest on core 1) | from 4 300 | -5.78 | +3.72 | +4.62 |
+| runs/attractAB2 (p2, attract 600 s, riding) | from 10 000 (0.6 characters a frame on the worker) | -3.37 | -1.63 (noise: 0.1 quiet calls a frame) | +0.73 |
+| runs/finalR3 (p3 = the shipped build, route 6 600 s, the console env) | from 4 300, 15 056 frames | -3.07 | +1.44 | +1.64 |
+
+No fault in any run: the checks, the A/B, runsb/finalR2 and runs/finalR3 (route 6, 600 s, the console env), runsb/load3 (p3,
+the console's memory card's save loaded, 300 s, 7 054 frames, the console env with SOTC_CHAR104=1). The predictor's misses
+were 0-3 per 600 frames on route 6; obj109's monitor 0 violations in every run.
+At the altar, a frame (600-frame reports at frames 3 600-5 400): round 108's altarAB6 (its reports mix the A/B windows) and
+this round's runs/diag1 / diag2 (p1 / p2, everything on, no A/B):
+
+| | round 108 | p1 diag1 | p2 diag2 |
+|---|---|---|---|
+| characters on the worker (batches) | 11.2-13.6 (8.4-10.3) | 13.6-16.6 (5.8-6.7) | 16.1 (6.4) |
+| batches parked | 44-49% | 8% | 10% |
+| the worker's time | 8.2-12.3 ms | 11.3-13.2 ms | 11.7 ms |
+| beside the game thread | 1.2-1.5 ms | 3.3-3.9 ms | 3.8 ms |
+| the game thread's waits | 9.3-13.8 ms | 10.2-11.7 ms | 10.2 ms |
+| joins per 600 frames: kick / access / chan | 2 380-2 770 / 410-470 / 2 230-2 950 | 260-330 / 640-980 / 2 430-2 670 | 370 / 750 / 2 680 |
+
+With everything on, more characters go to the worker (the kick joins that ended a batch are gone, so far characters
+reached later in the pass join the batch) and 2.5x as much of its time runs beside the game thread; the game thread's
+waits stay ~10 ms because the remaining joins (below) come ~0.5 ms after a hand-over while a batch takes ~1.8 ms.
+
+### What still joins, and why the worker still loses
+
+
+- The flush / parent gates the game thread still meets are for objects **at** a batch character (distance 0-1): the
+  characters' own collision aliases and carried objects, moved by their scripts every frame (st_collisionalias,
+  nico_weaponUpdateGeometry). Real dependencies; R makes no difference (the far objects are let go: 0-1 a frame).
+- Access joins (~1 a frame, 1.7-3 ms each, the worst): gamecore_sub_013DD8D0+0x7c (GetLayoutClass of a batch character,
+  through a pointer: a script reading another character) and nico_horseClothOverSurfDetectFunc (Agro's cloth testing a
+  character's surface). Real reads of the job's results.
+- create_letter's iosMallocAlign (1 a frame): not removable exactly. The jobs allocate every frame
+  (CreateSubLinkObjByGeometryPointer -> _isysCreateObj -> iosMallocAlign / iosCreatePartitionWithPc, ~1 a frame; particle
+  geodisps rarely, `[worker91]` exclusive heap calls), so a letter allocated before the job's allocation would change the
+  heap's order. Step 4 of the plan is dropped; a separate deterministic arena for the jobs would be the way.
+- The worker is ~2x slower than the game thread on the same characters (0.6-0.8 ms a character), so every join that
+  comes ~0.5 ms after a hand-over still waits ~1 ms.
+
+### Conclusion
+
+The round's three parts work as intended and are exact in the checks: the anime tables' park is gone (8-10% of the
+batches park instead of 45%, with everything on), the kick joins became appends, and the part of the worker's time spent
+beside the game thread went from 1.2-1.5 ms to 2-4 ms a frame at the altar. anime109 and open109 are each worth 3-4.6 ms
+a frame inside char104 (altar and route 6). char104 as a whole is still a loss (altar -6.1 / -6.4 ms, route 6 -5.8 / -3.1,
+attract -3.4; round 108: -9.3 / -5.6), because what remains are real dependencies on the characters' results within ~0.5 ms of
+their hand-over and the worker's 2x speed. `SOTC_CHAR104` stays 0. Step 5 (a bigger unit) is where a win could come from:
+a unit whose results nobody reads for many ms (round 104's census: only the cheap far birds qualify at the altar), or a
+worker as fast as the game thread (the remaining recompiled callees of the jobs as natives).
+
+The ELF has no `:128` / `:256` NEON access at an sp-based address (spalign105: 0 of 566).
+
+**Console.** build/agent-scratch/celosia-r109.vpk (p3: main 6c652cc + this round). Nothing changes unless
+`SOTC_CHAR104=1`. r109/env-console.txt (`SOTC_CHAR104=1 SOTC_THREAD_CORES=guest:2 SOTC_AB_FLAG=char104,anime109,open109`);
+read with `build/agent-scratch/r109/read109.sh err.txt <from>`. char104's windows are expected slower; anime109 / open109 say
+what the two parts are worth on the console. Core placement: `guest:2` pins the worker to core 1 (the renderer owns core 2); without
+the override the worker floats on cores 1-2 (`guest:6`); `guest:4` would share the renderer's core. Vita3K does not model
+the placement, so it is a console measurement: a second run with `SOTC_THREAD_CORES=guest:6` against the first.
