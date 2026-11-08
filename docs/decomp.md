@@ -15238,7 +15238,7 @@ f31c6ed + this round).
 ## Round 100: stutter: the console's frame-time spikes by cause; the camera blur's join, two frames on the GPU, the disc's read-ahead, the disc readers' priority (2026-11-07)
 
 Scripts, runs and logs: `build/agent-scratch/r100/` (build.sh, v3k.sh: mem99's with r100 paths; runs/route1,
-cdlog, attract3; env-console.txt; STATE.md). Readers: `tools/spike100.py` (the cause table) and
+cdlog, attract3, route4; env-console.txt; STATE.md). Readers: `tools/spike100.py` (the cause table) and
 `tools/ab100.py` (per A/B state).
 
 **How a spike is split.** Each `[frame] each / slow` line of a 3D frame (draws >= 200) is one frame; a
@@ -15288,19 +15288,19 @@ log (round 97's area); with the GPU-bound scenes of r96 / r98 the present's wait
    above the hook worker, at run time (native_renderer::threads::setKindPriority).
 The console env also sets SOTC_GL_SPIKE_MS=60 (`[gl:spike]` lines for render draws over 60 ms, was 100).
 
-**Vita3K (222 MHz, 3 cores).** route1 (route 6, 600 s, A/B r100all, sblur100, cdahead100): no fault; Vita3K
-logs no screenblur join at all (its worker keeps up) and no GPU backlog (the in-flight wait 0.00): those
-two can only be measured on the console. Paired against neighbouring all-on windows: sblur100 off +2.2 +-
-0.9 ms a frame, r100all off +2.4 +- 1.4, cdahead100 off +0.6 +- 1.3. cdlog (route 6, 300 s, all on): 1 516
-EE reads, 1 318 of them continuing the one before (198 runs of ~7); 1 228 copied from the read-ahead, 240
-read, 300 waited for their piece; 68.9 MB read ahead for 39.3 MB used.
-attract3 (the final build, the attract demo, 600 s, the console env: A/B r100all, sblur100, inflight100):
-no fault or hang, 17 392 frames; paired: sblur100 off +2.2 +- 1.2 ms, inflight100 off +3.8 +- 1.7 (Vita3K has
-no GPU backlog: noise / the cut scenes' loads), r100all off +0.9 +- 1.7; the read-ahead copied 1 799 EE reads
-(57.6 MB) and read 761. Vita3K's own spikes are the render thread's draw (its GPU emulation), not the
-console's causes: the console run decides.
+**Vita3K (222 MHz, 3 cores).** No fault or hang: route1 (route 6, 600 s, A/B r100all, sblur100,
+cdahead100), attract3 (the attract demo, 600 s, the console env) and route4 (the final build rebased on
+round 97, route 6, 600 s, the console env). Vita3K logs no screenblur join at all (its worker keeps up) and
+no GPU backlog (the in-flight wait 0.00): those two can only be measured on the console. The windows'
+paired deltas against the neighbouring all-on windows, frames of 300 ms or more left out (the host's ~1 s
+stalls, 128-180 a run, which otherwise swing the means by +-4 ms): every switch within -0.9..+0.7 ms of
+mean and -2.5..+1.1 of p90, i.e. noise (e.g. route4: sblur100 off -0.4 +- 0.5, inflight100 off -0.9 +- 0.6,
+r100all off -0.5 +- 0.3). cdlog (route 6, 300 s, all on): 1 516 EE reads, 1 318 of them continuing the one
+before (198 runs of ~7); 1 228 copied from the read-ahead, 240 read, 300 waited for their piece; 68.9 MB
+read ahead for 39.3 MB used; attract3: 1 799 copied, 761 read. Vita3K's own spikes are the render
+thread's draw (its GPU emulation), not the console's causes: the console run decides.
 
 **Console run.** build/agent-scratch/celosia-r100.vpk with r100/env-console.txt (SOTC_AB_FLAG=r100all,
 sblur100, inflight100; cdahead100 and prio100 only through r100all). Read with
-`tools/ab100.py err.txt --causes` (p50 / p90 / p99, spike share and causes per state, paired deltas) and
+`tools/ab100.py err.txt --causes` (`--max-ms 300` for Vita3K logs; p50 / p90 / p99, spike share and causes per state, paired deltas) and
 `tools/spike100.py err.txt [--local 15]`.

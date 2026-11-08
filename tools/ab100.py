@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Round 100: a console / Vita3K err.txt with SOTC_AB_ROTATE=1 read per A/B state.
-usage: ab100.py err.txt [--min-draws 200] [--k 1.4] [--skip 3] [--causes]
+usage: ab100.py err.txt [--min-draws 200] [--k 1.4] [--skip 3] [--max-ms 0] [--causes]
+--max-ms N: frames of N ms or more left out (Vita3K's ~1 s host stalls: 300).
 
 Per state ("all on" and "<flag> off"), over the 3D frames (draws >= min-draws,
 the first --skip frames of each window left out):
@@ -40,6 +41,7 @@ def main():
     mind = int(args[args.index('--min-draws') + 1]) if '--min-draws' in args else 200
     skip = int(args[args.index('--skip') + 1]) if '--skip' in args else 3
     causes = '--causes' in args
+    maxMs = float(args[args.index('--max-ms') + 1]) if '--max-ms' in args else 0.0
     path = [a for a in args if a.endswith('.txt')][0]
     frames = spike100.parse(path)
     wins = windows(path)
@@ -52,7 +54,7 @@ def main():
     wframes = collections.defaultdict(list)  # window index -> frames
     for f in frames:
         i = bisect.bisect_right(starts, f['frame']) - 1
-        if i < 0 or f['draws'] < mind or f['frame'] < starts[i] + skip:
+        if i < 0 or f['draws'] < mind or f['frame'] < starts[i] + skip or (maxMs and f['period'] >= maxMs):
             continue
         per[wins[i][1]].append(f)
         wframes[i].append(f)
