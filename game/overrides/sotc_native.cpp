@@ -11633,6 +11633,6 @@ void installSotcNative(PS2Runtime &runtime)
 // data move the end past it; if that message comes back after code grows or
 // shrinks, change the size (any value that moves the text end more than
 // ~4.5 KB away from the boundary below it). Round 73: 16 KB. Round 85: 24 KB.
-// Round mem99: 32 KB.
-extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[32768] = {1};
+// Round mem99: 32 KB. Round 105 (with round 104): 40 KB.
+extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[40960] = {1};
 #endif
