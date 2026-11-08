@@ -26,7 +26,12 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
 
 namespace decomp_subthread
 {
@@ -36,7 +41,7 @@ namespace decomp_subthread
     constexpr uint32_t kMainSp = 0x00270BB8u, kSubSp = 0x00270BBCu, kEnded = 0x00270BC0u, kResume = 0x00270BC8u;
     constexpr uint32_t kFrame = 0x2C0u;
 
-    bool plain(uint32_t a, uint32_t size)
+    __attribute__((always_inline)) inline bool plain(uint32_t a, uint32_t size)
     {
         return !Ps2IsSpecialAddress(a) && !Ps2IsSpecialAddress(a + size - 1u) && (a & PS2_RAM_MASK) + size <= PS2_RAM_SIZE;
     }
@@ -61,18 +66,90 @@ namespace decomp_subthread
         void put64(uint32_t a, uint64_t v) const { std::memcpy(p(a), &v, 8); }
     };
 
+    // Round 102 (SOTC_SW102, A/B `sw102`, `r102all`): the frames' copies as
+    // inline 16-byte moves (NEON on the A9) instead of memcpy calls (~90
+    // sub-thread round trips a frame at the altar, ten copies of 16-384
+    // bytes each). The same bytes: SOTC_SW102_CHECK=1 compares every save /
+    // load against memcpy's result ("[sw102c]" lines).
+    template <unsigned Bytes>
+    __attribute__((always_inline)) inline void copy16(void *dst, const void *src)
+    {
+        static_assert(Bytes % 16u == 0u, "16-byte blocks");
+        auto *d = static_cast<uint8_t *>(dst);
+        const auto *s = static_cast<const uint8_t *>(src);
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+        unsigned i = 0;
+        for (; i + 64u <= Bytes; i += 64u)
+        {
+            const uint8x16_t a = vld1q_u8(s + i), b = vld1q_u8(s + i + 16u), c = vld1q_u8(s + i + 32u), e = vld1q_u8(s + i + 48u);
+            vst1q_u8(d + i, a);
+            vst1q_u8(d + i + 16u, b);
+            vst1q_u8(d + i + 32u, c);
+            vst1q_u8(d + i + 48u, e);
+        }
+        for (; i < Bytes; i += 16u)
+            vst1q_u8(d + i, vld1q_u8(s + i));
+#else
+        for (unsigned i = 0; i < Bytes; i += 16u)
+        {
+            uint64_t a, b;
+            __builtin_memcpy(&a, s + i, 8);
+            __builtin_memcpy(&b, s + i + 8u, 8);
+            __builtin_memcpy(d + i, &a, 8);
+            __builtin_memcpy(d + i + 8u, &b, 8);
+        }
+#endif
+    }
+
+    int g_check = -1; // SOTC_SW102_CHECK
+    uint64_t g_checks = 0, g_bad = 0;
+    bool checking()
+    {
+        if (__builtin_expect(g_check < 0, 0))
+        {
+            const char *e = std::getenv("SOTC_SW102_CHECK");
+            g_check = e && std::atoi(e) != 0;
+        }
+        return g_check != 0;
+    }
+    void note(bool same, const char *what)
+    {
+        ++g_checks;
+        if (!same)
+            ++g_bad;
+        if ((!same && g_bad <= 20u) || (g_checks % 500000u) == 0u)
+            std::fprintf(stderr, "[sw102c] checks %llu differ %llu%s%s\n", (unsigned long long)g_checks, (unsigned long long)g_bad, same ? "" : " at ",
+                         same ? "" : what);
+    }
+
     // The 0x2c0 frame at f (16-byte aligned): f0-f31 at 0, the GPRs at 0x80 +
     // 16 r (v0..t9 and fp), hi / lo / sa / hi1 / lo1 from 0x280. v0 is the
     // recompiled code's scratch: its value in the frame is f31's word, it
     // ends with lo1.
     void save(const Ram &ram, R5900Context *ctx, uint32_t f)
     {
-        std::memcpy(ram.p(f), ctx->f, 32u * 4u);
+        const bool fast = sotc_decomp::sw102On();
+        if (fast)
+            copy16<32u * 4u>(ram.p(f), ctx->f);
+        else
+            std::memcpy(ram.p(f), ctx->f, 32u * 4u);
         uint32_t f31;
         std::memcpy(&f31, &ctx->f[31], 4);
         SET_GPR_U32(ctx, 2, f31); // mfc1 $v0, $f31
-        std::memcpy(ram.p(f + 0xA0u), &ctx->r[2], 24u * 16u);
-        std::memcpy(ram.p(f + 0x260u), &ctx->r[30], 16u);
+        if (fast)
+        {
+            copy16<24u * 16u>(ram.p(f + 0xA0u), &ctx->r[2]);
+            copy16<16u>(ram.p(f + 0x260u), &ctx->r[30]);
+            if (__builtin_expect(checking(), 0))
+                note(std::memcmp(ram.p(f), ctx->f, 128u) == 0 && std::memcmp(ram.p(f + 0xA0u), &ctx->r[2], 384u) == 0 &&
+                         std::memcmp(ram.p(f + 0x260u), &ctx->r[30], 16u) == 0,
+                     "save");
+        }
+        else
+        {
+            std::memcpy(ram.p(f + 0xA0u), &ctx->r[2], 24u * 16u);
+            std::memcpy(ram.p(f + 0x260u), &ctx->r[30], 16u);
+        }
         ram.put64(f + 0x280u, ctx->hi);
         ram.put64(f + 0x288u, ctx->lo);
         ram.put64(f + 0x290u, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(ctx->sa))));
@@ -84,12 +161,34 @@ namespace decomp_subthread
     void load(const Ram &ram, R5900Context *ctx, uint32_t f)
     {
         // The game's own code has no lw for f5..f8: they get f4's word.
-        uint32_t words[32];
-        std::memcpy(words, ram.p(f), sizeof(words));
-        words[5] = words[6] = words[7] = words[8] = words[4];
-        std::memcpy(ctx->f, words, sizeof(words));
-        std::memcpy(&ctx->r[2], ram.p(f + 0xA0u), 24u * 16u); // lq (v0 too: the lw's before are lost)
-        std::memcpy(&ctx->r[30], ram.p(f + 0x260u), 16u);
+        if (sotc_decomp::sw102On())
+        {
+            copy16<32u * 4u>(ctx->f, ram.p(f));
+            uint32_t w4;
+            std::memcpy(&w4, &ctx->f[4], 4);
+            for (int k = 5; k <= 8; ++k)
+                std::memcpy(&ctx->f[k], &w4, 4);
+            copy16<24u * 16u>(&ctx->r[2], ram.p(f + 0xA0u)); // lq (v0 too: the lw's before are lost)
+            copy16<16u>(&ctx->r[30], ram.p(f + 0x260u));
+            if (__builtin_expect(checking(), 0))
+            {
+                uint32_t words[32];
+                std::memcpy(words, ram.p(f), sizeof(words));
+                words[5] = words[6] = words[7] = words[8] = words[4];
+                note(std::memcmp(ctx->f, words, sizeof(words)) == 0 && std::memcmp(&ctx->r[2], ram.p(f + 0xA0u), 384u) == 0 &&
+                         std::memcmp(&ctx->r[30], ram.p(f + 0x260u), 16u) == 0,
+                     "load");
+            }
+        }
+        else
+        {
+            uint32_t words[32];
+            std::memcpy(words, ram.p(f), sizeof(words));
+            words[5] = words[6] = words[7] = words[8] = words[4];
+            std::memcpy(ctx->f, words, sizeof(words));
+            std::memcpy(&ctx->r[2], ram.p(f + 0xA0u), 24u * 16u); // lq (v0 too: the lw's before are lost)
+            std::memcpy(&ctx->r[30], ram.p(f + 0x260u), 16u);
+        }
         ctx->hi = ram.u64(f + 0x280u);
         ctx->lo = ram.u64(f + 0x288u);
         ctx->sa = static_cast<uint32_t>(ram.u64(f + 0x290u)) & 0x7Fu;

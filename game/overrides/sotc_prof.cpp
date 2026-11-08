@@ -44,6 +44,7 @@
 #include <exception>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -443,6 +444,7 @@ namespace sotc_prof
             return index < 0x1Cu && ramWord(rdram, 0x001E42C0u + index * 4u) == 0x001C9A78u ? object + 0x20u : 0u;
         }
 
+        void scrsampTaskMark(int probe);
         int taskProbe(uint8_t type, uint32_t entry)
         {
             const uint64_t key = (static_cast<uint64_t>(type) << 32) | entry;
@@ -459,6 +461,8 @@ namespace sotc_prof
             char name[40];
             std::snprintf(name, sizeof(name), "task t%02x @%08x", type, entry);
             const int probe = newProbe(name);
+            if (probe >= 0)
+                scrsampTaskMark(probe);
             g_tasks.push_back({key, probe});
             lastKey = key;
             return last = probe;
@@ -489,6 +493,117 @@ namespace sotc_prof
                 entry = g_entries[object] = ramWord(rdram, r + 4u); // started before timing: where it is
             const Timed timed(taskProbe(type, entry), ctx);
             g_wake(rdram, ctx, runtime);
+        }
+
+        // ---- round 102: the guest pc sampler by task (SOTC_SCRSAMP102) ------
+        // SOTC_SCRSAMP102=<from frame>:<to frame>[:<us>] (with
+        // SOTC_SUBSYS_PROF=1): a host thread reads the running EE context's
+        // pc / ra every <us> (500) between those game frames and counts them
+        // by the open task (the outermost "task" probe on the probe stack)
+        // and the innermost open probe. Written to scrsamp.txt beside the log
+        // (ux0:data/celosia on the Vita) at the end and every 10 s:
+        // "P id name" lines, then "S task inner pc ra n" (-1: none). The
+        // reads race the game thread (plain ints; a diagnostic).
+        namespace scrsamp
+        {
+            std::array<bool, kMaxProbes> g_isTask{};
+        }
+        void scrsampTaskMark(int probe) { scrsamp::g_isTask[probe] = true; }
+        namespace scrsamp
+        {
+            PS2Runtime *g_runtime = nullptr;
+
+            void write(const std::unordered_map<uint64_t, uint64_t> *maps, int nTask, uint64_t total, uint64_t idle, uint64_t from, uint64_t to)
+            {
+#ifdef PLATFORM_VITA
+                const char *path = "ux0:data/celosia/scrsamp.txt";
+#else
+                const char *path = "scrsamp.txt";
+#endif
+                FILE *f = std::fopen(path, "w");
+                if (!f)
+                    return;
+                std::fprintf(f, "# frames %llu-%llu now %llu total %llu idle %llu\n", (unsigned long long)from, (unsigned long long)to,
+                             (unsigned long long)g_frameNow, (unsigned long long)total, (unsigned long long)idle);
+                for (int i = 0; i < g_probeCount; ++i)
+                    std::fprintf(f, "P %d %s\n", i, g_probes[i].name);
+                for (int t = 0; t < nTask; ++t)
+                    for (const auto &[key, n] : maps[t])
+                    {
+                        const int inner = static_cast<int>(key >> 48) - 1;
+                        const uint32_t pc = static_cast<uint32_t>(key >> 24) & 0xFFFFFFu, ra = static_cast<uint32_t>(key) & 0xFFFFFFu;
+                        std::fprintf(f, "S %d %d %08x %08x %llu\n", t - 1, inner, pc << 2, ra << 2, (unsigned long long)n);
+                    }
+                std::fclose(f);
+            }
+
+            void start()
+            {
+                const char *spec = std::getenv("SOTC_SCRSAMP102");
+                if (!spec || !*spec)
+                    return;
+                const uint64_t from = std::strtoull(spec, nullptr, 0);
+                const char *c1 = std::strchr(spec, ':');
+                const uint64_t to = c1 ? std::strtoull(c1 + 1, nullptr, 0) : from + 1800u;
+                const char *c2 = c1 ? std::strchr(c1 + 1, ':') : nullptr;
+                const unsigned us = c2 ? static_cast<unsigned>(std::strtoul(c2 + 1, nullptr, 0)) : 500u;
+                std::fprintf(stderr, "[scrsamp] frames %llu-%llu every %u us\n", (unsigned long long)from, (unsigned long long)to, us);
+                std::thread([from, to, us]() {
+                    // index task + 1 (0: no task); key: inner + 1 << 48 | pc >> 2 << 24 | ra >> 2 (24 bits each: below 0x4000000)
+                    auto *maps = new std::unordered_map<uint64_t, uint64_t>[kMaxProbes + 1];
+                    uint64_t total = 0, idle = 0;
+                    auto last = std::chrono::steady_clock::now();
+                    while (true)
+                    {
+                        std::this_thread::sleep_for(std::chrono::microseconds(us));
+                        const uint64_t frame = g_frameNow;
+                        if (frame < from)
+                            continue;
+                        const bool done = frame >= to;
+                        if (!done)
+                        {
+                            ++total;
+                            const R5900Context *ctx = g_runtime ? g_runtime->eeScheduler().profileContext() : nullptr;
+                            if (!ctx)
+                                ++idle;
+                            else
+                            {
+                                const int depth = g_depth;
+                                int inner = -1, task = -1;
+                                if (depth > 0 && depth <= kMaxDepth)
+                                {
+                                    inner = g_stack[depth - 1].probe;
+                                    for (int i = 0; i < depth; ++i)
+                                    {
+                                        const int p = g_stack[i].probe;
+                                        if (p >= 0 && p < kMaxProbes && g_isTask[p])
+                                        {
+                                            task = p;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (inner < -1 || inner >= kMaxProbes)
+                                    inner = -1;
+                                const uint32_t pc = (ctx->pc >> 2) & 0xFFFFFFu;
+                                const uint32_t ra = (static_cast<uint32_t>(_mm_extract_epi32(ctx->r[31], 0)) >> 2) & 0xFFFFFFu;
+                                ++maps[task + 1][(static_cast<uint64_t>(inner + 1) << 48) | (static_cast<uint64_t>(pc) << 24) | ra];
+                            }
+                        }
+                        const auto now = std::chrono::steady_clock::now();
+                        if (done || now - last >= std::chrono::seconds(10))
+                        {
+                            last = now;
+                            write(maps, kMaxProbes + 1, total, idle, from, to);
+                        }
+                        if (done)
+                        {
+                            std::fprintf(stderr, "[scrsamp] written: %llu samples, %llu idle\n", (unsigned long long)total, (unsigned long long)idle);
+                            return;
+                        }
+                    }
+                }).detach();
+            }
         }
 
         // ---- the report ----------------------------------------------------
@@ -1385,6 +1500,8 @@ namespace sotc_prof
         wrapAll(runtime);
         g_eeDispatchProbe = dispatchProbe;
         g_installed = true;
+        scrsamp::g_runtime = &runtime;
+        scrsamp::start();
         calls::install(runtime);
     }
 }

@@ -1,6 +1,21 @@
 #include "Common.h"
 #include "LibC.h"
 #include "ps2_log.h"
+#include "runtime/ps2_fast_paths.h"
+
+namespace ps2_fast_paths
+{
+    int g_fmt102 = -1;
+    bool fmt102On()
+    {
+        if (__builtin_expect(g_fmt102 < 0, 0))
+        {
+            const char *e = std::getenv("SOTC_FMT102");
+            g_fmt102 = (e && e[0] == '0') ? 0 : 1;
+        }
+        return g_fmt102 != 0;
+    }
+}
 
 namespace ps2_stubs
 {
@@ -1226,12 +1241,274 @@ namespace ps2_stubs
         setReturnS32(ctx, ret);
     }
 
+    namespace fmt102
+    {
+        // Round 102 (SOTC_FMT102, A/B `fmt102`, `r102all`): the game's
+        // vsprintf (iosSPrintf: the scripts name things every frame, e.g. the
+        // birds' and the sound script's lookups) without the std::string
+        // pieces and the two host snprintf calls a conversion. Only the forms
+        // whose result it writes the same way: literal text, %%, the flags
+        // '-' and '0', a decimal width, a precision on %s, the length h / hh /
+        // l (read as 32 bits, as the general path does), and d i u x X c s.
+        // Anything else (a '*', '+', ' ', '#', ll, floats, %p, %n, a string or
+        // format past its bound) returns false: the general path formats it.
+        // SOTC_FMT102_CHECK=1 formats every call both ways and compares
+        // ("[fmt102c]").
+        constexpr size_t kOut = 1024u;
+
+        inline void pad(char *out, size_t &n, size_t count, char c)
+        {
+            for (size_t i = 0; i < count && n < kOut; ++i)
+                out[n++] = c;
+        }
+
+        // An integer's digits as snprintf("%[-][0]<w>ll{d,u,x,X}") writes them.
+        bool integer(char *out, size_t &n, bool neg, uint64_t mag, unsigned base, bool upper, bool left, bool zero, int width)
+        {
+            char digits[24];
+            int nd = 0;
+            const char *set = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+            do
+            {
+                digits[nd++] = set[mag % base];
+                mag /= base;
+            } while (mag != 0u);
+            const int len = nd + (neg ? 1 : 0);
+            const int fill = width > len ? width - len : 0;
+            if (n + static_cast<size_t>(len + fill) >= kOut)
+                return false;
+            if (!left && !zero)
+                pad(out, n, static_cast<size_t>(fill), ' ');
+            if (neg)
+                out[n++] = '-';
+            if (!left && zero)
+                pad(out, n, static_cast<size_t>(fill), '0');
+            while (nd > 0)
+                out[n++] = digits[--nd];
+            if (left)
+                pad(out, n, static_cast<size_t>(fill), ' ');
+            return true;
+        }
+
+        bool format(uint8_t *rdram, PS2Runtime *runtime, uint32_t formatAddr, uint32_t vaListAddr, char *out, size_t &n)
+        {
+            // The format as readPs2CStringBounded(.., 1024) gives it: up to
+            // 1024 bytes, cut at a NUL or an unreadable byte.
+            char fmt[1025];
+            size_t fl = 0;
+            for (; fl < 1024u; ++fl)
+            {
+                uint8_t b = 0;
+                if (!tryReadByteFromGuest(rdram, runtime, formatAddr + static_cast<uint32_t>(fl), b) || b == 0u)
+                    break;
+                fmt[fl] = static_cast<char>(b);
+            }
+            fmt[fl] = '\0';
+            Ps2VaListCursor cursor(rdram, runtime, vaListAddr);
+            n = 0;
+            const char *p = fmt;
+            while (*p)
+            {
+                if (*p != '%')
+                {
+                    if (n + 1u >= kOut)
+                        return false;
+                    out[n++] = *p++;
+                    continue;
+                }
+                ++p;
+                if (*p == '%')
+                {
+                    if (n + 1u >= kOut)
+                        return false;
+                    out[n++] = '%';
+                    ++p;
+                    continue;
+                }
+                bool left = false, zero = false;
+                while (*p == '-' || *p == '0')
+                {
+                    (*p == '-' ? left : zero) = true;
+                    ++p;
+                }
+                if (*p == '+' || *p == ' ' || *p == '#' || *p == '*')
+                    return false;
+                int width = 0;
+                while (*p >= '0' && *p <= '9')
+                {
+                    width = width * 10 + (*p - '0');
+                    if (width > 512)
+                        return false;
+                    ++p;
+                }
+                int precision = -1;
+                if (*p == '.')
+                {
+                    ++p;
+                    if (*p == '*')
+                        return false;
+                    precision = 0;
+                    while (*p >= '0' && *p <= '9')
+                    {
+                        precision = precision * 10 + (*p - '0');
+                        if (precision > 1024)
+                            return false;
+                        ++p;
+                    }
+                }
+                if (*p == 'h')
+                {
+                    ++p;
+                    if (*p == 'h')
+                        ++p;
+                }
+                else if (*p == 'l')
+                {
+                    ++p;
+                    if (*p == 'l')
+                        return false;
+                }
+                else if (*p == 'j' || *p == 'z' || *p == 't' || *p == 'L')
+                    return false;
+                const char spec = *p;
+                if (spec == '\0')
+                    return false;
+                ++p;
+                switch (spec)
+                {
+                case 'd':
+                case 'i':
+                {
+                    if (precision >= 0)
+                        return false;
+                    const int32_t v = static_cast<int32_t>(cursor.nextU32());
+                    const bool neg = v < 0;
+                    const uint64_t mag = neg ? static_cast<uint64_t>(-static_cast<int64_t>(v)) : static_cast<uint64_t>(v);
+                    if (!integer(out, n, neg, mag, 10u, false, left, zero, width))
+                        return false;
+                    break;
+                }
+                case 'u':
+                case 'x':
+                case 'X':
+                {
+                    if (precision >= 0)
+                        return false;
+                    const uint64_t v = cursor.nextU32();
+                    if (!integer(out, n, false, v, spec == 'u' ? 10u : 16u, spec == 'X', left, zero, width))
+                        return false;
+                    break;
+                }
+                case 'c':
+                {
+                    if (precision >= 0 || zero)
+                        return false;
+                    const char ch = static_cast<char>(cursor.nextU32() & 0xFFu);
+                    if (ch == '\0') // the general path's std::string keeps the NUL; leave that to it
+                        return false;
+                    const size_t fill = width > 1 ? static_cast<size_t>(width - 1) : 0u;
+                    if (n + 1u + fill >= kOut)
+                        return false;
+                    if (!left)
+                        pad(out, n, fill, ' ');
+                    out[n++] = ch;
+                    if (left)
+                        pad(out, n, fill, ' ');
+                    break;
+                }
+                case 's':
+                {
+                    if (zero)
+                        return false;
+                    const uint32_t addr = cursor.nextU32();
+                    char text[513];
+                    size_t tl = 0;
+                    if (addr == 0u)
+                    {
+                        std::memcpy(text, "(null)", 7);
+                        tl = 6;
+                    }
+                    else
+                    {
+                        // readPs2CStringBounded(.., 512)
+                        for (; tl < 512u; ++tl)
+                        {
+                            uint8_t b = 0;
+                            const uint64_t a = static_cast<uint64_t>(addr) + tl;
+                            if (a > 0xFFFFFFFFull || !tryReadByteFromGuest(rdram, runtime, static_cast<uint32_t>(a), b) || b == 0u)
+                                break;
+                            text[tl] = static_cast<char>(b);
+                        }
+                    }
+                    if (precision >= 0 && static_cast<size_t>(precision) < tl)
+                        tl = static_cast<size_t>(precision);
+                    const size_t fill = static_cast<size_t>(width) > tl ? static_cast<size_t>(width) - tl : 0u;
+                    if (n + tl + fill >= kOut)
+                        return false;
+                    if (!left)
+                        pad(out, n, fill, ' ');
+                    std::memcpy(out + n, text, tl);
+                    n += tl;
+                    if (left)
+                        pad(out, n, fill, ' ');
+                    break;
+                }
+                default:
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool checking()
+        {
+            static const bool v = [] { const char *e = std::getenv("SOTC_FMT102_CHECK"); return e && std::atoi(e) != 0; }();
+            return v;
+        }
+        uint64_t g_checks = 0, g_bad = 0, g_fast = 0, g_general = 0;
+    }
+
     void vsprintf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         uint32_t str_addr = getRegU32(ctx, 4);      // $a0
         uint32_t format_addr = getRegU32(ctx, 5);   // $a1
         uint32_t va_list_addr = getRegU32(ctx, 6);  // $a2
         constexpr size_t kSafeVsprintfBytes = 256u; // Keep guest stack temporaries from being overwritten.
+        if (format_addr != 0 && ps2_fast_paths::fmt102On())
+        {
+            char out[fmt102::kOut];
+            size_t n = 0;
+            if (fmt102::format(rdram, runtime, format_addr, va_list_addr, out, n))
+            {
+                if (n >= kSafeVsprintfBytes)
+                    n = kSafeVsprintfBytes - 1;
+                out[n] = '\0';
+                if (__builtin_expect(fmt102::checking(), 0))
+                {
+                    const std::string formatOwned = readPs2CStringBounded(rdram, runtime, format_addr, 1024);
+                    std::string rendered = formatPs2StringWithVaList(rdram, runtime, formatOwned.c_str(), va_list_addr);
+                    if (rendered.size() >= kSafeVsprintfBytes)
+                        rendered.resize(kSafeVsprintfBytes - 1);
+                    ++fmt102::g_checks;
+                    const bool same = rendered.size() == n && std::memcmp(rendered.data(), out, n) == 0;
+                    if (!same)
+                        ++fmt102::g_bad;
+                    if ((!same && fmt102::g_bad <= 20u) || fmt102::g_checks % 20000u == 0u)
+                        std::fprintf(stderr, "[fmt102c] checks %llu differ %llu (fast %llu general %llu)%s%s | %s | %s\n", (unsigned long long)fmt102::g_checks,
+                                     (unsigned long long)fmt102::g_bad, (unsigned long long)fmt102::g_fast, (unsigned long long)fmt102::g_general,
+                                     same ? "" : " format: ", same ? "" : formatOwned.c_str(), same ? "" : rendered.c_str(), same ? "" : out);
+                }
+                ++fmt102::g_fast;
+                int ret = -1;
+                if (writeGuestBytes(rdram, runtime, str_addr, reinterpret_cast<const uint8_t *>(out), n + 1u))
+                    ret = static_cast<int>(n);
+                else
+                    std::cerr << "vsprintf error: Failed to write destination buffer at 0x" << std::hex << str_addr << std::dec << std::endl;
+                setReturnS32(ctx, ret);
+                return;
+            }
+            ++fmt102::g_general;
+        }
         const std::string formatOwned = readPs2CStringBounded(rdram, runtime, format_addr, 1024);
         int ret = -1;
 

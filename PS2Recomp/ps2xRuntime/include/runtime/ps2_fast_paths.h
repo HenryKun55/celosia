@@ -31,4 +31,9 @@ namespace ps2_fast_paths
     // applied where the guest could first see it (SOTC_DMA_ASYNC=0: on the
     // game thread at the kick; A/B name `dmaasync`).
     extern bool g_dmaAsync;
+    // Round 102: the game's vsprintf formats its common forms without the
+    // general path's strings (Kernel/Stubs/LibC.cpp fmt102; SOTC_FMT102=0 off,
+    // A/B `fmt102`). -1: not read yet (the Vita's env.txt comes after static init).
+    extern int g_fmt102;
+    bool fmt102On();
 }
