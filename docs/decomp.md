@@ -15594,5 +15594,9 @@ chain (geodisp -> 0113ACB8 -> 1140ED0 -> disp_particle_emitter, ~10 guest calls 
 a different walk (a host list of the drawn objects kept across frames, the static ones' clip by a spatial
 structure, the particle emitters drawn in one native loop), not more layer cuts.
 
-**Console.** build/agent-scratch/celosia-r103.vpk (main 4ead274 + this round) with r103/env-console.txt
+The runs above are on main 4ead274 (p1). The shipped build is rebased on main 9be600e (round 102, p2):
+runsb/checkA2 (the altar, `SOTC_PTCL103_CHECK=1`) 252 000 particle draws, 0 differ; runs/finalR2 (route 6,
+600 s, the console env) no fault, r103all +0.35 ms matched on the plain.
+
+**Console.** build/agent-scratch/celosia-r103.vpk (main 9be600e + this round) with r103/env-console.txt
 (`SOTC_AB_FLAG=r103all,ptcl103,solid103`), read with `build/agent-scratch/r103/read103.sh err.txt <from>`.
