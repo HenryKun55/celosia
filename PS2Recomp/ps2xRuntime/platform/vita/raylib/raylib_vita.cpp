@@ -6,6 +6,7 @@
 #include <SDL2/SDL.h>
 #include <vitaGL.h>
 #include <psp2/ctrl.h>
+#include <psp2/display.h>
 #include <psp2/appmgr.h>
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
@@ -24,6 +25,45 @@
 #include <map>
 #include <mutex>
 #include <vector>
+
+// Round 107: how long each picture stayed on screen, in display refreshes.
+// vitaGL's display queue calls this as it hands a picture to the display
+// (sceDisplaySetFrameBuf, shown from the next vblank), one at a time, after
+// the previous one's vsync wait: the vblank count between two calls is the
+// earlier picture's time on screen. Counted 1..7 (7: 7 or more); read and
+// reset by ps2x_vita_present_hist (the [cap20] line, sotc_overrides.cpp).
+namespace
+{
+    std::atomic<uint32_t> g_shownHist[8];
+    std::atomic<uint32_t> g_swaps{0}, g_shown{0}; // pictures handed to vitaGL / to the display
+    unsigned int g_lastShownVcount = 0;
+    bool g_shownAny = false;
+    void displayShown(void *)
+    {
+        g_shown.fetch_add(1u, std::memory_order_relaxed);
+        const unsigned int vc = static_cast<unsigned int>(sceDisplayGetVcount());
+        if (g_shownAny)
+        {
+            const unsigned int n = vc - g_lastShownVcount;
+            g_shownHist[std::min(n, 7u)].fetch_add(1u, std::memory_order_relaxed);
+        }
+        g_lastShownVcount = vc;
+        g_shownAny = true;
+    }
+}
+// Pictures swapped that the display has not taken yet (waiting for the GPU or
+// for the previous picture's vsync wait).
+extern "C" int ps2x_vita_display_pending(void)
+{
+    return static_cast<int>(g_swaps.load(std::memory_order_relaxed) - g_shown.load(std::memory_order_relaxed));
+}
+extern "C" unsigned int ps2x_vita_vcount(void) { return static_cast<unsigned int>(sceDisplayGetVcount()); }
+extern "C" void ps2x_vita_present_hist(uint32_t *out8)
+{
+    for (int i = 0; i < 8; ++i)
+        out8[i] = g_shownHist[i].exchange(0u, std::memory_order_relaxed);
+}
+
 
 extern "C" void vglCeloSetUniformPoolSize(uint32_t size); // celosia.patch (round 65c)
 
@@ -356,6 +396,7 @@ void InitWindow(int, int, const char *)
         vglInitWithCustomThreshold(immediateKb * 1024, width, height, 96 * 1024 * 1024, 0, 0, 0x8C6000 /* the common dialog share, as vglInitExtended */,
                                    SCE_GXM_MULTISAMPLE_NONE);
     bootMark("window: vitaGL up");
+    vglSetDisplayCallback(displayShown); // round 107: the shown pictures' intervals ([cap20])
     if (!std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0)
         seedShaderCache(); // vitaGL made the cache's folders (the seed holds the fast binaries)
     bootMark("window: shader cache seeded");
@@ -389,8 +430,9 @@ bool WindowShouldClose(void) { return g_quit; }
 bool IsWindowReady(void) { return g_glReady; }
 void SetConfigFlags(unsigned int) {}
 // Presentation follows the display's vsync: 30 or less shows each picture
-// for at least two vblanks (interval 2), else every vblank.
-void SetTargetFPS(int fps) { eglSwapInterval(nullptr, fps > 0 && fps <= 30 ? 2 : 1); }
+// for at least two vblanks (interval 2), 20 or less three (round 107's
+// Steady 20), else every vblank.
+void SetTargetFPS(int fps) { eglSwapInterval(nullptr, fps > 0 && fps <= 20 ? 3 : fps > 0 && fps <= 30 ? 2 : 1); }
 int GetFPS(void) { return g_fps; }
 
 double GetTime(void)
@@ -440,6 +482,7 @@ void EndDrawing(void)
     if (g_glReady)
     {
         const uint64_t swapStart = sceKernelGetProcessTimeWide();
+        g_swaps.fetch_add(1u, std::memory_order_relaxed); // (before: the display may take it at once)
         vglSwapBuffers(GL_FALSE);
         ps2x_vita_swap_us += sceKernelGetProcessTimeWide() - swapStart;
     }

@@ -87,6 +87,14 @@ namespace native_renderer
         // With the render thread the swap is that thread's, but the game
         // still waits for it when a whole frame ahead.
         bool frameCap30 = false;
+        // Round 107, the player menu's "Frame rate" (frame_rate, SOTC_CAP20
+        // over it): 0 Auto (as before: each frame shown as soon as it is
+        // ready), 1 Steady 20: in frames with a scene the game starts a frame
+        // only every third VBlank (its own clock, so its time step is 50 ms)
+        // and the display holds each picture three refreshes (a frame that
+        // runs over shows at the next refresh, the cadence goes on from
+        // there). Over the 30 fps cap when both are on.
+        float frameRate = 0.0f;
         // OpenGL / Vita: drawing and showing a frame on a thread of its own
         // while the game makes the next (at most one frame ahead); off: the
         // game waits for each frame to be drawn (SOTC_RENDER_THREAD=0/1; on
@@ -724,6 +732,10 @@ namespace native_renderer
     // host loop turns the Vita's 30 fps cap on only in frames with a scene:
     // not on loading screens, logos and black frames).
     inline std::atomic<uint32_t> g_frameDraws{0}, g_lastFrameDraws{0};
+    // Round 107: Steady 20 in effect now (Tuning::frameRate and a scene on
+    // screen), set by the game's frame release (sotc_overrides.cpp cap20),
+    // read by the host loop, which sets the display's interval from it.
+    inline std::atomic<bool> g_cap20Active{false};
 
     struct PerfStats
     {

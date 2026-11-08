@@ -190,6 +190,8 @@ namespace native_renderer
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_CAP30"))
                 d.frameCap30 = std::atoi(std::getenv("SOTC_CAP30")) != 0;
+            if (on("SOTC_CAP20")) // round 107: Frame rate, Steady 20 (1) or Auto (0)
+                d.frameRate = std::atoi(std::getenv("SOTC_CAP20")) != 0 ? 1.0f : 0.0f;
             if (on("SOTC_RENDER_THREAD"))
                 d.renderThread = std::atoi(std::getenv("SOTC_RENDER_THREAD")) != 0;
             if (on("SOTC_GL_WARM"))
@@ -281,6 +283,8 @@ namespace native_renderer
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.frameCap30 != d.frameCap30)
             add(std::string("SOTC_CAP30=") + (t.frameCap30 ? "1" : "0"));
+        if (t.frameRate != d.frameRate)
+            add(std::string("SOTC_CAP20=") + (t.frameRate >= 0.5f ? "1" : "0"));
         if (t.midFrameRedraw != d.midFrameRedraw)
             add("SOTC_GL_REDRAW=" + number(t.midFrameRedraw));
         if (t.renderThread != d.renderThread)
@@ -443,6 +447,20 @@ namespace native_renderer
             // 64: off by default (the user's choice), a saved value honoured,
             // SOTC_CAP30 over both. On, it caps only the heavy frames: above 150
             // draws, never loading / black ones.)
+            // Round 107: Auto (the default, as before) or Steady 20: the
+            // picture changes every third refresh exactly, the game's own
+            // time step 50 ms to match (speed, animation and sound as in
+            // Auto). SOTC_CAP20=0/1 over the saved value.
+            {"frame_rate", "Frame rate", "Taxa de quadros",
+             "Auto: each picture is shown as soon as it is ready (the frame rate moves between about 15 and 30, so motion can look uneven). "
+             "Steady 20: in the game's scenes every picture stays on screen for exactly three refreshes (20 fps) and the game moves the world by the same "
+             "step each time, so motion is even; game speed, animation and sound are the same. A picture that is late shows at the next refresh "
+             "and the even rhythm goes on from there. Loading screens and menus are not held. Over the 30 fps cap when both are on.",
+             "Auto: cada imagem aparece assim que fica pronta (a taxa varia entre uns 15 e 30, então o movimento pode parecer irregular). "
+             "20 estável: nas cenas do jogo cada imagem fica na tela exatamente três atualizações (20 fps) e o jogo avança o mundo no mesmo passo "
+             "a cada vez, então o movimento fica uniforme; velocidade do jogo, animação e som não mudam. Uma imagem atrasada aparece na atualização "
+             "seguinte e o ritmo uniforme continua dali. Telas de carregamento e menus não são segurados. Vale sobre o limite de 30 fps quando os dois estão ligados.",
+             nullptr, &Tuning::frameRate, 0.0f, 1.0f, 1.0f, "SOTC_CAP20"},
             {"cap30", "30 fps cap", "Limite 30 fps",
              "The picture changes at most every other screen refresh in heavy scenes: steady 30 fps instead of a mix of 30 and 60 (or 20 and 30). Off: shown as soon as it is ready.",
              "A imagem muda no máximo a cada duas atualizações da tela nas cenas pesadas: 30 fps estáveis em vez de uma mistura de 30 e 60 (ou 20 e 30). Desligado: mostrada assim que fica pronta.",
@@ -773,8 +791,12 @@ namespace native_renderer
             static const char *glowPt[] = {"Simples", "Auto", "Sempre"};
             static const char *audioEn[] = {"Off", "Summary", "Summary + events"};
             static const char *audioPt[] = {"Desligado", "Resumo", "Resumo + eventos"};
+            static const char *rateEn[] = {"Auto", "Steady 20"};
+            static const char *ratePt[] = {"Auto", "20 estável"};
             static const char *sourceEn[] = {"small copy", "full copy", "last frame"};
             static const char *sourcePt[] = {"cópia pequena", "cópia inteira", "quadro anterior"};
+            if (item.number == &Tuning::frameRate)
+                return {2, rateEn, ratePt};
             if (item.number == &Tuning::preset)
                 return {5, presetEn, presetPt};
             if (item.number == &Tuning::msaa)
@@ -901,6 +923,12 @@ namespace native_renderer
             int p = matchingPreset(t);
             p = p == kPresetCustom ? static_cast<int>(defaultTuning().preset) : (p + (dir > 0 ? 1 : kPresetCustom - 1)) % kPresetCustom;
             applyPreset(t, p);
+            return;
+        }
+        if (item.number == &Tuning::frameRate)
+        {
+            // Round 107: two choices, X flips between them (as a switch).
+            t.frameRate = t.frameRate >= 0.5f ? 0.0f : 1.0f;
             return;
         }
         float &v = t.*item.number;

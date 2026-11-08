@@ -3183,7 +3183,12 @@ void PS2Runtime::run()
                     std::fprintf(stderr, "[cap30] %s at vblank %llu (%u draws)\n", slowGame ? "on" : "off",
                                  (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), draws);
             }
-            const int wantFps = (native_renderer::tuning().frameCap30 && slowGame) ? 30 : 60;
+            // Round 107, Frame rate "Steady 20": the game's frame release
+            // holds a third VBlank (sotc_overrides.cpp cap20) and the display
+            // shows each picture three refreshes at least (the Vita: vsync
+            // interval 3; a late one shows at the next refresh).
+            const bool steady20 = native_renderer::g_cap20Active.load(std::memory_order_relaxed);
+            const int wantFps = steady20 ? 20 : (native_renderer::tuning().frameCap30 && slowGame) ? 30 : 60;
             if (wantFps != presentedFps)
             {
                 presentedFps = wantFps;

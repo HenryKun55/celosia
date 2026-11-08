@@ -543,6 +543,17 @@ void load()
     if (old) // (written as the file of this round on its next save)
         g_fileValues.erase(std::remove_if(g_fileValues.begin(), g_fileValues.end(), [](const KeptValue &k) { return k.key == "dbg_subsys_prof"; }),
                            g_fileValues.end());
+    // Round 107, testing (scripted runs cannot press the menu's buttons):
+    // PS2X_SETTINGS_PRESS=<key>: that tuning item changed once as X on it
+    // does in the menu, and the file saved the same way.
+    if (const char *press = std::getenv("PS2X_SETTINGS_PRESS"))
+        for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
+            if (!std::strcmp(item.key, press))
+            {
+                native_renderer::tuningStep(item, +1);
+                save();
+                std::fprintf(stderr, "[settings] PS2X_SETTINGS_PRESS: %s now %g, %s saved\n", press, itemValue(item), kSettingsPath);
+            }
 }
 
 namespace
