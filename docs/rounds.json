@@ -648,6 +648,14 @@
    "focus": "Stutter",
    "summary": "Added a player option in the settings menu (Select twice, Renderer tab): Frame rate, Auto or Steady 20. Auto is the default and unchanged. Steady 20 makes every picture stay on screen for exactly three screen refreshes (20 fps) in the game's scenes, and starts each game frame exactly 50 ms after the previous one, so the game moves the world by the same step every time and the motion is even instead of alternating between 33, 50 and 67 ms. A frame that takes longer shows at the next refresh, and that picture stays as long as the game's step, so there is no short frame after a long one. Loading screens and menus are not held.",
    "result": "Vita3K (own tree, route 6): with Steady 20 the game's step matched the time between frame starts within 2 ms in 99.4% of frames, frame starts 50.05 ms apart (standard deviation 1.1 ms), and in quiet scenes 581-585 of every 600 pictures stayed exactly three refreshes (the rest were Vita3K's own one-second host pauses). Game speed unchanged: Wander's position by game clock followed Auto's along the walk and ended within about 5 units of it. The option saves and loads from settings.cfg; no crash in 600 s runs, including loading the save from the console's memory card. The slow-frame causes that cost little to fix were looked at: the 'blocked' waits are the game waiting for the next refresh, not the disc; the rest belong to other rounds' code."
+  },
+  {
+   "round": "r106",
+   "date": "2026-11-08",
+   "commit": "d18abbc",
+   "focus": "Speed",
+   "summary": "Went through the game-script work of the birds and lizards, the object animations and the managers that start each frame, to rewrite the hottest pieces as plain Vita code with exactly the same results. Most of what round 102 had listed there was already native code; without its probes the whole area is a few percent of the game thread, spread over dozens of functions. Two real savings: the frame start's pass that keeps attached objects behind their parents now does its many tiny lookups itself instead of calling into the game code for each one (it walked the object list over and over), and the birds' and lizards' search for their flock leader is native. A third rewrite (three object-animation key readers) is exact but turned out no faster than the original code, so it ships switched off. Each has its own switch and a check mode.",
+   "result": "Check modes compared every call with the original code on the altar, route 6 and the 600 s attract demo: no difference (millions of lookups, tens of thousands of leader searches and animation keys). Vita3K profiler at the altar: the two kept changes take 0.37% off the game thread (about 0.2 ms a frame); the in-run A/B is within its noise. No crash in 600 s runs, including loading the console's own save. Console A/B prepared (env-console.txt: r106all, grp106, ai106)."
   }
  ]
 }
