@@ -16791,3 +16791,64 @@ finders, the keep / slope probes, FlushModifiedManager and the ground fill (hot4
 SOTC_AB_FLAG=coll115`): read with `build/agent-scratch/r115/read115.sh err.txt <from>`. coll115's row positive = its
 gain on the console (expected ~+0.7-1 ms riding from Vita3K's ~0.65 factor; the off windows run the old path with
 seg80); [coll115t] gives each state's query time on the console.
+
+## Round 118: the render thread's merged-run copies without reading GPU memory (RAM sources); the texture uploads' CPU parts (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r118/` (build.sh, v3k.sh / v3kb.sh: own Vita3K trees ../vita3k-celosia-r118
+and -r118b, 222 MHz, 3 cores; turn.sh / turnb.sh: round 112's camera-turn script with the console's card; rend.py: the
+render thread per frame window; env-console.txt; STATE.md).
+
+**Why round 112 did not help on the console.** The r116 console log (shrine turns, riding): `[hitch112s]` per 600 frames
+run copies 47-142 MB in 1.2-5.0 s, 16 000-56 000 copies, all by DMA, slowest frame 36-69 ms: ~35 ms per MB, ~90 us a
+copy. The copies are small (2.5-16 KB; vitaGL's own vgl_memcpy uses DMA only from 8 KB) and each sceDmacMemcpy is a
+kernel call that waits; before that (round 110) the CPU read the same bytes uncached. Either way the render thread read
+vitaGL's mesh pools, GPU memory, every time a run was copied. Vita3K reads that memory at host speed (1.2 ms per MB), so
+it never showed the cost.
+
+**RAM sources (`SOTC_RUNSRC118`, default 1).** Every mesh pool (65 535 vertices, 2.25 MB) gets a twin in cached main RAM:
+one memory block per pool (sceKernelAllocMemBlock USER_RW, outside the newlib heap, so the eviction's heap-pressure rules
+see nothing new), the same bytes at the same offsets. A mesh's upload writes its vertices to the pool and to the twin;
+pool compaction copies from the twin into the other pool and its twin; a merged run's copy reads its members' spans from
+the twins. The CPU only writes GPU memory now (as the per-frame arena always did). A pool whose block could not be made
+(`SOTC_RUNSRC118_MB`, default 64 MB of blocks) has no twin: runs with a member there are drawn one by one (the existing
+fallback, same pixels) and compaction never drains it, so nothing reads GPU memory in any case. Up to 4 blocks of pools let
+go are kept for the next pools. Memory: one block per live pool, 13 pools / 29 MB in Vita3K's turn; the console's r116 log
+had 13-15 pools (29-34 MB) with ~78 MB of user memory free outside the heap. `SOTC_RUNSRC118=0`: round 112's path.
+
+**Checks.** `SOTC_RUNSRC118_CHECK=1` compares every span read from a twin with the pool's own bytes (a test: it reads GPU
+memory): the camera-turn run (runs/on1) 64 918 spans, 177.8 MB, 0 differ; route 6 (runs/route6) 14 577 spans, 39.3 MB, 0
+differ. The plan, the draws and the run copies' contents are unchanged (the same bytes in the same places), so the picture
+is the same by construction; no fault in 420 s turns x 4 and route 6 520 s.
+
+**Churn (why 50-140 MB of runs are made per 600 frames).** New counters, Vita3K turn (runs/on2), the turning window: 2 292
+copies of runs never copied before, 5 909 of runs copied before (2 354 within 60 frames of the last copy); copies let go
+for budget room 8 201, compaction 8, unused 0; 4 041 runs known against ~285 copies held (6.0 of the 6.8 MB budget).
+So the churn is the budget: a turn sees ~4 000 runs (~16 KB each), the budget holds ~300, LRU makes the rest again when
+they come back into view. Neither key changes with the camera nor compaction is the cause (compaction: 36 copies per 600
+frames at rest). Tried: copying a run only after 2 frames in a row (`SOTC_GL_RUN_FRAMES=2`, runs/rf2): half the copies
+(86.6 against 180.6 MB over the run), but the heaviest window's render p90 45 against 35 ms (first frames drawn one by
+one): not taken. A larger budget costs CDRAM, which the console has little of (vgl vram 84.7 of 96 MB used in r116):
+left as is (`SOTC_RUNBUDGET118_KB` to try). With the twins the churn costs writes only; the per-frame limit
+(`SOTC_RUNCOPY112_KB`, 1024) stays.
+
+**What the old path costs, shown in Vita3K.** `SOTC_GPUREAD118_US_PER_CALL` / `_US_PER_MB` make the old path wait as the
+console does. runs/off2pen (`SOTC_RUNSRC118=0 SOTC_GPUREAD118_US_PER_CALL=90`): turning windows 77.7 + 50.3 MB read in
+10.0 + 6.5 s, slowest frame 242 ms, render p90 148 ms in the turn window; with the twins (runs/on2) the same window's render
+p90 35 ms, median 23.6, copies 0 MB read from GPU memory.
+
+**Texture uploads.** `[hitch118]` splits them: Vita3K, p1 (first build): 141 textures 188 ms, the alpha scan 120 ms,
+swizzle 39, vitaGL 24. The scan stopped per texel on a two-value test: now blocks of 64 texels with no test, the block where
+it stops scanned again texel by texel (`SOTC_ALPHA118`; the same least / greatest: 200 000 random cases compared): 148
+textures 91 ms, alpha 11.6, swizzle 47, vitaGL 25. The swizzle writes its chain in destination order, 4 x 4 texel blocks of
+64 bytes one after the other, instead of 4-byte stores scattered over the level (`SOTC_SWZ118`; 605 sizes x level counts
+compared byte for byte), into a buffer kept between uploads. vitaGL's part (its allocation and the copy into GPU memory) is
+now the largest per texture; the console log's split says whether it is the allocator.
+
+**Console.** build/agent-scratch/celosia-r118.vpk with r118/env-console.txt (round 116's logs, no A/B rotation). Expect:
+- `[hitch112]` / `[hitch112s]`: "copies by DMA 0 / CPU 0" (those count GPU-memory reads now); run copies MB as before
+  (churn), their ms a fraction of r116's 1.2-5.0 s per 600 frames.
+- `[hitch118s]`: "GPU memory read 0.00 MB 0.0 ms", "runs one by one for no RAM source 0", "RAM sources N pools X MB (made
+  N, not made 0)"; "run copies whole" ms = the copies' real cost (writes, allocation, budget); new / made again / let go by
+  budget = the churn.
+- `[hitch118]` lines on slow frames: textures' alpha / swizzle / vitaGL ms (r116: ~10 ms a texture).
+- `[vita:mem]` system free user lower by the blocks (~2.25 MB a pool).
