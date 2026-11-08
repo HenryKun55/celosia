@@ -1206,13 +1206,60 @@ namespace decomp_hot47e
             SET_GPR_U64(ctx, 5, other);
             SET_GPR_S32(ctx, 6, s1);
             SET_GPR_U64(ctx, 4, set);
-            callGuest(rdram, ctx, runtime, kOtherRecord, 0x01144FCCu, sp);
+            // Round 117 (leaf117): the two leaves inline (pure: the other
+            // set's record, clamped to its count; the two weights).
+            const bool l117 = sotc_decomp::leaf117On();
+            if (l117)
+            {
+                // 01145C70: the other set's record index min(index, count - 1) x 0x1bc.
+                const uint32_t count = READ32(s4 + 0xD0u);
+                uint32_t cnt = count << 3;
+                cnt -= count;
+                cnt <<= 4;
+                cnt -= count;
+                cnt <<= 2;
+                const bool past = static_cast<int32_t>(count - 1u) < static_cast<int32_t>(i32);
+                SET_GPR_S32(ctx, 2, READ32(s4 + 0xD4u) + (past ? cnt - 0x1BCu : v1));
+            }
+            else
+                callGuest(rdram, ctx, runtime, kOtherRecord, 0x01144FCCu, sp);
             ctx->f[12] = FPU_MOV_S(ctx->f[20]);
             SET_GPR_S32(ctx, 4, sp);
             SET_GPR_S32(ctx, 5, sp + 4u);
             const uint32_t s2 = GPR_U32(ctx, 2); // the other record
             SET_GPR_U64(ctx, 18, GPR_U64(ctx, 2));
-            callGuest(rdram, ctx, runtime, kWeights, 0x01144FE0u, sp);
+            if (l117)
+            {
+                // 01145CD0 (f12 the blend): w0 = 1 - t, w1 = t; t below 0: (1 + t, 0); t >= 1: (0, t).
+                const float t = ctx->f[12], one = fb(0x3F800000u);
+                float g0, g1 = 0.0f;
+                ctx->f[1] = g1;
+                bool c = FPU_C_OLT_S(t, g1);
+                ctx->fcr31 = c ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+                if (c)
+                {
+                    g0 = FPU_ADD_S(t, one);
+                    WRITE32(sp, bf(g0));
+                    WRITE32(sp + 4u, bf(g1));
+                }
+                else
+                {
+                    g0 = one;
+                    c = FPU_C_OLT_S(t, g0);
+                    ctx->fcr31 = c ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+                    if (!c)
+                        WRITE32(sp, bf(g1));
+                    else
+                    {
+                        g0 = FPU_SUB_S(g0, t);
+                        WRITE32(sp, bf(g0));
+                    }
+                    WRITE32(sp + 4u, bf(t));
+                }
+                ctx->f[0] = g0;
+            }
+            else
+                callGuest(rdram, ctx, runtime, kWeights, 0x01144FE0u, sp);
 
             float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5], f6 = ctx->f[6], f7 = ctx->f[7];
             auto ld = [&](uint32_t a) __attribute__((always_inline)) { return fb(READ32(a)); };

@@ -64,6 +64,11 @@ namespace decomp_math
 {
     void getSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
+namespace sotc_native
+{
+    bool ptclDirect117(uint32_t data, uint32_t count, uint32_t blend, uint32_t vec, uint32_t type, uint32_t mat, uint32_t lightAt, uint32_t shadeAt, float fade,
+                       bool vertices);
+}
 
 namespace decomp_hot46j
 {
@@ -248,6 +253,37 @@ namespace decomp_hot46j
         SET_GPR_S32(ctx, 3, READ32(kRendererOn));
         if (GPR_U64(ctx, 3) == 0u)
             return finish();
+        // Round 117 (pkt117): the packets' inputs to the renderer's job, no packets.
+        if (sotc_decomp::pkt117On())
+        {
+            const uint32_t material = READ32(sp + 0x30u), envArg = READ32(sp + 0x34u);
+            uint32_t vec;
+            if (mode != 7u)
+            {
+                vec = sp + 0x10u;
+                WRITE32(sp + 0x20u, READ32(fx + 0x58u));
+                WRITE32(sp + 0x24u, READ32(fx + 0x5Cu));
+                WRITE32(sp + 0x28u, 0u);
+                WRITE32(sp + 0x2Cu, 0u);
+                WRITE64(sp + 0x10u, READ64(sp + 0x20u));
+                WRITE64(sp + 0x18u, READ64(sp + 0x28u));
+            }
+            else
+            {
+                vec = sp;
+                WRITE32(sp + 0x10u, READ32(fx + 0x12Cu));
+                WRITE32(sp + 0x14u, READ32(fx + 0x130u));
+                WRITE32(sp + 0x18u, 0u);
+                WRITE32(sp + 0x1Cu, 0u);
+                WRITE64(sp + 0x00u, READ64(sp + 0x10u));
+                WRITE64(sp + 0x08u, READ64(sp + 0x18u));
+            }
+            const float fade = FPU_SUB_S(fb(kOne), fb(READ32(fx + 0x24u)));
+            const bool vertices = mode != 0u && (mode < 6u || mode == 7u);
+            if (sotc_native::ptclDirect117(static_cast<uint32_t>(list), written, READ32(material + 0x14u), vec, static_cast<uint32_t>(mode), envArg, 0u, 0u, fade,
+                                           vertices))
+                return finish();
+        }
         SET_GPR_U64(ctx, 4, written);
         call(kDisplayListPut, 0x0113DD50u);
         SET_GPR_S32(ctx, 4, 7);
@@ -434,6 +470,19 @@ namespace decomp_hot46j
         SET_GPR_S32(ctx, 3, READ32(kRendererOn));
         if (GPR_U64(ctx, 3) == 0u)
             return finish();
+        // Round 117 (pkt117): the packets' inputs to the renderer's job, no packets.
+        if (sotc_decomp::pkt117On())
+        {
+            WRITE32(sp + 0x10u, READ32(fx + 0x12Cu));
+            WRITE32(sp + 0x14u, READ32(fx + 0x130u));
+            WRITE32(sp + 0x18u, 0u);
+            WRITE32(sp + 0x1Cu, 0u);
+            WRITE64(sp + 0x00u, READ64(sp + 0x10u));
+            WRITE64(sp + 0x08u, READ64(sp + 0x18u));
+            const float fade = FPU_SUB_S(fb(kOne), fb(READ32(fx + 0x24u)));
+            if (sotc_native::ptclDirect117(static_cast<uint32_t>(list), written, READ32(material + 0x14u), sp, 7u, static_cast<uint32_t>(envArg), 0u, 0u, fade, true))
+                return finish();
+        }
         SET_GPR_U64(ctx, 4, written);
         call(kDisplayListPut, 0x0113E87Cu);
         SET_GPR_S32(ctx, 4, 7);
@@ -489,6 +538,19 @@ namespace decomp_hot46j
         SET_GPR_S32(ctx, 3, READ32(kRendererOn));
         if (GPR_U64(ctx, 3) == 0u)
             return;
+        // Round 117 (pkt117): the packets' inputs to the renderer's job, no packets.
+        if (sotc_decomp::pkt117On())
+        {
+            WRITE32(sp + 0x24u, READ32(fx + 0x5Cu));
+            WRITE32(sp + 0x20u, READ32(fx + 0x58u));
+            WRITE32(sp + 0x28u, 0u);
+            WRITE32(sp + 0x2Cu, 0u);
+            WRITE64(sp + 0x10u, READ64(sp + 0x20u));
+            WRITE64(sp + 0x18u, READ64(sp + 0x28u));
+            const float fade = FPU_SUB_S(fb(kOne), fb(READ32(fx + 0x24u)));
+            if (sotc_native::ptclDirect117(static_cast<uint32_t>(list), written, READ32(material + 0x14u), sp + 0x10u, 3u, envTable, 0u, 0u, fade, true))
+                return;
+        }
         SET_GPR_U64(ctx, 4, written);
         call(kDisplayListPut, 0x0113DFF0u);
         SET_GPR_S32(ctx, 4, 7);

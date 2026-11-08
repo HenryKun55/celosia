@@ -586,11 +586,15 @@ namespace sotc_decomp
         kOan106,      // round 106: three of the object animations' key evaluators (010AF2A0, 010AF4D8, 010B06A8) native (exact but no faster: default off, SOTC_OAN106=1; decomp_hot46h)
         kAi106,       // round 106: the small animals' leader search (013E1520) and helpers as A9 code (exact; decomp_ai106)
         kColl115,     // round 115: the segment test's walk and leaves on host-format collision data (coll115.h; seg80's reuse off with it)
+        kPkt117,      // round 117: the other particle drawers' ptclman packets not built (0113DBF8, 0113E6C8, 0113DEA0; exact; decomp_hot46j, sotc_native)
+        kGlv117,      // round 117: the immediate-mode quads' four vertices a glBegin in one pass (the heat haze strips, 01142350's particle quads; exact; decomp_walk)
+        kDraw117,     // round 117: the particle geodisps' draw chain native (disp_particle_geodisp .. disp_particle_emitter; exact; decomp_ptcl117)
+        kLeaf117,     // round 117: the emitter frame's leaves native and called straight (exact; decomp_ptclupdate, decomp_hot47e)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -712,6 +716,10 @@ namespace sotc_decomp
     inline bool grp106On() { return switchOn(kGrp106); }
     inline bool oan106On() { return switchOn(kOan106); }
     inline bool ai106On() { return switchOn(kAi106); }
+    inline bool pkt117On() { return switchOn(kPkt117); }
+    inline bool glv117On() { return switchOn(kGlv117); }
+    inline bool draw117On() { return switchOn(kDraw117); }
+    inline bool leaf117On() { return switchOn(kLeaf117); }
     // Round 91 (sotc_worker): SOTC_PTCL91=1 the particle step on the worker beside the walk's group pass,
     // 2 handed over and joined at once (no overlap), 3 run on the game thread through the same split.
     inline bool ptcl91On() { return switchOn(kPtcl91); }

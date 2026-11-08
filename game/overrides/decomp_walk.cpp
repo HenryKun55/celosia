@@ -2167,6 +2167,536 @@ namespace decomp_walk
         ctx->f[2] = 2048.0f;
     }
 
+    // ---- Round 117 (SOTC_GLV117, default on; A/B `glv117`, `r117all`): the
+    // strips' four vertices between a glBegin and its glEnd in one pass.
+    // Each vertex is glColor4f, glTexCoord2f, glVertex3fv's own part and the
+    // kick (0108D730), as above and in their order, writing what they write
+    // (the colour / ST words, the ring slot, the state words, the GIF pairs,
+    // the CLIP history, +0x1b4, the ADC byte, the ring index); but the three
+    // matrices (the view on top of the stack, the camera's clip +0x5e0 and
+    // screen +0x660) are read and clamped once for the four (the VU0 add /
+    // mul clamp is idempotent: the products and sums are the same bits as
+    // the kick's, which clamps every operand), the kick's frame and saved
+    // registers are not written (dead stack: the kick restores every
+    // s-register it uses), and the VU0 registers, Q, f0 - f2, v0 / a0 / ra
+    // are set once, as the fourth kick leaves them. False (nothing written)
+    // when the kick would take another path for any of them (no camera, an
+    // untransformed vertex, UV texturing, an unknown primitive, a full
+    // ring): then the vertices go through the calls as before.
+    // SOTC_GLV117_CHECK=<n>: every n-th quad run both ways from the same
+    // state and compared ([glv117c]: the gl block, the packet, VU0, f0 - f2).
+    struct Vert117
+    {
+        float alpha, u, v;
+        uint32_t pos, site;
+        bool colour = true; // false: no glColor4f per vertex (glColor4fv once before: 01142350's quads)
+    };
+    bool quad117(const G g, uint32_t sp, const Vert117 *vs, int n)
+    {
+        const Ram m = g.m;
+        R5900Context *ctx = g.ctx;
+        const uint32_t camera = m.u32(kGl);
+        const uint32_t index0 = m.u32(kGl + 0x41F0u);
+        static int said = 0;
+        auto no = [&](int why)
+        {
+            if (said++ < 8)
+                std::fprintf(stderr, "[glv117] quad by the calls: reason %d (camera %08x index %u view %u prim %u texturing %u mode %u)\n", why, camera, index0,
+                             m.u32(kViewIndex), m.u32(kGl + 0x10u), m.u32(kGl + 0x18u), m.u32(kGl + 0x2Cu));
+            return false;
+        };
+        if (camera == 0u || !Ram::ok(camera, 0x6A0u) || index0 + static_cast<uint32_t>(n) >= 0x100u || m.u32(kViewIndex) >= 0x20u)
+            return no(1);
+        // UV texturing (mode 1): iosFTOI4Vector on the slot's ST (0x1be700, a relocated jal: checked).
+        const uint32_t uvMode = m.u32(kGl + 0x18u) != 0u ? m.u32(kGl + 0x2Cu) : 0u;
+        if (uvMode > 1u || (uvMode == 1u && sotc_decomp::jalTarget(g.rdram, 0x0108D9B0u) != 0x001BE700u))
+            return no(2);
+        const uint32_t prim = m.u32(kGl + 0x10u);
+        const uint32_t target = prim < 7u ? m.u32(0x01191730u + prim * 4u) : 0x0108DC48u;
+        if (target != 0x0108DAE0u && target != 0x0108DAF8u && target != 0x0108DB58u && target != 0x0108DB78u && target != 0x0108DC48u)
+            return no(3);
+        for (int i = 0; i < n; ++i)
+            if (!Ram::ok(vs[i].pos, 0x10u))
+                return no(4);
+        sotc_decomp::clipNeeded(ctx);
+        static const bool glv116 = std::getenv("SOTC_GLV116_LOG") != nullptr;
+        __m128 *vf = ctx->vu0_vf;
+        const __m128 vf0 = vf[0];
+        const uint32_t view = kViewStack + (m.u32(kViewIndex) << 6);
+        const __m128 viewM[4] = {m.q(view), m.q(view + 0x10u), m.q(view + 0x20u), m.q(view + 0x30u)};
+        const __m128 clipM[4] = {m.q(camera + 0x5E0u), m.q(camera + 0x5F0u), m.q(camera + 0x600u), m.q(camera + 0x610u)};
+        const __m128 screenM[4] = {m.q(camera + 0x660u), m.q(camera + 0x670u), m.q(camera + 0x680u), m.q(camera + 0x690u)};
+        __m128 viewN[4], clipN[4], screenN[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            viewN[i] = PS2X_VU_IN(viewM[i]);
+            clipN[i] = PS2X_VU_IN(clipM[i]);
+            screenN[i] = PS2X_VU_IN(screenM[i]);
+        }
+        // apply() on clamped rows and a clamped vector: each product / sum the kick's.
+        auto applyN = [](const __m128 c[4], __m128 v, __m128 &acc) -> __m128
+        {
+            const __m128 vn = PS2X_VU_IN(v);
+            acc = PS2_VMUL_K(1, 1, c[0], lane<0>(vn));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[1], lane<1>(vn)));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[2], lane<2>(vn)));
+            return PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[3], lane<3>(vn)));
+        };
+        const bool perspective = m.u32(kGl + 0x5Cu) != 0u;
+        const bool texturing = m.u32(kGl + 0x18u) != 0u;
+        __m128 vf5 = vf[5], vf6 = vf[6];
+        __m128 vf10 = vf[10], vf23 = vf[23], vf24 = vf[24], vf25 = vf[25], vf26 = vf[26], vf27 = vf[27], acc = ctx->vu0_acc;
+        float f0 = 0.0f, f1 = 0.0f, f2 = 0.0f;
+        for (int i = 0; i < n; ++i)
+        {
+            const Vert117 &vx = vs[i];
+            if (glv116)
+                glv116Note(vx.site + 8u);
+            if (vx.colour)
+                glColor4f(ctx, m, 0.5f, 0.5f, 0.5f, vx.alpha);
+            glTexCoord2f(ctx, m, vx.u, vx.v); // (glTexCoord2fv writes the same words)
+            // glVertex3fv's own part (the lit colour never: bit 0 is cleared first).
+            const uint64_t state = (m.u64(kGl + 0x1B0u) & ~9ull) | 8u;
+            m.put64(kGl + 0x1B0u, state);
+            const uint32_t index = m.u32(kGl + 0x41F0u);
+            const uint32_t slot = kGl + (index << 6);
+            m.putqi(slot + 0x220u, m.qi(kGl + 0x90u));
+            if (texturing)
+            {
+                m.putf(slot + 0x210u, m.f32(kGl + 0xA0u));
+                m.putf(slot + 0x214u, m.f32(kGl + 0xA4u));
+            }
+            m.put64(kGl + 0x1B0u, m.u64(kGl + 0x1B0u) & ~1ull);
+            m.putqi(slot + 0x200u, m.qi(vx.pos));
+            // The kick (transformed: bit 3 was just set).
+            vf23 = m.q(slot + 0x200u);
+            vf24 = m.q(slot + 0x210u);
+            vf25 = m.q(slot + 0x220u);
+            vf10 = applyN(viewN, vf23, acc);
+            vf27 = applyN(screenN, vf10, acc);
+            vf26 = applyN(clipN, vf10, acc);
+            ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
+            vf25 = ftoi(vf25, 1.0f);
+            const uint32_t flags = ((ctx->vu0_clip_flags << 6) | ps2VuClipFlags(vf26, vf26)) & 0xFFFFFFu;
+            ctx->vu0_clip_flags = flags;
+            const __m128 q = _mm_set1_ps(ctx->vu0_q);
+            vf27 = sel(vf27, PS2_VMUL(vf27, q), kXyz);
+            vf27 = sel(vf27, PS2_VMUL(vf0, q), kW);
+            if (perspective)
+                vf24 = sel(vf24, PS2_VMUL(vf24, q), kXyz);
+            const uint32_t s0 = flags;
+            vf27 = sel(vf27, ftoi(vf27, 16.0f), kXyz);
+            m.putq(slot + 0x1F0u, vf26);
+            uint32_t w24[4], w25[4], w27[4];
+            std::memcpy(w24, &vf24, 16);
+            std::memcpy(w25, &vf25, 16);
+            std::memcpy(w27, &vf27, 16);
+            auto emit = [&](uint64_t value, uint64_t reg)
+            {
+                uint32_t at = m.u32(kGl + 4u);
+                m.put64(at, value);
+                at += 8u;
+                m.put32(kGl + 4u, at);
+                m.put64(at, reg);
+                m.put32(kGl + 4u, at + 8u);
+            };
+            auto sx = [](uint32_t v) -> uint64_t { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); };
+            if (texturing && uvMode == 0u)
+                emit(static_cast<uint64_t>(w24[0]) | (static_cast<uint64_t>(w24[1]) << 32), 2u); // ST
+            else if (texturing)
+            {
+                // UV: iosFTOI4Vector(the frame, the slot's ST): vftoi4 of the raw ST.
+                vf5 = m.q(slot + 0x210u);
+                vf6 = ftoi(vf5, 16.0f);
+                uint32_t uv[4];
+                std::memcpy(uv, &vf6, 16);
+                emit(static_cast<uint64_t>(uv[0]) | (static_cast<uint64_t>(uv[1]) << 16), 3u);
+            }
+            {
+                const uint64_t q32 = perspective ? (sx(w27[3]) << 32) : 0x3F80000000000000ull;
+                const uint64_t value = (sx(w25[0]) | q32) | ((sx(w25[2]) << 16) | (sx(w25[1]) << 8)) | (sx(w25[3]) << 24);
+                emit(value, 1u);
+            }
+            uint32_t s2 = 0u, s5 = 0u;
+            const int32_t count = static_cast<int32_t>(index);
+            auto pairs = [&](const uint32_t *masks, int k) -> bool
+            {
+                for (int j = 0; j < k; ++j)
+                    if ((s0 & masks[j]) == masks[j])
+                        return true;
+                return false;
+            };
+            switch (target)
+            {
+            case 0x0108DAE0u:
+                if (s0 & 0x3Fu)
+                    s2 = 1u;
+                break;
+            case 0x0108DAF8u:
+            {
+                static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
+                if (count > 0 && (s0 & 0xFFFu) != 0u)
+                {
+                    if (!pairs(two, 5))
+                        s5 = ((s0 & 0x820u) ^ 0x820u) != 0u ? 1u : 0u;
+                    s2 = 1u;
+                }
+                break;
+            }
+            case 0x0108DB58u:
+                if (count > 0 && (s0 & 0xFFFu) != 0u)
+                    s2 = 1u;
+                break;
+            case 0x0108DB78u:
+            {
+                static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
+                if (count == 0 && (s0 & 0x3Fu) != 0u)
+                {
+                    m.put64(kGl + 0x1B0u, m.u64(kGl + 0x1B0u) | 0x10u);
+                    s2 = 1u;
+                }
+                const bool run = ((m.u64(kGl + 0x1B0u) >> 4) & 1u) != 0u;
+                if (count < 2)
+                {
+                    if (run)
+                    {
+                        s5 = 1u;
+                        s2 = 1u;
+                    }
+                }
+                else if ((s0 & 0xFFFu) == 0u)
+                {
+                    if (run)
+                    {
+                        s5 = 1u;
+                        s2 = 1u;
+                    }
+                }
+                else
+                {
+                    if (pairs(two, 5) || (s0 & 0x820u) == 0x820u)
+                        s5 = run ? 0u : 1u;
+                    else
+                        s5 = 1u;
+                    s2 = 1u;
+                }
+                break;
+            }
+            default: // 0x0108DC48: triangles / fans
+            {
+                static const uint32_t three[] = {0x1041u, 0x2082u, 0x4104u, 0x8208u, 0x10410u};
+                if (!(count < 2) && (s0 & 0x3FFFFu) != 0u)
+                {
+                    if (!pairs(three, 5))
+                        s5 = ((s0 & 0x20820u) ^ 0x20820u) != 0u ? 1u : 0u;
+                    s2 = 1u;
+                }
+                break;
+            }
+            }
+            const int32_t pending = m.s32(kGl + 0x1B4u);
+            s2 |= (0 < pending) ? 1u : 0u;
+            uint64_t reg = 4u;
+            if (s2 != 0u)
+            {
+                if (pending > 0)
+                    m.put32(kGl + 0x1B4u, static_cast<uint32_t>(pending - 1));
+                reg = 0xCu;
+            }
+            f1 = m.f32(kGl + 0x41F4u);
+            f2 = 2147483648.0f;
+            f0 = FPU_MUL_S(FPU_CVT_S_W(static_cast<int32_t>(w27[2]) >> 4), f1);
+            uint64_t z;
+            if (FPU_C_OLE_S(f2, f0))
+            {
+                f0 = FPU_SUB_S(f0, f2);
+                z = static_cast<uint64_t>(static_cast<int64_t>(FPU_CVT_W_S(f0))) | 0xFFFFFFFF80000000ull;
+            }
+            else
+                z = static_cast<uint64_t>(static_cast<int64_t>(FPU_CVT_W_S(f0)));
+            {
+                const int32_t zi = static_cast<int32_t>(z);
+                std::memcpy(&f1, &zi, 4);
+            }
+            const uint64_t a3v = sx(w27[0]) | (static_cast<uint64_t>(m.u32(kGl + 0x60u)) << 56);
+            const uint64_t xyz = a3v | ((z << 32) | (sx(w27[1]) << 16));
+            emit(xyz, reg);
+            m.put8(kGl + 0x41F8u + index, static_cast<uint8_t>(s5));
+            m.put32(kGl + 0x41F0u, index + 1u);
+        }
+        // What the last kick leaves.
+        vf[5] = vf5;
+        vf[6] = vf6;
+        vf[10] = vf10;
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[11 + i] = viewM[i];
+            vf[15 + i] = clipM[i];
+            vf[19 + i] = screenM[i];
+        }
+        vf[23] = vf23;
+        vf[24] = vf24;
+        vf[25] = vf25;
+        vf[26] = vf26;
+        vf[27] = vf27;
+        ctx->vu0_acc = acc;
+        ctx->f[0] = f0;
+        ctx->f[1] = f1;
+        ctx->f[2] = f2;
+        const uint32_t last = m.u32(kGl + 0x41F0u);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(last));
+        SET_GPR_U32(ctx, 4, last - 1u);
+        SET_GPR_U32(ctx, 31, vs[n - 1].site + 8u);
+        SET_GPR_U32(ctx, 29, sp);
+        return true;
+    }
+
+    // SOTC_GLV117_CHECK=<n>: every n-th quad both ways (glv117c).
+    struct Glv117Check
+    {
+        int every = -1;
+        uint64_t quads = 0, checks = 0, differ = 0;
+    };
+    Glv117Check g_glv117Check;
+
+    // quad117, or the calls when it does not take them; SOTC_GLV117_CHECK=<n>:
+    // every n-th quad both ways from the same state (the gl block 0x5300 bytes,
+    // the packet's next 0x100, VU0 / Q / CLIP, f0 - f2), the calls' result kept.
+    template <class Calls>
+    void quadRun117(const G g, uint32_t sp, const Vert117 *vs, int n, const Calls &calls)
+    {
+        const Ram m = g.m;
+        R5900Context *ctx = g.ctx;
+        Glv117Check &c = g_glv117Check;
+        if (c.every < 0)
+            c.every = std::getenv("SOTC_GLV117_CHECK") ? std::atoi(std::getenv("SOTC_GLV117_CHECK")) : 0;
+        const uint32_t pkt = m.u32(kGl + 4u);
+        if (!(c.every > 0 && ++c.quads % static_cast<uint64_t>(c.every) == 0u) || !Ram::ok(pkt, 0x100u))
+        {
+            if (!quad117(g, sp, vs, n))
+                calls();
+            return;
+        }
+        // (static: nothing 16-aligned on the stack)
+        static std::vector<uint8_t> blk0(0x5300u), pk0(0x100u), blkA(0x5300u), pkA(0x100u), ctx0(sizeof(R5900Context)), ctxA(sizeof(R5900Context));
+        std::memcpy(blk0.data(), m.p(kGl), 0x5300u);
+        std::memcpy(pk0.data(), m.p(pkt), 0x100u);
+        std::memcpy(ctx0.data(), ctx, sizeof(R5900Context));
+        if (!quad117(g, sp, vs, n))
+        {
+            calls();
+            return;
+        }
+        std::memcpy(blkA.data(), m.p(kGl), 0x5300u);
+        std::memcpy(pkA.data(), m.p(pkt), 0x100u);
+        std::memcpy(ctxA.data(), ctx, sizeof(R5900Context));
+        std::memcpy(m.p(kGl), blk0.data(), 0x5300u);
+        std::memcpy(m.p(pkt), pk0.data(), 0x100u);
+        std::memcpy(ctx, ctx0.data(), sizeof(R5900Context));
+        calls();
+        ++c.checks;
+        const R5900Context *A = reinterpret_cast<const R5900Context *>(ctxA.data());
+        const bool blkSame = std::memcmp(blkA.data(), m.p(kGl), 0x5300u) == 0, pkSame = std::memcmp(pkA.data(), m.p(pkt), 0x100u) == 0;
+        const bool vuSame = std::memcmp(A->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) == 0 && std::memcmp(&A->vu0_acc, &ctx->vu0_acc, 16) == 0 &&
+                            std::memcmp(&A->vu0_q, &ctx->vu0_q, 4) == 0 && A->vu0_clip_flags == ctx->vu0_clip_flags;
+        const bool fSame = std::memcmp(A->f, ctx->f, 3 * sizeof(float)) == 0;
+        if (!(blkSame && pkSame && vuSame && fSame) && c.differ++ < 20u)
+        {
+            uint32_t first = 0x5300u;
+            for (uint32_t i = 0; i < 0x5300u; ++i)
+                if (blkA[i] != m.p(kGl)[i])
+                {
+                    first = i;
+                    break;
+                }
+            std::fprintf(stderr, "[glv117c] DIFFERS (site %08x): gl block %d (first +%x) packet %d vu0 %d f %d\n", vs[0].site, blkSame ? 0 : 1, first, pkSame ? 0 : 1,
+                         vuSame ? 0 : 1, fSame ? 0 : 1);
+        }
+        if (c.checks % 500u == 0u)
+            std::fprintf(stderr, "[glv117c] %llu quads checked, %llu differ\n", (unsigned long long)c.checks, (unsigned long long)c.differ);
+    }
+
+    // ---- Round 117 (glv117): manager_sub_01142350, one particle as a quad of
+    // the gl* immediate API (the quads drawer 01141D20, a particle a call;
+    // a0 its 48-byte record, a1 the size pair, a2 the world matrix). The
+    // frame: the constant corner block (0x1195900) at sp, memset(sp + 0x80,
+    // 0, 0x40) and the size pair into its corners, copied to sp + 0x40 (the
+    // corners' ST); iosRotMatrixAxis(sp + 0xc0, the record's axis +0x30,
+    // 1, the angle +0x40) (a guest call); the VU0 block (the corners scaled
+    // by the record's size +0xc, rotated, x the world matrix, + the position,
+    // into sp + 0x80: the recompiled statements, generated by
+    // r117/gen_1142350.py); glBegin(5) (a guest call), glColor4fv(+0x10),
+    // the four corners through quad117 (glTexCoord2fv + glVertex4fv + the
+    // kick each), glEnd (a guest call; its hook draws). Off (or quad117 not
+    // taking them): the four vertices as the calls (the recompiled code from
+    // 0x11425a0, the registers as there).
+    void quad1142350(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        constexpr uint32_t kSelf = 0x01142350u;
+        G g(rdram, ctx, runtime);
+        const Ram m = g.m;
+        const uint32_t s0 = GPR_U32(ctx, 4), s1in = GPR_U32(ctx, 5), s3 = GPR_U32(ctx, 6);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x130u;
+        if (!sotc_decomp::glv117On() || !Ram::ok(sp, 0x130u) || !Ram::ok(s0, 0x50u) || !Ram::ok(s1in, 8u) || !Ram::ok(s3, 0x40u) ||
+            sotc_decomp::jalTarget(rdram, 0x0114240Cu) != 0x001283D0u)
+            return fallback(rdram, ctx, runtime, kSelf);
+        const uint64_t e16 = GPR_U64(ctx, 16), e17 = GPR_U64(ctx, 17), e18 = GPR_U64(ctx, 18), e19 = GPR_U64(ctx, 19), e20 = GPR_U64(ctx, 20);
+        m.put64(sp + 0x120u, e20);
+        m.put64(sp + 0x100u, e16);
+        m.put64(sp + 0x108u, e17);
+        m.put64(sp + 0x118u, e19);
+        m.put64(sp + 0x110u, e18);
+        m.put64(sp + 0x128u, ra0);
+        const uint32_t s4 = sp + 0x80u, s2 = sp + 0xC0u;
+        SET_GPR_U32(ctx, 29, sp);
+        SET_GPR_U32(ctx, 16, s0);
+        SET_GPR_U32(ctx, 17, s1in);
+        SET_GPR_U32(ctx, 19, s3);
+        SET_GPR_U32(ctx, 20, s4);
+        for (uint32_t i = 0; i < 0x40u; i += 8u)
+            m.put64(sp + i, m.u64(0x01195900u + i));
+        std::memset(m.p(s4), 0, 0x40u); // memset (0x1283d0, checked above): the same bytes
+        {
+            const float f0 = m.f32(s1in), f1 = m.f32(s1in + 4u);
+            m.putf(sp + 0xB0u, f0);
+            m.putf(sp + 0x90u, f0);
+            m.putf(sp + 0xB4u, f1);
+            m.putf(sp + 0xA4u, f1);
+            for (uint32_t i = 0; i < 0x40u; i += 8u)
+                m.put64(sp + 0x40u + i, m.u64(sp + 0x80u + i));
+        }
+        SET_GPR_U32(ctx, 18, s2);
+        g.a(4, s2);
+        g.a(5, s0 + 0x30u);
+        g.a(6, 1u);
+        ctx->f[12] = m.f32(s0 + 0x40u);
+        g.call(0x01133748u, 0x0114247Cu, sp); // iosRotMatrixAxis
+        {
+            const float f0 = m.f32(s0 + 0xCu);
+            ctx->f[0] = f0;
+            uint32_t bits;
+            std::memcpy(&bits, &f0, 4);
+            SET_GPR_U32(ctx, 8, bits);
+        }
+        ctx->vu0_vf[14] = _mm_castsi128_ps(m.qi(s2 + 0u));
+        ctx->vu0_vf[15] = _mm_castsi128_ps(m.qi(s2 + 16u));
+        ctx->vu0_vf[16] = _mm_castsi128_ps(m.qi(s2 + 32u));
+        // (lwc1 f0, 0xc(s0); mfc1 t0, f0; qmtc2.ni t0, vf10: below)
+        ctx->vu0_vf[10] = _mm_castsi128_ps(GPR_VEC(ctx, 8));
+        ctx->vu0_vf[17] = _mm_castsi128_ps(m.qi(s2 + 48u));
+        { __m128 res = _mm_shuffle_ps(ctx->vu0_vf[0], ctx->vu0_vf[0], _MM_SHUFFLE(0,3,2,1)); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[26] = _mm_blendv_ps(ctx->vu0_vf[26], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(0,3,2,1)); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[25] = _mm_blendv_ps(ctx->vu0_vf[25], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(0,3,2,1)); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[24] = _mm_blendv_ps(ctx->vu0_vf[24], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(1, 0, ctx->vu0_vf[25], _mm_shuffle_ps(ctx->vu0_vf[10], ctx->vu0_vf[10], _MM_SHUFFLE(0,0,0,0))); __m128i mask = _mm_set_epi32(0, 0, -1, 0); ctx->vu0_vf[25] = _mm_blendv_ps(ctx->vu0_vf[25], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(1, 0, ctx->vu0_vf[24], ctx->vu0_vf[10]); __m128i mask = _mm_set_epi32(0, 0, 0, -1); ctx->vu0_vf[24] = PS2_VBLEND(ctx->vu0_vf[24], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(0, 1, ctx->vu0_vf[14], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[15], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[16], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[17], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[26] = _mm_blendv_ps(ctx->vu0_vf[26], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(0, 1, ctx->vu0_vf[14], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[15], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[16], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[17], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[25] = _mm_blendv_ps(ctx->vu0_vf[25], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(0, 1, ctx->vu0_vf[14], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[15], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[16], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[17], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[24] = _mm_blendv_ps(ctx->vu0_vf[24], res, _mm_castsi128_ps(mask)); }
+        ctx->vu0_vf[14] = _mm_castsi128_ps(m.qi(s3 + 0u));
+        ctx->vu0_vf[15] = _mm_castsi128_ps(m.qi(s3 + 16u));
+        ctx->vu0_vf[16] = _mm_castsi128_ps(m.qi(s3 + 32u));
+        ctx->vu0_vf[17] = _mm_castsi128_ps(m.qi(s3 + 48u));
+        { __m128 res = PS2_VMUL_K(0, 1, ctx->vu0_vf[14], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[15], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[16], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[17], _mm_shuffle_ps(ctx->vu0_vf[24], ctx->vu0_vf[24], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[24] = _mm_blendv_ps(ctx->vu0_vf[24], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(0, 1, ctx->vu0_vf[14], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[15], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[16], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[17], _mm_shuffle_ps(ctx->vu0_vf[25], ctx->vu0_vf[25], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[25] = _mm_blendv_ps(ctx->vu0_vf[25], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(0, 1, ctx->vu0_vf[14], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[15], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[16], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[17], _mm_shuffle_ps(ctx->vu0_vf[26], ctx->vu0_vf[26], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[26] = _mm_blendv_ps(ctx->vu0_vf[26], res, _mm_castsi128_ps(mask)); }
+        ctx->vu0_vf[27] = _mm_castsi128_ps(m.qi(s0 + 0u));
+        ctx->vu0_vf[20] = _mm_castsi128_ps(m.qi(sp + 0u));
+        ctx->vu0_vf[21] = _mm_castsi128_ps(m.qi(sp + 16u));
+        ctx->vu0_vf[22] = _mm_castsi128_ps(m.qi(sp + 32u));
+        { __m128i mask = _mm_set_epi32(-1, 0, 0, 0); ctx->vu0_vf[27] = _mm_blendv_ps(ctx->vu0_vf[27], ctx->vu0_vf[0], _mm_castsi128_ps(mask)); }
+        ctx->vu0_vf[23] = _mm_castsi128_ps(m.qi(sp + 48u));
+        { __m128 res = PS2_VMUL_K(1, 0, ctx->vu0_vf[24], _mm_shuffle_ps(ctx->vu0_vf[20], ctx->vu0_vf[20], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[25], _mm_shuffle_ps(ctx->vu0_vf[20], ctx->vu0_vf[20], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[26], _mm_shuffle_ps(ctx->vu0_vf[20], ctx->vu0_vf[20], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[27], _mm_shuffle_ps(ctx->vu0_vf[0], ctx->vu0_vf[0], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[20] = _mm_blendv_ps(ctx->vu0_vf[20], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(1, 0, ctx->vu0_vf[24], _mm_shuffle_ps(ctx->vu0_vf[21], ctx->vu0_vf[21], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[25], _mm_shuffle_ps(ctx->vu0_vf[21], ctx->vu0_vf[21], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[26], _mm_shuffle_ps(ctx->vu0_vf[21], ctx->vu0_vf[21], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[27], _mm_shuffle_ps(ctx->vu0_vf[0], ctx->vu0_vf[0], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[21] = _mm_blendv_ps(ctx->vu0_vf[21], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(1, 0, ctx->vu0_vf[24], _mm_shuffle_ps(ctx->vu0_vf[22], ctx->vu0_vf[22], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[25], _mm_shuffle_ps(ctx->vu0_vf[22], ctx->vu0_vf[22], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[26], _mm_shuffle_ps(ctx->vu0_vf[22], ctx->vu0_vf[22], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[27], _mm_shuffle_ps(ctx->vu0_vf[0], ctx->vu0_vf[0], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[22] = _mm_blendv_ps(ctx->vu0_vf[22], res, _mm_castsi128_ps(mask)); }
+        { __m128 res = PS2_VMUL_K(1, 0, ctx->vu0_vf[24], _mm_shuffle_ps(ctx->vu0_vf[23], ctx->vu0_vf[23], _MM_SHUFFLE(0,0,0,0))); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[25], _mm_shuffle_ps(ctx->vu0_vf[23], ctx->vu0_vf[23], _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(1, 0, ctx->vu0_vf[26], _mm_shuffle_ps(ctx->vu0_vf[23], ctx->vu0_vf[23], _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); ctx->vu0_acc = _mm_blendv_ps(ctx->vu0_acc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
+        { __m128 mul_res = PS2_VMUL_K(0, 1, ctx->vu0_vf[27], _mm_shuffle_ps(ctx->vu0_vf[0], ctx->vu0_vf[0], _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, ctx->vu0_acc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); ctx->vu0_vf[23] = _mm_blendv_ps(ctx->vu0_vf[23], res, _mm_castsi128_ps(mask)); }
+        m.putqi(s4 + 0u, _mm_castps_si128(ctx->vu0_vf[20]));
+        m.putqi(s4 + 16u, _mm_castps_si128(ctx->vu0_vf[21]));
+        m.putqi(s4 + 32u, _mm_castps_si128(ctx->vu0_vf[22]));
+        m.putqi(s4 + 48u, _mm_castps_si128(ctx->vu0_vf[23]));
+
+        SET_GPR_U32(ctx, 17, 0u);
+        g.a(4, 5u);
+        g.call(kGlBegin, 0x01142590u, sp);
+        // glColor4fv(+0x10): glColor4f's words and clamp; f1 - f5 as it leaves them.
+        {
+            const uint32_t c = s0 + 0x10u;
+            glColor4f(ctx, m, m.f32(c), m.f32(c + 4u), m.f32(c + 8u), m.f32(c + 0xCu));
+            ctx->f[1] = FPU_MUL_S(m.f32(c + 8u), 255.0f);
+            ctx->f[2] = 255.0f;
+            ctx->f[3] = 128.0f;
+            ctx->f[4] = 255.0f;
+            ctx->f[5] = 0.0f;
+        }
+        const uint32_t st = sp + 0x40u;
+        Vert117 vs[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            vs[i].alpha = 0.0f;
+            vs[i].u = m.f32(st + i * 16u);
+            vs[i].v = m.f32(st + i * 16u + 4u);
+            vs[i].pos = s4 + i * 16u;
+            vs[i].site = 0x011425B4u;
+            vs[i].colour = false;
+        }
+        SET_GPR_U32(ctx, 18, st);
+        SET_GPR_U32(ctx, 20, s4);
+        auto calls = [&]
+        {
+            // The loop as the code has it: glTexCoord2fv(sp + 0x40 + 16 i), glVertex4fv(sp + 0x80 + 16 i) (guest calls).
+            for (uint32_t i = 0; i < 4u; ++i)
+            {
+                SET_GPR_U32(ctx, 16, i << 4);
+                SET_GPR_U32(ctx, 17, i + 1u);
+                g.a(4, st + (i << 4));
+                g.call(0x0108E9F0u, 0x011425ACu, sp);
+                g.a(4, s4 + (i << 4));
+                g.call(0x0108ECA0u, 0x011425B4u, sp);
+            }
+        };
+        quadRun117(g, sp, vs, 4, calls);
+        SET_GPR_U32(ctx, 16, 0x30u);
+        SET_GPR_U32(ctx, 17, 4u);
+        g.call(kGlEnd, 0x011425C8u, sp);
+        SET_GPR_U64(ctx, 16, e16);
+        SET_GPR_U64(ctx, 17, e17);
+        SET_GPR_U64(ctx, 18, e18);
+        SET_GPR_U64(ctx, 19, e19);
+        SET_GPR_U64(ctx, 20, e20);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
     void strips(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
@@ -2455,19 +2985,37 @@ namespace decomp_walk
                         glTexCoord2f(ctx, m, u, v);
                         glVertex3fv(g, pos, site, sp);
                     };
+                    // Round 117 (glv117): each strip's four vertices in one pass (quad117), else as the calls.
+                    auto four = [&](const Vert117 *vs)
+                    {
+                        auto calls = [&]
+                        {
+                            for (int i = 0; i < 4; ++i)
+                                vertex(vs[i].alpha, vs[i].u, vs[i].v, vs[i].pos, vs[i].site);
+                        };
+                        if (!sotc_decomp::glv117On())
+                            return calls();
+                        quadRun117(g, sp, vs, 4, calls);
+                    };
                     g.a(4, 5u);
                     g.call(kGlBegin, 0x010F4664u, sp);
-                    vertex(f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0xA0u, 0x010F4690u);
-                    vertex(f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0xB0u, 0x010F46BCu);
-                    vertex(f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0x120u, 0x010F46E8u);
-                    vertex(f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x130u, 0x010F4714u);
+                    {
+                        const Vert117 vs[4] = {{f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0xA0u, 0x010F4690u},
+                                               {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0xB0u, 0x010F46BCu},
+                                               {f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0x120u, 0x010F46E8u},
+                                               {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x130u, 0x010F4714u}};
+                        four(vs);
+                    }
                     g.call(kGlEnd, 0x010F471Cu, sp);
                     g.a(4, 5u);
                     g.call(kGlBegin, 0x010F4724u, sp);
-                    vertex(f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0x120u, 0x010F4750u);
-                    vertex(f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x130u, 0x010F477Cu);
-                    vertex(FPU_MUL_S(f20, f28), m.f32(s6), m.f32(sp + 0xE4u), sp + 0x100u, 0x010F47A8u);
-                    vertex(FPU_MUL_S(f21, f28), m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x110u, 0x010F47D4u);
+                    {
+                        const Vert117 vs[4] = {{f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0x120u, 0x010F4750u},
+                                               {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x130u, 0x010F477Cu},
+                                               {FPU_MUL_S(f20, f28), m.f32(s6), m.f32(sp + 0xE4u), sp + 0x100u, 0x010F47A8u},
+                                               {FPU_MUL_S(f21, f28), m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x110u, 0x010F47D4u}};
+                        four(vs);
+                    }
                     g.call(kGlEnd, 0x010F47DCu, sp);
                 }
                 (void)ax;
@@ -3407,5 +3955,6 @@ SOTC_DECOMP_AB_FUNCTION(0x010F5920u, DispLayoutObjModel, decomp_walk::dispLayout
 SOTC_DECOMP_AB_FUNCTION(0x010F3A08u, solidDisp_010F3A08, decomp_walk::solidDisp);
 SOTC_DECOMP_FLOAT_FUNCTION(0x01098840u, modelClipSolid, decomp_walk::modelClipSolid);
 SOTC_DECOMP_AB_FUNCTION(0x010F3EB8u, hazeStrips_010F3EB8, decomp_walk::strips);
+SOTC_DECOMP_FUNCTION(0x01142350u, particleQuad_01142350, decomp_walk::quad1142350);
 SOTC_DECOMP_AB_FUNCTION(0x0108D730u, glVertexKick_0108D730, decomp_walk::glVertexKick);
 SOTC_DECOMP_AB_FUNCTION(0x0108EBC0u, glVertex3fv, decomp_walk::glVertex3fvEntry);
