@@ -16311,3 +16311,76 @@ read with `build/agent-scratch/r109/read109.sh err.txt <from>`. char104's window
 what the two parts are worth on the console. Core placement: `guest:2` pins the worker to core 1 (the renderer owns core 2); without
 the override the worker floats on cores 1-2 (`guest:6`); `guest:4` would share the renderer's core. Vita3K does not model
 the placement, so it is a console measurement: a second run with `SOTC_THREAD_CORES=guest:6` against the first.
+
+## Round 110: per-picture display timing: each picture shown on the refresh its game time asks for (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r110/` (build.sh pN; v3k.sh / v3kb.sh: two Vita3K trees of its own,
+../vita3k-celosia-r110 and -r110b, 222 MHz, 3 cores; go.sh a|b pN name route6 secs [env]: the round's logs; MCD=<card> copies a
+memcard into that tree only; pace110.py the reader; poscmp.py, spalign.py from round 107; STATE.md).
+
+**Why.** Round 107's Steady 20 holds the game's frame starts to a 3-VBlank grid and vitaGL's vsync interval 3 holds each
+picture at least 3 refreshes. Where frames run over 50 ms the frame starts stay on the grid (3 or 4 VBlanks) but the pictures
+landed 3 / 4 / 5 refreshes apart: the display showed each picture when the render thread had it, so the render thread's time
+moved the motion. Its p6 (the display interval from the latest release) gave timing to the wrong picture when pictures queued.
+
+**What changed (SOTC_PACE110, default on; A/B `pace110`).**
+- Tag: every frame release (sotc_overrides.cpp cap20, Auto and Steady 20) is counted (`native_renderer::g_paceSeq`) and timed,
+  with the game's dt of the frame before (`ps2x_vita_pace_release`). The native renderer's hand-over takes the count into the
+  frame (read by the render thread when it picks the frame up: a deferred present runs after the next hand-over may start);
+  `presentNow` passes it with the present (`ps2x_vita_pace_tag`, the render thread's own), and EndDrawing queues it beside
+  vitaGL's display queue (one entry a swap, in order). Measured: the tagged release is the picture's own frame (swap 33-60 ms
+  after its release; its dt matches its release interval).
+- Present: vitaGL's display callback (the display queue's thread, before sceDisplaySetFrameBuf) takes the tag back and sets
+  the picture on the refresh before its slot: slot = the previous slot + the frame's release interval in VBlanks (at least the
+  minimum hold: 3 in Steady 20, 2 with the 30 fps cap). So each picture stays on screen as long as the game's time moved
+  (Steady 20's 4-VBlank frames: exactly 4). vitaGL's own vsync wait is 1 while on (the slot is held in the callback).
+- Late pictures: shown at the next refresh, the slots go on from there (one interval longer, none shorter after it).
+- Latency: the slots aim at the floor A = the least arrival latency (swap + 2 refreshes - release) of the last 64 pictures.
+  After a hitch (a release gap or 12+ refreshes on screen, or a picture 6+ refreshes late) the pictures queued behind it are
+  shown a refresh apart (at least) until the latency is back at A ("catch-up": the hitch is the glitch, nothing after it).
+  Otherwise, when 6 pictures in a row were already queued as the one before went on screen and the latency is above A + 1, one
+  slot comes a refresh earlier ("pull"; the 60.00 Hz game against the 59.94 Hz display adds a refresh every ~17 s).
+  `SOTC_PACE110_CALM=<n>` (6) is that count.
+- The callback takes no lock: in Vita3K a lock wait there (stdio in the trace, a static-init guard) ended in a host
+  `condition_variable wait failed: Invalid argument` abort at boot (3 of 5 runs of p3: the guest thread waits on the lock's
+  own mutex with the display thread's condition variable while Vita3K's display queue waits on the same variable with the
+  thread's mutex). The callback's windows and trace are handed to the presenting thread, which prints them after its swap;
+  the settings are read before the callback is installed. 0 such aborts in the 14 runs after it.
+- `[pace110]` every 600 pictures (on / off apart, one display mode a window; the statistics run with the pacing off too):
+  refreshes each picture stayed; shown against the release interval and against the game's dt (in refreshes: 0 = shown as long
+  as the game's time moved); latency release -> on screen; late pictures, pulls, catch-ups, chain resets; the same for the
+  quiet pictures (20 or more after a hitch: in Vita3K the host stalls ~1 s every few seconds; the console has no such stalls).
+  `SOTC_PACE110_TRACE=<n>`: `[pace110t]`, one line per picture. Reader: `build/agent-scratch/r110/pace110.py [--skip N] err.txt`.
+- `SOTC_PACE110_HYST=1` (default off): Auto's frame floor with hysteresis (the frame's own length into a ring; up one when 5 of
+  the last 15 needed more, down when at most 3 of the last 30 needed more than one less; 1-3 VBlanks, held with Steady 20's grid
+  rules); `[cap20]` lines count the floor. Left off: in autoHyst6 it sat at 3 for 60% of the frames (Auto became Steady 20 with
+  4s: shown 3: 35%, 4: 13%) and the route's walk desynced; the pacing alone already makes Auto's display follow its steps.
+
+**Measured (own Vita3K trees, 222 MHz; the host ran round 109's two Vita3K and builds: ~1 s stalls every few seconds, so the
+quiet columns are the cadence, the totals include the stalls' catch-up).** Pairs ran at the same time on the two trees.
+
+| run (600 s, console card, Load Game, route 6) | shown 3 / 4 (all) | shown = release interval (all) | quiet: shown = release interval | quiet -1 / +1 | latency mean (refreshes), mode |
+|---|---|---|---|---|---|
+| Steady 20, pace off (off600s20, p7) | 76% / 15% | 81% | 91% | 4% / 5% | 11.4, 6-7 |
+| Steady 20, pace on (final600s20, p7) | 70% / 18% | 84% | **99%** | 0% / 1% | 12.2, 6 |
+| Auto, pace off (off600auto, p7) | shown 2: 13%, 3: 52% | 69% | 78% | 13% / 8% | 10.1, 6 |
+| Auto, pace on (final600auto, p7) | shown 2: 68%, 3: 9% | 85% | **93%** | 2% / 5% | 8.7, 4 |
+
+Route 6 (420 s, p6): Steady 20 on (s20on6) quiet 100% (1 779 / 1 786), off (s20off6) 98%; latency mean 9.5 (80% at 4 or less)
+against 13.4 (6% at 4 or less). Auto on (autoOn6) quiet 88% against off (autoOff6) 75%; latency 8.0 against 7.4 (on: 5 at the
+mode, off 3: Auto's latency rises ~1-2 refreshes, under one frame). The game's dt column is the same as the release column
+(the dt matches its release interval within half a refresh).
+
+- Game speed: Steady 20's pair ends 1.6 units apart (poscmp.py by VBlank), s20on6 / s20off6 4.7; game time / wall 0.696 / 0.695.
+  Auto: game time / wall 0.631 on against 0.602 off (the pacing's vsync wait of 1 frees the render thread sooner: Auto on released
+  76% of its frames at 2 VBlanks, off 65% at 3); its walk then takes another path (the route is chaotic in frame timing, round
+  10), as in round 107's pairs.
+- Steady 20's 4-VBlank frames (the card's heavy minute): shown 4 exactly. The remaining non-exact pictures are the stalls'
+  1-refresh catch-ups (on: 9% "-2" in all pictures) and the late picture of each stall.
+- No crash in 600 s (final600s20 8 073 frames, final600auto 11 108, card600on (p6) 8 245; vita3k-stdout's access messages as in
+  every run). ELF p7: spalign.py 566 NEON :128 / :256 accesses, 0 sp-based.
+
+**Console.** build/agent-scratch/celosia-r110.vpk (main 34d21ac + this round). The pacing is on in both Frame rate modes;
+`SOTC_PACE110=0` is the old presentation. r110/env-console.txt: the frame / spike logs (the `[pace110]` lines come with
+them). Read with `build/agent-scratch/r110/pace110.py err.txt` (on the console every picture should be quiet: shown = release
+interval, latency ~4-6 refreshes), and `SOTC_AB_FLAG=pace110` to compare on / off in one run (windows of 30 frames).
