@@ -606,6 +606,35 @@ namespace native_renderer
         bool glLod0_98 = false;
         bool glPlainSoft98 = false;
 #endif
+        // Round 100 (stutter), each in `r100all` too:
+        // glInflight100: at most two frames on the GPU. The render thread
+        // begins a frame's scenes once the GPU has finished the frame before
+        // the last one presented (round 87's inflight87 waited for the last
+        // one: the GPU idle between frames, +3.7 ms). The console's GPU ran
+        // ~3 frames behind ([gpu86] backlog 75-90 scenes at Avion; round 99):
+        // a third frame queued only adds latency and keeps GXM's parameter
+        // buffer and vitaGL's pools (uniforms, the circular vertex pool) full.
+        // Same commands, same picture. SOTC_GL_INFLIGHT100=0/1; A/B `inflight100`.
+        // cdAhead100: the disc's reads into EE memory read ahead as the sound
+        // streams' are (round 12): after two reads in a row on one file the
+        // next 256 KB are read by a thread of their own (64 KB pieces, each
+        // usable once in), and a request it covers is copied from memory. The console's frame logs: the game thread idle ('sched
+        // blocked', every guest thread waiting) 6-15 ms in the frames with
+        // disc reads, the reads 3-5 ms per 32 KB. The same bytes, sooner.
+        // SOTC_CD_AHEAD100=0/1; A/B `cdahead100`.
+        // prio100: the disc reader threads (`loader`: the request worker and
+        // the read-ahead) at priority 145, above the hook worker (150) and
+        // the 191 of the render, lane, build and log threads they share cores
+        // 1-2 with: they mostly wait on the card, and the game thread waits
+        // on them. SOTC_PRIO100=0/1; A/B `prio100`.
+#if defined(__vita__)
+        bool glInflight100 = true;
+        bool prio100 = true;
+#else
+        bool glInflight100 = false;
+        bool prio100 = false;
+#endif
+        bool cdAhead100 = true;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall

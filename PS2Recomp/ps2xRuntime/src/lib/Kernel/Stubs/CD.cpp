@@ -3,6 +3,7 @@
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
 #include "runtime/native_renderer.h"
+#include "runtime/native_tuning.h"
 #include "ps2x/iop/audio_stats.h"
 
 #include <condition_variable>
@@ -251,6 +252,17 @@ namespace ps2_stubs
                 return on;
             }
 
+            bool aheadEnabledEe()
+            {
+                // Round 100: the switch (Tuning cdAhead100, its A/B windows) and
+                // PS2X_CD_READAHEAD=0 (every read-ahead off).
+                static const bool all = []
+                {
+                    const char *env = std::getenv("PS2X_CD_READAHEAD");
+                    return !(env && std::atoi(env) == 0);
+                }();
+                return all && native_renderer::tuning().cdAhead100;
+            }
             // ---- Read-ahead for the sound streams (round 12) -------------
             // The streams' reads into IOP memory (sceCdReadIOPm) walk the
             // disc in order: each one starts where the last ended. After one,
@@ -287,6 +299,9 @@ namespace ps2_stubs
                 static Ahead *a = new Ahead();
                 return *a;
             }
+            // Round 100: the EE read-ahead's counters ([cd100] lines).
+            std::atomic<uint64_t> g_eeHits{0}, g_eeMisses{0}, g_eeHitBytes{0}, g_eeAheadBytes{0}, g_eeWaits{0};
+            uint64_t g_eeLogAt = 0;
             bool aheadEnabled()
             {
                 static const bool on = []
@@ -299,7 +314,7 @@ namespace ps2_stubs
             bool aheadPread(const std::string &path, uint64_t offset, uint8_t *dst, size_t bytes)
             {
 #if defined(PLATFORM_VITA)
-                static std::vector<std::pair<std::string, SceUID>> files; // this thread's only
+                thread_local std::vector<std::pair<std::string, SceUID>> files; // this thread's only (round 100: two threads)
                 SceUID fd = -1;
                 for (const auto &[name, handle] : files)
                     if (name == path)
@@ -392,6 +407,143 @@ namespace ps2_stubs
                 a.cv.notify_all();
             }
 
+            // ---- Round 100 (Tuning cdAhead100): the reads into EE memory ----
+            // An area's stream is read in 32 KB requests, one at a time (the
+            // guest waits for each): after two in a row on one file a thread
+            // of its own reads the next window (SOTC_CD_AHEAD100_KB, default
+            // 256) in 64 KB pieces into one of three windows, each piece
+            // usable as soon as it is in; a request inside a window still
+            // being filled waits for its piece (at most 300 ms, then it is read
+            // as before) instead of reading the card twice. Read-only data:
+            // the same bytes either way.
+            struct EeWindow
+            {
+                std::string path;
+                uint64_t offset = 0;
+                std::vector<uint8_t> data;
+                size_t filled = 0;
+                bool done = true;
+                uint64_t used = 0;
+            };
+            struct EeAhead
+            {
+                std::mutex mutex;
+                std::condition_variable cv, filledCv;
+                bool started = false, queued = false;
+                std::string path;
+                uint64_t offset = 0;
+                size_t bytes = 0;
+                EeWindow windows[3];
+                uint64_t clock = 0;
+            };
+            EeAhead &eeAhead()
+            {
+                static EeAhead *a = new EeAhead();
+                return *a;
+            }
+            void eeAheadLoop()
+            {
+                native_renderer::threads::place(native_renderer::threads::kLoader);
+                EeAhead &a = eeAhead();
+                for (;;)
+                {
+                    std::string path;
+                    uint64_t offset;
+                    size_t bytes;
+                    EeWindow *w = nullptr;
+                    uint8_t *dst = nullptr;
+                    {
+                        std::unique_lock lock(a.mutex);
+                        a.cv.wait(lock, [&a] { return a.queued; });
+                        a.queued = false;
+                        path = a.path;
+                        offset = a.offset;
+                        bytes = a.bytes;
+                        bool have = false;
+                        for (const EeWindow &x : a.windows)
+                            have |= x.path == path && x.offset <= offset && offset + bytes <= x.offset + x.data.size();
+                        if (have)
+                            continue;
+                        w = &a.windows[0];
+                        for (EeWindow &x : a.windows)
+                            if (x.used < w->used)
+                                w = &x;
+                        w->path = path;
+                        w->offset = offset;
+                        w->data.resize(bytes);
+                        w->filled = 0;
+                        w->done = false;
+                        w->used = ++a.clock;
+                        dst = w->data.data();
+                    }
+                    bool ok = true;
+                    size_t done = 0;
+                    while (ok && done < bytes)
+                    {
+                        const size_t n = std::min(kAheadPiece, bytes - done);
+                        ok = aheadPread(path, offset + done, dst + done, n);
+                        if (!ok)
+                            break;
+                        done += n;
+                        g_eeAheadBytes.fetch_add(n, std::memory_order_relaxed);
+                        std::lock_guard lock(a.mutex);
+                        w->filled = done;
+                        a.filledCv.notify_all();
+                    }
+                    std::lock_guard lock(a.mutex);
+                    if (!ok)
+                        w->data.resize(done); // past the file's end, or an error: what was read
+                    w->done = true;
+                    a.filledCv.notify_all();
+                }
+            }
+            // The worker: the range copied from a window (waiting for a piece
+            // still on its way); false: not covered, read it.
+            bool eeAheadTake(const std::string &path, uint64_t offset, uint8_t *dst, size_t bytes, uint64_t &windowEnd)
+            {
+                EeAhead &a = eeAhead();
+                std::unique_lock lock(a.mutex);
+                bool waited = false;
+                for (;;)
+                {
+                    EeWindow *hit = nullptr;
+                    for (EeWindow &x : a.windows)
+                        if (x.path == path && x.offset <= offset && offset + bytes <= x.offset + x.data.size())
+                            hit = &x;
+                    if (!hit)
+                        return false;
+                    if (offset + bytes <= hit->offset + hit->filled)
+                    {
+                        std::memcpy(dst, hit->data.data() + (offset - hit->offset), bytes);
+                        hit->used = ++a.clock;
+                        windowEnd = hit->offset + hit->data.size();
+                        if (waited)
+                            g_eeWaits.fetch_add(1, std::memory_order_relaxed);
+                        return true;
+                    }
+                    if (hit->done)
+                        return false;
+                    waited = true;
+                    if (a.filledCv.wait_for(lock, std::chrono::milliseconds(300)) == std::cv_status::timeout)
+                        return false;
+                }
+            }
+            void eeAheadQueue(const std::string &path, uint64_t offset, size_t bytes)
+            {
+                EeAhead &a = eeAhead();
+                std::lock_guard lock(a.mutex);
+                if (!a.started)
+                {
+                    a.started = true;
+                    std::thread([] { eeAheadLoop(); }).detach();
+                }
+                a.path = path;
+                a.offset = offset;
+                a.bytes = std::min(bytes, kAheadMax);
+                a.queued = true;
+                a.cv.notify_all();
+            }
+
             void workerLoop()
             {
                 native_renderer::threads::place(native_renderer::threads::kLoader);
@@ -413,20 +565,75 @@ namespace ps2_stubs
                     lock.unlock();
                     bool ok;
                     const std::string key = path.string();
+                    // Round 100 (Tuning cdAhead100): an EE read the EE read-ahead
+                    // covers is copied; after two reads in a row on one file
+                    // (or a copy past half its entry) the next window is read
+                    // ahead (SOTC_CD_AHEAD100_KB, default 256).
+                    const bool eeAhead = !toIop && aheadEnabledEe();
+                    uint64_t eeEntryEnd = 0;
+                    bool eeHit = false;
                     if (toIop && aheadEnabled() && aheadTake(key, offset, dst, bytes))
                     {
                         ok = true;
                         ps2x::iop::audio_stats::cacheHits.fetch_add(1, std::memory_order_relaxed);
                         ps2x::iop::audio_stats::cacheBytes.fetch_add(bytes, std::memory_order_relaxed);
                     }
+                    else if (eeAhead && eeAheadTake(key, offset, dst, bytes, eeEntryEnd))
+                    {
+                        ok = true;
+                        eeHit = true;
+                        g_eeHits.fetch_add(1, std::memory_order_relaxed);
+                        g_eeHitBytes.fetch_add(bytes, std::memory_order_relaxed);
+                    }
                     else
                     {
                         ahead().workerReading.store(true, std::memory_order_release);
                         ok = readHostRange(path, offset, dst, bytes);
                         ahead().workerReading.store(false, std::memory_order_release);
+                        if (!toIop)
+                            g_eeMisses.fetch_add(1, std::memory_order_relaxed);
                     }
                     if (ok && toIop && aheadEnabled())
                         aheadQueue(key, offset + bytes, bytes);
+                    {
+                        // SOTC_CD_AHEAD100_LOG=1 (measuring): each EE read's file, place, size and outcome.
+                        static const bool readLog = std::getenv("SOTC_CD_AHEAD100_LOG") && std::atoi(std::getenv("SOTC_CD_AHEAD100_LOG")) != 0;
+                        if (readLog && !toIop)
+                            std::fprintf(stderr, "[cd100r] %s %llu %u %s\n", path.filename().string().c_str(), (unsigned long long)offset, static_cast<unsigned>(bytes), eeHit ? "copied" : "read");
+                    }
+                    if (ok && eeAhead)
+                    {
+                        static std::string lastKey;
+                        static uint64_t lastEnd = ~0ull;
+                        static const size_t kEeAhead = []
+                        {
+                            const char *e = std::getenv("SOTC_CD_AHEAD100_KB");
+                            return std::clamp<size_t>(e ? static_cast<size_t>(std::strtoull(e, nullptr, 10)) : 256u, 64u, 512u) * 1024u;
+                        }();
+                        if (eeHit)
+                        {
+                            if (eeEntryEnd - (offset + bytes) < kEeAhead / 2u)
+                                eeAheadQueue(key, eeEntryEnd, kEeAhead);
+                        }
+                        else if (key == lastKey && offset == lastEnd)
+                            eeAheadQueue(key, offset + bytes, kEeAhead);
+                        lastKey = key;
+                        lastEnd = offset + bytes;
+                    }
+                    if (!toIop)
+                    {
+                        // Every ~10 s with an EE read: the read-ahead's counters.
+                        const uint64_t now = ps2x::iop::audio_stats::nowUs();
+                        if (now >= g_eeLogAt)
+                        {
+                            g_eeLogAt = now + 10000000u;
+                            std::fprintf(stderr, "[cd100] EE reads: %llu copied from the read-ahead (%llu KB, %llu waited for their piece), %llu read; %llu KB read ahead | on %d\n",
+                                         (unsigned long long)g_eeHits.load(std::memory_order_relaxed), (unsigned long long)(g_eeHitBytes.load(std::memory_order_relaxed) / 1024u),
+                                         (unsigned long long)g_eeWaits.load(std::memory_order_relaxed),
+                                         (unsigned long long)g_eeMisses.load(std::memory_order_relaxed), (unsigned long long)(g_eeAheadBytes.load(std::memory_order_relaxed) / 1024u),
+                                         eeAhead ? 1 : 0);
+                        }
+                    }
                     lock.lock();
                     s.ok = ok;
                     s.doneUs = ps2x::iop::audio_stats::nowUs();

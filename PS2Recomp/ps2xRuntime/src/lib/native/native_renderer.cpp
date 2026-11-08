@@ -214,7 +214,7 @@ namespace native_renderer
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
                                          {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
-                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}})
+                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_GL_INFLIGHT100", &Tuning::glInflight100}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -299,7 +299,7 @@ namespace native_renderer
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
                                          {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
-                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}})
+                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_GL_INFLIGHT100", &Tuning::glInflight100}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)
@@ -1148,6 +1148,7 @@ namespace native_renderer
                 uint64_t clocks = 0;
                 uint32_t preempts = 0, moves = 0;
                 bool seen = false;
+                int placed = 0; // round 100: the priority place() left it at (setKindPriority's 0)
             };
             Slot g_slots[kSlots];
             std::atomic<int> g_slotCount{0};
@@ -1249,10 +1250,33 @@ namespace native_renderer
             const int prioResult = prio >= 64 && prio <= 191 ? sceKernelChangeThreadPriority(self, prio) : 0;
             SceKernelThreadInfo info{};
             info.size = sizeof(info);
-            if (sceKernelGetThreadInfo(self, &info) >= 0)
+            const bool haveInfo = sceKernelGetThreadInfo(self, &info) >= 0;
+            if (haveInfo)
+            {
+                std::lock_guard<std::mutex> lock(g_slotMutex);
+                for (int i = 0; i < g_slotCount.load(std::memory_order_relaxed); ++i)
+                    if (g_slots[i].id == self)
+                        g_slots[i].placed = info.currentPriority;
+            }
+            if (haveInfo)
                 std::fprintf(stderr, "[threads] %s (%s, layout %d): cores 0x%x%s, priority %d%s\n", kNames[kind], info.name, layout() ? 1 : 0,
                              static_cast<unsigned>(info.currentCpuAffinityMask), maskResult < 0 ? " (refused)" : "", info.currentPriority,
                              prioResult < 0 ? " (refused)" : "");
+        }
+        // Round 100: every noted thread of a kind at priority `prio` (0: the
+        // one place() left it at); threads placed later keep place()'s.
+        void setKindPriority(Kind kind, int prio)
+        {
+            std::lock_guard<std::mutex> lock(g_slotMutex);
+            for (int i = 0; i < g_slotCount.load(std::memory_order_relaxed); ++i)
+            {
+                const Slot &t = g_slots[i];
+                if (t.kind != kind)
+                    continue;
+                const int want = prio > 0 ? prio : t.placed;
+                if (want >= 64 && want <= 191)
+                    sceKernelChangeThreadPriority(t.id, want);
+            }
         }
         void sample()
         {
@@ -1354,6 +1378,7 @@ namespace native_renderer
         }
 #else
         void place(Kind) {}
+        void setKindPriority(Kind, int) {}
         void sample() {}
         int line(char *out, size_t room, double, bool, bool)
         {

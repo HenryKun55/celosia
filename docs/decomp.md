@@ -15234,3 +15234,73 @@ say which of them the GPU actually pays for.
 
 **Deliverable:** build/agent-scratch/celosia-r98.vpk (= r98/p10.vpk: main
 f31c6ed + this round).
+
+## Round 100: stutter: the console's frame-time spikes by cause; the camera blur's join, two frames on the GPU, the disc's read-ahead, the disc readers' priority (2026-11-07)
+
+Scripts, runs and logs: `build/agent-scratch/r100/` (build.sh, v3k.sh: mem99's with r100 paths; runs/route1,
+cdlog, attract3; env-console.txt; STATE.md). Readers: `tools/spike100.py` (the cause table) and
+`tools/ab100.py` (per A/B state).
+
+**How a spike is split.** Each `[frame] each / slow` line of a 3D frame (draws >= 200) is one frame; a
+spike is a frame over 1.4x the 3D median; its excess over the median goes to the columns that rose over
+their own 3D medians: the render thread's wait (`wait`: its draw when `draw` > `present`, else its
+present / swap, the GPU backlog), the scheduler's waits by site (`sched`: `blocked` is every guest thread
+idle, mostly the disc's reads), the joins by site (`joins`), the hooks' own work (`hooks` less `join`:
+hookjobs::frameEnd adds the joins' time to hookUs), the frame end (`sync end` less `wait`), the game
+thread's own CPU (`cpu game` less those), the rest off-CPU without a logged wait. `--local 15`: each frame
+against the median of its 30 neighbours (a transient spike, not a slow scene).
+
+**The console (cpu 444 / gpu 222), spike excess by cause.**
+
+| cause | far100 (main) | r98 | r96 | far100, local |
+|---|---|---|---|---|
+| game thread's own CPU | 44.3% | 31.5% | 20.5% | 27.8% |
+| render thread present / swap (GPU backlog) | 9.2% | 33.9% | 59.6% | 4.0% |
+| sched `blocked` (guest idle: disc reads ~half) | 12.2% | 5.7% | 3.8% | 20.6% |
+| join `screenblur` | 9.0% | 9.8% | 5.3% | 6.9% |
+| join `move` (the heap's garbage moves) | 4.6% | 1.7% | 1.2% | 6.4% |
+| join `gsreg-refraction` | 0.9% | 1.9% | 0.1% | 1.8% |
+| render thread draw (CPU) | 3.9% | 5.8% | 3.7% | 15.6% |
+| off-CPU, no logged wait | 11.6% | 3.7% | 2.0% | 11.3% |
+| frame end (flush2D, hand-over) | 1.7% | 4.3% | 2.9% | 2.2% |
+| hooks' own work | 1.9% | 0.7% | 0.6% | 1.2% |
+
+far100: 4 904 3D frames, mean 51.9, p50 49.5, p90 69.2, p99 88.7 ms; 9.7% of them over 69.3 ms, 2.87 ms a
+3D frame of excess. In the screenblur / move / refraction joins the hook worker is behind: job lag 20-35 ms,
+35-48 ms of jobs in the frame (median ~11). The game thread's own CPU spikes have no finer split in the
+log (round 97's area); with the GPU-bound scenes of r96 / r98 the present's wait leads.
+
+**Changes (each with its own A/B name, whose windows turn it off; `r100all` all of them).**
+1. `sblur100` (SOTC_SBLUR100, default 1): round 59's lazy join is the default: screenBlurHook joins the
+   model jobs only when it records a blur. Its identity calls (nearly all) no longer hold the game thread
+   for the worker's backlog; the frame change's join takes it, the guest's work in between overlapping it,
+   as in every frame where the camera stands still. Same draws in the same order.
+2. `inflight100` (SOTC_GL_INFLIGHT100, Vita default 1): at most two frames on the GPU: the render thread
+   begins a frame once the GPU has finished the one before the last presented (inflight87 waited for the
+   last one and left the GPU idle between frames, +3.7 ms). The console's GPU ran ~3 frames behind; the
+   third adds latency and fills GXM's parameter buffer and vitaGL's pools. Same commands, same picture.
+3. `cdahead100` (SOTC_CD_AHEAD100, default 1; SOTC_CD_AHEAD100_KB, 256): the disc's reads into EE memory
+   read ahead: after two reads in a row on one file a thread of its own reads the next window in 64 KB
+   pieces into one of three windows, each piece usable when in; a request inside a window is copied
+   (waiting for its piece when it is on its way, at most 300 ms). `[cd100]` lines; SOTC_CD_AHEAD100_LOG=1
+   gives `[cd100r]` per read. Read-only data: the same bytes.
+4. `prio100` (SOTC_PRIO100, Vita default 1; SOTC_PRIO100_VALUE, 145): the disc reader threads (`loader`)
+   above the hook worker, at run time (native_renderer::threads::setKindPriority).
+The console env also sets SOTC_GL_SPIKE_MS=60 (`[gl:spike]` lines for render draws over 60 ms, was 100).
+
+**Vita3K (222 MHz, 3 cores).** route1 (route 6, 600 s, A/B r100all, sblur100, cdahead100): no fault; Vita3K
+logs no screenblur join at all (its worker keeps up) and no GPU backlog (the in-flight wait 0.00): those
+two can only be measured on the console. Paired against neighbouring all-on windows: sblur100 off +2.2 +-
+0.9 ms a frame, r100all off +2.4 +- 1.4, cdahead100 off +0.6 +- 1.3. cdlog (route 6, 300 s, all on): 1 516
+EE reads, 1 318 of them continuing the one before (198 runs of ~7); 1 228 copied from the read-ahead, 240
+read, 300 waited for their piece; 68.9 MB read ahead for 39.3 MB used.
+attract3 (the final build, the attract demo, 600 s, the console env: A/B r100all, sblur100, inflight100):
+no fault or hang, 17 392 frames; paired: sblur100 off +2.2 +- 1.2 ms, inflight100 off +3.8 +- 1.7 (Vita3K has
+no GPU backlog: noise / the cut scenes' loads), r100all off +0.9 +- 1.7; the read-ahead copied 1 799 EE reads
+(57.6 MB) and read 761. Vita3K's own spikes are the render thread's draw (its GPU emulation), not the
+console's causes: the console run decides.
+
+**Console run.** build/agent-scratch/celosia-r100.vpk with r100/env-console.txt (SOTC_AB_FLAG=r100all,
+sblur100, inflight100; cdahead100 and prio100 only through r100all). Read with
+`tools/ab100.py err.txt --causes` (p50 / p90 / p99, spike share and causes per state, paired deltas) and
+`tools/spike100.py err.txt [--local 15]`.

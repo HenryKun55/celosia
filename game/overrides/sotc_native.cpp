@@ -2930,6 +2930,27 @@ namespace sotc_native
     PS2Runtime *g_runtimeForLog = nullptr; // the [audio] line's thread and heap part
     // Round 59 (screenBlurHook): SOTC_SBLUR_JOIN=0 or an A/B with `sblurlazy`.
     bool g_sblurLazyJoin = false;
+    // Round 100 (stutter): the round's switches, each with its own A/B name
+    // (its windows turn it off) and `r100all` (all off together).
+    // sblur100: screenBlurHook joins the model jobs only when it records a
+    // blur (round 59's lazy join, now the default; SOTC_SBLUR100=0: the join
+    // at every call). The console's frame logs: 'joins screenblur' in ~11% of
+    // the 3D frames, 5-25 ms each when the hook worker was behind (job lag
+    // 20-35 ms), 8-14% of the time over 1.4x the median in the frames over
+    // it. cameraBlur calls screenBlur near the frame's end whenever the camera
+    // moved and nearly every call is the identity (round 51), which records
+    // nothing: without the join the worker's backlog is joined at the frame
+    // change (syncFrame) as in every frame where the camera stood still, the
+    // guest's work between the two (the rest of graphFrameFinish, the next
+    // frame's start) overlapping it. Same draws in the same order: the
+    // guest screenBlur's own GS writes keep the jobs' order through gsReg's
+    // hooks, and a recorded blur still joins first.
+    bool g_sblur100 = true;
+    bool sblur100Start()
+    {
+        static const bool v = [] { const char *e = std::getenv("SOTC_SBLUR100"); return !e || std::atoi(e) != 0; }();
+        return v;
+    }
     void abSwitches()
     {
         static const char *flags = std::getenv("SOTC_AB_FLAG");
@@ -3037,6 +3058,9 @@ namespace sotc_native
             {"vol87", &native_renderer::Tuning::glVol87},            // round 87 (GPU candidate: its windows flip it)
             {"shmask87", &native_renderer::Tuning::glShmask87},      // round 87 (GPU candidate: its windows flip it)
             {"inflight87", &native_renderer::Tuning::glInflight87},  // round 87 (GPU candidate: its windows flip it)
+            {"inflight100", &native_renderer::Tuning::glInflight100}, // round 100 (r100all too)
+            {"cdahead100", &native_renderer::Tuning::cdAhead100},     // round 100 (r100all too)
+            {"prio100", &native_renderer::Tuning::prio100},           // round 100 (r100all too)
             {"bgsmall87", &native_renderer::Tuning::glBgSmall87},    // round 87 (GPU candidate: its windows flip it)
             {"opaque88", &native_renderer::Tuning::glOpaque88},      // round 88 (GPU candidate: its windows flip it)
             {"mirror88", &native_renderer::Tuning::glMirror88},      // round 88 (GPU candidate: its windows flip it)
@@ -3078,7 +3102,7 @@ namespace sotc_native
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1, sblur100At = -1, r100AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3125,6 +3149,8 @@ namespace sotc_native
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
             log76At = indexOf("log76");
             keep99At = indexOf("keep99"); // round mem99: the hook jobs' room trim
+            sblur100At = indexOf("sblur100"); // round 100: screenBlurHook's join only for a recorded blur
+            r100AllAt = indexOf("r100all");   // round 100: the round's switches off together
             sacMaxAt = indexOf("sacmax");
             sacPtclAt = indexOf("sacptcl");
             sacLodAt = indexOf("saclod");
@@ -3237,6 +3263,8 @@ namespace sotc_native
         }
         if (keep99At >= 0) // round mem99
             g_jobTrimOff = isOffAt(keep99At);
+        if (sblur100At >= 0 || r100AllAt >= 0) // round 100
+            g_sblur100 = !((sblur100At >= 0 && isOffAt(sblur100At)) || (r100AllAt >= 0 && isOffAt(r100AllAt)));
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
         if (laneHelpAt >= 0) // round 72: the lane's jobs run by the joins / the worker
@@ -3324,6 +3352,14 @@ namespace sotc_native
                 if ((!std::strcmp(kTuningFlags[i].name, "at98") || !std::strcmp(kTuningFlags[i].name, "untex98") || !std::strcmp(kTuningFlags[i].name, "glow98") ||
                      !std::strcmp(kTuningFlags[i].name, "nofog98") || !std::strcmp(kTuningFlags[i].name, "lod0_98") || !std::strcmp(kTuningFlags[i].name, "psoft98") ||
                      !std::strcmp(kTuningFlags[i].name, "plainread73")) &&
+                    (off || tuningAt[i] < 0))
+                    t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
+        }
+        if (r100AllAt >= 0) // round 100: the round's switches off together
+        {
+            const bool off = isOffAt(r100AllAt);
+            for (size_t i = 0; i < kTuningCount; ++i)
+                if ((!std::strcmp(kTuningFlags[i].name, "inflight100") || !std::strcmp(kTuningFlags[i].name, "cdahead100") || !std::strcmp(kTuningFlags[i].name, "prio100")) &&
                     (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
         }
@@ -3420,6 +3456,23 @@ namespace sotc_native
         }
     }
 
+    // Round 100 (Tuning prio100): the disc reader threads' priority, applied
+    // when the switch changes and every 120 frames (a reader started since
+    // keeps place()'s priority until then).
+    void prio100Apply()
+    {
+        static const int value = [] { const char *e = std::getenv("SOTC_PRIO100_VALUE"); return e ? std::clamp(std::atoi(e), 64, 191) : 145; }();
+        static int applied = -1;
+        static uint64_t at = 0;
+        const int want = native_renderer::tuning().prio100 ? 1 : 0;
+        if (want == applied && g_frame < at + 120u)
+            return;
+        native_renderer::threads::setKindPriority(native_renderer::threads::kLoader, want ? value : 0);
+        if (want != applied)
+            std::fprintf(stderr, "[prio100] frame %llu: disc readers at %s\n", (unsigned long long)g_frame, want ? std::to_string(value).c_str() : "their own priority");
+        applied = want;
+        at = g_frame;
+    }
     void endFrame()
     {
         if (g_frame == 0)
@@ -3428,6 +3481,7 @@ namespace sotc_native
             mdsTraceFrame();
         lines67::frame(g_frame);
         abSwitches();
+        prio100Apply();
         flush2D();
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
         // from getFogFactor0/1 (0x1089b70/bb0), the colour as
@@ -7536,7 +7590,7 @@ namespace sotc_native
         // Default: the join at every call, as before (the lazy join measured
         // no gain and the title screen's world a little worse, round 59).
         static const bool envLazy = std::getenv("SOTC_SBLUR_JOIN") && std::atoi(std::getenv("SOTC_SBLUR_JOIN")) == 0;
-        const bool lazy = g_sblurLazyJoin || envLazy;
+        const bool lazy = g_sblurLazyJoin || envLazy || (sblur100Start() && g_sblur100); // round 100: the default
         if (!lazy)
             hookJoin(hookjobs::k_screenblur);
         static int n = 0;

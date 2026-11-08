@@ -556,6 +556,9 @@ namespace native_renderer
             kKinds
         };
         void place(Kind kind);
+        // Round 100: every thread of a kind noted so far at priority `prio`
+        // (64 the highest .. 191; 0: the priority place() gave it).
+        void setKindPriority(Kind kind, int prio);
         // " | cpu game 40.1 (3p 0m) worker ...": each kind's CPU time (ms),
         // thread preemptions (p) and moves to another core (m) since the last
         // call, averaged over `frames`; empty off the Vita or before any

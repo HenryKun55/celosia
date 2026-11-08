@@ -200,8 +200,26 @@ namespace
         // Round 87 (Tuning glInflight87): the scene count at the last present,
         // and the render thread's time waiting for the GPU to reach it.
         uint32_t g_lastPresentScene = 0;
+        uint32_t g_prevPresentScene = 0; // round 100: the present before the last one's
         std::atomic<uint64_t> g_inflightWaitUs{0};
+        std::atomic<uint64_t> g_inflight100Waits{0}; // round 100: the waits that slept
         uint64_t g_inflight0 = 0;
+        // Round 100 (Tuning glInflight100): the frame before the last one
+        // presented finished on the GPU (at most two frames on it once this
+        // one is sent); waitPreviousFrame (round 87) waits for the last one.
+        void waitFrameBefore()
+        {
+            if (!query_fence.address || !g_prevPresentScene)
+                return;
+            const uint32_t target = g_prevPresentScene;
+            if (static_cast<int32_t>(done() - target) >= 0)
+                return;
+            const uint64_t start = native_renderer::nowUs();
+            while (static_cast<int32_t>(done() - target) < 0 && native_renderer::nowUs() - start < 100000u)
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+            g_inflightWaitUs.fetch_add(native_renderer::nowUs() - start, std::memory_order_relaxed);
+            g_inflight100Waits.fetch_add(1, std::memory_order_relaxed);
+        }
         void waitPreviousFrame()
         {
             if (!query_fence.address)
@@ -228,6 +246,7 @@ namespace
         }
         void presented(uint64_t tookUs, uint32_t backlogAtStart)
         {
+            g_prevPresentScene = g_lastPresentScene;
             g_lastPresentScene = sent();
             if (!on())
                 return;
@@ -342,6 +361,7 @@ namespace
         void bind(uint32_t, uint32_t, uint32_t) {}
         void label(const char *, int = 0, int = 0) {}
         void waitPreviousFrame() {}
+        void waitFrameBefore() {}
         uint32_t backlog() { return 0u; }
         void presented(uint64_t, uint32_t) {}
 #endif
@@ -5437,6 +5457,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
         if (native_renderer::tuning().glInflight87)
             gpu86::waitPreviousFrame();
+        else if (native_renderer::tuning().glInflight100)
+            gpu86::waitFrameBefore(); // round 100
 #endif
         fitTargets(w, h);
         ensureTargets(w, h);
