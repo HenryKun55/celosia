@@ -574,7 +574,7 @@ namespace sotc_decomp
         kPtcl103,     // round 103: particleDraw's ptclman packets (for the PS2's VU1 only) not built: the renderer's job made from their inputs (decomp_ptcldraw, sotc_native)
         kSolid103,    // round 103: the solid models' draw without the PS2's VU1 matrix blocks no native code reads (decomp_walk)
         kGrp106,      // round 106: the frame start's group fix-up (013448C0) with its pure leaf calls inline (exact; decomp_hot44c)
-        kOan106,      // round 106: the object animations' key evaluators (010ADE08, 010AEAF8, 010AF2A0, 010AF4D8, 010B06A8) as A9 code (exact; decomp_oan106)
+        kOan106,      // round 106: three of the object animations' key evaluators (010AF2A0, 010AF4D8, 010B06A8) native (exact but no faster: default off, SOTC_OAN106=1; decomp_hot46h)
         kAi106,       // round 106: the small animals' leader search (013E1520) and helpers as A9 code (exact; decomp_ai106)
         kSwitchCount
     };
@@ -596,8 +596,10 @@ namespace sotc_decomp
             // (the reveal) played in full, cut short with them on; frame time unchanged within noise. All five off
             // until each is proven on its own (SOTC_xxx=1 turns one on).
             // Console recheck: with seg80, probe84 and ground85 back on the reveal played in full; on again.
+            // Round 106: oan106 is exact (0 differences) but measured no faster than the recompiled code (the
+            // sampler: 0.30% of the game thread either way); off unless SOTC_OAN106=1.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
-                 which == kPtcl79) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
+                 which == kPtcl79 || which == kOan106) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
             g_switch[which] = v;
         }
         return v != 0;

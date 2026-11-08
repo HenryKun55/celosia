@@ -798,8 +798,13 @@ namespace decomp_hot46h
         objectAnimSampleT<false>(rdram, ctx, runtime, kObjectAnimSample);
     }
 
-    // ---- round 106 (SOTC_OAN106, A/B oan106 / r106all): three more of
+    // ---- round 106 (SOTC_OAN106=1, A/B oan106 / r106all): three more of
     // GetObjectAnimationFloatFrame's evaluators (decomp_hot46i's plain cases).
+    // Default off: exact (the check below: 0 differences, altar and route 6),
+    // but this file's form (every register as the code leaves it, guest reads
+    // through the macros) costs what the recompiled code does (the Vita3K
+    // sampler at the altar: 0.30% of the game thread either way); a gain
+    // needs the keys decoded in host locals with no register traffic.
     constexpr uint32_t kAlphaAnimSample = 0x010AF2A0u, kVecAnimSample = 0x010AF4D8u, kColorAnimSample = 0x010B06A8u;
 
     // SOTC_OAN106_CHECK=1: every call twice on the same input. The native
@@ -1279,7 +1284,7 @@ SOTC_DECOMP_FUNCTION(0x010ADE08u, manager_sub_010ADE08, decomp_hot46h::keyVec3);
 SOTC_DECOMP_FUNCTION(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLerp);
 SOTC_DECOMP_FUNCTION(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSample);
 SOTC_DECOMP_FUNCTION(0x010AF070u, manager_sub_010AF070, decomp_hot46h::objectAnimSample);
-// Round 106 (SOTC_OAN106=0: the recompiled code).
+// Round 106 (default off: SOTC_OAN106=1 the natives; exact, but the sampler found them no faster than the recompiled code).
 SOTC_DECOMP_FUNCTION(0x010AF2A0u, manager_sub_010AF2A0, decomp_hot46h::alphaAnimSample);
 SOTC_DECOMP_FUNCTION(0x010AF4D8u, manager_sub_010AF4D8, decomp_hot46h::vecAnimSample);
 SOTC_DECOMP_FUNCTION(0x010B06A8u, manager_sub_010B06A8, decomp_hot46h::colorAnimSample);

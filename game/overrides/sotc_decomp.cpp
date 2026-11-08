@@ -866,7 +866,7 @@ namespace sotc_decomp
                 const char *env, *names;
             } kChecks106[] = {
                 {"SOTC_GRP106_CHECK", "gamecore_sub_013448C0"},
-                {"SOTC_OAN106_CHECK", "manager_sub_010ADE08,manager_sub_010AEAF8,manager_sub_010AF2A0,manager_sub_010AF4D8,manager_sub_010B06A8"},
+                {"SOTC_OAN106_CHECK", "manager_sub_010AF2A0,manager_sub_010AF4D8,manager_sub_010B06A8"},
                 {"SOTC_AI106_CHECK", "gamecore_sub_013E1520"},
             };
             std::string names = std::getenv("SOTC_DIFFTEST") ? std::getenv("SOTC_DIFFTEST") : "";
