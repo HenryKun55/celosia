@@ -3938,9 +3938,11 @@ namespace decomp_collision
         static int depth = 0; // (lane 0's: the worker never enters the memo)
         if (!sotc_decomp::seg80On() || sotc_decomp::onWorkerLane(runtime) || depth != 0)
             return body();
-        // Round 115: with coll115 the answer is made every frame (no reuse) unless SOTC_SEG80=1 asks for it.
+        // Round 115: with coll115 seg80's 1 cm reuse is off (the camera's, the characters' and the horse's tests
+        // answered every frame) unless SOTC_SEG80=1 asks for it; round 84's AI path tests (probe84's own pool, at
+        // path scale: steering, nothing drawn) keep theirs.
         static const bool seg80Asked = [] { const char *e = std::getenv("SOTC_SEG80"); return e && e[0] >= '1' && e[0] <= '9'; }();
-        if (!seg80Asked && coll115::on(runtime))
+        if (!seg80Asked && coll115::on(runtime) && !(sotc_decomp::probe84On() && seg80::pathCaller(GPR_U32(ctx, 31))))
             return body();
         const G g{rdram, ctx, runtime};
         const uint32_t out = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), spIn = GPR_U32(ctx, 29);
