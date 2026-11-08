@@ -273,6 +273,13 @@ namespace sotc_worker
         void (*g_joinedFn)(void *) = nullptr;
         void *g_joinedArg = nullptr;
         bool g_census = false;
+        // Round 109: the join hook (game thread), the resume hook (worker), the call spy (worker).
+        void (*g_joinHook)() = nullptr;
+        void (*g_resumeHook)() = nullptr;
+        uint32_t g_spy[3] = {0u, 0u, 0u};
+        void (*g_spyFn)(uint32_t, const R5900Context *) = nullptr;
+        // Round 109: the heap's functions called in the exclusive part (target << 32 | ra), the worker's.
+        std::unordered_map<uint64_t, uint64_t> g_exclHeap;
         bool g_nextRecomp = false; // the next kickAs's job runs the recompiled code beside the game thread
         std::unordered_map<uint32_t, uint64_t> g_calls; // the worker's call targets (census), written by the worker only
 
@@ -316,10 +323,16 @@ namespace sotc_worker
                 g_parked = false;
             }
             t_exclusive = true;
+            if (g_resumeHook)
+            {
+                lock.unlock();
+                g_resumeHook();
+            }
         }
+        bool (*g_admitCtx)(uint32_t, const R5900Context *) = nullptr; // round 109
         __attribute__((always_inline)) inline void admit(uint32_t target, const R5900Context *ctx)
         {
-            if (!t_exclusive && !safe(target))
+            if (!t_exclusive && !safe(target) && !(g_admitCtx && g_admitCtx(target, ctx)))
                 park(target, GPR_U32(ctx, 31));
         }
 
@@ -669,6 +682,10 @@ namespace sotc_worker
             }
             if (__builtin_expect(g_census, 0))
                 ++g_calls[target];
+            if (__builtin_expect(target == g_spy[0] || target == g_spy[1] || target == g_spy[2], 0) && g_spyFn)
+                g_spyFn(target, ctx);
+            if (t_exclusive && ((target >= 0x001AFF00u && target < 0x001B0600u) || (target >= 0x01082D80u && target < 0x01082E80u)))
+                ++g_exclHeap[(static_cast<uint64_t>(target) << 32) | returnPc];
             if (g_snapOn && (target == kForFirst || target == kForNext || target == kForExit) && snapAnswer(rdram, ctx, target, returnPc))
                 return true;
             if (target == g_deferTarget && !t_exclusive)
@@ -713,6 +730,8 @@ namespace sotc_worker
             ++shell->m_guestJumpSerial;
             if (__builtin_expect(g_census, 0))
                 ++g_calls[target];
+            if (__builtin_expect(target == g_spy[0] || target == g_spy[1] || target == g_spy[2], 0) && g_spyFn)
+                g_spyFn(target, ctx);
             if (g_snapOn && (target == kForFirst || target == kForNext || target == kForExit) && snapAnswer(rdram, ctx, target, GPR_U32(ctx, 31)))
                 return;
             admit(target, ctx);
@@ -1140,10 +1159,24 @@ namespace sotc_worker
         return true;
     }
 
+    void setJoinHook(void (*fn)()) { g_joinHook = fn; }
+    void setAdmitCtx(bool (*fn)(uint32_t, const R5900Context *)) { g_admitCtx = fn; }
+    void setResumeHook(void (*fn)()) { g_resumeHook = fn; }
+    bool exclusiveNow() { return t_onWorker && t_exclusive; }
+    void setCallSpy(uint32_t t0, uint32_t t1, uint32_t t2, void (*fn)(uint32_t, const R5900Context *))
+    {
+        g_spy[0] = t0;
+        g_spy[1] = t1;
+        g_spy[2] = t2;
+        g_spyFn = fn;
+    }
+
     void join(Site site)
     {
         if (!g_busy.load(std::memory_order_relaxed) || t_onWorker)
             return;
+        if (g_joinHook)
+            g_joinHook();
         const uint64_t t0 = nowUs();
         bool waited = false;
         {
@@ -1283,6 +1316,17 @@ namespace sotc_worker
             for (size_t i = 0; i < sites.size() && i < 12u; ++i)
                 std::fprintf(stderr, " %08x/%08x x%llu", static_cast<uint32_t>(sites[i].second >> 32), static_cast<uint32_t>(sites[i].second), (unsigned long long)sites[i].first);
             g_parkSites.clear();
+        }
+        {
+            // Round 109: the heap's functions the jobs called in their exclusive part (target/ra)
+            std::vector<std::pair<uint64_t, uint64_t>> sites;
+            for (const auto &[k, c] : g_exclHeap)
+                sites.push_back({c, k});
+            std::sort(sites.rbegin(), sites.rend());
+            std::fprintf(stderr, " | exclusive heap calls (target/ra)");
+            for (size_t i = 0; i < sites.size() && i < 8u; ++i)
+                std::fprintf(stderr, " %08x/%08x x%llu", static_cast<uint32_t>(sites[i].second >> 32), static_cast<uint32_t>(sites[i].second), (unsigned long long)sites[i].first);
+            g_exclHeap.clear();
         }
         std::fprintf(stderr, " | module joins at");
         for (size_t i = 0; i < causes.size() && i < 6u; ++i)

@@ -45,6 +45,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
     void frameTick(uint64_t frame);
     void setAb(bool on);
     void setAb108(bool nat, bool snap, bool anime); // round 108
+    void setAb109(bool anime, bool open, bool obj); // round 109
 }
 #include "lines67.h"
 #include "lean_hot.h"
@@ -3394,6 +3395,17 @@ namespace sotc_native
                 const bool all = at108[0] >= 0 && isOffAt(at108[0]);
                 const auto on = [&](int k) { return !(all || (at108[k] >= 0 && isOffAt(at108[k]))); };
                 char104::setAb108(on(1), on(2), on(3));
+            }
+        }
+        {
+            // Round 109: `anime109` (the anime tables beside the game thread), `open109` (the worker's open queue),
+            // `obj109` (the collision / parent gates by object) each off in their windows, `r109all` the three.
+            static const int at109[4] = {indexOf("r109all"), indexOf("anime109"), indexOf("open109"), indexOf("obj109")};
+            if (at109[0] >= 0 || at109[1] >= 0 || at109[2] >= 0 || at109[3] >= 0)
+            {
+                const bool all = at109[0] >= 0 && isOffAt(at109[0]);
+                const auto on = [&](int k) { return !(all || (at109[k] >= 0 && isOffAt(at109[k]))); };
+                char104::setAb109(on(1), on(2), on(3));
             }
         }
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread

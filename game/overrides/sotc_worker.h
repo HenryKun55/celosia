@@ -131,4 +131,23 @@ namespace sotc_worker
     void install(PS2Runtime &runtime);
     // Once a frame (sotc_native's frame log): "[worker91]" every 600 frames.
     void frameTick(uint64_t frame);
+    // Round 109: `fn` called on the game thread at the start of every join of a
+    // running job (before it waits): a job that waits for more work (char104's
+    // open queue) is told to end.
+    void setJoinHook(void (*fn)());
+    // Round 109: `fn` called on the worker when the job becomes exclusive (it
+    // parked and the game thread joined, or the game thread had joined already):
+    // from then on the game thread waits, the worker may put guest state of the
+    // job's moment in place (char104: the running sub-thread's object).
+    void setResumeHook(void (*fn)());
+    // On the worker: the job runs exclusive now (the game thread waits for it).
+    bool exclusiveNow();
+    // Round 109: on the worker, every call of `t0` / `t1` / `t2` (0: none) reported to
+    // `fn` with the context at the call (char104: the objects the job's
+    // collision finders visit / enter). Set before the hand-over.
+    void setCallSpy(uint32_t t0, uint32_t t1, uint32_t t2, void (*fn)(uint32_t target, const R5900Context *ctx));
+    // Round 109: a call the job's admit rule refuses may still run beside the
+    // game thread when `fn` says so from its arguments (char104: the anime
+    // tables when no event is due). Set before the hand-over; nullptr: none.
+    void setAdmitCtx(bool (*fn)(uint32_t target, const R5900Context *ctx));
 }

@@ -29,6 +29,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <unordered_map>
@@ -110,10 +112,10 @@ namespace char104
         std::map<ReadKey, uint64_t> g_reads;
         uint64_t g_frames = 0, g_geoUsSum = 0, g_lastGeoEndSum = 0, g_frameLenSum = 0;
 
-        void accessJoin(uint32_t obj); // the job's part (below)
+        void accessJoin(uint32_t obj, uint32_t acc, uint32_t ra); // the job's part (below)
         void noteRead(uint32_t obj, uint32_t acc, uint32_t ra)
         {
-            accessJoin(obj);
+            accessJoin(obj, acc, ra);
             if (logV() <= 0)
                 return;
             auto it = g_geoAt.find(obj);
@@ -237,8 +239,8 @@ namespace char104
             0x0112A250u, 0x0112A2F0u, 0x01129FA8u, 0x0112A350u, 0x010F1D60u, 0x01124410u, 0x01124500u, 0x011478B8u, 0x01147798u,
             // sound
             0x011583E8u, 0x011586F8u, 0x011585C0u, 0x01158750u, 0x001CAA10u, 0x001CAC80u, 0x001CAC98u, 0x001CACD8u,
-            // the anime tables (their events: sounds, particles)
-            0x01169020u, 0x01169800u, 0x011696A8u,
+            // the anime tables (their events: sounds, particles); round 109: ExecEff (its events read the tables' globals)
+            0x01169020u, 0x01169800u, 0x011696A8u, 0x01169388u,
         };
         constexpr int kGateCount = sizeof(kGate) / sizeof(kGate[0]);
         PS2Runtime::RecompiledFunction g_gateOrig[kGateCount] = {};
@@ -246,12 +248,46 @@ namespace char104
         bool g_gatesOn = false;
         void gateJoin(int i);
         void gateArg(uint32_t gate, uint32_t a0); // round 108: is the gate's a0 a character of the batch (below)
+        bool gateSkip(uint32_t gate, const R5900Context *ctx); // round 109: the gate needs no join (below)
+        void animeAfter();                                     // round 109: the game thread's quiet anime table call made (below)
+        void joinHook109();                                    // round 109's hooks (below)
+        void resume109();
+        bool admitCtx109(uint32_t target, const R5900Context *ctx);
+        void spy109(uint32_t target, const R5900Context *ctx);
+        void animeRecord(uint32_t info, uint32_t obj, float t); // round 109's predictor (below)
+        uint64_t g_gateSkips[kGateCount] = {};
+        int g_letGo = 0; // round 109: inside a gate's call let go (game thread)
+        std::unordered_map<uint64_t, uint64_t> g_accessSites; // round 109: (accessor << 32 | ra) of each access join
+        std::map<uint32_t, std::pair<uint64_t, float>> g_nearObjs; // round 109: objects kept near: count, the least distance
         std::unordered_map<uint64_t, uint64_t> g_gateSites; // round 108: (gate << 32 | ra) of each join
         template <int I>
         void gate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
+            if constexpr (kGate[I] == 0x01169020u)
+                if (!ps2_worker::isShell(runtime))
+                    animeRecord(GPR_U32(ctx, 4), GPR_U32(ctx, 5), ctx->f[12]); // round 109: the predictor's history
             if (!ps2_worker::isShell(runtime) && sotc_worker::busy())
             {
+                // Round 109: inside a FlushCollisionWork let go, its own work struct's flush (the object's
+                // collision work, which the job cannot meet either) goes on too.
+                if constexpr (kGate[I] == 0x01124410u || kGate[I] == 0x01147798u)
+                    if (g_letGo > 0)
+                    {
+                        ++g_gateSkips[I];
+                        return g_gateOrig[I](rdram, ctx, runtime);
+                    }
+                if (gateSkip(kGate[I], ctx))
+                {
+                    // Round 109 (obj109 / anime109): the job cannot meet this call's object, or the anime
+                    // tables' call fires no event: the game thread goes on without the join.
+                    ++g_gateSkips[I];
+                    ++g_letGo;
+                    g_gateOrig[I](rdram, ctx, runtime);
+                    --g_letGo;
+                    if constexpr (kGate[I] == 0x01169020u)
+                        animeAfter();
+                    return;
+                }
                 ++g_gateSites[(static_cast<uint64_t>(kGate[I]) << 32) | GPR_U32(ctx, 31)];
                 gateArg(kGate[I], GPR_U32(ctx, 4));
                 gateJoin(I);
@@ -274,6 +310,11 @@ namespace char104
         {
             installGates(runtime, std::make_integer_sequence<int, kGateCount>{});
             g_gatesOn = true;
+            // Round 109: the open queue's end, the moment's sub-thread object, the anime tables' test, the collision spy.
+            sotc_worker::setJoinHook(joinHook109);
+            sotc_worker::setResumeHook(resume109);
+            sotc_worker::setAdmitCtx(admitCtx109);
+            sotc_worker::setCallSpy(0x010F1A20u, 0x0112A250u, 0x01169020u, spy109);
         }
     }
 
@@ -407,10 +448,24 @@ namespace char104
         uint64_t g_parUs = 0, g_gameBesideUs = 0, g_appendRefused = 0; // round 108's statistics
         float g_near = 12.0f;
         bool g_ab = true; // the A/B's window (char104 / r104all off: false)
+        // Round 109 (each 1 unless set, only with SOTC_CHAR104=1; A/B anime109 / open109 / obj109 / r109all):
+        //  anime109: the anime tables (ExecAnimeTableInfo) run beside the game thread when no event is due (the
+        //            worker's and the game thread's calls; their globals put back at the join in the original order);
+        //  open109:  the worker waits for the next character until the join instead of ending its batch;
+        //  obj109:   FlushCollisionWork / UpdateLayoutClassParentGeometry of an object far from every character
+        //            of the batch go on without the join (SOTC_OBJ109_R, the distance);
+        //  cur109 (no A/B): the running sub-thread's object (0x1e1550) of each character's moment put in place
+        //            while the worker runs exclusive (after a park).
+        int g_anime109 = 1, g_open109 = 1, g_obj109 = 1, g_cur109 = 1;
+        float g_obj109R = 40.0f;
+        bool g_abAnime109 = true, g_abOpen109 = true, g_abObj109 = true;
+        bool g_animeNow = false, g_openNow = false, g_objNow = false, g_curNow = false; // this batch's
 
         struct Item
         {
             uint32_t obj = 0, cls = 0, frameSp = 0;
+            uint32_t cur = 0;   // round 109: the running sub-thread's object (0x1e1550) at this hand-over
+            float pos[3] = {};  // round 109: the character's position at this hand-over
             alignas(16) uint8_t stack[kStackCopy + 0x40u]; // the game's work stack at this hand-over
             alignas(16) uint8_t post[kPostCopy];           // the game's sub-thread stack below frameSp at this hand-over
             alignas(16) uint8_t postOut[kPostCopy];        // the worker's result there
@@ -425,6 +480,14 @@ namespace char104
         bool g_qOpen = false;  // the worker still takes items
         bool g_batch = false;  // a batch handed over and not joined (the game thread's view)
         bool g_noAppend = false;
+        bool g_qClose = false;          // round 109 (open109): the game thread joins: the worker ends its batch
+        std::condition_variable g_qCv;  // round 109: the worker waits for the next item
+        uint64_t g_openWaits = 0, g_openWaitUs = 0, g_openServed = 0, g_lastWaited = 0; // the worker's (read after the join)
+        // Round 109 (cur109): the worker's swap of 0x1e1550 in its exclusive part.
+        bool g_inBatch = false, g_curSwapped = false;
+        int g_curItem = 0;
+        uint32_t g_gameCur = 0;
+        uint64_t g_curSwaps = 0;
         uint8_t *g_rdram = nullptr;
         PS2Runtime *g_rt = nullptr;
         R5900Context *g_gameCtx = nullptr;
@@ -453,6 +516,12 @@ namespace char104
             g_snap108 = envInt("SOTC_SNAP108", 1);
             g_ref108 = envInt("SOTC_CHAR108_REF", 2);
             g_anime108 = envInt("SOTC_ANIME108", 0); // (0: not exact, see below)
+            g_anime109 = envInt("SOTC_ANIME109", 1);
+            g_open109 = envInt("SOTC_OPEN109", 1);
+            g_obj109 = envInt("SOTC_OBJ109", 1);
+            g_cur109 = envInt("SOTC_CUR109", 1);
+            if (const char *e = std::getenv("SOTC_OBJ109_R"))
+                g_obj109R = static_cast<float>(std::atof(e));
             if (const char *e = std::getenv("SOTC_CHAR104_NEAR"))
                 g_near = static_cast<float>(std::atof(e));
             if (g_calls)
@@ -503,6 +572,164 @@ namespace char104
                 return false;                                  // test at 0x0116A0D4, qsort and rintf between them run beside)
             return true;
         }
+
+        // ---- Round 109: the anime tables' "no event due" test -----------------------
+        // ExecAnimeTableInfo (0x1169020: a0 the table info, a1 the object, f12 the time) has two
+        // lists (+0 / +8 non-zero: the list's cursor at +4 / +0xc, entries of 8 bytes: +0 the time,
+        // +4 a handle: low 18 bits back to the owner's pointer, bits 18-29 an index). For each list it
+        // writes the tables' globals (0x118fe88-0x118fe98: the object, its character class, 0, the object,
+        // 0; 0x122b860-0x122b88f: three quads of the layout class), then from the cursor: an entry whose
+        // handle has no owner (or the empty owner, the boot ELF's 0x1e0ed4) or resolves to 0 ends the list
+        // (the cursor cleared); an entry whose time is above f12 stops it (the cursor kept); else its event
+        // runs (manager_sub_011688A8: sounds, particles, sequences, rand) and the next entry follows.
+        // Quiet: no event runs. Then the call writes only the globals, the cursors and its own frame;
+        // the globals are read only by the events' code (under ExecAnimeTableInfo / ExecEff, which write
+        // them first), so they are dead between calls: their last values are put back at the join in
+        // the original order (the game thread's quiet calls come after the job's).
+        constexpr uint32_t kAnimeTable = 0x01169020u;
+        inline uint32_t ru32(const uint8_t *ram, uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, ram + (a & PS2_RAM_MASK), 4);
+            return v;
+        }
+        bool animePartQuiet(const uint8_t *ram, uint32_t info, uint32_t on, uint32_t cur, float t)
+        {
+            if (ru32(ram, info + on) == 0u)
+                return true;
+            const uint32_t s0 = ru32(ram, info + cur);
+            if (s0 == 0u)
+                return true;
+            const uint32_t a3 = ru32(ram, s0 + 4u), back = a3 & 0x3FFFFu;
+            if (back == 0u)
+                return true;
+            const uint32_t owner = ru32(ram, s0 + 4u - back);
+            if (owner == 0u || owner == ru32(ram, 0x001E0ED4u))
+                return true;
+            const uint32_t at = ru32(ram, owner + 0x10u) + ((a3 >> 18) & 0xFFFu) * ru32(ram, ru32(ram, owner + 8u) + 0xCu);
+            if (at == 0u)
+                return true;
+            float f0;
+            std::memcpy(&f0, ram + (s0 & PS2_RAM_MASK), 4);
+            return t < f0; // (c.lt.s: a NaN fires)
+        }
+        bool animeQuiet(const uint8_t *ram, const R5900Context *ctx)
+        {
+            const uint32_t info = GPR_U32(ctx, 4);
+            if (!plain(info))
+                return false;
+            const float t = ctx->f[12];
+            return animePartQuiet(ram, info, 0u, 4u, t) && animePartQuiet(ram, info, 8u, 0xCu, t);
+        }
+        std::atomic<uint64_t> g_animeWorkerQuiet{0}, g_animeLoud{0}; // the worker's quiet calls run beside the game thread; its events beside
+        bool admitCtx109(uint32_t target, const R5900Context *ctx)
+        {
+            if (target != kAnimeTable || !g_animeNow)
+                return false;
+            if (!animeQuiet(g_rdram, ctx))
+            {
+                g_animeLoud.fetch_add(1, std::memory_order_relaxed); // an event on the worker beside the game thread: the predictor missed it
+                return false;
+            }
+            g_animeWorkerQuiet.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        }
+        // ---- Round 109: the predictor. An event of a character's tables can only run exactly at its own
+        // moment (its handlers read the game's state of then: the player, the camera, the effect pools), so a
+        // character whose tables are due to fire must not go to the worker: it runs on the game thread. Each
+        // table info's time (f12) of its last calls (the game thread's and the worker's) gives the next one
+        // (last + step); a character with a list whose cursor entry is not above that time plus one more step
+        // is kept on the game thread. A miss (an event the worker reaches beside the game thread) is counted
+        // ("events on the worker"); it parks and runs at the join, as before this round.
+        struct ARec
+        {
+            float last = 0.f, step = 0.f;
+            uint64_t frame = 0;
+        };
+        std::unordered_map<uint32_t, ARec> g_animeRec;                  // table info -> its history (game thread)
+        std::unordered_map<uint32_t, std::vector<uint32_t>> g_objTables; // object -> its table infos
+        struct AW
+        {
+            uint32_t info, obj;
+            float t;
+        };
+        std::vector<AW> g_animeRecW; // the worker's calls (merged at the join)
+        uint64_t g_animeHeld = 0;
+        void animeRecord(uint32_t info, uint32_t obj, float t)
+        {
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            ARec &r = g_animeRec[info];
+            if (r.frame == 0u)
+            {
+                auto &v = g_objTables[obj];
+                if (v.size() < 8u && std::find(v.begin(), v.end(), info) == v.end())
+                    v.push_back(info);
+            }
+            if (r.frame + 1u == frame)
+                r.step = t - r.last;
+            else if (r.frame != frame)
+                r.step = 0.f;
+            r.last = t;
+            r.frame = frame;
+            if (g_animeRec.size() > 4096u) // (objects come and go: start again)
+            {
+                g_animeRec.clear();
+                g_objTables.clear();
+            }
+        }
+        bool animeDue(const uint8_t *ram, uint32_t obj)
+        {
+            const auto it = g_objTables.find(obj);
+            if (it == g_objTables.end())
+                return false;
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            for (const uint32_t info : it->second)
+            {
+                const auto r = g_animeRec.find(info);
+                if (r == g_animeRec.end() || r->second.frame + 2u < frame)
+                    continue; // (not called lately: out of the tables' reach)
+                const float step = std::fabs(r->second.step);
+                const float t = r->second.last + 2.0f * step;
+                if (!(animePartQuiet(ram, info, 0u, 4u, t) && animePartQuiet(ram, info, 8u, 0xCu, t)))
+                    return true;
+            }
+            return false;
+        }
+        // The tables' globals (dead between calls): the game thread's last quiet call's values, put back at the join.
+        uint8_t g_animeGlobals[0x14 + 0x30];
+        bool g_animeFix = false;
+        uint64_t g_animeGameQuiet = 0, g_animeFixes = 0;
+
+        // ---- Round 109: the objects the job's collision visits (GetLayoutClass a0) and enters
+        // (EntryCollisionFinder a1), with the game thread's sequence number of the ungated calls at
+        // that moment: a visit / entry of an object whose gate the game thread let go before is a
+        // violation (obj109's distance was too short).
+        std::atomic<uint32_t> g_ungateSeq{0};
+        struct Touch
+        {
+            uint32_t obj, seq;
+            bool enter;
+        };
+        std::vector<Touch> g_touch; // the worker's
+        void spy109(uint32_t target, const R5900Context *ctx)
+        {
+            if (target == kAnimeTable)
+            {
+                if (g_animeRecW.size() < 1024u)
+                    g_animeRecW.push_back({GPR_U32(ctx, 4), GPR_U32(ctx, 5), ctx->f[12]});
+                return;
+            }
+            if (g_touch.size() < 4096u)
+                g_touch.push_back({target == 0x0112A250u ? GPR_U32(ctx, 5) : GPR_U32(ctx, 4), g_ungateSeq.load(std::memory_order_acquire),
+                                   target == 0x0112A250u});
+        }
+        struct Ungated
+        {
+            uint32_t obj, alt, seq, gate;
+        };
+        std::vector<Ungated> g_ungated; // the game thread's (this batch)
+        uint64_t g_violVisit = 0, g_violEnter = 0;
+        std::map<uint32_t, uint64_t> g_ungatedObjs; // statistics: objects let go, over the report
 
         // live: an area as the game thread has it, saved: at the last hand-over, mine: the worker's.
         void merge(uint8_t *live, const uint8_t *saved, const uint8_t *mine, size_t n)
@@ -609,19 +836,54 @@ namespace char104
             merge(g_rt->memory().getVU0Data(), it.vu0, sotc_worker::ownVu0Data(), PS2_VU0_DATA_SIZE);
         }
 
+        void putCur(uint32_t v) { std::memcpy(g_rdram + 0x001E1550u, &v, 4); }
+        // Round 109 (cur109): on the worker, when its job becomes exclusive.
+        void resume109()
+        {
+            if (!g_inBatch || !g_curNow)
+                return;
+            if (!g_curSwapped)
+            {
+                g_gameCur = ru32(g_rdram, 0x001E1550u);
+                g_curSwapped = true;
+                ++g_curSwaps;
+            }
+            putCur(g_items[g_curItem].cur);
+        }
+        // Round 109 (open109): on the game thread at every join of a running job.
+        void joinHook109()
+        {
+            std::lock_guard<std::mutex> lock(g_qMutex);
+            g_qClose = true;
+            g_qCv.notify_one();
+        }
         void batchWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, void *)
         {
-            const uint64_t t0 = nowUs();
+            uint64_t t0 = nowUs(), waited = 0;
+            g_inBatch = true;
             for (int i = 0;; ++i)
             {
                 {
-                    std::lock_guard<std::mutex> lock(g_qMutex);
+                    std::unique_lock<std::mutex> lock(g_qMutex);
+                    if (i >= g_qN && g_openNow && !g_qClose && !sotc_worker::exclusiveNow())
+                    {
+                        // Round 109: wait for the next character (an append) or the join.
+                        const uint64_t w0 = nowUs();
+                        ++g_openWaits;
+                        g_qCv.wait(lock, [i] { return i < g_qN || g_qClose; });
+                        waited += nowUs() - w0;
+                        if (i < g_qN)
+                            ++g_openServed;
+                    }
                     if (i >= g_qN)
                     {
                         g_qOpen = false;
                         break;
                     }
                 }
+                g_curItem = i;
+                if (g_curSwapped)
+                    putCur(g_items[i].cur);
                 Item &it = g_items[i];
                 const Item *prev = i ? &g_items[i - 1] : nullptr;
                 bring(rdram + g_workTop - kStackCopy, prev ? prev->stack : nullptr, it.stack, sizeof(it.stack));
@@ -631,12 +893,23 @@ namespace char104
                 if (!runItem(rdram, ctx, shell, it, i))
                     std::memcpy(it.postOut, rdram + g_postTop - kPostCopy, kPostCopy);
             }
-            g_itemUs = nowUs() - t0;
+            g_inBatch = false;
+            if (g_curSwapped)
+            {
+                putCur(g_gameCur); // the game thread's (it waits at the join meanwhile)
+                g_curSwapped = false;
+            }
+            g_itemUs = nowUs() - t0 - waited;
+            g_openWaitUs += waited;
+            g_lastWaited = waited;
         }
 
         // The game thread's copies of its areas for a hand-over.
         void snapshot(Item &it)
         {
+            it.cur = ru32(g_rdram, 0x001E1550u);
+            for (int k = 0; k < 3; ++k)
+                std::memcpy(&it.pos[k], g_rdram + ((it.obj + 0x170u + 4u * k) & PS2_RAM_MASK), 4);
             std::memcpy(it.stack, g_rdram + kWorkStack - kStackCopy, sizeof(it.stack));
             std::memcpy(it.post, g_rdram + it.frameSp - kPostCopy, kPostCopy);
             std::memcpy(it.spr, g_rt->memory().getScratchpad(), PS2_SCRATCHPAD_SIZE);
@@ -691,6 +964,33 @@ namespace char104
                 g_gameCtx->vu0_r = wc->vu0_r;
                 ++g_rTaken;
             }
+            // Round 109: the anime tables' globals as the game thread's last quiet call left them (it comes after the job's).
+            if (g_animeFix)
+            {
+                std::memcpy(g_rdram + 0x0118FE88u, g_animeGlobals, 0x14u);
+                std::memcpy(g_rdram + 0x0122B860u, g_animeGlobals + 0x14u, 0x30u);
+                g_animeFix = false;
+                ++g_animeFixes;
+            }
+            // Round 109: the job's visits / entries of objects whose gate the game thread let go before.
+            for (const Touch &t : g_touch)
+                for (const Ungated &u : g_ungated)
+                    if ((t.obj == u.obj || t.obj == u.alt) && t.seq >= u.seq)
+                    {
+                        if (t.enter)
+                            ++g_violEnter;
+                        else
+                            ++g_violVisit;
+                        if (g_violEnter + g_violVisit <= 8u)
+                            std::fprintf(stderr, "[obj109] the job %s %08x after the game thread let gate %08x go (seq %u >= %u)\n", t.enter ? "entered" : "visited", t.obj,
+                                         u.gate, t.seq, u.seq);
+                    }
+            g_touch.clear();
+            g_ungated.clear();
+            for (const AW &w : g_animeRecW)
+                animeRecord(w.info, w.obj, w.t);
+            g_animeRecW.clear();
+            g_animeNow = false;
             ++decomp_collision::g_guestRuns; // round 108: the job changed guest memory under the game thread's lane
             {
                 // Round 108: groups the job walked outside the snapshot, wanted from the next hand-over on.
@@ -724,7 +1024,9 @@ namespace char104
                 sotc_worker::lastJobTimes(jobUs, parkAt);
                 const uint64_t joinStart = g_joinStartUs ? g_joinStartUs : nowUs(); // (a join from sotc_worker's own sites)
                 const uint64_t besideGame = joinStart > g_kickUs ? joinStart - g_kickUs : 0u;
-                const uint64_t workerFree = parkAt ? parkAt : jobUs;
+                // (round 109: less the worker's waits for the next item, all of them before any park)
+                const uint64_t busyFor = parkAt ? parkAt : jobUs;
+                const uint64_t workerFree = busyFor > g_lastWaited ? busyFor - g_lastWaited : 0u;
                 g_parUs += std::min(workerFree, besideGame);
                 g_gameBesideUs += besideGame;
             }
@@ -743,6 +1045,12 @@ namespace char104
         return g_ab ? g_mode : 0;
     }
     void setAb(bool on) { g_ab = on; }
+    void setAb109(bool anime, bool open, bool obj)
+    {
+        g_abAnime109 = anime;
+        g_abOpen109 = open;
+        g_abObj109 = obj;
+    }
     void setAb108(bool nat, bool snap, bool anime)
     {
         g_abNat = nat;
@@ -778,6 +1086,106 @@ namespace char104
                 }
             ++g_argOther;
         }
+        // Round 109: an object's world position (its layout class's +0x150, the class by the object's type as
+        // FlushCollisionWork's table finds it); false when it has none.
+        bool objPos(uint32_t obj, float out[3], uint32_t &layout)
+        {
+            if (!plain(obj))
+                return false;
+            const uint32_t index = static_cast<uint32_t>(g_rdram[(obj + 8u) & PS2_RAM_MASK]) - 9u;
+            if (index >= 0xEu)
+                return false;
+            switch (u32(0x01194130u + index * 4u))
+            {
+            case 0x010F1D98u:
+            case 0x010F1DB0u:
+            case 0x010F1DC8u:
+                layout = obj + 0x20u;
+                break;
+            case 0x010F1DA0u:
+            case 0x010F1DD8u:
+                layout = obj + 0x90u;
+                break;
+            default:
+                return false;
+            }
+            for (int k = 0; k < 3; ++k)
+                out[k] = f32(layout + 0x150u + 4u * k);
+            return std::isfinite(out[0]) && std::isfinite(out[1]) && std::isfinite(out[2]);
+        }
+        uint64_t g_objNear = 0, g_objNoPos = 0, g_objBatch = 0;
+        bool gateSkip(uint32_t gate, const R5900Context *ctx)
+        {
+            if (!g_batch)
+                return false;
+            if (gate == kAnimeTable)
+            {
+                // (not in a checked batch: the reference writes the job's globals, the game thread's come after them)
+                if (!g_animeNow || g_checkThis || !animeQuiet(g_rdram, ctx))
+                    return false;
+                ++g_animeGameQuiet;
+                return true;
+            }
+            if ((gate != 0x010F1D60u && gate != 0x010F22B8u) || !g_objNow)
+                return false;
+            g_ram = g_rdram;
+            const uint32_t a0 = GPR_U32(ctx, 4);
+            float p[3];
+            uint32_t obj = a0, layout = 0, alt = 0;
+            if (gate == 0x010F1D60u)
+            {
+                if (!objPos(a0, p, layout))
+                {
+                    ++g_objNoPos;
+                    return false;
+                }
+            }
+            else
+            {
+                // UpdateLayoutClassParentGeometry: a0 a layout class (+0x20 or +0x90 of its object)
+                layout = a0;
+                if (!plain(a0))
+                    return false;
+                for (int k = 0; k < 3; ++k)
+                    p[k] = f32(a0 + 0x150u + 4u * k);
+                if (!(std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2])))
+                    return false;
+                obj = a0 - 0x20u;
+                alt = a0 - 0x90u;
+            }
+            const float r2 = g_obj109R * g_obj109R;
+            for (int i = 0; i < g_qN; ++i)
+            {
+                const Item &it = g_items[i];
+                if (it.obj == obj || it.obj == alt || it.obj == a0 || it.cls == a0 || it.obj + 0x20u == a0 || it.obj + 0x90u == a0)
+                {
+                    ++g_objBatch;
+                    return false;
+                }
+                const float x = it.pos[0] - p[0], y = it.pos[1] - p[1], z = it.pos[2] - p[2];
+                if (!(x * x + y * y + z * z > r2))
+                {
+                    ++g_objNear;
+                    auto &n = g_nearObjs[obj];
+                    const float d = std::sqrt(x * x + y * y + z * z);
+                    if (n.first++ == 0u || d < n.second)
+                        n.second = d;
+                    return false;
+                }
+            }
+            const uint32_t seq = g_ungateSeq.fetch_add(1, std::memory_order_acq_rel) + 1u;
+            g_ungated.push_back({obj, alt, seq, gate});
+            ++g_ungatedObjs[obj];
+            return true;
+        }
+        void animeAfter()
+        {
+            if (!g_batch)
+                return; // (the call joined the batch itself: it came after the job's work in any case)
+            std::memcpy(g_animeGlobals, g_rdram + 0x0118FE88u, 0x14u);
+            std::memcpy(g_animeGlobals + 0x14u, g_rdram + 0x0122B860u, 0x30u);
+            g_animeFix = true;
+        }
         void gateJoin(int i)
         {
             if (!g_batch)
@@ -785,13 +1193,16 @@ namespace char104
             ++g_gateJoins[i];
             joinNow(7, sotc_worker::kSiteChan);
         }
-        void accessJoin(uint32_t obj)
+        void accessJoin(uint32_t obj, uint32_t acc, uint32_t ra)
         {
             if (!g_batch || sotc_worker::onWorker())
                 return;
             for (int i = 0; i < g_qN; ++i)
                 if (g_items[i].obj == obj)
+                {
+                    ++g_accessSites[(static_cast<uint64_t>(acc) << 32) | ra];
                     return joinNow(1, sotc_worker::kSiteAccess);
+                }
         }
     }
 
@@ -1000,6 +1411,11 @@ namespace char104
             return false;
         if (!g_items)
             g_items = new Item[kQueue];
+        if (m == 1 && g_anime109 && g_abAnime109 && animeDue(rdram, obj))
+        {
+            ++g_animeHeld; // round 109: its tables fire this frame: on the game thread (the batch running is joined at its geometry's gate)
+            return false;
+        }
         const uint32_t frameSp = u32(kWorkStack) + 0x20u; // the frame end's sp (charaGeometry's frame + 0x20, saved at the work stack's top)
         // Queued behind the batch running.
         if (g_batch && !g_noAppend && g_qN < kQueue && sotc_worker::busy() && !sotc_worker::parked() &&
@@ -1015,7 +1431,10 @@ namespace char104
                 std::lock_guard<std::mutex> lock(g_qMutex);
                 taken = g_qOpen;
                 if (taken)
+                {
                     ++g_qN;
+                    g_qCv.notify_one(); // round 109: a worker waiting for the next item
+                }
             }
             if (taken)
             {
@@ -1035,8 +1454,17 @@ namespace char104
         it.frameSp = frameSp;
         g_checkThis = checkBegin();
         g_noAppend = g_checkThis || m == 2;
-        g_qN = 1;
-        g_qOpen = true;
+        {
+            std::lock_guard<std::mutex> lock(g_qMutex);
+            g_qN = 1;
+            g_qOpen = true;
+            g_qClose = false;
+        }
+        // Round 109: this batch's switches.
+        g_animeNow = g_anime109 && g_abAnime109 && m == 1;
+        g_openNow = g_open109 && g_abOpen109 && m == 1 && !g_noAppend;
+        g_objNow = g_obj109 && g_abObj109 && m == 1; // (checked batches too: a job that read an object let go differs from the reference)
+        g_curNow = g_cur109 && m == 1;
         g_kickUs = nowUs();
         g_joinStartUs = 0;
         g_kickSnapN = g_snapWantedN;
@@ -1124,6 +1552,50 @@ namespace char104
             std::fprintf(stderr, "; appends refused %llu; anime tables kept %llu (R drawn in %llu); nat108 %d snap108 %d anime108 %d\n", (unsigned long long)g_appendRefused,
                          (unsigned long long)deferred, (unsigned long long)deferR, g_nat108 && g_abNat ? 1 : 0, g_snap108 && g_abSnap ? 1 : 0, g_anime108 && g_abAnime ? 1 : 0);
             g_parUs = g_gameBesideUs = g_appendRefused = 0;
+        }
+        {
+            // [char109]: the round's parts: the anime tables run beside (the worker's quiet calls, the game thread's,
+            // the globals put back), the open queue (the worker's waits, those an append ended, their time), the
+            // gates let go by object (and why not: near, of the batch, no position), the violations, cur109's swaps.
+            std::fprintf(stderr,
+                         "[char109] frame %llu: anime quiet on the worker %llu, on the game thread %llu (globals put back %llu), characters held for an event %llu, events on the worker %llu; open queue waits %llu (appended %llu, %.3f ms a frame); "
+                         "gates let go:",
+                         (unsigned long long)frame, (unsigned long long)g_animeWorkerQuiet.exchange(0), (unsigned long long)g_animeGameQuiet, (unsigned long long)g_animeFixes,
+                         (unsigned long long)g_animeHeld, (unsigned long long)g_animeLoud.exchange(0),
+                         (unsigned long long)g_openWaits, (unsigned long long)g_openServed, g_openWaitUs / f / 1000.0);
+            for (int i = 0; i < kGateCount; ++i)
+                if (g_gateSkips[i])
+                    std::fprintf(stderr, " %08x x%llu", kGate[i], (unsigned long long)g_gateSkips[i]);
+            std::fprintf(stderr, " (kept: near %llu, the batch's %llu, no position %llu); violations: visited %llu entered %llu; sub-thread object swaps %llu; objects let go:",
+                         (unsigned long long)g_objNear, (unsigned long long)g_objBatch, (unsigned long long)g_objNoPos, (unsigned long long)g_violVisit,
+                         (unsigned long long)g_violEnter, (unsigned long long)g_curSwaps);
+            int shown = 0;
+            for (const auto &[o, c] : g_ungatedObjs)
+                if (shown++ < 8)
+                    std::fprintf(stderr, " %08x(type %u) x%llu", o, g_rdram ? g_rdram[(o + 8u) & PS2_RAM_MASK] : 0u, (unsigned long long)c);
+            shown = 0;
+            std::fprintf(stderr, "; kept near:");
+            for (const auto &[o, n] : g_nearObjs)
+                if (shown++ < 8)
+                    std::fprintf(stderr, " %08x(type %u) x%llu at %.1f", o, g_rdram ? g_rdram[(o + 8u) & PS2_RAM_MASK] : 0u, (unsigned long long)n.first, n.second);
+            g_nearObjs.clear();
+            {
+                std::vector<std::pair<uint64_t, uint64_t>> v;
+                for (const auto &[k, c] : g_accessSites)
+                    v.push_back({c, k});
+                std::sort(v.rbegin(), v.rend());
+                std::fprintf(stderr, "; access joins (accessor/ra)");
+                for (size_t i = 0; i < v.size() && i < 8u; ++i)
+                    std::fprintf(stderr, " %08x/%08x x%llu", static_cast<uint32_t>(v[i].second >> 32), static_cast<uint32_t>(v[i].second), (unsigned long long)v[i].first);
+                g_accessSites.clear();
+            }
+            std::fprintf(stderr, " | anime109 %d open109 %d obj109 %d (R %.0f)\n", g_anime109 && g_abAnime109 ? 1 : 0, g_open109 && g_abOpen109 ? 1 : 0,
+                         g_obj109 && g_abObj109 ? 1 : 0, g_obj109R);
+            g_animeHeld = 0;
+            g_animeGameQuiet = g_animeFixes = g_openWaits = g_openServed = g_openWaitUs = g_objNear = g_objBatch = g_objNoPos = g_curSwaps = 0;
+            for (uint64_t &x : g_gateSkips)
+                x = 0;
+            g_ungatedObjs.clear();
         }
         if (g_gatesOn)
         {
