@@ -16852,3 +16852,138 @@ now the largest per texture; the console log's split says whether it is the allo
   budget = the churn.
 - `[hitch118]` lines on slow frames: textures' alpha / swizzle / vitaGL ms (r116: ~10 ms a texture).
 - `[vita:mem]` system free user lower by the blocks (~2.25 MB a pool).
+
+## Round 114: the character jobs' slow wake was the host's load, not round 110; the jobs paused where their own account is negative (net114); char104 on by default (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r114/` (build.sh pN; v3k.sh / v3kb.sh: own trees ../vita3k-celosia-r114 /
+-r114b, 222 MHz, 3 cores; run.sh, ab.sh, ab2.sh (two A/B runs at once, one per tree), runpace.sh (the pacing on / off at
+once), chk.sh (the checks); lat114.py (the worker's start latency by window against the host's load), loadfilt.py (a run's
+frames with the host's load over a limit left out, for ab89), read114.sh, env-console.txt, STATE.md).
+p0-p7 on main 2afa9e6 (round 111), p8 / p9 rebased on 025e264 (rounds 112, 113, 116), p10 on 2e1c6ab (+ round 115) = celosia-r114.vpk.
+
+**Why.** Round 111 left char104 (far characters' geometry on the guest worker) off: rebased on round 110 the altar gained
+1.13 ms but route 6 lost 0.71 and attract riding 3.52, and in those runs the worker started 0.14-0.19 ms after a hand-over
+instead of 0.02. The brief: find why the worker wakes 10x slower since round 110 and fix it; keep the "gainless"
+characters on the game thread; with a clean win everywhere, turn char104 on by default.
+
+### 1. The slow wake: the host, not round 110
+
+Every 10 s the run scripts log the host's `uptime` (load.txt). Mapped onto the `[worker91]` windows (lat114.py):
+
+| run (round 111) | start latency by window, ms (host 1-minute load) |
+|---|---|
+| r111 runs/altarQ14 (the clean one) | 0.014-0.019 (load 2-5) |
+| r111 runsb/finalR14 (route 6) | 0.030-0.043 at load 5-19, then 0.14-0.33 from frame 7 800 at load 37-47 |
+| r111 runs/attractQ14 | 0.035-0.043 at load 33-43, 0.08-0.23 at load 43-47 |
+
+finalR14 and attractQ14 ran at the same time as other agents' builds (load 25-47 on 18 host cores; the 1-minute load of
+both runs ends with the same samples). With round 110's pacing on and off **at once** on the two trees (runs/pace1 and
+runsb/pace0, r111's p15, route 6 console env, `SOTC_PACE110=1 / 0`): the same latency, rising with the load in both
+(0.03 at load 15-19, 0.07-0.09 at 33-41). In every quiet run of this round (load under ~15): 0.017-0.035 ms. In Vita3K a
+guest thread's wake is a host thread's wake plus a free slot of the 3-core semaphore (VITA3K_CORES, no priorities): a
+loaded host delays it, and only the state with hand-overs pays for it, so the in-run A/B is biased against char104 by
+the host's load. round 111's two losing runs, their frames at load 16 or less only (loadfilt.py): route 6 (finalR14)
+-0.71 -> +0.69; attract (attractQ14, from 10 000) -3.52 -> -0.01.
+
+Nothing to fix in the game for it: the worker's wait stays a condition variable (the console's kernel wakes a priority-140
+thread on an idle core 1 in ~20 µs). What changed: the wake is now measured on the console too, with histograms, and the
+round's A/B runs were read with the load next to them (lat114.py / loadfilt.py; a run whose latency windows pass ~0.05 ms
+was loaded).
+- `[char114]` (with the `[char111]` line, every 600 frames): the hand-overs' start latency (kick to the job running,
+  sotc_worker::startLatHist) and the open queue's wake latency (an append's notify to the worker running again), each as a
+  histogram (µs: <25 / <50 / <100 / <200 / more) and a mean. Quiet Vita3K: starts 0.017-0.032 ms (90% under 50 µs),
+  open-queue wakes 0.013-0.026.
+
+### 2. Gainless characters: kept on the game thread, a loss (gain114, off)
+
+`SOTC_GAIN114=1` (default 0, A/B `gain114`): a character whose last hand-overs ran under `SOTC_GAIN114_US` (120 µs: what
+a hand-over costs the game thread) before the join stays on the game thread when that costs no overlap: no batch running,
+or the worker idle in the open queue (its geometry's gate then joins at once); behind a busy worker it is still appended.
+Learned per object, tried again after `SOTC_GAIN114_PROBE` (30) frames. Exact (only the thread changes).
+
+What the account shows (`[char114]` gainless by kind, quiet runs): at the altar 1 212 of 1 723 batches' first characters,
+849 of 878 characters appended to an idle worker and 1 485 of 1 546 appended behind a busy one ran under 120 µs before the
+join (runs/altarQ4); most of the worker's time comes after the join. But keeping them costs more: A/B gain114 (off minus on,
+quiet): **altar -1.41, route 6 -1.03** (runs/altarG3, runsb/routeG3; 3.8 characters a frame kept). A character waited for
+on the worker still costs the game thread less than running it itself (the worker's time per character is lower: its own
+caches, the natives' list; the join's wait is not the whole run). gain114 stays in the code, off.
+
+### 3. net114: the jobs paused by scene from their own account (`SOTC_NET114`, 1; A/B `net114`)
+
+Per window of `SOTC_NET114_WIN` (300) frames with hand-overs: the characters' runs before the join (what ran beside the game
+thread) less the hand-overs' cost to the game thread (the hand-over path and the joins' merges), a frame. Below
+`-SOTC_NET114_US` (150 µs a frame) the jobs pause (characters stay on the game thread) for 600 frames, 1 200 after a second
+window below in a row (p5-p8 doubled to 4 800: in a loaded run the menus' windows paused the jobs until frame ~8 400), then a
+window of hand-overs again; a window above resets the pause to 600. With a pause the report lines print even without jobs. The account is
+conservative (the quiet A/B gain at the altar is +0.4-0.7 where it reads -0.05): it only has to tell the scenes where the
+jobs lose from those where they gain:
+
+| run (quiet, 600 frames each) | runs before the join - (hand-over path + merges), ms a frame | A/B char104 |
+|---|---|---|
+| altar (runs/altarQ4) | -0.04 / -0.07 | +0.38 |
+| route 6 (runsb/routeQ4 / runsb/routeN5) | -0.04 / -0.08, +0.09..+0.12 | +0.28 / +0.51 |
+| attract riding (runs/attractA6 / runs/attractN5) | -0.11 / -0.29, -0.14 / -0.40 / -3.2 | -1.26 / -1.05 |
+
+Attract riding's late part had 13.8 characters a frame in 10.4 batches (one character each, joined at once: chan joins), the
+group snapshots 1.8 ms a frame and the hand-over path 3.2 ms. `[char114]`'s net114 line: windows, those below, the mean and
+last account, frames paused, characters kept, paused now. Exact (only the thread changes).
+
+### Checks and the delta's verify
+
+| run | build | checks | differ (live words) | verify (characters, bytes off) |
+|---|---|---|---|---|
+| runs/chkl2 (altar, 600 s) | p2 | 88 | 0 | 23 719, **138** |
+| runsb/chkr2 (route 6, 600 s) | p2 | 83 | 0 | 20 780, 0 |
+| runsb/chkl6 (altar, 600 s, net114) | p6 | 55 | 0 | 11 672, 0 |
+| runs/chkl9 (altar, 600 s, the default-on build) | p9 | 27 | 0 | 5 797, 0 |
+| runs/chkl10 (altar, 600 s, default on, with round 115's coll115) | p10 | 53 | 0 | 11 237, 0 |
+
+The 144 open verify bytes of r111's runsb/chk15 came back at the altar with the checks on (runs/chkl2: 27 by frame 1 218,
+138 by 4 818, the copy off by the same count). In checked / verified batches the full copies (the check's main RAM, the
+verify's areas) were taken before kickAs, which first joins any other job on the worker (round 91's particle job); the
+delta is taken after that join. Now those batches join the worker first (`sotc_worker::join` before the copies: check and
+verify runs only); with it 0 bytes off (runsb/chkl6 and below). `[char114v]` prints the first 16 differing bytes (area,
+offset, the full copy / synced copy / worker / live values) if any come back.
+
+### Measured (Vita3K 222 MHz, in-run A/B `SOTC_AB_FLAG=char104`, 60-frame windows, matched by draws, off minus on)
+
+| run | build | part | host load | char104 |
+|---|---|---|---|---|
+| runs/altarQ4 | p4 (gain114 off, no net114) | altar from 3 300 | 5-13 | +0.38 |
+| runsb/routeQ4 | p4 | route 6 from 4 300, console env | 5-13 | +0.28 |
+| runs/attractA6 / runsb/attractA0 | p4 (MIN 6 / MIN 0) | attract from 10 000 | 8-13 | -1.26 / -0.17 |
+| runs/attractN5 / runsb/routeN5 | p5 (net114 never armed: its A/B reset the account) | attract / route 6 | 7-12 | -1.05 / +0.51 |
+| runs/attractN6 | p6 (net114) | attract from 10 000 | 7-9 | **+0.45** |
+| runsb/altarN6 | p6 | altar | 7-16 | **+0.74** |
+| runs/routeN6 | p6 | route 6, console env | 21-35 | **+0.34** |
+| runs/altarQ9 | p9 (rebased, default on: SOTC_CHAR104 unset) | altar from 3 300 | 8-15 | **+0.62** |
+| runsb/attractQ9 | p9 | attract from 10 000 | 8-13 | **0.00** (was -1.05 / -1.26 without net114) |
+| runsb/routeQ9 | p9 | route 6, console env | 36-40, then 9-17 | -0.29 (loaded); frames at load <= 16: 98 windows only |
+| runsb/routeR9 | p9 | route 6, console env | 8-14 to frame 8 000, then 21-30 | -0.36 all; **+0.21** to 8 000, -0.76 after |
+| runsb/routeR10 | p10 (+ round 115) | route 6, console env | 26-53 | -1.46 (start latency 0.08-0.64 ms: loaded, not a measurement; net114 paused the jobs to frame ~9 000) |
+
+Noise: in runs/attractN5 the net114 windows (identical to all-on there: never armed) read -0.66 against all on, routeN5
+-0.25; the attract demo's A/B moves by ~0.7 ms between runs, the altar's and route 6's by ~0.4.
+
+### Default on
+
+`kChar104Default` is 1: SOTC_CHAR104 unset means the jobs run (`SOTC_CHAR104=0` turns them off). On the quiet
+measurements the jobs with net114 do not lose in any of the three parts: altar +0.62 / +0.74, route 6 +0.21 / +0.28 /
++0.51 (+0.34 in a loaded run), attract riding 0.00 / +0.45; without net114 attract riding lost ~1.1 ms. The attract's 0.00 is
+inside its run-to-run noise (~0.7); the console's A/B (env-console.txt) is the arbiter. Checks 0 differing words with the
+default (runs/chkl9) and in every check run of the round; the console memory card's save, 300 s, console env, default on
+(runs/load9): 5 599 frames, 8.4 characters a frame on the worker in its last window, no fault. p10 (rebased on round 115, whose collision natives run on the game thread only) was checked
+(runs/chkl10: 0 differ, verify 0) but its only A/B ran on a loaded host. No fault in any run of the
+round (Vita3K's access messages as always; tree a's Vita3K was killed from outside three times, SIGKILL, rerun).
+
+Wake-ups in the quiet default-on runs (`[char114]`): starts 0.029 ms (altar) / 0.034 (attract) mean, 89-90% under 50 µs;
+open-queue wakes 0.021-0.024. net114 paused the jobs in 2 of 13 report windows at the altar and 1 of 6 in attract (late
+part: one-character batches).
+
+The ELF has no `:128` / `:256` NEON access at an sp-based address (spalign105: 0 of 589, p6, p9 and p10).
+
+**Console.** build/agent-scratch/celosia-r114.vpk (p10: main 2e1c6ab (round 115) + this round; char104 on by default, `SOTC_CHAR104=0`
+turns it off). r114/env-console.txt: round 110's log flags, `SOTC_THREAD_CORES=guest:2`, `SOTC_AB_FLAG=char104` (off in
+its windows). Read with `build/agent-scratch/r114/read114.sh err.txt <from>`: ab89's matched block (char104 positive =
+the jobs gain on the console's cores), `[char114]` (the hand-overs' start and the open queue's wake histograms: on the
+console most should be under 25-50 µs; net114's windows and pauses), `[char104]` / `[char111]` / `[char104g]`.
