@@ -190,7 +190,8 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
     setStick(6, 7, keyAxis(KEY_A, KEY_D), keyAxis(KEY_W, KEY_S));
 
     // PS2X_INPUT_SCRIPT="<sec>:<BUTTON>:<duration>;..." scripted presses for testing.
-    // Besides buttons, LS_UP/LS_DOWN/LS_LEFT/LS_RIGHT push the left stick.
+    // Besides buttons, LS_UP/LS_DOWN/LS_LEFT/LS_RIGHT push the left stick,
+    // RS_LEFT/RS_RIGHT the right one (the camera).
     // PS2X_INPUT_CLOCK=frames: times and durations count game frames instead
     // of seconds, so the run is the same at any speed (the pad itself is read
     // every VBlank: a press shorter than a slow frame would be lost).
@@ -237,6 +238,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         uint32_t repeatAddress = 0, repeatValue = 0;
     };
     static constexpr uint16_t kStickUp = 0xF001u, kStickDown = 0xF002u, kStickLeft = 0xF003u, kStickRight = 0xF004u, kSnap = 0xF005u, kRamDump = 0xF006u, kMark = 0xF007u;
+    static constexpr uint16_t kRStickLeft = 0xF008u, kRStickRight = 0xF009u; // round 112: the camera turned (RS_LEFT / RS_RIGHT)
     static std::vector<ScriptEntry> script = []
     {
         std::vector<ScriptEntry> out;
@@ -248,7 +250,8 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             {"CROSS", PAD_CROSS}, {"CIRCLE", PAD_CIRCLE}, {"SQUARE", PAD_SQUARE}, {"TRIANGLE", PAD_TRIANGLE},
             {"L1", PAD_L1}, {"L2", PAD_L2}, {"R1", PAD_R1}, {"R2", PAD_R2},
             {"START", PAD_START}, {"SELECT", PAD_SELECT}, {"WAIT", 0}, {"SNAP", kSnap}, {"RAMDUMP", kRamDump}, {"MARK", kMark},
-            {"LS_UP", kStickUp}, {"LS_DOWN", kStickDown}, {"LS_LEFT", kStickLeft}, {"LS_RIGHT", kStickRight}};
+            {"LS_UP", kStickUp}, {"LS_DOWN", kStickDown}, {"LS_LEFT", kStickLeft}, {"LS_RIGHT", kStickRight},
+            {"RS_LEFT", kRStickLeft}, {"RS_RIGHT", kRStickRight}};
         std::stringstream all(env);
         std::string item;
         while (std::getline(all, item, ';'))
@@ -464,6 +467,8 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
             case kStickDown: setStick(6, 7, 0, 1); break;
             case kStickLeft: setStick(6, 7, -1, 0); break;
             case kStickRight: setStick(6, 7, 1, 0); break;
+            case kRStickLeft: setStick(4, 5, -1, 0); break;
+            case kRStickRight: setStick(4, 5, 1, 0); break;
             default: clearBit(e.mask); break;
             }
         }

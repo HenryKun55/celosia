@@ -27,6 +27,7 @@
 #include <malloc.h>
 #include <vitaGL.h>
 #include <psp2/kernel/cpu.h>
+#include <psp2/kernel/dmac.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
 #define PS2X_NATIVE_VITA 1
@@ -39,6 +40,8 @@ extern "C" void vglCeloOwnMips(int on); // celosia.patch (round 55): glTexImage2
 extern "C" GLboolean vglCeloTexImageSwizzled(GLsizei width, GLsizei height, GLint levels, const void *data); // celosia.patch (round 73)
 extern "C" void vglCeloLeanDraw(int bits); // celosia.patch (round 56): bit 0 uniform copies by memcpy, bit 1 one vertex stream
 extern "C" void vglCeloUniformStats(uint32_t *bytes, uint32_t *wraps); // celosia.patch (round 65c): uniform bytes reserved, pool wraps
+extern "C" uint32_t blend_info;   // vitaGL's (blending.c, a blend_config union): the blend the next draw patches its fragment program for (round 112's log)
+extern "C" GLboolean is_fbo_float; // vitaGL's (framebuffers.c): the target's output format (the same)
 #include <psp2/gxm.h>
 extern "C" SceGxmNotification query_fence;          // vitaGL's (buffers.c): every scene's end notification, value+1 a scene
 extern "C" SceGxmContext *gxm_context;              // vitaGL's (gxm.c): round 87 (glVol87) disables the volumes' fragment program
@@ -2435,6 +2438,80 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint64_t callMax = 0;
             uint32_t callIndex = 0;
         } spike;
+        // Round 112 (camera-turn hitches, SOTC_HITCH112_LOG=1): the render
+        // thread's one-off work in a frame, by kind: merged-run copies and
+        // pool compaction (vertices copied from one mesh pool to another),
+        // applyUploads' parts, and draws whose program / blend / layout
+        // combination is new this session (vitaGL patches a vertex or
+        // fragment program the first time it meets one). [hitch112] for a
+        // frame whose parts reach SOTC_HITCH112_MS (default 4), a summary
+        // every 600 frames.
+        struct Hitch112
+        {
+            bool log = false;
+            uint64_t copyUs = 0, copyBytes = 0, compactUs = 0, compactBytes = 0;
+            uint32_t copies = 0, dmaCalls = 0, cpuCalls = 0, deferred = 0;
+            uint64_t delUs = 0, relUs = 0, texUs = 0, meshUs = 0;
+            uint32_t texN = 0, meshN = 0, newVar = 0;
+            uint64_t newVarUs = 0, newVarMaxUs = 0;
+            // the 600-frame window
+            uint64_t wFrames = 0, wHitches = 0, wCopyUs = 0, wCopyBytes = 0, wCopyMaxUs = 0, wCompactUs = 0, wUpUs = 0, wUpMaxUs = 0, wNewVar = 0, wNewVarUs = 0,
+                     wNewVarMaxUs = 0, wDma = 0, wCpu = 0;
+            std::unordered_set<uint64_t> variants;
+            uint64_t lastVariant = 0;
+        } h112;
+        // Round 112: vertices copied between mesh pools (run copies, pool
+        // compaction). The pools are vitaGL buffer memory (CDRAM first), which
+        // the CPU reads uncached: a memcpy from it ran at bus speed, the bulk
+        // of the console's draw-time hitches when a camera turn brings new
+        // runs. SOTC_RUNDMA112 (default 1): the DMA controller copies instead
+        // (sceDmacMemcpy, as vitaGL's own vgl_memcpy does for its uncached
+        // memory: both ends below 0x81000000, i.e. not the cached newlib
+        // heap); the same bytes land in the same place. 0: memcpy as before.
+        void poolCopy(uint8_t *dst, const uint8_t *src, size_t bytes);
+        uint64_t frameCopyBytes = 0; // round 112: run copies made this frame (SOTC_RUNCOPY112_KB)
+        // The frame's [hitch112] line (render thread, after its draws).
+        void hitch112Frame(uint64_t uploadUs, uint64_t drawUs)
+        {
+            static const bool on = std::getenv("SOTC_HITCH112_LOG") && std::atoi(std::getenv("SOTC_HITCH112_LOG")) != 0;
+            static const uint64_t limitUs = std::getenv("SOTC_HITCH112_MS") ? std::strtoull(std::getenv("SOTC_HITCH112_MS"), nullptr, 10) * 1000u : 4000u;
+            Hitch112 &h = h112;
+            frameCopyBytes = 0;
+            if (!h.log)
+            {
+                h.log = on;
+                return;
+            }
+            const uint64_t parts = h.copyUs + h.compactUs + h.delUs + h.relUs + h.texUs + h.meshUs + h.newVarUs;
+            ++h.wFrames;
+            h.wCopyUs += h.copyUs, h.wCopyBytes += h.copyBytes, h.wCopyMaxUs = std::max(h.wCopyMaxUs, h.copyUs);
+            h.wCompactUs += h.compactUs, h.wUpUs += uploadUs, h.wUpMaxUs = std::max(h.wUpMaxUs, uploadUs);
+            h.wNewVar += h.newVar, h.wNewVarUs += h.newVarUs, h.wNewVarMaxUs = std::max(h.wNewVarMaxUs, h.newVarUs);
+            h.wDma += h.dmaCalls, h.wCpu += h.cpuCalls;
+            if (parts >= limitUs || uploadUs >= 2u * limitUs)
+            {
+                ++h.wHitches;
+                std::fprintf(stderr,
+                             "[hitch112] arena %llu: upload part %.1f ms, draw part %.1f ms | run copies %u (%.0f KB) %.1f ms, %u put off, compaction %.0f KB %.1f ms, copies by DMA %u / CPU %u"
+                             " | deletes %.1f, pool release %.1f, textures %u %.1f ms, meshes %u %.1f ms | new program variants %u: %.1f ms (slowest %.2f)\n",
+                             (unsigned long long)arenaFrame, uploadUs / 1000.0, drawUs / 1000.0, h.copies, h.copyBytes / 1024.0, h.copyUs / 1000.0, h.deferred,
+                             h.compactBytes / 1024.0, h.compactUs / 1000.0, h.dmaCalls, h.cpuCalls, h.delUs / 1000.0, h.relUs / 1000.0, h.texN, h.texUs / 1000.0,
+                             h.meshN, h.meshUs / 1000.0, h.newVar, h.newVarUs / 1000.0, h.newVarMaxUs / 1000.0);
+            }
+            if (h.wFrames >= 600u)
+            {
+                std::fprintf(stderr,
+                             "[hitch112s] %llu frames: %llu with one-off work >= limit | run copies %.1f MB %.1f ms (slowest frame %.1f ms), DMA %llu / CPU %llu copies | "
+                             "compaction %.1f ms | upload part %.1f ms (slowest %.1f) | new program variants %llu, %.1f ms (slowest frame %.1f), %u seen this session\n",
+                             (unsigned long long)h.wFrames, (unsigned long long)h.wHitches, h.wCopyBytes / 1048576.0, h.wCopyUs / 1000.0, h.wCopyMaxUs / 1000.0,
+                             (unsigned long long)h.wDma, (unsigned long long)h.wCpu, h.wCompactUs / 1000.0, h.wUpUs / 1000.0, h.wUpMaxUs / 1000.0,
+                             (unsigned long long)h.wNewVar, h.wNewVarUs / 1000.0, h.wNewVarMaxUs / 1000.0, static_cast<unsigned>(h.variants.size()));
+                h.wFrames = h.wHitches = h.wCopyUs = h.wCopyBytes = h.wCopyMaxUs = h.wCompactUs = h.wUpUs = h.wUpMaxUs = h.wNewVar = h.wNewVarUs = h.wNewVarMaxUs = h.wDma =
+                    h.wCpu = 0;
+            }
+            h.copyUs = h.copyBytes = h.compactUs = h.compactBytes = h.delUs = h.relUs = h.texUs = h.meshUs = h.newVarUs = h.newVarMaxUs = 0;
+            h.copies = h.dmaCalls = h.cpuCalls = h.deferred = h.texN = h.meshN = h.newVar = 0;
+        }
         std::vector<native_renderer::ScreenBlur> blurs;
         native_renderer::Fog fog;
         native_renderer::Bloom bloom;
@@ -4028,6 +4105,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glDeleteBuffers(1, &p.buffer);
             return false;
         }
+        static const bool poolLog = std::getenv("SOTC_HITCH112_LOG") && std::atoi(std::getenv("SOTC_HITCH112_LOG")) != 0;
+        if (poolLog) // round 112: where vitaGL put it (below 0x81000000: GPU memory, copied by DMA)
+            std::fprintf(stderr, "[hitch112] mesh pool %u made at 0x%08lx (arena %llu)\n", static_cast<unsigned>(slot),
+                         static_cast<unsigned long>(reinterpret_cast<uintptr_t>(p.mapped)), (unsigned long long)arenaFrame);
 #endif
         p.free.push_back({count, kPoolVertices - count});
         if (slot == pools.size())
@@ -4094,7 +4175,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         constexpr uint32_t kMoveBudget = 0x4000u; // vertices a frame (~0.6 MB)
         if (poolDraining < 0)
         {
-            if (arenaFrame % 30u != 0u)
+            // Round 112 (SOTC_GL_POOL_COMPACT_EVERY, default 300 frames; was
+            // 30): each look that picks a pool walks every kept mesh (~10 000
+            // in the shrine) and drops the pool's run copies, which the next
+            // frames copy again: the console's render thread had a 12-30 ms
+            // upload part every 30 frames. The same pools are emptied, later.
+            static const uint64_t every = std::getenv("SOTC_GL_POOL_COMPACT_EVERY") ? std::max(1, std::atoi(std::getenv("SOTC_GL_POOL_COMPACT_EVERY"))) : 300;
+            if (arenaFrame % every != 0u)
                 return;
             // Each pool's live vertices (capacity less its free and let-go ranges).
             std::vector<uint64_t> live(pools.size(), 0);
@@ -4156,8 +4243,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             }
 #if defined(PS2X_NATIVE_VITA)
-            std::memcpy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(first) * stride, from.mapped + static_cast<size_t>(m.first) * stride,
-                        static_cast<size_t>(m.count) * stride);
+            poolCopy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(first) * stride, from.mapped + static_cast<size_t>(m.first) * stride,
+                     static_cast<size_t>(m.count) * stride); // (round 112: DMA)
+            h112.compactBytes += static_cast<size_t>(m.count) * stride;
 #else
             glBindBuffer(GL_COPY_READ_BUFFER, from.buffer);
             glBindBuffer(GL_COPY_WRITE_BUFFER, pools[static_cast<size_t>(pool)].buffer);
@@ -4620,6 +4708,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     {
         for (const Upload &u : list)
         {
+            const uint64_t t0 = h112.log ? native_renderer::nowUs() : 0u;
             switch (u.kind)
             {
             case Upload::MeshKind:
@@ -4633,6 +4722,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uploadTexture(u.id, u.width, u.height, u.bytes.data(), u.levels);
                 break;
             }
+            if (h112.log) // round 112
+            {
+                const uint64_t took = native_renderer::nowUs() - t0;
+                if (u.kind == Upload::TextureKind)
+                    h112.texUs += took, ++h112.texN;
+                else
+                    h112.meshUs += took, ++h112.meshN;
+            }
         }
         list.clear();
     }
@@ -4641,14 +4738,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // asked for it: what eviction let go, the uploads, the per-frame meshes.
     void Renderer::applyUploads()
     {
+        const uint64_t t0 = h112.log ? native_renderer::nowUs() : 0u;
         if (!deadBuffers.empty())
             glDeleteBuffers(static_cast<GLsizei>(deadBuffers.size()), deadBuffers.data());
         if (!deadTextures.empty())
             glDeleteTextures(static_cast<GLsizei>(deadTextures.size()), deadTextures.data());
         deadBuffers.clear();
         deadTextures.clear();
+        const uint64_t t1 = h112.log ? native_renderer::nowUs() : 0u;
         poolRelease();
+        const uint64_t t2 = h112.log ? native_renderer::nowUs() : 0u;
         poolCompact();
+        if (h112.log) // round 112: applyUploads by part
+        {
+            const uint64_t t3 = native_renderer::nowUs();
+            h112.delUs += t1 - t0;
+            h112.relUs += t2 - t1;
+            h112.compactUs += t3 - t2;
+        }
         applyUploadList(uploads);
         for (const FrameMesh &f : frameMeshes)
         {
@@ -5284,8 +5391,37 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     }
 
     // A run's kept meshes copied side by side into a pool range of its own.
+    void Renderer::poolCopy(uint8_t *dst, const uint8_t *src, size_t bytes)
+    {
+#if defined(PS2X_NATIVE_VITA)
+        static const bool dma = !std::getenv("SOTC_RUNDMA112") || std::atoi(std::getenv("SOTC_RUNDMA112")) != 0;
+        if (dma && bytes && reinterpret_cast<uintptr_t>(dst) < 0x81000000u && reinterpret_cast<uintptr_t>(src) < 0x81000000u &&
+            sceDmacMemcpy(dst, src, static_cast<SceSize>(bytes)) >= 0)
+        {
+            ++h112.dmaCalls;
+            return;
+        }
+#endif
+        ++h112.cpuCalls;
+        std::memcpy(dst, src, bytes);
+    }
+
     bool Renderer::copyRun(size_t from, size_t to, uint32_t total, RunCopy &copy)
     {
+        // Round 112 (SOTC_RUNCOPY112_KB, default 1024; 0: no limit): the
+        // copies one frame makes, at most this much; the runs past it are
+        // drawn one by one this frame (the same vertices in the same order,
+        // as when the copies' budget has no room) and copied in the next
+        // frames, so a camera turn that brings hundreds of new runs spreads
+        // the copying instead of stalling one frame.
+        static const uint64_t frameLimit = static_cast<uint64_t>(std::getenv("SOTC_RUNCOPY112_KB") ? std::max(0, std::atoi(std::getenv("SOTC_RUNCOPY112_KB"))) : 1024) * 1024u;
+        const uint64_t bytes = static_cast<uint64_t>(total) * sizeof(native_renderer::Vertex);
+        if (frameLimit && frameCopyBytes && frameCopyBytes + bytes > frameLimit)
+        {
+            ++h112.deferred;
+            return false;
+        }
+        frameCopyBytes += bytes;
         if (runVertices + total > kRunBudget)
         {
             // Round 36: one scan a frame at most. Each copy past the budget
@@ -5334,20 +5470,51 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         glBindBuffer(GL_COPY_WRITE_BUFFER, pools[static_cast<size_t>(pool)].buffer);
 #endif
         uint32_t at = first;
+#if defined(PS2X_NATIVE_VITA)
+        // Round 112: meshes lying one after the other in the same pool go in
+        // one copy (a run's meshes were mostly uploaded together).
+        const uint64_t copyStart = h112.log ? native_renderer::nowUs() : 0u;
+        int spanPool = -1;
+        uint32_t spanFirst = 0, spanCount = 0, spanAt = first;
+        auto flush = [&]
+        {
+            if (spanCount)
+                poolCopy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(spanAt) * stride,
+                         pools[static_cast<size_t>(spanPool)].mapped + static_cast<size_t>(spanFirst) * stride, static_cast<size_t>(spanCount) * stride);
+        };
+        for (size_t j = from; j < to; ++j)
+        {
+            const Mesh *o = plan[j].mesh;
+            if (spanCount && o->pool == spanPool && o->first == spanFirst + spanCount)
+                spanCount += o->count;
+            else
+            {
+                flush();
+                spanPool = o->pool;
+                spanFirst = o->first;
+                spanCount = o->count;
+                spanAt = at;
+            }
+            at += o->count;
+        }
+        flush();
+        if (h112.log)
+        {
+            h112.copyUs += native_renderer::nowUs() - copyStart;
+            h112.copyBytes += static_cast<uint64_t>(total) * stride;
+            ++h112.copies;
+        }
+#else
         for (size_t j = from; j < to; ++j)
         {
             const Mesh *o = plan[j].mesh;
             const Pool &src = pools[static_cast<size_t>(o->pool)];
-#if defined(PS2X_NATIVE_VITA)
-            std::memcpy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(at) * stride, src.mapped + static_cast<size_t>(o->first) * stride,
-                        static_cast<size_t>(o->count) * stride);
-#else
             glBindBuffer(GL_COPY_READ_BUFFER, src.buffer);
             glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(o->first) * stride, static_cast<GLintptr>(at) * stride,
                                 static_cast<GLsizeiptr>(o->count) * stride);
-#endif
             at += o->count;
         }
+#endif
         copy.pool = pool;
         copy.first = first;
         copy.count = total;
@@ -6556,6 +6723,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     drawStats.progZero += cur == 0;
                 }
                 const uint64_t callStart = spike.on || phases.on ? native_renderer::nowUs() : 0u;
+                // Round 112: a program / blend / layout combination new this
+                // session (vitaGL's patcher builds its programs in this call).
+                bool newVariant = false;
+                uint64_t variantStart = 0;
+#if defined(PS2X_NATIVE_VITA)
+                if (h112.log)
+                {
+                    const uint64_t key = ((static_cast<uint64_t>(boundProgram) << 32) | blend_info) ^ (skinned ? 0x8000000000000000ull : 0u) ^
+                                         (is_fbo_float ? 0x4000000000000000ull : 0u) ^ (mesh.indexed ? 0x2000000000000000ull : 0u);
+                    if (key != h112.lastVariant)
+                    {
+                        h112.lastVariant = key;
+                        newVariant = h112.variants.insert(key).second;
+                        if (newVariant)
+                            variantStart = native_renderer::nowUs();
+                    }
+                }
+#endif
                 if (planned.run > 1)
                 {
                     drawStats.merged += planned.run - 1u;
@@ -6564,6 +6749,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 else
                     drawMesh(mesh, firstVertex);
+                if (newVariant)
+                {
+                    const uint64_t took = native_renderer::nowUs() - variantStart;
+                    ++h112.newVar;
+                    h112.newVarUs += took;
+                    h112.newVarMaxUs = std::max(h112.newVarMaxUs, took);
+                }
                 stats.vertices += planned.run > 1 ? planned.mergedCount : mesh.count;
                 if (phases.on)
                 {
@@ -9271,6 +9463,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         r->spike.last = r->spike.gap = 0;
                         r->spike.drawn = r->spike.index = 0;
                     }
+                    r->hitch112Frame((uploaded - start), (drawn - uploaded) - (r->stats.presentUs - present));
                     r->evictUnused();
                     r->stats.sweepUs += native_renderer::nowUs() - drawn;
                     r->stats.renderUs += (native_renderer::nowUs() - start) - (r->stats.presentUs - present);
