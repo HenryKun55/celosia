@@ -15304,3 +15304,108 @@ thread's draw (its GPU emulation), not the console's causes: the console run dec
 sblur100, inflight100; cdahead100 and prio100 only through r100all). Read with
 `tools/ab100.py err.txt --causes` (`--max-ms 300` for Vita3K logs; p50 / p90 / p99, spike share and causes per state, paired deltas) and
 `tools/spike100.py err.txt [--local 15]`.
+
+## Round 101: the collision natives' hot paths as plain A9 code: the tree walk as a loop, the matrices clamped once, the skinned surfaces' rejection in NEON (2026-11-07)
+
+Scripts, runs and logs: `build/agent-scratch/r101/`: build.sh (worktree build,
+`r101/vita`), v3k.sh / v3kb.sh (two Vita3K trees, ../vita3k-celosia-r101 /
+-r101b, 222 MHz, 3 cores), walk.sh (a run with extra env), samp.sh (sampler),
+ab.sh (in-run A/B: attract / altar / route 6), read101.sh (the console
+reader: ab89.py plus the four checks' last lines), tools/pcs.py (a sampler
+window's self time per function and per PC within functions matching a
+name; TOTAL line), tools/bucket.py (those PCs by address bucket).
+p4 = main 5c49dc4 (seg80 / probe84 / ground85 on again) + this round =
+celosia-r101.vpk.
+
+**Where collision's time was (round 97's route 6 sampler, by PC).** The tree
+walk (nodeF / lowF / highF, recursive, each level writing its clipped
+segment into a guest frame for the next level and the leaf to read back)
+~4% of the game thread; the leaf 3.2% (plus leafScan 0.7%); ClipCollisionDirectCallBack's
+body 2.6-2.8%, spread over the whole function (the object loop and its
+cylinder ~1%, the skinned-surface loop ~1%: per surface the segment matrix's
+four rows loaded and clamped again, the transform's small test moved to a
+core register, then the x^2 + y^2 test in VFP with the PS2 clamps); clipDB
+1.5-1.8%; cylinder 0.8%; attributeAddress 0.7-0.9% (a gather, memory bound).
+
+**What changed (each exact, default on; A/B names; `r101all` all four off).**
+- **walk101** (`SOTC_WALK101`): the segment tree walk (manager_sub_01131C80 and
+  its two sides, from ClipCollisionDirectCallBack's root and the registered
+  entries) as one loop with a host stack of the second sides still to visit;
+  the segment's ends are host qwords (the leaf takes them as host values)
+  instead of the walk's guest frames, which nothing else reads and which are
+  dead once the walk returns. The same tree reads, the same FPU / VU0
+  operations on the same values in the same order, the same f0 writes, the
+  leaf called with the same index and sp (its frame and its callees' frames
+  are where they were); the first leaf that hits ends the walk, as every
+  level of the original returns 1 then. Deeper than 64 levels: the rest
+  recursively (never seen). Only for 16-byte aligned ends in main RAM.
+- **leaf101** (`SOTC_LEAF101`): the leaf's two matrices (into the tree's space,
+  +0xc; into the cylinder's, +0x10) clamped once and kept between leaves
+  while no guest code runs (the g_guestRuns epoch: every entry from guest
+  code and every guest call starts a new one; no native here writes them).
+- **skin101** (`SOTC_SKIN101`): ClipCollisionDirectCallBack's skinned surfaces:
+  a cached surface that the plain test throws out (x^2 + y^2 above
+  r2 (1 + 2^-19) in NEON, every lane small: the PS2 sum is then not below r2
+  either, round 28's leaf argument) costs one NEON chain and one move to a
+  core register; its frame words (sp + 0x170 / 0x180) and f0 (y^2, VFP) are
+  written once, as the last such surface left them, before the next
+  surface's exact path or the loop's end. Every other surface: the exact
+  code as before.
+- **obj101** (`SOTC_OBJ101`): the same function's transforms by the segment
+  matrix (its frame at sp + 0x40: the object's, the parts', the surfaces')
+  through rows clamped once and kept while no guest code runs.
+
+**Checks** (`SOTC_WALK101_CHECK=1`: the loop, then round 49's recursion from
+the same state, v0, the result block +0..+0x50 and f0 compared;
+`SOTC_LEAF101_CHECK` / `SOTC_OBJ101_CHECK`: the kept rows' results against
+fresh ones; `SOTC_SKIN101_CHECK`: every NEON rejection against the exact test,
+the transform and y). All zero differences:
+
+| run | walk101 | leaf101 | skin101 | obj101 |
+|---|---|---|---|---|
+| route 6, 420 s (main 2ec593c, seg80 / probe84 / ground85 off) | 409 600 | 1 261 568 | 393 216 | 2 162 688 |
+| the altar, 300 s (same) | 278 528 | 720 896 | 147 456 | 1 327 104 |
+| route 6, 420 s, after the push fix (same) | 458 752 | 1 179 648 | 114 688 | 2 064 384 |
+| route 6, 420 s, main 5c49dc4 (memos on) | 311 296 | 851 968 | 311 296 | 1 097 728 |
+| route 6, 420 s, main 5c49dc4, SOTC_SEG80=0 SOTC_PROBE84=0 SOTC_GROUND85=0 | 442 368 | 1 507 328 | 884 736 | 2 195 456 |
+
+(FastCheck reports every 16 384 checks: counts are the last report.)
+
+**Measured.** Sampler, route 6, the same VPK with the four on / off (p1, main
+2ec593c with seg80 / probe84 / ground85 off), self time % of the game thread:
+all of decomp_collision 18.96 -> 17.02; the walk (nodeF + lowF + highF ->
+walk101Run) 4.05 -> 3.60; leafT 3.21 -> 2.95; directCallBackBody 2.63 -> 2.41;
+clipDBT 1.67 -> 1.54 (fewer leaves' rows set up); attributeAddress 0.93 ->
+0.78. About 1.9% of the game thread, ~0.8 ms of the console's ~44 ms if it
+carries over. On p4 (main 5c49dc4: seg80 / probe84 /
+ground85 on again, so their memos answer part of the queries and collision
+is ~11% of the thread, not ~19%): decomp_collision 10.95 -> 10.08 (~0.9% of
+the game thread); per function the two runs' scenes differ too much to read
+(the walk 1.37 -> 1.46, the body 0.90 -> 1.04: within the windows' noise).
+
+A/B (Vita3K 222 MHz, p4, `SOTC_AB_FLAG=r101all,walk101,skin101
+SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py matched by draws, off minus on):
+
+| run | part (frame, all on) | walk101 | skin101 | r101all |
+|---|---|---|---|---|
+| altar4 | from 3 300 (53.4 ms) | +0.20 | +0.68 | +0.40 |
+| route4 | from 3 000 (34.8 ms) | -0.77 | -0.84 | -0.10 |
+| route4 | the plain, from 4 300 | -0.63 | -0.58 | -0.49 |
+| attract4 (600 s) | the world and riding, from 10 000 (31.8 ms) | +0.71 | -0.08 | +0.10 |
+
+All within the in-run A/B's noise (about +-1 ms in one run, with the second
+Vita3K tree running the sampler beside it): the ~0.4-0.8 ms the sampler
+shows is at or below what the A/B resolves, as round 97 found for exact
+local cuts. Default on (exact; the sampler shows less time); the console's
+cpuGame windows decide.
+
+**Gameplay.** The input scripts walk the shrine and its stairs to the altar
+(route 2), walk out across the plain (route 6), and the attract demo rides;
+no ledge or climbing is reachable by script, so those rest on the checks
+(the climb and landing probes go through the same natives). No fault:
+the attract demo with riding 600 s, the altar 300 s, route 6 420 s (A/B)
+and 600 s with the console env, and the five check runs (420 / 300 s).
+
+**Console.** celosia-r101.vpk with r101/env-console.txt
+(`SOTC_AB_FLAG=r101all,walk101,skin101`), read with
+`build/agent-scratch/r101/read101.sh err.txt <from>`.
