@@ -624,6 +624,14 @@
    "focus": "Speed",
    "summary": "Looked through the drawing walk for work the game thread still does only because the original fed the PS2's graphics hardware. Two such layers were removed: the particle effects no longer build the PS2's particle packets (and upload its particle microcode) only for the port's renderer to copy their inputs back out; the renderer now gets those inputs directly. And solid models no longer compute per-part matrices for the PS2's vector unit, which nothing in the port reads. Each has its own switch and a check mode.",
    "result": "The particle check found the renderer's input byte-identical in 288 000 particle draws (altar and route 6); a test that fills the skipped matrices with invalid values left the picture intact. Vita3K profiler at the altar: the touched code fell from 3.1% to 2.0% of the game thread (about 0.5 ms a frame); in-run A/B +0.3 to +1.4 ms with the round on, within noise. All the PS2-format work left in the drawing path is only about 3% of the game thread; the rest of the walk is its own per-object bookkeeping, which needs a different design rather than more cuts. No crash in 600 s runs. Console A/B prepared (env-console.txt: r103all, ptcl103, solid103)."
+  },
+  {
+   "round": "r104",
+   "date": "2026-11-08",
+   "commit": "8ed3cea",
+   "focus": "Speed",
+   "summary": "Tried to run the body work (pose, IK, cloth, ground collision) of characters away from Wander on a second processor core while the game thread goes on with the other creatures' scripts. Built the hand-over and its safety rules: the second core runs the original game code, waits before anything shared (memory allocation, sound, the object lists), and the game thread waits for it before touching the same things; a check mode compares every result with the normal one-core run.",
+   "result": "Identical results: the check found no difference in 52 characters run side by side and 185 run on the other core alone (altar route). But it is slower, not faster, so it stays off: the characters that can run apart are the cheap ones (birds, Mono's parts, about 3 ms at the altar), the game's shared lists stop them within a fraction of a millisecond, and the other core runs the slower original code. Vita3K A/B: 14.7 ms slower at the altar, 15.2 on route 6, 3.9 riding. No crash in 600 s. Written down for a next try: collision code safe for two cores and the collision lists copied for the second core."
   }
  ]
 }
