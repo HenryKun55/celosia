@@ -712,6 +712,14 @@
    "focus": "Speed",
    "summary": "First step of rebuilding collision for the Vita (round 113's item 1). The game's ray tests (the camera's rays, the player's and the horse's ground and path probes, the AI's) walked each terrain piece's search tree in the PS2's data layout with the PS2's arithmetic and, for every candidate triangle, gathered its data through several lookups. The tree walk now runs on plain Vita arithmetic, and each leaf of the tree gets a compact block built from the model's own triangles the first time it is visited (a bounding sphere and the plane of each triangle, four at a time for the Vita's vector unit), so a leaf is one quick pass; only triangles the ray can actually cross go on to the game's own exact hit test, so the hits are the game's. With it, the old shortcut that reused a ray's answer for up to 5 frames (so a character could step into the camera's view up to 5 frames late) is off: every ray is answered every frame.",
    "result": "Vita3K 222 MHz: each ray test ~130 us instead of ~190-260, the tree walks ~4x faster; the main thread 0.4-1.7 ms a frame faster riding in the attract demo, even (within +-0.5 ms) at the shrine, the altar and on route 6, where the old 5-frame reuse saved about as much as the new walk. Checks: the new and the old answers compared on about 1.5 million tests (attract, route 6, the console card's shrine save): no difference since the second build, hit points within 0.4 mm. No crash. On by default; console A/B pending."
+  },
+  {
+   "round": "r114",
+   "date": "2026-11-08",
+   "commit": "0c3ac82",
+   "focus": "Speed",
+   "summary": "Fourth step on the helper thread that does far-away characters' body work on another Vita core. Last round it seemed to wake ten times slower after round 110's display timing; measuring showed that was the Mac running the emulator being overloaded by other builds at the time, not the game (with the display timing on and off at once the delay was the same and rose with the Mac's load). Keeping characters that seemed to gain nothing on the main thread turned out to cost more (about 1-1.4 ms a frame), so that stays off. Instead the helper now checks its own account every few seconds and pauses in scenes where handing characters over costs the main thread more than it saves (riding in the attract demo), then tries again. The helper path is now on by default.",
+   "result": "Vita3K 222 MHz, quiet runs: shrine +0.6 to +0.7 ms a frame, the plain (route 6) +0.2 to +0.5, attract riding from -1.1 to 0.0 / +0.45. Check mode: 0 differences in every comparison; the old 144-byte mismatch in the hand-over's self-check is gone. No crash, including loading the console's save. The console's own A/B log decides whether it stays on."
   }
  ]
 }
