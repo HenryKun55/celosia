@@ -15936,3 +15936,96 @@ chosen: Select twice, R1 to the Renderer tab, "Frame rate" (just above "30 fps c
 list), X switches Auto / Steady 20 and saves at once. r107/env-console.txt has the frame and spike logs and
 no A/B (the cadence is judged by playing). Read the log with `build/agent-scratch/r107/vbdist.py err.txt`
 (3D frames by VBlanks per frame and step, and the `[cap20]` lines: the shown refreshes per 600 frames).
+
+## Round 106: the scripts' subsystems as plain native code: the frame start's group fix-up (grp106), the animals' leader search (ai106), three object-animation evaluators (oan106, off) (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r106/` (build.sh, v3k.sh / v3kb.sh: its two Vita3K trees
+../vita3k-celosia-r106 and -r106b, 222 MHz, 3 cores; v3km.sh / v3kbm.sh the same with `MCD=` a memcard to copy in;
+samp.sh, check.sh, ab.sh, final.sh (the console env with the console memcard), read106.sh, env-console.txt,
+tools/spalign.py (round 105's scan for sp-based :128 / :256 NEON accesses), STATE.md).
+
+**Where the time is (Vita3K host sampler, the altar, % of the game thread; runs/sampOff vs runsb/sampOn, the same
+VPK with the round off / on, window 160-290 s).** Round 102's probe sampler put the scripts' items at 1.5 ms (the
+small animals' AI), 0.9 ms (object animations) and 1.3 ms (the frame start / finish managers) at the altar, but with
+its probes on (~1.2x) and counting guest pcs that natives set: most of those functions were already native
+(animalStep, steer, animalMove, aiParam, curveEval, execObjectAnimation, texResetFast ...). Without probes the
+whole small-animal set is 2.7% of the game thread, 40 functions, the biggest recompiled one 0.12%; the object
+animations 3.5% (1.15 of it the characters' motion key decoder, round 104's area); the frame managers ~1%. What
+was left recompiled or wasted calls:
+
+| function | off | on | change |
+|---|---|---|---|
+| groupFix (gamecore_sub_013448C0, the frame start task's attachment fix-up) | 0.33 | 0.15 | grp106 |
+| isysGetGroupSrhNext (called only by groupFix) | 0.11 | 0 | grp106 |
+| isysGroupForNext + decomp_group::nextAt | 0.17 | 0.17 | grp106 (the same work, no call) |
+| gamecore_sub_013E1520 (the animals' leader search) + GetScriptCharacterClass | 0.16 | 0.08 | ai106 |
+| 010AF2A0 / 010AF4D8 / 010B06A8 (object-animation key evaluators) | 0.30 | 0.33 | oan106: no gain, left off |
+
+grp106 + ai106: -0.37% of the game thread at the altar (~0.18 ms of ~48 ms in Vita3K; ~0.15-0.2 ms on the console's
+~45 ms). The animals' leader search runs ~3 times a frame at the altar, groupFix once.
+
+**What changed.**
+- **grp106** (`SOTC_GRP106`, default on; decomp_hot44c.cpp `groupFix`, decomp_group.cpp `nextAt`). groupFix walks
+  the frame's group: for each object its layout class, for an attached one its legal parent searched along the rest
+  of the group (isysGetGroupSrhNext per step: O(n^2) guest calls), else its character class. Those leaves
+  (GetLayoutClass's plain cases: +0x20 / +0x90 / none by the type byte's table; GetCharacterClass: types 9 / 0x16;
+  SrhNext: the raw chain's next entry; ForNext: decomp_group::next, the native's own body, with its iteration counts)
+  are done in place when their jal sites name them (read live); ForFirst / ForExit (the group's semaphore), the
+  legal parent, the geometry pointer and the delete / insert of a move stay guest calls. The same values and RAM
+  writes in the same order; only scratch registers between guest calls differ (none is read).
+  `SOTC_GRP106_CHECK=1`: every inline leaf also runs as the recompiled leaf and the two results are compared.
+- **ai106** (`SOTC_AI106`, default on; decomp_ai106.cpp). 013E1520, called by every small animal's script body
+  each frame: leaders (kinds 6 / 8) lead themselves; others look through the animals' group (0x146590c) for the
+  first leader of the same flock (+8, +4), not in state 0x24 and below state 0x12, and set +0x28 / +0x2c / +0x38 /
+  +0x3c / +0x584 (013E1460 when it becomes its own leader, the +0x360 handle freed when it stops). Natively with
+  isysGetThisSubThread, GetScriptCharacterClass and ForNext in place, ForFirst / ForExit / 013E1460 / 1B0328 as
+  guest calls with the original's ra and frame. `SOTC_AI106_CHECK=1`: the record's result is predicted (a read-only
+  walk), the native runs on the live state (when no 013E1460 / free is due), the record (0x600 bytes) and the
+  context are put back, the recompiled code runs to its return; native, prediction and recompiled compared.
+- **oan106** (`SOTC_OAN106=1`, default OFF; decomp_hot46h.cpp). GetObjectAnimationFloatFrame's evaluators 010AF2A0
+  (objectAnimSample's code with the record in s4 and out +0x30 = the record's +0x10: a template now), 010AF4D8 (a
+  float-vector channel) and 010B06A8 (a curve key, a vec3 key, an int and a colour). Exact (below), but in the
+  register-for-register form of round 46 they cost what the recompiled code does (0.30 -> 0.33%); a gain would need
+  the keys decoded in host locals with no context traffic. Left in, off.
+- Full checks for any of the three: `SOTC_xxx106_CHECK=2` puts its natives in the difftest's list (every RAM byte;
+  ~0.7 s a check in Vita3K: use SOTC_DIFFTEST_FIRST / _EVERY to thin it).
+
+**Checks (Vita3K, every call checked).** runs/checkA1 (the altar, 300 s): grp106 2.1 M leaf compares, ai106 16 400
+calls (16 370 with the native leg), oan106 49 000 / 49 000 / 65 000 calls; 0 differences. runsb/checkR1 (route 6,
+600 s): grp106 1.8 M, ai106 32 800 (32 750), oan106 16 000 each; 0 differences. runsb/checkT2 (the attract demo
+with riding, 600 s, p2 with `SOTC_OAN106=1`): grp106 2.6 M, ai106 16 400 (16 370), oan106 16 000 / 16 000 / 33 000;
+0 differences. The full difftest (`SOTC_GRP106_CHECK=2 SOTC_AI106_CHECK=2`, every RAM byte, the first 30 calls then one in 150;
+runs/diffA1, the altar 360 s): groupFix and 013E1520 matched in every check but groupFix's first, one byte at
+0x29126c; the control run with grp106 off (runsb/diffC1: the round-44 native, the same checks) differs in the same
+byte at the same first check: an artifact of the check around the group's semaphore calls, not of this round.
+
+**A/B (Vita3K 222 MHz, `SOTC_AB_FLAG=r106all,grp106,oan106 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py matched by
+draws, off minus on, ms; the p2 runs with `r106all,grp106,ai106`).**
+
+| run | part | grp106 | oan106 (p1) / ai106 (p2) | r106all |
+|---|---|---|---|---|
+| runs/altar1 (300 s) | from 3 300 (50.6 ms) | +0.26 | +0.94 | +0.20 |
+| runs/route1 (420 s) | route 6 from 3 000 | +0.51 | -0.62 | +0.65 |
+| runs/route1 | the plain from 4 300 | +0.16 | -0.49 | +0.67 |
+| runsb/attract2 (600 s, p2, `r106all,grp106,ai106`) | the world and riding from 10 000 (30.5 ms) | +1.01 | +0.99 | +0.36 |
+| runsb/attract2 | riding from 13 000 | +1.37 | +1.00 | +0.36 |
+| runs/finalR (p2, the console env and memcard, route 6 600 s) | the plain from 4 300 | -0.04 | -0.01 | -0.06 |
+
+As the sampler predicts (~0.2 ms), all inside the in-run A/B's +-1 ms noise; the sampler is the measurement.
+
+**Nothing visible changes.** The same values in the same order: every animal and object animation still updates
+every frame; no draw moves. No fault: the checks above, the A/B runs, and runs/finalR: p2 with the console env and
+the console memcard (build/agent-scratch/avion/console/Mcd001-console.ps2 copied into this round's Vita3K tree), Load
+Game, the altar, out to the plain, 600 s to game frame 15 704, 263 A/B windows (the save load that crashed round 103
+on the console).
+
+**What is left in this area.** The rest of the animals' time is in natives that are already exact transcriptions
+(animalStep 0.39%, aiParam 0.18, steer 0.17, animalScript 0.14, animalMove 0.14) and ~30 small recompiled steps of
+0.02-0.08% each; the frame managers' sprite and layout-matrix natives (0.25 / 0.19); the shrine's every-frame
+bossDeathEffectEnd path is the recompiled code (0.12%, its flags are set there). Each is a register-for-register
+native already or a sub-0.1% function: the next gains here need those natives rewritten in host locals (as round 101
+did for collision), not more functions moved.
+
+**Console.** build/agent-scratch/celosia-r106.vpk (main 82994c6 + this round) with r106/env-console.txt
+(`SOTC_AB_FLAG=r106all,grp106,ai106`), read with `build/agent-scratch/r106/read106.sh err.txt <from>`. The ELF has no
+sp-based :128 / :256 NEON access (tools/spalign.py: 0 of 542).
