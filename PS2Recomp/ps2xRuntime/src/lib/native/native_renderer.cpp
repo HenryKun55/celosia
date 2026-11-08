@@ -1370,8 +1370,12 @@ namespace native_renderer
             {
                 if (!(s.kinds & (1u << k)))
                     continue;
-                at += std::snprintf(out + at, room - at, "%s %s %.1f (%.0fp %.0fm)", any ? "," : " | cpu", kNames[k], s.cpu[k] / 1.0 / 1000.0,
-                                    s.pre[k] / 1.0, s.mov[k] / 1.0);
+                if (g_log105) // round 105: the same text without newlib's dtoa
+                    at += fmt105(out + at, room - at, "%s %s %.1f (%.0fp %.0fm)", any ? "," : " | cpu", kNames[k], s.cpu[k] / 1.0 / 1000.0,
+                                 s.pre[k] / 1.0, s.mov[k] / 1.0);
+                else
+                    at += std::snprintf(out + at, room - at, "%s %s %.1f (%.0fp %.0fm)", any ? "," : " | cpu", kNames[k], s.cpu[k] / 1.0 / 1000.0,
+                                        s.pre[k] / 1.0, s.mov[k] / 1.0);
                 any = true;
             }
             return at;
@@ -1481,6 +1485,252 @@ namespace native_renderer
             }();
             return on;
         }
+    }
+    bool g_build105 = true;
+    bool g_log105 = true;
+    bool g_render105 = true;
+    namespace
+    {
+        // Round 105: fmt105's text, like snprintf's (the count is the whole
+        // text's; what fits is written, then the 0).
+        struct Out105
+        {
+            char *p;
+            size_t room, n = 0;
+            void put(char c)
+            {
+                if (n + 1u < room)
+                    p[n] = c;
+                ++n;
+            }
+            void put(const char *s, size_t len)
+            {
+                for (size_t i = 0; i < len; ++i)
+                    put(s[i]);
+            }
+            void putU32(uint32_t v, int minDigits = 1)
+            {
+                char d[12];
+                int k = 0;
+                do
+                {
+                    d[k++] = static_cast<char>('0' + v % 10u);
+                    v /= 10u;
+                } while (v);
+                while (k < minDigits)
+                    d[k++] = '0';
+                while (k)
+                    put(d[--k]);
+            }
+            void putU64(unsigned long long v)
+            {
+                if (v <= 0xFFFFFFFFull)
+                {
+                    putU32(static_cast<uint32_t>(v));
+                    return;
+                }
+                char d[24];
+                const int k = std::snprintf(d, sizeof(d), "%llu", v);
+                put(d, static_cast<size_t>(k));
+            }
+            void putI64(long long v)
+            {
+                if (v < 0)
+                {
+                    put('-');
+                    putU64(0ull - static_cast<unsigned long long>(v));
+                }
+                else
+                    putU64(static_cast<unsigned long long>(v));
+            }
+            // %.<prec>f: v * 10^prec rounded to an integer as printf would
+            // (the exact value's nearest, ties to even): where the product
+            // lies within ~1e-6 of a half (it may have rounded across it),
+            // too large, -0, NaN or inf: snprintf for this number.
+            void putF(double v, int prec)
+            {
+                static const double kScale[4] = {1.0, 10.0, 100.0, 1000.0};
+                static const uint32_t kScaleU[4] = {1u, 10u, 100u, 1000u};
+                const bool neg = std::signbit(v);
+                const double a = std::fabs(v);
+                const double s = a * kScale[prec];
+                bool slow = !(s < 4.0e9) || (neg && a == 0.0);
+                uint32_t r = 0;
+                if (!slow)
+                {
+                    const double whole = std::floor(s);
+                    const double frac = s - whole;
+                    if (std::fabs(frac - 0.5) < 1e-6)
+                        slow = true;
+                    else
+                    {
+                        r = static_cast<uint32_t>(whole) + (frac > 0.5 ? 1u : 0u);
+                        if (r < static_cast<uint32_t>(whole)) // (wrapped)
+                            slow = true;
+                    }
+                }
+                if (slow)
+                {
+                    char d[64];
+                    static const char *const kFormat[4] = {"%.0f", "%.1f", "%.2f", "%.3f"};
+                    const int k = std::snprintf(d, sizeof(d), kFormat[prec], v);
+                    if (k > 0)
+                        put(d, std::min(static_cast<size_t>(k), sizeof(d) - 1u));
+                    return;
+                }
+                if (neg)
+                    put('-');
+                putU32(r / kScaleU[prec]);
+                if (prec)
+                {
+                    put('.');
+                    putU32(r % kScaleU[prec], prec);
+                }
+            }
+        };
+        int vfmt105(char *out, size_t room, const char *format, va_list args)
+        {
+            va_list whole;
+            va_copy(whole, args);
+            Out105 o{out, room};
+            for (const char *f = format; *f; ++f)
+            {
+                if (*f != '%')
+                {
+                    o.put(*f);
+                    continue;
+                }
+                const char *spec = f + 1;
+                if (*spec == '%')
+                {
+                    o.put('%');
+                    f = spec;
+                    continue;
+                }
+                int prec = -1;
+                if (*spec == '.' && spec[1] >= '0' && spec[1] <= '3' && spec[2] == 'f')
+                {
+                    prec = spec[1] - '0';
+                    spec += 2;
+                }
+                int longs = 0;
+                bool size = false;
+                while (*spec == 'l')
+                    ++longs, ++spec;
+                if (*spec == 'z')
+                    size = true, ++spec;
+                const char c = *spec;
+                bool ok = true;
+                if (prec >= 0)
+                    o.putF(va_arg(args, double), prec);
+                else if (c == 's' && !longs && !size)
+                {
+                    const char *s = va_arg(args, const char *);
+                    o.put(s ? s : "(null)", std::strlen(s ? s : "(null)"));
+                }
+                else if (c == 'c' && !longs && !size)
+                    o.put(static_cast<char>(va_arg(args, int)));
+                else if ((c == 'd' || c == 'i') && !size)
+                    o.putI64(longs >= 2 ? va_arg(args, long long) : longs ? va_arg(args, long) : va_arg(args, int));
+                else if (c == 'u' || c == 'x')
+                {
+                    const unsigned long long v = size ? va_arg(args, size_t) : longs >= 2 ? va_arg(args, unsigned long long) : longs ? va_arg(args, unsigned long) : va_arg(args, unsigned);
+                    if (c == 'u')
+                        o.putU64(v);
+                    else
+                    {
+                        char d[24];
+                        const int k = std::snprintf(d, sizeof(d), "%llx", v);
+                        o.put(d, static_cast<size_t>(k));
+                    }
+                }
+                else
+                    ok = false;
+                if (!ok)
+                {
+                    // Another conversion (a width, a flag ...): all of it as vsnprintf would.
+                    const int n = std::vsnprintf(out, room, format, whole);
+                    va_end(whole);
+                    return n;
+                }
+                f = spec;
+            }
+            va_end(whole);
+            if (room)
+                out[std::min(o.n, room - 1u)] = 0;
+            return static_cast<int>(o.n);
+        }
+    }
+    // SOTC_LOG105_CHECK=1 (checking): every fmt105 / logf105 text against
+    // vsnprintf's ([log105c] every 20 000 texts: compared, differ).
+    std::atomic<uint64_t> g_log105Checks{0}, g_log105Differ{0};
+    void check105(const char *mine, int n, size_t room, const char *format, va_list args)
+    {
+        char ref[2048];
+        const int m = std::vsnprintf(ref, std::min(room, sizeof(ref)), format, args);
+        const uint64_t k = g_log105Checks.fetch_add(1, std::memory_order_relaxed) + 1u;
+        if (m != n || std::strcmp(ref, mine) != 0)
+        {
+            const uint64_t d = g_log105Differ.fetch_add(1, std::memory_order_relaxed);
+            if (d < 10u)
+            {
+                char line[4300];
+                std::snprintf(line, sizeof(line), "[log105c] DIFFERS (%d / %d):\n  fmt105 %s\n  printf %s\n", n, m, mine, ref);
+                logBytes(line, std::strlen(line));
+            }
+        }
+        if (k % 20000u == 0u)
+        {
+            char line[128];
+            std::snprintf(line, sizeof(line), "[log105c] %llu texts compared, %llu differ\n", (unsigned long long)k,
+                          (unsigned long long)g_log105Differ.load(std::memory_order_relaxed));
+            logBytes(line, std::strlen(line));
+        }
+    }
+    bool check105On()
+    {
+        static const bool on = std::getenv("SOTC_LOG105_CHECK") && std::atoi(std::getenv("SOTC_LOG105_CHECK")) != 0;
+        return on;
+    }
+    int fmt105(char *out, size_t room, const char *format, ...)
+    {
+        va_list args;
+        va_start(args, format);
+        va_list again;
+        va_copy(again, args);
+        const int n = vfmt105(out, room, format, args);
+        va_end(args);
+        if (check105On() && room && room <= 2048u)
+            check105(out, n, room, format, again);
+        va_end(again);
+        return n;
+    }
+    void logf105(const char *format, ...)
+    {
+        char line[2048];
+        va_list args;
+        va_start(args, format);
+        if (!logAsync())
+        {
+            std::vfprintf(stderr, format, args);
+            va_end(args);
+            return;
+        }
+        va_list again;
+        va_copy(again, args);
+        int n = vfmt105(line, sizeof(line), format, args);
+        va_end(args);
+        if (check105On())
+            check105(line, n, sizeof(line), format, again);
+        va_end(again);
+        if (n <= 0)
+            return;
+        if (static_cast<size_t>(n) >= sizeof(line))
+        {
+            n = static_cast<int>(sizeof(line) - 1u);
+            line[n - 1] = '\n'; // cut, still a line
+        }
+        logBytes(line, static_cast<size_t>(n));
     }
     void logf(const char *format, ...)
     {
@@ -1612,13 +1862,21 @@ namespace native_renderer
         {
             if (staged.empty())
                 return;
+            bool sleeper = false;
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 for (Job &job : staged)
                     todo.push_back(std::move(job));
+                sleeper = sleeping;
             }
             staged.clear();
             wake.notify_one();
+#if defined(__vita__)
+            if (sleeper && sema >= 0)
+                sceKernelSignalSema(sema, 1);
+#else
+            (void)sleeper;
+#endif
         }
         std::vector<Job> finished;            // the game thread's (kept for its capacity)
 
@@ -1634,7 +1892,29 @@ namespace native_renderer
                 {
                     std::unique_lock<std::mutex> lock(mutex);
                     while (todo.empty())
+                    {
+#if defined(__vita__)
+                        // Round 105 (build105): idle on a kernel semaphore
+                        // (flush signals it when this side said it sleeps,
+                        // both under the mutex: no wake-up lost; a count, so
+                        // a signal before the wait is kept), 20 ms timeout as
+                        // the hook worker's. It looked every 2 ms (the
+                        // console: ~25 timed waits a frame for nothing, the
+                        // thread's ~2.5 ms of CPU a frame on cores 1-2 with
+                        // no builds).
+                        if (sema >= 0 && g_build105)
+                        {
+                            sleeping = true;
+                            lock.unlock();
+                            SceUInt timeout = 20000;
+                            sceKernelWaitSema(sema, 1, &timeout);
+                            lock.lock();
+                            sleeping = false;
+                            continue;
+                        }
+#endif
                         wake.wait_for(lock, std::chrono::milliseconds(2));
+                    }
                     job = std::move(todo.front());
                     todo.pop_front();
                 }
@@ -1644,12 +1924,15 @@ namespace native_renderer
                 done.push_back(std::move(job));
             }
         }
+        bool sleeping = false; // the worker waits on the semaphore (under the mutex)
+        int sema = -1;         // round 105: the idle worker's wake-up (the Vita)
         void start()
         {
             if (started)
                 return;
             started = true;
 #if defined(__vita__)
+            sema = sceKernelCreateSema("BuildWake", 0, 0, 1, nullptr);
             const unsigned int stackDefault = _pthread_stack_default_user;
             _pthread_stack_default_user = 256u * 1024u;
 #endif

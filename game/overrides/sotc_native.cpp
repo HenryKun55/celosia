@@ -2424,6 +2424,82 @@ namespace sotc_native
         uint64_t deferred = 0, copied = 0, missed = 0; // round 34 (SOTC_KICK_DEFER)
     } g_skinKickStats;
 
+    // Round 105 (SOTC_WORKER105, default on; A/B `worker105`, `r105all`): the
+    // shadow volumes' CPU on the hook worker (the Vita3K sampler at the altar:
+    // shadowDispDraw 35% of the worker, newlib's memcmp 12%, truncf 3.6%) with
+    // the same results bit for bit:
+    // - the parsed model's guest bytes compared 64 at a time in NEON (newlib's
+    //   memcmp is a word-at-a-time loop with a branch per word), equality only;
+    // - a skinned vertex's bone index and weight without the truncf call: for
+    //   |packed| < 2^23 trunc(packed) is (float)(int)packed (the same index;
+    //   the weight packed - index the same value: a -0 index only for
+    //   packed in (-1, 0), where packed - -0 == packed - +0), the rest as before;
+    //   the vertex's x / y / z held in registers (they were loaded again after
+    //   every store into the camera-space array: possible aliasing);
+    // - the corner table's 24-byte memcmp as six word compares;
+    // - the kick pass's palette compare (skinAtKickWith, the worker's kick
+    //   job: each skinned chain's bones against the last ones drawn) in NEON too.
+    // SOTC_WORKER105_CHECK=1 (checking): both ways at every use, the
+    // differences counted ([worker105c] lines every 2 000 shadow draws; the
+    // old way's vertices used, the new way's compare answers).
+    bool g_worker105 = true;       // SOTC_WORKER105 (start105)
+    bool g_worker105Check = false; // SOTC_WORKER105_CHECK
+    bool envOn105(const char *name)
+    {
+        const char *e = std::getenv(name);
+        return !e || std::atoi(e) != 0;
+    }
+    // Round 105's switches as env.txt sets them (the first frame: the Vita's
+    // env.txt is read after the static initialisers ran).
+    void start105()
+    {
+        g_worker105 = envOn105("SOTC_WORKER105");
+        g_worker105Check = std::getenv("SOTC_WORKER105_CHECK") && std::atoi(std::getenv("SOTC_WORKER105_CHECK")) != 0;
+        native_renderer::g_build105 = envOn105("SOTC_BUILD105");
+        native_renderer::g_log105 = envOn105("SOTC_LOG105");
+        native_renderer::g_render105 = envOn105("SOTC_RENDER105");
+        std::fprintf(stderr, "[r105] worker105 %d (check %d), build105 %d, log105 %d, render105 %d\n", g_worker105 ? 1 : 0, g_worker105Check ? 1 : 0,
+                     native_renderer::g_build105 ? 1 : 0, native_renderer::g_log105 ? 1 : 0, native_renderer::g_render105 ? 1 : 0);
+    }
+    struct Worker105Stats
+    {
+        std::atomic<uint64_t> bytes{0}, bytesDiffer{0}, verts{0}, vertsDiffer{0}, probes{0}, probesDiffer{0}, uses{0};
+    } g_worker105Stats;
+    // a[0, n) == b[0, n) (the bytes; no alignment asked of either).
+    inline bool sameBytes105(const uint8_t *a, const uint8_t *b, size_t n)
+    {
+#if defined(__arm__) && defined(__ARM_NEON)
+        while (n >= 64u)
+        {
+            const uint8x16_t x0 = veorq_u8(vld1q_u8(a), vld1q_u8(b));
+            const uint8x16_t x1 = veorq_u8(vld1q_u8(a + 16), vld1q_u8(b + 16));
+            const uint8x16_t x2 = veorq_u8(vld1q_u8(a + 32), vld1q_u8(b + 32));
+            const uint8x16_t x3 = veorq_u8(vld1q_u8(a + 48), vld1q_u8(b + 48));
+            const uint8x16_t o = vorrq_u8(vorrq_u8(x0, x1), vorrq_u8(x2, x3));
+            const uint32x2_t h = vreinterpret_u32_u8(vorr_u8(vget_low_u8(o), vget_high_u8(o)));
+            if ((vget_lane_u32(h, 0) | vget_lane_u32(h, 1)) != 0u)
+                return false;
+            a += 64;
+            b += 64;
+            n -= 64u;
+        }
+#endif
+        uint32_t diff = 0;
+        while (n >= 4u)
+        {
+            uint32_t x, y;
+            std::memcpy(&x, a, 4);
+            std::memcpy(&y, b, 4);
+            diff |= x ^ y;
+            a += 4;
+            b += 4;
+            n -= 4u;
+        }
+        while (n--)
+            diff |= static_cast<uint32_t>(*a++ ^ *b++);
+        return diff == 0u;
+    }
+
     // The kick's pass, `now` taken by fetch(rec.own, now) (true: a palette,
     // as readChainPalette leaves the VU picture). One picture for both ways
     // (zero but for the last palette's qwords).
@@ -2444,7 +2520,9 @@ namespace sotc_native
             if (!fetch(rec.own, now))
                 continue;
             if (now.lo == rec.lo && now.hi == rec.hi &&
-                std::memcmp(now.data() + rec.lo * 4u, rec.used.data(), rec.used.size() * sizeof(float)) == 0)
+                (g_worker105 ? sameBytes105(reinterpret_cast<const uint8_t *>(now.data() + rec.lo * 4u), reinterpret_cast<const uint8_t *>(rec.used.data()),
+                                            rec.used.size() * sizeof(float))
+                             : std::memcmp(now.data() + rec.lo * 4u, rec.used.data(), rec.used.size() * sizeof(float)) == 0))
                 continue;
             ++st.changed;
             rec.lo = now.lo;
@@ -3302,6 +3380,21 @@ namespace sotc_native
             char104::setAb(!((char104At >= 0 && isOffAt(char104At)) || (r104AllAt >= 0 && isOffAt(r104AllAt))));
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
+        // Round 105: `worker105`, `build105`, `log105`, `render105` each off
+        // in their windows, `r105all` the four together.
+        {
+            static const int at105[5] = {indexOf("r105all"), indexOf("worker105"), indexOf("build105"), indexOf("log105"), indexOf("render105")};
+            if (at105[0] >= 0 || at105[1] >= 0 || at105[2] >= 0 || at105[3] >= 0 || at105[4] >= 0)
+            {
+                static const bool start[4] = {envOn105("SOTC_WORKER105"), envOn105("SOTC_BUILD105"), envOn105("SOTC_LOG105"), envOn105("SOTC_RENDER105")};
+                const bool all = at105[0] >= 0 && isOffAt(at105[0]);
+                const auto offAt = [&](int k) { return all || (at105[k] >= 0 && isOffAt(at105[k])); };
+                g_worker105 = !offAt(1) && start[0];
+                native_renderer::g_build105 = !offAt(2) && start[1];
+                native_renderer::g_log105 = !offAt(3) && start[2];
+                native_renderer::g_render105 = !offAt(4) && start[3];
+            }
+        }
         if (laneHelpAt >= 0) // round 72: the lane's jobs run by the joins / the worker
         {
             static const int helpStart = [] { return std::getenv("SOTC_LANE_HELP") ? std::atoi(std::getenv("SOTC_LANE_HELP")) & 3 : 3; }();
@@ -3715,6 +3808,16 @@ namespace sotc_native
     // thread as before. SOTC_LOG76=0: as before.
     namespace log76
     {
+        // Round 105 (log105, default on): the lines' text by fmt105 /
+        // logf105 (the same text; ~60 float conversions a line without
+        // newlib's dtoa, on the log thread on cores 1-2).
+        template <typename... Args>
+        int sfmt105(char *out, size_t room, const char *format, Args... args)
+        {
+            return native_renderer::g_log105 ? native_renderer::fmt105(out, room, format, args...) : std::snprintf(out, room, format, args...);
+        }
+        using LogFn = void (*)(const char *, ...);
+        LogFn logLine105() { return native_renderer::g_log105 ? &native_renderer::logf105 : &native_renderer::logf; }
         struct Line
         {
             bool slow = false;
@@ -3752,37 +3855,37 @@ namespace sotc_native
             uint64_t total = 0;
             for (int k = 0; k < kSyncParts; ++k)
                 total += syncUs[k];
-            int at = std::snprintf(out, room, " | sync %.1f (join %.1f end %.1f log %.1f audio %.1f idle %.1f rest %.1f) | joins", total / n / 1000.0,
+            int at = sfmt105(out, room, " | sync %.1f (join %.1f end %.1f log %.1f audio %.1f idle %.1f rest %.1f) | joins", total / n / 1000.0,
                                    syncUs[kSyncJoin] / n / 1000.0, syncUs[kSyncEnd] / n / 1000.0, syncUs[kSyncLog] / n / 1000.0, syncUs[kSyncAudio] / n / 1000.0,
                                    syncUs[kSyncIdle] / n / 1000.0, syncUs[kSyncRest] / n / 1000.0);
             bool any = false;
             for (int k = 0; k < hookjobs::kSites && at > 0 && static_cast<size_t>(at) < room; ++k)
                 if (siteUs[k])
                 {
-                    at += std::snprintf(out + at, room - at, " %s %.2f", hookjobs::kSiteNames[k], siteUs[k] / n / 1000.0);
+                    at += sfmt105(out + at, room - at, " %s %.2f", hookjobs::kSiteNames[k], siteUs[k] / n / 1000.0);
                     any = true;
                 }
             if (!any && at > 0 && static_cast<size_t>(at) < room)
-                std::snprintf(out + at, room - at, " none");
+                sfmt105(out + at, room - at, " none");
         }
         // The line as frameLog writes it.
         void write(const Line &L)
         {
             const native_renderer::FrameCounters &c = L.c;
             char split[640];
-            int at = std::snprintf(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
-            at += std::snprintf(split + at, sizeof(split) - at, " | waits");
+            int at = sfmt105(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
+            at += sfmt105(split + at, sizeof(split) - at, " | waits");
             for (int k = 0; k < ps2_load::kSites && at > 0 && static_cast<size_t>(at) < sizeof(split); ++k)
                 if (L.siteMask & (1u << k))
-                    at += std::snprintf(split + at, sizeof(split) - at, " %s %.1f", ps2_load::kSiteNames[k], L.siteMs[k]);
+                    at += sfmt105(split + at, sizeof(split) - at, " %s %.1f", ps2_load::kSiteNames[k], L.siteMs[k]);
             if (L.lane && at > 0 && static_cast<size_t>(at) < sizeof(split))
-                at += std::snprintf(split + at, sizeof(split) - at, " | lanehelp %.1f (%llu jobs, %llu joins, worker %llu)", L.laneMs, L.laneJobs, L.laneJoins, L.laneWorker);
+                at += sfmt105(split + at, sizeof(split) - at, " | lanehelp %.1f (%llu jobs, %llu joins, worker %llu)", L.laneMs, L.laneJobs, L.laneJoins, L.laneWorker);
             if (at > 0 && static_cast<size_t>(at) < sizeof(split))
                 splits(L.sync, L.joinSite, 1.0, split + at, sizeof(split) - at);
             at = static_cast<int>(std::strlen(split));
             native_renderer::threads::lineOf(L.cpu, split + at, sizeof(split) - at);
             if (L.slow)
-                native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
+                logLine105()("[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              L.frame, L.periodMs, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
                              c.meshUploads, c.meshBytes / 1024.0, c.meshUs / 1000.0, c.renderUs / 1000.0, c.renderLockUs / 1000.0, c.renderUploadUs / 1000.0,
@@ -3790,7 +3893,7 @@ namespace sotc_native
                              c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "", L.schedMs, L.cdMs,
                              L.cdReads, L.cdKB, L.cdGameMs, L.vblanks, L.dtMs, L.sprMs, L.sprs, L.sprKB, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
             else
-                native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u scenes %u verts %uk async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
+                logLine105()("[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u scenes %u verts %uk async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              L.frame, L.periodMs, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, (c.vertices + 500u) / 1000u, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
                              L.schedMs, L.cdMs, L.cdReads, L.cdKB, L.vblanks, L.dtMs, L.sprMs, L.sprs, L.sprKB, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
@@ -5314,6 +5417,8 @@ namespace sotc_native
             }
             static const bool verify = std::getenv("SOTC_HOOK_ASYNC_VERIFY") != nullptr;
             g_verify = verify;
+            static const bool read105 = [] { start105(); return true; }(); // round 105's switches from env.txt (once)
+            (void)read105;
             // Round 34: the kick without its join (default on; SOTC_KICK_DEFER=0: joined there as before).
             static const bool defer = !std::getenv("SOTC_KICK_DEFER") || std::atoi(std::getenv("SOTC_KICK_DEFER")) != 0;
             g_kickDefer = defer;
@@ -6634,6 +6739,14 @@ namespace sotc_native
     void shadowDispDraw(const ShadowDispJob &job)
     {
         SOTC_READ_SITE(9);
+        if (g_worker105Check && g_worker105Stats.uses.fetch_add(1, std::memory_order_relaxed) % 2000u == 1999u)
+        {
+            Worker105Stats &s = g_worker105Stats;
+            std::fprintf(stderr, "[worker105c] %llu shadow draws: model bytes compared %llu (%llu answers differ), skinned vertices %llu (%llu differ), corner probes %llu (%llu differ)\n",
+                         (unsigned long long)s.uses.load(), (unsigned long long)s.bytes.load(), (unsigned long long)s.bytesDiffer.load(),
+                         (unsigned long long)s.verts.load(), (unsigned long long)s.vertsDiffer.load(), (unsigned long long)s.probes.load(),
+                         (unsigned long long)s.probesDiffer.load());
+        }
         const uint32_t chain = job.chain, model = job.model;
         const bool skinnedShadow = job.skinned;
         const uint32_t ret = word(chain + 4u);
@@ -6698,7 +6811,16 @@ namespace sotc_native
             if (c.hi <= c.lo || at + (c.hi - c.lo) > 0x2000000u || (c.lo & ~0x1FFFFFCu) != ((c.hi - 4u) & ~0x1FFFFFCu))
                 return false; // wraps or empty: parse again
             noteRead(c.lo, c.hi - c.lo);
-            return std::memcmp(c.bytes.data(), g_ram + at, c.hi - c.lo) == 0;
+            if (!g_worker105)
+                return std::memcmp(c.bytes.data(), g_ram + at, c.hi - c.lo) == 0;
+            const bool same = sameBytes105(c.bytes.data(), g_ram + at, c.hi - c.lo);
+            if (g_worker105Check)
+            {
+                g_worker105Stats.bytes.fetch_add(c.hi - c.lo, std::memory_order_relaxed);
+                if (same != (std::memcmp(c.bytes.data(), g_ram + at, c.hi - c.lo) == 0))
+                    g_worker105Stats.bytesDiffer.fetch_add(1, std::memory_order_relaxed);
+            }
+            return same;
         };
         const ParsedModel *pm = nullptr;
         for (const ParsedModel &c : parsed)
@@ -6724,12 +6846,69 @@ namespace sotc_native
             pm = &c;
         }
         const std::vector<Strip> &strips = pm->strips;
+        // Round 105: the skinned vertex as below, the index without truncf and
+        // the sums in registers (the same operations in the same order).
+        auto toCamera105 = [&](const BatchVertex &v, float out[3])
+        {
+            const float x = v.x, y = v.y, z = v.z;
+            float o0 = 0.0f, o1 = 0.0f, o2 = 0.0f;
+            const uint32_t n = std::min(v.skin[3] & 0xFFFFu, 3u);
+            const float *pal = palette.data();
+            for (uint32_t k = 0; k <= n; ++k)
+            {
+                float packed;
+                std::memcpy(&packed, &v.skin[k], 4);
+                float index;
+                int32_t whole;
+                if (std::fabs(packed) < 8388608.0f)
+                {
+                    whole = static_cast<int32_t>(packed); // toward zero, as trunc
+                    index = static_cast<float>(whole);
+                }
+                else
+                {
+                    index = std::trunc(packed);
+                    whole = static_cast<int32_t>(index);
+                }
+                const float *b = pal + (static_cast<uint32_t>(whole) * 4u % 1024u) * 4u;
+                const float w = packed - index;
+                o0 += w * (b[0] * x + b[4] * y + b[8] * z + b[12]);
+                o1 += w * (b[1] * x + b[5] * y + b[9] * z + b[13]);
+                o2 += w * (b[2] * x + b[6] * y + b[10] * z + b[14]);
+            }
+            out[0] = o0;
+            out[1] = o1;
+            out[2] = o2;
+        };
         auto toCamera = [&](const BatchVertex &v, float out[3])
         {
             if (!skinnedShadow)
             {
                 for (int r = 0; r < 3; ++r)
                     out[r] = m[r] * v.x + m[4 + r] * v.y + m[8 + r] * v.z + m[12 + r];
+                return;
+            }
+            if (g_worker105)
+            {
+                toCamera105(v, out);
+                if (!g_worker105Check)
+                    return;
+                float mine[3] = {out[0], out[1], out[2]};
+                out[0] = out[1] = out[2] = 0.0f;
+                const uint32_t n = std::min(v.skin[3] & 0xFFFFu, 3u);
+                for (uint32_t k = 0; k <= n; ++k)
+                {
+                    float packed;
+                    std::memcpy(&packed, &v.skin[k], 4);
+                    const float index = std::trunc(packed);
+                    const float *b = &palette[(static_cast<uint32_t>(static_cast<int32_t>(index)) * 4u % 1024u) * 4u];
+                    const float w = packed - index;
+                    for (int r = 0; r < 3; ++r)
+                        out[r] += w * (b[r] * v.x + b[4 + r] * v.y + b[8 + r] * v.z + b[12 + r]);
+                }
+                g_worker105Stats.verts.fetch_add(1, std::memory_order_relaxed);
+                if (std::memcmp(mine, out, sizeof(mine)) != 0)
+                    g_worker105Stats.vertsDiffer.fetch_add(1, std::memory_order_relaxed);
                 return;
             }
             out[0] = out[1] = out[2] = 0.0f;
@@ -6871,7 +7050,23 @@ namespace sotc_native
                         entryOf[i] = made;
                         break;
                     }
-                    if (behindOf[e - 1u] == (behind ? 1u : 0u) && !std::memcmp(&corners[(e - 1u) * 6u], bits, 24))
+                    bool sameCorner;
+                    if (g_worker105)
+                    {
+                        uint32_t have[6];
+                        std::memcpy(have, &corners[(e - 1u) * 6u], 24);
+                        sameCorner = ((have[0] ^ bits[0]) | (have[1] ^ bits[1]) | (have[2] ^ bits[2]) | (have[3] ^ bits[3]) | (have[4] ^ bits[4]) |
+                                      (have[5] ^ bits[5])) == 0u;
+                        if (g_worker105Check)
+                        {
+                            g_worker105Stats.probes.fetch_add(1, std::memory_order_relaxed);
+                            if (sameCorner != !std::memcmp(&corners[(e - 1u) * 6u], bits, 24))
+                                g_worker105Stats.probesDiffer.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    }
+                    else
+                        sameCorner = !std::memcmp(&corners[(e - 1u) * 6u], bits, 24);
+                    if (behindOf[e - 1u] == (behind ? 1u : 0u) && sameCorner)
                     {
                         entryOf[i] = e - 1u;
                         break;

@@ -525,6 +525,25 @@ namespace native_renderer
     // lines stay synchronous, so they can come out ahead of buffered ones.
     // SOTC_LOG_ASYNC=0: written at once (as before).
     void logf(const char *format, ...) __attribute__((format(printf, 1, 2)));
+    // Round 105 (log105, the frame log's thread): logf with fmt105's float
+    // and integer conversions (the same text as vsnprintf's).
+    void logf105(const char *format, ...) __attribute__((format(printf, 1, 2)));
+    // Round 105: snprintf for %s %c %d %i %u %ld %lu %lld %llu %x %zu and
+    // %.<n>f (n 0-3) without newlib's dtoa (a double to n decimals by
+    // integer arithmetic; where that could round otherwise than printf,
+    // within 1e-6 of a half, that one number goes through snprintf); any
+    // other conversion: the whole line through vsnprintf. Same text.
+    int fmt105(char *out, size_t room, const char *format, ...) __attribute__((format(printf, 3, 4)));
+    // Round 105 switches (A/B names build105, log105, render105; r105all), read where used:
+    // g_build105 (SOTC_BUILD105, default on): the build worker idles on a
+    // kernel semaphore instead of looking every 2 ms;
+    // g_log105 (SOTC_LOG105, default on): the frame log's lines formatted by
+    // fmt105 / logf105.
+    // g_render105 (SOTC_RENDER105, default on): the render thread idles on a
+    // kernel semaphore instead of looking every 2 ms.
+    extern bool g_build105;
+    extern bool g_log105;
+    extern bool g_render105;
     void logBytes(const char *bytes, size_t n); // round 34: raw bytes into the ring (logCaptureStderr)
     void logFlush(); // what the ring holds, written now (the terminate handler)
     // Round 34 (the Vita, SOTC_LOG_STDERR, default on with SOTC_LOG_ASYNC):

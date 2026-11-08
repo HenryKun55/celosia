@@ -8607,6 +8607,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_rec.uploads.clear();
                 m_queued = true;
                 m_work.notify_one();
+                wake105();
                 if (!native_renderer::tuning().renderThread)
                     waitIdle(lock);
                 return;
@@ -8641,6 +8642,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             m_height = height;
             m_queued = true;
             m_work.notify_one();
+            wake105();
             const bool threaded = native_renderer::tuning().renderThread;
             if (!threaded)
                 waitIdle(lock);
@@ -8777,6 +8779,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_uploadsOnly = true;
                 m_queued = true;
                 m_work.notify_one();
+                wake105();
                 waitIdle(lock);
             }
             else
@@ -8788,6 +8791,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_rec.uploads.clear();
                 m_sideBytes += m_recUploadBytes;
                 m_work.notify_one();
+                wake105();
             }
             m_frameUploadBytes += m_recUploadBytes;
             m_recUploadBytes = 0;
@@ -9136,6 +9140,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             ThreadNaming::SetCurrentThreadName("RenderThread");
             // Core 2 on the Vita (native_renderer::threads).
             native_renderer::threads::place(native_renderer::threads::kRender);
+#if defined(__vita__)
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_sema105 = sceKernelCreateSema("RenderWake", 0, 0, 1, nullptr);
+            }
+#endif
             if (makeCurrent)
                 makeCurrent();
             const bool ok = !initThere || r->init();
@@ -9151,7 +9161,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 std::unique_lock<std::mutex> lock(m_mutex);
                 while (!m_queued && m_side.empty())
+                {
+#if defined(__vita__)
+                    // Round 105 (render105): idle on a kernel semaphore that
+                    // the hand-overs signal when this side said it sleeps
+                    // (wake105, under m_mutex as m_sleeping105 is set: no
+                    // wake-up lost; a count, so one given before the wait is
+                    // kept); 20 ms timeout. It looked every 2 ms (on the
+                    // console ~10-15 timed waits a frame of nothing).
+                    if (m_sema105 >= 0 && native_renderer::g_render105)
+                    {
+                        m_sleeping105 = true;
+                        lock.unlock();
+                        SceUInt timeout = 20000;
+                        sceKernelWaitSema(m_sema105, 1, &timeout);
+                        lock.lock();
+                        m_sleeping105 = false;
+                        continue;
+                    }
+#endif
                     m_work.wait_for(lock, kRecheck);
+                }
                 // Flushed uploads first (they were asked for before this frame's).
                 if (!m_side.empty())
                 {
@@ -9297,6 +9327,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // then (the game thread waited on an idle render thread for good).
         std::mutex m_mutex;
         std::condition_variable m_work, m_idle; // a frame handed over; the render thread idle
+        // Round 105 (render105): the render thread asleep on m_sema105 (both
+        // under m_mutex); every m_work.notify_one() is followed by wake105().
+        bool m_sleeping105 = false;
+        int m_sema105 = -1;
+        void wake105()
+        {
+#if defined(__vita__)
+            if (m_sleeping105 && m_sema105 >= 0)
+                sceKernelSignalSema(m_sema105, 1);
+#endif
+        }
         static constexpr std::chrono::milliseconds kRecheck{2};
         void waitIdle(std::unique_lock<std::mutex> &lock)
         {
