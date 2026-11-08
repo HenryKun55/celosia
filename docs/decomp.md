@@ -15410,3 +15410,106 @@ and 600 s with the console env, and the five check runs (420 / 300 s).
 **Console.** celosia-r101.vpk with r101/env-console.txt
 (`SOTC_AB_FLAG=r101all,walk101,skin101`), read with
 `build/agent-scratch/r101/read101.sh err.txt <from>`.
+
+## Round 102: the scripts from inside: where their time goes (a guest pc sampler by task), the sub-threads' frame copies inline (sw102), the game's vsprintf without its strings (fmt102) (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r102/`:
+- build.sh (its worktree, build directory `r102/vita`), v3k.sh / v3kb.sh (two Vita3K trees,
+  ../vita3k-celosia-r102 and -r102b; 222 MHz, 3 cores, muted, memcard copied, settings.cfg put back),
+  sp.sh (SOTC_SUBSYS_PROF + the round's sampler, SOTC_SCRSAMP102), samp.sh (Vita3K's host sampler),
+  check.sh (both CHECK modes), ab.sh, read102.sh (console / Vita3K reader), env-console.txt.
+- tools/scrown.py (the sampler's file: the scripts' own samples by task and guest function),
+  tools/scrcat.py (the same by kind, in ms), tools/hostgrp102.py (a host sampler window's script groups),
+  tools/subsys.py (round 96's table).
+- runs/spl0, runsb/spr0 (the probe sampler, the altar / route 6, p0 = main 5c49dc4 + the sampler),
+  runs/sampA0, runsb/sampR0 (host sampler, p0), runsb/sampA1 (host sampler, p1: the round on),
+  runs/checkR1, runsb/checkA1 (CHECK runs), runsb/altar1, runs/route1, runs/attract1 (the A/B).
+
+**How the scripts run.** There is no bytecode interpreter to speed up. Each script is compiled MIPS
+(recompiled, or a native for the hot ones), run as a game sub-thread: a coroutine on its own guest stack
+(isysWakeupSubThread / isysSleepSubThread, decomp_subthread.cpp since round 48: 0x2c0 bytes of registers
+saved and loaded per switch, no EE-kernel thread switch, no semaphore). The script pass
+(manager_sub_01102638, native) wakes ~85-95 objects a frame at the altar; each runs until scrRun /
+scrRunM, whose frame end (gamecore_sub_013CF258, native) does the object type's work (the character's
+geometry tail, an object animation, the letters) and sleeps. The data-driven AI (SCR records walked by
+execSCRBaseFunc, conditions by execCondition) runs inside those bodies and is a thin layer.
+
+**The sampler (`SOTC_SCRSAMP102=<from>:<to>[:<us>]`, with SOTC_SUBSYS_PROF=1; sotc_prof.cpp).** Round 96's
+"scripts' own time" (14.4 ms at the altar) came from the task probes' self time; the probes stay open
+across the sub-thread's sleep and their bookkeeping runs while pc is in the script pass. A host thread
+now reads the EE context's pc / ra every 500 us, keyed by the open task and the innermost open probe
+(scrsamp.txt beside the log). "The scripts' own" = samples whose innermost open probe is a task (the
+script bodies and every unprobed callee). Vita3K 222 MHz, ms a frame of the busy game thread (hook.sync,
+the host's stalls while the Mac was locked, left out; probes on, ~1.2x):
+
+| kind (tools/scrcat.py) | the altar (67 ms) | route 6 (39 ms) |
+|---|---|---|
+| the scripts' own, all | 11.5 (17.1%) | 7.6 (19.3%) |
+| switch, script pass, frame end, letters (probe cost inside) | 2.1 | 1.4 |
+| the small animals' AI (kites, lizards: AI_*, 013D*/013E*) | 1.5 | 1.0 |
+| frame start / finish managers (texAnim's body, layout matrices, bloom sprites) | 1.3 | 1.1 |
+| character geometry tail / layout / cloth (called from the frame end) | 1.1 | 0.7 |
+| object animations (st_playObjAnim x19-22: ExecObjectAnimation, curves) | 0.9 | 0.1 |
+| collision called by scripts (Agro's object-array callbacks, birds' probes) | 0.7 | 0.5 |
+| Agro's path (execPointListSort, 0142F4E8) | 0.4 | 0.3 |
+| vsprintf (iosSPrintf: the birds' and the sound script's names) | 0.25 | 0.2 |
+| SCR records / conditions / opcodes | 0.2 | 0.2 |
+| everything else (hundreds of functions, none over 0.4%) | 3.1 | 2.2 |
+
+By task: the birds (nico_SmallKiteStart x7 + SpecialStart) 3.2% of the busy game thread, Agro
+(nico_horseRStart + horseBridle) 2.9%, object animations 1.7%, the frame-start task 1.2%, the sound
+script 0.6%. Without probes (the Vita3K host sampler, p0, % of the game thread, altar / route 6): the
+sub-thread switch 0.33 / 0.37 plus most of memcpy's 2.1 / 2.0 (its frame copies), the pass, groups and
+letters 0.77 / 0.80, frame end and resume path 0.66 / 0.59, the SCR walker and conditions 0.51 / 0.67,
+vsprintf 0.07 / 0.10: the script system's own machinery is ~2.5% of the game thread plus its copies
+(~1.2 ms of ~48 in Vita3K). The rest of the scripts' time is the creatures' AI and the subsystems their
+frame calls (geometry, collision, animation), spread over hundreds of functions; each item above is a
+subsystem with its own owner (round 101: collision; rounds 82-97: geometry), not a dispatch cost. The
+sound driver's status request also waits for the mixer's lock (Sg2Driver::handleRpc's trylock spin,
+0.85% of the altar's game thread; round 53 measured and dropped a change there).
+
+**What changed (both exact, default on; A/B names in brackets, `r102all` both off).**
+- **sw102** (`SOTC_SW102`, decomp_subthread.cpp): the switch's ten frame copies a round trip (f0-f31,
+  the 24 GPRs' 128 bits, fp; 16-384 bytes each, ~90 round trips a frame) as inline 16-byte NEON moves
+  instead of memcpy calls; the frame bounds checks inlined. The same bytes. Host sampler at the altar,
+  same route, p0 -> p1: memcpy 2.08 -> 1.34% of the game thread, the switch's own code 0.33 -> 0.73%
+  (the copies now in it): -0.34% (~0.15 ms in Vita3K). `SOTC_SW102_CHECK=1` compares every save and
+  load with memcpy's result.
+- **fmt102** (`SOTC_FMT102`, Kernel/Stubs/LibC.cpp): the game's vsprintf stub built a std::string per
+  conversion and called snprintf twice for each; now the common forms (text, %%, '-' / '0', a width, a
+  precision on %s, h / hh / l read as 32 bits, d i u x X c s) are formatted into a stack buffer with the
+  general path's reads (the format to 1024 bytes, strings to 512, the va_list's 8-byte slots); anything
+  else goes to the general path. In the runs 99.99% of the calls took the fast path. Host sampler:
+  0.07 -> 0.03%. `SOTC_FMT102_CHECK=1` formats every call both ways and compares.
+
+**Checks.** checkR1 (route 6, 460 s, to frame ~10 300): sw102 2.0 M saves / loads compared, 0
+different; fmt102 40 000 calls, 0 different (5 took the general path). checkA1 (the altar, 330 s):
+sw102 1.5 M compared, 0 different; fmt102 20 000, 0 different.
+
+**A/B (Vita3K 222 MHz, `SOTC_AB_FLAG=r102all,sw102,fmt102 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`; ab89.py
+matched by draws, off minus on; ab100.py paired deltas with frames over 300 ms left out).**
+
+| run | sw102 | fmt102 | r102all |
+|---|---|---|---|
+| altar1 (from 3 300, median 49.9 ms) | -0.39 / -0.4 +- 0.5 | +0.72 / -0.0 +- 0.7 | +0.27 / +0.4 +- 0.5 |
+| route1 (route 6 from 3 000, median 30.4 ms) | +0.28 / +0.1 +- 0.5 | -0.01 / +0.5 +- 0.4 | -0.35 / +0.1 +- 0.4 |
+| route1, the plain from 4 300 | +0.75 | +0.86 | +0.43 |
+| attract1 (600 s, the world and riding from 10 000, median 20.9 ms) | -1.58 / +0.1 +- 0.4 | +0.53 / +0.4 +- 0.3 | -0.29 / +0.3 +- 0.3 |
+
+All within the in-run A/B's noise, as the sampler's ~0.15-0.2 ms predicts. No fault or hang: attract1
+600 s, route1 420 s, altar1 300 s, the checks, and finalR (the final VPK rebased on round 101, the
+console env, route 6 600 s to game frame 15 238, 255 A/B windows: out of the shrine, down the stairs,
+across the plain). The console's A9 calls
+memcpy across a module boundary (sceClibMemcpy) and has no Vita3K JIT in the way, so its share may differ;
+the console run decides.
+
+**What would cut the scripts' time further (not done here).** The machinery is ~2.5%; the rest is the
+creatures' own work. With nothing visible allowed to update less often, the levers are subsystem
+rewrites where the scripts spend: the birds' AI (013E1E48, 013DD228, 013E30D0, AI_GetSmallAnimalAIParam,
+013E1520 / 013E1190: recompiled VU0 macro code, ~1.5 ms at the altar in Vita3K with probes), the object
+animations' curve evaluation, and the geometry / collision their frames call (other rounds' areas). Round
+96's obj96 (unseen birds woken less often, ~3 ms in Vita3K) stays off (the 2026-11-07 console run; and it
+updates creatures less often).
+
+**Console run.** build/agent-scratch/celosia-r102.vpk with r102/env-console.txt (`SOTC_AB_FLAG=r102all,
+sw102,fmt102`, rotation every 60 frames). Read with `build/agent-scratch/r102/read102.sh err.txt <from>`.
