@@ -688,6 +688,14 @@
    "focus": "Speed",
    "summary": "Third step toward running part of the game's main work on another Vita core (the helper thread that does far-away characters' body and collision work; still off by default). The helper looked about twice as slow per character, and the plan was to speed up the game functions it runs; measuring showed the real cause was the hand-over itself: every character handed over copied and compared about 32 KB of state byte by byte, on both threads. That copying is now done 16 bytes at a time with the Vita's vector unit and, more importantly, only what changed since the previous hand-over is sent (usually about 24 small pieces). Characters that other objects read soon after are kept on the main thread, frames with few characters are left alone, and ten more of the game's functions now run natively on the helper.",
    "result": "In Vita3K the main thread's waiting for the helper at the shrine fell from about 10 ms to 2.7 ms a frame and its own bookkeeping from about 3.4 to 1.3 ms; the helper now takes the same time per character as the main thread. Before round 110 that made the helper path a small gain (+0.4 ms a frame at the shrine, +0.3 on the plain); on the current main it gains 1.1 ms at the shrine but loses 0.7 on the plain and 3.5 riding in the attract demo, where the helper now takes ten times longer to wake up, so it stays off until that is understood. Check mode: 0 differences in about 350 comparisons, and the new hand-over matched the old one byte for byte for over 90 000 characters. No crash in 600 s runs or loading the console's save."
+  },
+  {
+   "round": "r113",
+   "date": "2026-11-08",
+   "commit": "docs",
+   "focus": "Plan",
+   "summary": "Measured where the console's frame goes, thread by thread and area by area, and wrote a ranked plan for 30 fps. Riding in the open field the game's main thread needs about 60 ms a frame (68 in the heaviest stretch) against the 33 ms that 30 fps allows; the drawing thread, the other two cores and the graphics chip are also close to or over a 33 ms budget. The biggest areas on the main thread are collision tests (about 10 ms while riding), the game's own scripts (about 10), the scene walk that prepares drawing (about 9), the characters' bodies (about 7) and particles (about 5). The plan rewrites these as Vita-native systems in order: collision first, then the scene walk, then particles, plus fewer draw calls on the drawing thread to free the other cores.",
+   "result": "No game change this round. Estimate if every item lands: riding 60 ms -> about 33-38, the shrine 37 -> about 21-24. Honest ceiling without visible cuts: 30 fps is reachable in the shrine and lighter scenes; a locked 30 while riding in the open field is not likely on this hardware, so the first target is a locked 20 with no stutter everywhere. Collision mapped for the next round: about 19 ray tests a frame (the camera's six among them) take most of its time."
   }
  ]
 }

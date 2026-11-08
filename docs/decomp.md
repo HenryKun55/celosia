@@ -16554,3 +16554,49 @@ The ELF has no `:128` / `:256` NEON access at an sp-based address (spalign105: 0
 `build/agent-scratch/r111/read111.sh err.txt <from>` (ab89's matched block; `[char111]`: the hand-over path by part, the
 characters held / left on the game thread, spr111's monitor; `[char104g]`: the waits by gate). char104's windows say what the
 jobs are worth on the console's cores (Vita3K does not model the placement).
+
+## Round 113: the console's frame budget by thread and by area; a ranked plan from ~65 ms to 33; item 1 (collision) mapped (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r113/` (PLAN.md: the budget tables and the ranked plan; STATE.md; run.sh,
+chain1.sh / chain2.sh, v3k.sh: own tree ../vita3k-celosia-r113, 222 MHz, 3 cores; conframes.py, conres.py (a console
+log's per-thread CPU and GPU busy by frame range), subsys2.py (SOTC_SUBSYS_PROF as disjoint rows), areas.py (the
+sampler's namespace groups as the plan's areas, with r97/tools/grp.py)). Runs: loadN / loadP / loadS (the console
+card's save at the shrine: frame log, profiler, sampler), attractP / attractS / attractC (the attract demo riding Agro:
+profiler, sampler, collision census). No game code changed.
+
+**The console (round 110's err.txt).** Per-thread CPU a game frame: the game thread 37.0 ms at the shrine, 60.5 riding
+in the field (Steady 20), 68.7 in the heavy stretch out of the shrine area; the render thread 25-37 (49 at ~2600
+draws); cores 1-2 together 52-88; the whole machine 90-156 ms of CPU a frame, against ~85 usable at 30 fps. GPU
+occupancy (`[gpu86]`, scenes outstanding: an upper bound) 37-52 ms in the field, 42 at the shrine. At 30 fps cores 1-2
+have ~10-15 ms a frame free, which is why the offloads of rounds 91-111 do not pay on the console yet.
+
+**The game thread by area** (the Vita3K sampler's self-time shares, which the profiler's probes distort for per-call
+paths: particles 15% probed, 6-8.5% sampled; times = share x the console's own `cpu game`), field riding / shrine:
+collision 15.9% = 9.6 ms / 11.0% = 4.1; display path (walk, model hooks' game-thread part, light pass, sort lists,
+prefetch) 14.5% = 8.8 / 19.2% = 7.1; particles 8.5% = 5.1 / 6.1% = 2.3; characters without their collision 11.0% = 6.7 /
+16.0% = 5.9; recompiled guest code 16.7% = 10.1 / 15.1% = 5.6; runtime (sub-thread switches, memcpy of register frames,
+kernel, timers) 11.2% = 6.8 / 10.9% = 4.0; other natives 15.4% = 9.3 / 14.9% = 5.5. Vita3K's absolute times follow the
+Mac's load (the same spot: 68.5 and 88.4 ms busy with the same shares), so only shares are used.
+
+**The ranked plan** (PLAN.md): 1 collision as a Vita-native system (host-format trees, batched rays, per-character
+contact sets; -5..-6 ms console), 2 the display walk building draw records (-5), 3 particles as one native system
+(-3, -4.5 on the worker), 4 the render thread with fewer, fatter draws (render 28 -> ~15-18 ms; room on cores 1-2), 5
+far characters on the worker (uncertain after round 111), 6 the scripts' hot evaluators and the sub-thread runtime
+(-5), 7 the GPU after 4, 8 the small natives. Sum: field riding 60.5 -> ~33-38 ms, heavy stretch ~40-44, shrine
+~21-24.
+
+**The ceiling under the rule** (nothing visible updates less often, no LOD or rate cuts, no interpolation): 30 fps is
+reachable at the shrine and in light scenes once items 1-3 and the GPU work land; a locked 30 while riding in the
+open field is not reachable with confidence (the game thread at best ~33-38 ms, the machine's CPU and the GPU both
+over a 33 ms budget); the realistic target is a locked 20 without stutter everywhere first. Two shipped defaults bend
+the rule and are for the user to decide: `sac_particles=1` in the console's settings (half the particles) and seg80
+(a segment test's answer reused up to 5 frames while its ends move under 1 cm).
+
+**Item 1 mapped (runs/attractC, `SOTC_COLL_CENSUS=1`, riding).** Collision queries 5.4-6.7 ms a frame of Vita3K host
+time; ~4.8 of it is the segment test: ~19 segments a frame (player / horse probes at 0x1434b04 / 0x144268c /
+0x1443678, the camera's 6 rays through camera_collision_check_direct, the AI and scripts, two object-array callers)
+at 150-350 us each, every one walking a terrain tile's tree in the guest's layout and gathering each surface's
+boundary and attribute records. The ground fill (GetCollisionDBCallBack) is 0.6 ms with ~6-7 skinned finders a call
+(Agro's body under Wander). Slice 1 (next round): the segment path reading host trees built at each guest tree's
+first query (flat nodes, SoA surface blocks), the current natives' float tests in the same order, a compare mode per
+call site, the camera's rays as one bundle; then the skinned finders against one transformed copy a frame.
