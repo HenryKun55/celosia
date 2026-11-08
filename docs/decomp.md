@@ -15616,3 +15616,140 @@ whenever the call path leaves sp 8 mod 16 (the save load's does); Vita3K does no
 
 Fix: no `alignas` on Ends (ld / st go through memcpy). The fixed ELF has no `:128` / `:256` access at an sp-based address
 anywhere (a scan of the whole disassembly; the r103 ELF had 7, all in walk101Run). Build: build/agent-scratch/celosia-fix103.vpk.
+
+## Round 104: the characters' geometry on the guest worker (char104): exact, but no overlap to win; what blocks it (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r104/`: build.sh, v3k.sh / v3kb.sh (own trees
+../vita3k-celosia-r104 / r104b), run.sh (one run: tree, VPK, route, seconds, env), ab.sh, read104.sh,
+env-console.txt, syn.sh (host syntax check); runs/ and runsb/: censusA2 (the census), serialA1 / A2,
+chk5A, chk6S (mode 2 checks), chk6P, chk8P (mode 1 checks), chk8R (the recompiled code against the
+natives), par1A / par5A (first mode 1 runs), altar7 / attract8 / runsb/route7 (the A/B), finalR (600 s,
+the console env). p0-p6 on main 9be600e, p7 / p8 rebased on b419fc5 (fix 103); p8 = celosia-r104.vpk.
+
+**Why.** The console's game thread is 45-55 ms of CPU a 3D frame alone on core 0; the exact local
+rewrites are exhausted (rounds 97, 101, 102). Cutting it by many ms needs part of its work on another
+core. The brief: the characters' per-frame body work (ExecCharaGeometry: pose, IK, cloth, root dynamics
+and their collision) of characters that do not interact this frame, on round 91's guest worker, with
+identical results.
+
+### Where each character's geometry sits (census, `SOTC_CHAR104_LOG=<n>`, the altar, Vita3K 222 MHz)
+
+Each character's ExecCharaGeometry runs at its own sub-thread's frame end (decomp_scriptvm3 charaGeometry),
+between the scripts of the objects woken before and after it. The census times every call since the
+frame's first wake and wraps the class accessors (GetCharacterClass, GetLayoutClass, GetAnimationClass,
+GetScriptClass, GetGeometryPointerObject / Position / Quaternion) to find the first read of a character by
+another object after its geometry ran (`[char104o]`, `[char104r]`, `[seq104]`). Frames 5 657-6 257
+(geometry 14.5-15.4 ms a frame of a 57-62 ms frame, probes included):
+
+| character | geometry ms | first foreign read after it |
+|---|---|---|
+| Wander (the player) | 6.9 | 0.2 ms (the managers' tasks, the camera) |
+| Wander's head (4-5 units away) | 3.4-4.0 | 0.04 ms (manager_sub_010AC4A0) |
+| Mono's body / head / hair, two doves next to them | 0.3-0.8 each | 0.1-1 ms for two of them (the hair reads the head), 17-22 ms for the others |
+| eight birds (0.1-0.2 ms each) | ~1.0 together | 25-29 ms (none until the walk) |
+
+So the characters whose results nobody reads for long (the far birds, two of Mono's parts, the doves) are
+the cheap ones: ~2.5-3 ms together at the altar; the expensive ones (Wander, his head) are read at once.
+
+### What the geometry touches (`SOTC_CHAR104=2 SOTC_CHAR104_CALLS=1`: the worker's call targets)
+
+296 functions under the 18 characters' geometry, among them shared state of every kind: the heap
+(iosMallocAlign, malloc_from_src_partition), isys objects and groups (_isysCreateObj,
+isysAddGroupWithLinkParam, isysGroupForFirst / Next / Exit: these take the isys kernel's global
+recursive lock, a WaitSema), two-way links into the object a character stands on
+(LinkSecureParentInfoByGP / UnlinkSecureParentInfo: every character, every frame, into the parent's +0x118
+list), the collision finders and work areas, the skinned surfaces' caches of other characters
+(EntryModifiedManager), sound (sePlay3D, sndSepReq), particle creation (create_and_boot_particle_geodisp,
+boot_particle_emitter), the anime tables' sub-threads (ExecAnimeTableInfo, SequenceKickSE / Particle),
+`rand`, and VU0's R register (the cloth step draws three random numbers a grid point: 1 050 of 1 957 jobs
+drew some).
+
+### What was built (decomp_char104.cpp, sotc_worker; `SOTC_CHAR104`, default 0)
+
+- `SOTC_CHAR104=2`: a character's geometry, its area test and its Postprocess handed to the worker and
+  joined at its frame end (no overlap): the worker's result against the game thread's.
+- `SOTC_CHAR104=1`: an eligible character's (not the player, not the active colossus, farther than
+  `SOTC_CHAR104_NEAR` = 12 from the player) geometry, area test (class +0x539) and Postprocess run on the
+  worker; the frame end goes on (letters, sleep) and the script pass wakes the next objects. Eligible
+  characters reached while it runs are queued behind it (a batch, in the pass's order).
+- The worker's view: the game thread's context at the hand-over (R included: one random stream), the
+  game's scratchpad, VU0 data and the work stack's bytes below 0x11f7140 at the same offsets in its own
+  copies (callees that read slots they did not write read what the original would); a queued character's
+  view is brought up to the game's at its own hand-over. At the join the three areas are merged back (a byte
+  the game thread changed since the last hand-over stays; the work stack only below the game thread's sp:
+  above it are live frames), and saved frame pointers / addresses of locals in the worker's copy of the work
+  stack are moved to the work stack (without that, the mode 2 check found every saved pointer different).
+- Beside the game thread the worker runs the recompiled code, not the natives (their host caches:
+  decomp_collision's epochs and kept matrices, seg80's slots, are the game thread's), and parks (waits for
+  the join) before libkernel, libc's heap, the heap, the isys kernel and the sound driver's requests, the
+  partitions' malloc, the sound module, the anime tables and rand (`admitGeo`); after the join the rest runs
+  alone with the natives.
+- The game thread joins before anything the job may also do (kGate: another character's geometry and
+  Postprocess, the random numbers (the cloth step, iosGetRandom*, rand / srand), the heap, objects, groups
+  and links, collision finders and work areas, the skinned caches, sound, the anime tables; and round 91's
+  particle / wind module gates), when it names a character of the batch (the accessors above), at the end of
+  the script pass's group and at the frame's end. All the job's own side effects therefore come before the
+  game thread's in the original order; the random stream is handed back at the join (`[char104] ... random
+  taken N conflicts 0` in every run).
+- A/B names `char104`, `r104all` (the same switch). Logs: `[char104]` every 600 frames (characters and
+  batches a frame on the worker, the worker's ms, the game thread's wait at the joins, joins by site),
+  `[char104g]` (joins by gate), round 91's `[worker91]` (job time, parks and where).
+
+### Checks (`SOTC_CHAR104_CHECK=<n>`: every n-th batch, one character)
+
+Main RAM is copied at the hand-over (S0); at the join the parallel outcome P is kept aside, S0 put back,
+the reference run made (mode 2: the same calls on the game thread with the natives, on the work stack and
+the frame end's sp; mode 1: the same recompiled code on the worker with the game thread waiting), S1
+compared with P, and P put back. A word the reference wrote that P does not hold is a difference; the work
+stack's and the sub-thread stacks' dead slots below their sp are counted apart (the sub-thread stack's
+Postprocess frame is not merged back on purpose: by the join the frame end has slept there and a saved
+register equal to the old value could not be told from an untouched one).
+
+| run | mode | checks | differences (live words) | dead slots (work stack / sub-thread) | scratchpad / VU0 data |
+|---|---|---|---|---|---|
+| runs/chk6S (p6) | 2, natives on the worker | 109 | 0 (307 counted then: all the Postprocess frame, apart since p8) | 0 / (307) | 0 / 0 |
+| runsb/chk8P (p8) | 1, beside the game thread | 52 | 0 | 3 577 / 1 137 | 0 / 0 |
+| runsb/chk8R (p8) | 2, the recompiled code on the worker against the natives on the game thread | 76 | 0 | 0 / 0 | 0 / 0 (registers too) |
+
+The registers left at the job's end (caller-saved values) differ from the reference's in mode 1 (the
+parked part runs with the natives after the join); nothing reads them (the frame end reloads its own).
+
+### Measured (Vita3K 222 MHz, in-run A/B `SOTC_CHAR104=1 SOTC_AB_FLAG=char104 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, matched by draws, off minus on)
+
+| run | part | frame (on / off) | char104 |
+|---|---|---|---|
+| runs/altar7 | from 3 300 | 72.1 / 57.4 | -14.66 ms (the worker costs) |
+| runsb/route7 | from 3 000 | 74.3 / 59.0 | -15.24 |
+| runs/attract8 | riding, from 10 000 | 39.0 / 34.9 | -3.86 |
+| runs/finalR | route 6 600 s, console env (guest on core 1), from 3 000 | | -12.11 |
+
+At the altar 8-16 characters a frame go to the worker in 5-10 batches; the worker spends ~9-18 ms a frame
+on them (the recompiled code is ~2-3x the natives) and the game thread waits ~9-16 ms a frame at the joins:
+almost nothing runs in parallel. The joins come ~2 ms after the hand-over, at FlushCollisionWork (another
+object's collision work, ~2 a frame), UpdateLayoutClassParentGeometry (the parent's children, 1 a frame),
+iosMallocAlign (1 a frame), the anime tables (1 a frame) and the next batch's hand-over; 40-46% of the
+batches park in their first 0.3-0.4 ms at isysGroupForFirst (the isys kernel's global lock) or at the
+anime tables, after which the rest waits for the join. No crash or fault in any run: par1A, par5A, the
+checks, the A/B (altar 4 800 frames, route 6 7 200, attract 17 900), runs/finalR (route 6, 600 s, the console env with the worker on core 1 only: 8 268 frames; char104 -12.11 ms matched).
+
+### Conclusion: default off; what a real split needs
+
+The mechanism is exact (0 differences in live words in both modes) but gains nothing: the characters
+that could run long beside the game thread are the cheap ones (~3 ms at the altar, less elsewhere), and
+even those are cut short by shared state the game uses everywhere: the isys kernel's global lock (group
+walks), the heap, the parent links, collision work areas, the random stream. A split that pays needs, in
+order: (1) the natives under ExecCharaGeometry made safe for two threads (the collision natives' epochs,
+kept matrices and seg80 / probe84 slots per thread: the worker on the recompiled code is 2-3x slower), (2)
+the collision object group's walk without the isys lock (a host snapshot of the group taken by the game
+thread at the hand-over), (3) the secure-parent links and FlushCollisionWork deferred to the join in order
+(nothing reads them in between while the parent is static), (4) a larger independent unit than one cheap
+character (Agro while not ridden: ~3-4.5 ms, but Wander's scripts and collision read him). Without
+(1)-(3) no selection of characters wins.
+
+The ELF has no `:128` / `:256` NEON access at an sp-based address (fix 103's scan); the round's two aligned
+accesses (kickAs, char104's static init) use registers realigned with `bic #15`.
+
+**Console.** build/agent-scratch/celosia-r104.vpk (main b419fc5 + this round, p8). `SOTC_CHAR104` is 0
+unless set: with r104/env-console.txt (`SOTC_CHAR104=1 SOTC_THREAD_CORES=guest:2 SOTC_AB_FLAG=char104`)
+half the windows run the worker on core 1 and are expected to be slower; read with
+`build/agent-scratch/r104/read104.sh err.txt <from>` (ab89's matched block; `[char104]` the waits).
