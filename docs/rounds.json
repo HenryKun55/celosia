@@ -616,6 +616,14 @@
    "focus": "Speed",
    "summary": "Looked inside the game's scripts (the creatures' AI and the managers that run every frame) with a new sampler that records which script is running and which game function it is in. The scripts are compiled game code run as lightweight game threads, not an interpreter: the script system's own machinery (switching between scripts, the per-frame script pass, the data-driven AI records) is only about 2.5% of the game thread. The rest of the script time is the creatures' own work (the birds' flight AI, Agro's path, object animations) and the geometry and collision their frames call, spread over hundreds of functions. Two exact changes: the script switch now copies its saved registers with inline vector moves instead of library calls, and the game's text formatting (used by the scripts every frame) no longer builds temporary strings.",
    "result": "Check modes compared 3.5 million script switches and 60 000 formatted strings against the old code on route 6 and the altar: no difference. Vita3K profiler at the altar: the copies' share of the game thread falls from 2.4% to 2.1% (about 0.15 ms a frame); the in-run A/B at the altar, route 6 and a 600 s attract demo is within noise (+-1 ms). No crash in the 600 s runs. Console A/B prepared (env-console.txt: r102all, sw102, fmt102)."
+  },
+  {
+   "round": "r103",
+   "date": "2026-11-08",
+   "commit": "e02b31c",
+   "focus": "Speed",
+   "summary": "Looked through the drawing walk for work the game thread still does only because the original fed the PS2's graphics hardware. Two such layers were removed: the particle effects no longer build the PS2's particle packets (and upload its particle microcode) only for the port's renderer to copy their inputs back out; the renderer now gets those inputs directly. And solid models no longer compute per-part matrices for the PS2's vector unit, which nothing in the port reads. Each has its own switch and a check mode.",
+   "result": "The particle check found the renderer's input byte-identical in 288 000 particle draws (altar and route 6); a test that fills the skipped matrices with invalid values left the picture intact. Vita3K profiler at the altar: the touched code fell from 3.1% to 2.0% of the game thread (about 0.5 ms a frame); in-run A/B +0.3 to +1.4 ms with the round on, within noise. All the PS2-format work left in the drawing path is only about 3% of the game thread; the rest of the walk is its own per-object bookkeeping, which needs a different design rather than more cuts. No crash in 600 s runs. Console A/B prepared (env-console.txt: r103all, ptcl103, solid103)."
   }
  ]
 }
