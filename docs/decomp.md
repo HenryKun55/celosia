@@ -16600,3 +16600,73 @@ boundary and attribute records. The ground fill (GetCollisionDBCallBack) is 0.6 
 (Agro's body under Wander). Slice 1 (next round): the segment path reading host trees built at each guest tree's
 first query (flat nodes, SoA surface blocks), the current natives' float tests in the same order, a compare mode per
 call site, the camera's rays as one bundle; then the skinned finders against one transformed copy a frame.
+
+## Round 116: the render thread's records kept whole (fat116); why fewer, fatter draws and a record-building walk do not fit the picture rule as planned (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r116/` (build.sh, v3k.sh / v3kb.sh: two own Vita3K trees
+../vita3k-celosia-r116 and -r116b, 222 MHz, 3 cores; run.sh / runb.sh scene runs; ab116.py: a frame log by A/B state
+with the render thread's parts; shotgroups.py; env-console.txt; STATE.md). Base p0 = main a9ecc14 rebuilt.
+
+**What the draws are split by (`SOTC_GL_MERGE_STATS=1`, p0, the attract demo).** Item 4 of round 113's plan wanted
+~1300-1900 draws down to ~600-800 by merging per material, sorting by state and instancing. The draws next to each
+other already merge whenever texture, state and matrix allow; what is left, per frame, riding (1426 draws, 538 GL
+draws): another texture 508, another skin palette 8.6, another layer 10.9, another state 1.3, another matrix only 2.1
+(the same mesh 1.8). Earlier in the demo (title, the plain): 245 leaders, texture 131, palette 55, matrix 15. So
+94% of the splits are the texture: instancing (a matrix array, one draw for neighbours that differ only by matrix)
+would merge 0.4-6% of the draws; merging across textures needs reordering (opaque draws at equal depth then keep
+another one: round 87's sort87 measured slower and moved pixels) or atlases (other filtering at the edges). Neither
+keeps the picture identical, so neither was built. Item 4 became the render thread's own cost per draw.
+
+**fat116 (`SOTC_GL_FAT116`, default on; A/B `fat116`).** A model surface's packets reach the backend as one record
+(drawMulti: one state, one matrix, several meshes; riding ~2.2 meshes a record). The render thread copied each
+record once per mesh (expandDraws: ~330 bytes each, ~1400 a frame riding), then planFrame compared every neighbour
+pair in full (state and matrix, ~300 bytes) and looked the texture up for every one. Now the records stay whole:
+the frame's draws are members (record, mesh), in the same layer order; planFrame looks the texture up once a record
+and takes a member after another of its own record as merging the way that one did (the same bits: the merge test
+is an equivalence there; a record's first comparison and every comparison across records are made in full, so
+shadow volumes and skinned palettes, which never merge, still do not). The plan, the passes and the GL calls are the
+same, call for call. `SOTC_FAT116_CHECK=<n>`: every n-th frame the plan is made again with both short cuts off and
+compared field by field (mesh, texture, run length, merged vertices, run copy pool / place, alpha and depth bounds).
+
+**Checks.** runs/check1 (the attract demo, 480 s, `SOTC_FAT116_CHECK=7`): 2 400 frames checked, 1 808 474 draws in
+832 261 records, 0 plan entries differ. Frozen frames (`SOTC_GL_FREEZE`, `SOTC_AB_FLAG=fat116` in 600 / 1200-frame
+windows, the window captured every 3-4 s): the altar (runs/frzA1, frozen from game frame 3073, fat116 on, off from
+3600, on from 4800; 61 captures over 180 s) one picture cycling with the bloom history (566 pixels by 1), the same
+cycle in every window; the plain after the console card's load (runs/frzL1) the same (its pictures change once after
+~100 s frozen: the per-frame meshes of the cloak and the shadow volumes are let go while the frame stays frozen, in
+both states). No fault: route 6 520 s, the attract demo 620 s, the console card's load 420 s.
+
+**Measured (Vita3K 222 MHz, in-run A/B `SOTC_AB_FLAG=fat116 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, the phase log on,
+`ab116.py`, matched by draws, off minus on: positive = fat116's gain).**
+
+| run | scene | render thread a frame (on) | render (fat116 off minus on) | game thread | frame |
+|---|---|---|---|---|---|
+| runs/abL1 | the console card's load: shrine, then the plain | 16.2 ms | **+1.61** | -0.44 | -0.48 |
+| runs/abA1 | attract demo from frame 10 000 (riding) | 14.8 | **+1.95** | +0.45 | +0.17 |
+| runs/abR1 | route 6 from frame 3 000 | 14.0 | **+1.64** | -0.22 | -0.25 |
+
+The render thread's own time drops 1.6-2.0 ms a frame (~11-13%); the game thread and the frame are within the in-run
+A/B's +-1 ms noise (the render thread runs beside them). Sampler (runs/sampL1 against round 113's loadS, the render
+thread): memcpy 4.8 -> 1.3%, sameState 2.5 -> 0.85%. On the console the copies were ~450 KB written and read again a
+frame through a 2 MB L2 shared with the game: the gain there should be larger; its A/B is in env-console.txt.
+
+**Item 2 (the walk building draw records): not done; what the sampler says.** The display path is 14.5% of the game
+thread riding / 19.2% at the shrine, spread over ~80 functions, the largest 1.1-1.7%: the walk's clip (clip83) 1.1-1.5,
+the walk itself 1.1, glVertexKick 1.1-1.7, the model hook's front 0.4-1.1, scroll rows 0.9, the prefetch 0.9, the sort
+lists 0.5-0.8, the light pass 0.4-0.6. Every native there keeps the guest's registers, VU0 state and memory exact for
+the recompiled code around it; a host object table (class, callbacks, bounds and LOD kept across frames, NEON clip)
+has to reproduce each guest-visible write the 50+ class callbacks make and the LOD / fade state the next frame reads.
+The per-frame model state is already handed to the lane and the hook worker as records (round 61's lane, round 23's
+jobs); what stays on the game thread is the walk's guest-exact bookkeeping. `SOTC_GLV116_LOG=1` (new) counts the
+immediate-mode vertex kicks by caller: ~100 a frame, half from the heat haze strips (010F3FB0, eight a strip pair:
+0x10f4698-0x10f47dc) and half from one particle drawer (0x11425bc), ~13 us each in Vita3K, ~1.1-1.7% of the game
+thread; a direct path (the strips' vertices straight into the 2D assembler, no GIF packet, no glBegin / glEnd) is
+the largest single exact cut found, but it must keep glBegin / glEnd's guest state and the VU0 registers the kick
+leaves: next round's candidate (~0.7-1 ms console where the haze is on screen).
+
+**Build note.** `sotc_vita_elf_room` 40 KB -> 48 KB (vita-elf-create's "segment 1 overlaps").
+
+**Console.** build/agent-scratch/celosia-r116.vpk with r116/env-console.txt (round 112's logs, the phase log,
+`SOTC_AB_FLAG=fat116` rotating every 60 frames). Read with `python3 build/agent-scratch/r116/ab116.py err.txt --from
+<frame>` (and `--slow` for the draw part's plan / pass / calls, which only the slow lines carry): fat116's row, render
+and rdraw / plan positive = its gain on the console.
