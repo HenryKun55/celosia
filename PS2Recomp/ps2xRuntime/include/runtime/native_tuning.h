@@ -628,7 +628,7 @@ namespace native_renderer
         // 1-2 with: they mostly wait on the card, and the game thread waits
         // on them. SOTC_PRIO100=0/1; A/B `prio100`.
 #if defined(__vita__)
-        bool glInflight100 = true;
+        bool glInflight100 = false; // console 2026-11-07: off was 1.0 ms faster (mean), p90 -1.4
         bool prio100 = true;
 #else
         bool glInflight100 = false;
