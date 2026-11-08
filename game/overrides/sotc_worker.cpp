@@ -282,6 +282,23 @@ namespace sotc_worker
         std::unordered_map<uint64_t, uint64_t> g_exclHeap;
         bool g_nextRecomp = false; // the next kickAs's job runs the recompiled code beside the game thread
         std::unordered_map<uint32_t, uint64_t> g_calls; // the worker's call targets (census), written by the worker only
+        // Round 111: the census's time (SOTC_CHAR104_CALLS=2): each target's calls, self and inclusive us beside the
+        // game thread (park waits taken out), the worker's only.
+        bool g_censusTime = false;
+        uint64_t g_kickSerial = 0; // round 111: kickAs's count (monotonic)
+        uint32_t g_spLo = 0, g_spHi = 0, g_spMin = ~0u; // round 111: the least sp the worker's calls had within (lo, hi]
+        struct CallTime
+        {
+            uint64_t n = 0, selfUs = 0, inclUs = 0;
+        };
+        std::unordered_map<uint32_t, CallTime> g_callTime;
+        uint64_t g_parkWaitTotal = 0; // the worker's park waits (us), for the census's time
+        struct TimeFrame
+        {
+            uint64_t start, park, child;
+        };
+        TimeFrame g_timeStack[256];
+        int g_timeDepth = 0;
 
         inline uint64_t nowUs() { return native_renderer::nowUs(); }
 
@@ -321,6 +338,7 @@ namespace sotc_worker
                     g_jobParked = true;
                 g_cvPark.wait(lock, [] { return g_exclusive; });
                 g_parked = false;
+                g_parkWaitTotal += nowUs() - g_parkStartUs;
             }
             t_exclusive = true;
             if (g_resumeHook)
@@ -381,12 +399,20 @@ namespace sotc_worker
         constexpr uint32_t kNat108[] = {
             0x00125040u, // fptodp
             0x001253A0u, // dpmul
+            0x001BA4D0u, // GetDifferencialQuaternionWithNoRegularize (round 111)
+            0x001BBDA8u, // SetQuaternionByAxisRotateVWithNoRegularize (round 111)
             0x001BC2D0u, // CopyMultiQuaternion
+            0x001BC308u, // GetQuaternionByAxisDirZY (round 111)
             0x001BC4B0u, // GetQuaternionByAxisDirZYExact
             0x001BDDB0u, // iosGetSinCosf
+            0x001BE388u, // iosGetACosfExact (round 111)
+            0x001BE458u, // iosGetATan2fExact (round 111)
             0x001BE898u, // iosAbsVector
             0x001BE8F0u, // iosGetArbitraryUpVectorElement
+            0x001DD538u, // atanf (round 111)
+            0x001DF480u, // __ieee754_sqrtf (round 111)
             0x010AC4A0u, // manager_sub_010AC4A0 (nodeQuatPos)
+            0x010AC6C8u, // manager_sub_010AC6C8 (curveEval, round 111)
             0x010AD1B0u, // GetMotionFloatFrameNoCaribration
             0x010ADE08u, // manager_sub_010ADE08 (keyVec3)
             0x010AE128u, // manager_sub_010AE128 (optionNodeSample)
@@ -396,6 +422,7 @@ namespace sotc_worker
             0x010B4FD8u, // GetMotionFloatFrame
             0x010B6E80u, // GetMotionNodeBasePos
             0x010B6F60u, // GetMotionNodeBaseQuaternion
+            0x010B81F8u, // manager_sub_010B81F8 (motionKeys, round 111)
             0x010BA7A8u, // GetAnimationClass
             0x010BB258u, // CalcNodeInterp
             0x010BBA60u, // CalcNodeQuaternionWithIK
@@ -452,6 +479,7 @@ namespace sotc_worker
             0x01137858u, // manager_sub_01137858 (cloth constrain)
             0x011399E0u, // getClothDynamics
             0x0113F378u, // get_top_emitter_list_from_particle_geodisp
+            0x01145F78u, // manager_sub_01145F78 (windZones, round 111)
             0x01146A50u, // GetWindVector
             0x01147798u, // FlushModifiedManager
             0x011478B8u, // EntryModifiedManager
@@ -716,11 +744,27 @@ namespace sotc_worker
                 fault("no function", target, ctx);
             hostStackCheck(target, ctx);
             const uint32_t sp = GPR_U32(ctx, 29), serial = shell->m_guestJumpSerial;
+            if (sp > g_spLo && sp <= g_spHi && sp < g_spMin)
+                g_spMin = sp;
+            const bool timed = __builtin_expect(g_censusTime, 0) && g_timeDepth < 256;
+            if (timed)
+                g_timeStack[g_timeDepth++] = {nowUs(), g_parkWaitTotal, 0u};
             fn(rdram, ctx, shell);
             // A callee that came back with its own entry and no jump inside returned (finishGuestCall's rule).
             if (ctx->pc == target && serial == shell->m_guestJumpSerial)
                 ctx->pc = returnPc;
             runOn(rdram, ctx, shell, returnPc, sp);
+            if (timed)
+            {
+                const TimeFrame &f = g_timeStack[--g_timeDepth];
+                const uint64_t incl = nowUs() - f.start - (g_parkWaitTotal - f.park);
+                CallTime &c = g_callTime[target];
+                ++c.n;
+                c.inclUs += incl;
+                c.selfUs += incl > f.child ? incl - f.child : 0u;
+                if (g_timeDepth > 0)
+                    g_timeStack[g_timeDepth - 1].child += incl;
+            }
             return true;
         }
 
@@ -994,12 +1038,21 @@ namespace sotc_worker
         return g_parked;
     }
     bool lastJobParked() { return g_jobParked; }
+    uint64_t kickSerial() { return g_kickSerial; }
     void lastJobTimes(uint64_t &jobUs, uint64_t &parkAtUs)
     {
         jobUs = g_jobUs;
         parkAtUs = g_jobParked ? g_parkAtUs : g_replayParked && g_replayStartUs > g_jobStartUs ? g_replayStartUs - g_jobStartUs : 0u;
     }
     void setCallCensus(bool on) { g_census = on; }
+    void setCallCensusTime(bool on) { g_censusTime = on; }
+    void spWindow(uint32_t lo, uint32_t hi)
+    {
+        g_spLo = lo;
+        g_spHi = hi;
+        g_spMin = ~0u;
+    }
+    uint32_t spMin() { return g_spMin; }
     void recompiledNext() { g_nextRecomp = true; }
     void nativesNext(bool on) { g_nextNat108 = on; }
     void deferNext(uint32_t target) { g_deferNextTarget = target; }
@@ -1100,6 +1153,30 @@ namespace sotc_worker
             std::fprintf(stderr, " %08x x%llu%s", at, (unsigned long long)c, safe(at) ? "" : "!");
         std::fprintf(stderr, "\n");
         g_calls.clear();
+        if (!g_callTime.empty())
+        {
+            // Round 111: by self time; N a native the game thread runs (the worker: recompiled unless nat108 lists it), L listed.
+            std::vector<std::pair<uint64_t, uint32_t>> t;
+            uint64_t total = 0;
+            for (const auto &[at, c] : g_callTime)
+            {
+                t.push_back({c.selfUs, at});
+                total += c.selfUs;
+            }
+            std::sort(t.rbegin(), t.rend());
+            std::fprintf(stderr, "[%st] self %llu us, %u targets:", tag, (unsigned long long)total, static_cast<unsigned>(t.size()));
+            int k = 0;
+            for (const auto &[us, at] : t)
+            {
+                if (++k > 120)
+                    break;
+                const CallTime &c = g_callTime[at];
+                std::fprintf(stderr, " %08x:%llu/%llu/%llu%s%s", at, (unsigned long long)c.n, (unsigned long long)c.selfUs, (unsigned long long)c.inclUs,
+                             sotc_decomp::recompiled(at) ? "N" : "", nat108(at) ? "L" : "");
+            }
+            std::fprintf(stderr, "\n");
+            g_callTime.clear();
+        }
     }
 
     bool kickAs(uint8_t *rdram, PS2Runtime *runtime, const R5900Context &from, Job job, void *arg, Admit admitFn, void (*setup)(void *), void (*joined)(void *))
@@ -1131,6 +1208,7 @@ namespace sotc_worker
         SET_GPR_U32(&g_own->ctx, 31, 0u);
         std::memcpy(g_own->vu0Data, runtime->memory().getVU0Data(), PS2_VU0_DATA_SIZE);
         g_eeThread = runtime->eeScheduler().currentThreadId();
+        ++g_kickSerial;
         if (setup)
             setup(arg);
         g_answers.swap(g_pending);

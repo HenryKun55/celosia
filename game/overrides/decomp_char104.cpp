@@ -36,10 +36,17 @@
 #include <unordered_map>
 #include <new>
 #include <vector>
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 namespace decomp_collision
 {
     extern uint64_t g_guestRuns, g_guestRunsW;
+}
+namespace ps2_worker
+{
+    extern uint64_t g_sprTouch; // round 111 (ps2_memory.cpp)
 }
 
 namespace char104
@@ -74,6 +81,10 @@ namespace char104
             const char *e = std::getenv(name);
             return e ? std::atoi(e) : def;
         }
+        // Round 111: SOTC_CHAR104's default. 0: the round's qualification was not clean (on main with round 110 the
+        // jobs lost 0.7 ms a frame on route 6 and 3.5 riding in the attract demo in Vita3K, the worker starting
+        // 0.14-0.19 ms after a hand-over instead of 0.02; before round 110: altar +0.41, route 6 +0.27 / +0.36).
+        constexpr int kChar104Default = 0;
         int g_logV = -1; // SOTC_CHAR104_LOG (read at first use: the Vita env.txt comes after static init)
         inline int logV()
         {
@@ -113,9 +124,11 @@ namespace char104
         uint64_t g_frames = 0, g_geoUsSum = 0, g_lastGeoEndSum = 0, g_frameLenSum = 0;
 
         void accessJoin(uint32_t obj, uint32_t acc, uint32_t ra); // the job's part (below)
+        void holdRead(uint32_t obj);                              // round 111 (below)
         void noteRead(uint32_t obj, uint32_t acc, uint32_t ra)
         {
             accessJoin(obj, acc, ra);
+            holdRead(obj);
             if (logV() <= 0)
                 return;
             auto it = g_geoAt.find(obj);
@@ -244,7 +257,7 @@ namespace char104
         };
         constexpr int kGateCount = sizeof(kGate) / sizeof(kGate[0]);
         PS2Runtime::RecompiledFunction g_gateOrig[kGateCount] = {};
-        uint64_t g_gateJoins[kGateCount] = {};
+        uint64_t g_gateJoins[kGateCount] = {}, g_gateWaitUs[kGateCount] = {}; // (round 111: the waits by gate)
         bool g_gatesOn = false;
         void gateJoin(int i);
         void gateArg(uint32_t gate, uint32_t a0); // round 108: is the gate's a0 a character of the batch (below)
@@ -302,7 +315,7 @@ namespace char104
     }
     void install(PS2Runtime &runtime)
     {
-        const bool par = envInt("SOTC_CHAR104", 0) == 1;
+        const bool par = envInt("SOTC_CHAR104", kChar104Default) == 1;
         if (logV() <= 0 && !par)
             return;
         installAll(runtime, std::make_integer_sequence<int, kAccCount>{});
@@ -457,6 +470,68 @@ namespace char104
         //  cur109 (no A/B): the running sub-thread's object (0x1e1550) of each character's moment put in place
         //            while the worker runs exclusive (after a park).
         int g_anime109 = 1, g_open109 = 1, g_obj109 = 1, g_cur109 = 1;
+        // Round 111 (hold111, 1 unless set; A/B hold111 / r111all): a character another object read while it was in a
+        // batch (an access join: the reader waits for the job) stays on the game thread while such reads go on
+        // (SOTC_HOLD111_FRAMES, 60, after the last foreign read seen); its own geometry is then done before the read.
+        int g_hold111 = 1, g_holdFrames = 60;
+        bool g_abHold111 = true;
+        struct Held // object -> the frame of its last foreign read (game thread; a few at a time)
+        {
+            static constexpr int kMax = 16;
+            uint32_t obj[kMax] = {};
+            uint64_t frame[kMax] = {};
+            int n = 0;
+            int find(uint32_t o) const
+            {
+                for (int i = 0; i < n; ++i)
+                    if (obj[i] == o)
+                        return i;
+                return -1;
+            }
+            void set(uint32_t o, uint64_t f)
+            {
+                const int i = find(o);
+                if (i >= 0)
+                    frame[i] = f;
+                else if (n < kMax)
+                {
+                    obj[n] = o;
+                    frame[n++] = f;
+                }
+            }
+            void erase(int i)
+            {
+                obj[i] = obj[n - 1];
+                frame[i] = frame[n - 1];
+                --n;
+            }
+            bool empty() const { return n == 0; }
+            unsigned size() const { return static_cast<unsigned>(n); }
+        } g_held;
+        uint64_t g_batchMask = 0; // round 111: a bit per batch character ((obj >> 4) & 63): the accessors' quick test
+        uint64_t g_heldKept = 0, g_heldMarks = 0;
+        // Round 111 (SOTC_CHAR111_MIN, 6): characters go to the worker only in frames after one with at least this many
+        // eligible characters (the hand-overs' own cost is ~0.1 ms a character on the game thread: in Vita3K the jobs
+        // gained 0.4 ms a frame at the altar with 14 a frame, ~0.1 on route 6's plain with 3.3 and lost 0.6 riding in the
+        // attract demo with 2.9). 0: always.
+        int g_minChars = 6;
+        uint32_t g_eligibleNow = 0, g_eligibleLast = 0;
+        uint64_t g_fewKept = 0;
+        uint64_t g_bringUs = 0, g_runUs = 0;  // round 111: the worker's time bringing its areas / in the characters (read after the join)
+        uint64_t g_snapUs = 0, g_mergeUs = 0; // round 111: the game thread's hand-over copies / join merges
+        uint64_t g_kickPathUs = 0;            // round 111: the game thread in tryKick (waits out)
+        uint64_t g_ovBefore = 0, g_ovRun = 0, g_ovItems = 0, g_ovGainless = 0; // round 111: the characters' runs before / after the join
+        uint64_t g_tDelta = 0, g_tSnapG = 0, g_tKick = 0, g_tAnime = 0; // round 111: its parts
+        struct AddTimer
+        {
+            uint64_t &to;
+            uint64_t t0;
+            explicit AddTimer(uint64_t &t) : to(t), t0(native_renderer::nowUs()) {}
+            ~AddTimer() { to += native_renderer::nowUs() - t0; }
+        };
+        uint32_t g_depthMax = 0;              // round 111: the jobs' deepest call sp below the work stack's top (the report's)
+        int g_diff111 = 0;                    // round 111 (SOTC_CHAR111_DIFF): 16-byte chunks changed between hand-overs
+        uint64_t g_diffN[5] = {};             //  stack, post, scratchpad, VU0 data; appends
         float g_obj109R = 40.0f;
         bool g_abAnime109 = true, g_abOpen109 = true, g_abObj109 = true;
         bool g_animeNow = false, g_openNow = false, g_objNow = false, g_curNow = false; // this batch's
@@ -471,8 +546,48 @@ namespace char104
             alignas(16) uint8_t postOut[kPostCopy];        // the worker's result there
             alignas(16) uint8_t spr[PS2_SCRATCHPAD_SIZE];  // the game's scratchpad at this hand-over
             alignas(16) uint8_t vu0[PS2_VU0_DATA_SIZE];    // the game's VU0 data at this hand-over
+            uint64_t runT0 = 0, runT1 = 0;                 // round 111: the worker's time on it (read after the join)
+            bool full = true;                              // round 111: stack / spr / vu0 above hold the hand-over's areas (else: the delta below)
+            int nDiff = 0;                                 // round 111 (delta111): the 16-byte chunks the game changed since the previous hand-over
+            struct Chunk
+            {
+                alignas(16) uint8_t old[16];
+                alignas(16) uint8_t now[16];
+                uint16_t at; // the chunk's index in its area
+                uint8_t area;
+            } *diff = nullptr;
         };
         Item *g_items = nullptr;
+        // Round 111 (delta111, 1 unless set; A/B delta111 / r111all): the areas (the work stack's copy, the scratchpad,
+        // VU0 data) handed over as a delta. A copy of the game's areas as of the last hand-over / join (g_roll*) is kept;
+        // a batch's first character brings the worker's areas (equal to that copy since the last join) to the game's
+        // now by the chunks that changed, each appended character carries the chunks changed since the previous
+        // hand-over (old and new: the worker applies round 104's byte rule to them), and the join's merge writes its
+        // result to the game's area, the copy and the worker's area alike. The same bytes as round 104's copies (the
+        // game changes ~25 of the stack's 772 chunks between hand-overs, the scratchpad and VU0 data none).
+        constexpr int kDiffCap = 512;
+        constexpr uint32_t kAreaN[3] = {kStackCopy + 0x40u, PS2_SCRATCHPAD_SIZE, PS2_VU0_DATA_SIZE};
+        int g_delta111 = 1;
+        bool g_abDelta111 = true, g_deltaNow = false;
+        alignas(16) uint8_t g_rollStack[kStackCopy + 0x40u];
+        alignas(16) uint8_t g_rollSpr[PS2_SCRATCHPAD_SIZE];
+        alignas(16) uint8_t g_rollVu0[PS2_VU0_DATA_SIZE];
+        uint8_t *const g_roll[3] = {g_rollStack, g_rollSpr, g_rollVu0};
+        bool g_rollValid = false;
+        uint64_t g_rollSerial = 0;
+        int g_verify111 = 0;                         // round 111 (SOTC_DELTA111_VERIFY=1): the delta against round 104's copies
+        uint64_t g_verifyBad = 0, g_verifyItems = 0;  //  bytes that differ (the worker's: read after the join), characters checked
+        uint64_t g_verifyRollBad = 0;                 //  the copy against the last hand-over's areas at the join (game thread)
+        // Round 111 (SOTC_SPR111, 1 unless set, with delta111): the scratchpad left out of the appended characters'
+        // deltas (the game uses it in the display walk, not in the script pass: 0 chunks changed between hand-overs in
+        // every run). The batch's first character still brings it whole; the join's merge sees whether the game changed it
+        // in the batch's window (then an appended character's view of it was not the game's of its moment): when it did
+        // and the worker read or wrote the scratchpad in the batch (ps2_worker::g_sprTouch), that is a violation (counted,
+        // and spr111 is off from then on).
+        int g_spr111 = 1;
+        bool g_sprLazyNow = false;
+        uint64_t g_sprTouch0 = 0, g_sprChanged = 0, g_sprTouched = 0, g_sprViolations = 0;
+        uint64_t g_deltaChunks = 0, g_deltaFull = 0, g_deltaSync = 0, g_deltaRefused = 0, g_deltaItems = 0; // statistics (game thread)
 
         // The batch (g_qMutex: g_qN, g_qOpen).
         std::mutex g_qMutex;
@@ -506,7 +621,7 @@ namespace char104
         {
             if (g_mode >= 0)
                 return;
-            g_mode = envInt("SOTC_CHAR104", 0);
+            g_mode = envInt("SOTC_CHAR104", kChar104Default);
             const char *j = std::getenv("SOTC_CHAR104_JOIN");
             g_joinAt = (j && std::strcmp(j, "wake") == 0) ? 1 : 0;
             g_check = envInt("SOTC_CHAR104_CHECK", 0);
@@ -520,12 +635,21 @@ namespace char104
             g_open109 = envInt("SOTC_OPEN109", 1);
             g_obj109 = envInt("SOTC_OBJ109", 1);
             g_cur109 = envInt("SOTC_CUR109", 1);
+            g_hold111 = envInt("SOTC_HOLD111", 1);
+            g_holdFrames = envInt("SOTC_HOLD111_FRAMES", 60);
+            g_minChars = envInt("SOTC_CHAR111_MIN", 6);
+            g_diff111 = envInt("SOTC_CHAR111_DIFF", 0);
+            g_delta111 = envInt("SOTC_DELTA111", 1);
+            g_spr111 = envInt("SOTC_SPR111", 1);
+            g_verify111 = envInt("SOTC_DELTA111_VERIFY", 0);
             if (const char *e = std::getenv("SOTC_OBJ109_R"))
                 g_obj109R = static_cast<float>(std::atof(e));
             if (const char *e = std::getenv("SOTC_CHAR104_NEAR"))
                 g_near = static_cast<float>(std::atof(e));
             if (g_calls)
                 sotc_worker::setCallCensus(true);
+            if (g_calls >= 2)
+                sotc_worker::setCallCensusTime(true);
         }
 
         // Which characters go to the worker: not the player, not the active
@@ -731,18 +855,23 @@ namespace char104
         uint64_t g_violVisit = 0, g_violEnter = 0;
         std::map<uint32_t, uint64_t> g_ungatedObjs; // statistics: objects let go, over the report
 
-        // live: an area as the game thread has it, saved: at the last hand-over, mine: the worker's.
+        // live: an area as the game thread has it, saved: at the last hand-over, mine: the worker's: each byte
+        // the game thread has not changed (live == saved) takes the worker's. Round 111: 16 bytes at a time with
+        // a select (NEON; the same rule byte by byte), n a multiple of 16 (round 104's loop called memcmp per 16
+        // bytes: ~0.2 ms a character on the worker, ~3 ms a frame on the game thread at the altar).
         void merge(uint8_t *live, const uint8_t *saved, const uint8_t *mine, size_t n)
         {
+#if defined(__ARM_NEON)
             for (size_t i = 0; i < n; i += 16u)
             {
-                if (std::memcmp(live + i, saved + i, 16) == 0)
-                    std::memcpy(live + i, mine + i, 16);
-                else
-                    for (size_t k = i; k < i + 16u; ++k)
-                        if (live[k] == saved[k])
-                            live[k] = mine[k];
+                const uint8x16_t l = vld1q_u8(live + i);
+                vst1q_u8(live + i, vbslq_u8(vceqq_u8(l, vld1q_u8(saved + i)), vld1q_u8(mine + i), l));
             }
+#else
+            for (size_t k = 0; k < n; ++k)
+                if (live[k] == saved[k])
+                    live[k] = mine[k];
+#endif
         }
         // The worker's area (guest RAM at `at`) brought to a hand-over's view: bytes the game changed between
         // `prev` and `now` take `now`'s, the rest stay (prev null: all of `now`).
@@ -753,15 +882,31 @@ namespace char104
                 std::memcpy(area, now, n);
                 return;
             }
+#if defined(__ARM_NEON)
             for (size_t i = 0; i < n; i += 16u)
-                if (std::memcmp(prev + i, now + i, 16) != 0)
-                    for (size_t k = i; k < i + 16u; ++k)
-                        if (prev[k] != now[k])
-                            area[k] = now[k];
+            {
+                const uint8x16_t w = vld1q_u8(now + i);
+                vst1q_u8(area + i, vbslq_u8(vceqq_u8(vld1q_u8(prev + i), w), vld1q_u8(area + i), w));
+            }
+#else
+            for (size_t k = 0; k < n; ++k)
+                if (prev[k] != now[k])
+                    area[k] = now[k];
+#endif
         }
-        // Words in [lo, lo + n) of guest RAM whose value points into the worker's copy [from, from + n): moved by `delta`.
+        // Words in [lo, lo + n) of guest RAM whose value points into the worker's copy [from, from + n): moved by `delta`
+        // (n a multiple of 16, `at` 16-aligned).
         void relocate(uint8_t *ram, uint32_t at, uint32_t n, uint32_t from, uint32_t span, uint32_t delta)
         {
+#if defined(__ARM_NEON)
+            const uint32x4_t f = vdupq_n_u32(from), sp = vdupq_n_u32(span), d = vdupq_n_u32(delta);
+            for (uint32_t a = at; a < at + n; a += 16u)
+            {
+                uint32_t *p = reinterpret_cast<uint32_t *>(ram + a);
+                const uint32x4_t w = vld1q_u32(p);
+                vst1q_u32(p, vaddq_u32(w, vandq_u32(vcltq_u32(vsubq_u32(w, f), sp), d)));
+            }
+#else
             for (uint32_t a = at; a < at + n; a += 4u)
             {
                 uint32_t w;
@@ -772,6 +917,7 @@ namespace char104
                     std::memcpy(ram + a, &w, 4);
                 }
             }
+#endif
         }
 
         // One character on the worker (the worker's areas already brought to its view).
@@ -857,6 +1003,7 @@ namespace char104
             g_qClose = true;
             g_qCv.notify_one();
         }
+        void applyDelta(const Item &it); // round 111 (below)
         void batchWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, void *)
         {
             uint64_t t0 = nowUs(), waited = 0;
@@ -886,12 +1033,45 @@ namespace char104
                     putCur(g_items[i].cur);
                 Item &it = g_items[i];
                 const Item *prev = i ? &g_items[i - 1] : nullptr;
-                bring(rdram + g_workTop - kStackCopy, prev ? prev->stack : nullptr, it.stack, sizeof(it.stack));
-                bring(sotc_worker::ownScratchpad(), prev ? prev->spr : nullptr, it.spr, PS2_SCRATCHPAD_SIZE);
-                bring(sotc_worker::ownVu0Data(), prev ? prev->vu0 : nullptr, it.vu0, PS2_VU0_DATA_SIZE);
+                const uint64_t b0 = nowUs();
+                if (g_deltaNow)
+                {
+                    if (g_verify111)
+                    {
+                        // Round 111 (SOTC_DELTA111_VERIFY): round 104's bring on a copy of the worker's areas (from the
+                        // full copies this mode also takes) against the delta: a byte that differs is counted.
+                        uint8_t *area[3] = {rdram + g_workTop - kStackCopy, sotc_worker::ownScratchpad(), sotc_worker::ownVu0Data()};
+                        const uint8_t *pv[3] = {prev ? prev->stack : nullptr, prev ? prev->spr : nullptr, prev ? prev->vu0 : nullptr};
+                        const uint8_t *nw[3] = {it.stack, it.spr, it.vu0};
+                        static uint8_t ref[3][PS2_SCRATCHPAD_SIZE];
+                        for (int k = 0; k < 3; ++k)
+                        {
+                            std::memcpy(ref[k], area[k], kAreaN[k]);
+                            bring(ref[k], pv[k], nw[k], kAreaN[k]);
+                        }
+                        applyDelta(it);
+                        for (int k = 0; k < 3; ++k)
+                            for (uint32_t b = 0; b < kAreaN[k]; ++b)
+                                g_verifyBad += area[k][b] != ref[k][b];
+                        ++g_verifyItems;
+                    }
+                    else
+                        applyDelta(it); // round 111 (the first character's: brought at the hand-over, deltaSync)
+                }
+                else
+                {
+                    bring(rdram + g_workTop - kStackCopy, prev ? prev->stack : nullptr, it.stack, sizeof(it.stack));
+                    bring(sotc_worker::ownScratchpad(), prev ? prev->spr : nullptr, it.spr, PS2_SCRATCHPAD_SIZE);
+                    bring(sotc_worker::ownVu0Data(), prev ? prev->vu0 : nullptr, it.vu0, PS2_VU0_DATA_SIZE);
+                }
                 std::memcpy(rdram + g_postTop - kPostCopy, it.post, kPostCopy);
+                const uint64_t b1 = nowUs();
+                it.runT0 = b0;
                 if (!runItem(rdram, ctx, shell, it, i))
                     std::memcpy(it.postOut, rdram + g_postTop - kPostCopy, kPostCopy);
+                g_bringUs += b1 - b0;
+                it.runT1 = nowUs();
+                g_runUs += it.runT1 - b1;
             }
             g_inBatch = false;
             if (g_curSwapped)
@@ -905,15 +1085,192 @@ namespace char104
         }
 
         // The game thread's copies of its areas for a hand-over.
-        void snapshot(Item &it)
+        void snapshot(Item &it, bool areas = true)
         {
+            struct T
+            {
+                uint64_t t0 = nowUs();
+                ~T() { g_snapUs += nowUs() - t0; }
+            } timer;
             it.cur = ru32(g_rdram, 0x001E1550u);
             for (int k = 0; k < 3; ++k)
                 std::memcpy(&it.pos[k], g_rdram + ((it.obj + 0x170u + 4u * k) & PS2_RAM_MASK), 4);
-            std::memcpy(it.stack, g_rdram + kWorkStack - kStackCopy, sizeof(it.stack));
             std::memcpy(it.post, g_rdram + it.frameSp - kPostCopy, kPostCopy);
+            it.full = areas;
+            it.nDiff = 0;
+            if (!areas)
+                return;
+            std::memcpy(it.stack, g_rdram + kWorkStack - kStackCopy, sizeof(it.stack));
             std::memcpy(it.spr, g_rt->memory().getScratchpad(), PS2_SCRATCHPAD_SIZE);
             std::memcpy(it.vu0, g_rt->memory().getVU0Data(), PS2_VU0_DATA_SIZE);
+        }
+        // Round 111 (delta111): the game's areas now (k: 0 the work stack's copy, 1 the scratchpad, 2 VU0 data).
+        uint8_t *liveArea(int k)
+        {
+            return k == 0 ? g_rdram + kWorkStack - kStackCopy : k == 1 ? g_rt->memory().getScratchpad() : g_rt->memory().getVU0Data();
+        }
+        uint8_t *workerArea(int k)
+        {
+            return k == 0 ? g_rdram + g_workTop - kStackCopy : k == 1 ? sotc_worker::ownScratchpad() : sotc_worker::ownVu0Data();
+        }
+        inline bool chunkSame(const uint8_t *a, const uint8_t *b)
+        {
+#if defined(__ARM_NEON)
+            const uint32x4_t x = vreinterpretq_u32_u8(veorq_u8(vld1q_u8(a), vld1q_u8(b)));
+            const uint32x2_t o = vorr_u32(vget_low_u32(x), vget_high_u32(x));
+            return (vget_lane_u32(o, 0) | vget_lane_u32(o, 1)) == 0u;
+#else
+            return std::memcmp(a, b, 16) == 0;
+#endif
+        }
+        // 256 bytes the same (16 chunks: the NEON lanes or-ed together, one move to the core registers; the
+        // chunk-by-chunk test's moves made the delta slower than round 104's copies).
+        inline bool blockSame(const uint8_t *a, const uint8_t *b)
+        {
+#if defined(__ARM_NEON)
+            uint8x16_t x0 = veorq_u8(vld1q_u8(a), vld1q_u8(b)), x1 = veorq_u8(vld1q_u8(a + 16), vld1q_u8(b + 16));
+            for (int i = 32; i < 256; i += 32)
+            {
+                x0 = vorrq_u8(x0, veorq_u8(vld1q_u8(a + i), vld1q_u8(b + i)));
+                x1 = vorrq_u8(x1, veorq_u8(vld1q_u8(a + i + 16), vld1q_u8(b + i + 16)));
+            }
+            const uint32x4_t x = vreinterpretq_u32_u8(vorrq_u8(x0, x1));
+            const uint32x2_t o = vorr_u32(vget_low_u32(x), vget_high_u32(x));
+            return (vget_lane_u32(o, 0) | vget_lane_u32(o, 1)) == 0u;
+#else
+            return std::memcmp(a, b, 256) == 0;
+#endif
+        }
+        // An appended character's delta: the chunks of the game's areas that differ from the copy (the previous
+        // hand-over's), the copy brought to now. False when there are more than kDiffCap (the copy is then no longer
+        // the previous hand-over's: not valid, the next batch starts from a full copy).
+        bool deltaItem(Item &it)
+        {
+            AddTimer timer(g_tDelta);
+            if (!it.diff)
+                it.diff = new Item::Chunk[kDiffCap];
+            int n = 0;
+            for (int k = 0; k < 3; ++k)
+            {
+                if (k == 1 && g_sprLazyNow)
+                    continue; // (spr111)
+                const uint8_t *live = liveArea(k);
+                uint8_t *roll = g_roll[k];
+                for (uint32_t i = 0; i < kAreaN[k]; i += 16u)
+                    if ((i & 255u) == 0u && i + 256u <= kAreaN[k] && blockSame(live + i, roll + i))
+                        i += 240u; // (the loop adds 16)
+                    else if (!chunkSame(live + i, roll + i))
+                    {
+                        if (n == kDiffCap)
+                        {
+                            g_rollValid = false;
+                            return false;
+                        }
+                        Item::Chunk &c = it.diff[n++];
+                        c.area = static_cast<uint8_t>(k);
+                        c.at = static_cast<uint16_t>(i / 16u);
+                        std::memcpy(c.old, roll + i, 16);
+                        std::memcpy(c.now, live + i, 16);
+                        std::memcpy(roll + i, live + i, 16);
+                    }
+            }
+            it.nDiff = n;
+            g_deltaChunks += static_cast<uint64_t>(n);
+            ++g_deltaItems;
+            return true;
+        }
+        // The worker: an appended character's delta applied to its areas (round 104's bring, chunk by chunk).
+        void applyDelta(const Item &it)
+        {
+            uint8_t *area[3] = {workerArea(0), workerArea(1), workerArea(2)};
+            for (int j = 0; j < it.nDiff; ++j)
+            {
+                const Item::Chunk &c = it.diff[j];
+                uint8_t *a = area[c.area] + static_cast<uint32_t>(c.at) * 16u;
+#if defined(__ARM_NEON)
+                const uint8x16_t w = vld1q_u8(c.now);
+                vst1q_u8(a, vbslq_u8(vceqq_u8(vld1q_u8(c.old), w), vld1q_u8(a), w));
+#else
+                for (int b = 0; b < 16; ++b)
+                    if (c.old[b] != c.now[b])
+                        a[b] = c.now[b];
+#endif
+            }
+        }
+        // A batch's first character (the game thread, the worker idle): the worker's areas and the copy brought to
+        // the game's now: by the chunks that changed when the copy is valid (the worker's areas equal it since the
+        // last join and no other job ran since), else whole.
+        void deltaSync()
+        {
+            AddTimer timer(g_tDelta);
+            const uint64_t serial = sotc_worker::kickSerial();
+            const bool valid = g_rollValid && serial == g_rollSerial + 1u;
+            g_rollSerial = serial;
+            for (int k = 0; k < 3; ++k)
+            {
+                const uint8_t *live = liveArea(k);
+                uint8_t *roll = g_roll[k], *w = workerArea(k);
+                if (!valid)
+                {
+                    std::memcpy(roll, live, kAreaN[k]);
+                    std::memcpy(w, live, kAreaN[k]);
+                    continue;
+                }
+                for (uint32_t i = 0; i < kAreaN[k]; i += 16u)
+                    if ((i & 255u) == 0u && i + 256u <= kAreaN[k] && blockSame(live + i, roll + i))
+                        i += 240u; // (the loop adds 16)
+                    else if (!chunkSame(live + i, roll + i))
+                    {
+                        std::memcpy(roll + i, live + i, 16);
+                        std::memcpy(w + i, live + i, 16);
+                        ++g_deltaSync;
+                    }
+            }
+            if (!valid)
+                ++g_deltaFull;
+            g_rollValid = true;
+        }
+        // The join (delta111): round 104's merge against the copy (the last hand-over's), its result written to the
+        // game's area (below `len` only: above it the game's live frames stay), the copy and the worker's area.
+        bool mergeSync(int k, uint32_t len)
+        {
+            uint8_t *live = liveArea(k), *roll = g_roll[k], *w = workerArea(k);
+            const uint32_t n = kAreaN[k];
+            bool changed = false; // (only below len; the scratchpad's len is its size)
+#if defined(__ARM_NEON)
+            uint32_t i = 0;
+            uint8x16_t acc = vdupq_n_u8(0);
+            for (; i < len; i += 16u)
+            {
+                const uint8x16_t l = vld1q_u8(live + i), o = vld1q_u8(roll + i);
+                acc = vorrq_u8(acc, veorq_u8(l, o));
+                const uint8x16_t r = vbslq_u8(vceqq_u8(l, o), vld1q_u8(w + i), l);
+                vst1q_u8(live + i, r);
+                vst1q_u8(roll + i, r);
+                vst1q_u8(w + i, r);
+            }
+            {
+                const uint32x4_t x = vreinterpretq_u32_u8(acc);
+                const uint32x2_t o2 = vorr_u32(vget_low_u32(x), vget_high_u32(x));
+                changed = (vget_lane_u32(o2, 0) | vget_lane_u32(o2, 1)) != 0u;
+            }
+            for (; i < n; i += 16u)
+            {
+                const uint8x16_t l = vld1q_u8(live + i);
+                vst1q_u8(roll + i, l);
+                vst1q_u8(w + i, l);
+            }
+#else
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                changed |= i < len && live[i] != roll[i];
+                if (i < len && live[i] == roll[i])
+                    live[i] = w[i];
+                roll[i] = live[i];
+                w[i] = live[i];
+            }
+#endif
+            return changed;
         }
 
         void batchSetup(void *)
@@ -923,6 +1280,20 @@ namespace char104
             R5900Context *wc = sotc_worker::ownContext();
             g_workTop = sotc_worker::stackTop() - 0x40u;  // the work stack's top's stand-in: [top - 0x3040, top)
             g_postTop = sotc_worker::stackTop() - 0x5800u; // the frame end's sp's: [top - 0x6000, top - 0x5800), above the answers
+            sotc_worker::spWindow(g_postTop, g_workTop); // round 111: the jobs' depth on the work stack
+            if (g_deltaNow && !g_refRun)
+            {
+                g_sprTouch0 = ps2_worker::g_sprTouch; // round 111 (spr111: the worker is idle)
+                deltaSync(); // round 111
+                if (g_verify111)
+                {
+                    const Item &i0 = g_items[0];
+                    const uint8_t *nw[3] = {i0.stack, i0.spr, i0.vu0};
+                    for (int k = 0; k < 3; ++k)
+                        for (uint32_t b = 0; b < kAreaN[k]; ++b)
+                            g_verifyRollBad += (workerArea(k)[b] != nw[k][b]) + (g_roll[k][b] != nw[k][b]);
+                }
+            }
             wc->vu0_r = g_kickR; // the game's random stream (one stream, in the original order: see the join)
         }
 
@@ -933,6 +1304,7 @@ namespace char104
 
         void batchJoined(void *)
         {
+            const uint64_t m0 = nowUs();
             const R5900Context *wc = sotc_worker::ownContext();
             const int n = g_qN;
             const Item &last = g_items[n - 1];
@@ -945,10 +1317,42 @@ namespace char104
                 uint32_t len = kStackCopy + 0x40u;
                 if (gsp > kWorkStack - kStackCopy && gsp <= kWorkStack + 0x40u)
                     len = (gsp - (kWorkStack - kStackCopy)) & ~0xFu;
-                merge(g_rdram + kWorkStack - kStackCopy, last.stack, g_rdram + g_workTop - kStackCopy, len);
+                if (g_deltaNow && g_verify111)
+                {
+                    const uint8_t *nw[3] = {last.stack, last.spr, last.vu0};
+                    for (int k = 0; k < 3; ++k)
+                        for (uint32_t b = 0; b < kAreaN[k]; ++b)
+                            g_verifyRollBad += g_roll[k][b] != nw[k][b];
+                }
+                if (g_deltaNow)
+                    mergeSync(0, len); // round 111 (delta111)
+                else
+                    merge(g_rdram + kWorkStack - kStackCopy, last.stack, g_rdram + g_workTop - kStackCopy, len);
             }
-            merge(g_rt->memory().getScratchpad(), last.spr, sotc_worker::ownScratchpad(), PS2_SCRATCHPAD_SIZE);
-            merge(g_rt->memory().getVU0Data(), last.vu0, sotc_worker::ownVu0Data(), PS2_VU0_DATA_SIZE);
+            if (g_deltaNow)
+            {
+                const bool sprChanged = mergeSync(1, PS2_SCRATCHPAD_SIZE);
+                mergeSync(2, PS2_VU0_DATA_SIZE);
+                if (g_sprLazyNow && g_qN > 1)
+                {
+                    // Round 111 (spr111): the appended characters' view of the scratchpad was the batch's first one's.
+                    const bool touched = ps2_worker::g_sprTouch != g_sprTouch0;
+                    g_sprChanged += sprChanged;
+                    g_sprTouched += touched;
+                    if (sprChanged && touched)
+                    {
+                        if (++g_sprViolations <= 4u)
+                            std::fprintf(stderr, "[char111] spr111 violation: the game changed the scratchpad in a batch of %d whose jobs used it: spr111 off\n", g_qN);
+                        g_spr111 = 0;
+                    }
+                }
+            }
+            else
+            {
+                merge(g_rt->memory().getScratchpad(), last.spr, sotc_worker::ownScratchpad(), PS2_SCRATCHPAD_SIZE);
+                merge(g_rt->memory().getVU0Data(), last.vu0, sotc_worker::ownVu0Data(), PS2_VU0_DATA_SIZE);
+                g_rollValid = false; // (round 111: a batch of full copies: the copy is not kept)
+            }
             // The characters' sub-thread stacks below their frame end's sp (their
             // Postprocess's frames) are not merged back: by the join the frame
             // end has slept there (its saved registers), and a saved word equal
@@ -1030,6 +1434,28 @@ namespace char104
                 g_parUs += std::min(workerFree, besideGame);
                 g_gameBesideUs += besideGame;
             }
+            g_mergeUs += nowUs() - m0;
+            {
+                const uint32_t lo = sotc_worker::spMin();
+                if (lo != ~0u && g_workTop - lo > g_depthMax)
+                    g_depthMax = g_workTop - lo; // round 111
+            }
+            {
+                // Round 111: how much of each character's run came before the game thread reached the join (the part
+                // that ran beside it); a character with under a quarter of its run before the join gained nothing.
+                const uint64_t js = g_joinStartUs ? g_joinStartUs : nowUs();
+                for (int i = 0; i < n; ++i)
+                {
+                    const Item &it = g_items[i];
+                    if (it.runT1 <= it.runT0)
+                        continue;
+                    const uint64_t dur = it.runT1 - it.runT0, before = js > it.runT0 ? std::min(js - it.runT0, dur) : 0u;
+                    g_ovBefore += before;
+                    g_ovRun += dur;
+                    g_ovItems += 1u;
+                    g_ovGainless += before * 4u < dur;
+                }
+            }
             g_batchUs += nowUs() - g_kickUs;
             g_workerUs += g_itemUs;
             g_parkedBatches += sotc_worker::lastJobParked();
@@ -1050,6 +1476,11 @@ namespace char104
         g_abAnime109 = anime;
         g_abOpen109 = open;
         g_abObj109 = obj;
+    }
+    void setAb111(bool hold, bool delta)
+    {
+        g_abHold111 = hold;
+        g_abDelta111 = delta;
     }
     void setAb108(bool nat, bool snap, bool anime)
     {
@@ -1191,18 +1622,52 @@ namespace char104
             if (!g_batch)
                 return;
             ++g_gateJoins[i];
+            const uint64_t w0 = g_waitUs;
             joinNow(7, sotc_worker::kSiteChan);
+            g_gateWaitUs[i] += g_waitUs - w0;
         }
         void accessJoin(uint32_t obj, uint32_t acc, uint32_t ra)
         {
-            if (!g_batch || sotc_worker::onWorker())
+            if (!g_batch || !(g_batchMask >> ((obj >> 4) & 63u) & 1u) || sotc_worker::onWorker())
                 return;
             for (int i = 0; i < g_qN; ++i)
                 if (g_items[i].obj == obj)
                 {
                     ++g_accessSites[(static_cast<uint64_t>(acc) << 32) | ra];
+                    if (g_hold111 && g_mode == 1)
+                    {
+                        g_held.set(obj, sotc_decomp::g_gameFrame); // round 111: read by another object: kept on the game thread
+                        ++g_heldMarks;
+                    }
                     return joinNow(1, sotc_worker::kSiteAccess);
                 }
+        }
+    }
+
+    namespace
+    {
+        // Round 111: a held character's foreign reads (the accessors' wrappers while a job runs) keep it held.
+        void holdRead(uint32_t obj)
+        {
+            if (g_held.empty() || sotc_worker::onWorker())
+                return;
+            const int i = g_held.find(obj);
+            if (i >= 0 && reader() != obj)
+                g_held.frame[i] = sotc_decomp::g_gameFrame;
+        }
+        bool held(uint32_t obj)
+        {
+            if (!g_hold111 || !g_abHold111 || g_held.empty())
+                return false;
+            const int i = g_held.find(obj);
+            if (i < 0)
+                return false;
+            if (g_held.frame[i] + static_cast<uint64_t>(g_holdFrames) < sotc_decomp::g_gameFrame)
+            {
+                g_held.erase(i);
+                return false;
+            }
+            return true;
         }
     }
 
@@ -1409,9 +1874,32 @@ namespace char104
         const int m = mode();
         if (m <= 0 || sotc_worker::onWorker() || ps2_worker::isShell(runtime) || (m == 1 && !g_gatesOn) || !eligible(rdram, obj))
             return false;
+        struct KickTimer // round 111: the hand-over path's own time (its join's wait taken out)
+        {
+            uint64_t t0 = nowUs(), w0 = g_waitUs;
+            ~KickTimer() { g_kickPathUs += nowUs() - t0 - (g_waitUs - w0); }
+        } kickTimer;
         if (!g_items)
             g_items = new Item[kQueue];
-        if (m == 1 && g_anime109 && g_abAnime109 && animeDue(rdram, obj))
+        if (m == 1)
+            ++g_eligibleNow; // round 111
+        if (m == 1 && g_minChars > 0 && g_eligibleLast < static_cast<uint32_t>(g_minChars))
+        {
+            ++g_fewKept; // round 111: a frame with few characters to hand over: all on the game thread
+            return false;
+        }
+        if (m == 1 && held(obj))
+        {
+            ++g_heldKept; // round 111: another object reads it soon after its geometry: on the game thread
+            return false;
+        }
+        bool due = false;
+        if (m == 1 && g_anime109 && g_abAnime109)
+        {
+            AddTimer timer(g_tAnime);
+            due = animeDue(rdram, obj);
+        }
+        if (due)
         {
             ++g_animeHeld; // round 109: its tables fire this frame: on the game thread (the batch running is joined at its geometry's gate)
             return false;
@@ -1425,7 +1913,29 @@ namespace char104
             it.obj = obj;
             it.cls = cls;
             it.frameSp = frameSp;
-            snapshot(it);
+            snapshot(it, !g_deltaNow || g_verify111);
+            if (g_deltaNow && !deltaItem(it))
+            {
+                ++g_deltaRefused; // round 111: too many chunks changed: a new batch from a full copy
+                goto newBatch;
+            }
+            if (g_diff111 && !g_deltaNow)
+            {
+                // Round 111 (SOTC_CHAR111_DIFF=1): how much of each area the game thread changed since the previous hand-over.
+                const Item &pv = g_items[g_qN - 1];
+                auto chunks = [](const uint8_t *a, const uint8_t *b, size_t n)
+                {
+                    uint64_t c = 0;
+                    for (size_t i = 0; i < n; i += 16u)
+                        c += std::memcmp(a + i, b + i, 16) != 0;
+                    return c;
+                };
+                g_diffN[0] += chunks(pv.stack, it.stack, sizeof(it.stack));
+                g_diffN[1] += pv.frameSp == it.frameSp ? chunks(pv.post, it.post, kPostCopy) : kPostCopy / 16u;
+                g_diffN[2] += chunks(pv.spr, it.spr, PS2_SCRATCHPAD_SIZE);
+                g_diffN[3] += chunks(pv.vu0, it.vu0, PS2_VU0_DATA_SIZE);
+                ++g_diffN[4];
+            }
             bool taken;
             {
                 std::lock_guard<std::mutex> lock(g_qMutex);
@@ -1433,6 +1943,7 @@ namespace char104
                 if (taken)
                 {
                     ++g_qN;
+                    g_batchMask |= 1ull << ((obj >> 4) & 63u); // round 111
                     g_qCv.notify_one(); // round 109: a worker waiting for the next item
                 }
             }
@@ -1443,6 +1954,7 @@ namespace char104
                 return true;
             }
         }
+    newBatch:
         joinNow(2, sotc_worker::kSiteKick); // the previous batch first (its merge reads its items)
         g_rdram = rdram;
         g_rt = runtime;
@@ -1457,6 +1969,7 @@ namespace char104
         {
             std::lock_guard<std::mutex> lock(g_qMutex);
             g_qN = 1;
+            g_batchMask = 1ull << ((obj >> 4) & 63u); // round 111
             g_qOpen = true;
             g_qClose = false;
         }
@@ -1465,6 +1978,8 @@ namespace char104
         g_openNow = g_open109 && g_abOpen109 && m == 1 && !g_noAppend;
         g_objNow = g_obj109 && g_abObj109 && m == 1; // (checked batches too: a job that read an object let go differs from the reference)
         g_curNow = g_cur109 && m == 1;
+        g_deltaNow = g_delta111 && g_abDelta111 && m == 1; // round 111 (checked batches too: their copies are kept for the reference)
+        g_sprLazyNow = g_deltaNow && g_spr111;
         g_kickUs = nowUs();
         g_joinStartUs = 0;
         g_kickSnapN = g_snapWantedN;
@@ -1474,7 +1989,10 @@ namespace char104
         // Round 108: the audited natives on the worker; the wanted groups' walks from a copy made now.
         sotc_worker::nativesNext(g_nat108 && g_abNat && m == 1);
         if (g_snap108 && g_abSnap && m == 1)
+        {
+            AddTimer timer(g_tSnapG);
             sotc_worker::snapGroups(rdram, g_snapWanted, g_snapWantedN);
+        }
         // Round 108 (SOTC_ANIME108=1, default 0): the anime tables (ExecAnimeTableInfo: ExecCharaGeometry's last
         // step, their sounds, particles, wind and rand) kept with their context and made at the batch's end after
         // the join, each character's area test and Postprocess after them. Not exact (the check: 100 words differ
@@ -1482,8 +2000,13 @@ namespace char104
         // running sub-thread's object at 0x1e1550, which the game thread has moved on by the batch's end), so
         // their sound / effect records come out different.
         sotc_worker::deferNext(g_anime108 && g_abAnime && m == 1 ? 0x01169020u : 0u);
-        snapshot(it);
-        if (!sotc_worker::kickAs(rdram, runtime, *ctx, batchWork, nullptr, m == 2 ? admitAll : admitGeo, batchSetup, batchJoined))
+        snapshot(it, !g_deltaNow || g_checkThis || g_verify111);
+        bool kicked;
+        {
+            AddTimer timer(g_tKick);
+            kicked = sotc_worker::kickAs(rdram, runtime, *ctx, batchWork, nullptr, m == 2 ? admitAll : admitGeo, batchSetup, batchJoined);
+        }
+        if (!kicked)
         {
             g_batch = false;
             g_qN = 0;
@@ -1518,6 +2041,8 @@ namespace char104
     {
         joinNow(6, sotc_worker::kSiteFrame);
         g_postSkip = 0;
+        g_eligibleLast = g_eligibleNow; // round 111 (SOTC_CHAR111_MIN)
+        g_eligibleNow = 0;
         if (g_calls && g_jobs && frame % 600u == 0u)
             sotc_worker::callCensusReport("calls104");
         if (++g_frames104 % 600u != 0u || g_jobs == 0u)
@@ -1591,6 +2116,28 @@ namespace char104
             }
             std::fprintf(stderr, " | anime109 %d open109 %d obj109 %d (R %.0f)\n", g_anime109 && g_abAnime109 ? 1 : 0, g_open109 && g_abOpen109 ? 1 : 0,
                          g_obj109 && g_abObj109 ? 1 : 0, g_obj109R);
+            // [char111]: characters held on the game thread (another object reads them), marks (access joins that held one), held now.
+            std::fprintf(stderr, "[char111] frame %llu: few-character frames' characters on the game thread %.2f a frame (min %d); held on the game thread %llu (%.2f a frame), marked %llu, held now %u; hold111 %d; worker a frame: areas brought %.3f ms, characters %.3f ms; game thread a frame: hand-over copies %.3f ms, joins' merges %.3f ms, hand-over path %.3f ms (deltas %.3f, group copies %.3f, kicks %.3f incl. the first deltas, anime predictor %.3f); characters' runs before the join %.3f of %.3f ms a frame, %llu of %llu with under a quarter before it; deepest call 0x%x below the work stack's top; delta111 %d: appends %llu with %.1f chunks each, first characters' chunks %.1f a frame, full copies %llu, refused %llu; spr111 %d: the game changed the scratchpad in %llu batches, the jobs used it in %llu, violations %llu; verify: characters %llu, bytes off %llu, copy off %llu\n", (unsigned long long)frame,
+                         g_fewKept / f, g_minChars, (unsigned long long)g_heldKept, g_heldKept / f, (unsigned long long)g_heldMarks, g_held.size(), g_hold111 && g_abHold111 ? 1 : 0,
+                         g_bringUs / f / 1000.0, g_runUs / f / 1000.0, g_snapUs / f / 1000.0, g_mergeUs / f / 1000.0, g_kickPathUs / f / 1000.0, g_tDelta / f / 1000.0, g_tSnapG / f / 1000.0, g_tKick / f / 1000.0, g_tAnime / f / 1000.0, g_ovBefore / f / 1000.0, g_ovRun / f / 1000.0, (unsigned long long)g_ovGainless, (unsigned long long)g_ovItems, g_depthMax, g_delta111 && g_abDelta111 ? 1 : 0,
+                         (unsigned long long)g_deltaItems, g_deltaItems ? static_cast<double>(g_deltaChunks) / g_deltaItems : 0.0, g_deltaSync / f, (unsigned long long)g_deltaFull,
+                         (unsigned long long)g_deltaRefused, g_spr111, (unsigned long long)g_sprChanged, (unsigned long long)g_sprTouched, (unsigned long long)g_sprViolations,
+                         (unsigned long long)g_verifyItems, (unsigned long long)g_verifyBad, (unsigned long long)g_verifyRollBad);
+            g_deltaItems = g_deltaChunks = g_deltaSync = g_deltaFull = g_deltaRefused = 0;
+            g_sprChanged = g_sprTouched = 0;
+            g_ovBefore = g_ovRun = g_ovItems = g_ovGainless = 0;
+            g_depthMax = 0;
+            if (g_diff111 && g_diffN[4])
+            {
+                const double n = static_cast<double>(g_diffN[4]);
+                std::fprintf(stderr, "[char111d] appends %llu: chunks changed since the previous hand-over: stack %.1f of %u, post %.1f of %u, scratchpad %.1f of %u, VU0 data %.1f of %u\n",
+                             (unsigned long long)g_diffN[4], g_diffN[0] / n, static_cast<unsigned>((kStackCopy + 0x40u) / 16u), g_diffN[1] / n, static_cast<unsigned>(kPostCopy / 16u),
+                             g_diffN[2] / n, static_cast<unsigned>(PS2_SCRATCHPAD_SIZE / 16u), g_diffN[3] / n, static_cast<unsigned>(PS2_VU0_DATA_SIZE / 16u));
+                for (uint64_t &x : g_diffN)
+                    x = 0;
+            }
+            g_heldKept = g_heldMarks = g_fewKept = 0;
+            g_bringUs = g_runUs = g_snapUs = g_mergeUs = g_kickPathUs = g_tDelta = g_tSnapG = g_tKick = g_tAnime = 0;
             g_animeHeld = 0;
             g_animeGameQuiet = g_animeFixes = g_openWaits = g_openServed = g_openWaitUs = g_objNear = g_objBatch = g_objNoPos = g_curSwaps = 0;
             for (uint64_t &x : g_gateSkips)
@@ -1602,7 +2149,7 @@ namespace char104
             std::fprintf(stderr, "[char104g] the game thread's joins by gate:");
             for (int i = 0; i < kGateCount; ++i)
                 if (g_gateJoins[i])
-                    std::fprintf(stderr, " %08x x%llu", kGate[i], (unsigned long long)g_gateJoins[i]);
+                    std::fprintf(stderr, " %08x x%llu (%.3f ms a frame)", kGate[i], (unsigned long long)g_gateJoins[i], g_gateWaitUs[i] / 600.0 / 1000.0);
             std::vector<std::pair<uint64_t, uint64_t>> sites;
             for (const auto &[k, c] : g_gateSites)
                 sites.push_back({c, k});
@@ -1614,6 +2161,8 @@ namespace char104
                 std::fprintf(stderr, " %08x/%08x x%llu", static_cast<uint32_t>(sites[i].second >> 32), static_cast<uint32_t>(sites[i].second), (unsigned long long)sites[i].first);
             g_gateSites.clear();
             std::fprintf(stderr, "\n");
+            for (uint64_t &x : g_gateWaitUs)
+                x = 0;
             for (uint64_t &x : g_gateJoins)
                 x = 0;
         }

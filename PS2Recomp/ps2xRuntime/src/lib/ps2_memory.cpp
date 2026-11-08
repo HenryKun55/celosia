@@ -4122,6 +4122,13 @@ bool GifEventScanner::fast() { return ps2_fast_paths::g_dmaWalkFast; }
 // READ* / WRITE*): every address at or above 32 MB. The special ranges go to
 // the runtime; the rest (the uncached / kseg0 mirrors of main RAM) is main
 // RAM, masked.
+namespace ps2_worker
+{
+    // Round 111: the worker's scratchpad accesses from generated code (the slow paths below; the worker's only;
+    // read by game/overrides/decomp_char104.cpp while the worker is idle).
+    uint64_t g_sprTouch = 0;
+}
+
 namespace ps2_guest_mem
 {
     // The scratchpad (0x70000000, 16 KB) straight from here: an aligned
@@ -4136,6 +4143,8 @@ namespace ps2_guest_mem
         PS2_FORCE_INLINE uint8_t *spr(PS2Runtime *runtime, uint32_t a)
         {
             const uint32_t offset = a - PS2_SCRATCHPAD_BASE;
+            if (offset < PS2_SCRATCHPAD_SIZE && ps2_worker::isShell(runtime))
+                ++ps2_worker::g_sprTouch; // round 111 (game/overrides/decomp_char104.cpp)
             if (PS2_EXPECT(offset < PS2_SCRATCHPAD_SIZE && (offset & (N - 1u)) == 0u && ps2_fast_paths::g_sprFast, 1))
                 return runtime->memory().getScratchpad() + offset;
             return nullptr;

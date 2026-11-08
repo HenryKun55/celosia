@@ -46,6 +46,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
     void setAb(bool on);
     void setAb108(bool nat, bool snap, bool anime); // round 108
     void setAb109(bool anime, bool open, bool obj); // round 109
+    void setAb111(bool hold, bool delta);            // round 111
 }
 #include "lines67.h"
 #include "lean_hot.h"
@@ -3417,6 +3418,16 @@ namespace sotc_native
                 ps2x_vita_pace_ab(isOffAt(at110) ? 0 : 1);
         }
 #endif
+        {
+            // Round 111: `hold111` (characters read by another object kept on the game thread), `delta111` (the areas
+            // handed over as a delta) each off in their windows, `r111all` the two.
+            static const int at111[3] = {indexOf("r111all"), indexOf("hold111"), indexOf("delta111")};
+            if (at111[0] >= 0 || at111[1] >= 0 || at111[2] >= 0)
+            {
+                const bool all = at111[0] >= 0 && isOffAt(at111[0]);
+                char104::setAb111(!(all || (at111[1] >= 0 && isOffAt(at111[1]))), !(all || (at111[2] >= 0 && isOffAt(at111[2]))));
+            }
+        }
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
         // Round 105: `worker105`, `build105`, `log105`, `render105` each off

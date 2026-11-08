@@ -67,10 +67,16 @@ namespace sotc_worker
     bool parked();
     // The last joined job parked at some point (round 104's checks).
     bool lastJobParked();
+    // Round 111: the number of jobs handed over so far (kickAs; counted before its setup runs).
+    uint64_t kickSerial();
     // Round 108: the last joined job's time on the worker and when it parked (0: never), µs.
     void lastJobTimes(uint64_t &jobUs, uint64_t &parkAtUs);
     // Round 104: the worker's call targets counted (SOTC_CHAR104_CALLS): printed and cleared (game thread, idle worker).
     void setCallCensus(bool on);
+    void setCallCensusTime(bool on); // round 111: the census's self / inclusive time per target
+    // Round 111: the least sp of the worker's calls within (lo, hi] since spWindow (the work stack's depth); ~0u: none.
+    void spWindow(uint32_t lo, uint32_t hi);
+    uint32_t spMin();
     // Round 104: the next kickAs's job runs the recompiled code (not the natives) while beside the game thread.
     void recompiledNext();
     void callCensusReport(const char *tag);
