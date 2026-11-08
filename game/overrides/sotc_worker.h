@@ -135,6 +135,9 @@ namespace sotc_worker
     // The table entries that join (the particle / wind module's functions, the
     // module loader) and the heap move's join (sotc_native's late install).
     void install(PS2Runtime &runtime);
+    // Round 114: the hand-overs' start latency (kick to the job running) since the last call: a histogram (µs: <25 / <50 /
+    // <100 / <200 / more), the count and the sum (µs); cleared (game thread).
+    void startLatHist(uint64_t out[5], uint64_t &n, uint64_t &sumUs);
     // Once a frame (sotc_native's frame log): "[worker91]" every 600 frames.
     void frameTick(uint64_t frame);
     // Round 109: `fn` called on the game thread at the start of every join of a

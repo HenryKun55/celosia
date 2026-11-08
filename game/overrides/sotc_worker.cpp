@@ -257,6 +257,7 @@ namespace sotc_worker
         thread_local bool t_onWorker = false, t_exclusive = false;
 
         // Statistics (the game thread's, but g_parkAt / g_parkUs / g_jobUs: the worker's, read at the join).
+        uint64_t g_latHist[5] = {}, g_latN = 0, g_latUs = 0; // round 114 (startLatHist)
         uint64_t g_startLatUs = 0, g_jobs = 0, g_refused = 0, g_parks = 0, g_joinWaits = 0, g_joinWaitUs = 0, g_jobUsSum = 0, g_parkUsSum = 0, g_afterCalls = 0;
         uint64_t g_siteJoins[kSiteCount] = {}, g_siteWaitUs[kSiteCount] = {};
         uint64_t g_kickUs = 0, g_jobStartUs = 0, g_parkStartUs = 0, g_jobUs = 0, g_parkAtUs = 0;
@@ -1237,6 +1238,14 @@ namespace sotc_worker
         return true;
     }
 
+    void startLatHist(uint64_t out[5], uint64_t &n, uint64_t &sumUs)
+    {
+        for (int i = 0; i < 5; ++i)
+            out[i] = g_latHist[i], g_latHist[i] = 0;
+        n = g_latN;
+        sumUs = g_latUs;
+        g_latN = g_latUs = 0;
+    }
     void setJoinHook(void (*fn)()) { g_joinHook = fn; }
     void setAdmitCtx(bool (*fn)(uint32_t, const R5900Context *)) { g_admitCtx = fn; }
     void setResumeHook(void (*fn)()) { g_resumeHook = fn; }
@@ -1294,7 +1303,13 @@ namespace sotc_worker
         g_joinWaits += waited;
         g_joinWaitUs += wait;
         g_jobUsSum += g_jobUs;
-        g_startLatUs += g_jobStartUs > g_kickUs ? g_jobStartUs - g_kickUs : 0u; // round 95: the hand-over's wake-up
+        {
+            const uint64_t lat = g_jobStartUs > g_kickUs ? g_jobStartUs - g_kickUs : 0u;
+            g_startLatUs += lat; // round 95: the hand-over's wake-up
+            ++g_latHist[lat < 25u ? 0 : lat < 50u ? 1 : lat < 100u ? 2 : lat < 200u ? 3 : 4]; // round 114
+            ++g_latN;
+            g_latUs += lat;
+        }
         if (g_jobParked)
         {
             ++g_parks;

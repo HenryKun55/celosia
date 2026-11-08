@@ -81,10 +81,12 @@ namespace char104
             const char *e = std::getenv(name);
             return e ? std::atoi(e) : def;
         }
-        // Round 111: SOTC_CHAR104's default. 0: the round's qualification was not clean (on main with round 110 the
-        // jobs lost 0.7 ms a frame on route 6 and 3.5 riding in the attract demo in Vita3K, the worker starting
-        // 0.14-0.19 ms after a hand-over instead of 0.02; before round 110: altar +0.41, route 6 +0.27 / +0.36).
-        constexpr int kChar104Default = 0;
+        // SOTC_CHAR104's default. Round 111: 0 (on main with round 110 the jobs lost 0.7 ms a frame on route 6 and 3.5
+        // riding in the attract demo in Vita3K, the worker starting 0.14-0.19 ms after a hand-over instead of 0.02).
+        // Round 114: that slow start was the host's load (other builds and emulators: the 1-minute load 30-47 on 18
+        // cores), not round 110 (the pacing on / off at once: the same latency); in quiet runs, with net114 pausing the
+        // jobs where their own account is negative: altar +0.74, route 6 +0.34, attract riding +0.45. 1.
+        constexpr int kChar104Default = 1;
         int g_logV = -1; // SOTC_CHAR104_LOG (read at first use: the Vita env.txt comes after static init)
         inline int logV()
         {
@@ -517,6 +519,41 @@ namespace char104
         int g_minChars = 6;
         uint32_t g_eligibleNow = 0, g_eligibleLast = 0;
         uint64_t g_fewKept = 0;
+        // Round 114 (gain114, SOTC_GAIN114=1, default 0: in Vita3K it lost 1.4 ms a frame at the altar and 1.0 on route 6; A/B gain114): a character whose run on the worker came before the join for
+        // less than its hand-over costs the game thread (SOTC_GAIN114_US, 120: the deltas, the kick and its share of the
+        // join's merge, ~0.11-0.14 ms a character at the altar) in its last hand-overs stays on the game thread when that
+        // costs no overlap: no batch running (no join at all) or the worker idle in the open queue (the geometry's gate
+        // joins at once, nothing left to wait for). Behind a busy worker it is still appended (the game thread's work
+        // until the join then overlaps the queue ahead of it). Learned per object (the before-the-join time, halved
+        // weights), tried again on the worker SOTC_GAIN114_PROBE (30) frames after its last sample.
+        int g_gain114 = 0, g_gainUs = 120, g_gainProbe = 30;
+        bool g_abGain114 = true;
+        struct GainRec
+        {
+            float before = 0.f, run = 0.f; // µs
+            uint32_t n = 0;
+            uint64_t frame = 0; // the last sample's
+        };
+        std::unordered_map<uint32_t, GainRec> g_gainRec;
+        // Round 114 (net114, SOTC_NET114, 1 unless set; A/B net114): the jobs on / off by scene from their own account.
+        // Per window of SOTC_NET114_WIN (300) frames with hand-overs: what ran beside the game thread (the characters'
+        // runs before the join) less what the hand-overs cost it (the hand-over path, the joins' merges), a frame. Below
+        // -SOTC_NET114_US (150 µs a frame) the jobs pause: characters stay on the game thread for 600 frames (1 200 after
+        // a second window below in a row), then a window of hand-overs again. The account is conservative (in Vita3K the
+        // A/B gain at the altar is +0.4-0.7 ms where it reads -0.05): it only has to tell the scenes where the jobs lose
+        // (attract riding: -0.1 to -0.4, a part with one-character batches -3.2) from those where they gain (the altar
+        // -0.04 / -0.07, route 6 -0.08 to +0.12). Capped at 1 200 frames so a new scene is tried within a minute.
+        int g_net114 = 1, g_netWin = 300, g_netUs = 150;
+        bool g_abNet114 = true;
+        uint64_t g_netBefore = 0, g_netOwn = 0, g_netFrames = 0; // this window's (game thread)
+        uint64_t g_netPauseUntil = 0, g_netPauseLen = 600;
+        uint64_t g_netWins = 0, g_netWinsLow = 0, g_netPausedFrames = 0, g_netKept = 0;
+        double g_netLast = 0.0, g_netSum = 0.0;
+        std::atomic<int> g_waitIdx{-1};      // round 114: the item the worker waits for in the open queue (-1: not waiting)
+        std::atomic<uint64_t> g_appendUs{0}; // round 114: the last append's notify (the open queue's wake latency)
+        uint64_t g_gainKeptNew = 0, g_gainKeptIdle = 0, g_gainAppBusy = 0, g_gainTried = 0;
+        uint64_t g_ovGlFirst = 0, g_ovFirst = 0, g_ovGlIdle = 0, g_ovIdle = 0, g_ovGlBusy = 0, g_ovBusy = 0; // gainless by kind
+        uint64_t g_wakeN = 0, g_wakeUs = 0, g_wakeHist[5] = {};                                            // the worker's (read after the join)
         uint64_t g_bringUs = 0, g_runUs = 0;  // round 111: the worker's time bringing its areas / in the characters (read after the join)
         uint64_t g_snapUs = 0, g_mergeUs = 0; // round 111: the game thread's hand-over copies / join merges
         uint64_t g_kickPathUs = 0;            // round 111: the game thread in tryKick (waits out)
@@ -547,6 +584,7 @@ namespace char104
             alignas(16) uint8_t spr[PS2_SCRATCHPAD_SIZE];  // the game's scratchpad at this hand-over
             alignas(16) uint8_t vu0[PS2_VU0_DATA_SIZE];    // the game's VU0 data at this hand-over
             uint64_t runT0 = 0, runT1 = 0;                 // round 111: the worker's time on it (read after the join)
+            bool idleAt = false;                           // round 114: appended while the worker waited for it (open queue)
             bool full = true;                              // round 111: stack / spr / vu0 above hold the hand-over's areas (else: the delta below)
             int nDiff = 0;                                 // round 111 (delta111): the 16-byte chunks the game changed since the previous hand-over
             struct Chunk
@@ -642,6 +680,12 @@ namespace char104
             g_delta111 = envInt("SOTC_DELTA111", 1);
             g_spr111 = envInt("SOTC_SPR111", 1);
             g_verify111 = envInt("SOTC_DELTA111_VERIFY", 0);
+            g_gain114 = envInt("SOTC_GAIN114", 0);
+            g_net114 = envInt("SOTC_NET114", 1);
+            g_netWin = envInt("SOTC_NET114_WIN", 300);
+            g_netUs = envInt("SOTC_NET114_US", 150);
+            g_gainUs = envInt("SOTC_GAIN114_US", 120);
+            g_gainProbe = envInt("SOTC_GAIN114_PROBE", 30);
             if (const char *e = std::getenv("SOTC_OBJ109_R"))
                 g_obj109R = static_cast<float>(std::atof(e));
             if (const char *e = std::getenv("SOTC_CHAR104_NEAR"))
@@ -1017,10 +1061,21 @@ namespace char104
                         // Round 109: wait for the next character (an append) or the join.
                         const uint64_t w0 = nowUs();
                         ++g_openWaits;
+                        g_waitIdx.store(i, std::memory_order_release);
                         g_qCv.wait(lock, [i] { return i < g_qN || g_qClose; });
-                        waited += nowUs() - w0;
+                        g_waitIdx.store(-1, std::memory_order_relaxed);
+                        const uint64_t w1 = nowUs();
+                        waited += w1 - w0;
                         if (i < g_qN)
+                        {
                             ++g_openServed;
+                            // Round 114: the append's notify to the worker running again.
+                            const uint64_t a = g_appendUs.load(std::memory_order_relaxed);
+                            const uint64_t lat = w1 > a ? w1 - a : 0u;
+                            ++g_wakeN;
+                            g_wakeUs += lat;
+                            ++g_wakeHist[lat < 25u ? 0 : lat < 50u ? 1 : lat < 100u ? 2 : lat < 200u ? 3 : 4];
+                        }
                     }
                     if (i >= g_qN)
                     {
@@ -1273,6 +1328,7 @@ namespace char104
             return changed;
         }
 
+        bool g_checkThis = false; // (SOTC_CHAR104_CHECK: this batch is checked)
         void batchSetup(void *)
         {
             // Round 108: guest memory is the game thread's again for the worker's lane (its kept values: a new epoch).
@@ -1291,7 +1347,19 @@ namespace char104
                     const uint8_t *nw[3] = {i0.stack, i0.spr, i0.vu0};
                     for (int k = 0; k < 3; ++k)
                         for (uint32_t b = 0; b < kAreaN[k]; ++b)
+                        {
+                            const bool bad = workerArea(k)[b] != nw[k][b] || g_roll[k][b] != nw[k][b];
                             g_verifyRollBad += (workerArea(k)[b] != nw[k][b]) + (g_roll[k][b] != nw[k][b]);
+                            static int shown = 0;
+                            if (bad && shown < 16)
+                            {
+                                // Round 114: where the hand-over's full copy and the synced areas part (area, offset, values).
+                                ++shown;
+                                std::fprintf(stderr, "[char114v] frame %llu: setup: area %d +0x%x: full copy %02x, synced copy %02x, worker %02x, live %02x; check %d, serial %llu\n",
+                                             (unsigned long long)sotc_decomp::g_gameFrame, k, b, nw[k][b], g_roll[k][b], workerArea(k)[b], liveArea(k)[b], g_checkThis ? 1 : 0,
+                                             (unsigned long long)sotc_worker::kickSerial());
+                            }
+                        }
                 }
             }
             wc->vu0_r = g_kickR; // the game's random stream (one stream, in the original order: see the join)
@@ -1300,7 +1368,6 @@ namespace char104
         bool sameQ(__m128 a, __m128 b) { return std::memcmp(&a, &b, 16) == 0; }
 
         void checkEnd(const R5900Context &wc); // below (SOTC_CHAR104_CHECK)
-        bool g_checkThis = false;
 
         void batchJoined(void *)
         {
@@ -1435,6 +1502,7 @@ namespace char104
                 g_gameBesideUs += besideGame;
             }
             g_mergeUs += nowUs() - m0;
+            g_netOwn += nowUs() - m0; // round 114 (net114)
             {
                 const uint32_t lo = sotc_worker::spMin();
                 if (lo != ~0u && g_workTop - lo > g_depthMax)
@@ -1454,6 +1522,22 @@ namespace char104
                     g_ovRun += dur;
                     g_ovItems += 1u;
                     g_ovGainless += before * 4u < dur;
+                    g_netBefore += before; // round 114 (net114)
+                    // Round 114 (gain114): the object's before-the-join time, by kind of hand-over.
+                    const bool gl = before < static_cast<uint64_t>(g_gainUs);
+                    if (i == 0)
+                        ++g_ovFirst, g_ovGlFirst += gl;
+                    else if (it.idleAt)
+                        ++g_ovIdle, g_ovGlIdle += gl;
+                    else
+                        ++g_ovBusy, g_ovGlBusy += gl;
+                    GainRec &r = g_gainRec[it.obj];
+                    if (r.n == 0 || r.frame + static_cast<uint64_t>(g_gainProbe) * 4u < sotc_decomp::g_gameFrame)
+                        r.before = static_cast<float>(before), r.run = static_cast<float>(dur), r.n = 0;
+                    else
+                        r.before = 0.5f * (r.before + static_cast<float>(before)), r.run = 0.5f * (r.run + static_cast<float>(dur));
+                    ++r.n;
+                    r.frame = sotc_decomp::g_gameFrame;
                 }
             }
             g_batchUs += nowUs() - g_kickUs;
@@ -1476,6 +1560,11 @@ namespace char104
         g_abAnime109 = anime;
         g_abOpen109 = open;
         g_abObj109 = obj;
+    }
+    void setAb114(bool gain, bool net)
+    {
+        g_abGain114 = gain;
+        g_abNet114 = net; // (the account goes on in its off windows: it is the hand-overs', whatever paused them)
     }
     void setAb111(bool hold, bool delta)
     {
@@ -1654,6 +1743,22 @@ namespace char104
             const int i = g_held.find(obj);
             if (i >= 0 && reader() != obj)
                 g_held.frame[i] = sotc_decomp::g_gameFrame;
+        }
+        // Round 114 (gain114): the object's last hand-overs ran under SOTC_GAIN114_US before the join (two samples at
+        // least, the last within SOTC_GAIN114_PROBE frames: after that it goes to the worker again for a new one).
+        bool gainless(uint32_t obj)
+        {
+            const auto it = g_gainRec.find(obj);
+            if (it == g_gainRec.end())
+                return false;
+            const GainRec &r = it->second;
+            if (r.n < 2u || r.frame + static_cast<uint64_t>(g_gainProbe) < sotc_decomp::g_gameFrame)
+            {
+                if (r.n >= 2u && r.before < static_cast<float>(g_gainUs))
+                    ++g_gainTried;
+                return false;
+            }
+            return r.before < static_cast<float>(g_gainUs);
         }
         bool held(uint32_t obj)
         {
@@ -1877,7 +1982,12 @@ namespace char104
         struct KickTimer // round 111: the hand-over path's own time (its join's wait taken out)
         {
             uint64_t t0 = nowUs(), w0 = g_waitUs;
-            ~KickTimer() { g_kickPathUs += nowUs() - t0 - (g_waitUs - w0); }
+            ~KickTimer()
+            {
+                const uint64_t us = nowUs() - t0 - (g_waitUs - w0);
+                g_kickPathUs += us;
+                g_netOwn += us; // round 114 (net114)
+            }
         } kickTimer;
         if (!g_items)
             g_items = new Item[kQueue];
@@ -1886,6 +1996,11 @@ namespace char104
         if (m == 1 && g_minChars > 0 && g_eligibleLast < static_cast<uint32_t>(g_minChars))
         {
             ++g_fewKept; // round 111: a frame with few characters to hand over: all on the game thread
+            return false;
+        }
+        if (m == 1 && g_net114 && g_abNet114 && sotc_decomp::g_gameFrame < g_netPauseUntil)
+        {
+            ++g_netKept; // round 114 (net114): the jobs lose in this scene: paused
             return false;
         }
         if (m == 1 && held(obj))
@@ -1904,12 +2019,28 @@ namespace char104
             ++g_animeHeld; // round 109: its tables fire this frame: on the game thread (the batch running is joined at its geometry's gate)
             return false;
         }
+        if (m == 1 && g_gain114 && g_abGain114 && gainless(obj))
+        {
+            // Round 114 (gain114): its hand-overs gained nothing; on the game thread when that costs no overlap.
+            if (!g_batch || !sotc_worker::busy())
+            {
+                ++g_gainKeptNew;
+                return false;
+            }
+            if (g_waitIdx.load(std::memory_order_acquire) == g_qN || sotc_worker::done())
+            {
+                ++g_gainKeptIdle; // (its geometry's gate joins the batch: the worker has nothing left)
+                return false;
+            }
+            ++g_gainAppBusy;
+        }
         const uint32_t frameSp = u32(kWorkStack) + 0x20u; // the frame end's sp (charaGeometry's frame + 0x20, saved at the work stack's top)
         // Queued behind the batch running.
         if (g_batch && !g_noAppend && g_qN < kQueue && sotc_worker::busy() && !sotc_worker::parked() &&
             !(g_snap108 && g_abSnap && !sotc_worker::snapValid(rdram) && (++g_appendRefused, true)))
         {
             Item &it = g_items[g_qN];
+            it.idleAt = false;
             it.obj = obj;
             it.cls = cls;
             it.frameSp = frameSp;
@@ -1942,6 +2073,8 @@ namespace char104
                 taken = g_qOpen;
                 if (taken)
                 {
+                    it.idleAt = g_waitIdx.load(std::memory_order_acquire) == g_qN; // round 114
+                    g_appendUs.store(nowUs(), std::memory_order_relaxed);
                     ++g_qN;
                     g_batchMask |= 1ull << ((obj >> 4) & 63u); // round 111
                     g_qCv.notify_one(); // round 109: a worker waiting for the next item
@@ -1956,11 +2089,14 @@ namespace char104
         }
     newBatch:
         joinNow(2, sotc_worker::kSiteKick); // the previous batch first (its merge reads its items)
+        if (g_check > 0 || g_verify111)
+            sotc_worker::join(sotc_worker::kSiteKick); // round 114: any other job too (kickAs joins it), before the check's / verify's copies
         g_rdram = rdram;
         g_rt = runtime;
         g_gameCtx = ctx;
         g_kickR = ctx->vu0_r;
         Item &it = g_items[0];
+        it.idleAt = false;
         it.obj = obj;
         it.cls = cls;
         it.frameSp = frameSp;
@@ -2039,13 +2175,41 @@ namespace char104
 
     void jobTick(uint64_t frame)
     {
+        {
+            // Round 114 (net114): the window's account (after the frame's last join, below).
+            joinNow(6, sotc_worker::kSiteFrame);
+            const uint64_t now = sotc_decomp::g_gameFrame;
+            if (now < g_netPauseUntil && g_net114 && g_abNet114)
+                ++g_netPausedFrames;
+            if (g_netBefore || g_netOwn)
+                ++g_netFrames;
+            if (g_netFrames >= static_cast<uint64_t>(g_netWin > 0 ? g_netWin : 300))
+            {
+                const double net = (static_cast<double>(g_netBefore) - static_cast<double>(g_netOwn)) / static_cast<double>(g_netFrames);
+                g_netLast = net;
+                g_netSum += net;
+                ++g_netWins;
+                if (net < -static_cast<double>(g_netUs))
+                {
+                    ++g_netWinsLow;
+                    if (g_net114 && g_abNet114 && g_mode == 1)
+                    {
+                        g_netPauseUntil = now + g_netPauseLen;
+                        g_netPauseLen = std::min<uint64_t>(g_netPauseLen * 2u, 1200u);
+                    }
+                }
+                else
+                    g_netPauseLen = 600;
+                g_netBefore = g_netOwn = g_netFrames = 0;
+            }
+        }
         joinNow(6, sotc_worker::kSiteFrame);
         g_postSkip = 0;
         g_eligibleLast = g_eligibleNow; // round 111 (SOTC_CHAR111_MIN)
         g_eligibleNow = 0;
         if (g_calls && g_jobs && frame % 600u == 0u)
             sotc_worker::callCensusReport("calls104");
-        if (++g_frames104 % 600u != 0u || g_jobs == 0u)
+        if (++g_frames104 % 600u != 0u || (g_jobs == 0u && g_netPausedFrames == 0u)) // (round 114: net114's pauses reported too)
             return;
         checkReport(frame);
         const double f = 600.0, nb = g_batches ? static_cast<double>(g_batches) : 1.0;
@@ -2137,6 +2301,39 @@ namespace char104
                     x = 0;
             }
             g_heldKept = g_heldMarks = g_fewKept = 0;
+            {
+                // [char114]: gain114's characters kept on the game thread (no batch running / the worker idle), those still
+                // appended behind a busy worker, gainless runs by kind of hand-over (first of a batch / appended to an
+                // idle worker / behind a busy one), the open queue's wake (an append's notify to the worker running) and
+                // the hand-overs' (sotc_worker's start) latency histograms (µs: <25 / <50 / <100 / <200 / more).
+                uint64_t sh[5] = {}, shN = 0, shUs = 0;
+                sotc_worker::startLatHist(sh, shN, shUs);
+                std::fprintf(stderr,
+                             "[char114] frame %llu: gain114 %d (%d us, probe %d): kept on the game thread %.2f a frame (no batch %.2f, worker idle %.2f), appended behind a busy worker %.2f, tried again %llu, objects %llu"
+                             " | gainless (< %d us before the join): first %llu of %llu, appended to an idle worker %llu of %llu, behind a busy one %llu of %llu"
+                             " | open-queue wakes %llu, %.3f ms mean [%llu %llu %llu %llu %llu] | hand-over starts %llu, %.3f ms mean [%llu %llu %llu %llu %llu]\n",
+                             (unsigned long long)frame, g_gain114 && g_abGain114 ? 1 : 0, g_gainUs, g_gainProbe, (g_gainKeptNew + g_gainKeptIdle) / f, g_gainKeptNew / f,
+                             g_gainKeptIdle / f, g_gainAppBusy / f, (unsigned long long)g_gainTried, (unsigned long long)g_gainRec.size(), g_gainUs, (unsigned long long)g_ovGlFirst,
+                             (unsigned long long)g_ovFirst, (unsigned long long)g_ovGlIdle, (unsigned long long)g_ovIdle, (unsigned long long)g_ovGlBusy, (unsigned long long)g_ovBusy,
+                             (unsigned long long)g_wakeN, g_wakeN ? g_wakeUs / 1000.0 / g_wakeN : 0.0, (unsigned long long)g_wakeHist[0], (unsigned long long)g_wakeHist[1],
+                             (unsigned long long)g_wakeHist[2], (unsigned long long)g_wakeHist[3], (unsigned long long)g_wakeHist[4], (unsigned long long)shN,
+                             shN ? shUs / 1000.0 / shN : 0.0, (unsigned long long)sh[0], (unsigned long long)sh[1], (unsigned long long)sh[2], (unsigned long long)sh[3],
+                             (unsigned long long)sh[4]);
+                std::fprintf(stderr, "[char114] frame %llu: net114 %d (window %d frames, pause below -%d us a frame): windows %llu, below %llu, mean %.3f ms a frame (last %.3f); paused %llu frames, characters kept %.2f a frame; paused now %d (next pause %llu frames)\n",
+                             (unsigned long long)frame, g_net114 && g_abNet114 ? 1 : 0, g_netWin, g_netUs, (unsigned long long)g_netWins, (unsigned long long)g_netWinsLow,
+                             g_netWins ? g_netSum / g_netWins / 1000.0 : 0.0, g_netLast / 1000.0, (unsigned long long)g_netPausedFrames, g_netKept / f,
+                             sotc_decomp::g_gameFrame < g_netPauseUntil ? 1 : 0, (unsigned long long)g_netPauseLen);
+                g_netWins = g_netWinsLow = g_netPausedFrames = g_netKept = 0;
+                g_netSum = 0.0;
+                g_gainKeptNew = g_gainKeptIdle = g_gainAppBusy = g_gainTried = 0;
+                g_ovGlFirst = g_ovFirst = g_ovGlIdle = g_ovIdle = g_ovGlBusy = g_ovBusy = 0;
+                g_wakeN = g_wakeUs = 0;
+                for (uint64_t &x : g_wakeHist)
+                    x = 0;
+                const uint64_t now = sotc_decomp::g_gameFrame;
+                for (auto it = g_gainRec.begin(); it != g_gainRec.end();)
+                    it = it->second.frame + 600u < now ? g_gainRec.erase(it) : std::next(it);
+            }
             g_bringUs = g_runUs = g_snapUs = g_mergeUs = g_kickPathUs = g_tDelta = g_tSnapG = g_tKick = g_tAnime = 0;
             g_animeHeld = 0;
             g_animeGameQuiet = g_animeFixes = g_openWaits = g_openServed = g_openWaitUs = g_objNear = g_objBatch = g_objNoPos = g_curSwaps = 0;

@@ -47,6 +47,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
     void setAb108(bool nat, bool snap, bool anime); // round 108
     void setAb109(bool anime, bool open, bool obj); // round 109
     void setAb111(bool hold, bool delta);            // round 111
+    void setAb114(bool gain, bool net);              // round 114
 }
 #include "lines67.h"
 #include "lean_hot.h"
@@ -3428,6 +3429,13 @@ namespace sotc_native
                 const bool all = at111[0] >= 0 && isOffAt(at111[0]);
                 char104::setAb111(!(all || (at111[1] >= 0 && isOffAt(at111[1]))), !(all || (at111[2] >= 0 && isOffAt(at111[2]))));
             }
+        }
+        {
+            // Round 114: `gain114` (characters whose hand-overs gained nothing kept on the game thread), `net114` (the jobs
+            // paused in scenes where their own account is negative) each off in their windows.
+            static const int at114[2] = {indexOf("gain114"), indexOf("net114")};
+            if (at114[0] >= 0 || at114[1] >= 0)
+                char104::setAb114(!(at114[0] >= 0 && isOffAt(at114[0])), !(at114[1] >= 0 && isOffAt(at114[1])));
         }
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
