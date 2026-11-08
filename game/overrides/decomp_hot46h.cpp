@@ -54,6 +54,8 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace decomp_curve
@@ -627,15 +629,21 @@ namespace decomp_hot46h
 
     // ---- manager_sub_010AF070: an object animation's channels at a float frame
 
-    void objectAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Round 106: manager_sub_010AF2A0 (0x10af2a0) is the same code with the
+    // record in s4 and the next key index in s3 (the frame's slots the same),
+    // its jal sites at the same offsets, and one more store at the end: out
+    // +0x30 = the record's +0x10 (f0 left with it). kAlpha: that one.
+    template <bool kAlpha>
+    void objectAnimSampleT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const uint32_t base)
     {
-        if (!sotc_decomp::hotList46On())
-            return fallback(kObjectAnimSample, rdram, ctx, runtime);
+        constexpr int REC = kAlpha ? 20 : 19, NXT = kAlpha ? 19 : 20;
         ctx->f[0] = cvtSW(GPR_U32(ctx, 6));
         const uint32_t sp = GPR_U32(ctx, 29) - 0x90u;
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp));
         WRITE64(sp + 0x68u, GPR_U64(ctx, 19));
-        SET_GPR_U64(ctx, 19, GPR_U64(ctx, 5));
+        if (kAlpha)
+            WRITE64(sp + 0x70u, GPR_U64(ctx, 20));
+        SET_GPR_U64(ctx, REC, GPR_U64(ctx, 5));
         WRITE64(sp + 0x78u, GPR_U64(ctx, 21));
         SET_GPR_U64(ctx, 21, GPR_U64(ctx, 4));
         WRITE64(sp + 0x50u, GPR_U64(ctx, 16));
@@ -643,14 +651,15 @@ namespace decomp_hot46h
         setCond(ctx, FPU_C_OLT_S(ctx->f[0], ctx->f[12]));
         WRITE64(sp + 0x58u, GPR_U64(ctx, 17));
         WRITE64(sp + 0x60u, GPR_U64(ctx, 18));
-        WRITE64(sp + 0x70u, GPR_U64(ctx, 20));
+        if (!kAlpha)
+            WRITE64(sp + 0x70u, GPR_U64(ctx, 20));
         WRITE64(sp + 0x80u, GPR_U64(ctx, 31));
         storeF(sp + 0x88u, ctx->f[20]);
         if (cond(ctx))
             loopFrame(rdram, ctx, runtime, 6);
         // 0x10af0fc: the key index (+0x40, +0x44 the next) and the fraction
         // (+0x48); the position by 010AEAF8.
-        const uint32_t record = GPR_U32(ctx, 19);
+        const uint32_t record = GPR_U32(ctx, REC);
         const uint32_t out = GPR_U32(ctx, 21);
         cvtWS(ctx, 0, ctx->f[12]);
         SET_GPR_U32(ctx, 3, bitsOf(ctx, 0));
@@ -669,7 +678,7 @@ namespace decomp_hot46h
         ctx->f[0] = FPU_SUB_S(ctx->f[12], ctx->f[0]);
         ctx->f[12] = FPU_MOV_S(ctx->f[0]);
         storeF(sp + 0x48u, ctx->f[0]);
-        callNative(rdram, ctx, runtime, kPosKeyLerp, &posKeyLerp, 0x010AF148u, sp);
+        callNative(rdram, ctx, runtime, kPosKeyLerp, &posKeyLerp, base + 0xD8u, sp);
         // 0x10af148: the rotation (a1 = the record's word, bits 8-11 its format).
         SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
         ctx->f[1] = loadF(sp + 0x48u);
@@ -678,7 +687,7 @@ namespace decomp_hot46h
         SET_GPR_U64(ctx, 16, GPR_U64(ctx, 2) & 0xFu);
         SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x40u)));
         setCond(ctx, FPU_C_EQ_S(ctx->f[1], ctx->f[0]));
-        SET_GPR_S32(ctx, 20, static_cast<int32_t>(READ32(sp + 0x44u)));
+        SET_GPR_S32(ctx, NXT, static_cast<int32_t>(READ32(sp + 0x44u)));
         ctx->f[20] = FPU_MOV_S(ctx->f[1]);
         const uint32_t rotChannel = GPR_U32(ctx, 17); // record + 8
         bool reloadTail = true; // 0x10af1e4's reloads (not on the 0x10af174 branch)
@@ -693,7 +702,7 @@ namespace decomp_hot46h
             {
                 SET_GPR_U64(ctx, 5, GPR_U64(ctx, 16));
                 SET_GPR_U64(ctx, 4, GPR_U64(ctx, 18));
-                curveCall(rdram, ctx, runtime, 0x010AF188u, sp);
+                curveCall(rdram, ctx, runtime, base + 0x118u, sp);
                 SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
             }
         }
@@ -706,15 +715,15 @@ namespace decomp_hot46h
             if (GPR_U64(ctx, 6) != 0)
             {
                 SET_GPR_U64(ctx, 5, GPR_U64(ctx, 16));
-                curveCall(rdram, ctx, runtime, 0x010AF1A4u, sp);
+                curveCall(rdram, ctx, runtime, base + 0x134u, sp);
                 SET_GPR_S32(ctx, 6, static_cast<int32_t>(READ32(rotChannel)));
             }
             SET_GPR_U64(ctx, 5, GPR_U64(ctx, 16));
             if (GPR_U64(ctx, 6) != 0)
             {
-                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 20));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, NXT));
                 SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x10u));
-                curveCall(rdram, ctx, runtime, 0x010AF1BCu, sp);
+                curveCall(rdram, ctx, runtime, base + 0x14Cu, sp);
             }
             SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x10u));
             lerpKeys<true>(rdram, ctx, runtime, 20, sp + 0x10u, sp, 9, GPR_U32(ctx, 18));
@@ -724,7 +733,7 @@ namespace decomp_hot46h
         {
             // 0x10af1e4
             SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x40u)));
-            SET_GPR_S32(ctx, 20, static_cast<int32_t>(READ32(sp + 0x44u)));
+            SET_GPR_S32(ctx, NXT, static_cast<int32_t>(READ32(sp + 0x44u)));
             ctx->f[1] = loadF(sp + 0x48u);
             setBits(ctx, 0, 0u);
             ctx->f[20] = FPU_MOV_S(ctx->f[1]);
@@ -741,7 +750,7 @@ namespace decomp_hot46h
             {
                 SET_GPR_U64(ctx, 4, GPR_U64(ctx, 18));
                 SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
-                vec3Call(rdram, ctx, runtime, 0x010AF220u, sp);
+                vec3Call(rdram, ctx, runtime, base + 0x1B0u, sp);
             }
         }
         else
@@ -752,16 +761,22 @@ namespace decomp_hot46h
             {
                 SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x20u));
                 SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
-                vec3Call(rdram, ctx, runtime, 0x010AF23Cu, sp);
+                vec3Call(rdram, ctx, runtime, base + 0x1CCu, sp);
                 SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
                 SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
-                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 20));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, NXT));
                 SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x30u));
-                vec3Call(rdram, ctx, runtime, 0x010AF250u, sp);
+                vec3Call(rdram, ctx, runtime, base + 0x1E0u, sp);
             }
             SET_GPR_S32(ctx, 3, static_cast<int32_t>(sp + 0x30u));
             SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x20u));
             lerpKeys<false>(rdram, ctx, runtime, 20, sp + 0x30u, sp + 0x20u, 5, GPR_U32(ctx, 18));
+        }
+        if (kAlpha)
+        {
+            // 0x10af4a8: out +0x30 = the record's +0x10.
+            ctx->f[0] = loadF(record + 0x10u);
+            storeF(out + 0x30u, ctx->f[0]);
         }
         // 0x10af278
         SET_GPR_U64(ctx, 16, READ64(sp + 0x50u));
@@ -775,6 +790,485 @@ namespace decomp_hot46h
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0x90u));
         returnTo(ctx);
     }
+
+    void objectAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList46On())
+            return fallback(kObjectAnimSample, rdram, ctx, runtime);
+        objectAnimSampleT<false>(rdram, ctx, runtime, kObjectAnimSample);
+    }
+
+    // ---- round 106 (SOTC_OAN106, A/B oan106 / r106all): three more of
+    // GetObjectAnimationFloatFrame's evaluators (decomp_hot46i's plain cases).
+    constexpr uint32_t kAlphaAnimSample = 0x010AF2A0u, kVecAnimSample = 0x010AF4D8u, kColorAnimSample = 0x010B06A8u;
+
+    // SOTC_OAN106_CHECK=1: every call twice on the same input. The native
+    // first; its out record (0x40 bytes), the 0x200 bytes below sp (its frame
+    // and its callees'), the callee-saved registers (s0-s7, fp, sp, ra, f20),
+    // fcr31 and pc kept; the out record, that stack and the context put back;
+    // the recompiled code runs to its return (the game goes on with it) and
+    // the two are compared ([oan106c] checks / differ by function). Not
+    // compared: v0 / f0 (no caller reads them; the generated code's register
+    // cache need not write its last scratch values back to the context).
+    // =2: the difftest (sotc_decomp.cpp).
+    inline bool oanCheckOn()
+    {
+        static const bool on = [] {
+            const char *e = std::getenv("SOTC_OAN106_CHECK");
+            return e && e[0] == '1';
+        }();
+        return on;
+    }
+    void oanChecked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, PS2Runtime::RecompiledFunction native, uint32_t self, int which)
+    {
+        static uint64_t checks[3] = {}, differ[3] = {};
+        static const char *const names[3] = {"010AF2A0", "010AF4D8", "010B06A8"};
+        const uint32_t out = GPR_U32(ctx, 4), sp = GPR_U32(ctx, 29);
+        if (out + 0x40u > PS2_RAM_SIZE || sp < 0x200u || sp > PS2_RAM_SIZE)
+            return fallback(self, rdram, ctx, runtime);
+        static uint8_t outSaved[0x40], stackSaved[0x200], outNative[0x40], stackNative[0x200];
+        static R5900Context in, mine; // static: no over-aligned copy on the stack
+        std::memcpy(outSaved, rdram + out, 0x40);
+        std::memcpy(stackSaved, rdram + sp - 0x200u, 0x200);
+        in = *ctx;
+        native(rdram, ctx, runtime);
+        mine = *ctx;
+        std::memcpy(outNative, rdram + out, 0x40);
+        std::memcpy(stackNative, rdram + sp - 0x200u, 0x200);
+        std::memcpy(rdram + out, outSaved, 0x40);
+        std::memcpy(rdram + sp - 0x200u, stackSaved, 0x200);
+        *ctx = in;
+        // Run to its return (a guest call inside can leave the generated code with pc on the callee).
+        sotc_decomp::callRecompiled(rdram, ctx, runtime, self, GPR_U32(ctx, 31), GPR_U32(ctx, 29));
+        bool same = std::memcmp(outNative, rdram + out, 0x40) == 0 && std::memcmp(stackNative, rdram + sp - 0x200u, 0x200) == 0;
+        for (int r : {16, 17, 18, 19, 20, 21, 22, 23, 29, 30, 31})
+            same = same && GPR_U64(&mine, r) == GPR_U64(ctx, r);
+        same = same && bitsOf(&mine, 20) == bitsOf(ctx, 20) && mine.fcr31 == ctx->fcr31 && mine.pc == ctx->pc;
+        ++checks[which];
+        if (!same)
+            ++differ[which];
+        if ((!same && differ[which] <= 8u) || checks[which] == 1u || (checks[which] & 0x3FFFu) == 0u)
+        {
+            int at = -1;
+            for (int i = 0; i < 0x40 && at < 0; ++i)
+                if (outNative[i] != rdram[out + i])
+                    at = i;
+            int st = -1;
+            for (int i = 0; i < 0x200 && st < 0; ++i)
+                if (stackNative[i] != rdram[sp - 0x200u + i])
+                    st = i;
+            std::fprintf(stderr, "[oan106c] %s checks %llu differ %llu%s (out +%x stack -%x v0 %llx/%llx f0 %08x/%08x)\n", names[which],
+                         (unsigned long long)checks[which], (unsigned long long)differ[which], same ? "" : " MISMATCH", at, st < 0 ? 0 : 0x200 - st,
+                         (unsigned long long)GPR_U64(&mine, 2), (unsigned long long)GPR_U64(ctx, 2), bitsOf(&mine, 0), bitsOf(ctx, 0));
+        }
+    }
+    void alphaAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void vecAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void colorAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+
+    // manager_sub_010AF2A0: objectAnimSampleT<true>.
+    void alphaAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::oan106On())
+            return fallback(kAlphaAnimSample, rdram, ctx, runtime);
+        static bool inCheck = false;
+        if (__builtin_expect(oanCheckOn() && !inCheck, 0))
+        {
+            inCheck = true;
+            oanChecked(rdram, ctx, runtime, &alphaAnimSample, kAlphaAnimSample, 0);
+            inCheck = false;
+            return;
+        }
+        objectAnimSampleT<true>(rdram, ctx, runtime, kAlphaAnimSample);
+    }
+
+    // A key's four floats copied with the f0 / f1 pair (lwc1 / swc1 in turns).
+    inline void copy4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t from, uint32_t to)
+    {
+        ctx->f[0] = loadF(from);
+        storeF(to, ctx->f[0]);
+        ctx->f[1] = loadF(from + 4u);
+        storeF(to + 4u, ctx->f[1]);
+        ctx->f[0] = loadF(from + 8u);
+        storeF(to + 8u, ctx->f[0]);
+        ctx->f[1] = loadF(from + 0xCu);
+        storeF(to + 0xCu, ctx->f[1]);
+    }
+
+    // manager_sub_010AF4D8 (0x10af4d8): a record's position (010AEAF8, into
+    // a0), a float vector channel (+8: a table of 16-byte keys, indexed by
+    // the key when the word's bits 8-11 are set, else its first key; lerped
+    // xyz, w the next key's, into a0 + 0x10) and the scale (010ADE08 by the
+    // word's bits 0-3, +0xc, lerped, into a0 + 0x20). a1 the record, a2 the
+    // frame count, f12 the frame. The frame 0x80 (s0 +0x50, s1 +0x58, s2
+    // +0x60, s3 +0x68, ra +0x70, f20 +0x78; the keys at +0 / +0x10 / +0x20 /
+    // +0x30, the key index +0x40 / +0x44, the fraction +0x48).
+    void vecAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::oan106On())
+            return fallback(kVecAnimSample, rdram, ctx, runtime);
+        static bool inCheck = false;
+        if (__builtin_expect(oanCheckOn() && !inCheck, 0))
+        {
+            inCheck = true;
+            oanChecked(rdram, ctx, runtime, &vecAnimSample, kVecAnimSample, 1);
+            inCheck = false;
+            return;
+        }
+        const uint32_t base = kVecAnimSample;
+        ctx->f[0] = cvtSW(GPR_U32(ctx, 6));
+        const uint32_t sp = GPR_U32(ctx, 29) - 0x80u;
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp));
+        WRITE64(sp + 0x50u, GPR_U64(ctx, 16));
+        SET_GPR_U64(ctx, 16, GPR_U64(ctx, 5));
+        WRITE64(sp + 0x60u, GPR_U64(ctx, 18));
+        SET_GPR_U64(ctx, 18, GPR_U64(ctx, 4));
+        WRITE64(sp + 0x58u, GPR_U64(ctx, 17));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(sp + 0x40u));
+        setCond(ctx, FPU_C_OLT_S(ctx->f[0], ctx->f[12]));
+        WRITE64(sp + 0x68u, GPR_U64(ctx, 19));
+        WRITE64(sp + 0x70u, GPR_U64(ctx, 31));
+        storeF(sp + 0x78u, ctx->f[20]);
+        if (cond(ctx))
+            loopFrame(rdram, ctx, runtime, 6);
+        // +0x84: the key index (+0x40, +0x44 the next), the fraction (+0x48); the position by 010AEAF8.
+        const uint32_t record = GPR_U32(ctx, 16);
+        const uint32_t out = GPR_U32(ctx, 18);
+        cvtWS(ctx, 0, ctx->f[12]);
+        SET_GPR_U32(ctx, 3, bitsOf(ctx, 0));
+        SET_GPR_S32(ctx, 5, static_cast<int16_t>(READ16(record + 2u)));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(READ32(record + 4u)));
+        SET_GPR_U64(ctx, 4, GPR_U64(ctx, 18));
+        SET_GPR_U64(ctx, 5, GPR_U64(ctx, 5) & 0xFu);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 3) + 1u));
+        WRITE32(GPR_U32(ctx, 7), GPR_U32(ctx, 3));
+        WRITE32(sp + 0x44u, GPR_U32(ctx, 2));
+        SET_GPR_U64(ctx, 8, GPR_U64(ctx, 2));
+        ctx->f[0] = cvtSW(READ32(GPR_U32(ctx, 7)));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x40u)));
+        ctx->f[0] = FPU_SUB_S(ctx->f[12], ctx->f[0]);
+        ctx->f[12] = FPU_MOV_S(ctx->f[0]);
+        storeF(sp + 0x48u, ctx->f[0]);
+        callNative(rdram, ctx, runtime, kPosKeyLerp, &posKeyLerp, base + 0xC8u, sp);
+        // +0xc8: the vector channel (a2 = bits 8-11 of the record's word: indexed or not).
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
+        ctx->f[1] = loadF(sp + 0x48u);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(out + 0x10u));
+        setBits(ctx, 0, 0u);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(SRA32(GPR_S32(ctx, 5), 8)));
+        SET_GPR_S32(ctx, 19, static_cast<int32_t>(READ32(sp + 0x44u)));
+        SET_GPR_U64(ctx, 6, GPR_U64(ctx, 2) & 0xFu);
+        setCond(ctx, FPU_C_EQ_S(ctx->f[1], ctx->f[0]));
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(READ32(record + 8u)));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x40u)));
+        SET_GPR_U64(ctx, 8, GPR_U64(ctx, 19));
+        ctx->f[2] = FPU_MOV_S(ctx->f[1]);
+        const uint32_t table = GPR_U32(ctx, 3);
+        const bool indexed = GPR_U64(ctx, 6) != 0u;
+        const uint32_t vecOut = out + 0x10u;
+        bool reload = true; // +0x22c's reloads (not on +0xfc's branch: the same values)
+        if (cond(ctx))
+        {
+            ctx->f[20] = FPU_MOV_S(ctx->f[1]);
+            if (table == 0u)
+                reload = false;
+            else
+            {
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 7) << 4));
+                if (indexed)
+                {
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(table + GPR_U32(ctx, 2)));
+                    copy4(rdram, ctx, runtime, GPR_U32(ctx, 2), vecOut);
+                }
+                else
+                    copy4(rdram, ctx, runtime, table, vecOut);
+            }
+        }
+        else
+        {
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x10u));
+            if (table != 0u)
+            {
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 7) << 4));
+                if (indexed)
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(table + GPR_U32(ctx, 2)));
+                copy4(rdram, ctx, runtime, indexed ? GPR_U32(ctx, 2) : table, sp);
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 8) << 4));
+                if (indexed)
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(table + GPR_U32(ctx, 2)));
+                copy4(rdram, ctx, runtime, indexed ? GPR_U32(ctx, 2) : table, sp + 0x10u);
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x10u));
+            }
+            // +0x20c (with no table: the frame's old contents, as the original).
+            lerpKeys<false>(rdram, ctx, runtime, 2, sp + 0x10u, sp, 5, vecOut);
+        }
+        if (reload)
+        {
+            // +0x22c
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x40u)));
+            SET_GPR_S32(ctx, 19, static_cast<int32_t>(READ32(sp + 0x44u)));
+            ctx->f[1] = loadF(sp + 0x48u);
+            setBits(ctx, 0, 0u);
+            ctx->f[20] = FPU_MOV_S(ctx->f[1]);
+        }
+        // +0x244: the scale (bits 0-3 of the word) into out + 0x20.
+        SET_GPR_U64(ctx, 17, GPR_U64(ctx, 5) & 0xFu);
+        SET_GPR_S32(ctx, 18, static_cast<int32_t>(out + 0x20u));
+        setCond(ctx, FPU_C_EQ_S(ctx->f[20], ctx->f[0]));
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(READ32(record + 0xCu)));
+        if (cond(ctx))
+        {
+            SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+            if (GPR_U64(ctx, 16) != 0)
+            {
+                SET_GPR_U64(ctx, 4, GPR_U64(ctx, 18));
+                SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
+                vec3Call(rdram, ctx, runtime, base + 0x26Cu, sp);
+            }
+        }
+        else
+        {
+            SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+            if (GPR_U64(ctx, 16) != 0)
+            {
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x20u));
+                SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
+                vec3Call(rdram, ctx, runtime, base + 0x28Cu, sp);
+                SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+                SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 19));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x30u));
+                vec3Call(rdram, ctx, runtime, base + 0x2A0u, sp);
+            }
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(sp + 0x30u));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x20u));
+            lerpKeys<false>(rdram, ctx, runtime, 20, sp + 0x30u, sp + 0x20u, 5, GPR_U32(ctx, 18));
+        }
+        // +0x2c8
+        SET_GPR_U64(ctx, 16, READ64(sp + 0x50u));
+        SET_GPR_U64(ctx, 17, READ64(sp + 0x58u));
+        SET_GPR_U64(ctx, 18, READ64(sp + 0x60u));
+        SET_GPR_U64(ctx, 19, READ64(sp + 0x68u));
+        SET_GPR_U64(ctx, 31, READ64(sp + 0x70u));
+        ctx->f[20] = loadF(sp + 0x78u);
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0x80u));
+        returnTo(ctx);
+    }
+
+    // manager_sub_010B06A8 (0x10b06a8): a light-like record at a float
+    // frame. a0 the out, a1 the record (+1 the curve's format, +8 the curve
+    // channel, +0xc the vec3 table, the word's low byte its format, +0x10 a
+    // word / bytes), a2 the frame count, f12 the frame. The curve key(s)
+    // (010AC6C8; lerped xyzw) into out; a vec3 key (010ADE08, lerped xyz) into
+    // the frame (+0); out +0x10 = its x, +0x14 = int(y + 0.5); with z >= 0 its
+    // z as an unsigned word's bytes 2 / 1 / 0, else the record's bytes +0x11 /
+    // +0x12 / +0x13, as floats into out +0x20 / +0x1c / +0x18; out +0x24 =
+    // the byte +0x10 >> 4, +0x25 = its word & 0xf. The frame 0xa0 (s0 +0x60,
+    // s1 +0x68, s2 +0x70, s3 +0x78, s4 +0x80, s5 +0x88, ra +0x90, f20 +0x98;
+    // the keys at +0 .. +0x40, the key index +0x50 / +0x54, the fraction +0x58).
+    void colorAnimSample(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::oan106On())
+            return fallback(kColorAnimSample, rdram, ctx, runtime);
+        static bool inCheck = false;
+        if (__builtin_expect(oanCheckOn() && !inCheck, 0))
+        {
+            inCheck = true;
+            oanChecked(rdram, ctx, runtime, &colorAnimSample, kColorAnimSample, 2);
+            inCheck = false;
+            return;
+        }
+        const uint32_t base = kColorAnimSample;
+        ctx->f[0] = cvtSW(GPR_U32(ctx, 6));
+        const uint32_t sp = GPR_U32(ctx, 29) - 0xA0u;
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp));
+        WRITE64(sp + 0x70u, GPR_U64(ctx, 18));
+        SET_GPR_U64(ctx, 18, GPR_U64(ctx, 4));
+        WRITE64(sp + 0x80u, GPR_U64(ctx, 20));
+        SET_GPR_U64(ctx, 20, GPR_U64(ctx, 5));
+        WRITE64(sp + 0x60u, GPR_U64(ctx, 16));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x50u));
+        setCond(ctx, FPU_C_OLT_S(ctx->f[0], ctx->f[12]));
+        WRITE64(sp + 0x68u, GPR_U64(ctx, 17));
+        WRITE64(sp + 0x78u, GPR_U64(ctx, 19));
+        WRITE64(sp + 0x88u, GPR_U64(ctx, 21));
+        WRITE64(sp + 0x90u, GPR_U64(ctx, 31));
+        storeF(sp + 0x98u, ctx->f[20]);
+        if (cond(ctx))
+            loopFrame(rdram, ctx, runtime, 6);
+        // +0x8c: the key index (+0x50, +0x54 the next) and the fraction (+0x58).
+        const uint32_t record = GPR_U32(ctx, 20);
+        const uint32_t out = GPR_U32(ctx, 18);
+        cvtWS(ctx, 0, ctx->f[12]);
+        SET_GPR_U32(ctx, 3, bitsOf(ctx, 0));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
+        SET_GPR_U64(ctx, 17, READ8(record + 1u));
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(record + 8u));
+        setBits(ctx, 1, 0u);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 3) + 1u));
+        WRITE32(GPR_U32(ctx, 4), GPR_U32(ctx, 3));
+        WRITE32(sp + 0x54u, GPR_U32(ctx, 2));
+        SET_GPR_U64(ctx, 19, GPR_U64(ctx, 2));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x50u)));
+        ctx->f[0] = cvtSW(READ32(GPR_U32(ctx, 4)));
+        ctx->f[0] = FPU_SUB_S(ctx->f[12], ctx->f[0]);
+        ctx->f[2] = FPU_MOV_S(ctx->f[0]);
+        storeF(sp + 0x58u, ctx->f[0]);
+        setCond(ctx, FPU_C_EQ_S(ctx->f[2], ctx->f[1]));
+        ctx->f[20] = FPU_MOV_S(ctx->f[2]);
+        const uint32_t channel = GPR_U32(ctx, 16); // record + 8
+        bool reload = true; // +0x150's reloads (not on +0xdc's branch: the same values)
+        if (cond(ctx))
+        {
+            // No fraction: the curve key straight into out.
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(READ32(channel)));
+            if (GPR_U64(ctx, 6) == 0u)
+                reload = false;
+            else
+            {
+                SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+                SET_GPR_U64(ctx, 4, GPR_U64(ctx, 18));
+                curveCall(rdram, ctx, runtime, base + 0xF0u, sp);
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
+            }
+        }
+        else
+        {
+            // +0xf8: both keys into the frame (+0x10, +0x20), lerped (xyzw, vf9) into out.
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(READ32(channel)));
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x10u));
+            if (GPR_U64(ctx, 6) != 0u)
+            {
+                SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+                curveCall(rdram, ctx, runtime, base + 0x10Cu, sp);
+                SET_GPR_S32(ctx, 6, static_cast<int32_t>(READ32(channel)));
+            }
+            SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+            if (GPR_U64(ctx, 6) != 0u)
+            {
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 19));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x20u));
+                curveCall(rdram, ctx, runtime, base + 0x124u, sp);
+            }
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(sp + 0x20u));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x10u));
+            lerpKeys<true>(rdram, ctx, runtime, 20, sp + 0x20u, sp + 0x10u, 9, out);
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(READ32(record)));
+        }
+        if (reload)
+        {
+            // +0x150
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(READ32(sp + 0x50u)));
+            SET_GPR_S32(ctx, 19, static_cast<int32_t>(READ32(sp + 0x54u)));
+            ctx->f[2] = loadF(sp + 0x58u);
+        }
+        // +0x15c: the vec3 key (format: the word's low byte) into the frame (+0).
+        setBits(ctx, 0, 0u);
+        ctx->f[20] = FPU_MOV_S(ctx->f[2]);
+        SET_GPR_U64(ctx, 17, GPR_U64(ctx, 5) & 0xFFu);
+        SET_GPR_U64(ctx, 21, GPR_U64(ctx, 29));
+        setCond(ctx, FPU_C_EQ_S(ctx->f[20], ctx->f[0]));
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(READ32(record + 0xCu)));
+        if (cond(ctx))
+        {
+            SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+            if (GPR_U64(ctx, 16) != 0u)
+            {
+                SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp));
+                vec3Call(rdram, ctx, runtime, base + 0x18Cu, sp);
+            }
+        }
+        else
+        {
+            SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+            if (GPR_U64(ctx, 16) != 0u)
+            {
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x30u));
+                SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
+                vec3Call(rdram, ctx, runtime, base + 0x1ACu, sp);
+                SET_GPR_U64(ctx, 5, GPR_U64(ctx, 17));
+                SET_GPR_U64(ctx, 6, GPR_U64(ctx, 16));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 19));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x40u));
+                vec3Call(rdram, ctx, runtime, base + 0x1C0u, sp);
+            }
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(sp + 0x40u));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(sp + 0x30u));
+            lerpKeys<false>(rdram, ctx, runtime, 20, sp + 0x40u, sp + 0x30u, 5, sp);
+        }
+        // +0x1e8: out +0x10 = x, +0x14 = int(y + 0.5), the colour from z or the record's bytes.
+        ctx->f[0] = loadF(sp + 4u);
+        ctx->f[4] = loadF(sp + 8u);
+        SET_GPR_S32(ctx, 1, static_cast<int32_t>(0x3F000000u));
+        setBits(ctx, 2, 0x3F000000u);
+        setBits(ctx, 3, 0u);
+        ctx->f[0] = FPU_ADD_S(ctx->f[0], ctx->f[2]);
+        ctx->f[1] = loadF(sp);
+        setCond(ctx, FPU_C_OLE_S(ctx->f[3], ctx->f[4]));
+        storeF(out + 0x10u, ctx->f[1]);
+        cvtWS(ctx, 1, ctx->f[0]);
+        WRITE32(out + 0x14u, bitsOf(ctx, 1));
+        storeF(sp + 4u, ctx->f[0]);
+        if (cond(ctx))
+        {
+            // +0x21c: z as an unsigned word (2^31 and over: less 2^31, the top bit or-ed in).
+            SET_GPR_S32(ctx, 1, static_cast<int32_t>(0x4F000000u));
+            setBits(ctx, 0, 0x4F000000u);
+            cvtWS(ctx, 1, ctx->f[4]);
+            SET_GPR_U32(ctx, 4, bitsOf(ctx, 1));
+            setCond(ctx, FPU_C_OLE_S(ctx->f[0], ctx->f[4]));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 4) >> 16));
+            if (cond(ctx))
+            {
+                ctx->f[0] = FPU_SUB_S(ctx->f[4], ctx->f[0]);
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(0x80000000u));
+                cvtWS(ctx, 1, ctx->f[0]);
+                SET_GPR_U32(ctx, 4, bitsOf(ctx, 1));
+                SET_GPR_U64(ctx, 4, GPR_U64(ctx, 4) | GPR_U64(ctx, 2));
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(GPR_U32(ctx, 4) >> 16));
+            }
+            // +0x250
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(GPR_U32(ctx, 4) >> 8));
+            SET_GPR_U64(ctx, 2, GPR_U64(ctx, 2) & 0xFFu);
+            SET_GPR_U64(ctx, 3, GPR_U64(ctx, 3) & 0xFFu);
+            SET_GPR_U64(ctx, 4, GPR_U64(ctx, 4) & 0xFFu);
+            ctx->f[1] = cvtSW(GPR_U32(ctx, 2));
+            ctx->f[2] = cvtSW(GPR_U32(ctx, 3));
+            ctx->f[0] = cvtSW(GPR_U32(ctx, 4));
+            storeF(out + 0x20u, ctx->f[1]);
+            storeF(out + 0x1Cu, ctx->f[2]);
+        }
+        else
+        {
+            // +0x288: the record's bytes.
+            SET_GPR_U64(ctx, 2, READ8(record + 0x11u));
+            ctx->f[0] = cvtSW(GPR_U32(ctx, 2));
+            storeF(out + 0x20u, ctx->f[0]);
+            SET_GPR_U64(ctx, 2, READ8(record + 0x12u));
+            ctx->f[0] = cvtSW(GPR_U32(ctx, 2));
+            storeF(out + 0x1Cu, ctx->f[0]);
+            SET_GPR_U64(ctx, 2, READ8(record + 0x13u));
+            ctx->f[0] = cvtSW(GPR_U32(ctx, 2));
+        }
+        // +0x2b4
+        storeF(out + 0x18u, ctx->f[0]);
+        SET_GPR_U64(ctx, 2, static_cast<uint64_t>(READ8(record + 0x10u)) >> 4);
+        WRITE8(out + 0x24u, static_cast<uint8_t>(GPR_U32(ctx, 2)));
+        SET_GPR_U64(ctx, 3, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(READ32(record + 0x10u)))) & 0xFu);
+        WRITE8(out + 0x25u, static_cast<uint8_t>(GPR_U32(ctx, 3)));
+        SET_GPR_U64(ctx, 16, READ64(sp + 0x60u));
+        SET_GPR_U64(ctx, 17, READ64(sp + 0x68u));
+        SET_GPR_U64(ctx, 19, READ64(sp + 0x78u));
+        SET_GPR_U64(ctx, 21, READ64(sp + 0x88u));
+        SET_GPR_U64(ctx, 20, READ64(sp + 0x80u));
+        SET_GPR_U64(ctx, 31, READ64(sp + 0x90u));
+        SET_GPR_U64(ctx, 18, READ64(sp + 0x70u));
+        ctx->f[20] = loadF(sp + 0x98u);
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0xA0u));
+        returnTo(ctx);
+    }
 }
 
 // Unity builds: the helpers stay in this file.
@@ -785,3 +1279,7 @@ SOTC_DECOMP_FUNCTION(0x010ADE08u, manager_sub_010ADE08, decomp_hot46h::keyVec3);
 SOTC_DECOMP_FUNCTION(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLerp);
 SOTC_DECOMP_FUNCTION(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSample);
 SOTC_DECOMP_FUNCTION(0x010AF070u, manager_sub_010AF070, decomp_hot46h::objectAnimSample);
+// Round 106 (SOTC_OAN106=0: the recompiled code).
+SOTC_DECOMP_FUNCTION(0x010AF2A0u, manager_sub_010AF2A0, decomp_hot46h::alphaAnimSample);
+SOTC_DECOMP_FUNCTION(0x010AF4D8u, manager_sub_010AF4D8, decomp_hot46h::vecAnimSample);
+SOTC_DECOMP_FUNCTION(0x010B06A8u, manager_sub_010B06A8, decomp_hot46h::colorAnimSample);

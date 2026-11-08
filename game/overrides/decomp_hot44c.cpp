@@ -58,7 +58,19 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+
+namespace decomp_group
+{
+    // decomp_group.cpp: isysGroupForNext's work (round 106's caller).
+    struct NextRegs
+    {
+        uint32_t v0, v1, a0, a1, a3;
+    };
+    bool nextAt(uint8_t *rdram, uint32_t entry, NextRegs &r);
+}
 
 namespace decomp_hot44c
 {
@@ -81,6 +93,17 @@ namespace decomp_hot44c
     constexpr uint32_t kSiteSrhNext1 = 0x01344988u, kSiteChara1 = 0x013449B0u, kSiteChara2 = 0x013449E8u, kSiteLayout2 = 0x01344A0Cu;
     constexpr uint32_t kSiteGeometry = 0x01344A2Cu, kSiteChara3 = 0x01344A34u, kSiteSrhNext2 = 0x01344A58u, kSiteDelete2 = 0x01344A7Cu;
     constexpr uint32_t kSiteAdd2 = 0x01344A98u, kSiteForNext = 0x01344AA4u, kSiteForExit = 0x01344AECu;
+
+    // Round 106: the jal sites groupFix's fast path does itself name the
+    // functions it does (module code, read live: anything else there keeps
+    // the guest calls).
+    bool grp106SitesOk(const uint8_t *rdram)
+    {
+        return jalTarget(rdram, kSiteLayout1) == 0x010F1A20u && jalTarget(rdram, kSiteLayout2) == 0x010F1A20u &&
+               jalTarget(rdram, kSiteChara1) == 0x010C0A70u && jalTarget(rdram, kSiteChara2) == 0x010C0A70u &&
+               jalTarget(rdram, kSiteChara3) == 0x010C0A70u && jalTarget(rdram, kSiteSrhNext1) == 0x001C79E0u &&
+               jalTarget(rdram, kSiteSrhNext2) == 0x001C79E0u && jalTarget(rdram, kSiteForNext) == 0x001C76D0u;
+    }
 
     void groupFix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -117,6 +140,91 @@ namespace decomp_hot44c
             call(siteAdd);
         };
 
+        // Round 106 (SOTC_GRP106, A/B grp106 / r106all): the walks' pure leaf
+        // calls done here when their jal sites name them: GetLayoutClass's
+        // plain cases (+0x20 / +0x90 / none by the type byte's table, as
+        // decomp_layoutclass), GetCharacterClass (types 9 / 0x16: +0x90),
+        // isysGetGroupSrhNext (the raw chain's next entry) and isysGroupForNext
+        // (decomp_group::next: the skip of deleted / hidden entries and the
+        // iteration counts it writes). The same values and RAM writes in the
+        // same order; only scratch registers those calls would have left
+        // differ (none is read: each guest call below is given its arguments;
+        // after the last ForNext its registers are set as it leaves them).
+        // Anything else (a call-out case of GetLayoutClass, an entry or object
+        // outside main RAM) is the guest call as before.
+        // SOTC_GRP106_CHECK=1: each leaf done here is also called as before and
+        // the two results compared ([grp106c] checks / differ; the guest
+        // call's result is the one used). isysGroupForNext is not (it writes:
+        // decomp_group::next is the native it would call). =2: the difftest.
+        const bool fast = sotc_decomp::grp106On() && grp106SitesOk(rdram);
+        static const bool check = [] {
+            const char *e = std::getenv("SOTC_GRP106_CHECK");
+            return e && e[0] == '1';
+        }();
+        static uint64_t checks = 0, differ = 0;
+        auto guestLeaf = [&](uint64_t arg, uint32_t site) -> uint64_t
+        {
+            SET_GPR_U64(ctx, 4, arg);
+            call(site);
+            return GPR_U64(ctx, 2);
+        };
+        auto compared = [&](uint64_t mine, uint64_t arg, uint32_t site) -> uint64_t
+        {
+            // Against the recompiled leaf (not the native the table may hold).
+            SET_GPR_U64(ctx, 4, arg);
+            sotc_decomp::callRecompiled(rdram, ctx, runtime, jalTarget(rdram, site), site + 8u, sp);
+            const uint64_t theirs = GPR_U64(ctx, 2);
+            ++checks;
+            if (mine != theirs)
+                ++differ;
+            if ((mine != theirs && differ <= 8u) || checks == 1u || (checks & 0x3FFFFu) == 0u)
+                std::fprintf(stderr, "[grp106c] checks %llu differ %llu%s (site %08x arg %08x: %08x / %08x)\n", (unsigned long long)checks,
+                             (unsigned long long)differ, mine != theirs ? " MISMATCH" : "", site, static_cast<uint32_t>(arg),
+                             static_cast<uint32_t>(mine), static_cast<uint32_t>(theirs));
+            return theirs;
+        };
+        auto layoutClass = [&](uint64_t obj, uint32_t site) -> uint32_t
+        {
+            if (fast)
+            {
+                const uint32_t a0 = static_cast<uint32_t>(obj);
+                const uint32_t index = static_cast<uint32_t>(rdram[(a0 + 8u) & PS2_RAM_MASK]) - 9u;
+                uint32_t mine = 0u;
+                bool done = index >= 0xEu;
+                if (!done)
+                {
+                    uint32_t target;
+                    std::memcpy(&target, rdram + ((0x01194070u + index * 4u) & PS2_RAM_MASK), 4);
+                    done = target == 0x010F1A58u || target == 0x010F1A98u || target == 0x010F1AA0u;
+                    mine = target == 0x010F1A58u ? a0 + 0x20u : target == 0x010F1A98u ? a0 + 0x90u : 0u;
+                }
+                if (done)
+                    return __builtin_expect(check, 0) ? static_cast<uint32_t>(compared(sx(mine), obj, site)) : mine;
+            }
+            return static_cast<uint32_t>(guestLeaf(obj, site));
+        };
+        auto charaClass = [&](uint64_t obj, uint32_t site) -> uint32_t
+        {
+            const uint32_t a0 = static_cast<uint32_t>(obj);
+            if (fast && a0 + 8u < PS2_RAM_SIZE)
+            {
+                const uint8_t type = rdram[a0 + 8u];
+                const uint32_t mine = (type == 9u || type == 0x16u) ? a0 + 0x90u : 0u;
+                return __builtin_expect(check, 0) ? static_cast<uint32_t>(compared(sx(mine), obj, site)) : mine;
+            }
+            return static_cast<uint32_t>(guestLeaf(obj, site));
+        };
+        auto srhNext = [&](uint64_t entry, uint32_t site) -> uint64_t
+        {
+            if (fast)
+            {
+                const uint32_t index = READ16(static_cast<uint32_t>(entry) + 0xEu);
+                const uint64_t mine = index == 0u ? 0u : sx(index * 24u + 0x0021B900u);
+                return __builtin_expect(check, 0) ? compared(mine, entry, site) : mine;
+            }
+            return guestLeaf(entry, site);
+        };
+
         uint64_t s5 = 0u, fp = 0u;
         SET_GPR_U64(ctx, 5, 0u);
         call(kSiteForFirst);
@@ -124,9 +232,7 @@ namespace decomp_hot44c
         while (s2 != 0u)
         {
             s5 = sx(READ32(static_cast<uint32_t>(s2)));
-            SET_GPR_U64(ctx, 4, s5);
-            call(kSiteLayout1);
-            const uint32_t cls = GPR_U32(ctx, 2);
+            const uint32_t cls = layoutClass(s5, kSiteLayout1);
             if (cls != 0u && READ32(cls + 0x124u) != 0u)
             {
                 SET_GPR_U32(ctx, 4, cls + 0xC0u);
@@ -141,41 +247,31 @@ namespace decomp_hot44c
                             move(s5, s0, kSiteDelete1, kSiteAdd1);
                             break;
                         }
-                        SET_GPR_U64(ctx, 4, s0);
-                        call(kSiteSrhNext1);
-                        s0 = GPR_U64(ctx, 2);
+                        s0 = srhNext(s0, kSiteSrhNext1);
                     }
                 }
             }
             else if (fp == 0u)
             {
-                SET_GPR_U64(ctx, 4, s5);
-                call(kSiteChara1);
-                const uint32_t chara = GPR_U32(ctx, 2);
+                const uint32_t chara = charaClass(s5, kSiteChara1);
                 if (chara != 0u && static_cast<int16_t>(READ16(chara + 0x370u)) == 2)
                 {
                     uint64_t s3 = 0u, s4 = 0u;
                     for (uint64_t s0 = s2; s0 != 0u;)
                     {
                         const uint64_t s1 = sx(READ32(static_cast<uint32_t>(s0)));
-                        SET_GPR_U64(ctx, 4, s1);
-                        call(kSiteChara2);
-                        const uint32_t c = GPR_U32(ctx, 2);
+                        const uint32_t c = charaClass(s1, kSiteChara2);
                         bool take = false;
                         if (c != 0u && static_cast<uint32_t>(static_cast<uint32_t>(READ16(c + 0x370u)) - 3u) < 2u)
                             take = true;
                         else
                         {
-                            SET_GPR_U64(ctx, 4, s1);
-                            call(kSiteLayout2);
-                            const uint32_t lc = GPR_U32(ctx, 2);
+                            const uint32_t lc = layoutClass(s1, kSiteLayout2);
                             if (lc != 0u && READ32(lc + 0x124u) != 0u)
                             {
                                 SET_GPR_U32(ctx, 4, lc + 0xC0u);
                                 call(kSiteGeometry);
-                                SET_GPR_U64(ctx, 4, GPR_U64(ctx, 2));
-                                call(kSiteChara3);
-                                const uint32_t pc = GPR_U32(ctx, 2);
+                                const uint32_t pc = charaClass(GPR_U64(ctx, 2), kSiteChara3);
                                 take = pc != 0u && static_cast<int16_t>(READ16(pc + 0x370u)) == 4;
                             }
                         }
@@ -184,9 +280,7 @@ namespace decomp_hot44c
                             s3 = s1;
                             s4 = s0;
                         }
-                        SET_GPR_U64(ctx, 4, s0);
-                        call(kSiteSrhNext2);
-                        s0 = GPR_U64(ctx, 2);
+                        s0 = srhNext(s0, kSiteSrhNext2);
                     }
                     if (s3 != 0u)
                     {
@@ -194,6 +288,22 @@ namespace decomp_hot44c
                         move(s5, s4, kSiteDelete2, kSiteAdd2);
                     }
                 }
+            }
+            decomp_group::NextRegs r;
+            if (fast && decomp_group::nextAt(rdram, static_cast<uint32_t>(s2), r))
+            {
+                s2 = sx(r.v0);
+                if (s2 == 0u)
+                {
+                    // The registers the last ForNext leaves (an s5 of 0 returns with them).
+                    SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.v1));
+                    SET_GPR_S32(ctx, 4, static_cast<int32_t>(r.a0));
+                    SET_GPR_S32(ctx, 5, static_cast<int32_t>(r.a1));
+                    SET_GPR_S32(ctx, 6, static_cast<int32_t>(0x0021B900u));
+                    SET_GPR_S32(ctx, 7, static_cast<int32_t>(r.a3));
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+                }
+                continue;
             }
             SET_GPR_U64(ctx, 4, s2);
             SET_GPR_U64(ctx, 5, 0u);

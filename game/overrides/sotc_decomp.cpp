@@ -854,6 +854,35 @@ namespace sotc_decomp
 #if !defined(__vita__)
         g_callGuestStats = callStatsPeriod() != 0u;
 #endif
+        // Round 106's full checks: SOTC_GRP106_CHECK=2 / SOTC_OAN106_CHECK=2 /
+        // SOTC_AI106_CHECK=2 put that switch's natives in the difftest's list
+        // (the native leg against the recompiled code on the same input:
+        // registers and every RAM byte compared; SOTC_DIFFTEST_FIRST / _EVERY
+        // set how many calls: each check copies 32 MB twice, ~0.7 s in
+        // Vita3K). =1 is each switch's own per-call check (its file).
+        {
+            static const struct
+            {
+                const char *env, *names;
+            } kChecks106[] = {
+                {"SOTC_GRP106_CHECK", "gamecore_sub_013448C0"},
+                {"SOTC_OAN106_CHECK", "manager_sub_010ADE08,manager_sub_010AEAF8,manager_sub_010AF2A0,manager_sub_010AF4D8,manager_sub_010B06A8"},
+                {"SOTC_AI106_CHECK", "gamecore_sub_013E1520"},
+            };
+            std::string names = std::getenv("SOTC_DIFFTEST") ? std::getenv("SOTC_DIFFTEST") : "";
+            bool any = false;
+            for (const auto &c : kChecks106)
+                if (const char *e = std::getenv(c.env); e && e[0] == '2')
+                {
+                    names += (names.empty() ? "" : ",") + std::string(c.names);
+                    any = true;
+                }
+            if (any)
+            {
+                setenv("SOTC_DIFFTEST", names.c_str(), 1);
+                std::fprintf(stderr, "[r106] difftest list: %s\n", names.c_str());
+            }
+        }
         const auto &checkers = sotc_decomp::checkers();
         const char *skip = std::getenv("SOTC_DECOMP_SKIP");
         const char *test = std::getenv("SOTC_DIFFTEST");

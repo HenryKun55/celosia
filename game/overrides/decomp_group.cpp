@@ -102,6 +102,9 @@ namespace decomp_group
         }
     }
 
+    // Round 106 (decomp_hot44c's groupFix): next() for a caller without a Ram.
+    bool nextAt(uint8_t *rdram, uint32_t entry, NextRegs &r) { return next(Ram{rdram}, entry, r); }
+
     void groupForNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram m{rdram};
