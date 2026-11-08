@@ -2608,6 +2608,18 @@ namespace sotc_native
         std::vector<uint32_t> surfaceRecords; // round 34: the packets' surface records, each once (hookScrolls)
     };
     std::unordered_map<uint64_t, ModelPlan> g_plans;
+    struct PlanCache97
+    {
+        uint64_t key = 0;
+        ModelPlan *plan = nullptr;
+    };
+    PlanCache97 g_planCache97[1024];
+    void planCache97Clear()
+    {
+        for (PlanCache97 &c : g_planCache97)
+            c = PlanCache97{};
+    }
+    ModelPlan *planChecked(ModelPlan &p, uint32_t header, uint32_t lod);
     int32_t g_planBudget = 0; // packets the frame's new plans may still walk (SOTC_PLAN_BUDGET, default 3000)
     uint64_t g_skinnedEpoch = 0; // g_skinnedPackets lost an entry (their sweep)
     struct PlanStats
@@ -2707,7 +2719,21 @@ namespace sotc_native
     {
         if (lod >= 8u)
             return nullptr;
-        const auto [it, fresh] = g_plans.try_emplace((static_cast<uint64_t>(header) << 3) | lod);
+        // Round 97 (SOTC_PLAN97): the plans' map lookup (a 64-bit key's
+        // bucket: a software division on the A9, ~0.6-0.8% of the game thread)
+        // through a direct-mapped table of the map's own nodes in front of
+        // it; the map keeps its nodes where they are until they are erased,
+        // and every erase clears the table. The same plan, the same steps.
+        const uint64_t key97 = (static_cast<uint64_t>(header) << 3) | lod;
+        PlanCache97 &c97 = g_planCache97[((header >> 4) * 0x9E3779B1u + lod) >> 22];
+        const bool use97 = sotc_decomp::plan97On();
+        if (use97 && c97.plan && c97.key == key97)
+        {
+            ModelPlan &p = *c97.plan;
+            p.used = g_frame;
+            return planChecked(p, header, lod);
+        }
+        const auto [it, fresh] = g_plans.try_emplace(key97);
         ModelPlan &p = it->second;
         p.used = g_frame;
         // Builds spread over frames (an area load brings hundreds of new
@@ -2718,9 +2744,15 @@ namespace sotc_native
             if (fresh)
             {
                 g_plans.erase(it);
+                planCache97Clear();
                 ++g_planStats.deferred;
                 return nullptr;
             }
+        }
+        if (use97)
+        {
+            c97.key = key97;
+            c97.plan = &p;
         }
         if (fresh)
         {
@@ -2730,6 +2762,12 @@ namespace sotc_native
             ++g_planStats.builds;
             return &p;
         }
+        return planChecked(p, header, lod);
+    }
+    // modelPlan's steps for a plan already in the map (split out for round 97's table).
+    ModelPlan *planChecked(ModelPlan &p, uint32_t header, uint32_t lod)
+    {
+        (void)lod;
         if (p.checked == g_frame)
             return &p;
         p.checked = g_frame;
@@ -2767,6 +2805,7 @@ namespace sotc_native
     // Plans no draw used for 10 s go (every 256 frames).
     void sweepPlans()
     {
+        planCache97Clear();
         for (auto it = g_plans.begin(); it != g_plans.end();)
             if (it->second.used + 600u < g_frame)
                 it = g_plans.erase(it);
@@ -3035,11 +3074,11 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
-        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1;
+        static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1;
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3082,6 +3121,7 @@ namespace sotc_native
             r91AllAt = indexOf("r91all"); // round 91: the guest worker's job (ptcl91)
             r95AllAt = indexOf("r95all"); // round 95: the round's switches (join95, ...) off together
             r96AllAt = indexOf("r96all"); // round 96: the round's game-thread cuts (obj96, ...) off together
+            r97AllAt = indexOf("r97all"); // round 97: the round's game-thread cuts off together
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
             log76At = indexOf("log76");
             keep99At = indexOf("keep99"); // round mem99: the hook jobs' room trim
@@ -3148,6 +3188,11 @@ namespace sotc_native
             for (int i : {static_cast<int>(sotc_decomp::kObj96), static_cast<int>(sotc_decomp::kSel96)})
                 if (isOffAt(r96AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r96AllAt) ? false : switchStart[i]);
+        // Round 97: `r97all` the round's switches off in its windows.
+        if (r97AllAt >= 0)
+            for (int i : {static_cast<int>(sotc_decomp::kSel97), static_cast<int>(sotc_decomp::kPlan97), static_cast<int>(sotc_decomp::kPath97), static_cast<int>(sotc_decomp::kLinks97)})
+                if (isOffAt(r97AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r97AllAt) ? false : switchStart[i]);
         // Round 90: the sound mixer's voice / core paths (`aud90v`, `aud90c`,
         // `r90all` both); exact, so only the audio thread's time changes.
         if (aud90vAt >= 0 || aud90cAt >= 0 || r90AllAt >= 0)

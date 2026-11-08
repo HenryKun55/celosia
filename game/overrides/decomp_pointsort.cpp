@@ -12,6 +12,8 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace decomp_pointdata
@@ -127,10 +129,83 @@ namespace decomp_pointsort
                 if (points == 0u || u32(points) == 0u)
                     continue;
                 uint32_t out = entries + count * 8u;
+                // Round 97 (SOTC_PATH97): getPointDataByAreaIdx's area search
+                // (the set's areas for the one whose id matches, then its table)
+                // made once for the area, not once a point: its reads (the set,
+                // the areas' id words, the table's count) are not written by
+                // this loop (checked: the loop writes only the list and the
+                // frame at sp, tested apart from them); the point then is
+                // table + i x 0x30 + 0x10 for i below the table's count, else 0,
+                // as pointDataInline gives it.
+                const uint32_t pointsN = u32(points);
+                bool hoisted = false;
+                uint32_t hTable = 0u, hCount = 0u;
+                if (__builtin_expect(inlineData, 1) && sotc_decomp::path97On())
+                {
+                    const uint32_t setA = 0x012010C8u + hostU32(rdram, walker + 0x3C50u) * 0x98u;
+                    const int32_t areas = static_cast<int32_t>(hostU32(rdram, setA + 0x90u));
+                    const uint64_t a2 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(id)));
+                    uint32_t found = 0u;
+                    const uint32_t span = areas > 4 ? static_cast<uint32_t>(areas) * 0x24u : 0x98u;
+                    bool clean = areas >= 0 && areas <= 256 && plain(setA, span);
+                    for (int32_t k = 0; clean && k < areas; ++k)
+                    {
+                        const uint32_t entry = setA + static_cast<uint32_t>(k) * 0x24u;
+                        const uint32_t idAt = hostU32(rdram, entry) + 0x1Cu;
+                        clean = plain(idAt, 4u);
+                        if (clean && a2 == static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(hostU32(rdram, idAt)))))
+                        {
+                            found = entry;
+                            break;
+                        }
+                    }
+                    if (clean && found)
+                    {
+                        hTable = hostU32(rdram, found + 4u);
+                        clean = hTable == 0u || plain(hTable, 4u);
+                        hCount = clean && hTable ? hostU32(rdram, hTable) : 0u;
+                    }
+                    // What the loop writes: the list's entries from `out` (at most pointsN of them) and 16 bytes at sp.
+                    auto apart = [&](uint32_t a, uint32_t n)
+                    {
+                        const uint64_t lo = a, hi = uint64_t{a} + n;
+                        const uint64_t l0 = out, l1 = uint64_t{out} + uint64_t{pointsN} * 8u, s0 = sp, s1 = uint64_t{sp} + 16u;
+                        return (hi <= l0 || l1 <= lo) && (hi <= s0 || s1 <= lo);
+                    };
+                    if (clean && apart(setA, span) && apart(walker + 0x3C50u, 4u))
+                    {
+                        bool ok = true;
+                        for (int32_t k = 0; ok && k < areas && setA + static_cast<uint32_t>(k) * 0x24u <= found; ++k)
+                            ok = apart(hostU32(rdram, setA + static_cast<uint32_t>(k) * 0x24u) + 0x1Cu, 4u);
+                        if (ok && hTable)
+                            ok = apart(hTable, 4u);
+                        hoisted = ok;
+                        if (!found)
+                            hTable = 0u;
+                    }
+                }
                 for (uint32_t i = 0; i < u32(points); ++i)
                 {
                     uint32_t point;
-                    if (__builtin_expect(inlineData, 1))
+                    if (hoisted)
+                    {
+                        const int64_t si = static_cast<int64_t>(static_cast<int32_t>(i));
+                        point = hTable != 0u && si >= 0 && static_cast<uint64_t>(si) < static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(hCount))) ? hTable + i * 0x30u + 0x10u : 0u;
+                        static const bool check97 = std::getenv("SOTC_PATH97_CHECK") && std::atoi(std::getenv("SOTC_PATH97_CHECK")) != 0;
+                        if (check97)
+                        {
+                            static uint64_t checks = 0, bad = 0;
+                            ++checks;
+                            if (point != pointDataInline(rdram, walker, i, id))
+                                ++bad;
+                            if (checks % 50000u == 0u)
+                                std::fprintf(stderr, "[path97c] checks %llu differ %llu\n", (unsigned long long)checks, (unsigned long long)bad);
+                        }
+                        called = true;
+                        lastI = i;
+                        lastId = id;
+                    }
+                    else if (__builtin_expect(inlineData, 1))
                     {
                         point = pointDataInline(rdram, walker, i, id);
                         called = true;

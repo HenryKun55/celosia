@@ -68,22 +68,22 @@ namespace decomp_quat
         void put32(uint32_t a, uint32_t v) const { std::memcpy(rdram + (a & PS2_RAM_MASK), &v, 4); }
     };
 
-    float bits(uint32_t b)
+    inline __attribute__((always_inline)) float bits(uint32_t b)
     {
         float f;
         std::memcpy(&f, &b, 4);
         return f;
     }
-    uint32_t bitsOf(float f)
+    inline __attribute__((always_inline)) uint32_t bitsOf(float f)
     {
         uint32_t b;
         std::memcpy(&b, &f, 4);
         return b;
     }
-    float mul(float a, float b) { return FPU_MUL_S(a, b); }
-    float add(float a, float b) { return FPU_ADD_S(a, b); }
-    float sub(float a, float b) { return FPU_SUB_S(a, b); }
-    float neg(float a) { return FPU_NEG_S(a); }
+    inline __attribute__((always_inline)) float mul(float a, float b) { return FPU_MUL_S(a, b); }
+    inline __attribute__((always_inline)) float add(float a, float b) { return FPU_ADD_S(a, b); }
+    inline __attribute__((always_inline)) float sub(float a, float b) { return FPU_SUB_S(a, b); }
+    inline __attribute__((always_inline)) float neg(float a) { return FPU_NEG_S(a); }
 
     // The masks of the VU0 field selects.
     inline __m128 mask(int x, int y, int z, int w) { return _mm_castsi128_ps(_mm_set_epi32(w ? -1 : 0, z ? -1 : 0, y ? -1 : 0, x ? -1 : 0)); }

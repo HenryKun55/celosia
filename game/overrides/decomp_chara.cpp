@@ -12,6 +12,8 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace decomp_chara
@@ -161,11 +163,33 @@ namespace decomp_chara
         // after a guest call.
         TableCache tc;
         uint32_t nt1a = Fast ? ram.u32(noTable1a) : 0u, nt1b = Fast ? ram.u32(noTable1b) : 0u;
+        // Round 97 (SOTC_LINKS97): the second loop below reads the same entries
+        // with the same handles; when the first loop made no guest call (nothing
+        // written in between) and both loops' empty-table words are the same,
+        // the first loop notes the entries the second one acts on (first handle
+        // this character, second the target) and what the second loop's last
+        // entry leaves in v0, and the second loop starts at the first noted
+        // entry (the scan from there on as before). Same calls, same registers,
+        // same v0.
+        const bool links97 = Fast && sotc_decomp::links97On() && ram.u32(noTable2a) == nt1a && ram.u32(noTable2b) == nt1b;
+        int32_t first97 = -1;    // the first entry the second loop acts on (-1: none)
+        uint64_t last97 = 0u;    // what the second loop's last entry leaves in v0
         for (int32_t i = 0; i < count; ++i, e += 0x1Cu)
         {
             if constexpr (Fast)
             {
                 a3 = resolveFast(ram, ram.u32(e), e, nt1a, tc);
+                if (links97 && a3 == self)
+                {
+                    const uint32_t second = resolveFast(ram, ram.u32(e + 4u), e + 4u, nt1b, tc);
+                    if (second == target && first97 < 0)
+                        first97 = i;
+                    if (i == count - 1)
+                        last97 = second;
+                    continue;
+                }
+                if (links97 && i == count - 1)
+                    last97 = a3;
                 if (a3 == self || resolveFast(ram, ram.u32(e + 4u), e + 4u, nt1b, tc) != target)
                     continue;
             }
@@ -223,7 +247,44 @@ namespace decomp_chara
         e = base;
         tc = TableCache{};
         uint32_t nt2a = Fast ? ram.u32(noTable2a) : 0u, nt2b = Fast ? ram.u32(noTable2b) : 0u;
-        for (int32_t i = count; i != 0; --i, e += 0x1Cu)
+        int32_t from = count;
+        if (links97)
+        {
+            static const bool check97 = std::getenv("SOTC_LINKS97_CHECK") && std::atoi(std::getenv("SOTC_LINKS97_CHECK")) != 0;
+            if (check97)
+            {
+                // The original second scan's reads up to its first call: where it acts first, and its v0 without a call.
+                static uint64_t checks = 0, bad = 0;
+                TableCache c2;
+                int32_t first = -1;
+                uint64_t v = 0u;
+                uint32_t ee = base;
+                for (int32_t k = 0; k < count; ++k, ee += 0x1Cu)
+                {
+                    v = resolveFast(ram, ram.u32(ee), ee, nt2a, c2);
+                    if (v != self)
+                        continue;
+                    v = resolveFast(ram, ram.u32(ee + 4u), ee + 4u, nt2b, c2);
+                    if (v != target)
+                        continue;
+                    first = k;
+                    break;
+                }
+                ++checks;
+                if (first != first97 || (first < 0 && v != last97))
+                    ++bad;
+                if (checks % 2000u == 0u || (bad && bad < 20u && first != first97))
+                    std::fprintf(stderr, "[links97c] checks %llu differ %llu (count %d first %d/%d)\n", (unsigned long long)checks, (unsigned long long)bad, count, first, first97);
+            }
+            if (first97 < 0)
+            {
+                finish(last97);
+                return;
+            }
+            from = count - first97;
+            e = base + static_cast<uint32_t>(first97) * 0x1Cu;
+        }
+        for (int32_t i = from; i != 0; --i, e += 0x1Cu)
         {
             if constexpr (Fast)
             {

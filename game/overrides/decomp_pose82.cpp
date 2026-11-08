@@ -78,13 +78,13 @@ namespace pose82
     }
 
     // ---- NEON helpers ----
-    inline float32x4_t sum4(float32x4_t v)
+    inline __attribute__((always_inline)) float32x4_t sum4(float32x4_t v)
     {
         const float32x2_t s = vadd_f32(vget_low_f32(v), vget_high_f32(v));
         return vcombine_f32(vpadd_f32(s, s), vpadd_f32(s, s));
     }
     // q / |q| (all four lanes); a zero quaternion stays zero.
-    inline float32x4_t normalize(float32x4_t q)
+    inline __attribute__((always_inline)) float32x4_t normalize(float32x4_t q)
     {
         const float32x4_t d = sum4(vmulq_f32(q, q));
         float32x4_t r = vrsqrteq_f32(d);
@@ -105,18 +105,18 @@ namespace pose82
     }
 
     // (y, z, x, -) and (z, x, y, -) of a vector (lane w: another lane).
-    inline float32x4_t yzx3(float32x4_t v)
+    inline __attribute__((always_inline)) float32x4_t yzx3(float32x4_t v)
     {
         const float32x2_t lo = vget_low_f32(v), hi = vget_high_f32(v);
         return vcombine_f32(vext_f32(lo, hi, 1), lo);
     }
-    inline float32x4_t zxy3(float32x4_t v)
+    inline __attribute__((always_inline)) float32x4_t zxy3(float32x4_t v)
     {
         const float32x2_t lo = vget_low_f32(v), hi = vget_high_f32(v);
         return vcombine_f32(vzip_f32(hi, lo).val[0], vrev64_f32(lo));
     }
     // v's x, y, z with w taken from wv's lane 1.
-    inline float32x4_t withW(float32x4_t v, float32x2_t wv)
+    inline __attribute__((always_inline)) float32x4_t withW(float32x4_t v, float32x2_t wv)
     {
         const uint32x2_t m = vcreate_u32(0xFFFFFFFF00000000ull);
         return vcombine_f32(vget_low_f32(v), vbsl_f32(m, wv, vget_high_f32(v)));
@@ -124,7 +124,7 @@ namespace pose82
 
     // p turned by l as the game's MultiCurrentQuaternion: w = pw lw - p.l,
     // v = l.v pw + p.v lw + l.v x p.v. All in NEON registers.
-    inline float32x4_t qmul(float32x4_t p, float32x4_t l)
+    inline __attribute__((always_inline)) float32x4_t qmul(float32x4_t p, float32x4_t l)
     {
         const float32x2_t ph = vget_high_f32(p), lh = vget_high_f32(l);
         float32x4_t v = vmulq_lane_f32(l, ph, 1);
@@ -143,7 +143,7 @@ namespace pose82
         float32x4_t c[4];
     };
     // m x v (v's w taken as 0: a direction).
-    inline float32x4_t mulDir(const M4 &m, float32x4_t v)
+    inline __attribute__((always_inline)) float32x4_t mulDir(const M4 &m, float32x4_t v)
     {
         float32x4_t r = vmulq_lane_f32(m.c[0], vget_low_f32(v), 0);
         r = vmlaq_lane_f32(r, m.c[1], vget_low_f32(v), 1);
@@ -157,7 +157,7 @@ namespace pose82
     //   r2 = (xz - wy, yz + wx, 1 - (xx + yy))   (xx = 2x^2, xy = 2xy, ...)
     // made from three vectors (d, plus, minus) whose lanes the multiplies
     // take straight from the d registers.
-    inline M4 boneMatrix(const M4 &p, float32x4_t n, float32x4_t t)
+    inline __attribute__((always_inline)) M4 boneMatrix(const M4 &p, float32x4_t n, float32x4_t t)
     {
         const float32x4_t n2 = vaddq_f32(n, n);
         const float32x4_t a = vmulq_f32(n, n2); // xx yy zz

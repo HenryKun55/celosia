@@ -95,6 +95,9 @@
 #include <cstring>
 #include <vector>
 #include <chrono>
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
 #endif
@@ -862,6 +865,71 @@ namespace decomp_hot47j
         int select(const Slot &s, const float c[3], float r, const float box[4], uint32_t *out)
         {
             int m = 0;
+            // The tree path and the duplicate check of one surface that passed the sphere and the plane.
+            auto rest = [&](int i)
+            {
+                const ground85::Split *sp = s.splits.data() + s.path[i];
+                bool visit = true;
+                for (int j = 0; visit && j < s.len[i]; ++j)
+                {
+                    const float coord = box[sp[j].axis & 3u];
+                    visit = sp[j].low ? coord <= sp[j].value + box[3] : sp[j].value - box[3] <= coord;
+                }
+                if (!visit)
+                    return;
+                bool seen = false;
+                for (int j = 0; j < m && !seen; ++j)
+                    seen = out[j] == s.ids[i];
+                if (!seen)
+                    out[m++] = s.ids[i];
+            };
+#if defined(__ARM_NEON)
+            if (sotc_decomp::sel96On() && sotc_decomp::sel97On())
+            {
+                // Round 97 (SOTC_SEL97): round 96's sphere and plane tests four surfaces at a
+                // time (the slot's arrays are already one per component). The same products
+                // and sums in the same order as the scalar code (NEON's multiply-accumulate
+                // rounds the product and the sum apart, like VFP's), compared the same way;
+                // the surfaces that pass go through the tree path and the duplicate check
+                // in index order: the same surfaces, in the same order.
+                const float32x4_t cx = vdupq_n_f32(c[0]), cy = vdupq_n_f32(c[1]), cz = vdupq_n_f32(c[2]), rv = vdupq_n_f32(r);
+                int i = 0;
+                for (; i + 4 <= s.n; i += 4)
+                {
+                    const float32x4_t dx = vsubq_f32(vld1q_f32(s.bx + i), cx), dy = vsubq_f32(vld1q_f32(s.by + i), cy), dz = vsubq_f32(vld1q_f32(s.bz + i), cz);
+                    const float32x4_t reach = vaddq_f32(vld1q_f32(s.br + i), rv);
+                    float32x4_t d2 = vmulq_f32(dx, dx);
+                    d2 = vmlaq_f32(d2, dy, dy);
+                    d2 = vmlaq_f32(d2, dz, dz);
+                    const uint32x4_t inSphere = vcltq_f32(d2, vmulq_f32(reach, reach));
+                    float32x4_t d = vmulq_f32(vld1q_f32(s.nx + i), cx);
+                    d = vmlaq_f32(d, vld1q_f32(s.ny + i), cy);
+                    d = vmlaq_f32(d, vld1q_f32(s.nz + i), cz);
+                    d = vaddq_f32(d, vld1q_f32(s.nw + i));
+                    const uint32x4_t pass = vandq_u32(inSphere, vcltq_f32(vabsq_f32(d), rv));
+                    const uint32x2_t h = vorr_u32(vget_low_u32(pass), vget_high_u32(pass));
+                    if ((vget_lane_u32(h, 0) | vget_lane_u32(h, 1)) == 0u)
+                        continue;
+                    uint32_t lanes[4];
+                    vst1q_u32(lanes, pass);
+                    for (int k = 0; k < 4; ++k)
+                        if (lanes[k])
+                            rest(i + k);
+                }
+                for (; i < s.n; ++i)
+                {
+                    const float dx = s.bx[i] - c[0], dy = s.by[i] - c[1], dz = s.bz[i] - c[2];
+                    const float reach = s.br[i] + r;
+                    if (!(dx * dx + dy * dy + dz * dz < reach * reach))
+                        continue;
+                    const float d = s.nx[i] * c[0] + s.ny[i] * c[1] + s.nz[i] * c[2] + s.nw[i];
+                    if (!(std::fabs(d) < r))
+                        continue;
+                    rest(i);
+                }
+                return m;
+            }
+#endif
             if (sotc_decomp::sel96On())
             {
                 // Round 96 (SOTC_SEL96): the same three tests, all of which must pass, with

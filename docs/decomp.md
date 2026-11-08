@@ -14927,6 +14927,151 @@ no build: `SOTC_OBJ96_PERIOD_BIG=4` (Agro unseen at a quarter rate),
 **Deliverable:** build/agent-scratch/celosia-r96.vpk (= r96/p10.vpk: main
 c6d59df, the Avion vitaGL fix, + this round).
 
+## Round 97: the game thread inside the walk and the characters, sampled; four exact cuts (links97, path97, plan97, sel97) and the pose / quaternion helpers inlined (2026-11-07)
+
+Scripts, runs and logs: `build/agent-scratch/r97/`:
+- build.sh (the round's worktree, build directory `r97/vita`), v3k.sh / v3kb.sh
+  (its two Vita3K trees, ../vita3k-celosia-r97 and -r97b; 222 MHz, 3 cores,
+  muted, memcard copied, settings.cfg put back), samp.sh (the Vita3K
+  sampler, `V=v3k.sh` for the first tree, extra env after the snapshot
+  times), prof.sh / walk.sh / geo.sh (geoprobes.txt: the characters'
+  geometry callees as SOTC_SUBSYS_PROF_EXTRA probes), ab.sh, shots.sh,
+  read97.sh (the console reader), env-console.txt.
+- tools/grp.py (a sampler window's game-thread self time by namespace /
+  kind), tools/cmp.py (two windows' per-function shares side by side).
+- runsb/sampA0 / sampR0 (sampler, main 0544c21, the altar / route 6),
+  runs/profA0 (SOTC_SUBSYS_PROF + SOTC_WALK79_LOG, the altar), runs/sampR3off
+  / runsb/sampR3on (sampler, route 6, on main ebe018f: the round's switches
+  off / on), runsb/geoA3 (the characters' geometry probes, the altar, main
+  ebe018f), runs/mcpR (a diagnostic build's memcpy callers, not shipped),
+  runsb/check2 / checkA3 (the two checks), runs/altar3 / route3 / attract3
+  (the A/B), runsb/shotsA3-on / -off, pics/.
+
+Main moved during the round (ebe018f: charlod78, ptcl79, seg80, probe84 and
+ground85 default off); everything from runs/sampR3* on is on that base.
+
+**Where the game thread goes (Vita3K 222 MHz, the sampler's self time on the
+game thread, % of it).** There is no large item left. At the altar (main
+0544c21) the largest single function is 1.9%; the 70 largest add up to ~45%,
+the recompiled guest functions to 19% spread over hundreds of functions
+(the largest 0.31%). By group:
+
+| group | the altar (0544c21) | route 6 (ebe018f, the round off) |
+|---|---|---|
+| collision natives (decomp_collision) | 11.9 | 16.5 |
+| other collision (hot47j's ground fill, finder, hot44 keeps) | ~5 | ~3 |
+| model / mesh hooks (sotc_native) | 4.9 | 4.5 |
+| display walk natives (decomp_walk) | 4.4 | 4.5 |
+| pose / layout / cloth mesh (pose82) | 2.6 | 2.4 |
+| quaternion natives (decomp_quat) | 2.0 | 2.9 |
+| memcpy | 1.8 | 2.0 |
+| light pass | 1.7 | 0.9 |
+| prefetch (rounds 67 / 69) | 1.4 | 1.4 |
+| recompiled guest code, all | 19.3 | 19.3 |
+
+With ebe018f's five switches off, collision is the largest block by far
+(ClipCollisionDirectCallBack's segment tests 2.9%, the leaf 3.2%, clipDB
+1.8%, the trees 2.4%): seg80 / probe84 / ground85 had been answering a
+large part of it.
+
+The characters' geometry at the altar (runsb/geoA3, main ebe018f, all 18
+characters every frame now; probes inclusive / self, ms a frame with ~0.4 ms
+of probe cost): ExecCharaGeometry 16.9 (x18); the root dynamics 7.9, of it
+the walking kind's ground step (xz, x3) 6.4: the ground fill
+(GetCollisionDBCallBack, x5) 2.9, FinderWithKeep 1.3, CalcRootFitting's body
+part 1.1, the slide 0.9, the landing 0.6; IK 2.8 (own 1.8); cloth dynamics
+1.8; the pre-process (the geometry step, x18) 1.4; CalcRootFitting 1.3;
+GetMotionMatrix 1.1 (x28); IK post 0.7; UpdateLayoutClassGeometry 0.7.
+
+The display walk at the altar (runs/profA0, SOTC_WALK79_LOG, host stalls
+in hook.sync left out): the group pass ~3.4 ms (the layout objects' clip
+1.25 for 146 objects, the walk's own per-object work ~2), the second list
+0.3, the light pass 1.4, the draws ~7.5 (DispLayoutObjModel x59 ~5: the
+model hook 2.8, cloth meshes 0.8, shadows 0.3; the particle draws 1.35).
+
+memcpy (a diagnostic build, `--wrap=memcpy` by caller; runs/mcpR): on the
+game thread it is many small copies (the sub-threads' register frames,
+the quaternion natives' VU0 state copies, the mesh hook), ~130 KB a frame;
+no single large copy to remove.
+
+**What changed (each exact; default on; SOTC_AB_FLAG names in brackets,
+`r97all` turns all four off).**
+- **links97** (`SOTC_LINKS97`, decomp_chara.cpp): charaLinks
+  (manager_sub_010CE558, ~5 calls a frame over a link list of ~265 entries
+  on the plain) scans the list twice; the second scan (when the first made
+  no guest call) reads the same handles. The first scan now notes the first
+  entry the second would act on and what the second's last entry leaves in
+  v0; the second starts there (or returns that v0 at once). Only when both
+  loops' empty-table words are the same; after any guest call the scan goes
+  on as before. `SOTC_LINKS97_CHECK=1` runs the original second scan's
+  reads and compares: 70 000 calls on route 6, 22 000 at the altar, no
+  difference.
+- **path97** (`SOTC_PATH97`, decomp_pointsort.cpp): execPointListSort asked
+  getPointDataByAreaIdx for every point, each a search over the set's areas;
+  the search is made once an area (its reads checked apart from the list and
+  the frame the loop writes). `SOTC_PATH97_CHECK=1`: 5.2 M points on route
+  6, 0.8 M at the altar, all the same.
+- **plan97** (`SOTC_PLAN97`, sotc_native.cpp): modelPlan's
+  `unordered_map<uint64_t>` lookup (a 64-bit bucket index: a software
+  division on the A9, which has none) through a 1024-entry direct-mapped
+  table of the map's own nodes; every erase clears the table. The same plan.
+- **sel97** (`SOTC_SEL97`, decomp_hot47j.cpp): round 96's sphere and plane
+  tests of ground85's kept surfaces four at a time in NEON (the same
+  products, sums and compares). It only runs with ground85, which ebe018f
+  turned off: dormant by default.
+- No switch: pose82's NEON helpers (normalize, qmul, ...) and decomp_quat's
+  FPU helpers were outlined by the compiler (separate symbols in the
+  sampler, 1.1% and 0.2%); now always_inline. The same operations.
+
+**Measured.** Per function (sampler, route 6, main ebe018f, the round off /
+on, % of the game thread): charaLinks 1.37 -> 1.16, execPointListSort
+0.60 -> 0.51, the division helpers 0.37 -> 0.27, modelPlan 0.05 -> 0.02:
+~0.4% of the game thread together, ~0.15-0.2 ms a frame. The inlining has
+no switch to A/B; pose82::pose with its helpers inside is 1.60% on ebe018f
+against 1.44% for the three apart on 0544c21 (another base, more work
+around it): no gain shown, kept as the same operations.
+
+A/B (Vita3K 222 MHz, `SOTC_AB_FLAG=r97all,links97,path97 SOTC_AB_ROTATE=1
+SOTC_AB_PERIOD=60`, ab89.py matched by draws, off minus on):
+
+| run | part (frame, all on) | links97 | path97 | r97all |
+|---|---|---|---|---|
+| altar3 | from 3 300 (59.2 ms) | -0.36 | -0.40 | -1.01 |
+| route3 | from 3 000 (35.6 ms) | +0.33 | -0.19 | -0.34 |
+| route3 | the plain, from 4 300 | -0.26 | -0.14 | +0.09 |
+| attract3 (600 s) | the world and riding, from 10 000 (32.4 ms) | +1.52 | +1.02 | -0.31 |
+
+All within the in-run A/B's noise (about +-1 ms in a single run, here with
+a second emulator beside it): the ~0.2 ms the sampler shows is below what
+the A/B resolves, as expected for exact local cuts. The console's
+cpuGame windows will say whether the A9 (no hardware divide, slower
+memory) sees more of plan97 and links97 than Vita3K does.
+
+**Gameplay and pictures.** Every cut gives the same values by construction
+(the checks above confirm the two that skip work); the picture pairs
+(runsb/shotsA3-on / -off, pics/r97_A3_*_on__off.png: the altar with the
+round on and off) show the same scene. No fault or hang: the attract demo
+with riding 600 s, route 6 420 s, the altar 300 s, the checks 460 s / 300 s.
+
+**What it would take to reach ~30 ms on the console.** The game thread is
+~44 ms of CPU on the console, flat: no function above 3%, collision ~20%
+with ebe018f, the rest a few percent per subsystem. Exact local rewrites
+like this round's give tenths of a millisecond each. The cuts that were
+worth milliseconds were the ones that do less work (charlod78, ptcl79,
+seg80, probe84, ground85, obj96: 3-13 ms in Vita3K together), and they are
+off for what they did to visible things. Within the rule (nothing visible
+updates less often), the remaining levers are: collision answered exactly
+from cached world state (e.g. ground85's patch, which was verified to give
+the same surfaces in the same order, if the reveal problem is traced to
+another of the five); the collision natives rewritten as plain A9 code
+without the guest stack frame they write as the MIPS does (~20% of the
+thread); and work moved off the game thread where a core has room.
+
+**Deliverable:** build/agent-scratch/celosia-r97.vpk (= r97/p3.vpk: main
+ebe018f + this round); console env r97/env-console.txt
+(`SOTC_AB_FLAG=r97all,links97,path97`), read with
+`build/agent-scratch/r97/read97.sh err.txt <from>`.
+
 ## Round 98: the main picture's pixels: where they go (a pixel estimate per draw class), the textured draws' reads before the program, the fog's background read where it fogs nothing, the alpha test's second pass behind the depth test (2026-11-07)
 
 Scripts, runs and logs: `build/agent-scratch/r98/`:
