@@ -46,6 +46,11 @@
 #include <cstring>
 #include <initializer_list>
 #include <unordered_map>
+#include <vector>
+#include <chrono>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 
 // Round 85 (decomp_hot47j's ground85): the finder leaf's entries recorded while
 // one object's step is being captured (the surface, its boundary sphere and
@@ -2395,10 +2400,21 @@ namespace decomp_collision
         return true;
     }
 
+    // Round 115 (coll115.h): the object array test's root sides (its call
+    // sites' return addresses) on the host-format leaves; false: not taken.
+    bool coll115Side(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t sp, int first, uint64_t &out);
+    inline bool objArySide(const G g)
+    {
+        const uint32_t ra = GPR_U32(g.ctx, 31);
+        return ra == 0x0112E600u || ra == 0x0112E624u || ra == 0x0112E650u || ra == 0x0112E674u;
+    }
+
     // The registered entries (and directCallBack's root): round 48's code
     // with SOTC_FASTNATIVE=0.
     uint64_t low(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
+        if (uint64_t r; objArySide(g) && coll115Side(g, s, a1, a2, t0, spIn, 0, r))
+            return r;
         if (!sotc_decomp::fastNativeOn())
             return lowOld(g, s, a1, a2, t0, spIn);
         if (uint64_t r; walk101Try(g, s, a1, a2, t0, spIn, 0, r))
@@ -2411,6 +2427,8 @@ namespace decomp_collision
     }
     uint64_t high(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t spIn)
     {
+        if (uint64_t r; objArySide(g) && coll115Side(g, s, a1, a2, t0, spIn, 1, r))
+            return r;
         if (!sotc_decomp::fastNativeOn())
             return highOld(g, s, a1, a2, t0, spIn);
         if (uint64_t r; walk101Try(g, s, a1, a2, t0, spIn, 1, r))
@@ -3768,6 +3786,7 @@ namespace decomp_collision
         }
     }
 
+#include "coll115.h"
     namespace cammemo // (round 65, below cameraCheckDirect)
     {
         bool replay(const G g, uint32_t ra, uint32_t out, uint32_t &nth);
@@ -3919,6 +3938,10 @@ namespace decomp_collision
         static int depth = 0; // (lane 0's: the worker never enters the memo)
         if (!sotc_decomp::seg80On() || sotc_decomp::onWorkerLane(runtime) || depth != 0)
             return body();
+        // Round 115: with coll115 the answer is made every frame (no reuse) unless SOTC_SEG80=1 asks for it.
+        static const bool seg80Asked = [] { const char *e = std::getenv("SOTC_SEG80"); return e && e[0] >= '1' && e[0] <= '9'; }();
+        if (!seg80Asked && coll115::on(runtime))
+            return body();
         const G g{rdram, ctx, runtime};
         const uint32_t out = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), spIn = GPR_U32(ctx, 29);
         if (!G::plain(out, seg80::kRecord) || !G::plain(start, 16u) || !G::plain(end, 16u) || !G::plain(spIn, 4u))
@@ -4026,9 +4049,31 @@ namespace decomp_collision
         return transformKept(g, k, m, v);
     }
 
+    bool coll115Side(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t t0, uint32_t sp, int first, uint64_t &out)
+    {
+        if (!coll115::active(g.runtime))
+            return false;
+        return coll115::walkChecked(g, s, a1, a2, t0, sp, first, out, 1, [&]
+                                    { return first ? (highOld(g, s, a1, a2, t0, sp)) : (lowOld(g, s, a1, a2, t0, sp)); });
+    }
+
     void directCallBackBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        coll115::tick();
+        ++coll115::g_st.queries;
+        if (__builtin_expect(coll115::params().check == 1, 0) && coll115::on(runtime))
+            return coll115::checked(rdram, ctx, runtime, [&] { directCallBackBody(rdram, ctx, runtime); });
+        if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            // the query's host time by state (the memo's answers included)
+            const int st = coll115::on(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            segMemo(rdram, ctx, runtime, 0u, [&] { directCallBackBody(rdram, ctx, runtime); });
+            coll115::g_st.usQ[st] += coll115::nowUs() - t0;
+            ++coll115::g_st.nQ[st];
+            return;
+        }
         segMemo(rdram, ctx, runtime, 0u, [&] { directCallBackBody(rdram, ctx, runtime); });
     }
     // ClipCollisionDirectCallBackDoubleSide (0x1130490, the recompiled code):
@@ -4113,6 +4158,7 @@ namespace decomp_collision
             bool objectHit = false;
             bool tested = true;
             COLL_STAT(directObjects);
+            ++coll115::g_st.objects;
             if (const uint32_t filter = g.u32(sp + 0x1A4u); filter != 0u)
             {
                 uint64_t pass;
@@ -4126,6 +4172,8 @@ namespace decomp_collision
                     tested = GPR_U64(ctx, 2) != 0u;
                 }
             }
+            if (!tested)
+                ++coll115::g_st.objFiltered;
             if (tested)
             {
                 const uint32_t cls = layoutClassAny(g, object, 0x0112D668u, sp);
@@ -4146,6 +4194,7 @@ namespace decomp_collision
                     }
                     if (near)
                     {
+                        ++coll115::g_st.objNear;
                         const uint32_t base = g.u32(cls + 0x174u);
                         g.put32(sp + 0x1DCu, 0u);
                         g.put32(sp + 0x1E0u, 0u);
@@ -4203,6 +4252,8 @@ namespace decomp_collision
                                     g.put(sp + 0xC0u, c);
                                     bool go = cylinder(g, c, r, length, false);
                                     if (go)
+                                        ++coll115::g_st.partsNear;
+                                    if (go)
                                         if (const uint32_t filter = g.u32(sp + 0x1A8u); filter != 0u)
                                         {
                                             call(g, filter, 0x0112D880u, sp, {sp + 0xB0u, sp, sp + 0x40u, user});
@@ -4249,12 +4300,22 @@ namespace decomp_collision
                                             const float f1 = g.f32(s3 + axis), f0 = g.f32(s2 + axis);
                                             g.f0(f0);
                                             const Seg seg{s5, tree, sp + 0xD0u};
-                                            if (sotc_decomp::fastNativeOn())
+                                            const bool log115 = coll115::params().log;
+                                            const uint64_t tw = log115 ? coll115::nowUs() : 0u;
+                                            const int st115 = coll115::active(runtime) ? 1 : 0;
+                                            if (st115 && coll115::walkChecked(g, seg, s3, s2, root, sp, -1, r2, 0, [&] { return rootF(g, seg, s3, s2, root, sp); }))
+                                                ; // round 115
+                                            else if (sotc_decomp::fastNativeOn())
                                                 r2 = rootF(g, seg, s3, s2, root, sp); // round 49
                                             else if (FPU_C_OLE_S(f0, f1))
                                                 r2 = (highOld(g, seg, s3, s2, root, sp) != 0u || lowOld(g, seg, s3, s2, root, sp) != 0u) ? 1u : 0u;
                                             else
                                                 r2 = (lowOld(g, seg, s3, s2, root, sp) != 0u || highOld(g, seg, s3, s2, root, sp) != 0u) ? 1u : 0u;
+                                            if (log115)
+                                            {
+                                                coll115::g_st.usW[st115] += coll115::nowUs() - tw;
+                                                ++coll115::g_st.nW[st115];
+                                            }
                                         }
                                         if (r2 != 0u)
                                             g.put32(sp + 0x1E4u, 1u);
@@ -4267,6 +4328,7 @@ namespace decomp_collision
                                         g.put(sp + 0xD0u, g.q(sp + 0xA0u));
                                         for (int32_t surface = 0; surface < static_cast<int32_t>(g.u32(s7 + 0x10u)); ++surface)
                                         {
+                                            ++coll115::g_st.surfLoop;
                                             const uint32_t b = boundary(g, s4, g.u32(sp + 0x1DCu), static_cast<uint32_t>(surface), 0x0112DB1Cu, sp);
                                             g.f0(one);
                                             g.put(sp + 0xE0u, g.q(b));
@@ -4320,6 +4382,8 @@ namespace decomp_collision
                                         if (go)
                                         {
                                             COLL_STAT(directSkinned);
+                                            ++coll115::g_st.skinParts;
+                                            coll115::g_st.skinSurf += g.u32(s7 + 0x50u);
                                             matrixProduct(g, sp + 0xE0u, sp + 0x40u, g.u32(sp + 0x1D4u));
                                             const uint32_t count = g.u32(s7 + 0x50u);
                                             g.put32(sp + 0x1F4u, count);
@@ -4410,6 +4474,7 @@ namespace decomp_collision
                                                     g.put(sp + 0x170u, cs);
                                                     if (!cylinder(g, cs, rs, length, false))
                                                         continue;
+                                                    ++coll115::g_st.skinMade;
                                                     call(g, 0x01124368u, 0x0112DF00u, sp,
                                                          {s1, s3, g.u32(sp + 0x1CCu), g.u32(sp + 0x1C8u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3});
                                                     entryModified(g, s3, s0, 0x0112DF0Cu, sp);
