@@ -720,6 +720,14 @@
    "focus": "Speed",
    "summary": "Fourth step on the helper thread that does far-away characters' body work on another Vita core. Last round it seemed to wake ten times slower after round 110's display timing; measuring showed that was the Mac running the emulator being overloaded by other builds at the time, not the game (with the display timing on and off at once the delay was the same and rose with the Mac's load). Keeping characters that seemed to gain nothing on the main thread turned out to cost more (about 1-1.4 ms a frame), so that stays off. Instead the helper now checks its own account every few seconds and pauses in scenes where handing characters over costs the main thread more than it saves (riding in the attract demo), then tries again. The helper path is now on by default.",
    "result": "Vita3K 222 MHz, quiet runs: shrine +0.6 to +0.7 ms a frame, the plain (route 6) +0.2 to +0.5, attract riding from -1.1 to 0.0 / +0.45. Check mode: 0 differences in every comparison; the old 144-byte mismatch in the hand-over's self-check is gone. No crash, including loading the console's save. The console's own A/B log decides whether it stays on."
+  },
+  {
+   "round": "r120",
+   "date": "2026-11-08",
+   "commit": "4753e08",
+   "focus": "Speed",
+   "summary": "Round 113's plan item 6 (the game's own script, AI and camera code still running as translated PS2 code, and the machinery that switches between the scripts) measured piece by piece. It turned out flat: hundreds of small functions, the camera alone about a hundred of them, none worth more than a few hundredths of a millisecond, and most of the rest belongs to the particle, collision and character work other rounds are doing. Two whole pieces were there and are now plain Vita code with the same results: the system that links streamed-in game modules together by name (while riding it re-checked ~2 200 names and ~600 module links every dozen frames, 5-9 ms each time on the emulator), and the game's memory allocator. The script switching itself would only get cheaper by no longer keeping the PS2's saved registers in memory, which would make the port inexact for ~0.3 ms; not done.",
+   "result": "Vita3K 222 MHz: the module-linking pass 3.6x faster per call (1.7 ms instead of 6.0, every dozen frames while riding; its slowest calls were 6-20 ms frame spikes), the allocator about 4x less time; together ~1.5% of the main thread riding by the sampler (~0.9 ms of the console's 60 ms), less elsewhere. Too small for the emulator's in-run comparison to resolve (its noise is 1-3 ms). Exact: 0 differences in every check (thousands of compared calls); no crash in the attract demo, route 6 or the console save's load. Far below the plan's -5 ms: that time is spread too thinly to rewrite piece by piece."
   }
  ]
 }

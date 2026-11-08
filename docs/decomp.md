@@ -17098,3 +17098,127 @@ with `python3 build/agent-scratch/r117/ab116.py err.txt --from <frame>`: each sw
 its gain. A five-state rotation needs a long log (~2 000 frames a state) to beat the scene noise; `SOTC_AB_FLAG=r117all`
 alone gives the round's total with a third of the frames. Build note: spalign105 0 sp-based NEON accesses; no
 vita-elf-create overlap (sotc_vita_elf_room unchanged at 48 KB).
+
+## Round 120: round 113's item 6 measured: the scripts' and the runtime's time is flat; the module system's symbol resolution (sym120) and the heap allocator (heap120) as A9 code; why the sub-thread switch and the camera stay as they are (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r120/` (build.sh, v3k.sh / v3kb.sh: own Vita3K trees ../vita3k-celosia-r120
+and -r120b, 222 MHz, 3 cores, the console card copied in only there; run.sh, ab.sh, areas.py, ab89.py; tools/asm.sh (a
+recompiled function's MIPS listing from the generated code's comments), tools/inner.py (round 102's guest pc sampler by
+innermost probe), tools/scrown.py; env-console.txt; STATE.md). Runs: runs/attractS0 / shrineS0 / routeS0 (Vita3K host
+sampler, main 237ad58 = celosia-r118.vpk), runs/attractP0 (SOTC_SUBSYS_PROF + SOTC_SCRSAMP102 riding), runsb/attractS3
+(the sampler with the round on), runsb/attract7 / route7 / shrine7 (the A/B), runs/chkA7 (difftest + check).
+
+**Where item 6's time is (Vita3K host sampler, % of the game thread).** Round 113 put "recompiled guest code" at 16.7%
+riding (10.1 ms of the console's 60.5) and "runtime" at 11.2% (6.8 ms). Taken apart on main 237ad58:
+
+| riding, attract demo (frames ~11 700-14 800) | % | what |
+|---|---|---|
+| recompiled: the particle modules (0113xxxx-0114xxxx, ptclman) | 4.9 | round 117's area |
+| recompiled: the boot ELF (kernel, ios*, isys*, Sg2* sound sequencer ticks, libm) | 3.6 | of it the symbol lookups 0.75, the heap 0.37, iosDlSwap 0.21, the Sg2 ticks ~0.65 |
+| recompiled: display gl / model (0108xxxx-0109xxxx: glBegin / glEnd / glReset, fog factors, getZ, shadowDraw, cameraBlur) | 2.1 | the display path |
+| recompiled: scripts / AI (0136xxxx-0140xxxx, nico_*, AI_*) | 2.1 | hundreds of functions, the largest 0.10% |
+| recompiled: the camera module (0141xxxx-0142xxxx, GAMEUTIL_*, CAM_*) | 1.4 | ~100 functions, the largest 0.06% |
+| recompiled: everything else (manager 010A-0116 by module) | ~4.5 | none over 0.43% (sheetMgrResolve), the rest <= 0.13% |
+| runtime: memcpy 1.59, sceClibMemcpy 0.78 (tex64's copies), sceClibMemmove 0.70 (sotc_native's kickCopy), memcmp 0.79 (seg80's compare and others) | 3.9 | copies of real data |
+| runtime: decomp_isys (group links, the display list's object locks) 1.25, decomp_group 0.56, isys48 1.03 | 2.8 | natives already, called per drawn object |
+| runtime: EeScheduler 1.16 (syncAccounting, updateGate, the PollSema binding, publishSnapshot), ps2x 1.16 (the sound driver's RPC and stream refill, path parsing) | 2.3 | the EE / IOP clock and the sound driver |
+| runtime: the sub-thread switch (decomp_subthread: load 0.31, save 0.25, wake 0.13) | 0.71 | |
+| runtime: sotc_decomp::callGuest / finishGuestCall | 0.56 | |
+| runtime: the frame log's timers (sceKernelGetProcessTimeWide from hookjobs::push) | 0.55 | measurement, only with the frame log on |
+
+The shrine (runs/shrineS0) and route 6 (runs/routeS0) have the same shape with less streaming: recompiled 7.7% of the
+game thread in both by round 113's grouping, nothing over 0.33% (Agro's path 0142F4E8 at the shrine).
+
+Round 102's guest pc sampler by task (runs/attractP0, probes on, % of the busy game thread riding): the scripts' own
+10.3%: object animations (st_playObjAnim) 1.87 (natives: curveEval, ExecObjectAnimation, the layout geometry), the frame
+start task 1.46 (texAnim, native), Agro 1.44 (its collision: round 119's area), the birds 1.33, sprites 0.67; the camera's
+own code (innermost probe doit_game_camera) 2.28 spread over ~100 functions (each <= 0.06%, the largest its collision ray).
+
+So item 6 as planned (-5 ms on the console riding from the script evaluators, the camera and the switch) is not there to
+take as exact native rewrites: the camera is ~1.4% (0.85 ms console) in a hundred small VU0-macro functions, the object
+animations are natives already (round 106's oan106 found register-for-register evaluators no faster), the AI is hundreds of
+functions, and the particles / collision / characters that fill most of the bucket belong to rounds 117 / 119 / 114. What
+was there as whole pieces of work: the module system's symbol resolution (1.7%, all of it streaming-time work done again
+every call) and the game heap's allocator (0.37%, every scene).
+
+**What changed (both exact, default on; A/B `sym120`, `heap120`, `r120all` both off).**
+- **sym120** (`SOTC_SYM120`, decomp_sym120.cpp). While riding, the sheet manager (sheetMgrResolve, 0x115d170) runs every
+  ~12-16 frames: for each of ~20 pending sheets it looks up every entry's symbol by hash (~2 200 lookups a call, ~120
+  found) and tail-jumps into isysResolveAllProgramModule, which retries every module's unresolved imports
+  (kernel_sub_001B4760: ~2 500 imports looked at, 500-760 retried by hash, 130-400 resolved a call). Natively: the sheet
+  loop with the hash lookup inline (the group walk, the group add, the tick count, its seconds, the module resolve and
+  the tail jump stay guest calls with the original's ra and frame), 001B4760's import loop with the reference-list moves,
+  SearchStrHashKey, isysSearchSymbol and MakeStrHashValue (the original reads the string's strlen again at every
+  character). The same reads and writes in the same order; module jal sites and the boot ELF's addresses read from the
+  live words. MakeStrHashValue charges the EE cycles the original's loop does: the boot polls a module's names through
+  it while the loader runs, and with no cycles charged the clock never moved and the boot waited for good (p4-p6; the
+  Vita3K frame stuck at 242 ms).
+  Per call (SOTC_SYM120_LOG=1, the A/B's windows decide native or recompiled; Vita3K riding and route 6): native 1.68 ms on
+  average (639 calls), recompiled 5.95 ms (501); per 60 calls the native average 1.0-2.9 ms, the recompiled 4.7-10.7.
+  Every 12-16 frames riding that call lands in one frame: a spike on the console too.
+- **heap120** (`SOTC_HEAP120`, decomp_heap120.cpp): kernel_sub_001ADDC0, the heaps' block allocator (iosMalloc /
+  iosMallocAlign, the module loader): the size class (the small heap 0x1e0c88's own table and steps, else the log2 class),
+  the first fitting block in the class lists, the alignment, the split (the rest made a free block after the data) and
+  the packed 24-bit header words, in the recompiled code's order; kernel_sub_001ADBC0 (a free block into its class list
+  by size) native too and called inline by the split. v0 as the originals leave it.
+
+**Checks.** The difftest no longer fits in the Vita build's 176 MB heap (it needs 64 MB of snapshots; the heap is at
+~157 MB at boot since rounds 116-118): check VPKs are built with `_newlib_heap_size_user` at 240 MB (pchk7, not shipped).
+Every RAM byte and the compared registers, Vita3K:
+- runs/chkA7 (pchk7, the attract demo with riding, 1 000 s, six natives thinned): SearchStrHashKey, isysSearchSymbol and
+  kernel_sub_001ADBC0 100+ checks each (166 541 calls), 001B4760 / sheetMgrResolve / 001ADDC0 fewer: 0 mismatches but two
+  in 001ADDC0 on the one byte 0x29126c, the difftest's known noise byte (rounds 65, 71 and 106 saw it, also with
+  `SOTC_DIFFTEST_CONTROL=1`, the recompiled code in both legs).
+- runs/chkA8-err.txt (pchk8: the round's code on round 117): kernel_sub_001B4760 every call, 200 checks (module links at the boot and
+  the area loads, resolved imports included), 0 mismatches.
+- runs/chkA9 (pchk8): every sheetMgrResolve call, 200+ checks (~2 200 entries each) to frame ~9 900, 0 mismatches.
+- runs/chkH8 (pchk8): kernel_sub_001ADDC0 the first 300 calls then one in 400: 400 checks of 39 901 calls, 0 mismatches;
+  MakeStrHashValue 300 checks, 0 mismatches.
+- `SOTC_SYM120_CHECK=1` runs the recompiled MakeStrHashValue to its return after the native on the same state and compares
+  v0 / lo / hi: 35 000 calls, 0 differ (runs/dbgA7, runs/chkA7).
+The difftest's unchecked calls run the recompiled code, so the A/B runs below are the long runs of the natives (attract
+600 s x 3, route 6 420 s, the console card's shrine save 300-360 s x 3): no fault, the same boot, riding and load.
+
+**A/B (Vita3K 222 MHz, `SOTC_AB_FLAG=r120all,sym120,heap120 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py matched by
+draws, off minus on, the game thread's own ms).**
+
+| run | sym120 | heap120 | r120all |
+|---|---|---|---|
+| runsb/attract7 (p7), riding from frame 10 000 (median ~28 ms) | +0.85 | +0.42 | +0.33 |
+| runsb/attract8 (p8, rebased, the console's log flags), riding from 10 000 | +0.44 | -0.57 | +3.76 |
+| runsb/route7 (p7), route 6 from 3 000 / the plain from 4 300 | -0.95 / -0.05 | +0.46 / +0.25 | -0.61 / +0.03 |
+| runsb/shrine7 (p7), the console card's shrine save from 1 500 | +0.45 | +0.73 | +0.35 |
+| runsb/shrine8 (p8) | +0.36 | -0.23 | -1.35 |
+
+The in-run A/B cannot resolve these sizes: the sheet manager runs once in ~14 frames and costs ~0.1-0.4 ms a frame on
+average, the allocator ~0.1, against +-1-3 ms of window noise on this loaded Mac (r120all's +3.76 and -1.35 are noise
+too). The measurements are the per-call times in the same runs and the sampler. Per call over runsb/attract7, attract8 and
+route7 (`[sym120]`, the A/B windows decide native or recompiled): 639 native calls 1.68 ms on average, 501 recompiled
+5.95 ms (3.6x).
+
+Sampler riding (runs/attractS0 -> runsb/attractS3, the same window): the five functions of sym120 1.66% -> 0.39% of the
+game thread (sheetMgrResolve 0.43 -> 0.13 as native, 001B4760 0.31 -> 0.07, isysSearchSymbol / SearchStrHashKey inlined),
+the allocator 0.39 -> 0.10. On the console's 60.5 ms riding that is ~0.75 ms (sym120) + ~0.18 ms (heap120), and the
+sheet manager's 5-9 ms calls (Vita3K) every 12-16 frames become 1-2 ms.
+
+**The sub-thread switch.** 0.71% riding (0.43 ms console): save 0.25, load 0.31, wake 0.13; the script pass, the frame end
+and the resume path another ~0.7%. The copies are the register frames in guest RAM (0x2c0 bytes, ~560 copied each way, four
+a round trip, ~90 round trips a frame): the sleep's save is what the next wake loads, and the wake's save is what the
+sleep loads. An exact switch has to leave the same bytes in those frames; round 102 already made the copies inline NEON.
+What would remove them is keeping only the callee-saved registers (s0-s7, fp, gp, f20-f31, the lo1 word the sleep
+returns in v0) and nothing in the guest frame: the caller-saved registers are dead across the call by the ABI, but the
+guest stack bytes would differ from the original's (no game state, but no longer exact for the difftest), for ~0.3 ms on
+the console. Not done: below this round's bar for a non-exact change.
+
+**Left for later (measured here).** The Sg2 sound sequencer's ticks (~0.65% riding, 0.27% at the shrine; MIDI parsing
+with jump-table handlers, ~1 500 instructions), the display gl API's packet builders (~1%; glEnd is behind sotc_native's
+hook), iosDlSwap (0.21-0.26% everywhere, the per-object guest calls of its loop), the camera as one native system
+(~1.4%, ~100 functions), and a negative cache for the sheet manager's failing lookups (would need every writer of the
+symbol table known; ~0.08 ms a frame left).
+
+**Console.** build/agent-scratch/celosia-r120.vpk (r120/p9: main 3560189, SOTC_CHAR104 default 0 on the Vita, + this
+round; p7 / p8 had the round on 237ad58 / 478bdae) with r120/env-console.txt (round 118's log flags, SOTC_SYM120_LOG=1,
+`SOTC_AB_FLAG=r120all,sym120,heap120`, rotation every 60 frames). Look for: `[sym120] 60 calls: native N avg A us max M |
+recompiled ...` while riding (native ~3.5x faster per call; the max is the spike the sheet manager adds to its frame); the
+ab89 rows sym120 / heap120 (the sampler predicts ~0.75 + ~0.2 ms riding, ~0.15 at the shrine: inside the in-run A/B's noise
+unless the log is long); no change in anything visible.
