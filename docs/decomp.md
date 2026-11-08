@@ -16384,3 +16384,173 @@ mode, off 3: Auto's latency rises ~1-2 refreshes, under one frame). The game's d
 `SOTC_PACE110=0` is the old presentation. r110/env-console.txt: the frame / spike logs (the `[pace110]` lines come with
 them). Read with `build/agent-scratch/r110/pace110.py err.txt` (on the console every picture should be quiet: shown = release
 interval, latency ~4-6 refreshes), and `SOTC_AB_FLAG=pace110` to compare on / off in one run (windows of 30 frames).
+
+## Round 111: the character jobs' own costs: the worker's 2x was the hand-over's copies; areas as deltas, characters read early kept; a win before round 110, not after (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r111/` (build.sh pN, v3k.sh / v3kb.sh: own trees ../vita3k-celosia-r111 /
+-r111b, 222 MHz, 3 cores; run.sh, ab.sh (TL / TR / TA: the altar's / route 6's / attract's seconds), read111.sh,
+env-console.txt, STATE.md). p0-p12 on main 34d21ac (round 109), p13 / p14 rebased on c183511 (round 110); p14 =
+a default-on candidate (measured below); p15 = p14 with SOTC_CHAR104 still 0 = celosia-r111.vpk.
+
+**Why.** Round 109 left char104 (far characters' geometry on round 91's guest worker) exact but a loss (altar -6.4 ms,
+route 6 -3.1 to -5.8): the game thread waited ~10 ms a frame at its joins and the worker took ~2x the game thread's time per
+character. The brief, in order: (1) the census's hottest recompiled callees as lane-safe natives until a character costs the
+worker what it costs the game thread; (2) characters read early by others kept on the game thread or handed over first;
+(3) a deterministic allocation scheme for the jobs, only if exact.
+
+### 1. Where the worker's time went (census with time, `SOTC_CHAR104_CALLS=2`)
+
+The census now times each call the worker makes (hookCall: self and inclusive us, park waits taken out; `[calls104t]`,
+N: a native the game thread runs, L: in nat108's list). runs/census1 (p1, the altar, 600 frames): ExecCharaGeometry's
+inclusive time on the worker 0.39 ms a character (with the census's own cost) against 0.28 on the game thread
+(runsb/serial1, `SOTC_CHAR104_LOG`); the natives the game thread runs and the worker did not were few and small:
+motionKeys (010B81F8, 97 ms self / 138 inclusive over 600 frames), axisRotate (001BBDA8, 88 / 97), curveEval (010AC6C8, 84,
+82 532 calls), windZones (01145F78, 35 / 45), acosExact (001BE388, 33 / 36), then sqrtf, atan2Exact, atanf, axisDirZY, diffQuat
+(under 4 ms). All ten were read for host state (none but statistics: decomp_curve's counters, NativeCount; their guest calls go
+through callGuest) and joined nat108's list (91 entries). The hottest recompiled callees left (GetClothDynamics 01137A68
+88 / 312 ms, CalcRootFitting 010E21C0 84 / 121, GetMotionNodeQuaternionPosToolCoord 010B63F8 80 / 90, 010AEE18 74 / 109,
+nico_neckFitToParentInvDirIK 01374D98 45 / 75, ExecAnimeTableInfo 37 / 49, ...) have no native: they cost both threads alike.
+
+The worker's missing time was outside the calls: the item's `[char104]` time was 0.69 ms a character against 0.39 in its
+calls. Timing the parts (p2, runs/diag2, the altar, a frame): **bringing the areas 2.7-3.1 ms on the worker** (round 104's
+bring: the work stack's copy, the scratchpad and VU0 data brought to each character's hand-over), **the hand-over copies
+1.2 ms and the joins' merges 1.8-2.2 ms on the game thread**. Round 104's bring / merge compared 16 bytes at a time with
+memcmp (a call per 16 bytes); with a NEON select (the same rule byte by byte: a byte the game changed takes the game's; at the
+join a byte the game did not change takes the worker's) and a NEON relocate (p3, runs/diag3): areas 0.33 ms, merges 0.21,
+the game thread's waits 7.0 -> 2.8 ms a frame, the worker's characters 3.9 ms for 14 (0.28 ms each: the game thread's speed).
+
+| build (altar, a frame, everything on) | worker: areas / characters | game thread: copies / merges / hand-over path | waits |
+|---|---|---|---|
+| p2 (round 109's copies) | 2.73-3.14 / 4.1-4.4 ms | 1.18 / 1.84-2.18 / - | 7.03 |
+| p3 (NEON bring / merge) | 0.32-0.33 / 3.87-3.90 | 0.86-0.92 / 0.21 / - | 2.79-2.80 |
+| p8 (delta111, a test per 16-byte chunk) | 0.013 / 3.31 | 0.08 / 0.33 / 1.75 (deltas 1.43) | 2.6 |
+| p9 (256-byte block tests) | 0.016 / 3.37 | 0.08 / 0.30 / 1.25 (deltas 0.93) | 2.6 |
+| p11 (+ spr111) | 0.015 / 3.36 | 0.07 / 0.38 / 0.96 (deltas 0.65) | 2.7 |
+
+### delta111: the areas as deltas (`SOTC_DELTA111`, 1; A/B `delta111`)
+
+What changes between hand-overs (`SOTC_CHAR111_DIFF=1`, `[char111d]`, altar and route 6): ~24 of the work stack copy's 772
+16-byte chunks, **none** of the scratchpad's 1 024 or VU0 data's 256. So the game thread keeps one copy of its areas as of the
+last hand-over / join (`g_roll`): a batch's first character brings the worker's areas (equal to the copy since the last join)
+to the game's now at kickAs's setup by the chunks that changed (the worker idle); an appended character carries the chunks
+changed since the previous hand-over, old and new values (the worker applies round 104's byte rule to them); the join merges
+against the copy and writes the result to the game's area (the work stack's below the game's sp only, as before), the copy and
+the worker's area. When another job ran on the worker since (round 91's particle job, a check's reference) everything is
+copied whole. A first version tested chunk by chunk (each test a NEON-to-core move) and cost more than the copies it replaced
+(1.43 ms a frame); the tests are now by 256-byte blocks.
+**spr111** (`SOTC_SPR111`, 1): the scratchpad out of the appended characters' deltas (the game uses it in the display walk,
+not in the script pass). Monitored: the join's merge sees whether the game changed the scratchpad in the batch's window, the
+guest memory slow path counts the worker's scratchpad accesses (`ps2_worker::g_sprTouch`, ps2_memory.cpp); both in one batch
+is a violation (counted, spr111 then off). In every run: the game changed it in 0 batches, the jobs used it in 0.
+
+Exactness of the delta (`SOTC_DELTA111_VERIFY=1`: full copies taken too; on the worker round 104's bring on a copy of its
+areas against the delta, the copy against the last hand-over's areas at each join and first character):
+runs/ver5 (p5) 11 136 characters, runsb/chk7 (p7, 600 s) 23 511, runsb/ver9r (p9, route 6) 35 902, runsb/chk11 (p11, 600 s)
+19 862, runs/ver15s2 / runsb/ver15b (p15, route 6, spr111 off / on) 26 870 / 27 982: **0 bytes off**, the copy 0 off.
+Checked batches run the delta too (their full copies kept for the reference). One exception, open: runsb/chk15 (p15, the
+checks and the verify together) counted 144 bytes off and 144 in the copy over 22 095 characters (27 by frame 1 218, then
+growing), while its 101 checks found 0 differing words and the same build without the checks 0 in 54 852 characters; the
+verify's full copies of a checked batch are taken before kickAs (which joins the previous job) and the delta's after, so the
+two can see different moments, but this was not traced to the byte.
+
+### 2. Characters read early: hold111 (`SOTC_HOLD111`, 1; `SOTC_HOLD111_FRAMES`, 60; A/B `hold111`)
+
+The access joins (another object naming a batch character through the accessors: gamecore_sub_013DD8D0's GetLayoutClass,
+Agro's cloth nico_horseClothOverSurfDetectFunc's GetCharacterClass; ~1 a frame at the altar, 1.7-3 ms each) are ordered by the
+script pass: a character cannot be handed over earlier than its own frame end. So a character named by such a join is marked
+and stays on the game thread while foreign reads of it go on (the accessors' wrappers refresh the mark; it lapses 60 frames
+after the last). At the altar 1-2 characters a frame are held; access joins 750 -> 0-10 per 600 frames. A held character's
+own geometry on the game thread joins a running batch at its geometry gate instead (0.21 ms a frame at the altar). A/B hold111
+(off minus on): altar +0.21 (runs/altarAB3, p3), route 6 +0.03 (runsb/routeAB3), route 6 console env +0.24 (runsb/finalR12).
+
+### 3. The jobs' allocations: not done
+
+create_letter's iosMallocAlign join costs 0.15 ms a frame at the altar (the waits by gate below), and the jobs' own heap calls
+are rare there (3 per 600 frames, `[worker91]` exclusive heap calls: _isysCreateObj's iosCreatePartitionWithPc / iosMallocAlign,
+CreateSubLinkObjByGeometryPointer's iosMallocAlign). Letting the letter's allocation go first is exact only if the two
+allocations touch disjoint heap state: they come from different heaps (the letters' at *(0x1e1344), the jobs' from a new
+partition and the object's own), but the allocator updates one free-memory counter for all heaps (0x1e0bf0: commutative) under
+one lock, and partition creation's parent heap was not traced. Not provable here for 0.15 ms; dropped.
+
+### Where the game thread still waits (p7, runs/diag7, the altar, `[char104g]` now with the waits by gate)
+
+| gate (caller) | joins a frame | wait a frame |
+|---|---|---|
+| FlushCollisionWork (st_collisionalias+0x30: two collision aliases at distance 0 from batch characters) | 2.0 | 1.59 ms |
+| UpdateLayoutClassParentGeometry (0137E1BC: a child of a batch character) | 1.0 | 0.57 |
+| ExecCharaGeometry (Wander, held characters) | 1.5 | 0.21 |
+| iosMallocAlign (create_letter) | 1.0 | 0.15 |
+| ExecEff (manager_sub_01104814) | 0.24 | 0.08 |
+| iosGetRandom (AI) | 0.15 | 0.03 |
+
+All real dependencies (objects moved with the characters, their children, another character's geometry). The characters'
+runs before the join: 1.15 of 3.38 ms a frame; 31% of the characters ran less than a quarter of their time before it
+(runs/diag11).
+
+### Few characters, no gain: SOTC_CHAR111_MIN (6)
+
+A hand-over costs the game thread ~0.07 ms (deltas, kick) plus its share of the join's merge, ~0.1 ms a character. With
+few characters a frame the overlap does not pay: attract riding (2.9 characters a frame) -0.57 ms (runs/attractQ12, p12),
+route 6 after the shrine (3.3) +0.09, the altar (14) +0.41. Characters go to the worker only in frames after one with at
+least 6 eligible characters (a choice of thread: the results are the same). In the attract demo it hardly applied (runs/attractQ14:
+0.1 characters a frame left by it: those frames have 6 or more eligible characters, of which 3-5 reach the worker after
+the holds and the anime predictor).
+
+### Checks (`SOTC_CHAR104_CHECK=100`, with the delta)
+
+| run | build | checks | differ (live words) | dead slots (work stack / sub-thread) | scratchpad / VU0 data / registers |
+|---|---|---|---|---|---|
+| runs/ver5 (300 s) | p5 | 50 | 0 | 1 150 / 1 886 | 0 / 0 / 0 |
+| runsb/chk7 (600 s) | p7 | 110 | 0 | 3 795 / 4 714 | 0 / 0 / 0 |
+| runsb/chk11 (600 s) | p11 | 94 | 0 | 2 328 / 3 434 | 0 / 0 / 0 |
+| runsb/chk15 (600 s) | p15 (rebased) | 101 | 0 | 3 197 / 4 799 | 0 / 0 / 0 |
+
+### Measured (Vita3K 222 MHz, in-run A/B `SOTC_AB_FLAG=char104`, 60-frame windows, matched by draws, off minus on)
+
+| run | build | part | char104 |
+|---|---|---|---|
+| r109 runs/altarAB3 (round 109) | | altar from 3 300 | -6.44 |
+| runs/altarAB3 | p3 (NEON copies, hold111) | altar | +0.11 |
+| runsb/routeAB3 | p3 | route 6 from 3 000 | +0.44 |
+| runs/altarC5 / runsb/routeC5 (600 s) | p5 (delta, chunk tests) | altar / route 6 | -0.32 / -0.15 |
+| runs/altarC9 / runsb/routeC9 (600 s) | p9 (block tests) | altar / route 6 | +0.05 / +0.57 |
+| runs/altarC10 / runsb/routeC10 (600 s) | p10 (+ spr111) | altar / route 6 (3 000-6 000 / from 6 000) | +0.41 / +0.27 (+0.76 / +0.09) |
+| runs/attractQ12 (600 s) | p12 (default on) | attract riding, from 10 000 | -0.57 |
+| runsb/finalR12 (600 s, console env, guest:2) | p12 | route 6 from 4 300 (15 088 frames) | +0.36 (hold111 +0.24, delta111 -0.10) |
+| runs/altarQ14 (600 s) | p14 (rebased on round 110, default on, MIN 6) | altar from 3 300 (3 300-7 000 / from 7 000) | **+1.13** (+1.29 / +0.98) |
+| runsb/altarD14 (600 s, A/B delta111 alone) | p14 | altar | delta111 +0.13 |
+| runsb/finalR14 (600 s, console env, guest:2) | p14 | route 6 from 4 300 (13 832 frames) | **-0.71** (delta111 -0.95, hold111 -0.40) |
+| runs/attractQ14 (600 s) | p14 | attract riding, from 10 000 | **-3.52** |
+
+Noise: the altar's char104 moved +0.11 / -0.32 / +0.05 / +0.41 across builds whose own costs fell steadily; differences
+under ~0.4 ms are within it. Every run had Vita3K's 1 s host stalls (64-220 frames over 1 s a run: the host locked); ab89
+leaves frames over 700 ms out.
+
+### Conclusion
+
+The brief's diagnosis was half right: the worker was ~2x slower, but not because of its callees (the ten natives it lacked
+were worth little; the rest of its calls cost the game thread the same). It was round 104's hand-over itself: comparing and
+copying ~32 KB of areas per character with a memcmp call per 16 bytes, on both threads. With that vectorized and turned into
+deltas, a character costs the worker what it costs the game thread (0.24-0.28 ms at the altar), the game thread's waits fell
+from ~10 ms to ~2.7 ms a frame, and its own cost of the jobs from ~3.4 to ~1.3 ms a frame. On main before round 110 that made
+char104 a small gain (altar +0.41 ms, route 6 +0.27 and +0.36 in the console env; attract riding -0.57).
+
+**It stays off by default**: rebased on round 110 (per-picture display timing), the qualification set was not clean in
+Vita3K: the altar gained 1.13 ms but route 6 (console env) lost 0.71 and attract riding 3.52. In those two runs the worker
+started 0.14-0.19 ms after a hand-over (`[worker91]` start latency; 0.016-0.019 in every earlier run, and in the rebased
+altar run): each hand-over and each join then pays a slow thread wake. What remains of the dependency structure is real
+(the waits by gate above: the characters' collision aliases and children moved by their own scripts, ~2.2 ms a frame at the
+altar). Next: why the worker wakes 10x slower with round 110's pacing (thread placement against the pacing's waits; the
+console run of r111/env-console.txt says whether it happens on the hardware), then the gainless hand-overs (31% of the
+characters ran under a quarter of their time before the join) kept on the game thread.
+
+No fault in any run: the checks, the A/B runs (altar, route 6, attract, 600 s each), runsb/finalR12 / finalR14 (route 6
+600 s, console env), runs/load15 (p15, the console's memory card's save, 300 s, console env with SOTC_CHAR104=1: 6 993 frames; no character went to the worker there).
+
+The ELF has no `:128` / `:256` NEON access at an sp-based address (spalign105: 0 of 589, p12-p15).
+
+**Console.** build/agent-scratch/celosia-r111.vpk (p15: main c183511, round 110, + this round; SOTC_CHAR104 0 unless set). r111/env-console.txt
+(`SOTC_CHAR104=1 SOTC_THREAD_CORES=guest:2 SOTC_AB_FLAG=char104,hold111,delta111`): read with
+`build/agent-scratch/r111/read111.sh err.txt <from>` (ab89's matched block; `[char111]`: the hand-over path by part, the
+characters held / left on the game thread, spr111's monitor; `[char104g]`: the waits by gate). char104's windows say what the
+jobs are worth on the console's cores (Vita3K does not model the placement).
