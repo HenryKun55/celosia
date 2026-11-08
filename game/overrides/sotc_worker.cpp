@@ -261,8 +261,11 @@ namespace sotc_worker
         uint64_t g_siteJoins[kSiteCount] = {}, g_siteWaitUs[kSiteCount] = {};
         uint64_t g_kickUs = 0, g_jobStartUs = 0, g_parkStartUs = 0, g_jobUs = 0, g_parkAtUs = 0;
         bool g_jobParked = false;
+        bool g_replayParked = false;  // round 108: the job waited for the join only to make its kept calls
+        uint64_t g_replayStartUs = 0;
         std::unordered_map<uint32_t, uint64_t> g_parkCauses, g_moduleJoins;
-        uint32_t g_parkTarget = 0;
+        uint32_t g_parkTarget = 0, g_parkRa = 0;
+        std::unordered_map<uint64_t, uint64_t> g_parkSites; // round 108: (target << 32 | ra) of each park
         uint64_t g_frames = 0;
         const char *const kSiteNames[kSiteCount] = {"walk", "module", "move", "frame", "kick", "char", "access", "chan"};
         // Round 104: the job's own admit rule, its set-up and its after-join call.
@@ -295,24 +298,29 @@ namespace sotc_worker
 
         // The worker reached code it may not run beside the game thread: it
         // waits for the join, then runs the rest alone.
-        void park(uint32_t target)
+        void park(uint32_t target, uint32_t ra = 0u, bool replay = false)
         {
             std::unique_lock<std::mutex> lock(g_mutex);
             if (!g_exclusive)
             {
                 g_parked = true;
                 g_parkTarget = target;
+                g_parkRa = ra;
                 g_parkStartUs = nowUs();
-                g_jobParked = true;
+                // (round 108: waiting to make the kept calls at the end is not a park of the job's own code)
+                if (replay)
+                    g_replayParked = true;
+                else
+                    g_jobParked = true;
                 g_cvPark.wait(lock, [] { return g_exclusive; });
                 g_parked = false;
             }
             t_exclusive = true;
         }
-        __attribute__((always_inline)) inline void admit(uint32_t target)
+        __attribute__((always_inline)) inline void admit(uint32_t target, const R5900Context *ctx)
         {
             if (!t_exclusive && !safe(target))
-                park(target);
+                park(target, GPR_U32(ctx, 31));
         }
 
         // A kernel call in the exclusive part: true when answered here.
@@ -350,10 +358,261 @@ namespace sotc_worker
         // their recompiled code runs instead, whose kernel calls come here.
         constexpr uint32_t kIsysBegin = 0x001BF000u, kIsysEnd = 0x001C9000u, kTexTransRequest = 0x010AAD48u;
         bool g_recompOnly = false; // round 104: beside the game thread, the recompiled code instead of the natives (no host state shared)
+        // Round 108 (SOTC_NAT108): the natives that may run beside the game
+        // thread all the same. Each was read for host state: none but
+        // statistics and env switches, or one per lane (sotc_decomp::lane: the
+        // collision natives' epochs and kept matrices / chains, decomp_hot47j's
+        // and decomp_collision's memos and capture lane 0's only); their guest
+        // calls go through hookCall (admit, park) as the recompiled code's do.
+        // Sorted (binary search).
+        constexpr uint32_t kNat108[] = {
+            0x00125040u, // fptodp
+            0x001253A0u, // dpmul
+            0x001BC2D0u, // CopyMultiQuaternion
+            0x001BC4B0u, // GetQuaternionByAxisDirZYExact
+            0x001BDDB0u, // iosGetSinCosf
+            0x001BE898u, // iosAbsVector
+            0x001BE8F0u, // iosGetArbitraryUpVectorElement
+            0x010AC4A0u, // manager_sub_010AC4A0 (nodeQuatPos)
+            0x010AD1B0u, // GetMotionFloatFrameNoCaribration
+            0x010ADE08u, // manager_sub_010ADE08 (keyVec3)
+            0x010AE128u, // manager_sub_010AE128 (optionNodeSample)
+            0x010AEAF8u, // manager_sub_010AEAF8 (posKeyLerp)
+            0x010B1D60u, // GetMotionMatrix
+            0x010B3E98u, // GetMotionIntFrame
+            0x010B4FD8u, // GetMotionFloatFrame
+            0x010B6E80u, // GetMotionNodeBasePos
+            0x010B6F60u, // GetMotionNodeBaseQuaternion
+            0x010BA7A8u, // GetAnimationClass
+            0x010BB258u, // CalcNodeInterp
+            0x010BBA60u, // CalcNodeQuaternionWithIK
+            0x010BC2F8u, // manager_sub_010BC2F8 (rootNodes)
+            0x010BC4F0u, // manager_sub_010BC4F0 (optionNodes)
+            0x010BC718u, // manager_sub_010BC718 (childNodes)
+            0x010BD3F8u, // GetCharacterClassOptionNodeGeo
+            0x010BF8F0u, // ExecCharaGeometry
+            0x010C0A70u, // GetCharacterClass
+            0x010C1A98u, // regularizeMatAry
+            0x010C4220u, // manager_sub_010C4220 (rootBlend)
+            0x010C4CA8u, // AddCharacterClassSubGeometries
+            0x010C6238u, // manager_sub_010C6238 (gaze)
+            0x010CBD48u, // CheckControlDef
+            0x010D9FC0u, // GetCharaRootDynamics
+            0x010DAE30u, // GetCharaRootDynamicsAfter
+            0x010DC808u, // charrootdyn_slideExceptionJudgeCB
+            0x010E1068u, // manager_sub_010E1068 (aimIk)
+            0x010ED688u, // GetGeoDispClass
+            0x010F1A20u, // GetLayoutClass
+            0x010F1D60u, // FlushCollisionWork
+            0x010F26D0u, // UpdateLayoutClassGeometry
+            0x01100BD8u, // GetSkeletonFocusNode
+            0x0110CB28u, // GetScriptCharacterClass
+            0x01114C70u, // manager_sub_01114C70 (verticesIndepEntry)
+            0x01115D00u, // manager_sub_01115D00 (treeNode)
+            0x01116958u, // manager_sub_01116958 (finder)
+            0x01117EA0u, // manager_sub_01117EA0 (waterProbe)
+            0x01118B88u, // manager_sub_01118B88 (movedPoint)
+            0x01119248u, // getLayoutClassCollisionIndepSurfBoundary
+            0x011193C8u, // GetCollisionDBSurfBoundary
+            0x0111B9F0u, // ClipCollisionDB
+            0x0111C078u, // manager_sub_0111C078 (clipKeep)
+            0x0111C810u, // manager_sub_0111C810 (slopeProbe)
+            0x0111EF10u, // ClipCollisionFinderWithKeep4DSlopeLimitCB
+            0x01124410u, // FlushCollisionWorkByWorkStruct
+            0x01124C88u, // GetCollisionDBCallBack (its memos lane 0's)
+            0x011257A0u, // GetCollisionDBPlane
+            0x01125B30u, // GetCollisionDBAttributeAdr
+            0x01125CC0u, // ClipCollisionFinderCallBack
+            0x01125DC8u, // ClipCollisionFinder
+            0x01125F90u, // ClipCollisionFinderWithKeep
+            0x01128F38u, // collisionFinderWalk (its capture lane 0's)
+            0x011292B0u, // manager_sub_011292B0 (the finder's filter entry)
+            0x01129988u, // manager_sub_01129988 (keepThenSlope)
+            0x0112A250u, // EntryCollisionFinder
+            0x0112BE58u, // manager_sub_0112BE58 (the collision leaf)
+            0x0112C498u, // manager_sub_0112C498 (the node's low side)
+            0x0112C610u, // manager_sub_0112C610 (the node's high side)
+            0x01131C80u, // manager_sub_01131C80 (the node visitor)
+            0x01133548u, // GetArbitraryDirectionInverseMatrix
+            0x011370E8u, // manager_sub_011370E8 (clothStep)
+            0x01137640u, // manager_sub_01137640 (cloth velocity)
+            0x01137858u, // manager_sub_01137858 (cloth constrain)
+            0x011399E0u, // getClothDynamics
+            0x0113F378u, // get_top_emitter_list_from_particle_geodisp
+            0x01146A50u, // GetWindVector
+            0x01147798u, // FlushModifiedManager
+            0x011478B8u, // EntryModifiedManager
+            0x0116A0D4u, // manager_sub_0116A0D4 (segmentTriangle)
+            0x01365450u, // StageManagerCheckAreaExist
+            0x01372068u, // gamecore_sub_01372068 (footIk)
+            0x01374498u, // nico_IK_legCalcAndSetUpper
+            0x0137D790u, // _setNodeHPBIllegal
+        };
+        bool g_nat108 = false, g_nextNat108 = false;
+        inline bool nat108(uint32_t target)
+        {
+            const uint32_t *e = std::end(kNat108);
+            const uint32_t *it = std::lower_bound(std::begin(kNat108), e, target);
+            return it != e && *it == target;
+        }
+        // ---- Round 108 (SOTC_SNAP108): isys group walks from a snapshot ----------
+        // isysGroupForFirst (a0 the group; v0 the first link whose +0xc byte is 0
+        // and whose object's +0xa bit 0 is clear, its object's walk count +9 up
+        // by one; under the isys lock), isysGroupForNext (a0 a link; v0 the next
+        // such link, the walk count moved from the old object to the new one;
+        // the old one's stays when there is none), isysGroupForExit (a0 an
+        // object: its walk count down by one, v0 the old count + 0xff). The
+        // snapshot holds each wanted group's links as these would find them at
+        // the hand-over (the job's own order is the original's: it comes
+        // before anything the game thread does later); the worker answers from
+        // it without the lock (taken and given back, nothing else) and without
+        // the walk counts (up and down again over a whole walk: a walk that
+        // stops early ends with ForExit, as in the original).
+        constexpr uint32_t kForFirst = 0x001C7110u, kForNext = 0x001C76D0u, kForExit = 0x001C77B8u, kLinkBase = 0x0021B900u;
+        struct SnapGroup
+        {
+            uint32_t group, begin, end; // [begin, end) in g_snapLinks
+        };
+        std::vector<SnapGroup> g_snapGroups;
+        std::vector<uint32_t> g_snapLinks;
+        std::vector<uint32_t> g_snapObjs;                     // each link's object
+        std::vector<uint8_t> g_snapCounts;                    // its walk count at the snapshot
+        std::vector<uint32_t> g_snapHits;                     // answers per group (the game thread reads them after the join)
+        std::vector<uint32_t> g_snapMiss;                    // the worker's: groups walked that are not in it
+        uint64_t g_snapAnswered = 0, g_snapMissed = 0, g_snapLinkCount = 0, g_snapResidual = 0;
+        bool g_snapOn = false, g_snapNext = false; // the job's / the next kickAs's
+        // Round 108 (SOTC_ANIME108): calls kept with their context for the job's end.
+        struct Deferred
+        {
+            R5900Context ctx; // at the call: pc the target, ra the return
+            uint32_t sp;
+            uint8_t stack[0x400]; // [sp - 0x400, sp)
+            void (*host)(void *) = nullptr; // or a host step kept in the same order (deferHost)
+            void *arg = nullptr;
+        };
+        std::vector<Deferred *> g_deferred;
+        uint32_t g_deferTarget = 0, g_deferNextTarget = 0;
+        uint64_t g_deferMade = 0, g_deferR = 0;
+        inline uint32_t ram32(const uint8_t *rdram, uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 4);
+            return v;
+        }
+        inline uint16_t ram16(const uint8_t *rdram, uint32_t a)
+        {
+            uint16_t v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 2);
+            return v;
+        }
+        inline uint32_t linkAt(uint16_t index) { return index == 0u ? 0u : kLinkBase + static_cast<uint32_t>(index) * 0x18u; }
+        // The group's links as the walk functions would give them now (false: a broken list).
+        bool liveLinks(const uint8_t *rdram, uint32_t group, std::vector<uint32_t> &out)
+        {
+            if (group == 0u || group >= PS2_RAM_SIZE - 4u)
+                return false;
+            uint32_t steps = 0;
+            for (uint32_t link = linkAt(ram16(rdram, group)); link != 0u; link = linkAt(ram16(rdram, link + 0xEu)))
+            {
+                if (link >= PS2_RAM_SIZE - 0x18u || ++steps > 0x4000u)
+                    return false;
+                if (rdram[link + 0xCu] != 0u)
+                    continue;
+                const uint32_t object = ram32(rdram, link);
+                if (object == 0u || object >= PS2_RAM_SIZE - 0x10u)
+                    return false;
+                if ((ram16(rdram, object + 0xAu) & 1u) != 0u)
+                    continue;
+                out.push_back(link);
+            }
+            return true;
+        }
+        // The walk counts the job's snapshot walks hold (object -> count): each
+        // ForFirst / ForNext answered here raises its object's, each ForNext /
+        // ForExit lowers it, as the original's +9 bytes; only an object (and a
+        // link) of such a walk is answered here, so a walk of another group,
+        // made by the recompiled code, keeps its own counts. What is left at
+        // the job's end (a walk left open) goes into the +9 bytes at the join.
+        std::vector<std::pair<uint32_t, int>> g_snapVirt; // (a few: the walks open at once)
+        inline int *virtOf(uint32_t object, bool make)
+        {
+            for (auto &e : g_snapVirt)
+                if (e.first == object)
+                    return &e.second;
+            if (!make)
+                return nullptr;
+            g_snapVirt.push_back({object, 0});
+            return &g_snapVirt.back().second;
+        }
+        // On the worker (beside the game thread or not, the job's walk as one): true when answered (v0 set, pc at returnPc).
+        bool snapAnswer(const uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc)
+        {
+            const uint32_t a0 = GPR_U32(ctx, 4);
+            if (target == kForFirst)
+            {
+                for (size_t k = 0; k < g_snapGroups.size(); ++k)
+                    if (const SnapGroup &gr = g_snapGroups[k]; gr.group == a0)
+                    {
+                        const uint32_t first = gr.begin < gr.end ? g_snapLinks[gr.begin] : 0u;
+                        if (first != 0u)
+                            ++*virtOf(g_snapObjs[gr.begin], true);
+                        ++g_snapHits[k];
+                        SET_GPR_U64(ctx, 2, first);
+                        ctx->pc = returnPc;
+                        ++g_snapAnswered;
+                        return true;
+                    }
+                if (!t_exclusive)
+                {
+                    if (g_snapMiss.size() < 16u && std::find(g_snapMiss.begin(), g_snapMiss.end(), a0) == g_snapMiss.end())
+                        g_snapMiss.push_back(a0);
+                    ++g_snapMissed;
+                }
+                return false;
+            }
+            if (target == kForNext)
+            {
+                const auto it = std::find(g_snapLinks.begin(), g_snapLinks.end(), a0);
+                if (it == g_snapLinks.end())
+                    return false;
+                const uint32_t i = static_cast<uint32_t>(it - g_snapLinks.begin());
+                int *v = virtOf(g_snapObjs[i], false);
+                if (!v || *v <= 0)
+                    return false; // (not a walk of ours)
+                uint32_t next = 0u;
+                for (const SnapGroup &gr : g_snapGroups)
+                    if (i >= gr.begin && i < gr.end)
+                    {
+                        next = i + 1u < gr.end ? g_snapLinks[i + 1u] : 0u;
+                        break;
+                    }
+                if (next != 0u)
+                {
+                    --*v;
+                    ++*virtOf(g_snapObjs[i + 1u], true);
+                }
+                SET_GPR_U64(ctx, 2, next);
+                ctx->pc = returnPc;
+                ++g_snapAnswered;
+                return true;
+            }
+            // kForExit
+            int *v = virtOf(a0, false);
+            if (!v || *v <= 0)
+                return false;
+            const auto c = std::find(g_snapObjs.begin(), g_snapObjs.end(), a0);
+            const uint32_t before = (c == g_snapObjs.end() ? 0u : g_snapCounts[c - g_snapObjs.begin()]) + static_cast<uint32_t>(*v);
+            --*v;
+            SET_GPR_U64(ctx, 2, static_cast<uint64_t>(before & 0xFFu) + 0xFFu); // lbu + 0xff
+            ctx->pc = returnPc;
+            ++g_snapAnswered;
+            return true;
+        }
+
         inline PS2Runtime::RecompiledFunction ownFunction(PS2Runtime *shell, uint32_t target)
         {
             PS2Runtime::RecompiledFunction fn = shell->guestFunctionAt(target);
-            if (g_recompOnly && !t_exclusive)
+            if (g_recompOnly && !t_exclusive && !(g_nat108 && nat108(target)))
                 if (const PS2Runtime::RecompiledFunction r = sotc_decomp::recompiled(target))
                     return r;
             if ((target >= kIsysBegin && target < kIsysEnd) || target == kTexTransRequest)
@@ -375,7 +634,7 @@ namespace sotc_worker
             while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
             {
                 const uint32_t pc = ctx->pc;
-                admit(pc);
+                admit(pc, ctx);
                 if (kernel(pc, ctx)) // (t_exclusive here: the kernel is never safe)
                 {
                     ctx->pc = GPR_U32(ctx, 31);
@@ -410,7 +669,25 @@ namespace sotc_worker
             }
             if (__builtin_expect(g_census, 0))
                 ++g_calls[target];
-            admit(target);
+            if (g_snapOn && (target == kForFirst || target == kForNext || target == kForExit) && snapAnswer(rdram, ctx, target, returnPc))
+                return true;
+            if (target == g_deferTarget && !t_exclusive)
+            {
+                const uint32_t sp = GPR_U32(ctx, 29);
+                if (sp >= 0x400u && sp < PS2_RAM_SIZE)
+                {
+                    Deferred *d = new Deferred;
+                    d->ctx = *ctx;
+                    d->ctx.pc = target;
+                    SET_GPR_U32(&d->ctx, 31, returnPc);
+                    d->sp = sp;
+                    std::memcpy(d->stack, rdram + sp - 0x400u, 0x400u);
+                    g_deferred.push_back(d);
+                    ctx->pc = returnPc;
+                    return true;
+                }
+            }
+            admit(target, ctx);
             ctx->pc = target;
             if (kernel(target, ctx))
             {
@@ -436,7 +713,9 @@ namespace sotc_worker
             ++shell->m_guestJumpSerial;
             if (__builtin_expect(g_census, 0))
                 ++g_calls[target];
-            admit(target);
+            if (g_snapOn && (target == kForFirst || target == kForNext || target == kForExit) && snapAnswer(rdram, ctx, target, GPR_U32(ctx, 31)))
+                return;
+            admit(target, ctx);
             if (kernel(target, ctx))
             {
                 ctx->pc = GPR_U32(ctx, 31);
@@ -488,6 +767,29 @@ namespace sotc_worker
                 g_shell->m_eeClock.setGate(~0ull);
                 R5900Context *const ctx = &g_own->ctx;
                 job(g_rdram, ctx, g_shell, arg);
+                // Round 108: the calls kept with their context, once the game thread has joined, in order.
+                if (!g_deferred.empty())
+                {
+                    g_replayStartUs = nowUs();
+                    park(g_deferTarget, 0u, true);
+                    for (Deferred *d : g_deferred)
+                    {
+                        if (d->host)
+                        {
+                            d->host(d->arg);
+                            delete d;
+                            continue;
+                        }
+                        std::memcpy(g_rdram + d->sp - 0x400u, d->stack, 0x400u);
+                        uint32_t r0[4]; // (bytes, not an __m128 local: no aligned NEON store to the stack)
+                        std::memcpy(r0, &d->ctx.vu0_r, 16);
+                        sotc_decomp::callGuest(g_rdram, &d->ctx, g_shell, d->ctx.pc, GPR_U32(&d->ctx, 31), d->sp);
+                        g_deferR += std::memcmp(r0, &d->ctx.vu0_r, 16) != 0;
+                        ++g_deferMade;
+                        delete d;
+                    }
+                    g_deferred.clear();
+                }
                 // The kept calls, once the game thread has joined.
                 if (!g_kept.empty())
                 {
@@ -673,8 +975,101 @@ namespace sotc_worker
         return g_parked;
     }
     bool lastJobParked() { return g_jobParked; }
+    void lastJobTimes(uint64_t &jobUs, uint64_t &parkAtUs)
+    {
+        jobUs = g_jobUs;
+        parkAtUs = g_jobParked ? g_parkAtUs : g_replayParked && g_replayStartUs > g_jobStartUs ? g_replayStartUs - g_jobStartUs : 0u;
+    }
     void setCallCensus(bool on) { g_census = on; }
     void recompiledNext() { g_nextRecomp = true; }
+    void nativesNext(bool on) { g_nextNat108 = on; }
+    void deferNext(uint32_t target) { g_deferNextTarget = target; }
+    bool deferHost(void (*fn)(void *), void *arg)
+    {
+        if (!t_onWorker || t_exclusive || g_deferTarget == 0u)
+            return false;
+        Deferred *d = new Deferred;
+        d->host = fn;
+        d->arg = arg;
+        g_deferred.push_back(d);
+        return true;
+    }
+    void deferStats(uint64_t &made, uint64_t &rDrawn)
+    {
+        made = g_deferMade;
+        rDrawn = g_deferR;
+        g_deferMade = g_deferR = 0;
+    }
+
+    void snapGroups(uint8_t *rdram, const uint32_t *groups, int n)
+    {
+        // (the game thread, the worker idle: kickAs comes next)
+        g_snapGroups.clear();
+        g_snapLinks.clear();
+        g_snapObjs.clear();
+        g_snapCounts.clear();
+        g_snapHits.clear();
+        g_snapMiss.clear();
+        for (int k = 0; k < n; ++k)
+        {
+            const uint32_t begin = static_cast<uint32_t>(g_snapLinks.size());
+            if (!liveLinks(rdram, groups[k], g_snapLinks))
+            {
+                g_snapLinks.resize(begin);
+                continue;
+            }
+            g_snapGroups.push_back({groups[k], begin, static_cast<uint32_t>(g_snapLinks.size())});
+        }
+        for (uint32_t i = 0; i < g_snapLinks.size(); ++i)
+        {
+            const uint32_t object = ram32(rdram, g_snapLinks[i]);
+            g_snapObjs.push_back(object);
+            g_snapCounts.push_back(rdram[object + 9u]);
+        }
+        g_snapHits.assign(g_snapGroups.size(), 0u);
+        g_snapLinkCount += g_snapLinks.size();
+        g_snapNext = true;
+    }
+    int snapGroupHits(uint32_t *groups, uint32_t *hits, int max)
+    {
+        int n = 0;
+        for (size_t k = 0; k < g_snapGroups.size() && n < max; ++k, ++n)
+        {
+            groups[n] = g_snapGroups[k].group;
+            hits[n] = g_snapHits[k];
+        }
+        return n;
+    }
+    bool snapValid(const uint8_t *rdram)
+    {
+        if (!g_snapOn)
+            return true;
+        static std::vector<uint32_t> live; // (the game thread's)
+        for (const SnapGroup &gr : g_snapGroups)
+        {
+            live.clear();
+            if (!liveLinks(rdram, gr.group, live) || live.size() != gr.end - gr.begin ||
+                !std::equal(live.begin(), live.end(), g_snapLinks.begin() + gr.begin))
+                return false;
+        }
+        return true;
+    }
+    int missedGroups(uint32_t *out, int max)
+    {
+        int n = 0;
+        for (uint32_t gr : g_snapMiss)
+            if (n < max)
+                out[n++] = gr;
+        return n;
+    }
+    void snapStats(uint64_t &answered, uint64_t &missed, uint64_t &links, uint64_t &residual)
+    {
+        answered = g_snapAnswered;
+        missed = g_snapMissed;
+        links = g_snapLinkCount;
+        residual = g_snapResidual;
+        g_snapAnswered = g_snapMissed = g_snapLinkCount = g_snapResidual = 0;
+    }
     void callCensusReport(const char *tag)
     {
         std::vector<std::pair<uint64_t, uint32_t>> v;
@@ -699,6 +1094,12 @@ namespace sotc_worker
         g_admitFn = admitFn;
         g_recompOnly = g_nextRecomp;
         g_nextRecomp = false;
+        g_nat108 = g_nextNat108;
+        g_nextNat108 = false;
+        g_snapOn = g_snapNext;
+        g_snapNext = false;
+        g_deferTarget = g_deferNextTarget;
+        g_deferNextTarget = 0;
         g_joinedFn = joined;
         g_joinedArg = arg;
         // Its context: the game thread's, sp on its own stack; VU0's R its own stream.
@@ -725,6 +1126,7 @@ namespace sotc_worker
             }
         g_kickUs = nowUs();
         g_jobParked = false;
+        g_replayParked = false;
         {
             std::lock_guard<std::mutex> lock(g_mutex);
             g_job = job;
@@ -757,6 +1159,18 @@ namespace sotc_worker
             g_phase = kIdle;
         }
         g_busy.store(false, std::memory_order_relaxed);
+        if (g_snapOn)
+        {
+            // Round 108: the walk counts the job's snapshot walks left raised (a walk left open), as the original leaves them.
+            for (const auto &[object, v] : g_snapVirt)
+                if (v != 0 && object < PS2_RAM_SIZE - 0x10u)
+                {
+                    g_rdram[object + 9u] = static_cast<uint8_t>(g_rdram[object + 9u] + v);
+                    ++g_snapResidual;
+                }
+            g_snapVirt.clear();
+            g_snapOn = false;
+        }
         const uint64_t wait = nowUs() - t0;
         if (g_joinedFn)
         {
@@ -775,6 +1189,7 @@ namespace sotc_worker
             ++g_parks;
             g_parkUsSum += g_parkAtUs;
             ++g_parkCauses[g_parkTarget];
+            ++g_parkSites[(static_cast<uint64_t>(g_parkTarget) << 32) | g_parkRa];
         }
     }
 
@@ -859,6 +1274,16 @@ namespace sotc_worker
         for (const auto &[at, c] : g_moduleJoins)
             causes.push_back({c, at});
         std::sort(causes.rbegin(), causes.rend());
+        {
+            std::vector<std::pair<uint64_t, uint64_t>> sites;
+            for (const auto &[k, c] : g_parkSites)
+                sites.push_back({c, k});
+            std::sort(sites.rbegin(), sites.rend());
+            std::fprintf(stderr, " | park sites (target/ra)");
+            for (size_t i = 0; i < sites.size() && i < 12u; ++i)
+                std::fprintf(stderr, " %08x/%08x x%llu", static_cast<uint32_t>(sites[i].second >> 32), static_cast<uint32_t>(sites[i].second), (unsigned long long)sites[i].first);
+            g_parkSites.clear();
+        }
         std::fprintf(stderr, " | module joins at");
         for (size_t i = 0; i < causes.size() && i < 6u; ++i)
             std::fprintf(stderr, " %08x x%llu", causes[i].second, (unsigned long long)causes[i].first);

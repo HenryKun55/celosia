@@ -44,6 +44,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
     void install(PS2Runtime &runtime);
     void frameTick(uint64_t frame);
     void setAb(bool on);
+    void setAb108(bool nat, bool snap, bool anime); // round 108
 }
 #include "lines67.h"
 #include "lean_hot.h"
@@ -3384,6 +3385,17 @@ namespace sotc_native
                 sotc_decomp::setSwitch(sotc_decomp::kSw102, isOffAt(r102AllAt) ? false : switchStart[sotc_decomp::kSw102]);
         if (char104At >= 0 || r104AllAt >= 0) // round 104
             char104::setAb(!((char104At >= 0 && isOffAt(char104At)) || (r104AllAt >= 0 && isOffAt(r104AllAt))));
+        {
+            // Round 108: `nat108` (the worker's natives), `snap108` (the group walks' snapshot), `anime108` (the anime
+            // tables at the batch's end) each off in their windows, `r108all` the three.
+            static const int at108[4] = {indexOf("r108all"), indexOf("nat108"), indexOf("snap108"), indexOf("anime108")};
+            if (at108[0] >= 0 || at108[1] >= 0 || at108[2] >= 0 || at108[3] >= 0)
+            {
+                const bool all = at108[0] >= 0 && isOffAt(at108[0]);
+                const auto on = [&](int k) { return !(all || (at108[k] >= 0 && isOffAt(at108[k]))); };
+                char104::setAb108(on(1), on(2), on(3));
+            }
+        }
         if (log76At >= 0) // round 76: the frame log's lines formatted on its own thread
             log76::g_switch = !isOffAt(log76At);
         // Round 105: `worker105`, `build105`, `log105`, `render105` each off

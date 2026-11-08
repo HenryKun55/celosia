@@ -67,11 +67,44 @@ namespace sotc_worker
     bool parked();
     // The last joined job parked at some point (round 104's checks).
     bool lastJobParked();
+    // Round 108: the last joined job's time on the worker and when it parked (0: never), µs.
+    void lastJobTimes(uint64_t &jobUs, uint64_t &parkAtUs);
     // Round 104: the worker's call targets counted (SOTC_CHAR104_CALLS): printed and cleared (game thread, idle worker).
     void setCallCensus(bool on);
     // Round 104: the next kickAs's job runs the recompiled code (not the natives) while beside the game thread.
     void recompiledNext();
     void callCensusReport(const char *tag);
+    // Round 108 (SOTC_NAT108, decomp_char104's jobs): beside the game thread a
+    // recompiledNext job runs the natives of an audited list (their host state
+    // one per lane or none: sotc_decomp::lane) instead of their recompiled
+    // code; anything else stays recompiled. Set before the hand-over.
+    void nativesNext(bool on);
+    // Round 108 (SOTC_SNAP108): the isys group walks (isysGroupForFirst / Next /
+    // Exit) of the groups in `groups` answered on the worker from a copy of
+    // their lists the game thread makes at the hand-over (snapGroups, before
+    // kickAs), without the isys lock and the objects' walk counts (a whole
+    // walk leaves them as they were). A walk of another group parks as before;
+    // its group is reported (missedGroups, game thread, after the join).
+    void snapGroups(uint8_t *rdram, const uint32_t *groups, int n);
+    int missedGroups(uint32_t *out, int max);
+    // The snapshot's groups and the walks answered in each (game thread, after the join).
+    int snapGroupHits(uint32_t *groups, uint32_t *hits, int max);
+    // The snapshot still matches the live lists (game thread, the worker busy
+    // or idle: reads only): false when a group changed since snapGroups.
+    bool snapValid(const uint8_t *rdram);
+    // Snapshot answers / misses since the last call (statistics).
+    void snapStats(uint64_t &answered, uint64_t &missed, uint64_t &links, uint64_t &residual);
+    // Round 108 (SOTC_ANIME108): the next kickAs's job keeps its calls of `target`
+    // made beside the game thread (their context and 0x400 bytes of guest stack
+    // below sp as at the call; the caller goes on as if it had returned, its
+    // registers as they were) and makes them at the job's end, once the game
+    // thread has joined, in their order, each from its own context. 0: none.
+    void deferNext(uint32_t target);
+    // On the worker, deferNext active, beside the game thread: a host step kept in
+    // the same list (made in order with the kept calls). False: make it now.
+    bool deferHost(void (*fn)(void *), void *arg);
+    // Calls kept and made / those whose context's VU0 R changed in them (statistics, cleared).
+    void deferStats(uint64_t &made, uint64_t &rDrawn);
     // The game thread asks for the guest function at `target` to be called
     // after the job, on the worker, with its context (a0-a3 as given, ra the
     // caller's return). False when no job is running any more: the caller

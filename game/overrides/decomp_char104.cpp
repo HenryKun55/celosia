@@ -37,7 +37,7 @@
 
 namespace decomp_collision
 {
-    extern uint64_t g_guestRuns;
+    extern uint64_t g_guestRuns, g_guestRunsW;
 }
 
 namespace char104
@@ -245,11 +245,17 @@ namespace char104
         uint64_t g_gateJoins[kGateCount] = {};
         bool g_gatesOn = false;
         void gateJoin(int i);
+        void gateArg(uint32_t gate, uint32_t a0); // round 108: is the gate's a0 a character of the batch (below)
+        std::unordered_map<uint64_t, uint64_t> g_gateSites; // round 108: (gate << 32 | ra) of each join
         template <int I>
         void gate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             if (!ps2_worker::isShell(runtime) && sotc_worker::busy())
+            {
+                ++g_gateSites[(static_cast<uint64_t>(kGate[I]) << 32) | GPR_U32(ctx, 31)];
+                gateArg(kGate[I], GPR_U32(ctx, 4));
                 gateJoin(I);
+            }
             g_gateOrig[I](rdram, ctx, runtime);
         }
         template <int... I>
@@ -388,6 +394,17 @@ namespace char104
         constexpr int kQueue = 24;
 
         int g_mode = -1, g_joinAt = 0, g_check = 0, g_calls = 0, g_recomp = 0;
+        // Round 108: the worker's natives (SOTC_NAT108, sotc_worker's audited list) and the
+        // isys group walks from a snapshot (SOTC_SNAP108); both 1 unless set (only with SOTC_CHAR104).
+        int g_nat108 = 1, g_snap108 = 1, g_ref108 = 2, g_anime108 = 0;
+        bool g_abNat = true, g_abSnap = true, g_abAnime = true; // the A/B's windows (nat108 / snap108 / r108all off: false)
+        // The groups wanted in the snapshot: each one a job walked outside it (missed), kept while jobs walk it
+        // (dropped after 600 frames without a walk: the cloth strings' groups come and go with their characters).
+        constexpr int kSnapMax = 64;
+        uint32_t g_snapWanted[kSnapMax] = {};
+        uint64_t g_snapLast[kSnapMax] = {};
+        int g_snapWantedN = 0, g_kickSnapN = 0;
+        uint64_t g_parUs = 0, g_gameBesideUs = 0, g_appendRefused = 0; // round 108's statistics
         float g_near = 12.0f;
         bool g_ab = true; // the A/B's window (char104 / r104all off: false)
 
@@ -413,7 +430,7 @@ namespace char104
         R5900Context *g_gameCtx = nullptr;
         __m128 g_kickR;
         uint32_t g_workTop = 0, g_postTop = 0; // the worker's stand-ins for the work stack's top and the frame end's sp
-        uint64_t g_kickUs = 0;
+        uint64_t g_kickUs = 0, g_joinStartUs = 0;
         uint32_t g_postSkip = 0; // the object whose Postprocess the frame end leaves out
 
         // Statistics (the game thread's).
@@ -432,6 +449,10 @@ namespace char104
             g_check = envInt("SOTC_CHAR104_CHECK", 0);
             g_calls = envInt("SOTC_CHAR104_CALLS", 0);
             g_recomp = envInt("SOTC_CHAR104_RECOMP", 0);
+            g_nat108 = envInt("SOTC_NAT108", 1);
+            g_snap108 = envInt("SOTC_SNAP108", 1);
+            g_ref108 = envInt("SOTC_CHAR108_REF", 2);
+            g_anime108 = envInt("SOTC_ANIME108", 0); // (0: not exact, see below)
             if (const char *e = std::getenv("SOTC_CHAR104_NEAR"))
                 g_near = static_cast<float>(std::atof(e));
             if (g_calls)
@@ -476,8 +497,10 @@ namespace char104
                 return false;
             if (target >= 0x01158000u && target < 0x01159200u) // the sound module (sePlay*)
                 return false;
-            if (target >= 0x01167000u && target < 0x0116B000u) // the anime tables, their sequences, rand
+            if (target >= 0x01167000u && target < 0x01169B70u) // the letters' kinds, the anime tables, their sequences (sound, particles, wind)
                 return false;
+            if (target >= 0x0116AD00u && target < 0x0116AD80u) // srand, rand (round 108: the path data's getters, the segment / triangle
+                return false;                                  // test at 0x0116A0D4, qsort and rintf between them run beside)
             return true;
         }
 
@@ -525,12 +548,41 @@ namespace char104
         }
 
         // One character on the worker (the worker's areas already brought to its view).
-        void runItem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, Item &it)
+        void itemTail(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, Item &it);
+        struct Tail
         {
-            PS2Runtime *const runtime = shell; // (the memory macros' name)
+            uint8_t *rdram;
+            R5900Context *ctx;
+            PS2Runtime *shell;
+            Item *it;
+        };
+        Tail g_tails[kQueue];
+        void tailKept(void *arg)
+        {
+            // Round 108: the area test and the Postprocess after the character's anime tables, at the batch's end
+            // (the original's order within the character: its anime tables, then these).
+            Tail &t = *static_cast<Tail *>(arg);
+            std::memcpy(t.rdram + g_postTop - kPostCopy, t.it->post, kPostCopy);
+            itemTail(t.rdram, t.ctx, t.shell, *t.it);
+            std::memcpy(t.it->postOut, t.rdram + g_postTop - kPostCopy, kPostCopy);
+        }
+        bool runItem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, Item &it, int index)
+        {
             SET_GPR_U32(ctx, 4, it.obj);
             SET_GPR_U32(ctx, 5, kPoint);
             sotc_decomp::callGuest(rdram, ctx, shell, sotc_decomp::jalTarget(rdram, 0x013CFC50u), 0x013CFC58u, g_workTop); // ExecCharaGeometry
+            if (index >= 0)
+            {
+                g_tails[index] = {rdram, ctx, shell, &it};
+                if (sotc_worker::deferHost(tailKept, &g_tails[index]))
+                    return true;
+            }
+            itemTail(rdram, ctx, shell, it);
+            return false;
+        }
+        void itemTail(uint8_t *rdram, R5900Context *ctx, PS2Runtime *shell, Item &it)
+        {
+            PS2Runtime *const runtime = shell; // (the memory macros' name)
             SET_GPR_U32(ctx, 4, it.obj);
             sotc_decomp::callGuest(rdram, ctx, shell, sotc_decomp::jalTarget(rdram, 0x013CFC58u), 0x013CFC60u, g_workTop); // GetLayoutClass
             SET_GPR_S32(ctx, 4, static_cast<int32_t>(READ32(GPR_U32(ctx, 2) + 0x134u)));
@@ -549,7 +601,7 @@ namespace char104
             bring(sotc_worker::ownScratchpad(), nullptr, it.spr, PS2_SCRATCHPAD_SIZE);
             bring(sotc_worker::ownVu0Data(), nullptr, it.vu0, PS2_VU0_DATA_SIZE);
             std::memcpy(rdram + g_postTop - kPostCopy, it.post, kPostCopy);
-            runItem(rdram, ctx, shell, it);
+            runItem(rdram, ctx, shell, it, -1);
             // its areas as the parallel run's join leaves them (merged into the state put back from S0)
             relocate(rdram, g_workTop - kStackCopy, kStackCopy + 0x40u, g_workTop - kStackCopy, kStackCopy + 0x40u, kWorkStack - g_workTop);
             merge(rdram + kWorkStack - kStackCopy, it.stack, rdram + g_workTop - kStackCopy, kStackCopy + 0x40u);
@@ -576,8 +628,8 @@ namespace char104
                 bring(sotc_worker::ownScratchpad(), prev ? prev->spr : nullptr, it.spr, PS2_SCRATCHPAD_SIZE);
                 bring(sotc_worker::ownVu0Data(), prev ? prev->vu0 : nullptr, it.vu0, PS2_VU0_DATA_SIZE);
                 std::memcpy(rdram + g_postTop - kPostCopy, it.post, kPostCopy);
-                runItem(rdram, ctx, shell, it);
-                std::memcpy(it.postOut, rdram + g_postTop - kPostCopy, kPostCopy);
+                if (!runItem(rdram, ctx, shell, it, i))
+                    std::memcpy(it.postOut, rdram + g_postTop - kPostCopy, kPostCopy);
             }
             g_itemUs = nowUs() - t0;
         }
@@ -593,6 +645,8 @@ namespace char104
 
         void batchSetup(void *)
         {
+            // Round 108: guest memory is the game thread's again for the worker's lane (its kept values: a new epoch).
+            ++decomp_collision::g_guestRunsW;
             R5900Context *wc = sotc_worker::ownContext();
             g_workTop = sotc_worker::stackTop() - 0x40u;  // the work stack's top's stand-in: [top - 0x3040, top)
             g_postTop = sotc_worker::stackTop() - 0x5800u; // the frame end's sp's: [top - 0x6000, top - 0x5800), above the answers
@@ -637,6 +691,43 @@ namespace char104
                 g_gameCtx->vu0_r = wc->vu0_r;
                 ++g_rTaken;
             }
+            ++decomp_collision::g_guestRuns; // round 108: the job changed guest memory under the game thread's lane
+            {
+                // Round 108: groups the job walked outside the snapshot, wanted from the next hand-over on.
+                const uint64_t frame = sotc_decomp::g_gameFrame;
+                uint32_t miss[kSnapMax], hits[kSnapMax];
+                int n = sotc_worker::snapGroupHits(miss, hits, kSnapMax);
+                for (int i = 0; i < n; ++i)
+                    if (hits[i])
+                        for (int k = 0; k < g_snapWantedN; ++k)
+                            if (g_snapWanted[k] == miss[i])
+                                g_snapLast[k] = frame;
+                for (int k = 0; k < g_snapWantedN;)
+                    if (g_snapLast[k] + 600u < frame)
+                    {
+                        g_snapWanted[k] = g_snapWanted[g_snapWantedN - 1];
+                        g_snapLast[k] = g_snapLast[g_snapWantedN - 1];
+                        --g_snapWantedN;
+                    }
+                    else
+                        ++k;
+                n = sotc_worker::missedGroups(miss, kSnapMax);
+                for (int i = 0; i < n; ++i)
+                    if (g_snapWantedN < kSnapMax && std::find(g_snapWanted, g_snapWanted + g_snapWantedN, miss[i]) == g_snapWanted + g_snapWantedN)
+                    {
+                        g_snapLast[g_snapWantedN] = frame;
+                        g_snapWanted[g_snapWantedN++] = miss[i];
+                    }
+                // how much of the batch ran beside the game thread: the worker's time before it parked
+                // (all of it when it did not), within the game thread's time from the hand-over to the join
+                uint64_t jobUs = 0, parkAt = 0;
+                sotc_worker::lastJobTimes(jobUs, parkAt);
+                const uint64_t joinStart = g_joinStartUs ? g_joinStartUs : nowUs(); // (a join from sotc_worker's own sites)
+                const uint64_t besideGame = joinStart > g_kickUs ? joinStart - g_kickUs : 0u;
+                const uint64_t workerFree = parkAt ? parkAt : jobUs;
+                g_parUs += std::min(workerFree, besideGame);
+                g_gameBesideUs += besideGame;
+            }
             g_batchUs += nowUs() - g_kickUs;
             g_workerUs += g_itemUs;
             g_parkedBatches += sotc_worker::lastJobParked();
@@ -652,6 +743,12 @@ namespace char104
         return g_ab ? g_mode : 0;
     }
     void setAb(bool on) { g_ab = on; }
+    void setAb108(bool nat, bool snap, bool anime)
+    {
+        g_abNat = nat;
+        g_abSnap = snap;
+        g_abAnime = anime;
+    }
 
     namespace
     {
@@ -661,8 +758,25 @@ namespace char104
                 return;
             ++g_siteJoin[site];
             const uint64_t t0 = nowUs();
+            g_joinStartUs = t0;
             sotc_worker::join(s);
             g_waitUs += nowUs() - t0;
+        }
+        uint64_t g_argBatch = 0, g_argOther = 0, g_argGates = 0;
+        void gateArg(uint32_t gate, uint32_t a0)
+        {
+            // FlushCollisionWork (a0 the object), UpdateLayoutClassParentGeometry (a0 a layout class):
+            // the object / its class one of the batch's characters, or another one.
+            if (gate != 0x010F1D60u && gate != 0x010F22B8u)
+                return;
+            ++g_argGates;
+            for (int i = 0; i < g_qN; ++i)
+                if (g_items[i].obj == a0 || g_items[i].obj + 0x20u == a0 || g_items[i].obj + 0x90u == a0 || g_items[i].cls == a0)
+                {
+                    ++g_argBatch;
+                    return;
+                }
+            ++g_argOther;
         }
         void gateJoin(int i)
         {
@@ -765,6 +879,12 @@ namespace char104
                 // the game thread waiting (no concurrency), from the same state.
                 g_refRun = true;
                 sotc_worker::recompiledNext();
+                // Round 108 (SOTC_CHAR108_REF, bits): 2 (default) the reference runs the same natives
+                // as the job (0: the recompiled code), 1 its group walks from the snapshot too
+                // (default not: the isys functions themselves, alone).
+                sotc_worker::nativesNext((g_ref108 & 2) && g_nat108 && g_abNat && g_mode == 1);
+                if ((g_ref108 & 1) && g_snap108 && g_abSnap && g_mode == 1)
+                    sotc_worker::snapGroups(ram, g_snapWanted, g_kickSnapN);
                 if (sotc_worker::kickAs(ram, g_rt, g_kickCtx, refWork, nullptr, admitAll, batchSetup, nullptr))
                     sotc_worker::join(sotc_worker::kSiteChar);
                 g_refRun = false;
@@ -849,6 +969,7 @@ namespace char104
             std::memcpy(g_rt->memory().getScratchpad(), pSpr.data(), PS2_SCRATCHPAD_SIZE);
             std::memcpy(g_rt->memory().getVU0Data(), pVu0.data(), PS2_VU0_DATA_SIZE);
             ++decomp_collision::g_guestRuns; // the collision natives' kept values: guest memory changed under them
+            ++decomp_collision::g_guestRunsW;
         }
         void checkReport(uint64_t frame)
         {
@@ -881,7 +1002,8 @@ namespace char104
             g_items = new Item[kQueue];
         const uint32_t frameSp = u32(kWorkStack) + 0x20u; // the frame end's sp (charaGeometry's frame + 0x20, saved at the work stack's top)
         // Queued behind the batch running.
-        if (g_batch && !g_noAppend && g_qN < kQueue && sotc_worker::busy() && !sotc_worker::parked())
+        if (g_batch && !g_noAppend && g_qN < kQueue && sotc_worker::busy() && !sotc_worker::parked() &&
+            !(g_snap108 && g_abSnap && !sotc_worker::snapValid(rdram) && (++g_appendRefused, true)))
         {
             Item &it = g_items[g_qN];
             it.obj = obj;
@@ -916,9 +1038,22 @@ namespace char104
         g_qN = 1;
         g_qOpen = true;
         g_kickUs = nowUs();
+        g_joinStartUs = 0;
+        g_kickSnapN = g_snapWantedN;
         g_batch = true;
         if (g_recomp || m == 1)
             sotc_worker::recompiledNext();
+        // Round 108: the audited natives on the worker; the wanted groups' walks from a copy made now.
+        sotc_worker::nativesNext(g_nat108 && g_abNat && m == 1);
+        if (g_snap108 && g_abSnap && m == 1)
+            sotc_worker::snapGroups(rdram, g_snapWanted, g_snapWantedN);
+        // Round 108 (SOTC_ANIME108=1, default 0): the anime tables (ExecAnimeTableInfo: ExecCharaGeometry's last
+        // step, their sounds, particles, wind and rand) kept with their context and made at the batch's end after
+        // the join, each character's area test and Postprocess after them. Not exact (the check: 100 words differ
+        // in 165 checks, 0 without it): the tables' events read the game's state of the moment they run (the
+        // running sub-thread's object at 0x1e1550, which the game thread has moved on by the batch's end), so
+        // their sound / effect records come out different.
+        sotc_worker::deferNext(g_anime108 && g_abAnime && m == 1 ? 0x01169020u : 0u);
         snapshot(it);
         if (!sotc_worker::kickAs(rdram, runtime, *ctx, batchWork, nullptr, m == 2 ? admitAll : admitGeo, batchSetup, batchJoined))
         {
@@ -971,12 +1106,41 @@ namespace char104
                      (unsigned long long)g_parkedBatches, (unsigned long long)g_siteJoin[1], (unsigned long long)g_siteJoin[2], (unsigned long long)g_siteJoin[3],
                      (unsigned long long)g_siteJoin[4], (unsigned long long)g_siteJoin[5], (unsigned long long)g_siteJoin[6], (unsigned long long)g_siteJoin[7],
                      (unsigned long long)g_rTaken, (unsigned long long)g_rConflict);
+        {
+            // [char108]: how much of the batches ran beside the game thread (the worker's time before
+            // it parked, within the hand-over-to-join window), the game thread's time in those windows,
+            // the snapshot's walks answered / missed, its links, the walk counts left at joins, the
+            // groups wanted, appends refused (a snapshot group changed), natives / snapshot on.
+            uint64_t ans = 0, miss = 0, links = 0, resid = 0, deferred = 0, deferR = 0;
+            sotc_worker::snapStats(ans, miss, links, resid);
+            sotc_worker::deferStats(deferred, deferR);
+            std::fprintf(stderr,
+                         "[char108] frame %llu: beside the game thread %.3f ms a frame of the worker's %.3f (game thread in the windows %.3f), waited %.3f; "
+                         "snapshot answered %llu missed %llu, links %.1f a batch, left counts %llu, groups %d:",
+                         (unsigned long long)frame, g_parUs / f / 1000.0, g_workerUs / f / 1000.0, g_gameBesideUs / f / 1000.0, g_waitUs / f / 1000.0,
+                         (unsigned long long)ans, (unsigned long long)miss, links / nb, (unsigned long long)resid, g_snapWantedN);
+            for (int i = 0; i < g_snapWantedN && i < 6; ++i)
+                std::fprintf(stderr, " %08x", g_snapWanted[i]);
+            std::fprintf(stderr, "; appends refused %llu; anime tables kept %llu (R drawn in %llu); nat108 %d snap108 %d anime108 %d\n", (unsigned long long)g_appendRefused,
+                         (unsigned long long)deferred, (unsigned long long)deferR, g_nat108 && g_abNat ? 1 : 0, g_snap108 && g_abSnap ? 1 : 0, g_anime108 && g_abAnime ? 1 : 0);
+            g_parUs = g_gameBesideUs = g_appendRefused = 0;
+        }
         if (g_gatesOn)
         {
             std::fprintf(stderr, "[char104g] the game thread's joins by gate:");
             for (int i = 0; i < kGateCount; ++i)
                 if (g_gateJoins[i])
                     std::fprintf(stderr, " %08x x%llu", kGate[i], (unsigned long long)g_gateJoins[i]);
+            std::vector<std::pair<uint64_t, uint64_t>> sites;
+            for (const auto &[k, c] : g_gateSites)
+                sites.push_back({c, k});
+            std::sort(sites.rbegin(), sites.rend());
+            std::fprintf(stderr, " | flush / parent gates %llu: a0 of the batch %llu, other %llu", (unsigned long long)g_argGates, (unsigned long long)g_argBatch, (unsigned long long)g_argOther);
+            g_argGates = g_argBatch = g_argOther = 0;
+            std::fprintf(stderr, " | by site (gate/ra)");
+            for (size_t i = 0; i < sites.size() && i < 16u; ++i)
+                std::fprintf(stderr, " %08x/%08x x%llu", static_cast<uint32_t>(sites[i].second >> 32), static_cast<uint32_t>(sites[i].second), (unsigned long long)sites[i].first);
+            g_gateSites.clear();
             std::fprintf(stderr, "\n");
             for (uint64_t &x : g_gateJoins)
                 x = 0;

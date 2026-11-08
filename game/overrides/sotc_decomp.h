@@ -277,6 +277,15 @@ namespace sotc_decomp
     inline bool g_callGuestStats = false; // SOTC_CALLGUEST_STATS (install)
 #endif
 
+    // Round 108: the two threads natives run on: 0 the game thread (and any
+    // other EE thread: they never run beside it), 1 round 91's guest worker
+    // (its runtime shell). A native's host caches are one per lane, and its
+    // memos (answers kept across entries) are lane 0's only: on the worker
+    // they are passed over (the computation runs), so a job can neither read
+    // nor fill the game thread's kept answers.
+    inline int lane(const PS2Runtime *runtime) { return ps2_worker::isShell(runtime) ? 1 : 0; }
+    inline bool onWorkerLane(const PS2Runtime *runtime) { return ps2_worker::isShell(runtime); }
+
     // The table's entry for a guest address (a constant address's slot is a
     // constant: one load).
     inline PS2Runtime::RecompiledFunction guestFunction(const PS2Runtime *runtime, uint32_t target)

@@ -1331,13 +1331,16 @@ namespace decomp_hot47j
             SET_GPR_U64(ctx, 2, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(READ32(finder) - static_cast<uint32_t>(before)))));
             return true;
         };
-        const bool ground85Here = sotc_decomp::ground85On() && (ra == 0x010D4668u || ra == 0x010D46B0u);
+        // (Round 108: the memos below, g85 / find84, and probe85's records are lane 0's: on the guest worker
+        // the steps run as the original's, and nothing kept by the game thread is read or written.)
+        const bool lane1 = sotc_decomp::onWorkerLane(runtime);
+        const bool ground85Here = sotc_decomp::ground85On() && !lane1 && (ra == 0x010D4668u || ra == 0x010D46B0u);
         // Round 84: the step through find84's memo for still layout objects.
         auto step = [&](uint64_t object, uint32_t ret)
         {
             if (ground85Here && ground(object, ret))
                 return;
-            if (!sotc_decomp::find84On())
+            if (!sotc_decomp::find84On() || lane1)
                 return realStep(object, ret);
             find84::log();
             ++find84::g_stats.steps;
@@ -1457,7 +1460,7 @@ namespace decomp_hot47j
             call(static_cast<uint32_t>(filter), ret);
             return GPR_U64(ctx, 2) != 0u;
         };
-        const bool probe = probe85::on() && (ra == 0x010D4668u || ra == 0x010D46B0u);
+        const bool probe = probe85::on() && !sotc_decomp::onWorkerLane(runtime) && (ra == 0x010D4668u || ra == 0x010D46B0u);
         uint64_t probeT0 = 0;
         if (probe)
         {

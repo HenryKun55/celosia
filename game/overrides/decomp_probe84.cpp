@@ -109,7 +109,7 @@ namespace probe84
     void waterAround(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t ra = GPR_U32(ctx, 31);
-        if (!sotc_decomp::probe84On() || ra != kCameraCaller)
+        if (!sotc_decomp::probe84On() || ra != kCameraCaller || sotc_decomp::onWorkerLane(runtime)) // (round 108: the memo is lane 0's)
             return runGame(rdram, ctx, runtime);
         const uint32_t out = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5), group = GPR_U32(ctx, 6);
         if (!plain(out, 4u) || !plain(point, 16u))

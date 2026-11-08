@@ -153,15 +153,20 @@ namespace decomp_collision
     // Guest code run from here (filters, vertex fetches, the recompiled
     // fallbacks), counted: what native code keeps from guest memory is good
     // only while this stays the same.
-    uint64_t g_guestRuns = 0;
+    // Round 108: one count per lane (sotc_decomp::lane): the game thread's
+    // (g_guestRuns) and the guest worker's (g_guestRunsW); the kept values
+    // below are one per lane too. Both go up at a job's hand-over and join
+    // (decomp_char104), where guest memory changes under the other lane.
+    uint64_t g_guestRuns = 0, g_guestRunsW = 0;
+    inline uint64_t &runsOf(const PS2Runtime *runtime) { return ps2_worker::isShell(runtime) ? g_guestRunsW : g_guestRuns; }
     inline void guestCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t target, uint32_t ra, uint32_t sp)
     {
-        ++g_guestRuns;
+        ++runsOf(runtime);
         sotc_decomp::callGuest(rdram, ctx, runtime, target, ra, sp);
     }
     inline void recompiledCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t address, uint32_t ra, uint32_t sp)
     {
-        ++g_guestRuns;
+        ++runsOf(runtime);
         sotc_decomp::callRecompiled(rdram, ctx, runtime, address, ra, sp);
     }
 
@@ -177,7 +182,7 @@ namespace decomp_collision
         uint8_t *rdram;
         R5900Context *ctx;
         PS2Runtime *runtime;
-        G(uint8_t *r, R5900Context *c, PS2Runtime *rt) : rdram(r), ctx(c), runtime(rt) { ++g_guestRuns; }
+        G(uint8_t *r, R5900Context *c, PS2Runtime *rt) : rdram(r), ctx(c), runtime(rt) { ++runsOf(rt); }
 
         // Main RAM (below 32 MB) directly; anything else through the runtime.
         static bool plain(uint32_t a, uint32_t size) { return a < 0x02000000u - size; }
@@ -579,7 +584,7 @@ namespace decomp_collision
     // written by GetArbitraryDirectionInverseMatrix; the leaf's two matrices)
     // clamped once and kept while no guest code runs: no native here writes
     // them, and every entry from guest code and every guest call starts a new
-    // epoch (g_guestRuns), after which it is read and clamped again. transformKept gives transform()'s values (the
+    // epoch (g_guestRuns, per lane), after which it is read and clamped again. transformKept gives transform()'s values (the
     // same rows, the same small test, the same chain).
     struct Kept40
     {
@@ -590,13 +595,13 @@ namespace decomp_collision
     };
     inline __attribute__((always_inline)) void keepRows(const G g, Kept40 &k, uint32_t m)
     {
-        if (k.epoch != g_guestRuns || k.at != m)
+        if (k.epoch != runsOf(g.runtime) || k.at != m)
         {
             k.rows = {{vu::clamp(g.q(m)), vu::clamp(g.q(m + 0x10u)), vu::clamp(g.q(m + 0x20u)), vu::clamp(g.q(m + 0x30u))}};
 #if PS2X_VU_NEON_A32
             k.small = fast::allSmall(k.rows);
 #endif
-            k.epoch = g_guestRuns;
+            k.epoch = runsOf(g.runtime);
             k.at = m;
         }
     }
@@ -652,7 +657,7 @@ namespace decomp_collision
         const uint32_t at = list + n * width;
         if ((width != 0u && !G::plain(at, width)) || !G::plain(flags + idx, 1u))
             return call(g, kEntryModified, ra, sp, {m, idx});
-        ++g_guestRuns; // as a guest call would (the caches' epoch)
+        ++runsOf(g.runtime); // as a guest call would (the caches' epoch)
         g.put32(m, n + 1u);
         if (width == 1u)
             g.rdram[at] = static_cast<uint8_t>(idx);
@@ -908,15 +913,16 @@ namespace decomp_collision
         if (indep)
         {
             // The plane table of (class, index): kept while no guest code runs.
-            static struct
+            static struct Chain
             {
                 uint64_t epoch = ~0ull;
                 uint32_t cls = 0, index = 0, s2 = 0, flags = 0, normals = 0;
-            } chain;
-            if (chain.epoch != g_guestRuns || chain.cls != cls || chain.index != s1)
+            } chains[2]; // round 108: one per lane
+            Chain &chain = chains[sotc_decomp::lane(g.runtime)];
+            if (chain.epoch != runsOf(g.runtime) || chain.cls != cls || chain.index != s1)
             {
                 const uint32_t s2c = g.u32(g.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
-                chain = {g_guestRuns, cls, s1, s2c, g.u32(s2c + 8u), g.u32(s2c + 0x14u)};
+                chain = {runsOf(g.runtime), cls, s1, s2c, g.u32(s2c + 8u), g.u32(s2c + 0x14u)};
             }
             const uint32_t s2 = chain.s2;
             normal = chain.normals + s3 * 16u;
@@ -1300,15 +1306,16 @@ namespace decomp_collision
     uint32_t boundary(const G g, uint32_t cls, uint32_t index, uint32_t surface, uint32_t ra, uint32_t sp)
     {
         COLL_STAT(boundary);
-        static struct
+        static struct Chain
         {
             uint64_t epoch = ~0ull;
             uint32_t cls = 0, index = 0, flags = 0, table = 0;
-        } chain;
-        if (chain.epoch != g_guestRuns || chain.cls != cls || chain.index != index)
+        } chains[2]; // round 108: one per lane
+        Chain &chain = chains[sotc_decomp::lane(g.runtime)];
+        if (chain.epoch != runsOf(g.runtime) || chain.cls != cls || chain.index != index)
         {
             const uint32_t t2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + index * 0x60u + 0x48u;
-            chain = {g_guestRuns, cls, index, g.u32(t2 + 8u), g.u32(t2 + 0x14u)};
+            chain = {runsOf(g.runtime), cls, index, g.u32(t2 + 8u), g.u32(t2 + 0x14u)};
         }
         if (g.u8(chain.flags + surface) != 0u)
             return chain.table + surface * 16u;
@@ -1457,7 +1464,8 @@ namespace decomp_collision
         {
             // Round 101 (leaf101): both matrices' rows kept between leaves while
             // no guest code runs (Kept40): the same rows, the same transform.
-            static Kept40 keptM, keptM2;
+            static Kept40 keptMs[2], keptM2s[2]; // round 108: one pair per lane
+            Kept40 &keptM = keptMs[sotc_decomp::lane(g.runtime)], &keptM2 = keptM2s[sotc_decomp::lane(g.runtime)];
             const __m128 e0 = hostSeg ? hostSeg[0] : g.q(a1), e1 = hostSeg ? hostSeg[1] : g.q(a2);
             g.put(sp, transformKept(g, keptM, m, e0));
             g.put(sp + 0x10u, transformKept(g, keptM, m, e1));
@@ -1473,7 +1481,7 @@ namespace decomp_collision
             }
             rows = keptM2.rows;
             rowsAt = m2;
-            rowsRuns = g_guestRuns;
+            rowsRuns = runsOf(g.runtime);
 #if PS2X_VU_NEON_A32
             rowsSmall = keptM2.small;
 #endif
@@ -1530,20 +1538,20 @@ namespace decomp_collision
                 // it (the boundary tables and the cylinder's rows, both only
                 // re-read when they changed: idempotent).
                 const uint32_t bCls = g.u32(p + 4u);
-                if (bEpoch != g_guestRuns || bClsAt != bCls)
+                if (bEpoch != runsOf(g.runtime) || bClsAt != bCls)
                 {
                     const uint32_t t2 = g.u32(g.u32(bCls + 0x174u) + 0x24u) + 0x48u;
                     bFlags = g.u32(t2 + 8u);
                     bTable = g.u32(t2 + 0x14u);
                     bClsAt = bCls;
-                    bEpoch = g_guestRuns;
+                    bEpoch = runsOf(g.runtime);
                 }
                 const uint32_t m2 = g.u32(p + 0x10u);
-                if (m2 != rowsAt || g_guestRuns != rowsRuns)
+                if (m2 != rowsAt || runsOf(g.runtime) != rowsRuns)
                 {
                     rows = {{vu::clamp(g.q(m2)), vu::clamp(g.q(m2 + 0x10u)), vu::clamp(g.q(m2 + 0x20u)), vu::clamp(g.q(m2 + 0x30u))}};
                     rowsAt = m2;
-                    rowsRuns = g_guestRuns;
+                    rowsRuns = runsOf(g.runtime);
                     rowsSmall = fast::allSmall(rows);
                 }
                 const uint32_t tableAt = bTable & ~0xFu;
@@ -1581,13 +1589,13 @@ namespace decomp_collision
             // boundary()'s cached case inline (index 0): the class's table
             // pointers read again whenever guest code ran (round 22).
             const uint32_t bCls = g.u32(p + 4u), surface = g.u16(ids);
-            if (bEpoch != g_guestRuns || bClsAt != bCls)
+            if (bEpoch != runsOf(g.runtime) || bClsAt != bCls)
             {
                 const uint32_t t2 = g.u32(g.u32(bCls + 0x174u) + 0x24u) + 0x48u;
                 bFlags = g.u32(t2 + 8u);
                 bTable = g.u32(t2 + 0x14u);
                 bClsAt = bCls;
-                bEpoch = g_guestRuns;
+                bEpoch = runsOf(g.runtime);
             }
             uint32_t bnd;
             if (g.u8(bFlags + surface) != 0u)
@@ -1604,11 +1612,11 @@ namespace decomp_collision
             // The cylinder's matrix, clamped once while no guest code ran
             // (only guest code could change it here).
             const uint32_t m2 = g.u32(p + 0x10u);
-            if (m2 != rowsAt || g_guestRuns != rowsRuns)
+            if (m2 != rowsAt || runsOf(g.runtime) != rowsRuns)
             {
                 rows = {{vu::clamp(g.q(m2)), vu::clamp(g.q(m2 + 0x10u)), vu::clamp(g.q(m2 + 0x20u)), vu::clamp(g.q(m2 + 0x30u))}};
                 rowsAt = m2;
-                rowsRuns = g_guestRuns;
+                rowsRuns = runsOf(g.runtime);
 #if PS2X_VU_NEON_A32
                 rowsSmall = fast::allSmall(rows);
 #endif
@@ -2902,12 +2910,12 @@ namespace decomp_collision
             if (finderHas(g, g.u32(p), static_cast<int32_t>(g.u32(p + 0x34u)), surface) != 0u)
             {
                 COLL_STAT(fHasFound);
-                if (__builtin_expect(ground85::g_cap.on, 0) && g.u32(p + 4u) == ground85::g_cap.obj)
+                if (__builtin_expect(ground85::g_cap.on, 0) && !sotc_decomp::onWorkerLane(g.runtime) && g.u32(p + 4u) == ground85::g_cap.obj)
                     capture85(g, center, radius, bnd, slot, static_cast<uint32_t>(id), true);
                 continue;
             }
             COLL_STAT(fEntry);
-            if (__builtin_expect(ground85::g_cap.on, 0) && g.u32(p + 4u) == ground85::g_cap.obj)
+            if (__builtin_expect(ground85::g_cap.on, 0) && !sotc_decomp::onWorkerLane(g.runtime) && g.u32(p + 4u) == ground85::g_cap.obj)
                 capture85(g, center, radius, bnd, slot, static_cast<uint32_t>(id), false);
             SET_GPR_U32(ctx, 4, g.u32(p));
             SET_GPR_U32(ctx, 5, g.u32(p + 4u));
@@ -2930,17 +2938,18 @@ namespace decomp_collision
             return false;
         const uint32_t s0 = (w1 >> 24) & 0x7Fu, s2 = w1 & 0x00FFFFFFu;
         // The class's record of the part (the same class twice): kept while no guest code runs.
-        static struct
+        static struct Chain
         {
             uint64_t epoch = ~0ull;
             uint32_t cls = 0, part = 0, attributes = 0, list = 0, faces = 0, records = 0;
             bool shortIds = false;
-        } chain;
-        if (chain.epoch != g_guestRuns || chain.cls != cls || chain.part != s0)
+        } chains[2]; // round 108: one per lane
+        Chain &chain = chains[sotc_decomp::lane(g.runtime)];
+        if (chain.epoch != runsOf(g.runtime) || chain.cls != cls || chain.part != s0)
         {
             const uint32_t s3 = g.u32(g.u32(cls + 0x184u) + 0x20u);
             const uint32_t record = g.u32(s3 + 8u) + s0 * 0x90u;
-            chain = {g_guestRuns, cls, s0, g.u32(s3 + 0x34u), g.u32(record + 0x14u), g.u32(s3 + 0x18u), g.u32(record + 0x54u), g.u8(record + 8u) != 0u};
+            chain = {runsOf(g.runtime), cls, s0, g.u32(s3 + 0x34u), g.u32(record + 0x14u), g.u32(s3 + 0x18u), g.u32(record + 0x54u), g.u8(record + 8u) != 0u};
         }
         uint32_t index;
         if (static_cast<int32_t>(w1) < 0)
@@ -3907,8 +3916,8 @@ namespace decomp_collision
     template <typename Body>
     void segMemo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t fn, Body body)
     {
-        static int depth = 0;
-        if (!sotc_decomp::seg80On() || depth != 0)
+        static int depth = 0; // (lane 0's: the worker never enters the memo)
+        if (!sotc_decomp::seg80On() || sotc_decomp::onWorkerLane(runtime) || depth != 0)
             return body();
         const G g{rdram, ctx, runtime};
         const uint32_t out = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), spIn = GPR_U32(ctx, 29);
@@ -4044,7 +4053,7 @@ namespace decomp_collision
         // Round 65 (Tuning::sacCamColl): the camera's "leave" attribute test
         // (is_hit_cam_opt_leave_collision_attribute) in even frames only.
         static bool memoInner = false;
-        if (__builtin_expect(native_renderer::tuning().sacCamColl, 0) && !memoInner && GPR_U32(ctx, 31) == 0x0140F2ACu)
+        if (__builtin_expect(native_renderer::tuning().sacCamColl, 0) && !memoInner && GPR_U32(ctx, 31) == 0x0140F2ACu && !sotc_decomp::onWorkerLane(runtime))
         {
             const G g{rdram, ctx, runtime};
             const uint32_t out = GPR_U32(ctx, 4);
@@ -5204,10 +5213,12 @@ namespace decomp_collision
             // its boundary sphere than the radius, as its second) is passed over without
             // the filter and clipDB, which would answer "no hit" for it.
             ground85::View &view = ground85::g_view;
-            const bool hostView = view.finder == a3 && view.list == cand && view.count >= n && sotc_decomp::ground85On() &&
+            // (Round 108: lane 0's only: the game thread rewrites it at any time.)
+            const bool hostView = !sotc_decomp::onWorkerLane(g.runtime) && view.finder == a3 && view.list == cand && view.count >= n && sotc_decomp::ground85On() &&
                                   ground85::listSum(g.rdram, cand, view.count) == view.sum;
             const int check85 = hostView ? ground85Check() : 0;
-            view.uses += hostView;
+            if (hostView)
+                ++view.uses;
             for (int32_t k = 0; k < n; ++k, cand += 8u)
             {
                 if (g.u32(cand) == 0u)
@@ -5312,9 +5323,10 @@ namespace decomp_finderwalk
                 decomp_collision::guestCall(rdram, ctx, runtime, callback, site + 8u, sp);
         }
         // Round 85: the capture's split stack back to where this walk began; the box once.
-        static void popTo85(int base)
+        // (Round 108: the capture is lane 0's; the worker never reads or writes it.)
+        void popTo85(int base) const
         {
-            if (ground85::g_cap.on)
+            if (ground85::g_cap.on && !ps2_worker::isShell(runtime))
                 ground85::g_cap.depth = base;
         }
         void capBox85(float margin) const
@@ -5345,14 +5357,15 @@ namespace decomp_finderwalk
                 float f0 = FPU_ADD_S(FPU_MUL_S(f1, f2), margin);
                 const float coord = f32(axisAt);
                 ground85::Capture &k85 = ground85::g_cap;
-                const bool cap85 = __builtin_expect(k85.on, 0);
+                const bool cap85 = __builtin_expect(k85.on, 0) && !ps2_worker::isShell(runtime);
                 if (cap85)
                     capBox85(margin);
                 if (FPU_C_OLE_S(coord, f0))
                 {
                     if (cap85 && k85.depth < ground85::Capture::kDepth)
                         k85.stack[k85.depth] = {static_cast<uint8_t>(word & 3u), 1u, FPU_MUL_S(f1, f2)};
-                    k85.depth += cap85;
+                    if (cap85)
+                        ++k85.depth;
                     if (((word >> 16) & 1u) == 0u)
                     {
                         // jal 0x1128f38 at 0x1128fec: the same box, tree, callback, query
@@ -5361,7 +5374,8 @@ namespace decomp_finderwalk
                     }
                     else
                         leaf((word >> 2) & 0x3FFFu, 0x01128FC0u, sp);
-                    k85.depth -= cap85;
+                    if (cap85)
+                        --k85.depth;
                     f1 = f32(n);
                     f2 = f32(query + 0x10u);
                 }
@@ -5371,7 +5385,8 @@ namespace decomp_finderwalk
                     return popTo85(base85);
                 if (cap85 && k85.depth < ground85::Capture::kDepth)
                     k85.stack[k85.depth] = {static_cast<uint8_t>(word & 3u), 0u, FPU_MUL_S(f1, f2)};
-                k85.depth += cap85;
+                if (cap85)
+                    ++k85.depth;
                 const uint32_t high = u32(n + 4u);
                 SET_GPR_U32(ctx, 2, high);
                 if (static_cast<int32_t>(high) < 0)
