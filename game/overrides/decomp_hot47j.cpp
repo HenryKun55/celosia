@@ -1101,9 +1101,12 @@ namespace decomp_hot47j
                 else
                     n += 4;
             }
-            uint64_t h = 1469598103934665603ull;
+            // (Round 119: a 32-bit FNV-1a: the slot's key words are compared in full after it; the 64-bit
+            // multiply per word was half of this step's samples on the A9.)
+            uint32_t h32 = 2166136261u;
             for (int i = 0; i < n; ++i)
-                h = (h ^ key[i]) * 1099511628211ull;
+                h32 = (h32 ^ key[i]) * 16777619u;
+            const uint64_t h = h32;
             float qa[3], qb[3], mid[3];
             float l2 = 0.0f;
             for (int i = 0; i < 3; ++i)
@@ -1627,6 +1630,7 @@ namespace decomp_hot47j
             if (n >= 0 && n <= ground85::View::kMax && find84::plainRam(list, 8u * static_cast<uint32_t>(n) + 8u))
             {
                 const uint64_t frame = sotc_decomp::g_gameFrame;
+                const uint32_t age = g85::params().age; // (round 119: read once, not per slot)
                 const g85::Slot *last = nullptr;
                 for (int32_t i = 0; i < n; ++i)
                 {
@@ -1636,7 +1640,7 @@ namespace decomp_hot47j
                     {
                         last = nullptr; // the object's most recently used patch
                         for (const g85::Slot &sl : g85::g_slots)
-                            if (sl.live && !sl.bad && sl.frame + g85::params().age >= frame && sl.key[0] == static_cast<uint32_t>(ra) && sl.key[1] == finder && sl.key[2] == obj &&
+                            if (sl.live && !sl.bad && sl.frame + age >= frame && sl.key[0] == static_cast<uint32_t>(ra) && sl.key[1] == finder && sl.key[2] == obj &&
                                 (!last || sl.used > last->used))
                                 last = &sl;
                     }
@@ -1659,6 +1663,7 @@ namespace decomp_hot47j
                 }
                 v.count = n;
                 v.sum = ground85::listSum(rdram, list, n);
+                std::memcpy(v.words, rdram + list, 8u * static_cast<uint32_t>(n)); // (plainRam checked above)
             }
         }
         if (probe)

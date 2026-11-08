@@ -66,6 +66,7 @@ namespace ground85
         static constexpr int kMax = 256;
         bool valid[kMax];
         float bnd[kMax][4], plane[kMax][4];
+        uint32_t words[2 * kMax]; // round 119: the list's words as the view was made (compared in place of the sum)
         uint64_t uses = 0, tested = 0, rejected = 0, checked = 0, wrong = 0;
     };
     extern View g_view;

@@ -80,12 +80,13 @@ namespace coll115
     struct Stats
     {
         uint64_t walks = 0, walkFallback = 0, xformFallback = 0, nodes = 0, leaves = 0, leafFallback = 0, surfaces = 0, candidates = 0, clips = 0,
-                 hits = 0, overflows = 0, maxDepth = 0, leafBuilds = 0, builtSurfaces = 0, modelDrops = 0, leafDrops = 0, evictions = 0, queries = 0;
+                 hits = 0, overflows = 0, maxDepth = 0, leafBuilds = 0, builtSurfaces = 0, modelDrops = 0, leafDrops = 0, evictions = 0, queries = 0, bigEnds = 0;
         uint64_t frame = 0;
         uint64_t objects = 0, objFiltered = 0, objNear = 0, partsNear = 0, surfLoop = 0, skinParts = 0, skinSurf = 0, skinMade = 0;
         uint64_t nQ[2] = {}, usQ[2] = {}, nW[2] = {}, usW[2] = {}; // by state (0 the original, 1 coll115): ClipCollisionDirectCallBack, its tree walks
     };
     inline Stats g_st;
+    inline void (*g_tick119)(uint64_t, double) = [](uint64_t, double) {};
 
     // A leaf's host block: count surfaces in (count + 3) / 4 groups of four
     // at pool[first]: cx, cy, cz, r, nx, ny, nz, d (4 floats each, 32 floats
@@ -687,6 +688,15 @@ namespace coll115
         int top = 0;
         bool sides = first < 0, high = first > 0;
         uint8_t *const rd = c.g.rdram;
+        // Round 119 (SOTC_WALK119): the second side is pushed only when the segment (as it is at the
+        // push) reaches it: the pop would make the same test with the same values and go on.
+        const bool prune = sotc_decomp::switchOn(sotc_decomp::kWalk119);
+        uint64_t nodes = 0;
+        struct Count
+        {
+            uint64_t &n;
+            ~Count() { g_st.nodes += n; }
+        } countNodes{nodes};
         for (;;)
         {
             if (!G::plain(t0, 8u))
@@ -695,12 +705,31 @@ namespace coll115
             uint32_t word;
             std::memcpy(&split, rd + t0, 4);
             std::memcpy(&word, rd + t0 + 4u, 4);
-            ++g_st.nodes;
+            ++nodes;
             const uint32_t axis = word & 3u;
             const float f1 = e.a[axis], f0 = e.b[axis];
             if (sides)
             {
                 high = Unit ? key(f0) <= key(f1) : f0 <= f1;
+                if (prune)
+                {
+                    // the other side's test (as the pop below would make it)
+                    const float s2 = Unit ? split : split * c.scale;
+                    bool o0, o1;
+                    if constexpr (Unit)
+                    {
+                        const int32_t ks = key(s2), k1 = key(f1), k0 = key(f0);
+                        o0 = !high ? ks <= k1 : k1 <= ks;
+                        o1 = !high ? ks <= k0 : k0 <= ks;
+                    }
+                    else
+                    {
+                        o0 = !high ? s2 <= f1 : f1 <= s2;
+                        o1 = !high ? s2 <= f0 : f0 <= s2;
+                    }
+                    if (!(o0 || o1))
+                        goto noPush;
+                }
                 if (top == kDepth)
                 {
                     // Deeper than the host stack: given back to the original walk from the start when no leaf
@@ -710,10 +739,13 @@ namespace coll115
                 }
                 if (static_cast<uint64_t>(top) >= g_st.maxDepth)
                     g_st.maxDepth = static_cast<uint64_t>(top) + 1u;
-                Pend &p = stack[top++];
-                p.e = e;
-                p.t0 = t0;
-                p.high = !high;
+                {
+                    Pend &p = stack[top++];
+                    p.e = e;
+                    p.t0 = t0;
+                    p.high = !high;
+                }
+            noPush:;
             }
             const float s = Unit ? split : split * c.scale;
             bool in0, in1;
@@ -834,6 +866,15 @@ namespace coll115
         std::memcpy(e.a, g.rdram + (a1 & ~0xFu), 16);
         std::memcpy(e.b, g.rdram + (a2 & ~0xFu), 16);
         e.a[3] = e.b[3] = 1.0f;
+        // Round 119: ends that are not small (finite, below 2^61; the AI path tests right after a load have one
+        // at +-FLT_MAX: round 115's unexplained differences on route 6) go to the original walk, whose PS2
+        // operations clamp where the plain floats here would make Inf / NaN at the splits and in the leaves.
+        for (int i = 0; i < 3; ++i)
+            if (!(std::fabs(e.a[i]) < 0x1p61f) || !(std::fabs(e.b[i]) < 0x1p61f))
+            {
+                ++g_st.bigEnds;
+                return false;
+            }
         ++g_depth;
         const int r = walk(c, e, t0, first);
         --g_depth;
@@ -855,10 +896,11 @@ namespace coll115
             std::fprintf(stderr,
                          "[coll115] frame %llu: a frame: queries %.1f walks %.1f (fallback %.2f, matrices %.2f) nodes %.1f leaves %.1f (original %.2f) surfaces %.1f "
                          "candidates %.2f clips %.2f hits %.2f overflows %.3f (deepest %u) | leaves built %.2f surfaces built %.1f leaves redone %.2f models dropped %.2f evictions %.2f | "
-                         "models %u, %.2f MB\n",
+                         "models %u, %.2f MB | ends not small (original) %llu\n",
                          (unsigned long long)frame, g_st.queries / n, g_st.walks / n, g_st.walkFallback / n, g_st.xformFallback / n, g_st.nodes / n, g_st.leaves / n,
                          g_st.leafFallback / n, g_st.surfaces / n, g_st.candidates / n, g_st.clips / n, g_st.hits / n, g_st.overflows / n, static_cast<unsigned>(g_st.maxDepth), g_st.leafBuilds / n, g_st.builtSurfaces / n,
-                         g_st.leafDrops / n, g_st.modelDrops / n, g_st.evictions / n, static_cast<unsigned>(g_models.size()), g_bytes / 1048576.0);
+                         g_st.leafDrops / n, g_st.modelDrops / n, g_st.evictions / n, static_cast<unsigned>(g_models.size()), g_bytes / 1048576.0,
+                         (unsigned long long)g_st.bigEnds);
         if (g_st.frame != 0u)
             std::fprintf(stderr, "[coll115o] frame %llu: a frame: objects %.1f (filtered out %.1f, near %.1f), parts near %.1f, one-by-one surfaces %.1f, skinned parts %.2f surfaces %.1f (made %.1f)\n",
                          (unsigned long long)frame, g_st.objects / n, g_st.objFiltered / n, g_st.objNear / n, g_st.partsNear / n, g_st.surfLoop / n,
@@ -870,6 +912,8 @@ namespace coll115
                                  (unsigned long long)frame, i ? "coll115" : "original", (unsigned long long)g_st.nQ[i], (double)g_st.usQ[i] / g_st.nQ[i],
                                  (double)g_st.usQ[i] / 1000.0 / n * (double)(g_st.nQ[0] + g_st.nQ[1]) / g_st.nQ[i], (unsigned long long)g_st.nW[i],
                                  g_st.nW[i] ? (double)g_st.usW[i] / g_st.nW[i] : 0.0);
+        if (g_st.frame != 0u)
+            g_tick119(frame, n); // (round 119's [coll119t])
         g_st = Stats{};
         g_st.frame = frame;
     }

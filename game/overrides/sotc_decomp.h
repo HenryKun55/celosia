@@ -592,11 +592,15 @@ namespace sotc_decomp
         kLeaf117,     // round 117: the emitter frame's leaves native and called straight (exact; decomp_ptclupdate, decomp_hot47e)
         kSym120,      // round 120: the module system's symbol resolution (sheetMgrResolve, the imports' retry, the hash lookups) as A9 code (exact; decomp_sym120)
         kHeap120,     // round 120: the game heap's allocator (malloc's block search and split, the free lists) as A9 code (exact; decomp_heap120)
+        kFlush119,    // round 119: FlushCollisionWorkByWorkStruct passes over empty modified lists (exact; decomp_collision)
+        kWalk119,     // round 119: coll115's walk pushes a node's second side only when the segment reaches it (exact; coll115.h)
+        kPart119,     // round 119: transform() / matrixProduct() without the row clamps when every lane is small (exact; decomp_collision)
+        kView119,     // round 119: the finder lists' surfaces as host contact sets (plane addresses), the clip / keep loops' plane test from them (exact; coll119.h)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -617,8 +621,13 @@ namespace sotc_decomp
             // Round 115: coll115 on (SOTC_COLL115=0 off): the answers the original's (checks: 0 differ since p2),
             // faster riding, even at the shrine / altar / route 6, with seg80's reuse off (every segment answered
             // each frame) unless SOTC_SEG80=1.
+            // Round 119: flush119, walk119, part119 and view119 off unless SOTC_<name>=1: exact (0 differ) and each
+            // touched call faster in the same run (2-9%), but the whole frame in Vita3K's A/B was even to slightly
+            // slower with them (route 6 -0.2, riding -0.5..+0.14: the largest riding run +0.14); the console's A/B (env-console) decides.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
-                 which == kPtcl79 || which == kOan106) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
+                 which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119)
+                    ? (e && e[0] >= '1' && e[0] <= '3')
+                    : !(e && e[0] == '0');
             g_switch[which] = v;
         }
         return v != 0;

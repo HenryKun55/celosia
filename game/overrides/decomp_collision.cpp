@@ -566,6 +566,38 @@ namespace decomp_collision
     // vmulax / vmadday / vmaddaz / vmaddw.xyzw: v by the four rows at m.
     inline __attribute__((always_inline)) __m128 transform(const G g, uint32_t m, __m128 v)
     {
+#if PS2X_VU_NEON_A32
+        // Round 119 (SOTC_PART119): the rows as they are when every lane and v's are small (finite,
+        // below 2^61): the clamp of a small lane is that lane, a denormal the signed zero NEON reads
+        // anyway (round 49's argument), so the chain gives the clamped rows' bits without the four clamps.
+        if (__builtin_expect(sotc_decomp::switchOn(sotc_decomp::kPart119) && !fast::checkOn(), 1))
+        {
+            const uint32_t a = m & ~0xFu;
+            if (__builtin_expect(G::plain(a, 0x40u), 1))
+            {
+                vu::Rows raw;
+                std::memcpy(&raw.r[0], g.rdram + a, 16);
+                std::memcpy(&raw.r[1], g.rdram + a + 0x10u, 16);
+                std::memcpy(&raw.r[2], g.rdram + a + 0x20u, 16);
+                std::memcpy(&raw.r[3], g.rdram + a + 0x30u, 16);
+                bool small;
+                const __m128 r = fast::transformSmallImpl(raw, v, small);
+                if (__builtin_expect(small, 1))
+                {
+                    static int check = -1; // SOTC_PART119_CHECK=1: the clamped rows' result compared (FastCheck "collision.part119")
+                    if (__builtin_expect(check < 0, 0))
+                        check = std::getenv("SOTC_PART119_CHECK") != nullptr ? 1 : 0;
+                    if (__builtin_expect(check, 0))
+                    {
+                        static sotc_decomp::FastCheck fc("collision.part119");
+                        const vu::Rows cl{{vu::clamp(raw.r[0]), vu::clamp(raw.r[1]), vu::clamp(raw.r[2]), vu::clamp(raw.r[3])}};
+                        fc.note(fast::same(r, vu::apply(cl, v)));
+                    }
+                    return r;
+                }
+            }
+        }
+#endif
         const vu::Rows rows{{vu::clamp(g.q(m)), vu::clamp(g.q(m + 0x10u)), vu::clamp(g.q(m + 0x20u)), vu::clamp(g.q(m + 0x30u))}};
 #if PS2X_VU_NEON_A32
         // Round 28: the chain without its clamps when nothing is large (fast::).
@@ -1292,6 +1324,57 @@ namespace decomp_collision
         SET_GPR_U32(ctx, 29, spIn);
         SET_GPR_U64(ctx, 2, 2u);
         returnTo(ctx);
+    }
+
+#include "coll119.h"
+    // Round 119 (SOTC_VIEW119): whether clipKeep (above, the table's native) for a surface whose plane is
+    // at `normal` (its cached flag at `flag`) and the point at `point` (its a3) with f12 = keep takes its
+    // first return (v0 2) having written only f0 = 0: the plane cached, the same distance (round 49's NEON
+    // form, small), 0 <= d - keep. False: not known that way (the call is made). Nothing written.
+    inline bool keepEarlyAt(const G g, uint32_t normal, uint32_t flag, uint32_t point, float keep)
+    {
+#if PS2X_VU_NEON_A32
+        if (g.rdram[flag] == 0u || !G::plain(point & ~0xFu, 16u))
+            return false;
+        const __m128 pa = g.q(point);
+        bool small = false;
+        const uint64_t bits = fast::planeDistances(g.q(normal), g.ctx->vu0_vf[0], pa, pa, small);
+        if (!small)
+            return false;
+        const float d = fast::asFloat(static_cast<uint32_t>(bits));
+        const float ahead = FPU_SUB_S(d, keep), zero = 0.0f;
+        return FPU_C_OLE_S(zero, ahead);
+#else
+        (void)g, (void)normal, (void)flag, (void)point, (void)keep;
+        return false;
+#endif
+    }
+    inline bool keepFastOk() { return sotc_decomp::fastNativeOn() && !fast::check49(); }
+    // The same for the surface id at `id` (the chain made here).
+    bool keepEarly(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t id, uint32_t point, float keep)
+    {
+        if (!keepFastOk() || !G::plain(id, 8u))
+            return false;
+        const G g{rdram, ctx, runtime};
+        uint32_t normal, flag;
+        return coll119::planeAddrs(g, id, normal, flag) && keepEarlyAt(g, normal, flag, point, keep);
+    }
+    // A finder list's host view (coll119::viewOf; nullptr: none) and the test for its entry k.
+    const void *keepView(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t list, int32_t n)
+    {
+        if (!keepFastOk() || !coll119::on(runtime))
+            return nullptr;
+        const G g{rdram, ctx, runtime};
+        return coll119::viewOf(g, list, n);
+    }
+    bool keepEarlyFrom(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const void *view, int32_t k, uint32_t id, uint32_t point, float keep)
+    {
+        coll119::View *v = static_cast<coll119::View *>(const_cast<void *>(view));
+        if (!v || k < 0 || k >= v->n || id != v->list + 8u * static_cast<uint32_t>(k))
+            return keepEarly(rdram, ctx, runtime, id, point, keep);
+        const G g{rdram, ctx, runtime};
+        const uint32_t normal = coll119::entry(g, *v, k);
+        return normal != 0u && keepEarlyAt(g, normal, v->flag[k], point, keep);
     }
 
     void clipCollisionDB(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -3637,8 +3720,33 @@ namespace decomp_collision
     // The matrix at m by the one at by: by x each of m's rows.
     void matrixProduct(const G g, uint32_t out, uint32_t by, uint32_t m)
     {
-        const vu::Rows rows{{vu::clamp(g.q(by)), vu::clamp(g.q(by + 0x10u)), vu::clamp(g.q(by + 0x20u)), vu::clamp(g.q(by + 0x30u))}};
         __m128 r[4];
+#if PS2X_VU_NEON_A32
+        // Round 119 (SOTC_PART119): transform()'s raw-row form for each row of m (the same bits).
+        if (sotc_decomp::switchOn(sotc_decomp::kPart119) && !fast::checkOn() && G::plain(by & ~0xFu, 0x40u))
+        {
+            vu::Rows raw;
+            for (int i = 0; i < 4; ++i)
+                raw.r[i] = g.q(by + i * 0x10u);
+            if (fast::allSmall(raw))
+            {
+                bool ok = true;
+                for (int i = 0; i < 4 && ok; ++i)
+                {
+                    uint32x2_t sm;
+                    r[i] = fast::applySmall(raw, g.q(m + i * 0x10u), sm);
+                    ok = vget_lane_u32(sm, 0) != 0u;
+                }
+                if (ok)
+                {
+                    for (int i = 0; i < 4; ++i)
+                        g.put(out + i * 0x10u, r[i]);
+                    return;
+                }
+            }
+        }
+#endif
+        const vu::Rows rows{{vu::clamp(g.q(by)), vu::clamp(g.q(by + 0x10u)), vu::clamp(g.q(by + 0x20u)), vu::clamp(g.q(by + 0x30u))}};
         for (int i = 0; i < 4; ++i)
             r[i] = vu::apply(rows, g.q(m + i * 0x10u));
         for (int i = 0; i < 4; ++i)
@@ -3787,6 +3895,7 @@ namespace decomp_collision
     }
 
 #include "coll115.h"
+    inline const bool g_tick119Set = [] { coll115::g_tick119 = coll119::tick119; return true; }(); // round 119
     namespace cammemo // (round 65, below cameraCheckDirect)
     {
         bool replay(const G g, uint32_t ra, uint32_t out, uint32_t &nth);
@@ -4072,8 +4181,15 @@ namespace decomp_collision
             const int st = coll115::on(runtime) ? 1 : 0;
             const uint64_t t0 = coll115::nowUs();
             segMemo(rdram, ctx, runtime, 0u, [&] { directCallBackBody(rdram, ctx, runtime); });
-            coll115::g_st.usQ[st] += coll115::nowUs() - t0;
+            const uint64_t dt = coll115::nowUs() - t0;
+            coll115::g_st.usQ[st] += dt;
             ++coll115::g_st.nQ[st];
+            if (st)
+            {
+                const int p119 = sotc_decomp::switchOn(sotc_decomp::kPart119) ? 1 : 0; // round 119: by part119 too
+                coll119::g_t.usQ[p119] += dt;
+                ++coll119::g_t.nQ[p119];
+            }
             return;
         }
         segMemo(rdram, ctx, runtime, 0u, [&] { directCallBackBody(rdram, ctx, runtime); });
@@ -4317,6 +4433,12 @@ namespace decomp_collision
                                             {
                                                 coll115::g_st.usW[st115] += coll115::nowUs() - tw;
                                                 ++coll115::g_st.nW[st115];
+                                                if (st115)
+                                                {
+                                                    const int w119 = sotc_decomp::switchOn(sotc_decomp::kWalk119) ? 1 : 0;
+                                                    coll119::g_t.usW[w119] += coll115::nowUs() - tw;
+                                                    ++coll119::g_t.nW[w119];
+                                                }
                                             }
                                         }
                                         if (r2 != 0u)
@@ -5106,7 +5228,22 @@ namespace decomp_collision
     // the table holds it); +0x1c cleared; v0 1.
     constexpr uint32_t kFlushWork = 0x01124410u, kFlushModified = 0x01147798u;
     void flushModified(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void flushWorkBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void flushWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // Round 119: SOTC_COLL115_LOG=1: the call's host time by flush119's state ([coll119t]).
+        if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = sotc_decomp::switchOn(sotc_decomp::kFlush119) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            flushWorkBody(rdram, ctx, runtime);
+            coll119::g_t.usF[st] += coll115::nowUs() - t0;
+            ++coll119::g_t.nF[st];
+            return;
+        }
+        flushWorkBody(rdram, ctx, runtime);
+    }
+    void flushWorkBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::leavesOn())
             return sotc_decomp::recompiled(kFlushWork)(rdram, ctx, runtime);
@@ -5114,9 +5251,18 @@ namespace decomp_collision
         const uint32_t work = GPR_U32(ctx, 4), withB = GPR_U32(ctx, 6), withA = GPR_U32(ctx, 7);
         const int32_t parts = GPR_S32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x30u;
+        // Round 119 (SOTC_FLUSH119, default on): an empty list (count 0) is not handed to
+        // FlushModifiedManager's native, which would only set v0 = 2 and return: a0 stays the list
+        // as the call leaves it; ra / sp / v0 are set at the end below whatever the last call left.
+        const bool skipEmpty = sotc_decomp::switchOn(sotc_decomp::kFlush119) && sotc_decomp::guestFunction(runtime, kFlushModified) == &flushModified;
         auto flush = [&](uint32_t list, uint32_t site)
         {
             SET_GPR_U32(ctx, 4, list);
+            if (skipEmpty && G::plain(list, 4u) && g.u32(list) == 0u)
+            {
+                SET_GPR_U64(ctx, 2, 2u);
+                return;
+            }
             sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, &flushModified, site + 8u, sp);
         };
         uint32_t part = g.u32(work + 0x24u);
@@ -5246,7 +5392,24 @@ namespace decomp_collision
         return v;
     }
     template <bool Filtered>
+    void finderClipBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    template <bool Filtered>
     void finderClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // Round 119: SOTC_COLL115_LOG=1: the call's host time by view119's state ([coll119t]).
+        if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = coll119::on(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            finderClipBody<Filtered>(rdram, ctx, runtime);
+            coll119::g_t.usC[st] += coll115::nowUs() - t0;
+            ++coll119::g_t.nC[st];
+            return;
+        }
+        finderClipBody<Filtered>(rdram, ctx, runtime);
+    }
+    template <bool Filtered>
+    void finderClipBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         constexpr uint32_t self = Filtered ? 0x01125CC0u : 0x01125DC8u;
         constexpr uint32_t frameSize = Filtered ? 0x60u : 0x50u;
@@ -5274,6 +5437,8 @@ namespace decomp_collision
         {
             g.put(sp, g.q(a2));
             uint32_t cand = g.u32(a3 + 0xCu);
+            coll119::View *view119 = coll119::on(g.runtime) && keepFastOk() ? coll119::viewOf(g, cand, n) : nullptr;
+            coll119::log();
             // Round 85: the ground fill's candidates with their sphere and plane in host
             // arrays (ground85::View): a candidate the segment cannot reach (both ends on
             // one side of its plane, as clipDB's first test, or the segment farther from
@@ -5281,8 +5446,11 @@ namespace decomp_collision
             // the filter and clipDB, which would answer "no hit" for it.
             ground85::View &view = ground85::g_view;
             // (Round 108: lane 0's only: the game thread rewrites it at any time.)
+            // (Round 119, view119: the list's words compared with the view's copy, not hashed: 64-bit multiplies per word.)
             const bool hostView = !sotc_decomp::onWorkerLane(g.runtime) && view.finder == a3 && view.list == cand && view.count >= n && sotc_decomp::ground85On() &&
-                                  ground85::listSum(g.rdram, cand, view.count) == view.sum;
+                                  (coll119::on(g.runtime) && G::plain(cand, 8u * static_cast<uint32_t>(view.count))
+                                       ? std::memcmp(g.rdram + cand, view.words, 8u * static_cast<uint32_t>(view.count)) == 0
+                                       : ground85::listSum(g.rdram, cand, view.count) == view.sum);
             const int check85 = hostView ? ground85Check() : 0;
             if (hostView)
                 ++view.uses;
@@ -5325,6 +5493,31 @@ namespace decomp_collision
                 }
                 if (Filtered && !directFilter(g, filter, cand, user, filterSite + 8u, sp))
                     continue;
+                if (view119)
+                {
+                    // Round 119: ClipCollisionDB's plane test from the list's host view; thrown out: f0 = 0,
+                    // all it would have written (SOTC_VIEW119_CHECK=1: the call made too and compared).
+                    ++coll119::g_vst.tested;
+                    const int rej = coll119::clipRejects(g, *view119, k, a1, sp);
+                    if (rej == 1)
+                    {
+                        if (__builtin_expect(coll119::checkLevel() != 0, 0))
+                        {
+                            ++coll119::g_vst.checked;
+                            const uint64_t r = clipDB(g, a0, a1, sp, cand, clipSite + 8u, sp);
+                            if (r != 0u || ctx->f[0] != 0.0f)
+                                ++coll119::g_vst.differ;
+                            if (r == 0u)
+                                continue;
+                            g.put(sp, g.q(a0 + 0x40u));
+                            best = cand;
+                            continue;
+                        }
+                        ++coll119::g_vst.rejected;
+                        g.f0(0.0f);
+                        continue;
+                    }
+                }
                 if (clipDB(g, a0, a1, sp, cand, clipSite + 8u, sp) == 0u)
                     continue;
                 if (skip85)
