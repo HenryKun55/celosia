@@ -585,8 +585,9 @@ namespace sotc_decomp
             // 2026-11-07 console: with charlod78, ptcl79, seg80, probe84 and ground85 off together Avion's intro
             // (the reveal) played in full, cut short with them on; frame time unchanged within noise. All five off
             // until each is proven on its own (SOTC_xxx=1 turns one on).
+            // Console recheck: with seg80, probe84 and ground85 back on the reveal played in full; on again.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
-                 which == kPtcl79 || which == kSeg80 || which == kProbe84 || which == kGround85) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
+                 which == kPtcl79) ? (e && e[0] >= '1' && e[0] <= '3') : !(e && e[0] == '0');
             g_switch[which] = v;
         }
         return v != 0;
