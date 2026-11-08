@@ -16026,6 +16026,11 @@ bossDeathEffectEnd path is the recompiled code (0.12%, its flags are set there).
 native already or a sub-0.1% function: the next gains here need those natives rewritten in host locals (as round 101
 did for collision), not more functions moved.
 
-**Console.** build/agent-scratch/celosia-r106.vpk (main 82994c6 + this round) with r106/env-console.txt
+The runs above are on p1 (main b419fc5 + the round) and p2 (rebased on main 82994c6, round 104). The shipped build is
+rebased on main 5d00aa0 (round 105), p3: runsb/checkA3 (the altar 330 s, every call checked, oan106 on) grp106 2.4 M
+leaf compares, ai106 16 400, oan106 49 000 / 49 000 / 82 000, 0 differ; runs/finalR3 (the console env and the console
+memcard, Load Game, route 6 600 s to frame 19 233, 322 A/B windows) no fault, r106all +0.18 ms matched on the plain.
+
+**Console.** build/agent-scratch/celosia-r106.vpk (p3: main 5d00aa0 + this round) with r106/env-console.txt
 (`SOTC_AB_FLAG=r106all,grp106,ai106`), read with `build/agent-scratch/r106/read106.sh err.txt <from>`. The ELF has no
 sp-based :128 / :256 NEON access (tools/spalign.py: 0 of 542).
