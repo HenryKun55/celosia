@@ -15753,3 +15753,97 @@ accesses (kickAs, char104's static init) use registers realigned with `bic #15`.
 unless set: with r104/env-console.txt (`SOTC_CHAR104=1 SOTC_THREAD_CORES=guest:2 SOTC_AB_FLAG=char104`)
 half the windows run the worker on core 1 and are expected to be slower; read with
 `build/agent-scratch/r104/read104.sh err.txt <from>` (ab89's matched block; `[char104]` the waits).
+
+## Round 105: room on cores 1-2: the hook worker's shadow volumes, the idle threads' 2 ms polling, the frame log's dtoa (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r105/` (build.sh, v3k.sh / v3kb.sh: its own trees ../vita3k-celosia-r105 and
+-r105b, 222 MHz, 3 cores; run.sh (`load`: the console memcard and fix103's Load Game input), read105.sh, env-console.txt,
+tools/threads105.py (per-thread CPU from a console log), thrcmp105.py / thr105.py (the Vita3K sampler by thread),
+spalign105.py (the ELF's sp-based :128 / :256 NEON accesses), STATE.md).
+
+**Where cores 1-2 go (console, r103/console/err-nowalk.txt, 3D frames from 1 500, 6 120 frames; ms a frame, mean / p90).**
+
+| thread | mean | p90 | | game thread's waits | mean | p90 |
+|---|---|---|---|---|---|---|
+| game (core 0) | 46.3 | 65.4 | | jobs join (hookjoin sites) | 0.50 | 0.0 (move 0.39, screenblur 0.09) |
+| render (core 2) | 21.8 | 29.4 | | sync end (endFrame) | 1.84 | 6.8 |
+| hook worker | 9.5 | 16.5 | | sync log (the frame log, game thread) | 0.80 | 0.9 |
+| loader | 5.2 | 6.2 | | lanehelp (38 jobs, 6.6 joins) | 1.04 | 1.5 |
+| audio | 4.7 | 10.1 | | sched (blocked 0.55, hookjoin 0.08) | 0.64 | 0.6 |
+| lane | 2.7 | 4.2 | | | | |
+| build | 2.5 | 3.0 | | | | |
+| dma | 2.4 | 3.1 | | | | |
+| log | 2.4 | 3.1 | | | | |
+| offload | 2.1 | 2.5 | | | | |
+| main | 1.0 | 1.3 | | | | |
+| cores 1-2 without render | 32.6 | | | | | |
+
+(r100/console/err.txt, 1 824 frames: frame 60.5, game 56.8, worker 12.3, audio 8.7, loader 6.6, build 3.4, lane 3.1, dma 3.0,
+log 2.8, offload 2.4; joins 1.61, cores 1-2 without render 43.4.) The game thread's joins on the worker and the lane are
+already small (round 100's camera blur join); the threads beside the worker are what fills cores 1-2.
+
+The Vita3K sampler at the altar (r105/runsb/sampBase, celosia-fix103) by thread: the hook worker is shadowDispDraw 35%,
+newlib's memcmp 12.4%, modelDispDraw 13%, poseSkinned 7.6%, truncf 3.6%. The build thread (no builds in steady play) is
+almost all pthread timed-wait machinery (sceKernelWaitSema / GetProcessTimeLow / LibcGettimeofday / PollEventFlag /
+__udivmoddi4): its loop waited on a condition with a 2 ms timeout, ~25 wake-ups a frame for nothing, which on the console
+are real syscalls (~2.5 ms of CPU a frame there with nothing to build). The render thread's idle wait was the same 2 ms
+recheck. The log thread is _svfprintf_r / _dtoa_r (the per-frame line's ~60 float conversions) and the ring's memmove.
+
+**What changed (default on; A/B names `worker105`, `build105`, `render105`, `log105`, `r105all` all four).**
+- **worker105** (`SOTC_WORKER105`, sotc_native.cpp): the shadow volumes and the kick pass, the same results bit for bit.
+  The parsed shadow model's guest bytes (compared at every shadow draw to know the parse still holds: ~15 KB a draw) and
+  the skin records' palettes (skinAtKickWith) are compared 64 bytes at a time in NEON (`sameBytes105`; newlib's memcmp is
+  a word loop with a branch per word); a skinned shadow vertex's bone index is `(float)(int)packed` for |packed| < 2^23
+  (trunc's value; the weight `packed - index` the same, -0 included) instead of the truncf call, with the vertex in
+  registers (the old loop reloaded x / y / z after each store: possible aliasing); the corner table's 24-byte memcmp is
+  six word compares. `SOTC_WORKER105_CHECK=1` runs both ways: altar (runs/checkA1) 14 000 shadow draws, 215 MB of model
+  bytes compared, 6.5 M skinned vertices, 4.8 M probes, **0 differences**.
+- **build105** (`SOTC_BUILD105`, native_renderer.cpp AsyncBuilds): the build worker idles on a kernel semaphore. It says
+  it sleeps under the mutex; flush() pushes under the same mutex and signals when it saw it asleep; the semaphore counts, so
+  a signal before the wait is kept (no lost wake-up, the reason for the old 2 ms recheck in Vita3K); 20 ms timeout, as the
+  hook worker's. The jobs run as soon as handed over, as before.
+- **render105** (`SOTC_RENDER105`, native_renderer_gl.cpp): the render thread's idle wait the same way (every
+  `m_work.notify_one()`, all under m_mutex, is followed by `wake105()`).
+- **log105** (`SOTC_LOG105`, native_renderer.cpp `fmt105` / `logf105`): the frame log thread's per-frame lines (log76's
+  write, its splits, threads::lineOf) formatted without newlib's dtoa: %.Nf (N 0-3) by integer arithmetic on v * 10^N,
+  with snprintf for any number within 1e-6 of a rounding half, -0, NaN / inf or large; other conversions as before. The
+  same text: `SOTC_LOG105_CHECK=1` compares every text with vsnprintf's (0 differ at the altar; a Mac test of 4 M random
+  values against the C library, 0 differ).
+- Thread placement is unchanged (priorities, cores). Build note: `sotc_vita_elf_room` 40 KB (vita-elf-create's "segment 1
+  overlaps" came back with round 104 and this round together).
+
+**Measured (Vita3K 222 MHz; Vita3K has no per-thread run clocks, so the per-thread CPU is the sampler's).**
+- Sampler, the altar 160-290 s, the same VPK (p1) with the four off (runsb/sampOff) and on (runsb/sampOn), weight per game
+  frame: hook worker 4.53 -> 3.97 (-12%: memcmp and truncf gone, sameBytes105 1.4% of it), build thread 0.189 -> 0.087
+  (-54%), log thread 0.118 -> under 0.03, lane / dma / offload / audio unchanged. The render thread's guest code is
+  unchanged; its HLE stubs (sceGxmSet*, sceClibMemcpy) cost twice the host time in the "on" run while sceGxmDraw stayed
+  the same: the host's load (three agents' Vita3K runs at once), not the round. Vita3K's HLE syscalls are cheap; the
+  polling's console cost (the build thread's 2.5 ms a frame) is not visible here.
+- In-run A/B (`SOTC_AB_FLAG=r105all,worker105,render105`, 60-frame windows, matched by draws, off minus on): the hook
+  worker's job time a frame (`jobs`) at the altar (runs/altarAB, from 3 300) worker105 +1.83 ms (11.87 -> 13.70),
+  r105all +1.82; route 6 600 s console env (runs/route600, from 4 300) worker105 +0.58, r105all +0.49. The frame and the
+  game thread within noise (-0.6 .. +0.0); render105 changed nothing measurable in Vita3K (sync end's median 0.1 in all states).
+- p2 (rebased on round 104), route 6 600 s console env (runsb/finalR2): worker105 +0.68, r105all +0.66 ms of worker a
+  frame, the frame within noise.
+- No fault: altar 300 s x3, route 6 600 s console env (p1 and p2), a save load from the console's memory card
+  (runs/load1 on p1, runs/load2 on p2: avion/console/Mcd001-console.ps2 copied into the round's own tree; the area loads
+  at ~frame 1 100, then 300 s of play).
+
+**Console.** build/agent-scratch/celosia-r105.vpk (main 82994c6, round 104, + this round) with r105/env-console.txt
+(`SOTC_AB_FLAG=r105all,worker105,render105`), read with `build/agent-scratch/r105/read105.sh err.txt <from>`. The ELFs have no sp-based :128 / :256
+  NEON access (spalign105.py: p1 and p2 0; it finds round 101's 7 in r103/p2.elf).
+
+**For the console** (what Vita3K cannot show): `cpu build` should fall from ~2.5 ms toward its real work, `cpu render` by
+its idle wake-ups, `cpu log` by most of the formatting, `cpu worker` by ~1-2 ms with the body shadows. Read with
+`build/agent-scratch/r105/read105.sh err.txt <from>`: the per-thread block's matched "off minus all on" lines (r105all
+for all four; worker105 / render105 alone).
+
+**Leads not taken.**
+- `sync log 0.8` on the console is threads::sample() on the game thread (~14 sceKernelGetThreadInfo a frame, only with the
+  frame log on): measurement cost, not the game's; moving it to the log thread would change what `cpu <thread>` measures.
+- The lane's token-busy retry (`wait_for(100 us)`) and waitDone's 200 us recheck poll the same way while the game thread
+  or worker runs the lane's jobs.
+- The loader's ~5 ms a frame on the console with no EE reads in the frame: the read-ahead reads ~45% more than is copied
+  out ([cd100]: 104 MB read ahead, 57 MB copied in 345 s); worth a look at what the loader threads do per frame.
+- The skin palette read back out of the VU1 packet at the hook and again at the kick (game thread ~0.75%) and the haze
+  strips' GIF packet (~0.4%) stay (round 103's reasons).
