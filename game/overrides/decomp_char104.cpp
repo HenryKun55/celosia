@@ -86,7 +86,13 @@ namespace char104
         // Round 114: that slow start was the host's load (other builds and emulators: the 1-minute load 30-47 on 18
         // cores), not round 110 (the pacing on / off at once: the same latency); in quiet runs, with net114 pausing the
         // jobs where their own account is negative: altar +0.74, route 6 +0.34, attract riding +0.45. 1.
+        // Round 121: the console's in-run A/B (r117 err.txt, ab116.py --from 2500) has char104 losing 0.4-1.1 ms a frame
+        // on the real Vita: 0 on the Vita build (SOTC_CHAR104=1 still turns the jobs on), 1 elsewhere.
+#if defined(__vita__)
+        constexpr int kChar104Default = 0;
+#else
         constexpr int kChar104Default = 1;
+#endif
         int g_logV = -1; // SOTC_CHAR104_LOG (read at first use: the Vita env.txt comes after static init)
         inline int logV()
         {
