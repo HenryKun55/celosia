@@ -2030,6 +2030,15 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             GLuint buffer = 0;
             uint8_t *mapped = nullptr; // the Vita: its memory, written in place
+            // Round 118 (SOTC_RUNSRC118, default 1): the same bytes at the same
+            // offsets in cached main RAM (a memory block of its own, outside the
+            // newlib heap), written beside `mapped` at upload and compaction.
+            // Run copies and compaction read their vertices from here: the
+            // CPU never reads `mapped` (GPU memory, uncached: the console's
+            // ~35 ms per MB of round 112). nullptr: no block (its meshes'
+            // runs are drawn one by one).
+            uint8_t *source = nullptr;
+            int sourceBlock = -1;
             uint32_t capacity = 0;
             std::vector<std::pair<uint32_t, uint32_t>> free;
         };
@@ -2093,7 +2102,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             uint32_t first = 0, count = 0;
             uint64_t used = 0;
             uint32_t frames = 0; // frames in a row it was drawn (copied from kRunFrames on)
+            uint32_t made = 0;   // round 118: times copied (churn: made again after its copy went)
+            uint64_t madeAt = 0; // round 118: the frame of its last copy
         };
+        // Round 118 ([hitch118] / [hitch118s] with SOTC_HITCH112_LOG=1): where
+        // run copies come from and why they are made again.
+        struct Hitch118
+        {
+            uint64_t copyUs = 0;      // copyRun whole (room, allocation, copy)
+            uint64_t gpuReadBytes = 0, gpuReadUs = 0; // bytes the CPU / DMA read from the pools' GPU memory (0 with SOTC_RUNSRC118=1)
+            uint32_t fresh = 0, remade = 0, remadeSoon = 0; // copies of runs never copied / copied before / again within 60 frames of the last
+            uint32_t noSource = 0;    // runs drawn one by one: a member's pool has no RAM source
+            uint32_t lostBudget = 0, lostCompact = 0, lostAged = 0; // copies let go: room for others, their pool compacted, unused 600 frames
+            uint64_t texAlphaUs = 0, texSwzUs = 0, texVglUs = 0, texBytes = 0; // uploadTexture's parts
+            // the 600-frame window
+            uint64_t wCopyUs = 0, wCopyMaxUs = 0, wGpuReadBytes = 0, wGpuReadUs = 0, wFresh = 0, wRemade = 0, wRemadeSoon = 0, wNoSource = 0, wLostBudget = 0,
+                     wLostCompact = 0, wLostAged = 0, wTexN = 0, wTexUs = 0, wTexMaxUs = 0, wTexAlphaUs = 0, wTexSwzUs = 0, wTexVglUs = 0, wTexBytes = 0,
+                     wMeshN = 0, wMeshUs = 0, wRam = 0;
+            uint32_t sourceBlocks = 0, sourceFails = 0; // RAM sources made / not made (this session)
+        } h118;
+        uint64_t runBudget = kRunBudget0; // round 118: SOTC_RUNBUDGET118_KB
         // A run is copied once drawn kRunFrames frames in a row; the copies
         // together hold at most kRunBudget vertices, the least recently drawn
         // going first. Round 13: 1 (was 4, against runs a moving camera makes
@@ -2101,11 +2129,32 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // drawn one by one for 4 frames, the render thread 170-190 ms each
         // against ~88 once copied (calibrated Vita3K, 240 MHz).
         static constexpr uint32_t kRunFrames = 1;
-        static constexpr uint64_t kRunBudget = 0x30000; // ~7 MB
+        static constexpr uint64_t kRunBudget0 = 0x30000; // ~7 MB (round 118: runBudget, SOTC_RUNBUDGET118_KB)
         IdMap<RunCopy> runs;
         uint64_t runVertices = 0;
         uint64_t runScanFrame = 0; // round 36: the frame of the last scan for room that found none
         bool copyRun(size_t from, size_t to, uint32_t total, RunCopy &copy);
+        bool copyRunBody(size_t from, size_t to, uint32_t total, RunCopy &copy);
+        static bool runSourceOn();
+        void poolSourceMake(Pool &p);
+        void poolSourceFree(Pool &p);
+        static size_t poolSourceSize(const Pool &p) { return (static_cast<size_t>(p.capacity) * sizeof(native_renderer::Vertex) + 0xFFFu) & ~static_cast<size_t>(0xFFFu); }
+        uint64_t sourceBytes = 0;   // round 118: the pools' RAM sources (spares included)
+        std::vector<std::pair<int, uint8_t *>> sourceSpares; // round 118: blocks of pools let go
+        uint32_t ramCopies118 = 0;  // round 118: run copy / compaction spans copied from RAM sources this frame
+        // Round 118 (SOTC_RUNSRC118_CHECK=1, a test: it reads GPU memory): each
+        // span read from a RAM source compared with the pool's own bytes.
+        uint64_t checkSpans118 = 0, checkBytes118 = 0, checkDiffer118 = 0;
+        void sourceCheck118(const Pool &p, uint32_t first, size_t bytes)
+        {
+            static const bool on = std::getenv("SOTC_RUNSRC118_CHECK") && std::atoi(std::getenv("SOTC_RUNSRC118_CHECK")) != 0;
+            if (!on || !p.mapped || !p.source)
+                return;
+            const size_t at = static_cast<size_t>(first) * sizeof(native_renderer::Vertex);
+            ++checkSpans118;
+            checkBytes118 += bytes;
+            checkDiffer118 += std::memcmp(p.mapped + at, p.source + at, bytes) != 0 ? 1u : 0u;
+        }
         std::vector<std::pair<uint32_t, uint32_t>> planRanges; // scratch: a run's (first, count)
         void planFrame();
         // Round 116 (SOTC_FAT116_CHECK=<n>): every n-th frame the plan made
@@ -2447,6 +2496,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::vector<GLuint> deadBuffers, deadTextures; // evicted (GlBackend::evictKept): deleted before the next frame
         void applyUploads();
         void applyUploadList(std::vector<Upload> &list); // and empties it
+        std::vector<uint8_t> texChain118; // round 118: uploadTexture's swizzled chain (kept between uploads)
         void uploadMesh(uint64_t id, const native_renderer::Vertex *vertices, uint32_t count);
         void uploadSkinned(uint64_t id, const native_renderer::SkinVertex *vertices, uint32_t count, const uint32_t *indices, uint32_t indexCount);
         void uploadTexture(uint64_t id, uint32_t width, uint32_t height, const uint8_t *rgba, uint32_t levels);
@@ -2511,6 +2561,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // memory: both ends below 0x81000000, i.e. not the cached newlib
         // heap); the same bytes land in the same place. 0: memcpy as before.
         void poolCopy(uint8_t *dst, const uint8_t *src, size_t bytes);
+        void poolCopyRaw(uint8_t *dst, const uint8_t *src, size_t bytes);
         uint64_t frameCopyBytes = 0; // round 112: run copies made this frame (SOTC_RUNCOPY112_KB)
         // The frame's [hitch112] line (render thread, after its draws).
         void hitch112Frame(uint64_t uploadUs, uint64_t drawUs)
@@ -2524,7 +2575,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 h.log = on;
                 return;
             }
-            const uint64_t parts = h.copyUs + h.compactUs + h.delUs + h.relUs + h.texUs + h.meshUs + h.newVarUs;
+            Hitch118 &g = h118;
+            const uint64_t parts = std::max(h.copyUs, g.copyUs) + h.compactUs + h.delUs + h.relUs + h.texUs + h.meshUs + h.newVarUs;
+            // Round 118: the window's sums
+            g.wCopyUs += g.copyUs, g.wCopyMaxUs = std::max(g.wCopyMaxUs, g.copyUs), g.wGpuReadBytes += g.gpuReadBytes, g.wGpuReadUs += g.gpuReadUs;
+            g.wFresh += g.fresh, g.wRemade += g.remade, g.wRemadeSoon += g.remadeSoon, g.wNoSource += g.noSource, g.wLostBudget += g.lostBudget;
+            g.wLostCompact += g.lostCompact, g.wLostAged += g.lostAged, g.wTexN += h.texN, g.wTexUs += h.texUs, g.wTexMaxUs = std::max(g.wTexMaxUs, h.texUs);
+            g.wTexAlphaUs += g.texAlphaUs, g.wTexSwzUs += g.texSwzUs, g.wTexVglUs += g.texVglUs, g.wTexBytes += g.texBytes, g.wMeshN += h.meshN, g.wMeshUs += h.meshUs;
+            g.wRam += ramCopies118;
             ++h.wFrames;
             h.wCopyUs += h.copyUs, h.wCopyBytes += h.copyBytes, h.wCopyMaxUs = std::max(h.wCopyMaxUs, h.copyUs);
             h.wCompactUs += h.compactUs, h.wUpUs += uploadUs, h.wUpMaxUs = std::max(h.wUpMaxUs, uploadUs);
@@ -2539,6 +2597,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              (unsigned long long)arenaFrame, uploadUs / 1000.0, drawUs / 1000.0, h.copies, h.copyBytes / 1024.0, h.copyUs / 1000.0, h.deferred,
                              h.compactBytes / 1024.0, h.compactUs / 1000.0, h.dmaCalls, h.cpuCalls, h.delUs / 1000.0, h.relUs / 1000.0, h.texN, h.texUs / 1000.0,
                              h.meshN, h.meshUs / 1000.0, h.newVar, h.newVarUs / 1000.0, h.newVarMaxUs / 1000.0);
+                // Round 118: the copies' source and churn, GPU-memory reads (0 with SOTC_RUNSRC118=1), the textures' parts.
+                std::fprintf(stderr,
+                             "[hitch118] arena %llu: run copies whole %.1f ms (%u new, %u made again, %u of them within 60 frames), spans from RAM %u, "
+                             "GPU memory read %.0f KB %.1f ms, runs one by one for no RAM source %u | copies let go: budget %u, compaction %u, unused %u | "
+                             "textures %.0f KB: alpha %.1f, swizzle %.1f, vitaGL %.1f ms\n",
+                             (unsigned long long)arenaFrame, g.copyUs / 1000.0, g.fresh, g.remade, g.remadeSoon, ramCopies118, g.gpuReadBytes / 1024.0, g.gpuReadUs / 1000.0,
+                             g.noSource, g.lostBudget, g.lostCompact, g.lostAged, g.texBytes / 1024.0, g.texAlphaUs / 1000.0, g.texSwzUs / 1000.0, g.texVglUs / 1000.0);
             }
             if (h.wFrames >= 600u)
             {
@@ -2548,11 +2613,31 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                              (unsigned long long)h.wFrames, (unsigned long long)h.wHitches, h.wCopyBytes / 1048576.0, h.wCopyUs / 1000.0, h.wCopyMaxUs / 1000.0,
                              (unsigned long long)h.wDma, (unsigned long long)h.wCpu, h.wCompactUs / 1000.0, h.wUpUs / 1000.0, h.wUpMaxUs / 1000.0,
                              (unsigned long long)h.wNewVar, h.wNewVarUs / 1000.0, h.wNewVarMaxUs / 1000.0, static_cast<unsigned>(h.variants.size()));
+                uint32_t copiesLive = 0;
+                runs.forEach([&](uint64_t, const RunCopy &r) { copiesLive += r.pool >= 0 ? 1u : 0u; });
+                std::fprintf(stderr,
+                             "[hitch118s] %llu frames: run copies whole %.1f ms (slowest frame %.1f ms): %llu new, %llu made again (%llu within 60 frames), spans from RAM %llu | "
+                             "GPU memory read %.2f MB %.1f ms | runs one by one for no RAM source %llu | copies let go: budget %llu, compaction %llu, unused %llu | "
+                             "runs known %u, copied now %u (%.1f of %.1f MB) | RAM sources %u pools %.1f MB (made %u, not made %u) | "
+                             "textures %llu, %.1f MB, %.1f ms (slowest frame %.1f): alpha %.1f, swizzle %.1f, vitaGL %.1f | meshes %llu, %.1f ms | source check: spans %llu, %.1f MB, differ %llu\n",
+                             (unsigned long long)h.wFrames, g.wCopyUs / 1000.0, g.wCopyMaxUs / 1000.0, (unsigned long long)g.wFresh, (unsigned long long)g.wRemade,
+                             (unsigned long long)g.wRemadeSoon, (unsigned long long)g.wRam, g.wGpuReadBytes / 1048576.0, g.wGpuReadUs / 1000.0, (unsigned long long)g.wNoSource,
+                             (unsigned long long)g.wLostBudget, (unsigned long long)g.wLostCompact, (unsigned long long)g.wLostAged, static_cast<unsigned>(runs.size()), copiesLive,
+                             runVertices * sizeof(native_renderer::Vertex) / 1048576.0, runBudget * sizeof(native_renderer::Vertex) / 1048576.0,
+                             [&] { unsigned n = 0; for (const Pool &q : pools) n += q.source ? 1u : 0u; return n; }(), sourceBytes / 1048576.0, g.sourceBlocks, g.sourceFails,
+                             (unsigned long long)g.wTexN, g.wTexBytes / 1048576.0, g.wTexUs / 1000.0, g.wTexMaxUs / 1000.0, g.wTexAlphaUs / 1000.0, g.wTexSwzUs / 1000.0,
+                             g.wTexVglUs / 1000.0, (unsigned long long)g.wMeshN, g.wMeshUs / 1000.0, (unsigned long long)checkSpans118, checkBytes118 / 1048576.0, (unsigned long long)checkDiffer118);
                 h.wFrames = h.wHitches = h.wCopyUs = h.wCopyBytes = h.wCopyMaxUs = h.wCompactUs = h.wUpUs = h.wUpMaxUs = h.wNewVar = h.wNewVarUs = h.wNewVarMaxUs = h.wDma =
                     h.wCpu = 0;
+                const uint32_t blocks = g.sourceBlocks, fails = g.sourceFails;
+                g = Hitch118{};
+                g.sourceBlocks = blocks, g.sourceFails = fails;
             }
             h.copyUs = h.copyBytes = h.compactUs = h.compactBytes = h.delUs = h.relUs = h.texUs = h.meshUs = h.newVarUs = h.newVarMaxUs = 0;
             h.copies = h.dmaCalls = h.cpuCalls = h.deferred = h.texN = h.meshN = h.newVar = 0;
+            g.copyUs = g.gpuReadBytes = g.gpuReadUs = g.texAlphaUs = g.texSwzUs = g.texVglUs = g.texBytes = 0;
+            g.fresh = g.remade = g.remadeSoon = g.noSource = g.lostBudget = g.lostCompact = g.lostAged = 0;
+            ramCopies118 = 0;
         }
         std::vector<native_renderer::ScreenBlur> blurs;
         native_renderer::Fog fog;
@@ -4009,6 +4094,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 poolFree(r.pool, r.first, r.count);
                 runVertices -= r.count;
+                ++h118.lostAged;
             }
             return true;
         });
@@ -4068,6 +4154,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const size_t offset = static_cast<size_t>(first) * sizeof(native_renderer::Vertex), bytes = static_cast<size_t>(count) * sizeof(native_renderer::Vertex);
 #if defined(PS2X_NATIVE_VITA)
             std::memcpy(pools[static_cast<size_t>(pool)].mapped + offset, vertices, bytes);
+            if (uint8_t *src = pools[static_cast<size_t>(pool)].source) // round 118: and its RAM source
+                std::memcpy(src + offset, vertices, bytes);
 #else
             glBufferSubData(GL_ARRAY_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(bytes), vertices);
 #endif
@@ -4152,6 +4240,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::fprintf(stderr, "[hitch112] mesh pool %u made at 0x%08lx (arena %llu)\n", static_cast<unsigned>(slot),
                          static_cast<unsigned long>(reinterpret_cast<uintptr_t>(p.mapped)), (unsigned long long)arenaFrame);
 #endif
+        poolSourceMake(p); // round 118
         p.free.push_back({count, kPoolVertices - count});
         if (slot == pools.size())
             pools.push_back(std::move(p));
@@ -4204,6 +4293,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (pending)
                     continue;
                 glDeleteBuffers(1, &pool.buffer);
+                poolSourceFree(pool); // round 118
                 pool = Pool{};
                 cache.buffer = ~0u;
             }
@@ -4246,7 +4336,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             int best = -1;
             for (size_t p = 0; p < pools.size(); ++p)
-                if (pools[p].buffer && live[p] * 2u < pools[p].capacity && (best < 0 || live[p] < live[static_cast<size_t>(best)]))
+                if (pools[p].buffer && live[p] * 2u < pools[p].capacity && (best < 0 || live[p] < live[static_cast<size_t>(best)]) &&
+                    (pools[p].source || !runSourceOn())) // round 118: its meshes read from RAM, not GPU memory
                     best = static_cast<int>(p);
             if (best < 0)
                 return;
@@ -4285,8 +4376,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             }
 #if defined(PS2X_NATIVE_VITA)
-            poolCopy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(first) * stride, from.mapped + static_cast<size_t>(m.first) * stride,
-                     static_cast<size_t>(m.count) * stride); // (round 112: DMA)
+            if (from.source) // round 118: from its RAM source, into the other pool and its source
+            {
+                const size_t n = static_cast<size_t>(m.count) * stride;
+                const uint8_t *src = from.source + static_cast<size_t>(m.first) * stride;
+                std::memcpy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(first) * stride, src, n);
+                if (uint8_t *dstSource = pools[static_cast<size_t>(pool)].source)
+                    std::memcpy(dstSource + static_cast<size_t>(first) * stride, src, n);
+                ++ramCopies118;
+                sourceCheck118(from, m.first, n);
+            }
+            else
+                poolCopy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(first) * stride, from.mapped + static_cast<size_t>(m.first) * stride,
+                         static_cast<size_t>(m.count) * stride); // (round 112: DMA)
             h112.compactBytes += static_cast<size_t>(m.count) * stride;
 #else
             glBindBuffer(GL_COPY_READ_BUFFER, from.buffer);
@@ -4318,6 +4420,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             runVertices -= r.count;
             r.pool = -1;
             r.frames = 0;
+            ++h118.lostCompact;
         });
         ++poolsEmptied;
         poolDraining = -1; // poolRelease lets it go once its ranges are back
@@ -4591,10 +4694,50 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::vector<uint32_t> px, py;
         uint8_t *dst = out.data();
         const uint8_t *src = rgba;
+        // Round 118 (SOTC_SWZ118, default 1): levels whose smaller side is 4
+        // or more written in the destination's order, 4 x 4 texel blocks of
+        // 64 bytes one after the other (the same bytes in the same places;
+        // the texel-by-texel loop scattered 4-byte stores over the level).
+        static const bool fast = !std::getenv("SOTC_SWZ118") || std::atoi(std::getenv("SOTC_SWZ118")) != 0;
+        auto compact = [](uint32_t x)
+        {
+            x &= 0x55555555u;
+            x = (x | (x >> 1)) & 0x33333333u;
+            x = (x | (x >> 2)) & 0x0F0F0F0Fu;
+            x = (x | (x >> 4)) & 0x00FF00FFu;
+            x = (x | (x >> 8)) & 0x0000FFFFu;
+            return x;
+        };
         for (uint32_t l = 0, lw = w, lh = h; l < n; ++l)
         {
             const uint32_t least = std::min(lw, lh);
             const uint32_t k = static_cast<uint32_t>(__builtin_ctz(least));
+            if (fast && least >= 4u)
+            {
+                const uint32_t squares = std::max(lw, lh) / least, blocks = (least / 4u) * (least / 4u);
+                const size_t pitch = static_cast<size_t>(lw) * 4u;
+                uint8_t *o = dst;
+                for (uint32_t sq = 0; sq < squares; ++sq)
+                {
+                    const uint32_t ox = lw > lh ? sq * least : 0u, oy = lw > lh ? 0u : sq * least;
+                    for (uint32_t j = 0; j < blocks; ++j, o += 64)
+                    {
+                        const uint32_t x = ox + 4u * compact(j >> 1), y = oy + 4u * compact(j);
+                        const uint8_t *r0 = src + static_cast<size_t>(y) * pitch + static_cast<size_t>(x) * 4u;
+                        const uint8_t *r1 = r0 + pitch, *r2 = r1 + pitch, *r3 = r2 + pitch;
+                        // index bits: y0 x0 y1 x1 (y on the even bits)
+                        std::memcpy(o + 0, r0 + 0, 4), std::memcpy(o + 4, r1 + 0, 4), std::memcpy(o + 8, r0 + 4, 4), std::memcpy(o + 12, r1 + 4, 4);
+                        std::memcpy(o + 16, r2 + 0, 4), std::memcpy(o + 20, r3 + 0, 4), std::memcpy(o + 24, r2 + 4, 4), std::memcpy(o + 28, r3 + 4, 4);
+                        std::memcpy(o + 32, r0 + 8, 4), std::memcpy(o + 36, r1 + 8, 4), std::memcpy(o + 40, r0 + 12, 4), std::memcpy(o + 44, r1 + 12, 4);
+                        std::memcpy(o + 48, r2 + 8, 4), std::memcpy(o + 52, r3 + 8, 4), std::memcpy(o + 56, r2 + 12, 4), std::memcpy(o + 60, r3 + 12, 4);
+                    }
+                }
+                dst += static_cast<size_t>(lw) * lh * 4u;
+                src += static_cast<size_t>(lw) * lh * 4u;
+                lw = std::max(1u, lw / 2u);
+                lh = std::max(1u, lh / 2u);
+                continue;
+            }
             px.resize(lw);
             py.resize(lh);
             for (uint32_t x = 0; x < lw; ++x)
@@ -4638,8 +4781,31 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // texels all fall under AREF draws every pixel without its depth
             // (the GS alpha test's FB_ONLY), one pass. Stops as soon as both
             // are settled (a cut-out texture: a 0 and a 0x80).
+            const uint64_t alphaStart = h112.log ? native_renderer::nowUs() : 0u;
             uint8_t least = 0xFF, greatest = 0;
-            for (size_t i = 0; i < texels && (least || greatest < 0x80u); ++i)
+            // Round 118 (SOTC_ALPHA118, default 1): blocks of 64 texels
+            // without the stop test per texel; the block where the scan
+            // stops is scanned again texel by texel, so both values are the
+            // ones the plain loop gives (its greatest stops there too).
+            static const bool blocked = !std::getenv("SOTC_ALPHA118") || std::atoi(std::getenv("SOTC_ALPHA118")) != 0;
+            size_t i = 0;
+            if (blocked)
+                for (; i + 64u <= texels; i += 64u)
+                {
+                    const uint8_t *a = rgba + i * 4u + 3u;
+                    uint8_t lo = 0xFF, hi = 0;
+                    for (size_t j = 0; j < 64u; ++j)
+                    {
+                        const uint8_t v = a[j * 4u];
+                        lo = v < lo ? v : lo;
+                        hi = v > hi ? v : hi;
+                    }
+                    if (std::min(least, lo) == 0u && std::max(greatest, hi) >= 0x80u)
+                        break; // it stops in this block: the loop below finds where
+                    least = std::min(least, lo);
+                    greatest = std::max(greatest, hi);
+                }
+            for (; i < texels && (least || greatest < 0x80u); ++i)
             {
                 const uint8_t a = rgba[i * 4u + 3u];
                 least = std::min(least, a);
@@ -4647,6 +4813,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             t.minAlpha = least;
             t.maxAlpha = greatest;
+            if (h112.log) // round 118: uploadTexture's parts
+            {
+                h118.texAlphaUs += native_renderer::nowUs() - alphaStart;
+                h118.texBytes += texels * 4u;
+            }
         }
         glBindTexture(GL_TEXTURE_2D, t.name);
 #if defined(PS2X_NATIVE_VITA)
@@ -4666,17 +4837,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // SOTC_GL_SWIZZLE_BOTH=1: a swizzled copy beside the linear texture,
         // the A/B's `swizzle73` picking one each frame (twice the memory).
         bool swizzledDone = false;
-        std::vector<uint8_t> chain;
+        std::vector<uint8_t> &chain = texChain118; // (round 118: kept, not allocated per texture)
         uint32_t swzLevels = 0;
 #if defined(PS2X_NATIVE_VITA)
         static const bool swizzleBoth = std::getenv("SOTC_GL_SWIZZLE_BOTH") && std::atoi(std::getenv("SOTC_GL_SWIZZLE_BOTH")) != 0;
         const bool pow2 = width && height && !(width & (width - 1u)) && !(height & (height - 1u));
         const bool wantSwizzle = (swizzleBoth || native_renderer::tuning().glSwizzle) && pow2 && (ownMips || levels == 1u);
+        const uint64_t swzStart = h112.log ? native_renderer::nowUs() : 0u;
         if (wantSwizzle)
             swzLevels = swizzleChain(rgba, width, height, levels, chain);
+        const uint64_t vglStart = h112.log ? native_renderer::nowUs() : 0u;
         if (wantSwizzle && !swizzleBoth)
             swizzledDone = vglCeloTexImageSwizzled(static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLint>(swzLevels), chain.data());
         texStats.swizzled += swizzledDone ? 1u : 0u;
+        if (h112.log)
+        {
+            h118.texSwzUs += vglStart - swzStart;
+            h118.texVglUs += native_renderer::nowUs() - vglStart;
+        }
 #endif
         t.swizzled = swizzledDone;
         if (!swizzledDone)
@@ -5488,6 +5666,26 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // A run's kept meshes copied side by side into a pool range of its own.
     void Renderer::poolCopy(uint8_t *dst, const uint8_t *src, size_t bytes)
     {
+        // Round 118: only when the RAM sources are off (SOTC_RUNSRC118=0):
+        // this reads the pools' GPU memory. Counted, and in Vita3K (which
+        // reads it at host speed) SOTC_GPUREAD118_US_PER_MB /
+        // SOTC_GPUREAD118_US_PER_CALL wait as the console would.
+        static const uint64_t usPerMB = std::getenv("SOTC_GPUREAD118_US_PER_MB") ? std::strtoull(std::getenv("SOTC_GPUREAD118_US_PER_MB"), nullptr, 10) : 0u;
+        static const uint64_t usPerCall = std::getenv("SOTC_GPUREAD118_US_PER_CALL") ? std::strtoull(std::getenv("SOTC_GPUREAD118_US_PER_CALL"), nullptr, 10) : 0u;
+        const uint64_t start = native_renderer::nowUs();
+        h118.gpuReadBytes += bytes;
+        poolCopyRaw(dst, src, bytes);
+        if (usPerMB || usPerCall)
+        {
+            const uint64_t until = start + usPerCall + bytes * usPerMB / 1048576u;
+            while (native_renderer::nowUs() < until)
+            {
+            }
+        }
+        h118.gpuReadUs += native_renderer::nowUs() - start;
+    }
+    void Renderer::poolCopyRaw(uint8_t *dst, const uint8_t *src, size_t bytes)
+    {
 #if defined(PS2X_NATIVE_VITA)
         static const bool dma = !std::getenv("SOTC_RUNDMA112") || std::atoi(std::getenv("SOTC_RUNDMA112")) != 0;
         if (dma && bytes && reinterpret_cast<uintptr_t>(dst) < 0x81000000u && reinterpret_cast<uintptr_t>(src) < 0x81000000u &&
@@ -5501,8 +5699,108 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         std::memcpy(dst, src, bytes);
     }
 
+    // Round 118: the pools' RAM sources (Pool::source). A memory block of
+    // main RAM (cached) per pool, outside the newlib heap (whose use drives
+    // the eviction's pressure rules); SOTC_RUNSRC118=0: none, round 112's
+    // copies from GPU memory. SOTC_RUNSRC118_MB (default 64): at most that
+    // much in sources; past it new pools have none (their meshes' runs are
+    // drawn one by one).
+    bool Renderer::runSourceOn()
+    {
+#if defined(PS2X_NATIVE_VITA)
+        static const bool on = !std::getenv("SOTC_RUNSRC118") || std::atoi(std::getenv("SOTC_RUNSRC118")) != 0;
+        return on;
+#else
+        return false; // (the Mac copies between buffers on the GPU)
+#endif
+    }
+    void Renderer::poolSourceMake(Pool &p)
+    {
+        p.source = nullptr;
+        p.sourceBlock = -1;
+        if (!runSourceOn())
+            return;
+#if defined(PS2X_NATIVE_VITA)
+        static const uint64_t limit = static_cast<uint64_t>(std::getenv("SOTC_RUNSRC118_MB") ? std::max(0, std::atoi(std::getenv("SOTC_RUNSRC118_MB"))) : 64) << 20;
+        const size_t bytes = poolSourceSize(p);
+        if (!sourceSpares.empty()) // a pool let go left its block (a new one costs a kernel call and its pages)
+        {
+            p.sourceBlock = sourceSpares.back().first;
+            p.source = sourceSpares.back().second;
+            sourceSpares.pop_back();
+            return;
+        }
+        if (sourceBytes + bytes > limit)
+        {
+            ++h118.sourceFails;
+            return;
+        }
+        const SceUID block = sceKernelAllocMemBlock("sotc_poolsrc", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, bytes, nullptr);
+        void *base = nullptr;
+        if (block < 0 || sceKernelGetMemBlockBase(block, &base) < 0 || !base)
+        {
+            if (block >= 0)
+                sceKernelFreeMemBlock(block);
+            ++h118.sourceFails;
+            return;
+        }
+        p.source = static_cast<uint8_t *>(base);
+        p.sourceBlock = block;
+        sourceBytes += bytes;
+        ++h118.sourceBlocks;
+#endif
+    }
+    void Renderer::poolSourceFree(Pool &p)
+    {
+#if defined(PS2X_NATIVE_VITA)
+        if (p.sourceBlock >= 0)
+        {
+            if (sourceSpares.size() < 4u) // kept for the next pool (at most 4 spare)
+                sourceSpares.push_back({p.sourceBlock, p.source});
+            else
+            {
+                sceKernelFreeMemBlock(p.sourceBlock);
+                sourceBytes -= poolSourceSize(p);
+            }
+        }
+#endif
+        p.source = nullptr;
+        p.sourceBlock = -1;
+    }
+
     bool Renderer::copyRun(size_t from, size_t to, uint32_t total, RunCopy &copy)
     {
+        const uint64_t start = h112.log ? native_renderer::nowUs() : 0u;
+        const bool made = copyRunBody(from, to, total, copy);
+        if (h112.log)
+            h118.copyUs += native_renderer::nowUs() - start;
+        if (made)
+        {
+            if (copy.made)
+            {
+                ++h118.remade;
+                h118.remadeSoon += copy.madeAt + 60u > arenaFrame ? 1u : 0u;
+            }
+            else
+                ++h118.fresh;
+            ++copy.made;
+            copy.madeAt = arenaFrame;
+        }
+        return made;
+    }
+
+    bool Renderer::copyRunBody(size_t from, size_t to, uint32_t total, RunCopy &copy)
+    {
+        // Round 118: every member's pool has its RAM source (else the run is
+        // drawn one by one: nothing is read from GPU memory).
+        const bool fromSource = runSourceOn();
+        if (fromSource)
+            for (size_t j = from; j < to; ++j)
+                if (!pools[static_cast<size_t>(plan[j].mesh->pool)].source)
+                {
+                    ++h118.noSource;
+                    return false;
+                }
         // Round 112 (SOTC_RUNCOPY112_KB, default 1024; 0: no limit): the
         // copies one frame makes, at most this much; the runs past it are
         // drawn one by one this frame (the same vertices in the same order,
@@ -5517,6 +5815,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             return false;
         }
         frameCopyBytes += bytes;
+        // Round 118 (SOTC_RUNBUDGET118_KB): the copies' budget (default
+        // 0x30000 vertices, ~6.75 MB of GPU memory).
+        static const uint64_t envBudget = std::getenv("SOTC_RUNBUDGET118_KB")
+                                              ? static_cast<uint64_t>(std::max(256, std::atoi(std::getenv("SOTC_RUNBUDGET118_KB")))) * 1024u / sizeof(native_renderer::Vertex)
+                                              : kRunBudget0;
+        runBudget = envBudget;
+        const uint64_t kRunBudget = runBudget;
         if (runVertices + total > kRunBudget)
         {
             // Round 36: one scan a frame at most. Each copy past the budget
@@ -5551,6 +5856,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 runVertices -= r->count;
                 r->pool = -1;
                 r->frames = 0;
+                ++h118.lostBudget;
             }
             if (runVertices + total > kRunBudget)
                 return false;
@@ -5567,15 +5873,27 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint32_t at = first;
 #if defined(PS2X_NATIVE_VITA)
         // Round 112: meshes lying one after the other in the same pool go in
-        // one copy (a run's meshes were mostly uploaded together).
+        // one copy (a run's meshes were mostly uploaded together). Round 118:
+        // from the pools' RAM sources (cached reads, uncached writes only).
         const uint64_t copyStart = h112.log ? native_renderer::nowUs() : 0u;
         int spanPool = -1;
         uint32_t spanFirst = 0, spanCount = 0, spanAt = first;
+        uint8_t *const dstBase = pools[static_cast<size_t>(pool)].mapped;
         auto flush = [&]
         {
-            if (spanCount)
-                poolCopy(pools[static_cast<size_t>(pool)].mapped + static_cast<size_t>(spanAt) * stride,
-                         pools[static_cast<size_t>(spanPool)].mapped + static_cast<size_t>(spanFirst) * stride, static_cast<size_t>(spanCount) * stride);
+            if (!spanCount)
+                return;
+            const Pool &src = pools[static_cast<size_t>(spanPool)];
+            uint8_t *dst = dstBase + static_cast<size_t>(spanAt) * stride;
+            const size_t n = static_cast<size_t>(spanCount) * stride;
+            if (fromSource)
+            {
+                std::memcpy(dst, src.source + static_cast<size_t>(spanFirst) * stride, n);
+                ++ramCopies118;
+                sourceCheck118(src, spanFirst, n);
+            }
+            else
+                poolCopy(dst, src.mapped + static_cast<size_t>(spanFirst) * stride, n);
         };
         for (size_t j = from; j < to; ++j)
         {
