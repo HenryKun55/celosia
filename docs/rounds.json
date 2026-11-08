@@ -696,6 +696,14 @@
    "focus": "Plan",
    "summary": "Measured where the console's frame goes, thread by thread and area by area, and wrote a ranked plan for 30 fps. Riding in the open field the game's main thread needs about 60 ms a frame (68 in the heaviest stretch) against the 33 ms that 30 fps allows; the drawing thread, the other two cores and the graphics chip are also close to or over a 33 ms budget. The biggest areas on the main thread are collision tests (about 10 ms while riding), the game's own scripts (about 10), the scene walk that prepares drawing (about 9), the characters' bodies (about 7) and particles (about 5). The plan rewrites these as Vita-native systems in order: collision first, then the scene walk, then particles, plus fewer draw calls on the drawing thread to free the other cores.",
    "result": "No game change this round. Estimate if every item lands: riding 60 ms -> about 33-38, the shrine 37 -> about 21-24. Honest ceiling without visible cuts: 30 fps is reachable in the shrine and lighter scenes; a locked 30 while riding in the open field is not likely on this hardware, so the first target is a locked 20 with no stutter everywhere. Collision mapped for the next round: about 19 ray tests a frame (the camera's six among them) take most of its time."
+  },
+  {
+   "round": "r112",
+   "date": "2026-11-08",
+   "commit": "",
+   "focus": "Stutter",
+   "summary": "Went after the stutter when turning the camera in the Shrine of Worship. It was not shader compiles (the start-up warm-up covers them; the new log counts 0 new program variants during turns). The renderer draws runs of similar draws from a copy of their meshes, made the first frame a run is seen; a camera turn changes what is visible every frame, so it makes 40-100 new copies a frame (0.5-1.4 MB), and each copy read the meshes back from the GPU's memory, which the Vita's CPU reads uncached: the console's r110 log shows the render thread +21 ms in frames with 16+ copies. Copies now go through the DMA controller (the same bytes), at most 1 MB a frame (the rest drawn one by one and copied next frames), and the mesh pools' compaction, which walked every mesh and threw away copies every 30 frames (a 12-30 ms render spike every 1.5 s on the console), looks every 300 frames. New [hitch112] log for the console.",
+   "result": "Vita3K 222 MHz (which reads GPU memory at host speed, so the console gain is larger): run copies in the turning windows 3.3 -> 1.2 ms per MB (176 MB in 575 ms -> 180 MB in 227 ms), compaction 55-102 -> 2-15 ms per 600 frames; frame times unchanged there; pictures unchanged by construction; no crash. Console test pending."
   }
  ]
 }
