@@ -15513,3 +15513,86 @@ updates creatures less often).
 
 **Console run.** build/agent-scratch/celosia-r102.vpk with r102/env-console.txt (`SOTC_AB_FLAG=r102all,
 sw102,fmt102`, rotation every 60 frames). Read with `build/agent-scratch/r102/read102.sh err.txt <from>`.
+
+## Round 103: the display path's PS2-only layers: particleDraw's packets (ptcl103), the solid models' VU1 matrix blocks (solid103) (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r103/` (build.sh, v3k.sh / v3kb.sh: its two Vita3K trees
+../vita3k-celosia-r103 and -r103b, 222 MHz, 3 cores; samp.sh, walk.sh, ab.sh (`V=v3kb.sh` for the second tree),
+read103.sh, env-console.txt, STATE.md). Base runs on celosia-r101.vpk: runsb/sampA0 (sampler, the altar),
+runs/walkA0 (`SOTC_WALK79_LOG`, the altar).
+
+**Looking for whole layers.** The task was to find what the game thread still does in the display walk only
+because the original fed the PS2 (packets the native renderer re-parses, matrices it recomputes) and hand the
+renderer its inputs directly. The sampler at the altar (runsb/sampA0, % of the game thread) has the whole
+display path at ~15%, spread over ~80 functions: the walk's natives 3.7 (clip83 1.1, the walk 1.0, the class
+lookup 0.6), the model / mesh hooks 4.7 (the hook front 0.5, the palette read out of the VU1 packet 0.75, the
+texture scroll rows 0.75, the lane joins 0.3), the light pass 1.4, round 67's prefetch 1.2, the sort lists 0.6,
+the particle draw chain ~2.1. walk79's host clock gives the draws 11-25 ms for ~48 models at the altar, but the
+sampler's CPU under them is a fraction of that: the rest is waiting (the frame change's syncFrame, the lane) and
+Vita3K's own stalls, not the walk's work. What is PS2-only in it:
+
+| layer | % of the game thread (altar) | done |
+|---|---|---|
+| particleDraw's ptclman packets: Mat / Env (with two fog factors) / Vtx packets, ptclmanBegin / End, the display list put, the VU1 microcode upload, the chain | ~1.1 | ptcl103 |
+| the solid models' VU1 matrix blocks (camera +0x1a0 x part, into the instance packet's +0x104 block) and their camera lookup | ~0.2 | solid103 |
+| the skin palette written into the VU1 packet, then read back out of its UNPACKs by the hook (readChainPaletteLean) | ~0.75 | no: the kick's deferred palette copies (round 34) read the same packets |
+| iosDlLockObj (the drawn object into the display list's lock group) | ~0.7 | no: it defers the object's delete past the frame's DMA; the hook jobs and the lane read the instance after the walk |
+| the heat haze strips' GIF packet (glVertex kick), parsed again by glEnd's hook | ~0.4 | no (small) |
+
+So removing every PS2-format layer of the display path is ~3% of the game thread; the rest of the walk's ~15% is
+its own per-object work (class lookups, clip, sort lists, light colours, the hook's copies for the worker).
+
+**What changed (default on; A/B names `ptcl103`, `solid103`, `r103all` both off).**
+- **ptcl103** (`SOTC_PTCL103`; decomp_ptcldraw.cpp `tail103`, sotc_native.cpp `ptclDirect103`). particleDraw
+  (0x113e940, the per-emitter draw of the lit puffs, type 4) ends at 0x113eafc: the environment matrix (VU0:
+  *0x1216e40's rows x the scale matrix at sp), then ptclDisplayListPut, transMicroCode(7), ptclmanBegin,
+  BuildMatPacket(material +0x14), BuildEnvPacket(vec, 4, matrix, light s2 + 0x90, shade sp + 0x40, fade),
+  BuildVtxPacket(the particles, count), ptclmanEnd. None of it is read by the native renderer: the hooks on
+  Mat / Env / Vtx copy their inputs (blend, environment, particles) into a job. The tail now computes the matrix
+  with the same VU0 operations and makes that job from the same inputs (ptclEnvTake / ptclVtxTake, the hooks'
+  own code, split out), in the same place of the job order; nothing goes into the display list (the particles'
+  48-byte records stay in its free room, copied into the job at once). Other particle drawers still go through
+  the packets and the hooks. `SOTC_PTCL103_CHECK=1`: the direct job is kept, the original packets are built and
+  hooked, and the hooks' job is compared with it field for field (count, texture, layer, blend, the environment's
+  bytes, the particles' words): 0 differences in 148 000 particle draws at the altar (runs/checkA1) and 140 000
+  on route 6 (runsb/checkR1). The same draws, so the same pixels.
+- **solid103** (`SOTC_SOLID103`; decomp_walk.cpp `solidDisp`). 010F3A08 writes each part's camera +0x1a0 x part
+  matrix into the instance packet's block: the PS2's VU1 input. The model hook draws from the parts' own
+  matrices (a1) and the camera's +0x5a0; no native code reads the blocks. With the native renderer drawing
+  (`sotc_native::nativeDraws`: the hook installed, no PS2 lists, no GS raster), for a model without a shadow
+  (shadowDisp's rigid matrix comes from its packets) and without the LOD record's lens scale, the blocks and
+  their GetCameraContext call are left out. `SOTC_SOLID103_POISON=1` (checking) fills the skipped blocks with
+  NaNs: the altar and route 6 drew as before (runs/checkA1, runsb/checkR1 captures, pics/r103_poisonR.png).
+
+**Measured (Vita3K 222 MHz).**
+- Sampler, the altar, the same VPK with the round on / off (runsb/sampA1on, sampA1off; window 160-290 s): the
+  functions the round touches 3.07% -> 2.00% of the game thread (BuildEnvPacket 0.37 -> 0.07, BuildVtxPacket
+  0.24 -> 0.05, ptclmanEnd 0.20 -> 0.04, the fog factors 0.26 -> 0.06, BuildMatPacket 0.13 -> 0.02, the display
+  list put / begin / microcode 0.32 -> 0.13, solidDisp 0.26 -> 0.09; new: tail103 0.23, ptclDirect103 0.07).
+  ~1.1% of the game thread, ~0.5 ms a frame there.
+- In-run A/B (`SOTC_AB_FLAG=r103all,ptcl103,solid103 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=60`, ab89.py matched by
+  draws, off minus on):
+
+| run | part (frame, all on) | ptcl103 | solid103 | r103all |
+|---|---|---|---|---|
+| runs/altar1 | from 3 300 (52.4 ms) | +0.70 | +0.00 | +1.40 |
+| runs/route1 | from 3 000 (35.0 ms) | +0.44 | -0.08 | +0.47 |
+| runsb/attract1 (600 s) | riding, from 13 000 | +1.85 | +0.60 | +1.33 |
+| runsb/attract1 | the world and riding, from 10 000 | -0.25 | -0.89 | +0.05 |
+| runs/finalR (route 6, 600 s, the console env) | the plain, from 4 300 | +0.55 | +0.36 | +0.29 |
+
+The signs agree with the sampler but every value is inside the in-run A/B's +-1 ms noise.
+
+**Pictures and behaviour.** ptcl103 hands the renderer byte-identical particle jobs (the check), solid103
+removes writes nothing reads (the poison runs); nothing is drawn later or less often. No fault: the altar 300 s
+x2, route 6 420 s x2, the attract demo with riding 600 s, route 6 600 s with the console env.
+
+**What this says about the walk.** Even all of the display path's PS2-format work is ~3% of the game thread
+(~1.5 ms on the console); the walk's remaining ~12% is its per-object management (two sort lists, class lookups
+and the clip for ~180 objects, the hook's copies for the worker) and the particle systems' per-emitter guest
+chain (geodisp -> 0113ACB8 -> 1140ED0 -> disp_particle_emitter, ~10 guest calls an emitter). Halving that needs
+a different walk (a host list of the drawn objects kept across frames, the static ones' clip by a spatial
+structure, the particle emitters drawn in one native loop), not more layer cuts.
+
+**Console.** build/agent-scratch/celosia-r103.vpk (main 4ead274 + this round) with r103/env-console.txt
+(`SOTC_AB_FLAG=r103all,ptcl103,solid103`), read with `build/agent-scratch/r103/read103.sh err.txt <from>`.
