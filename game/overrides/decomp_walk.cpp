@@ -1825,8 +1825,33 @@ namespace decomp_walk
     // The vertex ring wraps at 256: glEnd, then glBeginWithDlLayerNo again
     // (guest calls). An untransformed vertex (bit 3 of +0x1b0 clear) is
     // 0108D478's, a guest call.
+    // Round 116 (SOTC_GLV116_LOG=1, diagnostic): the kick's callers (its return
+    // address) and the gl* layer, counted; a [glv116] line every 30 000 kicks.
+    void glv116Note(uint32_t ra)
+    {
+        static std::unordered_map<uint32_t, uint64_t> calls;
+        static uint64_t total = 0;
+        ++calls[ra];
+        if (++total % 30000u != 0u)
+            return;
+        std::vector<std::pair<uint64_t, uint32_t>> v;
+        for (const auto &kv : calls)
+            v.push_back({kv.second, kv.first});
+        std::sort(v.rbegin(), v.rend());
+        std::string line = "[glv116] kicks " + std::to_string(total) + " by caller:";
+        for (size_t i = 0; i < v.size() && i < 12u; ++i)
+        {
+            char b[48];
+            std::snprintf(b, sizeof b, " %08x %llu", v[i].second, (unsigned long long)v[i].first);
+            line += b;
+        }
+        std::fprintf(stderr, "%s\n", line.c_str());
+    }
     void glVertexKick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        static const bool glv116 = std::getenv("SOTC_GLV116_LOG") != nullptr;
+        if (glv116)
+            glv116Note(GPR_U32(ctx, 31));
         sotc_decomp::clipNeeded(ctx); // round 61: it reads the whole CLIP register (left in s0)
         G g(rdram, ctx, runtime);
         const Ram m = g.m;

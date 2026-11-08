@@ -3149,6 +3149,7 @@ namespace sotc_native
             {"inflight100", &native_renderer::Tuning::glInflight100}, // round 100 (r100all too)
             {"cdahead100", &native_renderer::Tuning::cdAhead100},     // round 100 (r100all too)
             {"prio100", &native_renderer::Tuning::prio100},           // round 100 (r100all too)
+            {"fat116", &native_renderer::Tuning::glFat116},           // round 116
             {"bgsmall87", &native_renderer::Tuning::glBgSmall87},    // round 87 (GPU candidate: its windows flip it)
             {"opaque88", &native_renderer::Tuning::glOpaque88},      // round 88 (GPU candidate: its windows flip it)
             {"mirror88", &native_renderer::Tuning::glMirror88},      // round 88 (GPU candidate: its windows flip it)
@@ -11684,5 +11685,5 @@ void installSotcNative(PS2Runtime &runtime)
 // shrinks, change the size (any value that moves the text end more than
 // ~4.5 KB away from the boundary below it). Round 73: 16 KB. Round 85: 24 KB.
 // Round mem99: 32 KB. Round 105 (with round 104): 40 KB.
-extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[40960] = {1};
+extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[49152] = {1};
 #endif

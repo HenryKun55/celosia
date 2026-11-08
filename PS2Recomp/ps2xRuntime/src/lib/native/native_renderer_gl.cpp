@@ -1858,7 +1858,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             }
             return std::fabs(area) * 0.5;
         }
-        double px98Draw(const Draw &d, const Mesh &m, float tw, float th);
+        double px98Draw(const Draw &d, uint64_t meshId, const Mesh &m, float tw, float th);
         void px98Add(const char *kind, const Target &target, size_t k, int slot, int blend, int atPass, bool kept);
         void px98Quad(const char *what, int mode, double px)
         {
@@ -2108,6 +2108,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool copyRun(size_t from, size_t to, uint32_t total, RunCopy &copy);
         std::vector<std::pair<uint32_t, uint32_t>> planRanges; // scratch: a run's (first, count)
         void planFrame();
+        // Round 116 (SOTC_FAT116_CHECK=<n>): every n-th frame the plan made
+        // again without fat116's two short cuts (the texture looked up for
+        // every member, every member compared in full) and compared with it
+        // field by field ([fat116] every 600 frames).
+        bool shareOff = false;
+        struct
+        {
+            uint64_t frames = 0, members = 0, records = 0, differ = 0, leaders = 0;
+        } fat116Stats;
+        void fat116Check();
         void mergeStats();
         void sortFree(); // round 87 (Tuning glSort87)
         struct SortKey87
@@ -2222,6 +2232,38 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             draws.swap(expanded);
             extraMeshes.clear();
         }
+        // Round 116 (Tuning glFat116): the frame's draws as members of its
+        // records: member i draws memberMesh[i] with the state and matrix of
+        // draws[memberRec[i]] (a record's members one after the other). A
+        // drawMulti's record is kept whole, one member per mesh; with fat116
+        // off the records were expanded first (expandDraws), one member each.
+        // drawOrder's low half names a member.
+        std::vector<uint32_t> memberRec;
+        std::vector<uint64_t> memberMesh;
+        void buildMembers()
+        {
+            size_t total = draws.size();
+            for (const Draw &d : draws)
+                total += d.extraCount;
+            memberRec.resize(total);
+            memberMesh.resize(total);
+            size_t at = 0;
+            for (size_t r = 0; r < draws.size(); ++r)
+            {
+                const Draw &d = draws[r];
+                memberRec[at] = static_cast<uint32_t>(r);
+                memberMesh[at++] = d.mesh;
+                for (uint32_t i = 0; i < d.extraCount; ++i)
+                {
+                    memberRec[at] = static_cast<uint32_t>(r);
+                    memberMesh[at++] = extraMeshes[d.extraFirst + i];
+                }
+            }
+        }
+        size_t memberAt(size_t k) const { return static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu); }
+        const Draw &drawAt(size_t k) const { return draws[memberRec[memberAt(k)]]; }
+        uint64_t meshAt(size_t k) const { return memberMesh[memberAt(k)]; }
+        uint32_t recAt(size_t k) const { return memberRec[memberAt(k)]; }
         std::vector<uint64_t> drawOrder; // layer << 32 | index: the draws in layer order, stable (sorting the draws themselves moved ~450 bytes each)
         // The draw loop's state as last set (pass() forgets it whenever
         // something else may have changed it): a call is made only for a
@@ -3787,7 +3829,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 }
             }
-            std::fprintf(stderr, "[gl:selfcheck] frame %llu draws %zu calls %llu: %u of %u pixels differ (most %u)\n", (unsigned long long)arenaFrame, draws.size(),
+            std::fprintf(stderr, "[gl:selfcheck] frame %llu draws %zu calls %llu: %u of %u pixels differ (most %u)\n", (unsigned long long)arenaFrame, memberMesh.size(),
                          (unsigned long long)(drawStats.calls - calls), differ, w * h, worst);
         }
 
@@ -4335,7 +4377,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // Round 98 (SOTC_GL_PX98): a draw's covered pixels in a tw x th target,
     // its triangles read where the CPU has them (the frame's arena, a pool's
     // mapped memory, the copies kept for this).
-    double Renderer::px98Draw(const Draw &d, const Mesh &m, float tw, float th)
+    double Renderer::px98Draw(const Draw &d, uint64_t meshId, const Mesh &m, float tw, float th)
     {
         const float *c = d.clip;
         auto project = [c, this](float x, float y, float z, float out[4])
@@ -4349,8 +4391,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         float v[3][4];
         if (m.skinned)
         {
-            auto s = px98.skin.find(d.mesh);
-            auto ix = px98.skinIdx.find(d.mesh);
+            auto s = px98.skin.find(meshId);
+            auto ix = px98.skinIdx.find(meshId);
             if (s == px98.skin.end() || ix == px98.skinIdx.end() || !d.state.skinPalette)
                 return 0.0;
             const size_t from = static_cast<size_t>(d.state.skinPalette - 1u) * 4u;
@@ -4403,7 +4445,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #endif
         else
         {
-            auto p = px98.pos.find(d.mesh);
+            auto p = px98.pos.find(meshId);
             if (p == px98.pos.end())
                 return 0.0;
             base = p->second.data();
@@ -4451,11 +4493,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         px98.wlo = 1e30f, px98.whi = -1e30f;
         for (uint32_t j = 0; j < run && k + j < plan.size(); ++j)
         {
-            const Draw &dj = draws[static_cast<size_t>(drawOrder[k + j] & 0xFFFFFFFFu)];
+            const Draw &dj = drawAt(k + j);
             if (plan[k + j].mesh)
-                px += px98Draw(dj, *plan[k + j].mesh, static_cast<float>(target.width), static_cast<float>(target.height));
+                px += px98Draw(dj, meshAt(k + j), *plan[k + j].mesh, static_cast<float>(target.width), static_cast<float>(target.height));
         }
-        const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+        const Draw &d = drawAt(k);
         static const char *blends[4] = {"N", "A", "O", "S"};
         const int instr = px98Instr(slot);
         char key[160];
@@ -4851,18 +4893,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (ahead)
             {
                 if (k + 8u < n)
-                    __builtin_prefetch(&draws[static_cast<size_t>(drawOrder[k + 8u] & 0xFFFFFFFFu)]);
+                    __builtin_prefetch(&drawAt(k + 8u));
                 if (k + 4u < n)
                 {
-                    const Draw &next = draws[static_cast<size_t>(drawOrder[k + 4u] & 0xFFFFFFFFu)];
-                    meshes.prefetch(next.mesh);
-                    if (next.state.texture)
+                    const Draw &next = drawAt(k + 4u);
+                    meshes.prefetch(meshAt(k + 4u));
+                    if (next.state.texture && recAt(k + 4u) != recAt(k + 3u))
                         textures.prefetch(next.state.texture);
                 }
             }
-            const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+            const Draw &d = drawAt(k);
             Planned &p = plan[k];
-            Mesh *m = meshes.find(d.mesh);
+            // Round 116: a record's later members (one after the other in
+            // the order) have its texture: looked up once a record.
+            const bool sameRecord = !shareOff && k > 0u && recAt(k) == recAt(k - 1u);
+            Mesh *m = meshes.find(meshAt(k));
             if (m && m->count)
             {
                 m->used = arenaFrame;
@@ -4890,7 +4935,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     p.maxW = std::isfinite(w) && w > 0.0f ? w : -1.0f;
                 }
             }
-            if (d.state.texture)
+            if (sameRecord)
+                p.tex = plan[k - 1u].tex;
+            else if (d.state.texture)
                 if (Texture *t = textures.find(d.state.texture))
                 {
                     t->used = arenaFrame;
@@ -4965,7 +5012,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::map<uint32_t, L> layers;
             for (size_t k = 0; k < n; ++k)
             {
-                const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+                const Draw &d = drawAt(k);
                 L &l = layers[d.state.order];
                 ++l.draws;
                 l.verts += plan[k].mesh ? plan[k].mesh->count : 0u;
@@ -5078,7 +5125,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         auto plainMesh = [](const Mesh *m) { return m && !m->skinned && !m->indexed && ((m->dynamic && (mode & 4)) || m->pool >= 0); };
         for (size_t k = 0; k < n;)
         {
-            const Draw &lead = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+            const Draw &lead = drawAt(k);
             const Mesh *m = plan[k].mesh;
             size_t end = k + 1;
             uint32_t total = m ? m->count : 0u;
@@ -5088,8 +5135,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     const Mesh *o = plan[end].mesh;
                     // One range: the frame's own meshes together, the kept ones
                     // together; at most what vitaGL's glDrawArrays takes (0xC000).
+                    // Round 116: a member after another of its record merges
+                    // as that one did (the same state and matrix bit for bit);
+                    // the record's first comparison is made in full.
                     if (!plainMesh(o) || o->dynamic != m->dynamic || total + o->count > 0xC000u || plan[end].tex != plan[k].tex ||
-                        !sameDraw(lead, draws[static_cast<size_t>(drawOrder[end] & 0xFFFFFFFFu)]))
+                        !((!shareOff && end - 1u > k && recAt(end) == recAt(end - 1u)) || sameDraw(lead, drawAt(end))))
                         break;
                     total += o->count;
                     ++end;
@@ -5109,7 +5159,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     p.maxAlpha = std::max(p.maxAlpha, plan[j].maxAlpha);
                     p.minW = std::min(p.minW, plan[j].minW); // (-1 if any is not known)
                     p.maxW = (p.maxW < 0.0f || plan[j].maxW < 0.0f) ? -1.0f : std::max(p.maxW, plan[j].maxW); // (round 98)
-                    key = (key ^ draws[static_cast<size_t>(drawOrder[j] & 0xFFFFFFFFu)].mesh) * 0xff51afd7ed558ccdull;
+                    key = (key ^ meshAt(j)) * 0xff51afd7ed558ccdull;
                     key ^= key >> 29;
                 }
                 if (!contiguous)
@@ -5178,7 +5228,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const Mesh *m = p.mesh;
             if (!m || !m->count)
                 return false;
-            const native_renderer::DrawState &st = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)].state;
+            const native_renderer::DrawState &st = drawAt(k).state;
             // Layer 1's far scenery and sky meet at the far plane (their
             // depths round to 1.0 there): ties everywhere, so they keep their
             // order (a frozen frame showed a 2 x 2 pixel speck of far landscape
@@ -5253,7 +5303,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 sortKeys.clear();
                 for (size_t j = k; j < end; ++j)
                 {
-                    const Draw &d = draws[static_cast<size_t>(drawOrder[j] & 0xFFFFFFFFu)];
+                    const Draw &d = drawAt(j);
                     const Mesh *m = plan[j].mesh;
                     const uint64_t where = (m->skinned ? 1ull << 63 : 0ull) | (m->indexed ? 1ull << 62 : 0ull) | (m->dynamic ? 1ull << 61 : 0ull) |
                                            (static_cast<uint64_t>(static_cast<uint32_t>(m->pool + 1) & 0xFFFFu) << 32) | m->first;
@@ -5301,6 +5351,48 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // Round 74 (SOTC_GL_MERGE_STATS=1, analysis): why two draws next to each
     // other in the frame's order were not drawn as one, counted a frame and
     // printed every 300 frames ([gl:merge]).
+    void Renderer::fat116Check()
+    {
+        static const int every = std::getenv("SOTC_FAT116_CHECK") ? std::atoi(std::getenv("SOTC_FAT116_CHECK")) : 0;
+        if (every <= 0 || arenaFrame % static_cast<uint64_t>(every) != 0u)
+            return;
+        static std::vector<Planned> made;
+        made = plan;
+        shareOff = true;
+        planFrame(); // (its run copies: made by the first plan or left to later frames by it, the same answers)
+        shareOff = false;
+        uint64_t differ = 0;
+        auto bits = [](float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        };
+        for (size_t k = 0; k < plan.size() && k < made.size(); ++k)
+        {
+            const Planned &a = made[k], &b = plan[k];
+            const bool same = a.mesh == b.mesh && a.tex == b.tex && a.run == b.run && a.mergedCount == b.mergedCount && a.runPool == b.runPool &&
+                              a.runFirst == b.runFirst && a.minAlpha == b.minAlpha && a.maxAlpha == b.maxAlpha && bits(a.minW) == bits(b.minW) &&
+                              bits(a.maxW) == bits(b.maxW);
+            if (!same && differ++ < 4u && fat116Stats.differ < 20u)
+                std::fprintf(stderr, "[fat116] frame %llu member %zu differs: mesh %p/%p tex %p/%p run %u/%u count %u/%u pool %d/%d first %u/%u alpha %u-%u/%u-%u\n",
+                             (unsigned long long)arenaFrame, k, (void *)a.mesh, (void *)b.mesh, (void *)a.tex, (void *)b.tex, a.run, b.run, a.mergedCount,
+                             b.mergedCount, a.runPool, b.runPool, a.runFirst, b.runFirst, a.minAlpha, a.maxAlpha, b.minAlpha, b.maxAlpha);
+            fat116Stats.leaders += a.run ? 1u : 0u;
+        }
+        if (plan.size() != made.size())
+            ++differ;
+        plan = made; // (the same; what was planned first is drawn)
+        ++fat116Stats.frames;
+        fat116Stats.members += plan.size();
+        fat116Stats.records += draws.size();
+        fat116Stats.differ += differ;
+        if (fat116Stats.frames % 600u == 0u || (differ && fat116Stats.differ == differ))
+            std::fprintf(stderr, "[fat116] check: %llu frames, %llu draws (%llu records, %llu drawn after the merges), %llu plan entries differ (fat116 %d)\n",
+                         (unsigned long long)fat116Stats.frames, (unsigned long long)fat116Stats.members, (unsigned long long)fat116Stats.records,
+                         (unsigned long long)fat116Stats.leaders, (unsigned long long)fat116Stats.differ, native_renderer::tuning().glFat116 ? 1 : 0);
+    }
+
     void Renderer::mergeStats()
     {
         static const bool on = std::getenv("SOTC_GL_MERGE_STATS") && std::atoi(std::getenv("SOTC_GL_MERGE_STATS")) != 0;
@@ -5318,10 +5410,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         const size_t n = drawOrder.size();
         const Draw *prev = nullptr;
         const Planned *prevPlan = nullptr;
+        uint64_t prevMesh = 0;
         for (size_t k = 0; k < n; ++k)
         {
             const Planned &p = plan[k];
-            const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+            const Draw &d = drawAt(k);
             if (!p.mesh)
             {
                 ++counts[kNoMesh];
@@ -5331,6 +5424,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 prev = &d;
                 prevPlan = &p;
+                prevMesh = meshAt(k);
                 continue;
             }
             ++counts[kLeaders];
@@ -5369,13 +5463,14 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 else if (!sameState(*prev, d))
                     r = rState;
                 else if (!sameBits<sizeof(d.clip)>(prev->clip, d.clip))
-                    r = prev->mesh == d.mesh ? rClipSameMesh : rClip;
+                    r = prevMesh == meshAt(k) ? rClipSameMesh : rClip;
                 else
                     r = rCap; // (the vertex cap, or a run apart not copied yet)
                 ++counts[r];
             }
             prev = &d;
             prevPlan = &p;
+            prevMesh = meshAt(k);
         }
         if (++frames % 300u != 0u)
             return;
@@ -5668,7 +5763,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             diag98Was = on;
         }
         px98Flush(); // round 98: the frame measured before (SOTC_GL_PX98)
-        px98.frame = px98.every > 0 && arenaFrame % static_cast<uint64_t>(px98.every) == 0u && draws.size() >= 300u;
+        px98.frame = px98.every > 0 && arenaFrame % static_cast<uint64_t>(px98.every) == 0u && memberMesh.size() >= 300u;
         r92Stats.px += native_renderer::tuning().glDiag92Px ? 1u : 0u;
         r92Stats.tex += native_renderer::tuning().glDiag92Tex ? 1u : 0u;
         r92Stats.half += native_renderer::tuning().glDiag92Half ? 1u : 0u;
@@ -5742,7 +5837,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         auto keepDepth = [](const Target &, int) {};
 #endif
         drawOrder.clear();
-        drawOrder.reserve(draws.size());
+        drawOrder.reserve(memberMesh.size());
         // Round 74 (Tuning glLeanPass): read once a frame (the A/B flips it from the game thread).
         const bool leanPass = native_renderer::tuning().glLeanPass;
         uint32_t maxOrder = 0;
@@ -5754,23 +5849,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // In layer order by counting: the sort's order (layer, then index).
             uint32_t at[257] = {};
             for (const Draw &d : draws)
-                ++at[d.state.order + 1u];
+                at[d.state.order + 1u] += 1u + d.extraCount; // (its members)
             for (uint32_t i = 1; i <= maxOrder; ++i)
                 at[i] += at[i - 1u];
-            drawOrder.resize(draws.size());
-            for (size_t i = 0; i < draws.size(); ++i)
+            drawOrder.resize(memberMesh.size());
+            size_t i = 0;
+            for (const Draw &d : draws)
             {
-                const uint32_t order = draws[i].state.order;
-                drawOrder[at[order]++] = (static_cast<uint64_t>(order) << 32) | i;
+                const uint32_t order = d.state.order;
+                for (uint32_t j = 0; j <= d.extraCount; ++j, ++i)
+                    drawOrder[at[order]++] = (static_cast<uint64_t>(order) << 32) | i;
             }
         }
         else
         {
-            for (size_t i = 0; i < draws.size(); ++i)
-                drawOrder.push_back((static_cast<uint64_t>(draws[i].state.order) << 32) | i);
+            size_t i = 0;
+            for (const Draw &d : draws)
+                for (uint32_t j = 0; j <= d.extraCount; ++j, ++i)
+                    drawOrder.push_back((static_cast<uint64_t>(d.state.order) << 32) | i);
             std::sort(drawOrder.begin(), drawOrder.end());
         }
         planFrame();
+        fat116Check(); // round 116 (SOTC_FAT116_CHECK)
         // The draws a pass may draw (not merged into an earlier one), in order.
         leaders.clear();
         if (leanPass)
@@ -6018,18 +6118,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 const size_t k = byLeaders ? leaders[li] : li;
                 if (byLeaders && li + 4u < endAt) // (the record four draws on, asked for ahead)
-                    __builtin_prefetch(&draws[static_cast<size_t>(drawOrder[leaders[li + 4u]] & 0xFFFFFFFFu)]);
+                    __builtin_prefetch(&drawAt(leaders[li + 4u]));
                 const Planned &planned = plan[k];
                 if (!planned.run) // merged into an earlier draw
                     continue;
-                const Draw &d = draws[static_cast<size_t>(drawOrder[k] & 0xFFFFFFFFu)];
+                const Draw &d = drawAt(k);
+                const uint64_t dMesh = meshAt(k); // round 116: its member's mesh (the logs)
                 static const bool rectDraws = std::getenv("SOTC_BLOOM_RECT_DRAWS") != nullptr;
                 if (rectLog && rectDraws && backgroundOnly && d.state.background && d.state.order >= fromOrder && d.state.order < toOrder)
                 {
                     char what[160];
                     std::snprintf(what, sizeof what, "background before draw %zu (layer %u tex %llx blend %d opacity %.3f fogged %d alphaTest %u screen %d mesh %llx)", k,
                                   d.state.order, (unsigned long long)d.state.texture, static_cast<int>(d.state.blend), d.state.opacity, d.state.fogged ? 1 : 0,
-                                  d.state.alphaTest, d.state.screen ? 1 : 0, (unsigned long long)d.mesh);
+                                  d.state.alphaTest, d.state.screen ? 1 : 0, (unsigned long long)dMesh);
                     logRect(what);
                 }
                 if (rectLog && d.state.order != rectOrder && d.state.order >= fromOrder && d.state.order < toOrder)
@@ -6091,7 +6192,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (bloomLog() && mesh.dynamic && !mesh.indexed && &target == &color) // (round 65e) the frame's non-indexed per-frame draws
                     std::fprintf(stderr, "[gl:dyn] f=%llu order %u screen %d blend %d tex %llx count %u skinned %d overlay %d mesh %016llx\n",
                                  (unsigned long long)bloomGameFrame, d.state.order, d.state.screen ? 1 : 0, static_cast<int>(d.state.blend),
-                                 (unsigned long long)d.state.texture, mesh.count, mesh.skinned ? 1 : 0, d.state.overlay ? 1 : 0, (unsigned long long)d.mesh);
+                                 (unsigned long long)d.state.texture, mesh.count, mesh.skinned ? 1 : 0, d.state.overlay ? 1 : 0, (unsigned long long)dMesh);
                 if (spike.on)
                 {
                     const uint64_t now = native_renderer::nowUs();
@@ -6122,7 +6223,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 {
                     static int n = 0;
                     if (n++ < 20)
-                        std::fprintf(stderr, "[arena] mesh %016llx drawn in arena %llu, uploaded in %llu (order %u)\n", (unsigned long long)d.mesh,
+                        std::fprintf(stderr, "[arena] mesh %016llx drawn in arena %llu, uploaded in %llu (order %u)\n", (unsigned long long)dMesh,
                                      (unsigned long long)arenaFrame, (unsigned long long)mesh.frame, d.state.order);
                 }
                 const GLsizei stride = skinned ? sizeof(native_renderer::SkinVertex) : sizeof(native_renderer::Vertex);
@@ -6598,7 +6699,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         loggedFrame = arenaFrame;
                         std::fprintf(stderr, "[gl:dyn] frame %llu tint #%u %06x: order %u screen %d blend %d tex %llx count %u textured %d mesh %016llx indexed %d pool %d overlay %d alphaTest %x opacity %.3f\n",
                                      (unsigned long long)arenaFrame, tintIndex, c, d.state.order, d.state.screen ? 1 : 0, static_cast<int>(d.state.blend),
-                                     (unsigned long long)d.state.texture, mesh.count, textured, (unsigned long long)d.mesh, mesh.indexed ? 1 : 0, mesh.pool,
+                                     (unsigned long long)d.state.texture, mesh.count, textured, (unsigned long long)dMesh, mesh.indexed ? 1 : 0, mesh.pool,
                                      d.state.overlay ? 1 : 0, d.state.alphaTest, d.state.opacity);
                     }
                     ++tintIndex;
@@ -6639,7 +6740,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         if (logged++ < 4)
                             std::fprintf(stderr, "[gl:layer] frame %llu mesh %016llx dyn %d first %d count %u buf %u prog %u slot %d textured %d tex %u (%ux? mipped %d alpha %u..%u filter %u clamp %u) blend %d "
                                                  "misc %g %g %g %g fogA %g %g %g %g fogB %g %g %g %g fogC %g %g %g %g fogCol %g %g %g %g debug %g %g %g %g cut %g %g least %g\n",
-                                         (unsigned long long)arenaFrame, (unsigned long long)d.mesh, mesh.dynamic ? 1 : 0, static_cast<int>(firstVertex), mesh.count,
+                                         (unsigned long long)arenaFrame, (unsigned long long)dMesh, mesh.dynamic ? 1 : 0, static_cast<int>(firstVertex), mesh.count,
                                          vertexBuffer, program, mainSlot, textured, tex ? tex->name : 0u, 0u, tex && tex->mipped ? 1 : 0, tex ? tex->minAlpha : 0u,
                                          tex ? tex->maxAlpha : 0u, tex ? tex->filter : 0u, tex ? tex->clamp : 0u, static_cast<int>(d.state.blend), misc[0], misc[1],
                                          misc[2], misc[3], fogA[0], fogA[1], fogA[2], fogA[3], fogB[0], fogB[1], fogB[2], fogB[3], fogC[0], fogC[1], fogC[2], fogC[3],
@@ -6673,7 +6774,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         if (d.state.lit || d.state.fresnel)
                             u = hash(d.state.light, 32, u);
                         std::fprintf(seq, "%p o %u mesh %016llx dyn %d first %u count %u idx %d buf %u tex %u clamp %u blend %d dt %d dm %d textured %d skin %d clip %016llx uni %016llx\n",
-                                     (void *)&target, d.state.order, (unsigned long long)d.mesh, mesh.dynamic ? 1 : 0, firstVertex, planned.run > 1 ? planned.mergedCount : mesh.count,
+                                     (void *)&target, d.state.order, (unsigned long long)dMesh, mesh.dynamic ? 1 : 0, firstVertex, planned.run > 1 ? planned.mergedCount : mesh.count,
                                      mesh.indexed ? 1 : 0, vertexBuffer, textured == 1 ? tex->name : 0u, d.state.clamp & 3u, (int)d.state.blend,
                                      cache.depthTest, cache.depthMask, textured, skinned ? 1 : 0, (unsigned long long)hash(d.clip, 16, 1469598103934665603ull),
                                      (unsigned long long)u);
@@ -8200,9 +8301,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 line += " " + std::to_string(ev.order) + ":" + std::to_string(ev.blur);
             unsigned layer8 = 0;
             for (const Draw &d : draws)
-                layer8 += d.state.order == 8u ? 1u : 0u;
+                layer8 += d.state.order == 8u ? 1u + d.extraCount : 0u;
             std::fprintf(stderr, "[gl:events] frame %llu draws %u layer8 %u glow %d%s%s (blurs apart so far %llu)\n", (unsigned long long)arenaFrame,
-                         static_cast<unsigned>(draws.size()), layer8, glow.enabled ? 1 : 0, line.c_str(), blurApart ? " blur-apart" : "",
+                         static_cast<unsigned>(memberMesh.size()), layer8, glow.enabled ? 1 : 0, line.c_str(), blurApart ? " blur-apart" : "",
                          (unsigned long long)blurApartCount);
         }
         // Mid-frame redraw (Tuning midFrameRedraw; the Vita's default): an
@@ -9423,7 +9524,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     r->applyUploads();
                     const uint64_t uploaded = native_renderer::nowUs();
                     r->stats.uploadUs += uploaded - start;
-                    r->expandDraws();
+                    if (!native_renderer::tuning().glFat116) // round 116: else kept whole (members)
+                        r->expandDraws();
+                    r->buildMembers();
                     // Round 86: the present after the data is given back (below).
                     r->deferPresent = native_renderer::tuning().glPresent86 && native_renderer::tuning().renderThread;
                     if (!r->hold) // held: the last picture stays on screen

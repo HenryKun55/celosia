@@ -643,6 +643,15 @@ namespace native_renderer
         bool prio100 = false;
 #endif
         bool cdAhead100 = true;
+        // Round 116 (the render thread's CPU, the same GL calls in the same
+        // order): a drawMulti's record (one state, one matrix, several meshes)
+        // kept whole on the render thread instead of copied into one ~330-byte
+        // draw per mesh; the frame's draws are its members (record, mesh), the
+        // plan looks the texture up once a record and takes a record's later
+        // members as merging with the one before them (the same state and
+        // matrix bit for bit) without comparing them again. SOTC_GL_FAT116=0/1;
+        // A/B name `fat116`.
+        bool glFat116 = true;
         // Round 74 (the console, an experiment): the render thread above the
         // hook worker in priority (149; 191 before) while a frame is drawn:
         // the console's render thread is ~13 ms a frame longer in the wall
