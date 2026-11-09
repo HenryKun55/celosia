@@ -4304,6 +4304,17 @@ namespace decomp_collision
     // Array: ClipCollisionDirectCallBackObjAry (0x112e180, decomp_hot46g's objAry): the same loop over an array of
     // objects (a3, t0 of them), the filters in t1 / t2 / t3, the id filter and the user word at the caller's +0 / +8;
     // its frame has the same layout (the record at sp + 0xd0, the segment's matrices at sp / sp + 0x40).
+    // Round 134 (pf134): the next object's lines the loop reads first asked for while this one is tested
+    // (its header, and its layout class at +0x20, the plain case: +0x90 scale, +0x134 matrix, +0x158..0x164
+    // the part matrices, +0x174, +0x184 the DB, +0x1b8 / +0x1bb the flags). Reads nothing, changes nothing.
+    __attribute__((always_inline)) inline void pf134Object(const G &g, uint32_t object)
+    {
+        if (object == 0u || object >= PS2_RAM_SIZE - 0x200u)
+            return;
+        for (uint32_t off : {0x00u, 0xB0u, 0x154u, 0x178u, 0x1A4u, 0x1D8u})
+            __builtin_prefetch(g.rdram + object + off);
+    }
+
     template <bool Array>
     void obj125Run(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -4615,10 +4626,17 @@ namespace decomp_collision
                 endObj = g.q(s5 + 0x40u);
             }
         };
+        const bool pf = sotc_decomp::pf134On();
         if constexpr (Array)
         {
+            if (pf && count != 0u)
+                pf134Object(g, g.u32(group));
             for (uint32_t i = 0; i < count; ++i)
+            {
+                if (pf && i + 1u < count)
+                    pf134Object(g, g.u32(group + 4u * (i + 1u)));
                 doObject(g.u32(group + 4u * i));
+            }
             return finish(anyHit ? 1u : 0u);
         }
         call(g, 0x001C7110u, 0x0112D628u, sp, {group, 0u}); // isysGroupForFirst
@@ -4627,6 +4645,16 @@ namespace decomp_collision
         {
             const uint32_t object = g.u32(entry);
             last = object;
+            if (pf && entry < PS2_RAM_SIZE - 0x10u)
+            {
+                // The next link's object (groupNext below walks from it; a deleted one is only a wasted line).
+                if (const uint32_t index = g.u16(entry + 0xEu); index != 0u)
+                {
+                    const uint32_t link = 0x0021B900u + index * 24u;
+                    if (link < PS2_RAM_SIZE - 0x10u)
+                        pf134Object(g, g.u32(link));
+                }
+            }
             doObject(object);
             uint32_t nextEntry;
             if (groupNext(g, entry, nextEntry))

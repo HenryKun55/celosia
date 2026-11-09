@@ -27,7 +27,10 @@ from collections import Counter, defaultdict
 NM = '/Users/flaviohenrique/vitasdk/bin/arm-vita-eabi-nm'
 SITES = ['other', 'pace', 'event', 'deadline', 'blocked', 'vu1q', 'vu1sync', 'vif1', 'hookjoin', 'tex', 'render', 'hookring']
 # Round 132: modelDispHook's phases (gameZone 0x2000 | phase)
-HOOK_ZONES = {1: 'sync (syncFrame)', 2: 'setup (camera, plan)', 3: 'state (lane / modelDispState)', 4: 'decision (parts)', 5: 'job (projection, lights, palette, push)'}
+HOOK_ZONES = {1: 'sync (syncFrame)', 2: 'setup (camera, plan)', 3: 'state (lane / modelDispState)', 4: 'decision (parts)', 5: 'job (projection, lights, palette, push)',
+              # Round 134: zones outside the hook (a frame change inside the hook shows as 'frame change', not 'sync')
+              0x10: 'strips: set-up / tail (010F3EB8)', 0x11: 'strips: a segment\'s math', 0x12: 'strips: its two quads (quad117 vertices)', 0x13: 'immediate quad: the 2D assembler feed (immFeed128)',
+              0x20: 'frame change (syncFrame, any hook)', 0x30: 'SIF RPC (the sound driver\'s status)', 0x40: 'EE dispatcher (thread switch, events)'}
 
 # Native (host C++) names by namespace / function, first match wins.
 NATIVE_GROUPS = [
@@ -239,7 +242,7 @@ def main():
     if zones:
         print('  (in a syscall, any state: ' + ', '.join(f'{k} {100 * v / total:.2f}%' for k, v in zones.most_common(6)) + ')')
     if hzones:
-        print('  (modelDispHook running, by phase: ' + ', '.join(f'{k} {100 * v / total:.2f}% = {v / total * msf:.2f} ms' for k, v in hzones.most_common()) + ')')
+        print('  (running, by zone: modelDispHook phases and round 134\'s: ' + ', '.join(f'{k} {100 * v / total:.2f}% = {v / total * msf:.2f} ms' for k, v in hzones.most_common()) + ')')
     print('\nthe running samples by subsystem     % busy  % all   ms/frame')
     for k, v in sorted(grp.items(), key=lambda x: -x[1]):
         print(f'  {k:34s} {100 * v / busy:6.2f} {100 * v / total:6.2f} {v / total * msf:8.2f}' + (f'  (of it {100 * via[k] / busy:.2f} unnamed guest code by its caller)' if via[k] else ''))

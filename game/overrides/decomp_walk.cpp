@@ -73,6 +73,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
+#include "runtime/ps2_thread_load.h"
 
 #include <chrono>
 #include <cmath>
@@ -2224,7 +2225,16 @@ namespace decomp_walk
         for (int i = 0; i < n; ++i)
             if (!Ram::ok(vs[i].pos, 0x10u))
                 return no(4);
-        sotc_decomp::clipNeeded(ctx);
+        // Round 134 (clip134): a fresh primitive (index 0) decides only on its own vertices' judgements (each
+        // case below masks the judgements of vertices index .. index - 2, all of this call's), so the lane's
+        // pending CLIP register is not needed: the judgements are recorded (clipShift) and the next reader's
+        // join puts the true register (the lane's, shifted by them) in the context, as clipByMinMaxCube's
+        // corners do. Before, the first quad after the model hooks joined the lane here (the game thread ran
+        // its pending modelDispState jobs: the console's 'joins at clip', ~1 a frame, inside the strips).
+        const bool lazy134 = index0 == 0u && sotc_decomp::clip134On() && sotc_decomp::g_lazyClip.ctx == ctx &&
+                             (sotc_decomp::g_lazyClip.pending || sotc_decomp::g_lazyClip.tracking);
+        if (!lazy134)
+            sotc_decomp::clipNeeded(ctx);
         static const bool glv116 = ps2_diag::env("SOTC_GLV116_LOG") != nullptr;
         __m128 *vf = ctx->vu0_vf;
         const __m128 vf0 = vf[0];
@@ -2283,8 +2293,11 @@ namespace decomp_walk
             vf26 = applyN(clipN, vf10, acc);
             ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
             vf25 = ftoi(vf25, 1.0f);
-            const uint32_t flags = ((ctx->vu0_clip_flags << 6) | ps2VuClipFlags(vf26, vf26)) & 0xFFFFFFu;
+            const uint32_t judgement = ps2VuClipFlags(vf26, vf26);
+            const uint32_t flags = ((ctx->vu0_clip_flags << 6) | judgement) & 0xFFFFFFu;
             ctx->vu0_clip_flags = flags;
+            if (lazy134)
+                sotc_decomp::clipShift(ctx, judgement & 0x3Fu);
             const __m128 q = _mm_set1_ps(ctx->vu0_q);
             vf27 = sel(vf27, PS2_VMUL(vf27, q), kXyz);
             vf27 = sel(vf27, PS2_VMUL(vf0, q), kW);
@@ -2621,6 +2634,7 @@ namespace decomp_walk
         {
             // glEnd's 0108CD80 (it sets +4 to 0 first: not open here either).
             ++g_imm128.clipped;
+            sotc_decomp::clipNeeded(g.ctx); // round 134: guest code next (the register true for it if clip134 recorded the judgements)
             g.call(0x0108CD80u, 0x0108D128u, sp);
         }
         SET_GPR_U32(g.ctx, 2, 0u);
@@ -2902,6 +2916,14 @@ namespace decomp_walk
 
     void strips(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round 134: prof129 zones (0x2010 set-up / tail, 0x2011 a segment's math, 0x2012 its two quads): the
+        // console's 3.2% at pc 0x10f4020 (this loop after glZOffset's return) told apart.
+        const ps2_load::GameZone zone134(0x2010u);
+        const auto zone = [](uint32_t z)
+        {
+            if (ps2_load::t_slot == ps2_load::kGame)
+                ps2_load::gameZone.store(z, std::memory_order_relaxed);
+        };
         G g(rdram, ctx, runtime);
         const Ram m = g.m;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x1F0u;
@@ -3106,6 +3128,7 @@ namespace decomp_walk
                     return runToReturn(rdram, ctx, runtime, sotc_decomp::recompiled(kStrips), ra0, sp0);
                 }
                 sreg(17, s1);
+                zone(0x2011u);
                 const int32_t a = m.s16(s1 + 8u), b = m.s16(s1 + 0x20u);
                 m.putf(sp + 0x80u, m.f32(s1 + 0xCu));
                 m.putf(sp + 0x84u, m.f32(s1 + 0x10u));
@@ -3201,6 +3224,7 @@ namespace decomp_walk
                         quadRun117(g, sp, vs, 4, calls);
                     };
                     // Round 128 (imm128): each glBegin .. glEnd without the GIF packet (prim128), else as the calls.
+                    zone(0x2012u);
                     {
                         const Vert117 vs[4] = {{f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0xA0u, 0x010F4690u},
                                                {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0xB0u, 0x010F46BCu},
@@ -3232,6 +3256,7 @@ namespace decomp_walk
             ctx->f[21] = f21;
             ctx->f[22] = f22;
         }
+        zone(0x2010u);
         ctx->f[12] = 1.0f;
         g.call(kGlZOffset, 0x010F4804u, sp);
         enable(kGlDisable, 0u, 0x010F480Cu);

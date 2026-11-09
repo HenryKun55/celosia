@@ -412,6 +412,10 @@ void EeScheduler::run()
             updateGate();
             if (g_eeDispatchProbe)
                 g_eeDispatchProbe(&context, 0);
+            // Round 134: prof129's zone 0x2040 (the dispatcher between two guest runs: a thread switch, the
+            // events) ends here; set again below once the run is over.
+            if (ps2_load::t_slot == ps2_load::kGame)
+                ps2_load::gameZone.store(0u, std::memory_order_relaxed);
             function(m_rdram, &context, &m_runtime);
             m_guestExecuting.store(false, std::memory_order_relaxed);
             m_insideInterrupt = false;
@@ -437,6 +441,8 @@ void EeScheduler::run()
             publishSnapshot();
             throw;
         }
+        if (ps2_load::t_slot == ps2_load::kGame)
+            ps2_load::gameZone.store(0x2040u, std::memory_order_relaxed);
         if (g_eeDispatchProbe)
         {
             const GuestThread *after = m_currentThreadId != 0 ? currentThread() : nullptr;

@@ -18436,3 +18436,54 @@ Not fixed: nothing was found to fix. Still open: the hot order is stale for nati
 (char122::cloth::dynamics, finderLeaf<false> at 0x830xxxxx in both builds), and SOTC_POS_LOG is compiled out in release.
 Console: celosia-r133-release.vpk (identical to r132-release) with r133/env-console.txt (frame log + prof129). To compare,
 ride the same route on both builds and compare prof129 per function.
+
+## Round 134: the console profile's hotspots read; clip134 (the haze strips' lane join), pf134 (prefetch), prof129 zones (2026-11-09)
+
+Scripts, runs: `build/agent-scratch/r134/` (build.sh pN, run.sh / v3k.sh: own tree ../vita3k-celosia-r134; STATE.md).
+Source: the r132 console profile, riding (`tools/prof129.py r132/console/err2.txt`), callers through the samples' ra.
+
+**What the top entries are.**
+- `manager_sub_010F3FB0` (3.2%, "unnamed guest code"): not guest code. prof129's pc is set at calls / returns only, and
+  decomp_walk's native heat haze strips (010F3EB8, `strips()`, Wander's haze segments) run their whole segment loop after
+  glZOffset's return (pc 0x10f4020, inside 010F3FB0) with no guest call. Zones in Vita3K: the cost is the quads
+  (quad117 + begin128: 1.41% of all), not the segment math (0.26%) nor the 2D feed (0.41%, all quads). In quad117,
+  `clipNeeded` joined the model lane (mdslane) for the CLIP register: the frame's first immediate quad after the model hooks
+  ran the lane's pending modelDispState jobs on the game thread (the console's `[mdslane] joins at clip` ~1 a frame).
+- `Sg2RemoteTickProc` (0.9%): the time after its `sceSifCallRpc` (0x109980) to the sound driver's status RPC (HLE:
+  Sg2Driver::handleRpc under the mixer's lock, the commands, the 400-byte reply). Moving it off the game thread changes the
+  reply's timing (the game reads voice states from it): not done; measured now (zone 0x2030).
+- `iosSendMsg` (0.8%): pc 0x1b10dc = after iosSleepThread: blocking sends to the idle box, i.e. EE thread switches (the
+  dispatcher's own time is now zone 0x2040).
+- `decomp_subthread::wake` / `sleep` (1.4 / 0.6%): the script sub-threads' 0x2c0-byte register frames; each sub-thread's frame
+  is cold on the console (one wake a frame), the load waits line by line.
+- `sotc_worker::gate<14>` / `<13>` / `<4>`: the particle module's functions run on the game thread (gate = the wrapper;
+  0113B928 an emitter's particles, 0113B610 an emitter, doit_particle_manager): the geodisps with attached emitters, kept on the
+  game thread by round 91 (they read the characters' motion). Not joins.
+- `mdsjoin::wrap<8>` (1.2%) = modelResetSurface's lane join (the game thread helping with lane jobs);
+  `decomp_tex64::wrap<10>` = DispDispObjGroupModel (the walk, inclusive).
+- `directCallBack` (3.6%): obj125's object loop after isysGroupForFirst (pc 0x112d628); objAry the array variant.
+
+**What changed.**
+- `clip134` (`SOTC_CLIP134`, default on; A/B `clip134`): quad117 on a fresh primitive (vertex index 0) records its vertices'
+  CLIP judgements (`clipShift`) instead of joining the lane, as clipByMinMaxCube's corners do; the next reader's join puts the
+  lane's register shifted by them in the context (`combine`). Exact: every decision in the kick's cases masks the judgements of
+  vertices index .. index - 2, all made by the same call (index 0 = the primitive's first vertex), and a 4-vertex quad leaves
+  the register = its own four judgements. imm128's clipped path (guest 0108CD80) joins first. Checked with
+  SOTC_MDS_LANE_VERIFY=1 (the records against the register at the next hook).
+- `pf134` (`SOTC_PF134`, default on; A/B `pf134`): PLD of the sub-thread's frame at wake (and the waker's at sleep), and of the
+  next object's header / layout class lines in obj125's loops (group: the next link's object; array: object i + 1). No read
+  or write changes (prefetch only); a console-only gain if any (Vita3K has no memory latency: no change there).
+- prof129 zones (gameZone 0x2000 | id; prof129.py prints them on the "running, by zone" line): 0x10 / 0x11 / 0x12 strips'
+  set-up, segment math, quads; 0x13 immFeed128; 0x20 syncFrame's frame change (any hook); 0x30 SifCallRpc; 0x40 the EE
+  dispatcher between guest runs.
+
+**Measured (Vita3K 222, own tree, attract demo with its ride, 420 s, A/B rotation).** clip134: `[mdslane] joins at clip` 0 in
+its on windows (600 per 600 frames in its off window); SOTC_MDS_LANE_VERIFY=1 run: 52 413 lane jobs 0 differ, CLIP records
+45 466 checked (the strips' records now among them), 0 differ. Vita3K's lane is mostly done by the strips, so the quads' zone
+stays ~1.3% there (their own quad117 math); the console's helping joins are what clip134 removes. Frame dt (the [pos] samples):
+all on 21.3, clip134 off 21.9, pf134 off 22.9, texr128 off 20.0 ms (noise-level; Vita3K has no memory latency for pf134).
+Pictures (window shots, riding over the bridge, the plains, the title): normal. spalign 0 sp-based.
+
+**Console.** build/agent-scratch/celosia-r134.vpk (dev), r134/env-console.txt: prof129 + `SOTC_AB_FLAG=pf134,clip134,texr128`
+(texr128 turned on by the env so its windows are the console's verdict on round 128's exact-but-Vita3K-slower switch). Read:
+`tools/prof129.py err.txt --elf celosia-r134.elf` (the zone line; manager_sub_010F3FB0 should drop), `[mdslane]` joins at clip.

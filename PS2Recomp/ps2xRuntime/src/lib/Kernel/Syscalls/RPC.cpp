@@ -2,6 +2,7 @@
 #include "Common.h"
 #include "RPC.h"
 #include "../../ps2_iop_transport.h"
+#include "runtime/ps2_thread_load.h"
 
 namespace ps2_syscalls
 {
@@ -345,6 +346,7 @@ namespace ps2_syscalls
 
     void SifCallRpc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        const ps2_load::GameZone zone134(0x2030u); // round 134: prof129 tells the RPCs' time (the sound driver's status, each tick) apart
         std::lock_guard<std::recursive_mutex> rpcCallLock(g_sif_call_rpc_mutex);
 
         const uint32_t clientPtr = getRegU32(ctx, 4);

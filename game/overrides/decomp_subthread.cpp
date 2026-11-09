@@ -198,6 +198,13 @@ namespace decomp_subthread
         SET_GPR_U64(ctx, 2, ctx->lo1);
     }
 
+    // Round 134 (pf134): a register frame's lines asked for (PLD on the A9; nothing read changes).
+    __attribute__((always_inline)) inline void prefetchFrame(const uint8_t *f)
+    {
+        for (uint32_t at = 0; at < kFrame; at += 32u)
+            __builtin_prefetch(f + at);
+    }
+
     void wake(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
@@ -223,6 +230,11 @@ namespace decomp_subthread
             return sotc_decomp::recompiled(kWake)(rdram, ctx, runtime);
         }
 
+        // Round 134 (pf134): the sub-thread's frame (22 lines of 32 bytes, its ra at +0x270 among them) asked
+        // for before the caller's registers are saved: on the console each sub-thread's frame is cold (one
+        // wake a frame), and the load below would wait for its lines one after another.
+        if (sotc_decomp::pf134On())
+            prefetchFrame(ram.p(sub));
         SET_GPR_U32(ctx, 29, sp1);
         ram.put64(sp1, GPR_U64(ctx, 31)); // sd $ra, 0($sp)
         if (index < 0x1Cu)
@@ -287,6 +299,9 @@ namespace decomp_subthread
             ctx->pc = kSleep;
             return sotc_decomp::recompiled(kSleep)(rdram, ctx, runtime);
         }
+        // Round 134 (pf134): the waker's frame (loaded below) asked for before the save.
+        if (sotc_decomp::pf134On())
+            prefetchFrame(ram.p(main));
         SET_GPR_U32(ctx, 29, frame);
         save(ram, ctx, frame);
         ram.put32(kSubSp, frame);
