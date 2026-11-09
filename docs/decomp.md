@@ -18542,3 +18542,86 @@ attract ride (Agro's gallop, legs); [pos] y normal (the shrine -0.23, the ride 3
 `SOTC_AB_FLAG=pose136,key136,euler136`, rotation, period 600, prof129). Read: `tools/prof129.py err.txt --elf
 r136/celosia-r136.elf --group characters` (motionMatrix, curveEval / intFrame, eulerYXZ), the A/B by state (abframes.py).
 pose136 on by default only if its windows are faster on the console.
+
+## Round 135: fin125 made exact (why its cache missed hits: a stale attribute address, objects replaced in their slots), pf135, a draw-matched A/B for the console's summaries (2026-11-09)
+
+Scripts, runs: `build/agent-scratch/r135/` (build.sh pN, run.sh `<a|b> <none|min|console> <load|walk|ride|attract> <vpk> <name>
+<secs> [env]`, own trees ../vita3k-celosia-r135 / -r135b, in_walk2.txt / in_ride.txt (the console card's save), speed.py
+(Wander's / Agro's speed from `[pos]`), STATE.md).
+
+**Why fin125's cache missed hits (round 131's 57 "original hits, host no hit").** Round 135's check mode prints, for a
+differing clip, the slot, what the host run did with the entry (`[fin135t]`), the id filter asked both ways (`[fin135f]`)
+and the entry clipped both ways (`[fin135c]`). Two causes, both found on the console card's save (Agro beside Wander at the
+shrine, frames ~1475-1740) and in the attract demo's ride:
+1. **A stale attribute address (the misses).** The host clip hit (`r 1`, the kept triangle the same as the game's, ClipCollisionDB
+   hits with the same u / v / point), then the id filter said no: `character_ikcolattrfilter` (0x01374F08, the IK feet's
+   probes) on one of Agro's surfaces (object type 10, independent part 0). The filter reads GetCollisionDBAttributeAdr, which
+   fin125 answered from the address kept when the surface was made (00c879e0); the game's own lookup gives 00c878a0 (20
+   records on). The surface's plane, boundary and vertices were unchanged, so no check saw it. The original asks the filter
+   "yes" and the feet probe lands on Agro; fin125 skipped it (a probe that misses for a frame, the kind of event that changes
+   the riding state). Fix: no attribute address is kept; GetCollisionDBAttributeAdr always asks the game's tables.
+2. **Objects replaced in their slots (checks that passed on old bytes).** Round 125's check (once a frame and after a flush)
+   compared the plane / boundary flags and values at the addresses kept at the making. When an object's slot is taken over
+   (the area loads; the id words and the layout class the same, its collision work or record not), the old bytes stay, so the
+   old surface passed. `[fin135] r125 missed` counts these: 88 at the card save's load, 132 walking out of the shrine, 334 in the
+   attract demo by frame 16 500; all "chain" (the work / record behind the id changed). Fix: `validate()` walks the chain
+   again from the id words (layout class, collision work, record, every flag / slot address, the vertex cache list) and
+   compares everything ClipCollisionDB reads: the plane / boundary / three vertex flags and the plane, boundary and vertex qwords
+   (round 125 kept no vertex check: a flush of the vertex caches alone, or a skinned blend, would have passed too).
+Also: FlushModifiedManager's native moves the worker epoch again at its end (a check between a worker flush's start and its
+last cleared flag is not kept). `[fin135] cur bad` (a surface used as current, no flush seen, that is not what ClipCollisionDB
+would read now) was 0 in every run: no change without a flush.
+
+**Checks (Vita3K 222 MHz, SOTC_FIN125=1 SOTC_FIN125_CHECK=1: each clip the original way first, its answer used, the host's
+compared; final build).**
+| run | build | scene | clips compared | hit / no hit | other surface | point max |
+|---|---|---|---|---|---|---|
+| runsb/chkA1 | p1 (validate(), the attribute address still kept) | attract demo to frame ~20 000 | - | 9 | 0 | - |
+| runs/dgW2, runsb/dgW3, dgW4 | p2-p4 (+ the diagnostics) | the card's save, the load at the shrine | - | 4 each (frames 1475-1740, all Agro's surfaces, `filtered 1`) | 0 | - |
+| runsb/chkA5 | p5 (no attribute address kept) | attract demo 1560 s (49 450 frames, both ride loops) | 241 061 | **0** | **0** | 0.00 mm |
+| runs/ride5 | p5 | the card's save 900 s (17 570 frames: the load with Agro beside Wander, out of the shrine, the plain) | 358 311 | **0** | **0** | 0.00 mm |
+| runsb/chkA7 | p7 (= the pushed main, with round 136) | attract demo 1100 s (34 090 frames, both ride loops) | 155 006 | **0** | **0** | 0.00 mm |
+
+In all, 754 378 clips compared on the final logic (2 600 s of attract demo with four rides, 900 s of the card's save), 0
+differences. `[fin135]` over those runs: 14.3 M kept-surface uses validated in full, cur bad 0; r125 missed 891 / 196 (attract)
+and 109 (card), all "chain".
+
+fin125 is on by default again (SOTC_FIN125=0 turns it off; A/B name `fin125`). seg123 stays off (no answers kept across frames).
+
+**Gameplay.** (1) fin125 on (p6, the default, no check; runs/smkA6on, attract
+960 s, `[pos]` with Agro's position, speed.py --horse): Agro at 12-15 units/s (the gallop) in 478 of 634 samples, both rides
+galloping without a break until the demo's cut, as in the check run (whose answers are the original's); window shots at 540 /
+600 s: Agro galloping over the plain with Wander on him, his shadow under the hooves. (2) The console card's save (runs/ride5,
+check run): Wander on the shrine floor at y 11.31, down the ramp, on the plain at y -2.2 .. -4.7; his feet on the ground in the
+shots. Riding from the card could not be scripted: Agro stands beside Wander after the load, but TRIANGLE (8-90 frames, with
+stick nudges), CIRCLE, R1, SQUARE and UP did not mount him (runs/mount1, mount2); he walks off on his own ~frame 2450 and comes
+back ~3500. The ride checks are the attract demo's; the console run is the gallop's judge.
+
+**pf135 (`SOTC_PF135`, default on; A/B `pf135`): prefetch only.** The console profile's top two: `finderLeaf<true>` (3.35%; prof129
+names a native by its table entry, so this is the leaf's whole host time: the boundary scan, the plane tests, the duplicate
+search, EntryCollisionFinder) and `directCallBack` (3.23%, obj125's object / part loop). (a) finderScan (the leaf's boundary
+scan over a run of surfaces) asks for the boundary record and the flag byte of the surface 4 ahead (the ids are known
+ahead; the records are spread over the class's table, a miss each on the A9). (b) obj125's part loop asks for the next part's
+0x90-byte record (4 lines) and its matrix while this part is tested. No read or write changes; Vita3K has no memory latency,
+so only the console's A/B can show it.
+
+**Measured (Vita3K 222, p7, runs/abA7: attract 1200 s, the console env + per-frame lines, A/B `fin125,pf135` rotating by
+600).** The finder clips' host time by fin125's state ([fin125t]): 33.45 us a call on (175 385 calls) against 36.07 off
+(96 451): -7% with round 135's full checks. Frames, draw-matched on the summaries (bins of 100 draws): fin125 off -0.97 +- 1.14
+ms, pf135 off -0.78 +- 1.38 (82 / 70 summaries matched): no difference Vita3K can see (it has no memory latency, the A9's
+cost of fin125's lookup chain and of the misses pf135 asks for early). The console's A/B decides both; fin125's reason to be
+on is the console's collision share (finderClip<true> + <false> 2.0% of the game thread in r134's profile, ClipCollisionDB's
+chain per entry).
+
+**Draw-matched A/B (tooling).** `build/agent-scratch/tools/abframes.py err.txt --summary [--bin N] [--bins]` (a copy in
+`tools/abframes.py`): the console env logs only the 60-frame `[frame] N:` summaries; a summary counts for a state when its 60
+frames lie in one A/B window, the summaries go in bins by draws a frame (default 50; a bin = a scene load), each state is
+compared with "all on" inside a bin and the bins' differences are averaged with weight min(n_off, n_on) (bins with fewer than
+`--min` summaries on a side left out), with +- 2 standard errors from the bins. Chosen by itself when the log has no `[frame]
+each` lines. On r134's console log (bins of 100): `clip134` off -3.40 +- 2.10 ms frame / -2.54 +- 1.80 game (27 of 36 summaries
+matched) where the plain means said -3.1 / -1.8 with different scenes; `pf134` off -3.8 +- 3.7 (18 matched): not significant.
+
+**Console.** build/agent-scratch/celosia-r135.vpk (dev, prof129), r135/env-console.txt (`SOTC_AB_FLAG=fin125,pf135`, rotate,
+600). Ride the field at a gallop; read `tools/prof129.py err.txt --elf r135/celosia-r135.elf` (collision's ms/frame, finderClip,
+finderLeaf<true>, directCallBack) and `build/agent-scratch/tools/abframes.py err.txt --summary --bin 100` (fin125 / pf135 off
+against on in matched scenes). The gallop must hold with fin125 on.
