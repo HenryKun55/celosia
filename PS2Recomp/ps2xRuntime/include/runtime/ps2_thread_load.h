@@ -41,9 +41,11 @@ namespace ps2_load
         kSiteVif1,     // the VIF1 path's async walk
         kSiteHookJoin, // the hook jobs joined
         kSiteTex,      // the texture offload joined
+        kSiteRender,   // round 132: the render thread's hand-over (the frame drawn before done with)
+        kSiteHookRing, // round 132: the hook jobs' ring full (the worker behind)
         kSites
     };
-    inline const char *const kSiteNames[kSites] = {"other", "pace", "event", "deadline", "blocked", "vu1q", "vu1sync", "vif1", "hookjoin", "tex"};
+    inline const char *const kSiteNames[kSites] = {"other", "pace", "event", "deadline", "blocked", "vu1q", "vu1sync", "vif1", "hookjoin", "tex", "render", "hookring"};
     inline std::atomic<uint64_t> gameSiteUs[kSites]{};
 
     // Round 129 (the console's sampler, game/overrides/sotc_prof129.cpp):

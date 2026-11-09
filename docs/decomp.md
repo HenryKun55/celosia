@@ -18378,3 +18378,40 @@ thread-info / clock calls are cheap, so most of the console cost above does not 
 **Not done.** GCC's hot / cold block splitting (-freorder-blocks-and-partition) refuses ARM EHABI with exceptions; turning
 exceptions off would change every function's CFG and drop its PGO profile. Functions whose diagnostic branches fold away
 in the release build lose their profile too (compiled as without PGO); a release PGO training would recover it.
+
+## Round 132: prof129's wrap<12> (46% of the console's game thread) is the game held by the display pacing; pace132 (2026-11-09)
+
+Scripts, runs: `build/agent-scratch/r132/` (build.sh pN, run.sh / v3k.sh: own tree ../vita3k-celosia-r132; STATE.md).
+
+**What wrap<12> is.** `decomp_tex64::kSites[12]` = modelDisp (0x01097118): the tex64 join check in front of modelDisp's table
+entry, `sotc_native::modelDispHook`. prof129 names a native by the table entry it was entered at, so wrap<12> is the whole hook,
+waits included. The frame's first modelDisp runs syncFrame -> endFrame -> `waitData` (native_renderer_gl.cpp): the game thread
+waits for the render thread to take the frame handed over before, in `wait_for(2 ms)` loops that were not marked as a wait.
+The r130 console log agrees: `sync end` (= that wait) ~15-25 ms a frame in play, `present` 15-42 ms; the game thread's own
+work ~15-24 ms. Not tex64: its join is free by then (`wait tex` 0.00).
+
+**Why the render thread is late.** It presents after giving the data back (glPresent86); vglSwapBuffers blocks while vitaGL's
+display queue is full, and the queue drains as round 110's display callback (pace110) lets each picture on at its slot (previous
+slot + the frame's release interval). The console's `[pace110]`: waited 0.7-1.3 refreshes a picture in the callback (the GPU
+done ~1 refresh early), latency 9-12 refreshes (round 110 expected 4-6). A loop: frame N waits for the render thread, which
+waits in the swap for a picture ~3 back to leave the screen, so frame N's release interval = that picture's hold, and picture
+N's hold = frame N's interval: intervals repeat and only grow. pace110's pulls (after 6 queued pictures in a row, above the
+floor A = least arrival latency of the last 64, itself raised by the blocked swaps) fire ~14 times in 600.
+
+**What changed.**
+- `SOTC_PACE132` (default on; A/B `pace132`, raylib_vita.cpp): while the callback holds a slot it looks every 1 ms
+  (sceKernelDelayThread instead of sceDisplayWaitVblankStart; off: as before); when the game thread is in the hand-over's wait
+  (`ps2x_vita_render_wait`, set by waitData) and the render thread is in vglSwapBuffers, the slot comes one refresh earlier
+  (once a picture, not below the previous slot + the minimum hold; the chain goes on from the pulled slot). `[pace110]` lines
+  end with `| r132: game held N, pulled M`.
+- prof129 marks: `wait render` (waitData / waitIdle), `wait hookring` (the hook ring full), hookJoin's wait (`wait hookjoin`),
+  modelDispHook's phases (gameZone 0x2000 | phase, printed as "modelDispHook running, by phase").
+
+**Measured (Vita3K 222, own tree, console card, Load Game, 300 s, A/B pace132 windows of 60).** Vita3K's steady state is game
+thread bound (wait 0.15 ms a frame outside its ~1 s host stalls), so the held state shows only around boot / stalls (game held
+18-23, pulled 15-24 in the first 1 200 pictures, 0 after): frame 31.78 on / 31.72 off, the same. With the marks, wrap<12> is
+1.1% of busy and `wait render` 15-29% (all at the stalls). Pictures checked (window shots): normal. ELF spalign 0 sp-based.
+
+**Console.** build/agent-scratch/celosia-r132.vpk; r132/env-console.txt = r130's prof env + `SOTC_AB_FLAG=pace132`. Read:
+`tools/prof129.py err.txt --elf celosia-r132.elf` (`wait render` should fall and the frame with it), the `[pace110]` lines'
+`r132:` counts and latency (expect 4-6), `build/agent-scratch/tools/abframes.py err.txt` per A/B state.

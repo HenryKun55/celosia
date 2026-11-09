@@ -89,6 +89,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
 #include <psp2/kernel/threadmgr.h>
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" void ps2x_vita_pace_ab(int on);                // raylib_vita.cpp (round 110)
+extern "C" void ps2x_vita_pace132_ab(int on);             // raylib_vita.cpp (round 132)
 #endif
 #include <vector>
 
@@ -3506,6 +3507,12 @@ namespace sotc_native
             if (at110 >= 0)
                 ps2x_vita_pace_ab(isOffAt(at110) ? 0 : 1);
         }
+        {
+            // Round 132: `pace132` (the display's slot pulled when it holds the game) off in its windows.
+            static const int at132 = indexOf("pace132");
+            if (at132 >= 0)
+                ps2x_vita_pace132_ab(isOffAt(at132) ? 0 : 1);
+        }
 #endif
         {
             // Round 111: `hold111` (characters read by another object kept on the game thread), `delta111` (the areas
@@ -5513,6 +5520,7 @@ namespace sotc_native
 #endif
             if (!pending())
                 return;
+            ps2_load::Wait waiting(ps2_load::kSiteHookJoin); // round 132: marked for prof129
             const uint64_t start = g_timing || g_verify ? native_renderer::nowUs() : 0u;
             ++g_waits;
             ++g_siteWaits[site];
@@ -5559,8 +5567,12 @@ namespace sotc_native
         HookJob &next()
         {
             const uint32_t head = g_head.load(std::memory_order_relaxed);
-            while (head - g_tail.load(std::memory_order_acquire) >= kRing)
-                std::this_thread::yield();
+            if (head - g_tail.load(std::memory_order_acquire) >= kRing)
+            {
+                ps2_load::Wait waiting(ps2_load::kSiteHookRing); // round 132: marked for prof129
+                while (head - g_tail.load(std::memory_order_acquire) >= kRing)
+                    std::this_thread::yield();
+            }
             return g_ring[head % kRing];
         }
         void push()
@@ -10328,7 +10340,16 @@ namespace sotc_native
 
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round 132: the hook's phases as prof129 zones (0x2000 | phase; a
+        // relaxed store each on the game thread, put back at the way out).
+        const ps2_load::GameZone hookZone(0x2001u);
+        const auto zone = [](uint32_t z)
+        {
+            if (ps2_load::t_slot == ps2_load::kGame)
+                ps2_load::gameZone.store(z, std::memory_order_relaxed);
+        };
         { SOTC_PROF_SCOPE(kHookSync); syncFrame(rdram); }
+        zone(0x2002u);
         const lines67::Scope l67(lines67::kHook, true);
         static const ModelDispEnv env;
         const uint32_t instance = GPR_U32(ctx, 4), matrix = GPR_U32(ctx, 5);
@@ -10451,6 +10472,7 @@ namespace sotc_native
         uint32_t partsTable = 0;
         bool laneUsed = false; // round 61: the state made on the lane (mdslane)
         uint64_t laneSeq = 0;
+        zone(0x2003u);
         if (check)
             modelDispCheck(rdram, ctx, runtime, instance, model);
         else if (!ps2Lists)
@@ -10545,6 +10567,7 @@ namespace sotc_native
             if (mdsTraceOn())
                 mdsTraceModel();
         }
+        zone(0x2004u);
 
         const uint32_t header = word(word(instance) + 0x20u);
         static const uint32_t skipHeader = std::getenv("SOTC_NATIVE_SKIP") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_NATIVE_SKIP"), nullptr, 16)) : 0u; // debugging
@@ -10726,6 +10749,7 @@ namespace sotc_native
         job.planOn = planOn;
         job.plan = planOn ? (lod == gameLod ? gamePlan : modelPlan(header, lod)) : nullptr;
         std::memcpy(job.clip, clip, sizeof(clip));
+        zone(0x2005u);
         if (lean)
             guestBlock(g_cameraContext + 0x40u, 64u, job.projection);
         else

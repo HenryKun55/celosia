@@ -14,12 +14,20 @@ game thread, grouped by subsystem (round 113's budget areas).
 
 Shares: '% busy' = of the samples where the game thread ran guest or native code (not waiting at a marked site,
 not without an EE thread); '% all' = of every sample. ms/frame = share of all x the windows' wall time / their frames.
+
+Round 132: a native is named by the table entry of the guest address it was entered at, so a wrapper in front of a native
+takes its whole time (decomp_tex64::wrap<12> = the tex64 join check in front of modelDisp's hook, sotc_native::modelDispHook;
+the r130 console's 46% was the hook, not tex64). Builds from r132 on mark the render hand-over ('wait render': the game
+thread waiting for the render thread at the frame's first modelDisp, syncFrame -> endFrame) and the hook ring ('wait
+hookring'), and give the hook's running samples by phase (gameZone 0x2000 | phase).
 """
 import argparse, bisect, re, subprocess, sys
 from collections import Counter, defaultdict
 
 NM = '/Users/flaviohenrique/vitasdk/bin/arm-vita-eabi-nm'
-SITES = ['other', 'pace', 'event', 'deadline', 'blocked', 'vu1q', 'vu1sync', 'vif1', 'hookjoin', 'tex']
+SITES = ['other', 'pace', 'event', 'deadline', 'blocked', 'vu1q', 'vu1sync', 'vif1', 'hookjoin', 'tex', 'render', 'hookring']
+# Round 132: modelDispHook's phases (gameZone 0x2000 | phase)
+HOOK_ZONES = {1: 'sync (syncFrame)', 2: 'setup (camera, plan)', 3: 'state (lane / modelDispState)', 4: 'decision (parts)', 5: 'job (projection, lights, palette, push)'}
 
 # Native (host C++) names by namespace / function, first match wins.
 NATIVE_GROUPS = [
@@ -181,15 +189,19 @@ def main():
         return f'{gn} @{s:x}', False
 
     total = 0; busy = 0; wall = 0.0; frames = 0
-    states = Counter(); fn = Counter(); fnnat = {}; grp = Counter(); gfn = defaultdict(Counter); zones = Counter(); via = Counter()
+    states = Counter(); fn = Counter(); fnnat = {}; grp = Counter(); gfn = defaultdict(Counter); zones = Counter(); hzones = Counter(); via = Counter()
     for w in sel:
         wall += w['t'] - (wins[wins.index(w) - 1]['t'] if wins.index(w) > 0 else 0.0)
         frames += w['f1'] - w['f0']
         for pc, ra, n, s, z in w['e']:
             total += n
             if z:
-                zid = z & 0xFFF
-                zones[f'syscall {zid - 0x1000 if zid >= 0x800 else zid:#x}'] += n
+                if z & 0x2000:
+                    if (s & 15) == 0:
+                        hzones[HOOK_ZONES.get(z & 0xFF, f'{z:#x}')] += n
+                else:
+                    zid = z & 0xFFF
+                    zones[f'syscall {zid - 0x1000 if zid >= 0x800 else zid:#x}'] += n
             off_core = s & 16
             base = s & 15
             if 1 <= base <= 13:
@@ -226,6 +238,8 @@ def main():
         print(f'  {k:34s} {100 * v / total:6.2f} {v / total * msf:8.2f}')
     if zones:
         print('  (in a syscall, any state: ' + ', '.join(f'{k} {100 * v / total:.2f}%' for k, v in zones.most_common(6)) + ')')
+    if hzones:
+        print('  (modelDispHook running, by phase: ' + ', '.join(f'{k} {100 * v / total:.2f}% = {v / total * msf:.2f} ms' for k, v in hzones.most_common()) + ')')
     print('\nthe running samples by subsystem     % busy  % all   ms/frame')
     for k, v in sorted(grp.items(), key=lambda x: -x[1]):
         print(f'  {k:34s} {100 * v / busy:6.2f} {100 * v / total:6.2f} {v / total * msf:8.2f}' + (f'  (of it {100 * via[k] / busy:.2f} unnamed guest code by its caller)' if via[k] else ''))

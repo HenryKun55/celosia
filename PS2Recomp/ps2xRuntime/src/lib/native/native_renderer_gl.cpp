@@ -16,6 +16,7 @@
 #include "runtime/native_recorder.h"
 #include "runtime/native_tuning.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_thread_load.h"
 
 #if defined(__APPLE__) || (defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM))
 
@@ -47,6 +48,7 @@ extern "C" GLboolean is_fbo_float; // vitaGL's (framebuffers.c): the target's ou
 extern "C" SceGxmNotification query_fence;          // vitaGL's (buffers.c): every scene's end notification, value+1 a scene
 extern "C" SceGxmContext *gxm_context;              // vitaGL's (gxm.c): round 87 (glVol87) disables the volumes' fragment program
 extern "C" volatile unsigned long long ps2x_vita_swap_us; // raylib_vita.cpp (round 86): time in vglSwapBuffers, summed
+extern "C" void ps2x_vita_render_wait(int on);                  // raylib_vita.cpp (round 132)
 extern "C" void ps2x_vita_pace_tag(uint32_t seq);        // raylib_vita.cpp (round 110): the next swap's frame release
 #endif
 
@@ -9977,6 +9979,9 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static constexpr std::chrono::milliseconds kRecheck{2};
         void waitIdle(std::unique_lock<std::mutex> &lock)
         {
+            if (!(m_queued || m_busy || m_presenting))
+                return;
+            ps2_load::Wait waiting(ps2_load::kSiteRender); // round 132: marked (the game thread's, for prof129)
             while (m_queued || m_busy || m_presenting)
                 m_idle.wait_for(lock, kRecheck);
         }
@@ -9984,8 +9989,17 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // present may still be running, glPresent86).
         void waitData(std::unique_lock<std::mutex> &lock)
         {
+            if (!(m_queued || m_busy))
+                return;
+            ps2_load::Wait waiting(ps2_load::kSiteRender); // round 132: marked (the game thread's, for prof129)
+#if defined(PS2X_NATIVE_VITA)
+            ps2x_vita_render_wait(1); // round 132: pace132 (raylib_vita.cpp) sees the game held
+#endif
             while (m_queued || m_busy)
                 m_idle.wait_for(lock, kRecheck);
+#if defined(PS2X_NATIVE_VITA)
+            ps2x_vita_render_wait(0);
+#endif
         }
         bool m_presenting = false; // round 86: the render thread in a deferred present
         bool m_started = false, m_initOk = false;
