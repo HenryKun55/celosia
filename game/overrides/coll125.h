@@ -27,7 +27,7 @@
 // id, +8 / +0xc u / v, +0x10 the local point of an independent surface, +0x30
 // the kind, +0x40 the point) written once, for the last hit, as the last
 // ClipCollisionDB call leaves it. The keep pass (ClipCollisionFinderWithKeep)
-// and GetCollisionDBAttributeAdr ask the cache too (keepEarly125, attrOf).
+// asks the cache too (keepEarly125). Round 135: GetCollisionDBAttributeAdr no longer does (see validate()).
 //
 // Lifetime: the game's caches change only through FlushModifiedManager (an
 // object that moved has its cache flags cleared). A flush made by
@@ -35,14 +35,34 @@
 // only the works some kept surface belongs to), any other flush on the game
 // thread the global g_epoch, any flush on the worker's lane g_epochW. A slot
 // is used as kept while its frame and the three epochs are the ones it was
-// checked at; else its plane and boundary flags must still be set and their
-// values the same as kept, or it is made again.
+// checked at; else it is checked again (validate()) or made again.
+//
+// Round 135 (the r131 check's missed hits, two causes): (1) round 125's check
+// looked at the plane and boundary flags and values at the addresses kept at
+// the making. An object's slot taken over by another (the area loads; the id
+// words, the layout class the same, its collision work / record not) left
+// those bytes as they were, so the old surface passed. validate() now walks
+// the chain again from the id words (layout class, work, record, every flag /
+// slot address, the vertex cache list) and compares everything ClipCollisionDB
+// reads: the plane / boundary / three vertex flags and the plane, boundary and
+// vertex qwords. (2) The attribute address kept at the making (asked by the id
+// filters through GetCollisionDBAttributeAdr) went stale while the surface's
+// geometry stayed: Agro's surfaces, the IK feet's filter (character_ikcolattr
+// filter) answered "no" from the old record where the game's own lookup says
+// "yes", so a feet probe missed one of Agro's surfaces.
+// GetCollisionDBAttributeAdr now always asks the game's tables.
+// FlushModifiedManager's native also moves the worker epoch at its end (a
+// check between a worker flush's start and its last cleared flag is not kept).
 //
 // Game thread only (the worker's lane makes every call). Logs: SOTC_COLL115_LOG=1
 // adds [fin125] (clips, entries, plane passes, hits, made, checks, dropped, keep
-// tests and attributes answered), [fin125e] (flushes by kind) and [fin125t]
-// (each clip's host time by the switch's state). SOTC_FIN125_CHECK=1: each clip
-// the original way first (its answer used), compared ([fin125m]).
+// tests), [fin125e] (flushes by kind) and [fin125t] (each clip's host time by
+// the switch's state). SOTC_FIN125_CHECK=1: each clip the original way first
+// (its answer used), compared ([fin125m]); round 135 adds [fin135] (every use
+// of a kept surface validated in full: "cur bad" = changed with no flush seen,
+// "r125 missed" = what round 125's check let through) and, for a differing
+// clip, [fin135x] / [fin135t] / [fin135f] / [fin135c] (the slot, what the run
+// did with the entry, the filter both ways, the clip both ways).
 namespace coll125
 {
     inline uint64_t g_epoch = 1; // moved by a flush of a non-empty modified list not made through a collision work's flush
@@ -112,6 +132,14 @@ namespace coll125
         ++g_globalBumps;
     }
 
+    // Round 135: FlushModifiedManager's native at its end on the worker's lane: the worker epoch moved again, so a
+    // surface the game thread checked between the flush's start and its last cleared flag is checked again.
+    inline void flushedEnd(const PS2Runtime *runtime)
+    {
+        if (sotc_decomp::onWorkerLane(runtime))
+            g_epochW.store(g_epochW.load(std::memory_order_relaxed) + 1u, std::memory_order_relaxed);
+    }
+
     inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kFin125) && !sotc_decomp::onWorkerLane(runtime); }
     inline int checkLevel()
     {
@@ -166,6 +194,12 @@ namespace coll125
         uint32_t bndFlag, bnd;     // the boundary's cached flag and record
         uint32_t bndW[4];          // the boundary record's words as made
         uint32_t attr;             // GetCollisionDBAttributeAdr's answer for it (when hasAttr)
+        // Round 135: everything ClipCollisionDB reads for it, kept to check it again: the chain's heads (the layout
+        // class, its collision work and record), the vertex cache list (+8 the flags, +0x14 the table) and the three
+        // vertices' indices in it, their flag and qword addresses and the qwords as made (the triangle terms' input).
+        uint32_t cls, work, rec, vc;
+        uint32_t vid[3], vflag[3], vtx[3];
+        uint32_t vW[12];
         uint8_t state;
         uint8_t indep;
         uint8_t hasAttr;
@@ -240,6 +274,12 @@ namespace coll125
         uint64_t us[2] = {}, nq[2] = {};
     };
     inline Stats g_st;
+    struct Check135
+    {
+        uint64_t uses = 0, curBad = 0, r125Missed = 0, checks = 0;
+        uint64_t curWhy[6] = {}, missWhy[6] = {};
+    };
+    inline Check135 g_c135;
     inline uint64_t g_logFrame = 0;
     inline void log()
     {
@@ -253,9 +293,9 @@ namespace coll125
             Stats &s = g_st;
             std::fprintf(stderr,
                          "[fin125] frame %llu: a frame: clips %.1f entries %.1f plane-pass %.2f hits %.2f filtered %.2f guest entries %.2f | made %.2f (slots taken over %.2f) "
-                         "checks %.2f dropped %.2f big lists %.2f keep tests %.2f attributes %.2f | check %llu differ %llu (hit / no hit %llu, other id %llu, point max %.2f mm)\n",
+                         "checks %.2f dropped %.2f big lists %.2f keep tests %.2f | check %llu differ %llu (hit / no hit %llu, other id %llu, point max %.2f mm)\n",
                          (unsigned long long)frame, s.calls / nf, s.entries / nf, s.planePass / nf, s.hits / nf, s.filtered / nf, s.guestEntries / nf, s.made / nf,
-                         s.evicted / nf, s.checks / nf, s.dropped / nf, s.bigLists / nf, s.keepHost / nf, s.attrHost / nf, (unsigned long long)s.checked, (unsigned long long)s.differ,
+                         s.evicted / nf, s.checks / nf, s.dropped / nf, s.bigLists / nf, s.keepHost / nf, (unsigned long long)s.checked, (unsigned long long)s.differ,
                          (unsigned long long)s.differHit, (unsigned long long)s.differId, s.maxd * 1000.0);
             for (int i = 0; i < 2; ++i)
                 if (s.nq[i])
@@ -263,6 +303,17 @@ namespace coll125
                                  (unsigned long long)s.nq[i], (double)s.us[i] / s.nq[i], (double)s.us[i] / 1000.0 / nf);
             std::fprintf(stderr, "[fin125e] frame %llu: flushes a frame: by work %.1f, other %.2f; works kept %u\n", (unsigned long long)frame, g_workBumps / nf,
                          g_globalBumps / nf, [] { unsigned n = 0; for (const WorkEpoch &w : g_works) n += w.work != 0u; return n; }());
+            if (checkLevel() != 0)
+            {
+                const Check135 &c = g_c135;
+                std::fprintf(stderr,
+                             "[fin135] frame %llu: uses %llu checks %llu | cur bad %llu (chain %llu addr %llu flag %llu plane %llu bnd %llu verts %llu) | r125 missed %llu (chain %llu addr "
+                             "%llu flag %llu plane %llu bnd %llu verts %llu)\n",
+                             (unsigned long long)frame, (unsigned long long)c.uses, (unsigned long long)c.checks, (unsigned long long)c.curBad, (unsigned long long)c.curWhy[0],
+                             (unsigned long long)c.curWhy[1], (unsigned long long)c.curWhy[2], (unsigned long long)c.curWhy[3], (unsigned long long)c.curWhy[4],
+                             (unsigned long long)c.curWhy[5], (unsigned long long)c.r125Missed, (unsigned long long)c.missWhy[0], (unsigned long long)c.missWhy[1],
+                             (unsigned long long)c.missWhy[2], (unsigned long long)c.missWhy[3], (unsigned long long)c.missWhy[4], (unsigned long long)c.missWhy[5]);
+            }
             g_workBumps = g_globalBumps = 0;
             const double md = s.maxd;
             g_st = Stats{};
@@ -275,8 +326,89 @@ namespace coll125
 
 namespace coll125
 {
-    // Entry k of the set: the entry's caches still what was kept (flags set, values the same).
-    inline bool stillGood(const G g, const Meta &m, const Entry &e)
+    // Round 135: the addresses ClipCollisionDB reaches for the surface (w0, w1) without calls: the layout class,
+    // its collision work and record, the plane / boundary flags and slots, the vertex cache list. False: a class
+    // made by a call, none, or an address outside main RAM.
+    struct Addr
+    {
+        uint32_t cls, work, rec, planeFlag, plane, bndFlag, bnd, vc;
+    };
+    inline bool derive(const G g, uint32_t w0, uint32_t w1, Addr &a)
+    {
+        if (!layoutClass(g, w0, a.cls) || a.cls == 0u || !G::plain(a.cls, 0x200u))
+            return false;
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        a.work = g.u32(a.cls + 0x174u);
+        a.rec = g.u32(a.cls + 0x184u);
+        if (!G::plain(a.work, 0x88u) || !G::plain(a.rec, 0x24u))
+            return false;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t part = g.u32(a.work + 0x24u) + s1 * 0x60u;
+            if (!G::plain(part, 0x60u))
+                return false;
+            a.planeFlag = g.u32(part + 0x38u) + s3;
+            a.plane = g.u32(part + 0x44u) + s3 * 16u;
+            a.bndFlag = g.u32(part + 0x50u) + s3;
+            a.bnd = g.u32(part + 0x5Cu) + s3 * 16u;
+            a.vc = part;
+        }
+        else
+        {
+            const uint32_t t2 = g.u32(a.rec + 0x20u);
+            if (!G::plain(t2, 0x10u))
+                return false;
+            const uint32_t r = s1 * 0x90u + g.u32(t2 + 8u) + 0x54u;
+            if (!G::plain(r, 4u))
+                return false;
+            const uint32_t at = g.u32(r) + s3 * 4u;
+            if (!G::plain(at, 4u))
+                return false;
+            const uint32_t index = g.u32(at);
+            a.planeFlag = g.u32(a.work + 0x60u) + index;
+            a.plane = g.u32(a.work + 0x6Cu) + index * 16u;
+            a.bndFlag = g.u32(a.work + 0x78u) + index;
+            a.bnd = g.u32(a.work + 0x84u) + index * 16u;
+            a.vc = a.work + 0x28u;
+        }
+        return G::plain(a.planeFlag, 1u) && G::plain(a.bndFlag, 1u) && G::plain(a.plane, 16u) && G::plain(a.bnd, 16u) && (a.plane & 0xFu) == 0u &&
+               (a.bnd & 0xFu) == 0u;
+    }
+    enum : unsigned
+    {
+        kBadChain = 1u,  // the id words reach another class / work / record (the object went, another took its place)
+        kBadAddr = 2u,   // a flag / slot / vertex cache list moved
+        kBadFlag = 4u,   // a cache flag cleared (a flush)
+        kBadPlane = 8u,  // the plane's value changed
+        kBadBnd = 16u,   // the boundary's value changed
+        kBadVerts = 32u, // a vertex's value changed (a flush of the vertex caches only, a skinned surface's blend)
+    };
+    // Round 135: what ClipCollisionDB would read for the surface now against what was kept (0: the same: its answers
+    // are the cache's for any segment). The chain again from the id words, every flag and every value it reads.
+    inline unsigned validate(const G g, const Meta &m, const Entry &e)
+    {
+        Addr a;
+        if (!derive(g, m.w0, m.w1, a) || a.cls != m.cls || a.work != m.work || a.rec != m.rec)
+            return kBadChain;
+        if (a.planeFlag != m.planeFlag || a.plane != m.plane || a.bndFlag != m.bndFlag || a.bnd != m.bnd || a.vc != m.vc)
+            return kBadAddr;
+        const uint32_t vfl = g.u32(m.vc + 8u), vtab = g.u32(m.vc + 0x14u);
+        for (int k = 0; k < 3; ++k)
+            if (vfl + m.vid[k] != m.vflag[k] || vtab + m.vid[k] * 16u != m.vtx[k])
+                return kBadAddr;
+        unsigned bad = 0u;
+        if (g.rdram[m.planeFlag] == 0u || g.rdram[m.bndFlag] == 0u || g.rdram[m.vflag[0]] == 0u || g.rdram[m.vflag[1]] == 0u || g.rdram[m.vflag[2]] == 0u)
+            bad |= kBadFlag;
+        if (std::memcmp(g.rdram + m.plane, &e.n, 16) != 0)
+            bad |= kBadPlane;
+        if (std::memcmp(g.rdram + m.bnd, m.bndW, 16) != 0)
+            bad |= kBadBnd;
+        if (std::memcmp(g.rdram + m.vtx[0], m.vW, 16) != 0 || std::memcmp(g.rdram + m.vtx[1], m.vW + 4, 16) != 0 || std::memcmp(g.rdram + m.vtx[2], m.vW + 8, 16) != 0)
+            bad |= kBadVerts;
+        return bad;
+    }
+    // Round 125's check (the flags and the plane / boundary values only), kept for the check mode's comparison.
+    inline bool stillGood125(const G g, const Meta &m, const Entry &e)
     {
         if (g.rdram[m.planeFlag] == 0u || g.rdram[m.bndFlag] == 0u)
             return false;
@@ -284,6 +416,7 @@ namespace coll125
             return false;
         return std::memcmp(g.rdram + m.bnd, m.bndW, 16) == 0;
     }
+    inline bool stillGood(const G g, const Meta &m, const Entry &e) { return validate(g, m, e) == 0u; }
 
     // Make entry k (id at `id`) from the game's caches, as ClipCollisionDB reaches them; scratch: a guest
     // frame below the clip's (ClipCollisionDB's own: spIn - 0xF0). False: the entry goes to ClipCollisionDB.
@@ -365,6 +498,30 @@ namespace coll125
             call(g, kVertices, 0x0111BE48u, sp,
                  {sp + 0x80u, 0u, work + 0x28u, g.u32(work + 0x24u), g.u32(cls + 0x15Cu), g.u32(t4 + 8u), g.u32(t4 + 0x14u), g.u32(t4 + 0x18u) + idx * 0x40u});
         }
+        // Round 135: the vertices' places in their cache list and the chain's heads, for validate(); a vertex outside
+        // the list's table (or its flag clear after the call) leaves the entry to ClipCollisionDB.
+        {
+            Addr a;
+            if (!derive(g, w0, w1, a) || a.planeFlag != flag || a.plane != normal || a.bndFlag != bndFlag || a.bnd != bnd)
+                return false;
+            m.cls = a.cls;
+            m.work = a.work;
+            m.rec = a.rec;
+            m.vc = a.vc;
+            const uint32_t vfl = g.u32(a.vc + 8u), vtab = g.u32(a.vc + 0x14u);
+            for (uint32_t k = 0; k < 3u; ++k)
+            {
+                const uint32_t ptr = g.u32(sp + 0x80u + k * 4u);
+                if (ptr < vtab || ((ptr - vtab) & 0xFu) != 0u || !G::plain(ptr, 16u))
+                    return false;
+                m.vid[k] = (ptr - vtab) >> 4;
+                m.vflag[k] = vfl + m.vid[k];
+                m.vtx[k] = ptr;
+                if (!G::plain(m.vflag[k], 1u) || g.rdram[m.vflag[k]] == 0u)
+                    return false;
+                std::memcpy(m.vW + k * 4u, g.rdram + ptr, 16);
+            }
+        }
         triangleTerms(e, g.q(g.u32(sp + 0x80u)), g.q(g.u32(sp + 0x84u)), g.q(g.u32(sp + 0x88u)), ctx->vu0_vf[0]);
         e.n = g.q(normal);
         e.s = g.q(sp + 0x10u);
@@ -374,16 +531,8 @@ namespace coll125
         m.bnd = bnd;
         std::memcpy(m.bndW, g.rdram + bnd, 16);
         m.indep = indep ? 1u : 0u;
-        m.hasAttr = 0u;
+        m.hasAttr = 0u; // (round 135: no attribute address kept; GetCollisionDBAttributeAdr always asks the game's tables)
         m.state = kHost;
-        {
-            uint32_t attr;
-            if (attributeAddress(g, id, attr))
-            {
-                m.attr = attr;
-                m.hasAttr = 1u;
-            }
-        }
         (void)ctx;
         ++g_st.made;
         return true;
@@ -473,6 +622,132 @@ namespace coll125
         return b;
     }
 
+    // Round 135, the check mode (SOTC_FIN125_CHECK=1): each use of a kept surface validated in full. A surface used as
+    // current (no flush since its check this frame) that is not what ClipCollisionDB would read is a change no flush
+    // reported ([fin135] cur bad); one round 125's check (flags, plane, boundary) passed and the full one does not is
+    // what round 125 missed ([fin135] r125 missed). Counted by reason (validate's bits).
+    inline void checkUse(const G g, const Surf &x, uint64_t frame)
+    {
+        ++g_c135.uses;
+        const unsigned bad = validate(g, x.m, x.e);
+        auto why = [&](uint64_t *to)
+        {
+            for (int b = 0; b < 6; ++b)
+                if (bad & (1u << b))
+                    ++to[b];
+        };
+        if (x.current(frame))
+        {
+            if (bad != 0u)
+            {
+                ++g_c135.curBad;
+                why(g_c135.curWhy);
+                if (g_c135.curBad <= 20u)
+                    std::fprintf(stderr, "[fin135] frame %llu cur bad %x: surface %08x %08x cls %08x work %08x\n", (unsigned long long)frame, bad, x.m.w0, x.m.w1, x.m.cls, x.m.work);
+            }
+            return;
+        }
+        ++g_c135.checks;
+        if (bad != 0u && stillGood125(g, x.m, x.e))
+        {
+            ++g_c135.r125Missed;
+            why(g_c135.missWhy);
+            if (g_c135.r125Missed <= 20u)
+                std::fprintf(stderr, "[fin135] frame %llu r125 missed %x: surface %08x %08x cls %08x work %08x indep %d (checked at frame %llu)\n", (unsigned long long)frame, bad,
+                             x.m.w0, x.m.w1, x.m.cls, x.m.work, x.m.indep, (unsigned long long)x.frame);
+        }
+    }
+
+    // Round 135, the check mode: why the host answered other than the original for the entry at `id` (the
+    // original's hit): its slot, whether it was current, validate()'s bits and round 125's check.
+    inline void explain(const G g, uint32_t id, const char *what)
+    {
+        uint32_t w[2];
+        std::memcpy(w, g.rdram + id, 8);
+        const Surf *x = findSurf(w[0], w[1]);
+        if (!x)
+        {
+            std::fprintf(stderr, "[fin135x] %s: surface %08x %08x not kept\n", what, w[0], w[1]);
+            return;
+        }
+        const uint64_t frame = sotc_decomp::g_gameFrame;
+        std::fprintf(stderr, "[fin135x] %s: surface %08x %08x state %d indep %d current %d (checked at %llu, epoch %d work %d worker %d) validate %x r125 %d cls %08x type %u\n", what,
+                     w[0], w[1], x->m.state, x->m.indep, x->m.state == kHost && x->current(frame) ? 1 : 0, (unsigned long long)x->frame, x->epoch == g_epoch ? 1 : 0,
+                     x->work && x->work->epoch == x->workEpoch ? 1 : 0, x->epochW == g_epochW.load(std::memory_order_relaxed) ? 1 : 0,
+                     x->m.state == kHost ? validate(g, x->m, x->e) : 0xFFu, x->m.state == kHost && stillGood125(g, x->m, x->e) ? 1 : 0, x->m.cls,
+                     G::plain(w[0], 16u) ? g.u8(w[0] + 8u) : 0u);
+    }
+
+    // Round 135, the check mode: the entry at `id` clipped now both ways on the segment a1 -> a2: the kept surface
+    // (clip) and ClipCollisionDB itself into a scratch record below the clip's frame (dead stack), with the values.
+    inline void explainClip(const G g, uint32_t id, uint32_t a1, uint32_t a2, uint32_t sp)
+    {
+        uint32_t w[2];
+        std::memcpy(w, g.rdram + id, 8);
+        const Surf *x = findSurf(w[0], w[1]);
+        const __m128 a = g.q(a1), b = g.q(a2);
+        __m128 p = a;
+        float u = 0.0f, v = 0.0f;
+        const int r = x && x->m.state == kHost ? clip(g.ctx, x->e, a, b, p, u, v) : -2;
+        const uint32_t scratch = (sp - 0x400u) & ~0xFu;
+        const uint64_t db = clipDB(g, scratch, a1, a2, id, 0x01125E34u + 8u, scratch - 0x10u);
+        float ua = 0.0f, va = 0.0f, pa[4] = {}, pq[4] = {}, aq[4], bq[4], n[4] = {}, gn[4] = {};
+        std::memcpy(&ua, g.rdram + scratch + 8u, 4);
+        std::memcpy(&va, g.rdram + scratch + 0xCu, 4);
+        std::memcpy(pa, g.rdram + scratch + 0x40u, 16);
+        std::memcpy(pq, &p, 16);
+        std::memcpy(aq, &a, 16);
+        std::memcpy(bq, &b, 16);
+        if (x)
+        {
+            std::memcpy(n, &x->e.n, 16);
+            std::memcpy(gn, g.rdram + x->m.plane, 16);
+        }
+        std::fprintf(stderr,
+                     "[fin135c] surface %08x %08x: kept clip %d (u %.6f v %.6f p %.4f %.4f %.4f) | ClipCollisionDB %d (u %.6f v %.6f p %.4f %.4f %.4f) | a %.4f %.4f %.4f b %.4f %.4f %.4f | "
+                     "plane kept %.6f %.6f %.6f %.6f guest %.6f %.6f %.6f %.6f\n",
+                     w[0], w[1], r, u, v, pq[0], pq[1], pq[2], (int)db, ua, va, pa[0], pa[1], pa[2], aq[0], aq[1], aq[2], bq[0], bq[1], bq[2], n[0], n[1], n[2], n[3], gn[0],
+                     gn[1], gn[2], gn[3]);
+    }
+
+    // Round 135, the check mode: what the last run did per entry (printed for a differing entry).
+    struct Trace
+    {
+        uint32_t cand, w0, w1;
+        int8_t r;
+        uint8_t fresh, wasCurrent, state, filtered, made;
+        float n[4];
+    };
+    inline Trace g_trace[257];
+    inline int g_traceN = 0;
+    // The filter asked again for the entry at `id`: as the host run asks it (fin125 on: attributeAddress answers from
+    // the cache) and as the original does (fin125 off), and the attribute address both ways.
+    inline void explainFilter(const G g, uint32_t filter, uint32_t id, uint32_t user, uint32_t site, uint32_t sp)
+    {
+        uint32_t w[2];
+        std::memcpy(w, g.rdram + id, 8);
+        uint32_t attrOn = 0u, attrOff = 0u;
+        const bool okOn = attributeAddress(g, id, attrOn);
+        const bool fOn = directFilter(g, filter, id, user, site, sp);
+        sotc_decomp::setSwitch(sotc_decomp::kFin125, false);
+        const bool okOff = attributeAddress(g, id, attrOff);
+        const bool fOff = directFilter(g, filter, id, user, site, sp);
+        sotc_decomp::setSwitch(sotc_decomp::kFin125, true);
+        const Surf *x = findSurf(w[0], w[1]);
+        std::fprintf(stderr, "[fin135f] filter %08x user %08x surface %08x %08x: on %d (attr %d %08x) off %d (attr %d %08x) kept attr %d %08x\n", filter, user, w[0], w[1], fOn ? 1 : 0,
+                     okOn ? 1 : 0, attrOn, fOff ? 1 : 0, okOff ? 1 : 0, attrOff, x ? x->m.hasAttr : -1, x ? x->m.attr : 0u);
+    }
+    inline void explainTrace(uint32_t id)
+    {
+        for (int k = 0; k < g_traceN; ++k)
+            if (g_trace[k].cand == id)
+            {
+                const Trace &t = g_trace[k];
+                std::fprintf(stderr, "[fin135t] entry %d (%08x %08x): r %d fresh %d current %d state %d filtered %d made %d plane then %.6f %.6f %.6f %.6f\n", k, t.w0, t.w1, t.r,
+                             t.fresh, t.wasCurrent, t.state, t.filtered, t.made, t.n[0], t.n[1], t.n[2], t.n[3]);
+            }
+    }
+
     // ClipCollisionFinder / ...CallBack's loop on the surface cache (see above): a0 the record, a1 / a2
     // the segment, a3 the finder, n its count (1..256), sp the clip's frame (the segment's copy at sp
     // as the original keeps it). Returns the last hit's entry address (0: none); the record as the last
@@ -494,6 +769,9 @@ namespace coll125
         bool bestIndep = false;
         float bu = 0.0f, bv = 0.0f;
         uint32_t cand = list;
+        const bool tr = checkLevel() != 0;
+        if (tr)
+            g_traceN = 0;
         for (int32_t k = 0; k < n; ++k, cand += 8u)
         {
             uint32_t w[2];
@@ -504,6 +782,19 @@ namespace coll125
             Surf &x = claimSurf(w[0], w[1], fresh);
             Meta &m = x.m;
             Entry &e = x.e;
+            Trace *t = tr && g_traceN < 257 ? &g_trace[g_traceN++] : nullptr;
+            if (t)
+            {
+                *t = Trace{};
+                t->cand = cand;
+                t->w0 = w[0];
+                t->w1 = w[1];
+                t->fresh = fresh;
+                t->wasCurrent = !fresh && m.state == kHost && x.current(frame);
+                t->r = 9;
+            }
+            if (__builtin_expect(checkLevel() != 0, 0) && !fresh && m.state == kHost)
+                checkUse(g, x, frame);
             if (!fresh && !x.current(frame))
             {
                 // checked again since the caches may have changed (a flush, a new frame)
@@ -538,6 +829,13 @@ namespace coll125
             __m128 p;
             float u = 0.0f, v = 0.0f;
             const int r = m.state == kHost ? clip(g.ctx, e, a, b, p, u, v) : -1;
+            if (t)
+            {
+                t->r = static_cast<int8_t>(r);
+                t->state = m.state;
+                t->made = fresh;
+                std::memcpy(t->n, &e.n, 16);
+            }
             if (r < 0)
             {
                 ++g_st.guestEntries;
@@ -561,6 +859,8 @@ namespace coll125
             if (Filtered && !directFilter(g, filter, cand, user, filterSite + 8u, sp))
             {
                 ++g_st.filtered;
+                if (t)
+                    t->filtered = 1;
                 continue;
             }
             ++g_st.hits;
@@ -627,16 +927,4 @@ namespace coll125
         }
     }
 
-    // GetCollisionDBAttributeAdr for a kept surface (checked this frame): the address kept at its making.
-    bool attrOf(const PS2Runtime *runtime, uint32_t w0, uint32_t w1, uint32_t &out)
-    {
-        if (!on(runtime))
-            return false;
-        const Surf *x = findSurf(w0, w1);
-        if (!x || x->m.state != kHost || !x->m.hasAttr || !x->current(sotc_decomp::g_gameFrame))
-            return false;
-        out = x->m.attr;
-        ++g_st.attrHost;
-        return true;
-    }
 }

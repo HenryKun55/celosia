@@ -1,4 +1,5 @@
 #include <tuple>
+#include "sotc_replay.h"
 // Shadow of the Colossus: models drawn by the native renderer
 // (runtime/native_renderer.h) straight from the game's own model data, read
 // at modelDisp (docs/native_renderer_map.md). SOTC_NATIVE=1 shows that
@@ -3213,7 +3214,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -5785,9 +5786,14 @@ namespace sotc_native
                         player[j] = f(object + 0x170u + j * 4u);
                 float dt;
                 std::memcpy(&dt, rdram + 0x014657D0u, 4);
-                std::fprintf(stderr, "[pos] frame %llu vb %llu dt %.1f player %.2f %.2f %.2f eye %.2f %.2f %.2f\n", (unsigned long long)frame,
+                // Round 135: Agro's position (its step's object, sotc_replay) at the line's end ("horse"), for its gait.
+                float horse[3] = {0, 0, 0};
+                if (const uint32_t h = sotc_replay::horseObject(); h != 0u && h < 0x2000000u - 0x180u)
+                    for (int j = 0; j < 3; ++j)
+                        horse[j] = f(h + 0x170u + j * 4u);
+                std::fprintf(stderr, "[pos] frame %llu vb %llu dt %.1f player %.2f %.2f %.2f eye %.2f %.2f %.2f horse %.2f %.2f %.2f\n", (unsigned long long)frame,
                              (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), dt * 1000.0f, player[0], player[1], player[2],
-                             eye[0], eye[1], eye[2]);
+                             eye[0], eye[1], eye[2], horse[0], horse[1], horse[2]);
             }
             sotc_prof::frameTick(frame);
             sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics

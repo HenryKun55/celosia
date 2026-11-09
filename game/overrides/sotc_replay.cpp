@@ -946,6 +946,8 @@ namespace sotc_replay
         }
     }
 
+    unsigned horseObject() { return g_horse; }
+
     void install(PS2Runtime &runtime)
     {
         const char *record = std::getenv("SOTC_INPUT_RECORD");
@@ -960,7 +962,16 @@ namespace sotc_replay
             startRecording(record);
         }
         if (g_mode == kOff)
+        {
+            // Round 135: SOTC_POS_LOG alone: only Agro's step wrapped (its object noted, nothing else changes).
+            const char *pos = ps2_diag::env("SOTC_POS_LOG");
+            if (pos && std::atoi(pos) > 0 && runtime.hasFunction(kHorseStep))
+            {
+                g_horseOriginal = runtime.lookupFunction(kHorseStep);
+                runtime.registerFunction(kHorseStep, horseHook);
+            }
             return;
+        }
         g_runtime = &runtime;
         if (!runtime.hasFunction(kTick) || !runtime.hasFunction(kFlush))
         {

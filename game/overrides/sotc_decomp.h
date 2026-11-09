@@ -603,7 +603,7 @@ namespace sotc_decomp
         kCloth122,    // round 122: the cloths' step / constraint / velocity passes as one host loop, the reins' walks in plain NEON (not bit-exact; decomp_char122, decomp_bridle)
         kQuat122,     // round 122: the boot ELF's quaternion / arc helpers as plain float code (not bit-exact; decomp_char122)
         kKeys122,     // round 122: the motions' per-frame keys as host code (not bit-exact; decomp_char122)
-        kFin125,      // round 125: the finder clips on host contact sets with whole triangles (port, not exact; coll125.h)
+        kFin125,      // round 125: the finder clips on host contact sets with whole triangles (round 135: exact, every kept surface validated against what ClipCollisionDB reads; coll125.h)
         kObj125,      // round 125: ClipCollisionDirectCallBack's object / part loop in host locals and plain floats (port, not exact; decomp_collision)
         kScroll127,   // round 127: the model hooks' texture scroll row addresses kept across frames per plan, checked by their chains (exact; sotc_native)
         kGeo126,      // round 126: the geometry pointers' position / quaternion getters and their quaternion helpers as host code (port; decomp_cam126)
@@ -615,11 +615,12 @@ namespace sotc_decomp
         kPose136,     // round 136: GetMotionMatrix's bones kept per buffer set; a bone whose inputs and parent are the same bits takes its kept results (exact; default off: no faster in Vita3K, for the console's A/B; decomp_pose82)
         kKey136,      // round 136: GetMotionIntFrame's keys decoded as host code (round 122's decodeKey), no curveEval guest calls (not bit-exact: keys122's tolerance; decomp_motionframe, decomp_char122)
         kEuler136,    // round 136: GetEulerYXZFromQuaternion in plain floats (not bit-exact: quat122's tolerance; decomp_quat, decomp_char122)
+        kPf135,       // round 135: cache lines asked for ahead in the finder leaf's boundary scan (the next surfaces' records and flags) and obj125's part loop (the next part's record and matrix) (exact; decomp_collision)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -655,6 +656,10 @@ namespace sotc_decomp
             // the ground for a frame changes the character's state); seg123 keeps answers for ends up to 1 cm away for up
             // to 60 frames and validates them against fingerprints made once a frame (an object that moves later in the
             // frame is not seen until the next one): not exact by design.
+            // Round 135: fin125 on again (SOTC_FIN125=0 off): its two causes found and fixed (the attribute address kept at the
+            // making went stale on Agro's surfaces, so the IK feet's filter said no where the game's lookup says yes; objects
+            // replaced in their slots passed round 125's check on their old bytes): the check (each clip the original way
+            // first, compared) found 0 differences in the attract demo's ride and on the console card's save (coll125.h).
             // Round 131: ctl126 off unless SOTC_CTL126=1: with it on, route 6 hangs after the shrine cutscene (Wander's
             // position jumps to ~(410, 48, 110), then reads (0, 0, 0.69), the camera freezes; Vita3K, r128 / r131), and on the
             // console (r129/p1) Wander loaded under the ground and moved only by jumping; SOTC_CTL126=0 fixes both.
@@ -663,7 +668,7 @@ namespace sotc_decomp
             // of the game thread); the console's A/B (env-console turns it on) decides. key136 and euler136 on (SOTC_<name>=0 off).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kFin125 || which == kPose136)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
@@ -770,6 +775,7 @@ namespace sotc_decomp
     inline bool imm128On() { return switchOn(kImm128); }
     inline bool pf134On() { return switchOn(kPf134); }
     inline bool clip134On() { return switchOn(kClip134); }
+    inline bool pf135On() { return switchOn(kPf135); }
     inline bool draw117On() { return switchOn(kDraw117); }
     inline bool leaf117On() { return switchOn(kLeaf117); }
     // Round 91 (sotc_worker): SOTC_PTCL91=1 the particle step on the worker beside the walk's group pass,
