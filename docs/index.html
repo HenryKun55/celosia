@@ -14,9 +14,10 @@
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://henrykun55.github.io/celosia/img/forest-agro-1200.webp">
 <link rel="preload" href="assets/fonts/cormorant-garamond-latin-var.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="assets/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/cormorant-garamond-italic-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" as="image" href="img/forest-agro-640.webp" imagesrcset="img/forest-agro-640.webp 640w, img/forest-agro-1200.webp 1200w" imagesizes="100vw" fetchpriority="high">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230c100f%27/%3E%3Cpath d=%27M16 4 L19 16 L16 28 L13 16 Z%27 fill=%27%23e3c27d%27/%3E%3C/svg%3E">
-<link rel="stylesheet" href="assets/site.css?v=r125">
+<link rel="stylesheet" href="assets/site.css?v=r126">
 </head>
 <body>
 <a class="skip" href="#updates">Skip to the latest update</a>
@@ -32,7 +33,7 @@
 
 <header class="hero" id="top">
   <div class="hero-sky" aria-hidden="true"></div>
-  <img class="hero-img" id="hero-img" src="img/forest-agro-640.webp" srcset="img/forest-agro-640.webp 640w, img/forest-agro-1200.webp 1200w" sizes="100vw" width="1200" height="675" alt="Wander rides Agro through a foggy forest, light falling between the trees" fetchpriority="high" decoding="async">
+  <img class="hero-img" id="hero-img" src="img/forest-agro-640.webp" srcset="img/forest-agro-640.webp 640w, img/forest-agro-1200.webp 1200w" sizes="100vw" width="1200" height="675" alt="Wander rides Agro through a foggy forest, light falling between the trees" fetchpriority="high">
   <div class="rays" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <canvas class="dust" id="dust" aria-hidden="true"></canvas>
   <div class="mist" aria-hidden="true"><i></i><i></i></div>
@@ -62,7 +63,7 @@
     <path class="ridge near" d="M0 227 C40 227 160 225 240 225 C320 225 400 225 480 225 C560 225 640 226 720 227 C800 228 880 233 960 233 C1040 233 1120 226 1200 226 C1280 226 1400 229 1440 230 L1440 260 L0 260 Z"/>
   </svg>
   <div class="hero-in" id="hero-in">
-    <span class="eyebrow on-dark rise-1">Celosia · a native port for PS Vita and macOS</span>
+    <span class="eyebrow on-dark rise-1">Celosia · a native port for PS&nbsp;Vita and macOS</span>
     <h1 class="title"><span class="w">Shadow</span> <span class="w">of</span> <span class="w">the</span> <span class="w">Colossus</span></h1>
     <p class="tagline rise-2">Team Ico's 2005 masterpiece, carried from the PS2 to the palm of your hand. Not emulated: recompiled, then rewritten by hand, one round at a time.</p>
     <div class="cta rise-3">
@@ -199,7 +200,7 @@
     <div><i class="k-native"></i><b>Native code</b><span>Rewritten by hand in C++, proven equal to the original, fast on the Vita.</span></div>
     <div><i class="k-mips"></i><b>Recompiled MIPS</b><span>Still the machine translation of the PS2 code. Correct, but slow.</span></div>
     <div><i class="k-runtime"></i><b>Runtime</b><span>The engine room around the game: DMA, memory, the scheduler.</span></div>
-    <div><i class="click"></i><b>Click the maps</b><span>Every area opens into its functions or features. Hover for the numbers.</span></div>
+    <div><i class="click"></i><b><span class="t-hover">Click</span><span class="t-touch">Tap</span> the maps</b><span>Every area opens into its functions or features. <span class="t-hover">Hover</span><span class="t-touch">Tap a tile</span> for the numbers.</span></div>
   </div>
 </section>
 
@@ -307,14 +308,14 @@
     <div class="block" data-reveal="left">
       <h3>By code size</h3>
       <div class="explain">
-        <p>How much there is to write. Click an area to open its functions. Each area of the game is sized by its MIPS code and split into what is already native and what is not. Most of the game is code that runs rarely (menus, events, one boss's behaviour), so this map stays mostly grey for a long time.</p>
+        <p>How much there is to write. <span class="t-hover">Click</span><span class="t-touch">Tap</span> an area to open its functions. Each area of the game is sized by its MIPS code and split into what is already native and what is not. Most of the game is code that runs rarely (menus, events, one boss's behaviour), so this map stays mostly grey for a long time.</p>
       </div>
       <div class="panel"><div class="crumb" id="tree-code-crumb"></div><div class="map" id="tree-code"></div></div>
     </div>
     <div class="block" data-reveal="right">
       <h3>By game thread time</h3>
       <div class="explain">
-        <p>What decides the frame rate. Click an area to see which functions take the time. Each area is sized by its share of the Vita game thread's instructions in a profile of the same route (shrine, ride and plains). Green here is time already won; grey is where the next rounds can still win time.</p>
+        <p>What decides the frame rate. <span class="t-hover">Click</span><span class="t-touch">Tap</span> an area to see which functions take the time. Each area is sized by its share of the Vita game thread's instructions in a profile of the same route (shrine, ride and plains). Green here is time already won; grey is where the next rounds can still win time.</p>
       </div>
       <div class="panel"><div class="crumb" id="tree-time-crumb"></div><div class="map" id="tree-time"></div></div>
     </div>
@@ -323,7 +324,7 @@
 
   <div class="block" data-reveal="up">
     <h3>By area</h3>
-    <div class="table-box"><table id="area-table">
+    <div class="table-box"><table id="area-table" data-rows="12">
       <thead><tr><th>Area</th><th class="r">Code native</th><th class="r">Functions</th><th class="r">Time native</th><th class="r">Time in MIPS</th></tr></thead>
       <tbody></tbody>
     </table></div>
@@ -366,9 +367,9 @@
     <p class="muted">The recompiled functions that cost the game thread the most, from the same profile. They are spread thin: no single one is above two percent, so the gains now come from rewriting whole subsystems. The address is the function's place in the PS2 executable.</p>
   </div>
   <div class="pair">
-    <div class="block" data-reveal="left"><h3>Still recompiled</h3><div class="table-box"><table id="top-mips"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
-    <div class="block" data-reveal="right"><h3>Already native, hottest</h3><div class="table-box"><table id="top-native"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div>
-      <h3>Runtime</h3><div class="table-box"><table id="top-runtime"><thead><tr><th>Function</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="block" data-reveal="left"><h3>Still recompiled</h3><div class="table-box"><table id="top-mips" data-rows="20"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="block" data-reveal="right"><h3>Already native, hottest</h3><div class="table-box"><table id="top-native" data-rows="10"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div>
+      <h3>Runtime</h3><div class="table-box"><table id="top-runtime" data-rows="10"><thead><tr><th>Function</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
   </div>
 </section>
 
@@ -548,7 +549,6 @@
 </div></div>
 <!-- /scene:agro -->
 
-<script src="vendor/d3-7.9.0.min.js" defer></script>
-<script src="assets/app.js?v=r125" defer></script>
+<script src="assets/app.js?v=r126" defer></script>
 </body>
 </html>

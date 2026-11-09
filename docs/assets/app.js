@@ -9,6 +9,23 @@
   const load = (f) => fetch(f).then((r) => { if (!r.ok) throw new Error(f + ': ' + r.status); return r.json(); });
 
   const motion = !window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const touch = !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
+  const verb = touch ? 'Tap' : 'Click';
+  // Treemap height for a width: taller on phones so the tiles are big enough to tap.
+  const phone = () => !!(window.matchMedia && window.matchMedia("(max-width: 40rem)").matches);
+  const mapHeight = (w, ratio) => Math.round(Math.max(260, Math.min(w * (phone() ? Math.max(ratio || 0.7, 1.05) : (ratio || 0.7)), 520)));
+  // Long identifiers (decomp_collision::clipDBT, manager_sub_0113ACB8) may break after :: and _.
+  function breakable(text) {
+    const f = document.createDocumentFragment();
+    if (!phone()) { f.append(text); return f; }
+    text.split(/(?<=::|_)/).forEach((part, i) => { if (i) f.appendChild(document.createElement('wbr')); f.append(part); });
+    return f;
+  }
+  // Card layout on phones labels each cell with its column's header.
+  function labelCells(table) {
+    const heads = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
+    table.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (heads[i]) td.dataset.label = heads[i]; }));
+  }
   // Numbers count up to their value the first time they scroll into view.
   const seen = new WeakSet();
   function countTo(el, value, fmt) {
@@ -44,6 +61,15 @@
     tip.style.left = Math.max(0, Math.min(x + 14, box.width - tw)) + 'px';
     tip.style.top = Math.max(0, Math.min(y + 14, box.height - th)) + 'px';
   }
+  // Hover tips; on touch, a tap shows the tip and a tap elsewhere hides it.
+  function hoverTip(sel, el, tip, linesFor) {
+    let kind = 'mouse';
+    sel.on('pointerdown', (ev) => { kind = ev.pointerType || 'mouse'; })
+      .on('pointermove', (ev, d) => { if (ev.pointerType && ev.pointerType !== 'mouse') return; setTip(tip, linesFor(d, ev)); placeTip(el, tip, ev); })
+      .on('pointerleave', (ev) => { if (ev.pointerType && ev.pointerType !== 'mouse') return; tip.hidden = true; })
+      .on('click.tip', (ev, d) => { if (kind === 'mouse' && !touch) return; setTip(tip, linesFor(d, ev)); placeTip(el, tip, ev); });
+    if (!el._tipOff) { el._tipOff = true; document.addEventListener('pointerdown', (ev) => { if (!el.contains(ev.target)) el.querySelectorAll('.tip').forEach((t) => { t.hidden = true; }); }, { passive: true }); }
+  }
   function setTip(tip, lines) {
     tip.textContent = '';
     lines.forEach(([cls, text], i) => { const d = document.createElement(i === 0 ? 'b' : 'div'); if (cls) d.className = cls; d.textContent = text; tip.appendChild(d); if (i === 0) tip.appendChild(document.createElement('br')); });
@@ -61,7 +87,8 @@
     const crumb = $(el.id + '-crumb');
     const state = el._zoom || null;
     el.textContent = ''; if (crumb) crumb.textContent = '';
-    const w = Math.max(280, el.clientWidth), h = Math.round(Math.max(260, Math.min(w * (opts.ratio || 0.7), 520)));
+    const w = Math.max(280, el.clientWidth), h = mapHeight(w, opts.ratio);
+    el.style.minHeight = '';
     const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${w} ${h}`).attr('role', 'img').attr('aria-label', opts.label);
     const tip = tipFor(el);
     const drilled = state && opts.drill ? opts.drill(state) : null;
@@ -83,9 +110,12 @@
         const t = document.createElement('b'); t.textContent = areaName(state); crumb.appendChild(t);
         const sum = document.createElement('span'); sum.textContent = opts.summary ? opts.summary(state) : ''; crumb.appendChild(sum);
       } else {
-        const sp = document.createElement('span'); sp.textContent = opts.hint || 'Click an area to open it.'; crumb.appendChild(sp);
+        const sp = document.createElement('span'); sp.textContent = (opts.hint || 'Click an area to open it.').replace(/^Click/, verb); crumb.appendChild(sp);
       }
     }
+    let chips = $(el.id + '-areas');
+    if (!chips && opts.drill) { chips = document.createElement('div'); chips.className = 'areas'; chips.id = el.id + '-areas'; chips.setAttribute('role', 'group'); chips.setAttribute('aria-label', 'Open an area'); el.after(chips); }
+    if (chips) { chips.textContent = ''; chips.hidden = !!drilled; }
     if (drilled) {
       const items = drilled.filter((i) => i.value > 0);
       const total = d3.sum(items, (i) => i.value) || 1;
@@ -98,7 +128,7 @@
         .each(function (d) { if (d.y1 - d.y0 < 18) { this.textContent = ''; return; } fitText(this, opts.itemTop ? opts.itemTop(d.data) : (100 * d.value / total).toFixed(1) + '%', d.x1 - d.x0 - 10); });
       leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 29).attr('font-size', 10).attr('font-family', 'var(--mono)').attr('fill', (d) => opts.ink(d.data))
         .each(function (d) { if (d.y1 - d.y0 < 34) { this.textContent = ''; return; } fitText(this, opts.itemName(d.data), d.x1 - d.x0 - 10); });
-      leaf.on('pointermove', (ev, d) => { setTip(tip, opts.itemTip(d.data, d.value, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
+      hoverTip(leaf, el, tip, (d) => opts.itemTip(d.data, d.value, total));
       zoomed(false);
       return;
     }
@@ -106,13 +136,23 @@
       .sum((d) => d.value || 0).sort((a, b) => b.value - a.value);
     d3.treemap().size([w, h]).paddingOuter(2).paddingTop(19).paddingInner(2).round(true)(root);
     const total = root.value || 1;
-    const open = (name) => {
+    const open = (name, fromChip) => {
       if (!opts.drill || !opts.drill(name)) return;
       tip.hidden = true;
       const a = (root.children || []).find((c) => c.data.name === name);
       el._area = a ? { x0: a.x0, y0: a.y0, x1: a.x1, y1: a.y1 } : null; el._from = el._area;
       el._zoom = name; treemap(el, groups, opts);
+      if (fromChip) { const c = $(el.id + '-crumb'); const b = c && c.querySelector('button'); if (b) b.focus({ preventScroll: true }); if (c && c.getBoundingClientRect().top < 60) c.scrollIntoView({ block: 'start', behavior: motion ? 'smooth' : 'auto' }); }
     };
+    if (chips) for (const a of (root.children || [])) {
+      if (!opts.drill(a.data.name)) continue;
+      const b = document.createElement('button'); b.type = 'button';
+      const nat = d3.sum(a.children, (c) => c.data.kind === 'native' || c.data.status === 'native' ? c.value : 0);
+      const sw = document.createElement('i'); sw.style.background = nat >= a.value / 2 ? 'var(--native)' : 'var(--mips)'; b.appendChild(sw);
+      b.append(areaName(a.data.name) + ' '); const v = document.createElement('span'); v.textContent = opts.fmt(a.value, total); b.appendChild(v);
+      b.addEventListener('click', () => open(a.data.name, true));
+      chips.appendChild(b);
+    }
     const g = layer.selectAll('g.a').data(root.children || []).join('g').attr('class', opts.drill ? 'a click' : 'a')
       .attr('tabindex', opts.drill ? 0 : null).attr('role', opts.drill ? 'button' : null).attr('aria-label', (d) => 'Open ' + areaName(d.data.name))
       .on('click', (ev, d) => open(d.data.name)).on('keydown', (ev, d) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(d.data.name); } });
@@ -130,7 +170,7 @@
     leaf.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 29).attr('font-size', 10).attr('font-family', 'var(--body)')
       .attr('fill', (d) => opts.ink(d.data))
       .each(function (d) { if (!opts.leafSub || d.y1 - d.y0 < 34) { this.textContent = ''; return; } fitText(this, opts.leafSub(d.data, d.value, d.parent.value, total), d.x1 - d.x0 - 10); });
-    leaf.on('pointermove', (ev, d) => { setTip(tip, opts.tip(d, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
+    if (!touch) leaf.on('pointermove', (ev, d) => { if (ev.pointerType && ev.pointerType !== 'mouse') return; setTip(tip, opts.tip(d, total)); placeTip(el, tip, ev); }).on('pointerleave', () => { tip.hidden = true; });
     g.style('animation-delay', (d, i) => (i * 60) + 'ms');
     zoomed(true);
   }
@@ -224,6 +264,7 @@
       td(m, 'r'); td(a.nf + ' / ' + d3.format(',')(a.nf + a.rf), 'r'); td(pct(a.nt), 'r'); td(pct(a.rt), 'r');
       tb.appendChild(tr);
     }
+    labelCells($('area-table'));
 
     // top functions
     const fill = (id, kind, withArea) => {
@@ -232,13 +273,14 @@
       for (const t of rows) {
         const tr = document.createElement('tr');
         const c1 = document.createElement('td'); const parts = t.name.split(' @ ');
-        const nm = document.createElement('span'); nm.textContent = parts[0]; c1.appendChild(nm);
+        const nm = document.createElement('span'); nm.appendChild(breakable(parts[0])); c1.appendChild(nm);
         if (parts[1]) { const ad = document.createElement('span'); ad.className = 'mono small'; ad.textContent = '  ' + parts[1]; c1.appendChild(ad); }
         tr.appendChild(c1);
         if (withArea) { const c2 = document.createElement('td'); c2.className = 'small'; c2.textContent = areaName(t.area); tr.appendChild(c2); }
         const c3 = document.createElement('td'); c3.className = 'r'; c3.textContent = pct(t.time, 2); tr.appendChild(c3);
         body.appendChild(tr);
       }
+      labelCells($(id));
     };
     fill('top-mips', 'recompiled', true); fill('top-native', 'native', true); fill('top-runtime', 'runtime', false);
 
@@ -266,8 +308,7 @@
     el._drawn = true;
     const cross = svg.append('line').attr('y1', m.t).attr('y2', h - m.b).attr('stroke', 'var(--ink-3)').attr('stroke-dasharray', '3 3').attr('visibility', 'hidden');
     const tip = tipFor(el);
-    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
-      .on('pointermove', (ev) => {
+    const scrub = (ev) => {
         const [mx] = d3.pointer(ev);
         let best = 0; entries.forEach((_, i) => { if (Math.abs(x(i) - mx) < Math.abs(x(best) - mx)) best = i; });
         const e = entries[best];
@@ -275,8 +316,12 @@
         const lines = [[null, (e.label && !/^[0-9a-f]{7}$/.test(e.label) ? 'Round ' + e.label.replace(/^r/, '') + ' · ' : '') + e.date], ['t', 'commit ' + e.commit]];
         for (const [k, , name] of series) if (e[k] !== null && e[k] !== undefined) lines.push(['', name + ': ' + pct(e[k])]);
         setTip(tip, lines); placeTip(el, tip, ev);
-      })
-      .on('pointerleave', () => { cross.attr('visibility', 'hidden'); tip.hidden = true; });
+    };
+    // Mouse: follow the pointer. Touch: tap, or drag sideways (the page still scrolls vertically).
+    svg.append('rect').attr('x', m.l).attr('y', m.t).attr('width', w - m.l - m.r).attr('height', h - m.t - m.b).attr('fill', 'transparent')
+      .on('pointerdown', scrub).on('pointermove', scrub)
+      .on('pointerleave pointercancel', (ev) => { if (ev.type === 'pointerleave' && ev.pointerType && ev.pointerType !== 'mouse') return; cross.attr('visibility', 'hidden'); tip.hidden = true; });
+    if (!el._tipOff) { el._tipOff = true; document.addEventListener('pointerdown', (ev) => { if (!el.contains(ev.target)) { el.querySelectorAll('.tip').forEach((t) => { t.hidden = true; }); el.querySelectorAll('svg > line[stroke-dasharray]').forEach((l) => l.setAttribute('visibility', 'hidden')); } }, { passive: true }); }
   }
 
   const ROUNDS_FIRST = 12; let roundsAll = false;
@@ -327,25 +372,77 @@
     $('lb-close').addEventListener('click', close);
     dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });
     dlg.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') show(at - 1); else if (e.key === 'ArrowRight') show(at + 1); });
-    let x0 = null;
-    dlg.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
-    dlg.addEventListener('touchend', (e) => { if (x0 === null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) show(at + (dx < 0 ? 1 : -1)); x0 = null; });
+    // Swipe sideways for the next or previous image, down to close.
+    let x0 = null, y0 = 0;
+    dlg.addEventListener('touchstart', (e) => { if (e.touches.length !== 1) { x0 = null; return; } x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+    dlg.addEventListener('touchend', (e) => {
+      if (x0 === null) return; const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) show(at + (dx < 0 ? 1 : -1));
+      else if (dy > 80 && dy > Math.abs(dx) * 1.5) close();
+    }, { passive: true });
   })();
 
   let data = null;
-  function render() {
+  // Browsers without scroll anchoring (iOS Safari) would jump when the charts
+  // and tables above the screen fill in: note a landmark's place, draw, then
+  // scroll back by what it moved. Chrome anchors by itself.
+  const anchorsItself = !!(window.CSS && CSS.supports && CSS.supports('overflow-anchor', 'auto'));
+  function steady(draw) {
+    const vh = window.innerHeight;
+    const marks = !anchorsItself && window.scrollY > 0 ? [...document.querySelectorAll('main h2, main h3, .banner, .scene, .ledge, .fig, .round, .gallery, footer')] : [];
+    const mark = marks.find((m) => { const r = m.getBoundingClientRect(); return r.top >= 0 && r.top < vh; }) || marks.filter((m) => m.getBoundingClientRect().top < 0).pop();
+    const top0 = mark ? mark.getBoundingClientRect().top : 0;
+    draw();
+    if (mark) { const dy = mark.getBoundingClientRect().top - top0; if (Math.abs(dy) > 0.5) window.scrollBy({ top: dy, behavior: 'instant' }); }
+  }
+  // Drawn in a few steps with a frame between them, so no single task blocks
+  // a phone's main thread for long.
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  async function render() {
     if (!data) return;
     const [tree, status, hist, port, rounds] = data;
-    drawLede(tree); drawRecomp(status, port); drawDecomp(tree, status, hist); drawRounds(rounds);
+    steady(() => drawLede(tree)); await nextFrame();
+    steady(() => drawRecomp(status, port)); await nextFrame();
+    steady(() => drawDecomp(tree, status, hist)); await nextFrame();
+    steady(() => { drawRounds(rounds); document.querySelectorAll('.table-box').forEach((b) => { b.style.minHeight = ''; }); });
     if (!document.body.classList.contains('ready')) { document.body.classList.add('ready'); reveal(document.querySelectorAll('.round'), true); }
     $('foot-updated').textContent = 'Last measurement: ' + tree.updated + ' (' + tree.label + ').';
   }
-  Promise.all(['decomp_tree.json', 'decomp_status.json', 'decomp_history.json', 'port_status.json', 'rounds.json'].map(load))
-    .then((d) => { data = d; render(); })
-    .catch((err) => { $('lede-note').textContent = 'The data files did not load (' + err.message + '). They live next to this page in docs/.'; });
+  // The charts' library and data (~0.6 MB before compression) load once the
+  // reader starts down the page or a data section comes within a screen, so
+  // the hero and the letter load alone. Until then the maps and tables hold
+  // their space.
+  function reserve() {
+    for (const [id, ratio] of [['map-renderer', 0.62], ['map-hardware', 0.62], ['tree-code', 0.7], ['tree-time', 0.7]]) {
+      const el = $(id); if (el && !el.firstChild) el.style.minHeight = mapHeight(Math.max(280, el.clientWidth), ratio) + 'px';
+    }
+    const narrow = window.matchMedia && window.matchMedia('(max-width: 40rem)').matches;
+    document.querySelectorAll('table[data-rows]').forEach((t) => {
+      const tb = t.querySelector('tbody'); if (tb.firstChild) return;
+      const n = +t.dataset.rows, rowH = narrow ? ({ 'area-table': 135, 'top-mips': 118, 'top-native': 96 })[t.id] || 90 : 37;
+      t.parentElement.style.minHeight = Math.round(n * rowH * 0.95) + 'px';
+    });
+  }
+  reserve();
+  let loading = null;
+  function loadData() {
+    if (loading) return loading;
+    const lib = window.d3 ? Promise.resolve() : new Promise((ok, fail) => { const sc = document.createElement('script'); sc.src = 'vendor/d3-7.9.0.min.js'; sc.onload = ok; sc.onerror = () => fail(new Error('vendor/d3-7.9.0.min.js did not load')); document.head.appendChild(sc); });
+    loading = Promise.all([lib, ...['decomp_tree.json', 'decomp_status.json', 'decomp_history.json', 'port_status.json', 'rounds.json'].map(load)])
+      .then(([, ...d]) => { data = d; return render(); })
+      .catch((err) => { $('lede-note').textContent = 'The data files did not load (' + err.message + '). They live next to this page in docs/.'; });
+    return loading;
+  }
+  const dataSecs = ['.lede', '#recomp', '#decomp', '#targets', '#rounds', 'footer'].map((q) => document.querySelector(q)).filter(Boolean);
+  if ('IntersectionObserver' in window) {
+    const dio = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { dio.disconnect(); loadData(); } }, { rootMargin: '0px 0px 100% 0px' });
+    dataSecs.forEach((s) => dio.observe(s));
+    const started = () => { if (window.scrollY > 40) { window.removeEventListener('scroll', started); loadData(); } };
+    window.addEventListener('scroll', started, { passive: true });
+  } else loadData();
   let t = null, lastW = window.innerWidth;
   // Mobile browsers fire resize when the URL bar hides; only redraw on width.
-  window.addEventListener('resize', () => { if (window.innerWidth === lastW) return; lastW = window.innerWidth; clearTimeout(t); t = setTimeout(render, 150); });
+  window.addEventListener('resize', () => { if (window.innerWidth === lastW) return; lastW = window.innerWidth; clearTimeout(t); t = setTimeout(() => { if (data) render(); else reserve(); }, 150); });
   const moreBtn = $('rounds-more');
   if (moreBtn) moreBtn.addEventListener('click', () => { roundsAll = true; if (data) drawRounds(data[4]); });
 
@@ -369,27 +466,40 @@
   const hero = document.querySelector('.hero'), heroImg = $('hero-img'), heroIn = $('hero-in'), bar = $('bar'), prog = document.querySelector('#progress i');
   const frames = [...document.querySelectorAll('.banner .frame')];
   const links = [...document.querySelectorAll('.bar-links a')], secs = links.map((a) => document.querySelector(a.getAttribute('href')));
-  let ticking = false;
+  const barLinks = document.querySelector('.bar-links');
+  let ticking = false, hh = hero ? hero.offsetHeight : 0, lastCur = -2;
+  window.addEventListener('resize', () => { hh = hero ? hero.offsetHeight : 0; }, { passive: true });
   function onScroll() {
     ticking = false;
+    // Reads first (layout), then writes (transform/opacity only).
     const y = window.scrollY, vh = window.innerHeight, H = document.documentElement.scrollHeight - vh;
-    if (prog) prog.style.transform = 'scaleX(' + (H > 0 ? Math.min(1, y / H) : 0) + ')';
-    const hh = hero ? hero.offsetHeight : 0;
-    if (bar) bar.classList.toggle('on', y > hh * 0.7);
     let cur = -1; secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top < vh * 0.35) cur = i; });
-    links.forEach((a, i) => a.classList.toggle('cur', i === cur));
+    const fr = motion ? frames.map((f) => f.getBoundingClientRect()) : [];
+    if (prog) prog.style.transform = 'scaleX(' + (H > 0 ? Math.min(1, y / H) : 0) + ')';
+    if (bar) bar.classList.toggle('on', y > hh * 0.7);
+    if (cur !== lastCur) {
+      lastCur = cur;
+      links.forEach((a, i) => a.classList.toggle('cur', i === cur));
+      // On a phone the links scroll sideways: bring the current one into view.
+      if (cur >= 0 && barLinks && barLinks.scrollWidth > barLinks.clientWidth + 1) {
+        const left = links[cur].offsetLeft - barLinks.offsetLeft - 12;
+        barLinks.scrollTo({ left: Math.max(0, left), behavior: motion ? 'smooth' : 'auto' });
+      }
+    }
     if (!motion) return;
     if (y < hh) {
       if (heroImg) heroImg.style.transform = 'translate3d(0,' + (y * 0.35).toFixed(1) + 'px,0) scale(' + (1.02 + y / hh * 0.06).toFixed(4) + ')';
       if (heroIn) { heroIn.style.transform = 'translate3d(0,' + (y * 0.18).toFixed(1) + 'px,0)'; heroIn.style.opacity = String(Math.max(0, 1 - y / (hh * 0.75)).toFixed(3)); }
     }
-    for (const f of frames) {
-      const r = f.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > vh) continue;
+    frames.forEach((f, i) => {
+      const r = fr[i];
+      if (r.bottom < 0 || r.top > vh) return;
       const k = (r.top + r.height / 2 - vh / 2) / (vh / 2 + r.height / 2); // -1..1 across the screen
       const img = f.firstElementChild; if (img) img.style.transform = 'translate3d(0,' + (k * -9).toFixed(2) + '%,0)';
-    }
+    });
   }
+  // The hero's loops (rays, mist, colossus, rider) pause once it is off screen.
+  if (hero && 'IntersectionObserver' in window) new IntersectionObserver((es) => { hero.classList.toggle('off', !es[0].isIntersecting); }).observe(hero);
   window.addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
   onScroll();
 
@@ -399,7 +509,7 @@
     const cv = $('dust'); if (!cv || !motion || !cv.getContext) return;
     const ctx = cv.getContext('2d'); let w = 0, h = 0, dpr = 1, motes = [], on = true, raf = 0, last = 0;
     function size() {
-      dpr = Math.min(2, window.devicePixelRatio || 1); w = cv.clientWidth; h = cv.clientHeight; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      w = cv.clientWidth; h = cv.clientHeight; dpr = Math.min(w < 700 ? 1.5 : 2, window.devicePixelRatio || 1); cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const n = Math.round(Math.min(70, Math.max(24, w * h / 22000)));
       motes = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, r: 0.4 + Math.random() * 1.8, vx: 4 + Math.random() * 10, vy: -2 - Math.random() * 6, p: Math.random() * 6.28, s: 0.4 + Math.random() * 1.2 }));
     }
@@ -418,7 +528,7 @@
     }
     const go = () => { if (on && !raf && !document.hidden) { last = 0; raf = requestAnimationFrame(frame); } };
     size(); go();
-    window.addEventListener('resize', () => { size(); });
+    let rw = 0; window.addEventListener('resize', () => { if (cv.clientWidth === w && Math.abs(cv.clientHeight - h) < 120) return; clearTimeout(rw); rw = setTimeout(size, 150); }, { passive: true });
     document.addEventListener('visibilitychange', go);
     if ('IntersectionObserver' in window) new IntersectionObserver((es) => { on = es[0].isIntersecting; go(); }).observe(cv);
   })();
