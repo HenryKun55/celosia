@@ -18159,3 +18159,55 @@ comparison decide.
 a character or an object (the camera's target and look-at while riding and fighting, Wander's hands on the reins and the
 sword's light, the IK of the feet on slopes), Wander's start and stop (MVHIST: the movement history behind his turns),
 the animals' / colossi's turning (AI_GetYRotQuaternion), the root motion of every animation (010AD048).
+
+## Round 129: the console's own sampling profiler of the game thread (SOTC_PROF129); fix 129: its boot crash on the console (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r129/` (build.sh pN, run.sh / v3k.sh / v3kb.sh, two own Vita3K trees
+../vita3k-celosia-r129 and -r129b, 222 MHz, 3 cores, audio-volume 0; env-console.txt; STATE.md; console/: the crash log
+and core dump of p1). Code: game/overrides/sotc_prof129.cpp, ps2_thread_load.h, ps2_runtime.cpp; readers tools/prof129.py,
+tools/fmean129.py.
+
+**Why.** Every round since 113 picks its target from Vita3K's host sampler, which has no A9 caches or memory latency;
+console results keep disagreeing (coll115, char104, walk67). The console needs its own hot list.
+
+**How it samples.** Vita user mode cannot read another thread's registers (sceKernelGetThreadCpuRegisters is a kernel
+export), so the sampler reads what the game thread already keeps in memory: the running EE context's pc (the generated
+code sets it to the target at every jal / jalr / j and to the return address at every jr ra; callGuest the same: the
+guest function running now at call granularity, at no cost) and $ra; ps2_load::Wait now publishes the wait site the game
+thread blocks at; handleSyscall the syscall id (two relaxed stores per wait / syscall: the game thread's whole cost). A
+pthread moved to cores 1-2 wakes every `SOTC_PROF129_US` (1000) us from the second game frame, adds the sample to a fixed
+16 384-entry table (no allocation) and every `SOTC_PROF129_SECS` (60) s writes a window to err.txt: `[prof129] w` (samples,
+states, frames, gaps, the sampler's own CPU ms from runClocks), `h` (each distinct pc's function-table host function as an
+offset from an anchor symbol: the native, or the recompiled function a return site belongs to), `e` (pc:ra:count[:state[:zone]]
+by count), `end`. `SOTC_PROF129_RA=0` drops ra; `SOTC_PROF129_RUNSTATUS=1` (off by default, see the fix) marks samples
+where sceKernelGetThreadRunStatus says the game thread was off a core.
+
+What it cannot see: inside a native (natives calling natives, host helpers, memcpy inside a native are charged to the
+outermost native entered through the table or callGuest); host code outside guest dispatch is charged to the last guest pc
+except the marked waits and syscalls. A native that joins a job by spinning shows as that native (below: tex64's wrap<12>).
+
+**The reader** (`python3 tools/prof129.py err.txt --elf <the build's elf> [--t A-B | --windows A-B | --frames A-B]
+[--group REGEX] [--host prof.txt --base prof.base]`): the game thread by state (running, each wait site, no EE thread),
+the running samples by subsystem (round 113's areas: display, characters, scripts/AI, collision, particles, camera,
+runtime/libc, kernel/syscalls, worker gates, unnamed guest code placed by its caller where it can be), the top functions
+(natives marked), and with --host the same grouping of a Vita3K host profile beside it.
+
+**Vita3K (attract demo, 400-700 s, runs/sampOn against runsb/sampOff, both with the host sampler).** 230 404 samples,
+mean interval 1.30 ms, 0 dropped, 2 100-3 700 distinct keys a 30 s window. Overhead: frame 26.25 ms with the sampler,
+26.90 without (the Mac's load 13-14 on both: noise; no cost measurable). Shares (prof129 / host sampler, % of the busy
+game thread): display 48.1 / 25.4, characters 13.7 / 18.7, scripts/AI 9.2 / 14.1, collision 6.0 / 8.4, runtime/libc
+0.1 / 8.9, particles 1.1 / 5.7, worker gates 3.7 / 0. The differences are the attribution rule, not errors: prof129 charges
+memcpy, libc and the particle natives' helpers to the native that called them, and `decomp_tex64::wrap<12>` alone is 31.6%
+(its join with the texture offload spins on the game thread, unmarked; the host sampler charges that time to the spin's
+helpers). So prof129's list reads "which guest-level entry point holds the game thread", the host sampler's "which
+instructions"; on the console the first is what is available. Next step for prof129: mark tex64's join as a Wait (its
+kSiteTex wait covers only part of it) so the reader shows it as a wait, not as display work.
+
+**Fix 129: the boot crash.** celosia-r129.vpk (p1) with SOTC_PROF129=1 crashed the console at boot right after
+`[sotc:decomp] 371 decompiled functions in place`, before any [prof129] line; SOTC_PROF129=0 booted. The first thing the
+sampler thread did was call sceKernelGetThreadRunStatus (vitasdk links the import whether or not the firmware resolves it
+for user mode; Vita3K answered zeros), from a thread made with sceKernelCreateThread (priority 100, cores 1-2) before the
+game ran. Now: RunStatus only with SOTC_PROF129_RUNSTATUS=1, the thread a plain pthread like the runtime's others (moved
+to cores 1-2 with sceKernelChangeThreadCpuAffinityMask, as threads::place does), nothing read until the second game frame,
+the runtime pointer null-checked. The core dump was not parsed (no vita-parse-core here), so which of the two it was is
+not proven; p2 avoids both.

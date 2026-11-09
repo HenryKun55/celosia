@@ -18,11 +18,11 @@
 //  - ps2_load::gameSiteNow: the wait site the game thread blocks at
 //    (pacing, VBlank deadline, the hook jobs' join, ...), set by
 //    ps2_load::Wait; gameZone: a syscall in progress (ps2_runtime.cpp).
-//  - sceKernelGetThreadRunStatus (if it answers with the CPUs' running
+//  - with SOTC_PROF129_RUNSTATUS=1 only (fix 129: off by default), sceKernelGetThreadRunStatus (if it answers with the CPUs' running
 //    threads: feature-tested at start, logged): whether the game thread was
 //    on a core at the sample (off: preempted, or blocked in a wait that
 //    ps2_load does not mark: a mutex, the GL lock, a file read).
-// One sampler thread on cores 1-2 wakes every SOTC_PROF129_US (1000) us,
+// One sampler thread (a pthread moved to cores 1-2, from the second game frame) wakes every SOTC_PROF129_US (1000) us,
 // adds the sample to a fixed open-addressing table (no allocation) and every
 // SOTC_PROF129_SECS (60) s writes the window's table to stderr (err.txt) as
 // [prof129] lines and starts a new one. The game thread pays nothing but two
@@ -160,12 +160,13 @@ namespace prof129
         // running while it asks: it has to be among them.
         void testRunStatus()
         {
+            // Fix 129: celosia-r129.vpk with SOTC_PROF129=1 crashed the console
+            // at boot before any [prof129] line; this call (an import vitasdk
+            // links even if the firmware does not resolve its NID) was the
+            // first thing the sampler did. Opt-in only now.
             const char *e = std::getenv("SOTC_PROF129_RUNSTATUS");
-            if (e && std::atoi(e) == 0)
-            {
-                std::fprintf(stderr, "[prof129] runstatus off (SOTC_PROF129_RUNSTATUS=0)\n");
+            if (!e || std::atoi(e) == 0)
                 return;
-            }
             const SceUID self = sceKernelGetThreadId();
             SceKernelThreadRunStatus st;
             std::memset(&st, 0, sizeof(st));
@@ -192,7 +193,7 @@ namespace prof129
             uint32_t state = 0u, pc = 0u, ra = 0u;
             if (site >= 0)
                 state = 1u + static_cast<uint32_t>(site);
-            else if (const R5900Context *ctx = g_runtime->eeScheduler().profileContext())
+            else if (const R5900Context *ctx = g_runtime ? g_runtime->eeScheduler().profileContext() : nullptr)
             {
                 pc = ctx->pc;
                 if (g_ra)
@@ -215,7 +216,7 @@ namespace prof129
 
         int hostOffset(uint32_t pc)
         {
-            const PS2Runtime::RecompiledFunction fn = (pc & 3u) == 0u ? g_runtime->guestFunctionAt(pc) : nullptr;
+            const PS2Runtime::RecompiledFunction fn = g_runtime && (pc & 3u) == 0u ? g_runtime->guestFunctionAt(pc) : nullptr;
             if (!fn)
                 return 0;
             return static_cast<int>(reinterpret_cast<intptr_t>(fn) - reinterpret_cast<intptr_t>(&anchor));
@@ -326,6 +327,14 @@ namespace prof129
         void run()
         {
 #if defined(__vita__)
+            // The pthread's placement: cores 1-2, the default priority.
+            const int maskResult = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+            std::fprintf(stderr, "[prof129] sampler thread up (cores 1-2%s); waiting for the first game frame\n", maskResult < 0 ? ": refused" : "");
+#endif
+            // Nothing is read before the game runs (the EE context, the game thread's id).
+            while (ps2_stats::vif1Chains.load(std::memory_order_relaxed) < 2u)
+                sleepUs(100000u);
+#if defined(__vita__)
             testRunStatus();
 #endif
             std::fprintf(stderr, "[prof129] start us %u secs %u ra %d runstatus %s anchor %lx\n", g_us, g_secs, g_ra ? 1 : 0,
@@ -360,13 +369,6 @@ namespace prof129
             }
         }
 
-#if defined(__vita__)
-        int threadEntry(SceSize, void *)
-        {
-            run();
-            return 0;
-        }
-#endif
     }
 
     void install(PS2Runtime &runtime)
@@ -381,21 +383,9 @@ namespace prof129
             g_secs = std::clamp(static_cast<unsigned>(std::strtoul(v, nullptr, 0)), 1u, 3600u);
         if (const char *v = std::getenv("SOTC_PROF129_RA"))
             g_ra = std::atoi(v) != 0;
-#if defined(__vita__)
-        // Cores 1-2, above the render thread and the workers (it runs a few
-        // us a wake): its wakes stay on time, core 0 (the game) is untouched.
-        int prio = 100;
-        if (const char *v = std::getenv("SOTC_PROF129_PRIO"))
-            prio = std::clamp(std::atoi(v), 64, 191);
-        const SceUID th = sceKernelCreateThread("prof129", threadEntry, prio, 64 * 1024, 0,
-                                                SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2, nullptr);
-        if (th < 0 || sceKernelStartThread(th, 0, nullptr) < 0)
-        {
-            std::fprintf(stderr, "[prof129] could not start the sampler thread (0x%x): off\n", static_cast<unsigned>(th));
-            return;
-        }
-#else
+        // A plain pthread like the runtime's other threads (32 KB stack, the
+        // default priority); run() moves it to cores 1-2.
+        std::fprintf(stderr, "[prof129] on: every %u us, a window every %u s\n", g_us, g_secs);
         std::thread([]() { run(); }).detach();
-#endif
     }
 }
