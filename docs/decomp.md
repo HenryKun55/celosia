@@ -18303,3 +18303,35 @@ reads (0, 0, 0.69) with the camera fixed and the frames running at the refresh r
 (runsb/dbgR127) and p4 with SOTC_GEO126=0 SOTC_CTL126=0 (runs/dbgR1) or SOTC_CTL126=0 alone (runsb/dbgCtl) walk out
 to the plain; SOTC_GEO126=0 alone (runs/dbgGeo) sticks. So it is ctl126; this round's env-console.txt sets
 SOTC_CTL126=0. Its default is round 126's to fix (not changed here).
+
+## Round 131: gameplay first: ctl126, seg123 and fin125 off by default; the collision switches' off paths are safe (2026-11-09)
+
+Two console reports. (1) r127 (celosia-r127.vpk, main 71f540e: rounds 122 / 123 / 125 / 127, not round 126): while riding,
+Agro sometimes drops out of the gallop as if it hit something. (2) r129/p1 (through round 127 plus round 126) with
+SOTC_SEG123=0 SOTC_FIN125=0 SOTC_OBJ125=0: Wander loads under the ground at the shrine and moves only by jumping.
+
+**Bug 2 is ctl126, not the collision switches.** Vita3K (own trees r131 / r131b, the console card's shrine save, a new
+input r131/in_walk.txt: the load, then the stick pushed for ~10 s at a time): with ctl126 on (round 126's default) Wander
+loads at y 10.87 (the save's spot is 11.31: 44 cm low) and never walks on the stick, the same with seg123 / fin125 / obj125
+on (runs/walkBase) or off (runsb/walkNocoll); SOTC_CTL126=0 (runs/walkNoCtl): he stands at 11.31 and walks out of the shrine.
+Route 6 with ctl126 on hangs after the cutscene (the position jumps to ~(±410, 48, 110), then reads (0, 0, 0.69)) with the
+collision switches on (runsb/r6base) or off (runs/r6nocoll); SOTC_CTL126=0 with all three collision switches off
+(runsb/r6noCtl) walks out to the plain. Round 128 found the same hang on route 6. The collision switches' off paths are the
+original code (every new path is behind its own switch's test; coll125's keep / attribute hooks check fin125 first), so
+every combination works from boot. ctl126 (MVHIST_Update, AI_GetYRotQuaternion, manager_sub_010AD048, the option-node
+getters) is now off unless SOTC_CTL126=1; which of its five functions is wrong is not traced yet.
+
+**Bug 1: the collision answers along the ride.** Checks in the attract demo (Vita3K 222 MHz, ~720 s each, ctl126 off):
+| switch | check | result |
+| fin125 | SOTC_FIN125_CHECK=1 (runs/chkSegFin) | 57 finder clips where the original hits a surface of the list and the host cache answers no hit (frames 15 639-26 946, list 01b66ab8, n 5-7), 3 other-surface |
+| seg123 | SOTC_SEG123_CHECK=1 (same run) | 8 783 kept answers: 3 hit / no hit, 12 other surface, hit point up to 44 mm off |
+| obj125 | SOTC_OBJ125_CHECK=1 (runsb/chkObj) | 292 246 queries (22 712 both hit): 0 hit / no hit, 0 other surface, points 0.00 mm |
+A finder clip that misses the ground for a frame (fin125) changes the character's footing state, the kind of event that
+breaks the gallop; seg123 is not exact by design (ends up to 1 cm away kept for 60 frames; the objects' fingerprints are made
+once a frame, so an object that moves later in the frame is not seen until the next). Both are now off by default
+(SOTC_SEG123=1 / SOTC_FIN125=1 turn them on, the A/B names stay); obj125 stays on. Whether this was the console's gallop
+loss is for the console to confirm (r131/env-console.txt: round 127's log flags, SOTC_POS_LOG=10, no A/B, no profiler).
+
+Pushed: c2af5c2 (ctl126 off), 089a56c (seg123 / fin125 off). celosia-r131.vpk = r131/p1 on 089a56c (spalign: 699 NEON
+:128/:256, 0 sp-based). Next: fin125's missed hits (the cache's validity: a change to a listed surface that no flush
+reports), ctl126's broken function (difftest each of the five), seg123 with fingerprints made per query if it comes back.
