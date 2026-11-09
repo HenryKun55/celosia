@@ -17659,3 +17659,121 @@ Build note: an early build (p13) had three sp-based :128 NEON loads in segMemo (
 the stack; the Vita's sp is only 8-aligned: round 103's abort); the World is static now (game thread only, never nested).
 spalign105 on the shipped build: 681 aligned NEON accesses, 0 sp-based. No vita-elf-create overlap (sotc_vita_elf_room unchanged).
 The worker lane's collision natives are untouched (seg123 never runs there).
+## Round 122: the characters' frame work as host code, not as translations (gaze122, cloth122, quat122, keys122): a port's tolerances instead of bit-exactness (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r122/`: build.sh pN, v3k.sh / v3kb.sh (own trees ../vita3k-celosia-r122 /
+-r122b, 222 MHz, 3 cores, audio-volume 0), run.sh <a|b> <scene> <vpk> <name> <secs> [env] (r.sh / rb.sh: tree a / b with
+r122/<pN>.vpk), geo.sh (round 97's character probes + `[chargeo80]`), geoprobes.txt; tools: geo80.py (the `[chargeo80]` lines
+by object and callee), prof.py (SOTC_SUBSYS_PROF entries), drift.py (a replay's `[rstate]` against its recording's S lines),
+ab119.py (round 119's A/B reader, `--riding`). runs/ and runsb/: geoA0 / geoL0 (probe profiles, riding / shrine, main),
+sampOn6 / sampOff6 (the sampler, attract riding, the round on / off), chkA2..chkA10b, chkL3 (checks), abA5 / abA6 / abL6 / abA10
+(A/B), rec7 / recR10 (input recordings), repOff9a / repOn9 / repOffR1 / repOnR1 (replays). p0 = main 6c24d41, p1-p9 on it, p10
+= rebased on a320162 (round 124), p11 + gaze diagnostics, p12 = p11 with gaze122 off by default = celosia-r122.vpk.
+
+**The rule of this round.** A port, not an emulator: the characters' code need not give the recompiled code's bits, only the
+same game: the same keys and branches, rotations and positions within float rounding, no visible difference, no drift. Rounds
+41-120 translated each function with the PS2's operations (every VU0 op clamped, the whole VU0 register file copied in and
+out, newlib's float libm replayed, guest frames written for dead locals); this round writes the hot ones as plain float NEON
+host code on the same inputs, writing only what the game reads (the output qwords, f0 where a caller reads it).
+
+### Where the characters' time is (and how much the probes overstate it)
+
+The probe profile (geo.sh: SOTC_SUBSYS_PROF with 29 extra probes and `[chargeo80]`, runs/geoA0, riding) puts the characters'
+body at 6.3 ms a frame of Vita3K host time: root dynamics 1.84 (collision mostly), cloth 1.44, IK 1.0 (its script callbacks
+0.46), the pre-process 0.76 (the motion keys 0.31 + curveEval 0.36), gaze 0.54, root fitting 0.53, pose 0.37, layout 0.23, option
+nodes 0.22, strands 0.21; control 1.47. The probes inflate per-call-heavy paths several times: `[char122]`'s own host clock gives
+the old gaze 0.10 ms a frame (probes: 0.54) and the cloth 0.5-0.9 (with its callbacks). The sampler (runs/sampOff6, riding,
+self time on the game thread) is the reliable view: the character-related natives are flat, the largest pose82::pose 1.0%,
+charaLinks 0.9%, the cloth step 1.0%, getSinCos 1.1%, strands 0.7%, gaze 0.7%, the curve decoder 1.1%, the quaternion /
+arc helpers ~2.5%, the bridle 0.7%. ~11% of the thread in the functions this round touches.
+
+### What changed (each a switch; A/B names in brackets, `r122all` all four off)
+
+- **gaze122** (`SOTC_GAZE122`, **default off**, decomp_char122.cpp): GetCharacterClassGazeAddMotions (0x10c6c80) and its per-gaze worker
+  (010C6238, round 41's native) as one host loop: the direction's angle (host atan2f) picks two of the gaze motion's eight
+  direction keys, the length blends each from the identity; per node the three keys decoded by host code (decodeKey: the
+  curve formats 0, 3-9, 12, 13 in plain floats), the keys relative to the base, the blends and the product into the node's
+  quaternion in NEON. No curveEval guest calls, no VU0 state. A cache of the decoded keys by resource address (p2-p7) was
+  wrong: the heap gives a freed motion's address to another one with the same channel pointers (the check found 11-18 deg
+  off after a motion change, `[gaze122d]` showed the decoded keys equal to curveEval's: the cache was stale); p8 on decode
+  every frame.
+- **keys122** (`SOTC_KEYS122`, decomp_char122.cpp, hooked in decomp_motionframe.cpp): GetMotionFloatFrameNoCaribration
+  (0x10ad1b0, the motion's keys at a float frame, ~4 calls / ~120 keys a frame riding): the keys of frames k and k + 1 decoded
+  by decodeKey and blended the short way round, as the original keeps the nearer key's sign; no motionKeys / curveEval round
+  trips, no guest frame. Fallback counters (`[keys122]`): 0 of 40 000 calls fell back.
+- **quat122** (`SOTC_QUAT122`, decomp_char122.cpp, hooked in decomp_quat / decomp_math / decomp_hot43b): atanf, atan2f
+  (both entries), iosGetATan2fExact, acosf (both), iosGetACosfExact, asinf as host libm; iosGetSinCosf as the PS2's own
+  polynomial (its coefficients from the boot ELF) in plain floats; SetQuaternionByAxisRotateV (the boot ELF's quarter-wave
+  table, as the original), GetDifferencialQuaternionWithNoRegularize and GetQuaternionByAxisDirZY as closed forms (the
+  rotation from a to b; the turn to z then about z by v's angle, 1/65536-turn steps as the original). The VU0 register file
+  and the scratch registers are not reproduced (leaf helpers of C callers that load their operands again; not audited caller by caller: the checks and the runs are the evidence).
+- **cloth122** (`SOTC_CLOTH122`, decomp_char122.cpp, decomp_bridle.cpp): GetClothDynamics (0x1137a68) as one host loop a
+  cloth (the row buffers' flip, the step with the same three VU0 R draws a point in the same order, the pins, the rows'
+  length constraint and the velocities fused a row: the rows are independent), and the reins' collision callbacks
+  (013978E8, 013976B8) in plain NEON. Type-1 cloths and anything out of range take the old natives.
+
+`SOTC_CHAR122_CHECK=1`: the checks below (each runs the old path on the same input, keeps the old result, compares);
+`SOTC_CHAR122_LOG=<n>`: `[char122]` (gaze / cloth calls and host ms a frame, new and old path), `[keys122]`.
+
+### Tolerances observed (checks, attract riding 640 s and the shrine; the old path's result against the new one)
+
+| part | checked | largest difference | why |
+|---|---|---|---|
+| cloth: positions / velocities | ~7 200 cloths | 2.4e-4 units in a position (one float step at 2 048-4 096), 0.016 in a velocity (that step / dt); R stream identical | float rounding only |
+| reins (bridle) | ~6 400 calls | 2.0e-3 units in a point (16 float steps at ~2 700 units) | the cylinder push's sqrt and the constraint's 1/sqrt |
+| quat: axisRotate | 280 000 | 0 (the same table) | |
+| quat: axisDirZY | 40 000 | 0.0116 deg (two 1/65536-turn steps: the truncation boundary) | the original's own angle quantum |
+| quat: diffQuat | 40 000 | 0.045 deg in 2 calls (near-opposite / near-equal vectors), < 0.01 deg in the rest | conditioning |
+| atan / atan2 / acos / asin | 20 000-60 000 each | 2.4e-7 rad | |
+| sinCos | 280 000 | 6.9e-4 in the computed lane near |sin| = 1 (~0.04 deg) | sqrt(1 - s^2) is ill-conditioned there in both; the PS2 rounds toward zero |
+| keys (motion frame) | ~4 000 | 1.45e-3 in a component, 0.12 deg | the same sqrt(1 - |xyz|^2) near w = 0, below the keys' own 9-bit step (1/255 of the range, ~0.45 deg) |
+| gaze (p10, p11) | ~2 000 calls (every 8th) | < 0.0001 deg in almost all; 6 calls 0.2-6 deg | not rounding: in those calls the old path left the neck / head nodes (22, 27) exactly as they came in and the new one turned them by the gaze (runsb/chkA11 `[gaze122d]`: same decoded keys, same inputs). Not traced: **gaze122 ships off** |
+
+Angles are measured in double (4 atan(|a - b| / |a + b|)): a float dot's acos bottoms out at ~0.04 deg (p2-p5's early
+"0.056 deg" were that floor). Nothing differs in kind (the same keys, the same branches, the same R stream).
+
+**Drift.** The attract demo does not replay (the camera diverged from tick 120 even with the round off). Route 6 recorded with
+the round off (recR10, 2 880 ticks) and replayed off (repOffR1) and on (repOnR1): Wander's and Agro's positions equal the
+recording's to 1e-4 at every checkpoint through tick 930 (the title, the load, the shrine and the altar on foot) in both;
+at the area load (tick 960) both replays, the off one too, part from the recording (the loader's timing on a loaded host: 400
+units, a different streaming moment), so the replay cannot resolve drift after it here. Per step the checks bound the
+error (above); the stateful parts (cloth positions, the R stream) stay at one float step per frame and do not feed gameplay.
+
+### Measured (Vita3K 222 MHz)
+
+Sampler (runs/sampOff6 vs sampOn6, attract riding, 420-600 s, % of the game thread, the touched functions and the new ones):
+gaze + keys 2.71 -> 0.75, sinCos 1.14 -> 0.36, the quaternion / arc helpers 2.53 -> 1.31, cloth + reins 2.15 -> 1.74 (the
+fused cloth loop is no faster than round 49's step + constraint + velocity; the gain is the reins' walk). All of them
+10.79 -> 6.67%.
+
+In-run A/B (`SOTC_AB_FLAG=r122all`, 60-frame windows, off minus on, game = the game thread's wall time):
+
+| run | part | host load | frame | game | matched by draws (frame / game) |
+|---|---|---|---|---|---|
+| runsb/abA5 (p5, no reins) | attract from 10 000 | 14-24, beside a check run | -0.24 | -0.03 | -0.65 / -0.38 |
+| runs/abA6 (p6) | attract from 10 000 | 13-29, beside abL6 | **+1.88** | +1.89 | +1.81 / +1.86 |
+| runs/abA6 | riding only | | +1.45 (frames) | | +1.45 / +1.49 |
+| runsb/abL6 (p6) | the shrine (console card's save) from 2 500 | 20-29 | **+0.77** | +1.53 | +0.94 / +1.61 |
+| runs/abA10 (p10, shipped) | attract from 10 000 | 7-27 (12-13 most of it) | **+0.84** | +1.19 | +0.81 / +1.24 |
+| runs/abA10 | riding only | | +0.91 | +1.26 | +0.69 / +1.13 |
+| runs/abR10 (p10) | route 6 from 3 000 | 6-15 | **+0.79** | +1.43 | +0.69 / +1.34 |
+| runs/abR10 | the plain, from 4 300 | | | | +0.79 / +1.50 |
+| runs/abL10 (p10) | the shrine (console card's save) from 2 500 | 7-19 | **+2.10** | +2.00 | +2.10 / +2.00 |
+
+**Defaults.** cloth122, quat122 and keys122 on (`SOTC_<name>=0` off): within the tolerances above, a win in the sampler and in
+every A/B (p6, p10: +1.2-2.0 ms of the game thread at the shrine, riding and on route 6). gaze122 off (`SOTC_GAZE122=1` on):
+the check's unexplained calls above; its share was ~0.6 of the 4.1 points, so the shipped default (p12) is ~0.2 ms below the
+A/B rows (which had it on). spalign: 0 sp-relative :128/:256 NEON accesses (608 aligned, p10 / p12). No fault in any run:
+the attract demo 640-660 s (riding) x 9, the console card's save at the shrine 330-400 s x 3, route 6 440 s x 2, the replays.
+
+**Against the target.** The brief asked for -4 ms on the console's game thread riding from the characters (excluding
+collision, ~6.7 ms there). This round removes ~1.2-1.5 ms of the game thread's Vita3K time riding and on route 6, ~2 ms at the shrine (~0.8-1.3 ms on the
+console at round 113's 0.54-0.65 ratio; the float-heavy parts may gain more there). What is left in the characters is flat: the pose (1.0%, already NEON), charaLinks (0.9%), strands
+(0.7%, a lifted VU0 solver), the control state machine and the IK / control script callbacks (recompiled guest code, a
+per-script job), the cloth mesh and layout passes (pose82). The rest of the -4 ms is not in host-rewritable character
+natives; it is in the guest script code the characters call (IK post callbacks, control definitions, AI) and in collision.
+
+**Console.** build/agent-scratch/celosia-r122.vpk with r122/env-console.txt (round 119's log flags, `SOTC_CHAR122_LOG=600`,
+`SOTC_AB_FLAG=r122all,quat122,keys122,cloth122`): read with `python3 build/agent-scratch/r122/ab119.py err.txt --from <frame>
+[--riding]`; positive = the round's gain. Look at: Wander's scarf / cape and Agro's reins (cloth122), Wander's and Agro's
+heads turning to look (gaze122), the feet on slopes and the riding pose (quat122 through the IK), every animation (keys122).
