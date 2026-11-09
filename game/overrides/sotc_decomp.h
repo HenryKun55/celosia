@@ -609,7 +609,7 @@ namespace sotc_decomp
         kGeo126,      // round 126: the geometry pointers' position / quaternion getters and their quaternion helpers as host code (port; decomp_cam126)
         kCtl126,      // round 126: the characters' control helpers (movement history, the y turn, the root track's key, the option nodes' getters) as host code (port; decomp_cam126, decomp_hot47a)
         kImm128,      // round 128: the immediate-mode quads' GS pairs straight to the native 2D assembler, no guest GIF packet / glBegin / glEnd (same draws; decomp_walk, sotc_native)
-        kTexr128,     // round 128: texreset's list from a host index (decomp_texreset)
+        kTexr128,     // round 128: texreset's list from a host index (exact; default off: slower in Vita3K, for the console's A/B; decomp_texreset)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
@@ -641,10 +641,12 @@ namespace sotc_decomp
             // Round 122: gaze122 off unless SOTC_GAZE122=1: its checks found calls (~1 in 300 riding) where the old path
             // leaves the neck / head nodes unchanged and the new one turns them by the gaze (0.2-6 deg); not traced yet.
             // cloth122, quat122 and keys122 on (SOTC_<name>=0 off): within their checks' tolerances, a win in the A/B.
+            // Round 128: texr128 off unless SOTC_TEXR128=1: exact (0 differ) but its per-node checks cost Vita3K, which has no
+            // memory latency for the independent loads to hide (sampler 0.53 -> 1.00%); the console's A/B decides.
             // Round 126: geo126 and ctl126 on (SOTC_<name>=0 off): within their checks' tolerances, a win in the sampler.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122)
+                 which == kGaze122 || which == kTexr128)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
