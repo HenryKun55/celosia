@@ -12100,7 +12100,11 @@ void installSotcNative(PS2Runtime &runtime)
 // Round mem99: 32 KB. Round 105 (with round 104): 40 KB. Round 120: 56 KB. Round 122: 64 KB. Round 121: SOTC_VITA_ELF_ROOM
 // overrides it (the instrumented PGO build, CMake PS2X_VITA_PGO=gen, sets its own).
 #ifndef SOTC_VITA_ELF_ROOM
+#if SOTC_RELEASE // round 130: the release build's smaller text needs more ("segment 1 overlaps" at 64 KB)
+#define SOTC_VITA_ELF_ROOM 73728
+#else
 #define SOTC_VITA_ELF_ROOM 65536
+#endif
 #endif
 extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[SOTC_VITA_ELF_ROOM] = {1};
 #endif
