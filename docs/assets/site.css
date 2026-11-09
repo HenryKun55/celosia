@@ -102,7 +102,7 @@ b, strong { font-weight: 600; color: var(--ink); }
 .ridge.mid { fill: #141b19; opacity: 0.85; }
 .ridge.near { fill: var(--bg); }
 .colossus { fill: #8a968f; opacity: 0.34; filter: blur(0.5px); }
-.rider { fill: #0a0e0d; stroke: rgb(243 223 174 / 0.22); stroke-width: 0.5; transform: translate(300px, 164px); }
+.rider { fill: #0a0e0d; stroke: rgb(243 223 174 / 0.38); stroke-width: 0.6; transform: translate(300px, 164px); }
 .hero-in { position: relative; max-width: 72rem; width: 100%; margin: 0 auto; padding-inline: max(18px, 4vw); padding-block: 7rem 9rem; display: grid; gap: 1.4rem; will-change: transform, opacity; }
 .hero-in p { max-width: 50ch; color: #d9d6cb; }
 .eyebrow.on-dark { color: var(--gold-2); text-shadow: 0 1px 12px rgb(0 0 0 / 0.6); }
@@ -378,9 +378,17 @@ html.lb-open { overflow: hidden; }
 .scene .sa, .scene .lp, .agro .lp, .ledge .lp { transform-box: view-box; transform-origin: 0 0; }
 .scene-mono { opacity: 0.95; }
 .mo-creep { transform: translateX(-150px); }
-/* Dirge's eyes: static half open and half lit; the scroll opens and lights them. */
+/* Dirge, as found footage: the eyes are open and lit from the start; the scroll intensifies them, narrows the pupils and pushes the head closer. A VHS layer (scanlines, vignette, grain, tracking band, dropouts, REC text) covers this scene only. */
 .scene-dirge { height: clamp(14rem, 30vw, 24rem); }
-.dg-lid { transform: translateY(-22px); } .dg-ign { opacity: 0.6; } .grain { opacity: 0; }
+.grain { opacity: 0; }
+.scene-dirge .vhs { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 50% 50%, transparent 50%, rgb(0 0 0 / 0.6) 100%), repeating-linear-gradient(0deg, rgb(0 0 0 / 0.24) 0 1px, transparent 1px 3px); }
+.vhs i { position: absolute; display: block; }
+.vhs-grain { inset: -40%; opacity: 0.14; display: none; background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27140%27 height=%27140%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%271.1%27 numOctaves=%272%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/%3E%3C/svg%3E"); }
+.vhs-track { left: 0; right: 0; top: 0; height: 14%; opacity: 0; background: linear-gradient(180deg, transparent, rgb(220 214 200 / 0.1) 40%, rgb(255 255 255 / 0.18) 50%, rgb(220 214 200 / 0.08) 60%, transparent); }
+.vhs-drop { inset: 0; background: #d9d3c4; opacity: 0; }
+.vhs-rec, .vhs-time { position: absolute; top: 13%; font: 500 clamp(0.6rem, 0.48rem + 0.4vw, 0.85rem)/1.35 var(--mono); letter-spacing: 0.14em; color: rgb(236 230 214 / 0.8); text-shadow: 1px 0 rgb(255 80 110 / 0.5), -1px 0 rgb(80 240 255 / 0.4); }
+.vhs-rec { left: 18%; } .vhs-time { right: 18%; text-align: right; }
+.vhs-rec b { color: #e0474f; font-weight: 400; }
 .mote { fill: #fff3d0; }
 .scene-garden { opacity: 0.92; height: clamp(14rem, 30vw, 24rem); -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); }
 /* Followers' arms: drawn raised (the rest pose of the static picture). The shrine priests: rounded heads, wide flat bone masks, blue-grey robes. */
@@ -447,24 +455,33 @@ html.lb-open { overflow: hidden; }
   @keyframes s-creep { 0%, 15% { transform: translateX(0); opacity: 0; } 30% { opacity: 1; } 80% { transform: translateX(-278px); opacity: 1; } 100% { transform: translateX(-290px); opacity: 0.7; } }
   @keyframes s-strand { 0% { transform: rotate(-3deg); } 50% { transform: rotate(4deg); } 100% { transform: rotate(-1deg); } }
 
-  /* Dirge's eye rises out of the sand and opens; its light spills on the dune. */
-  .dg-rise { animation-name: s-dg-rise; animation-timing-function: ease-out; }
-  .dg-lid { animation-name: s-dg-lid; animation-timing-function: ease-in-out; } .dg-arch { animation-name: s-dg-arch; animation-timing-function: ease-out; }
-  .dg-ign { animation-name: s-dg-ign; } .dg-pour { animation-name: s-dg-pour; }
+  /* Dirge stares from the start; the scroll brightens the eyes, narrows the pupils and pushes the head closer, then it jumps nearer once. */
+  .dg-zoom { animation-name: s-dg-zoom; }
+  .dg-pup { animation-name: s-dg-pup; animation-timing-function: ease-in-out; }
+  .dg-ign { animation-name: s-dg-ign; }
   .dg-glow, .dg-spill { animation-name: s-dg-glow; }
   .dg-drift { animation-name: s-dg-drift; }
   .grain { animation-name: s-grain; animation-timing-function: ease-in; }
   .grain:nth-child(3n) { --gy: 150px; --gx: -6px; } .grain:nth-child(3n+1) { --gy: 120px; --gx: 4px; } .grain:nth-child(3n+2) { --gy: 170px; --gx: 0px; }
   .grain:nth-child(2n) { animation-name: s-grain2; }
-  @keyframes s-dg-rise { 0% { transform: translateY(90px); } 42%, 100% { transform: translateY(0); } }
-  @keyframes s-dg-arch { 0% { transform: translateY(46px); } 50%, 100% { transform: translateY(0); } }
-  @keyframes s-dg-lid { 0%, 36% { transform: translateY(0); } 48% { transform: translateY(-9px); } 54% { transform: translateY(-7px); } 78%, 100% { transform: translateY(-46px); } }
-  @keyframes s-dg-ign { 0%, 38% { opacity: 0.12; } 82%, 100% { opacity: 1; } }
-  @keyframes s-dg-pour { 0%, 22% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0.25; } }
-  @keyframes s-dg-glow { 0%, 36% { opacity: 0; } 80%, 100% { opacity: 1; } }
+  @keyframes s-dg-zoom { 0% { transform: translate(48px, 15.4px) scale(0.92); } 88% { transform: translate(-96px, -30.7px) scale(1.16); } 89%, 100% { transform: translate(-204px, -65.3px) scale(1.34); } }
+  @keyframes s-dg-pup { 0% { transform: scale(1.5); } 70%, 100% { transform: scale(0.45); } }
+  @keyframes s-dg-ign { 0% { opacity: 0.78; } 60%, 100% { opacity: 1; } }
+  @keyframes s-dg-glow { 0% { opacity: 0.45; } 60%, 100% { opacity: 1; } }
+  .vhs-grain { display: block; }
+  .scene-dirge.live .vhs-grain { animation: vgrain 0.6s steps(1, end) infinite; }
+  .scene-dirge.live .vhs-track { animation: vtrack 7.5s linear infinite; }
+  .scene-dirge.live .vhs-drop { animation: vdrop 9.3s steps(1, end) infinite; }
+  .scene-dirge.live svg { animation: vjolt 9.3s steps(1, end) infinite; }
+  .scene-dirge.live .vhs-rec b { animation: vrec 1.2s steps(1, end) infinite; }
+  @keyframes vgrain { 0% { transform: translate(0, 0); } 17% { transform: translate(-6%, 4%); } 33% { transform: translate(5%, -7%); } 50% { transform: translate(-3%, 8%); } 67% { transform: translate(7%, 2%); } 83% { transform: translate(-8%, -4%); } }
+  @keyframes vtrack { 0%, 68% { transform: translateY(-120%); opacity: 0; } 70% { opacity: 1; } 100% { transform: translateY(820%); opacity: 1; } }
+  @keyframes vdrop { 0% { opacity: 0; } 61% { opacity: 0.2; } 61.6% { opacity: 0; } 62.3% { opacity: 0.12; } 62.9% { opacity: 0; } }
+  @keyframes vjolt { 0% { transform: none; } 61% { transform: translateX(-5px) scaleY(1.01); } 61.6% { transform: translateX(4px); } 62.3% { transform: none; } }
+  @keyframes vrec { 50% { opacity: 0; } }
   @keyframes s-dg-drift { from { transform: translateX(60px); } to { transform: translateX(-120px); } }
-  @keyframes s-grain { 0%, 40% { transform: translate(0, 0); opacity: 0; } 46% { opacity: 1; } 78%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
-  @keyframes s-grain2 { 0%, 52% { transform: translate(0, 0); opacity: 0; } 58% { opacity: 1; } 90%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
+  @keyframes s-grain { 0%, 20% { transform: translate(0, 0); opacity: 0; } 26% { opacity: 1; } 60%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
+  @keyframes s-grain2 { 0%, 32% { transform: translate(0, 0); opacity: 0; } 38% { opacity: 1; } 72%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
   .scene.live .dg-shiver { animation: shiver 3.4s linear infinite; }
   @keyframes shiver { 0%, 78%, 92%, 100% { transform: translate(0, 0); } 80% { transform: translate(0.9px, -0.4px); } 82% { transform: translate(-0.9px, 0.3px); } 84% { transform: translate(0.7px, 0.2px); } 86% { transform: translate(-0.5px, -0.2px); } 88% { transform: translate(0.3px, 0); } }
 
