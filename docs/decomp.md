@@ -17222,3 +17222,157 @@ round; p7 / p8 had the round on 237ad58 / 478bdae) with r120/env-console.txt (ro
 recompiled ...` while riding (native ~3.5x faster per call; the max is the spike the sheet manager adds to its frame); the
 ab89 rows sym120 / heap120 (the sampler predicts ~0.75 + ~0.2 ms riding, ~0.15 at the shrine: inside the in-run A/B's noise
 unless the log is long); no change in anything visible.
+
+## Round 119: collision slices 2-3: where collision's time goes after round 115; the finder lists as host contact sets, the walk's dead pushes, the parts' clamps, the empty flushes (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r119/`: build.sh pN (worktree build, `r119/vita`), v3k.sh / v3kb.sh (own trees
+../vita3k-celosia-r119 / -r119b, 222 MHz, 3 cores), run119.sh <a|b> <load|altar|route6|attract> <vpk> <name> <secs> [env],
+ab119.py (ab89 with `--riding`: only the attract demo's riding stretches, every cycle, found from the [pos] lines; `--ranges`),
+t119.py (the [coll119t] lines: each touched call's host time by its switch's state, in-run), read119.sh (the console / Vita3K
+reader), callers.py / lines.py / elflines.py (the sampler by caller and by source line: the hot function's offsets through the
+same translation unit compiled with -g, coll_g2.obj / hot47j_g2.obj / finder_g2.obj, or the ELF's own -g1 line tables),
+env-console.txt, STATE.md. Baseline p0r115 = celosia-r115.vpk (round 115's code).
+
+**Where collision's time goes after round 115** (Vita3K 222 MHz, celosia-r115; route 6's plain, Wander standing, frames
+13 000-16 000; the census `SOTC_COLL_CENSUS=1`, runsb/censR0, and the sampler, runs/sampR0, the game thread). Collision is
+~15% of the game thread there (round 113's riding: 15.9%), and it is flat: no function above 3%.
+
+| what | sampler (self, % of the game thread) | census |
+|---|---|---|
+| ClipCollisionDirectCallBack's object / part loop (directCallBackBody) | 2.4-2.9 | ~15 queries a frame, 183-195 us each, ~17 objects a query (4.5 near), every part of a near character: two transforms and a cylinder each |
+| coll115's walk / leaves / walk set-up | 2.2 / 0.4-0.7 / 0.2-0.5 | 77-90 walks a frame, 16-24 us each |
+| ClipCollisionDB (clipDBT) | 1.1-1.3 | callers: ClipCollisionFinder / ...CallBack 0.6, coll115's candidates 0.1 |
+| the finder lists' passes: ClipCollisionFinder(CallBack), clipKeep, keepThenSlope, the keep test, slope, moved point | 0.6 + 0.5 + 0.2 + 0.5 + 0.5 + 0.2 | the slide's keep pass ~175 surfaces a frame; the landing / IK foot search 11-20 calls a frame |
+| the ground fill (GetCollisionDBCallBack, g85, the skinned finder and its corners) | 0.9 + 0.2 + 0.7 + 0.3 | 3 fills a frame, ~32 surfaces entered each |
+| cylinder (its exact path after the NEON rejection: 85%) | 0.6-1.0 | |
+| GetCollisionDBAttributeAdr from guest code (player_HellDangerDetect's scan, 3 x 73 a frame) | 0.5-1.0 | |
+| FlushCollisionWorkByWorkStruct / FlushModifiedManager | 0.25 + 0.2 | 4 x 150 list flushes a frame, most lists empty |
+| water probes | 0.36 | |
+
+By source line (lines.py) the object loop is mostly guest-memory bookkeeping: its reads / writes of guest words (the
+frame's part index and matrix pointers per part, the records the filters get) are about half of its samples; the two part
+transforms (the part's sphere, the skinned group's sphere, each with four row clamps) another ~20%. The walk's samples sit on
+the node loop (the push of the second side at every node, the integer compares). g85's step spent half its samples on a
+64-bit FNV hash of its 52-word key (a 64-bit multiply per word on the A9).
+
+**What changed (each behind a switch, default off: `SOTC_FLUSH119=1` / `SOTC_WALK119=1` / `SOTC_PART119=1` / `SOTC_VIEW119=1` turn them on; `r119all` turns the four off together in an A/B).**
+- `SOTC_WALK119` (coll115.h): coll115's walk pushes a node's second side only when the segment, as it is at the push, reaches
+  it (the pop made the same test with the same values and went on). Nodes are counted in a local.
+- `SOTC_PART119` (decomp_collision): transform() and matrixProduct() take the rows as they are when every lane (and v's) is
+  small, finite below 2^61: the clamp of a small lane is that lane, a denormal the signed zero NEON reads anyway (round 49's
+  argument), so the chain gives the clamped rows' bits without the four clamps. Every transform in decomp_collision (the
+  object loop's part and skinned spheres, the tree set-up, the skinned surfaces, ClipCollisionDB's local point) goes through it.
+- `SOTC_VIEW119` (coll119.h, decomp_hot44b): a finder list's host contact set. For the game frame, a list (its address and
+  count) gets a view whose entries are made at their first test: the entry's two id words and the addresses of its plane and
+  its plane's cached flag, as ClipCollisionDB / clipKeep compute them (the layout class, its collision work, the part's
+  modified-list record, the plane table). A later pass reads the flag and the plane straight away (the id words compared
+  first) and makes the same first test, round 49's NEON form bit for bit (not small, the flag clear, an id that moved: the
+  call, which computes the plane as before):
+  - ClipCollisionFinder / ...CallBack: an entry ClipCollisionDB would throw out at its plane test leaves f0 = 0 (its only
+    write there) and the call is not made; the CallBack form asks its id filter first as before.
+  - ClipCollisionFinderWithKeep (the slide's keep pass): an entry whose keep test clipKeep answers at its first return (plane
+    cached, the point at least f12 in front: v0 2, keepThenSlope's v0 0) is not called at once; the last such one is called
+    when the loop goes on to anything else or ends (it writes the same frame words and registers every earlier one would
+    have, nothing ran in between), so the loop leaves what the original's leaves.
+  - round 85's ground view (ground85::View, the landing / IK clips' pre-rejection): the list's words compared with a copy
+    taken when the view was made, instead of the 64-bit FNV sum of every word on every call.
+- `SOTC_FLUSH119` (decomp_collision): FlushCollisionWorkByWorkStruct does not hand an empty modified list (count 0) to
+  FlushModifiedManager's native, which would only set v0 = 2 (a0 is still set to the list; ra / sp / v0 are set at the end).
+- No switch (the same decisions): g85's key hash is a 32-bit FNV (the key's 52 words are compared in full after it); the
+  ground view's slot age read once, not per slot.
+- coll115 (no switch: its answers made the original's where they were not): a walk whose segment ends are not small (finite,
+  below 2^61) goes to the original walk (round 115's unexplained route 6 differences, below; `ends not small` in [coll115]).
+- Logs: `SOTC_COLL115_LOG=1` adds `[coll119t]` (each touched call's host time by its switch's state: coll115's walks by
+  walk119, ClipCollisionDirectCallBack by part119, the finder clips by view119, the keep pass by view119, the work flushes by
+  flush119), `[view119c]` (views, entries made, tested, thrown out) and `[view119]` (keep tests, not called). Checks:
+  `SOTC_VIEW119_CHECK=1` (nothing skipped; each prediction against the call's answer: the clip's v0 and f0, clipKeep's v0),
+  `SOTC_PART119_CHECK=1` (each raw-row transform against the clamped one, FastCheck collision.part119), and round 115's
+  `SOTC_COLL115_CHECK=2` (each walk both ways) for walk119.
+
+### Checks (Vita3K, every touched answer against the original's in the same state)
+
+| run | build | what | compared | differ |
+|---|---|---|---|---|
+| runsb/chkR1, route 6 1300 s | p1 | coll115 walks (walk119), `SOTC_COLL115_CHECK=2` | 666 548 direct + 367 055 object array | 0 hit / no hit; 1 other surface at the same point (0.0001 mm); hit points within 0.12 mm |
+| runsb/chkR1 / runs/chkV3, route 6 | p1 / p3 | part119's raw-row transforms | 4.37 M / 7.90 M | 0 |
+| runs/chkV2 / runs/chkV3, route 6 | p2 / p3 | the keep pass's first-return predictions / the clips' plane rejections, `SOTC_VIEW119_CHECK=1` | 244 002 / 715 042 keep tests (459 018 predicted); 1.93 M clip rejections | 0 / 0 |
+| runsb/chkR9, route 6 900 s | p9 | all of it | 483 010 + 218 470 walks; ~6.0 M clip and 1.52 M keep checks; 3.08 M transforms | walks: **6 hit / no hit + 1 other surface (3.73 m)**, all AI path tests with an end at +-FLT_MAX (frames 1 358-2 937, after the load); the rest 0 |
+| runsb/chkR10, route 6 900 s | p10 | all of it (ends not small to the original) | 514 747 + 238 808 walks (16 sent to the original); 1.76 M clip and 1.62 M keep checks; 3.21 M transforms | 0 hit / no hit; 1 other surface at the same point (Wander on a triangle edge, the camera filter's ray); the rest 0 |
+| runsb/chkL10, the altar 600 s | p10 | all of it | 137 331 + 52 921 walks; 476 468 clip and 467 256 keep checks; 1.56 M transforms | 0 |
+| runsb/chkS10, the console card's shrine save 600 s | p10 | all of it | 242 405 + 29 531 walks; 1.02 M clip and 497 670 keep checks; 4.31 M transforms | walks: **1 hit / no hit** (frame 10 462: a camera visibility ray, coll115 hits a surface at y 9.000 the original misses, at a triangle's edge); the rest 0 |
+| runs/chkA10, the attract demo 1500 s (riding) | p10 | all of it | 513 829 + 453 503 walks (2.5 cycles, riding included); 1.68 M clip and 1.46 M keep checks; 4.85 M transforms | 0; hit points within 0.0007 mm |
+| runsb/smkR14 / runs/smkS15, route 6 700 s / the shrine save 600 s, **the shipped defaults** (the four off) | p14 / p15 | coll115 walks | 352 453 + 155 118 / 357 539 + 38 822 | 0 hit / no hit; 1 tie at the same point on route 6 |
+| runsb/smkR15, route 6 700 s, the four on (shipped build) | p15 | all of it | 554 208 + 166 763 walks; 1.25 M clip and 489 188 keep checks; 3.57 M transforms | walks: **1 hit / no hit** (frame 5 836, an any-surface filter's test: coll115 hits a surface at an edge the original misses); the rest 0 |
+
+The FLT_MAX ends are round 115's unexplained route 6 differences (5 hit / no hit and one other surface 7.07 m in frames
+1 079-2 879 of its first build's first run): pathJudgeFunc's tests from the AI's path work right after a load, with the
+target point not yet set (+-FLT_MAX, 8e27, 2e17). The PS2's FPU / VU0 clamp there; coll115's plain floats made Inf / NaN at the
+splits and in the leaves' piece. coll115 now hands any walk whose ends are not small (finite, below 2^61) to the original
+(`ends not small` in [coll115]: 12-16 a run on route 6, all in its first ~3 000 frames). The one surface tie per ~500 000
+walks (the same point, the neighbouring triangle across an edge) is coll115's own (plain-float piece ends at the splits); this
+round's walk visits the same leaves in the same order.
+
+Those two edge hits (one in ~250 000-550 000 walks, both with walk119 on; none in the ~0.9 M walks of the shipped defaults' and
+walk119-off runs, too few to tell them apart: walk119 visits the same nodes and leaves in the same order by construction) and
+the surface ties are what is left of coll115's "sub-millimetre" piece: its walk clips the segment at the
+splits with plain floats, which on the game thread run in round toward zero (ps2SetEeFloatingPointMode), where the
+original's lowOld / highOld use FPU_SUB_S, ps2FpuDivide (round to nearest, with its FCR31 flags) and the VU0 lerp; and its
+compare key ordered -0 below +0. Making the piece bit for bit the original's (those operations, the PS2 compare key, the ends'
+w as stored) was tried (p12, r119/exactclip-attempt.diff): its first route 6 check showed an AI path test (an end 3 700 units
+away) that the original hits and it did not within the first 1 300 frames, so it was taken out again; next round's item.
+
+### Measured (Vita3K 222 MHz)
+
+Each touched call's host time by its switch's state, in the same run (`[coll119t]`, t119.py; the in-run A/B rotating
+`r119all,walk119,part119,view119,flush119` every 60 frames, so each switch is off about a third of the time):
+
+| run | call | on | off | off minus on |
+|---|---|---|---|---|
+| runs/abA8, attract riding (6 cycles, 60 000 frames) | coll115 walks (walk119) | 16.84 us x 834 348 | 17.23 us | +0.38 us (2.2%) |
+| | ClipCollisionDirectCallBack (part119) | 142.6 us x 263 322 | 145.0 us | +2.3 us (1.6%) |
+| | ClipCollisionFinder(CallBack) (view119) | 33.4 us x 378 099 | 34.2 us | +0.7 us (2.2%) |
+| | ClipCollisionFinderWithKeep (view119) | 122.1 us x 68 740 | 132.3 us | +10.2 us (7.7%) |
+| | FlushCollisionWorkByWorkStruct (flush119) | 21.6 us x 138 976 | 23.8 us | +2.3 us (9.4%) |
+| runsb/abR7, route 6 from 4 300 (66 600 frames, p7) | coll115 walks | 15.37 us x 1 129 555 | 16.16 us | +0.78 us (4.8%) |
+| | the finder clips | 31.7 us x 504 395 | 32.7 us | +1.0 us (3.1%) |
+| | the keep pass | 70.0 us x 89 756 | 73.6 us | +3.6 us (4.9%) |
+
+At their rates that is ~0.11 ms a frame of Vita3K host time riding and ~0.08 on route 6 (plus part119 / flush119 there).
+The whole frame in the same runs (ab119.py, matched by draws, off minus on, the game thread = frame - wait - sched):
+
+| run | frames a state | r119all | walk119 | part119 | view119 | flush119 |
+|---|---|---|---|---|---|---|
+| runsb/abA4, attract riding (4 cycles, p4) | ~2 500 | -0.10 | -0.20 | +0.47 | +1.03 | +0.75 |
+| runs/abA8, attract riding (6 cycles, p8, log on) | ~4 600 | -0.49 | -0.70 | -0.04 | -0.55 | -0.91 |
+| runsb/abR7, route 6 from 4 300 (p7, log on) | ~5 400 | -0.16 | -0.11 | +0.07 | +0.03 | -0.16 |
+| runs/abR5, route 6 from 4 300 (p5, part of a run) | ~800 | +0.03 | -0.34 | +0.25 | -0.24 | -0.61 |
+| runsb/abR11, route 6 from 4 300 (p11, only r119all rotating: half the frames each) | ~6 700 | -0.21 | | | | |
+| runs/abA11, attract riding (5 cycles, p11, only r119all rotating) | ~13 800 | **+0.14** (frame +0.20) | | | | |
+
+The frame A/B is within its noise: r119all is negative in four of six runs, but the two runs with only r119all rotating
+(half the frames each) give riding +0.14 (13 800 frames a state, the largest sample) and route 6 -0.21 (riding: the same switch +1.03 in one run and -0.55 in the next; with five states each
+state's windows are a sixth of the run): it cannot see 0.1 ms.
+
+**Reading it, and why they ship off.** Every touched call is faster in the same run (walks ~5%, the segment queries ~3%, the finder clips ~3%, the
+keep pass ~3-5%, the work flushes ~8%), all exact, but together that is ~0.1-0.15 ms a frame of Vita3K host time, below the
+in-run A/B's frame noise (+-0.2 ms on route 6 with ~5 400 frames a state, +-1 ms riding), and r119all's row leaned the
+other way in four of six runs (-0.1..-0.5 ms: the frame slightly faster with the four off), while the largest riding run
+(only r119all rotating, 13 800 frames a state) gives +0.14 ms of the game thread (+0.20 frame), in line with the per-call sum, which the per-call times do not
+explain (every touched call is timed and faster) and noise may. With route 6 at -0.21 in the same kind of run, the rule
+(default on only with a measured win) is not met everywhere: the four ship off; env-console.txt turns them on and rotates `r119all`, so the console's A/B, where the contact sets' fewer
+dependent loads should matter most, decides. The coll115 fix and g85's hash are on (exact, no switch). The planned host object table does
+not fit the rule as hoped: the objects' and parts' positions are read live per query in the original (characters animate
+between queries in the same frame), so a table kept across queries needs the same reads to be validated; what a query pays
+is the guest-exact bookkeeping per object and part (round 49 already batches the empty parts) and the two transforms per part
+(now without clamps). The camera's six rays as one bundle needs the camera's code rewritten around it (round 115's note).
+What is left that is large: the object loop's guest-word traffic (keeping the frame's part index and matrix pointers in host
+registers between guest calls, written before each guest call and at the end, as round 49 does for empty parts), the
+cylinder's exact path (85% of its samples, every near part), ClipCollisionDB's own preamble for the coll115 candidates and the
+ObjAry one-by-one surfaces, and the recompiled callers' attribute scans (player_HellDangerDetect: 220 GetCollisionDBAttributeAdr
+calls a frame on the plain).
+
+**Console.** build/agent-scratch/celosia-r119.vpk with r119/env-console.txt (round 115's flags, `SOTC_COLL115_LOG=1`,
+`SOTC_FLUSH119=1 SOTC_WALK119=1 SOTC_PART119=1 SOTC_VIEW119=1`, `SOTC_AB_FLAG=r119all,coll115`): read with `build/agent-scratch/r119/read119.sh err.txt <from>` and
+`python3 build/agent-scratch/r119/t119.py err.txt --from <frame>` (`--riding` needs SOTC_POS_LOG). r119all's row positive =
+this round's gain (then they go on by default); the [coll119t] off-minus-on per call is the cleaner number (console memory latency is where the contact
+sets' fewer dependent loads should show).
