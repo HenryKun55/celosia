@@ -66,8 +66,8 @@ namespace coll115
         {
             if (const char *e = std::getenv("SOTC_COLL115_MB"))
                 capBytes = static_cast<size_t>(std::atof(e) * 1048576.0);
-            log = std::getenv("SOTC_COLL115_LOG") && std::atoi(std::getenv("SOTC_COLL115_LOG")) != 0;
-            if (const char *e = std::getenv("SOTC_COLL115_CHECK"))
+            log = ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0;
+            if (const char *e = ps2_diag::env("SOTC_COLL115_CHECK"))
                 check = std::atoi(e);
         }
     };

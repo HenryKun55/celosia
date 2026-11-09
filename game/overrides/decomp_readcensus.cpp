@@ -19,6 +19,7 @@
 //        animation record's time and phase words (+0x40 / +0x44 / +0x7c of
 //        +0x20) and the destination palette.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -219,7 +220,7 @@ namespace decomp_readcensus
 
     void install(PS2Runtime &runtime)
     {
-        const char *which = std::getenv("SOTC_READ_CENSUS");
+        const char *which = ps2_diag::env("SOTC_READ_CENSUS");
         if (!which)
             return;
         if (!std::strcmp(which, "tex") && runtime.hasFunction(kTexReset))

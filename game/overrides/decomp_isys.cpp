@@ -26,6 +26,7 @@
 // recompiled code has at that call (its return label may resume there
 // after a blocking WaitSema).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "ps2_syscalls.h"
@@ -78,7 +79,7 @@ namespace decomp_isys
     // SOTC_ISYS_STATS=1 (measuring): how the lock was found, every 100 000 calls.
     void stat(int how)
     {
-        static const bool on = std::getenv("SOTC_ISYS_STATS") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_ISYS_STATS") != nullptr;
         if (!on)
             return;
         static uint64_t n[3] = {};

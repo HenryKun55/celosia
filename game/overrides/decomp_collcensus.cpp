@@ -5,6 +5,7 @@
 // are kept by (function, return address), and every wrapped call by
 // function. Printed every 600 game frames ("[collcensus] ...").
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include <algorithm>
 #include <chrono>
@@ -238,8 +239,8 @@ namespace decomp_collcensus
     }
     void install(PS2Runtime &runtime)
     {
-        g_on = std::getenv("SOTC_COLL_CENSUS") != nullptr;
-        decomp_collision::g_statsOn = std::getenv("SOTC_COLLISION_STATS") != nullptr;
+        g_on = ps2_diag::env("SOTC_COLL_CENSUS") != nullptr;
+        decomp_collision::g_statsOn = ps2_diag::env("SOTC_COLLISION_STATS") != nullptr;
         if (g_on)
         {
             g_queries.reserve(256);

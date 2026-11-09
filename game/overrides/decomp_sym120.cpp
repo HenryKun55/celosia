@@ -34,6 +34,7 @@
 // SOTC_SYM120_LOG=1: "[sym120]" every 600 frames: calls, sheets, entries,
 // lookups (found), imports looked at / retried / resolved.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -90,7 +91,7 @@ namespace decomp_sym120
     {
         if (__builtin_expect(g_log < 0, 0))
         {
-            const char *e = std::getenv("SOTC_SYM120_LOG");
+            const char *e = ps2_diag::env("SOTC_SYM120_LOG");
             g_log = e && std::atoi(e) != 0;
         }
         return g_log != 0;
@@ -319,7 +320,7 @@ namespace decomp_sym120
             // the clock move (charging nothing left the boot waiting for good).
             (void)runtime->m_eeClock.charge(40u * (len + 2u));
         }
-        static const bool check = std::getenv("SOTC_SYM120_CHECK") && std::atoi(std::getenv("SOTC_SYM120_CHECK")) != 0;
+        static const bool check = ps2_diag::env("SOTC_SYM120_CHECK") && std::atoi(ps2_diag::env("SOTC_SYM120_CHECK")) != 0;
         if (check)
         {
             // The original on the same state (it writes nothing but its frame): v0 compared.

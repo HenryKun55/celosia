@@ -1,4 +1,5 @@
 #include "runtime/host_menu.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/native_recorder.h"
 #include "runtime/native_tuning.h"
 
@@ -371,10 +372,10 @@ namespace
             // Round 77: under an A/B of the cuts (SOTC_AB_FLAG with a sac*
             // name) the sac_* values are the rotation's, not the player's:
             // the file's own value kept (or the key left out).
-            static const bool abCuts = std::getenv("SOTC_AB_FLAG") && std::strstr(std::getenv("SOTC_AB_FLAG"), "sac");
+            static const bool abCuts = ps2_diag::env("SOTC_AB_FLAG") && std::strstr(ps2_diag::env("SOTC_AB_FLAG"), "sac");
             // Round 124: the same under the presets' rotation (gfx124preset)
             // for the preset and every item it sets.
-            static const bool abGfx = std::getenv("SOTC_AB_FLAG") && std::strstr(std::getenv("SOTC_AB_FLAG"), "gfx124preset");
+            static const bool abGfx = ps2_diag::env("SOTC_AB_FLAG") && std::strstr(ps2_diag::env("SOTC_AB_FLAG"), "gfx124preset");
             if ((abCuts && !std::strncmp(item.key, "sac_", 4)) || (abGfx && (item.inPreset || item.number == &native_renderer::Tuning::preset)))
             {
                 const KeptValue *file = findKept(g_fileValues, item.key);

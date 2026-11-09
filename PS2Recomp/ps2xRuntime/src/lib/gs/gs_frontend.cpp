@@ -1,4 +1,5 @@
 #include "runtime/gs/gs_direct_frame.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/native_renderer.h"
 #include <chrono>
 #include <set>
@@ -1182,7 +1183,7 @@ void GS::writeRegisterPacked(uint8_t regDesc, uint64_t lo, uint64_t hi)
             if (log && (++n % 50000u) == 0u)
                 std::fprintf(stderr, "[fogf] z %.0f f %u\n", vtx.z, static_cast<unsigned>(f));
         }
-        if (std::getenv("SOTC_BLOOM_LOG"))
+        if (ps2_diag::env("SOTC_BLOOM_LOG"))
             bloomAdcCount(activeContext(), m_prim.fge ? 1u : 0u, adk);
         vertexKick(!adk);
         break;

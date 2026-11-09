@@ -1,5 +1,6 @@
 // The decompiled functions' registry and their differential test (see sotc_decomp.h).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -146,13 +147,13 @@ namespace sotc_decomp
 
         void checkedCallImpl(Checked &c, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
-            static const uint64_t first = std::getenv("SOTC_DIFFTEST_FIRST") ? std::strtoull(std::getenv("SOTC_DIFFTEST_FIRST"), nullptr, 0) : 200u;
-            static const uint64_t every = std::max<uint64_t>(1u, std::getenv("SOTC_DIFFTEST_EVERY") ? std::strtoull(std::getenv("SOTC_DIFFTEST_EVERY"), nullptr, 0) : 1000u);
+            static const uint64_t first = ps2_diag::env("SOTC_DIFFTEST_FIRST") ? std::strtoull(ps2_diag::env("SOTC_DIFFTEST_FIRST"), nullptr, 0) : 200u;
+            static const uint64_t every = std::max<uint64_t>(1u, ps2_diag::env("SOTC_DIFFTEST_EVERY") ? std::strtoull(ps2_diag::env("SOTC_DIFFTEST_EVERY"), nullptr, 0) : 1000u);
             const uint64_t n = c.calls.fetch_add(1, std::memory_order_relaxed);
             // Too deep (a chain of checked functions reached from each
             // other's legs): the recompiled code, unchecked.
             // Round 126: SOTC_DIFFTEST_DEPTH=<1..3> (default 3): how deep checks nest (each level holds two 32 MB copies).
-            static const int maxDepth = std::getenv("SOTC_DIFFTEST_DEPTH") ? std::max(1, std::min(kMaxDepth, std::atoi(std::getenv("SOTC_DIFFTEST_DEPTH")))) : kMaxDepth;
+            static const int maxDepth = ps2_diag::env("SOTC_DIFFTEST_DEPTH") ? std::max(1, std::min(kMaxDepth, std::atoi(ps2_diag::env("SOTC_DIFFTEST_DEPTH")))) : kMaxDepth;
             if (g_depth >= maxDepth || (n >= first && n < c.next))
             {
                 c.recompiled(rdram, ctx, runtime);
@@ -178,7 +179,7 @@ namespace sotc_decomp
             ++g_depth;
             // SOTC_DIFFTEST_DRAWS=1: the native renderer's draws of each leg
             // (native_renderer::setDrawTap) compared too.
-            static const bool drawsOn = std::getenv("SOTC_DIFFTEST_DRAWS") != nullptr;
+            static const bool drawsOn = ps2_diag::env("SOTC_DIFFTEST_DRAWS") != nullptr;
             const bool draws = drawsOn && depth == 0; // the outermost check's draws only
             static std::vector<uint64_t> drawsNative, drawsRecompiled;
             drawsNative.clear();
@@ -188,11 +189,11 @@ namespace sotc_decomp
             // SOTC_DIFFTEST_CONTROL=1: the recompiled code in both runs, for
             // the mismatches that come from the state, not the rewrite (a
             // function whose result depends on the clock, interrupts).
-            static const bool control = std::getenv("SOTC_DIFFTEST_CONTROL") != nullptr;
+            static const bool control = ps2_diag::env("SOTC_DIFFTEST_CONTROL") != nullptr;
             const PS2Runtime::RecompiledFunction leg = control ? c.recompiled : c.function->native;
             // SOTC_DIFFTEST_CYCLES=1 (checking, round 15): the EE cycles each
             // leg charges (the game's time step comes from the EE clock).
-            static const bool cyclesOn = std::getenv("SOTC_DIFFTEST_CYCLES") != nullptr;
+            static const bool cyclesOn = ps2_diag::env("SOTC_DIFFTEST_CYCLES") != nullptr;
             const bool cycles = cyclesOn && depth == 0;
             static uint64_t cyclesNative = 0, cyclesRecompiled = 0;
             const uint64_t clock0 = runtime->m_eeClock.now();
@@ -207,7 +208,7 @@ namespace sotc_decomp
             // and another that copies the stale slot into RAM (round 47's leak)
             // shows as a mismatch whatever the caller held; a mark left in a
             // register at the end is the caller's value put back.
-            static const bool spoison = std::getenv("SOTC_DIFFTEST_SPOISON") != nullptr;
+            static const bool spoison = ps2_diag::env("SOTC_DIFFTEST_SPOISON") != nullptr;
             const bool poison = spoison && !c.function->switches;
             auto mark = [](int r) { return 0x5E5E5E5E5E5E0000ull | static_cast<uint64_t>(r); };
             if (poison)
@@ -242,7 +243,7 @@ namespace sotc_decomp
             // SOTC_DIFFTEST_SAMECLOCK=1 (round 48, checking): the recompiled leg
             // starts at the EE clock the native one started at (a sub-thread a
             // wake runs reads the timer: the legs saw different times).
-            static const bool sameClock = std::getenv("SOTC_DIFFTEST_SAMECLOCK") != nullptr;
+            static const bool sameClock = ps2_diag::env("SOTC_DIFFTEST_SAMECLOCK") != nullptr;
             if (sameClock && depth == 0)
             {
                 runtime->m_eeClock.cycle = clockBase;
@@ -258,7 +259,7 @@ namespace sotc_decomp
             static const std::vector<int> legSwitches = []
             {
                 std::vector<int> out;
-                const char *list = std::getenv("SOTC_DIFFTEST_SWITCH");
+                const char *list = ps2_diag::env("SOTC_DIFFTEST_SWITCH");
                 for (int i = 0; list && i < kSwitchCount; ++i)
                 {
                     std::string name = kSwitchEnv[i] + 5; // past "SOTC_"
@@ -354,7 +355,7 @@ namespace sotc_decomp
             // SOTC_DIFFTEST_ALLREGS=1: every register for every function (two
             // generators' code for the same function: SOTC_LEAN_CHECK with the
             // lean copies from the other generator).
-            static const bool allRegs = std::getenv("SOTC_DIFFTEST_ALLREGS") != nullptr;
+            static const bool allRegs = ps2_diag::env("SOTC_DIFFTEST_ALLREGS") != nullptr;
             if (!bad && (c.function->switches || allRegs))
             {
                 // Every register: the other context's set was loaded.
@@ -405,7 +406,7 @@ namespace sotc_decomp
             // Round 126: SOTC_DIFFTEST_FTOL=<relative> (port natives, not bit-exact): a word of f0 or RAM that differs
             // passes when both are finite floats within that relative difference (or 1e-5 absolute); the largest
             // relative difference accepted is reported with each check line ([difftest] ftol ...).
-            static const float ftol = std::getenv("SOTC_DIFFTEST_FTOL") ? std::strtof(std::getenv("SOTC_DIFFTEST_FTOL"), nullptr) : 0.0f;
+            static const float ftol = ps2_diag::env("SOTC_DIFFTEST_FTOL") ? std::strtof(ps2_diag::env("SOTC_DIFFTEST_FTOL"), nullptr) : 0.0f;
             auto floatClose = [&](uint32_t a, uint32_t b, double &rel)
             {
                 float fa, fb;
@@ -481,7 +482,7 @@ namespace sotc_decomp
                 std::snprintf(what, sizeof(what), "%s %08x recompiled %02x native %02x", where, base + static_cast<uint32_t>(i), live[i], native[i]);
                 report(c, input, what);
                 // SOTC_DIFFTEST_DUMP=1: the next differing bytes too.
-                static const bool dump = std::getenv("SOTC_DIFFTEST_DUMP") != nullptr;
+                static const bool dump = ps2_diag::env("SOTC_DIFFTEST_DUMP") != nullptr;
                 for (size_t j = i + 1, shown = 0; dump && j < size && shown < 16; ++j)
                     if (live[j] != native[j])
                     {
@@ -498,8 +499,8 @@ namespace sotc_decomp
                 // of the dead stack right below sp compared too (the callee's
                 // frame and its callees' frames, which a caller may read later
                 // as uninitialised locals).
-                static const uint32_t deadChecked = std::getenv("SOTC_DIFFTEST_DEADSTACK")
-                                                        ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_DIFFTEST_DEADSTACK"), nullptr, 0))
+                static const uint32_t deadChecked = ps2_diag::env("SOTC_DIFFTEST_DEADSTACK")
+                                                        ? static_cast<uint32_t>(std::strtoul(ps2_diag::env("SOTC_DIFFTEST_DEADSTACK"), nullptr, 0))
                                                         : 0u;
                 const uint32_t low = sp > kDeadStack ? sp - kDeadStack : 0u;
                 const uint32_t top = sp - std::min(deadChecked, sp - low);
@@ -511,7 +512,7 @@ namespace sotc_decomp
             static const std::vector<std::pair<uint32_t, uint32_t>> ignored = []
             {
                 std::vector<std::pair<uint32_t, uint32_t>> out;
-                if (const char *list = std::getenv("SOTC_DIFFTEST_IGNORE"))
+                if (const char *list = ps2_diag::env("SOTC_DIFFTEST_IGNORE"))
                     for (const char *p = list; *p;)
                     {
                         char *end = nullptr;
@@ -532,7 +533,7 @@ namespace sotc_decomp
             compareMemory(rdram, nativeAfter.ram.data(), PS2_RAM_SIZE, 0u, "ram");
             compareMemory(scratch, nativeAfter.scratch.data(), PS2_SCRATCHPAD_SIZE, 0x70000000u, "scratchpad");
 #if !defined(__vita__)
-            static const bool watch = std::getenv("SOTC_DIFFTEST_WATCH") != nullptr;
+            static const bool watch = ps2_diag::env("SOTC_DIFFTEST_WATCH") != nullptr;
             if (bad && watch && depth == 0 && !c.function->switches && std::memcmp(rdram, nativeAfter.ram.data(), PS2_RAM_SIZE) != 0)
             {
                 size_t i = 0;
@@ -625,7 +626,7 @@ namespace sotc_decomp
         };
         uint64_t callStatsPeriod()
         {
-            static const uint64_t p = std::getenv("SOTC_CALLGUEST_STATS") ? std::strtoull(std::getenv("SOTC_CALLGUEST_STATS"), nullptr, 0) : 0u;
+            static const uint64_t p = ps2_diag::env("SOTC_CALLGUEST_STATS") ? std::strtoull(ps2_diag::env("SOTC_CALLGUEST_STATS"), nullptr, 0) : 0u;
             return p;
         }
         bool isNative(PS2Runtime::RecompiledFunction fn)
@@ -840,10 +841,10 @@ namespace sotc_decomp
         g_behindHook.push_back(address);
         if (listed(std::getenv("SOTC_DECOMP_SKIP"), f->name))
             return original;
-        const char *test = std::getenv("SOTC_DIFFTEST");
+        const char *test = ps2_diag::env("SOTC_DIFFTEST");
         if (listed(test, f->name) && g_checkedUsed < kMaxChecked)
         {
-            if (const char *max = std::getenv("SOTC_DIFFTEST_MAX"))
+            if (const char *max = ps2_diag::env("SOTC_DIFFTEST_MAX"))
                 g_maxChecks = std::strtoull(max, nullptr, 0);
             else if (test && std::strcmp(test, "all") == 0)
                 g_maxChecks = 1000u;
@@ -882,7 +883,7 @@ namespace sotc_decomp
         }
         void installProbe(PS2Runtime &runtime)
         {
-            const char *probe = std::getenv("SOTC_DIFFTEST_PROBE");
+            const char *probe = ps2_diag::env("SOTC_DIFFTEST_PROBE");
             if (!probe || !std::strchr(probe, '@'))
                 return;
             const std::string target(probe, std::strchr(probe, '@')), donor(std::strchr(probe, '@') + 1);
@@ -927,7 +928,7 @@ namespace sotc_decomp
                 {"SOTC_OAN106_CHECK", "manager_sub_010AF2A0,manager_sub_010AF4D8,manager_sub_010B06A8"},
                 {"SOTC_AI106_CHECK", "gamecore_sub_013E1520"},
             };
-            std::string names = std::getenv("SOTC_DIFFTEST") ? std::getenv("SOTC_DIFFTEST") : "";
+            std::string names = ps2_diag::env("SOTC_DIFFTEST") ? ps2_diag::env("SOTC_DIFFTEST") : "";
             bool any = false;
             for (const auto &c : kChecks106)
                 if (const char *e = std::getenv(c.env); e && e[0] == '2')
@@ -943,8 +944,8 @@ namespace sotc_decomp
         }
         const auto &checkers = sotc_decomp::checkers();
         const char *skip = std::getenv("SOTC_DECOMP_SKIP");
-        const char *test = std::getenv("SOTC_DIFFTEST");
-        if (const char *max = std::getenv("SOTC_DIFFTEST_MAX"))
+        const char *test = ps2_diag::env("SOTC_DIFFTEST");
+        if (const char *max = ps2_diag::env("SOTC_DIFFTEST_MAX"))
             g_maxChecks = std::strtoull(max, nullptr, 0);
         else if (test && std::strcmp(test, "all") == 0)
             g_maxChecks = 1000u;
@@ -992,13 +993,13 @@ namespace sotc_decomp
             }
             ++replaced;
         }
-        if (const char *ab = std::getenv("SOTC_AB"))
+        if (const char *ab = ps2_diag::env("SOTC_AB"))
         {
             g_abPeriod = std::max<uint64_t>(2u, std::strtoull(ab, nullptr, 10));
             g_abRuntime = &runtime;
             g_abSpr = ps2_fast_paths::g_sprFast;
             g_abPrefetch = ps2_fast_paths::g_dmaPrefetch;
-            g_abFastPaths = std::getenv("SOTC_AB_FASTPATHS") && std::atoi(std::getenv("SOTC_AB_FASTPATHS")) != 0;
+            g_abFastPaths = ps2_diag::env("SOTC_AB_FASTPATHS") && std::atoi(ps2_diag::env("SOTC_AB_FASTPATHS")) != 0;
             sotc_prof::noteAb(true);
             std::cerr << "[ab] SOTC_AB: " << g_ab.size() << " functions" << (g_abFastPaths ? " and the runtime's fast paths" : "") << " alternate every " << g_abPeriod << " frames" << std::endl;
         }

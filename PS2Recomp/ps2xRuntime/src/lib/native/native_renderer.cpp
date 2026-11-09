@@ -2,6 +2,7 @@
 // time it is used. macOS: Metal, or OpenGL with SOTC_NATIVE_GL=1 (to check
 // the GL path against Metal); the Vita: OpenGL (vitaGL); elsewhere none.
 #include "native_backend.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/native_tuning.h"
 #include "runtime/native_recorder.h"
 #include "ThreadNaming.h"
@@ -184,7 +185,7 @@ namespace native_renderer
                 d.bloomSameFrame = std::atoi(std::getenv("SOTC_BLOOM_SAMEFRAME")) != 0;
             if (on("SOTC_HOLD_FRAMES"))
                 d.holdFrames = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_HOLD_FRAMES")), 0, 8));
-            d.subsysProf = on("SOTC_SUBSYS_PROF") && std::atoi(std::getenv("SOTC_SUBSYS_PROF")) != 0;
+            d.subsysProf = on("SOTC_SUBSYS_PROF") && std::atoi(ps2_diag::env("SOTC_SUBSYS_PROF")) != 0;
             d.fastHooks = !on("SOTC_NATIVE_SLOWHOOKS");
             if (on("SOTC_PACKET_QUICK"))
                 d.packetQuickCheck = std::atoi(std::getenv("SOTC_PACKET_QUICK")) != 0;
@@ -1483,8 +1484,12 @@ namespace native_renderer
                     sceKernelChangeThreadPriority(t.id, want);
             }
         }
+        // Round 130: sample / line / lastFrame from the frame log's thread (log76) or, with log76 off, the game
+        // thread; an A/B of log76 changes hands between windows.
+        std::mutex g_sampleMutex;
         void sample()
         {
+            std::lock_guard<std::mutex> sampleLock(g_sampleMutex);
             const int n = g_slotCount.load(std::memory_order_acquire);
             for (int k = 0; k < kKinds; ++k)
                 g_lastCpuUs[k] = g_lastPreempts[k] = g_lastMoves[k] = 0;
@@ -1511,6 +1516,7 @@ namespace native_renderer
         }
         int line(char *out, size_t room, double frames, bool reset, bool lastFrame)
         {
+            std::lock_guard<std::mutex> sampleLock(g_sampleMutex);
             const uint64_t *cpu = lastFrame ? g_lastCpuUs : g_cpuUs, *pre = lastFrame ? g_lastPreempts : g_preempts, *mov = lastFrame ? g_lastMoves : g_moves;
             if (lastFrame)
                 frames = 1.0;
@@ -1550,6 +1556,7 @@ namespace native_renderer
         // Round 76: line(..., lastFrame = true)'s numbers, and its text from them.
         void lastFrame(Snapshot &s)
         {
+            std::lock_guard<std::mutex> sampleLock(g_sampleMutex);
             s.kinds = 0;
             for (int k = 0; k < kKinds; ++k)
             {
@@ -1894,7 +1901,7 @@ namespace native_renderer
     }
     bool check105On()
     {
-        static const bool on = std::getenv("SOTC_LOG105_CHECK") && std::atoi(std::getenv("SOTC_LOG105_CHECK")) != 0;
+        static const bool on = ps2_diag::env("SOTC_LOG105_CHECK") && std::atoi(ps2_diag::env("SOTC_LOG105_CHECK")) != 0;
         return on;
     }
     int fmt105(char *out, size_t room, const char *format, ...)
@@ -2314,7 +2321,7 @@ namespace native_renderer
     std::atomic<const void *> g_raceHolderThread{nullptr};
     bool raceCheckOn()
     {
-        static const bool on = std::getenv("SOTC_RACE_CHECK") != nullptr; // (first use is after the Vita's env.txt)
+        static const bool on = ps2_diag::env("SOTC_RACE_CHECK") != nullptr; // (first use is after the Vita's env.txt)
         return on;
     }
     thread_local int t_raceNest = 0; // this thread's own nesting (beginFrame -> uploads, drawMulti -> draw)
@@ -2376,7 +2383,7 @@ namespace native_renderer
     // ones, the ids with a top bit set; textures), every 60 frames.
     struct UploadStats
     {
-        bool on = std::getenv("SOTC_NATIVE_LOG_UPLOADS") != nullptr;
+        bool on = ps2_diag::env("SOTC_NATIVE_LOG_UPLOADS") != nullptr;
         uint64_t frames = 0, staticMeshes = 0, staticBytes = 0, frameMeshes = 0, frameBytes = 0, textures = 0, textureBytes = 0, draws = 0;
     } g_uploads;
     std::vector<uint64_t> *g_drawTap = nullptr;
@@ -2391,7 +2398,7 @@ namespace native_renderer
     // palettes too (some are made once a frame: only the first leg has them).
     bool tapMeshes()
     {
-        static const bool on = std::getenv("SOTC_DIFFTEST_DRAWS") && std::atoi(std::getenv("SOTC_DIFFTEST_DRAWS")) >= 2;
+        static const bool on = ps2_diag::env("SOTC_DIFFTEST_DRAWS") && std::atoi(ps2_diag::env("SOTC_DIFFTEST_DRAWS")) >= 2;
         return on;
     }
     uint64_t tapHash(uint64_t h, const void *p, size_t n)
@@ -2608,7 +2615,7 @@ namespace native_renderer
         g_drawTap->push_back(h);
         // SOTC_DIFFTEST_DRAWS_LOG=1: the first draws of each leg, readable (debugging the tap).
         // =<n>: the draws from the n-th on.
-        static const long logFrom = std::getenv("SOTC_DIFFTEST_DRAWS_LOG") ? std::atol(std::getenv("SOTC_DIFFTEST_DRAWS_LOG")) : -1;
+        static const long logFrom = ps2_diag::env("SOTC_DIFFTEST_DRAWS_LOG") ? std::atol(ps2_diag::env("SOTC_DIFFTEST_DRAWS_LOG")) : -1;
         if (logFrom >= 0 && g_drawTap->size() >= static_cast<size_t>(logFrom) && g_drawTap->size() < static_cast<size_t>(logFrom) + 4u)
         {
             uint64_t ch = tapHash(0xcbf29ce484222325ull, clip, 64), lh = tapHash(0xcbf29ce484222325ull, s.light, sizeof(s.light));

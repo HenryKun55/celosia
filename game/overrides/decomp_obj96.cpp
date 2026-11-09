@@ -40,6 +40,7 @@
 // SOTC_OBJ96_LOG=<n>: every n game frames the objects woken by the pass with
 // their wake time ([obj96] lines, the costliest first; host clock per wake).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -80,7 +81,7 @@ namespace obj96
             // woken once in SOTC_OBJ96_PERIOD_BIG (2) frames (1: never skipped).
             float maxRBig = envF("SOTC_OBJ96_MAXR_BIG", 2.0f);
             uint32_t periodBig = static_cast<uint32_t>(std::max(1.0f, envF("SOTC_OBJ96_PERIOD_BIG", 2.0f)));
-            uint64_t logEvery = std::getenv("SOTC_OBJ96_LOG") ? std::strtoull(std::getenv("SOTC_OBJ96_LOG"), nullptr, 10) : 0u;
+            uint64_t logEvery = ps2_diag::env("SOTC_OBJ96_LOG") ? std::strtoull(ps2_diag::env("SOTC_OBJ96_LOG"), nullptr, 10) : 0u;
         };
         const Params &params()
         {

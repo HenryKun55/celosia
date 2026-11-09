@@ -46,6 +46,7 @@
 // each compare. SOTC_MOTION=0 (or a jal site naming another function, checked
 // once): the recompiled code.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -190,7 +191,7 @@ namespace decomp_charageo
         Seen g_seen[64];
         struct Stats
         {
-            bool on = std::getenv("SOTC_SAC_STATS") != nullptr;
+            bool on = ps2_diag::env("SOTC_SAC_STATS") != nullptr;
             uint64_t calls = 0, far = 0, skipped = 0, from = 0;
             uint64_t bucket[6] = {}; // distance < 10, 20, 40, 80, 160, more
         };
@@ -286,7 +287,7 @@ namespace decomp_charageo
     {
         uint32_t every()
         {
-            static const uint32_t n = std::getenv("SOTC_CHARGEO80_LOG") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_CHARGEO80_LOG"))) : 0u;
+            static const uint32_t n = ps2_diag::env("SOTC_CHARGEO80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_CHARGEO80_LOG"))) : 0u;
             return n;
         }
         uint64_t nowUs()

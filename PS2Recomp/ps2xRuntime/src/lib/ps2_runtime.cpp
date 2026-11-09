@@ -1,6 +1,7 @@
 #if defined(__APPLE__)
 #include "GLFW/glfw3.h"
 #endif
+#include "runtime/ps2_diag.h"
 #include "runtime/gs/gs_hw_backend.h"
 #include <set>
 #include <map>
@@ -3670,7 +3671,7 @@ void PS2Runtime::run()
                 // buffers 336 / 448 / 480 / 488 / 510; exact with
                 // PS2X_GS_GPU=0) and the OpenGL renderer's targets of the
                 // frame native_N shows (bloom_N_<stage>.ppm, _a.pgm alpha).
-                static const bool bloomDump = std::getenv("SOTC_BLOOM_DUMP") && std::atoi(std::getenv("SOTC_BLOOM_DUMP")) != 0;
+                static const bool bloomDump = ps2_diag::env("SOTC_BLOOM_DUMP") && std::atoi(ps2_diag::env("SOTC_BLOOM_DUMP")) != 0;
                 if (bloomDump)
                 {
                     const std::string base = std::string(snapshotDir) + "/";

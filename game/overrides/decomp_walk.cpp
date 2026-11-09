@@ -65,6 +65,7 @@
 // with the registers it has there, the callbacks from their entry before
 // anything is written.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 #include "lines67.h"
 #include "sotc_prof.h"
@@ -490,7 +491,7 @@ namespace decomp_walk
     {
         inline bool on()
         {
-            static const bool v = std::getenv("SOTC_WALK79_LOG") && std::atoi(std::getenv("SOTC_WALK79_LOG")) != 0;
+            static const bool v = ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0;
             return v;
         }
         struct Slot
@@ -1114,7 +1115,7 @@ namespace decomp_walk
         uint64_t g_calls = 0, g_fast = 0, g_checks = 0, g_bad = 0, g_frames = 0;
         int checkMode()
         {
-            static const int v = std::getenv("SOTC_WALK83_CHECK") ? std::atoi(std::getenv("SOTC_WALK83_CHECK")) : 0;
+            static const int v = ps2_diag::env("SOTC_WALK83_CHECK") ? std::atoi(ps2_diag::env("SOTC_WALK83_CHECK")) : 0;
             return v;
         }
         struct Out
@@ -1853,7 +1854,7 @@ namespace decomp_walk
     }
     void glVertexKick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        static const bool glv116 = std::getenv("SOTC_GLV116_LOG") != nullptr;
+        static const bool glv116 = ps2_diag::env("SOTC_GLV116_LOG") != nullptr;
         if (glv116)
             glv116Note(GPR_U32(ctx, 31));
         sotc_decomp::clipNeeded(ctx); // round 61: it reads the whole CLIP register (left in s0)
@@ -2224,7 +2225,7 @@ namespace decomp_walk
             if (!Ram::ok(vs[i].pos, 0x10u))
                 return no(4);
         sotc_decomp::clipNeeded(ctx);
-        static const bool glv116 = std::getenv("SOTC_GLV116_LOG") != nullptr;
+        static const bool glv116 = ps2_diag::env("SOTC_GLV116_LOG") != nullptr;
         __m128 *vf = ctx->vu0_vf;
         const __m128 vf0 = vf[0];
         const uint32_t view = kViewStack + (m.u32(kViewIndex) << 6);
@@ -2481,7 +2482,7 @@ namespace decomp_walk
         R5900Context *ctx = g.ctx;
         Glv117Check &c = g_glv117Check;
         if (c.every < 0)
-            c.every = std::getenv("SOTC_GLV117_CHECK") ? std::atoi(std::getenv("SOTC_GLV117_CHECK")) : 0;
+            c.every = ps2_diag::env("SOTC_GLV117_CHECK") ? std::atoi(ps2_diag::env("SOTC_GLV117_CHECK")) : 0;
         const uint32_t pkt = m.u32(kGl + 4u);
         if (!(c.every > 0 && ++c.quads % static_cast<uint64_t>(c.every) == 0u) || !Ram::ok(pkt, 0x100u))
         {
@@ -2633,7 +2634,7 @@ namespace decomp_walk
     {
         Imm128Stats &st = g_imm128;
         if (st.every < 0)
-            st.every = std::getenv("SOTC_IMM128_CHECK") ? std::atoi(std::getenv("SOTC_IMM128_CHECK")) : 0;
+            st.every = ps2_diag::env("SOTC_IMM128_CHECK") ? std::atoi(ps2_diag::env("SOTC_IMM128_CHECK")) : 0;
         const bool on = sotc_decomp::imm128On() && sotc_decomp::glv117On() && sotc_native::nativeDraws();
         ++st.quads;
         auto calls = [&]
@@ -2704,7 +2705,7 @@ namespace decomp_walk
         if (on && imm128(g, sp, vs, n, prim, haze, nullptr))
         {
             ++st.fast;
-            static const bool log = std::getenv("SOTC_IMM128_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_IMM128_LOG") != nullptr;
             if (log && st.fast % 20000u == 0u)
                 std::fprintf(stderr, "[imm128] quads %llu fast %llu clipped %llu\n", (unsigned long long)st.quads, (unsigned long long)st.fast,
                              (unsigned long long)st.clipped);
@@ -3453,7 +3454,7 @@ namespace decomp_walk
         }
         bool checkOn()
         {
-            static const bool on = std::getenv("SOTC_DRAW95_CHECK") && std::atoi(std::getenv("SOTC_DRAW95_CHECK")) != 0;
+            static const bool on = ps2_diag::env("SOTC_DRAW95_CHECK") && std::atoi(ps2_diag::env("SOTC_DRAW95_CHECK")) != 0;
             return on;
         }
         void report()

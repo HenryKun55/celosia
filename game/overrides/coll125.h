@@ -115,7 +115,7 @@ namespace coll125
     inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kFin125) && !sotc_decomp::onWorkerLane(runtime); }
     inline int checkLevel()
     {
-        static const int v = std::getenv("SOTC_FIN125_CHECK") ? std::atoi(std::getenv("SOTC_FIN125_CHECK")) : 0;
+        static const int v = ps2_diag::env("SOTC_FIN125_CHECK") ? std::atoi(ps2_diag::env("SOTC_FIN125_CHECK")) : 0;
         return v;
     }
 
@@ -243,7 +243,7 @@ namespace coll125
     inline uint64_t g_logFrame = 0;
     inline void log()
     {
-        static const bool want = checkLevel() != 0 || (std::getenv("SOTC_COLL115_LOG") && std::atoi(std::getenv("SOTC_COLL115_LOG")) != 0);
+        static const bool want = checkLevel() != 0 || (ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0);
         const uint64_t frame = sotc_decomp::g_gameFrame;
         if (!want || frame < g_logFrame + 600u)
             return;

@@ -1,4 +1,5 @@
 #include "Common.h"
+#include "runtime/ps2_diag.h"
 #include "CD.h"
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
@@ -597,7 +598,7 @@ namespace ps2_stubs
                         aheadQueue(key, offset + bytes, bytes);
                     {
                         // SOTC_CD_AHEAD100_LOG=1 (measuring): each EE read's file, place, size and outcome.
-                        static const bool readLog = std::getenv("SOTC_CD_AHEAD100_LOG") && std::atoi(std::getenv("SOTC_CD_AHEAD100_LOG")) != 0;
+                        static const bool readLog = ps2_diag::env("SOTC_CD_AHEAD100_LOG") && std::atoi(ps2_diag::env("SOTC_CD_AHEAD100_LOG")) != 0;
                         if (readLog && !toIop)
                             std::fprintf(stderr, "[cd100r] %s %llu %u %s\n", path.filename().string().c_str(), (unsigned long long)offset, static_cast<unsigned>(bytes), eeHit ? "copied" : "read");
                     }

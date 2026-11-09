@@ -21,6 +21,7 @@
 // SOTC_MOTIONPREDICT_STATS=1: calls / matches every 20 000 calls.
 // SOTC_MOTION=0 (sotc_decomp::motionOn) or SOTC_DECOMP_SKIP=manager_sub_010CF210: the recompiled code.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -76,7 +77,7 @@ namespace decomp_motionpredict
     {
         static const bool on = []
         {
-            const char *e = std::getenv("SOTC_MOTIONPREDICT_STATS");
+            const char *e = ps2_diag::env("SOTC_MOTIONPREDICT_STATS");
             return e && e[0] == '1';
         }();
         return on;

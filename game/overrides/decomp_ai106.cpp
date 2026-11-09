@@ -36,6 +36,7 @@
 // SOTC_AI106_CHECK=1: the native leg against the recompiled code for every
 // call the difftest takes (sotc_decomp.cpp).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -165,7 +166,7 @@ namespace decomp_ai106
         if (!sotc_decomp::ai106On() || !sitesOk(rdram))
             return fallback(rdram, ctx, runtime);
         static const bool check = [] {
-            const char *e = std::getenv("SOTC_AI106_CHECK");
+            const char *e = ps2_diag::env("SOTC_AI106_CHECK");
             return e && e[0] == '1';
         }();
         if (__builtin_expect(!check, 1))

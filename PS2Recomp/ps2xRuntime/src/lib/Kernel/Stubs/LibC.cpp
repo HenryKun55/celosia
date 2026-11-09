@@ -1,4 +1,5 @@
 #include "Common.h"
+#include "runtime/ps2_diag.h"
 #include "LibC.h"
 #include "ps2_log.h"
 #include "runtime/ps2_fast_paths.h"
@@ -1462,7 +1463,7 @@ namespace ps2_stubs
 
         bool checking()
         {
-            static const bool v = [] { const char *e = std::getenv("SOTC_FMT102_CHECK"); return e && std::atoi(e) != 0; }();
+            static const bool v = [] { const char *e = ps2_diag::env("SOTC_FMT102_CHECK"); return e && std::atoi(e) != 0; }();
             return v;
         }
         uint64_t g_checks = 0, g_bad = 0, g_fast = 0, g_general = 0;

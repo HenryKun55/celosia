@@ -1,4 +1,5 @@
 #include "runtime/gs/gs_hw_backend.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/native_renderer.h"
 #include "runtime/gs/gs_cpu_backend.h"
 #include "runtime/gs/gs_direct_frame.h"
@@ -955,7 +956,7 @@ struct GSHwBackend::Impl
         std::fprintf(stderr, "[gs:hw] vitaGL rows: draw %s, scissor %s, blit source %s, blit target %s\n", names[draw + 1], names[scissor + 1],
                      names[blitSrc + 1], names[blitDst + 1]);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        if (std::getenv("SOTC_GL_LAYER_LOG"))
+        if (ps2_diag::env("SOTC_GL_LAYER_LOG"))
             for (int i = 0; i < 2; ++i)
                 std::fprintf(stderr, "[gs:hw] orientation target %d (64x64) at %p\n", i, static_cast<const void *>(textureMemory(tex[i])));
         glDeleteFramebuffers(2, fbo);
@@ -1546,7 +1547,7 @@ struct GSHwBackend::Impl
                 // colour surface it saw at that address after the memory is
                 // freed and samples a texture vitaGL later puts there, with
                 // the same row stride, as that old surface.
-                if (std::getenv("SOTC_GL_LAYER_LOG"))
+                if (ps2_diag::env("SOTC_GL_LAYER_LOG"))
                     std::fprintf(stderr, "[gs:hw] target fbp %u %ux%u at %p %s\n", rt.fbp, rt.width, rt.height, static_cast<const void *>(textureMemory(rt.texture)),
                                  keepRetiredTargets() ? "retired (kept)" : "deleted");
                 if (keepRetiredTargets())
@@ -1584,7 +1585,7 @@ struct GSHwBackend::Impl
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 #if defined(PS2X_GS_HW_VITA)
-            if (std::getenv("SOTC_GL_LAYER_LOG")) // (debugging, round 55: where the GS's targets live)
+            if (ps2_diag::env("SOTC_GL_LAYER_LOG")) // (debugging, round 55: where the GS's targets live)
                 std::fprintf(stderr, "[gs:hw] target fbp %u fbw %u %ux%u at %p (%u bytes)\n", fbp, rt.fbw, rt.width, rt.height,
                              static_cast<const void *>(textureMemory(rt.texture)), ((rt.width + 7u) & ~7u) * 4u * rt.height);
 #endif

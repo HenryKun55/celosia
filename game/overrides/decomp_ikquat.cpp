@@ -36,6 +36,7 @@
 // A negative record count (the original's loop would run ~2^32 times):
 // the recompiled code.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -57,7 +58,7 @@ namespace decomp_ikquat
     {
         uint32_t every()
         {
-            static const uint32_t n = std::getenv("SOTC_IK80_LOG") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_IK80_LOG"))) : 0u;
+            static const uint32_t n = ps2_diag::env("SOTC_IK80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_IK80_LOG"))) : 0u;
             return n;
         }
         uint64_t nowUs()

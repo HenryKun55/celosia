@@ -50,6 +50,7 @@
 // as the plain generated code leaves them (the built code's register cache
 // may leave some of them unwritten in ctx).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -819,7 +820,7 @@ namespace decomp_hot46h
     inline bool oanCheckOn()
     {
         static const bool on = [] {
-            const char *e = std::getenv("SOTC_OAN106_CHECK");
+            const char *e = ps2_diag::env("SOTC_OAN106_CHECK");
             return e && e[0] == '1';
         }();
         return on;

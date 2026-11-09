@@ -54,6 +54,7 @@
 // the written bytes between the hand-over and the join is counted with its
 // reader (a missing join site). "[tex64] verify:" every 600 frames.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -140,7 +141,7 @@ namespace decomp_tex64
     bool verifyOn()
     {
         if (__builtin_expect(g_verify < 0, 0))
-            g_verify = std::getenv("SOTC_TEX64_VERIFY") ? 1 : 0;
+            g_verify = ps2_diag::env("SOTC_TEX64_VERIFY") ? 1 : 0;
         return g_verify != 0;
     }
 

@@ -783,6 +783,18 @@ if(PS2X_IS_VITA)
         endif()
     endif()
     set(PS2X_VITA_OVERRIDE_OPTS -O3 ${PS2X_VITA_PGO_FLAGS})
+    # Round 130: PS2X_VITA_RELEASE (below, with the --wrap lines): the runtime, the sound side and the game
+    # overrides with SOTC_RELEASE=1 (not the recompiled game: it reads no switch).
+    option(PS2X_VITA_RELEASE "Vita: release build (diagnostics compiled out)" OFF)
+    if(PS2X_VITA_RELEASE)
+        message(STATUS "Vita: release build (SOTC_RELEASE=1)")
+        list(APPEND PS2X_VITA_OVERRIDE_OPTS -DSOTC_RELEASE=1)
+        foreach(PS2X_VITA_TARGET IN ITEMS ps2_runtime ps2_iop)
+            if(TARGET ${PS2X_VITA_TARGET})
+                target_compile_definitions(${PS2X_VITA_TARGET} PRIVATE SOTC_RELEASE=1)
+            endif()
+        endforeach()
+    endif()
     get_target_property(PS2X_RUNNER_SOURCES ps2EntryRunner SOURCES)
     foreach(PS2X_SOURCE IN LISTS PS2X_RUNNER_SOURCES)
         if(PS2X_SOURCE MATCHES "/overrides/lean_part[^/]*\\.cpp$")
@@ -836,6 +848,20 @@ if(PS2X_IS_VITA)
     target_link_options(ps2EntryRunner PRIVATE "-Wl,--allow-multiple-definition")
     # Round mem99: malloc & co. through ps2_vita_runtime.cpp (SOTC_HEAP_PROF).
     target_link_options(ps2EntryRunner PRIVATE "-Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=memalign")
+    # Round 130: PS2X_VITA_RELEASE=ON: the build the player plays. SOTC_RELEASE=1 (runtime/ps2_diag.h): the
+    # diagnostics' switches (checks, verifies, per-subsystem logs and stats, the difftest, the A/B rotation, the
+    # profilers) read as off at compile time and their paths dropped; no per-call timers. The frame summary
+    # (SOTC_FRAME_LOG=1) still works. OFF (default): the dev build, every switch from env.txt as before.
+    # (the option and its definitions: above, with the overrides' options)
+    # Round 130 (measuring only): PS2X_VITA_DIAGCOUNT=ON counts the diagnostics' library calls by caller
+    # (src/lib/ps2_vita_diagcount.cpp, "[diag130]" lines every 10 s). Never for a shipped VPK.
+    option(PS2X_VITA_DIAGCOUNT "Vita: count clock reads / getenv / formatting calls by caller (measuring build)" OFF)
+    if(PS2X_VITA_DIAGCOUNT)
+        target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_diagcount.cpp)
+        set_source_files_properties(src/lib/ps2_vita_diagcount.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE COMPILE_OPTIONS "-fno-lto")
+        target_link_options(ps2EntryRunner PRIVATE
+            "-Wl,--wrap=sceKernelGetProcessTimeWide,--wrap=sceKernelGetProcessTimeLow,--wrap=getenv,--wrap=sceKernelGetThreadInfo,--wrap=vsnprintf,--wrap=snprintf,--wrap=fprintf,--wrap=sceKernelSignalSema,--wrap=sceKernelLibcGettimeofday")
+    endif()
     target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_runtime.cpp)
     set_source_files_properties(src/lib/ps2_vita_runtime.cpp PROPERTIES
         SKIP_UNITY_BUILD_INCLUSION TRUE

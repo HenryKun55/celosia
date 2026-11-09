@@ -8,6 +8,7 @@
 // The selection sort natively: the same comparisons in the same order (the
 // same swaps, the same list), f0 / v0 as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -191,7 +192,7 @@ namespace decomp_pointsort
                     {
                         const int64_t si = static_cast<int64_t>(static_cast<int32_t>(i));
                         point = hTable != 0u && si >= 0 && static_cast<uint64_t>(si) < static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(hCount))) ? hTable + i * 0x30u + 0x10u : 0u;
-                        static const bool check97 = std::getenv("SOTC_PATH97_CHECK") && std::atoi(std::getenv("SOTC_PATH97_CHECK")) != 0;
+                        static const bool check97 = ps2_diag::env("SOTC_PATH97_CHECK") && std::atoi(ps2_diag::env("SOTC_PATH97_CHECK")) != 0;
                         if (check97)
                         {
                             static uint64_t checks = 0, bad = 0;

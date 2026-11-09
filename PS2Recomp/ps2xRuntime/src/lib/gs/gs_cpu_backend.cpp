@@ -1,4 +1,5 @@
 #include <map>
+#include "runtime/ps2_diag.h"
 #include <array>
 #include <chrono>
 #include "runtime/native_renderer.h"
@@ -837,7 +838,7 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
                 flushPendingUnlocked("BloomLog");
                 // SOTC_BLOOM_RECT_DUMP=<dir>: the picture saved where the draws turn from triangles to sprites
                 static uint32_t lastPrim = 0, dumped = 0;
-                static const char *dumpDir = std::getenv("SOTC_BLOOM_RECT_DUMP");
+                static const char *dumpDir = ps2_diag::env("SOTC_BLOOM_RECT_DUMP");
                 if (dumpDir && batch.state.prim.type == GS_PRIM_SPRITE && lastPrim != GS_PRIM_SPRITE && dumped < 8)
                 {
                     char path[512];

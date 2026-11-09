@@ -19,6 +19,7 @@
 // statements on locals (lifted from build/runner). Pointers outside main
 // RAM go to the recompiled code before anything is written.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 
 #include "ps2_runtime_macros.h"
@@ -75,7 +76,7 @@ namespace decomp_ptclupdate
     // SOTC_PTCL_STATS=1 (debugging): which paths ran, every 600 calls of the list.
     struct Stats
     {
-        bool on = std::getenv("SOTC_PTCL_STATS") != nullptr;
+        bool on = ps2_diag::env("SOTC_PTCL_STATS") != nullptr;
         uint64_t lists = 0, emitters = 0, steps = 0, matrix = 0, unit = 0, plain = 0, done = 0, spawned = 0, dead = 0, fallbacks = 0, h123 = 0, o123 = 0;
         uint64_t us123[2] = {}, n123[2] = {}; // the particle loops' host time by ptcl123's state, and their particles
     };
@@ -355,7 +356,7 @@ namespace decomp_ptclupdate
         {
             static Check c;
             if (c.every < 0)
-                c.every = std::getenv("SOTC_LEAF117_CHECK") ? std::atoi(std::getenv("SOTC_LEAF117_CHECK")) : 0;
+                c.every = ps2_diag::env("SOTC_LEAF117_CHECK") ? std::atoi(ps2_diag::env("SOTC_LEAF117_CHECK")) : 0;
             return c;
         }
         inline bool due()
@@ -670,7 +671,7 @@ namespace decomp_ptclupdate
     // relative difference and the count of fields over 1e-4 relative (and 1e-5 absolute), every 600 frames.
     inline bool check123()
     {
-        static const bool on = [] { const char *e = std::getenv("SOTC_PTCL123_CHECK"); return e && e[0] == '1'; }();
+        static const bool on = [] { const char *e = ps2_diag::env("SOTC_PTCL123_CHECK"); return e && e[0] == '1'; }();
         return on;
     }
     struct Check123

@@ -43,6 +43,7 @@
 //   |x| > 1 (its 0 / 0) and the tiny path's impossible "huge + x <= 1": the
 //   recompiled code from the start.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_prof.h"
 
 #include "ps2_runtime_macros.h"
@@ -130,11 +131,11 @@ namespace decomp_hot43b
             {
                 if (const char *e = std::getenv("SOTC_WALK83_TOL"))
                     tol = static_cast<float>(std::atof(e));
-                if (const char *e = std::getenv("SOTC_WALK83_LOG"))
+                if (const char *e = ps2_diag::env("SOTC_WALK83_LOG"))
                     log = std::atoi(e);
                 if (const char *e = std::getenv("SOTC_WALK83_REFRESH"))
                     refresh = std::max(1, std::atoi(e));
-                check = std::getenv("SOTC_WALK83_CHECK") && std::atoi(std::getenv("SOTC_WALK83_CHECK")) != 0;
+                check = ps2_diag::env("SOTC_WALK83_CHECK") && std::atoi(ps2_diag::env("SOTC_WALK83_CHECK")) != 0;
             }
         };
         const Params &params()

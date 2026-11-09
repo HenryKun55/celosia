@@ -45,6 +45,7 @@
 // Not as the PS2: the job's guest calls charge no EE cycles to the game's
 // clock; its random numbers are its own stream.
 #include "sotc_worker.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_decomp.h"
 
 #include "ps2_runtime.h"
@@ -1000,7 +1001,7 @@ namespace sotc_worker
             // worker would run their wrappers beside the game thread.
             static const int v = [] {
                 const char *e = std::getenv("SOTC_WORKER91");
-                if (std::getenv("SOTC_SUBSYS_PROF") || std::getenv("SOTC_DIFFTEST") || std::getenv("SOTC_CALLGUEST_STATS") || std::getenv("SOTC_TRACE_CALLS"))
+                if (ps2_diag::env("SOTC_SUBSYS_PROF") || ps2_diag::env("SOTC_DIFFTEST") || ps2_diag::env("SOTC_CALLGUEST_STATS") || std::getenv("SOTC_TRACE_CALLS"))
                     return 0;
                 return e ? std::atoi(e) : 1;
             }();

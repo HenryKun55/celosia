@@ -27,6 +27,7 @@
 #include "runtime/native_recorder.h"
 #include "runtime/host_menu.h"
 #include "runtime/native_renderer.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/ps2_gs_psmct32.h"
 #include "runtime/gs/ps2_gs_psmt4.h"
@@ -107,7 +108,7 @@ namespace sotc_native
     // native hooks' own time (after the recompiled call they wrap).
     struct HookTimer
     {
-        uint64_t start = native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
+        uint64_t start = ps2_diag::kTimers && native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
         ~HookTimer()
         {
             if (start)
@@ -237,7 +238,7 @@ namespace sotc_native
     // kept state against the reads it replaces); counts every 600 frames.
     struct R2Check
     {
-        bool on = std::getenv("SOTC_R2_CHECK") != nullptr;
+        bool on = ps2_diag::env("SOTC_R2_CHECK") != nullptr;
         uint64_t texQuick = 0, texStale = 0, surfaces = 0, surfaceMismatches = 0, packetQuick = 0, packetStale = 0;
         void note(const char *what, bool bad)
         {
@@ -297,7 +298,7 @@ namespace sotc_native
     // SOTC_HOOK_STATS=1 (debugging): what modelDispHook walked, every 120 frames.
     struct HookStats
     {
-        bool on = std::getenv("SOTC_HOOK_STATS") != nullptr;
+        bool on = ps2_diag::env("SOTC_HOOK_STATS") != nullptr;
         uint64_t instances = 0, packets = 0, lodPackets = 0, draws = 0, textures = 0, decoded = 0, idSame = 0, idPrev = 0, idQuick = 0, idSampled = 0, idMoved = 0,
                  idHashed = 0, nodes = 0, surfaces = 0, surfaceHits = 0;
         std::set<uint32_t> headers, surfaceSet, textureSet;
@@ -981,7 +982,7 @@ namespace sotc_native
                         movedKey = o.key;
                         return true;
                     });
-                    static const bool moveCheck = std::getenv("SOTC_MOVE_MEMO_CHECK") != nullptr;
+                    static const bool moveCheck = ps2_diag::env("SOTC_MOVE_MEMO_CHECK") != nullptr;
                     if (movedKey && moveCheck)
                     {
                         uint32_t bytes = 0;
@@ -1023,20 +1024,20 @@ namespace sotc_native
             return key;
         if ((psm != 0x00u && psm != 0x13u && psm != 0x14u) || width > 1024u || height > 1024u)
         {
-            static const bool log = std::getenv("SOTC_NATIVE_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
             static std::set<uint32_t> seen;
             if (log && seen.insert(header).second)
                 std::fprintf(stderr, "[native-tex] header %08x psm %02x %ux%u format %08x swizzled %u\n", header, psm, width, height, format,
                              g_ram[(header + 0x1Fu) & 0x1FFFFFFu] & 1u);
             return 0;
         }
-        const uint64_t decodeStart = native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
+        const uint64_t decodeStart = ps2_diag::kTimers && native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
         auto src = std::make_shared<TexSource>();
         if (!texSource(header, *src))
             return 0; // no room: asked for again at the next draw
         // SOTC_TEX_DECODE_CHECK=1 (debugging): every texture also decoded by
         // the earlier per-pixel code, and the two compared.
-        static const bool decodeCheck = std::getenv("SOTC_TEX_DECODE_CHECK") != nullptr;
+        static const bool decodeCheck = ps2_diag::env("SOTC_TEX_DECODE_CHECK") != nullptr;
         if (decodeCheck)
         {
             std::vector<uint8_t> fast, slow;
@@ -1476,7 +1477,7 @@ namespace sotc_native
         if (carriedHere)
         {
             ++g_rekeyHits;
-            static const bool moveCheck = std::getenv("SOTC_MOVE_MEMO_CHECK") != nullptr;
+            static const bool moveCheck = ps2_diag::env("SOTC_MOVE_MEMO_CHECK") != nullptr;
             if (moveCheck)
             {
                 static uint64_t checks = 0, bad = 0;
@@ -1526,7 +1527,7 @@ namespace sotc_native
                 hs.idMoved += hs.on;
                 const uint64_t id = from->id;
                 // SOTC_MOVE_MEMO_CHECK=1 (checking): the id hashed anew too, and compared.
-                static const bool moveCheck = std::getenv("SOTC_MOVE_MEMO_CHECK") != nullptr;
+                static const bool moveCheck = ps2_diag::env("SOTC_MOVE_MEMO_CHECK") != nullptr;
                 if (moveCheck)
                 {
                     static uint64_t checks = 0, bad = 0;
@@ -1922,7 +1923,7 @@ namespace sotc_native
         uint64_t hash;
     };
     std::vector<StaleRegion> g_staleRegions, g_stalePrevious; // this frame's, the frame before's
-    bool g_staleCheck = std::getenv("SOTC_STALE_CHECK") != nullptr;
+    bool g_staleCheck = ps2_diag::env("SOTC_STALE_CHECK") != nullptr;
     uint64_t staleHash(uint32_t at, uint32_t bytes)
     {
         uint64_t h = 1469598103934665603ull;
@@ -1970,7 +1971,7 @@ namespace sotc_native
     // instance's chain, or in the cloth buffer, when it made them).
     void viewCheck(int kind, const float *mine, const float *view)
     {
-        static const bool on = std::getenv("SOTC_VIEW_CHECK") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_VIEW_CHECK") != nullptr;
         if (!on || !g_cameraContext)
             return;
         float projection[16], theirs[16];
@@ -2459,7 +2460,7 @@ namespace sotc_native
     void start105()
     {
         g_worker105 = envOn105("SOTC_WORKER105");
-        g_worker105Check = std::getenv("SOTC_WORKER105_CHECK") && std::atoi(std::getenv("SOTC_WORKER105_CHECK")) != 0;
+        g_worker105Check = ps2_diag::env("SOTC_WORKER105_CHECK") && std::atoi(ps2_diag::env("SOTC_WORKER105_CHECK")) != 0;
         native_renderer::g_build105 = envOn105("SOTC_BUILD105");
         native_renderer::g_log105 = envOn105("SOTC_LOG105");
         native_renderer::g_render105 = envOn105("SOTC_RENDER105");
@@ -2554,7 +2555,7 @@ namespace sotc_native
                 }
             }
         }
-        static const bool log = std::getenv("SOTC_SKIN_KICK_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_SKIN_KICK_LOG") != nullptr;
         if (log && st.kicks % 600u == 0u)
             std::fprintf(stderr, "[skin-kick] %llu kicks: %llu instance palettes, %llu changed after their draws: %llu parts posed again, %llu GPU palettes rewritten; "
                          "deferred kicks %llu (joined %llu: a draw without a plan), palettes copied at the kick %llu, records not among them %llu; "
@@ -2982,7 +2983,7 @@ namespace sotc_native
         g_ram = rdram;
         const int32_t slices = static_cast<int32_t>(word(0x118C46Cu));
         const float width = real(0x118C470u), margin = real(0x118C474u), farDistance = real(0x118C480u);
-        static const bool log = std::getenv("SOTC_NATIVE_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
         static uint64_t logged = 0;
         if (log && g_frame >= logged + 300u)
         {
@@ -3042,10 +3043,10 @@ namespace sotc_native
     }
     void abSwitches()
     {
-        static const char *flags = std::getenv("SOTC_AB_FLAG");
+        static const char *flags = ps2_diag::env("SOTC_AB_FLAG");
         if (!flags)
             return;
-        static const uint64_t period = std::max<uint64_t>(1u, std::getenv("SOTC_AB_PERIOD") ? std::strtoull(std::getenv("SOTC_AB_PERIOD"), nullptr, 10) : 30u);
+        static const uint64_t period = std::max<uint64_t>(1u, ps2_diag::env("SOTC_AB_PERIOD") ? std::strtoull(ps2_diag::env("SOTC_AB_PERIOD"), nullptr, 10) : 30u);
         native_renderer::Tuning &t = native_renderer::tuning();
         static const native_renderer::Tuning start = t;
         static const std::string list = []
@@ -3060,7 +3061,7 @@ namespace sotc_native
         // "all on" at each change, so each flag's cost is its windows
         // against the baseline's (build/agent-scratch/r44/abrot.py).
         // Without it all listed flags go off together in odd windows.
-        static const bool rotate = std::getenv("SOTC_AB_ROTATE") && std::atoi(std::getenv("SOTC_AB_ROTATE")) != 0;
+        static const bool rotate = ps2_diag::env("SOTC_AB_ROTATE") && std::atoi(ps2_diag::env("SOTC_AB_ROTATE")) != 0;
         static const std::vector<std::string> names = []
         {
             std::vector<std::string> out;
@@ -3778,7 +3779,7 @@ namespace sotc_native
                 for (int i = 0; i < 3; ++i)
                     g_fog.colour[i] = static_cast<float>(word(0x118B8DCu + i * 4u) & 0xFFu) / 255.0f;
             }
-            static const bool log = std::getenv("SOTC_NATIVE_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
             static uint64_t logged = 0;
             if (log && g_frame >= logged + 300u)
             {
@@ -3787,25 +3788,25 @@ namespace sotc_native
                              nearD, farD, nearR, farR, k, g_fog.base, g_fog.scale, word(0x118B8DCu), word(0x118B8E0u), word(0x118B8E4u));
             }
         }
-        if (std::getenv("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
             std::fprintf(stderr, "[bossfx] frame %llu flags %08x a0 %d b0 %d b4 %d b8 %d bc %d c0 %d c4 %d 298 %g\n", (unsigned long long)g_frame, word(0x1186290u),
                          static_cast<int32_t>(word(0x11862A0u)), static_cast<int32_t>(word(0x11862B0u)), static_cast<int32_t>(word(0x11862B4u)), static_cast<int32_t>(word(0x11862B8u)),
                          static_cast<int32_t>(word(0x11862BCu)), static_cast<int32_t>(word(0x11862C0u)), static_cast<int32_t>(word(0x11862C4u)), real(0x1186298u));
-        if (std::getenv("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
+        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
             std::fprintf(stderr, "[dof] frame %llu on %u rounds %d slices %d focus %g colour %08x %08x %08x %08x\n", (unsigned long long)g_frame, word(0x11862D0u),
                          static_cast<int32_t>(word(0x11862D4u)), static_cast<int32_t>(word(0x11862D8u)), static_cast<float>(static_cast<int32_t>(word(0x11862DCu))),
                          word(0x11862E0u), word(0x11862E4u), word(0x11862E8u), word(0x11862ECu));
-        if (std::getenv("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
         {
             std::fprintf(stderr, "[bloomcol] %llu:", (unsigned long long)g_frame);
             for (uint32_t a = 0x118C0C0u; a < 0x118C150u; a += 4u)
                 std::fprintf(stderr, " %x", word(a));
             std::fprintf(stderr, "\n");
         }
-        if (std::getenv("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
             std::fprintf(stderr, "[native-frame] %llu bloomZ %u ran %d zfog %d start %g width %g vfog %d base %g scale %g col %g %g %g models %u\n", (unsigned long long)g_frame, word(0x118C094u), g_bloomRan ? 1 : 0, g_fog.enabled ? 1 : 0,
                          g_fog.start, g_fog.width, g_fog.vertexFog ? 1 : 0, g_fog.base, g_fog.scale, g_fog.colour[0], g_fog.colour[1], g_fog.colour[2], g_modelDraws);
-        if (std::getenv("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
+        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
         {
             const uint32_t table = word(0x118BFCCu);
             for (uint32_t layer : {1u, 2u, 3u})
@@ -3964,8 +3965,21 @@ namespace sotc_native
         }
         using LogFn = void (*)(const char *, ...);
         LogFn logLine105() { return native_renderer::g_log105 ? &native_renderer::logf105 : &native_renderer::logf; }
+        // Round 130: the 60-frame window's sums (frameLog's "[frame] N:" line), handed to the log thread as they are.
+        struct FrameSum
+        {
+            uint64_t frames = 0, period = 0, worst = 0, hooks = 0, decode = 0, tex = 0, mesh = 0, render = 0, present = 0, wait = 0, blocked = 0, threaded = 0;
+            uint64_t draws = 0, targets = 0, texUploads = 0, texBytes = 0, meshUploads = 0, meshBytes = 0;
+            uint64_t jobs = 0, join = 0, jobCount = 0, lag = 0, lagMax = 0;
+            uint64_t held = 0, heldTerrain = 0, heldPictures = 0;
+            uint64_t sync[kSyncParts] = {}, site[hookjobs::kSites] = {};
+        };
         struct Line
         {
+            // Round 130: 0 a frame's line ("each" / "slow"), 1 the 60-frame window's ("[frame] N:", sum, cpuFrames).
+            int kind = 0;
+            FrameSum sum;
+            uint64_t cpuFrames = 0;
             bool slow = false;
             unsigned long long frame = 0;
             double periodMs = 0;
@@ -4047,22 +4061,68 @@ namespace sotc_native
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, (c.vertices + 500u) / 1000u, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
                              L.schedMs, L.cdMs, L.cdReads, L.cdKB, L.vblanks, L.dtMs, L.sprMs, L.sprs, L.sprKB, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
         }
+        // Round 130: the 60-frame line as frameLog wrote it on the game thread (the same text).
+        void writeSum(const Line &L)
+        {
+            const FrameSum &sum = L.sum;
+            const double n = sum.frames ? static_cast<double>(sum.frames) : 1.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
+            char avgSplit[640];
+            int at = sfmt105(avgSplit, sizeof(avgSplit), " lag %.0f us max %.2f", sum.jobCount ? sum.lag / static_cast<double>(sum.jobCount) : 0.0, sum.lagMax / 1000.0);
+            if (at > 0 && static_cast<size_t>(at) < sizeof(avgSplit))
+                splits(sum.sync, sum.site, n, avgSplit + at, sizeof(avgSplit) - at);
+            at = static_cast<int>(std::strlen(avgSplit));
+            native_renderer::threads::line(avgSplit + at, sizeof(avgSplit) - at, static_cast<double>(L.cpuFrames ? L.cpuFrames : 1u), true);
+            at = static_cast<int>(std::strlen(avgSplit));
+            sfmt105(avgSplit + at, sizeof(avgSplit) - at, " | gfx %s", native_renderer::presetName(L.gfx)); // round 124
+            logLine105()("[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
+                         "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB) | jobs %.1f join %.1f | held %llu (terrain %llu) pictures held %llu%s\n",
+                         L.frame, sum.period / n / 1000.0, n * 1e6 / static_cast<double>(sum.period ? sum.period : 1u), sum.worst / 1000.0, game, sum.hooks / n / 1000.0,
+                         sum.decode / n / 1000.0, sum.tex / n / 1000.0, sum.mesh / n / 1000.0, sum.render / n / 1000.0, sum.present / n / 1000.0,
+                         sum.wait / n / 1000.0, sum.threaded ? " (render thread)" : "",
+                         sum.draws / n, sum.targets / n, sum.texUploads / n, sum.texBytes / n / 1024.0, sum.meshUploads / n, sum.meshBytes / n / 1024.0,
+                         sum.jobs / n / 1000.0, sum.join / n / 1000.0, (unsigned long long)sum.held, (unsigned long long)sum.heldTerrain,
+                         (unsigned long long)sum.heldPictures, avgSplit);
+        }
         void run()
         {
             ThreadNaming::SetCurrentThreadName("framelog");
             native_renderer::threads::place(native_renderer::threads::kLog);
+            unsigned long long sampled = 0; // round 130: the frame the threads' run clocks were last read at
+            native_renderer::threads::Snapshot perFrame;
             for (;;)
             {
                 uint32_t tail = g_tail.load(std::memory_order_relaxed);
                 if (tail == g_head.load(std::memory_order_acquire))
                 {
+                    // Round 130: no wake-up per line (the game thread signals only a half-full ring): a look every
+                    // 20 ms, a few lines each time.
                     std::unique_lock<std::mutex> lock(g_mutex);
                     g_sleeping.store(true, std::memory_order_seq_cst);
-                    g_wake.wait_for(lock, std::chrono::milliseconds(100), [&] { return tail != g_head.load(std::memory_order_acquire); });
+                    g_wake.wait_for(lock, std::chrono::milliseconds(20), [&] { return tail != g_head.load(std::memory_order_acquire); });
                     g_sleeping.store(false, std::memory_order_relaxed);
                     continue;
                 }
-                write(g_ring[tail % kRing]);
+                Line &L = g_ring[tail % kRing];
+                // Round 130: the threads' run clocks read here (sceKernelGetThreadInfo, ~14 a frame: the console's
+                // `sync ... log 0.8` on the game thread). A frame's `cpu` column is the CPU since the last read
+                // divided by the frames since then (the log thread keeps up within ~20 ms: about one frame); the
+                // 60-frame line's is the window's total, as before.
+                if (L.frame > sampled)
+                {
+                    native_renderer::threads::sample();
+                    native_renderer::threads::lastFrame(perFrame);
+                    const uint64_t span = sampled ? L.frame - sampled : 1u;
+                    for (int k = 0; k < native_renderer::threads::kKinds; ++k)
+                        perFrame.cpu[k] /= span, perFrame.pre[k] /= span, perFrame.mov[k] /= span;
+                    sampled = L.frame;
+                }
+                if (L.kind == 1)
+                    writeSum(L);
+                else
+                {
+                    L.cpu = perFrame;
+                    write(L);
+                }
                 g_tail.store(tail + 1u, std::memory_order_release);
             }
         }
@@ -4084,8 +4144,11 @@ namespace sotc_native
         }
         void post()
         {
-            g_head.store(g_head.load(std::memory_order_relaxed) + 1u, std::memory_order_seq_cst);
-            if (g_sleeping.load(std::memory_order_seq_cst))
+            const uint32_t head = g_head.load(std::memory_order_relaxed) + 1u;
+            g_head.store(head, std::memory_order_seq_cst);
+            // Round 130: the log thread looks every 20 ms; woken (a mutex and a semaphore signal on the game
+            // thread) only when the ring is half full.
+            if (head - g_tail.load(std::memory_order_relaxed) >= kRing / 2u && g_sleeping.load(std::memory_order_seq_cst))
             {
                 std::lock_guard<std::mutex> lock(g_mutex);
                 g_wake.notify_one();
@@ -4118,15 +4181,20 @@ namespace sotc_native
             return;
         }
         const bool print = tune.frameLog;
-        struct Sum
-        {
-            uint64_t frames = 0, period = 0, worst = 0, hooks = 0, decode = 0, tex = 0, mesh = 0, render = 0, present = 0, wait = 0, blocked = 0, threaded = 0;
-            uint64_t draws = 0, targets = 0, texUploads = 0, texBytes = 0, meshUploads = 0, meshBytes = 0;
-            uint64_t jobs = 0, join = 0, jobCount = 0, lag = 0, lagMax = 0;
-            uint64_t held = 0, heldTerrain = 0, heldPictures = 0;
-            uint64_t sync[kSyncParts] = {}, site[hookjobs::kSites] = {};
-        };
+        using Sum = log76::FrameSum;
         static Sum sum;
+        // Round 130: SOTC_FRAME_SLOW_MS=<ms> (default 50): a frame over it gets its own "[frame] slow" line. The
+        // console's frames sit near 50 ms riding, so the default prints a long line for 30-50% of them; the
+        // cheap console env (r130/env-console.txt) raises it to the real hitches.
+        static const uint64_t slowUs = []
+        {
+            const char *e = std::getenv("SOTC_FRAME_SLOW_MS");
+            const long v = e ? std::atol(e) : 50;
+            return static_cast<uint64_t>(v > 0 ? v : 50) * 1000u;
+        }();
+        // Round 130: with log76 the log thread reads the threads' run clocks and formats every line; the game
+        // thread only copies the numbers (nothing of native_renderer::threads on the game thread).
+        const bool offThread = log76::on();
         // Round 32: the frame change's parts and the joins by site, as text.
         const auto splits = [](const uint64_t *syncUs, const uint64_t *siteUs, double n, char *out, size_t room)
         {
@@ -4173,13 +4241,14 @@ namespace sotc_native
             // us a job / the largest, ms) and, on the Vita, each thread kind's
             // CPU time this frame (native_renderer::threads).
             static uint64_t cpuFrames = 0;
-            native_renderer::threads::sample();
+            if (!offThread)
+                native_renderer::threads::sample();
 #if !defined(__vita__)
             {
                 // Round 36 (the Mac, SOTC_CPU_LOG=1): the game thread's CPU time
                 // ([cpu] every 60 frames, game frame and VBlank), for A/B checks
                 // on the fixed-30 route, whose positions repeat run to run.
-                static const bool cpuLog = std::getenv("SOTC_CPU_LOG") != nullptr;
+                static const bool cpuLog = ps2_diag::env("SOTC_CPU_LOG") != nullptr;
                 if (cpuLog)
                 {
                     timespec ts{};
@@ -4197,12 +4266,13 @@ namespace sotc_native
 #endif
             ++cpuFrames;
             // Round 76: the line's numbers to the frame log's thread (log76 above).
-            log76::Line *line76 = (print && (period > 50000u || tune.frameLogAll) && log76::on()) ? log76::slot() : nullptr;
+            log76::Line *line76 = (print && (period > slowUs || tune.frameLogAll) && offThread) ? log76::slot() : nullptr;
             static uint64_t lastSite[ps2_load::kSites] = {};
             if (line76)
             {
                 log76::Line &L = *line76;
-                L.slow = period > 50000u;
+                L.kind = 0;
+                L.slow = period > slowUs;
                 L.frame = (unsigned long long)g_frame;
                 L.periodMs = period / 1000.0;
                 L.c = c;
@@ -4238,11 +4308,10 @@ namespace sotc_native
                 mdslane::g_helpUs = mdslane::g_helpJobs = mdslane::g_helpJoins = 0;
                 std::memcpy(L.sync, g_syncUs, sizeof(L.sync));
                 std::memcpy(L.joinSite, hookjobs::g_lastSiteUs, sizeof(L.joinSite));
-                native_renderer::threads::lastFrame(L.cpu);
                 L.gfx = native_renderer::gfxPresetNow();
                 log76::post();
             }
-            else if (print && (period > 50000u || tune.frameLogAll))
+            else if (print && (period > slowUs || tune.frameLogAll))
             {
                 int at = std::snprintf(split, sizeof(split), " lag %.0f us max %.2f", c.jobs ? c.lagUs / static_cast<double>(c.jobs) : 0.0, c.lagMaxUs / 1000.0);
                 {
@@ -4265,11 +4334,12 @@ namespace sotc_native
                 }
                 splits(g_syncUs, hookjobs::g_lastSiteUs, 1.0, split + at, sizeof(split) - at);
                 at = static_cast<int>(std::strlen(split));
-                native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
+                if (!offThread) // (round 130: a full ring with log76: the log thread owns the run clocks, no cpu column)
+                    native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
                 at = static_cast<int>(std::strlen(split));
                 std::snprintf(split + at, sizeof(split) - at, " | gfx %s", native_renderer::presetName(native_renderer::gfxPresetNow())); // round 124
             }
-            if (!line76 && print && period > 50000u)
+            if (!line76 && print && period > slowUs)
                 native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.texBytes / 1024.0, c.texUs / 1000.0,
@@ -4280,7 +4350,7 @@ namespace sotc_native
                              (unsigned long long)(mark.vblanks - lastMark.vblanks), gameDt * 1000.0, (mark.sprUs - lastMark.sprUs) / 1000.0,
                              (unsigned long long)(mark.sprs - lastMark.sprs), (mark.sprBytes - lastMark.sprBytes) / 1024.0, c.jobUs / 1000.0, c.jobs, c.joinUs / 1000.0, split);
             // SOTC_FRAME_LOG_ALL=1: every frame on a line of its own (cuts, loads).
-            if (!line76 && print && tune.frameLogAll && period <= 50000u)
+            if (!line76 && print && tune.frameLogAll && period <= slowUs)
                 native_renderer::logf( "[frame] each %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures, %u meshes, up %.1f) render %.1f present %.1f wait %.1f draws %u targets %u scenes %u verts %uk async %u/%u held %u (terrain %u)%s | sched %.1f cd %.1f (%llu reads %.0f KB) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
                              (unsigned long long)g_frame, period / 1000.0, c.hookUs / 1000.0, c.decodeUs / 1000.0, c.texUploads, c.meshUploads,
                              (c.texUs + c.meshUs) / 1000.0, c.renderUs / 1000.0, c.presentUs / 1000.0, c.waitUs / 1000.0, c.draws, c.targets, c.scenes, (c.vertices + 500u) / 1000u, c.asyncJobs, c.asyncDone, c.heldDraws, c.heldTerrain, c.heldPicture ? " picture held" : "",
@@ -4330,7 +4400,7 @@ namespace sotc_native
                 // two of these 60-frame windows, off for the next two, and so on
                 // (one run, the same places: the route's positions drift from run
                 // to run); a "[sac-ab] on|off" line after each window's line.
-                static const int abMask = std::getenv("SOTC_SAC_AB") ? std::atoi(std::getenv("SOTC_SAC_AB")) : 0;
+                static const int abMask = ps2_diag::env("SOTC_SAC_AB") ? std::atoi(ps2_diag::env("SOTC_SAC_AB")) : 0;
                 static uint64_t abWindows = 0;
                 const bool abOn = abMask && ((abWindows / 2u) & 1u) != 0u;
                 struct AbLine
@@ -4354,12 +4424,26 @@ namespace sotc_native
                     if (abMask & 4)
                         t.sacLod = next;
                 }
+                // Round 130: the window's line made on the log thread (the same text from the same sums).
+                if (log76::Line *sumLine = offThread ? log76::slot() : nullptr)
+                {
+                    sumLine->kind = 1;
+                    sumLine->sum = sum;
+                    sumLine->cpuFrames = cpuFrames;
+                    sumLine->frame = (unsigned long long)g_frame;
+                    sumLine->gfx = native_renderer::gfxPresetNow();
+                    log76::post();
+                    cpuFrames = 0;
+                    sum = Sum{};
+                    goto summed;
+                }
                 const double n = 60.0, game = (static_cast<double>(sum.period) - sum.hooks - sum.blocked) / n / 1000.0;
                 char avgSplit[640];
                 int at = std::snprintf(avgSplit, sizeof(avgSplit), " lag %.0f us max %.2f", sum.jobCount ? sum.lag / static_cast<double>(sum.jobCount) : 0.0, sum.lagMax / 1000.0);
                 splits(sum.sync, sum.site, n, avgSplit + at, sizeof(avgSplit) - at);
                 at = static_cast<int>(std::strlen(avgSplit));
-                native_renderer::threads::line(avgSplit + at, sizeof(avgSplit) - at, static_cast<double>(cpuFrames), true);
+                if (!offThread) // (a full ring with log76: no cpu column, the log thread owns the run clocks)
+                    native_renderer::threads::line(avgSplit + at, sizeof(avgSplit) - at, static_cast<double>(cpuFrames), true);
                 at = static_cast<int>(std::strlen(avgSplit));
                 std::snprintf(avgSplit + at, sizeof(avgSplit) - at, " | gfx %s", native_renderer::presetName(native_renderer::gfxPresetNow())); // round 124
                 cpuFrames = 0;
@@ -4375,8 +4459,9 @@ namespace sotc_native
             }
             else if (sum.frames >= 60u)
                 sum = Sum{};
+        summed:;
         }
-        static const bool hashStats = std::getenv("SOTC_HASH_STATS") != nullptr;
+        static const bool hashStats = ps2_diag::env("SOTC_HASH_STATS") != nullptr;
         if (hashStats && g_hashBytes[0] + g_hashBytes[1] > 65536u)
             native_renderer::logf( "[hash] frame %llu: packets %llu (%.0f KB), textures %llu (%.0f KB); memos carried by moves %llu, ids kept %llu\n", (unsigned long long)g_frame,
                          (unsigned long long)g_hashCalls[0], g_hashBytes[0] / 1024.0, (unsigned long long)g_hashCalls[1], g_hashBytes[1] / 1024.0,
@@ -5019,6 +5104,10 @@ namespace sotc_native
         uint64_t g_lagUs = 0, g_lagMaxUs = 0;
         uint64_t g_joinUs = 0, g_joins = 0, g_waits = 0; // the game thread's
         bool g_timing = false; // frameTiming() at the frame's start
+        // Round 130: the hand-over stamps for the job lag (`lag` in the frame log): one clock read per job on the
+        // game thread (~80 a frame riding; Vita3K's sampler: sceKernelGetProcessTimeWide from push 0.57% of the
+        // game thread). Only with SOTC_FRAME_LOG_ALL or SOTC_DIAG_TIMERS=1; never in the release build.
+        bool g_timingLag = false;
 
 #if !defined(__vita__)
         // SOTC_KICK_DEFER_CHECK=1 (Mac, round 34): what the deferred kick
@@ -5478,7 +5567,7 @@ namespace sotc_native
         {
             if (g_verify)
                 g_copyHash[g_head.load(std::memory_order_relaxed) % kRing] = jobCopyHash(g_ring[g_head.load(std::memory_order_relaxed) % kRing]);
-            g_pushUs[g_head.load(std::memory_order_relaxed) % kRing] = g_timing ? native_renderer::nowUs() : 0u;
+            g_pushUs[g_head.load(std::memory_order_relaxed) % kRing] = g_timingLag ? native_renderer::nowUs() : 0u;
             g_head.store(g_head.load(std::memory_order_relaxed) + 1u, std::memory_order_seq_cst);
             if (g_sleeping.load(std::memory_order_seq_cst))
                 wakeWorker();
@@ -5522,7 +5611,7 @@ namespace sotc_native
                              (unsigned long long)frames, (unsigned long long)jobs, (unsigned long long)g_copyChecked, (unsigned long long)g_copyDiffer,
                              (unsigned long long)changed, (unsigned long long)g_changedPart[0],
                              (unsigned long long)g_changedPart[1], (unsigned long long)g_changedPart[2], (unsigned long long)g_changedPart[3]);
-            static const bool orderCheck = std::getenv("SOTC_HOOK_ORDER_CHECK") != nullptr;
+            static const bool orderCheck = ps2_diag::env("SOTC_HOOK_ORDER_CHECK") != nullptr;
             if (orderCheck && g_frame % 600u == 0u)
                 std::fprintf(stderr, "[hookjob] order check, frame %llu: %llu game-thread draws, %llu of them while jobs were pending\n", (unsigned long long)g_frame,
                              (unsigned long long)g_orderChecked, (unsigned long long)g_orderEarly);
@@ -5569,7 +5658,7 @@ namespace sotc_native
                              ab ? ", SOTC_HOOK_ASYNC_AB: on and off in turns" : "");
                 std::fflush(stderr);
             }
-            static const bool verify = std::getenv("SOTC_HOOK_ASYNC_VERIFY") != nullptr;
+            static const bool verify = ps2_diag::env("SOTC_HOOK_ASYNC_VERIFY") != nullptr;
             g_verify = verify;
             static const bool read105 = [] { start105(); return true; }(); // round 105's switches from env.txt (once)
             (void)read105;
@@ -5577,13 +5666,17 @@ namespace sotc_native
             static const bool defer = !std::getenv("SOTC_KICK_DEFER") || std::atoi(std::getenv("SOTC_KICK_DEFER")) != 0;
             g_kickDefer = defer;
 #if !defined(__vita__)
-            static const bool deferCheck = [] { if (std::getenv("SOTC_KICK_DEFER_CHECK") && defer) deferCheckInit(); return true; }();
+            static const bool deferCheck = [] { if (ps2_diag::env("SOTC_KICK_DEFER_CHECK") && defer) deferCheckInit(); return true; }();
             (void)deferCheck;
 #endif
             if (on)
                 start();
             g_on = on;
-            g_timing = t.frameTiming();
+            g_timing = ps2_diag::kTimers && t.frameTiming();
+            {
+                static const bool diagTimers = [] { const char *e = ps2_diag::env("SOTC_DIAG_TIMERS"); return e && std::atoi(e) != 0; }();
+                g_timingLag = g_timing && (t.frameLogAll || diagTimers);
+            }
             mdslane::frameStart(on);
         }
     }
@@ -5660,7 +5753,7 @@ namespace sotc_native
             // SOTC_POS_LOG=<n> (measuring, round 10): every n game frames the
             // guest VBlank, the game step and where the player and the camera
             // are ([pos]): runs at other frame rates compared by game time.
-            static const uint64_t posEvery = std::getenv("SOTC_POS_LOG") ? std::strtoull(std::getenv("SOTC_POS_LOG"), nullptr, 10) : 0u;
+            static const uint64_t posEvery = ps2_diag::env("SOTC_POS_LOG") ? std::strtoull(ps2_diag::env("SOTC_POS_LOG"), nullptr, 10) : 0u;
             if (posEvery && frame % posEvery == 0u)
             {
                 auto w = [rdram](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
@@ -5707,7 +5800,7 @@ namespace sotc_native
             }();
             if (std::find(dumpFrames.begin(), dumpFrames.end(), frame) != dumpFrames.end())
             {
-                const char *dir = std::getenv("SOTC_DRAW_DUMP_DIR");
+                const char *dir = ps2_diag::env("SOTC_DRAW_DUMP_DIR");
                 native_renderer::requestDrawDump(std::string(dir ? dir : "shots") + "/draws_" + std::to_string(frame) + ".txt");
             }
             if (HookStats &hs = hookStats(); hs.on && frame % 120u == 0u)
@@ -5736,12 +5829,12 @@ namespace sotc_native
                 };
                 static const bool r2 = envOn("SOTC_NATIVE_R2"), quickTextures = envOn("SOTC_TEX_QUICK"), surfaceMemo = envOn("SOTC_SURFACE_MEMO"),
                                   prefetch = envOn("SOTC_HOOK_PREFETCH"), plans = envOn("SOTC_PLAN"), planRuns = envOn("SOTC_PLAN_RUNS");
-                static const uint32_t verify = std::getenv("SOTC_PLAN_VERIFY") ? static_cast<uint32_t>(std::atoi(std::getenv("SOTC_PLAN_VERIFY"))) : 0u;
+                static const uint32_t verify = ps2_diag::env("SOTC_PLAN_VERIFY") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_PLAN_VERIFY"))) : 0u;
                 g_planOn = plans;
                 static const int32_t budget = std::getenv("SOTC_PLAN_BUDGET") ? std::atoi(std::getenv("SOTC_PLAN_BUDGET")) : 3000;
                 g_planBudget = budget;
                 g_planRuns = planRuns;
-                static const bool planStats = std::getenv("SOTC_PLAN_STATS") != nullptr;
+                static const bool planStats = ps2_diag::env("SOTC_PLAN_STATS") != nullptr;
                 g_planStatsOn = planStats;
                 g_planVerify = verify;
                 g_r2 = r2;
@@ -5756,7 +5849,7 @@ namespace sotc_native
             // A packet's id hashes its content: another area loaded in its
             // place makes new ids, the old ones never come back (the title's
             // demo filled the Vita's heap). Gone after ~30 s undrawn.
-            static const bool cacheLog = std::getenv("SOTC_GL_CACHE_LOG") != nullptr;
+            static const bool cacheLog = ps2_diag::env("SOTC_GL_CACHE_LOG") != nullptr;
             if (cacheLog && frame % 600u == 0u)
             {
                 size_t strips = 0;
@@ -5781,7 +5874,7 @@ namespace sotc_native
             if (frame % 256u == 0u)
                 sweepPlans();
             // SOTC_PLAN_STATS=1 / SOTC_PLAN_VERIFY: the draw plans, every 600 frames.
-            static const bool planStats = std::getenv("SOTC_PLAN_STATS") != nullptr;
+            static const bool planStats = ps2_diag::env("SOTC_PLAN_STATS") != nullptr;
             if ((planStats || g_planVerify) && frame % 600u == 0u)
             {
                 const PlanStats &ps = g_planStats;
@@ -6113,7 +6206,7 @@ namespace sotc_native
     // (resolve with recomp/game/symbols.txt): who draws 2D through gsReg.
     void gsRegCensus(uint32_t ra)
     {
-        static const bool on = std::getenv("SOTC_GSREG_CENSUS") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_GSREG_CENSUS") != nullptr;
         if (!on)
             return;
         static std::unordered_map<uint32_t, uint32_t> calls;
@@ -6319,7 +6412,7 @@ namespace sotc_native
             const uint64_t id = kBossMaskId | m.slot;
             native_renderer::uploadTexture(id, 256u, 256u, m.rgba.data(), 1u);
             m.id.store(id, std::memory_order_relaxed);
-            static const bool log = std::getenv("SOTC_BOSSMASK_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_BOSSMASK_LOG") != nullptr;
             if (log)
             {
                 uint32_t covered = 0;
@@ -6328,7 +6421,7 @@ namespace sotc_native
                 std::fprintf(stderr, "[bossmask] frame %llu id %016llx radius %g centre %g %g texels %u (%u qwords)\n", (unsigned long long)g_frame,
                              (unsigned long long)id, real(0x01186298u), real(0x01214740u), real(0x01214744u), covered, (end - start) / 16u - 2u);
                 // SOTC_BOSSMASK_DUMP=<dir>: each new mask as a PPM of its alpha.
-                if (const char *dir = std::getenv("SOTC_BOSSMASK_DUMP"))
+                if (const char *dir = ps2_diag::env("SOTC_BOSSMASK_DUMP"))
                 {
                     char path[512];
                     std::snprintf(path, sizeof(path), "%s/bossmask_%06llu.pgm", dir, (unsigned long long)g_frame);
@@ -6387,7 +6480,7 @@ namespace sotc_native
             g_requested = kScreenCopy;
         if (!off && !offScreen && start && end > start + 0x20u && end - start < 0x100000u && word(0x0118B5B0u) == 0u)
         {
-            static const bool log = std::getenv("SOTC_NATIVE_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
             if (log)
             {
                 static std::set<uint64_t> seen;
@@ -6483,7 +6576,7 @@ namespace sotc_native
             syncFrame(rdram);
             hookJoin(hookjobs::k_gsreg_feedback);
             // SOTC_FEEDBACK_LOG=1 (debugging, round 12): the frames that use it.
-            static const bool feedbackLog = std::getenv("SOTC_FEEDBACK_LOG") != nullptr;
+            static const bool feedbackLog = ps2_diag::env("SOTC_FEEDBACK_LOG") != nullptr;
             if (feedbackLog)
             {
                 static uint64_t lastLogged = ~0ull;
@@ -6553,7 +6646,7 @@ namespace sotc_native
     void pushLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         // SOTC_LOG_LAYER=<n> (debugging): who pushes display list layer n (caller, count).
-        static const int logLayer = std::getenv("SOTC_LOG_LAYER") ? std::atoi(std::getenv("SOTC_LOG_LAYER")) : -1;
+        static const int logLayer = ps2_diag::env("SOTC_LOG_LAYER") ? std::atoi(ps2_diag::env("SOTC_LOG_LAYER")) : -1;
         if (logLayer >= 0 && GPR_U32(ctx, 4) == static_cast<uint32_t>(logLayer))
         {
             static std::map<uint32_t, uint64_t> callers;
@@ -6835,7 +6928,7 @@ namespace sotc_native
                 }
             if (diff > scale * 1e-3f)
                 camera = product;
-            static const bool log = std::getenv("SOTC_MESHDISP_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_MESHDISP_LOG") != nullptr;
             if (log)
             {
                 static uint64_t grids = 0, own = 0;
@@ -6848,7 +6941,7 @@ namespace sotc_native
                     std::fprintf(stderr, "[meshdisp] %llu grids, %llu by their own view\n", (unsigned long long)grids, (unsigned long long)own);
             }
         }
-        static const bool viewChecks = std::getenv("SOTC_VIEW_CHECK") != nullptr;
+        static const bool viewChecks = ps2_diag::env("SOTC_VIEW_CHECK") != nullptr;
         if (viewChecks)
             viewCheck(1, job.camera, view);
         native_renderer::DrawState state;
@@ -6900,7 +6993,7 @@ namespace sotc_native
         HookTimer hookTimer;
         const bool shadows = native_renderer::tuning().shadows;
         static const bool idColours = std::getenv("SOTC_NATIVE_IDCOLOR") != nullptr;
-        static const bool shadowLog = std::getenv("SOTC_SHADOW_LOG") != nullptr; // debugging: each call
+        static const bool shadowLog = ps2_diag::env("SOTC_SHADOW_LOG") != nullptr; // debugging: each call
         if (shadowLog && g_frame % 60u == 0u)
             std::fprintf(stderr, "[shadow] frame %llu chain %08x model %08x skinned %d tag %08x ret %08x retq %08x\n", (unsigned long long)g_frame, chain, model,
                          skinnedShadow ? 1 : 0, chain ? word(chain) : 0u, chain ? word(chain + 4u) : 0u, chain ? word(word(chain + 4u)) : 0u);
@@ -6973,7 +7066,7 @@ namespace sotc_native
             std::memcpy(m, job.rigid, sizeof(m));
         static const float flip = std::getenv("SOTC_SHADOW_FLIP") ? -1.0f : 1.0f; // debugging
         const float d[3] = {job.extrude[0] * flip, job.extrude[1] * flip, job.extrude[2] * flip};
-        static const bool volLog = std::getenv("SOTC_SHADOW_LOG") != nullptr;
+        static const bool volLog = ps2_diag::env("SOTC_SHADOW_LOG") != nullptr;
         if (volLog && g_frame % 60u == 0u)
             std::fprintf(stderr, "[shadowvol] frame %llu skinned %d model %08x extrude %g %g %g\n", (unsigned long long)g_frame, skinnedShadow ? 1 : 0, model, d[0], d[1], d[2]);
         const uint32_t tag = word(model + 0x1Cu);
@@ -7476,7 +7569,7 @@ namespace sotc_native
         // SOTC_SHADOW_CHECK=1 (round 44, testing): round 38's builder run too
         // and the two volumes compared as sets of triangles (round 45: the
         // indexed volume's triangles as the indices pick them out).
-        static const bool shadowCheck = std::getenv("SOTC_SHADOW_CHECK") != nullptr;
+        static const bool shadowCheck = ps2_diag::env("SOTC_SHADOW_CHECK") != nullptr;
         if (shadowCheck && indexedVolume)
             for (uint32_t i = 0; i < volumeIndexCount; ++i)
                 g_volume.push_back(volumeRoom[volumeIndices[i] - volumeBase]);
@@ -7831,7 +7924,7 @@ namespace sotc_native
         // SOTC_PTCL103_CHECK=1: the job this path would make kept, the
         // original packets built and hooked as before, and the hooks' job
         // compared with it at ptclVtxTake ([ptcl103c] every 2000 checks).
-        static const bool check = std::getenv("SOTC_PTCL103_CHECK") && std::atoi(std::getenv("SOTC_PTCL103_CHECK")) != 0;
+        static const bool check = ps2_diag::env("SOTC_PTCL103_CHECK") && std::atoi(ps2_diag::env("SOTC_PTCL103_CHECK")) != 0;
         if (check)
         {
             const ParticleEnv savedEnv = g_ptclEnvState;
@@ -7871,7 +7964,7 @@ namespace sotc_native
         if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || native_renderer::tuning().ps2Lists || !GS::skipRaster())
             return false;
         syncFrame(const_cast<uint8_t *>(g_ram));
-        static const bool check = std::getenv("SOTC_PTCL103_CHECK") && std::atoi(std::getenv("SOTC_PTCL103_CHECK")) != 0;
+        static const bool check = ps2_diag::env("SOTC_PTCL103_CHECK") && std::atoi(ps2_diag::env("SOTC_PTCL103_CHECK")) != 0;
         if (check)
         {
             if (!vertices)
@@ -8165,8 +8258,8 @@ namespace sotc_native
             hookJoin(hookjobs::k_screenblur);
         static int n = 0;
         // SOTC_SBLUR_LOG=1 (debugging, round 51): every call, not the first 30.
-        static const bool everyBlur = std::getenv("SOTC_SBLUR_LOG") != nullptr;
-        if ((std::getenv("SOTC_NATIVE_LOG") && n++ < 30) || everyBlur)
+        static const bool everyBlur = ps2_diag::env("SOTC_SBLUR_LOG") != nullptr;
+        if ((ps2_diag::env("SOTC_NATIVE_LOG") && n++ < 30) || everyBlur)
             std::fprintf(stderr, "[sblur] frame %llu angle %g scale %g layer %u w %d a1 %d steps %d a3 %d t0 %d\n", (unsigned long long)g_frame, ctx->f[12], ctx->f[13],
                          GPR_U32(ctx, 4), static_cast<int32_t>(GPR_U32(ctx, 5)), static_cast<int32_t>(GPR_U32(ctx, 6)), static_cast<int32_t>(GPR_U32(ctx, 7)),
                          static_cast<int32_t>(GPR_U32(ctx, 8)), static_cast<int32_t>(GPR_U32(ctx, 9)));
@@ -9344,8 +9437,8 @@ namespace sotc_native
     // Vita, and the packet loop used seven of them per packet.
     struct ModelDispEnv
     {
-        bool logPasses = std::getenv("SOTC_NATIVE_LOG") != nullptr;
-        bool logMat = std::getenv("SOTC_NATIVE_LOGMAT") != nullptr;
+        bool logPasses = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
+        bool logMat = ps2_diag::env("SOTC_NATIVE_LOGMAT") != nullptr;
         uint32_t skipLayers = [] // debugging: SOTC_NATIVE_SKIPLAYERS=12,18
         {
             uint32_t mask = 0;
@@ -9358,7 +9451,7 @@ namespace sotc_native
                 }
             return mask;
         }();
-        int logLayer = std::getenv("SOTC_LOG_LAYER") ? std::atoi(std::getenv("SOTC_LOG_LAYER")) : -1;
+        int logLayer = ps2_diag::env("SOTC_LOG_LAYER") ? std::atoi(ps2_diag::env("SOTC_LOG_LAYER")) : -1;
         // Debugging: who drew what. SOTC_NATIVE_IDCOLOR=1 every model, =<n> > 1
         // only surfaces in layers >= n (the rest drawn as usual).
         int idFrom = std::getenv("SOTC_NATIVE_IDCOLOR") ? std::max(1, std::atoi(std::getenv("SOTC_NATIVE_IDCOLOR"))) : 0;
@@ -9577,7 +9670,7 @@ namespace sotc_native
             r.w1 = word(at + 4u);
             job.scrolls.push_back(r);
         }
-        static const bool log = std::getenv("SOTC_SCROLL127_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_SCROLL127_LOG") != nullptr;
         static uint64_t told = 0;
         if (log && g_frame >= told + 600u)
         {
@@ -9627,7 +9720,7 @@ namespace sotc_native
                 pm.at.push_back(r.at);
         }
         }
-        static const bool check = std::getenv("SOTC_SCROLL_CHECK") != nullptr;
+        static const bool check = ps2_diag::env("SOTC_SCROLL_CHECK") != nullptr;
         if (check)
         {
             std::vector<ScrollRow> ref;
@@ -10059,8 +10152,8 @@ namespace sotc_native
             static const bool envRead = []
             {
                 g_switch = !std::getenv("SOTC_MDS_LANE") || std::atoi(std::getenv("SOTC_MDS_LANE")) != 0;
-                g_verify = std::getenv("SOTC_MDS_LANE_VERIFY") != nullptr;
-                g_check = std::getenv("SOTC_LANE_HELP_CHECK") != nullptr;
+                g_verify = ps2_diag::env("SOTC_MDS_LANE_VERIFY") != nullptr;
+                g_check = ps2_diag::env("SOTC_LANE_HELP_CHECK") != nullptr;
                 g_help.store(std::getenv("SOTC_LANE_HELP") ? std::atoi(std::getenv("SOTC_LANE_HELP")) & 3 : 3, std::memory_order_relaxed);
                 std::fprintf(stderr, "[mdslane] help (SOTC_LANE_HELP): %d (bit 0 the game thread's joins run the jobs left, bit 1 the hook worker runs the ones its models need)\n",
                              g_help.load(std::memory_order_relaxed));
@@ -10244,8 +10337,8 @@ namespace sotc_native
         constexpr bool lean = true, leanCheck = false, leanStats = false;
 #else
         static const bool lean = g_hookLean = !std::getenv("SOTC_HOOK_LEAN") || std::atoi(std::getenv("SOTC_HOOK_LEAN")) != 0;
-        static const bool leanCheck = std::getenv("SOTC_HOOK_LEAN_CHECK") != nullptr;
-        static const bool leanStats = g_leanStats.on = leanCheck || std::getenv("SOTC_HOOK_LEAN_STATS") != nullptr;
+        static const bool leanCheck = ps2_diag::env("SOTC_HOOK_LEAN_CHECK") != nullptr;
+        static const bool leanStats = g_leanStats.on = leanCheck || ps2_diag::env("SOTC_HOOK_LEAN_STATS") != nullptr;
 #endif
         g_leanStats.draws += leanStats;
         if (leanStats && g_frame % 600u == 0u)
@@ -10269,7 +10362,7 @@ namespace sotc_native
                 model[i] = real(matrix + i * 4u);
         // The lists are built while the GS draws (the emulated picture shown).
         const bool ps2Lists = native_renderer::tuning().ps2Lists || !GS::skipRaster();
-        static const bool check = std::getenv("SOTC_MODELDISP_CHECK") != nullptr;
+        static const bool check = ps2_diag::env("SOTC_MODELDISP_CHECK") != nullptr;
         if (ps2Lists && !check)
             { SOTC_PROF_SCOPE(kHookPs2List); g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); } // the emulated drawing goes on as before
         else
@@ -10314,7 +10407,7 @@ namespace sotc_native
                     sum += camera[k * 4 + r] * model[c * 4 + k];
                 clip[c * 4 + r] = sum;
             }
-        static const bool viewChecks = std::getenv("SOTC_VIEW_CHECK") != nullptr;
+        static const bool viewChecks = ps2_diag::env("SOTC_VIEW_CHECK") != nullptr;
         if (viewChecks)
         {
             const uint32_t own = word(instance + 0xCu);
@@ -10464,7 +10557,7 @@ namespace sotc_native
             opacity *= 1.0f - real(instance + 0x248u);
         if (!(opacity > 0.0f))
         {
-            static const bool log = std::getenv("SOTC_NATIVE_LOG") != nullptr;
+            static const bool log = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
             static uint64_t logged = 0;
             if (log && g_frame >= logged + 120u)
             {
@@ -11805,7 +11898,7 @@ namespace mdstrace
     }
     void install(PS2Runtime &runtime)
     {
-        g_on = std::getenv("SOTC_MDS_TRACE") != nullptr;
+        g_on = ps2_diag::env("SOTC_MDS_TRACE") != nullptr;
         if (g_on)
             installAll(runtime, std::make_integer_sequence<int, kFnCount>{});
     }
@@ -11886,7 +11979,7 @@ void installSotcNative(PS2Runtime &runtime)
         return;
     }
     g_runtimeForLog = &runtime;
-    if (std::getenv("SOTC_HOOK_ORDER_CHECK"))
+    if (ps2_diag::env("SOTC_HOOK_ORDER_CHECK"))
         native_renderer::setDrawCheck(hookjobs::drawOrderCheck);
     if (ps2x::iop::audio_stats::level() && runtime.hasFunction(0x001B0FC0u) && runtime.hasFunction(0x001B1138u))
     {

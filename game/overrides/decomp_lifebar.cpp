@@ -35,6 +35,7 @@
 // part as the recompiled code, then 8668's native, or the recompiled 8668
 // when the table does not hold the native: a difftest check, SKIP).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -81,7 +82,7 @@ namespace decomp_lifebar
     }
     bool checkOn()
     {
-        static const bool on = std::getenv("SOTC_LIFEBAR_CHECK") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_LIFEBAR_CHECK") != nullptr;
         return on;
     }
 

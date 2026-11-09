@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "lines67.h"
 
 #include "ps2_runtime_macros.h"
@@ -87,7 +88,7 @@ namespace decomp_collision
         std::atomic<uint32_t> lastBndFilter{0};
     };
     Stats g_stats;
-    bool g_statsOn = std::getenv("SOTC_COLLISION_STATS") != nullptr; // (round 63: set again at install, after the Vita's env.txt)
+    bool g_statsOn = ps2_diag::env("SOTC_COLLISION_STATS") != nullptr; // (round 63: set again at install, after the Vita's env.txt)
 #define COLL_STAT(name) \
     do                  \
     {                   \
@@ -586,7 +587,7 @@ namespace decomp_collision
                 {
                     static int check = -1; // SOTC_PART119_CHECK=1: the clamped rows' result compared (FastCheck "collision.part119")
                     if (__builtin_expect(check < 0, 0))
-                        check = std::getenv("SOTC_PART119_CHECK") != nullptr ? 1 : 0;
+                        check = ps2_diag::env("SOTC_PART119_CHECK") != nullptr ? 1 : 0;
                     if (__builtin_expect(check, 0))
                     {
                         static sotc_decomp::FastCheck fc("collision.part119");
@@ -1462,7 +1463,7 @@ namespace decomp_collision
     inline bool coll63Verify()
     {
         if (__builtin_expect(g_coll63Verify < 0, 0))
-            g_coll63Verify = std::getenv("SOTC_COLL63_VERIFY") != nullptr ? 1 : 0;
+            g_coll63Verify = ps2_diag::env("SOTC_COLL63_VERIFY") != nullptr ? 1 : 0;
         return g_coll63Verify != 0;
     }
     struct Coll63Stats
@@ -2420,7 +2421,7 @@ namespace decomp_collision
     inline bool walk101Check()
     {
         if (__builtin_expect(g_walk101Check < 0, 0))
-            g_walk101Check = std::getenv("SOTC_WALK101_CHECK") != nullptr ? 1 : 0;
+            g_walk101Check = ps2_diag::env("SOTC_WALK101_CHECK") != nullptr ? 1 : 0;
         return g_walk101Check != 0;
     }
     // Both ends 16-byte aligned in main RAM (the qwords the original reads at
@@ -3943,7 +3944,7 @@ namespace decomp_collision
                     eps = static_cast<float>(std::atof(e));
                 if (const char *e = std::getenv("SOTC_SEG80_AGE"))
                     age = static_cast<uint32_t>(std::atoi(e));
-                log = std::getenv("SOTC_SEG80_LOG") && std::atoi(std::getenv("SOTC_SEG80_LOG")) != 0;
+                log = ps2_diag::env("SOTC_SEG80_LOG") && std::atoi(ps2_diag::env("SOTC_SEG80_LOG")) != 0;
             }
         };
         const Params &params()
@@ -3993,7 +3994,7 @@ namespace decomp_collision
             int check = 0;
             Path84()
             {
-                if (const char *e = std::getenv("SOTC_PROBE84_CHECK"))
+                if (const char *e = ps2_diag::env("SOTC_PROBE84_CHECK"))
                     check = std::atoi(e);
                 if (const char *e = std::getenv("SOTC_PROBE84_EPS"))
                     eps = static_cast<float>(std::atof(e));
@@ -4261,7 +4262,7 @@ namespace decomp_collision
     inline bool obj125On(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kObj125) && !sotc_decomp::onWorkerLane(runtime); }
     inline int obj125Check()
     {
-        static const int v = std::getenv("SOTC_OBJ125_CHECK") ? std::atoi(std::getenv("SOTC_OBJ125_CHECK")) : 0;
+        static const int v = ps2_diag::env("SOTC_OBJ125_CHECK") ? std::atoi(ps2_diag::env("SOTC_OBJ125_CHECK")) : 0;
         return v;
     }
     struct Obj125Check
@@ -4274,7 +4275,7 @@ namespace decomp_collision
     inline uint64_t g_obj125LogFrame = 0;
     inline void obj125Log()
     {
-        static const bool want = obj125Check() != 0 || (std::getenv("SOTC_COLL115_LOG") && std::atoi(std::getenv("SOTC_COLL115_LOG")) != 0);
+        static const bool want = obj125Check() != 0 || (ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0);
         const uint64_t frame = sotc_decomp::g_gameFrame;
         if (!want || frame < g_obj125LogFrame + 600u)
             return;
@@ -5950,7 +5951,7 @@ namespace decomp_collision
     // code (nothing written yet). v0 / f0 as the original leaves them.
     inline int ground85Check()
     {
-        static const int v = std::getenv("SOTC_GROUND85_CHECK") ? std::atoi(std::getenv("SOTC_GROUND85_CHECK")) : 0;
+        static const int v = ps2_diag::env("SOTC_GROUND85_CHECK") ? std::atoi(ps2_diag::env("SOTC_GROUND85_CHECK")) : 0;
         return v;
     }
     template <bool Filtered>

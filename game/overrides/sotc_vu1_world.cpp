@@ -15,6 +15,7 @@
 // PS2X_VU1_NATIVE=verify compares this with the interpreter.
 
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_diag.h"
 #include "ps2_runtime.h"
 #include "runtime/ps2_vu1.h"
 #include "runtime/ps2_vu1_native.h"
@@ -394,7 +395,7 @@ namespace
     // the world loop runs with in the logged frames, and how many batches.
     void logClipMatrix(const VU1State &S)
     {
-        static const bool on = std::getenv("SOTC_BLOOM_LOG") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_BLOOM_LOG") != nullptr;
         if (!on)
             return;
         static uint64_t frame = ~0ull;

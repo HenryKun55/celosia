@@ -10,6 +10,8 @@
 #pragma once
 
 #include <cstdint>
+#include "runtime/ps2_diag.h"
+
 
 class PS2Runtime;
 struct R5900Context;
@@ -54,7 +56,7 @@ namespace sotc_prof
         uint32_t serial = 0;
         explicit Scope(int hook)
         {
-            if (g_on && !t_offGameThread)
+            if (!ps2_diag::kRelease && g_on && !t_offGameThread) // (round 130: none in the release build)
                 serial = enter(hook, ticks());
         }
         ~Scope()

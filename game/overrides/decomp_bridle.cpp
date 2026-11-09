@@ -23,6 +23,7 @@
 // recompiled loads give them); the frame below sp is dead after the return.
 // v0, f0, fcr31 and the VU0 registers as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -290,7 +291,7 @@ namespace decomp_bridle
     template <class F>
     bool checked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, F self)
     {
-        static const bool on = std::getenv("SOTC_CHAR122_CHECK") && std::atoi(std::getenv("SOTC_CHAR122_CHECK")) > 0;
+        static const bool on = ps2_diag::env("SOTC_CHAR122_CHECK") && std::atoi(ps2_diag::env("SOTC_CHAR122_CHECK")) > 0;
         static uint64_t n = 0;
         if (!on || (++n % 8u) != 0u)
             return false;

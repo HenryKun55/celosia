@@ -54,6 +54,7 @@
 // registers are never changed in the context (the code restores every one
 // from its frame), the frame's saves are written as the code writes them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -158,7 +159,7 @@ namespace decomp_hot44c
         // decomp_group::next is the native it would call). =2: the difftest.
         const bool fast = sotc_decomp::grp106On() && grp106SitesOk(rdram);
         static const bool check = [] {
-            const char *e = std::getenv("SOTC_GRP106_CHECK");
+            const char *e = ps2_diag::env("SOTC_GRP106_CHECK");
             return e && e[0] == '1';
         }();
         static uint64_t checks = 0, differ = 0;

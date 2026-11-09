@@ -12,6 +12,7 @@
 // and stencil (nothing to attach); no depth textures, so the passes that read
 // depth (bloom mask, depth of field) are left out there for now.
 #include "native_backend.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/native_recorder.h"
 #include "runtime/native_tuning.h"
 #include "runtime/ps2_stats.h"
@@ -94,7 +95,7 @@ namespace
         {
             static const bool v = []
             {
-                if (const char *e = std::getenv("SOTC_GPU86_LOG"))
+                if (const char *e = ps2_diag::env("SOTC_GPU86_LOG"))
                     return std::atoi(e) != 0;
                 const char *a = std::getenv("SOTC_FRAME_LOG_ALL");
                 return a && std::atoi(a) != 0;
@@ -2147,7 +2148,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         uint64_t checkSpans118 = 0, checkBytes118 = 0, checkDiffer118 = 0;
         void sourceCheck118(const Pool &p, uint32_t first, size_t bytes)
         {
-            static const bool on = std::getenv("SOTC_RUNSRC118_CHECK") && std::atoi(std::getenv("SOTC_RUNSRC118_CHECK")) != 0;
+            static const bool on = ps2_diag::env("SOTC_RUNSRC118_CHECK") && std::atoi(ps2_diag::env("SOTC_RUNSRC118_CHECK")) != 0;
             if (!on || !p.mapped || !p.source)
                 return;
             const size_t at = static_cast<size_t>(first) * sizeof(native_renderer::Vertex);
@@ -2566,7 +2567,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // The frame's [hitch112] line (render thread, after its draws).
         void hitch112Frame(uint64_t uploadUs, uint64_t drawUs)
         {
-            static const bool on = std::getenv("SOTC_HITCH112_LOG") && std::atoi(std::getenv("SOTC_HITCH112_LOG")) != 0;
+            static const bool on = ps2_diag::env("SOTC_HITCH112_LOG") && std::atoi(ps2_diag::env("SOTC_HITCH112_LOG")) != 0;
             static const uint64_t limitUs = std::getenv("SOTC_HITCH112_MS") ? std::strtoull(std::getenv("SOTC_HITCH112_MS"), nullptr, 10) * 1000u : 4000u;
             Hitch112 &h = h112;
             frameCopyBytes = 0;
@@ -2667,7 +2668,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
         void bloomStage(const char *name, const Target &t)
         {
-            static const bool on = std::getenv("SOTC_BLOOM_DUMP") && std::atoi(std::getenv("SOTC_BLOOM_DUMP")) != 0;
+            static const bool on = ps2_diag::env("SOTC_BLOOM_DUMP") && std::atoi(ps2_diag::env("SOTC_BLOOM_DUMP")) != 0;
             if (!on || !t.fbo)
                 return;
             native_renderer::BloomStage st;
@@ -3043,7 +3044,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glUniform1i(uniform(false, "uSrc"), 0);
             glUniform1i(uniform(false, "uSrc2"), 1);
             glUniform1i(uniform(false, "uDepth"), 2);
-            spike.on = std::getenv("SOTC_GL_SPIKE_LOG") && std::atoi(std::getenv("SOTC_GL_SPIKE_LOG")) != 0;
+            spike.on = ps2_diag::env("SOTC_GL_SPIKE_LOG") && std::atoi(ps2_diag::env("SOTC_GL_SPIKE_LOG")) != 0;
 #if defined(PS2X_NATIVE_VITA)
             probeEmulator();
             if (native_renderer::tuning().warmShaders)
@@ -3278,7 +3279,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
         static bool texVerifyOn()
         {
-            static const bool on = std::getenv("SOTC_GL_TEX_VERIFY") && std::atoi(std::getenv("SOTC_GL_TEX_VERIFY")) != 0;
+            static const bool on = ps2_diag::env("SOTC_GL_TEX_VERIFY") && std::atoi(ps2_diag::env("SOTC_GL_TEX_VERIFY")) != 0;
             return on;
         }
         // The first level as vitaGL lays it out (rows 8-texel aligned).
@@ -3339,7 +3340,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // each its own, as before): ~1 MB of CDRAM each at 512 x 448.
             if (!depth && scratchDepthOn())
                 vglFramebufferScratchDepth(t.fbo, GL_TRUE);
-            if (std::getenv("SOTC_GL_LAYER_LOG")) // (debugging, round 55: where each target's colour lives)
+            if (ps2_diag::env("SOTC_GL_LAYER_LOG")) // (debugging, round 55: where each target's colour lives)
             {
                 glBindTexture(GL_TEXTURE_2D, t.texture);
                 std::fprintf(stderr, "[gl:target] made %ux%u at %p (%u bytes)\n", w, h, vglGetTexDataPointer(GL_TEXTURE_2D), ((w + 7u) & ~7u) * 4u * h);
@@ -3582,7 +3583,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 std::fprintf(stderr, "[native:gl] %u targets made at %ux%u (their first scene) in %.1f ms\n", made, w, h, (native_renderer::nowUs() - start) / 1000.0);
             }
             // Round 55 (SOTC_GL_LAYER_LOG): each target's colour memory.
-            if (std::getenv("SOTC_GL_LAYER_LOG"))
+            if (ps2_diag::env("SOTC_GL_LAYER_LOG"))
             {
                 const std::pair<const char *, const Target *> named[] = {
                     {"color", &color}, {"background", &background}, {"snapshot", &snapshot}, {"previous", &previous}, {"shown0", &shownFrame[0]},
@@ -3895,7 +3896,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 differ += d ? 1u : 0u;
                 worst = std::max(worst, d);
             }
-            static int dumps = std::getenv("SOTC_GL_SELFCHECK_DUMP") ? std::atoi(std::getenv("SOTC_GL_SELFCHECK_DUMP")) : 0;
+            static int dumps = ps2_diag::env("SOTC_GL_SELFCHECK_DUMP") ? std::atoi(ps2_diag::env("SOTC_GL_SELFCHECK_DUMP")) : 0;
             if (differ && dumps > 0)
             {
                 --dumps;
@@ -3985,7 +3986,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
         static const bool texLog = true;
 #else
-        static const bool texLog = std::getenv("SOTC_GL_TEX_LOG") != nullptr;
+        static const bool texLog = ps2_diag::env("SOTC_GL_TEX_LOG") != nullptr;
 #endif
         if (texLog && arenaFrame % 300 == 0)
         {
@@ -4069,7 +4070,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
 #endif
         constexpr uint64_t kEvery = 256, kUnused = 1800;
-        static const bool log = std::getenv("SOTC_GL_CACHE_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_GL_CACHE_LOG") != nullptr;
         if (log && arenaFrame % 600 == 0)
         {
             uint64_t meshBytes = 0, textureBytes = 0;
@@ -4235,7 +4236,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             glDeleteBuffers(1, &p.buffer);
             return false;
         }
-        static const bool poolLog = std::getenv("SOTC_HITCH112_LOG") && std::atoi(std::getenv("SOTC_HITCH112_LOG")) != 0;
+        static const bool poolLog = ps2_diag::env("SOTC_HITCH112_LOG") && std::atoi(ps2_diag::env("SOTC_HITCH112_LOG")) != 0;
         if (poolLog) // round 112: where vitaGL put it (below 0x81000000: GPU memory, copied by DMA)
             std::fprintf(stderr, "[hitch112] mesh pool %u made at 0x%08lx (arena %llu)\n", static_cast<unsigned>(slot),
                          static_cast<unsigned long>(reinterpret_cast<uintptr_t>(p.mapped)), (unsigned long long)arenaFrame);
@@ -5180,7 +5181,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // subtract), screen-space draws, the full program's kinds (2 mirror,
         // 3 water, 4 screen copy, 5 last frame), volumes, alpha-tested,
         // background: what each segment of the picture carries.
-        static const int passLog = std::getenv("SOTC_PASS87_LOG") ? std::atoi(std::getenv("SOTC_PASS87_LOG")) : 0;
+        static const int passLog = ps2_diag::env("SOTC_PASS87_LOG") ? std::atoi(ps2_diag::env("SOTC_PASS87_LOG")) : 0;
         if (passLog > 0 && arenaFrame % static_cast<uint64_t>(passLog) == 0u)
         {
             struct L
@@ -5264,7 +5265,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 shadowStats.lastFrame = last;
             }
         }
-        static const bool log = std::getenv("SOTC_GL_DRAW_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_GL_DRAW_LOG") != nullptr;
         if (log)
         {
             drawStats.draws += n;
@@ -5516,7 +5517,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             k = end;
         }
         sortStats.draws += n;
-        static const bool log = std::getenv("SOTC_GL_DRAW_LOG") != nullptr || std::getenv("SOTC_SORT87_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_GL_DRAW_LOG") != nullptr || ps2_diag::env("SOTC_SORT87_LOG") != nullptr;
         if (log && sortStats.frames % 300u == 0u)
         {
             const double f = 300.0;
@@ -5531,7 +5532,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
     // printed every 300 frames ([gl:merge]).
     void Renderer::fat116Check()
     {
-        static const int every = std::getenv("SOTC_FAT116_CHECK") ? std::atoi(std::getenv("SOTC_FAT116_CHECK")) : 0;
+        static const int every = ps2_diag::env("SOTC_FAT116_CHECK") ? std::atoi(ps2_diag::env("SOTC_FAT116_CHECK")) : 0;
         if (every <= 0 || arenaFrame % static_cast<uint64_t>(every) != 0u)
             return;
         static std::vector<Planned> made;
@@ -5573,7 +5574,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
     void Renderer::mergeStats()
     {
-        static const bool on = std::getenv("SOTC_GL_MERGE_STATS") && std::atoi(std::getenv("SOTC_GL_MERGE_STATS")) != 0;
+        static const bool on = ps2_diag::env("SOTC_GL_MERGE_STATS") && std::atoi(ps2_diag::env("SOTC_GL_MERGE_STATS")) != 0;
         if (!on)
             return;
         enum
@@ -5993,7 +5994,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         vglCeloSceneStats(&scenes, &loadKB, &storeKB);
         constexpr bool log = true;
 #else
-        static const bool log = std::getenv("SOTC_GL_SCENE_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_GL_SCENE_LOG") != nullptr;
 #endif
         stats.scenes = scenes; // round 73: the frame log's (this frame's)
         if (phases.on && ++phases.frames >= 300u)
@@ -6027,7 +6028,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
     void Renderer::render(uint32_t w, uint32_t h)
     {
-        static const bool phaseLog = std::getenv("SOTC_GL_PHASE_LOG") && std::atoi(std::getenv("SOTC_GL_PHASE_LOG")) != 0;
+        static const bool phaseLog = ps2_diag::env("SOTC_GL_PHASE_LOG") && std::atoi(ps2_diag::env("SOTC_GL_PHASE_LOG")) != 0;
         phases.on = phaseLog;
         phases.start = phaseLog ? native_renderer::nowUs() : 0u;
         // Round 87 (Tuning glInflight87, a console A/B candidate): the frame
@@ -6536,7 +6537,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 const bool skinned = mesh.skinned;
                 if (skinned && (!skinProgram || !d.state.skinPalette))
                     continue;
-                static const bool checkArena = std::getenv("SOTC_GL_ARENA_LOG") != nullptr;
+                static const bool checkArena = ps2_diag::env("SOTC_GL_ARENA_LOG") != nullptr;
                 if (checkArena && mesh.dynamic && mesh.frame != arenaFrame)
                 {
                     static int n = 0;
@@ -7038,7 +7039,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 {
                     // SOTC_GL_LAYER_LOG=<layer> (debugging, round 55): every 120
                     // frames, the first draws of that layer as the GPU gets them.
-                    static const int logLayer = std::getenv("SOTC_GL_LAYER_LOG") ? std::atoi(std::getenv("SOTC_GL_LAYER_LOG")) : -1;
+                    static const int logLayer = ps2_diag::env("SOTC_GL_LAYER_LOG") ? std::atoi(ps2_diag::env("SOTC_GL_LAYER_LOG")) : -1;
                     static uint64_t logFrame = ~0ull;
                     static int logged = 0;
                     if (logLayer >= 0 && static_cast<int>(d.state.order) == logLayer && arenaFrame % 120u == 0u)
@@ -7133,7 +7134,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     if (full)
                         ++drawStats.mainKind[std::min(textured, 5)];
                 }
-                static const bool progCheck = std::getenv("SOTC_GL_PROG_CHECK") != nullptr;
+                static const bool progCheck = ps2_diag::env("SOTC_GL_PROG_CHECK") != nullptr;
                 if (progCheck)
                 {
                     GLint cur = 0;
@@ -7262,7 +7263,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (rectLog)
             {
                 logRect(backgroundOnly ? "background after its pass" : "picture after the pass");
-                static const char *dumpDir = std::getenv("SOTC_BLOOM_RECT_DUMP");
+                static const char *dumpDir = ps2_diag::env("SOTC_BLOOM_RECT_DUMP");
                 static int dumped = 0;
                 if (dumpDir && dumped < 8)
                 {
@@ -8611,7 +8612,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // The heat haze at the blur's layer reads the same picture: its copy made there too.
         const bool hazeWithBlur = blurApart && screenCopyOrder && screenCopyOrder == blurs[0].order && static_cast<int>(native_renderer::tuning().hazeSource + 0.5f) != 2;
         bool hazeDone = false;
-        static const bool eventLog = std::getenv("SOTC_GL_EVENT_LOG") != nullptr; // debugging: each frame's effects (layer:kind)
+        static const bool eventLog = ps2_diag::env("SOTC_GL_EVENT_LOG") != nullptr; // debugging: each frame's effects (layer:kind)
         if (eventLog)
         {
             std::string line;
@@ -8985,7 +8986,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             m_heapHigh = mb("SOTC_GL_HEAP_MB", 0.0);
             m_heapLimit = 0;
             m_flushBytes = mb("SOTC_GL_UPLOAD_FLUSH_MB", 64.0);
-            m_memLog = std::getenv("SOTC_GL_MEM_LOG") || std::getenv("SOTC_GL_CACHE_LOG");
+            m_memLog = ps2_diag::env("SOTC_GL_MEM_LOG") || ps2_diag::env("SOTC_GL_CACHE_LOG");
 #endif
             m_startUs = native_renderer::nowUs();
         }

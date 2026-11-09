@@ -23,6 +23,7 @@
 // height); the game's own answer is the one used then. SOTC_PROBE84_LOG=1:
 // a [probe84] line every 600 frames.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -49,9 +50,9 @@ namespace probe84
                 eps = static_cast<float>(std::atof(e));
             if (const char *e = std::getenv("SOTC_PROBE84_WATER_AGE"))
                 age = static_cast<uint32_t>(std::atoi(e));
-            if (const char *e = std::getenv("SOTC_PROBE84_CHECK"))
+            if (const char *e = ps2_diag::env("SOTC_PROBE84_CHECK"))
                 check = std::atoi(e);
-            log = std::getenv("SOTC_PROBE84_LOG") && std::atoi(std::getenv("SOTC_PROBE84_LOG")) != 0;
+            log = ps2_diag::env("SOTC_PROBE84_LOG") && std::atoi(ps2_diag::env("SOTC_PROBE84_LOG")) != 0;
         }
     };
     const Params &params()

@@ -1,4 +1,5 @@
 #include <cstring>
+#include "runtime/ps2_diag.h"
 // Shadow of the Colossus (SCUS-97472) runtime overrides.
 #include <cstdio>
 #include <utility>
@@ -215,7 +216,7 @@ namespace
 
     void installCensus(PS2Runtime &runtime)
     {
-        if (!std::getenv("SOTC_CENSUS"))
+        if (!ps2_diag::env("SOTC_CENSUS"))
             return;
         static const auto hooks = makeCensus(std::make_integer_sequence<int, kCensusCount>{});
         for (int i = 0; i < kCensusCount; ++i)
@@ -248,7 +249,7 @@ namespace
 
     void modelDispDumpHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        static const uint64_t at = std::strtoull(std::getenv("SOTC_MODEL_DUMP"), nullptr, 10);
+        static const uint64_t at = std::strtoull(ps2_diag::env("SOTC_MODEL_DUMP"), nullptr, 10);
         const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
         auto word = [rdram](uint32_t addr) { uint32_t v = 0; std::memcpy(&v, rdram + (addr & 0x1FFFFFCu), 4); return v; };
         auto floats = [rdram](uint32_t addr, int n)
@@ -305,7 +306,7 @@ namespace
         (*Original)(rdram, ctx, runtime);
         if (runtime->transferPending())
             return;
-        static const uint64_t at = std::strtoull(std::getenv("SOTC_MODEL_DUMP"), nullptr, 10);
+        static const uint64_t at = std::strtoull(ps2_diag::env("SOTC_MODEL_DUMP"), nullptr, 10);
         if (g_modelDumpState == 1 && ps2_stats::vif1Chains.load(std::memory_order_relaxed) == at + 1u)
         {
             char line[96];
@@ -656,7 +657,7 @@ namespace
         }
         void released(uint8_t *rdram, double since, bool active)
         {
-            static const bool logOn = [] { const char *e = std::getenv("SOTC_CAP20_LOG"); return e ? std::atoi(e) != 0 : true; }();
+            static const bool logOn = [] { const char *e = ps2_diag::env("SOTC_CAP20_LOG"); return e ? std::atoi(e) != 0 : true; }();
             Window &w = g_w;
             if (w.wallStart < 0)
             {
@@ -763,7 +764,7 @@ namespace
             }
         }
         // SOTC_CAP20_TRACE=<n>: the first n releases, one line each.
-        static const int traceMax = [] { const char *e = std::getenv("SOTC_CAP20_TRACE"); return e ? std::atoi(e) : 0; }();
+        static const int traceMax = [] { const char *e = ps2_diag::env("SOTC_CAP20_TRACE"); return e ? std::atoi(e) : 0; }();
         static int traced = 0;
         if (traced < traceMax)
         {
@@ -1000,7 +1001,7 @@ namespace
             {
                 const uint32_t chunks = (qwc + 0x3FFu) / 0x400u, last = (qwc - (chunks - 1u) * 0x400u) * 16u;
                 // SOTC_SPR_COPY_CHECK=1 (checking): the chunks on a copy of the range and the scratchpad, compared.
-                static const bool check = std::getenv("SOTC_SPR_COPY_CHECK") != nullptr;
+                static const bool check = ps2_diag::env("SOTC_SPR_COPY_CHECK") != nullptr;
                 const uint32_t lo = std::min(srcOff, dstOff), hi = std::max(srcOff, dstOff) + total;
                 std::vector<uint8_t> ram, pad;
                 if (check)
@@ -1229,7 +1230,7 @@ namespace
         sysnative::install(runtime);
         sotc_decomp::install(runtime);
         installSotcNativeLate(runtime);
-        if (std::getenv("SOTC_MATH_CHECK") && runtime.hasFunction(0x010816C0u))
+        if (ps2_diag::env("SOTC_MATH_CHECK") && runtime.hasFunction(0x010816C0u))
         {
             g_yawPitch = runtime.lookupFunction(0x010816C0u);
             runtime.registerFunction(0x010816C0u, yawPitchHook);
@@ -1238,7 +1239,7 @@ namespace
             g_yawPitchEnd = runtime.lookupFunction(kYawPitchEnd);
             runtime.registerFunction(kYawPitchEnd, yawPitchEndHook);
         }
-        if (std::getenv("SOTC_MODEL_DUMP") && runtime.hasFunction(kModelDisp) && runtime.hasFunction(kGetCameraContext))
+        if (ps2_diag::env("SOTC_MODEL_DUMP") && runtime.hasFunction(kModelDisp) && runtime.hasFunction(kGetCameraContext))
         {
             g_modelDispOriginal = runtime.lookupFunction(kModelDisp);
             runtime.registerFunction(kModelDisp, modelDispDumpHook);

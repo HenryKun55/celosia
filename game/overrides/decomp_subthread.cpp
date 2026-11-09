@@ -22,6 +22,7 @@
 // give f5..f8 the word saved for f4, as the game's code does). Frames
 // outside plain RAM go to the recompiled code.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -107,7 +108,7 @@ namespace decomp_subthread
     {
         if (__builtin_expect(g_check < 0, 0))
         {
-            const char *e = std::getenv("SOTC_SW102_CHECK");
+            const char *e = ps2_diag::env("SOTC_SW102_CHECK");
             g_check = e && std::atoi(e) != 0;
         }
         return g_check != 0;

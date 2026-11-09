@@ -39,6 +39,7 @@
 // v1 where the code leaves them before a call; at / t0 - t3 not), and the
 // loops' EE checkpoints (left out).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 
 #include "ps2_runtime_macros.h"
@@ -100,7 +101,7 @@ namespace decomp_hot47e
     {
         inline bool on()
         {
-            static const bool v = std::getenv("SOTC_WALK79_LOG") && std::atoi(std::getenv("SOTC_WALK79_LOG")) != 0;
+            static const bool v = ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0;
             return v;
         }
         static uint64_t tVis, tHid, nVis, nHid, tEmit, nEmit, tAll, frames;
@@ -153,7 +154,7 @@ namespace decomp_hot47e
                     off = static_cast<float>(std::atof(e));
                 if (const char *e = std::getenv("SOTC_PTCL79_MARGIN"))
                     margin = static_cast<float>(std::atof(e));
-                log = std::getenv("SOTC_PTCL79_LOG") && std::atoi(std::getenv("SOTC_PTCL79_LOG")) != 0;
+                log = ps2_diag::env("SOTC_PTCL79_LOG") && std::atoi(ps2_diag::env("SOTC_PTCL79_LOG")) != 0;
             }
         };
         const Params &params()
@@ -1157,7 +1158,7 @@ namespace decomp_hot47e
             return fallback(kBlend, rdram, ctx, runtime);
         {
             // SOTC_PTCL_STATS=1: blends by kind every 600 frames ([blend123]).
-            static const bool statsOn = std::getenv("SOTC_PTCL_STATS") != nullptr;
+            static const bool statsOn = ps2_diag::env("SOTC_PTCL_STATS") != nullptr;
             static uint64_t nCopy = 0, nBlend = 0, frame = 0;
             if (statsOn)
             {
@@ -1229,7 +1230,7 @@ namespace decomp_hot47e
                     }
                     using af = float __attribute__((may_alias));
                     const af *a = reinterpret_cast<const af *>(rdram + rec1), *b = reinterpret_cast<const af *>(rdram + rec2);
-                    static const bool check = [] { const char *e = std::getenv("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }();
+                    static const bool check = [] { const char *e = ps2_diag::env("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }();
                     float tmp[88];
                     af *o = check ? tmp : reinterpret_cast<af *>(rdram + out);
                     o[0] = w0 * fb(READ32(set + 0x78u)) + w1 * fb(READ32(other + 0x78u));

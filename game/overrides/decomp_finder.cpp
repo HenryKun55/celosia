@@ -28,6 +28,7 @@
 // inline (a leaf without a frame). The 128-bit halves of t0 / a0 / v0 that
 // qmtc2 moves into VU0 are taken from the context as they are at that point.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -77,7 +78,7 @@ namespace decomp_finder
 
     void finder(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        static const bool stats = std::getenv("SOTC_FINDER_STATS") != nullptr;
+        static const bool stats = ps2_diag::env("SOTC_FINDER_STATS") != nullptr;
         if (stats && (++g_stats.calls & 0x3FFFu) == 0u)
             std::fprintf(stderr, "[finder] %llu calls: parts %llu, surfaces %llu (planes %llu), parts calls %llu, triangles %llu (corners %llu), entries %llu, callbacks %llu\n",
                          (unsigned long long)g_stats.calls, (unsigned long long)g_stats.parts, (unsigned long long)g_stats.surfaces,

@@ -36,6 +36,7 @@
 // LOD record) or memory outside main RAM goes to the recompiled code
 // before anything is written.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -332,7 +333,7 @@ namespace decomp_ptcl117
     {
         Check117 &c = g_check;
         if (c.every < 0)
-            c.every = std::getenv("SOTC_DRAW117_CHECK") ? std::atoi(std::getenv("SOTC_DRAW117_CHECK")) : 0;
+            c.every = ps2_diag::env("SOTC_DRAW117_CHECK") ? std::atoi(ps2_diag::env("SOTC_DRAW117_CHECK")) : 0;
         return c.every > 0 && ++c.calls[which] % static_cast<uint64_t>(c.every) == 0u;
     }
     void noteCheck(int which, bool same, const char *what)

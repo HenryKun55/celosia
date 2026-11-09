@@ -43,7 +43,7 @@ namespace coll123
                 eps = static_cast<float>(std::atof(e));
             if (const char *e = std::getenv("SOTC_SEG123_AGE"))
                 age = static_cast<uint32_t>(std::atoi(e));
-            if (const char *e = std::getenv("SOTC_SEG123_CHECK"))
+            if (const char *e = ps2_diag::env("SOTC_SEG123_CHECK"))
                 check = std::atoi(e);
         }
     };

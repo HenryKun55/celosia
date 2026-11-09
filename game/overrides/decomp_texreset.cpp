@@ -10,6 +10,7 @@
 // hands the walk to the recompiled code at its loop head (0x10ab630) with
 // the registers it has there. v0 / v1 / a0 as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -210,7 +211,7 @@ namespace decomp_texreset
         }
         t.overlap = overlaps128(t);
         t.valid = !t.overlap;
-        static const bool log = std::getenv("SOTC_TEXR128_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_TEXR128_LOG") != nullptr;
         if (log && (t.made <= 4u || t.made % 200u == 0u))
             std::fprintf(stderr, "[texr128] calls %llu kept %llu made %llu (nodes %u, from %u; usable %d)\n", (unsigned long long)t.calls,
                          (unsigned long long)t.kept, (unsigned long long)t.made, (unsigned)t.nodes.size(), (unsigned)i, t.valid ? 1 : 0);
@@ -228,7 +229,7 @@ namespace decomp_texreset
         {
             // SOTC_TEXR128_CHECK=1: the list walked read-only first (each record, its flag, its 16 bytes),
             // then the indexed call; every record must hold zeros where flagged, its bytes otherwise.
-            static const bool check = std::getenv("SOTC_TEXR128_CHECK") != nullptr;
+            static const bool check = ps2_diag::env("SOTC_TEXR128_CHECK") != nullptr;
             if (!check)
                 return resetIndexed(rdram, ctx, runtime);
             struct Seen

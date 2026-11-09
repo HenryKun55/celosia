@@ -6,6 +6,7 @@
 // context (FPU registers and fcr31, VU0 vf15-vf19, Q and status, v0 / at /
 // a3 / t0) is written back at the end.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -642,7 +643,7 @@ namespace decomp_libm
             v0 = -0x1000;
         }
         // SOTC_ACOS_STATS=1 (checking): which of the paths ran, every 50 000 calls.
-        static const bool stats = std::getenv("SOTC_ACOS_STATS") != nullptr;
+        static const bool stats = ps2_diag::env("SOTC_ACOS_STATS") != nullptr;
         if (stats)
         {
             static uint64_t n[5] = {}, calls = 0;

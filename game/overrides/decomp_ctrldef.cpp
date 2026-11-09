@@ -37,6 +37,7 @@
 //
 // SOTC_CTRLDEF_STATS=1 (measuring): the condition types seen, every 20 000 calls.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -285,7 +286,7 @@ namespace decomp_ctrldef
 
     void condStats(uint32_t type)
     {
-        static const bool on = std::getenv("SOTC_CTRLDEF_STATS") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_CTRLDEF_STATS") != nullptr;
         if (!on)
             return;
         static uint64_t counts[128] = {}, calls = 0;
@@ -319,7 +320,7 @@ namespace decomp_ctrldef
             if (__builtin_expect(g_statsOn != 0, 0))
             {
                 if (g_statsOn < 0)
-                    g_statsOn = std::getenv("SOTC_CTRLDEF_STATS") != nullptr ? 1 : 0;
+                    g_statsOn = ps2_diag::env("SOTC_CTRLDEF_STATS") != nullptr ? 1 : 0;
                 if (g_statsOn)
                     condStats(type);
             }

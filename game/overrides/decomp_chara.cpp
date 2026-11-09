@@ -8,6 +8,7 @@
 // and "this character" are boot-ELF data the module is linked to at run
 // time (relocated lui / lw pairs, read from the code).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -250,7 +251,7 @@ namespace decomp_chara
         int32_t from = count;
         if (links97)
         {
-            static const bool check97 = std::getenv("SOTC_LINKS97_CHECK") && std::atoi(std::getenv("SOTC_LINKS97_CHECK")) != 0;
+            static const bool check97 = ps2_diag::env("SOTC_LINKS97_CHECK") && std::atoi(ps2_diag::env("SOTC_LINKS97_CHECK")) != 0;
             if (check97)
             {
                 // The original second scan's reads up to its first call: where it acts first, and its v0 without a call.

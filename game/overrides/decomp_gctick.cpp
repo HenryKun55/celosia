@@ -22,6 +22,7 @@
 // merge and the handlers stay guest calls; another callback is called
 // through the guest.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -167,7 +168,7 @@ namespace decomp_gctick
         uint32_t s1 = (ram.u32(ram.u32(0x001E0BF4u) + 8u) & 0xFFFFFFu) << 2;
         SET_GPR_U32(ctx, 17, s1);
         // SOTC_GC_LOG=1 (debugging): each call's blocks, moves and how it ended.
-        static const bool log = std::getenv("SOTC_GC_LOG") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_GC_LOG") != nullptr;
         uint32_t blocks = 0, moves = 0;
         bool stopped = false;
         const uint64_t cycle0 = runtime->eeScheduler().eeCycle();

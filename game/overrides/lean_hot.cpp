@@ -22,6 +22,7 @@
 // originals by the difftest
 // (sotc_decomp.h; their entry slots keep the original for it).
 #include "lean_hot.h"
+#include "runtime/ps2_diag.h"
 #include "ps2_runtime.h"
 #include "sotc_decomp.h"
 #include "sotc_prof.h"
@@ -135,7 +136,7 @@ namespace ps2_lean
         };
         // SOTC_LEAN_CHECK: entries left to the difftest.
         std::vector<bool> checked(kCount, false);
-        if (const char *check = std::getenv("SOTC_LEAN_CHECK"))
+        if (const char *check = ps2_diag::env("SOTC_LEAN_CHECK"))
         {
             // "n": the first n; "lo-hi": entries lo .. hi-1; else names.
             char *end = nullptr;
@@ -147,7 +148,7 @@ namespace ps2_lean
             }
             const bool byIndex = end && *end == '\0';
             const std::string list = std::string(",") + check + ",";
-            std::string names = std::getenv("SOTC_DIFFTEST") ? std::getenv("SOTC_DIFFTEST") : "";
+            std::string names = ps2_diag::env("SOTC_DIFFTEST") ? ps2_diag::env("SOTC_DIFFTEST") : "";
             int picked = 0;
             for (size_t i = 0; i < kCount && picked < 64; ++i)
             {
@@ -192,7 +193,7 @@ namespace ps2_lean
                 continue; // the difftest puts it in place, checked
             // SOTC_LEAN_CHECK_ONLY=1: the lean copies only in the checks, the
             // originals everywhere else.
-            static const bool checkOnly = std::getenv("SOTC_LEAN_CHECK_ONLY") != nullptr;
+            static const bool checkOnly = ps2_diag::env("SOTC_LEAN_CHECK_ONLY") != nullptr;
             if (checkOnly)
                 continue;
             g_slots.push_back({slot, fn, kLean[it->second].lean, trustOf(it->second)});
@@ -244,7 +245,7 @@ namespace ps2_lean
     {
         (void)runtime;
 #ifdef SOTC_LEAN_TABLE
-        if (!std::getenv("SOTC_LEAN_CHECK"))
+        if (!ps2_diag::env("SOTC_LEAN_CHECK"))
             return;
         // A check whose "recompiled" leg is a hook (sotc_native, the system
         // overrides) compares the lean copy with the hook: void.

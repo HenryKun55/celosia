@@ -31,6 +31,7 @@
 // ([charlod]: type, distance to the camera / player, radius, visible
 // frames, updates and put-off ones, its ExecCharaGeometry time).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -81,7 +82,7 @@ namespace charlod78
             // at least SOTC_CHARLOD78_FAR_S seconds between updates.
             float far = envF("SOTC_CHARLOD78_FAR", 0.0f);
             float farS = envF("SOTC_CHARLOD78_FAR_S", 0.066f);
-            uint64_t logEvery = std::getenv("SOTC_CHARLOD78_LOG") ? std::strtoull(std::getenv("SOTC_CHARLOD78_LOG"), nullptr, 10) : 0u;
+            uint64_t logEvery = ps2_diag::env("SOTC_CHARLOD78_LOG") ? std::strtoull(ps2_diag::env("SOTC_CHARLOD78_LOG"), nullptr, 10) : 0u;
         };
         const Params &params()
         {

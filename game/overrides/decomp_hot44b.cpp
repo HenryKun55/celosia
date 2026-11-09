@@ -46,6 +46,7 @@
 // clothVelocity since an earlier round (its type-1 path hands over to the
 // recompiled code at 0x1137728: that is the profile's lean copy).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -389,7 +390,7 @@ namespace decomp_hot44b
     void finderWithKeep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         // Round 119: SOTC_COLL115_LOG=1: the loop's host time by view119's state (with the [view119] line).
-        static const bool timed = std::getenv("SOTC_COLL115_LOG") && std::atoi(std::getenv("SOTC_COLL115_LOG")) != 0;
+        static const bool timed = ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0;
         if (__builtin_expect(timed, 0) && !sotc_decomp::onWorkerLane(runtime))
         {
             const int st = sotc_decomp::switchOn(sotc_decomp::kView119) ? 1 : 0;
@@ -487,8 +488,8 @@ namespace decomp_hot44b
                 if (keepCall(pendS0, pendS1) != 0u)
                     ++g_keep119Wrong; // (never: the first return gives no hit)
             };
-            static const int check119 = std::getenv("SOTC_VIEW119_CHECK") ? std::atoi(std::getenv("SOTC_VIEW119_CHECK")) : 0;
-            static const bool log119 = check119 || (std::getenv("SOTC_COLL115_LOG") && std::atoi(std::getenv("SOTC_COLL115_LOG")) != 0);
+            static const int check119 = ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0;
+            static const bool log119 = check119 || (ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0);
             if (log119 && sotc_decomp::g_gameFrame >= g_keep119Frame + 600u)
             {
                 if (g_keep119Frame != 0u)

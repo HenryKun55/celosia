@@ -29,6 +29,7 @@
 // the return. f0, v0, fcr31 and the VU0 registers it writes (vf1, vf5-vf7,
 // Q, the status) as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -204,7 +205,7 @@ namespace decomp_curve
     // SOTC_CURVE_STATS=1: the calls by format, every 20 000.
     void count(uint64_t format)
     {
-        static const bool on = std::getenv("SOTC_CURVE_STATS") != nullptr;
+        static const bool on = ps2_diag::env("SOTC_CURVE_STATS") != nullptr;
         if (!on)
             return;
         static uint64_t n[16], total = 0;
@@ -376,7 +377,7 @@ namespace decomp_curve
         if (__builtin_expect(g_statsOn != 0, 0))
         {
             if (g_statsOn < 0)
-                g_statsOn = std::getenv("SOTC_CURVE_STATS") != nullptr ? 1 : 0;
+                g_statsOn = ps2_diag::env("SOTC_CURVE_STATS") != nullptr ? 1 : 0;
             if (g_statsOn)
                 count(format);
         }

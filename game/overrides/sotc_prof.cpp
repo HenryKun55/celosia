@@ -25,6 +25,7 @@
 // predictor and the 20 MB function table all missing), plus the table
 // lookup alone at random addresses.
 #include "sotc_prof.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -654,7 +655,7 @@ namespace sotc_prof
                 line += buf;
             }
             // SOTC_SUBSYS_PROF_MIN=<ms>: the cut (0.05; lower on the Mac, ~35x faster).
-            static const double minMs = std::getenv("SOTC_SUBSYS_PROF_MIN") ? std::atof(std::getenv("SOTC_SUBSYS_PROF_MIN")) : 0.05;
+            static const double minMs = ps2_diag::env("SOTC_SUBSYS_PROF_MIN") ? std::atof(ps2_diag::env("SOTC_SUBSYS_PROF_MIN")) : 0.05;
             const bool fine = minMs < 0.01;
             for (int i : order)
             {
@@ -698,7 +699,7 @@ namespace sotc_prof
         // (the open calls' time is not in it until they close).
         void slowFrame(uint64_t frame, uint64_t now)
         {
-            static const double limitMs = std::getenv("SOTC_SUBSYS_PROF_SLOW") ? std::atof(std::getenv("SOTC_SUBSYS_PROF_SLOW")) : 0.0;
+            static const double limitMs = ps2_diag::env("SOTC_SUBSYS_PROF_SLOW") ? std::atof(ps2_diag::env("SOTC_SUBSYS_PROF_SLOW")) : 0.0;
             static uint64_t last = 0, lastWait = 0;
             const uint64_t wait = ps2_load::waitUs[ps2_load::kGame].load(std::memory_order_relaxed);
             const double wallMs = last ? (now - last) / kTicksPerMs : 0.0;
@@ -860,7 +861,7 @@ namespace sotc_prof
             }
             g_innerProbe = g_eeDispatchProbe;
             g_eeDispatchProbe = dispatchProbe;
-            g_dump = std::getenv("SOTC_CALL_COUNT_DUMP");
+            g_dump = ps2_diag::env("SOTC_CALL_COUNT_DUMP");
             g_installed = true;
             std::fprintf(stderr, "[calls] %u functions counted behind one thunk\n", n);
         }
@@ -918,7 +919,7 @@ namespace sotc_prof
             g_timeline->clear();
         }
         if (!g_timeline)
-            if (const char *tl = std::getenv("SOTC_SUBSYS_PROF_TIMELINE"))
+            if (const char *tl = ps2_diag::env("SOTC_SUBSYS_PROF_TIMELINE"))
             {
                 g_timeline = new std::vector<TimelineEvent>;
                 g_timeline->reserve(1 << 16);
@@ -1296,13 +1297,13 @@ namespace sotc_prof
             // SOTC_SUBSYS_PROF_ONLY=1 (round 70): only the EXTRA list (the
             // default set's ~2 000 probe calls a frame left out: a narrow
             // breakdown with little of the probes' own cost in it).
-            const char *only = std::getenv("SOTC_SUBSYS_PROF_ONLY");
+            const char *only = ps2_diag::env("SOTC_SUBSYS_PROF_ONLY");
             if (!only || std::atoi(only) == 0)
                 for (const Target &t : kTargets)
                     wrap(t.address, t.name);
             // SOTC_SUBSYS_PROF_EXTRA=0xaddr:name,0xaddr,...
             static std::vector<std::string> extraNames;
-            if (const char *extra = std::getenv("SOTC_SUBSYS_PROF_EXTRA"))
+            if (const char *extra = ps2_diag::env("SOTC_SUBSYS_PROF_EXTRA"))
             {
                 std::string list(extra);
                 size_t at = 0;
@@ -1345,7 +1346,7 @@ namespace sotc_prof
         void start(const char *path)
         {
             uint64_t lo = 0, hi = ~0ull;
-            if (const char *r = std::getenv("SOTC_HOST_PROF_FRAMES"))
+            if (const char *r = ps2_diag::env("SOTC_HOST_PROF_FRAMES"))
             {
                 char *end = nullptr;
                 lo = std::strtoull(r, &end, 10);
@@ -1478,13 +1479,13 @@ namespace sotc_prof
     {
         prof129::install(runtime); // round 129 (SOTC_PROF129=1)
 #if defined(__APPLE__) && defined(__aarch64__)
-        if (const char *path = std::getenv("SOTC_HOST_PROF"))
+        if (const char *path = ps2_diag::env("SOTC_HOST_PROF"))
         {
             hostprof::g_runtime = &runtime;
             hostprof::start(path);
         }
 #endif
-        const char *env = std::getenv("SOTC_SUBSYS_PROF");
+        const char *env = ps2_diag::env("SOTC_SUBSYS_PROF");
         if (!(env && std::atoi(env) != 0) && !native_renderer::tuning().subsysProf)
         {
             calls::install(runtime);

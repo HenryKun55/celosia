@@ -20,6 +20,7 @@
 // sotc_decomp::install. SOTC_SEMA_FAST=0 (or SOTC_DECOMP=0,
 // SOTC_DECOMP_SKIP=SignalSema) leaves the stub in the table.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
@@ -76,7 +77,7 @@ namespace sotc_decomp
         if (!runtime.hasFunction(decomp_sema::kSignalSema))
             return;
 #if !defined(__vita__)
-        decomp_sema::g_stats = std::getenv("SOTC_SEMA_STATS") != nullptr;
+        decomp_sema::g_stats = ps2_diag::env("SOTC_SEMA_STATS") != nullptr;
 #endif
         decomp_sema::g_stub = runtime.lookupFunction(decomp_sema::kSignalSema);
         runtime.registerFunction(decomp_sema::kSignalSema, decomp_sema::signalSema);

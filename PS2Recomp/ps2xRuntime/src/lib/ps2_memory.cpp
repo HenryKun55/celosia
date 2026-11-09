@@ -1,4 +1,5 @@
 #include "ThreadNaming.h"
+#include "runtime/ps2_diag.h"
 #include "runtime/ps2_thread_load.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_stats.h"
@@ -2007,7 +2008,7 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value)
                     // copies (VIF1 registers, GS events and MSKPATH3 calls
                     // collected), then for real with it, and the two compared.
                     static const bool dumping = std::getenv("PS2X_DMA_DUMP") != nullptr;
-                    static const bool cacheCheck = std::getenv("SOTC_DMACACHE_CHECK") && std::atoi(std::getenv("SOTC_DMACACHE_CHECK")) != 0;
+                    static const bool cacheCheck = ps2_diag::env("SOTC_DMACACHE_CHECK") && std::atoi(ps2_diag::env("SOTC_DMACACHE_CHECK")) != 0;
                     const bool walk2 = walker && transferTagData && channelBase == 0x10009000u && ps2_fast_paths::g_dmaWalk2 && !dumping;
                     // (SOTC_DMA_ASYNC read again at the first kick: the Vita's
                     // env.txt can come after the static initialisers.)
@@ -3768,7 +3769,7 @@ namespace
 {
     bool dmaAsyncCheck()
     {
-        static const bool on = std::getenv("SOTC_DMA_ASYNC_CHECK") && std::atoi(std::getenv("SOTC_DMA_ASYNC_CHECK")) != 0;
+        static const bool on = ps2_diag::env("SOTC_DMA_ASYNC_CHECK") && std::atoi(ps2_diag::env("SOTC_DMA_ASYNC_CHECK")) != 0;
         return on;
     }
     const char *const kJoinNames[PS2Memory::kJoinReasons] = {"vblank", "poll", "regread", "regwrite", "gs", "gif", "other"};
@@ -3842,7 +3843,7 @@ void PS2Memory::vif1AsyncKick(const Vif1ChainState &st, bool tie, uint32_t chcr)
     a.work.notify_one();
     ++a.kicks;
     a.kickUs = ps2_stats::nowUs();
-    static const bool log = std::getenv("SOTC_DMA_ASYNC_LOG") != nullptr;
+    static const bool log = ps2_diag::env("SOTC_DMA_ASYNC_LOG") != nullptr;
     if (log)
         std::fprintf(stderr, "[dmaasync] kick %llu, ra %08x, TADR %08x\n", (unsigned long long)a.kicks, g_ps2MmioCaller ? g_ps2MmioCaller() : 0u, st.tagAddr);
     m_vif1AsyncPending.store(true, std::memory_order_relaxed);
@@ -3916,7 +3917,7 @@ bool PS2Memory::vif1AsyncJoin(int reason)
     }
     a.inflightUs += ps2_stats::nowUs() - a.kickUs;
     ++a.joins[reason >= 0 && reason < kJoinReasons ? reason : kJoinOther];
-    static const bool log = std::getenv("SOTC_DMA_ASYNC_LOG") != nullptr; // debugging: each join, its reason, the guest's ra
+    static const bool log = ps2_diag::env("SOTC_DMA_ASYNC_LOG") != nullptr; // debugging: each join, its reason, the guest's ra
     if (log)
         std::fprintf(stderr, "[dmaasync] join %llu at %s, ra %08x, %.2f ms after the kick\n", (unsigned long long)a.kicks,
                      kJoinNames[reason >= 0 && reason < kJoinReasons ? reason : kJoinOther], g_ps2MmioCaller ? g_ps2MmioCaller() : 0u,
