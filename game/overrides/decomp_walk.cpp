@@ -95,6 +95,10 @@ namespace decomp_prefetch
 namespace sotc_native
 {
     bool nativeDraws(); // round 103: the model hook draws natively (no PS2 lists, no GS raster)
+    // round 128 (imm128): an immediate primitive's pairs straight to the 2D assembler; its check's records
+    void immFeed128(uint8_t *rdram, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze);
+    void immRecord128(std::vector<uint64_t> &rec, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze);
+    void immArm128(std::vector<uint64_t> *rec);
 }
 
 namespace decomp_walk
@@ -2191,7 +2195,8 @@ namespace decomp_walk
         uint32_t pos, site;
         bool colour = true; // false: no glColor4f per vertex (glColor4fv once before: 01142350's quads)
     };
-    bool quad117(const G g, uint32_t sp, const Vert117 *vs, int n)
+    // host (round 128, imm128): the pairs into host[] (value, register; *hostCount of them) instead of the GIF packet.
+    bool quad117(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host = nullptr, uint32_t *hostCount = nullptr)
     {
         const Ram m = g.m;
         R5900Context *ctx = g.ctx;
@@ -2293,6 +2298,13 @@ namespace decomp_walk
             std::memcpy(w27, &vf27, 16);
             auto emit = [&](uint64_t value, uint64_t reg)
             {
+                if (host)
+                {
+                    host[2u * *hostCount] = value;
+                    host[2u * *hostCount + 1u] = reg;
+                    ++*hostCount;
+                    return;
+                }
                 uint32_t at = m.u32(kGl + 4u);
                 m.put64(at, value);
                 at += 8u;
@@ -2516,6 +2528,193 @@ namespace decomp_walk
             std::fprintf(stderr, "[glv117c] %llu quads checked, %llu differ\n", (unsigned long long)c.checks, (unsigned long long)c.differ);
     }
 
+    // ---- Round 128 (SOTC_IMM128, default on; A/B `imm128`, `r128all`): an
+    // immediate-mode quad (glBegin, the four vertices, glEnd) without the
+    // guest GIF packet when the native renderer draws. glEnd's hook only
+    // reads the packet's pairs back into the 2D assembler; the rest of glEnd
+    // (the GIF / DMA tags' counts, iosSetPacketPtrPath1, the chain into the
+    // layer's list, the pop of glBegin's push) feeds the PS2's GS, which
+    // draws nothing with the native renderer (GS::skipRaster: the chains are
+    // walked for SIGNAL / FINISH / LABEL only, and this A+D packet has none;
+    // round 103's ptcl103 leaves its packets out the same way). So: glBegin's
+    // state words (begin128, below), quad117's pairs into host memory, the
+    // pairs fed as glEndHook feeds them (the layer glBegin would have pushed,
+    // the haze's screen copy; sotc_native::immFeed128). glEnd's 0108CD80
+    // (the software clip of the primitives the kicks flagged, ADC bytes at
+    // +0x41f8; its own glBegin .. glEnd) is called as glEnd calls it, after
+    // the feed, when a flag is set; with none it does nothing. Not taken (the
+    // calls as before): another renderer, a packet already open (glBegin
+    // would return -1), an unknown primitive table entry, quad117 not taking
+    // the vertices. SOTC_IMM128_CHECK=<n>: every n-th quad both ways from the
+    // same state (the new path dry), the 2D assembler's input compared (the
+    // layer, the texture header, every pair), the gl block (but its packet
+    // pointers +4 / +8), VU0 and f0 - f2; the old path's result kept.
+    struct Imm128Stats
+    {
+        int every = -1;
+        uint64_t quads = 0, fast = 0, clipped = 0, byCalls = 0, checks = 0, differ = 0;
+    };
+    Imm128Stats g_imm128;
+
+    // glBegin(prim) (0x108e530 -> glBeginWithDlLayerNo(prim, iosDlGetLayer()))
+    // as its writes to the gl block, without the packet; pairs[0..3] its TEST
+    // and PRIM pairs, *layer the layer it would push. False (nothing
+    // written): a packet open, or a primitive / table entry not known.
+    bool begin128(const Ram m, uint32_t prim, uint64_t *pairs, uint32_t *layer)
+    {
+        if (prim >= 8u || m.u32(kGl + 4u) != 0u)
+            return false;
+        uint32_t s4;
+        switch (m.u32(0x011916E0u + prim * 4u))
+        {
+        case 0x0108BB98u: s4 = m.u32(kGl + 0x20u); break;
+        case 0x0108BBA4u: case 0x0108BBA8u: s4 = m.u32(kGl + 0x24u); break;
+        case 0x0108BBB0u: s4 = 0u; break;
+        default: return false;
+        }
+        const uint32_t gsPrim = m.u32(0x011916C0u + prim * 4u);
+        if (gsPrim >= 8u)
+            return false;
+        *layer = m.u32(0x002132D8u + 0x1Cu); // iosDlGetLayer: the display list's current layer
+        m.put32(kGl + 0xCu, prim);
+        m.put32(kGl + 0x41F0u, 0u);
+        m.put32(kGl + 0x5220u, 0u);
+        m.put32(kGl + 0x14u, 1u);
+        m.put32(kGl + 0x10u, gsPrim);
+        m.put32(kGl + 0x1B8u, 0u);
+        m.put32(kGl + 0x1B4u, m.u32(0x011916A0u + gsPrim * 4u) - 1u);
+        m.put64(kGl + 0x1B0u, m.u64(kGl + 0x1B0u) & ~0x10ull);
+        auto lw = [&](uint32_t off) -> int64_t { return static_cast<int64_t>(m.s32(kGl + off)); };
+        const int64_t test = (static_cast<int64_t>(static_cast<int32_t>(m.u32(kGl + 0x34u) + 1u)) << 17) | (lw(0x38u) != 0 ? 0x1164A : 0x11001);
+        pairs[0] = static_cast<uint64_t>(test);
+        pairs[1] = lw(0x30u) != 0 ? 0x48u : 0x47u;
+        const int64_t primValue = lw(0x10u) | (lw(0x30u) << 9) | (lw(0x28u) << 5) | (static_cast<int64_t>(static_cast<int32_t>(s4)) << 7) | (lw(0x14u) << 3) |
+                                  (lw(0x18u) << 4) | (lw(0x1Cu) << 6) | (lw(0x2Cu) << 8);
+        pairs[2] = static_cast<uint64_t>(primValue);
+        pairs[3] = 0u;
+        return true;
+    }
+
+    // The quad without the packet (above); false: nothing written, take the calls.
+    // dry (the check): the pairs made into *rec, nothing fed or clipped.
+    bool imm128(const G g, uint32_t sp, const Vert117 *vs, int n, uint32_t prim, bool haze, std::vector<uint64_t> *rec)
+    {
+        const Ram m = g.m;
+        uint64_t pairs[2u * (2u + 3u * 4u)];
+        uint32_t layer = 0, count = 0;
+        if (n > 4 || !begin128(m, prim, pairs, &layer))
+            return false;
+        if (!quad117(g, sp, vs, n, pairs + 4, &count))
+            return false; // (begin128's words are glBegin's own: the calls write them again)
+        count += 2u;
+        if (rec)
+        {
+            sotc_native::immRecord128(*rec, pairs, count, layer, haze);
+            return true;
+        }
+        sotc_native::immFeed128(g.rdram, pairs, count, layer, haze);
+        bool clipped = false;
+        for (int i = 0; i < n; ++i)
+            clipped |= m.u8(kGl + 0x41F8u + static_cast<uint32_t>(i)) != 0u;
+        if (clipped)
+        {
+            // glEnd's 0108CD80 (it sets +4 to 0 first: not open here either).
+            ++g_imm128.clipped;
+            g.call(0x0108CD80u, 0x0108D128u, sp);
+        }
+        SET_GPR_U32(g.ctx, 2, 0u);
+        return true;
+    }
+
+    // glBegin(prim) at beginSite, body() (the vertices), glEnd at endSite: as
+    // imm128 when it takes them, else as the calls.
+    template <class Body>
+    void prim128(const G g, uint32_t sp, const Vert117 *vs, int n, uint32_t prim, uint32_t beginSite, uint32_t endSite, bool haze, const Body &body)
+    {
+        Imm128Stats &st = g_imm128;
+        if (st.every < 0)
+            st.every = std::getenv("SOTC_IMM128_CHECK") ? std::atoi(std::getenv("SOTC_IMM128_CHECK")) : 0;
+        const bool on = sotc_decomp::imm128On() && sotc_decomp::glv117On() && sotc_native::nativeDraws();
+        ++st.quads;
+        auto calls = [&]
+        {
+            g.a(4, prim);
+            g.call(kGlBegin, beginSite, sp);
+            body();
+            g.call(kGlEnd, endSite, sp);
+        };
+        if (on && st.every > 0 && st.quads % static_cast<uint64_t>(st.every) == 0u)
+        {
+            const Ram m = g.m;
+            R5900Context *ctx = g.ctx;
+            static std::vector<uint8_t> blk0(0x5300u), blkN(0x5300u), ctx0(sizeof(R5900Context)), ctxN(sizeof(R5900Context));
+            static std::vector<uint64_t> recN, recO;
+            recN.clear();
+            recO.clear();
+            std::memcpy(blk0.data(), m.p(kGl), 0x5300u);
+            std::memcpy(ctx0.data(), ctx, sizeof(R5900Context));
+            const bool took = imm128(g, sp, vs, n, prim, haze, &recN);
+            bool clipped = false;
+            for (int i = 0; took && i < n; ++i)
+                clipped |= m.u8(kGl + 0x41F8u + static_cast<uint32_t>(i)) != 0u;
+            std::memcpy(blkN.data(), m.p(kGl), 0x5300u);
+            std::memcpy(ctxN.data(), ctx, sizeof(R5900Context));
+            std::memcpy(m.p(kGl), blk0.data(), 0x5300u);
+            std::memcpy(ctx, ctx0.data(), sizeof(R5900Context));
+            sotc_native::immArm128(&recO);
+            calls();
+            sotc_native::immArm128(nullptr);
+            if (!took)
+            {
+                ++st.byCalls;
+                return;
+            }
+            ++st.checks;
+            // The gl block but its packet pointers (+4, +8): the old path leaves +8 at its packet.
+            std::memcpy(blkN.data() + 4u, m.p(kGl) + 4u, 8u);
+            const bool recSame = recN == recO;
+            // With a clip flag 0108CD80 ran in the old path only (its work area, VU0): the record alone.
+            const bool blkSame = clipped || std::memcmp(blkN.data(), m.p(kGl), 0x5300u) == 0;
+            const R5900Context *N = reinterpret_cast<const R5900Context *>(ctxN.data());
+            const bool vuSame = clipped || (std::memcmp(N->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) == 0 && std::memcmp(&N->vu0_acc, &ctx->vu0_acc, 16) == 0 &&
+                                            std::memcmp(&N->vu0_q, &ctx->vu0_q, 4) == 0 && N->vu0_clip_flags == ctx->vu0_clip_flags &&
+                                            std::memcmp(N->f, ctx->f, 3 * sizeof(float)) == 0);
+            if (!(recSame && blkSame && vuSame) && st.differ++ < 20u)
+            {
+                uint32_t first = 0x5300u;
+                for (uint32_t i = 0; i < 0x5300u; ++i)
+                    if (blkN[i] != m.p(kGl)[i])
+                    {
+                        first = i;
+                        break;
+                    }
+                size_t at = 0;
+                while (at < recN.size() && at < recO.size() && recN[at] == recO[at])
+                    ++at;
+                std::fprintf(stderr, "[imm128c] DIFFERS (site %08x): record %d (sizes %u / %u, first word %u: %016llx / %016llx) gl block %d (first +%x) vu0/f %d clipped %d\n",
+                             beginSite, recSame ? 0 : 1, (unsigned)recN.size(), (unsigned)recO.size(), (unsigned)at, (unsigned long long)(at < recN.size() ? recN[at] : 0),
+                             (unsigned long long)(at < recO.size() ? recO[at] : 0), blkSame ? 0 : 1, first, vuSame ? 0 : 1, clipped ? 1 : 0);
+            }
+            if (st.checks % 500u == 0u)
+                std::fprintf(stderr, "[imm128c] %llu quads checked, %llu differ (quads %llu fast %llu clipped %llu by the calls %llu)\n", (unsigned long long)st.checks,
+                             (unsigned long long)st.differ, (unsigned long long)st.quads, (unsigned long long)st.fast, (unsigned long long)st.clipped,
+                             (unsigned long long)st.byCalls);
+            return;
+        }
+        if (on && imm128(g, sp, vs, n, prim, haze, nullptr))
+        {
+            ++st.fast;
+            static const bool log = std::getenv("SOTC_IMM128_LOG") != nullptr;
+            if (log && st.fast % 20000u == 0u)
+                std::fprintf(stderr, "[imm128] quads %llu fast %llu clipped %llu\n", (unsigned long long)st.quads, (unsigned long long)st.fast,
+                             (unsigned long long)st.clipped);
+            return;
+        }
+        if (on)
+            ++st.byCalls;
+        calls();
+    }
+
     // ---- Round 117 (glv117): manager_sub_01142350, one particle as a quad of
     // the gl* immediate API (the quads drawer 01141D20, a particle a call;
     // a0 its 48-byte record, a1 the size pair, a2 the world matrix). The
@@ -2645,8 +2844,7 @@ namespace decomp_walk
         m.putqi(s4 + 48u, _mm_castps_si128(ctx->vu0_vf[23]));
 
         SET_GPR_U32(ctx, 17, 0u);
-        g.a(4, 5u);
-        g.call(kGlBegin, 0x01142590u, sp);
+        // (glBegin below, in prim128: it writes nothing glColor4fv or the corners read)
         // glColor4fv(+0x10): glColor4f's words and clamp; f1 - f5 as it leaves them.
         {
             const uint32_t c = s0 + 0x10u;
@@ -2668,8 +2866,6 @@ namespace decomp_walk
             vs[i].site = 0x011425B4u;
             vs[i].colour = false;
         }
-        SET_GPR_U32(ctx, 18, st);
-        SET_GPR_U32(ctx, 20, s4);
         auto calls = [&]
         {
             // The loop as the code has it: glTexCoord2fv(sp + 0x40 + 16 i), glVertex4fv(sp + 0x80 + 16 i) (guest calls).
@@ -2683,10 +2879,16 @@ namespace decomp_walk
                 g.call(0x0108ECA0u, 0x011425B4u, sp);
             }
         };
-        quadRun117(g, sp, vs, 4, calls);
-        SET_GPR_U32(ctx, 16, 0x30u);
-        SET_GPR_U32(ctx, 17, 4u);
-        g.call(kGlEnd, 0x011425C8u, sp);
+        // Round 128 (imm128): glBegin(5), the corners, glEnd without the GIF packet (prim128), else as the calls.
+        prim128(g, sp, vs, 4, 5u, 0x01142590u, 0x011425C8u, false,
+                [&]
+                {
+                    SET_GPR_U32(ctx, 18, st);
+                    SET_GPR_U32(ctx, 20, s4);
+                    quadRun117(g, sp, vs, 4, calls);
+                    SET_GPR_U32(ctx, 16, 0x30u);
+                    SET_GPR_U32(ctx, 17, 4u);
+                });
         SET_GPR_U64(ctx, 16, e16);
         SET_GPR_U64(ctx, 17, e17);
         SET_GPR_U64(ctx, 18, e18);
@@ -2997,26 +3199,21 @@ namespace decomp_walk
                             return calls();
                         quadRun117(g, sp, vs, 4, calls);
                     };
-                    g.a(4, 5u);
-                    g.call(kGlBegin, 0x010F4664u, sp);
+                    // Round 128 (imm128): each glBegin .. glEnd without the GIF packet (prim128), else as the calls.
                     {
                         const Vert117 vs[4] = {{f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0xA0u, 0x010F4690u},
                                                {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0xB0u, 0x010F46BCu},
                                                {f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0x120u, 0x010F46E8u},
                                                {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x130u, 0x010F4714u}};
-                        four(vs);
+                        prim128(g, sp, vs, 4, 5u, 0x010F4664u, 0x010F471Cu, true, [&] { four(vs); });
                     }
-                    g.call(kGlEnd, 0x010F471Cu, sp);
-                    g.a(4, 5u);
-                    g.call(kGlBegin, 0x010F4724u, sp);
                     {
                         const Vert117 vs[4] = {{f20, m.f32(s6), m.f32(sp + 0xE4u), sp + 0x120u, 0x010F4750u},
                                                {f21, m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x130u, 0x010F477Cu},
                                                {FPU_MUL_S(f20, f28), m.f32(s6), m.f32(sp + 0xE4u), sp + 0x100u, 0x010F47A8u},
                                                {FPU_MUL_S(f21, f28), m.f32(sp + 0xF0u), m.f32(sp + 0xF4u), sp + 0x110u, 0x010F47D4u}};
-                        four(vs);
+                        prim128(g, sp, vs, 4, 5u, 0x010F4724u, 0x010F47DCu, true, [&] { four(vs); });
                     }
-                    g.call(kGlEnd, 0x010F47DCu, sp);
                 }
                 (void)ax;
                 (void)ay;

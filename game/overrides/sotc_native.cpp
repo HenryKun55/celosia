@@ -3211,7 +3211,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3222,6 +3222,7 @@ namespace sotc_native
         static int r125AllAt = -1; // round 125
         static int r127AllAt = -1; // round 127
         static int r126AllAt = -1; // round 126
+        static int r128AllAt = -1; // round 128
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3273,6 +3274,7 @@ namespace sotc_native
             r119AllAt = indexOf("r119all"); // round 119: the collision slices 2-3 off together
             r125AllAt = indexOf("r125all"); // round 125: the native collision object system's switches off together
             r127AllAt = indexOf("r127all"); // round 127: the display path's switches off together
+            r128AllAt = indexOf("r128all"); // round 128: the immediate quads / texreset switches off together
             r123AllAt = indexOf("r123all"); // round 123: the particle step / blend in host floats and the validated segment memo off together
             r122AllAt = indexOf("r122all"); // round 122: the characters' host rewrites off together
             r126AllAt = indexOf("r126all"); // round 126: the camera / control rewrites off together
@@ -3394,6 +3396,11 @@ namespace sotc_native
             for (int i : {static_cast<int>(sotc_decomp::kGeo126), static_cast<int>(sotc_decomp::kCtl126)})
                 if (isOffAt(r126AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r126AllAt) ? false : switchStart[i]);
+        // Round 128: `r128all` the round's switches (imm128, texr128) off in its windows.
+        if (r128AllAt >= 0)
+            for (int i : {static_cast<int>(sotc_decomp::kImm128), static_cast<int>(sotc_decomp::kTexr128)})
+                if (isOffAt(r128AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r128AllAt) ? false : switchStart[i]);
         // Round 106: `r106all` the round's switches (grp106, oan106, ai106) off in its windows.
         if (r106AllAt >= 0)
             for (int i : {static_cast<int>(sotc_decomp::kGrp106), static_cast<int>(sotc_decomp::kOan106), static_cast<int>(sotc_decomp::kAi106)})
@@ -6354,6 +6361,7 @@ namespace sotc_native
     // in the layer glBegin pushed; here the pairs go through the 2D path.
     constexpr uint32_t kGlEnd = 0x0108D060u;
     PS2Runtime::RecompiledFunction g_glEnd = nullptr;
+    std::vector<uint64_t> *g_immRec128 = nullptr; // round 128's check: record the next glEnd's feed
 
     void glEndHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -6388,10 +6396,23 @@ namespace sotc_native
                     std::fprintf(stderr, "[gl] ra %08x layer %u qwords %u\n", GPR_U32(ctx, 31), layer, (end - start) / 16u - 2u);
             }
             g_2dDefer = async;
+            // Round 128 (SOTC_IMM128_CHECK): the first glEnd after imm128's check armed it, recorded.
+            std::vector<uint64_t> *rec = g_immRec128;
+            if (rec)
+            {
+                g_immRec128 = nullptr;
+                rec->push_back(g_layers.empty() ? 25u : g_layers.back());
+                rec->push_back(g_requested);
+            }
             for (uint32_t q = start + 0x20u; q + 16u <= end; q += 16u)
             {
                 uint64_t value;
                 std::memcpy(&value, g_ram + (q & 0x1FFFFF0u), 8);
+                if (rec)
+                {
+                    rec->push_back(value);
+                    rec->push_back(word(q + 8u) & 0xFFu);
+                }
                 feed2D(word(q + 8u) & 0xFFu, value);
             }
             g_2dDefer = false;
@@ -6399,6 +6420,46 @@ namespace sotc_native
         g_requested = requested;
         g_glEnd(rdram, ctx, runtime);
     }
+
+    // ---- Round 128 (SOTC_IMM128, default on; A/B `imm128`, `r128all`): an
+    // immediate-mode primitive (glBegin .. glEnd) whose GS pairs were made in
+    // host memory, fed to the 2D assembler as glEndHook feeds the packet's:
+    // the same frame sync and join, the layer glBegin would have pushed (its
+    // iosDlGetLayer), the screen copy for the haze strips, the same `not
+    // drawn` conditions. pairs: (value, register) x count, TEST and PRIM
+    // first, as the packet has them.
+    void immFeed128(uint8_t *rdram, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze)
+    {
+        syncFrame(rdram);
+        static const bool async = !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0;
+        if (!async)
+            hookJoin(hookjobs::k_glend);
+        static const bool off = std::getenv("SOTC_NATIVE_NOGL") != nullptr;
+        if (off || count == 0u || word(0x0118B5B0u) != 0u)
+            return;
+        const uint32_t requested = g_requested;
+        if (haze)
+            g_requested = kScreenCopy;
+        g_layers.push_back(layer);
+        g_2dDefer = async;
+        for (uint32_t i = 0; i < count; ++i)
+            feed2D(static_cast<uint32_t>(pairs[2u * i + 1u]) & 0xFFu, pairs[2u * i]);
+        g_2dDefer = false;
+        g_layers.pop_back();
+        g_requested = requested;
+    }
+    // The check's view of the same feed: the layer, the header, the pairs.
+    void immRecord128(std::vector<uint64_t> &rec, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze)
+    {
+        rec.push_back(layer);
+        rec.push_back(haze ? kScreenCopy : g_requested);
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            rec.push_back(pairs[2u * i]);
+            rec.push_back(pairs[2u * i + 1u] & 0xFFu);
+        }
+    }
+    void immArm128(std::vector<uint64_t> *rec) { g_immRec128 = rec; }
 
     void gsRegHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
