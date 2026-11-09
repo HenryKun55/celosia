@@ -17531,3 +17531,131 @@ build (game thread, route 6 profile names): 50% in 791 KB / 226 4 KB pages / 22 
 - r121/env-console-probe.txt (a short separate run; SOTC_SUBSYS_PROF=1 costs 15-30%): its `[probe]` lines at start
   (memory latency 16 KB-64 MB, guest RAM loads, hot / cold generated-code calls, the function table lookup) were asked
   for in round 66 and never came back; they say how much the code / data layout levers can give.
+
+## Round 123: a port, not an emulator: the particle step in plain floats (ptcl123), the parameter blend / copy through host pointers (blend123), segment answers kept while the world they were tested against stays the same (seg123) (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r123/`: build.sh pN (`r123/vita`), v3k.sh / v3kb.sh (own trees ../vita3k-celosia-r123 /
+-r123b, 222 MHz, 3 cores, audio-volume 0), run.sh <a|b> <load|altar|route6|attract> <vpk> <name> <secs> [env], ab.sh, ab89.py / ab119.py
+(the frame A/B, `--riding`), read123.sh (console / Vita3K reader), seg123sum.py (the [seg123] / [seg123t] lines summed, the checks),
+drift.py (two runs' [pos] tracks compared frame by frame), env-console.txt, STATE.md.
+
+**The new rule.** From this round results need not be bit-exact with the recompiled PS2 code, only functionally the same (the same
+gameplay, the same picture to the eye). Rounds 115 / 117 / 119 kept every answer exact and got ~1-2 ms each.
+
+**The console's round 119 data first** (r119/console/err.txt, from frame 3600): with coll115 the segment queries cost 150 us on the
+A9 against 110 us without, although coll115's tree walks are 2.4x faster there too (17 vs 41 us). The difference is not the walk:
+with coll115 on, seg80's reuse is off (round 115), so every query walks (3.7 walks a query against 1.4 with seg80 answering the
+repeats). coll115's host data is ~1.2 MB (51 models, 32 bytes a surface in blocks of four); per walk it is the faster path on the
+console. What the console lost was seg80's answers, which round 115 dropped because they were blind (a character or a colossus
+moving into a kept segment went unseen for up to 5 frames). seg123 below brings the reuse back with the blindness removed.
+
+### What changed (each behind a switch, default on; A/B names `ptcl123`, `blend123`, `seg123`, all three `r123all`)
+
+- **ptcl123** (`SOTC_PTCL123`; decomp_particles.cpp `update123`, decomp_ptclupdate.cpp): each live particle's step as ordinary
+  C++ floats on the guest record, called straight from the emitter's particle loop (no guest call frame, no register set-up, no
+  FPU_* clamps / operand alignment / compare keys, no VU0 clamps): age, the local-space transform of types 2 / 3, the acceleration
+  and decay factors by age, size and growth, the move (velocity, acceleration, the list's drift, the local offset, the spin about
+  the list's axis), the floor / ceiling bounce (iosGetReflectVector still a guest call), velocity and its decay, the three colour
+  channels clamped to 0..1, rotation (wrap / stop), the spin by shape. Every particle is still stepped every frame. The jitter and
+  shape 4's random axis draw from a host xorshift generator instead of iosGetRandom (VU0's R): the game's other random draws get
+  another sequence (random either way). 0113C8C8 (the particle damage test) is called only when its own first test passes (the
+  damage target and the emitter's handle resolve to an entry): on route 6 and riding it never did (every particle made that guest
+  call for nothing before). The particles the original sends to the recompiled code (dying this frame, the collision test, shape
+  0, pointers outside RAM) still go there.
+- **blend123** (`SOTC_BLEND123`; decomp_hot47e.cpp): get_particle_parameter_blend_doit. Every call measured (route 6, the shrine
+  save, the attract demo riding: ~20 a frame, 791 178 in one run) is the straight copy (no other set): the 85 fields copied through
+  host pointers (the same words). With another set: the 85 fields as w0 a + w1 b in plain floats (the three positive-only fields,
+  +8 through floats and truncated), no frame, callee-saved registers untouched (no call seen). (A host acosf / asinf, tried as
+  libm123 in p2-p16, was taken out: round 122's quat122 covers those helpers.)
+- **seg123** (`SOTC_SEG123`; coll123.h, decomp_collision.cpp segMemo): under coll115, ClipCollisionDirectCallBack /
+  ...DoubleSide answers kept and reused while (1) the query is the same (caller, group, filters, user and its six judge words) with
+  both ends within 1 cm (`SOTC_SEG123_EPS`, seg80's tolerance) and (2) **the world it was tested against is the same**: the group's
+  objects that pass the query's object filter, in order (hidden ones skipped as isysGroupForNext does), each either *far* (its
+  bound, the sphere the object loop's first cylinder test uses, further from the segment than radius x sqrt 2 + 5 cm: no pose of it
+  can reach the segment) or *near* with a fingerprint of everything the object loop reads of it before its trees (layout class,
+  collision DB, flags, scale, root position and the three per-part matrix arrays: any moving bone changes it). Fingerprints are made
+  once an object a game frame (a 256-entry host table), the matrix arrays hashed only for an object near some segment. Anything not
+  computable natively (a guest object filter, a class GetLayoutClass computes by a call, a group over 48 objects, the worker lane)
+  runs the test. A caller that kept under a quarter of its last 32 queries (riding: the ends move more than 1 cm nearly every frame)
+  goes straight to the test for its next 96 (the walk and fingerprints cost ~10-20 us a query in Vita3K). Round 84's AI path pool
+  (probe84) is unchanged; seg80 is as before with coll115 off. Logs: `SOTC_COLL115_LOG=1` adds [seg123] (kept, misses by kind: no
+  key / world moved (by object type and caller) / not validatable, fingerprints, bypassed) and [seg123t] (query time by seg123's
+  state); `SOTC_SEG123_CHECK=1` runs the test on every kept answer and compares.
+- `SOTC_PTCL_STATS=1` adds to the [ptcl] line: particles by path, damage tests made / skipped, the particle loop's time per particle by
+  ptcl123's state; [blend123] (copies / blends). Checks: `SOTC_PTCL123_CHECK=1` ([ptcl123c]), `SOTC_BLEND123_CHECK=1` ([blend123c]).
+
+### Checks (functional: the answers against the original's in the same run, the original's used)
+
+| run | what | compared | result |
+|---|---|---|---|
+| runsb/chkR11, route 6 700 s (p11), `SOTC_PTCL123_CHECK=1` | the host step against the original from the same record (the guest generator and VU0's R kept for the check) | 1 037 994 particles, 43.6 M float fields | 2 fields over 1e-4 relative (and 1e-5 absolute); largest relative difference 0.18% (a position x near 0); list links 0 differ |
+| runsb/chkR11, `SOTC_SEG123_CHECK=1` (1 cm) | each kept answer against the test run again | 22 262 kept of 65 914 | hit / no hit 0 differ; other surface at the same place 626 (2.8%: the neighbouring triangle across an edge within the centimetre); hit point max 12.9 mm |
+| runsb/chkR4, the same, p4 (1 cm) | | 31 622 kept of 88 720 | 0 hit / no hit; 670 other surface; point max 11.3 mm |
+| runsb/chkR7, the same with `SOTC_SEG123_EPS=0.001` (1 mm) | | 26 482 kept of 148 213 | 0 hit / no hit; 0 other surface; point max 1.3 mm |
+
+The 1 mm tolerance keeps the hit points within ~1 mm but keeps only 18% on route 6 (34-55% at 1 cm) and on the plain nearly nothing
+(Wander's idle sway moves the ends by more than 1 mm): at 1 mm seg123 cost more than it saved (runs/abR6: 130.2 vs 128.2 us a query).
+It ships at 1 cm (seg80's, shipped in rounds 80-114): hit / no hit agree in every compared case; a kept hit point can be up to ~1.3 cm
+from a fresh one (the segment's own movement within the tolerance). `SOTC_SEG123_EPS=0.001` gives the strict form.
+The blend's copy path writes the same words; its blend path never ran in any run (`SOTC_BLEND123_CHECK=1` compares it when it does).
+
+**Gameplay drift.** The route 6 input (frame-clocked, but with vblank waits) does not replay the same way twice in Vita3K under this
+load: runsb/posOff (the round off) entered the game at frame ~1 200, runs/posOn (on) not at all in 600 s, runsb/abR12 at ~10 800,
+so the per-frame position compare (r123/drift.py) has nothing to pair (round 122 saw the same: its replays part at the area load).
+The functional evidence is the per-answer compares above (every kept segment answer agreed on hit / no hit; the particle
+fields to 1e-4 relative but two in a million) and play: the attract demo (4 runs to frame 28 000-39 000), route 6 (6 runs) and the
+console card's shrine save ran with the switches on and rotating without a fault, Wander standing on the shrine floor and the plain
+the whole time (no fall-through, the same idle spot in the on and off windows).
+
+### Measured (Vita3K 222 MHz; the Mac at load 15-55 from other rounds' builds and runs the whole time)
+
+Per call, in the same run (the switches rotating every 60 frames):
+
+| run | what | on | off |
+|---|---|---|---|
+| runsb/abR12, route 6 from 4 300 (p12) | segment query (ClipCollisionDirectCallBack, the memo included) | 142.3 us x 47 571 (54.9% kept) | 185.2 us x 48 059 |
+| | the particle loop, per particle | 2.39 us x 1.01 M | 6.62 us x 0.67 M |
+| runs/abA12, the attract demo from 3 000 (riding included, p12) | segment query | 165.8 us x 68 745 (10.6% kept) | 158.1 us x 67 929 |
+| | the particle loop, per particle | 2.20 us x 1.97 M | 6.59 us x 1.30 M |
+
+~91 particles a frame riding and ~60 on route 6: ptcl123 saves ~0.40 ms a frame of Vita3K time riding, ~0.25 on route 6. seg123
+saves ~43 us a query on route 6's plain (~13 queries a frame: ~0.55 ms) and lost ~8 us a query riding at p12 (kept 10%): p13 sends
+such callers straight to the test (under a quarter kept).
+
+Whole frame (ab89 / ab119 `--riding`, matched by draws, off minus on: positive = gain; the host's load makes ±1 ms noise here):
+
+| run | r123all | ptcl123 | seg123 | coll115 |
+|---|---|---|---|---|
+| runsb/abR12, route 6 from 4 300 (p12) | **+1.55** | +0.20 | -0.40 | +0.80 |
+| runs/abA12, attract riding (p12) | +0.49 | +0.61 | -0.42 | +0.56 |
+| runs/abA12, attract from 3 000 (p12) | -0.04 | +0.62 | +0.32 | +0.30 |
+
+p13 (callers keeping under a quarter sent straight to the test), runs/abA13, the attract demo 1 300 s to frame 39 238: segment
+query 160.8 us with seg123 (11.8% kept, 33 405 queries bypassed) vs 157.2 without; particles 2.2 vs 6.6 us. Whole frame (off minus
+on): riding r123all **+1.00**, ptcl123 +1.26, seg123 +0.91, coll115 +2.07; from 3 000: +0.56 / +0.99 / +0.41 / +0.95.
+runsb/smkS15 (p15, the console card's shrine save from 1 500): seg123 17.5% kept (world moved 4 911 of 12 738: Wander's own parts
+near his probes), 188.3 vs 184.4 us a query; particles 2.30 vs 6.92 us; frame r123all +0.42, seg123 +0.80, ptcl123 +0.34.
+runsb/smkR16 (the shipped build, route 6, defaults): 43.8% kept, 137.5 us a query, no fault.
+
+**Reading it.** The round is ~0.4-1.5 ms of the game thread in Vita3K by the A/B rows (+0.4..+1.55 for r123all in five runs; the
+per-call sums give ~0.4 ms riding, ~0.8 on route 6's plain), ~0.3-1 ms on the console at round 113's 0.65 factor: far below the
+-5 ms target. The particle step is ~3x faster per particle, but riding has only ~90 particles a frame, so the per-particle
+step was never more than ~0.6 ms; what remains of the particle frame is per emitter (round 117). The memo is a clear win where the
+segments barely move (route 6's plain, standing, the shrine: the kind of stretch the console's round 119 log measured) and nothing
+riding. The rest of collision (the object / part loop, ClipCollisionDB, the finder passes, the ground fill: ~12% of the game thread)
+was not rewritten this round: a host object table with the queries answered from it needs the guest part / surface / id filters and
+the leaves' frame records replaced too (round 119's finding); seg123 takes the cheap half of it (per-frame object fingerprints, the
+far test) for the repeats.
+
+**Console.** build/agent-scratch/celosia-r123.vpk with r123/env-console.txt (`SOTC_COLL115_LOG=1 SOTC_PTCL_STATS=1`,
+`SOTC_AB_FLAG=r123all,seg123,ptcl123,coll115`; shipped build = main 2026-11-09 with rounds 121 / 124 (PGO on) + this round): read with `build/agent-scratch/r123/read123.sh err.txt <from>` and
+`python3 build/agent-scratch/r123/seg123sum.py err.txt <from>`. What to look for: [seg123t] (query time with / without seg123: the
+console's 110 vs 150 us of round 119 should drop below 110 with seg123 on where the player walks or stands), the coll115 row (now
+with seg123 in its on windows: positive = coll115 + seg123 beat the original + seg80), the [ptcl] line's per-particle times, the
+ptcl123 / r123all rows. Pictures: particles (dust, leaves, fog, haze, Agro's hoof dust, the lit puffs) must look the same; gameplay:
+no snagging or falling through, the camera the same.
+
+Build note: an early build (p13) had three sp-based :128 NEON loads in segMemo (GCC vectorised the world compare of a World on
+the stack; the Vita's sp is only 8-aligned: round 103's abort); the World is static now (game thread only, never nested).
+spalign105 on the shipped build: 681 aligned NEON accesses, 0 sp-based. No vita-elf-create overlap (sotc_vita_elf_room unchanged).
+The worker lane's collision natives are untouched (seg123 never runs there).
