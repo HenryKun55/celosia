@@ -1476,6 +1476,7 @@ namespace sotc_prof
 
     void install(PS2Runtime &runtime)
     {
+        prof129::install(runtime); // round 129 (SOTC_PROF129=1)
 #if defined(__APPLE__) && defined(__aarch64__)
         if (const char *path = std::getenv("SOTC_HOST_PROF"))
         {

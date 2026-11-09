@@ -2029,6 +2029,7 @@ void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encod
     const uint32_t syscallId = (encodedSyscallId != 0u)
                                    ? encodedSyscallId
                                    : getRegU32(ctx, 3); // $v1 / $3 is the EE kernel syscall number
+    const ps2_load::GameZone zone(0x1000u | (syscallId & 0xFFFu)); // round 129's sampler: the game thread in a syscall
 
     static const bool traceSyscalls = std::getenv("PS2X_TRACE_SYSCALLS") != nullptr;
     if (traceSyscalls)
@@ -3123,6 +3124,9 @@ void PS2Runtime::run()
         native_renderer::threads::place(native_renderer::threads::kGame);
 #endif
         ps2_load::setThreadSlot(ps2_load::kGame);
+#if defined(__vita__)
+        ps2_load::gameThreadUid.store(sceKernelGetThreadId(), std::memory_order_relaxed); // round 129's sampler
+#endif
         // Guest float code runs like the EE: round toward zero, no denormals.
         ps2SetEeFloatingPointMode();
         g_ps2FpuSetcsrNearest = std::getenv("PS2X_FPU_SETCSR") != nullptr && std::atoi(std::getenv("PS2X_FPU_SETCSR")) != 0;

@@ -81,4 +81,11 @@ namespace sotc_prof
     void noteAb(bool on);
 }
 
+// Round 129: the console's sampling profiler of the game thread
+// (SOTC_PROF129=1; sotc_prof129.cpp, read by r129/prof129.py).
+namespace prof129
+{
+    void install(PS2Runtime &runtime);
+}
+
 #define SOTC_PROF_SCOPE(hook) const ::sotc_prof::Scope sotc_prof_scope_##hook{::sotc_prof::hook}
