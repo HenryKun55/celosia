@@ -34,6 +34,11 @@
 
 #include <cstring>
 
+namespace char122::keys
+{
+    bool floatFrame(uint8_t *, R5900Context *, PS2Runtime *, void (*)(uint8_t *, R5900Context *, PS2Runtime *));
+}
+
 namespace decomp_motionframe
 {
     using sotc_decomp::relocated;
@@ -94,7 +99,7 @@ namespace decomp_motionframe
     constexpr uint32_t kKeys = 0x010B81F8u, kCurveEval = 0x010AC6C8u;
     constexpr uint32_t kFloatFrame = 0x010AD1B0u, kIntFrame = 0x010B3E98u;
 
-    void floatFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void floatFrameOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         using sotc_decomp::jalTarget;
         const int64_t n64 = GPR_S64(ctx, 6);
@@ -237,6 +242,13 @@ namespace decomp_motionframe
         ctx->vu0_vf[15] = v15;
         ctx->vu0_acc = acc;
         finish();
+    }
+
+    // Round 122 (SOTC_KEYS122): the keys decoded and blended as host code first (decomp_char122.cpp).
+    void floatFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kKeys122) || !sotc_decomp::motionOn() || !char122::keys::floatFrame(rdram, ctx, runtime, floatFrameOld))
+            floatFrameOld(rdram, ctx, runtime);
     }
 
     void intFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

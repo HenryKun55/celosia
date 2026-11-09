@@ -27,7 +27,13 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <arm_neon.h>
+#include <cmath>
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace decomp_bridle
 {
@@ -224,9 +230,155 @@ namespace decomp_bridle
         }
     };
 
+    // ---- Round 122 (SOTC_CLOTH122): the same pushes and constraint in plain
+    // NEON floats (no clamps, no VU0 / FPU state written back: the cloth
+    // dynamics call these through a pointer and read nothing they leave).
+    namespace plain
+    {
+        struct M
+        {
+            float32x4_t r[4];
+        };
+        inline float32x4_t ld(const uint8_t *ram, uint32_t a)
+        {
+            float t[4];
+            std::memcpy(t, ram + (a & PS2_RAM_MASK & ~0xFu), 16);
+            return vld1q_f32(t);
+        }
+        inline void st(uint8_t *ram, uint32_t a, float32x4_t v)
+        {
+            float t[4];
+            vst1q_f32(t, v);
+            std::memcpy(ram + (a & PS2_RAM_MASK & ~0xFu), t, 16);
+        }
+        inline M rows(const uint8_t *ram, uint32_t a) { return M{{ld(ram, a), ld(ram, a + 0x10u), ld(ram, a + 0x20u), ld(ram, a + 0x30u)}}; }
+        inline float32x4_t apply(const M &m, float32x4_t v)
+        {
+            float32x4_t t = vmulq_lane_f32(m.r[0], vget_low_f32(v), 0);
+            t = vmlaq_lane_f32(t, m.r[1], vget_low_f32(v), 1);
+            t = vmlaq_lane_f32(t, m.r[2], vget_high_f32(v), 0);
+            return vmlaq_lane_f32(t, m.r[3], vget_high_f32(v), 1);
+        }
+        // a the local point: inside the radius, xy pushed out to it and taken back into the point at `at`.
+        inline void cylinder(uint8_t *ram, float32x4_t a, float r2, const M &back, uint32_t at)
+        {
+            const float x = vgetq_lane_f32(a, 0), y = vgetq_lane_f32(a, 1);
+            const float d2 = x * x + y * y;
+            if (!(d2 < r2))
+                return;
+            const float k = std::sqrt(r2 / d2);
+            a = vsetq_lane_f32(x * k, a, 0);
+            a = vsetq_lane_f32(y * k, a, 1);
+            st(ram, at, apply(back, a));
+        }
+        inline void constrain(uint8_t *ram, uint32_t prev, uint32_t at, float length, float limit)
+        {
+            const float32x4_t p = ld(ram, prev), d = vsubq_f32(ld(ram, at), p);
+            const float dx = vgetq_lane_f32(d, 0), dy = vgetq_lane_f32(d, 1), dz = vgetq_lane_f32(d, 2);
+            const float l2 = dx * dx + dy * dy + dz * dz;
+            const float q = l2 > 0.0f ? 1.0f / std::sqrt(l2) : 3.4028235e38f;
+            if (!(q < limit))
+                return;
+            const float k = length * q;
+            const float r[4] = {vgetq_lane_f32(p, 0) + dx * k, vgetq_lane_f32(p, 1) + dy * k, vgetq_lane_f32(p, 2) + dz * k, vgetq_lane_f32(p, 3)};
+            st(ram, at, vld1q_f32(r));
+        }
+    }
+
+    // SOTC_CHAR122_CHECK: every 8th call the plain walk on the grid, its points kept aside, the grid put back,
+    // the old walk run (its results stay) and the two compared ([bridle122c]: the largest difference in a point).
+    template <class F>
+    bool checked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, F self)
+    {
+        static const bool on = std::getenv("SOTC_CHAR122_CHECK") && std::atoi(std::getenv("SOTC_CHAR122_CHECK")) > 0;
+        static uint64_t n = 0;
+        if (!on || (++n % 8u) != 0u)
+            return false;
+        const Ram ram{rdram};
+        const Grid g(ram, GPR_U32(ctx, 4));
+        if (!g.ok)
+            return false;
+        std::vector<uint8_t> save, mine;
+        for (uint32_t r = 0; r < g.rows; ++r)
+        {
+            const uint8_t *p = rdram + (ram.u32(g.rowsAt + r * 0x18u + 0x10u) & PS2_RAM_MASK);
+            save.insert(save.end(), p, p + g.cols * 16u);
+        }
+        static R5900Context in; // static: the context is a 16-aligned type (no stack copy)
+        in = *ctx;
+        self(rdram, ctx, runtime); // the plain walk
+        for (uint32_t r = 0; r < g.rows; ++r)
+        {
+            uint8_t *p = rdram + (ram.u32(g.rowsAt + r * 0x18u + 0x10u) & PS2_RAM_MASK);
+            mine.insert(mine.end(), p, p + g.cols * 16u);
+            std::memcpy(p, save.data() + r * g.cols * 16u, g.cols * 16u);
+        }
+        *ctx = in;
+        sotc_decomp::setSwitch(sotc_decomp::kCloth122, false);
+        self(rdram, ctx, runtime); // the old walk
+        sotc_decomp::setSwitch(sotc_decomp::kCloth122, true);
+        double worst = 0.0;
+        for (uint32_t r = 0; r < g.rows; ++r)
+        {
+            const uint8_t *p = rdram + (ram.u32(g.rowsAt + r * 0x18u + 0x10u) & PS2_RAM_MASK);
+            for (uint32_t i = 0; i < g.cols * 4u; ++i)
+            {
+                float a, b;
+                std::memcpy(&a, p + i * 4u, 4);
+                std::memcpy(&b, mine.data() + r * g.cols * 16u + i * 4u, 4);
+                worst = std::max(worst, static_cast<double>(std::fabs(a - b)));
+            }
+        }
+        static double all = 0.0;
+        static uint64_t checks = 0;
+        ++checks;
+        all = std::max(all, worst);
+        if (checks % 200u == 1u || worst > 1e-3)
+            std::fprintf(stderr, "[bridle122c] checks %llu worst %.3g this %.3g\n", (unsigned long long)checks, all, worst);
+        return true;
+    }
+
     // 013978E8(a0 the cloth, a2 the three shapes).
     void three(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (sotc_decomp::switchOn(sotc_decomp::kCloth122) && checked(rdram, ctx, runtime, three))
+            return;
+        if (sotc_decomp::switchOn(sotc_decomp::kCloth122))
+        {
+            const Ram ram{rdram};
+            const uint32_t cloth = GPR_U32(ctx, 4), shapes = GPR_U32(ctx, 6);
+            const Grid g(ram, cloth);
+            if (g.ok && inRam(shapes, 0x190u))
+            {
+                const plain::M toA = plain::rows(rdram, shapes + 0x40u), backA = plain::rows(rdram, shapes), toB = plain::rows(rdram, shapes + 0xC0u),
+                               backB = plain::rows(rdram, shapes + 0x80u), toC = plain::rows(rdram, shapes + 0x140u), backC = plain::rows(rdram, shapes + 0x100u);
+                const float length = ram.f32(g.params + 4u), limit = ram.f32(g.params + 8u);
+                const float rA = ram.f32(shapes + 0x180u), rB = ram.f32(shapes + 0x184u), rC = ram.f32(shapes + 0x188u);
+                for (uint32_t r = 0; r < g.rows; ++r)
+                {
+                    uint32_t prev = ram.u32(g.rowsAt + r * 0x18u + 0x10u);
+                    for (uint32_t k = 1; k < g.cols; ++k, prev += 0x10u)
+                    {
+                        const uint32_t at = prev + 0x10u;
+                        const float32x4_t p = plain::ld(rdram, at);
+                        const float32x4_t a = plain::apply(toA, p);
+                        if (vgetq_lane_f32(a, 2) < 0.0f)
+                            plain::cylinder(rdram, a, rA, backA, at);
+                        else
+                        {
+                            const float32x4_t b = plain::apply(toB, p);
+                            if (vgetq_lane_f32(b, 2) < 0.0f)
+                                plain::cylinder(rdram, b, rB, backB, at);
+                            else
+                                plain::cylinder(rdram, plain::apply(toC, p), rC, backC, at);
+                        }
+                        plain::constrain(rdram, prev, at, length, limit);
+                    }
+                }
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(g.cols));
+                return returnTo(ctx);
+            }
+        }
         const Ram ram{rdram};
         const uint32_t cloth = GPR_U32(ctx, 4), shapes = GPR_U32(ctx, 6);
         const Grid g(ram, cloth);
@@ -266,6 +418,8 @@ namespace decomp_bridle
     // 013976B8(a0 the cloth, a1 the object): the head's cylinder.
     void head(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (sotc_decomp::switchOn(sotc_decomp::kCloth122) && checked(rdram, ctx, runtime, head))
+            return;
         const Ram ram{rdram};
         const uint32_t cloth = GPR_U32(ctx, 4), object = GPR_U32(ctx, 5);
         const Grid g(ram, cloth);
@@ -314,6 +468,30 @@ namespace decomp_bridle
         const Mat toLocal(inv), back = ram.rows(frame);
 
         const float length = ram.f32(g.params + 4u), limit = ram.f32(g.params + 8u), r2 = bits(0x3E800000u);
+        if (sotc_decomp::switchOn(sotc_decomp::kCloth122))
+        {
+            // Round 122: the walk in plain floats (the matrices as computed above).
+            plain::M to, bk;
+            float t[4];
+            for (int i = 0; i < 4; ++i)
+            {
+                std::memcpy(t, &inv[i], 16);
+                to.r[i] = vld1q_f32(t);
+            }
+            bk = plain::rows(rdram, frame);
+            for (uint32_t r = 0; r < g.rows; ++r)
+            {
+                uint32_t prev = ram.u32(g.rowsAt + r * 0x18u + 0x10u);
+                for (uint32_t k = 1; k < g.cols; ++k, prev += 0x10u)
+                {
+                    const uint32_t at = prev + 0x10u;
+                    plain::cylinder(rdram, plain::apply(to, plain::ld(rdram, at)), r2, bk, at);
+                    plain::constrain(rdram, prev, at, length, limit);
+                }
+            }
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(g.cols));
+            return returnTo(ctx);
+        }
         Walk w(rdram, ctx);
         for (uint32_t r = 0; r < g.rows; ++r)
         {

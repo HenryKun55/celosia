@@ -28,6 +28,19 @@
 
 #include <cstring>
 
+// Round 122 (SOTC_QUAT122): the same functions as plain float code (decomp_char122.cpp).
+namespace char122::quat
+{
+    using Fn = void (*)(uint8_t *, R5900Context *, PS2Runtime *);
+    bool on();
+    bool atanf(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+    bool atan2(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+    bool atan2Exact(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+    bool axisRotate(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+    bool diffQuat(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+    bool axisDirZY(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+}
+
 namespace decomp_quat
 {
     using sotc_decomp::returnTo;
@@ -1006,7 +1019,7 @@ namespace decomp_quat
 
     // The registered functions.
 
-    void atanf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
+    void atanfOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
     {
         State s(rdram, ctx);
         uint32_t v0;
@@ -1016,7 +1029,7 @@ namespace decomp_quat
         returnTo(ctx);
     }
 
-    void atan2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
+    void atan2Old(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
     {
         State s(rdram, ctx);
         uint64_t v0;
@@ -1026,7 +1039,7 @@ namespace decomp_quat
         returnTo(ctx);
     }
 
-    void atan2Exact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
+    void atan2ExactOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
     {
         State s(rdram, ctx);
         uint64_t v0;
@@ -1036,7 +1049,7 @@ namespace decomp_quat
         returnTo(ctx);
     }
 
-    void axisRotate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void axisRotateOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t out = GPR_U32(ctx, 4), axis = GPR_U32(ctx, 6);
         if (!inRam(out, 16u) || !inRam(axis, 16u))
@@ -1051,7 +1064,7 @@ namespace decomp_quat
         returnTo(ctx);
     }
 
-    void diffQuat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void diffQuatOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t out = GPR_U32(ctx, 4), from = GPR_U32(ctx, 5), to = GPR_U32(ctx, 6), axis = GPR_U32(ctx, 7);
         if (!inRam(out, 16u) || !inRam(from, 16u) || !inRam(to, 16u) || !inRam(axis, 16u))
@@ -1065,7 +1078,7 @@ namespace decomp_quat
     // GetQuaternionByAxisDirZY(q, dir, v): q turned to take its z axis to
     // dir (diffQuat against z, the y axis as the half turn's), then about dir
     // by the angle of v (as q sees it) in its xy plane.
-    void axisDirZY(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void axisDirZYOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t q0 = GPR_U32(ctx, 4), dir = GPR_U32(ctx, 5), v = GPR_U32(ctx, 6);
         if (!inRam(q0, 16u) || !inRam(dir, 16u) || !inRam(v, 16u))
@@ -1110,6 +1123,38 @@ namespace decomp_quat
         s.storeBack();
         SET_GPR_S32(ctx, 2, static_cast<int32_t>(frame + 0x60u));
         returnTo(ctx);
+    }
+
+    // Round 122: the plain float paths first (SOTC_QUAT122), these as the old paths and the checks' reference.
+    void atanf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::atanf(rdram, ctx, runtime, atanfOld))
+            atanfOld(rdram, ctx, runtime);
+    }
+    void atan2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::atan2(rdram, ctx, runtime, atan2Old))
+            atan2Old(rdram, ctx, runtime);
+    }
+    void atan2Exact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::atan2Exact(rdram, ctx, runtime, atan2ExactOld))
+            atan2ExactOld(rdram, ctx, runtime);
+    }
+    void axisRotate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::axisRotate(rdram, ctx, runtime, axisRotateOld))
+            axisRotateOld(rdram, ctx, runtime);
+    }
+    void diffQuat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::diffQuat(rdram, ctx, runtime, diffQuatOld))
+            diffQuatOld(rdram, ctx, runtime);
+    }
+    void axisDirZY(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::axisDirZY(rdram, ctx, runtime, axisDirZYOld))
+            axisDirZYOld(rdram, ctx, runtime);
     }
 }
 

@@ -657,7 +657,7 @@ namespace decomp_hot43b
     // ---- __ieee754_asinf ------------------------------------------------------
     constexpr uint32_t kAsinf = 0x001DE1A0u, kSqrtf = 0x001DF480u;
 
-    void asinF(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void asinFOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::hotListOn())
             return fallback(kAsinf, rdram, ctx, runtime);
@@ -784,6 +784,22 @@ namespace decomp_hot43b
         ctx->fcr31 = fcr31;
         ctx->f[0] = result;
         returnTo(ctx);
+    }
+}
+
+// Round 122 (SOTC_QUAT122): asinf in plain floats first (decomp_char122.cpp).
+namespace char122::quat
+{
+    using Fn = void (*)(uint8_t *, R5900Context *, PS2Runtime *);
+    bool on();
+    bool asin(uint8_t *, R5900Context *, PS2Runtime *, Fn);
+}
+namespace decomp_hot43b
+{
+    void asinF(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || !char122::quat::asin(rdram, ctx, runtime, asinFOld))
+            asinFOld(rdram, ctx, runtime);
     }
 }
 
