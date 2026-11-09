@@ -64,11 +64,12 @@ def main():
         print(f'{prof}: {len(w)} functions', file=sys.stderr)
     order = [k for k, _ in total.most_common() if 'veneer' not in k]
     with open(out, 'w') as f:
-        f.write('/* Round 66: the functions Vita3K profiles sampled, hottest first\n'
-                '   (tools/vita_hot_order.py). ld --section-ordering-file. */\n'
+        f.write('/* The functions Vita3K profiles sampled, hottest first (tools/vita_hot_order.py, round 66;\n'
+                '   regenerate after big native changes: round 121 found the round 66 order stale). */\n'
                 '.text : {\n')
+        # (.text.hot.<name>: GCC's section for a function a PGO profile found hot, round 121)
         for k in order:
-            f.write(f'  *(.text.{k})\n')
+            f.write(f'  *(.text.{k} .text.hot.{k})\n')
         # Libraries built without function sections (or whose sampled parts
         # are hand-written: strlen, the division helpers), whole, right after
         # the sampled set: vitaGL (the render thread's GL calls, ~400 KB),
