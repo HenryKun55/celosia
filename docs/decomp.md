@@ -17780,3 +17780,187 @@ natives; it is in the guest script code the characters call (IK post callbacks, 
 `SOTC_AB_FLAG=r122all,quat122,keys122,cloth122`): read with `python3 build/agent-scratch/r122/ab119.py err.txt --from <frame>
 [--riding]`; positive = the round's gain. Look at: Wander's scarf / cape and Agro's reins (cloth122), Wander's and Agro's
 heads turning to look (gaze122), the feet on slopes and the riding pose (quat122 through the IK), every animation (keys122).
+
+## Round 125: collision as a native object system, part 2: the finder lists' surfaces as a host cache with whole triangles (fin125), the segment tests' object / part loop in host locals (obj125) (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r125/`: build.sh pN (`r125/vita`), v3k.sh / v3kb.sh (own trees ../vita3k-celosia-r125 /
+-r125b, 222 MHz, 3 cores, audio-volume 0), run.sh <a|b> <load|altar|route6|attract> <vpk> <name> <secs> [env], ab125.sh (an A/B run in
+the background), samp.sh (a sampler run, the round on or off), rec.sh (route 6 recorded / replayed), stop.sh, ab89.py / ab119.py,
+read125.sh (console / Vita3K reader), t125.py (the per-call times by switch state, the checks), prof125.py (two sampler profiles side by
+side, the collision family summed), drift_rep.py (replays against their recording and each other), env-console.txt, STATE.md.
+Note for the scripts: the shell here is zsh, which does not word-split an env list held in a variable (two A/B runs, abA3-noab /
+abR3-noab, ran without their A/B because of it).
+
+**Where collision's time was** (the Vita3K sampler on celosia-r123, route 6's plain standing, runsb/sampR0 500-800 s; the game thread's
+self time): collision ~14% of the game thread, flat: ClipCollisionDirectCallBack's object / part loop 2.52% (+ its cylinder 0.46,
+matrixProduct 0.22, guest calls 0.13, seg123's memo 0.26 + its world 0.21), ClipCollisionDB 1.50 (mostly the finder clips'), the finder
+clips' own loops 0.60, coll115's walk / leaves 1.6, the skinned finder step 0.67 + corners 0.30, the ground fill 0.70, clipKeep 0.45
+(+ keepThenSlope 0.17, the keep loop 0.14), GetCollisionDBAttributeAdr 0.56, the work flushes 0.53. The console (round 124's err.txt):
+the segment queries 157 us each, ~8.6 a frame (1.36 ms); the finder clips 15.3 us each, ~88 a frame (1.35 ms); the walks 17 us.
+
+### What changed (each behind a switch, default on; A/B names `fin125`, `obj125`, both `r125all`)
+
+- **fin125** (`SOTC_FIN125`; coll125.h, decomp_collision.cpp finderClipBody / keepEarlyFrom / attributeAddress / flushModified /
+  flushWorkBody, decomp_hot44b.cpp): the surfaces of the finder lists (the ground fill's and the finder steps' surface ids) as a
+  **host surface cache**: per surface (keyed by its two id words: the ground fill makes its list again every frame, in an order that
+  changes), made at its first test, the plane and the boundary sphere (centre, r^2) as cached, the first vertex and ClipCollisionDB's
+  triangle terms (the clamped edges' n x e1 / n x e2 and their two denominators, its own VU0 macros, made once), and its
+  GetCollisionDBAttributeAdr answer; 512 slots of ~190 bytes (96 KB; a clip touches the plane and the stamps of most), open addressing (8 probes, least recently used replaced). They come
+  from the game's own per-object caches the way ClipCollisionDB reaches them (a plane, boundary or vertex not cached yet is made by
+  the same calls, EntryModifiedManager included). ClipCollisionFinder / ...CallBack then make one pass over the list with host data:
+  ClipCollisionDB's tests after its lookups with the same operations on the same values (the plane test in round 49's NEON form, the
+  crossing, the sphere, u / v), the segment shortened at each hit, the id filter (pure judge functions) asked only for an entry
+  that hits, and the hit record (+0 / +4 the id, +8 / +0xc u / v, +0x10 the local point of an independent surface, +0x30 the kind,
+  +0x40 the point) written once, for the last hit, as the last ClipCollisionDB that hit leaves it. No guest chain per entry
+  (object, class, collision work, part records, cached flag, plane: four to ten dependent loads on the A9) and no call. The keep pass
+  (ClipCollisionFinderWithKeep) asks the cache for clipKeep's first return (the point at least f12 in front of the kept plane, its
+  NEON form): such an entry is not called (round 119's pending-call scheme, on now with fin125 as well as with view119).
+  GetCollisionDBAttributeAdr (player_HellDangerDetect's scans, the filters) answers a cached surface from the cache.
+  **Lifetime:** the caches a surface comes from change only through FlushModifiedManager (an object that moved has its flags
+  cleared). A flush made by FlushCollisionWorkByWorkStruct moves that collision work's epoch (a small host table of the works some
+  cached surface belongs to); any other flush on the game thread moves a global epoch, any flush on the guest worker's lane a worker
+  epoch. A surface is used as kept while its frame, its work's epoch and the two others are the ones it was checked at; else it is
+  checked again (its plane and boundary flags still set and their values the same as kept) or made again. Route 6: 22 work flushes
+  a frame, 0 others; 8% of the entries used needed the check. Anything else (a class made by a call, a lane not small, a list over
+  256) goes to ClipCollisionDB as before. Logs: `SOTC_COLL115_LOG=1` adds [fin125] (clips, entries, plane passes, hits, made,
+  checks, dropped, keep tests and attributes answered), [fin125e] (flushes by kind) and [fin125t] (each clip's host time by the
+  switch's state); `SOTC_FIN125_CHECK=1` runs each clip the original way first (its answer used) and compares ([fin125m]).
+- **obj125** (`SOTC_OBJ125`; decomp_collision.cpp obj125Run, decomp_hot46g.cpp): ClipCollisionDirectCallBack's and
+  ClipCollisionDirectCallBackObjAry's object / part loop with its state in host locals: the original (directCallBackBody / hot46g's
+  objAry, guest-exact) keeps the segment, the filters, the current object, class, DB and part, the three per-part matrix pointers, the
+  two ends and the hit flags in its guest frame (~30 words written and read back per object and part) and makes every compare the
+  PS2's way. Here: per object its bound against the segment's cylinder, per part its sphere through the part's matrix and the
+  segment's (plain NEON when every lane is small: transform()'s bits, part119's argument; else transform()) and the cylinder in plain
+  floats with the radius grown by 0.1% + 1 mm (nothing the PS2's compares call near is called far), then the tree walk (coll115 / the
+  recompiled walkers as before) with the record the leaves read written once; iosAbsVector (a guest call per near part) inline. The
+  frame words a callee reads are written before that call (the part filter's sphere; the walk's record and segment); the one-by-one
+  surfaces get the loop's words spilled and run the original's code, the skinned surfaces the original's code with their own words.
+  `SOTC_OBJ125_CHECK=1`: each query the original way first (its answer used), then obj125's from the same context and record
+  ([obj125c], [obj125m]); `SOTC_COLL115_LOG=1` adds [obj125] (queries, objects, near, parts, walks, spilled, the part filters called)
+  and [obj125t] (each query's host time by the switch's state).
+- Dead frames: neither path writes the guest frames the original's loops leave below the caller's sp (ClipCollisionDirectCallBack's
+  0x270 bytes, ClipCollisionDB's 0xf0 per entry). seg80 / seg123 (every kept answer: the whole query skipped) and round 85's host view
+  (rejected candidates: no ClipCollisionDB call) have shipped for many rounds without those frames, so no caller reads them.
+
+### Checks (Vita3K, each answer against the original's in the same run and state, the original's used)
+
+| run | build | what | compared | hit / no hit differ | other surface | hit point max |
+|---|---|---|---|---|---|---|
+| runs/chkA1, the attract demo 900 s / runsb/chkR1, route 6 900 s | p1 | obj125 queries (`SOTC_OBJ125_CHECK=1`) | 58 656 + 115 793 (25 099 both hit) | 0 | 0 | 0 mm |
+| runs/chkA2 / runsb/chkR2 (attract / route 6, 1000 s) | p2 | obj125 queries | 40 261 + 59 382 | 0 | 0 | 0 mm |
+| runs/chkR8, route 6 900 s | p8 | obj125 queries (direct and ObjAry) | 265 251 (58 183 both hit) | 0 | 0 | 0 mm |
+| runs/chkA1, runsb/chkR1 | p1 (fin125's crossing in plain floats) | finder clips (`SOTC_FIN125_CHECK=1`) | 67 618 + 154 999 | **865 + 882** | 7 + 1 | 0.33 / 1.44 mm |
+| runs/chkA2, runsb/chkR2 | p2 (ClipCollisionDB's operations) | finder clips | 45 215 + 131 272 | 0 | 0 | 0 mm |
+| runs/chkR8, route 6 900 s | p8 (the surface cache, per-work epochs, attributes, triangle terms made once) | finder clips | 360 344 | 0 | 0 | 0 mm |
+
+p1's fin125 made the crossing tests in plain host floats (the game thread's VFP rounds toward zero; ClipCollisionDB's plane test is
+NEON, round to nearest): 0.4-1.3% of the clips disagreed on hit / no hit, all of them a probe that starts on the surface's plane
+(d0 within rounding of 0: the foot / landing probes start at the last contact point) where the original says "hit at the start" and
+the plain floats said "behind the plane, no hit". That is a gameplay difference (ground contact lost for a frame), so from p2 the
+cache keeps the cached plane, sphere and vertices as they are and the clip makes ClipCollisionDB's own operations on them: the
+answers are the original's bit for bit while the caches are current; what fin125 removes is the lookup chain and the call per
+entry, not the arithmetic. obj125 has no such case: its plain-float tests only choose which parts are walked (with the radius
+grown by 0.1% + 1 mm), and the walks and ClipCollisionDB decide as before (0 differences in ~540 000 queries, p1-p8).
+Tolerances, then: fin125 and obj125 give the original's hit / no hit, surface and point in every compared case (the check's
+threshold for "other point" was 1 cm; the largest seen 0.00 mm); the only non-exact parts are the obj125 cylinder pre-tests
+(conservative by construction) and, in principle, a cached surface used after its object moved without a flush (none seen: the
+checks compare against the live caches).
+
+**Gameplay (paired replays).** Route 6 recorded with the round off (runs/recR9, `SOTC_INPUT_RECORD`, 8 790 ticks in 420 s) and
+replayed with p9 (drift_rep.py; the replays here run one checkpoint behind the recording after the title):
+- runs/repOff9 (round off) and runs/repOn9 (round on): Wander's and Agro's positions are the same in both to 0.0001 units at every
+  checkpoint through tick 2 399 (the title, the save's load, the shrine: Wander at the altar, Agro beside him), and both within 0.015
+  / 0.14 units of the recording.
+- The camera: repOff9's eye equals the recording's at every checkpoint; repOn9's follows the intro's fly-over a few units off (ticks
+  1 290-1 650) and does not cut to the next shot at tick 1 740 (it holds the fly-over's last position through 2 370). runsb/repOn9b
+  (the same build, on) repeats repOn9 to the digit, and runs/repCtl9 (**the round off**, round 123's ptcl123 / blend123 off instead)
+  gives the **same** fly-over values and the same missed cut: the shot change depends on something the replay does not feed back
+  (the sound driver's status / host time, per the input replay notes), and any change in what the game thread runs moves it; it is
+  not this round's collision (whose answers are the original's in every check).
+- From tick ~2 400 (walking out of the shrine: the area load) every replay, the off one too, parts from the recording and from the
+  others (round 122's limit), so the walk on the plain cannot be paired this way.
+
+Smokes on the shipped build (p9, the defaults): runsb/smkL9, the altar 420 s (Wander at the altar the whole run, his position steady at -300.03 11.31 -277.87; 34 finder clips and 11 segment queries a frame, no fault); runs/repOn9 / repOn9b, route 6 replayed to tick 3 150 (the shrine, the walk out, the area load); runs/sampA9on, the attract demo 710 s (the ride); abA8 (p8) 1 300 s. The console card's shrine save (scene load) fell into the attract demo in two runs here (the title menu's idle timer: the frame-clocked input missed its window), so it ran only with the round off (posOff9); no fault in any run.
+
+### Measured (Vita3K 222 MHz)
+
+**Sampler** (the game thread's self time, % of it; the collision family = every collision native: the segment queries, the walk,
+ClipCollisionDB, the finder clips and keep pass, the finder steps, the ground fill, the flushes, the attribute lookups; prof125.py):
+
+Same build (p9), the attract demo in both trees at once, 400-700 s (frames ~11 700-16 500: the ride and the demo's end), the round
+off (runsb/sampA9off2) and on (runs/sampA9on):
+
+| what | off | on |
+|---|---|---|
+| the collision family (171 functions) | 12.50 | **9.93** |
+| the object / part loop (directCallBackBody / obj125Run, ObjAry, the cylinder, transforms, the walk's wrappers, guest calls) | 2.99 | 2.03 |
+| the finder clips, the keep pass and the attribute lookups (ClipCollisionDB, finderClipBody / coll125, clipKeep, keepThenSlope, surfBoundary, vertices, GetCollisionDBAttributeAdr, the id filters) | 3.57 | 2.53 |
+| ClipCollisionDB alone | 1.25 | 0.15 |
+| coll115's walk / leaves | 1.06 / 0.53 | 1.21 / 0.61 |
+| decomp_collision as a namespace (r97's grp.py) | 9.67 | 7.93 |
+
+The walk's share grows as the rest shrinks (its absolute time is the same). Earlier pairs across builds and windows (r123's
+celosia-r123 against p5, not the same frames): the attract demo 14.57 -> 11.83, route 6's plain standing 14.93 -> 14.64 (there seg123
+answers 73% of the segment queries from its memo, so the object loop runs for a quarter of them).
+
+**Per call, in the same run** (the switches rotating every 60 frames; t125.py; the host time of each call by its switch's state,
+two timer reads included: Vita3K's sceKernelGetProcessTimeWide costs several us, so the absolute values overstate small calls; the
+difference is the gain):
+
+| run | call | on | off | off minus on |
+|---|---|---|---|---|
+| runsb/abA8, the attract demo 1300 s from 3 000 (p8, the Mac at load 6-15) | finder clip (ClipCollisionFinder / ...CallBack) | 24.52 us x 116 587 | 30.20 us x 80 738 | **+5.67 us (19%)** |
+| | segment query (ClipCollisionDirectCallBack, seg123's kept answers included) | 126.62 us x 107 063 | 143.33 us x 71 321 | **+16.72 us (12%)** |
+| runs/abA3, the attract demo 1300 s (p3, load ~40) | finder clip | 21.92 us x 116 626 | 32.73 us x 78 361 | +10.81 us |
+| | segment query | 167.76 us x 78 215 | 196.25 us x 52 636 | +28.49 us |
+| runsb/abR3, route 6 1000 s (p3, load ~40; seg123 answered 73% of the queries from its memo) | finder clip | 35.38 us x 133 309 | 36.30 us x 88 280 | +0.92 us |
+| | segment query | 166.95 us x 101 703 | 168.30 us x 66 622 | +1.35 us |
+
+~20 finder clips and ~12 segment queries a frame riding: ~0.3 ms a frame of Vita3K host time at abA8's rates (~0.5 at abA3's).
+abR3 was p3 (per-list sets remade when the ground fill reordered its list, one global flush epoch: entries checked again ~20 times
+a frame); p4 / p5 fixed both, but route 6 was not timed again with the A/B (the sampler pair below is the measure).
+
+**Whole frame** (ab89 / ab119 `--riding`, matched by draws, off minus on: positive = gain):
+
+| run | part | r125all | fin125 | obj125 | seg123 |
+|---|---|---|---|---|---|
+| runsb/abA8 (p8, load 6-15) | from 3 000 | **+0.44** | -0.10 | -0.46 | -0.52 |
+| | riding (ab119 `--riding`) | **+0.24** | -0.08 | +0.19 | -0.26 |
+| runs/abA3 (p3, load ~40) | from 3 000 / riding | -0.85 / -3.06 | -2.14 / -4.11 | -1.31 / -2.82 | -2.05 / -1.60 |
+| runsb/abR3 (p3, load ~40) | route 6 from 3 000 | -0.05 | -1.50 | +0.15 | +1.10 |
+
+(the game thread = frame - wait - sched; 1 200-4 200 matched frames a state.) In every run all four rows lean the same way: the
+"all on" windows against every off window, the round's and round 123's alike, by -0.1..-4 ms under load; the per-call gains
+above (~0.3 ms a frame) are below what this A/B resolves in Vita3K. r125all, the two switches off together, is the round's row:
++0.44 / +0.24 on the quiet machine, noise under load.
+
+**Reading it.** The finder clips are ~19% and the segment queries ~12% cheaper per call riding in Vita3K (in-run, the same frames),
+with the original's answers in every one of ~1.08 M compared clips and queries (p2-p8); at ~20 clips and ~12 queries a frame that is
+~0.3 ms a frame of Vita3K host time, and the sampler pair puts the collision family at 12.50 -> 9.93% of the game thread riding (-2.57 points, ~1.1 ms of a ~45 ms Vita3K frame). The two disagree by ~3x (the per-call times carry
+two timer reads each; the sampler's windows are matched by time, not by frame) and the whole-frame A/B (r125all +0.44 / +0.24 ms on
+the quiet machine) cannot separate either from its noise. On the console: between ~0.2 ms (the per-call sums at round 113's 0.65
+factor) and ~1.2 ms (2.6% of round 124's 48 ms game thread), more if the A9's memory latency dominates as it did for coll115 (Vita3K
+does not model it): a finder clip used to make four to ten dependent loads into guest memory per entry and now reads one 16-byte
+host plane, and round 124's console log had ~88 finder clips a frame at 15 us. **Far below the -4 ms target.** What the round did not reach: the object / part loop itself is now the largest
+collision item and stays memory-bound in its object, class, DB and matrix reads (obj125 removed its frame bookkeeping and the
+clamped transforms, ~10-20% of it); coll115's walk and leaves (1.5-2%); the ground fill's skinned finder step (decomp_finder::finder
++ corners ~1-1.5% standing on route 6: still a guest-exact translation); the flushes and attribute scans (~1%). Collision as a whole
+was ~15% of the game thread and is now ~12-13%: even all of it native at zero cost would be ~6 ms on the console, and the rest of
+the -4 ms has to come from the characters' script callbacks and the display path (round 122's note).
+
+### Not done
+- The ground fill's finder step (decomp_finder::finder, the skinned triangles' loop, ~1% of the game thread standing on route 6 with
+  corners 0.45%): still the guest-exact translation (every VU0 / FPU operation on the context's registers, the frame as the MIPS
+  writes it). A host loop over the cached triangle spheres (four at a time) with the corners called straight is the next item; the
+  finder list order and the callbacks' arguments are what the game sees.
+- coll115's walk itself (1.0-1.5%) and its leaves (0.5-0.8%): unchanged.
+- The work flushes (0.3-0.5%) would need every producer of a modified-list entry tracked (the recompiled code may append to a list
+  without the native EntryModifiedManager), not done.
+
+**Console.** build/agent-scratch/celosia-r125.vpk with r125/env-console.txt (round 123's flags, `SOTC_AB_FLAG=r125all,fin125,obj125`):
+read with `build/agent-scratch/r125/read125.sh err.txt <from>` and `python3 build/agent-scratch/r125/t125.py err.txt <from>`. What to
+look for: the r125all / fin125 / obj125 rows (positive = gain), [fin125t] / [obj125t] (the clips' and the queries' time on the A9 by
+state: the console's ~88 finder clips a frame at 15 us of round 124's log should drop by a third or more), [fin125e] (flushes by work /
+other), [obj125] (the part filters called). Gameplay: Wander's footing (no falling through, no snagging on edges, the IK feet on
+slopes and steps), landing from jumps and climbs, the camera's collision (no clipping into walls), Agro's riding (the ground under
+him, the slopes), a colossus fight (ClipCollisionDirectCallBackObjAry: the probes against its body, grabbing and climbing).
