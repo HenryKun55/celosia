@@ -18415,3 +18415,24 @@ thread bound (wait 0.15 ms a frame outside its ~1 s host stalls), so the held st
 **Console.** build/agent-scratch/celosia-r132.vpk; r132/env-console.txt = r130's prof env + `SOTC_AB_FLAG=pace132`. Read:
 `tools/prof129.py err.txt --elf celosia-r132.elf` (`wait render` should fall and the frame with it), the `[pace110]` lines'
 `r132:` counts and latency (expect 4-6), `build/agent-scratch/tools/abframes.py err.txt` per A/B state.
+
+## Round 133: the release build's console "regression" is the session's content, not the code (2026-11-09)
+
+Files: `build/agent-scratch/r133/` (STATE.md, v3k.sh: own trees ../vita3k-celosia-r133 / -r133b, env-console.txt).
+celosia-r132-release.vpk's console field session ran 44-50 ms frames (game thread 40-48 ms run) against dev r132's 32-35.
+But the frame log shows the two sessions had different work: release ~70-80 model-lane jobs a frame
+(`[mdslane]` 40-50k / 600 frames) and ~4 shadow volumes per darken pass, dev ~23 jobs and ~1 volume, with 25% more draws.
+Where both sessions show the same scene, the game thread's run time is the same. The ~1103-draw scene: 18.7 / 18.7 ms
+(render 14.2 / 14.4). The ~1035-draw scene: 14.3-14.8 / 14.7-14.8. The ~250-draw shrine scene: 21.0-22.7 / 21.2-22.4.
+
+The build was checked too. The hot-code layout matches dev's: the first 2 000 hot-order functions span 12.52 / 12.57 MB
+from the same start, and the top prof129 functions have the same offsets and sizes, smaller only where diagnostics went.
+PGO: the functions changed by the compiled-out diagnostics are built without a profile (partial training), as after any
+code change. Every `ps2_diag::env` switch (170 names) is a diagnostic whose default is off, so no perf feature changes
+default in release. In Vita3K the attract demo does the same work frame for frame in both builds (draws, `[mdslane]`
+jobs per window: 14400 / 14400, 65559 / 65422), and the release runs ahead.
+
+Not fixed: nothing was found to fix. Still open: the hot order is stale for natives added since round 121
+(char122::cloth::dynamics, finderLeaf<false> at 0x830xxxxx in both builds), and SOTC_POS_LOG is compiled out in release.
+Console: celosia-r133-release.vpk (identical to r132-release) with r133/env-console.txt (frame log + prof129). To compare,
+ride the same route on both builds and compare prof129 per function.
