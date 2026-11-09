@@ -18335,3 +18335,46 @@ loss is for the console to confirm (r131/env-console.txt: round 127's log flags,
 Pushed: c2af5c2 (ctl126 off), 089a56c (seg123 / fin125 off). celosia-r131.vpk = r131/p1 on 089a56c (spalign: 699 NEON
 :128/:256, 0 sp-based). Next: fin125's missed hits (the cache's validity: a change to a listed surface that no flush
 reports), ctl126's broken function (difftest each of the five), seg123 with fingerprints made per query if it comes back.
+
+## Round 130: the diagnostics' cost ("garbage" in the code): off the game thread, a cheap console env, a release build (2026-11-09)
+
+**Question.** Do 130 rounds of logs, timers, checks and A/B switches slow the game down? Measured with a counting build
+(PS2X_VITA_DIAGCOUNT=ON: every clock read, getenv, thread-info and formatting call counted by caller, `[diag130]`) in
+Vita3K and priced with console unit costs: sceKernelGetThreadInfo ~57 us (r122's console log: `sync ... log 0.81` for 14
+calls a frame), a clock read <= ~1.0-1.4 us (the console's [coll119t]: near-empty timed calls at 1.46 us with two reads).
+
+| item (attract demo, Vita3K counts) | thread | console env (r127's flags) / frame | cheap env | console ms saved |
+|---|---|---|---|---|
+| threads::sample (14 sceKernelGetThreadInfo every frame) | game | 14 | 0.3 (log thread) | **0.8 off the game thread** |
+| SOTC_GL_SPIKE_LOG per-draw timers | render | 1 316 reads | 0 | **1.3-1.8 render thread** |
+| SOTC_FRAME_LOG_ALL lines (formatting + err.txt writer) | log, cores 1-2 | every frame | 1 / 60 frames + hitches | ~1.2-1.8 (`cpu log`) |
+| hook / particle / lane / collision (SOTC_COLL115_LOG) timers | game | ~240 reads | ~100 | 0.15-0.2 |
+| job hand-over stamps (lag) | game | 3 attract, ~80 riding | 0 | up to 0.1 |
+| getenv, switch tests, A/B rotation, check branches | game | cached; 5 getenv a frame | same | ~0 |
+
+With no log switches (the play config) the dev build already pays ~0: every diagnostic is behind a cached switch. The
+console env itself cost ~1.0-1.2 ms of game thread, 1.3-1.8 ms of render thread and ~1.5 ms of cores 1-2.
+
+**Changes.**
+- The frame log's thread (log76) reads the threads' run clocks itself and formats the 60-frame line too: nothing of
+  native_renderer::threads on the game thread. A frame's `cpu` column is the CPU since the log thread's last read divided
+  by the frames since then (it keeps up within ~20 ms); the 60-frame line's is the window's total as before. The thread
+  looks every 20 ms; the game thread wakes it only at a half-full ring (no mutex / semaphore signal per frame).
+- `SOTC_FRAME_SLOW_MS=<ms>` (default 50): riding frames sit near 50 ms on the console, so the default printed a long
+  "[frame] slow" line for 30-50% of them.
+- The job hand-over stamps only with `SOTC_FRAME_LOG_ALL` or `SOTC_DIAG_TIMERS=1` (the `lag` column is 0 otherwise).
+- runtime/ps2_diag.h: `ps2_diag::env()` for ~170 diagnostic switches (*_CHECK, *_VERIFY, *_LOG, *_STATS, the difftest,
+  the A/B rotation, the profilers, dumps; build/r130/diagenv.py made the change). `PS2X_VITA_RELEASE=ON` (SOTC_RELEASE=1
+  on the runtime, the sound side and the overrides) makes it a constexpr nullptr, so those paths fold away; no per-call
+  timers (`ps2_diag::kTimers`), no subsystem-profiler scopes. The frame summary still works (its `hooks` / `jobs` / `join`
+  read 0, so its `game` column includes the hooks: not comparable with the dev build's). SOTC_PROF129 stays available.
+- build/agent-scratch/r130/env-console.txt: SOTC_FRAME_LOG=1, SOTC_FRAME_SLOW_MS=100, SOTC_AUDIO_LOG=0, SOTC_BODY_SHADOWS=1.
+
+**Measured (Vita3K 222 MHz, attract).** Clock reads, all threads: 1 743 -> 274 a frame (console env -> cheap env); thread
+info 14 -> 0.29; snprintf 17 -> 0.05. Dev against release, cheap env, quiet host (load ~2.5), sampler 300-600 s: game
+thread 5.10 M (dev) vs 4.71 / 4.95 M (release) weight a frame, -3..-8% (attract positions drift; ~1 ms noise). Vita3K's HLE
+thread-info / clock calls are cheap, so most of the console cost above does not show there (`sync log` 0.10 ms).
+
+**Not done.** GCC's hot / cold block splitting (-freorder-blocks-and-partition) refuses ARM EHABI with exceptions; turning
+exceptions off would change every function's CFG and drop its PGO profile. Functions whose diagnostic branches fold away
+in the release build lose their profile too (compiled as without PGO); a release PGO training would recover it.

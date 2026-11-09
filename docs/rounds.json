@@ -767,6 +767,14 @@
    "focus": "Speed",
    "summary": "Characters and camera: the guest code they share for 'a point / rotation on something' (the geometry pointer getters, the quaternion-to-matrix and half-turn helpers, a character node's frame) and four character control helpers (Wander's 90-frame movement history, a rotation's turn about the vertical, a motion root track's key, the option nodes' getters, the last two now made in place by the native node passes) were rewritten as plain C++ / NEON. The camera itself turned out to be a thousand small functions with no hot spot, so a tool was written that turns whole guest subtrees into C++ automatically (1 732 camera and character functions): it ran correctly but was slower than the existing recompiled code in the profiler, so it is kept as a tool and left out of the build, with what it would need. A cache for the camera's collision-ray filter was also slower and was dropped.",
    "result": "Vita3K 222 MHz, the profiler with the same build and window: the rewritten getters went from 1.0-1.1% of the game thread to under 0.3% (-0.64% in the attract demo, -0.97% at the shrine): about 0.3-0.5 ms a frame on the console. Whole-frame A/B within its +-1 ms noise (attract +0.05..+0.36, shrine -1.17). Checks: every rewritten function compared call by call with the original on the same state (float words within 0.2%): no differences beyond float rounding. The automatic C++ conversion of 1 732 functions was 12-50% slower than the recompiled code it replaced and the collision-filter cache 50% slower, so neither ships. Far below the -3 ms target: the camera has no hot spot left to rewrite by hand."
+  },
+  {
+   "round": "r130",
+   "date": "2026-11-09",
+   "commit": "559968d",
+   "focus": "Speed",
+   "summary": "Is there garbage in the code that slows the game? 130 rounds of logs, timers, checks and A/B switches were counted call by call (a special counting build) and priced with the console's own unit costs. The frame log's per-thread CPU readout (14 kernel calls a frame, 0.8 ms on the game thread on the console) moved to the log thread, which now also formats every line; a much cheaper console log setup (frame summary only); and a release build for playing with every check, per-call timer, A/B rotation and profiler hook compiled out.",
+   "result": "With the old console log flags the diagnostics cost about 1.0-1.2 ms of the game thread, 1.3-1.8 ms of the render thread (per-draw timers) and ~1.5 ms of the other cores on the console (estimates from counted calls x measured console costs); the new setup removes nearly all of it. With no log flags at all the old build already paid almost nothing. Vita3K: clock reads 1 743 -> 274 a frame; the release build's game thread -3..-8% in the profiler (noise ~1 ms)."
   }
  ]
 }
