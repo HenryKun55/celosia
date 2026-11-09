@@ -378,8 +378,8 @@ html.lb-open { overflow: hidden; }
 .scene-mono { opacity: 0.95; }
 .mote { fill: #fff3d0; }
 .scene-garden { opacity: 0.92; height: clamp(14rem, 30vw, 24rem); -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); }
-/* Followers' arms: drawn raised (the rest pose of the static picture). */
-.arm.armL.c { --r0: -170deg; --r1: 20deg; } .arm.armR.c { --r0: 170deg; --r1: -20deg; }
+/* Followers' arms: drawn raised (the rest pose of the static picture). The shrine priests: rounded heads, wide flat bone masks, blue-grey robes. */
+.arm.armL.c { --r0: -170deg; --r1: -34deg; } .arm.armR.c { --r0: 170deg; --r1: -8deg; }
 .arm.armL.o { --r0: -172deg; --r1: -30deg; } .arm.armR.o { --r0: 172deg; --r1: 30deg; }
 .arm { transform: rotate(var(--r1)); }
 /* Doves' flights and petals' falls (user units of the garden's viewBox). */
