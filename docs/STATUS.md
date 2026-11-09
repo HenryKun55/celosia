@@ -68,36 +68,64 @@ start wins over the saved value.
 
 - **Player menu**: F1 on the Mac (fn+F1 on a Mac keyboard with media keys),
   Select twice on the Vita; Portuguese or English. Tabs: Video (exact
-  transparency, show FPS, screen fit), Quality, Renderer (the effects),
-  Debug (what is drawn, the layers), Sound, System, About. Each renderer tab
-  ends with "Reset to defaults".
-- **F10 panel** (Mac, ImGui): the same items in Quality / Effects / Debug
-  groups, the named values as lists; "Print to log" writes the current
-  values as variables.
+  transparency, show FPS, screen fit), Graphics (round 124: the preset and
+  every item it sets, in groups), Frame rate, Debug (what is drawn, the
+  layers), Sound, System, About. Each renderer tab ends with "Reset to
+  defaults" (the High preset).
+- **F10 panel** (Mac, ImGui): the same items in Quality (= Graphics) /
+  Effects / Debug groups, the named values as lists; "Print to log" writes
+  the current values as variables.
 
 An item that does nothing on the renderer in use is still listed: its value
 says "(Metal only)" / "(OpenGL only)" and its help starts with "No effect on
 the ... renderer in use" (the F10 panel greys it).
 
-### Quality
+### Graphics (round 124)
 
-| Item | What it does on Metal (Mac) | On OpenGL / Vita | Variable |
-| --- | --- | --- | --- |
-| Graphics preset | sets the five below at once; changing any of them shows Custom | same | `SOTC_PRESET=0..3` |
-| Resolution | the picture drawn at 512×448 × 0.5–4 ("1x native", "3x (1536x1344)") | same | `SOTC_RENDER_SCALE` |
-| Anti-aliasing (MSAA) | off / 2x / 4x / 8x samples a pixel (as many as the GPU has); the 3D layers and the glow layer drawn multisampled and resolved before each full-screen effect | not available (vitaGL's MSAA is for the screen only) | `SOTC_MSAA=1/2/4/8` |
-| Texture filtering | nearest / bilinear / trilinear at the game's mip level (the PS2's rule, the default) / anisotropic 2x–16x (the GPU picks the mip level from each pixel's footprint: sharp ground and slopes at a high resolution). 3D only: 2D stays as it was | nearest / bilinear / trilinear; anisotropic falls back to trilinear | `SOTC_TEXTURE_FILTER=0..6` |
-| Model detail | game's choice / one level finer / always the finest of a model's LOD tables; the parts are then tested against the camera here (the game's results are for its own level). On the shrine-to-plain route the game already draws every model at level 0, so it changed nothing there; it applies to models the game draws at a coarser level | same | `SOTC_MODEL_DETAIL=0..2` |
-| Effect detail | PS2: the effects' buffers as the PS2 has them. High: the picture reduced to the 256×256 copies (depth of field, zFog's sky, water refraction, the glow) by averaging each copy pixel's whole footprint, and the mirror image at 512. Very high: the mirror at 1024. At 3x one bilinear tap per copy pixel read 2×2 of 6×6 texels: the DoF-blurred far cliffs came out blocky and pixelated (what the user saw on the plain); High fixes that | always the PS2's | `SOTC_EFFECT_DETAIL=0..2` |
+The preset row first (`gfx_preset`, `SOTC_PRESET=0..4`: Off, Low, Medium,
+High, Max; "Custom" when any item below differs from all five), then the
+items it sets under headings: Resolution & filtering, Lighting & post,
+Shadows, Fog, Effects & particles, Distance & detail; last, the two
+performance cuts no preset touches (camera checks, distant characters'
+poses: they change timing, not just the picture) and "Max performance".
+Every item applies at once (none needs a restart); each help line ends with
+what it costs (GPU, render thread, game thread). High is each platform's
+default look (new installs). A settings.cfg from before round 124
+(settings_version < 39) keeps every item's value; its old quality_preset
+(Low..Ultra) is not read. `SOTC_PRESET` at start wins over the saved values
+of the preset items (each item's own variable wins over the preset).
 
-| Preset | Resolution | MSAA | Filtering | Model detail | Effect detail |
+| Item (key) | Off | Low | Medium | High | Max |
 | --- | --- | --- | --- | --- | --- |
-| Low | 0.5x (256×224) | off | bilinear | game's | PS2 |
-| Medium (Vita default) | 1x (512×448) | off | trilinear | game's | PS2 |
-| High (Mac default) | 3x (1536×1344) | off | trilinear | game's | PS2 |
-| Ultra | 4x (2048×1792) | 4x | anisotropic 16x | finest | High |
+| Resolution (render_scale), Vita / Mac | 0.5x / 0.5x | 0.75x / 1x | 1x / 2x | 1x / 3x | 1.5x / 4x |
+| Texture filtering (texture_filter) | nearest | bilinear | trilinear | trilinear | trilinear (Mac: anisotropic 16x) |
+| MSAA, effect detail (Metal only; not listed on the Vita) | off, PS2 | off, PS2 | off, PS2 | off, PS2 | 4x, very high |
+| Bloom (bloom; strength / blur / spread stay 1) | off | off | on | on | on |
+| Glow (glow) / glow on the Vita (dbg_glow_vita) | off / plain | on / plain | on / plain | on / auto | on / auto |
+| Depth of field (dof) | off | off | off | on | on |
+| Screen blur (screen_blur), motion trail (feedback) | off | off | on | on | on |
+| Shadows (shadows) / body shadows (body_shadows) | off / off | on / off | on / on | on / on | on / on |
+| Distance fog (vertex_fog, amount 1) / depth fog (zfog) | off / off | on / on | on / on | on / on | on / on |
+| Particles drawn (particles) | off | on | on | on | on |
+| Fewer particles (sac_particles), Vita / Mac | on | on | on | on / off | off |
+| Effects at half rate (sac_fx) | off | off | off | off | off (an item of its own: it measured slower in Vita3K) |
+| Reflections (reflections) | off | off | on | on | on |
+| Water refraction (refraction), heat haze (heat_haze) | off | off | off | on | on |
+| GS alpha test (alpha_test) | off | on | on | on | on |
+| Model detail (model_detail) | game's | game's | game's | game's | finest |
+| Coarser detail (sac_lod), shorter draw distance (sac_drawdist) | on, on | on, on | on, off | off, off | off, off |
 
-Medium and High are exactly the earlier Vita and Mac defaults.
+The heat haze item (new): the screen-copy draws (the shimmer behind the bird
+colossus, some fights) left out; the underwater ripple (layer 19) stays
+(`SOTC_NATIVE_NOHAZE=1`).
+
+**Measuring.** A `[gfx124] frame F preset P key=value ...` line at start and
+whenever any preset item changes (menu, F10, A/B); every `[frame]` line ends
+with `| gfx <preset>` and `[stats]` has `gfx=<preset>`.
+`SOTC_AB_FLAG=gfx124preset` (alone, no `SOTC_AB_ROTATE`) rotates the
+presets Max, High, Medium, Low, Off, one every `SOTC_AB_PERIOD` frames
+(`[gfx124ab]` lines; nothing saved). `build/agent-scratch/r124/gfx124.py
+err.txt` splits a log by preset: frame / game / render p50 and p90.
 
 ### Renderer (effects)
 
