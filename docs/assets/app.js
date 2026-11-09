@@ -119,7 +119,7 @@
     g.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => d.x1 - d.x0).attr('height', (d) => d.y1 - d.y0)
       .attr('rx', 3).attr('fill', 'var(--bg)').attr('stroke', 'var(--line)');
     g.append('text').attr('x', (d) => d.x0 + 5).attr('y', (d) => d.y0 + 14).attr('fill', 'var(--ink)')
-      .attr('font-family', 'var(--display)').attr('font-weight', 600).attr('font-size', 12)
+      .attr('font-family', 'var(--body)').attr('font-weight', 600).attr('font-size', 12)
       .each(function (d) { fitText(this, areaName(d.data.name) + '  ' + opts.fmt(d.value, total), d.x1 - d.x0 - 10); });
     const leaf = g.selectAll('g.l').data((d) => d.children).join('g').attr('class', 'l').style('animation-delay', (d, i) => (i * 40) + 'ms');
     leaf.append('rect').attr('x', (d) => d.x0).attr('y', (d) => d.y0).attr('width', (d) => Math.max(0, d.x1 - d.x0)).attr('height', (d) => Math.max(0, d.y1 - d.y0))
@@ -279,9 +279,13 @@
       .on('pointerleave', () => { cross.attr('visibility', 'hidden'); tip.hidden = true; });
   }
 
+  const ROUNDS_FIRST = 12; let roundsAll = false;
   function drawRounds(rounds) {
     const list = $('round-list'); list.textContent = '';
-    for (const r of [...rounds.rows].reverse()) {
+    const all = [...rounds.rows].reverse(), more = $('rounds-more');
+    const shown = roundsAll ? all : all.slice(0, ROUNDS_FIRST);
+    if (more) { more.hidden = roundsAll || all.length <= ROUNDS_FIRST; more.textContent = 'Show all ' + all.length + ' rounds'; }
+    for (const r of shown) {
       const d = document.createElement('div'); d.className = 'round' + (r.commit ? '' : ' now');
       const h = document.createElement('div'); h.className = 'h';
       const b = document.createElement('b'); b.textContent = 'Round ' + r.round.replace(/^r/, ''); h.appendChild(b);
@@ -333,15 +337,89 @@
     if (!data) return;
     const [tree, status, hist, port, rounds] = data;
     drawLede(tree); drawRecomp(status, port); drawDecomp(tree, status, hist); drawRounds(rounds);
-    if (motion && !document.body.classList.contains('ready')) {
-      document.body.classList.add('ready');
-      document.querySelectorAll('.banner, .gallery figure, .round, .table-box, .figures').forEach((n) => { if (n.getBoundingClientRect().top > window.innerHeight) { n.classList.add('rise'); onView(n, () => n.classList.add('risen')); } });
-    }
+    if (!document.body.classList.contains('ready')) { document.body.classList.add('ready'); reveal(document.querySelectorAll('.round'), true); }
     $('foot-updated').textContent = 'Last measurement: ' + tree.updated + ' (' + tree.label + ').';
   }
   Promise.all(['decomp_tree.json', 'decomp_status.json', 'decomp_history.json', 'port_status.json', 'rounds.json'].map(load))
     .then((d) => { data = d; render(); })
     .catch((err) => { $('lede-note').textContent = 'The data files did not load (' + err.message + '). They live next to this page in docs/.'; });
-  let t = null;
-  window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(render, 150); });
+  let t = null, lastW = window.innerWidth;
+  // Mobile browsers fire resize when the URL bar hides; only redraw on width.
+  window.addEventListener('resize', () => { if (window.innerWidth === lastW) return; lastW = window.innerWidth; clearTimeout(t); t = setTimeout(render, 150); });
+  const moreBtn = $('rounds-more');
+  if (moreBtn) moreBtn.addEventListener('click', () => { roundsAll = true; if (data) drawRounds(data[4]); });
+
+  // ---------------- Atmosphere ----------------
+  // Scroll reveals: elements below the fold start hidden (.rv) and settle in
+  // (.in) when they come into view; [data-stagger] children follow one another.
+  function reveal(nodes, stagger) {
+    if (!motion || !('IntersectionObserver' in window)) return;
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+    let i = 0;
+    Array.from(nodes).forEach((n) => {
+      if (n.getBoundingClientRect().top < window.innerHeight * 0.95) return;
+      n.classList.add('rv'); if (stagger) { n.classList.add('st'); n.style.setProperty('--d', (Math.min(i++, 6) * 0.09) + 's'); }
+      io.observe(n);
+    });
+  }
+  reveal(document.querySelectorAll('[data-reveal]'), false);
+  document.querySelectorAll('[data-stagger]').forEach((g) => reveal(g.children, true));
+
+  // Scroll-linked: progress line, sticky bar, hero and banner parallax.
+  const hero = document.querySelector('.hero'), heroImg = $('hero-img'), heroIn = $('hero-in'), bar = $('bar'), prog = document.querySelector('#progress i');
+  const frames = [...document.querySelectorAll('.banner .frame')];
+  const links = [...document.querySelectorAll('.bar-links a')], secs = links.map((a) => document.querySelector(a.getAttribute('href')));
+  let ticking = false;
+  function onScroll() {
+    ticking = false;
+    const y = window.scrollY, vh = window.innerHeight, H = document.documentElement.scrollHeight - vh;
+    if (prog) prog.style.transform = 'scaleX(' + (H > 0 ? Math.min(1, y / H) : 0) + ')';
+    const hh = hero ? hero.offsetHeight : 0;
+    if (bar) bar.classList.toggle('on', y > hh * 0.7);
+    let cur = -1; secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top < vh * 0.35) cur = i; });
+    links.forEach((a, i) => a.classList.toggle('cur', i === cur));
+    if (!motion) return;
+    if (y < hh) {
+      if (heroImg) heroImg.style.transform = 'translate3d(0,' + (y * 0.35).toFixed(1) + 'px,0) scale(' + (1.02 + y / hh * 0.06).toFixed(4) + ')';
+      if (heroIn) { heroIn.style.transform = 'translate3d(0,' + (y * 0.18).toFixed(1) + 'px,0)'; heroIn.style.opacity = String(Math.max(0, 1 - y / (hh * 0.75)).toFixed(3)); }
+    }
+    for (const f of frames) {
+      const r = f.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > vh) continue;
+      const k = (r.top + r.height / 2 - vh / 2) / (vh / 2 + r.height / 2); // -1..1 across the screen
+      const img = f.firstElementChild; if (img) img.style.transform = 'translate3d(0,' + (k * -9).toFixed(2) + '%,0)';
+    }
+  }
+  window.addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
+  onScroll();
+
+  // Dust in the light: a few dozen motes drifting through the hero, drawn
+  // only while the hero is on screen and the tab is visible.
+  (function dust() {
+    const cv = $('dust'); if (!cv || !motion || !cv.getContext) return;
+    const ctx = cv.getContext('2d'); let w = 0, h = 0, dpr = 1, motes = [], on = true, raf = 0, last = 0;
+    function size() {
+      dpr = Math.min(2, window.devicePixelRatio || 1); w = cv.clientWidth; h = cv.clientHeight; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const n = Math.round(Math.min(70, Math.max(24, w * h / 22000)));
+      motes = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, r: 0.4 + Math.random() * 1.8, vx: 4 + Math.random() * 10, vy: -2 - Math.random() * 6, p: Math.random() * 6.28, s: 0.4 + Math.random() * 1.2 }));
+    }
+    function frame(t) {
+      raf = 0; if (!on) return;
+      const dt = Math.min(0.05, last ? (t - last) / 1000 : 0.016); last = t;
+      ctx.clearRect(0, 0, w, h);
+      for (const m of motes) {
+        m.p += dt * m.s; m.x += (m.vx + Math.sin(m.p) * 6) * dt; m.y += (m.vy + Math.cos(m.p * 0.7) * 3) * dt;
+        if (m.x > w + 10) m.x = -10; if (m.y < -10) { m.y = h + 10; m.x = Math.random() * w; }
+        const light = Math.max(0, Math.min(1, m.x / w * 1.4)); // brighter where the light falls (right)
+        const a = (0.12 + 0.45 * light) * (0.6 + 0.4 * Math.sin(m.p * 2.3));
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, 6.2832); ctx.fillStyle = 'rgba(255,238,200,' + a.toFixed(3) + ')'; ctx.fill();
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    const go = () => { if (on && !raf && !document.hidden) { last = 0; raf = requestAnimationFrame(frame); } };
+    size(); go();
+    window.addEventListener('resize', () => { size(); });
+    document.addEventListener('visibilitychange', go);
+    if ('IntersectionObserver' in window) new IntersectionObserver((es) => { on = es[0].isIntersecting; go(); }).observe(cv);
+  })();
 })();

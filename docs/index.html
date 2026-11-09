@@ -3,37 +3,112 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<meta name="color-scheme" content="light dark">
-<title>Celosia Progress</title>
-<meta name="description" content="How far the Shadow of the Colossus PS2 port to macOS and PS Vita has come: the recompilation, the native renderer and the decompilation, measured each round.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
-<link rel="stylesheet" href="assets/site.css?v=b482b70">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0c100f">
+<title>Celosia · Shadow of the Colossus on PS Vita, progress</title>
+<meta name="description" content="Celosia brings Shadow of the Colossus (PS2) natively to the PS Vita and macOS: recompiled, then decompiled by hand, round by round. Latest update and live progress.">
+<meta property="og:title" content="Celosia · Shadow of the Colossus on PS Vita">
+<meta property="og:description" content="A native PS Vita port of Shadow of the Colossus, recompiled and progressively decompiled. Latest update and live progress.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://henrykun55.github.io/celosia/img/forest-agro-1200.webp">
+<link rel="preload" href="assets/fonts/cormorant-garamond-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%230c100f%27/%3E%3Cpath d=%27M16 4 L19 16 L16 28 L13 16 Z%27 fill=%27%23e3c27d%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/site.css?v=r124">
 </head>
 <body>
-<header class="hero">
-  <img class="hero-img" src="img/forest-agro-640.webp" srcset="img/forest-agro-640.webp 640w, img/forest-agro-1200.webp 1200w" sizes="100vw" width="1200" height="675" alt="Wander rides Agro through a foggy forest, light falling between the trees" fetchpriority="high" decoding="async">
-  <div class="hero-in">
-    <span class="eyebrow on-dark">Celosia · Shadow of the Colossus (PS2) on macOS and PS Vita</span>
-    <h1>Port progress</h1>
-    <p>The game already runs from start to end on both machines. It got there in two steps. The <b>recompilation</b> turned all of the PS2's MIPS code into C++ that compiles for ARM and x86, and replaced the PS2 hardware it talked to. The <b>decompilation</b>, still going, rewrites that machine-translated code by hand as readable native code, which is what makes it fast enough on the Vita.</p>
-    <nav aria-label="Sections"><a href="#recomp">Recompilation</a><a href="#decomp">Decompilation</a><a href="#targets">Next targets</a><a href="#rounds">Rounds</a><a href="#land">The Forbidden Land</a><a href="https://github.com/HenryKun55/celosia">Repository</a></nav>
+<a class="skip" href="#updates">Skip to the latest update</a>
+<div class="progress" id="progress" aria-hidden="true"><i></i></div>
+
+<!-- Sticky bar: appears once the hero has scrolled away. -->
+<nav class="bar" id="bar" aria-label="Sections">
+  <a class="mark" href="#top">Celosia</a>
+  <div class="bar-links">
+    <a href="#updates">Update</a><a href="#recomp">Recompilation</a><a href="#decomp">Decompilation</a><a href="#targets">Targets</a><a href="#rounds">Rounds</a><a href="#land">Gallery</a>
   </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="hero-sky" aria-hidden="true"></div>
+  <img class="hero-img" id="hero-img" src="img/forest-agro-640.webp" srcset="img/forest-agro-640.webp 640w, img/forest-agro-1200.webp 1200w" sizes="100vw" width="1200" height="675" alt="Wander rides Agro through a foggy forest, light falling between the trees" fetchpriority="high" decoding="async">
+  <div class="rays" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <canvas class="dust" id="dust" aria-hidden="true"></canvas>
+  <div class="mist" aria-hidden="true"><i></i><i></i></div>
+  <svg class="horizon" viewBox="0 0 1440 260" preserveAspectRatio="xMidYMax slice" aria-hidden="true" focusable="false">
+    <path class="ridge far" d="M0 131 C20 130 80 120 120 123 C160 126 200 148 240 147 C280 146 320 120 360 119 C400 118 440 139 480 141 C520 143 560 137 600 133 C640 129 680 117 720 118 C760 119 800 140 840 140 C880 140 920 118 960 117 C1000 116 1040 136 1080 136 C1120 136 1160 122 1200 119 C1240 116 1280 117 1320 120 C1360 123 1420 133 1440 136 L1440 260 L0 260 Z"/>
+    <g class="colossus"><g class="colossus-step">
+      <path d="M64 6 C68 -6 92 -6 96 6 L98 18 L94 28 L120 34 C132 38 142 56 146 80 L150 130 L144 150 L134 148 L132 110 L124 84 L118 120 L124 170 L128 220 L100 220 L96 170 L84 150 L76 150 L64 170 L60 220 L32 220 L36 170 L42 120 L36 84 L28 110 L26 148 L16 150 L10 130 L14 80 C18 56 28 38 40 34 L68 26 Z" transform="translate(1080 -14) scale(0.92)"/>
+    </g></g>
+    <path class="ridge mid" d="M0 201 C27 198 107 186 160 184 C213 182 267 185 320 187 C373 189 427 194 480 197 C533 200 587 204 640 204 C693 204 747 197 800 195 C853 193 907 189 960 191 C1013 193 1067 206 1120 205 C1173 204 1227 184 1280 183 C1333 182 1413 199 1440 202 L1440 260 L0 260 Z"/>
+    <g class="rider"><g class="rider-bob">
+      <path d="M4 17c2-4 8-5 14-5h9c2-3 5-7 8-9l3 1-1 4-4 4c-1 3-2 5-4 6v10h-2l-1-8h-11l-2 8h-2v-8c-3 0-5-1-6-3l-3 3z M17 12l1-6c0-3 2-4 4-4s3 2 2 4l-1 2 2 4z" transform="translate(0 0)"/>
+    </g></g>
+    <path class="ridge near" d="M0 227 C40 227 160 225 240 225 C320 225 400 225 480 225 C560 225 640 226 720 227 C800 228 880 233 960 233 C1040 233 1120 226 1200 226 C1280 226 1400 229 1440 230 L1440 260 L0 260 Z"/>
+  </svg>
+  <div class="hero-in" id="hero-in">
+    <span class="eyebrow on-dark rise-1">Celosia · a native port for PS Vita and macOS</span>
+    <h1 class="title"><span class="w">Shadow</span> <span class="w">of</span> <span class="w">the</span> <span class="w">Colossus</span></h1>
+    <p class="tagline rise-2">Team Ico's 2005 masterpiece, carried from the PS2 to the palm of your hand. Not emulated: recompiled, then rewritten by hand, one round at a time.</p>
+    <div class="cta rise-3">
+      <a class="btn gold" href="#updates">Latest update <span class="muted-in">· Nov 8, 2026</span></a>
+      <a class="btn ghost" href="#recomp">See the progress</a>
+      <a class="btn ghost" href="https://github.com/HenryKun55/celosia">Repository</a>
+    </div>
+  </div>
+  <a class="scroll-cue" href="#updates" aria-label="Scroll to the latest update"><span></span></a>
 </header>
 
-<div class="wrap">
+<main class="wrap">
+
+<!-- =====================================================================
+     LATEST UPDATES (edit here)
+     To post a new update: copy one <article class="update"> block, paste it
+     ABOVE the current one (newest first), change the <time> and the text.
+     Older updates can stay below; only the first one is open by default.
+     ===================================================================== -->
+<section class="updates" id="updates" aria-labelledby="updates-h">
+  <div class="sec-title" data-reveal="up">
+    <span class="eyebrow">From the Forbidden Land</span>
+    <h2 id="updates-h">Latest update</h2>
+  </div>
+
+  <article class="update" data-reveal="unveil">
+    <header class="update-head">
+      <time datetime="2026-11-08">November 8, 2026</time>
+      <h3>How it's going</h3>
+    </header>
+    <div class="update-body">
+      <p class="drop">We're building this slowly and with a lot of care, so this is just a simple update for everyone who's been waiting, to show you how it's going.</p>
+      <p><b>Shadow of the Colossus runs natively on a real PS Vita.</b> It isn't emulated: the PS2 code was recompiled into native code, and we keep rewriting it by hand, piece by piece, into clean C++. Along the way the picture has picked up things the original PS2 release never had: better shadows, bloom and glow, depth of field, fog, reflections and refraction. In some places we honestly think it already looks better than the PS3 remaster. That's just our view, of course; you'll be the judge.</p>
+      <p>For now it runs at <b>1x resolution</b>, the Vita's native 960×544. 1.5x works, but it's still too heavy.</p>
+      <p>The next bottlenecks are <b>stutter and frame rate</b>. Most places already hold a steady 20 fps, and the goal is 30.</p>
+      <p>We'll keep improving it. And maybe, someday, multiplayer. No promises, just a dream we keep in the back of our minds.</p>
+      <p class="sign">Thanks for waiting with us.</p>
+    </div>
+    <ul class="update-stats" aria-label="At a glance">
+      <li><b>Native</b><span>on a real PS Vita, not emulated</span></li>
+      <li><b>960×544</b><span>1x resolution today</span></li>
+      <li><b>20 fps</b><span>steady in most places</span></li>
+      <li><b>30 fps</b><span>the goal</span></li>
+    </ul>
+  </article>
+  <!-- ===================== END OF LATEST UPDATES ===================== -->
+</section>
 
 <section class="lede" aria-labelledby="lede-h">
-  <span class="eyebrow" id="lede-h">Where the Vita spends the game's frame</span>
-  <div class="split">
+  <div class="sec-title" data-reveal="up">
+    <span class="eyebrow">At a glance</span>
+    <h2 id="lede-h">Where the Vita spends the game's frame</h2>
+  </div>
+  <p class="intro" data-reveal="fade">The game already runs from start to end on both machines. It got there in two steps. The <b>recompilation</b> turned all of the PS2's MIPS code into C++ that compiles for ARM and x86, and replaced the PS2 hardware it talked to. The <b>decompilation</b>, still going, rewrites that machine-translated code by hand as readable native code, which is what makes it fast enough on the Vita.</p>
+  <div class="split" data-reveal="up">
     <div class="split-bar" id="lede-bar" role="img" aria-label="Game thread time split"></div>
     <div class="legend"><span><i class="k-native"></i>Native code (decompiled)</span><span><i class="k-mips"></i>Recompiled MIPS</span><span><i class="k-runtime"></i>Runtime around it</span></div>
   </div>
   <p class="small" id="lede-note">Loading the latest measurement…</p>
-  <div class="howto" aria-label="How to read this page">
+  <div class="howto" aria-label="How to read this page" data-stagger>
     <div><i class="k-native"></i><b>Native code</b><span>Rewritten by hand in C++, proven equal to the original, fast on the Vita.</span></div>
     <div><i class="k-mips"></i><b>Recompiled MIPS</b><span>Still the machine translation of the PS2 code. Correct, but slow.</span></div>
     <div><i class="k-runtime"></i><b>Runtime</b><span>The engine room around the game: DMA, memory, the scheduler.</span></div>
@@ -43,25 +118,26 @@
 
 <!-- ============ RECOMP ============ -->
 <section class="chapter" id="recomp" aria-labelledby="recomp-h">
-  <figure class="banner">
-    <img src="img/shrine-idols-640.webp" srcset="img/shrine-idols-640.webp 640w, img/shrine-idols-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="482" alt="The hall of the Shrine of Worship, lined with the sixteen idols" loading="lazy" decoding="async">
+  <figure class="banner" data-reveal="unveil">
+    <div class="frame"><img src="img/shrine-idols-640.webp" srcset="img/shrine-idols-640.webp 640w, img/shrine-idols-1200.webp 1200w" sizes="(min-width: 72rem) 72rem, 100vw" width="1200" height="482" alt="The hall of the Shrine of Worship, lined with the sixteen idols" loading="lazy" decoding="async"></div>
     <figcaption>The Shrine of Worship: one idol for each colossus. The recompilation is the same kind of complete map, every function of the game accounted for.</figcaption>
   </figure>
-  <div class="chapter-head">
+  <div class="chapter-head" data-reveal="left">
+    <span class="numeral" aria-hidden="true">I</span>
     <div class="row"><h2 id="recomp-h">Recompilation</h2><span class="state done">Complete</span></div>
     <p class="muted">PS2Recomp reads the game's executables and writes every MIPS function out as C++. Nothing is interpreted at run time. The PS2's graphics chip, vector units, DMA and sound processor were then replaced, piece by piece, by native code that draws with Metal on the Mac and with the Vita's GPU.</p>
   </div>
-  <div class="figures">
+  <div class="figures" data-stagger>
     <div class="fig"><span class="v num" id="rc-fn">—</span><span class="l">MIPS functions recompiled to C++, every one the game has</span></div>
     <div class="fig"><span class="v num" id="rc-mb">—</span><span class="l">of MIPS code translated (boot executable, kernel, SDK, libc and GAMECORE)</span></div>
     <div class="fig"><span class="v num" id="rc-r">—</span><span class="l">features of the native renderer working</span></div>
     <div class="fig"><span class="v num" id="rc-h">—</span><span class="l">PS2 hardware parts replaced by native code</span></div>
   </div>
   <div class="pair">
-    <div class="block"><h3>Native renderer</h3><p class="small">What the game draws, drawn from its own data instead of emulating the PS2's GS. One tile per feature.</p><div class="crumb" id="map-renderer-crumb"></div><div class="map" id="map-renderer"></div></div>
-    <div class="block"><h3>PS2 hardware</h3><p class="small">The chips the game was written for. Each one is now handled natively.</p><div class="crumb" id="map-hardware-crumb"></div><div class="map" id="map-hardware"></div></div>
+    <div class="block" data-reveal="left"><h3>Native renderer</h3><p class="small">What the game draws, drawn from its own data instead of emulating the PS2's GS. One tile per feature.</p><div class="crumb" id="map-renderer-crumb"></div><div class="map" id="map-renderer"></div></div>
+    <div class="block" data-reveal="right"><h3>PS2 hardware</h3><p class="small">The chips the game was written for. Each one is now handled natively.</p><div class="crumb" id="map-hardware-crumb"></div><div class="map" id="map-hardware"></div></div>
   </div>
-  <div class="callout" id="rc-left">
+  <div class="callout" id="rc-left" data-reveal="fade">
     <b>Nothing left to port here.</b>
     <p class="muted">Every feature on both maps works natively. Picture and timing fixes still land, but the remaining work on speed is the decompilation below.</p>
   </div>
@@ -69,15 +145,16 @@
 
 <!-- ============ DECOMP ============ -->
 <section class="chapter" id="decomp" aria-labelledby="decomp-h">
-  <figure class="banner">
-    <img src="img/valus-sword-beam-640.webp" srcset="img/valus-sword-beam-640.webp 640w, img/valus-sword-beam-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="482" alt="Valus, the first colossus, seen from below as the sword’s light beam rises beside it" loading="lazy" decoding="async">
+  <figure class="banner" data-reveal="unveil">
+    <div class="frame"><img src="img/valus-sword-beam-640.webp" srcset="img/valus-sword-beam-640.webp 640w, img/valus-sword-beam-1200.webp 1200w" sizes="(min-width: 72rem) 72rem, 100vw" width="1200" height="482" alt="Valus, the first colossus, seen from below as the sword’s light beam rises beside it" loading="lazy" decoding="async"></div>
     <figcaption>Valus, the first colossus. Raised to the light, the sword points at the next one; the profiler does the same for the next function to rewrite.</figcaption>
   </figure>
-  <div class="chapter-head">
+  <div class="chapter-head" data-reveal="left">
+    <span class="numeral" aria-hidden="true">II</span>
     <div class="row"><h2 id="decomp-h">Decompilation</h2><span class="state going">In progress</span></div>
     <p class="muted">Recompiled code is correct but slow: every guest register lives in memory, every float goes through PS2 rounding rules, and every call goes through a table. A decompiled function is written by hand as plain C++, then proven equal to the recompiled one on the same machine state before it replaces it. It is a functional decompilation, not a matching one: the goal is the same behaviour, faster, not a byte-identical rebuild of the original executable. The hottest functions go first, so a small share of the code already carries a large share of the time.</p>
   </div>
-  <div class="figures">
+  <div class="figures" data-stagger>
     <div class="fig"><span class="v num" id="dc-time">—</span><span class="l">of the Vita game thread's time runs in native code</span></div>
     <div class="fig"><span class="v num" id="dc-mips">—</span><span class="l">still runs as recompiled MIPS</span></div>
     <div class="fig"><span class="v num" id="dc-calls">—</span><span class="l">of the game's function calls land in native code</span></div>
@@ -85,14 +162,14 @@
   </div>
 
   <div class="pair">
-    <div class="block">
+    <div class="block" data-reveal="left">
       <h3>By code size</h3>
       <div class="explain">
         <p>How much there is to write. Click an area to open its functions. Each area of the game is sized by its MIPS code and split into what is already native and what is not. Most of the game is code that runs rarely (menus, events, one boss's behaviour), so this map stays mostly grey for a long time.</p>
       </div>
       <div class="panel"><div class="crumb" id="tree-code-crumb"></div><div class="map" id="tree-code"></div></div>
     </div>
-    <div class="block">
+    <div class="block" data-reveal="right">
       <h3>By game thread time</h3>
       <div class="explain">
         <p>What decides the frame rate. Click an area to see which functions take the time. Each area is sized by its share of the Vita game thread's instructions in a profile of the same route (shrine, ride and plains). Green here is time already won; grey is where the next rounds can still win time.</p>
@@ -102,7 +179,7 @@
   </div>
   <div class="legend"><span><i class="k-native"></i>Native code</span><span><i class="k-mips"></i>Recompiled MIPS</span><span><i class="k-runtime"></i>Runtime (DMA chain walk, memory copies, scheduler, the glue that calls guest code)</span></div>
 
-  <div class="block">
+  <div class="block" data-reveal="up">
     <h3>By area</h3>
     <div class="table-box"><table id="area-table">
       <thead><tr><th>Area</th><th class="r">Code native</th><th class="r">Functions</th><th class="r">Time native</th><th class="r">Time in MIPS</th></tr></thead>
@@ -110,7 +187,7 @@
     </table></div>
   </div>
 
-  <div class="block" id="history">
+  <div class="block" id="history" data-reveal="blur">
     <h3>Over time</h3>
     <p class="small">Each point is one measurement. The time share is measured from round 32 on; the call share switched to a larger call sample on 2026-10-27, which explains its dip.</p>
     <div class="panel"><div class="chart" id="hist-chart"></div>
@@ -120,43 +197,47 @@
 </section>
 
 <section class="chapter" id="targets" aria-labelledby="targets-h">
-  <figure class="banner">
-    <img src="img/kuromori-arena-640.webp" srcset="img/kuromori-arena-640.webp 640w, img/kuromori-arena-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="675" alt="Wander draws his bow at a lizard colossus clinging to the wall of a ruined arena" loading="lazy" decoding="async">
+  <figure class="banner" data-reveal="unveil">
+    <div class="frame"><img src="img/kuromori-arena-640.webp" srcset="img/kuromori-arena-640.webp 640w, img/kuromori-arena-1200.webp 1200w" sizes="(min-width: 72rem) 72rem, 100vw" width="1200" height="675" alt="Wander draws his bow at a lizard colossus clinging to the wall of a ruined arena" loading="lazy" decoding="async"></div>
     <figcaption>Aim first, then climb. Each round picks its targets from a profile before any code changes.</figcaption>
   </figure>
-  <div class="chapter-head">
+  <div class="chapter-head" data-reveal="left">
+    <span class="numeral" aria-hidden="true">III</span>
     <div class="row"><h2 id="targets-h">Next targets</h2></div>
     <p class="muted">The recompiled functions that cost the game thread the most, from the same profile. They are spread thin: no single one is above two percent, so the gains now come from rewriting whole subsystems. The address is the function's place in the PS2 executable.</p>
   </div>
   <div class="pair">
-    <div class="block"><h3>Still recompiled</h3><div class="table-box"><table id="top-mips"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
-    <div class="block"><h3>Already native, hottest</h3><div class="table-box"><table id="top-native"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div>
+    <div class="block" data-reveal="left"><h3>Still recompiled</h3><div class="table-box"><table id="top-mips"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="block" data-reveal="right"><h3>Already native, hottest</h3><div class="table-box"><table id="top-native"><thead><tr><th>Function</th><th>Area</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div>
       <h3>Runtime</h3><div class="table-box"><table id="top-runtime"><thead><tr><th>Function</th><th class="r">Time</th></tr></thead><tbody></tbody></table></div></div>
   </div>
 </section>
 
 <section class="chapter" id="rounds" aria-labelledby="rounds-h">
-  <figure class="banner">
-    <img src="img/phalanx-sandstorm-640.webp" srcset="img/phalanx-sandstorm-640.webp 640w, img/phalanx-sandstorm-1200.webp 1200w" sizes="(min-width: 68rem) 68rem, 100vw" width="1200" height="675" alt="Wander on Agro in a desert sandstorm, the flying colossus Phalanx behind them" loading="lazy" decoding="async">
+  <figure class="banner" data-reveal="unveil">
+    <div class="frame"><img src="img/phalanx-sandstorm-640.webp" srcset="img/phalanx-sandstorm-640.webp 640w, img/phalanx-sandstorm-1200.webp 1200w" sizes="(min-width: 72rem) 72rem, 100vw" width="1200" height="675" alt="Wander on Agro in a desert sandstorm, the flying colossus Phalanx behind them" loading="lazy" decoding="async"></div>
     <figcaption>Phalanx over the desert. A long ride, one round at a time.</figcaption>
   </figure>
-  <div class="chapter-head">
+  <div class="chapter-head" data-reveal="left">
+    <span class="numeral" aria-hidden="true">IV</span>
     <div class="row"><h2 id="rounds-h">Rounds</h2></div>
     <p class="muted">Work happens in rounds: one target, a change that must keep the game exactly the same, a measurement. Console figures come from the real PS Vita; the others from a Vita3K tuned to match it.</p>
   </div>
   <div class="rounds" id="round-list"></div>
+  <button type="button" class="more" id="rounds-more" hidden>Show all rounds</button>
 </section>
 
 <section class="chapter" id="land" aria-labelledby="land-h">
-  <div class="chapter-head">
+  <div class="chapter-head" data-reveal="left">
+    <span class="numeral" aria-hidden="true">V</span>
     <div class="row"><h2 id="land-h">The Forbidden Land</h2></div>
     <p class="muted">What all of this is for: Fumito Ueda and Team Ico’s 2005 game, playable natively on a Mac and in the hand on a PS Vita.</p>
   </div>
-  <div class="gallery">
-    <figure><img src="img/keyart-640.webp" srcset="img/keyart-640.webp 640w, img/keyart-750.webp 750w" sizes="(min-width: 50rem) 22rem, 100vw" width="750" height="1000" alt="The cover art: a colossus strides through a canyon, Wander and Agro at its feet" loading="lazy" decoding="async"><figcaption>The 2005 cover art.</figcaption></figure>
-    <figure><img src="img/avion-640.webp" srcset="img/avion-640.webp 640w, img/avion-750.webp 750w" sizes="(min-width: 50rem) 22rem, 100vw" width="750" height="1000" alt="Avion, the bird colossus, flying beside the sword’s light beam" loading="lazy" decoding="async"><figcaption>Avion, the thirteenth colossus.</figcaption></figure>
-    <figure><img src="img/gaius-lake-640.webp" srcset="img/gaius-lake-640.webp 640w, img/gaius-lake-1200.webp 1200w" sizes="(min-width: 50rem) 33rem, 100vw" width="1200" height="675" alt="Wander swims toward a moss-covered colossus rising out of a lake" loading="lazy" decoding="async"><figcaption>A colossus rises from the lake.</figcaption></figure>
-    <figure><img src="img/shrine-altar-640.webp" srcset="img/shrine-altar-640.webp 640w, img/shrine-altar-1200.webp 1200w" sizes="(min-width: 50rem) 68rem, 100vw" width="1200" height="482" alt="The altar room of the Shrine of Worship, light through hazy arched windows" loading="lazy" decoding="async"><figcaption>The altar of the shrine, where the game begins.</figcaption></figure>
+  <div class="gallery" data-stagger>
+    <figure><div class="frame"><img src="img/keyart-640.webp" srcset="img/keyart-640.webp 640w, img/keyart-750.webp 750w" sizes="(min-width: 50rem) 22rem, 100vw" width="750" height="1000" alt="The cover art: a colossus strides through a canyon, Wander and Agro at its feet" loading="lazy" decoding="async"></div><figcaption>The 2005 cover art.</figcaption></figure>
+    <figure><div class="frame"><img src="img/avion-640.webp" srcset="img/avion-640.webp 640w, img/avion-750.webp 750w" sizes="(min-width: 50rem) 22rem, 100vw" width="750" height="1000" alt="Avion, the bird colossus, flying beside the sword’s light beam" loading="lazy" decoding="async"></div><figcaption>Avion, the thirteenth colossus.</figcaption></figure>
+    <figure><div class="frame"><img src="img/gaius-lake-640.webp" srcset="img/gaius-lake-640.webp 640w, img/gaius-lake-1200.webp 1200w" sizes="(min-width: 50rem) 33rem, 100vw" width="1200" height="675" alt="Wander swims toward a moss-covered colossus rising out of a lake" loading="lazy" decoding="async"></div><figcaption>A colossus rises from the lake.</figcaption></figure>
+    <figure><div class="frame"><img src="img/shrine-altar-640.webp" srcset="img/shrine-altar-640.webp 640w, img/shrine-altar-1200.webp 1200w" sizes="(min-width: 50rem) 72rem, 100vw" width="1200" height="482" alt="The altar room of the Shrine of Worship, light through hazy arched windows" loading="lazy" decoding="async"></div><figcaption>The altar of the shrine, where the game begins.</figcaption></figure>
   </div>
 </section>
 
@@ -174,13 +255,15 @@
 </dialog>
 
 <footer class="small">
+  <div class="foot-mark" aria-hidden="true"><span></span>Celosia<span></span></div>
   <span>Data: <a href="https://github.com/HenryKun55/celosia/tree/main/docs">docs/</a> in the repository: <span class="mono">decomp_tree.json</span>, <span class="mono">decomp_history.json</span>, <span class="mono">decomp_status.json</span>, <span class="mono">port_status.json</span>, <span class="mono">rounds.json</span>. Written by <span class="mono">tools/decomp_status.py</span>, <span class="mono">tools/decomp_tree.py</span> and <span class="mono">tools/decomp_history.py</span>.</span>
   <span id="foot-updated"></span>
   <span>Shadow of the Colossus © Sony Computer Entertainment, developed by Team Ico. The cover art and the Avion render are 2005 promotional art; the other images are Sony’s 2010 press screenshots of the PS3 collection. Celosia is a fan project, not affiliated with or endorsed by Sony. No game data is distributed: you need your own copy of the game.</span>
+  <span>Type: Cormorant Garamond, Cinzel and Inter, self-hosted under the SIL Open Font License (<a href="https://github.com/HenryKun55/celosia/tree/main/docs/assets/fonts">assets/fonts/</a>).</span>
 </footer>
-</div>
+</main>
 
 <script src="vendor/d3-7.9.0.min.js" defer></script>
-<script src="assets/app.js?v=b482b70" defer></script>
+<script src="assets/app.js?v=r124" defer></script>
 </body>
 </html>
