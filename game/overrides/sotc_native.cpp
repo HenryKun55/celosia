@@ -3211,12 +3211,13 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
         static int xferAt = -1, sblurLazyAt = -1, dmaAsyncAt = -1, mdsLaneAt = -1, lazySnapAt = -1, sacAllAt = -1, laneHelpAt = -1, r74AllAt = -1, log76At = -1, r79AllAt = -1, r80AllAt = -1, r82AllAt = -1, r83AllAt = -1, r84AllAt = -1, r85AllAt = -1, r86AllAt = -1, r87AllAt = -1, r89AllAt = -1, newDirAt = -1, aud90vAt = -1, aud90cAt = -1, r90AllAt = -1, chunk90At = -1, flush90At = -1, r91AllAt = -1, r92AllAt = -1, r93AllAt = -1, r94AllAt = -1, r94OnAt = -1, r95AllAt = -1, r96AllAt = -1, r98AllAt = -1, keep99At = -1, r97AllAt = -1, sblur100At = -1, r100AllAt = -1, r101AllAt = -1, fmt102At = -1, r102AllAt = -1, r103AllAt = -1, char104At = -1, r104AllAt = -1, r106AllAt = -1, r120AllAt = -1, r117AllAt = -1;
         static int r119AllAt = -1; // round 119
+        static int r123AllAt = -1; // round 123
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3266,6 +3267,7 @@ namespace sotc_native
             r117AllAt = indexOf("r117all"); // round 117: the particle frame's rewrites off together
             r120AllAt = indexOf("r120all"); // round 120: the symbol resolution and the heap allocator natives off together
             r119AllAt = indexOf("r119all"); // round 119: the collision slices 2-3 off together
+            r123AllAt = indexOf("r123all"); // round 123: the particle step / blend in host floats and the validated segment memo off together
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
             log76At = indexOf("log76");
             keep99At = indexOf("keep99"); // round mem99: the hook jobs' room trim
@@ -3358,6 +3360,11 @@ namespace sotc_native
             for (int i : {static_cast<int>(sotc_decomp::kFlush119), static_cast<int>(sotc_decomp::kWalk119), static_cast<int>(sotc_decomp::kPart119), static_cast<int>(sotc_decomp::kView119)})
                 if (isOffAt(r119AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r119AllAt) ? false : switchStart[i]);
+        // Round 123: `r123all` the round's switches (ptcl123, blend123, seg123) off in its windows.
+        if (r123AllAt >= 0)
+            for (int i : {static_cast<int>(sotc_decomp::kPtcl123), static_cast<int>(sotc_decomp::kBlend123), static_cast<int>(sotc_decomp::kSeg123)})
+                if (isOffAt(r123AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r123AllAt) ? false : switchStart[i]);
         // Round 106: `r106all` the round's switches (grp106, oan106, ai106) off in its windows.
         if (r106AllAt >= 0)
             for (int i : {static_cast<int>(sotc_decomp::kGrp106), static_cast<int>(sotc_decomp::kOan106), static_cast<int>(sotc_decomp::kAi106)})

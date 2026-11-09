@@ -25,17 +25,37 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
 
+#include <chrono>
+#include <cmath>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 #include <cstring>
 
 namespace decomp_particles
 {
     void particleUpdate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool update123(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p, uint32_t list, uint32_t a2, uint32_t kind, uint32_t params,
+                   uint32_t t1, uint32_t sp0, float &f0out, bool guestRandom = false);
+    bool damageWanted(const uint8_t *rdram, uint32_t a2);
+    extern uint64_t g_damageCalls, g_damageSkipped;
 }
 namespace decomp_hot47e
 {
     void blend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 
+namespace coll115t
+{
+    inline uint64_t nowUs()
+    {
+#if defined(__vita__)
+        return sceKernelGetProcessTimeWide();
+#else
+        return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+    }
+}
 namespace decomp_ptclupdate
 {
     constexpr uint32_t kGeodisp = 0x0113F500u, kList = 0x0113AAE0u, kEmitter = 0x0113B610u, kStep = 0x0113B928u, kUpdate = 0x0113CA58u;
@@ -56,7 +76,8 @@ namespace decomp_ptclupdate
     struct Stats
     {
         bool on = std::getenv("SOTC_PTCL_STATS") != nullptr;
-        uint64_t lists = 0, emitters = 0, steps = 0, matrix = 0, unit = 0, plain = 0, done = 0, spawned = 0, dead = 0, fallbacks = 0;
+        uint64_t lists = 0, emitters = 0, steps = 0, matrix = 0, unit = 0, plain = 0, done = 0, spawned = 0, dead = 0, fallbacks = 0, h123 = 0, o123 = 0;
+        uint64_t us123[2] = {}, n123[2] = {}; // the particle loops' host time by ptcl123's state, and their particles
     };
     Stats *g_stats = nullptr;
     inline Stats &stats()
@@ -645,6 +666,52 @@ namespace decomp_ptclupdate
     // record (+0x1c the particle count wanted), a2 its kind K (+0 type, +0x10
     // the generation mode), a3 the blend parameters P (0113B610's frame), t0
     // 1: new particles this frame. v0 1 when the emitter is done.
+    // Round 123's check (SOTC_PTCL123_CHECK=1): the host step against the original, per float field: the largest
+    // relative difference and the count of fields over 1e-4 relative (and 1e-5 absolute), every 600 frames.
+    inline bool check123()
+    {
+        static const bool on = [] { const char *e = std::getenv("SOTC_PTCL123_CHECK"); return e && e[0] == '1'; }();
+        return on;
+    }
+    struct Check123
+    {
+        uint64_t n = 0, fields = 0, over = 0, ints = 0, frame = 0;
+        double maxRel = 0.0;
+        int worst = -1;
+    } g_c123;
+    inline void note123(const uint8_t *host, const uint8_t *orig)
+    {
+        Check123 &c = g_c123;
+        ++c.n;
+        for (int i = 0; i < 0xB0 / 4; ++i)
+        {
+            if (i == 0xA4 / 4 || i == 0xA8 / 4)
+            {
+                c.ints += std::memcmp(host + i * 4, orig + i * 4, 4) != 0;
+                continue;
+            }
+            float a, b;
+            std::memcpy(&a, host + i * 4, 4);
+            std::memcpy(&b, orig + i * 4, 4);
+            ++c.fields;
+            const double d = std::fabs((double)a - (double)b), r = d / std::max(1e-6, std::fabs((double)b));
+            if (d > 1e-5 && r > 1e-4)
+                ++c.over;
+            if (d > 1e-5 && r > c.maxRel)
+            {
+                c.maxRel = r;
+                c.worst = i * 4;
+            }
+        }
+        if (sotc_decomp::g_gameFrame >= c.frame + 600u)
+        {
+            c.frame = sotc_decomp::g_gameFrame;
+            std::fprintf(stderr, "[ptcl123c] frame %llu: particles %llu fields %llu over 1e-4 rel %llu (max rel %.3g at +0x%x) links differ %llu\n",
+                         (unsigned long long)c.frame, (unsigned long long)c.n, (unsigned long long)c.fields, (unsigned long long)c.over, c.maxRel, c.worst,
+                         (unsigned long long)c.ints);
+        }
+    }
+
     void step(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
@@ -1174,6 +1241,22 @@ namespace decomp_ptclupdate
                 return;
             const float zero = 0.0f;
             (count ? f20 : f21) = zero;
+            const bool p123 = sotc_decomp::switchOn(sotc_decomp::kPtcl123);
+            const uint64_t t123 = st.on ? coll115t::nowUs() : 0u;
+            struct Done
+            {
+                Stats &st;
+                uint64_t t0;
+                int state, n;
+                ~Done()
+                {
+                    if (st.on)
+                    {
+                        st.us123[state] += coll115t::nowUs() - t0;
+                        st.n123[state] += static_cast<uint64_t>(n);
+                    }
+                }
+            } done{st, t123, p123 ? 1 : 0, n};
             s0 = static_cast<uint64_t>(static_cast<int64_t>(n));
             for (int32_t left = n; left != 0; --left)
             {
@@ -1181,6 +1264,56 @@ namespace decomp_ptclupdate
                 s2 = static_cast<uint64_t>(static_cast<int64_t>(m.s32(a0 + 0xA8u)));
                 if (!FPU_C_EQ_S(f0, zero))
                 {
+                    // Round 123 (SOTC_PTCL123): the step in plain host floats, no call frame (v0 0 as the original's).
+                    if (p123 && __builtin_expect(check123(), 0) && !decomp_particles::damageWanted(rdram, Mr) && inRam(a0, 0xB0u))
+                    {
+                        // SOTC_PTCL123_CHECK=1: the host step on the record, kept aside; the original from the same
+                        // record is the answer used; the two compared field by field ([ptcl123c]).
+                        uint8_t before[0xB0], host[0xB0];
+                        std::memcpy(before, m.p(a0), 0xB0u);
+                        regs();
+                        float r0 = f0;
+                        // (VU0's R kept: the host step draws the jitter from the guest generator here, and the
+                        // original then draws the same numbers)
+                        const __m128 r = ctx->vu0_r;
+                        const bool did = decomp_particles::update123(rdram, ctx, runtime, a0, E, Mr, K, P, sp + 0x10u, sp, r0, true);
+                        ctx->vu0_r = r;
+                        std::memcpy(host, m.p(a0), 0xB0u);
+                        std::memcpy(m.p(a0), before, 0xB0u);
+                        g.a(4, a0);
+                        g.a(5, E);
+                        g.a(6, Mr);
+                        g.a(7, K);
+                        g.a(8, P);
+                        g.a(9, sp + 0x10u);
+                        regs();
+                        ctx->f[0] = f0;
+                        g.callNative(&decomp_particles::particleUpdate, kUpdate, site, sp);
+                        f0 = ctx->f[0];
+                        if (count && g.v0() == 0u)
+                            ++s3;
+                        if (did)
+                            note123(host, m.p(a0));
+                        s0 = static_cast<uint64_t>(static_cast<int64_t>(left - 1));
+                        a0 = static_cast<uint32_t>(s2);
+                        continue;
+                    }
+                    if (p123)
+                    {
+                        regs();
+                        float r0 = f0;
+                        if (decomp_particles::update123(rdram, ctx, runtime, a0, E, Mr, K, P, sp + 0x10u, sp, r0))
+                        {
+                            st.h123 += st.on;
+                            f0 = r0;
+                            if (count)
+                                ++s3;
+                            s0 = static_cast<uint64_t>(static_cast<int64_t>(left - 1));
+                            a0 = static_cast<uint32_t>(s2);
+                            continue;
+                        }
+                    }
+                    st.o123 += st.on;
                     g.a(4, a0);
                     g.a(5, E);
                     g.a(6, Mr);
@@ -1777,9 +1910,10 @@ namespace decomp_ptclupdate
         uint32_t node = m.u32(head);
         m.put32(sp, node);
         if (Stats &st = stats(); st.on && ++st.lists % 600u == 0u)
-            std::fprintf(stderr, "[ptcl] lists %llu: steps %llu (matrix %llu, unit %llu), done %llu, spawned %llu, dead emitters %llu, fallbacks %llu\n",
+            std::fprintf(stderr, "[ptcl] lists %llu: steps %llu (matrix %llu, unit %llu), done %llu, spawned %llu, dead emitters %llu, fallbacks %llu, ptcl123 %llu / original %llu (damage tests %llu, skipped %llu) | loops: ptcl123 on %.2f us a particle (%llu), off %.2f (%llu)\n",
                          (unsigned long long)st.lists, (unsigned long long)st.steps, (unsigned long long)st.matrix, (unsigned long long)st.unit,
-                         (unsigned long long)st.done, (unsigned long long)st.spawned, (unsigned long long)st.dead, (unsigned long long)st.fallbacks);
+                         (unsigned long long)st.done, (unsigned long long)st.spawned, (unsigned long long)st.dead, (unsigned long long)st.fallbacks, (unsigned long long)st.h123, (unsigned long long)st.o123, (unsigned long long)decomp_particles::g_damageCalls, (unsigned long long)decomp_particles::g_damageSkipped,
+                         st.n123[1] ? (double)st.us123[1] / st.n123[1] : 0.0, (unsigned long long)st.n123[1], st.n123[0] ? (double)st.us123[0] / st.n123[0] : 0.0, (unsigned long long)st.n123[0]);
         if (node != 0u)
         {
             s4 = 1u;

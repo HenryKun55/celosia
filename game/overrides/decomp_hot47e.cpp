@@ -1150,10 +1150,146 @@ namespace decomp_hot47e
     };
     constexpr uint32_t dstOf(int i) { return 0xCu + 4u * static_cast<uint32_t>(i); }
 
+    void blendOriginal(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void blend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::hotList47On())
             return fallback(kBlend, rdram, ctx, runtime);
+        {
+            // SOTC_PTCL_STATS=1: blends by kind every 600 frames ([blend123]).
+            static const bool statsOn = std::getenv("SOTC_PTCL_STATS") != nullptr;
+            static uint64_t nCopy = 0, nBlend = 0, frame = 0;
+            if (statsOn)
+            {
+                ++(GPR_U32(ctx, 6) != 0u ? nBlend : nCopy);
+                if (sotc_decomp::g_gameFrame >= frame + 600u)
+                {
+                    frame = sotc_decomp::g_gameFrame;
+                    std::fprintf(stderr, "[blend123] frame %llu: copies %llu blends %llu\n", (unsigned long long)frame, (unsigned long long)nCopy, (unsigned long long)nBlend);
+                }
+            }
+        }
+        // Round 123 (SOTC_BLEND123): with another set, the blend in plain host
+        // floats (w0 a + w1 b per field, the three fields blended only when both
+        // sides are above 0, +8 through floats and truncated), no frame, the
+        // callee-saved registers untouched; f0 - f7 left as plausible values
+        // (the callers read none of them). A port: the PS2's FPU rounding and
+        // clamps are not reproduced (last-bit differences in the parameters).
+        if (sotc_decomp::switchOn(sotc_decomp::kBlend123) && GPR_U32(ctx, 6) == 0u)
+        {
+            // No other set (every call measured on route 6, at the shrine and riding: ~20 a frame): the record's 85
+            // fields copied through host pointers (the same words; f0 / f1 the last two as the original's loop leaves them).
+            const uint32_t out = GPR_U32(ctx, 4), set = GPR_U32(ctx, 5), idx = GPR_U32(ctx, 7);
+            auto ok = [](uint32_t a, uint32_t n) { return a != 0u && a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a && (a & 3u) == 0u; };
+            if (ok(out, 0x160u) && ok(set, 0x100u))
+            {
+                const uint32_t rec = READ32(set + 0xD4u) + idx * 0x1BCu;
+                if (ok(rec, 0x1BCu))
+                {
+                    using au = uint32_t __attribute__((may_alias));
+                    const au *r = reinterpret_cast<const au *>(rdram + rec);
+                    au *o = reinterpret_cast<au *>(rdram + out);
+                    const au *st = reinterpret_cast<const au *>(rdram + set);
+                    o[0] = st[0x78 / 4];
+                    o[1] = st[0xAC / 4];
+                    o[2] = r[1];
+                    for (int i = 0; i < 85; ++i)
+                        o[3 + i] = r[kSrc[i] / 4u];
+                    ctx->f[0] = fb(o[3 + 84]);
+                    ctx->f[1] = fb(o[3 + 83]);
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(r[1]));
+                    ctx->pc = GPR_U32(ctx, 31);
+                    return;
+                }
+            }
+        }
+        if (sotc_decomp::switchOn(sotc_decomp::kBlend123) && GPR_U32(ctx, 6) != 0u)
+        {
+            const uint32_t out = GPR_U32(ctx, 4), set = GPR_U32(ctx, 5), other = GPR_U32(ctx, 6), idx = GPR_U32(ctx, 7);
+            auto ok = [](uint32_t a, uint32_t n) { return a != 0u && a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a && (a & 3u) == 0u; };
+            if (ok(out, 0x160u) && ok(set, 0x100u) && ok(other, 0x100u))
+            {
+                const uint32_t rec1 = READ32(set + 0xD4u) + idx * 0x1BCu;
+                const uint32_t cnt = READ32(other + 0xD0u);
+                const bool past = static_cast<int32_t>(cnt - 1u) < static_cast<int32_t>(idx);
+                const uint32_t rec2 = READ32(other + 0xD4u) + (past ? cnt * 0x1BCu - 0x1BCu : idx * 0x1BCu);
+                if (ok(rec1, 0x1BCu) && ok(rec2, 0x1BCu))
+                {
+                    const float t = ctx->f[12];
+                    float w0, w1;
+                    if (t < 0.0f)
+                    {
+                        w0 = t + 1.0f;
+                        w1 = 0.0f;
+                    }
+                    else
+                    {
+                        w0 = t < 1.0f ? 1.0f - t : 0.0f;
+                        w1 = t;
+                    }
+                    using af = float __attribute__((may_alias));
+                    const af *a = reinterpret_cast<const af *>(rdram + rec1), *b = reinterpret_cast<const af *>(rdram + rec2);
+                    static const bool check = [] { const char *e = std::getenv("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }();
+                    float tmp[88];
+                    af *o = check ? tmp : reinterpret_cast<af *>(rdram + out);
+                    o[0] = w0 * fb(READ32(set + 0x78u)) + w1 * fb(READ32(other + 0x78u));
+                    o[1] = w0 * fb(READ32(set + 0xACu)) + w1 * fb(READ32(other + 0xACu));
+                    const float c = w0 * static_cast<float>(static_cast<int32_t>(READ32(rec1 + 4u))) + w1 * static_cast<float>(static_cast<int32_t>(READ32(rec2 + 4u)));
+                    const int32_t ci = static_cast<int32_t>(c);
+                    if (!check)
+                        WRITE32(out + 8u, static_cast<uint32_t>(ci));
+                    for (int i = 0; i < 85; ++i)
+                    {
+                        const uint32_t k = kSrc[i] / 4u;
+                        const float x = a[k], y = b[k];
+                        float v;
+                        if (i == 13 || i == 24 || i == 56)
+                            v = (0.0f < x && 0.0f < y) ? w0 * x + w1 * y : x;
+                        else
+                            v = w0 * x + w1 * y;
+                        o[3 + i] = v;
+                    }
+                    if (check)
+                    {
+                        // SOTC_BLEND123_CHECK=1: the original runs and is used; compared ([blend123c] every 600 frames).
+                        blendOriginal(rdram, ctx, runtime);
+                        static uint64_t n = 0, over = 0, ints = 0, frame = 0;
+                        static double maxRel = 0.0;
+                        ++n;
+                        ints += static_cast<int32_t>(READ32(out + 8u)) != ci;
+                        for (int i = 0; i < 88; ++i)
+                        {
+                            if (i == 2)
+                                continue;
+                            const double x = tmp[i], y = fb(READ32(out + 4u * i)), d = std::fabs(x - y), r = d / std::max(1e-6, std::fabs(y));
+                            if (d > 1e-5 && r > 1e-4)
+                                ++over;
+                            if (d > 1e-5 && r > maxRel)
+                                maxRel = r;
+                        }
+                        if (sotc_decomp::g_gameFrame >= frame + 600u)
+                        {
+                            frame = sotc_decomp::g_gameFrame;
+                            std::fprintf(stderr, "[blend123c] frame %llu: blends %llu fields over 1e-4 rel %llu (max rel %.3g) count differs %llu\n", (unsigned long long)frame,
+                                         (unsigned long long)n, (unsigned long long)over, maxRel, (unsigned long long)ints);
+                        }
+                        return;
+                    }
+                    ctx->f[0] = w0;
+                    ctx->f[1] = w1;
+                    ctx->f[3] = ctx->f[5] = w0;
+                    ctx->f[4] = ctx->f[6] = w1;
+                    ctx->f[7] = 0.0f;
+                    SET_GPR_U32(ctx, 2, rec2);
+                    ctx->pc = GPR_U32(ctx, 31);
+                    return;
+                }
+            }
+        }
+        blendOriginal(rdram, ctx, runtime);
+    }
+    void blendOriginal(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
         const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
         const uint32_t sp = static_cast<uint32_t>(entrySp) - 0x50u;
         const uint64_t a0 = GPR_U64(ctx, 4), set = GPR_U64(ctx, 5), other = GPR_U64(ctx, 6), index = GPR_U64(ctx, 7);

@@ -420,6 +420,336 @@ namespace decomp_particles
         SET_GPR_U32(ctx, 31, ra0);
         returnTo(ctx);
     }
+
+    // ---- Round 123 (SOTC_PTCL123): the same step in plain host floats -------
+    // A port, not an emulator: the particle's step as ordinary C++ floats on
+    // the guest record (no PS2 FPU clamps / operand alignment / compare keys,
+    // no VU0 clamps), called straight from the emitter's particle loop
+    // (decomp_ptclupdate's step) without a guest call frame. The same fields
+    // in the same order, so the same motion, size, colour channels, rotation
+    // and spin; results can differ from the PS2's in the last bits (round to
+    // nearest vs toward zero inside a step), invisible on screen. The same
+    // particles go to the original path (dying this frame, the collision
+    // test, shape 0, pointers outside RAM): false returned, nothing written.
+    // The random draws (the jitter, shape 4's random axis) from a host
+    // generator; the guest calls that stay: iosGetReflectVector at the floor /
+    // ceiling, the damage test.
+    namespace
+    {
+        using af = float __attribute__((may_alias));
+        using au = uint32_t __attribute__((may_alias));
+        // iosGetRandom's [0, 1) from a host generator (xorshift32, 23 bits of mantissa): the particles' jitter
+        // and shape 4's random axis no longer step VU0's R register (the game's other random draws get another
+        // sequence: random either way).
+        inline float rnd()
+        {
+            static uint32_t x = 0x2545F491u;
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            const uint32_t b = 0x3F800000u | (x >> 9);
+            float f;
+            std::memcpy(&f, &b, 4);
+            return f - 1.0f;
+        }
+        inline float pw(float f, int32_t n)
+        {
+            if (f == 1.0f || n <= 0)
+                return 1.0f;
+            float r = f;
+            while (--n > 0)
+                r *= f;
+            return r;
+        }
+    }
+
+    // 0113C8C8's own early test: the damage target (*0x118cfec) and the emitter's handle (a2 +0xd8, its record's
+    // +0x44 word resolved as the code does: the slot, the generation's table, the entry) must give an entry; else the
+    // function returns having touched only its frame. True: the call is needed (or something is outside RAM).
+    bool damageWanted(const uint8_t *rdram, uint32_t a2)
+    {
+        auto u32 = [rdram](uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + (a & PS2_RAM_MASK), 4);
+            return v;
+        };
+        auto ok = [](uint32_t a) { return a != 0u && a < PS2_RAM_SIZE - 0x20u; };
+        if (u32(kDamageOn) == 0u)
+            return false;
+        const uint32_t h = u32(a2 + 0xD8u);
+        if (h == 0u)
+            return false;
+        if (!ok(h))
+            return true;
+        const uint32_t v1 = h + 0x44u, a2w = u32(v1), low = a2w & 0x3FFFFu;
+        if (low == 0u)
+            return false;
+        if (!ok(v1 - low))
+            return true;
+        const uint32_t a0 = u32(v1 - low);
+        if (a0 == 0u || a0 == u32(0x001E0ED4u))
+            return false;
+        if (!ok(a0) || !ok(u32(a0 + 8u)))
+            return true;
+        const uint32_t v0 = u32(a0 + 0x10u) + ((a2w >> 18) & 0xFFFu) * u32(u32(a0 + 8u) + 0xCu);
+        return v0 != 0u;
+    }
+    uint64_t g_damageCalls = 0, g_damageSkipped = 0;
+
+    bool update123(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p, uint32_t list, uint32_t a2, uint32_t kind, uint32_t params,
+                   uint32_t t1, uint32_t sp0, float &f0out, bool guestRandom)
+    {
+        const Guest g{rdram, ctx, runtime};
+        auto inRam = [](uint32_t a) { return a != 0u && a < PS2_RAM_SIZE - 0x200u && (a & 3u) == 0u; };
+        const uint32_t stepA = g.step();
+        if (!(inRam(p) && inRam(list) && inRam(a2) && inRam(kind) && inRam(params) && inRam(t1) && inRam(stepA) && (p & 0xFu) == 0u))
+            return false;
+        af *P = reinterpret_cast<af *>(rdram + p);
+        const au *K = reinterpret_cast<const au *>(rdram + kind);
+        const af *A = reinterpret_cast<const af *>(rdram + params);
+        const af *A2 = reinterpret_cast<const af *>(rdram + a2);
+        const au *A2u = reinterpret_cast<const au *>(rdram + a2);
+        const af *L = reinterpret_cast<const af *>(rdram + list);
+        const af *S = reinterpret_cast<const af *>(rdram + stepA);
+        const float dt = S[0];
+        const uint32_t shape = K[0xC / 4];
+        if (P[0x40 / 4] < P[0x44 / 4] + dt || shape == 0u || (K[0x104 / 4] != 0u && reinterpret_cast<const au *>(P)[0xA4 / 4] == 0u))
+            return false;
+        const int32_t vbl = static_cast<int32_t>(reinterpret_cast<const au *>(S)[3]);
+        const uint32_t sp1 = sp0 - 0x90u, sp2 = sp1 - 0x90u;
+        float f0 = 0.0f;
+
+        // Age.
+        const float age = P[0x44 / 4] + dt;
+        P[0x44 / 4] = age;
+
+        // Local space: the four vectors (three unless shape 2) by the matrix at t1 + 0x10.
+        if (K[0] - 2u < 2u)
+        {
+            const af *M = reinterpret_cast<const af *>(rdram + t1 + 0x10u);
+            float m[16];
+            for (int i = 0; i < 16; ++i)
+                m[i] = M[i];
+            const int nv = shape == 2u ? 4 : 3;
+            for (int v = 0; v < nv; ++v)
+            {
+                af *q = P + v * 4;
+                const float x = q[0], y = q[1], z = q[2], w = q[3];
+                for (int c = 0; c < 4; ++c)
+                    q[c] = m[c] * x + m[4 + c] * y + m[8 + c] * z + m[12 + c] * w;
+            }
+        }
+
+        // The acceleration and the decay factors for this age.
+        float ax = P[8], ay = P[9], az = P[10], aw = P[11];
+        float velocityDecay, growth, growthDecay, turnK, turnDecay;
+        {
+            const float lim = A[0x40 / 4];
+            float s = 1.0f;
+            if (lim <= 0.0f)
+                velocityDecay = A[0x3C / 4];
+            else if (age < lim)
+            {
+                s = A[0x38 / 4];
+                velocityDecay = A[0x3C / 4];
+            }
+            else
+            {
+                s = A[0x44 / 4];
+                velocityDecay = A[0x48 / 4];
+            }
+            if (lim > 0.0f)
+            {
+                ax *= s;
+                ay *= s;
+                az *= s;
+            }
+        }
+        {
+            const float lim = A[0x6C / 4];
+            const bool first = lim <= 0.0f || age < lim;
+            growth = first ? A[0x64 / 4] : A[0x70 / 4];
+            growthDecay = first ? A[0x68 / 4] : A[0x74 / 4];
+        }
+        {
+            const float lim = A[0xEC / 4];
+            const bool first = lim <= 0.0f || age < lim;
+            turnK = first ? A[0xE4 / 4] : A[0xF0 / 4];
+            turnDecay = first ? A[0xE8 / 4] : A[0xF4 / 4];
+        }
+        const float turn = P[0xA0 / 4] * turnK;
+
+        // Size and its growth.
+        {
+            const float g2 = P[0x50 / 4];
+            const float sz = P[0x4C / 4] + g2 * dt;
+            P[0x4C / 4] = sz < 0.0f ? 0.0f : sz;
+            P[0x50 / 4] = (g2 + growth * dt) * pw(growthDecay, vbl);
+        }
+
+        // The move (01141968).
+        {
+            const float f1 = P[0x88 / 4] * dt, dt2 = S[1];
+            const af *V = P + 4;
+            const af *D = L; // the list's drift at +0
+            for (int c = 0; c < 3; ++c)
+                P[c] = P[c] + V[c] * dt;
+            P[0] += ax * dt2;
+            P[1] += ay * dt2;
+            P[2] += az * dt2;
+            for (int c = 0; c < 3; ++c)
+                P[c] += D[c] * f1;
+            f0 = dt2;
+            const uint32_t space = K[0];
+            if (space == 1u || space == 3u)
+            {
+                f0 = P[0x48 / 4];
+                const af *X = reinterpret_cast<const af *>(rdram + t1);
+                for (int c = 0; c < 3; ++c)
+                    P[c] += X[c] * f0;
+            }
+            const uint32_t spin = K[0xC8 / 4];
+            if (spin != 0u)
+            {
+                const float s = P[0x80 / 4] * dt;
+                const af *AX = L + 0x30 / 4, *C = L + 0x10 / 4;
+                const float x = AX[0] * s, y = AX[1] * s, z = AX[2] * s;
+                const float rx = P[0] - C[0], ry = P[1] - C[1], rz = P[2] - C[2];
+                P[0] += y * rz - z * ry;
+                P[1] += z * rx - x * rz;
+                P[2] += x * ry - y * rx;
+                const float f2 = P[0x80 / 4], ch = A[0xD4 / 4] * dt;
+                const float sv = (spin == 1u || 0.0f <= f2) ? f2 + ch : f2 - ch;
+                f0 = sv * pw(A[0xD8 / 4], vbl);
+                P[0x80 / 4] = f0;
+            }
+        }
+        // Jitter.
+        if (K[0x11C / 4] != 0u && 0.0f < dt)
+        {
+            const float j = A[0x118 / 4], half = j * 0.5f;
+            const uint32_t sites[3] = {0x0113D548u, 0x0113D564u, 0x0113D580u};
+            for (uint32_t i = 0; i < 3u; ++i)
+            {
+                const float r = guestRandom ? g.random(sites[i], sp2) : rnd();
+                P[i] += r * j - half;
+            }
+        }
+        // The floor and ceiling (01141B70): put back on it and bounce.
+        {
+            const float f1 = A2[0x134 / 4] * P[0x4C / 4];
+            const float floorY = L[0x150 / 4] - f1, ceilingY = L[0x154 / 4] + f1;
+            const uint32_t frame = sp2 - 0x40u;
+            auto hit = [&](float to, uint32_t normal, uint32_t site1, uint32_t site2, uint32_t k)
+            {
+                P[1] = to;
+                g.reflect(p + 0x10u, normal, site1, frame);
+                g.reflect(p + 0x20u, normal, site2, frame);
+                const float kv = A[k / 4], ka = A[k / 4 + 1];
+                for (int c = 0; c < 3; ++c)
+                {
+                    P[4 + c] *= kv;
+                    P[8 + c] *= ka;
+                }
+                P[0x54 / 4] *= A[k / 4 + 2];
+            };
+            if (floorY <= P[1])
+                hit(floorY, sotc_decomp::relocated(rdram, 0x01141BD4u, 0x01141BDCu), 0x01141BE0u, 0x01141BF0u, 0x130u);
+            if (P[1] <= ceilingY)
+                hit(ceilingY, sotc_decomp::relocated(rdram, 0x01141C48u, 0x01141C50u), 0x01141C64u, 0x01141C74u, 0x13Cu);
+        }
+
+        // Velocity: += acceleration dt (y less the particle's +0x8c), then its decay.
+        {
+            const float d = pw(velocityDecay, vbl);
+            P[4] = (P[4] + ax * dt) * d;
+            P[5] = (P[5] + (ay - P[0x8C / 4]) * dt) * d;
+            P[6] = (P[6] + az * dt) * d;
+        }
+        (void)aw;
+
+        // Three channels in 0..1 (+0x68, +0x70, +0x78) with a speed, its change and decay.
+        for (int c = 0; c < 3; ++c)
+        {
+            af *ch = P + 0x68 / 4 + c * 2;
+            const af *k = A + (0x88 + c * 0x18) / 4;
+            const float speed = ch[1];
+            float v = ch[0] + speed * dt;
+            v = v < 0.0f ? 0.0f : v;
+            ch[0] = 1.0f < v ? 1.0f : v;
+            ch[1] = (speed + k[0] * dt) * pw(k[1], vbl);
+        }
+
+        // Rotation (+0x90, speed +0x94).
+        if (static_cast<int32_t>(A2u[0x120 / 4]) >= 2 && A2[0xA0 / 4] <= age)
+        {
+            const float f2 = P[0x94 / 4];
+            const float angle = P[0x90 / 4] + f2 * dt;
+            const float lim = A2[0x124 / 4];
+            const bool wraps = A2u[0x8C / 4] == 1u;
+            float out = angle;
+            if (lim <= angle)
+                out = wraps ? angle - lim : lim - 0.01f;
+            else if (angle < 0.0f)
+                out = wraps ? angle + lim : 0.0f;
+            P[0x90 / 4] = out;
+            const float change = A2[0x98 / 4] * dt;
+            const float sv = (A2u[0x88 / 4] == 0u || 0.0f <= f2) ? f2 + change : f2 - change;
+            f0 = pw(A2[0x9C / 4], vbl);
+            P[0x94 / 4] = sv * f0;
+        }
+
+        // Spin (+0x98, speed +0x9c) by shape.
+        if (shape == 1u || shape == 4u)
+        {
+            const float speed = P[0x9C / 4];
+            P[0x98 / 4] += speed * dt;
+            f0 = pw(turnDecay, vbl);
+            P[0x9C / 4] = (speed + turn * dt) * f0;
+            if (shape == 4u && K[0x174 / 4] != 0u && 0.0f < dt)
+            {
+                const float r0 = guestRandom ? g.random(0x0113D150u, sp1) : rnd();
+                P[0x30 / 4] = A[0x14C / 4] + A[0x150 / 4] * r0;
+                const float r1 = guestRandom ? g.random(0x0113D168u, sp1) : rnd();
+                f0 = A[0x150 / 4] * r1;
+                P[0x38 / 4] = 0.0f;
+                P[0x3C / 4] = 0.0f;
+                P[0x34 / 4] = A[0x14C / 4] + f0;
+            }
+        }
+        else if (shape == 2u)
+        {
+            const float speed = P[0x9C / 4];
+            const float v = P[0x98 / 4] + speed * dt;
+            P[0x98 / 4] = v < 0.001f ? 0.001f : v;
+            f0 = pw(A[0x10C / 4], vbl);
+            P[0x9C / 4] = (speed + A[0x108 / 4] * dt) * f0;
+        }
+
+        // 0113C8C8: the damage test, when it is on and its handle resolves (else it does nothing: not called).
+        if (g.u32(kDamageOn) != 0u && A2u[0xD8 / 4] != 0u)
+        {
+            if (damageWanted(rdram, a2))
+            {
+                ++g_damageCalls;
+                ctx->f[0] = f0;
+                SET_GPR_U32(ctx, 4, p);
+                SET_GPR_U32(ctx, 5, a2);
+                g.call(kDamage, 0x0113D208u, sp1);
+                f0 = ctx->f[0];
+            }
+            else
+                ++g_damageSkipped;
+        }
+        if (A2u[0xC8 / 4] == 2u)
+        {
+            f0 = P[1] + g.f32(kSpinY);
+            P[1] = f0;
+        }
+        f0out = f0;
+        return true;
+    }
 }
 
 SOTC_DECOMP_FUNCTION(0x0113CA58u, particleUpdate, decomp_particles::particleUpdate);

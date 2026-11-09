@@ -4038,6 +4038,7 @@ namespace decomp_collision
             g_stats.clear();
         }
     }
+#include "coll123.h"
     // The memo around a segment test with ClipCollisionDirectCallBack's
     // arguments (a0 the result, a1 / a2 the points, a3 the group, t0-t3 the
     // filters, the caller's stack word): `fn` tells the tests apart.
@@ -4045,6 +4046,11 @@ namespace decomp_collision
     void segMemo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t fn, Body body)
     {
         static int depth = 0; // (lane 0's: the worker never enters the memo)
+        // Round 123 (SOTC_SEG123): under coll115, the validated memo (coll123.h) in place of seg80's blind reuse
+        // (round 84's AI path tests keep probe84's pool below).
+        if (sotc_decomp::switchOn(sotc_decomp::kSeg123) && depth == 0 && !sotc_decomp::onWorkerLane(runtime) && coll115::on(runtime) &&
+            !(sotc_decomp::probe84On() && seg80::pathCaller(GPR_U32(ctx, 31))))
+            return coll123::memo(rdram, ctx, runtime, fn, body, depth);
         if (!sotc_decomp::seg80On() || sotc_decomp::onWorkerLane(runtime) || depth != 0)
             return body();
         // Round 115: with coll115 seg80's 1 cm reuse is off (the camera's, the characters' and the horse's tests
@@ -4189,6 +4195,9 @@ namespace decomp_collision
                 const int p119 = sotc_decomp::switchOn(sotc_decomp::kPart119) ? 1 : 0; // round 119: by part119 too
                 coll119::g_t.usQ[p119] += dt;
                 ++coll119::g_t.nQ[p119];
+                const int s123 = sotc_decomp::switchOn(sotc_decomp::kSeg123) ? 1 : 0; // round 123
+                coll123::g_t.us[s123] += dt;
+                ++coll123::g_t.n[s123];
             }
             return;
         }
