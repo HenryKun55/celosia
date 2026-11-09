@@ -376,6 +376,10 @@ html.lb-open { overflow: hidden; }
 .scene svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .scene .sa, .scene .lp, .agro .lp, .ledge .lp { transform-box: view-box; transform-origin: 0 0; }
 .scene-mono { opacity: 0.95; }
+.mo-creep { transform: translateX(-150px); }
+/* Dirge's eye: static half open; the scroll opens it from closed. */
+.scene-dirge { height: clamp(14rem, 30vw, 24rem); }
+.dg-lidu { transform: translateY(-15px); } .dg-lidl { transform: translateY(11px); } .dg-pupil { transform: scaleX(0.8); } .grain { opacity: 0; }
 .mote { fill: #fff3d0; }
 .scene-garden { opacity: 0.92; height: clamp(14rem, 30vw, 24rem); -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); }
 /* Followers' arms: drawn raised (the rest pose of the static picture). The shrine priests: rounded heads, wide flat bone masks, blue-grey robes. */
@@ -436,6 +440,34 @@ html.lb-open { overflow: hidden; }
   .scene.live .motes g:nth-child(2n) { animation-duration: 2.3s; animation-delay: -1.1s; }
   .scene.live .motes g:nth-child(5n) { animation-duration: 4.1s; animation-delay: -2s; }
   @keyframes tw { from { opacity: 0.25; } to { opacity: 1; } }
+  /* ...and the light creeps from her feet to her face; a strand of hair stirs. */
+  .mo-creep { animation-name: s-creep; animation-timing-function: ease-in-out; }
+  .mo-strand { animation-name: s-strand; animation-timing-function: ease-in-out; }
+  @keyframes s-creep { 0%, 15% { transform: translateX(0); opacity: 0; } 30% { opacity: 1; } 80% { transform: translateX(-278px); opacity: 1; } 100% { transform: translateX(-290px); opacity: 0.7; } }
+  @keyframes s-strand { 0% { transform: rotate(-3deg); } 50% { transform: rotate(4deg); } 100% { transform: rotate(-1deg); } }
+
+  /* Dirge's eye rises out of the sand and opens; its light spills on the dune. */
+  .dg-rise { animation-name: s-dg-rise; animation-timing-function: ease-out; }
+  .dg-lidu { animation-name: s-dg-lidu; animation-timing-function: ease-in-out; }
+  .dg-lidl { animation-name: s-dg-lidl; animation-timing-function: ease-in-out; }
+  .dg-pupil { animation-name: s-dg-pupil; animation-timing-function: ease-in-out; }
+  .dg-iris { animation-name: s-dg-iris; }
+  .dg-glow, .dg-spill { animation-name: s-dg-glow; }
+  .dg-drift { animation-name: s-dg-drift; }
+  .grain { animation-name: s-grain; animation-timing-function: ease-in; }
+  .grain:nth-child(3n) { --gy: 150px; --gx: -6px; } .grain:nth-child(3n+1) { --gy: 120px; --gx: 4px; } .grain:nth-child(3n+2) { --gy: 170px; --gx: 0px; }
+  .grain:nth-child(2n) { animation-name: s-grain2; }
+  @keyframes s-dg-rise { 0% { transform: translateY(70px); } 40%, 100% { transform: translateY(0); } }
+  @keyframes s-dg-lidu { 0%, 34% { transform: translateY(0); } 48% { transform: translateY(-9px); } 54% { transform: translateY(-7px); } 76%, 100% { transform: translateY(-31px); } }
+  @keyframes s-dg-lidl { 0%, 34% { transform: translateY(0); } 48% { transform: translateY(6px); } 54% { transform: translateY(5px); } 76%, 100% { transform: translateY(24px); } }
+  @keyframes s-dg-pupil { 0%, 50% { transform: scaleX(1.7); } 86%, 100% { transform: scaleX(0.3); } }
+  @keyframes s-dg-iris { 0%, 40% { transform: translateX(-8px); } 70% { transform: translateX(3px); } 100% { transform: translateX(0); } }
+  @keyframes s-dg-glow { 0%, 36% { opacity: 0; } 80%, 100% { opacity: 1; } }
+  @keyframes s-dg-drift { from { transform: translateX(60px); } to { transform: translateX(-120px); } }
+  @keyframes s-grain { 0%, 40% { transform: translate(0, 0); opacity: 0; } 46% { opacity: 1; } 78%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
+  @keyframes s-grain2 { 0%, 52% { transform: translate(0, 0); opacity: 0; } 58% { opacity: 1; } 90%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
+  .scene.live .dg-shiver { animation: shiver 3.4s linear infinite; }
+  @keyframes shiver { 0%, 78%, 92%, 100% { transform: translate(0, 0); } 80% { transform: translate(0.9px, -0.4px); } 82% { transform: translate(-0.9px, 0.3px); } 84% { transform: translate(0.7px, 0.2px); } 86% { transform: translate(-0.5px, -0.2px); } 88% { transform: translate(0.3px, 0); } }
 
   /* The followers raise their arms, the middle one the sword; light answers. */
   .arm { animation-name: s-arm1; animation-timing-function: ease-in-out; }
