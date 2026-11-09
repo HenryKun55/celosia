@@ -70,6 +70,10 @@
 
 #include <cstring>
 
+namespace decomp_collision
+{
+    bool objAry125(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, void (*self)(uint8_t *, R5900Context *, PS2Runtime *));
+}
 namespace decomp_hot46g
 {
     using sotc_decomp::callGuest;
@@ -750,6 +754,9 @@ namespace decomp_hot46g
     {
         if (!sotc_decomp::hotList46On())
             return fallback(kObjAry, rdram, ctx, runtime);
+        // Round 125 (SOTC_OBJ125): the object / part loop in host locals (decomp_collision's obj125Run).
+        if (decomp_collision::objAry125(rdram, ctx, runtime, &objAry))
+            return;
         const uint32_t spIn = GPR_U32(ctx, 29), sp = spIn - 0x270u;
         ObjAry o{{rdram, ctx, runtime, sp}, GPR_U32(ctx, 4)};
         float *const f = ctx->f;

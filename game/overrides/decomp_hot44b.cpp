@@ -446,7 +446,8 @@ namespace decomp_hot44b
             // is not called at once: the last such one is called when the loop goes on to anything else
             // or ends (it writes the same frame words and registers every earlier one would have, and
             // nothing else ran in between), so the loop leaves what the original's leaves.
-            const bool skip119 = sotc_decomp::switchOn(sotc_decomp::kView119) && !sotc_decomp::onWorkerLane(runtime) && sotc_decomp::hotList44On() &&
+            // (Round 125: with fin125 too: the plane from its contact sets, decomp_collision's keepEarlyFrom.)
+            const bool skip119 = (sotc_decomp::switchOn(sotc_decomp::kView119) || sotc_decomp::switchOn(sotc_decomp::kFin125)) && !sotc_decomp::onWorkerLane(runtime) && sotc_decomp::hotList44On() &&
                                  sotc_decomp::guestFunction(runtime, kKeepThenSlope) == &keepThenSlope &&
                                  sotc_decomp::guestFunction(runtime, kKeepFull) == &decomp_collision::clipKeep;
             const uint32_t list0 = s0;

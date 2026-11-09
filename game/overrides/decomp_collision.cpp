@@ -1367,8 +1367,15 @@ namespace decomp_collision
         const G g{rdram, ctx, runtime};
         return coll119::viewOf(g, list, n);
     }
+    namespace coll125
+    {
+        int keepEarly125(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, uint32_t id, uint32_t point, float keep); // coll125.h
+    }
     bool keepEarlyFrom(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const void *view, int32_t k, uint32_t id, uint32_t point, float keep)
     {
+        // Round 125 (SOTC_FIN125): the plane from the list's contact set when it holds the entry (this frame, this epoch).
+        if (const int e = coll125::keepEarly125(rdram, ctx, runtime, id, point, keep); e >= 0)
+            return e != 0;
         coll119::View *v = static_cast<coll119::View *>(const_cast<void *>(view));
         if (!v || k < 0 || k >= v->n || id != v->list + 8u * static_cast<uint32_t>(k))
             return keepEarly(rdram, ctx, runtime, id, point, keep);
@@ -3029,11 +3036,18 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
+    namespace coll125
+    {
+        bool attrOf(const PS2Runtime *runtime, uint32_t w0, uint32_t w1, uint32_t &out); // coll125.h
+    }
     // ---- GetCollisionDBAttributeAdr (0x1125b30) -------------------------------
     // a0 the surface's id: the address of its attribute record.
     bool attributeAddress(const G g, uint32_t id, uint32_t &out)
     {
         const uint32_t w0 = g.u32(id), w1 = g.u32(id + 4u);
+        // Round 125 (SOTC_FIN125): a surface of a finder list's contact set has it kept (checked this frame).
+        if (coll125::attrOf(g.runtime, w0, w1, out))
+            return true;
         uint32_t cls;
         if (!layoutClass(g, w0, cls))
             return false;
@@ -4174,11 +4188,540 @@ namespace decomp_collision
                                     { return first ? (highOld(g, s, a1, a2, t0, sp)) : (lowOld(g, s, a1, a2, t0, sp)); });
     }
 
+    // ---- Round 125 (SOTC_OBJ125): ClipCollisionDirectCallBack's object / part loop in host locals ----
+    // The original's loop (directCallBackBody below, guest-exact) keeps its state in its guest frame: the
+    // segment, the filters, the current object, its class, DB and part, the three per-part matrix pointers,
+    // the ends, the hit flags, about thirty words written and read again per object and per part, and
+    // every compare and product the PS2's way (FPU_* / clamps). Here the same loop with that state in host
+    // locals and plain floats: per object the bound against the segment's cylinder, per part its sphere
+    // (the part's matrix, then the segment's) and the cylinder, then the tree walk (coll115 / the
+    // original's) with the record the leaves read written once. The frame words the callees read are
+    // written before each call that reads them (the part filter's sphere at sp + 0xB0; the walk's record
+    // at sp + 0xD0 .. 0xF4 and its segment at sp + 0x100 .. 0x140); the rare one-by-one and skinned parts
+    // get the loop's words spilled and run the original's code for that part. Not exact: the cylinder
+    // tests in plain floats (no margins, no clamps).
+    struct Obj125Stats
+    {
+        uint64_t queries = 0, objects = 0, near = 0, parts = 0, partsNear = 0, walks = 0, spilled = 0;
+        uint32_t pfAddr[4] = {}; // the part filters called (the first four seen) and how often
+        uint64_t pfCalls[4] = {}, pfOther = 0;
+        void partFilter(uint32_t a)
+        {
+            for (int i = 0; i < 4; ++i)
+                if (pfAddr[i] == a || pfAddr[i] == 0u)
+                {
+                    pfAddr[i] = a;
+                    ++pfCalls[i];
+                    return;
+                }
+            ++pfOther;
+        }
+    };
+    inline Obj125Stats g_obj125;
+    // (r grown by 0.1% + 1 mm: a sphere the PS2's compares would call near is never called far here; a
+    // near one only costs its part's test, which decides as before)
+    inline bool cyl125(__m128 c, float r, float length)
+    {
+        float v[4];
+        std::memcpy(v, &c, 16);
+        const float rr = r * 1.001f + 1e-3f;
+        return v[0] * v[0] + v[1] * v[1] < rr * rr && -rr < v[2] && v[2] < length + rr;
+    }
+    inline __m128 abs125(__m128 v)
+    {
+        uint32_t b[4];
+        std::memcpy(b, &v, 16);
+        for (uint32_t &w : b)
+            w = (w & 0x7F800000u) == 0u ? 0u : (w & 0x7FFFFFFFu);
+        __m128 r;
+        std::memcpy(&r, b, 16);
+        return r;
+    }
+    // v through the four rows at m in plain NEON when the rows and v are small (finite, below 2^61: then the PS2's clamps
+    // are identities and these are transform()'s bits, round 119's part119 argument), else transform().
+    inline __attribute__((always_inline)) __m128 xf125(const G g, uint32_t m, __m128 v)
+    {
+#if PS2X_VU_NEON_A32
+        const uint32_t a = m & ~0xFu;
+        if (__builtin_expect(G::plain(a, 0x40u), 1))
+        {
+            vu::Rows raw;
+            std::memcpy(&raw.r[0], g.rdram + a, 16);
+            std::memcpy(&raw.r[1], g.rdram + a + 0x10u, 16);
+            std::memcpy(&raw.r[2], g.rdram + a + 0x20u, 16);
+            std::memcpy(&raw.r[3], g.rdram + a + 0x30u, 16);
+            bool small;
+            const __m128 r = fast::transformSmallImpl(raw, v, small);
+            if (__builtin_expect(small, 1))
+                return r;
+        }
+#endif
+        return transform(g, m, v);
+    }
+    inline bool obj125On(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kObj125) && !sotc_decomp::onWorkerLane(runtime); }
+    inline int obj125Check()
+    {
+        static const int v = std::getenv("SOTC_OBJ125_CHECK") ? std::atoi(std::getenv("SOTC_OBJ125_CHECK")) : 0;
+        return v;
+    }
+    struct Obj125Check
+    {
+        uint64_t checks = 0, hits = 0, hitDiffer = 0, idDiffer = 0, idTie = 0, far = 0;
+        double maxDist = 0.0, sumDist = 0.0;
+    };
+    inline Obj125Check g_obj125c;
+    inline uint64_t g_obj125Us[2] = {}, g_obj125N[2] = {}; // the segment query's host time by obj125's state (SOTC_COLL115_LOG=1)
+    inline uint64_t g_obj125LogFrame = 0;
+    inline void obj125Log()
+    {
+        static const bool want = obj125Check() != 0 || (std::getenv("SOTC_COLL115_LOG") && std::atoi(std::getenv("SOTC_COLL115_LOG")) != 0);
+        const uint64_t frame = sotc_decomp::g_gameFrame;
+        if (!want || frame < g_obj125LogFrame + 600u)
+            return;
+        if (g_obj125LogFrame != 0u)
+        {
+            const double nf = static_cast<double>(frame - g_obj125LogFrame);
+            const Obj125Stats &o = g_obj125;
+            std::fprintf(stderr, "[obj125] frame %llu: a frame: queries %.2f objects %.1f near %.1f parts %.1f parts near %.1f walks %.1f spilled %.2f | part filters %08x %.1f, %08x %.1f, %08x %.1f, %08x %.1f, other %.1f\n",
+                         (unsigned long long)frame, o.queries / nf, o.objects / nf, o.near / nf, o.parts / nf, o.partsNear / nf, o.walks / nf, o.spilled / nf, o.pfAddr[0], o.pfCalls[0] / nf,
+                         o.pfAddr[1], o.pfCalls[1] / nf, o.pfAddr[2], o.pfCalls[2] / nf, o.pfAddr[3], o.pfCalls[3] / nf, o.pfOther / nf);
+            const Obj125Check &c = g_obj125c;
+            if (c.checks)
+                std::fprintf(stderr, "[obj125c] frame %llu: checked %llu (both hit %llu): hit / no hit differ %llu, other surface %llu (ties within 1 mm %llu), points over 1 cm %llu, point max %.2f mm mean %.4f mm\n",
+                             (unsigned long long)frame, (unsigned long long)c.checks, (unsigned long long)c.hits, (unsigned long long)c.hitDiffer, (unsigned long long)c.idDiffer,
+                             (unsigned long long)c.idTie, (unsigned long long)c.far, c.maxDist * 1000.0, c.hits ? c.sumDist / c.hits * 1000.0 : 0.0);
+        }
+        for (int i = 0; i < 2; ++i)
+            if (g_obj125N[i])
+                std::fprintf(stderr, "[obj125t] frame %llu segment queries %s: %llu calls, %.2f us each (%.3f ms a frame)\n", (unsigned long long)frame, i ? "on" : "off",
+                             (unsigned long long)g_obj125N[i], (double)g_obj125Us[i] / g_obj125N[i], (double)g_obj125Us[i] / 1000.0 / (double)(frame - g_obj125LogFrame));
+        g_obj125Us[0] = g_obj125Us[1] = g_obj125N[0] = g_obj125N[1] = 0u;
+        g_obj125 = Obj125Stats{};
+        g_obj125LogFrame = frame;
+    }
+
+    // Array: ClipCollisionDirectCallBackObjAry (0x112e180, decomp_hot46g's objAry): the same loop over an array of
+    // objects (a3, t0 of them), the filters in t1 / t2 / t3, the id filter and the user word at the caller's +0 / +8;
+    // its frame has the same layout (the record at sp + 0xd0, the segment's matrices at sp / sp + 0x40).
+    template <bool Array>
+    void obj125Run(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const G g{rdram, ctx, runtime};
+        ++g_obj125.queries;
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x270u;
+        const uint32_t s5 = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), group = GPR_U32(ctx, 7);
+        const uint32_t count = GPR_U32(ctx, 8);
+        const uint32_t objFilter = Array ? GPR_U32(ctx, 9) : GPR_U32(ctx, 8), partFilter = Array ? GPR_U32(ctx, 10) : GPR_U32(ctx, 9),
+                       surfFilter = Array ? GPR_U32(ctx, 11) : GPR_U32(ctx, 10), idFilt = Array ? g.u32(spIn) : GPR_U32(ctx, 11);
+        const uint32_t user = Array ? g.u32(spIn + 8u) : g.u32(spIn);
+        call(g, 0x01133548u, Array ? 0x0112E1ECu : 0x0112D5FCu, sp, {sp + 0x40u, sp, start, end}); // GetArbitraryDirectionInverseMatrix
+        const float length = ctx->f[0];
+        auto finish = [&](uint64_t v0)
+        {
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, spIn);
+            SET_GPR_U64(ctx, 2, v0);
+            returnTo(ctx);
+        };
+        if (length < 0.0f)
+            return finish(0u);
+        const __m128 qStart = g.q(start);
+        __m128 endObj = g.q(end); // the original's sp + 0x80: the segment's end, the last object hit's point
+        bool anyHit = false;
+        auto doObject = [&](uint32_t object)
+        {
+            bool objectHit = false;
+            bool tested = true;
+            ++g_obj125.objects;
+            ++coll115::g_st.objects;
+            if (objFilter != 0u)
+            {
+                uint64_t pass;
+                if (objectFilter(g, objFilter, object, user, pass))
+                    tested = pass != 0u;
+                else
+                {
+                    call(g, objFilter, 0x0112D654u, sp, {object, user});
+                    tested = GPR_U64(ctx, 2) != 0u;
+                }
+            }
+            if (!tested)
+                ++coll115::g_st.objFiltered;
+            if (tested)
+            {
+                const uint32_t cls = layoutClassAny(g, object, 0x0112D668u, sp);
+                if (static_cast<int8_t>(g.u8(cls + 0x1B8u)) != 0 && static_cast<int8_t>(g.u8(cls + 0x1BBu)) != 0)
+                {
+                    const uint32_t db = g.u32(g.u32(cls + 0x184u) + 0x20u);
+                    const float radius = g.f32(db + 0x2Cu), scale = g.f32(cls + 0x90u);
+                    bool near = true;
+                    if (radius != 0.0f)
+                        near = cyl125(xf125(g, sp + 0x40u, g.q(g.u32(cls + 0x134u))), radius * scale, length);
+                    if (near)
+                    {
+                        ++g_obj125.near;
+                        ++coll115::g_st.objNear;
+                        const uint32_t base = g.u32(cls + 0x174u);
+                        uint32_t m0 = g.u32(cls + 0x158u), m1 = g.u32(cls + 0x15Cu), m2 = g.u32(cls + 0x164u);
+                        uint32_t s7 = g.u32(db + 8u);
+                        const int32_t nParts = static_cast<int32_t>(g.u32(db + 4u));
+                        const uint32_t tree = g.u32(db + 0x1Cu);
+                        __m128 endCur = endObj; // the original's sp + 0xA0
+                        bool objPartHit = false;
+                        for (int32_t part = 0; part < nParts; ++part, s7 += 0x90u, m0 += 0x40u, m1 += 0x40u, m2 += 0x40u)
+                        {
+                            if (g.u32(s7 + 4u) == 0u)
+                                continue;
+                            ++g_obj125.parts;
+                            bool partHit = false;
+                            const uint32_t nSurf = g.u32(s7 + 0x10u), nSkin = g.u32(s7 + 0x50u);
+                            bool spilled = false;
+                            // the loop's frame words the original's one-by-one / skinned code reads
+                            auto spill = [&]()
+                            {
+                                if (spilled)
+                                    return;
+                                spilled = true;
+                                ++g_obj125.spilled;
+                                g.put32(sp + 0x1A0u, start);
+                                g.put32(sp + 0x1A4u, objFilter);
+                                g.put32(sp + 0x1A8u, partFilter);
+                                g.put32(sp + 0x1ACu, surfFilter);
+                                g.put32(sp + 0x1B0u, idFilt);
+                                g.put32(sp + 0x1B8u, object);
+                                g.put32(sp + 0x1C0u, cls);
+                                g.put32(sp + 0x1C4u, db);
+                                g.put32(sp + 0x1C8u, g.u32(base + 0x24u));
+                                g.put32(sp + 0x1CCu, base + 0x28u);
+                                g.put32(sp + 0x1D0u, m0);
+                                g.put32(sp + 0x1D4u, m1);
+                                g.put32(sp + 0x1D8u, m2);
+                                g.put32(sp + 0x1DCu, static_cast<uint32_t>(part));
+                                g.put(sp + 0xA0u, endCur);
+                            };
+                            if (nSurf != 0u)
+                            {
+                                const __m128 wc = xf125(g, m1, g.q(s7 + 0x20u));
+                                bool go = cyl125(xf125(g, sp + 0x40u, wc), g.f32(s7 + 0x1Cu) * scale, length);
+                                if (go)
+                                {
+                                    ++g_obj125.partsNear;
+                                    ++coll115::g_st.partsNear;
+                                }
+                                if (go && partFilter != 0u)
+                                {
+                                    g_obj125.partFilter(partFilter);
+                                    g.put(sp + 0xB0u, wc);
+                                    call(g, partFilter, 0x0112D880u, sp, {sp + 0xB0u, sp, sp + 0x40u, user});
+                                    go = GPR_U64(ctx, 2) != 0u;
+                                }
+                                if (go && tree != 0u)
+                                {
+                                    ++g_obj125.walks;
+                                    g.put32(sp + 0xD0u, object);
+                                    g.put32(sp + 0xD4u, cls);
+                                    putf(g, sp + 0xD8u, length);
+                                    g.put32(sp + 0xDCu, m0);
+                                    g.put32(sp + 0xE0u, sp + 0x40u);
+                                    putf(g, sp + 0xE4u, scale);
+                                    g.put32(sp + 0xE8u, 0u);
+                                    g.put32(sp + 0xECu, surfFilter);
+                                    g.put32(sp + 0xF0u, idFilt);
+                                    g.put32(sp + 0xF4u, user);
+                                    const uint32_t s3 = sp + 0x130u, s2 = sp + 0x140u;
+                                    const __m128 v3 = xf125(g, m2, qStart), v2 = xf125(g, m2, endCur);
+                                    g.put(s3, v3);
+                                    g.put(s2, v2);
+                                    g.put(sp + 0x100u, v3);
+                                    const __m128 dv = PS2_VSUB(v2, v3);
+                                    g.put(sp + 0x120u, dv);
+                                    g.put(sp + 0x110u, abs125(dv)); // iosAbsVector
+                                    uint64_t r2;
+                                    if (g.u32(tree + 0x10u) != 0u)
+                                    {
+                                        call(g, 0x0112ACD0u, 0x0112D9A4u, sp, {s5, s3, s2, tree, g.u32(tree + 8u) + g.u32(tree + 0xCu) * 16u, sp + 0xD0u});
+                                        r2 = GPR_U64(ctx, 2);
+                                    }
+                                    else if (static_cast<int32_t>(g.u32(g.u32(g.u32(cls + 0x184u) + 0x20u))) < 3)
+                                    {
+                                        call(g, 0x0112B890u, 0x0112DACCu, sp, {s5, s3, s2, tree, g.u32(tree + 8u) + g.u32(tree + 0xCu) * 8u, sp + 0xD0u});
+                                        r2 = GPR_U64(ctx, 2);
+                                    }
+                                    else
+                                    {
+                                        const uint32_t root = g.u32(tree + 8u) + g.u32(tree + 0xCu) * 8u;
+                                        const uint32_t axis = (g.u32(root + 4u) & 3u) * 4u;
+                                        g.f0(g.f32(s2 + axis));
+                                        const Seg seg{s5, tree, sp + 0xD0u};
+                                        const bool log115 = coll115::params().log;
+                                        const uint64_t tw = log115 ? coll115::nowUs() : 0u;
+                                        if (coll115::active(runtime) && coll115::walkChecked(g, seg, s3, s2, root, sp, -1, r2, 0, [&] { return rootF(g, seg, s3, s2, root, sp); }))
+                                            ;
+                                        else
+                                            r2 = rootF(g, seg, s3, s2, root, sp);
+                                        if (log115)
+                                        {
+                                            coll115::g_st.usW[1] += coll115::nowUs() - tw;
+                                            ++coll115::g_st.nW[1];
+                                        }
+                                    }
+                                    partHit = r2 != 0u;
+                                }
+                                else if (go)
+                                {
+                                    // one surface at a time: the original's code on the spilled words
+                                    spill();
+                                    uint64_t hit = 0u;
+                                    const float one = 1.0f;
+                                    const uint32_t s4 = layoutClassAny(g, object, 0x0112DAECu, sp);
+                                    g.put(sp + 0xD0u, g.q(sp + 0xA0u));
+                                    for (int32_t surface = 0; surface < static_cast<int32_t>(g.u32(s7 + 0x10u)); ++surface)
+                                    {
+                                        const uint32_t b = boundary(g, s4, g.u32(sp + 0x1DCu), static_cast<uint32_t>(surface), 0x0112DB1Cu, sp);
+                                        g.put(sp + 0xE0u, g.q(b));
+                                        putf(g, sp + 0xECu, one);
+                                        const float rb = g.f32(b + 0xCu);
+                                        const __m128 cb = xf125(g, sp + 0x40u, g.q(sp + 0xE0u));
+                                        g.put(sp + 0xF0u, cb);
+                                        if (!cyl125(cb, rb, length))
+                                            continue;
+                                        if (surfFilter != 0u)
+                                        {
+                                            call(g, surfFilter, 0x0112DBC8u, sp, {sp + 0xE0u, sp + 0x40u, user});
+                                            if (GPR_U64(ctx, 2) == 0u)
+                                                continue;
+                                        }
+                                        g.put32(sp + 0x104u, (static_cast<uint32_t>(part) << 24) | static_cast<uint32_t>(surface) | 0x80000000u);
+                                        g.put32(sp + 0x100u, object);
+                                        if (idFilt != 0u && !directFilter(g, idFilt, sp + 0x100u, user, 0x0112DC08u, sp))
+                                            continue;
+                                        if (clipDB(g, s5, start, sp + 0xD0u, sp + 0x100u, 0x0112DC24u, sp) != 0u)
+                                        {
+                                            hit = 1u;
+                                            const uint32_t lo = g.u32(sp + 0x100u), hi = g.u32(sp + 0x104u);
+                                            const __m128 point = g.q(s5 + 0x40u);
+                                            g.put32(s5, lo);
+                                            g.put32(s5 + 4u, hi);
+                                            g.put(sp + 0xD0u, point);
+                                        }
+                                    }
+                                    partHit = hit != 0u;
+                                }
+                            }
+                            if (nSkin != 0u)
+                            {
+                                // the skinned surfaces: the original's code (its frame words written here)
+                                const float zero = 0.0f, one = 1.0f;
+                                const float r = FPU_MUL_S(g.f32(s7 + 0x5Cu), scale);
+                                ctx->f[12] = r;
+                                g.put(sp + 0xC0u, xf125(g, m1, g.q(s7 + 0x60u)));
+                                const __m128 c = xf125(g, sp + 0x40u, g.q(sp + 0xC0u));
+                                g.put(sp + 0xD0u, c);
+                                if (cylinder(g, c, r, length, true))
+                                {
+                                    bool go = true;
+                                    if (partFilter != 0u)
+                                    {
+                                        call(g, partFilter, 0x0112DD3Cu, sp, {sp + 0xC0u, sp, sp + 0x40u, user});
+                                        go = GPR_U64(ctx, 2) != 0u;
+                                    }
+                                    if (go)
+                                    {
+                                        matrixProduct(g, sp + 0xE0u, sp + 0x40u, m1);
+                                        const uint32_t count = g.u32(s7 + 0x50u);
+                                        g.put32(sp + 0x1F4u, count);
+                                        g.put32(sp + 0x1F8u, g.u32(cls + 0x15Cu));
+                                        const uint32_t s3 = base + 0x28u + 0x48u;
+                                        g.put(sp + 0x150u, endCur);
+                                        uint32_t s2 = g.u32(s7 + 0x58u);
+                                        bool skinHit = false;
+                                        g.put32(sp + 0x1ECu, g.u32(db + 8u));
+                                        uint32_t s4 = g.u32(s7 + 0x54u);
+                                        g.put32(sp + 0x1F0u, g.u32(db + 0x14u));
+                                        for (int32_t s8 = 0; s8 < static_cast<int32_t>(count); ++s8, s2 += 0x10u, s4 += 4u)
+                                        {
+                                            const uint32_t s0 = g.u32(s4);
+                                            const uint32_t t3 = g.u32(db + 0x18u) + s0 * 64u;
+                                            const uint32_t s1 = g.u32(s3 + 0x14u) + s0 * 16u;
+                                            if (g.u8(g.u32(s3 + 8u) + s0) == 0u)
+                                            {
+                                                g.put(sp + 0x160u, g.q(s2));
+                                                putf(g, sp + 0x16Cu, one);
+                                                const float rs = FPU_MUL_S(g.f32(s2 + 0xCu), scale);
+                                                const __m128 cs = transform(g, sp + 0xE0u, g.q(sp + 0x160u));
+                                                g.put(sp + 0x170u, cs);
+                                                if (!cyl125(cs, rs, length))
+                                                    continue;
+                                                call(g, 0x01124368u, 0x0112DF00u, sp,
+                                                     {s1, s3, base + 0x28u, g.u32(base + 0x24u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3});
+                                                entryModified(g, s3, s0, 0x0112DF0Cu, sp);
+                                            }
+                                            g.put(sp + 0x170u, g.q(s1));
+                                            putf(g, sp + 0x17Cu, one);
+                                            const float r2 = g.f32(s1 + 0xCu);
+                                            const __m128 cs = xf125(g, sp + 0x40u, g.q(sp + 0x170u));
+                                            g.put(sp + 0x180u, cs);
+                                            float v[4];
+                                            std::memcpy(v, &cs, 16);
+                                            if (!(v[0] * v[0] + v[1] * v[1] < r2))
+                                                continue;
+                                            if (v[2] < zero && !(v[2] * v[2] < r2))
+                                                continue;
+                                            if (v[2] > length && !((v[2] - length) * (v[2] - length) < r2))
+                                                continue;
+                                            if (surfFilter != 0u)
+                                            {
+                                                call(g, surfFilter, 0x0112DFCCu, sp, {s1, 0u, user});
+                                                if (GPR_U64(ctx, 2) == 0u)
+                                                    continue;
+                                            }
+                                            g.put32(sp + 0x190u, object);
+                                            g.put32(sp + 0x194u, (static_cast<uint32_t>(part) << 24) | static_cast<uint32_t>(s8));
+                                            if (idFilt != 0u && !directFilter(g, idFilt, sp + 0x190u, user, 0x0112E004u, sp))
+                                                continue;
+                                            if (clipDB(g, s5, start, sp + 0x150u, sp + 0x190u, 0x0112E020u, sp) != 0u)
+                                            {
+                                                skinHit = true;
+                                                const uint32_t lo = g.u32(sp + 0x190u), hi = g.u32(sp + 0x194u);
+                                                const __m128 point = g.q(s5 + 0x40u);
+                                                g.put32(s5, lo);
+                                                g.put32(s5 + 4u, hi);
+                                                g.put(sp + 0x150u, point);
+                                            }
+                                        }
+                                        if (skinHit)
+                                            partHit = true;
+                                    }
+                                }
+                            }
+                            if (partHit)
+                            {
+                                objPartHit = true;
+                                endCur = g.q(s5 + 0x40u);
+                            }
+                        }
+                        if (objPartHit)
+                        {
+                            g.put(s5 + 0x40u, endCur);
+                            objectHit = true;
+                        }
+                    }
+                }
+            }
+            if (objectHit)
+            {
+                anyHit = true;
+                endObj = g.q(s5 + 0x40u);
+            }
+        };
+        if constexpr (Array)
+        {
+            for (uint32_t i = 0; i < count; ++i)
+                doObject(g.u32(group + 4u * i));
+            return finish(anyHit ? 1u : 0u);
+        }
+        call(g, 0x001C7110u, 0x0112D628u, sp, {group, 0u}); // isysGroupForFirst
+        uint32_t entry = GPR_U32(ctx, 2), last = 0u;
+        while (entry != 0u)
+        {
+            const uint32_t object = g.u32(entry);
+            last = object;
+            doObject(object);
+            uint32_t nextEntry;
+            if (groupNext(g, entry, nextEntry))
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(nextEntry));
+            else
+            {
+                call(g, 0x001C76D0u, 0x0112E11Cu, sp, {entry, 0u}); // isysGroupForNext
+                nextEntry = GPR_U32(ctx, 2);
+            }
+            entry = nextEntry;
+        }
+        if (last != 0u)
+            call(g, 0x001C77B8u, 0x0112E140u, sp, {last, 0u}); // isysGroupForExit
+        finish(anyHit ? 1u : 0u);
+    }
+    void directCallBack125(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { obj125Run<false>(rdram, ctx, runtime); }
+    // decomp_hot46g's objAry: true when it ran here (obj125 on). With SOTC_OBJ125_CHECK=1 its first call runs
+    // obj125Checked with objAry itself as the body (the switch set off for the original's run).
+    void obj125Checked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, void (*body)(uint8_t *, R5900Context *, PS2Runtime *));
+    bool objAry125(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, void (*self)(uint8_t *, R5900Context *, PS2Runtime *))
+    {
+        if (!obj125On(runtime) || !sotc_decomp::fastNativeOn())
+            return false;
+        static bool inCheck = false;
+        if (__builtin_expect(obj125Check() != 0, 0) && !inCheck && G::plain(GPR_U32(ctx, 4), 0x50u))
+        {
+            inCheck = true;
+            obj125Checked(rdram, ctx, runtime, self);
+            inCheck = false;
+            return true;
+        }
+        obj125Run<true>(rdram, ctx, runtime);
+        return true;
+    }
+
+    // Round 125: a segment query (ClipCollisionDirectCallBack / ...ObjAry: body runs the loop the obj125 switch
+    // picks) the original way and then obj125's from the same context and record; the original's kept.
+    void obj125Checked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, void (*body)(uint8_t *, R5900Context *, PS2Runtime *))
+    {
+        alignas(16) static uint8_t saved[sizeof(R5900Context)];
+        static uint8_t recA[0x50], recSaved[0x50], ctxA[sizeof(R5900Context)];
+        const uint32_t out = GPR_U32(ctx, 4);
+        std::memcpy(saved, ctx, sizeof(R5900Context));
+        std::memcpy(recSaved, rdram + out, 0x50);
+        sotc_decomp::setSwitch(sotc_decomp::kObj125, false);
+        body(rdram, ctx, runtime);
+        sotc_decomp::setSwitch(sotc_decomp::kObj125, true);
+        const uint64_t v0A = GPR_U64(ctx, 2);
+        std::memcpy(recA, rdram + out, 0x50);
+        std::memcpy(ctxA, ctx, sizeof(R5900Context));
+        std::memcpy(ctx, saved, sizeof(R5900Context));
+        std::memcpy(rdram + out, recSaved, 0x50);
+        body(rdram, ctx, runtime);
+        const uint64_t v0B = GPR_U64(ctx, 2);
+        const uint8_t *recB = rdram + out;
+        Obj125Check &c = g_obj125c;
+        ++c.checks;
+        if ((v0A != 0u) != (v0B != 0u))
+        {
+            ++c.hitDiffer;
+            if (c.hitDiffer <= 30u)
+                std::fprintf(stderr, "[obj125m] frame %llu caller %08x hit / no hit: original %d obj125 %d\n", (unsigned long long)sotc_decomp::g_gameFrame,
+                             (unsigned)GPR_U32(reinterpret_cast<R5900Context *>(saved), 31), (int)(v0A != 0u), (int)(v0B != 0u));
+        }
+        else if (v0A != 0u)
+        {
+            ++c.hits;
+            float pa[3], pb[3];
+            std::memcpy(pa, recA + 0x40, 12);
+            std::memcpy(pb, recB + 0x40, 12);
+            const double dist = std::sqrt((double)(pa[0] - pb[0]) * (pa[0] - pb[0]) + (double)(pa[1] - pb[1]) * (pa[1] - pb[1]) + (double)(pa[2] - pb[2]) * (pa[2] - pb[2]));
+            c.maxDist = std::max(c.maxDist, dist);
+            c.sumDist += dist;
+            if (dist > 0.01)
+                ++c.far;
+            if (std::memcmp(recA, recB, 8) != 0)
+            {
+                ++c.idDiffer;
+                if (dist < 1e-3)
+                    ++c.idTie;
+            }
+        }
+        // the original's answer and record kept
+        std::memcpy(rdram + out, recA, 0x50);
+        std::memcpy(ctx, ctxA, sizeof(R5900Context));
+    }
     void directCallBackBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void directCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         coll115::tick();
         ++coll115::g_st.queries;
+        obj125Log();
+        // Round 125: SOTC_OBJ125_CHECK=1: the original loop first (its answer used), then obj125 from the same
+        // context and record, compared ([obj125c]); no memo either way.
+        if (__builtin_expect(obj125Check() != 0, 0) && obj125On(runtime) && G::plain(GPR_U32(ctx, 4), 0x50u))
+            return obj125Checked(rdram, ctx, runtime, &directCallBackBody);
         if (__builtin_expect(coll115::params().check == 1, 0) && coll115::on(runtime))
             return coll115::checked(rdram, ctx, runtime, [&] { directCallBackBody(rdram, ctx, runtime); });
         if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
@@ -4190,6 +4733,9 @@ namespace decomp_collision
             const uint64_t dt = coll115::nowUs() - t0;
             coll115::g_st.usQ[st] += dt;
             ++coll115::g_st.nQ[st];
+            const int o125 = obj125On(runtime) ? 1 : 0; // round 125
+            g_obj125Us[o125] += dt;
+            ++g_obj125N[o125];
             if (st)
             {
                 const int p119 = sotc_decomp::switchOn(sotc_decomp::kPart119) ? 1 : 0; // round 119: by part119 too
@@ -4238,6 +4784,9 @@ namespace decomp_collision
             cammemo::keep(g, 0x0140F2ACu, nth, out);
             return;
         }
+        // Round 125 (SOTC_OBJ125): the object / part loop in host locals (directCallBack125 above).
+        if (obj125On(runtime) && g_queryNote == nullptr && sotc_decomp::fastNativeOn())
+            return directCallBack125(rdram, ctx, runtime);
         g_countDirect.hit();
         const G g{rdram, ctx, runtime};
         COLL_STAT(direct);
@@ -5190,6 +5739,7 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
+#include "coll125.h"
     // ---- FlushModifiedManager (0x1147798), round 11 ---------------------------
     // a0: a cache's modified list (+0 the count, +8 the flags base, +0xc the
     // index size 1 / 2 / 4, +0x10 the indices): each listed flag byte
@@ -5206,6 +5756,7 @@ namespace decomp_collision
             SET_GPR_U64(ctx, 2, 2u);
             return returnTo(ctx);
         }
+        coll125::flushed(runtime); // round 125: a cache changed (the surfaces of its object are checked again)
         const uint32_t size = g.u32(m + 0xCu);
         if (size != 1u && size != 2u && size != 4u)
         {
@@ -5275,6 +5826,7 @@ namespace decomp_collision
             sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, &flushModified, site + 8u, sp);
         };
         uint32_t part = g.u32(work + 0x24u);
+        coll125::g_curWork = sotc_decomp::onWorkerLane(runtime) ? 0u : work; // round 125: its flushes move this work's epoch only
         // Round 67 (SOTC_WALK67): the 0x60-byte parts' four list heads asked
         // for two parts ahead (a PLD each 32 bytes; nothing else changes).
         const bool w67 = sotc_decomp::walk67On();
@@ -5311,6 +5863,7 @@ namespace decomp_collision
             flush(work + 0x70u, 0x0112449Cu);
         }
         g.put32(work + 0x1Cu, 0u);
+        coll125::g_curWork = 0u;
         SET_GPR_U32(ctx, 29, sp0);
         SET_GPR_U32(ctx, 31, ra0);
         SET_GPR_U64(ctx, 2, 1u);
@@ -5409,10 +5962,15 @@ namespace decomp_collision
         if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
         {
             const int st = coll119::on(runtime) ? 1 : 0;
+            const int s125 = coll125::on(runtime) ? 1 : 0; // round 125
             const uint64_t t0 = coll115::nowUs();
             finderClipBody<Filtered>(rdram, ctx, runtime);
-            coll119::g_t.usC[st] += coll115::nowUs() - t0;
+            const uint64_t dt = coll115::nowUs() - t0;
+            coll119::g_t.usC[st] += dt;
             ++coll119::g_t.nC[st];
+            coll125::g_st.us[s125] += dt;
+            ++coll125::g_st.nq[s125];
+            coll125::log();
             return;
         }
         finderClipBody<Filtered>(rdram, ctx, runtime);
@@ -5441,6 +5999,76 @@ namespace decomp_collision
             for (uint32_t v : {a0, a1, a3, static_cast<uint32_t>(n), g.u32(a3 + 0xCu), filter, user})
                 h = mixHash(h, v);
             g_queryNote(Filtered ? 2 : 1, h);
+        }
+        // Round 125 (SOTC_FIN125): the list's host contact set (coll125.h).
+        else if (n != 0 && coll125::on(runtime))
+        {
+            if (n > 256 || !G::plain(g.u32(a3 + 0xCu), 8u * static_cast<uint32_t>(n)) || !G::plain(a0, 0x50u))
+                ++coll125::g_st.bigLists;
+            else if (__builtin_expect(coll125::checkLevel() != 0, 0))
+            {
+                // the original first (its answer used), then the contact set from the same record, compared
+                uint8_t before[0x50], after[0x50];
+                std::memcpy(before, rdram + a0, 0x50);
+                sotc_decomp::setSwitch(sotc_decomp::kFin125, false);
+                finderClipBody<Filtered>(rdram, ctx, runtime);
+                sotc_decomp::setSwitch(sotc_decomp::kFin125, true);
+                const uint32_t bestO = GPR_U32(ctx, 2);
+                std::memcpy(after, rdram + a0, 0x50);
+                std::memcpy(rdram + a0, before, 0x50);
+                best = coll125::run<Filtered>(g, a0, a1, a2, a3, n, filter, user, sp, filterSite, clipSite);
+                if (best != 0u)
+                {
+                    g.put32(a0, g.u32(best));
+                    g.put32(a0 + 4u, g.u32(best + 4u));
+                }
+                coll125::Stats &cs = coll125::g_st;
+                ++cs.checked;
+                if ((best != 0u) != (bestO != 0u))
+                {
+                    ++cs.differ;
+                    ++cs.differHit;
+                    if (cs.differHit <= 20u)
+                        std::fprintf(stderr, "[fin125m] frame %llu hit/no hit: original %08x host %08x n %d list %08x\n", (unsigned long long)sotc_decomp::g_gameFrame, bestO, best, n,
+                                     g.u32(a3 + 0xCu));
+                }
+                else if (best != 0u)
+                {
+                    float po[4], ph[4];
+                    std::memcpy(po, after + 0x40, 16);
+                    std::memcpy(ph, rdram + a0 + 0x40, 16);
+                    const double d = std::sqrt(double(po[0] - ph[0]) * (po[0] - ph[0]) + double(po[1] - ph[1]) * (po[1] - ph[1]) + double(po[2] - ph[2]) * (po[2] - ph[2]));
+                    if (d > cs.maxd)
+                        cs.maxd = d;
+                    const bool otherId = std::memcmp(after, rdram + a0, 8) != 0;
+                    if (otherId)
+                        ++cs.differId;
+                    if (otherId || d > 0.01)
+                    {
+                        ++cs.differ;
+                        if (cs.differ <= 40u)
+                            std::fprintf(stderr, "[fin125m] frame %llu other: original %08x host %08x d %.4f\n", (unsigned long long)sotc_decomp::g_gameFrame, bestO, best, d);
+                    }
+                }
+                std::memcpy(rdram + a0, after, 0x50);
+                SET_GPR_U32(ctx, 31, ra);
+                SET_GPR_U32(ctx, 29, spIn);
+                SET_GPR_U64(ctx, 2, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(bestO))));
+                return returnTo(ctx);
+            }
+            else
+            {
+                best = coll125::run<Filtered>(g, a0, a1, a2, a3, n, filter, user, sp, filterSite, clipSite);
+                if (best != 0u)
+                {
+                    g.put32(a0, g.u32(best));
+                    g.put32(a0 + 4u, g.u32(best + 4u));
+                }
+                SET_GPR_U32(ctx, 31, ra);
+                SET_GPR_U32(ctx, 29, spIn);
+                SET_GPR_U64(ctx, 2, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(best))));
+                return returnTo(ctx);
+            }
         }
         if (n != 0)
         {

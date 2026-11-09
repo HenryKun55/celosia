@@ -3211,7 +3211,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3219,6 +3219,7 @@ namespace sotc_native
         static int r119AllAt = -1; // round 119
         static int r123AllAt = -1; // round 123
         static int r122AllAt = -1; // round 122
+        static int r125AllAt = -1; // round 125
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3268,6 +3269,7 @@ namespace sotc_native
             r117AllAt = indexOf("r117all"); // round 117: the particle frame's rewrites off together
             r120AllAt = indexOf("r120all"); // round 120: the symbol resolution and the heap allocator natives off together
             r119AllAt = indexOf("r119all"); // round 119: the collision slices 2-3 off together
+            r125AllAt = indexOf("r125all"); // round 125: the native collision object system's switches off together
             r123AllAt = indexOf("r123all"); // round 123: the particle step / blend in host floats and the validated segment memo off together
             r122AllAt = indexOf("r122all"); // round 122: the characters' host rewrites off together
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
@@ -3373,6 +3375,11 @@ namespace sotc_native
                           static_cast<int>(sotc_decomp::kKeys122)})
                 if (isOffAt(r122AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r122AllAt) ? false : switchStart[i]);
+        // Round 125: `r125all` the round's switches (fin125, obj125) off in its windows.
+        if (r125AllAt >= 0)
+            for (int i : {static_cast<int>(sotc_decomp::kFin125), static_cast<int>(sotc_decomp::kObj125)})
+                if (isOffAt(r125AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r125AllAt) ? false : switchStart[i]);
         // Round 106: `r106all` the round's switches (grp106, oan106, ai106) off in its windows.
         if (r106AllAt >= 0)
             for (int i : {static_cast<int>(sotc_decomp::kGrp106), static_cast<int>(sotc_decomp::kOan106), static_cast<int>(sotc_decomp::kAi106)})
