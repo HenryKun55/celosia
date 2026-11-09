@@ -3211,7 +3211,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3220,6 +3220,7 @@ namespace sotc_native
         static int r123AllAt = -1; // round 123
         static int r122AllAt = -1; // round 122
         static int r125AllAt = -1; // round 125
+        static int r127AllAt = -1; // round 127
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3270,6 +3271,7 @@ namespace sotc_native
             r120AllAt = indexOf("r120all"); // round 120: the symbol resolution and the heap allocator natives off together
             r119AllAt = indexOf("r119all"); // round 119: the collision slices 2-3 off together
             r125AllAt = indexOf("r125all"); // round 125: the native collision object system's switches off together
+            r127AllAt = indexOf("r127all"); // round 127: the display path's switches off together
             r123AllAt = indexOf("r123all"); // round 123: the particle step / blend in host floats and the validated segment memo off together
             r122AllAt = indexOf("r122all"); // round 122: the characters' host rewrites off together
             r98AllAt = indexOf("r98all"); // round 98: the round's GPU switches (at98, ...) off together
@@ -3380,6 +3382,11 @@ namespace sotc_native
             for (int i : {static_cast<int>(sotc_decomp::kFin125), static_cast<int>(sotc_decomp::kObj125)})
                 if (isOffAt(r125AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r125AllAt) ? false : switchStart[i]);
+        // Round 127: `r127all` the round's switches (scroll127) off in its windows.
+        if (r127AllAt >= 0)
+            for (int i : {static_cast<int>(sotc_decomp::kScroll127)})
+                if (isOffAt(r127AllAt) || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, isOffAt(r127AllAt) ? false : switchStart[i]);
         // Round 106: `r106all` the round's switches (grp106, oan106, ai106) off in its windows.
         if (r106AllAt >= 0)
             for (int i : {static_cast<int>(sotc_decomp::kGrp106), static_cast<int>(sotc_decomp::kOan106), static_cast<int>(sotc_decomp::kAi106)})
@@ -9396,6 +9403,121 @@ namespace sotc_native
     };
     ScrollPlanMemo g_scrollPlanMemo[256];
     uint64_t g_scrollChecks = 0, g_scrollDiffer = 0;
+    // ---- Round 127 (SOTC_SCROLL127, default on; A/B `scroll127`, `r127all`):
+    // the plan's rows kept across frames. A row's address is the chain
+    // surface record +0x2c (the index) -> the header's object table (+0x40,
+    // +0x44 entries of 0x20) entry +0x10 (the object) -> +0x20 (nto2) -> +0xc
+    // (the row); the per-frame memos above walk it for every surface record
+    // of every plan once a frame (~1% of the game thread riding). Here a
+    // plan's distinct table entries are kept with the object / nto2 / row
+    // they gave, and the next frame checks only those (a few words a texture,
+    // not a dependent chain a surface); the indices are the model's own
+    // surface records (the plan is checked against its packet list every
+    // frame). The rows' two words are read at every hook as before.
+    // SOTC_SCROLL_CHECK=1 compares against the per-surface walk.
+    struct ScrollChain127
+    {
+        uint32_t index = 0, object = 0, nto2 = 0, row = 0;
+    };
+    struct ScrollMemo127
+    {
+        const ModelPlan *plan = nullptr;
+        uint32_t header = 0, planHeader = 0, lod = 0, surfaces = 0, table = 0, tableCount = 0;
+        uint64_t listHash = 0, frame = ~0ull;
+        std::vector<ScrollChain127> chains;
+        std::vector<uint32_t> at;
+    };
+    ScrollMemo127 g_scrollMemo127[1024];
+    uint64_t g_scroll127Hits = 0, g_scroll127Builds = 0, g_scroll127Stale = 0;
+    // The chains and rows of (plan, header) from the records (no memo).
+    void scroll127Build(ScrollMemo127 &pm, const ModelPlan *plan, uint32_t header)
+    {
+        pm.chains.clear();
+        pm.at.clear();
+        pm.table = word(header + 0x40u);
+        pm.tableCount = word(header + 0x44u);
+        for (const uint32_t s : plan->surfaceRecords)
+        {
+            const uint32_t index = word(s + 0x2Cu);
+            if (index >= pm.tableCount)
+                continue;
+            const ScrollChain127 *c = nullptr;
+            for (const ScrollChain127 &k : pm.chains)
+                if (k.index == index)
+                {
+                    c = &k;
+                    break;
+                }
+            if (!c)
+            {
+                ScrollChain127 k;
+                k.index = index;
+                k.object = word(pm.table + index * 0x20u + 0x10u);
+                k.nto2 = k.object ? word(k.object + 0x20u) : 0u;
+                k.row = k.nto2 ? word(k.nto2 + 0xCu) : 0u;
+                pm.chains.push_back(k);
+                c = &pm.chains.back();
+            }
+            const uint32_t row = c->row;
+            if (!row)
+                continue;
+            if (std::find(pm.at.begin(), pm.at.end(), row) == pm.at.end())
+                pm.at.push_back(row);
+        }
+    }
+    bool scroll127Valid(const ScrollMemo127 &pm, uint32_t header)
+    {
+        if (word(header + 0x40u) != pm.table || word(header + 0x44u) != pm.tableCount)
+            return false;
+        for (const ScrollChain127 &k : pm.chains)
+        {
+            if (word(pm.table + k.index * 0x20u + 0x10u) != k.object)
+                return false;
+            const uint32_t nto2 = k.object ? word(k.object + 0x20u) : 0u;
+            if (nto2 != k.nto2 || (nto2 ? word(nto2 + 0xCu) : 0u) != k.row)
+                return false;
+        }
+        return true;
+    }
+    void hookScrolls127(ModelDispJob &job)
+    {
+        const ModelPlan *plan = job.plan;
+        const uint32_t key = (static_cast<uint32_t>(reinterpret_cast<uintptr_t>(plan) >> 4) ^ (job.header >> 5)) * 0x9E3779B1u;
+        ScrollMemo127 &pm = g_scrollMemo127[key >> 22];
+        const bool same = pm.plan == plan && pm.header == job.header && pm.planHeader == plan->header && pm.lod == plan->lod && pm.listHash == plan->listHash &&
+                          pm.surfaces == plan->surfaces;
+        if (!same || (pm.frame != g_frame && !scroll127Valid(pm, job.header)))
+        {
+            g_scroll127Stale += same;
+            ++g_scroll127Builds;
+            scroll127Build(pm, plan, job.header);
+            pm.plan = plan;
+            pm.header = job.header;
+            pm.planHeader = plan->header;
+            pm.lod = plan->lod;
+            pm.listHash = plan->listHash;
+            pm.surfaces = plan->surfaces;
+        }
+        else
+            ++g_scroll127Hits;
+        pm.frame = g_frame;
+        for (const uint32_t at : pm.at)
+        {
+            ScrollRow r;
+            r.at = at;
+            r.w0 = word(at);
+            r.w1 = word(at + 4u);
+            job.scrolls.push_back(r);
+        }
+        static const bool log = std::getenv("SOTC_SCROLL127_LOG") != nullptr;
+        static uint64_t told = 0;
+        if (log && g_frame >= told + 600u)
+        {
+            told = g_frame;
+            std::fprintf(stderr, "[scroll127] frame %llu: kept %llu, made %llu (%llu after a chain moved)\n", (unsigned long long)g_frame,
+                         (unsigned long long)g_scroll127Hits, (unsigned long long)g_scroll127Builds, (unsigned long long)g_scroll127Stale);
+        }
+    }
     void hookScrolls(ModelDispJob &job)
     {
         job.scrolls.clear();
@@ -9408,6 +9530,10 @@ namespace sotc_native
         if (!sotc_decomp::fastNative3On())
             return hookScrollRows(job.plan, job.header, job.scrolls);
         const ModelPlan *plan = job.plan;
+        if (sotc_decomp::switchOn(sotc_decomp::kScroll127))
+            hookScrolls127(job);
+        else
+        {
         ScrollPlanMemo &pm = g_scrollPlanMemo[(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(plan) >> 4) * 0x9E3779B1u) >> 24];
         if (pm.frame == g_frame && pm.plan == plan && pm.header == job.header && pm.planHeader == plan->header && pm.lod == plan->lod)
         {
@@ -9431,6 +9557,7 @@ namespace sotc_native
             pm.at.clear();
             for (const ScrollRow &r : job.scrolls)
                 pm.at.push_back(r.at);
+        }
         }
         static const bool check = std::getenv("SOTC_SCROLL_CHECK") != nullptr;
         if (check)

@@ -9676,14 +9676,28 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             r->meshes.forEach([&](uint64_t id, const Mesh &m)
             {
                 if (!m.dynamic && m.used < oldest && !m_keepMeshes.count(id))
-                    m_candidates.push_back({m.used, id, m.bytes, false});
+                {
+                    // Round 127: a mesh the heap-only pressure pass would spare (not
+                    // aged, no budget cut) is counted as spared here, not listed.
+                    if (heapOnly && !budgetBefore && !(m.used < agedBefore))
+                        ++m_pressureSpared;
+                    else
+                        m_candidates.push_back({m.used, id, m.bytes, false});
+                }
             });
             r->textures.forEach([&](uint64_t id, const Texture &t)
             {
                 if (t.used < oldest && !m_keepTextures.count(id))
                     m_candidates.push_back({t.used, id, t.bytes, true});
             });
-            std::sort(m_candidates.begin(), m_candidates.end(), [](const Candidate &a, const Candidate &b) { return a.used < b.used; });
+            // Round 127: only the budget's cut depends on the order (the least
+            // recently drawn first while over the target); the aged and pressure
+            // cuts take every candidate older than their frame whatever the
+            // order, so without a budget cut the same entries go unsorted (Vita3K's
+            // heap pressure passes sorted ~20 000 spared candidates every 16
+            // frames on the game thread: ~1% of it).
+            if (budgetBefore)
+                std::sort(m_candidates.begin(), m_candidates.end(), [](const Candidate &a, const Candidate &b) { return a.used < b.used; });
             uint64_t cached = r->textureBytes + r->meshBytes;
             uint64_t target = m_cacheBudget - m_cacheBudget / 8u;
             if (poolShort)
