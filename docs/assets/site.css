@@ -357,3 +357,147 @@ html.lb-open { overflow: hidden; }
   .dust { display: none; }
   .bar { transition: none; }
 }
+
+/* ======================= SCENES =======================
+   Original illustrations (inline SVG in index.html) of the people and places
+   of the Forbidden Land: Mono asleep on the altar, Lord Emon's masked
+   followers raising the sword, a white-tailed lizard on a ledge, a hawk over
+   the rounds, the secret garden, Agro at the bottom of the screen. Each part
+   that follows the scroll (.sa) carries a 1s keyframe set; a view() timeline
+   plays it where scroll-driven animations exist, app.js sets its time from
+   the scroll elsewhere. .lp loops (wings, legs, twinkles) run only while the
+   scene is on screen (.live); legs only while the page is moving (.go).
+   Without motion everything rests in its drawn pose. */
+.scene { position: relative; height: clamp(13rem, 27vw, 22rem); width: min(100vw, 110rem); margin-left: calc(50% - min(50vw, 55rem)); pointer-events: none; view-timeline-name: --scene; view-timeline-axis: block;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent), linear-gradient(180deg, transparent, #000 9%, #000 86%, transparent); -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent), linear-gradient(180deg, transparent, #000 9%, #000 86%, transparent); mask-composite: intersect; }
+.scene-ritual { height: clamp(14rem, 30vw, 24rem); }
+.wrap > .scene { margin-block: calc(-0.45 * clamp(4rem, 8vw, 7rem)); }
+.scene svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.scene .sa, .scene .lp, .agro .lp, .ledge .lp { transform-box: view-box; transform-origin: 0 0; }
+.scene-mono { opacity: 0.95; }
+.mote { fill: #fff3d0; }
+.scene-garden { opacity: 0.92; height: clamp(14rem, 30vw, 24rem); -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); }
+/* Followers' arms: drawn raised (the rest pose of the static picture). */
+.arm.armL.c { --r0: -170deg; --r1: 20deg; } .arm.armR.c { --r0: 170deg; --r1: -20deg; }
+.arm.armL.o { --r0: -172deg; --r1: -30deg; } .arm.armR.o { --r0: 172deg; --r1: 30deg; }
+.arm { transform: rotate(var(--r1)); }
+/* Doves' flights and petals' falls (user units of the garden's viewBox). */
+.fxa { --fx: 320px; } .fxb { --fx: 440px; } .fxc { --fx: 240px; }
+.fya { --fy: -250px; } .fyb { --fy: -330px; } .fyc { --fy: -210px; }
+.scene .open { opacity: 0; }
+.pt.p0 { --px: 40px; --py: 220px; --pr: 300deg; } .pt.p1 { --px: -70px; --py: 190px; --pr: -260deg; } .pt.p2 { --px: 110px; --py: 240px; --pr: 420deg; } .pt.p3 { --px: -40px; --py: 200px; --pr: -180deg; } .pt.p4 { --px: 20px; --py: 170px; --pr: 220deg; }
+
+/* A stone ledge between chapters, and its lizard. */
+.ledge { position: relative; height: 3.6rem; margin-block: calc(-0.45 * clamp(4rem, 8vw, 7rem)); pointer-events: none; view-timeline-name: --scene; view-timeline-axis: block; }
+.ledge::before { content: ""; position: absolute; left: 0; right: 0; bottom: 0.55rem; height: 2px; background: linear-gradient(90deg, transparent, #3a4642 12%, #56625c 50%, #3a4642 88%, transparent); box-shadow: 0 1px 0 rgb(0 0 0 / 0.5); }
+.ledge::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 0.55rem; background: linear-gradient(90deg, transparent, rgb(26 34 32 / 0.9) 12%, rgb(30 39 36 / 0.9) 50%, rgb(26 34 32 / 0.9) 88%, transparent); }
+.lz-run { position: absolute; inset: 0; z-index: 1; }
+.lz-bob { position: absolute; left: 0; bottom: 0.3rem; width: 7.5rem; }
+.lizard { display: block; width: 100%; height: auto; overflow: visible; }
+
+/* The hawk: a soft shape gliding high behind the rounds. */
+#rounds { position: relative; isolation: isolate; }
+.sky { position: absolute; top: 0; bottom: 0; left: calc(50% - 50vw); width: 100vw; z-index: -1; pointer-events: none; overflow: clip; view-timeline-name: --scene; view-timeline-axis: block; }
+.sky-stick { position: sticky; top: 12vh; height: 30vh; }
+.hawk-run { position: absolute; left: 0; top: 0; width: 100%; }
+.hawk-bank { width: clamp(6rem, 12vw, 11rem); }
+.hawk { display: block; width: 100%; height: auto; color: #d6ddd6; opacity: 0.2; overflow: visible; filter: blur(0.8px); }
+
+/* Agro, trotting along the bottom of the screen as the page goes by. */
+.agro { position: fixed; left: 0; bottom: max(4px, env(safe-area-inset-bottom, 0px)); width: clamp(4rem, 6.5vw, 5.8rem); z-index: 45; pointer-events: none; opacity: 0; transition: opacity 0.8s; display: none; }
+.agro svg { display: block; width: 100%; height: auto; overflow: visible; }
+.agro-dir { transition: transform 0.35s var(--ease); }
+
+@media (max-width: 40rem) {
+  .scene, .scene-ritual { height: 15rem; }
+  .scene-garden { height: 16rem; }
+  .ledge { height: 2.6rem; }
+  .lz-bob { width: 5.6rem; }
+  .sky { display: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agro { display: block; }
+  .agro.on { opacity: 0.75; }
+  .sa { animation-duration: 1s; animation-timing-function: linear; animation-fill-mode: both; animation-iteration-count: 1; animation-play-state: paused; }
+  @supports (animation-timeline: view()) {
+    .sa { animation-play-state: running; animation-timeline: --scene; }
+  }
+  /* Mono: the shaft of light opens, the altar brightens, dust drifts down. */
+  .mo-beam { animation-name: s-beam; }
+  .mo-pool, .mo-glow { animation-name: s-pool; }
+  .mote { animation-name: s-fall; }
+  .motes g:nth-child(3n) .mote { --dy0: -40px; --dy: 120px; } .motes g:nth-child(3n+1) .mote { --dy0: -70px; --dy: 90px; } .motes g:nth-child(3n+2) .mote { --dy0: -20px; --dy: 150px; }
+  @keyframes s-beam { 0% { transform: scaleX(0.22); opacity: 0.2; } 55% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1.1); opacity: 0.75; } }
+  @keyframes s-pool { 0% { opacity: 0.05; } 55% { opacity: 1; } 100% { opacity: 0.8; } }
+  @keyframes s-fall { from { transform: translateY(var(--dy0, -40px)); } to { transform: translateY(var(--dy, 100px)); } }
+  .scene.live .tw { animation: tw 3.2s ease-in-out infinite alternate; }
+  .scene.live .motes g:nth-child(2n) { animation-duration: 2.3s; animation-delay: -1.1s; }
+  .scene.live .motes g:nth-child(5n) { animation-duration: 4.1s; animation-delay: -2s; }
+  @keyframes tw { from { opacity: 0.25; } to { opacity: 1; } }
+
+  /* The followers raise their arms, the middle one the sword; light answers. */
+  .arm { animation-name: s-arm1; animation-timing-function: ease-in-out; }
+  .arm.k2 { animation-name: s-arm2; } .arm.k3 { animation-name: s-arm3; }
+  @keyframes s-arm1 { 0%, 22% { transform: rotate(var(--r0)); } 53%, 100% { transform: rotate(var(--r1)); } }
+  @keyframes s-arm2 { 0%, 28% { transform: rotate(var(--r0)); } 56%, 100% { transform: rotate(var(--r1)); } }
+  @keyframes s-arm3 { 0%, 33% { transform: rotate(var(--r0)); } 62%, 100% { transform: rotate(var(--r1)); } }
+  .ri-glint { animation-name: s-glint; }
+  .ri-beam { animation-name: s-rise; }
+  .ri-door { animation-name: s-door; }
+  @keyframes s-glint { 0%, 52% { opacity: 0; transform: scale(0.2) rotate(0deg); } 60% { opacity: 1; transform: scale(1.35) rotate(25deg); } 70%, 100% { opacity: 0.9; transform: scale(1) rotate(45deg); } }
+  @keyframes s-rise { 0%, 55% { opacity: 0; transform: scaleY(0); } 72%, 100% { opacity: 1; transform: scaleY(1); } }
+  @keyframes s-door { 0% { opacity: 0.25; } 60%, 100% { opacity: 1; } }
+
+  /* The lizard darts along the ledge, stopping to look around. */
+  .lz-run { animation-name: s-scurry; animation-timing-function: cubic-bezier(.5,0,.3,1); }
+  @keyframes s-scurry { 0% { transform: translateX(-10%); } 16%, 27% { transform: translateX(10%); } 40%, 51% { transform: translateX(32%); } 63%, 73% { transform: translateX(57%); } 92%, 100% { transform: translateX(104%); } }
+  .ledge.go .leg { animation: scuttle 0.13s linear infinite alternate; }
+  .ledge.go .leg.b { animation-delay: -0.13s; }
+  @keyframes scuttle { from { transform: rotate(-35deg); } to { transform: rotate(30deg); } }
+  .ledge.live .lz-halo { animation: tw 1.8s ease-in-out infinite alternate; }
+  .ledge.go .lz-bob { animation: wig 0.13s linear infinite alternate; }
+  @keyframes wig { from { transform: translateY(0); } to { transform: translateY(-1px); } }
+
+  /* The hawk crosses the sky once over the rounds, banking as it goes. */
+  .hawk-run { animation-name: s-glide; }
+  .hawk-bank { animation-name: s-bank; animation-timing-function: ease-in-out; }
+  @keyframes s-glide { from { transform: translateX(100%); } to { transform: translateX(-30%); } }
+  @keyframes s-bank { 0% { transform: translateY(0) rotate(-3deg); } 30% { transform: translateY(-3vh) rotate(5deg); } 60% { transform: translateY(5vh) rotate(-6deg); } 100% { transform: translateY(1vh) rotate(2deg); } }
+  .sky.live .wingL, .sky.live .wingR { animation: soar 2.6s ease-in-out infinite alternate; }
+  .sky.live .wingR { animation-name: soarR; }
+  @keyframes soar { from { transform: rotate(0deg); } to { transform: rotate(5deg); } }
+  @keyframes soarR { from { transform: rotate(0deg); } to { transform: rotate(-5deg); } }
+
+  /* The garden: light comes in, petals fall, the doves take off. */
+  .ga-rays { animation-name: s-pool; }
+  .pt { animation-name: s-petal; }
+  @keyframes s-petal { 0% { transform: translate(0, 0) rotate(0deg); opacity: 0; } 10% { opacity: 1; } 50% { transform: translate(calc(var(--px) * 0.4 + 18px), calc(var(--py) * 0.5)) rotate(calc(var(--pr) * 0.5)); } 92% { opacity: 0.9; } 100% { transform: translate(var(--px), var(--py)) rotate(var(--pr)); opacity: 0; } }
+  .dv.ta { animation-name: s-fly-a; } .dv.tb { animation-name: s-fly-b; } .dv.tc { animation-name: s-fly-c; }
+  .fold.ta { animation-name: s-fold-a; } .fold.tb { animation-name: s-fold-b; } .fold.tc { animation-name: s-fold-c; }
+  .open.ta { animation-name: s-open-a; } .open.tb { animation-name: s-open-b; } .open.tc { animation-name: s-open-c; }
+  @keyframes s-fly-a { 0%, 40% { transform: translate(0, 0); opacity: 1; } 48% { transform: translate(calc(var(--fx) * 0.15), calc(var(--fy) * 0.32)); } 58% { opacity: 1; } 66%, 100% { transform: translate(var(--fx), var(--fy)); opacity: 0; } }
+  @keyframes s-fly-b { 0%, 48% { transform: translate(0, 0); opacity: 1; } 56% { transform: translate(calc(var(--fx) * 0.15), calc(var(--fy) * 0.32)); } 66% { opacity: 1; } 74%, 100% { transform: translate(var(--fx), var(--fy)); opacity: 0; } }
+  @keyframes s-fly-c { 0%, 56% { transform: translate(0, 0); opacity: 1; } 64% { transform: translate(calc(var(--fx) * 0.15), calc(var(--fy) * 0.32)); } 74% { opacity: 1; } 82%, 100% { transform: translate(var(--fx), var(--fy)); opacity: 0; } }
+  @keyframes s-fold-a { 0%, 40% { opacity: 1; } 41%, 100% { opacity: 0; } }
+  @keyframes s-fold-b { 0%, 48% { opacity: 1; } 49%, 100% { opacity: 0; } }
+  @keyframes s-fold-c { 0%, 56% { opacity: 1; } 57%, 100% { opacity: 0; } }
+  @keyframes s-open-a { 0%, 40% { opacity: 0; } 41%, 100% { opacity: 1; } }
+  @keyframes s-open-b { 0%, 48% { opacity: 0; } 49%, 100% { opacity: 1; } }
+  @keyframes s-open-c { 0%, 56% { opacity: 0; } 57%, 100% { opacity: 1; } }
+  .scene.live .flap { animation: flap 0.32s ease-in-out infinite alternate; }
+  @keyframes flap { from { transform: scaleY(1); } to { transform: scaleY(-0.7); } }
+  .scene.live .tree { animation: sway 6s ease-in-out infinite alternate; }
+  @keyframes sway { from { transform: rotate(-0.6deg); } to { transform: rotate(0.6deg); } }
+
+  /* Agro trots while the page moves and stands when it stops. */
+  .agro.go .leg { animation: trot 0.42s ease-in-out infinite alternate; }
+  .agro.go .leg.b { animation-delay: -0.42s; }
+  .agro.go .agro-body { animation: canter 0.21s ease-in-out infinite alternate; }
+  .agro.go .agro-head { animation: nod 0.42s ease-in-out infinite alternate; }
+  .agro.go .tail { animation: nod 0.42s ease-in-out infinite alternate-reverse; }
+  @keyframes trot { from { transform: rotate(-24deg); } to { transform: rotate(22deg); } }
+  @keyframes canter { from { transform: translateY(0); } to { transform: translateY(-1.6px); } }
+  @keyframes nod { from { transform: rotate(-4deg); } to { transform: rotate(5deg); } }
+}

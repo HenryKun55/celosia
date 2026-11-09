@@ -422,4 +422,59 @@
     document.addEventListener('visibilitychange', go);
     if ('IntersectionObserver' in window) new IntersectionObserver((es) => { on = es[0].isIntersecting; go(); }).observe(cv);
   })();
+
+  // Scenes (site.css, SCENES): the illustrations' parts (.sa) carry 1s
+  // keyframes. Where CSS scroll-driven animations exist a view() timeline
+  // plays them; elsewhere this sets each paused animation's time from the
+  // scene's progress through the screen (0 as its top enters at the bottom, 1
+  // as its bottom leaves at the top: view()'s own range). Loops run only while
+  // a scene is on screen (.live); legs only while the page moves (.go). Agro
+  // follows the page's progress along the bottom edge and faces the way you
+  // scroll.
+  (function scenes() {
+    if (!motion) return;
+    const list = [...document.querySelectorAll('[data-scene]')];
+    const sda = !!(window.CSS && CSS.supports && CSS.supports('animation-timeline', 'view()'));
+    const vis = new Set(), cache = new Map();
+    const anims = (s) => {
+      let a = cache.get(s);
+      if (!a || !a.length) { a = (s.getAnimations ? s.getAnimations({ subtree: true }) : []).filter((x) => x.animationName && x.animationName.indexOf('s-') === 0); cache.set(s, a); }
+      return a;
+    };
+    const agro = $('agro'), dir = agro ? agro.firstElementChild : null;
+    const gaits = [agro, ...document.querySelectorAll('.ledge')].filter(Boolean);
+    let lastY = window.scrollY, face = 1, going = false, still = 0, raf = 0, agroW = agro ? agro.offsetWidth : 0;
+    function frame() {
+      raf = 0;
+      const y = window.scrollY, vh = window.innerHeight;
+      if (!sda && vis.size) {
+        const ps = [...vis].map((s) => { const r = s.getBoundingClientRect(); return [s, Math.max(0, Math.min(1, (vh - r.top) / (vh + r.height)))]; });
+        ps.forEach(([s, p]) => anims(s).forEach((a) => { a.currentTime = p * 1000; }));
+      }
+      if (agro) {
+        const H = document.documentElement.scrollHeight - vh, hh = hero ? hero.offsetHeight : 0;
+        agro.classList.toggle('on', y > hh * 0.75);
+        const k = H > 0 ? Math.min(1, Math.max(0, y / H)) : 0;
+        agro.style.transform = 'translate3d(' + (k * (window.innerWidth - agroW)).toFixed(1) + 'px,0,0)';
+        if (y !== lastY) { const f = y > lastY ? 1 : -1; if (f !== face) { face = f; dir.style.transform = f < 0 ? 'scaleX(-1)' : ''; } }
+      }
+      if (y !== lastY) {
+        if (!going) { going = true; gaits.forEach((g) => g.classList.add('go')); }
+        clearTimeout(still);
+        still = setTimeout(() => { going = false; gaits.forEach((g) => g.classList.remove('go')); }, 160);
+      }
+      lastY = y;
+    }
+    const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((es) => {
+        es.forEach((e) => { e.target.classList.toggle('live', e.isIntersecting); if (e.isIntersecting) vis.add(e.target); else vis.delete(e.target); });
+        kick();
+      }, { rootMargin: '15% 0px' });
+      list.forEach((s) => io.observe(s));
+    } else list.forEach((s) => { s.classList.add('live'); vis.add(s); });
+    window.addEventListener('scroll', kick, { passive: true });
+    window.addEventListener('resize', () => { agroW = agro ? agro.offsetWidth : 0; cache.clear(); kick(); });
+    kick();
+  })();
 })();
