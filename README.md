@@ -202,31 +202,31 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 
 <!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->
 
-**Game thread time on the Vita** (r71, Vita3K profile of the route):
+**Game thread time on the Vita** (r122, Vita3K profile of the route):
 
 | | share | |
 |---|---:|---|
-| Native code | 61.7% | `████████████░░░░░░░░` |
-| Recompiled MIPS | 19.5% | `████░░░░░░░░░░░░░░░░` |
-| Runtime (DMA walk, memory, scheduler, glue) | 18.8% | `████░░░░░░░░░░░░░░░░` |
+| Native code | 68.9% | `██████████████░░░░░░` |
+| Recompiled MIPS | 20.5% | `████░░░░░░░░░░░░░░░░` |
+| Runtime (DMA walk, memory, scheduler, glue) | 10.6% | `██░░░░░░░░░░░░░░░░░░` |
 
 <details open>
 <summary><b>By area of the game</b>: what is native and what still runs as recompiled MIPS</summary>
 
 | Area | Code native | | Functions | Game thread time: native / MIPS |
 |---|---:|---|---:|---|
-| Display and models | 19.9% | `██░░░░░░░░░░` | 60 / 974 | 18.2% / 3.1% |
-| Other game code (names not identified yet) | 10.6% | `█░░░░░░░░░░░` | 93 / 2885 | 10.7% / 8.0% |
-| Characters and motion | 14.5% | `██░░░░░░░░░░` | 60 / 1204 | 14.8% / 2.7% |
-| Collision and physics | 18.7% | `██░░░░░░░░░░` | 48 / 338 | 9.2% / 0.6% |
-| Particles and effects | 39.3% | `█████░░░░░░░` | 12 / 119 | 2.4% / 1.0% |
-| System and memory | 6.6% | `█░░░░░░░░░░░` | 6 / 230 | 2.7% / 0.3% |
-| Boot ELF, SDK and libc | 16.8% | `██░░░░░░░░░░` | 353 / 2128 | 0.0% / 2.8% |
-| Math | 30.4% | `████░░░░░░░░` | 26 / 131 | 2.3% / 0.4% |
-| Script and events | 1.6% | `░░░░░░░░░░░░` | 12 / 632 | 1.3% / 0.3% |
-| Camera | 0.0% | `░░░░░░░░░░░░` | 0 / 281 | 0.1% / 0.4% |
-| Sound | 0.0% | `░░░░░░░░░░░░` | 0 / 102 | 0.0% / 0.1% |
-| Runtime (DMA walk, memory, scheduler) | | | | 18.8% (runtime) |
+| Display and models | 24.2% | `███░░░░░░░░░` | 91 / 975 | 21.0% / 2.8% |
+| Other game code (names not identified yet) | 13.3% | `██░░░░░░░░░░` | 205 / 2897 | 11.4% / 8.1% |
+| Characters and motion | 14.4% | `██░░░░░░░░░░` | 58 / 1195 | 15.0% / 3.3% |
+| Collision and physics | 16.7% | `██░░░░░░░░░░` | 47 / 329 | 11.3% / 0.7% |
+| System and memory | 8.3% | `█░░░░░░░░░░░` | 16 / 231 | 4.3% / 0.3% |
+| Boot ELF, SDK and libc | 18.0% | `██░░░░░░░░░░` | 375 / 2145 | 0.0% / 3.2% |
+| Script and events | 1.7% | `░░░░░░░░░░░░` | 13 / 632 | 2.4% / 0.4% |
+| Math | 28.2% | `███░░░░░░░░░` | 20 / 122 | 1.6% / 0.6% |
+| Particles and effects | 39.2% | `█████░░░░░░░` | 33 / 115 | 1.6% / 0.3% |
+| Camera | 0.6% | `░░░░░░░░░░░░` | 1 / 281 | 0.1% / 0.6% |
+| Sound | 1.8% | `░░░░░░░░░░░░` | 2 / 102 | 0.0% / 0.1% |
+| Runtime (DMA walk, memory, scheduler) | | | | 10.6% (runtime) |
 
 </details>
 
@@ -259,15 +259,16 @@ listed in [docs/decomp_status.json](docs/decomp_status.json)
 | 2026-10-31 | r47 | 11.68% | 58.1% | 66.9% |
 | 2026-10-31 | r48 | 12.71% | 64.8% | 69.5% |
 | 2026-11-04 | r71 | 12.95% | 66.2% | 61.7% |
+| 2026-11-09 | r122 | 14.77% | 68.4% | 68.9% |
 
 </details>
 
 ```mermaid
 xychart-beta
     title "Game thread time in native code (%)"
-    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42", "r43", "r44", "r46", "r47", "r48", "r71"]
+    x-axis ["r32", "r35", "r36", "r39", "r40", "r41", "r42", "r43", "r44", "r46", "r47", "r48", "r71", "r122"]
     y-axis "%" 0 --> 100
-    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0, 59.9, 60.6, 64.7, 66.9, 69.5, 61.7]
+    line [45.0, 43.5, 44.5, 44.7, 45.1, 52.2, 56.0, 59.9, 60.6, 64.7, 66.9, 69.5, 61.7, 68.9]
 ```
 
 <!-- decomp:end -->

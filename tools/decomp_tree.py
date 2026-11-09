@@ -17,6 +17,7 @@ Usage:
 import argparse
 import bisect
 import datetime
+import glob
 import json
 import os
 import re
@@ -61,13 +62,44 @@ def classify(name):
     m = re.match(r'(?:lean_|leant_)?(\w+?)_0x([0-9a-f]+)$', head)
     if m and name.endswith(GUEST) and '::' not in head:
         return 'recompiled', area_of(int(m.group(2), 16), m.group(1))
-    ns = re.match(r'(decomp_\w+)::', head)
-    if ns:
-        area = area_of(0x1000000, head, ns.group(1) + '.cpp')
-        return 'native', area if area != 'Other game code' else area_of(0x1000000, head.split('::')[-1])
-    if head.startswith('sotc_native::'):
+    # The qualified name without template arguments or a return type (templated
+    # natives demangle as "void decomp_chara::charaLinksT<true>(...)").
+    q = head
+    while True:
+        r = re.sub(r'<[^<>]*>', '', q)
+        if r == q:
+            break
+        q = r
+    q = q.strip().split(' ')[-1].lstrip('*&')
+    ns = q.split('::')[0] if '::' in q else ''
+    if ns.startswith('decomp_'):
+        area = area_of(0x1000000, q, ns + '.cpp')
+        return 'native', area if area != 'Other game code' else area_of(0x1000000, q.split('::')[-1])
+    if ns == 'sotc_native':
         return 'native', 'Display and models'
+    if ns in override_namespaces():
+        area = NATIVE_NS_AREAS.get(ns) or area_of(0x1000000, q)
+        return 'native', area
     return 'runtime', RUNTIME
+
+
+# Natives written in their own namespaces (game/overrides), not decomp_*:
+# their area when the name alone does not say it.
+NATIVE_NS_AREAS = {'pose82': 'Characters and motion', 'char104': 'Characters and motion', 'char122': 'Characters and motion',
+                   'charlod78': 'Characters and motion', 'rest81': 'Characters and motion', 'ground85': 'Collision and physics'}
+# Namespaces in game/overrides that are glue, profiling or tooling, not decomp.
+GLUE_NS = {'sotc_decomp', 'sotc_prof', 'sotc_replay', 'sotc_worker', 'ps2_worker', 'ps2_lean', 'mdstrace', 'probe84', 'std'}
+_override_ns = None
+
+
+def override_namespaces():
+    global _override_ns
+    if _override_ns is None:
+        _override_ns = set()
+        for f in glob.glob(os.path.join(ROOT, 'game/overrides/*.cpp')) + glob.glob(os.path.join(ROOT, 'game/overrides/*.h')):
+            _override_ns |= set(re.findall(r'^namespace (\w+)', open(f, errors='replace').read(), re.M))
+        _override_ns -= GLUE_NS
+    return _override_ns
 
 
 def main():

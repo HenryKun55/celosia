@@ -207,6 +207,16 @@
    "time": 61.7,
    "generated": 19.5,
    "runtime": 18.8
+  },
+  {
+   "date": "2026-11-09",
+   "label": "r122",
+   "commit": "5301a55",
+   "code": 14.77,
+   "calls": 68.43,
+   "time": 68.9,
+   "generated": 20.5,
+   "runtime": 10.6
   }
  ]
 }
