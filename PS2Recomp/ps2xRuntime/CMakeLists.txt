@@ -707,15 +707,101 @@ if(PS2X_IS_VITA)
     target_compile_options(ps2EntryRunner PRIVATE ${PS2X_VITA_GAME_OPT})
     # Except the hot few: recompiled VU1 microcode and native replacements
     # (game overrides) run every vertex.
+    # Round 121: profile-guided optimisation (GCC PGO) of the natives (the game overrides, ~75% of the game thread),
+    # the runtime and the recompiled game. PS2X_VITA_PGO=gen: instrumented build (PS2X_VITA_PGO_GAME=ON: the
+    # recompiled game too); its .gcda files are written to ux0:data/celosia/pgo at SOTC_GCOV_DUMP_FRAME=<n>
+    # (sotc_native.cpp gcovDump). PS2X_VITA_PGO=<dir or .tar.xz>: compiled with those profiles (tools/pgo_fix.py's
+    # output; the default is game/pgo/vita-pgo.tar.xz when it exists). The .gcda names are the objects' paths below
+    # the build directory (-fprofile-prefix-path); the overrides' carry their tree's path as @ROOT@, replaced here.
+    # Functions changed since the training lose their profile (GCC's per-function checksums: -Wno-coverage-mismatch)
+    # and are compiled as without PGO (-fprofile-partial-training). OFF / empty: no PGO.
+    get_filename_component(PS2X_PGO_TREE "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
+    set(PS2X_PGO_DEFAULT "")
+    if(EXISTS "${PS2X_PGO_TREE}/game/pgo/vita-pgo.tar.xz")
+        set(PS2X_PGO_DEFAULT "${PS2X_PGO_TREE}/game/pgo/vita-pgo.tar.xz")
+    endif()
+    set(PS2X_VITA_PGO "${PS2X_PGO_DEFAULT}" CACHE STRING "Vita: PGO: gen, a profile directory / .tar.xz, or OFF")
+    option(PS2X_VITA_PGO_GAME "Vita: PGO of the recompiled game too (gen: instrumented; with a profile: applied)" OFF)
+    set(PS2X_VITA_PGO_ELF_ROOM "65536" CACHE STRING "Vita: sotc_vita_elf_room's size in the instrumented build")
+    set(PS2X_VITA_PGO_FLAGS "")
+    set(PS2X_VITA_PGO_GAME_FLAGS "")
+    if(PS2X_VITA_PGO STREQUAL "gen")
+        set(PS2X_VITA_PGO_FLAGS -fprofile-generate=ux0:data/celosia/pgo -fprofile-prefix-path=${CMAKE_BINARY_DIR}
+            -fprofile-update=single -fno-profile-values -fno-profile-reorder-functions -fprofile-info-section=gcov_info)
+        target_link_options(ps2EntryRunner PRIVATE -fprofile-generate -Wl,--undefined=__gcov_info_to_gcda)
+        if(PS2X_VITA_PGO_GAME)
+            set(PS2X_VITA_PGO_GAME_FLAGS ${PS2X_VITA_PGO_FLAGS})
+        endif()
+    elseif(PS2X_VITA_PGO AND EXISTS "${PS2X_VITA_PGO}")
+        set(PS2X_PGO_SRC "${PS2X_VITA_PGO}")
+        if(PS2X_VITA_PGO MATCHES "\\.tar\\.xz$")
+            file(SHA1 "${PS2X_VITA_PGO}" PS2X_PGO_SUM)
+            string(SUBSTRING "${PS2X_PGO_SUM}" 0 12 PS2X_PGO_SUM)
+            set(PS2X_PGO_SRC "${CMAKE_BINARY_DIR}/pgo-src-${PS2X_PGO_SUM}")
+            if(NOT EXISTS "${PS2X_PGO_SRC}")
+                file(ARCHIVE_EXTRACT INPUT "${PS2X_VITA_PGO}" DESTINATION "${PS2X_PGO_SRC}")
+            endif()
+        endif()
+        string(REGEX REPLACE "^/" "" PS2X_PGO_ROOT "${PS2X_PGO_TREE}")
+        string(REPLACE "/" "#" PS2X_PGO_ROOT "${PS2X_PGO_ROOT}")
+        # The build directory's copy is named by the profiles' contents: a new profile changes the flags, so
+        # ninja rebuilds what it covers.
+        file(GLOB PS2X_PGO_FILES RELATIVE "${PS2X_PGO_SRC}" "${PS2X_PGO_SRC}/*.gcda")
+        set(PS2X_PGO_SUM "")
+        foreach(PS2X_PGO_FILE IN LISTS PS2X_PGO_FILES)
+            file(SHA1 "${PS2X_PGO_SRC}/${PS2X_PGO_FILE}" PS2X_PGO_ONE)
+            string(APPEND PS2X_PGO_SUM "${PS2X_PGO_ONE}")
+        endforeach()
+        string(SHA1 PS2X_PGO_SUM "${PS2X_PGO_SUM}")
+        string(SUBSTRING "${PS2X_PGO_SUM}" 0 12 PS2X_PGO_SUM)
+        set(PS2X_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-use-${PS2X_PGO_SUM}")
+        if(NOT EXISTS "${PS2X_PGO_DIR}")
+            file(MAKE_DIRECTORY "${PS2X_PGO_DIR}")
+            foreach(PS2X_PGO_FILE IN LISTS PS2X_PGO_FILES)
+                string(REPLACE "@ROOT@" "${PS2X_PGO_ROOT}" PS2X_PGO_NAME "${PS2X_PGO_FILE}")
+                configure_file("${PS2X_PGO_SRC}/${PS2X_PGO_FILE}" "${PS2X_PGO_DIR}/${PS2X_PGO_NAME}" COPYONLY)
+            endforeach()
+        endif()
+        set(PS2X_VITA_PGO_FLAGS -fprofile-use=${PS2X_PGO_DIR} -fprofile-prefix-path=${CMAKE_BINARY_DIR}
+            -fprofile-partial-training -fprofile-correction -fno-profile-values -fno-profile-reorder-functions -fno-vpt
+            -Wno-missing-profile -Wno-coverage-mismatch)
+        # The recompiled game's unity batches (PS2X_VITA_PGO_GAME; the profile has them): off by default, round 121
+        # measured 0..-1% of the game thread in Vita3K for +2.5 MB of text (the natives' and runtime's: -3..-5%).
+        if(PS2X_VITA_PGO_GAME AND PS2X_PGO_FILES MATCHES "Unity#unity_")
+            set(PS2X_VITA_PGO_GAME_FLAGS ${PS2X_VITA_PGO_FLAGS})
+        endif()
+    endif()
+    if(PS2X_VITA_PGO_FLAGS)
+        if(PS2X_VITA_PGO_GAME_FLAGS)
+            message(STATUS "Vita: PGO ${PS2X_VITA_PGO} (overrides, runtime, recompiled game)")
+        else()
+            message(STATUS "Vita: PGO ${PS2X_VITA_PGO} (overrides, runtime)")
+        endif()
+        target_compile_options(ps2_runtime PRIVATE ${PS2X_VITA_PGO_FLAGS})
+        if(PS2X_VITA_PGO_GAME_FLAGS)
+            target_compile_options(ps2EntryRunner PRIVATE ${PS2X_VITA_PGO_GAME_FLAGS})
+        endif()
+    endif()
+    set(PS2X_VITA_OVERRIDE_OPTS -O3 ${PS2X_VITA_PGO_FLAGS})
     get_target_property(PS2X_RUNNER_SOURCES ps2EntryRunner SOURCES)
     foreach(PS2X_SOURCE IN LISTS PS2X_RUNNER_SOURCES)
         if(PS2X_SOURCE MATCHES "/overrides/lean_part[^/]*\\.cpp$")
             # Recompiled code like the rest of it.
             set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "${PS2X_VITA_GAME_OPT}")
+        elseif(PS2X_SOURCE MATCHES "/overrides/sotc_native\\.cpp$" AND PS2X_VITA_PGO STREQUAL "gen")
+            # The instrumented build's text ends elsewhere: its own room for vita-elf-create (sotc_native.cpp).
+            set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS
+                "${PS2X_VITA_OVERRIDE_OPTS};-DSOTC_VITA_ELF_ROOM=${PS2X_VITA_PGO_ELF_ROOM}")
         elseif(PS2X_SOURCE MATCHES "/overrides/[^/]*\\.cpp$")
-            set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "-O3")
+            set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "${PS2X_VITA_OVERRIDE_OPTS}")
         elseif(PS2X_SOURCE MATCHES "vu1rec_[^/]*\\.cpp$")
-            set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "-O2")
+            # Not instrumented (PS2X_VITA_PGO_GAME): one huge generated microcode function then fails to assemble
+            # (Thumb conditional branches out of range).
+            if(PS2X_VITA_PGO STREQUAL "gen")
+                set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "-O2;-fno-profile-arcs")
+            else()
+                set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "-O2")
+            endif()
         endif()
     endforeach()
     # Round 66: the hot code together at the start of .text. Every function
