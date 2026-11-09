@@ -18211,3 +18211,95 @@ game ran. Now: RunStatus only with SOTC_PROF129_RUNSTATUS=1, the thread a plain 
 to cores 1-2 with sceKernelChangeThreadCpuAffinityMask, as threads::place does), nothing read until the second game frame,
 the runtime pointer null-checked. The core dump was not parsed (no vita-parse-core here), so which of the two it was is
 not proven; p2 avoids both.
+## Round 128: the immediate-mode quads straight to the native 2D assembler (imm128); texreset's list from a host index (texr128, console A/B only); the model hook's per-instance record not built (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r128/` (build.sh pN, run.sh / ab128.sh / samp.sh, two own Vita3K trees
+../vita3k-celosia-r128 and -r128b, 222 MHz, 3 cores, audio-volume 0; top.py; env-console.txt; STATE.md). p0 = r127's
+p1 (main 71f540e); p2 = this round on 71f540e (checks, sampler); p4 = this round rebased on round 126 (main 445b3b0) =
+celosia-r128.vpk. spalign: 691 NEON :128/:256, 0 sp-based. No elf-room change.
+
+**What round 127 sized.** (1) The immediate-mode quads (the heat haze strips behind Wander, 01142350's particle quads,
+~108 kicks a frame riding): quad117 makes each vertex's GIF pairs in the guest packet glBegin opened, glEnd's hook
+parses them back into the 2D assembler, then the recompiled glEnd closes the GIF / DMA tags, sets the packet pointer,
+chains the packet into the layer's list and pops glBegin's layer. (2) The model hook's game-thread half as one
+per-instance record. (3) texreset's ~1 000-node walk three times a frame.
+
+**imm128 (`SOTC_IMM128`, default on; A/B `imm128` / `r128all`; decomp_walk prim128 / begin128 / imm128, sotc_native
+immFeed128).** What glEnd does after its hook only feeds the PS2's GS: in native mode (`nativeDraws`: the hook
+installed, no PS2 lists, GS::skipRaster) the GS draws nothing and the DMA chains are walked for SIGNAL / FINISH /
+LABEL only; glEnd's packet is A+D TEST / PRIM / RGBAQ / ST / XYZ, none of them. Round 103's ptcl103 leaves its packets
+out the same way. So at the two quad sites, in native mode: glBegin's own writes to the gl block (begin128: +0xc,
++0x41f0, +0x5220, +0x14, +0x10 from the primitive table at 0x11916c0, +0x1b8, +0x1b4 from 0x11916a0, +0x1b0 bit 4) and
+its TEST and PRIM pairs made natively (the PRIM's anti-aliasing bit by glBegin's jump table at 0x11916e0, read and
+matched by target), quad117's pairs written into a host array instead of the packet (its other writes as before),
+and the pairs fed to the 2D assembler as glEndHook feeds them: the frame sync and the join, the layer glBegin would
+have pushed (iosDlGetLayer's), the haze's screen copy as header, the same `not drawn` conditions. glEnd's 0108CD80
+(the software clip of the primitives the kicks flagged with an ADC byte at +0x41f8; its own glBegin .. glEnd, hooked)
+is called as glEnd calls it, after the feed, when a flag is set (none in any run: the haze and the particle quads are
+on screen when drawn). Not taken (the calls as before): another renderer, a packet already open (glBegin would return
+-1), an unknown table entry, quad117 declining the vertices. The packet pool no longer holds these packets (no other
+reader). `SOTC_IMM128_CHECK=<n>`: every n-th quad both ways from the same state, the new path dry: the 2D assembler's
+whole input (the layer, the texture header, every pair in order, TEST / PRIM included), the gl block (0x5300 bytes but
+the packet pointers +4 / +8), VU0 / ACC / Q / CLIP and f0 - f2 compared, the old path's result kept: runs/chkA1 (the
+attract demo, 480 s) 189 000 quads, runsb/chkR1 (route 6, 600 s) 46 500 quads, 0 differ. The assembler gets the same
+pairs in the same order with the same layer and header, so the draws (and the pixels) are the old path's.
+
+**texr128 (`SOTC_TEXR128`, default off: `=1` on; A/B `texr128`; decomp_texreset resetIndexed).** The list kept as host
+arrays of its nodes and records; a call checks each kept node's record and next words (addresses known in advance:
+independent loads, prefetched 8 ahead) and clears as the walk does; at the first node whose words moved it walks on
+the original way and keeps what it finds. The two-pass order (next read before the clear) is the walk's only when no
+record's cleared bytes overlap a node's words: checked when the index is made (sorted, never seen). Kept 99.8% of
+calls (chkA1 88 made in 57 000, chkR1 99 in 87 000). `SOTC_TEXR128_CHECK=1` (the list walked read-only first, every
+record's 16 bytes compared after): 0 differ in both. But on Vita3K it is slower: the sampler has resetIndexed at
+1.00% of the game thread against resetFast's 0.53% (Vita3K has no memory latency for independent loads to hide; the
+extra checks are pure instructions there). On the console the old walk is one dependent load after another
+(~1 000 x 3 a frame); whether the prefetched checks win there only the console can say: off by default, on in the
+console env (`SOTC_TEXR128=1`) with `texr128` in its A/B.
+
+**Measured (Vita3K 222 MHz; the Mac at load 20-58 the whole session, other rounds building).**
+- Sampler, the attract demo 400-700 s, the same p2 VPK on (runs/sampOn) and with SOTC_IMM128=0 SOTC_TEXR128=0
+  (runsb/sampOff), two trees at once: the immediate-quad functions (quad117, strips, glBeginWithDlLayerNo, glBegin,
+  glEnd, glEndHook, feed2D, vertex2D, the layer push / pop and their hooks, chainTail, 0108CD80, the packet pointer
+  calls, and the new immFeed128 / imm128 / begin128) 4.45% -> 3.34% of the game thread (glBeginWithDlLayerNo 0.31,
+  glEnd 0.23, feed2D 0.18 gone; immFeed128 0.14, imm128 0.08 new): ~1.1% of the game thread where the quads are
+  drawn (~0.5 ms of a 45-55 ms console frame if the share holds). The windows' scenes differ (the frame log: 34.8 vs
+  16.9 ms at the end), so only the touched functions are compared.
+- In-run A/B (`SOTC_AB_FLAG`, 60-frame windows, ab89.py from frame 3 000, game thread off minus on,
+  positive = the switch's gain; the Mac at load 5-35, other rounds' builds and Vita3K runs): runsb/abA2 (the attract
+  demo 900 s, `imm128` alone, ~9 200 frames a state): game +0.09 ms (matched +0.01) of 18.6; runsb/smkL2 (the console
+  card's load, the shrine, 620 s, `r128all,imm128,texr128` with SOTC_TEXR128=1): imm128 +0.89 (matched), texr128
+  +0.15, r128all +0.17; runs/smkR3 (route 6's input, which fell into the title's demo under the load): imm128 +0.95,
+  texr128 +0.20, r128all -0.23. All within the in-run A/B's +-1 ms at this load; the signs for imm128 agree with the
+  sampler. runsb/abA1 / runs/abR1 (load 30-58) are not used.
+- quad117 itself (1.5%) and strips (0.7%) stay: the VU0-exact transform, the CLIP history and the gl block writes per
+  vertex. A plain-float quad would only drop the operand clamps (two NEON min / max per operation) and keep the
+  same writes; not done.
+
+**Not done: the model hook's per-instance record (round 127's item 2).** The pieces: modelDispHook 0.52%,
+mdsPartWalk 0.81, mdsPlanPackets 0.54, mdslane::join 0.27 (r127 sampA1). The part walk and the packet loop are round
+61's lane job (the box tests against this frame's camera, the +0x2c results and the layer cache written for the
+game); the game thread runs them only when its joins find the lane behind ([mdslane] help: 1 800-3 900 of ~5 000-
+17 000 jobs a 600 frames, 20-137 ms in all: 0.03-0.2 ms a frame). A record kept across frames would be valid only
+while the camera and the instance stand still (the clip changes every frame riding, where the cost is), and the
+hook's own part is the per-frame copies the worker needs (matrix, lights, projection, palette, scroll rows; round
+127 already keeps the scroll chains). Nothing in it repeats unchanged from frame to frame while riding; no switch.
+
+**Pictures and behaviour.** imm128 hands the 2D assembler the identical input (the check above), so the haze strips
+and the particle quads are the same draws; texr128 clears the same records. No fault: the attract demo 900 s x2,
+route 6 600 s (chkR1, p2), the console card's load 620 s x2 (smkL1 under load 58 mis-timed its input into the
+title; smkL2 at the shrine to the end).
+
+**Console.** build/agent-scratch/celosia-r128.vpk (main 445b3b0) with r128/env-console.txt (round 127's log flags,
+SOTC_IMM128_LOG / SOTC_TEXR128_LOG, `SOTC_TEXR128=1`, `SOTC_AB_FLAG=r128all,imm128,texr128,walk67` rotating every 60
+frames). Read with `python3 build/agent-scratch/r127/ab89.py err.txt --from <frame> --min-draws 300`: positive = the
+switch's gain. imm128 shows riding with Wander's haze on screen (expect ~0.3-0.6 ms); texr128 everywhere (if
+positive on the console, its default flips on; Vita3K cannot show it); walk67 still unmeasured on the console (round
+127). Look at: Wander's heat haze behind him riding, the falling leaves / particle quads, both unchanged.
+
+**Found on the way: round 126's ctl126 stops route 6 after the shrine's opening cutscene.** With main at 3bdd15f
+(round 126) every route 6 run stuck the same way at ~frame 3 100-3 700: Wander's position jumps (413, 48, 111), then
+reads (0, 0, 0.69) with the camera fixed and the frames running at the refresh rate, to the end of the run
+(runs/smkR2 p4, runs/dbgR0 p4 with SOTC_IMM128=0, runsb/dbgR126 = celosia-r126.vpk itself). celosia-r127.vpk
+(runsb/dbgR127) and p4 with SOTC_GEO126=0 SOTC_CTL126=0 (runs/dbgR1) or SOTC_CTL126=0 alone (runsb/dbgCtl) walk out
+to the plain; SOTC_GEO126=0 alone (runs/dbgGeo) sticks. So it is ctl126; this round's env-console.txt sets
+SOTC_CTL126=0. Its default is round 126's to fix (not changed here).
