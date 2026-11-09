@@ -101,8 +101,8 @@ b, strong { font-weight: 600; color: var(--ink); }
 .ridge.far { fill: #26302c; opacity: 0.55; }
 .ridge.mid { fill: #141b19; opacity: 0.85; }
 .ridge.near { fill: var(--bg); }
-.colossus { fill: #2e3935; opacity: 0.38; filter: blur(1.2px); }
-.rider { fill: #0d1211; transform: translate(300px, 164px); }
+.colossus { fill: #8a968f; opacity: 0.34; filter: blur(0.5px); }
+.rider { fill: #0a0e0d; stroke: rgb(243 223 174 / 0.22); stroke-width: 0.5; transform: translate(300px, 164px); }
 .hero-in { position: relative; max-width: 72rem; width: 100%; margin: 0 auto; padding-inline: max(18px, 4vw); padding-block: 7rem 9rem; display: grid; gap: 1.4rem; will-change: transform, opacity; }
 .hero-in p { max-width: 50ch; color: #d9d6cb; }
 .eyebrow.on-dark { color: var(--gold-2); text-shadow: 0 1px 12px rgb(0 0 0 / 0.6); }
@@ -281,6 +281,7 @@ html.lb-open { overflow: hidden; }
   .hero::after { background: linear-gradient(0deg, var(--bg) 0%, rgb(8 11 10 / 0.75) 40%, rgb(8 11 10 / 0.35) 75%, rgb(8 11 10 / 0.5) 100%); }
   .rays { inset: -10% 0 0 0; }
   .hero-img { object-position: 64% 45%; }
+  .horizon { z-index: 0; }
   .btn { min-height: 2.75rem; padding: 0 1rem; }
   .scroll-cue { display: none; }
   .bar { gap: 1rem; }
@@ -377,9 +378,9 @@ html.lb-open { overflow: hidden; }
 .scene .sa, .scene .lp, .agro .lp, .ledge .lp { transform-box: view-box; transform-origin: 0 0; }
 .scene-mono { opacity: 0.95; }
 .mo-creep { transform: translateX(-150px); }
-/* Dirge's eye: static half open; the scroll opens it from closed. */
+/* Dirge's eyes: static half open and half lit; the scroll opens and lights them. */
 .scene-dirge { height: clamp(14rem, 30vw, 24rem); }
-.dg-lidu { transform: translateY(-15px); } .dg-lidl { transform: translateY(11px); } .dg-pupil { transform: scaleX(0.8); } .grain { opacity: 0; }
+.dg-lid { transform: translateY(-22px); } .dg-ign { opacity: 0.6; } .grain { opacity: 0; }
 .mote { fill: #fff3d0; }
 .scene-garden { opacity: 0.92; height: clamp(14rem, 30vw, 24rem); -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent), linear-gradient(180deg, transparent, #000 22%, #000 80%, transparent); }
 /* Followers' arms: drawn raised (the rest pose of the static picture). The shrine priests: rounded heads, wide flat bone masks, blue-grey robes. */
@@ -448,20 +449,18 @@ html.lb-open { overflow: hidden; }
 
   /* Dirge's eye rises out of the sand and opens; its light spills on the dune. */
   .dg-rise { animation-name: s-dg-rise; animation-timing-function: ease-out; }
-  .dg-lidu { animation-name: s-dg-lidu; animation-timing-function: ease-in-out; }
-  .dg-lidl { animation-name: s-dg-lidl; animation-timing-function: ease-in-out; }
-  .dg-pupil { animation-name: s-dg-pupil; animation-timing-function: ease-in-out; }
-  .dg-iris { animation-name: s-dg-iris; }
+  .dg-lid { animation-name: s-dg-lid; animation-timing-function: ease-in-out; } .dg-arch { animation-name: s-dg-arch; animation-timing-function: ease-out; }
+  .dg-ign { animation-name: s-dg-ign; } .dg-pour { animation-name: s-dg-pour; }
   .dg-glow, .dg-spill { animation-name: s-dg-glow; }
   .dg-drift { animation-name: s-dg-drift; }
   .grain { animation-name: s-grain; animation-timing-function: ease-in; }
   .grain:nth-child(3n) { --gy: 150px; --gx: -6px; } .grain:nth-child(3n+1) { --gy: 120px; --gx: 4px; } .grain:nth-child(3n+2) { --gy: 170px; --gx: 0px; }
   .grain:nth-child(2n) { animation-name: s-grain2; }
-  @keyframes s-dg-rise { 0% { transform: translateY(70px); } 40%, 100% { transform: translateY(0); } }
-  @keyframes s-dg-lidu { 0%, 34% { transform: translateY(0); } 48% { transform: translateY(-9px); } 54% { transform: translateY(-7px); } 76%, 100% { transform: translateY(-31px); } }
-  @keyframes s-dg-lidl { 0%, 34% { transform: translateY(0); } 48% { transform: translateY(6px); } 54% { transform: translateY(5px); } 76%, 100% { transform: translateY(24px); } }
-  @keyframes s-dg-pupil { 0%, 50% { transform: scaleX(1.7); } 86%, 100% { transform: scaleX(0.3); } }
-  @keyframes s-dg-iris { 0%, 40% { transform: translateX(-8px); } 70% { transform: translateX(3px); } 100% { transform: translateX(0); } }
+  @keyframes s-dg-rise { 0% { transform: translateY(90px); } 42%, 100% { transform: translateY(0); } }
+  @keyframes s-dg-arch { 0% { transform: translateY(46px); } 50%, 100% { transform: translateY(0); } }
+  @keyframes s-dg-lid { 0%, 36% { transform: translateY(0); } 48% { transform: translateY(-9px); } 54% { transform: translateY(-7px); } 78%, 100% { transform: translateY(-46px); } }
+  @keyframes s-dg-ign { 0%, 38% { opacity: 0.12; } 82%, 100% { opacity: 1; } }
+  @keyframes s-dg-pour { 0%, 22% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0.25; } }
   @keyframes s-dg-glow { 0%, 36% { opacity: 0; } 80%, 100% { opacity: 1; } }
   @keyframes s-dg-drift { from { transform: translateX(60px); } to { transform: translateX(-120px); } }
   @keyframes s-grain { 0%, 40% { transform: translate(0, 0); opacity: 0; } 46% { opacity: 1; } 78%, 100% { transform: translate(var(--gx), var(--gy)); opacity: 0; } }
