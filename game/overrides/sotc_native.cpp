@@ -3079,6 +3079,29 @@ namespace sotc_native
         const uint64_t window = g_frame / period;
         const size_t slot = rotate ? static_cast<size_t>(window % (names.size() + 1u)) : 0u;
         const bool odd = window % 2u == 1u;
+        // Round 124: `gfx124preset` (best listed alone, without
+        // SOTC_AB_ROTATE): the Graphics presets in turn, Max, High, Medium,
+        // Low, Off, one a window of SOTC_AB_PERIOD frames, each applied once at
+        // its window's start as the menu applies it (a resolution change waits
+        // for the GPU and makes the picture's targets again: leave a window's
+        // first frames out). "[gfx124ab] frame F: preset P" at each change and
+        // the [gfx124] line after it; build/agent-scratch/r124/gfx124.py splits
+        // a log by preset. Nothing of it is saved (host_menu keeps the file's).
+        static const bool gfxAb = list.find(",gfx124preset,") != std::string::npos;
+        if (gfxAb)
+        {
+            static const int order[5] = {native_renderer::kPresetMax, native_renderer::kPresetHigh, native_renderer::kPresetMedium, native_renderer::kPresetLow,
+                                         native_renderer::kPresetOff};
+            const int preset = order[window % 5u];
+            static int applied = -1;
+            if (preset != applied)
+            {
+                applied = preset;
+                native_renderer::applyPreset(t, preset);
+                std::fprintf(stderr, "[gfx124ab] frame %llu: preset %s (windows of %llu frames)\n", (unsigned long long)g_frame, native_renderer::presetName(preset),
+                             (unsigned long long)period);
+            }
+        }
         // Round 58: the names' places in the list looked up once, not a
         // string built and searched for each name every frame (that was ~1.3%
         // of the game thread in every A/B run: allocations, memmove, TLS).
@@ -3689,6 +3712,7 @@ namespace sotc_native
         lines67::frame(g_frame);
         abSwitches();
         prio100Apply();
+        native_renderer::gfxLogIfChanged(g_frame); // round 124: [gfx124] at start and at each change
         flush2D();
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
         // from getFogFactor0/1 (0x1089b70/bb0), the colour as
@@ -3912,6 +3936,7 @@ namespace sotc_native
             unsigned long long laneJobs = 0, laneJoins = 0, laneWorker = 0;
             uint64_t sync[kSyncParts] = {}, joinSite[hookjobs::kSites] = {};
             native_renderer::threads::Snapshot cpu;
+            int gfx = 0; // round 124: the Graphics preset (native_renderer::gfxPresetNow)
         };
         bool g_switch = true; // the A/B's (applied each frame)
         bool on()
@@ -3963,6 +3988,8 @@ namespace sotc_native
                 splits(L.sync, L.joinSite, 1.0, split + at, sizeof(split) - at);
             at = static_cast<int>(std::strlen(split));
             native_renderer::threads::lineOf(L.cpu, split + at, sizeof(split) - at);
+            at = static_cast<int>(std::strlen(split));
+            sfmt105(split + at, sizeof(split) - at, " | gfx %s", native_renderer::presetName(L.gfx)); // round 124
             if (L.slow)
                 logLine105()("[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
                                      " | sched %.1f cd %.1f (%llu reads %.0f KB, game %.1f) vb %llu dt %.1f spr %.1f (%llu, %.0f KB) | jobs %.1f (%u) join %.1f%s\n",
@@ -4169,6 +4196,7 @@ namespace sotc_native
                 std::memcpy(L.sync, g_syncUs, sizeof(L.sync));
                 std::memcpy(L.joinSite, hookjobs::g_lastSiteUs, sizeof(L.joinSite));
                 native_renderer::threads::lastFrame(L.cpu);
+                L.gfx = native_renderer::gfxPresetNow();
                 log76::post();
             }
             else if (print && (period > 50000u || tune.frameLogAll))
@@ -4195,6 +4223,8 @@ namespace sotc_native
                 splits(g_syncUs, hookjobs::g_lastSiteUs, 1.0, split + at, sizeof(split) - at);
                 at = static_cast<int>(std::strlen(split));
                 native_renderer::threads::line(split + at, sizeof(split) - at, 1.0, false, true); // this frame's alone
+                at = static_cast<int>(std::strlen(split));
+                std::snprintf(split + at, sizeof(split) - at, " | gfx %s", native_renderer::presetName(native_renderer::gfxPresetNow())); // round 124
             }
             if (!line76 && print && period > 50000u)
                 native_renderer::logf( "[frame] slow %llu: %.1f ms: hooks %.1f (decode %.1f, %u textures %.0f KB, up %.1f; %u meshes %.0f KB, up %.1f) render %.1f (lock %.1f up %.1f draw %.1f [plan %.1f pass %.1f calls %.1f %u] sweep %.1f, runs %u/%u) present %.1f wait %.1f draws %u targets %u scenes %u (depth %u KB) verts %uk async %u/%u held %u (terrain %u)%s"
@@ -4287,6 +4317,8 @@ namespace sotc_native
                 splits(sum.sync, sum.site, n, avgSplit + at, sizeof(avgSplit) - at);
                 at = static_cast<int>(std::strlen(avgSplit));
                 native_renderer::threads::line(avgSplit + at, sizeof(avgSplit) - at, static_cast<double>(cpuFrames), true);
+                at = static_cast<int>(std::strlen(avgSplit));
+                std::snprintf(avgSplit + at, sizeof(avgSplit) - at, " | gfx %s", native_renderer::presetName(native_renderer::gfxPresetNow())); // round 124
                 cpuFrames = 0;
                 native_renderer::logf( "[frame] %llu: %.1f ms (%.1f fps, slowest %.1f) | game %.1f hooks %.1f (decode %.2f tex up %.2f mesh up %.2f) render %.1f present %.1f wait %.1f%s | "
                              "draws %.0f targets %.1f textures %.2f (%.0f KB) meshes %.0f (%.0f KB) | jobs %.1f join %.1f | held %llu (terrain %llu) pictures held %llu%s\n",

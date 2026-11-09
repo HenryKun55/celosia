@@ -98,6 +98,8 @@ namespace
             {"About", "Sobre"},
             {"Renderer", "Gráficos"},
             {"Quality", "Qualidade"},
+            {"Graphics", "Gráficos"},
+            {"Frame rate", "Quadros"},
             {"Debug", "Depuração"},
             {"Exact transparency", "Transparências precisas"},
             {"Show FPS", "Mostrar FPS"},
@@ -182,15 +184,16 @@ namespace
         {kLanguage, "Language", "Language of this menu. Automatic follows the system language."},
         {kQuit, "Quit game", "Closes the game. Unsaved progress is lost."},
     };
-    // The Quality, Renderer and Debug tabs list native_renderer::tuningItems()
+    // The Graphics, Frame rate and Debug tabs list native_renderer::tuningItems()
     // (the same list as the Mac's F10 panel), each with a last "Defaults" row:
-    // Quality the preset, resolution, filtering...; Debug what to draw at
-    // all, the layers; Renderer the rest.
+    // Graphics (round 124; the Quality tab before) the preset, then every
+    // item it sets in its group (TuningItem::group) under a heading row;
+    // Debug what to draw at all, the layers; Frame rate the rest.
     constexpr int kQualityTab = 1, kRendererTab = 2, kDebugTab = 3;
     const Tab kTabs[] = {
         {"Video", kVideoItems, 3},
-        {"Quality", nullptr, -1},
-        {"Renderer", nullptr, -1},
+        {"Graphics", nullptr, -1},
+        {"Frame rate", nullptr, -1},
         {"Debug", nullptr, -1},
         {"Sound", kSoundItems, 1},
         {"System", kSystemItems, 2},
@@ -198,6 +201,27 @@ namespace
     };
     constexpr int kTabCount = 7;
     int g_tabNow = 0; // the tab the renderer helpers below list
+
+    // Round 124: a heading row of the Graphics tab is -kHeading - group.
+    constexpr int kHeading = 10;
+    bool isHeading(int row) { return row <= -kHeading; }
+    const char *groupName(int group)
+    {
+        static const char *en[] = {"", "", "Resolution & filtering", "Lighting & post", "Shadows", "Fog", "Effects & particles", "Distance & detail",
+                                   "Performance cuts (not in any preset)"};
+        static const char *pt[] = {"", "", "Resolução e filtro", "Luz e pós-processamento", "Sombras", "Névoa", "Efeitos e partículas", "Distância e detalhe",
+                                   "Cortes de desempenho (fora das predefinições)"};
+        group = std::clamp(group, 0, 8);
+        return portuguese() ? pt[group] : en[group];
+    }
+    const char *groupHelp(int group)
+    {
+        if (group == 8)
+            return portuguese() ? "Cortes que mudam o ritmo da câmera ou das poses distantes: nenhuma predefinição liga estes; cada um só à mão."
+                                : "Cuts that change the camera's or distant poses' timing: no preset turns these on; each only by hand.";
+        return portuguese() ? "Itens que a predefinição gráfica ajusta. Todos valem na hora (nenhum precisa reiniciar)."
+                            : "Items the graphics preset sets. All apply at once (none needs a restart).";
+    }
 
     // The list's items of a tuning tab.
     const std::vector<int> &tuningRows(int tab)
@@ -207,7 +231,24 @@ namespace
         {
             const auto &items = native_renderer::tuningItems();
             for (int i = 0; i < static_cast<int>(items.size()); ++i)
-                (items[i].debug ? dbg : (items[i].quality ? quality : normal)).push_back(i);
+                if (!items[i].quality)
+                    (items[i].debug ? dbg : normal).push_back(i);
+            // The Graphics tab by group, a heading before each (the preset alone first).
+            for (int group = 1; group <= 8; ++group)
+            {
+                bool any = false;
+                for (int i = 0; i < static_cast<int>(items.size()); ++i)
+                    if (items[i].quality && items[i].group == group && native_renderer::tuningApplies(items[i])) // (Metal-only items not listed on the Vita)
+                    {
+                        if (!any && group > 1)
+                            quality.push_back(-kHeading - group);
+                        any = true;
+                        quality.push_back(i);
+                    }
+            }
+            for (int i = 0; i < static_cast<int>(items.size()); ++i)
+                if (items[i].quality && (items[i].group < 1 || items[i].group > 8))
+                    quality.push_back(i);
         }
         return tab == kDebugTab ? dbg : (tab == kQualityTab ? quality : normal);
     }
@@ -219,7 +260,8 @@ namespace
         return isTuningTab(tab) ? static_cast<int>(tuningRows(tab).size()) + 1 : kTabs[tab].count;
     }
 
-    // Row i of the current tuning tab -> the list's item (or -1: the reset row).
+    // Row i of the current tuning tab -> the list's item (or -1: the reset
+    // row; -kHeading - group: a heading).
     int tuningIndex(int i)
     {
         const auto &rows = tuningRows(g_tabNow);
@@ -229,6 +271,8 @@ namespace
     const char *rendererLabel(int i)
     {
         const int k = tuningIndex(i);
+        if (isHeading(k))
+            return groupName(-k - kHeading);
         if (k < 0)
             return portuguese() ? "Restaurar padrões" : "Reset to defaults";
         const auto &item = native_renderer::tuningItems()[k];
@@ -238,8 +282,11 @@ namespace
     const char *rendererHelp(int i)
     {
         const int k = tuningIndex(i);
+        if (isHeading(k))
+            return groupHelp(-k - kHeading);
         if (k < 0)
-            return portuguese() ? "Volta todos os ajustes do renderer aos valores padrão." : "Puts every renderer adjustment back to its default.";
+            return portuguese() ? "Volta todos os ajustes do renderer aos valores padrão (a predefinição Alto)."
+                                : "Puts every renderer adjustment back to its default (the High preset).";
         const auto &item = native_renderer::tuningItems()[k];
         if (!native_renderer::tuningApplies(item))
         {
@@ -263,6 +310,8 @@ namespace
             v = T(v.c_str());
         if (!native_renderer::tuningApplies(item)) // listed, but this renderer ignores it
             v += portuguese() ? (item.backends == 1 ? " (só Metal)" : " (só OpenGL)") : (item.backends == 1 ? " (Metal only)" : " (OpenGL only)");
+        if (item.restart)
+            v += portuguese() ? " (reiniciar)" : " (restart)";
         return v;
     }
 
@@ -311,7 +360,7 @@ namespace
         FILE *f = std::fopen(kSettingsPath, "w");
         if (!f)
             return;
-        std::fprintf(f, "settings_version=38\n");
+        std::fprintf(f, "settings_version=39\n");
         std::fprintf(f, "exact_alpha=%d\nshow_fps=%d\nscreen=%d\nvolume=%d\nlanguage=%d\n", g_settings.exactAlpha ? 1 : 0,
                      g_settings.showFps ? 1 : 0, g_settings.screenMode.load(), g_settings.volume.load(), g_settings.language.load());
         for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
@@ -323,14 +372,17 @@ namespace
             // name) the sac_* values are the rotation's, not the player's:
             // the file's own value kept (or the key left out).
             static const bool abCuts = std::getenv("SOTC_AB_FLAG") && std::strstr(std::getenv("SOTC_AB_FLAG"), "sac");
-            if (abCuts && !std::strncmp(item.key, "sac_", 4))
+            // Round 124: the same under the presets' rotation (gfx124preset)
+            // for the preset and every item it sets.
+            static const bool abGfx = std::getenv("SOTC_AB_FLAG") && std::strstr(std::getenv("SOTC_AB_FLAG"), "gfx124preset");
+            if ((abCuts && !std::strncmp(item.key, "sac_", 4)) || (abGfx && (item.inPreset || item.number == &native_renderer::Tuning::preset)))
             {
                 const KeptValue *file = findKept(g_fileValues, item.key);
                 if (!file)
                     continue;
                 value = file->value;
             }
-            else if (item.env && std::getenv(item.env))
+            else if (native_renderer::tuningFromEnv(item))
             {
                 // Set by its variable at start: saved only once changed here.
                 const KeptValue *start = findKept(g_startValues, item.key);
@@ -521,6 +573,14 @@ void load()
     const bool beforeBodyShadows = !version || version->value < 38.0;
     if (beforeBodyShadows)
         std::fprintf(stderr, "[settings] %s is from before round 38: body_shadows in it ignored (on by default now)\n", kSettingsPath);
+    // Round 124: the Graphics page's five presets (Off .. Max) under a new
+    // key (gfx_preset); a file from before keeps every item's own value (the
+    // preset shown is the one they match: the defaults are High), its
+    // quality_preset (Low .. Ultra, 0 .. 3) is not read.
+    const bool beforeGfxPresets = !version || version->value < 39.0;
+    if (beforeGfxPresets)
+        std::fprintf(stderr, "[settings] %s is from before round 124: its quality_preset is not read (gfx_preset Off..Max now), every item keeps its value\n",
+                     kSettingsPath);
     for (const KeptValue &kv : g_fileValues)
     {
         const char *key = kv.key.c_str();
@@ -531,6 +591,8 @@ void load()
         if (beforeExactFog && !std::strcmp(key, "fog_amount"))
             continue;
         if (beforeBodyShadows && !std::strcmp(key, "body_shadows"))
+            continue;
+        if (beforeGfxPresets && !std::strcmp(key, "quality_preset"))
             continue;
         if (native_renderer::tuningRestore(key, number))
             continue;
@@ -629,10 +691,16 @@ void update()
     {
         g_item = (g_item + (pressed(kDown) ? 1 : count - 1)) % count;
         g_quitArmed = false;
+        // Round 124: over the Graphics tab's headings.
+        g_tabNow = g_tab;
+        for (int guard = 0; isTuningTab(g_tab) && isHeading(tuningIndex(g_item)) && guard < count; ++guard)
+            g_item = (g_item + (pressed(kDown) ? 1 : count - 1)) % count;
     }
     if (isTuningTab(g_tab))
     {
         g_tabNow = g_tab;
+        if (isHeading(tuningIndex(g_item)))
+            return;
         int dir = (pressed(kCross) || pressed(kRight)) ? 1 : (pressed(kLeft) ? -1 : 0);
         {
             // An action (Mark this moment) fires once per press of X only:
@@ -828,6 +896,13 @@ void draw(int screenWidth, int screenHeight)
         for (int i = first; i < count && i < first + rows; ++i)
         {
             const int y = listY + (i - first) * size * 3 / 2;
+            if (renderer && isHeading(tuningIndex(i)))
+            {
+                // Round 124: a group's heading (not selectable).
+                DrawText(rendererLabel(i), boxX + pad / 2, y + (size - small) / 2, small, accent);
+                DrawRectangle(boxX + pad / 2, y + size + size / 8, boxW - pad, 1, line);
+                continue;
+            }
             if (i == g_item)
                 DrawRectangle(boxX + pad / 2, y - size / 4, boxW - pad, size * 3 / 2, highlight);
             DrawText(renderer ? rendererLabel(i) : T(tab.items[i].label), boxX + pad, y, size, i == g_item ? text : dim);

@@ -54,12 +54,10 @@ namespace native_renderer
     Tuning defaultTuning()
     {
         Tuning d;
-        // The Mac: High (render scale 3); the Vita: Medium (the PS2's 512 x 448).
-#if defined(__APPLE__)
+        // Round 124: High on both (each platform's default look: the Mac's
+        // 3x, the Vita's 1x, the PS2's 512 x 448; the Vita's High also has
+        // round 36's particle sacrifice on, as its default had).
         applyPreset(d, kPresetHigh);
-#else
-        applyPreset(d, kPresetMedium);
-#endif
 #if defined(__vita__)
         // Copies of the picture made mid-frame came out white in Vita3K when
         // the picture was taken up again after them: drawn again instead, so
@@ -89,19 +87,20 @@ namespace native_renderer
         // Round 37 had the body shadows off by default here until measured;
         // round 38 turns them on (Tuning::bodyShadows' default, a menu item).
         // Round 36: the particle sacrifice on by default (half the emitters'
-        // work in particle-heavy scenes); the coarser detail is a toggle only
-        // (no game-thread saving measured on the route).
-        d.sacParticles = true;
+        // work in particle-heavy scenes): the Vita's High preset has it.
 #endif
         return d;
     }
 
-    // The quality items' variables (over a preset).
-    static void qualityFromEnv(Tuning &d)
+    // Round 124: the variables of the preset items, each only when set (over
+    // a preset: at start after SOTC_PRESET, and after a saved preset is read).
+    static void presetEnv(Tuning &d)
     {
+        auto on = [](const char *name) { return std::getenv(name) != nullptr; };
         auto number = [](const char *name, float fallback) { return std::getenv(name) ? static_cast<float>(std::atof(std::getenv(name))) : fallback; };
+        auto flag = [](const char *name) { return std::atoi(std::getenv(name)) != 0; };
         d.renderScale = std::clamp(number("SOTC_RENDER_SCALE", d.renderScale), kMinRenderScale, kMaxRenderScale);
-        if (std::getenv("SOTC_MSAA")) // samples: 1/2/4/8
+        if (on("SOTC_MSAA")) // samples: 1/2/4/8
         {
             const int samples = std::atoi(std::getenv("SOTC_MSAA"));
             d.msaa = samples >= 8 ? 3.0f : samples >= 4 ? 2.0f : samples >= 2 ? 1.0f : 0.0f;
@@ -109,6 +108,52 @@ namespace native_renderer
         d.textureFilter = std::clamp(std::round(number("SOTC_TEXTURE_FILTER", d.textureFilter)), 0.0f, 6.0f);
         d.modelDetail = std::clamp(std::round(number("SOTC_MODEL_DETAIL", d.modelDetail)), 0.0f, 2.0f);
         d.effectDetail = std::clamp(std::round(number("SOTC_EFFECT_DETAIL", d.effectDetail)), 0.0f, 2.0f);
+        if (on("SOTC_BLOOM_SCALE"))
+        {
+            const float strength = number("SOTC_BLOOM_SCALE", d.bloomStrength);
+            d.bloom = strength > 0.0f;
+            if (d.bloom)
+                d.bloomStrength = strength;
+        }
+        d.bloomRounds = number("SOTC_BLOOM_ROUNDS", d.bloomRounds);
+        d.bloomSpread = number("SOTC_BLOOM_SPREAD", d.bloomSpread);
+        if (on("SOTC_NATIVE_NOVFOG"))
+            d.vertexFog = false;
+        d.vertexFogAmount = number("SOTC_FOG_AMOUNT", d.vertexFogAmount);
+        if (on("SOTC_NATIVE_ZFOG"))
+            d.zFog = flag("SOTC_NATIVE_ZFOG");
+        for (const auto &[name, field] : {std::pair<const char *, bool Tuning::*>{"SOTC_NATIVE_NOGLOW", &Tuning::glow}, {"SOTC_NATIVE_NODOF", &Tuning::depthOfField},
+                                          {"SOTC_NATIVE_NOSHADOWS", &Tuning::shadows}, {"SOTC_NATIVE_NOPTCL", &Tuning::particles}, {"SOTC_NATIVE_NOSBLUR", &Tuning::screenBlur},
+                                          {"SOTC_NATIVE_NOFEEDBACK", &Tuning::feedback}, {"SOTC_NATIVE_NOREFLECT", &Tuning::reflections},
+                                          {"SOTC_NATIVE_NOREFRACT", &Tuning::refraction}})
+            if (on(name))
+                d.*field = false;
+        if (on("SOTC_NATIVE_NOHAZE"))
+            d.heatHaze = !flag("SOTC_NATIVE_NOHAZE");
+        if (on("SOTC_BODY_SHADOWS"))
+            d.bodyShadows = flag("SOTC_BODY_SHADOWS");
+        if (on("SOTC_ALPHA_TEST"))
+            d.alphaTest = flag("SOTC_ALPHA_TEST");
+        if (on("SOTC_GLOW_VITA"))
+            d.glowVita = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_GLOW_VITA")), 0, 2));
+        if (on("SOTC_SACRIFICES") && !flag("SOTC_SACRIFICES"))
+        {
+            d.sacParticles = false;
+            d.sacLod = false;
+            d.sacCamColl = d.sacFarChara = d.sacFxHalf = d.sacDrawDist = false;
+        }
+        if (on("SOTC_SAC_LOD"))
+            d.sacLod = flag("SOTC_SAC_LOD");
+        if (on("SOTC_SAC_PARTICLES"))
+            d.sacParticles = flag("SOTC_SAC_PARTICLES");
+        // Round 65: the Quality menu's cuts. SOTC_SAC_MAX=1 all four (the
+        // menu's "Max performance"), each one's own variable over it.
+        if (on("SOTC_SAC_MAX") && flag("SOTC_SAC_MAX"))
+            d.sacCamColl = d.sacFarChara = d.sacFxHalf = d.sacDrawDist = true;
+        for (const auto &[name, field] : {std::pair<const char *, bool Tuning::*>{"SOTC_SAC_CAMCOLL", &Tuning::sacCamColl}, {"SOTC_SAC_FARCHARA", &Tuning::sacFarChara},
+                                          {"SOTC_SAC_FX", &Tuning::sacFxHalf}, {"SOTC_SAC_DRAWDIST", &Tuning::sacDrawDist}})
+            if (on(name))
+                d.*field = flag(name);
     }
 
     Tuning *g_tuning = nullptr;
@@ -121,32 +166,11 @@ namespace native_renderer
             auto number = [](const char *name, float fallback) { return std::getenv(name) ? static_cast<float>(std::atof(std::getenv(name))) : fallback; };
             // The preset first; a variable for one of its items overrides it.
             if (on("SOTC_PRESET"))
-                applyPreset(d, std::clamp(std::atoi(std::getenv("SOTC_PRESET")), 0, static_cast<int>(kPresetUltra)));
-            qualityFromEnv(d);
-            const float strength = number("SOTC_BLOOM_SCALE", d.bloomStrength);
-            d.bloom = strength > 0.0f;
-            if (d.bloom)
-                d.bloomStrength = strength;
-            d.bloomRounds = number("SOTC_BLOOM_ROUNDS", d.bloomRounds);
-            d.bloomSpread = number("SOTC_BLOOM_SPREAD", 1.0f);
-            d.vertexFog = !on("SOTC_NATIVE_NOVFOG");
-            d.vertexFogAmount = number("SOTC_FOG_AMOUNT", d.vertexFogAmount);
-            d.zFog = !on("SOTC_NATIVE_ZFOG") || std::atoi(std::getenv("SOTC_NATIVE_ZFOG")) != 0;
-            d.glow = !on("SOTC_NATIVE_NOGLOW");
-            d.depthOfField = !on("SOTC_NATIVE_NODOF");
-            d.shadows = !on("SOTC_NATIVE_NOSHADOWS");
-            if (on("SOTC_BODY_SHADOWS"))
-                d.bodyShadows = std::atoi(std::getenv("SOTC_BODY_SHADOWS")) != 0;
+                applyPreset(d, std::clamp(std::atoi(std::getenv("SOTC_PRESET")), 0, static_cast<int>(kPresetMax)));
+            presetEnv(d);
             d.shadowAllSides = on("SOTC_SHADOW_ALLSIDES") && std::atoi(std::getenv("SOTC_SHADOW_ALLSIDES")) != 0;
             if (on("SOTC_BG_DEPTH"))
                 d.backgroundDepth = std::atoi(std::getenv("SOTC_BG_DEPTH")) != 0;
-            if (on("SOTC_ALPHA_TEST"))
-                d.alphaTest = std::atoi(std::getenv("SOTC_ALPHA_TEST")) != 0;
-            d.particles = !on("SOTC_NATIVE_NOPTCL");
-            d.screenBlur = !on("SOTC_NATIVE_NOSBLUR");
-            d.feedback = !on("SOTC_NATIVE_NOFEEDBACK");
-            d.reflections = !on("SOTC_NATIVE_NOREFLECT");
-            d.refraction = !on("SOTC_NATIVE_NOREFRACT");
             d.mipmaps = !on("SOTC_NATIVE_NOMIPS");
             d.textureScroll = !on("SOTC_NATIVE_NOROW");
             d.rawMirror = on("SOTC_RAW_MIRROR");
@@ -156,8 +180,6 @@ namespace native_renderer
             d.frameLogAll = on("SOTC_FRAME_LOG_ALL");
             d.perfOverlay = on("SOTC_PERF_OVERLAY") && std::atoi(std::getenv("SOTC_PERF_OVERLAY")) != 0;
             d.audioLog = static_cast<float>(std::clamp(ps2x::iop::audio_stats::levelFromEnv(), 0, 2));
-            if (on("SOTC_GLOW_VITA"))
-                d.glowVita = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_GLOW_VITA")), 0, 2));
             if (on("SOTC_BLOOM_SAMEFRAME"))
                 d.bloomSameFrame = std::atoi(std::getenv("SOTC_BLOOM_SAMEFRAME")) != 0;
             if (on("SOTC_HOLD_FRAMES"))
@@ -170,24 +192,6 @@ namespace native_renderer
                 d.ps2Lists = std::atoi(std::getenv("SOTC_PS2_LISTS")) != 0;
             if (on("SOTC_GPU_SKIN"))
                 d.gpuSkinning = std::atoi(std::getenv("SOTC_GPU_SKIN")) != 0;
-            if (on("SOTC_SACRIFICES") && std::atoi(std::getenv("SOTC_SACRIFICES")) == 0)
-            {
-                d.sacParticles = false;
-                d.sacLod = false;
-                d.sacCamColl = d.sacFarChara = d.sacFxHalf = d.sacDrawDist = false;
-            }
-            if (on("SOTC_SAC_LOD"))
-                d.sacLod = std::atoi(std::getenv("SOTC_SAC_LOD")) != 0;
-            if (on("SOTC_SAC_PARTICLES"))
-                d.sacParticles = std::atoi(std::getenv("SOTC_SAC_PARTICLES")) != 0;
-            // Round 65: the Quality menu's cuts. SOTC_SAC_MAX=1 all four (the
-            // menu's "Max performance"), each one's own variable over it.
-            if (on("SOTC_SAC_MAX") && std::atoi(std::getenv("SOTC_SAC_MAX")) != 0)
-                d.sacCamColl = d.sacFarChara = d.sacFxHalf = d.sacDrawDist = true;
-            for (const auto &[name, flag] : {std::pair<const char *, bool Tuning::*>{"SOTC_SAC_CAMCOLL", &Tuning::sacCamColl}, {"SOTC_SAC_FARCHARA", &Tuning::sacFarChara},
-                                             {"SOTC_SAC_FX", &Tuning::sacFxHalf}, {"SOTC_SAC_DRAWDIST", &Tuning::sacDrawDist}})
-                if (on(name))
-                    d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_CAP30"))
                 d.frameCap30 = std::atoi(std::getenv("SOTC_CAP30")) != 0;
             if (on("SOTC_CAP20")) // round 107: Frame rate, Steady 20 (1) or Auto (0)
@@ -263,6 +267,8 @@ namespace native_renderer
             add("SOTC_BLOOM_SPREAD=" + number(t.bloomSpread));
         if (!t.vertexFog)
             add("SOTC_NATIVE_NOVFOG=1");
+        if (!t.heatHaze)
+            add("SOTC_NATIVE_NOHAZE=1");
         if (t.vertexFogAmount != d.vertexFogAmount)
             add("SOTC_FOG_AMOUNT=" + number(t.vertexFogAmount));
         if (!t.zFog)
@@ -350,25 +356,26 @@ namespace native_renderer
     }
 
 #if defined(__vita__)
-#define PS2X_VITA_SCALE_NOTE_EN " On the Vita the resolution goes up to 2x (High and Ultra draw at 2x there: more does not fit in its memory)."
-#define PS2X_VITA_SCALE_NOTE_PT " No Vita a resolução vai até 2x (Alto e Ultra desenham em 2x lá: mais que isso não cabe na memória dele)."
+#define PS2X_VITA_SCALE_NOTE_EN " On the Vita: Off 0.5x, Low 0.75x, Medium and High 1x (the PS2's 512 x 448), Max 1.5x (2x, the Resolution item's most, may not fit in its memory)."
+#define PS2X_VITA_SCALE_NOTE_PT " No Vita: Desligado 0,5x, Baixo 0,75x, Médio e Alto 1x (os 512 x 448 do PS2), Máximo 1,5x (2x, o máximo do item Resolução, pode não caber na memória dele)."
 #else
 #define PS2X_VITA_SCALE_NOTE_EN ""
 #define PS2X_VITA_SCALE_NOTE_PT ""
 #endif
+    bool isPresetField(const TuningItem &item); // (round 124, below)
     const std::vector<TuningItem> &tuningItems()
     {
         static const std::vector<TuningItem> items = []
         {
         std::vector<TuningItem> v = {
-            {"quality_preset", "Graphics preset", "Predefinição gráfica",
-             "Sets resolution, anti-aliasing, texture filtering, model detail and effect detail at once. Low: half resolution (faster). "
-             "Medium: the PS2's 512 x 448 (the Vita's default). High: 3x (the Mac's default). Ultra: 4x, 4x MSAA, 16x anisotropic, finest models, "
-             "high effect detail (Mac). Changing any of those makes it Custom." PS2X_VITA_SCALE_NOTE_EN,
-             "Ajusta resolução, anti-aliasing, filtro de texturas, detalhe dos modelos e dos efeitos de uma vez. Baixo: metade da resolução (mais rápido). "
-             "Médio: os 512 x 448 do PS2 (o padrão do Vita). Alto: 3x (o padrão do Mac). Ultra: 4x, MSAA 4x, anisotrópico 16x, modelos mais detalhados, "
-             "efeitos em alto detalhe (Mac). Mudar qualquer um deles vira Personalizado." PS2X_VITA_SCALE_NOTE_PT,
-             nullptr, &Tuning::preset, 0.0f, 4.0f, 1.0f, "SOTC_PRESET"},
+            {"gfx_preset", "Graphics preset", "Predefinição gráfica",
+             "Sets every graphics item below at once. Off: every optional effect off and the least resolution (the floor, to measure). "
+             "Low and Medium: progressively cheaper. High: the default look. Max: everything at its best (the most resolution, the finest models, "
+             "every particle). Gameplay is the same in all of them. Changing any item below makes it Custom." PS2X_VITA_SCALE_NOTE_EN,
+             "Ajusta todos os itens gráficos abaixo de uma vez. Desligado: todo efeito opcional desligado e a menor resolução (o piso, pra medir). "
+             "Baixo e Médio: cada vez mais leves. Alto: o visual padrão. Máximo: tudo no melhor (mais resolução, modelos mais detalhados, "
+             "todas as partículas). A jogabilidade é a mesma em todos. Mudar qualquer item abaixo vira Personalizado." PS2X_VITA_SCALE_NOTE_PT,
+             nullptr, &Tuning::preset, 0.0f, 5.0f, 1.0f, "SOTC_PRESET"},
             {"render_scale", "Resolution", "Resolução",
 #if defined(__vita__)
              "The picture is drawn at 512 x 448 times this: 0.5 is faster, 1 is the PS2's, 1.5 and 2 are sharper. At most 2 on the Vita (more does not fit in its memory).",
@@ -377,7 +384,7 @@ namespace native_renderer
              "The picture is drawn at 512 x 448 times this: 0.5 is faster, 1 is the PS2's, 2 to 4 are sharper.",
              "A imagem é desenhada em 512 x 448 vezes este valor: 0,5 é mais rápido, 1 é a do PS2, 2 a 4 ficam mais nítidas.",
 #endif
-             nullptr, &Tuning::renderScale, kMinRenderScale, kMaxRenderScale, 0.5f, "SOTC_RENDER_SCALE"},
+             nullptr, &Tuning::renderScale, kMinRenderScale, kMaxRenderScale, 0.25f, "SOTC_RENDER_SCALE"},
             {"msaa", "Anti-aliasing (MSAA)", "Anti-aliasing (MSAA)",
              "Metal (Mac) only: smooths the edges of the 3D models with 2, 4 or 8 samples a pixel (as many as the GPU has). Costs GPU memory and time, more at a high resolution. "
              "OpenGL / Vita: not available.",
@@ -443,6 +450,9 @@ namespace native_renderer
              &Tuning::reflections, nullptr, 0, 1, 1, "SOTC_NATIVE_NOREFLECT"},
             {"refraction", "Water refraction", "Refração da água", "The scene seen through water.", "O cenário visto através da água.",
              &Tuning::refraction, nullptr, 0, 1, 1, "SOTC_NATIVE_NOREFRACT"},
+            {"heat_haze", "Heat haze", "Distorção de calor", "The shimmering air the screen copy makes (behind the bird colossus, some fights). The underwater ripple stays.",
+             "O ar tremulando feito com a cópia da tela (atrás do colosso pássaro, algumas lutas). A ondulação embaixo d'água continua.",
+             &Tuning::heatHaze, nullptr, 0, 1, 1, "SOTC_NATIVE_NOHAZE"},
             // (Round 62: a menu item on the Vita again, as the user asked; round
             // 64: off by default (the user's choice), a saved value honoured,
             // SOTC_CAP30 over both. On, it caps only the heavy frames: above 150
@@ -736,11 +746,75 @@ namespace native_renderer
             v.push_back(item);
         }
         // The groups, and where each item changes anything.
+        // Round 124: the Graphics page's groups, and each item's cost (said
+        // after its help).
+        struct GroupOf
+        {
+            const char *key;
+            uint8_t group;
+            const char *cost, *costPt;
+        };
+        static const GroupOf kGroups[] = {
+            {"gfx_preset", 1, nullptr, nullptr},
+            {"render_scale", 2, "Cost: GPU (pixels: 0.5x draws a quarter of 1x's, 2x four times) and GPU memory.",
+             "Custo: GPU (pixels: 0,5x desenha um quarto dos de 1x, 2x quatro vezes) e memória da GPU."},
+            {"texture_filter", 2, "Cost: GPU, small (texture reads).", "Custo: GPU, pequeno (leitura de texturas)."},
+            {"msaa", 2, nullptr, nullptr},
+            {"effect_detail", 2, nullptr, nullptr},
+            {"bloom", 3, "Cost: GPU (the bloom chain's small passes and a full-screen composite).", "Custo: GPU (as passadas pequenas do bloom e uma composição na tela inteira)."},
+            {"bloom_strength", 3, "Cost: none.", "Custo: nenhum."},
+            {"bloom_rounds", 3, nullptr, nullptr},
+            {"bloom_spread", 3, nullptr, nullptr},
+            {"glow", 3, "Cost: GPU, only in scenes with the glow layer.", "Custo: GPU, só nas cenas com a camada de brilho."},
+            {"dbg_glow_vita", 3, "Cost: GPU; Plain is the cheapest.", "Custo: GPU; Simples é o mais leve."},
+            {"dof", 3, "Cost: GPU (a 256 x 256 copy, its blur and a full-screen pass), in the scenes that use it.",
+             "Custo: GPU (uma cópia 256 x 256, o borrão dela e uma passada na tela inteira), nas cenas que usam."},
+            {"screen_blur", 3, "Cost: GPU (a copy of the picture and a full-screen pass) while it is on screen.",
+             "Custo: GPU (uma cópia da imagem e uma passada na tela inteira) enquanto aparece."},
+            {"feedback", 3, "Cost: GPU, only in the scenes that use it.", "Custo: GPU, só nas cenas que usam."},
+            {"shadows", 4, "Cost: GPU (the shadow mask: reduction, blur, darkening) and the model worker.",
+             "Custo: GPU (a máscara de sombra: redução, borrão, escurecimento) e a thread dos modelos."},
+            {"body_shadows", 4, "Cost: GPU (stencil volumes) and the model worker (volumes built each frame).",
+             "Custo: GPU (volumes de stencil) e a thread dos modelos (volumes montados a cada quadro)."},
+            {"vertex_fog", 5, "Cost: GPU (fogged pixels read the sky image).", "Custo: GPU (pixels com névoa leem a imagem do céu)."},
+            {"fog_amount", 5, "Cost: none.", "Custo: nenhum."},
+            {"zfog", 5, "Cost: GPU (a full-screen pass) where there is depth fog.", "Custo: GPU (uma passada na tela inteira) onde há névoa de profundidade."},
+            {"particles", 6, "Cost: render thread and GPU (drawing only; the game still moves them).",
+             "Custo: thread de render e GPU (só o desenho; o jogo continua movendo elas)."},
+            {"sac_particles", 6, nullptr, nullptr},
+            {"sac_fx", 6, nullptr, nullptr},
+            {"reflections", 6, "Cost: GPU and render thread (the scene drawn again mirrored) where water or polished floors are in view.",
+             "Custo: GPU e thread de render (o cenário desenhado de novo espelhado) onde há água ou chão polido à vista."},
+            {"refraction", 6, "Cost: GPU (a copy of the picture) where water is in view.", "Custo: GPU (uma cópia da imagem) onde há água à vista."},
+            {"heat_haze", 6, "Cost: GPU (a copy of the picture), only where there is haze.", "Custo: GPU (uma cópia da imagem), só onde há distorção."},
+            {"alpha_test", 6, "Cost: GPU (a second pass for cut-out edges).", "Custo: GPU (uma segunda passada nas bordas recortadas)."},
+            {"model_detail", 7, "Cost: GPU and render thread (more vertices).", "Custo: GPU e thread de render (mais vértices)."},
+            {"sac_lod", 7, nullptr, nullptr},
+            {"sac_drawdist", 7, nullptr, nullptr},
+            {"sac_camcoll", 8, nullptr, nullptr},
+            {"sac_farchara", 8, nullptr, nullptr},
+            {"sac_max", 8, nullptr, nullptr},
+        };
+        static std::deque<std::string> helps; // (stable addresses)
+        for (TuningItem &item : v)
+            for (const GroupOf &g : kGroups)
+                if (!std::strcmp(item.key, g.key))
+                {
+                    item.group = g.group;
+                    item.quality = true;
+                    item.debug = false;
+                    if (g.cost)
+                    {
+                        helps.push_back(std::string(item.help) + " " + g.cost);
+                        item.help = helps.back().c_str();
+                        helps.push_back(std::string(item.helpPt) + " " + g.costPt);
+                        item.helpPt = helps.back().c_str();
+                    }
+                }
         for (TuningItem &item : v)
         {
             const std::string key = item.key;
-            item.quality = key == "quality_preset" || key == "render_scale" || key == "msaa" || key == "texture_filter" || key == "model_detail" ||
-                           key == "effect_detail" || key == "sac_camcoll" || key == "sac_farchara" || key == "sac_fx" || key == "sac_drawdist" || key == "sac_max";
+            item.inPreset = isPresetField(item);
             if (key == "msaa" || key == "effect_detail")
                 item.backends = 1;
             if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw_mode0" || key == "dbg_glow_vita" || key == "dbg_bloom_sameframe" ||
@@ -753,22 +827,80 @@ namespace native_renderer
         return items;
     }
 
-    // The presets' values: render scale, MSAA, texture filter, model
-    // detail, effect detail. Medium is the Vita's old default, High the
-    // Mac's (nothing changes until another is picked).
+    // Round 124: the presets' items and values. Every item of the Graphics
+    // page a preset sets, in the [gfx124] line's order (its name there).
     namespace
     {
-        struct PresetValues
+        struct PresetField
         {
-            float renderScale, msaa, textureFilter, modelDetail, effectDetail;
+            const char *name;
+            bool Tuning::*toggle;
+            float Tuning::*number;
         };
-        constexpr PresetValues kPresets[4] = {
-            {0.5f, 0.0f, 1.0f, 0.0f, 0.0f}, // Low: half the PS2's resolution, bilinear
-            {1.0f, 0.0f, 2.0f, 0.0f, 0.0f}, // Medium: the PS2's 512 x 448
-            {3.0f, 0.0f, 2.0f, 0.0f, 0.0f}, // High: 3x
-            {4.0f, 2.0f, 6.0f, 2.0f, 1.0f}, // Ultra: 4x, 4x MSAA, 16x anisotropic, the finest models, high effect detail
+        constexpr PresetField kPresetFields[] = {
+            {"render_scale", nullptr, &Tuning::renderScale}, {"msaa", nullptr, &Tuning::msaa}, {"texture_filter", nullptr, &Tuning::textureFilter},
+            {"model_detail", nullptr, &Tuning::modelDetail}, {"effect_detail", nullptr, &Tuning::effectDetail}, {"bloom", &Tuning::bloom, nullptr},
+            {"bloom_strength", nullptr, &Tuning::bloomStrength}, {"bloom_rounds", nullptr, &Tuning::bloomRounds}, {"bloom_spread", nullptr, &Tuning::bloomSpread},
+            {"glow", &Tuning::glow, nullptr}, {"glow_vita", nullptr, &Tuning::glowVita}, {"dof", &Tuning::depthOfField, nullptr},
+            {"screen_blur", &Tuning::screenBlur, nullptr}, {"feedback", &Tuning::feedback, nullptr}, {"shadows", &Tuning::shadows, nullptr},
+            {"body_shadows", &Tuning::bodyShadows, nullptr}, {"vertex_fog", &Tuning::vertexFog, nullptr}, {"fog_amount", nullptr, &Tuning::vertexFogAmount},
+            {"zfog", &Tuning::zFog, nullptr}, {"particles", &Tuning::particles, nullptr}, {"sac_particles", &Tuning::sacParticles, nullptr},
+            {"sac_fx", &Tuning::sacFxHalf, nullptr}, {"reflections", &Tuning::reflections, nullptr}, {"refraction", &Tuning::refraction, nullptr},
+            {"heat_haze", &Tuning::heatHaze, nullptr}, {"alpha_test", &Tuning::alphaTest, nullptr}, {"sac_lod", &Tuning::sacLod, nullptr},
+            {"sac_drawdist", &Tuning::sacDrawDist, nullptr},
         };
+        constexpr int kPresetFieldCount = static_cast<int>(sizeof(kPresetFields) / sizeof(kPresetFields[0]));
+        // Columns as kPresetFields: scale, msaa, filter, model, effect | bloom, strength, rounds, spread | glow, glow (Vita), dof,
+        // screen blur, trail | shadows, body shadows | vertex fog, amount, depth fog | particles, fewer particles, effects at
+        // half rate, reflections, refraction, heat haze, alpha test | coarser detail, shorter draw distance.
+        // Effects at half rate (sac_fx) is in none: Vita3K's in-run A/B had Low, which had it, slower on the game thread than
+        // Medium and High (shrine +1.8 ms, route 6 +7 ms p50); it stays an item of its own.
+        // High is each platform's default look (the Mac: 3x; the Vita: 1x and fewer particles, round 36's default there).
+        // The Vita's Max draws at 1.5x: at 2x the picture's targets took GPU memory to 109.5 of Vita3K's 112 MB at the shrine
+        // (1x: 62.5), past the console's 96 (its r119 log: 64.9 of 96 at 1x); 2x stays a choice of the Resolution item.
+        constexpr float kPresetValues[kPresetCustom][kPresetFieldCount] = {
+#if defined(__vita__)
+            {0.5f, 0, 0, 0, 0, /**/ 0, 1, 1, 1, /**/ 0, 0, 0, 0, 0, /**/ 0, 0, /**/ 0, 1, 0, /**/ 0, 1, 0, 0, 0, 0, 0, /**/ 1, 1},  // Off
+            {0.75f, 0, 1, 0, 0, /**/ 0, 1, 1, 1, /**/ 1, 0, 0, 0, 0, /**/ 1, 0, /**/ 1, 1, 1, /**/ 1, 1, 0, 0, 0, 0, 1, /**/ 1, 1}, // Low
+            {1.0f, 0, 2, 0, 0, /**/ 1, 1, 1, 1, /**/ 1, 0, 0, 1, 1, /**/ 1, 1, /**/ 1, 1, 1, /**/ 1, 1, 0, 1, 0, 0, 1, /**/ 1, 0},  // Medium
+            {1.0f, 0, 2, 0, 0, /**/ 1, 1, 1, 1, /**/ 1, 1, 1, 1, 1, /**/ 1, 1, /**/ 1, 1, 1, /**/ 1, 1, 0, 1, 1, 1, 1, /**/ 0, 0},  // High
+            {1.5f, 0, 2, 2, 0, /**/ 1, 1, 1, 1, /**/ 1, 1, 1, 1, 1, /**/ 1, 1, /**/ 1, 1, 1, /**/ 1, 0, 0, 1, 1, 1, 1, /**/ 0, 0},  // Max
+#else
+            {0.5f, 0, 0, 0, 0, /**/ 0, 1, 1, 1, /**/ 0, 0, 0, 0, 0, /**/ 0, 0, /**/ 0, 1, 0, /**/ 0, 1, 0, 0, 0, 0, 0, /**/ 1, 1}, // Off
+            {1.0f, 0, 1, 0, 0, /**/ 0, 1, 1, 1, /**/ 1, 0, 0, 0, 0, /**/ 1, 0, /**/ 1, 1, 1, /**/ 1, 1, 0, 0, 0, 0, 1, /**/ 1, 1}, // Low
+            {2.0f, 0, 2, 0, 0, /**/ 1, 1, 1, 1, /**/ 1, 0, 0, 1, 1, /**/ 1, 1, /**/ 1, 1, 1, /**/ 1, 1, 0, 1, 0, 0, 1, /**/ 1, 0}, // Medium
+            {3.0f, 0, 2, 0, 0, /**/ 1, 1, 1, 1, /**/ 1, 1, 1, 1, 1, /**/ 1, 1, /**/ 1, 1, 1, /**/ 1, 0, 0, 1, 1, 1, 1, /**/ 0, 0}, // High
+            {4.0f, 2, 6, 2, 2, /**/ 1, 1, 1, 1, /**/ 1, 1, 1, 1, 1, /**/ 1, 1, /**/ 1, 1, 1, /**/ 1, 0, 0, 1, 1, 1, 1, /**/ 0, 0}, // Max
+#endif
+        };
+        float presetValue(int preset, int field)
+        {
+            const float v = kPresetValues[preset][field];
+            return kPresetFields[field].number == &Tuning::renderScale ? std::clamp(v, kMinRenderScale, kMaxRenderScale) : v;
+        }
+        float fieldValue(const Tuning &t, int field)
+        {
+            const PresetField &f = kPresetFields[field];
+            return f.toggle ? (t.*f.toggle ? 1.0f : 0.0f) : t.*f.number;
+        }
+    }
 
+    bool isPresetField(const TuningItem &item)
+    {
+        for (const PresetField &f : kPresetFields)
+            if ((f.toggle && f.toggle == item.toggle) || (f.number && f.number == item.number))
+                return true;
+        return false;
+    }
+
+    const char *presetName(int preset)
+    {
+        static const char *names[] = {"Off", "Low", "Medium", "High", "Max", "Custom"};
+        return names[std::clamp(preset, 0, static_cast<int>(kPresetCustom))];
+    }
+
+    namespace
+    {
         // Named values: count, English, Portuguese.
         struct Choices
         {
@@ -777,8 +909,8 @@ namespace native_renderer
         };
         Choices choicesOf(const TuningItem &item)
         {
-            static const char *presetEn[] = {"Low", "Medium", "High", "Ultra", "Custom"};
-            static const char *presetPt[] = {"Baixo", "Médio", "Alto", "Ultra", "Personalizado"};
+            static const char *presetEn[] = {"Off", "Low", "Medium", "High", "Max", "Custom"};
+            static const char *presetPt[] = {"Desligado", "Baixo", "Médio", "Alto", "Máximo", "Personalizado"};
             static const char *msaaEn[] = {"Off", "2x", "4x", "8x"};
             static const char *msaaPt[] = {"Desligado", "2x", "4x", "8x"};
             static const char *filterEn[] = {"Nearest", "Bilinear", "Trilinear", "Anisotropic 2x", "Anisotropic 4x", "Anisotropic 8x", "Anisotropic 16x"};
@@ -798,7 +930,7 @@ namespace native_renderer
             if (item.number == &Tuning::frameRate)
                 return {2, rateEn, ratePt};
             if (item.number == &Tuning::preset)
-                return {5, presetEn, presetPt};
+                return {6, presetEn, presetPt};
             if (item.number == &Tuning::msaa)
                 return {4, msaaEn, msaaPt};
             if (item.number == &Tuning::textureFilter)
@@ -821,20 +953,24 @@ namespace native_renderer
     {
         if (preset < 0 || preset >= kPresetCustom)
             return;
-        const PresetValues &p = kPresets[preset];
-        t.renderScale = std::clamp(p.renderScale, kMinRenderScale, kMaxRenderScale); // the Vita: at most 2x (kMaxRenderScale)
-        t.msaa = p.msaa;
-        t.textureFilter = p.textureFilter;
-        t.modelDetail = p.modelDetail;
-        t.effectDetail = p.effectDetail;
+        for (int i = 0; i < kPresetFieldCount; ++i)
+        {
+            const PresetField &f = kPresetFields[i];
+            const float v = presetValue(preset, i);
+            if (f.toggle)
+                t.*f.toggle = v != 0.0f;
+            else
+                t.*f.number = v;
+        }
         t.preset = static_cast<float>(preset);
     }
 
-    static bool presetMatches(const Tuning &t, int i)
+    static bool presetMatches(const Tuning &t, int preset)
     {
-        const PresetValues &p = kPresets[i];
-        return t.renderScale == std::clamp(p.renderScale, kMinRenderScale, kMaxRenderScale) && t.msaa == p.msaa && t.textureFilter == p.textureFilter &&
-               t.modelDetail == p.modelDetail && t.effectDetail == p.effectDetail;
+        for (int i = 0; i < kPresetFieldCount; ++i)
+            if (fieldValue(t, i) != presetValue(preset, i))
+                return false;
+        return true;
     }
     int matchingPreset(const Tuning &t)
     {
@@ -847,6 +983,48 @@ namespace native_renderer
             if (presetMatches(t, i))
                 return i;
         return kPresetCustom;
+    }
+
+    std::string gfxLine(const Tuning &t)
+    {
+        std::string out = std::string("preset ") + presetName(matchingPreset(t));
+        char b[48];
+        for (int i = 0; i < kPresetFieldCount; ++i)
+        {
+            std::snprintf(b, sizeof(b), " %s=%g", kPresetFields[i].name, static_cast<double>(fieldValue(t, i)));
+            out += b;
+        }
+        return out;
+    }
+
+    void gfxLogIfChanged(unsigned long long frame)
+    {
+        static float last[kPresetFieldCount];
+        static bool logged = false;
+        const Tuning &t = tuning();
+        bool same = logged;
+        for (int i = 0; i < kPresetFieldCount; ++i)
+        {
+            const float v = fieldValue(t, i);
+            same = same && v == last[i];
+            last[i] = v;
+        }
+        if (same)
+            return;
+        const int preset = matchingPreset(t);
+        g_gfxPresetNow.store(preset, std::memory_order_relaxed);
+        std::fprintf(stderr, "[gfx124] frame %llu %s%s\n", frame, logged ? "" : "(start) ", gfxLine(t).c_str());
+        std::fflush(stderr);
+        logged = true;
+    }
+
+    bool tuningFromEnv(const TuningItem &item)
+    {
+        if (item.env && std::getenv(item.env))
+            return true;
+        if (item.inPreset && std::getenv("SOTC_PRESET"))
+            return true;
+        return !std::strncmp(item.key, "sac_", 4) && std::getenv("SOTC_SACRIFICES"); // (round 36: all of them set at start)
     }
 
     int tuningChoices(const TuningItem &item) { return choicesOf(item).count; }
@@ -910,6 +1088,7 @@ namespace native_renderer
         if (item.toggle)
         {
             t.*item.toggle = !(t.*item.toggle);
+            t.preset = static_cast<float>(matchingPreset(t)); // (round 124: saved as the preset shown)
             return;
         }
         if (item.mask)
@@ -919,9 +1098,9 @@ namespace native_renderer
         }
         if (item.number == &Tuning::preset)
         {
-            // Low .. Ultra, round; from Custom to the platform's own.
+            // Off .. Max, round; from Custom to High (the default look).
             int p = matchingPreset(t);
-            p = p == kPresetCustom ? static_cast<int>(defaultTuning().preset) : (p + (dir > 0 ? 1 : kPresetCustom - 1)) % kPresetCustom;
+            p = p == kPresetCustom ? static_cast<int>(kPresetHigh) : (p + (dir > 0 ? 1 : kPresetCustom - 1)) % kPresetCustom;
             applyPreset(t, p);
             return;
         }
@@ -975,9 +1154,7 @@ namespace native_renderer
                 continue;
             if (item.action)
                 return true; // (never saved)
-            if (item.env && std::getenv(item.env))
-                return false;
-            if (!std::strncmp(key, "sac_", 4) && std::getenv("SOTC_SACRIFICES")) // (round 36: all of them set at start)
+            if (tuningFromEnv(item))
                 return false;
             if (item.toggle)
                 tuning().*item.toggle = value != 0.0f;
@@ -988,7 +1165,7 @@ namespace native_renderer
             if (item.number == &Tuning::preset)
             {
                 tuningChanged(item); // the preset (saved first) applies; the items saved after it override,
-                qualityFromEnv(tuning()); // and so do the variables set at start
+                presetEnv(tuning());      // and so do the variables set at start
             }
             tuning().preset = static_cast<float>(matchingPreset(tuning()));
             return true;
@@ -2494,6 +2671,7 @@ namespace native_renderer
         // The menus' Debug group: what is drawn at all.
         const Tuning &t = tuning();
         if (((t.hiddenLayers >> (state.order & 31u)) & 1u) || (state.screen ? !t.draw2D : !t.drawWorld) || (state.overlay && !t.overlays) ||
+            (state.screenCopy && state.order != 19u && !t.heatHaze) || // round 124: the heat haze (layer 19: the underwater ripple, kept)
             (state.blend == Blend::Additive && !t.additive) || (state.blend == Blend::Subtract && !t.subtract))
         {
             if (native_recorder::active())
@@ -2581,6 +2759,7 @@ namespace native_renderer
         }
         const Tuning &t = tuning();
         if (((t.hiddenLayers >> (state.order & 31u)) & 1u) || (state.screen ? !t.draw2D : !t.drawWorld) || (state.overlay && !t.overlays) ||
+            (state.screenCopy && state.order != 19u && !t.heatHaze) || // round 124: the heat haze (layer 19: the underwater ripple, kept)
             (state.blend == Blend::Additive && !t.additive) || (state.blend == Blend::Subtract && !t.subtract))
         {
             if (native_recorder::active())
@@ -2658,10 +2837,10 @@ namespace native_renderer
             static int next = 0;
             if (frames++ % static_cast<uint64_t>(cycle) == 0u)
             {
-                static const char *names[] = {"high", "medium", "low", "ultra", "high+msaa8", "high+aniso16", "high+finest", "high+nearest", "high+effects2"};
+                static const char *names[] = {"high", "medium", "low", "max", "high+msaa8", "high+aniso16", "high+finest", "high+nearest", "high+effects2"};
                 Tuning &t = tuning();
                 const int i = next++ % 9;
-                applyPreset(t, i == 1 ? kPresetMedium : (i == 2 ? kPresetLow : (i == 3 ? kPresetUltra : kPresetHigh)));
+                applyPreset(t, i == 1 ? kPresetMedium : (i == 2 ? kPresetLow : (i == 3 ? kPresetMax : kPresetHigh)));
                 if (i == 4)
                     t.msaa = 3.0f;
                 else if (i == 5)

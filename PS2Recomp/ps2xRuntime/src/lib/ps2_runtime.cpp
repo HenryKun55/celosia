@@ -3390,6 +3390,7 @@ void PS2Runtime::run()
                       << " gameFps=" << (statChains - lastStatChains) / 5.0
                       << " shownFps=" << ps2_stats::presentedFrames.exchange(0) / 5.0
                       << " frames=" << statChains
+                      << " gfx=" << native_renderer::presetName(native_renderer::gfxPresetNow()) // round 124: the Graphics preset
                       << []
                       {
                           // Frame timeline averages (ms): vu1 (its idle part) / gs tail / rest, and GS backend waits.

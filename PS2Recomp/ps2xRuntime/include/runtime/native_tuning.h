@@ -19,7 +19,10 @@ namespace native_renderer
         // Quality (the menus' Quality group). The graphics preset sets these
         // and the render scale together; `preset` is the one they match
         // (kPresetCustom: none), kept up to date by the menus.
-        float preset = 2.0f;        // SOTC_PRESET (0 Low .. 3 Ultra); High on the Mac, Medium on the Vita
+        // Round 124: the Graphics page's preset (kPresetOff .. kPresetMax,
+        // kPresetCustom: none matches) sets every item of presetFields() at
+        // once: resolution, filtering, detail and each optional effect.
+        float preset = 3.0f;        // SOTC_PRESET (0 Off, 1 Low, 2 Medium, 3 High, 4 Max); High is each platform's default look
         float msaa = 0.0f;          // Metal: 0 off, 1 2x, 2 4x, 3 8x samples a pixel, as far as the GPU has them (SOTC_MSAA=0/2/4/8)
         float textureFilter = 2.0f; // 0 nearest, 1 bilinear, 2 trilinear at the game's mip level, 3-6 anisotropic 2x-16x (Metal) (SOTC_TEXTURE_FILTER)
         float modelDetail = 0.0f;   // 0 the game's level of detail, 1 one level finer, 2 always the finest (SOTC_MODEL_DETAIL)
@@ -58,6 +61,10 @@ namespace native_renderer
         bool feedback = true;       // feedbackBlur: the last frame laid over the new one (SOTC_NATIVE_NOFEEDBACK)
         bool reflections = true;    // SOTC_NATIVE_NOREFLECT
         bool refraction = true;     // SOTC_NATIVE_NOREFRACT
+        // Round 124: the heat haze (the screen-copy strips behind the bird,
+        // the fights' shimmer); off: those draws left out (the underwater
+        // view's ripple at layer 19 stays). SOTC_NATIVE_NOHAZE=1.
+        bool heatHaze = true;
 
         // Debugging (the menus' Debug group): what to draw at all.
         uint32_t hiddenLayers = 0;  // bit n: the display list's layer n is not drawn
@@ -722,7 +729,14 @@ namespace native_renderer
         uint32_t Tuning::*mask = nullptr; // or one bit of a mask: on = the bit clear
         int bit = 0;
         bool debug = false;             // listed in the Debug group
-        bool quality = false;           // listed in the Quality group
+        bool quality = false;           // listed in the Graphics page (round 124; was the Quality group)
+        // Round 124: the Graphics page's group (0 none; 1 the preset, 2
+        // resolution & filtering, 3 lighting & post, 4 shadows, 5 fog,
+        // 6 effects & particles, 7 distance & detail, 8 performance cuts that
+        // no preset touches); inPreset: the presets set it.
+        uint8_t group = 0;
+        bool inPreset = false;
+        bool restart = false;           // takes effect only after a restart (none of the Graphics items so far)
         uint8_t backends = 3;           // bit 0: Metal, bit 1: OpenGL (the Vita) - where it changes anything
         // An action instead of a value (the Debug group's "Mark"): run on
         // Cross / left / right, never saved; its value text from `actionText`.
@@ -792,18 +806,38 @@ namespace native_renderer
 #else
     constexpr float kMaxRenderScale = 4.0f;
 #endif
+    // Round 124: Off (every optional effect off, the least resolution: the
+    // floor to measure against), Low, Medium, High (each platform's default
+    // look: the Vita's 1x, the Mac's 3x), Max (everything at its best).
+    // Gameplay is the same in all of them: no preset touches the camera's
+    // checks (sac_camcoll) or the far characters' poses (sac_farchara).
     enum Preset
     {
+        kPresetOff,
         kPresetLow,
         kPresetMedium,
         kPresetHigh,
-        kPresetUltra,
+        kPresetMax,
         kPresetCustom
     };
-    // Sets the render scale and the quality items to a preset's values.
+    // "Off" .. "Max", "Custom".
+    const char *presetName(int preset);
+    // Sets every preset item to a preset's values.
     void applyPreset(Tuning &t, int preset);
     // The preset these values match, or kPresetCustom.
     int matchingPreset(const Tuning &t);
+    // Round 124: the preset items and their values now, one line
+    // ("preset High render_scale=1 texture_filter=2 ..."), for [gfx124].
+    std::string gfxLine(const Tuning &t);
+    // Called once a game frame: a "[gfx124] frame F <gfxLine>" line at the
+    // first call and whenever any preset item changed (the menu, the F10
+    // panel, an A/B); keeps gfxPresetNow() for the frame log's lines.
+    void gfxLogIfChanged(unsigned long long frame);
+    inline std::atomic<int> g_gfxPresetNow{kPresetHigh};
+    inline int gfxPresetNow() { return g_gfxPresetNow.load(std::memory_order_relaxed); }
+    // The item's value came from a variable set at start (its own, or
+    // SOTC_PRESET for a preset item): the menus' save keeps the file's.
+    bool tuningFromEnv(const TuningItem &item);
     // A saved value (0/1 for a switch); false when the key is unknown or
     // its variable was set at start.
     bool tuningRestore(const char *key, float value);
