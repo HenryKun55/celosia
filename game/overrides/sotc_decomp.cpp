@@ -12,6 +12,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -150,7 +151,9 @@ namespace sotc_decomp
             const uint64_t n = c.calls.fetch_add(1, std::memory_order_relaxed);
             // Too deep (a chain of checked functions reached from each
             // other's legs): the recompiled code, unchecked.
-            if (g_depth >= kMaxDepth || (n >= first && n < c.next))
+            // Round 126: SOTC_DIFFTEST_DEPTH=<1..3> (default 3): how deep checks nest (each level holds two 32 MB copies).
+            static const int maxDepth = std::getenv("SOTC_DIFFTEST_DEPTH") ? std::max(1, std::min(kMaxDepth, std::atoi(std::getenv("SOTC_DIFFTEST_DEPTH")))) : kMaxDepth;
+            if (g_depth >= maxDepth || (n >= first && n < c.next))
             {
                 c.recompiled(rdram, ctx, runtime);
                 return;
@@ -336,8 +339,10 @@ namespace sotc_decomp
             }
 
             bool bad = false;
+            // Round 126: SOTC_DIFFTEST_NOV0=1: v0 not compared (void natives that leave another v0 than the original's last scratch value).
+            static const bool noV0 = std::getenv("SOTC_DIFFTEST_NOV0") != nullptr;
             for (int r : kCompared)
-                if ((r != 2 || !c.function->returnsFloat) && GPR_U64(ctx, r) != GPR_U64(native, r))
+                if ((r != 2 || (!c.function->returnsFloat && !noV0)) && GPR_U64(ctx, r) != GPR_U64(native, r))
                 {
                     char what[96];
                     std::snprintf(what, sizeof(what), "r%d recompiled %016llx native %016llx", r, (unsigned long long)GPR_U64(ctx, r),
@@ -397,7 +402,38 @@ namespace sotc_decomp
                     bad = true;
                 }
             }
-            if (!bad && std::memcmp(&ctx->f[0], &nativeOut.f[0], 4) != 0)
+            // Round 126: SOTC_DIFFTEST_FTOL=<relative> (port natives, not bit-exact): a word of f0 or RAM that differs
+            // passes when both are finite floats within that relative difference (or 1e-5 absolute); the largest
+            // relative difference accepted is reported with each check line ([difftest] ftol ...).
+            static const float ftol = std::getenv("SOTC_DIFFTEST_FTOL") ? std::strtof(std::getenv("SOTC_DIFFTEST_FTOL"), nullptr) : 0.0f;
+            auto floatClose = [&](uint32_t a, uint32_t b, double &rel)
+            {
+                float fa, fb;
+                std::memcpy(&fa, &a, 4);
+                std::memcpy(&fb, &b, 4);
+                if (!std::isfinite(fa) || !std::isfinite(fb))
+                    return false;
+                const double d = std::fabs(static_cast<double>(fa) - fb), m = std::max(std::fabs(static_cast<double>(fa)), std::fabs(static_cast<double>(fb)));
+                rel = m > 0.0 ? d / m : 0.0;
+                return d <= 1e-5 || rel <= ftol;
+            };
+            static double ftolWorst = 0.0;
+            static uint64_t ftolWords = 0;
+            bool f0Close = false;
+            if (!bad && ftol > 0.0f && std::memcmp(&ctx->f[0], &nativeOut.f[0], 4) != 0)
+            {
+                uint32_t a, b;
+                double rel = 0.0;
+                std::memcpy(&a, &ctx->f[0], 4);
+                std::memcpy(&b, &nativeOut.f[0], 4);
+                if (floatClose(a, b, rel))
+                {
+                    f0Close = true;
+                    ftolWorst = std::max(ftolWorst, rel);
+                    ++ftolWords;
+                }
+            }
+            if (!bad && !f0Close && std::memcmp(&ctx->f[0], &nativeOut.f[0], 4) != 0)
             {
                 char what[96];
                 uint32_t a, b;
@@ -412,10 +448,32 @@ namespace sotc_decomp
                 report(c, input, "returns elsewhere");
                 bad = true;
             }
-            auto compareMemory = [&](const uint8_t *live, const uint8_t *native, size_t size, uint32_t base, const char *where)
+            auto compareMemory = [&](const uint8_t *live, uint8_t *native, size_t size, uint32_t base, const char *where)
             {
                 if (bad || std::memcmp(live, native, size) == 0)
                     return;
+                if (ftol > 0.0f)
+                {
+                    // the words that differ: close floats are made equal in the native copy, then compared again
+                    for (size_t k = 0; k + 4 <= size; k += 4)
+                    {
+                        uint32_t a, b;
+                        std::memcpy(&a, live + k, 4);
+                        std::memcpy(&b, native + k, 4);
+                        double rel = 0.0;
+                        if (a != b && floatClose(a, b, rel))
+                        {
+                            std::memcpy(native + k, live + k, 4);
+                            ftolWorst = std::max(ftolWorst, rel);
+                            ++ftolWords;
+                        }
+                    }
+                    static uint64_t shown = 0;
+                    if ((++shown & 63u) == 1u)
+                        std::fprintf(stderr, "[difftest] ftol %s words %llu worst rel %.3g\n", c.function->name, (unsigned long long)ftolWords, ftolWorst);
+                    if (std::memcmp(live, native, size) == 0)
+                        return;
+                }
                 size_t i = 0;
                 while (live[i] == native[i])
                     ++i;

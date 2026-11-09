@@ -50,6 +50,7 @@
 // LO as the last mult leaves them. The loops' checkpoints are left out. The
 // FPU registers, the condition bit and the VU0 registers by the generator's
 // statements on the context.
+#include "cam126.h"
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -266,7 +267,7 @@ namespace decomp_hot47a
             {
                 SET_GPR_S32(ctx, 5, i);
                 SET_GPR_U64(ctx, 4, nodes);
-                callGuest(rdram, ctx, runtime, kParentId, 0x010BC360u, sp);
+                SET_GPR_U32(ctx, 31, 0x010BC360u); SET_GPR_U32(ctx, 29, sp); if (!cam126::parentIdDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kParentId, 0x010BC360u, sp);
                 SET_GPR_U64(ctx, 6, s0);
                 SET_GPR_S32(ctx, 4, sp);
                 SET_GPR_S32(ctx, 5, sp + 0x10u);
@@ -275,7 +276,7 @@ namespace decomp_hot47a
                 if (GPR_S32(ctx, 2) < 0)
                 {
                     // A root node: its local quaternion (sp) and position (sp + 0x10).
-                    callGuest(rdram, ctx, runtime, kLocalQuatPos, 0x010BC380u, sp);
+                    SET_GPR_U32(ctx, 31, 0x010BC380u); SET_GPR_U32(ctx, 29, sp); if (!cam126::localQPDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kLocalQuatPos, 0x010BC380u, sp);
                     const uint32_t q = sp + 0x30u; // v1 / t1: the turned quaternion
                     quatMul(rdram, ctx, runtime, s2, sp, q);
                     lwc1(rdram, ctx, runtime, 0, cls + 0x724u); // the blend
@@ -411,12 +412,12 @@ namespace decomp_hot47a
             {
                 SET_GPR_U64(ctx, 4, nodes);
                 SET_GPR_U64(ctx, 5, s6);
-                callGuest(rdram, ctx, runtime, kParentId, 0x010BC778u, sp);
+                SET_GPR_U32(ctx, 31, 0x010BC778u); SET_GPR_U32(ctx, 29, sp); if (!cam126::parentIdDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kParentId, 0x010BC778u, sp);
                 if (GPR_S32(ctx, 2) >= 0)
                 {
                     SET_GPR_U64(ctx, 4, nodes);
                     SET_GPR_U64(ctx, 5, s6);
-                    callGuest(rdram, ctx, runtime, kParentId, 0x010BC788u, sp);
+                    SET_GPR_U32(ctx, 31, 0x010BC788u); SET_GPR_U32(ctx, 29, sp); if (!cam126::parentIdDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kParentId, 0x010BC788u, sp);
                     uint64_t s0 = GPR_U64(ctx, 2); // the parent
                     // The node's local quaternion (sp + 0x10) and position (sp).
                     SET_GPR_U64(ctx, 6, s3);
@@ -425,7 +426,7 @@ namespace decomp_hot47a
                     SET_GPR_U64(ctx, 7, s6);
                     SET_GPR_S32(ctx, 8, 1);
                     SET_GPR_U64(ctx, 16, s0);
-                    callGuest(rdram, ctx, runtime, kLocalQuatPos, 0x010BC7A4u, sp);
+                    SET_GPR_U32(ctx, 31, 0x010BC7A4u); SET_GPR_U32(ctx, 29, sp); if (!cam126::localQPDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kLocalQuatPos, 0x010BC7A4u, sp);
                     const uint32_t s7 = static_cast<uint32_t>(s6) << 4;
                     SET_GPR_U64(ctx, 21, 0xFFFFFFFFFFFEFFFFull);
                     SET_GPR_S32(ctx, 30, 0x10000);
@@ -442,7 +443,7 @@ namespace decomp_hot47a
                         SET_GPR_U64(ctx, 6, s3);
                         SET_GPR_U64(ctx, 7, s0);
                         SET_GPR_S32(ctx, 8, 1);
-                        callGuest(rdram, ctx, runtime, kLocalQuatPos, 0x010BC7ECu, sp);
+                        SET_GPR_U32(ctx, 31, 0x010BC7ECu); SET_GPR_U32(ctx, 29, sp); if (!cam126::localQPDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kLocalQuatPos, 0x010BC7ECu, sp);
                         // *sp = R(parent's quaternion) x *sp + parent's position (w 1).
                         ctx->vu0_vf[8] = _mm_castsi128_ps(READ128(sp));
                         ctx->vu0_vf[18] = _mm_castsi128_ps(READ128(sp + 0x20u));
@@ -453,7 +454,7 @@ namespace decomp_hot47a
                         WRITE128(sp, _mm_castps_si128(ctx->vu0_vf[10]));
                         SET_GPR_U64(ctx, 5, s0);
                         SET_GPR_U64(ctx, 4, nodes);
-                        callGuest(rdram, ctx, runtime, kParentId, 0x010BC878u, sp);
+                        SET_GPR_U32(ctx, 31, 0x010BC878u); SET_GPR_U32(ctx, 29, sp); if (!cam126::parentIdDirect(rdram, ctx, runtime)) callGuest(rdram, ctx, runtime, kParentId, 0x010BC878u, sp);
                         s0 = GPR_U64(ctx, 2);
                         SET_GPR_U64(ctx, 16, s0);
                     }
