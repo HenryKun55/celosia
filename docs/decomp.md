@@ -17376,3 +17376,158 @@ calls a frame on the plain).
 `python3 build/agent-scratch/r119/t119.py err.txt --from <frame>` (`--riding` needs SOTC_POS_LOG). r119all's row positive =
 this round's gain (then they go on by default); the [coll119t] off-minus-on per call is the cleaner number (console memory latency is where the contact
 sets' fewer dependent loads should show).
+
+## Round 121: global speedups: GCC PGO of the natives, the runtime and the recompiled game; the hot-code order regenerated; the generator and the toolchain sized (2026-11-08)
+
+Scripts, runs and logs: `build/agent-scratch/r121/` (build.sh pN [dir]; v3k.sh / v3kb.sh, run.sh / runb.sh: own Vita3K trees
+../vita3k-celosia-r121 and -r121b, 222 MHz, 3 cores; pair.sh / timing3.sh: two builds at once, one per tree, then swapped;
+cmp.py: the runs over the same frames, raw and matched by draws; train.sh / traina.sh: PGO training runs; classify.py /
+layout.py / insmix.py: the profile by class, the hot set's pages, the instruction mix; env-console.txt; STATE.md).
+
+**SOTC_CHAR104 off on the Vita** (its own commit, 3560189): the r117 console A/B (`ab116.py err.txt --from 2500`) has the
+character jobs losing 0.4-1.1 ms a frame on the real Vita (game thread off minus on -1.12, matched -0.37). Default 0 on the
+Vita build, `SOTC_CHAR104=1` still turns them on; the Mac keeps 1.
+
+**Where the game thread's time is now** (Vita3K profiles of main + that commit, p0: attract, altar, route 6, the console
+card's load; game thread): the natives (decomp_* / sotc_native / pose / hooks) 72.5-74.4%, the recompiled game 18.7-20.6%,
+the runtime (dispatch, scheduler, sub-threads, callGuest) 3.0-3.8%, libc / libgcc 2.5-3.0% (memcpy 1.3%, the A9's software
+division 0.4%, memset / memcmp 0.3% each), veneers 0.7% (see below). The generated code's hot set: 50% of its samples in 107
+functions / 930 KB, 90% in ~600 / 3.5 MB; the whole game thread's: 50% in ~110 functions / 0.6-0.75 MB, 90% in ~670 /
+3.1-3.7 MB, 99% in ~1 800 / 6.4-6.8 MB. Far beyond the A9's 32 KB I-cache either way; the 2 MB L2 holds the 50% set.
+
+Two things the Vita3K sampler does that matter when reading its profiles:
+- It attributes a sample to the start of the guest block that runs (85.7% of the generated code's samples fall on the
+  first instruction after a branch, which are 18.4% of its instructions): instruction-level mixes from it are wrong; only
+  function-level shares hold.
+- The "veneer" samples (0.7% of the game thread, ~55% of the render thread in r117's p12 attribution) are mostly time in
+  imported system calls: the import stubs sit right after the veneer island at the end of .text and the HLE call is charged
+  to the last block, a veneer or a `_from_thumb` stub (e.g. `__glDeleteFramebuffers_veneer` called from hookjobs::push,
+  `__getreent_for_thread`, `pte_osSemaphorePost`). Real veneers on hot paths are few.
+
+### 1. The hot-code order regenerated (game/overrides/vita_hot_order.ld)
+
+Round 66's order (3 948 functions from five profiles of r56-r64) no longer covered the natives written since: decomp_tex64,
+the particle chain, the collision body and dozens more sat at the end of .text (0x830xxxxx), 32-35 MB from the rest of the
+hot set. Regenerated from the four p0 profiles (4 530 functions; tools/vita_hot_order.py unchanged but for the header and
+`.text.hot.<name>`, below). The game thread's hot set, p0 -> p1 (same code, relinked):
+
+| profile | 50%: 4 KB pages / 64 KB pages / span | 90%: 4 KB / 64 KB pages |
+|---|---|---|
+| attract | 199 / 31 / 32.7 MB -> 184 / 23 / 11.9 MB | 912 / 84 -> 904 / 80 |
+| altar | 203 / 31 -> 187 / 21 | 916 / 100 -> 877 / 73 |
+| route 6 | 256 / 44 -> 215 / 21 | 1 148 / 125 -> 1 010 / 78 |
+| load (console card) | 240 / 43 -> 205 / 21 | 1 082 / 126 -> 947 / 79 |
+
+Exact by construction (the same instructions placed elsewhere); Vita3K cannot show it (its JIT translates by guest
+address). On the console: fewer distinct 64 KB regions for the A9's TLBs (the main TLB holds 128 entries, shared with data)
+and the L2; regenerate the order after big native changes (`tools/vita_hot_order.py game/overrides/vita_hot_order.ld
+<prof>:<elf> ...`, profiles taken with PROF=1).
+
+### 2. PGO (GCC profile-guided optimisation), default on for the Vita build
+
+**How** (CMakeLists.txt, `PS2X_VITA_PGO`). `PS2X_VITA_PGO=gen` builds an instrumented VPK (the overrides and the runtime;
+`PS2X_VITA_PGO_GAME=ON` the recompiled game's unity batches too; vu1rec is never instrumented: its largest microcode
+function then fails to assemble, Thumb conditional branches out of range; the instrumented build gets its own
+sotc_vita_elf_room through `PS2X_VITA_PGO_ELF_ROOM`, 64 KB). Run it in Vita3K with `SOTC_GCOV_DUMP_FRAME=<n>` (the earlier PGO trial's
+gcovDump writes the .gcda files to ux0:data/celosia/pgo every n frames), pull the directories, and
+`tools/pgo_fix.py --root <tree> <out> <run> [<run> ...]`: sums the runs' arc counters per object, writes the object summary
+GCC 15's `__gcov_info_to_gcda` leaves out (runs 1, sum_max; without it GCC takes every function as never run) and names
+the overrides' objects by `@ROOT@` instead of the tree's path. `tar -C <out> -cJf game/pgo/vita-pgo.tar.xz .` makes the
+committed profile, which CMake uses by default (`PS2X_VITA_PGO=<dir or .tar.xz>`; `OFF` / empty: none): extracted into the
+build directory, `@ROOT@` replaced by the building tree's path, in a directory named by the profiles' contents (a new
+profile changes the flags, so ninja rebuilds what it covers), then `-fprofile-use -fprofile-prefix-path=<build dir>
+-fprofile-partial-training -fprofile-correction -fno-profile-values -fno-profile-reorder-functions -Wno-missing-profile
+-Wno-coverage-mismatch` on the overrides, the runtime and (when the profile has the unity batches) the recompiled game.
+The .gcda names are the objects' paths below the build directory, so any build directory of any tree uses them.
+
+**Staleness.** GCC checks each function's CFG / line checksums: a function changed since the training loses its profile
+and is compiled as before (partial training); unchanged ones keep it. The natives change every round, so the profile
+fades slowly; retrain every few rounds (~1.5 h: the instrumented build ~40 min, four 8-9 minute runs in two trees, the
+PGO build ~30 min). The recompiled game's profile lasts until the generator changes (the unity batches' grouping is by
+file name).
+
+**Training** (this round's): attract demo 540 s, altar 540 s, route 6 540 s, the console card's load 480 s, each from the
+instrumented build (55.8 MB VPK, text 86 MB, bss 45 MB; it runs in Vita3K at ~60% speed), dumps every 900 / 1 500 frames:
+459 .gcda files, 1.66 MB as tar.xz.
+
+**Exactness.** PGO changes inlining, unrolling, block order and register allocation, never what a function computes
+(no -ffast-math, no profile-driven value speculation: -fno-profile-values / -fno-vpt). Pictures and checks: below.
+
+**Measured** (Vita3K 222 MHz, two builds at once in two trees, then swapped; game thread = frame - wait - sched, over
+the frames both runs reached, raw and matched by draws in bins of 100; same-build differences between rounds as noise).
+
+| pair (A -> B) | scene, round | game A -> B (raw, same frames) | matched by draws | mean load |
+|---|---|---|---|---|
+| p1 -> p2 (natives + runtime PGO) | attract 1 | 18.17 -> 17.59 | **-0.70** | 10.3 |
+| | attract 2 (trees swapped) | 19.54 -> 17.48 | **-1.80** | 7.9 |
+| | route 6, 1 | 31.41 -> 30.38 | **-0.37** | 6.0 |
+| | route 6, 2 | 31.64 -> 29.63 | **-1.33** | 7.7 |
+| | altar 1 | 44.61 -> 44.42 | **-2.44** | 6.0 |
+| | altar 2 | 42.66 -> 41.44 | **-2.56** | 4.9 |
+| same build, round 1 vs 2 | attract / route 6 / altar | | +0.87 / -0.32, +0.15 / +0.07, -0.22 / -0.29 | |
+| p2 -> p3 (+ recompiled game PGO) | attract 1 | 20.79 -> 20.51 | +0.03 | 14.5 |
+| | attract 2 | 23.17 -> 22.05 | -1.10 | 22.2 (invalid) |
+| | route 6, 1 | 30.17 -> 29.54 | -0.23 | 16.7 |
+| | altar 1 | 24.59 -> 24.84 | +0.11 | 24.8 (invalid) |
+| p4n -> p4 (rebased on rounds 119 / 120; no PGO -> natives + runtime PGO) | attract | 23.26 -> 23.07 | **-1.26** | 22.7 |
+| | route 6 | 36.38 -> 34.97 | **-2.93** | 21.4 |
+| | altar | 45.67 -> 43.46 | **-2.34** | 18.0 |
+
+(Other agents' builds kept the Mac's load at 15-25 during the last runs; the pairs run at once, so both builds see the
+same load, but the noise grows with it. Round 2 of p2 -> p3's route 6 desynced its input script, A ended elsewhere:
+dropped. The altar round of p2 -> p3 and of p4 at load 25 did not reach the altar the same way: weaker rows.)
+
+So: the natives' and runtime's PGO takes **~1-3 ms (3-6%) off the game thread in Vita3K**, every scene, both rounds, and
+still after the rebase onto rounds 119 / 120 (their changed functions without profile). The recompiled game's PGO adds
+nothing measurable in Vita3K for +2.5 MB of text (p3: text 40.2 MB against 37.6): off by default, built as an
+alternative VPK for the console.
+
+**Checks on the shipped build** (p4, attract + route 6, 420 s each, the natives' in-run comparisons against the
+recompiled code or a second run): leaf117 52 000 + 138 000, draw117 7 300 + 21 300 per function, glv117 35 500 + 8 000
+quads, ptcl103 76 000 + 236 000 draws, grp106 786 000 + 1.57 M, ai106 16 384 (route 6), links97 30 000 + 18 000,
+mdslane 0: **0 differ**; pose82 within its documented tolerance (largest 0.0007 relative, as before). p4g (game PGO):
+glv117 / leaf117 / ptcl103 0 differ.
+
+**PGO and the hot order.** With a profile GCC names hot functions' sections `.text.hot.<name>`, which round 66's order
+lines (`*(.text.<name>)`) did not match: p2 / p3 had the hot set scattered again (route 6's 50% set 248 / 257 4 KB pages
+against p1's 215). vita_hot_order.py now writes `*(.text.<name> .text.hot.<name>)`: p3o 222 / 22 (50%), 1 013 / 77
+(90%), as p1.
+
+### 3. The generator (ps2xRecomp), sized, not changed
+
+Regenerating build/runner with the current generator reproduces it byte for byte (5 s; `build/r121/gen0`), so a generator
+change costs a regeneration plus a full rebuild (~25 min Vita) and a difftest. What a guest call costs now (glBegin-
+WithDlLayerNo's code, -O2 Thumb-2): ~27 instructions around the `bl`: the live instruction word for linker-bound JALs (48%
+of the 34 727 known-call sites: one guest-RAM load at a constant address, the mask, the slot index range-checked), the
+function table slot (one load; the table is 20 MB, 4 bytes per guest word, so every hot function's slot is its own cache
+line and, with 4 KB pages, its own page), the host stack floor, the EE clock's charge (two loads, add, compare, store),
+the jump serial, the known-function compare, the three argument moves; after the call ctx->pc and the unwinding flag.
+Rounds 16 / 18 / 29-31 / 43 already took the large parts out. What is left is semantics (overrides replace slots at run
+time, the scheduler's checkpoints, sub-thread unwinding). The generated code is ~19% of the game thread; the levers
+left (a guarded constant target for linker-bound JALs instead of the live word; folding the unwinding flag into the pc
+compare) are worth a few instructions per call on ~10-20 000 calls a frame (~0.1-0.3 ms on the console, mostly the
+live words' and slots' cache / TLB misses) and need a guard for code the loader rewrites. Not done this round: PGO on the
+generated code (above) was the larger and safer lever.
+
+### 4. Toolchain flags, sized
+
+`-fno-math-errno -fno-trapping-math` on a collision TU: 291 490 -> 291 442 bytes, nothing to gain. -O3 / LTO for the
+runtime and overrides were measured with the earlier PGO trial (LTO nothing). The runtime hot paths outside the game logic are small
+(memcpy 1.3% of the game thread, mostly decomp_collision's copies; EeScheduler ~0.7%; the sub-thread switches 1% are
+round 120's).
+
+### Console
+
+build/agent-scratch/celosia-r121.vpk (main + this round, PGO profile and order of this round) with r121/env-console.txt
+(round 118's logs; this round has no run-time switches: its changes are compile-time). Compare against r117 / r118's logs
+at the same places. Expected there (an estimate): the natives' PGO is mostly fewer instructions and better-laid-out branches in hot native
+loops, which the A9 should see at least as Vita3K does: ~1.5-4 ms of the console's 48-64 ms game thread; the hot order
+adds TLB / L2 relief Vita3K cannot show (guess 0.5-1.5 ms if the eboot's text uses 4 KB pages). Hot set in the shipped
+build (game thread, route 6 profile names): 50% in 791 KB / 226 4 KB pages / 22 64 KB pages, 90% in 3.66 MB / 1 008 / 75,
+99% in 6.8 MB.
+- celosia-r121-gamepgo.vpk: the same plus the recompiled game's PGO (same env). On the console the generated code's
+  cold paths move out of its hot paths' cache lines; if its game ms beats celosia-r121.vpk's at the same places,
+  turn PS2X_VITA_PGO_GAME on by default.
+- r121/env-console-probe.txt (a short separate run; SOTC_SUBSYS_PROF=1 costs 15-30%): its `[probe]` lines at start
+  (memory latency 16 KB-64 MB, guest RAM loads, hot / cold generated-code calls, the function table lookup) were asked
+  for in round 66 and never came back; they say how much the code / data layout levers can give.
