@@ -18037,3 +18037,125 @@ own insert / remove.
 positive = the switch's gain. No picture change expected (scroll127 gives the same rows; the eviction the same
 entries); look at the textures that scroll (water, waterfalls, the sky's clouds, the shrine's light shafts) moving as
 before.
+
+## Round 126: the characters' and the camera's shared getters as host code (geo126, ctl126); the camera and the characters lifted whole to host C++ (tools/lift126.py) measured slower and left out; the camera filter's table (ray126) dropped (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r126/` (build.sh, run.sh / r.sh / rb.sh: own trees ../vita3k-celosia-r126 and
+-r126b, 222 MHz, 3 cores, audio-volume 0, the console card copied in only there; ab119.py; rec.py, cg.py (the static call
+graph of the generated code: callers, subtrees with their sampled self share), callers.py (a sampled function's callers by
+lr), top.py / cands.py / charroots.py (which functions the lifter takes), cmp126.py / perfn.py (the round's code in two
+sampler windows), dt.sh + dtenv.txt (a difftest over a long name list), campath.py; camprobes.txt (SOTC_SUBSYS_PROF over 50
+camera functions); lifted/ (the generated lift files of p6, not in the build)). Runs: runs/sampA0 / runsb/sampL1 (main's
+sampler, attract / the console card's shrine), runs/camP0 (camera probes), runs/abA3 / abA4, runsb/abL4 (A/B with the lifted
+code), runs/sampOn5 / sampOff5 and sampOn6 / runsb/sampOff6 (the same build with the round on / off), runsb/dtG2, dt150c (difftests),
+runs/smkA3 (smoke). Builds: p0-p1 lost (a build stopped mid-way), p2 first full (title hang, below), p3 the s-register fix,
+p4 + jump tables / jalr / callMaySleep in the lifter, p5 + div / break / cfc2 Q, p6 written-only syncs, p7 without the
+lifted code and ray126, p8 = p7 rebased on round 125, p9 = p8 rebased on round 127 (shipped: celosia-r126.vpk, symbols r126/celosia-r126.elf).
+
+### Where the camera's and the characters' guest time is
+
+The camera (doit_cameraman_manager, task 013451C0) reaches 999 recompiled functions statically (66 600 MIPS instructions); in
+the attract sampler (main, runs/sampA0) their self time is 2.2% of the game thread exclusive to the camera plus 2.5% in
+helpers shared with the characters, no function above 0.06% except a handful of shared getters. The probes
+(runs/camP0, inflated per call) put the camera manager at ~4.0 ms of a ~77 ms probed frame: the default angle / target offset /
+follow rotation branch 1.2, the subjective visibility and update 0.9, the parameter manager 0.33 (a blend of seven parameter
+blocks, ~3 400 instructions of `out = a w1 + b w2` per field), six direct collision tests 1.0. The characters' remaining guest
+code is a flat list too: the motion accessors (010AEE18, GetMotionRootFloatFrame, 010AD048), the geometry pointer getters,
+MVHIST_Update, AI_GetYRotQuaternion, the option nodes' getters (called in place by round 47's native node passes through
+callGuest), _setRootXYZHPB, player_HellDangerDetect, each 0.05-0.17%. The largest single item in the camera is a native:
+the surface filter of its rays (attributeAddress from cameraVisibility, 0.5%).
+
+### What ships (A/B names in brackets, `r126all` both off)
+
+- **geo126** (`SOTC_GEO126`, default on; decomp_cam126.cpp): the geometry pointer getters as host code: GetGeometryPointerPosition
+  (0x1131d80), GetGeometryPointerQuaternion (0x1132098), GetGeometryPointerQuatPos (0x1132270) for the kinds that are a copy,
+  a point / rotation in a quaternion + position frame, or a character node's frame (round 44's manager_sub_010AC4A0 for the
+  node), recognised by their jump table's label read from guest RAM (any other kind: the recompiled function, before
+  anything is written); GetMatrixFromQuatPos, ExchangeLWQuaternion, GetMotionNodeQuaternionPos,
+  GetCharacterClassNodeQuaternionPos. The quaternion product and the quaternion-to-matrix rows are the VU0 sequences'
+  algebra in plain NEON (worked out lane by lane from the macros); the half-turn / quarter-turn quaternions from the boot
+  ELF's quarter-wave table as round 122's; f0 left as the originals leave it.
+- **ctl126** (`SOTC_CTL126`, default on; decomp_cam126.cpp, decomp_hot47a.cpp): MVHIST_Update (Wander's 90-frame velocity
+  history: the slot written, the 90 slots summed in order and divided by the weights' sum, as one NEON loop instead of 90
+  VU0 macro rounds), AI_GetYRotQuaternion (the z axis turned, flattened, normalised, the half-angle quaternion from its
+  cosine), manager_sub_010AD048 (a motion root track's key: constant, float or 16-bit quantised), and the option nodes'
+  GetMotionOptionNodeParentId / GetCharacterClassOptionNodeLocalQuaternionPos, the last two also made in place by
+  decomp_hot47a's child / root node passes (cam126.h: no callGuest round trip; the guest call stays when the table holds
+  anything else).
+
+**A native that calls guest code without an epilogue of its own must put the callee-saved registers back** (p2's hang at
+the title, three bisections: the geometry getters' node path went through round 44's nodeQuatPos, which leaves s0 as its
+caller's epilogue would restore it; the recompiled getters restore s0 in their own epilogue, these natives have none, so
+their callers lost s0. The difftest found it at once: `MISMATCH (r16 ...)`). decomp_cam126's `Saved` keeps s0-s7, gp, sp,
+fp, ra around every guest call.
+
+### Checks and tolerances
+
+Difftest on the Vita build (check VPKs with `_newlib_heap_size_user` 240 MB, never shipped), new knobs in sotc_decomp.cpp:
+`SOTC_DIFFTEST_FTOL=<rel>` (a word of RAM or f0 that differs passes when both are finite floats within that relative
+difference or 1e-5 absolute; `[difftest] ftol` lines give the worst accepted), `SOTC_DIFFTEST_NOV0=1` (v0 not compared:
+void natives that leave another scratch v0), `SOTC_DIFFTEST_DEPTH=<1-3>` (how deep checks nest: each level holds two 32 MB
+copies; three levels of lifted callers ran out of the 240 MB heap and hung Vita3K in dt150b).
+
+- runsb/dtG2 / dt150c (pchk3 / pchk5, FTOL 0.002): the twelve hand natives, every check 0 RAM differences beyond float
+  rounding (worst accepted 1.2e-7 relative); f0 differed in ExchangeLWQuaternion / GetMotionNodeQuaternionPos /
+  010AD048 (the scratch value the originals leave in f0, which no caller reads) until p6 set it as they do.
+- dt150c also checked 85 lifted functions (the 150 with the most samples, one check each to frame 7 590): 0 differences
+  beyond the known noise word at 0x29126c and four single bytes far from the function's data (0x93abac, 0x41998c,
+  0x17dbe**: most likely other threads writing between the two legs).
+
+### The lifter (tools/lift126.py): whole subtrees as host C++, measured slower, not in the build
+
+tools/lift126.py turns a guest function's MIPS (the words in the generated code's listing) into C++ with registers as host
+locals, plain floats, VU0 macro ops as SSE / NEON lanes, jump tables from the generated code's case lists, relocated words
+read at run time, and calls through callMaySleep with every written register put back first (so a call that sleeps or
+switches threads leaves the context exactly as the original would and the recompiled function resumes at the return label).
+It took 1 732 functions of the camera's and the characters' subtrees (3.7% and 4.9% of the game thread's self time;
+refused: VU0 integer / flag ops, MMI, ldl / ldr, FPU accumulator ops, sleeps). They ran clean (the title, both attract
+demos, the shrine save; 85 functions difftested), but **the lifted code was slower than the recompiled code**: same build,
+same window, the lifted set 7.36 -> 10.99% of the game thread (p5), 9.02 -> 10.08% (p6, only written registers synced at
+calls); some functions 6-10x (player_HellDangerDetect 0.05 -> 0.41%, gamecore_sub_013B8438, manager_sub_010D5130,
+IsInsideOfRegion), a few faster (manager_sub_01164AC0 0.16 -> 0.08%). Likely causes, for whoever takes it up: every guest
+register as an int64 local (ARM32: two registers and two instructions each, and the large functions spill), the VU0 lanes
+through sse2neon (p6 still had the memcpy lane reads; a NEON header is in the tool now, unbuilt), the full register sync at
+every call, and the lifted code outside the PGO profile and the hot order. The generated files of p6 are in
+r126/lifted/; the tool stays in tools/ (its switch names are arguments).
+
+**ray126 (dropped):** the camera filter's answers kept in a 512-slot table while doit_cameraman_manager runs (exact by
+construction; 50% of the calls answered from it): the sampler put the filter at 0.57% of the game thread without it and
+0.88% with it (the table's own hashing and misses cost more than the three dependent loads it saves), and round 125 now
+answers GetCollisionDBAttributeAdr from its finder cache.
+
+### Measured (Vita3K 222 MHz)
+
+Sampler, same build, round off / on: attract 420-600 s (p5, runs/sampOff5 / sampOn5): the twelve getters' recompiled self time
+0.98 -> 0.06% of the game thread, their natives 0 -> 0.28%: **-0.64%**; the console card's save 600-790 s (p8, runsb/sampLoff8 /
+runs/sampLon8; the two runs' scripted input parted, so only these functions compare): 1.07 -> 0.02%, natives 0.16 -> 0.24%:
+**-0.97%**. That is ~0.3-0.5 ms of a 45-55 ms console frame at round 113's ratio, plus round 47's node passes without two
+callGuest round trips a node (in the native bucket).
+
+In-run A/B (`SOTC_AB_FLAG=r126all,geo126,ctl126`, 60-frame windows, off minus on, game thread):
+
+| run | part | game thread (all on) | r126all | geo126 | ctl126 (matched by draws, ms) |
+|---|---|---|---|---|---|
+| runs/abA8 (p8, shipped) | attract, the demos (player placed) | 28.1 | +0.36 | +0.12 | +0.59 |
+| runs/abA8 | attract from frame 3 000 | 19.1 | +0.05 | +0.37 | +0.54 |
+| runsb/abL8 (p8) | the console card's shrine save | 47.7 | -1.17 | +0.24 | -0.57 |
+
+(abA3 / abA4 / abL4 had the lifted code in the same switches and are not comparable.)
+
+The A/B's noise on this host (load 10-20 from other agents' emulators) is +-1 ms; the sampler is the reliable number.
+
+**Against the target.** The brief asked for -3 ms of the console's game thread from the characters' and the camera's guest
+code. What ships is ~0.6-1.0% of the game thread (~0.3-0.5 ms console). The camera has no hot spot to rewrite by hand (a thousand
+functions under 0.06% each); the whole-system route was the lifter, and in this form it loses. A lifter worth turning on
+needs 32-bit locals where the code is 32-bit (sd / ld / 64-bit ops make a register wide), NEON lanes, syncs limited to the
+registers a callee or a resume can read, and its output under the profile; then the same difftest (FTOL) and sampler
+comparison decide.
+
+**Console.** build/agent-scratch/celosia-r126.vpk with r126/env-console.txt (round 122's log flags, `SOTC_CAM126_LOG=600`,
+`SOTC_AB_FLAG=r126all,geo126,ctl126`): read with `python3 build/agent-scratch/r126/ab119.py err.txt --from <frame>
+[--riding]`; positive = the round's gain (expected small: ~0.3-0.5 ms, below the A/B's noise). Look at: anything that follows a node or a point on
+a character or an object (the camera's target and look-at while riding and fighting, Wander's hands on the reins and the
+sword's light, the IK of the feet on slopes), Wander's start and stop (MVHIST: the movement history behind his turns),
+the animals' / colossi's turning (AI_GetYRotQuaternion), the root motion of every animation (010AD048).
