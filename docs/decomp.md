@@ -17668,7 +17668,7 @@ by object and callee), prof.py (SOTC_SUBSYS_PROF entries), drift.py (a replay's 
 ab119.py (round 119's A/B reader, `--riding`). runs/ and runsb/: geoA0 / geoL0 (probe profiles, riding / shrine, main),
 sampOn6 / sampOff6 (the sampler, attract riding, the round on / off), chkA2..chkA10b, chkL3 (checks), abA5 / abA6 / abL6 / abA10
 (A/B), rec7 / recR10 (input recordings), repOff9a / repOn9 / repOffR1 / repOnR1 (replays). p0 = main 6c24d41, p1-p9 on it, p10
-= rebased on a320162 (round 124), p11 + gaze diagnostics, p12 = p11 with gaze122 off by default = celosia-r122.vpk.
+= rebased on a320162 (round 124), p11 + gaze diagnostics, p12 = p11 with gaze122 off by default, p13 = p12 rebased on baea142 (rounds 121 / 123: PGO on, sotc_vita_elf_room 64 KB) = celosia-r122.vpk.
 
 **The rule of this round.** A port, not an emulator: the characters' code need not give the recompiled code's bits, only the
 same game: the same keys and branches, rotations and positions within float rounding, no visible difference, no drift. Rounds
@@ -17759,11 +17759,14 @@ In-run A/B (`SOTC_AB_FLAG=r122all`, 60-frame windows, off minus on, game = the g
 | runs/abR10 (p10) | route 6 from 3 000 | 6-15 | **+0.79** | +1.43 | +0.69 / +1.34 |
 | runs/abR10 | the plain, from 4 300 | | | | +0.79 / +1.50 |
 | runs/abL10 (p10) | the shrine (console card's save) from 2 500 | 7-19 | **+2.10** | +2.00 | +2.10 / +2.00 |
+| runsb/abA13 (p13, shipped: gaze122 off, rounds 121 / 123 under it) | attract from 10 000 | 20-36 | **+1.10** | +1.41 | +1.18 / +1.55 |
+| runsb/abA13 | riding only | | | | +1.33 / +1.63 |
+| runs/abL13 (p13) | the shrine (console card's save) from 2 500 | 21-36 | **+1.56** | +2.47 | +1.47 / +2.44 |
 
 **Defaults.** cloth122, quat122 and keys122 on (`SOTC_<name>=0` off): within the tolerances above, a win in the sampler and in
 every A/B (p6, p10: +1.2-2.0 ms of the game thread at the shrine, riding and on route 6). gaze122 off (`SOTC_GAZE122=1` on):
-the check's unexplained calls above; its share was ~0.6 of the 4.1 points, so the shipped default (p12) is ~0.2 ms below the
-A/B rows (which had it on). spalign: 0 sp-relative :128/:256 NEON accesses (608 aligned, p10 / p12). No fault in any run:
+the check's unexplained calls above; its share was ~0.6 of the 4.1 points, so the shipped default (p12 / p13) is ~0.2 ms below the
+A/B rows (which had it on). spalign: 0 sp-relative :128/:256 NEON accesses (608 aligned at p10 / p12, 683 at p13 with PGO). No fault in any run:
 the attract demo 640-660 s (riding) x 9, the console card's save at the shrine 330-400 s x 3, route 6 440 s x 2, the replays.
 
 **Against the target.** The brief asked for -4 ms on the console's game thread riding from the characters (excluding
