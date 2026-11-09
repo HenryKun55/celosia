@@ -643,10 +643,13 @@ namespace sotc_decomp
             // cloth122, quat122 and keys122 on (SOTC_<name>=0 off): within their checks' tolerances, a win in the A/B.
             // Round 128: texr128 off unless SOTC_TEXR128=1: exact (0 differ) but its per-node checks cost Vita3K, which has no
             // memory latency for the independent loads to hide (sampler 0.53 -> 1.00%); the console's A/B decides.
-            // Round 126: geo126 and ctl126 on (SOTC_<name>=0 off): within their checks' tolerances, a win in the sampler.
+            // Round 126: geo126 on (SOTC_GEO126=0 off): within its checks' tolerances, a win in the sampler.
+            // Round 131: ctl126 off unless SOTC_CTL126=1: with it on, route 6 hangs after the shrine cutscene (Wander's
+            // position jumps to ~(410, 48, 110), then reads (0, 0, 0.69), the camera freezes; Vita3K, r128 / r131), and on the
+            // console (r129/p1) Wander loaded under the ground and moved only by jumping; SOTC_CTL126=0 fixes both.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
