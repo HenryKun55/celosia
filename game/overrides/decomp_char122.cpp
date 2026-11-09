@@ -1012,6 +1012,47 @@ namespace char122
             returnTo(ctx);
             return true;
         }
+
+        // Round 136 (key136): GetMotionIntFrame's keys (frame `frame` of n
+        // channels, formats a byte each, channels a word each) decoded into
+        // tmp (n x 4 floats) by decodeKey, as keys122 does an integer float
+        // frame: no curveEval guest call a channel. False (nothing decoded
+        // for the caller to use): a range outside RAM or a format decodeKey
+        // does not know. v0: curveEval's last (1 for a format with no data).
+        bool intKeys(const uint8_t *rdram, uint32_t formats, uint32_t chans, int32_t n, uint32_t frame, float *tmp, uint64_t &v0)
+        {
+            if (n <= 0 || !inRam(formats, static_cast<uint32_t>(n)) || !inRam(chans, static_cast<uint32_t>(n) * 4u))
+                return false;
+            uint32_t fmt = 0;
+            for (int32_t i = 0; i < n; ++i)
+            {
+                fmt = *at(rdram, formats + static_cast<uint32_t>(i));
+                if (!decodeKey(rdram, fmt, rd32(rdram, chans + static_cast<uint32_t>(i) * 4u), frame, tmp + i * 4))
+                    return false;
+            }
+            const uint32_t target = fmt < 15u ? rd32(rdram, kCurveTable + fmt * 4u) : 0x010AC700u;
+            v0 = target == 0x010AC700u ? 1u : 0u;
+            return true;
+        }
+        // SOTC_KEY136_CHECK=1: the old loop's keys (in RAM) against tmp.
+        void intKeysCheck(const uint8_t *rdram, uint32_t out, const float *tmp, int32_t n)
+        {
+            static double worst = 0.0, worstDeg = 0.0;
+            static uint64_t calls = 0, over = 0;
+            double w = 0.0, deg = 0.0;
+            for (int32_t i = 0; i < n * 4; ++i)
+                w = std::max(w, static_cast<double>(std::fabs(rdf(rdram, out + static_cast<uint32_t>(i) * 4u) - tmp[i])));
+            for (int32_t i = 0; i < n; ++i)
+                deg = std::max(deg, rotDeg(vld1q_f32(tmp + i * 4), ldq(rdram, out + static_cast<uint32_t>(i) * 16u)));
+            worst = std::max(worst, w);
+            worstDeg = std::max(worstDeg, deg);
+            ++calls;
+            if (w > 1e-4)
+                ++over;
+            if (calls % 2000u == 1u || (w > 1e-4 && over <= 20u))
+                std::fprintf(stderr, "[key136c] frame %llu calls %llu worst %.3g (%.4f deg) this %.3g (%.4f deg) over 1e-4 %llu (keys %d)\n",
+                             (unsigned long long)sotc_decomp::g_gameFrame, (unsigned long long)calls, worst, worstDeg, w, deg, (unsigned long long)over, n);
+        }
     }
 
     // =========================================================================

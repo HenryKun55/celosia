@@ -26,6 +26,10 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 // Round 122 (SOTC_QUAT122): the same functions as plain float code (decomp_char122.cpp).
@@ -603,7 +607,156 @@ namespace decomp_quat
     // +0xc zero) of q's z and y axes: y = atan2 of the z axis in xz, x = -asin
     // of its y, then the y axis turned back by those two (quaternions about
     // y and x, 0x1e0fb0 / 0x1e0fa0) gives z.
+    // ---- Round 136 (SOTC_EULER136, A/B euler136): GetEulerYXZFromQuaternion in plain floats ----
+    // The function below's VU0 statements as float arithmetic on the same
+    // values in the same order, without the clamps and the VU0 register
+    // file: the z and y axes of q, y = atan2 of the z axis in xz (normalised
+    // by 1 / sqrt, FLT_MAX for a zero length as VU0's rsqrt), x = -asin of
+    // its y (+-pi/2 at or past +-1), the y axis turned back by the two
+    // angles (the boot ELF's quarter-wave table, 1/65536 turns, as
+    // SetQuaternionByAxisRotateV) and z = -atan2 of it. atan2 / asin as the
+    // host's (round 122's quat122 does the same for the guest's own calls).
+    // Written: out (x, y, z, 0) and f0 = z; the scratch registers the
+    // original leaves (VU0 vf4..vf17, ACC, Q, fcr31's condition bit, v0) are
+    // not (setNodeHPB and the other callers reload their operands; as
+    // quat122). SOTC_EULER136_CHECK=1: the old code after it on the same
+    // input (its result kept), the angles compared ([euler136c]).
+    namespace e136
+    {
+        inline float atan2c(float y, float x)
+        {
+            y = y > 1.0f ? 1.0f : (y < -1.0f ? -1.0f : y);
+            x = x > 1.0f ? 1.0f : (x < -1.0f ? -1.0f : x);
+            return std::atan2(y, x);
+        }
+        inline float rsq(float v) { return v > 0.0f ? 1.0f / std::sqrt(v) : 3.40282347e38f; }
+        // quatMul(a, b) above: w = aw bw - a.b, xyz = b aw + a bw + b x a.
+        inline void qmul(const float *a, const float *b, float *o)
+        {
+            const float dot = (a[0] * b[0] + a[1] * b[1]) + a[2] * b[2];
+            const float x = (b[0] * a[3] + a[0] * b[3]) + (b[1] * a[2] - a[1] * b[2]);
+            const float y = (b[1] * a[3] + a[1] * b[3]) + (b[2] * a[0] - a[2] * b[0]);
+            const float z = (b[2] * a[3] + a[2] * b[3]) + (b[0] * a[1] - a[0] * b[1]);
+            o[0] = x;
+            o[1] = y;
+            o[2] = z;
+            o[3] = a[3] * b[3] - dot;
+        }
+        void run(const Ram ram, uint32_t qa, float res[4])
+        {
+            float q[4];
+            {
+                const __m128 v = ram.q(qa);
+                std::memcpy(q, &v, 16);
+            }
+            const float x = q[0], y = q[1], z = q[2], w = q[3];
+            const float xx = x * x, yy = y * y, zz = z * z;
+            // The z axis (A) and the y axis (B).
+            const float ax = (z * x - w * y) * 2.0f, ay = (z * y + x * w) * 2.0f, az = ((0.0f - xx) - yy) * 2.0f + 1.0f;
+            const float bx = (y * x + w * z) * 2.0f, by = ((0.0f - xx) - zz) * 2.0f + 1.0f, bz = ((0.0f + z * y) - x * w) * 2.0f;
+            // A in xz, normalised.
+            const float n = rsq((ax * ax + 0.0f) + az * az);
+            const float yAng = atan2c(ax * n, az * n);
+            const float xs = 1.0f <= ay ? 1.57079637f : (ay <= -1.0f ? -1.57079637f : std::asin(ay));
+            const float xAng = -xs;
+            float d[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            bool turned = false;
+            auto turn = [&](float angle, uint32_t axisAt)
+            {
+                const float t = (angle * 32768.0f) / 3.14159274f;
+                const int32_t wi = static_cast<int32_t>(t);
+                const uint32_t a1 = static_cast<uint32_t>(static_cast<int32_t>(0u - (static_cast<uint32_t>(wi) << 16)) >> 16);
+                const uint32_t half = static_cast<uint32_t>(static_cast<int32_t>(a1 << 16) >> 17);
+                uint32_t v0;
+                const float sine = tableSin(ram, half, v0), cosine = tableCos(ram, half, v0);
+                float r[4];
+                {
+                    const __m128 v = ram.q(axisAt);
+                    std::memcpy(r, &v, 16);
+                }
+                r[0] *= sine;
+                r[1] *= sine;
+                r[2] *= sine;
+                r[3] = cosine;
+                float o[4];
+                qmul(d, r, o);
+                std::memcpy(d, o, 16);
+                turned = true;
+            };
+            if (yAng != 0.0f)
+                turn(yAng, kY);
+            if (xAng != 0.0f)
+                turn(xAng, kX);
+            if (turned)
+            {
+                const float k = rsq(((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]) + d[3] * d[3]);
+                d[0] *= k;
+                d[1] *= k;
+                d[2] *= k;
+                d[3] *= k;
+            }
+            // B through the conjugate of d (rotateByConj's rows).
+            const float ux = -d[0], uy = -d[1], uz = -d[2], uw = d[3];
+            const float t0 = uy * 2.0f, t1 = uz * 2.0f, t2 = ux * 2.0f;          // vf10 = 2 (uy, uz, ux)
+            const float s0 = uy * t0, s1 = uz * t1, s2 = ux * t2; // vf13
+            const float c0 = uz * t2, c1 = ux * t0, c2 = uy * t1;                  // ACC
+            const float p1 = c1 + t1 * uw, p2 = c2 + t2 * uw;  // vf15 (y, z; x unused)
+            const float m0 = c0 - t0 * uw, m1 = c1 - t1 * uw;  // vf16 (x, y)
+            const float a0 = 1.0f - (s1 + s0), a1 = 1.0f - (s2 + s1); // vf12 - vf17 (x, y)
+            // rows (a0, m1, p0'), (p1', a1, m2), (m0, p2', a2) with p' = (p1, p2, p0): b's x and y
+            const float rbx = (a0 * bx + p1 * by) + m0 * bz;
+            const float rby = (m1 * bx + a1 * by) + p2 * bz;
+            const float zAng = -atan2c(rbx, rby);
+            res[0] = xAng;
+            res[1] = yAng;
+            res[2] = zAng;
+            res[3] = 0.0f;
+        }
+    }
+
+    void eulerYXZOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void eulerYXZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), qa = GPR_U32(ctx, 5);
+        if (inRam(out, 16u) && inRam(qa, 16u) && sotc_decomp::switchOn(sotc_decomp::kEuler136))
+        {
+            const Ram ram{rdram};
+            float r[4];
+            e136::run(ram, qa, r);
+            static const bool chk = [] { const char *e = std::getenv("SOTC_EULER136_CHECK"); return e && std::atoi(e) != 0; }();
+            if (!chk)
+            {
+                std::memcpy(rdram + out, r, 16);
+                ctx->f[0] = r[2];
+                return returnTo(ctx);
+            }
+            eulerYXZOld(rdram, ctx, runtime);
+            static double worst[3] = {0, 0, 0};
+            static uint64_t calls = 0, over = 0;
+            double d[3];
+            bool bad = false;
+            for (int i = 0; i < 3; ++i)
+            {
+                double x = std::fabs(static_cast<double>(ram.f32(out + 4u * i)) - r[i]);
+                if (x > 3.14159265358979)
+                    x = std::fabs(x - 6.28318530717959);
+                d[i] = x;
+                worst[i] = std::max(worst[i], x);
+                bad |= x > 1e-3;
+            }
+            ++calls;
+            if (bad)
+                ++over;
+            if (calls % 4000u == 1u || (bad && over <= 20u))
+                std::fprintf(stderr, "[euler136c] frame %llu calls %llu worst x %.3g y %.3g z %.3g rad; this %.3g %.3g %.3g; over 1e-3 %llu\n",
+                             (unsigned long long)sotc_decomp::g_gameFrame, (unsigned long long)calls, worst[0], worst[1], worst[2], d[0], d[1], d[2],
+                             (unsigned long long)over);
+            return;
+        }
+        eulerYXZOld(rdram, ctx, runtime);
+    }
+
+    void eulerYXZOld(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t out = GPR_U32(ctx, 4), qa = GPR_U32(ctx, 5);
         if (!inRam(out, 16u) || !inRam(qa, 16u))

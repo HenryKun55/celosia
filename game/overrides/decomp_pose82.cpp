@@ -200,28 +200,27 @@ namespace pose82
     // The walk. write: straight into guest RAM; else into o. Returns the
     // number of bones, or -1: something it does not handle (nothing written
     // when write is false; when true only before the first bone).
-    int pose(uint8_t *ram, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ, bool write, Out *o)
+    // First pass: the bones' count and checks (indices, depth), so a write
+    // never starts on a skeleton the loop would leave half done. False: one
+    // the loop does not handle.
+    bool topology(const uint8_t *ram, uint32_t bones, uint32_t &maxIndex, uint32_t &n)
     {
-        const uint32_t bones = rd32(ram, skel + 8u);
-        if (!inRam(bones, 0x40u) || !inRam(scaleAt & ~0xFu, 16u) || !inRam(pos & ~0xFu, 16u))
-            return -1;
-        // First pass: the bones' count and checks (indices, depth), so a
-        // write never starts on a skeleton the loop would leave half done.
-        uint32_t maxIndex = 0, n = 0;
+        maxIndex = 0;
+        n = 0;
         {
             uint32_t stack[kMaxDepth];
             uint32_t depth = 0, cur = 0;
             for (;;)
             {
                 if (cur >= kMaxBones || ++n > kMaxBones)
-                    return -1;
+                    return false;
                 maxIndex = cur > maxIndex ? cur : maxIndex;
                 const uint32_t b = bones + cur * 0x40u;
                 const uint32_t child = rd32(ram, b + 0x30u), sib = rd32(ram, b + 0x34u);
                 if (child != 0xFFFFFFFFu)
                 {
                     if (depth >= kMaxDepth)
-                        return -1;
+                        return false;
                     stack[depth++] = sib;
                     cur = child;
                     continue;
@@ -246,6 +245,19 @@ namespace pose82
                     break;
             }
         }
+        return true;
+    }
+
+    int pose(uint8_t *ram, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ, bool write, Out *o)
+    {
+        const uint32_t bones = rd32(ram, skel + 8u);
+        if (!inRam(bones, 0x40u) || !inRam(scaleAt & ~0xFu, 16u) || !inRam(pos & ~0xFu, 16u))
+            return -1;
+        // First pass: the bones' count and checks (indices, depth), so a
+        // write never starts on a skeleton the loop would leave half done.
+        uint32_t maxIndex = 0, n = 0;
+        if (!topology(ram, bones, maxIndex, n))
+            return -1;
         const uint32_t count = maxIndex + 1u;
         if (!inRam(bones, count * 0x40u) || !inRam(mats, count * 0x40u) || !inRam(quats, count * 0x10u) || !inRam(locals, count * 0x10u))
             return -1;
@@ -322,6 +334,287 @@ namespace pose82
                 break;
         }
         return static_cast<int>(n);
+    }
+
+    // ---- Round 136 (SOTC_POSE136, A/B pose136): the pose's bones kept ----
+    // A character's skeleton is posed several times a frame on the same
+    // buffers (the console's profile, by caller: ExecCharaGeometry's pose
+    // 0.60% of the game thread, CalcNodeQuaternionWithIK's two 0.50%,
+    // 010E0558 (root fitting) 0.18%, the head IK 0.11%), and between two of
+    // them only a few local rotations change (the IK's legs, the head). Each
+    // bone's results are a function of its normalised local rotation, its
+    // offset, the scale and its parent's matrix and quaternion; the walk
+    // keeps them per buffer set (host arrays, one entry a skeleton's
+    // matrices / quaternions / locals / bones addresses) with the inputs they
+    // were made from, and a bone whose parent is unchanged and whose inputs
+    // are the same bits takes the kept results instead of the arithmetic
+    // (its normalisation too when the local is the same bits as last time).
+    // The same operations on the same values as pose() otherwise: the
+    // results are the same bits (SOTC_POSE136_CHECK=1 compares every call
+    // with pose()'s, [pose136c]). Everything is still written (the outputs'
+    // RAM may have been written by others in between). SOTC_POSE136_LOG=<n>:
+    // [pose136] every n frames (calls, bones, bones kept, normalisations
+    // skipped).
+    namespace p136
+    {
+        struct Bone
+        {
+            float32x4_t raw, loc, off, q, qn; // the local as read, normalised; the offset as read; the quaternion (children's), normalised
+            M4 m;
+            uint32_t parent; // the parent bone + 1 (0: the root) these were made with; kInvalid: none
+            uint32_t pad[3];
+        };
+        constexpr uint32_t kInvalid = 0xFFFFFFFFu;
+        struct Entry
+        {
+            uint32_t mats = 0, quats = 0, skel = 0, locals = 0, bones = 0, count = 0;
+            uint64_t used = 0;
+            float32x4_t pos = vdupq_n_f32(0.0f), rootQ = vdupq_n_f32(0.0f), scale = vdupq_n_f32(0.0f);
+            M4 rootM;
+            bool rootValid = false;
+            Bone *b = nullptr;
+            uint32_t cap = 0;
+        };
+        constexpr int kEntries = 24;
+        struct Cache
+        {
+            Entry e[kEntries];
+            uint64_t tick = 0;
+        };
+        thread_local Cache *t_cache = nullptr;
+
+        // Two qwords the same bits (integer loads: no NEON -> core move).
+        inline __attribute__((always_inline)) bool sameMem(const void *a, const void *b)
+        {
+            uint32_t x[4], y[4];
+            std::memcpy(x, a, 16);
+            std::memcpy(y, b, 16);
+            return ((x[0] ^ y[0]) | (x[1] ^ y[1]) | (x[2] ^ y[2]) | (x[3] ^ y[3])) == 0u;
+        }
+        inline __attribute__((always_inline)) bool sameReg(float32x4_t a, float32x4_t b)
+        {
+            const uint32x4_t x = veorq_u32(vreinterpretq_u32_f32(a), vreinterpretq_u32_f32(b));
+            const uint32x2_t y = vorr_u32(vget_low_u32(x), vget_high_u32(x));
+            return vget_lane_u64(vreinterpret_u64_u32(y), 0) == 0u;
+        }
+
+        struct Counters
+        {
+            uint64_t calls = 0, bones = 0, kept = 0, rawHit = 0, entriesNew = 0, start = 0, checks = 0, checkBad = 0;
+        };
+        thread_local Counters t_cnt;
+        int logEvery()
+        {
+            static const int v = envInt("SOTC_POSE136_LOG", 0);
+            return v;
+        }
+        bool checkOn()
+        {
+            static const bool v = envInt("SOTC_POSE136_CHECK", 0) != 0;
+            return v;
+        }
+
+        Entry &entryFor(uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t bones, uint32_t count)
+        {
+            Cache *c = t_cache;
+            if (__builtin_expect(c == nullptr, 0))
+                c = t_cache = new Cache();
+            ++c->tick;
+            Entry *old = &c->e[0];
+            for (Entry &e : c->e)
+            {
+                if (e.mats == mats && e.quats == quats && e.skel == skel && e.locals == locals && e.bones == bones && e.b != nullptr)
+                {
+                    e.used = c->tick;
+                    if (count > e.cap)
+                    {
+                        Bone *nb = new Bone[count];
+                        std::memcpy(static_cast<void *>(nb), e.b, sizeof(Bone) * e.cap);
+                        for (uint32_t i = e.cap; i < count; ++i)
+                            nb[i].parent = kInvalid;
+                        delete[] e.b;
+                        e.b = nb;
+                        e.cap = count;
+                    }
+                    e.count = count;
+                    return e;
+                }
+                if (e.used < old->used)
+                    old = &e;
+            }
+            // A new set (the least recently used entry's place): nothing kept.
+            Entry &e = *old;
+            if (e.cap < count)
+            {
+                delete[] e.b;
+                e.b = new Bone[count < 64u ? 64u : count];
+                e.cap = count < 64u ? 64u : count;
+            }
+            for (uint32_t i = 0; i < e.cap; ++i)
+                e.b[i].parent = kInvalid;
+            e.mats = mats;
+            e.quats = quats;
+            e.skel = skel;
+            e.locals = locals;
+            e.bones = bones;
+            e.count = count;
+            e.rootValid = false;
+            e.used = c->tick;
+            if (logEvery() > 0)
+                ++t_cnt.entriesNew;
+            return e;
+        }
+
+        struct Frame
+        {
+            uint32_t parent, sibling;
+            bool dirty;
+        };
+
+        // pose()'s walk with the kept bones; writes guest RAM. Returns the
+        // number of bones or -1 (nothing written).
+        int pose(uint8_t *ram, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ)
+        {
+            const uint32_t bones = rd32(ram, skel + 8u);
+            if (!inRam(bones, 0x40u) || !inRam(scaleAt & ~0xFu, 16u) || !inRam(pos & ~0xFu, 16u))
+                return -1;
+            uint32_t maxIndex = 0, n = 0;
+            if (!topology(ram, bones, maxIndex, n))
+                return -1;
+            const uint32_t count = maxIndex + 1u;
+            if (!inRam(bones, count * 0x40u) || !inRam(mats, count * 0x40u) || !inRam(quats, count * 0x10u) || !inRam(locals, count * 0x10u))
+                return -1;
+            Entry &e = entryFor(mats, quats, skel, locals, bones, count);
+
+            const float32x4_t scale = vsetq_lane_f32(0.0f, ldq(ram, scaleAt), 3);
+            const float32x4_t posv = ldq(ram, pos);
+            bool rootDirty = !e.rootValid || !sameReg(scale, e.scale) || !sameReg(posv, e.pos) || !sameReg(rootQ, e.rootQ);
+            if (rootDirty)
+            {
+                e.scale = scale;
+                e.pos = posv;
+                e.rootQ = rootQ;
+                e.rootM.c[0] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 0);
+                e.rootM.c[1] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 1);
+                e.rootM.c[2] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 2);
+                e.rootM.c[3] = vsetq_lane_f32(1.0f, posv, 3);
+                e.rootValid = true;
+            }
+
+            Frame stack[kMaxDepth];
+            uint32_t depth = 0, cur = 0, parent = 0;
+            bool pdirty = rootDirty;
+            uint64_t kept = 0, rawHit = 0;
+            const uint8_t *bp = at(ram, bones);
+            uint8_t *mp = at(ram, mats), *qp = at(ram, quats), *lp = at(ram, locals);
+            Bone *const kb = e.b;
+            for (;;)
+            {
+                Bone &B = kb[cur];
+                const uint8_t *b = bp + cur * 0x40u;
+                uint8_t *lq = lp + cur * 0x10u;
+                // The next bone's lines (the walk is mostly in index order): its record, local and kept results.
+                __builtin_prefetch(b + 0x50u);
+                __builtin_prefetch(b + 0x70u);
+                __builtin_prefetch(lq + 0x10u);
+                __builtin_prefetch(&kb[cur + 1u]);
+                __builtin_prefetch(reinterpret_cast<const uint8_t *>(&kb[cur + 1u]) + 64);
+                __builtin_prefetch(reinterpret_cast<const uint8_t *>(&kb[cur + 1u]) + 128);
+                const bool valid = B.parent == parent;
+                bool clean;
+                if (valid && sameMem(lq, &B.raw))
+                {
+                    ++rawHit;
+                    clean = !pdirty && sameMem(b + 0x10u, &B.off);
+                }
+                else
+                {
+                    const float32x4_t raw = vld1q_f32(reinterpret_cast<const float *>(lq));
+                    const float32x4_t loc = normalize(raw);
+                    clean = !pdirty && valid && sameReg(loc, B.loc) && sameMem(b + 0x10u, &B.off);
+                    B.raw = raw;
+                    B.loc = loc;
+                }
+                if (!clean)
+                {
+                    const float32x4_t off = vld1q_f32(reinterpret_cast<const float *>(b + 0x10u));
+                    const M4 &P = parent ? kb[parent - 1u].m : e.rootM;
+                    const float32x4_t pq = parent ? kb[parent - 1u].q : e.rootQ;
+                    const float32x4_t loc = B.loc;
+                    B.m = boneMatrix(P, loc, vmulq_f32(off, scale));
+                    B.q = qmul(pq, loc);
+                    B.qn = normalize(B.q);
+                    B.off = off;
+                    B.parent = parent;
+                }
+                else
+                    ++kept;
+                {
+                    float *dm = reinterpret_cast<float *>(mp + cur * 0x40u);
+                    vst1q_f32(dm, B.m.c[0]);
+                    vst1q_f32(dm + 4, B.m.c[1]);
+                    vst1q_f32(dm + 8, B.m.c[2]);
+                    vst1q_f32(dm + 12, B.m.c[3]);
+                    vst1q_f32(reinterpret_cast<float *>(qp + cur * 0x10u), B.qn);
+                    vst1q_f32(reinterpret_cast<float *>(lq), B.loc);
+                }
+                uint32_t child, sib;
+                std::memcpy(&child, b + 0x30u, 4);
+                std::memcpy(&sib, b + 0x34u, 4);
+                if (child != 0xFFFFFFFFu)
+                {
+                    stack[depth].parent = parent;
+                    stack[depth].sibling = sib;
+                    stack[depth].dirty = pdirty;
+                    ++depth;
+                    parent = cur + 1u;
+                    pdirty = !clean;
+                    cur = child;
+                    continue;
+                }
+                if (sib != 0xFFFFFFFFu)
+                {
+                    cur = sib;
+                    continue;
+                }
+                bool more = false;
+                while (depth > 0)
+                {
+                    const Frame &f = stack[--depth];
+                    if (f.sibling != 0xFFFFFFFFu)
+                    {
+                        parent = f.parent;
+                        pdirty = f.dirty;
+                        cur = f.sibling;
+                        more = true;
+                        break;
+                    }
+                }
+                if (!more)
+                    break;
+            }
+            if (logEvery() > 0)
+            {
+                Counters &c = t_cnt;
+                ++c.calls;
+                c.bones += n;
+                c.kept += kept;
+                c.rawHit += rawHit;
+                const uint64_t fr = sotc_decomp::g_gameFrame;
+                if (c.start == 0)
+                    c.start = fr;
+                if (fr - c.start >= static_cast<uint64_t>(logEvery()))
+                {
+                    const double f = static_cast<double>(fr - c.start);
+                    std::fprintf(stderr, "[pose136] frame %llu: %.1f calls a frame, %.0f bones, %.0f kept (%.1f%%), normalisations skipped %.0f, new sets %llu, checks %llu differ %llu\n",
+                                 (unsigned long long)fr, c.calls / f, c.bones / f, c.kept / f, c.bones ? 100.0 * c.kept / c.bones : 0.0, c.rawHit / f,
+                                 (unsigned long long)c.entriesNew, (unsigned long long)c.checks, (unsigned long long)c.checkBad);
+                    c = Counters{};
+                    c.start = fr;
+                }
+            }
+            return static_cast<int>(n);
+        }
     }
 
     // ---- measurement ----
@@ -430,7 +723,74 @@ namespace pose82
         const uint64_t t0 = logOn() ? nowUs() : 0u;
         const uint32_t skel = GPR_U32(ctx, 6);
         const float32x4_t rq = rootQuat(ram);
-        const int n = pose(ram, GPR_U32(ctx, 4), GPR_U32(ctx, 5), skel, GPR_U32(ctx, 7), GPR_U32(ctx, 8), GPR_U32(ctx, 9), rq, true, nullptr);
+        int n;
+        if (sotc_decomp::switchOn(sotc_decomp::kPose136))
+        {
+            if (__builtin_expect(p136::checkOn(), 0))
+            {
+                // Round 136's check: pose() into host buffers first (nothing written), the kept walk, the two compared bit for bit.
+                if (!g_pending)
+                    g_pending = new Pending();
+                Pending &pd = *g_pending;
+                Out o{pd.m, pd.q, pd.l};
+                const uint32_t mats = GPR_U32(ctx, 4), quats = GPR_U32(ctx, 5), locals = GPR_U32(ctx, 7);
+                const int rn = pose(ram, mats, quats, skel, locals, GPR_U32(ctx, 8), GPR_U32(ctx, 9), rq, false, &o);
+                n = p136::pose(ram, mats, quats, skel, locals, GPR_U32(ctx, 8), GPR_U32(ctx, 9), rq);
+                if (rn > 0 && n == rn)
+                {
+                    // Only the walked bones were written by pose(): walk again for the indices.
+                    uint32_t stack[kMaxDepth];
+                    uint32_t depth = 0, cur = 0;
+                    uint64_t bad = 0;
+                    const uint32_t bones = rd32(ram, skel + 8u);
+                    for (;;)
+                    {
+                        if (std::memcmp(at(ram, mats + cur * 0x40u), &pd.m[cur], 64) != 0 || std::memcmp(at(ram, quats + cur * 0x10u), &pd.q[cur], 16) != 0 ||
+                            std::memcmp(at(ram, locals + cur * 0x10u), &pd.l[cur], 16) != 0)
+                            ++bad;
+                        const uint32_t b = bones + cur * 0x40u;
+                        const uint32_t child = rd32(ram, b + 0x30u), sib = rd32(ram, b + 0x34u);
+                        if (child != 0xFFFFFFFFu)
+                        {
+                            stack[depth++] = sib;
+                            cur = child;
+                            continue;
+                        }
+                        if (sib != 0xFFFFFFFFu)
+                        {
+                            cur = sib;
+                            continue;
+                        }
+                        bool more = false;
+                        while (depth > 0)
+                        {
+                            const uint32_t s = stack[--depth];
+                            if (s != 0xFFFFFFFFu)
+                            {
+                                cur = s;
+                                more = true;
+                                break;
+                            }
+                        }
+                        if (!more)
+                            break;
+                    }
+                    ++p136::t_cnt.checks;
+                    if (bad)
+                    {
+                        ++p136::t_cnt.checkBad;
+                        static int shown = 0;
+                        if (shown++ < 20)
+                            std::fprintf(stderr, "[pose136c] frame %llu: skeleton %08x mats %08x ra %08x: %llu bones differ of %d\n", (unsigned long long)sotc_decomp::g_gameFrame, skel,
+                                         mats, GPR_U32(ctx, 31), (unsigned long long)bad, n);
+                    }
+                }
+            }
+            else
+                n = p136::pose(ram, GPR_U32(ctx, 4), GPR_U32(ctx, 5), skel, GPR_U32(ctx, 7), GPR_U32(ctx, 8), GPR_U32(ctx, 9), rq);
+        }
+        else
+            n = pose(ram, GPR_U32(ctx, 4), GPR_U32(ctx, 5), skel, GPR_U32(ctx, 7), GPR_U32(ctx, 8), GPR_U32(ctx, 9), rq, true, nullptr);
         if (n < 0)
         {
             if (logOn())

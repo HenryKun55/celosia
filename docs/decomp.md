@@ -18487,3 +18487,58 @@ Pictures (window shots, riding over the bridge, the plains, the title): normal. 
 **Console.** build/agent-scratch/celosia-r134.vpk (dev), r134/env-console.txt: prof129 + `SOTC_AB_FLAG=pf134,clip134,texr128`
 (texr128 turned on by the env so its windows are the console's verdict on round 128's exact-but-Vita3K-slower switch). Read:
 `tools/prof129.py err.txt --elf celosia-r134.elf` (the zone line; manager_sub_010F3FB0 should drop), `[mdslane]` joins at clip.
+
+## Round 136: the characters on the console: the pose's bones kept (pose136, console A/B only), GetMotionIntFrame's keys as host code (key136), GetEulerYXZFromQuaternion in plain floats (euler136) (2026-11-09)
+
+Scripts, runs: `build/agent-scratch/r136/` (build.sh pN, run.sh / v3k.sh and runb.sh / v3kb.sh: own trees
+../vita3k-celosia-r136 / -r136b, 222 MHz, 3 cores, audio-volume 0; callers.py: a prof129 function's samples by caller ra;
+STATE.md). Source: the r134 console profile, heavy-field riding (characters 6.95 ms of the game thread's 37.1).
+
+**Where the characters' console time is, by caller** (`r136/callers.py`, % of the game thread's running samples):
+GetMotionMatrix 1.39 (ExecCharaGeometry's pose 0.60, CalcNodeQuaternionWithIK's two 0.50, 010E0558 0.18, the head IK 0.11);
+execCharaGeometry 0.86; the cloths ~2.3 (011370E8's step 0.77 under getClothDynamics 011399E0 for the fringe / mantle / horse
+cloth / bridle, the strands callback 0.14, velocity 0.37, round 122's GetClothDynamics 0.38, DispCloth 0.46, tension 0.21);
+curveEval 0.79 (0.55 of it GetMotionIntFrame's per-channel guest calls); floatFrame 0.70 (keys122, rootBlend / geometryStep);
+GetEulerYXZFromQuaternion 0.54 (setNodeHPB 0.49); gaze 0.55 (round 41's, gaze122 off); charaLinks 0.55; the particle module's
+emitters on the game thread (gate<14> = 0113B928, gate<13> = 0113B610, gate<4> = doit_particle_manager: ~2.2 together,
+recompiled VU0 code, not joins). The list is flat: no single character function is above 1.4%.
+
+**What changed (A/B names = the switch names).**
+- `pose136` (`SOTC_POSE136`, **default off**, decomp_pose82.cpp): GetMotionMatrix (round 82's pose) keeps each bone's
+  results per buffer set (matrices / quaternions / locals / skeleton address; host arrays, a thread's own, 24 sets) with the
+  inputs they were made from (the local as read and normalised, the offset, the parent's index; the root's position, rotation
+  and scale); a bone whose parent is unchanged and whose inputs are the same bits takes the kept matrix and quaternion
+  instead of the arithmetic, and a local read back as last written skips its normalisation. Everything is still written.
+  Exact: SOTC_POSE136_CHECK=1 (round 82's pose into host buffers first, compared bit for bit) found **0 differing bones** in
+  every call (attract 480 s: 6 000 checks a 600-frame window; the console card's shrine 360 s: 12 600 a window). Kept: 17%
+  (the title / demos), 24% (the shrine, 21 calls / 466 bones a frame), 43% (the ride, 10 calls / 255 bones). Not faster in
+  Vita3K (host sampler, attract 300-540 s: round 82's pose 1.19% of the game thread, round 136's 1.22%: the kept arrays' stores
+  and compares cost what the skipped bones save); off by default, turned on by r136/env-console.txt so the console's A/B
+  (memory latency, which Vita3K does not have) decides. `SOTC_POSE136_LOG=<n>`: `[pose136]` (calls, bones, kept).
+- `key136` (`SOTC_KEY136`, default on, decomp_motionframe.cpp / decomp_char122.cpp): GetMotionIntFrame's channels decoded by
+  round 122's decodeKey into a host buffer (as keys122 does a float frame with no fraction) and copied out, instead of a
+  curveEval guest call a channel; v0 / v1 as the loop leaves them (curveEval's last: 1 for a format with no data). Any format
+  decodeKey does not know, over 256 channels or a range outside RAM: the old loop. Tolerance (SOTC_KEY136_CHECK=1, every 16th
+  call against the old loop): worst 1.8e-4 in a component (0.02 deg), typical 1e-6 (the 9-bit keys' w = sqrt(1 - |xyz|^2)
+  rounding), as keys122. Vita3K sampler: evalKeyFast 0.39 -> 0.20%, decodeKey 0.15 -> 0.27% (curveEval + intFrame -0.1%).
+- `euler136` (`SOTC_EULER136`, default on, decomp_quat.cpp): GetEulerYXZFromQuaternion (0x1ba880; setNodeHPB's, ~17 calls a
+  frame) as plain floats: the original's VU0 statements in their order on the same values (the z / y axes of q, the xz
+  normalisation by 1 / sqrt with VU0's FLT_MAX for zero, the turns by the boot ELF's quarter-wave table in 1/65536 steps, the
+  conjugate's rows) without the clamps and the VU0 register file; atan2 / asin as the host's (quat122's choice). Written: out
+  and f0 (the scratch VU0 registers, Q and v0 not: leaf helper, as quat122). Tolerance (SOTC_EULER136_CHECK=1, every call, the
+  old code after it on the same input, its result kept; 316 000 calls attract, 176 000 at the shrine): worst x 3.5e-4, y 1e-5,
+  z 2.7e-4 rad (0.02 deg: a 1/65536-turn step at the truncation boundary), typical 1e-7; none over 1e-3. prof129 in Vita3K:
+  eulerYXZ 1.08 -> 0.25% of the game thread's running samples.
+
+**Not done (measured / read).** The cloth step (011370E8) is already round 49's clamp-light NEON with the VU0 R stream
+three LCG draws a point (cloth122's fused version of it measured no faster in round 122); the emitters' gates are recompiled
+VU0 code (0113B928: 536 instructions with its own matrix products) that reads the characters' motion, so it cannot move to the
+worker earlier without a dependency rework; GetMotionMatrix's topology pre-pass (0.15%) stays (no half-written skeleton).
+
+**Checks.** Pictures (window shots): the shrine with the console card (Wander beside Agro, feet on the ground, reins), the
+attract ride (Agro's gallop, legs); [pos] y normal (the shrine -0.23, the ride 3.24). spalign: 701 NEON :128/:256, 0 sp-based.
+
+**Console.** build/agent-scratch/celosia-r136.vpk (dev, prof129), r136/env-console.txt (`SOTC_POSE136=1`,
+`SOTC_AB_FLAG=pose136,key136,euler136`, rotation, period 600, prof129). Read: `tools/prof129.py err.txt --elf
+r136/celosia-r136.elf --group characters` (motionMatrix, curveEval / intFrame, eulerYXZ), the A/B by state (abframes.py).
+pose136 on by default only if its windows are faster on the console.
