@@ -17964,3 +17964,76 @@ state: the console's ~88 finder clips a frame at 15 us of round 124's log should
 other), [obj125] (the part filters called). Gameplay: Wander's footing (no falling through, no snagging on edges, the IK feet on
 slopes and steps), landing from jumps and climbs, the camera's collision (no clipping into walls), Agro's riding (the ground under
 him, the slopes), a colossus fight (ClipCollisionDirectCallBackObjAry: the probes against its body, grabbing and climbing).
+
+## Round 127: the display path on the game thread: where it stands; the model hooks' scroll rows kept across frames (scroll127); the GL cache's eviction sort; walk67 to the console's A/B (2026-11-09)
+
+Scripts, runs and logs: `build/agent-scratch/r127/` (build.sh pN, run.sh / ab127.sh / samp.sh, two own Vita3K trees
+../vita3k-celosia-r127 and -r127b, 222 MHz, 3 cores, audio-volume 0; top.py: one sampler profile's top functions;
+env-console.txt; STATE.md). Base p0 = main 67030c3 (= celosia-r125.vpk / r125 p9); p1 = this round = celosia-r127.vpk.
+
+**What the display path is now (sampler, the attract demo riding, r125 p9 400-700 s).** The brief: round 113's item 2,
+~8.8 ms of the console's game thread riding, as a native system (a host scene table, NEON visibility, model / light
+setup emitting draw records). The sampler shows what rounds 49-117 left: the walk and its natives are already A9 code
+(walk83's clip in plain floats, the hook's plan / part walk / packet loop, the light pass, the particle and haze
+quads), and the path is flat: quad117 1.73%, the walk 1.33, hookScrollRows 1.04, clip83 1.10, mdsPartWalk 0.78 (the
+lane's jobs run by the game thread's joins), mdsPlanPackets 0.62, modelDispHook 0.60, strips 0.57, prefetch::note
+0.52, sortOrder 0.49, texreset 0.47, reflectionBegin 0.44, lightPass 0.42, gsRegHook / gsReg / vertex2D 0.9 (the
+immediate quads' GIF pairs parsed back at glEnd), the rest below 0.3 each; at the shrine (r125 sampR5) the same names
+within +-0.3. No piece of it is above ~2%, and most of what remains is memory latency on guest data (pointer chains per
+object / surface) and per-call guest bookkeeping (the recompiled callers' registers, VU0 / CLIP state the natives
+leave for them). A host scene table replacing the walk would have to reproduce every guest-visible write of the 50+
+class callbacks (round 116's finding stands); this round did not get there. What it did: the largest single
+function's work made per-texture-and-change instead of per-surface-and-frame, and one renderer cost on the game
+thread that was not the game's.
+
+**scroll127 (`SOTC_SCROLL127`, default on; A/B `scroll127` / `r127all`; sotc_native hookScrolls127).** At every
+model hook the job takes the plan's texture scroll rows (round 34: the rows' two words read at the hook, as the job
+may run after the game moved them). Each row's address is a chain: surface record +0x2c (an index) -> the header's
+object table (+0x40, +0x44 entries of 0x20) entry +0x10 (the object) -> +0x20 (its nto2) -> +0xc (the row). The memos
+(per surface record, per plan) lasted one frame, so every frame each plan's surface records walked their chains again
+(the walk67 prefetch of them included): 1.04% of the game thread riding. Now per (plan, header) the distinct table
+entries are kept with the object / nto2 / row they gave and the rows in first-appearance order; a later frame checks
+the header's table words and those chains (a few words a texture) and reuses the rows, else makes them again. The
+plan itself is checked against its packet list every frame (its listHash, LOD and the header's surface array are
+part of the key). The two words of each row are still read at each hook. Checks (`SOTC_SCROLL_CHECK=1`: the
+per-surface walk run beside it, every hook compared, address and both words): runs/chkA1 (attract, 480 s) 371 867
+hooks, 0 differ; runsb/smkR1 (route 6, 600 s: the shrine, the walk out, the plain) 518 511 hooks, 0 differ, no fault. Kept 97% of the time (`[scroll127]`: ~13 900 made in
+487 000; ~600 after a chain moved: the texture animations' object swaps).
+
+**The GL cache's eviction (native_renderer_gl evictKept; no switch, the same entries evicted).** At the hand-over (the
+game thread) a pressure / aging / budget pass lists the cache's candidates and sorted them by last use. Only the
+budget's cut depends on the order; the aged and pressure cuts take every candidate older than their frame. Now the
+sort runs only for a budget cut, and a mesh a heap-only pressure pass would spare is counted as spared without being
+listed. Vita3K's heap sits above the pressure mark (104 MB), so every 16 frames ~20 000 spared candidates were sorted:
+0.98% of the game thread in the sampler. The console's logs show pressure 0 (heap ~98 MB): no change expected there.
+
+**Measured (Vita3K 222 MHz).** Sampler, the attract demo 400-700 s, p1 (runs/sampA1) against r125's p9 (sampA9on,
+the same window): hookScrollRows + hookScrolls 1.10% -> scroll127's functions 0.17%; the eviction sort 0.98% -> 0.
+In-run A/B (runsb/abA1, attract from frame 3 000, 60-frame windows, `SOTC_AB_FLAG=r127all,walk67`, ~4 500 frames a
+state, matched by draws, off minus on): r127all game +0.06 / frame +0.17 ms (within the A/B's +-0.2 noise at the
+Mac's load 10-23); walk67 off game -0.61 / frame -0.46 (the walk's prefetch records cost Vita3K, which has no cache
+to fill, as round 76 measured: -1.9 there).
+
+**walk67 on the console: never measured.** Round 67's prefetch records (prefetch::note / window / objectLines67, the
+sort lists' sortOrder / sortAhead, the group runner, the scroll chains ahead, ~1.5-2.3% of the game thread in Vita3K)
+were kept for the console's memory on an estimate (0.25-0.5 ms); round 76 put `walk67` in the console's A/B and no
+console log with it came back (none of the console logs since has a `walk67 off` window). It is in this round's
+env-console.txt: if the console agrees with Vita3K (walk67 off faster), the default flips; if the prefetches pay
+there, scroll127's own share of them (the scroll chains ahead) is already gone.
+
+**Not done / next.** The ~-3 ms console target of the brief was not reached: this round's measurable gain is ~0.9% of
+the game thread (scroll127; ~0.4 ms console if the share holds) plus walk67's console verdict. The candidates in the
+order the sampler gives them: (1) the immediate-mode quads straight to the 2D assembler (quad117 1.73 + strips 0.57 +
+glBegin 0.36 + the GIF pairs parsed back at glEnd ~0.9: ~3.5% riding where the haze / particle quads are on screen),
+which needs glBegin's packet header (TEST / PRIM from the gl state) made natively and glEnd's chaining of the packet
+into the layer list shown unread in native mode; (2) the hook's game-thread half (modelDispHook + the lane jobs the
+joins run + mdsPlanPackets: ~2%) as one per-instance record built once per (instance, plan) and checked by the words
+it read; (3) texreset's ~1 000-node list three times a frame (0.47%) from a host index kept by the texture manager's
+own insert / remove.
+
+**Console.** build/agent-scratch/celosia-r127.vpk with r127/env-console.txt (round 125's log flags, SOTC_SCROLL127_LOG=1,
+`SOTC_AB_FLAG=r127all,walk67` rotating every 60 frames). Read with `python3 build/agent-scratch/r127/ab89.py err.txt
+--from <frame> --min-draws 300`: the r127all row (scroll127 off) and the walk67 row (the prefetch records off),
+positive = the switch's gain. No picture change expected (scroll127 gives the same rows; the eviction the same
+entries); look at the textures that scroll (water, waterfalls, the sky's clouds, the shrine's light shafts) moving as
+before.
