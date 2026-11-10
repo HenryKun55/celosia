@@ -18685,3 +18685,59 @@ reading (about two process-time reads a finder clip, the same in every state).
 0 sp-based), r138/env-console.txt = r135's with `SOTC_AB_FLAG=fin125,fin138,pf135` (rotate, 600; fin138 off = round 135's
 validate()) and SOTC_FIN138_LOG=1. Read: `grep fin138t err.txt` (us a clip by state), `tools/abframes.py err.txt --summary
 --bin 100 --from <first field frame>` (always leave the title / load out: its summaries match field bins by draws).
+
+## Round 137: the PGO profile and the hot-code order retrained on current main (2026-11-10)
+
+Files: `build/agent-scratch/r137/` (STATE.md; build.sh <dir> <pN> [cmake args]; train.sh / trainall.sh: training runs;
+profall.sh: profiles for the order; pair.sh / abchain.sh / cmp.py: paired A/B, draw-matched; own Vita3K trees
+../vita3k-celosia-r137 / -r137b, 222 MHz, muted). Round 121's procedure, unchanged tools (tools/pgo_fix.py,
+tools/vita_hot_order.py).
+
+**Why.** Round 121's profile predates rounds 122-136: keys122 / quat122 / cloth122, ptcl123 / blend123, coll125 / fin125,
+imm128, prof129, pace132, clip134, pf134 / pf135, euler136 / key136 / pose136 were built without a profile (partial
+training), and the hot order left them at the end of .text (round 133: char122::cloth::dynamics, finderLeaf<false> at
+0x830xxxxx).
+
+**Training** (instrumented build, `PS2X_VITA_PGO=gen`, the default switches plus `SOTC_POSE136=1`, dumps every 1 500
+frames): attract demo 1 500 s + 1 200 s (both ride loops, Agro galloping; frames 30 569 / 27 858), the console card's save
+walked out of the shrine onto the plain 720 s + 1 200 s, altar 540 s, route 6 540 s. tools/pgo_fix.py over the six runs:
+179 files, 15 560 functions. The recompiled game's batches (`unity_*`) and ps2_vita_runtime.cpp (only used with
+`PS2X_VITA_PGO_GAME=ON`, off by default) are carried over from round 121's profile unchanged: the generator has not
+changed. game/pgo/vita-pgo.tar.xz: 464 files, 1.67 MB.
+
+**Hot order** from four Vita3K profiles (PROF=1) of the new-profile build (attract 600 s, walk 600 s, altar 480 s,
+route 6 480 s): 4 782 functions. The game thread's hot set, old -> new order (same names; layout.py):
+
+| profile | 50%: 4 KB / 64 KB pages | 90%: 4 KB / 64 KB pages, span |
+|---|---|---|
+| route 6 | 242 / 37 -> 229 / 20 | 1 106 / 104 (33.4 MB) -> 1 044 / 79 (13.1 MB) |
+| attract (rides) | 200 / 37 -> 189 / 20 | 1 024 / 104 -> 986 / 87 |
+| walk (card) | 244 / 41 -> 232 / 23 | 1 055 / 107 -> 982 / 76 |
+| altar | 218 / 36 -> 205 / 21 | 1 020 / 101 -> 952 / 78 |
+
+**Measured** (Vita3K 222, p0 = main with round 121's profile and order, p1 = the same with the new profile, round 121's
+order; two runs at once in the two trees, then swapped; console per-frame env; game thread = frame - wait - sched over
+the frames both runs reached, matched by draws in bins of 100):
+
+| scene, round | game p0 -> p1 (raw) | matched by draws | mean load |
+|---|---|---|---|
+| attract 600 s, 1 | 15.98 -> 14.77 | **-0.96** | 5.7 |
+| attract, 2 (swapped) | 15.11 -> 15.38 | **-0.02** | 5.7 |
+| walk (card) 600 s, 1 | 46.25 -> 41.07 | **-3.56** | 15.5 |
+| walk, 2 | 39.85 -> 39.14 | **-0.77** | 6.9 |
+| altar 480 s, 1 | 37.71 -> 36.21 | **-1.04** | 6.6 |
+| altar, 2 | 42.20 -> 41.76 | **-1.00** | 14.2 (peak 36) |
+
+The new profile is no worse anywhere: about -0.5 ms in the attract demo, about -1 ms at the altar, -0.8..-3.6 ms on the
+walk. The walk script's waits are in vblanks, so the two builds' walks drift apart (different positions by frame 1 500);
+only the draw matching compares them, and round 1 ran at load 15.5. Text: 38.38 -> 38.09 MB. The new order (p2 = p1
+relinked) could not be timed: the host's screen locked and Vita3K stopped booting. Vita3K translates by guest address
+and has no caches, so it would not show the order anyway; the console decides. Pictures (p1, the A/B runs, shots every
+90 s): the shrine and altar with Mono, Wander walking out onto the plain with his shadow, and Agro galloping across the
+field in the attract demo, legs off the ground and shadow under him. Nothing missing or garbled. PGO and layout change
+no computation (no -ffast-math, -fno-profile-values). spalign: 0 sp-based NEON accesses (dev and release).
+
+**Console.** build/agent-scratch/celosia-r137.vpk (dev, prof129: main with round 138 + this profile + this order; round 138's changed fin125 functions are built without a profile) with
+r137/env-console.txt (round 135's A/B list), r137/celosia-r137.elf for prof129.py. build/agent-scratch/celosia-r137-
+release.vpk: the same as a release build (`PS2X_VITA_RELEASE=ON`). Compare the game thread against r135 / r136 at the same
+places (abframes.py --summary). Retrain after the next large batch of natives.
