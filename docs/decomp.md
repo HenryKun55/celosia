@@ -18741,3 +18741,94 @@ no computation (no -ffast-math, -fno-profile-values). spalign: 0 sp-based NEON a
 r137/env-console.txt (round 135's A/B list), r137/celosia-r137.elf for prof129.py. build/agent-scratch/celosia-r137-
 release.vpk: the same as a release build (`PS2X_VITA_RELEASE=ON`). Compare the game thread against r135 / r136 at the same
 places (abframes.py --summary). Retrain after the next large batch of natives.
+
+## Round 139: the scripts' sub-thread switch, the sound driver's status request and the pad sends, the isys locks' kernel calls, the garbage walk, iosGetRandom (sub139, sg2q139, rpc139, sem139, gc139, rnd139) (2026-11-10)
+
+Scripts, runs: `build/agent-scratch/r139/` (build.sh pN, run.sh / v3k.sh / v3kb.sh / stop.sh on the own trees
+../vita3k-celosia-r139 / -r139b, 222 MHz, muted; zones.py: prof129's samples of guest functions by pc / ra / zone; asm.sh;
+speed.py; env-console.txt; STATE.md). Source: the r135 console profile riding (scripts/AI 5.2 ms, the guest code around it).
+
+**What the console's entries are** (`r139/zones.py r135/console/err.txt r135/celosia-r135.elf <pattern>`; 1% of the busy
+game thread = 0.38 ms).
+- `Sg2RemoteTickProc` 0.76% = pc 0x1d2340 in zone 0x2030: the HLE `SifCallRpc` of the sound driver's status request (the
+  syscall stub sets pc to ra before the handler), ~1-3 a frame (the VBlank thread's sound tick). `sceDbcSendData2` 0.21% the
+  same zone: the DualShock actuator sends (sids 0x8000131e / 0x8000131f, which the native IOP completes without a service).
+- `iosSendMsg` 0.58% = 0x1b10dc (the main thread parked at its frame end, iosSleepThread): 0.40 of it zone 0x2040, the
+  dispatcher after the park.
+- `kernel_sub_001C81B0` 0.45% = pc 0x1c81e8: decomp_gctick's native garbage walk (prof129 names it by the pc its time
+  check last set): ~450 blocks a frame.
+- `decomp_subthread::wake` / `sleep` 0.62 / 0.43%: the script sub-threads' 0x2c0-byte register frames (~50 wakes a frame).
+- `iosGetRandom` 0.36%: the particle emitters' random floats (VU0 R register code).
+- `decomp_isys::*` / `isys48::*`: the group / object locks' kernel calls (GetThreadId, PollSema) through the syscall stubs.
+
+**Measured first** (SOTC_STAT139=1: `[stat139]` every 600 frames: EE dispatches, thread runs, parks by ra and reason, the
+RPCs' host time, sub-thread wakes; Vita3K 222, p1 = main + the counters, attract demo riding): 18-19 dispatches, 9-10
+thread runs, 6 parks a frame (main at 0x1b10dc, the callback thread at 0x1b2d08, the VBlank thread at 0x1c8108); the
+status request ~2 a frame at ~200 us each in Vita3K (the driver ~90 us of it, of which ~65 us waiting for the mixer's
+lock: `[audio-ticks]`; the rest the generic SifCallRpc: ABI selection, client / server maps under their mutexes, debug
+events), the pad sends ~35 us each; 31 800 sub-thread wakes / 600 frames. Vita3K host sampler (profA1, p1): Sg2 lock spin
+(trylock + CAS + handleRpc) 0.38%, gctick 0.81%, the sub-thread switch 1.58%, the isys kernel calls (bindMainContextForSyscall,
+GetThreadId, pollSemaphore, publishSnapshot, eeScheduler()) ~0.5% of the game thread.
+
+**What changed (A/B names = the switch names; `r139all` all six off together).**
+- `sub139` (`SOTC_SUB139`, default on; decomp_subthread.cpp; port): the switch is a call on both sides (the waker's jal
+  isysWakeupSubThread, the sub-thread's jal isysSleepSubThread), so by the R5900 ABI the code after it reads only the
+  callee-saved registers. The frames now keep s0-s7, fp, f20-f31, hi / lo / sa / hi1 / lo1 (v0 = lo1 as before), and in the
+  waker's frame a0-a3 (the sleep reads a1-a3 back); the sub-thread's load also takes a0, which isysStartSubThread (0x1c98a0)
+  puts in a new sub-thread's first frame (the script's argument). 9 of a sub-thread frame's 22 lines (11 of the waker's)
+  instead of all. The recompiled paths (start, end at 0x1c9e28, fallbacks) still copy whole frames; a whole load of a lean
+  frame gives the caller-saved registers stale words, unread. Found on the way: without a0 the scripts' first wake went wrong
+  and the boot stopped at the logo (p2; bisected by switch). `SOTC_SUB139_POISON=1`: after each lean load the caller-saved
+  registers (at, v1, a0-a3 where not kept, t0-t9, f0-f19) are set to 0xBAD1BAD1 / NaN.
+- `sg2q139` (`SOTC_SG2Q139`, default on; iop_sg2.cpp, sound_mixer.h/.cpp; port): the status request never waits for the
+  audio thread's mix piece. When the mixer's lock is taken, the request's commands go to a queue and the request answers
+  with the last reply made, as the PS2's no-wait RPC does (the EE reads what the IOP sent for an earlier request); the audio
+  thread runs the queue and makes the next reply between its pieces (SoundMixer::runPieceHook, lock held), the next request
+  that gets the lock runs what is left first. At most 3 in a row are left before one waits. `SOTC_SG2Q139_ALWAYS=1`
+  (measuring): every request left for the audio thread. Counts on the `[stat139]` line.
+- `rpc139` (`SOTC_RPC139`, default on; RPC.cpp; exact): SifCallRpc for the status request and the pad sends (no-wait, no end
+  function, the register convention, a sid whose first generic call was answered by the HLE side with no guest server
+  function or buffer) without the generic call's bookkeeping: a binding cache made again after any bind / register / init, no
+  ABI selection (no service overrides it), no maps or debug events. The guest sees the same: the client's command / end
+  function / parameter / mode / server, the server record's fields, the reply, the completion semaphore signalled as the
+  generic path signals it, v0 = 0.
+- `sem139` (`SOTC_SEM139`, default on; decomp_sema.cpp, decomp_isys / isys48, ee_scheduler.h; exact): GetThreadId (0x106ed0)
+  and PollSema (0x107030) as table natives, and for the isys natives, with a thread running: the running thread, or the
+  count taken / KE_SEMA_ZERO, without the syscall's binding call and snapshot publish. The scheduler's semaphore lookups
+  (these, SignalSema's fast path, semaphore()) go through a 16-entry direct-mapped cache (one entry thrashed between the isys
+  lock, the RPC completions and the kernel's message semaphore); deleteSemaphore / reset clear it.
+- `gc139` (`SOTC_GC139`, default on; decomp_gctick.cpp; exact): while round 58's kept time check holds (no guest call since,
+  the EE clock unchanged), a run of blocks with nothing to move (in use, last, followed by a free block or by one with no
+  handler) is stepped in host locals: the budget's arithmetic on the block count, no per-block clock read, count call or
+  register writes; s1 / s2 / s3 get what the per-block code leaves. The block that stops the pass or moves goes to the old
+  code. `SOTC_GC139_CHECK=1`: each run stepped again the per-block way and compared (`[gc139]`).
+- `rnd139` (`SOTC_RND139`, default on; decomp_r139.cpp; exact): iosGetRandom (0x1be7e8) as host code: 14 steps of the 23-bit
+  R register in a host register, R / vf5 / a3 / f0 written once. `SOTC_RND139_CHECK=1`: every call also runs the recompiled
+  code on a copy of the context and compares (`[rnd139]`).
+
+**Checks (Vita3K 222).**
+| run | build | what | result |
+|---|---|---|---|
+| runsb/chkA3 | p3 | attract demo 1200 s (45 600 frames, both ride loops), SOTC_SUB139_POISON=1 SOTC_RND139_CHECK=1 | rnd139 1.6 M calls 0 differ; 4.8 M poisoned lean loads, no fault; Agro 12-15 u/s in 361 of 596 `[pos]` samples, drops only at the demo's cuts |
+| runs/walkW4 | p4 | the console card's save walked out of the shrine onto the plain, 720 s, poison + rnd check | rnd139 1.0 M 0 differ; 2.2 M poisoned loads; Wander's walk as before (y -3.5 .. 11.3) |
+| runsb/chkA6 | p6 | attract demo 1200 s (46 140 frames), poison + rnd139 + gc139 checks | rnd139 1.6 M 0 differ; gc139 40 000 runs 0 differ; 4.8 M poisoned loads; Agro 12-15 u/s in 358 of 825 samples, drops only at the cuts; sg2q139 4-8% of the status requests left for the audio thread |
+| runs/abA6, profOn7 / profOff7, walkW7 | p6 / p7 | the A/B, the samplers, the card's walk (no checks) | normal pictures, no hang |
+
+**Measured (Vita3K 222).**
+- Vita3K host sampler, the same build (p7) with the six switches off (profOff7) and on (profOn7), attract demo 480 s, the
+  game thread: the touched functions 4.19% -> 2.10%: the garbage walk 0.96 -> 0.27, the sub-thread switch (wake, sleep,
+  load, save) 1.52 -> 0.98, the status request's lock spin (handleRpc, trylock, CAS) 0.41 -> 0.01, the isys kernel calls
+  (bindMainContextForSyscall, GetThreadId, pollSemaphore, publishSnapshot, eeScheduler(), pollSema139) 0.67 -> 0.27.
+- `[stat139]`, riding (frames 10 000+): the RPCs' host time a frame 283.6 + 57.5 us (status, pad) -> 97.3 + 15.3 us.
+- The frame A/B (runs/abA6, rotation of 600 frames, `r139all` there still a no-op control): per state -4.3 .. +2.4 ms, the
+  scenes' draws 576-1200 a window: the scene, not the switch (the control window +0.1); Vita3K cannot show sub-ms effects.
+- Console estimate from the r135 profile: the entries these touch are ~2.8% of the busy thread (~1.1 ms riding); about
+  half of that goes, ~0.5-0.8 ms, short of the 1.5-2 ms asked. Not touched: the EE dispatcher's own 0.47 ms (zone 0x2040;
+  Vita3K's sampler puts only ~0.2% in the scheduler, so on the console it is memory waits or a lock, not instructions), the
+  Sg2 sequencer ticks (~0.45%, guest MIDI code), the isys group natives' own walks.
+
+**Console.** build/agent-scratch/celosia-r139.vpk (dev, prof129), r139/celosia-r139.elf (spalign: 687 NEON :128/:256, 0
+sp-based), r139/env-console.txt = r137's with `SOTC_AB_FLAG=sub139,rnd139,sem139,rpc139,sg2q139,gc139` (rotate, 600). Read:
+`tools/prof129.py err.txt --elf r139/celosia-r139.elf` (zone 0x2030, decomp_subthread::wake / sleep, kernel_sub_001C81B0,
+iosGetRandom, decomp_isys::*), `r139/zones.py`, `tools/abframes.py err.txt --summary --bin 100 --from <first field frame>`.
+Ride the field at a gallop; listen for the sound (sg2q139 changes when the driver's work runs).

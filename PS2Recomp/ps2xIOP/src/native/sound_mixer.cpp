@@ -1500,6 +1500,7 @@ namespace ps2x::iop::detail
             pushOutput(buffer, n);
             done += n;
         }
+        runPieceHook(); // round 139
     }
 
     size_t SoundMixer::readOutput(int16_t *destination, size_t frames)
@@ -1532,6 +1533,7 @@ namespace ps2x::iop::detail
                         audio_stats::raiseMax(audio_stats::lockWaitMaxUs, audio_stats::nowUs() - asked);
                     render(destination + done * 2u, n);
                     pushOutput(destination + done * 2u, n);
+                    runPieceHook(); // round 139
                 }
                 done += n;
                 // A driver request waiting: it goes first (at most ~1 ms here).

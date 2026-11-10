@@ -340,24 +340,59 @@ public:
     // goes up as signalSemaphore's own path does and the result is the id
     // (true). False: nothing changed, take the full path. The kernel snapshot
     // (the debug UI's) is left to the next full syscall.
+    // Round 139: the semaphores by id through a 16-entry direct-mapped cache (the isys locks, the pad
+    // history, the RPC completions and the kernel's message semaphore alternate: one entry thrashed).
+    // unordered_map nodes stay put until erased; deleteSemaphore / reset clear the cache.
+    EeSemaphore *semaphoreLookup139(int id) noexcept
+    {
+        const unsigned k = static_cast<unsigned>(id) & 15u;
+        if (m_semIds139[k] == id && m_semPtrs139[k])
+            return m_semPtrs139[k];
+        const auto it = m_semaphores.find(id);
+        if (it == m_semaphores.end())
+            return nullptr;
+        m_semIds139[k] = id;
+        m_semPtrs139[k] = &it->second;
+        return &it->second;
+    }
+    void semaphoreCacheClear139() noexcept
+    {
+        for (EeSemaphore *&p : m_semPtrs139)
+            p = nullptr;
+    }
     bool signalSemaphoreUncontended(int id, const uint8_t *rdram) noexcept
     {
         if (m_currentThreadId == 0 || m_rescheduleRequested || m_insideInterrupt || m_rdram != rdram)
             return false;
-        EeSemaphore *object = m_semaphoreCache;
-        if (id != m_semaphoreCacheId || !object)
-        {
-            const auto it = m_semaphores.find(id);
-            if (it == m_semaphores.end())
-                return false;
-            m_semaphoreCacheId = id;
-            m_semaphoreCache = object = &it->second;
-        }
+        EeSemaphore *object = semaphoreLookup139(id);
+        if (!object)
+            return false;
         if (!object->waiters.empty() || object->count == object->maxCount)
             return false;
         ++object->count;
         return true;
     }
+    // Round 139 (sem139): PollSema with a thread running in this rdram: the count taken when above 0
+    // (v0 = the id) or KE_SEMA_ZERO (-419), as pollSemaphore does, without the syscall's binding call or
+    // the snapshot publish (made at the next one); false: the full syscall (no such semaphore, no thread).
+    bool pollSemaphoreFast(int id, const uint8_t *rdram, int &result) noexcept
+    {
+        if (m_currentThreadId == 0 || m_rdram != rdram)
+            return false;
+        EeSemaphore *object = semaphoreLookup139(id);
+        if (!object)
+            return false;
+        if (object->count == 0)
+        {
+            result = -419;
+            return true;
+        }
+        --object->count;
+        result = id;
+        return true;
+    }
+    // GetThreadId with a thread running in this rdram (the syscall's binding does nothing then); -1: the full call.
+    int currentThreadIdFast(const uint8_t *rdram) const noexcept { return (m_currentThreadId != 0 && m_rdram == rdram) ? m_currentThreadId : -1; }
     int pollSemaphore(int id);
     void waitSemaphore(int id);
 
@@ -509,6 +544,8 @@ private:
     // Node pointers are stable; cleared where an entry is erased.
     mutable int m_semaphoreCacheId = -1;
     mutable EeSemaphore *m_semaphoreCache = nullptr;
+    int m_semIds139[16]{};
+    EeSemaphore *m_semPtrs139[16]{};
     std::unordered_map<int, EeEventFlag> m_eventFlags;
     std::unordered_map<int, EeAlarm> m_alarms;
     std::unordered_map<int, EeIrqHandler> m_intcHandlers;

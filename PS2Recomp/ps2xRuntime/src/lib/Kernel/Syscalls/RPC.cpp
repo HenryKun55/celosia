@@ -3,6 +3,7 @@
 #include "RPC.h"
 #include "../../ps2_iop_transport.h"
 #include "runtime/ps2_thread_load.h"
+#include "runtime/ps2_stats.h"
 
 namespace ps2_syscalls
 {
@@ -150,6 +151,99 @@ namespace ps2_syscalls
             return runtime->eeScheduler().signalSemaphore(static_cast<int>(semaId), true) >= 0;
         }
 
+        // Round 139 (SOTC_RPC139, A/B `rpc139`): the sound driver's status request (sid 0x11223344,
+        // served by the native driver) and the pad library's sends (sceDbcSendData2: sids 0x8000131e / 0x8000131f,
+        // the DualShock's actuators, which the native IOP completes without a service; and dbcman's 0x80001300),
+        // each a few times a frame (no-wait, no end function, the register convention), without the
+        // generic call's bookkeeping: no ABI selection (no service overrides it), no client / server maps
+        // under their mutexes (a cached binding, made again after any bind / register / init), no debug
+        // events. The guest sees the same writes: the client's command / end function / parameter / mode
+        // / server, the server record's fields, the driver's reply, the completion semaphore signalled as
+        // the generic path signals it, v0 = 0.
+        uint32_t g_rpcGeneration = 1u; // (g_rpc_mutex) bumped by init / bind / register
+        struct FastBinding
+        {
+            uint32_t client = 0u, generation = 0u, sid = 0u, server = 0u;
+        };
+        FastBinding g_fast139;
+        // Per sid, the generation in which a generic call to it was answered by the HLE service (handled, no guest
+        // server function, no server buffer): the fast path answers that sid from then on.
+        constexpr uint32_t kFastSids[4] = {0x11223344u, 0x8000131Eu, 0x8000131Fu, 0x80001300u};
+        uint32_t g_sidVerified[4] = {0u, 0u, 0u, 0u};
+        inline int fastSidIndex(uint32_t sid)
+        {
+            for (int i = 0; i < 4; ++i)
+                if (sid == kFastSids[i])
+                    return i;
+            return -1;
+        }
+        bool sg2Fast(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            const uint32_t clientPtr = getRegU32(ctx, 4), rpcNum = getRegU32(ctx, 5), mode = getRegU32(ctx, 6), sendBuf = getRegU32(ctx, 7);
+            const uint32_t sendSize = getRegU32(ctx, 8), receiveBuffer = getRegU32(ctx, 9), receiveSize = getRegU32(ctx, 10), endFunction = getRegU32(ctx, 11);
+            if ((mode & kSifRpcModeNowait) == 0u || endFunction != 0u)
+                return false;
+            const auto guestPointer = [](uint32_t v) { const uint32_t n = v & 0x1FFFFFFFu; return v == 0u || (n >= 0x10000u && n < PS2_RAM_SIZE); };
+            if (sendSize > 0x02000000u || receiveSize > 0x02000000u || !guestPointer(receiveBuffer))
+                return false; // the generic path picks the convention
+            FastBinding &b = g_fast139;
+            if (b.client != clientPtr || b.generation != g_rpcGeneration)
+            {
+                std::lock_guard<std::mutex> lock(g_rpc_mutex);
+                const auto it = g_rpc_clients.find(clientPtr);
+                if (it == g_rpc_clients.end() || fastSidIndex(it->second.sid) < 0)
+                    return false;
+                const auto server = g_rpc_servers.find(it->second.sid);
+                b = {clientPtr, g_rpcGeneration, it->second.sid, server != g_rpc_servers.end() ? server->second.sd_ptr : 0u};
+            }
+            const int sidIndex = fastSidIndex(b.sid);
+            if (b.server == 0u || sidIndex < 0 || g_sidVerified[sidIndex] != g_rpcGeneration)
+                return false;
+            auto *client = reinterpret_cast<t_SifRpcClientData *>(getMemPtr(rdram, clientPtr));
+            auto *server = reinterpret_cast<t_SifRpcServerData *>(getMemPtr(rdram, b.server));
+            if (!client || !server || server->func != 0u || server->buf != 0u)
+                return false;
+            uint32_t endParameter = 0u;
+            (void)readStackU32(rdram, getRegU32(ctx, 29), 0x0u, endParameter);
+            client->command = rpcNum;
+            client->end_function = 0u;
+            client->end_param = endParameter;
+            client->hdr.mode = mode;
+            client->server = b.server;
+            server->client = clientPtr;
+            server->pkt_addr = client->hdr.pkt_addr;
+            server->rpc_number = rpcNum;
+            server->size = static_cast<int>(sendSize);
+            server->recvbuf = receiveBuffer;
+            server->rsize = static_cast<int>(receiveSize);
+            server->rmode = 0;
+            server->rid = 0;
+            uint32_t completionSemaphore = static_cast<uint32_t>(client->hdr.sema_id);
+            if (completionSemaphore == 0xFFFFFFFFu || completionSemaphore == 0u)
+                completionSemaphore = endParameter;
+            ps2x::iop::RpcRequest request{};
+            request.clientAddress = clientPtr;
+            request.serverAddress = b.server;
+            request.serverFunction = 0u;
+            request.serverBuffer = 0u;
+            request.sid = b.sid;
+            request.function = rpcNum;
+            request.mode = mode;
+            request.send = {sendBuf, sendSize};
+            request.receive = {receiveBuffer, receiveSize};
+            request.endFunction = 0u;
+            request.endParameter = endParameter;
+            const ps2x::iop::RpcResult r = PS2IopTransport::handleRpc(runtime, rdram, ctx, request);
+            if (r.signalNowaitCompletion)
+                (void)signalRpcCompletionSema(runtime, completionSemaphore);
+            if (r.signalCompletion)
+                (void)signalRpcCompletionSema(runtime, completionSemaphore);
+            if (receiveBuffer != 0u && receiveSize != 0u && r.handled && r.resultAddress != 0u && r.resultAddress != receiveBuffer)
+                rpcCopyToRdram(rdram, receiveBuffer, r.resultAddress, receiveSize);
+            setReturnS32(ctx, 0);
+            return true;
+        }
+
     } // namespace
 
     void SifStopModule(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -244,6 +338,7 @@ namespace ps2_syscalls
                 g_sif_rpc_debug_history[i] = SifRpcDebugEvent{};
             }
             g_rpc_initialized = true;
+            ++g_rpcGeneration;
             RUNTIME_LOG("[SifInitRpc] Initialized");
         }
 
@@ -291,6 +386,7 @@ namespace ps2_syscalls
         {
             std::lock_guard<std::mutex> lock(g_rpc_mutex);
             client->hdr.rpc_id = g_rpc_next_id++;
+            ++g_rpcGeneration;
             auto it = g_rpc_servers.find(rpcId);
             if (it != g_rpc_servers.end())
             {
@@ -347,6 +443,23 @@ namespace ps2_syscalls
     void SifCallRpc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const ps2_load::GameZone zone134(0x2030u); // round 134: prof129 tells the RPCs' time (the sound driver's status, each tick) apart
+        struct Stat139 // round 139 (SOTC_STAT139=1): the calls' host time, the sound driver's apart
+        {
+            uint64_t from = stat139::on() ? ps2_stats::nowUs() : 0u;
+            int kind = 1;
+            ~Stat139()
+            {
+                if (from)
+                {
+                    ++stat139::rpcN[kind];
+                    stat139::rpcUs[kind] += ps2_stats::nowUs() - from;
+                }
+            }
+        } stat139Call;
+        if (getRegU32(ctx, 4) == 0x0028B700u)
+            stat139Call.kind = 0;
+        if (stat139::rpc139() && sg2Fast(rdram, ctx, runtime))
+            return;
         std::lock_guard<std::recursive_mutex> rpcCallLock(g_sif_call_rpc_mutex);
 
         const uint32_t clientPtr = getRegU32(ctx, 4);
@@ -557,6 +670,9 @@ namespace ps2_syscalls
             request.endParameter = endParameter;
 
             iopResult = PS2IopTransport::handleRpc(runtime, rdram, ctx, request);
+            if (const int k = fastSidIndex(sid); k >= 0 && iopResult.handled && iopResult.guestFunction == 0u && server && server->func == 0u &&
+                                                    server->buf == 0u && endFunction == 0u && iopResult.resultAddress == receiveBuffer)
+                g_sidVerified[k] = g_rpcGeneration; // round 139: rpc139 may answer this sid from now on
 
             if (iopResult.signalNowaitCompletion &&
                 (mode & kSifRpcModeNowait) != 0u)
@@ -799,6 +915,7 @@ namespace ps2_syscalls
             }
 
             g_rpc_servers[sid] = {sid, sdPtr};
+            ++g_rpcGeneration;
             for (auto &entry : g_rpc_clients)
             {
                 if (entry.second.sid == sid)

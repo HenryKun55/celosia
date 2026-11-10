@@ -7,6 +7,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_stats.h"
 #include "runtime/ps2_thread_load.h"
+#include "ps2x/iop/audio_stats.h"
 
 #include <algorithm>
 #include <array>
@@ -111,6 +112,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_semaphores.clear();
     m_semaphoreCacheId = -1;
     m_semaphoreCache = nullptr;
+    semaphoreCacheClear139();
     m_eventFlags.clear();
     m_alarms.clear();
     m_intcHandlers.clear();
@@ -230,11 +232,17 @@ void EeScheduler::run()
                 publishIdleDebugContext();
                 publishSnapshot();
                 waitForEvent();
+                stat139::dispFrom = 0; // round 139's dispatcher time leaves the idle wait out
                 continue;
             }
             if (next)
             {
                 makeRunning(*next);
+                if (__builtin_expect(stat139::on(), 0))
+                {
+                    ++stat139::runs;
+                    ++stat139::threadRuns[static_cast<uint32_t>(next->id) & 31u];
+                }
             }
             else
             {
@@ -416,7 +424,55 @@ void EeScheduler::run()
             // events) ends here; set again below once the run is over.
             if (ps2_load::t_slot == ps2_load::kGame)
                 ps2_load::gameZone.store(0u, std::memory_order_relaxed);
-            function(m_rdram, &context, &m_runtime);
+            if (__builtin_expect(stat139::on(), 0))
+            {
+                static uint64_t lastFrame = 0;
+                uint64_t &lastEnd = stat139::dispFrom;
+                const uint64_t now = ps2_stats::nowUs();
+                if (lastEnd)
+                    stat139::dispUs += now - lastEnd;
+                ++stat139::disp;
+                const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                if (frame / 600u != lastFrame / 600u)
+                {
+                    const double f = static_cast<double>(frame - lastFrame);
+                    lastFrame = frame;
+                    char line[1600];
+                    int n = std::snprintf(line, sizeof(line), "[stat139] frame %llu: a frame: dispatches %.1f (%.1f us) thread runs %.1f leaves %.1f rpc sg2 %.2f (%.1f us) other %.2f (%.1f us) | runs by thread",
+                                          (unsigned long long)frame, stat139::disp / f, stat139::dispUs / f, stat139::runs / f, stat139::leaves / f, stat139::rpcN[0] / f,
+                                          stat139::rpcUs[0] / f, stat139::rpcN[1] / f, stat139::rpcUs[1] / f);
+                    for (uint32_t t = 0; t < 32u && n > 0 && n < 1400; ++t)
+                        if (stat139::threadRuns[t])
+                            n += std::snprintf(line + n, sizeof(line) - n, " t%u %.2f", t, stat139::threadRuns[t] / f);
+                    n += std::snprintf(line + n, sizeof(line) - n, " | leaves at");
+                    for (stat139::Pc &e : stat139::leavePc)
+                        if (e.n && n < 1400)
+                            n += std::snprintf(line + n, sizeof(line) - n, " %x %.2f", e.pc, e.n / f);
+                    {
+                        namespace as = ps2x::iop::audio_stats;
+                        static uint64_t r0 = 0, d0 = 0, k0 = 0;
+                        const uint64_t r = as::sg2Requests.load(std::memory_order_relaxed), d = as::sg2Deferred.load(std::memory_order_relaxed),
+                                       k = as::sg2Drains.load(std::memory_order_relaxed);
+                        n += std::snprintf(line + n, sizeof(line) - n, " | sg2q139 requests %llu deferred %llu drains %llu", (unsigned long long)(r - r0),
+                                           (unsigned long long)(d - d0), (unsigned long long)(k - k0));
+                        r0 = r, d0 = d, k0 = k;
+                    }
+                    if (stat139::extra && n < 1400)
+                        n += stat139::extra(line + n, sizeof(line) - n);
+                    std::fprintf(stderr, "%s\n", line);
+                    stat139::disp = stat139::runs = stat139::leaves = stat139::dispUs = 0;
+                    for (int i = 0; i < 4; ++i)
+                        stat139::rpcN[i] = stat139::rpcUs[i] = 0;
+                    for (auto &t : stat139::threadRuns)
+                        t = 0;
+                    for (auto &e : stat139::leavePc)
+                        e = {};
+                }
+                function(m_rdram, &context, &m_runtime);
+                lastEnd = ps2_stats::nowUs();
+            }
+            else
+                function(m_rdram, &context, &m_runtime);
             m_guestExecuting.store(false, std::memory_order_relaxed);
             m_insideInterrupt = false;
             // A switch made by returning (leaveThread) ends here as the
@@ -1101,6 +1157,7 @@ int EeScheduler::deleteSemaphore(int id, bool interruptSafe)
     m_semaphores.erase(it);
     m_semaphoreCacheId = -1;
     m_semaphoreCache = nullptr;
+    semaphoreCacheClear139();
     for (const int threadId : waiters)
     {
         if (GuestThread *waiter = thread(threadId))
@@ -1692,14 +1749,7 @@ const GuestThread *EeScheduler::thread(int id) const
 
 EeSemaphore *EeScheduler::semaphore(int id)
 {
-    if (id == m_semaphoreCacheId && m_semaphoreCache)
-        return m_semaphoreCache;
-    auto it = m_semaphores.find(id);
-    if (it == m_semaphores.end())
-        return nullptr;
-    m_semaphoreCacheId = id;
-    m_semaphoreCache = &it->second;
-    return m_semaphoreCache;
+    return semaphoreLookup139(id); // round 139: the 16-entry cache (was one entry)
 }
 
 const EeSemaphore *EeScheduler::semaphore(int id) const
@@ -2120,6 +2170,11 @@ void EeScheduler::parkCurrent(EeWaitState wait)
                   << " a0=0x" << GPR_U32(selfCtx, 4) << std::dec << std::endl;
     }
     syncCyclesToHostClock();
+    if (__builtin_expect(stat139::on(), 0))
+    {
+        ++stat139::leaves;
+        stat139::noteLeave(GPR_U32(&self->activeContext(), 31) | (static_cast<uint32_t>(wait.reason) << 28));
+    }
     self->wait = std::move(wait);
     self->status = self->suspendCount == 0 ? EeThreadStatus::Waiting : EeThreadStatus::WaitingSuspended;
     m_currentThreadId = 0;

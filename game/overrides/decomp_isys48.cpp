@@ -155,7 +155,7 @@ namespace decomp_isys48
     };
     Lock acquire(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t &tid)
     {
-        ps2_syscalls::GetThreadId(rdram, ctx, runtime);
+        sotc_decomp::getThreadId139(rdram, ctx, runtime);
         tid = GPR_U64(ctx, 2);
         if (tid == sx(READ32(kOwner)))
         {
@@ -166,7 +166,7 @@ namespace decomp_isys48
             return Lock::Nested;
         }
         SET_GPR_S32(ctx, 4, static_cast<int32_t>(READ32(kSemaWord)));
-        ps2_syscalls::PollSema(rdram, ctx, runtime);
+        sotc_decomp::pollSema139(rdram, ctx, runtime);
         if (static_cast<int32_t>(GPR_U32(ctx, 2)) < 0)
             return Lock::No;
         WRITE32(kOwner, static_cast<uint32_t>(tid));
@@ -305,7 +305,7 @@ namespace decomp_isys48
     {
         if (!sotc_decomp::isysOn())
             return fallback(kObjWaitSema, rdram, ctx, runtime);
-        ps2_syscalls::GetThreadId(rdram, ctx, runtime);
+        sotc_decomp::getThreadId139(rdram, ctx, runtime);
         const uint64_t tid = GPR_U64(ctx, 2);
         if (tid != sx(READ32(kOwner)))
             return fallback(kObjWaitSema, rdram, ctx, runtime); // WaitSema: the kernel's count (see the header)

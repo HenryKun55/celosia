@@ -57,6 +57,25 @@ namespace ps2x::iop::detail
             return lock;
         }
         void reset();
+        // Round 139 (sg2q139): the driver's hook, run on the audio thread between its pieces with the
+        // lock held, once each time it is asked; and the lock itself for a try.
+        void setPieceHook(void (*fn)(void *), void *arg)
+        {
+            m_pieceHookArg = arg;
+            m_pieceHookFn.store(fn, std::memory_order_release);
+        }
+        void askPieceHook() { m_pieceHookAsked.store(true, std::memory_order_release); }
+        [[nodiscard]] std::unique_lock<std::mutex> tryHold() { return std::unique_lock<std::mutex>(m_lock, std::try_to_lock); }
+        // (lock held)
+        void runPieceHook()
+        {
+            if (__builtin_expect(m_pieceHookAsked.load(std::memory_order_acquire), 0))
+            {
+                m_pieceHookAsked.store(false, std::memory_order_relaxed);
+                if (void (*fn)(void *) = m_pieceHookFn.load(std::memory_order_acquire))
+                    fn(m_pieceHookArg);
+            }
+        }
 
         // Voices 0..47 (core = voice / 24). Volumes and envelope settings
         // keep the PS2 encodings (that is what the game's data holds).
@@ -216,6 +235,9 @@ namespace ps2x::iop::detail
 
         std::mutex m_lock;
         std::atomic<int> m_driverWaiting{0}; // holdSpinning callers waiting for m_lock
+        std::atomic<void (*)(void *)> m_pieceHookFn{nullptr};
+        void *m_pieceHookArg = nullptr;
+        std::atomic<bool> m_pieceHookAsked{false};
         std::vector<uint16_t> m_ram;
         std::array<Voice, 48> m_voices{};
         std::array<Core, 2> m_cores{};

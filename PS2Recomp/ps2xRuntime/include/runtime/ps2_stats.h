@@ -130,3 +130,62 @@ namespace ps2_stats
     inline std::atomic<uint64_t> vu1RecBails{0};
     inline std::atomic<uint64_t> vu1InterpRuns{0}; // one display list per game frame
 }
+
+// Round 139 (SOTC_STAT139=1, measuring): the EE side's per-frame counts, game thread only (plain
+// counters), printed every 600 game frames by the EE dispatcher ([stat139] lines).
+namespace stat139
+{
+    inline int g_on = -1;
+    inline bool on()
+    {
+        if (__builtin_expect(g_on < 0, 0))
+        {
+            const char *e = std::getenv("SOTC_STAT139");
+            g_on = e && std::atoi(e) != 0;
+        }
+        return g_on != 0;
+    }
+    inline uint64_t disp = 0, runs = 0, leaves = 0, dispUs = 0, dispFrom = 0, rpcN[4]{}, rpcUs[4]{};
+    inline uint64_t threadRuns[32]{};
+    struct Pc
+    {
+        uint32_t pc = 0, n = 0;
+    };
+    inline Pc leavePc[32]{};
+    inline void noteLeave(uint32_t pc)
+    {
+        for (Pc &e : leavePc)
+            if (e.pc == pc || e.n == 0u)
+            {
+                e.pc = pc;
+                ++e.n;
+                return;
+            }
+    }
+    // The game's own counts appended to the line (sotc's natives), and reset.
+    inline int (*extra)(char *, size_t) = nullptr;
+
+    // Round 139's runtime switches (read at first use: the Vita's env.txt comes after static init; "0" off;
+    // the console A/B sets them through set()): rpc139 (RPC.cpp's sound driver fast path), sem139
+    // (the scheduler's uncontended PollSema / GetThreadId, decomp_isys / decomp_sema).
+    struct Switch
+    {
+        const char *env;
+        std::atomic<int> v{-1};
+        bool on()
+        {
+            int x = v.load(std::memory_order_relaxed);
+            if (__builtin_expect(x < 0, 0))
+            {
+                const char *e = std::getenv(env);
+                x = !(e && e[0] == '0');
+                v.store(x, std::memory_order_relaxed);
+            }
+            return x != 0;
+        }
+        void set(bool on) { v.store(on ? 1 : 0, std::memory_order_relaxed); }
+    };
+    inline Switch g_rpc139{"SOTC_RPC139"}, g_sem139{"SOTC_SEM139"};
+    inline bool rpc139() { return g_rpc139.on(); }
+    inline bool sem139() { return g_sem139.on(); }
+}

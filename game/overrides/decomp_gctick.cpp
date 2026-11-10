@@ -199,8 +199,122 @@ namespace decomp_gctick
         bool checked = false; // round 58: the last time check still holds
         uint64_t checkedCycle = 0;
         uint32_t checkedGo = 0;
+        // Round 139 (SOTC_GC139, A/B `gc139`): the blocks with nothing to move walked in host locals. While
+        // round 58's kept time check holds (no guest call since it, the EE clock where it was), each block's
+        // answer is the kept one with the budget's arithmetic on the block count, and a block that is in use,
+        // the last, or followed by a free block or one with no handler is only stepped over: the loop below
+        // does that without the per-block clock read, check count call and register writes; s1 / s2 / s3 get
+        // the values the per-block code leaves (they are only read by the guest calls, which come after the
+        // run, and put back at the end). The first block that would stop the pass or move goes to the code
+        // below as before (recomputed there from the same state). Exact.
+        const bool gc139 = Fast && fast3 && callback == kTimeCheck && sotc_decomp::gc139On() && !sotc_decomp::fastCheckOn();
         while (s1 != 0u)
         {
+            if (gc139 && checked && runtime->eeScheduler().eeCycle() == checkedCycle)
+            {
+                const bool forced = ram.u32(0x001E131Cu) != 0u;
+                const uint64_t moved = sotc_decomp::g_gcStats.bytes - bytes0;
+                uint32_t b = s1, n = 0u, goes = 0u, r19 = 0u;
+                bool r19Set = false;
+                for (;;)
+                {
+                    uint32_t go = checkedGo;
+                    bool forcedGo = false;
+                    if (budget && !forced)
+                    {
+                        const uint64_t spent = moved + 256u * static_cast<uint64_t>(blocks + n + 1u);
+                        if (go && maxWork && spent >= maxWork)
+                            go = 0u;
+                        else if (!go && minWork && spent < minWork)
+                            go = 1u, forcedGo = true;
+                    }
+                    if (go == 0u)
+                        break;
+                    const uint32_t next = (ram.u32(b + 8u) & 0xFFFFFFu) << 2;
+                    if (!(ram.u8(b + 0xFu) & 1u) && next != 0u && (ram.u8(next + 0xFu) & 1u))
+                    {
+                        const uint32_t handler = ram.u32(next + 0x10u) & 0xFFFFFFu;
+                        if (handler != 0xFFFFFFu)
+                            break; // a move: the code below
+                        r19 = handler << 2;
+                        r19Set = true;
+                    }
+                    ++n;
+                    goes += forcedGo;
+                    b = next;
+                    if (b == 0u)
+                        break;
+                }
+                // SOTC_GC139_CHECK=1 (checking): the run stepped again the way the per-block code below steps it
+                // (its time check kept, its budget test, its skip tests in its order), on a copy of its counters:
+                // the same blocks, end block, forced goes and s3 ([gc139] lines).
+                static const bool check139 = ps2_diag::env("SOTC_GC139_CHECK") != nullptr;
+                if (__builtin_expect(check139, 0))
+                {
+                    uint32_t cs1 = s1, cblocks = blocks, cgoes = 0u, cr19 = 0u, cn = 0u;
+                    bool cr19Set = false;
+                    for (;;)
+                    {
+                        ++cblocks;
+                        uint32_t go = checkedGo;
+                        if (budget && ram.u32(0x001E131Cu) == 0u)
+                        {
+                            const uint64_t spent = (sotc_decomp::g_gcStats.bytes - bytes0) + 256u * cblocks;
+                            if (go && maxWork && spent >= maxWork)
+                                go = 0u;
+                            else if (!go && minWork && spent < minWork)
+                            {
+                                go = 1u;
+                                ++cgoes;
+                            }
+                        }
+                        if (go == 0u)
+                            break;
+                        const uint32_t next = (ram.u32(cs1 + 8u) & 0xFFFFFFu) << 2;
+                        if ((ram.u8(cs1 + 0xFu) & 1u) || next == 0u || !(ram.u8(next + 0xFu) & 1u))
+                        {
+                            cs1 = next;
+                            ++cn;
+                            if (cs1 == 0u)
+                                break;
+                            continue;
+                        }
+                        const uint32_t handler = ram.u32(next + 0x10u) & 0xFFFFFFu;
+                        if (handler == 0xFFFFFFu)
+                        {
+                            cr19 = handler << 2;
+                            cr19Set = true;
+                            cs1 = next;
+                            ++cn;
+                            if (cs1 == 0u)
+                                break;
+                            continue;
+                        }
+                        break;
+                    }
+                    static uint64_t runs = 0, bad = 0;
+                    const bool same = cn == n && cs1 == b && cgoes == goes && cr19Set == r19Set && cr19 == r19;
+                    ++runs;
+                    bad += !same;
+                    if ((!same && bad <= 20u) || runs % 20000u == 0u)
+                        std::fprintf(stderr, "[gc139] runs %llu differ %llu%s (n %u/%u end %08x/%08x goes %u/%u)\n", (unsigned long long)runs,
+                                     (unsigned long long)bad, same ? "" : " THIS ONE", n, cn, b, cs1, goes, cgoes);
+                }
+                if (n != 0u)
+                {
+                    blocks += n;
+                    g_timeCheckCount.hit();
+                    g_timeCheckCount.calls += n - 1u;
+                    sotc_decomp::g_gcStats.budgetGoes += goes;
+                    SET_GPR_S32(ctx, 18, 0x00FFFFFF);
+                    if (r19Set)
+                        SET_GPR_U32(ctx, 19, r19);
+                    s1 = b;
+                    SET_GPR_U32(ctx, 17, s1);
+                    if (s1 == 0u)
+                        break;
+                }
+            }
             ++blocks;
             uint32_t go;
             if (callback == kTimeCheck)

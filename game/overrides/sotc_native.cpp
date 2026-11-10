@@ -3214,7 +3214,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3226,6 +3226,9 @@ namespace sotc_native
         static int r127AllAt = -1; // round 127
         static int r126AllAt = -1; // round 126
         static int r128AllAt = -1; // round 128
+        static int sg2q139At = -1; // round 139: the sound driver's status request without the mixer's lock wait
+        static int rpc139At = -1, sem139At = -1; // round 139: the runtime's switches (ps2_stats.h stat139)
+        static int r139AllAt = -1;                // round 139: the round's six switches off together
         static int sacMaxAt = -1, sacPtclAt = -1, sacLodAt = -1; // round 77
         static const bool placesRead = [&]
         {
@@ -3259,6 +3262,10 @@ namespace sotc_native
             aud90cAt = indexOf("aud90c");
             r90AllAt = indexOf("r90all");
             chunk90At = indexOf("chunk90");
+            sg2q139At = indexOf("sg2q139");
+            rpc139At = indexOf("rpc139");
+            sem139At = indexOf("sem139");
+            r139AllAt = indexOf("r139all");
             flush90At = indexOf("revflush90");
             r92AllAt = indexOf("r92all"); // round 92: the round's GPU fixes (noscreen92) off together
             r93AllAt = indexOf("r93all"); // round 93: the round's exact GPU savings (mirror93, atop93, post93) off together
@@ -3443,6 +3450,39 @@ namespace sotc_native
             static const int chunkStart = as::mix90Chunk();
             const bool off = (chunk90At >= 0 && isOffAt(chunk90At)) || (r90AllAt >= 0 && isOffAt(r90AllAt));
             as::setMix90Chunk(off ? 16 : chunkStart);
+        }
+        if (rpc139At >= 0) // round 139
+        {
+            static const bool start = stat139::rpc139();
+            stat139::g_rpc139.set(isOffAt(rpc139At) ? false : start);
+        }
+        if (sem139At >= 0) // round 139
+        {
+            static const bool start = stat139::sem139();
+            stat139::g_sem139.set(isOffAt(sem139At) ? false : start);
+        }
+        if (sg2q139At >= 0) // round 139
+        {
+            namespace as = ps2x::iop::audio_stats;
+            static const bool sg2Start = as::sg2q139();
+            as::setSg2q139(isOffAt(sg2q139At) ? false : sg2Start);
+        }
+        if (r139AllAt >= 0) // round 139: `r139all` (sub139, rnd139, gc139, rpc139, sem139, sg2q139 off together)
+        {
+            namespace as = ps2x::iop::audio_stats;
+            // (the start values from the environment: the single switches' blocks above may have set them already)
+            auto envOn = [](const char *name) { const char *e = std::getenv(name); return !(e && e[0] == '0'); };
+            static const bool sg2Start = envOn("SOTC_SG2Q139"), rpcStart = envOn("SOTC_RPC139"), semStart = envOn("SOTC_SEM139");
+            const bool off = isOffAt(r139AllAt);
+            for (int i : {static_cast<int>(sotc_decomp::kSub139), static_cast<int>(sotc_decomp::kRnd139), static_cast<int>(sotc_decomp::kGc139)})
+                if (off || switchAt[i] < 0)
+                    sotc_decomp::setSwitch(i, off ? false : switchStart[i]);
+            if (off || sg2q139At < 0)
+                as::setSg2q139(off ? false : sg2Start);
+            if (off || rpc139At < 0)
+                stat139::g_rpc139.set(off ? false : rpcStart);
+            if (off || sem139At < 0)
+                stat139::g_sem139.set(off ? false : semStart);
         }
         // Round 52: the thread switch by returning (PS2X_XFER_RETURN).
         if (g_runtimeForLog && xferAt >= 0)

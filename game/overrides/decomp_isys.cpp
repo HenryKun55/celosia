@@ -97,7 +97,7 @@ namespace decomp_isys
     };
     Lock acquire(const M &m, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        ps2_syscalls::GetThreadId(rdram, ctx, runtime);
+        sotc_decomp::getThreadId139(rdram, ctx, runtime);
         const uint32_t tid = GPR_U32(ctx, 2);
         if (tid == m.u32(kOwner))
         {
@@ -112,7 +112,7 @@ namespace decomp_isys
             return Lock::Nested;
         }
         SET_GPR_U32(ctx, 4, m.u32(kSemaWord));
-        ps2_syscalls::PollSema(rdram, ctx, runtime);
+        sotc_decomp::pollSema139(rdram, ctx, runtime);
         if (static_cast<int32_t>(GPR_U32(ctx, 2)) < 0)
         {
             stat(2);

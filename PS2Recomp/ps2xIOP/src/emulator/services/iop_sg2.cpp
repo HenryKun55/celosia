@@ -141,6 +141,65 @@ namespace ps2x::iop::detail
                 }
                 m_lastStatusUs = now;
             }
+            if (audio_stats::sg2q139())
+            {
+                // Round 139: no wait for the audio thread's piece.
+                audio_stats::sg2Requests.fetch_add(1, std::memory_order_relaxed);
+                auto lock = m_mixer.tryHold();
+                const size_t words = request.send.size / 4u;
+                // SOTC_SG2Q139_ALWAYS=1 (measuring): every request left for the audio thread, not only those that
+                // find the lock taken; either way at most 3 in a row before one runs here (no audio thread drained).
+                static const bool always = [] { const char *e = std::getenv("SOTC_SG2Q139_ALWAYS"); return e && std::atoi(e) != 0; }();
+                if ((!lock.owns_lock() || always) && m_hookSet && m_deferredRun < 3u)
+                {
+                    ++m_deferredRun;
+                    std::array<uint8_t, 400> reply;
+                    pendLock();
+                    const size_t at = m_pending.size();
+                    m_pending.resize(at + words);
+                    if (words && !m_host.readGuest(request.send.address, m_pending.data() + at, words * 4u))
+                        m_pending.resize(at);
+                    m_pendingReply = true;
+                    reply = m_replyOut;
+                    pendUnlock();
+                    m_mixer.askPieceHook();
+                    audio_stats::sg2Deferred.fetch_add(1, std::memory_order_relaxed);
+                    if (request.receive.address != 0u && request.receive.size != 0u)
+                        (void)m_host.writeGuest(request.receive.address, reply.data(), std::min<size_t>(request.receive.size, reply.size()));
+                }
+                else
+                {
+                    if (!lock.owns_lock())
+                        lock.lock();
+                    if (!m_hookSet)
+                    {
+                        m_pending.reserve(8192);
+                        m_draining.reserve(8192);
+                        m_mixer.setPieceHook(&Sg2Driver::drainHook, this);
+                        m_hookSet = true;
+                    }
+                    m_deferredRun = 0u;
+                    drainPending(); // what an earlier request left, first
+                    pendLock();
+                    m_draining.resize(words);
+                    pendUnlock();
+                    if (words && m_host.readGuest(request.send.address, m_draining.data(), words * 4u))
+                        for (size_t i = 0; i + 4u <= words; i += 4u)
+                            runCommand(&m_draining[i]);
+                    fillReply();
+                    pendLock();
+                    m_replyOut = m_reply;
+                    pendUnlock();
+                    if (request.receive.address != 0u && request.receive.size != 0u)
+                        (void)m_host.writeGuest(request.receive.address, m_reply.data(), std::min<size_t>(request.receive.size, m_reply.size()));
+                }
+                result.handled = true;
+                result.resultAddress = request.receive.address;
+                result.serverDispatchPolicy = ServerDispatchPolicy::Suppress;
+                result.signalNowaitCompletion = true;
+                result.signalCompletion = true;
+                return result;
+            }
             const uint64_t asked = audio_stats::nowUs();
             auto lock = m_mixer.holdSpinning();
             const uint64_t got = audio_stats::nowUs();
@@ -168,6 +227,35 @@ namespace ps2x::iop::detail
         result.signalNowaitCompletion = true;
         result.signalCompletion = true;
         return result;
+    }
+
+    // Round 139 (sg2q139): the requests the status call left for the audio thread, in order, and the
+    // reply after them (the mixer's lock held: the audio thread between pieces, or the next request).
+    void Sg2Driver::drainPending()
+    {
+        pendLock();
+        if (m_pending.empty() && !m_pendingReply)
+        {
+            pendUnlock();
+            return;
+        }
+        m_draining.swap(m_pending);
+        m_pending.clear();
+        const bool reply = m_pendingReply;
+        m_pendingReply = false;
+        m_deferredRun = 0u;
+        pendUnlock();
+        for (size_t i = 0; i + 4u <= m_draining.size(); i += 4u)
+            runCommand(&m_draining[i]);
+        m_draining.clear();
+        if (reply)
+        {
+            fillReply();
+            pendLock();
+            m_replyOut = m_reply;
+            pendUnlock();
+        }
+        audio_stats::sg2Drains.fetch_add(1, std::memory_order_relaxed);
     }
 
     // The driver's command table (0x4ba0); comments give the handler address.

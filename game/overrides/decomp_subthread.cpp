@@ -26,6 +26,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "runtime/ps2_stats.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -205,8 +206,122 @@ namespace decomp_subthread
             __builtin_prefetch(f + at);
     }
 
+    // Round 139 (SOTC_SUB139, A/B `sub139`): the frames keep only what can live across the switch.
+    // The switch is a call on both sides (the waker's jal isysWakeupSubThread, the sub-thread's jal
+    // isysSleepSubThread), so by the R5900 ABI the code after it reads only the callee-saved registers:
+    // s0-s7, fp (gp / sp / ra are not in the frame), f20-f31; plus what the switch itself hands over:
+    // v0 (the frame's lo1, so hi / lo / sa / hi1 / lo1 stay) and, in the waker's frame, a0-a3 (the sleep
+    // reads a1 / a2 / a3 back: kSubSp, kEnded, the record; a sub-thread's first wake hands the script its a0
+    // from the frame isysStartSubThread built). The caller-saved slots (at, v1, t0-t9, f0-f19)
+    // are neither written nor read: 9 of the frame's 22 cache lines (the waker's 11) instead of all of
+    // them, on the console one cold sub-thread frame a wake. Other paths (the recompiled start, the end
+    // at 0x1c9e28, the fallbacks) still copy whole frames; a whole frame loaded where only the lean
+    // slots were saved gives the caller-saved registers stale words, which nothing reads.
+    // SOTC_SUB139_POISON=1 (checking): after each lean load the caller-saved registers are set to
+    // poison (0xBAD1BAD1 words, NaN floats): code that read one would fault or go wrong at once.
+    int g_poison = -1;
+    __attribute__((noinline, cold)) void poison(R5900Context *ctx, bool args)
+    {
+        if (g_poison < 0)
+        {
+            const char *e = ps2_diag::env("SOTC_SUB139_POISON");
+            g_poison = e && std::atoi(e) != 0;
+        }
+        if (!g_poison)
+            return;
+        static uint64_t n = 0;
+        if (++n == 1u || n % 200000u == 0u)
+            std::fprintf(stderr, "[sub139] poison: %llu lean loads poisoned\n", (unsigned long long)n);
+        const uint32_t bad = 0xBAD1BAD1u;
+        for (int r : {1, 3, 8, 9, 10, 11, 12, 13, 14, 15, 24, 25})
+        {
+            const uint32_t w[4] = {bad, bad, bad, bad};
+            std::memcpy(&ctx->r[r], w, 16);
+        }
+        if (!args)
+            for (int r = 5; r <= 7; ++r)
+            {
+                const uint32_t w[4] = {bad, bad, bad, bad};
+                std::memcpy(&ctx->r[r], w, 16);
+            }
+        const uint32_t nan = 0x7FBADBADu;
+        for (int k = 0; k < 20; ++k)
+            std::memcpy(&ctx->f[k], &nan, 4);
+    }
+    // args: the waker's frame (a0-a3 too).
+    __attribute__((always_inline)) inline void saveLean(const Ram &ram, R5900Context *ctx, uint32_t f, bool args)
+    {
+        copy16<12u * 4u>(ram.p(f + 0x50u), &ctx->f[20]);
+        if (args)
+            copy16<4u * 16u>(ram.p(f + 0xC0u), &ctx->r[4]);
+        copy16<8u * 16u>(ram.p(f + 0x180u), &ctx->r[16]);
+        copy16<16u>(ram.p(f + 0x260u), &ctx->r[30]);
+        ram.put64(f + 0x280u, ctx->hi);
+        ram.put64(f + 0x288u, ctx->lo);
+        ram.put64(f + 0x290u, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(ctx->sa))));
+        ram.put64(f + 0x298u, ctx->hi1);
+        ram.put64(f + 0x2A0u, ctx->lo1);
+        SET_GPR_U64(ctx, 2, ctx->lo1);
+    }
+    __attribute__((always_inline)) inline void loadLean(const Ram &ram, R5900Context *ctx, uint32_t f, bool args)
+    {
+        copy16<12u * 4u>(&ctx->f[20], ram.p(f + 0x50u));
+        if (args)
+            copy16<4u * 16u>(&ctx->r[4], ram.p(f + 0xC0u));
+        copy16<8u * 16u>(&ctx->r[16], ram.p(f + 0x180u));
+        copy16<16u>(&ctx->r[30], ram.p(f + 0x260u));
+        ctx->hi = ram.u64(f + 0x280u);
+        ctx->lo = ram.u64(f + 0x288u);
+        ctx->sa = static_cast<uint32_t>(ram.u64(f + 0x290u)) & 0x7Fu;
+        ctx->hi1 = ram.u64(f + 0x298u);
+        ctx->lo1 = ram.u64(f + 0x2A0u);
+        SET_GPR_U64(ctx, 2, ctx->lo1);
+        if (__builtin_expect(g_poison != 0, 0))
+            poison(ctx, args);
+        // The sub-thread's frame: a0 as well. isysStartSubThread (0x1c98a0) builds a new sub-thread's first
+        // frame with the script's argument in its a0 slot (sq at the stack top - 0x200) and jumps to the
+        // wake, so the first wake hands it to the script's entry; later wakes load the stale slot, unread.
+        if (!args)
+            copy16<16u>(&ctx->r[4], ram.p(f + 0xC0u));
+    }
+    // The lean slots' lines (32-byte lines; the frame is 16-byte aligned).
+    __attribute__((always_inline)) inline void prefetchLean(const uint8_t *f, bool args)
+    {
+        __builtin_prefetch(f + 0x50u);
+        __builtin_prefetch(f + 0x7Fu);
+        __builtin_prefetch(f + 0xC0u);
+        if (args)
+        {
+            __builtin_prefetch(f + 0xC0u);
+            __builtin_prefetch(f + 0xE0u);
+            __builtin_prefetch(f + 0xFFu);
+        }
+        for (uint32_t at = 0x180u; at < 0x200u; at += 32u)
+            __builtin_prefetch(f + at);
+        __builtin_prefetch(f + 0x1FFu);
+        __builtin_prefetch(f + 0x260u);
+        __builtin_prefetch(f + 0x270u);
+        __builtin_prefetch(f + 0x27Fu);
+        __builtin_prefetch(f + 0x280u);
+        __builtin_prefetch(f + 0x2A7u);
+    }
+
+    // Round 139 (SOTC_STAT139=1): wakes / sleeps a frame on the [stat139] line.
+    uint64_t g_wakes = 0, g_sleeps = 0;
+    int stat139Extra(char *out, size_t size)
+    {
+        const int n = std::snprintf(out, size, " | subthread wakes %llu sleeps %llu", (unsigned long long)g_wakes, (unsigned long long)g_sleeps);
+        g_wakes = g_sleeps = 0;
+        return n;
+    }
+
     void wake(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(stat139::on(), 0))
+        {
+            ++g_wakes;
+            stat139::extra = stat139Extra;
+        }
         const Ram ram{rdram};
         const uint32_t a0 = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), sp1 = sp0 - 0x10u;
         // The record (a3) by the object's type, as the jump table picks it.
@@ -233,7 +348,10 @@ namespace decomp_subthread
         // Round 134 (pf134): the sub-thread's frame (22 lines of 32 bytes, its ra at +0x270 among them) asked
         // for before the caller's registers are saved: on the console each sub-thread's frame is cold (one
         // wake a frame), and the load below would wait for its lines one after another.
-        if (sotc_decomp::pf134On())
+        const bool lean = sotc_decomp::sub139On();
+        if (lean && sotc_decomp::pf134On())
+            prefetchLean(ram.p(sub), false);
+        else if (sotc_decomp::pf134On())
             prefetchFrame(ram.p(sub));
         SET_GPR_U32(ctx, 29, sp1);
         ram.put64(sp1, GPR_U64(ctx, 31)); // sd $ra, 0($sp)
@@ -270,12 +388,18 @@ namespace decomp_subthread
 
         const uint32_t frame = sp1 - kFrame;
         SET_GPR_U32(ctx, 29, frame);
-        save(ram, ctx, frame);
+        if (lean)
+            saveLean(ram, ctx, frame, true);
+        else
+            save(ram, ctx, frame);
         ram.put32(kMainSp, frame);
         const uint32_t subSp = ram.u32(kSubSp);
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(subSp));
         std::memcpy(&ctx->r[31], ram.p((subSp + 0x270u) & ~0xFu), 16); // lq $ra, 0x270($sp)
-        load(ram, ctx, subSp);
+        if (lean)
+            loadLean(ram, ctx, subSp, false);
+        else
+            load(ram, ctx, subSp);
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(subSp + kFrame));
 
         // jalr *0x270bc8, ra = 0x1c9e28
@@ -292,6 +416,8 @@ namespace decomp_subthread
 
     void sleep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(stat139::on(), 0))
+            ++g_sleeps;
         const Ram ram{rdram};
         const uint32_t sp0 = GPR_U32(ctx, 29), frame = sp0 - kFrame, main = ram.u32(kMainSp);
         if ((frame & 0xFu) != 0u || !plain(frame, kFrame) || (main & 0xFu) != 0u || !plain(main, kFrame + 0x10u))
@@ -300,15 +426,24 @@ namespace decomp_subthread
             return sotc_decomp::recompiled(kSleep)(rdram, ctx, runtime);
         }
         // Round 134 (pf134): the waker's frame (loaded below) asked for before the save.
-        if (sotc_decomp::pf134On())
+        const bool lean = sotc_decomp::sub139On();
+        if (lean && sotc_decomp::pf134On())
+            prefetchLean(ram.p(main), true);
+        else if (sotc_decomp::pf134On())
             prefetchFrame(ram.p(main));
         SET_GPR_U32(ctx, 29, frame);
-        save(ram, ctx, frame);
+        if (lean)
+            saveLean(ram, ctx, frame, false);
+        else
+            save(ram, ctx, frame);
         ram.put32(kSubSp, frame);
         SET_GPR_S32(ctx, 2, static_cast<int32_t>(kMainSp));
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(ram.u32(kMainSp)));
         const uint32_t m = GPR_U32(ctx, 29);
-        load(ram, ctx, m);
+        if (lean)
+            loadLean(ram, ctx, m, true);
+        else
+            load(ram, ctx, m);
         const uint32_t sp1 = m + kFrame;
         SET_GPR_U32(ctx, 29, sp1);
         // The caller's a1 / a2 / a3 as it saved them: 0x270bbc, 0x270bc0, the record.

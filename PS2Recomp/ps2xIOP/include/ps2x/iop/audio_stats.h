@@ -132,6 +132,15 @@ namespace ps2x::iop::audio_stats
         return value != 0;
     }
     inline bool mix90Voice() { return switchOn(g_mix90Voice, "SOTC_MIX90_VOICE"); }
+    // Round 139 (SOTC_SG2Q139, A/B `sg2q139`): the sound driver's status request does not wait for the
+    // mixer's lock. When the audio thread holds it (mixing a piece), the request's commands are queued
+    // and the audio thread runs them, and makes the next reply, between its pieces; the request answers
+    // with the last reply made, as the PS2's no-wait RPC does (the EE reads the reply the IOP sent for an
+    // earlier request). Counters: deferred requests, their drains.
+    inline std::atomic<int> g_sg2q139{-1};
+    inline bool sg2q139() { return switchOn(g_sg2q139, "SOTC_SG2Q139"); }
+    inline void setSg2q139(bool on) { g_sg2q139.store(on ? 1 : 0, std::memory_order_relaxed); }
+    inline std::atomic<uint64_t> sg2Deferred{0}, sg2Drains{0}, sg2Requests{0};
     inline bool mix90Core() { return switchOn(g_mix90Core, "SOTC_MIX90_CORE"); }
     // The audio thread's mix piece (frames under the mixer's lock at a time,
     // 1..64): SOTC_MIX90_CHUNK (default 32 since round 90, was 16 since round 12); PS2X_MIX_CHUNK

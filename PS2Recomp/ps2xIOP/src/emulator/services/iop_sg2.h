@@ -5,6 +5,7 @@
 #include "native/sound_mixer.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <span>
 #include <unordered_map>
@@ -73,6 +74,22 @@ namespace ps2x::iop::detail
         };
 
         void runCommand(const uint32_t *command);
+        // Round 139 (sg2q139): requests left for the audio thread (m_pendLock), the last reply made.
+        void drainPending(); // (the mixer's lock held)
+        static void drainHook(void *self) { static_cast<Sg2Driver *>(self)->drainPending(); }
+        void pendLock()
+        {
+            while (m_pendLock.test_and_set(std::memory_order_acquire))
+            {
+            }
+        }
+        void pendUnlock() { m_pendLock.clear(std::memory_order_release); }
+        std::atomic_flag m_pendLock = ATOMIC_FLAG_INIT;
+        std::vector<uint32_t> m_pending, m_draining;
+        bool m_pendingReply = false;
+        std::atomic<uint32_t> m_deferredRun{0u}; // requests left in a row since the last one drained (m_pendLock / the game thread)
+        bool m_hookSet = false;
+        std::array<uint8_t, 400> m_replyOut{};
         void fillReply();
         void streamTick();
         void runStreamQueue();
