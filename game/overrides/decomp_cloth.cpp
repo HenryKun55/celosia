@@ -13,6 +13,7 @@
 // the recompiled function, entered at 0x1138200 with its frame as the
 // original would have it.
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -63,6 +64,7 @@ namespace decomp_cloth
     {
         const Ram ram{rdram};
         const uint32_t o = GPR_U32(ctx, 4);
+        pf141::noteCloth(rdram, o); // round 141 (prefetch only)
         const uint32_t grid = ram.u32(o);
         int16_t busy;
         std::memcpy(&busy, rdram + (grid & PS2_RAM_MASK), 2);

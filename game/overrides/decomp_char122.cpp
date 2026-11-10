@@ -28,6 +28,7 @@
 // calls compared). SOTC_CHAR122_LOG=<n>: every n game frames a [char122]
 // line (calls, host us a frame by part).
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -170,6 +171,7 @@ namespace char122
     {
         if (!inRam(chan, 0x24u))
             return false;
+        pf141::noteGuest(ram, chan, 0x24u); // round 141 (prefetch only)
         const uint32_t target = format < 15u ? rd32(ram, kCurveTable + format * 4u) : 0x010AC700u;
         switch (target)
         {
@@ -188,6 +190,7 @@ namespace char122
             const uint32_t key = rd32(ram, chan + 0x20u) + (index << 2);
             if (!inRam(key, 4u))
                 return false;
+            pf141::noteGuest(ram, key, 16u);
             int s0, s1, s2, s3, l0, l1, l2, l3, sb;
             if (target == 0x010AC978u)
                 s0 = 5, s1 = 14, s2 = 23, s3 = 1, l0 = 1, l1 = 2, l2 = 3, l3 = 0, sb = 31;
@@ -226,6 +229,7 @@ namespace char122
             const uint32_t rec = rd32(ram, chan + 0x18u) + index * 6u;
             if (!inRam(rec, 6u))
                 return false;
+            pf141::noteGuest(ram, rec, 24u);
             float c[6];
             std::memcpy(c, at(ram, chan), 24);
             const float k = 1.0f / 32767.5f;
@@ -901,6 +905,7 @@ namespace char122
                             continue;
                         }
                         uint32_t r = rOf(ctx);
+                        pf141::noteCloth(rdram, c); // round 141 (prefetch only)
                         fused(rdram, c, owner, full, dt, f13, grid, rows, cols, r);
                         if (rows > 0)
                             setR(ctx, r);

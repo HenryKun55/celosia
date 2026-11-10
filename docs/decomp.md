@@ -18911,3 +18911,104 @@ pacing); the model hook's phases (~0.4 ms).
 `tools/prof129.py err.txt --elf r140/celosia-r140.elf` (ClipLayoutObjModel, wrap<10>, manager_sub_010F3FB0's zones),
 `tools/abframes.py err.txt --summary --bin 100 --from <first field frame>` per switch. The helper runs on cores 1-2
 as `offload` in the `[frame]` cpu column.
+
+## Round 141: why char104 lost on the console, the characters' independence measured riding, pf141 / pfc141 (the characters' memory asked for one segment ahead on a helper thread) (2026-11-10)
+
+Scripts, runs: `build/agent-scratch/r141/` (build.sh pN, run.sh / v3k.sh / v3kb.sh / stop.sh on the own trees
+../vita3k-celosia-r141 / -r141b, 222 MHz, muted: audio-volume 0 and run.sh's NOSND=1; env-console.txt; STATE.md).
+Source: the r135 console profile riding (characters 7.11 ms of the game thread's 38.3 running) and the r117 console log
+(round 114's char104 on, its own A/B).
+
+**Cores 1-2 on the console (r135/console/err.txt, the `[frame]` cpu column, 125 field summaries: frames >= 1500, > 500
+draws, 46.2 ms a frame).** render 19.9 ms a frame, worker (round 91's) 9.3, loader 5.4, audio 4.7, lane 3.2, dma 2.3, offload
+(clip140) 2.1, log 1.5, main 1.0, build 0.4: 49.7 ms of the two cores' 92.4: ~43 ms idle a frame, but the render thread
+holds core 2 for ~20 ms and every helper shares core 1 with the worker, the loader and audio.
+
+**Why char104 lost on the console (r117/console/err2.txt, `[char104]` / `[char114]` / `[worker91]`, 600-frame windows).**
+- What went to the worker riding was 0.4-4.2 cheap far characters a frame (Wander and Agro never: the player, and Agro at
+  distance 0 < SOTC_CHAR104_NEAR); worker 0.16-1.89 ms a frame.
+- The game thread waited for them about as long as they ran: 0.10-1.82 ms a frame (worker 0.16-1.89): no overlap. Almost every
+  job was joined at a shared channel ~0.6-0.9 ms after its hand-over (`chan` 467-851 joins per 600 jobs, the random numbers /
+  the heap), and the console's worker was slow to start: hand-over to running 0.06-0.35 ms mean (Vita3K 0.02-0.03), slow
+  to finish (cores 1-2 also carry the render thread, audio up to 18 ms a frame in that session, the loader).
+- So char104 paid the hand-over, the copies and the joins for no parallel time; net114 kept pausing it (mean -0.17 to -0.77
+  ms a window), and the A/B read -0.4 matched / -1.1 raw.
+
+**Is there an independent unit riding? (census: runs/attA2, `SOTC_CHAR104_LOG=600`, attract demo's ride, Vita3K 222.)**
+Geometry 7.2 ms a frame riding (census probes in): Wander 3.66 ms and Agro 2.52 ms, each read by another object's script
+0.04 ms (Wander) and 0.38 ms (Agro) after its geometry ends (in all 600 frames: Wander's scripts read Agro, the managers and
+the camera read Wander); the rest are 4-9 far characters at 0.10-0.37 ms each, unread for 12-14 ms. Inside a character the
+phases feed each other (the pose's inputs are the IK's and the gaze's results of the same call; the cloths read the pose's
+bones and draw the VU0 R stream that later code draws from; the cloth whole-functions and strands call guest callbacks):
+no part of Wander's or Agro's work has inputs final early enough to be computed ahead, and anything run beside the game
+thread is read within 0.04-0.4 ms. A clip140-style compute-ahead of ≥ 2 ms of character work does not exist riding; a
+char104-style split of Wander / Agro would join at once.
+
+**Where the console's character time goes.** The same build's subsystem shares, console (r135) against Vita3K (runs/attA4,
+attract, this round's p4, prof129 in both): characters 18.5% / 13.6% of the busy samples, collision 12.5 / 13.4, display
+17.8 / 22.2. Scaled by the rest of the thread, the characters cost the console ~2.2 ms a frame more than the Vita3K mix
+predicts (7.1 against ~4.9): the A9's memory waits (DRAM ~250 ns a miss, round 66), which Vita3K does not model. The
+character natives walk tens of KB per character once a frame (the class 4.6 KB, the pose's four matrix buffers and the
+skeleton, round 136's kept bones 160 bytes a bone, the IK records, the cloth rows, the motion keys) and the pose alone runs
+~2.3 µs a bone on the console (0.59 ms for ~255 bones): far more than its ~60 NEON operations. That part can leave the game
+thread without any dependency problem: the waits, not the arithmetic.
+
+**What changed (A/B names = the switch names).**
+- `pf141` (`SOTC_PF141`, default on; decomp_pf141.cpp, sotc_pf141.h; prefetch only): the characters' natives note the
+  ranges they read (host pointer + length into a per-frame set: execCharaGeometry: the object and class (0x1210 bytes), the
+  pose buffers its class points to (+0x154 / +0x158 / +0x15c / +0x160 / +0x2d8 / +0x2e8 / +0x310 / +0x314), the skeleton's
+  bones, the IK records and weights, the link list and slots, the motion record; GetMotionMatrix (round 82 / 136): bones,
+  locals, matrices, quaternions and round 136's kept bones (host); decodeKey (keys122 / key136): the channel header and the
+  key words; the cloths (GetClothDynamics' fused pass, getClothDynamics, DispCloth's mesh: the cloth record, grid, row
+  records and the four row buffers, the mesh's vertices); dispSkinned: the bones and the palette). The frame is cut into
+  segments at each character's ExecCharaGeometry end (decomp_scriptvm3 charaGeometry; segment 0 from the frame's first
+  script pass, the last to the next frame: the display's character work). When a segment starts, a helper thread
+  (`offload`, cores 1-2, condition variable) is asked for the *last frame's* next segment (found by the object that ended
+  the current one, so a character added or gone shifts nothing) and PLDs its lines into the shared 2 MB L2 while the game
+  thread runs the current one (`SOTC_PF141_AHEAD`, default 1 segment ahead: covers the console's 0.1-0.35 ms wake). Three
+  sets rotate (record / read / idle); a request of an older frame is skipped. The helper writes nothing but its own queue
+  and counters; nothing the game reads, decides or writes changes, so the results are the same bits by construction.
+- `pfc141` (`SOTC_PFC141`, default on; prefetch only): the collision natives note too, at round 134 / 135 / 138's own
+  prefetch points: obj125's objects (0x1e0 bytes), their parts' records and matrices, fin138's kept surfaces (plane,
+  boundary, three vertices). The characters' root dynamics, feet IK and the scripts' probes test the same objects and
+  surfaces frame after frame.
+- `SOTC_PF141_LOG=1`: `[pf141]` every 600 frames (segments, ranges noted, lines asked for and the helper's ms a frame,
+  requests, skipped / lost).
+
+**Identity.** Prefetch only: the game thread's added work is the notes (stores into host arrays the game never reads) and
+the helper's requests; the helper issues PLDs (no stores to guest RAM or to any state the natives read). PLD does not fault
+on the A9 (a stale host pointer of a freed kept-bones array is harmless); Vita3K treats it as a no-op. No check mode can
+show a difference that the code cannot make; the runs below show the same game (positions, pictures).
+
+**Measured (Vita3K 222; Vita3K has no memory latency, so the gain itself is the console's).**
+`[pf141]` riding (runs/attA5, attract's ride, p5): 3 segments a frame (Agro's, Wander's, the display's), ~590 ranges /
+~6 100 lines (~195 KB) a frame with pf141 alone, ~870 ranges / ~9 000 lines (~290 KB) with pfc141; the shrine with the
+console card's save (runsb/rideB3): 18.7 segments (Mono, the doves, the birds), ~2 200 ranges / ~22 000 lines; the walk out
+onto the plain (runsb/walkB4): 9 segments, ~12 000 lines. Helper 0.11-0.17 ms of CPU a frame riding, 0.4 ms at the shrine
+(the `offload` thread, cores 1-2); requests skipped 0, lost 0, set never full. In-run A/B (`tools/abframes.py --summary
+--from 3000`, off minus on, game = the game thread): attract p4 (runs/attA4, 1260 s) pf141 frame +0.44 +- 1.28, game -0.61
++- 1.47; attract p5 (runs/attA5, 1260 s) pf141 +1.30 +- 1.30 / +1.61 +- 1.61, pfc141 -0.95 +- 1.13 / -1.73 +- 1.28; the
+card's walk p4 (runsb/walkB4) pf141 +0.41 +- 1.15 / +0.32 +- 1.57, p5 (runsb/walkB5) pf141 -0.06 +- 0.54 / -0.43 +- 0.99,
+pfc141 +0.25 +- 0.55 / -0.09 +- 1.03. All within noise both ways: the notes cost the game thread nothing Vita3K can see, and
+the PLDs are no-ops there. No fault in any run (attract 840 / 1260 / 1260 s, the card's shrine 720 s and walk 2 x 720 s).
+Pictures (window shots, looked at): the shrine with Mono on the altar and Wander walking (cape), Agro beside him; Wander
+walking and running on the plain with the sword, his shadow and cape; Agro galloping alone in the attract demo (mane and
+tail moving, shadow) by the ruins and on the plain. The ride input (in_ride.txt) did not mount Agro in these runs (Wander
+stayed at the shrine): riding pictures are the attract demo's.
+
+**Console estimate.** The characters' console excess over the Vita3K mix is ~2.2 ms a frame riding (above); pf141 + pfc141 ask
+for ~9 000 lines a frame riding one segment (~1-3 ms) before the game thread reads them. If half of them would have been
+DRAM misses on the game thread (~250 ns) and become shared-L2 hits (~60 ns), ~0.85 ms; if all, ~1.7 ms; the excess bounds
+it. So 0.5-1.7 ms riding is the expectation, below the 2 ms asked for unless the collision share (pfc141) adds more; the
+console's A/B decides both switches (round 135's pf135 cut finderLeaf<true> 3.80 -> 1.26% on the console with in-thread PLDs
+of the same kind of data). Risks on the console: the L2 the helper fills is shared with the render thread (~20 ms of CPU a
+frame on core 2) and the lines may be evicted before use in a long segment (`SOTC_PF141_AHEAD=0` asks for the segment
+starting now instead); the helper's CPU is ~0.3-0.5 ms a frame of cores 1-2 (~42 ms idle there a frame in r135's field
+frames: 49.7 ms of 92.4 used).
+
+**Console.** build/agent-scratch/celosia-r141.vpk (dev, prof129), r141/celosia-r141.elf (spalign: 725 NEON :128/:256, 0 sp-based),
+r141/env-console.txt = r140's with `SOTC_AB_FLAG=pf141,pfc141` (rotate, 600) and `SOTC_PF141_LOG=1`. Read: `tools/abframes.py err.txt --summary
+--bin 100 --from <first field frame>` (pf141 off / pfc141 off minus all on: positive = the prefetch saves that much),
+`tools/prof129.py err.txt --elf r141/celosia-r141.elf --group characters` against r135's (motionMatrix, clothStep,
+execCharaGeometry, floatFrame; collision's directCallBack / finderLeaf). The helper runs as `offload` in the `[frame]`
+cpu column (with clip140's).

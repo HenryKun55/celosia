@@ -85,6 +85,7 @@
 // GAMEUTIL_get_interp_value_interp_value_cntrl: not called through the
 // table), and the loops' EE checkpoints (left out).
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -544,6 +545,7 @@ namespace decomp_hot47j
         {
             auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
             const uint32_t cloth = static_cast<uint32_t>(cloth64);
+            pf141::noteCloth(rdram, cloth); // round 141 (prefetch only)
             const uint8_t toggle = static_cast<uint8_t>((READ8(cloth + 0x80u) + 1u) & 1u);
             uint32_t points = READ32(cloth + 0xCu);
             uint32_t n = READ32(READ32(cloth) + 4u);

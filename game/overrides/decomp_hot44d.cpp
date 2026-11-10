@@ -53,6 +53,7 @@
 // sleeps (isysSleepSubThread) between its steps and is resumed by pc at the
 // labels after each sleep, which a native callGuest cannot return through.
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -533,6 +534,7 @@ namespace decomp_hot44d
         if (!sotc_decomp::hotList44On())
             return fallback(kScriptPass, rdram, ctx, runtime);
         char104::wake();
+        pf141::passBegin(); // round 141: a new frame's ranges; the last frame's first segments asked for
         const uint32_t sp = GPR_U32(ctx, 29) - 0x30u;
         SET_GPR_U32(ctx, 29, sp);
         SET_GPR_U64(ctx, 5, 0u);

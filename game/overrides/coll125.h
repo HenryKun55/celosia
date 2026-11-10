@@ -487,6 +487,15 @@ namespace coll125
         __builtin_prefetch(r + m.vtx[0]);
         __builtin_prefetch(r + m.vtx[1]);
         __builtin_prefetch(r + m.vtx[2]);
+        if (__builtin_expect(pf141::g_cur != nullptr && pf141::g_coll, 0))
+        {
+            // Round 141 (pfc141): the kept surface's values, for the next frame's helper.
+            pf141::noteGuest(r, m.plane, 16u);
+            pf141::noteGuest(r, m.bnd, 16u);
+            pf141::noteGuest(r, m.vtx[0], 16u);
+            pf141::noteGuest(r, m.vtx[1], 16u);
+            pf141::noteGuest(r, m.vtx[2], 16u);
+        }
     }
     inline unsigned validate138(const G g, const Meta &m, const Entry &e)
     {

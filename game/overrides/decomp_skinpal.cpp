@@ -15,6 +15,7 @@
 // frame the prologue makes. Objects with +0x194 set (the other path) go to
 // the recompiled code from the start.
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -74,6 +75,14 @@ namespace decomp_skinpal
             const uint32_t last = static_cast<uint32_t>(bones - 1);
             if (!inRam(palette, ((last * 4u + ((last + 1u) >> 6)) << 4) + 0x40u))
                 return sotc_decomp::recompiled(kSkinned)(rdram, ctx, runtime);
+        }
+        if (__builtin_expect(pf141::g_cur != nullptr, 0) && bones)
+        {
+            // Round 141 (prefetch only): the bones and the palette, for the next frame's helper.
+            pf141::noteGuest(rdram, object, 0x1C0u);
+            pf141::noteGuest(rdram, bonesAt, static_cast<uint32_t>(bones) * 0x40u);
+            const uint32_t last = static_cast<uint32_t>(bones - 1);
+            pf141::noteGuest(rdram, palette, ((last * 4u + ((last + 1u) >> 6)) << 4) + 0x40u);
         }
 
         // The prologue: the frame and its saved registers.

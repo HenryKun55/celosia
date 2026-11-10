@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
 #include "lines67.h"
 
@@ -4329,6 +4330,7 @@ namespace decomp_collision
             return;
         for (uint32_t off : {0x00u, 0xB0u, 0x154u, 0x178u, 0x1A4u, 0x1D8u})
             __builtin_prefetch(g.rdram + object + off);
+        pf141::noteColl(g.rdram, object, 0x1E0u); // round 141 (pfc141): for the next frame's helper
     }
 
     template <bool Array>
@@ -4407,6 +4409,8 @@ namespace decomp_collision
                                     __builtin_prefetch(g.rdram + s7 + off);
                                 __builtin_prefetch(g.rdram + m1 + 0x40u);
                                 __builtin_prefetch(g.rdram + m1 + 0x40u + 0x20u);
+                                pf141::noteColl(g.rdram, s7 + 0x90u, 0x90u); // round 141 (pfc141)
+                                pf141::noteColl(g.rdram, m1 + 0x40u, 0x40u);
                             }
                             if (g.u32(s7 + 4u) == 0u)
                                 continue;

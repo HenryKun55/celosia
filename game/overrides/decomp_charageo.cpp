@@ -46,6 +46,7 @@
 // each compare. SOTC_MOTION=0 (or a jal site naming another function, checked
 // once): the recompiled code.
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -337,8 +338,52 @@ namespace decomp_charageo
         }
     }
     void execCharaGeometryBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round 141 (pf141): the character's object and class lines and the pose buffers its class points to, noted
+    // for the next frame's helper (prefetch only; nothing here changes what the geometry reads or writes).
+    __attribute__((noinline)) void note141(uint8_t *rdram, uint32_t obj)
+    {
+        const Ram r{rdram};
+        const uint32_t c = classOf(r, obj);
+        if (c == 0u || obj >= 0x01FF0000u)
+            return;
+        pf141::noteGuest(rdram, obj, 0x1210u);
+        // the link list (charaLinks: count +0xc, 28-byte entries from +0x10), the 0x80-byte slots (+0x30c, +0x3fc of
+        // them), the motion slot's record
+        if (const uint32_t L = r.u32(c + 0x10ECu); L >= 0x1000u && L < 0x01FF0000u)
+        {
+            const int32_t k = r.s32(L + 0xCu);
+            pf141::noteGuest(rdram, L, 0x10u + static_cast<uint32_t>(k > 0 && k <= 512 ? k : 0) * 28u);
+        }
+        if (const int32_t k = r.s32(c + 0x3FCu); k > 0 && k <= 64)
+            pf141::noteGuest(rdram, r.u32(c + 0x30Cu), static_cast<uint32_t>(k) * 0x80u);
+        pf141::noteGuest(rdram, r.u32(c + 0x1C0u), 0x80u);
+        const int32_t n = r.s16(c + 0x1B4u);
+        if (n <= 0 || n > 256)
+            return;
+        const uint32_t m = static_cast<uint32_t>(n);
+        for (uint32_t off : {0x158u, 0x15Cu, 0x160u, 0x2D8u, 0x310u, 0x314u})
+            pf141::noteGuest(rdram, r.u32(c + off), m * 0x40u);
+        for (uint32_t off : {0x154u, 0x2E8u})
+            pf141::noteGuest(rdram, r.u32(c + off), m * 0x10u);
+        const uint32_t skel = r.u32(c + 0x358u);
+        if (skel == 0u || skel >= 0x01FF0000u)
+            return;
+        pf141::noteGuest(rdram, skel, 0x40u);
+        pf141::noteGuest(rdram, r.u32(skel + 8u), m * 0x40u);
+        // the IK node records (0xd0 each) and the per-node weights / rates
+        const int32_t ik = r.s32(skel + 0x20u), w = r.s32(skel + 4u);
+        if (ik > 0 && ik <= 256)
+            pf141::noteGuest(rdram, r.u32(c + 0x31Cu), static_cast<uint32_t>(ik) * 0xD0u);
+        if (w > 0 && w <= 1024)
+        {
+            pf141::noteGuest(rdram, r.u32(c + 0x320u), static_cast<uint32_t>(w) * 4u);
+            pf141::noteGuest(rdram, r.u32(c + 0x324u), static_cast<uint32_t>(w) * 4u);
+        }
+    }
     void execCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(pf141::g_cur != nullptr, 0))
+            note141(rdram, GPR_U32(ctx, 4));
         rest81::nameCharacter(rdram, ctx, runtime, GPR_U32(ctx, 4));
         if (__builtin_expect(geo80::every() == 0u, 1) || geo80::g_depth != 0)
             return execCharaGeometryBody(rdram, ctx, runtime);

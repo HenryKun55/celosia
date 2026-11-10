@@ -30,6 +30,7 @@
 // [pose82c] lines with the largest differences. SOTC_POSE82_LOG=<n>: every
 // n game frames a [pose82] line (calls, bones, host us a frame).
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -485,6 +486,14 @@ namespace pose82
             if (!inRam(bones, count * 0x40u) || !inRam(mats, count * 0x40u) || !inRam(quats, count * 0x10u) || !inRam(locals, count * 0x10u))
                 return -1;
             Entry &e = entryFor(mats, quats, skel, locals, bones, count);
+            pf141::note(e.b, count * static_cast<uint32_t>(sizeof(Bone))); // round 141: the kept bones (host), prefetch only
+            if (__builtin_expect(pf141::g_cur != nullptr, 0))
+            {
+                pf141::noteGuest(ram, bones, count * 0x40u);
+                pf141::noteGuest(ram, locals, count * 0x10u);
+                pf141::noteGuest(ram, mats, count * 0x40u);
+                pf141::noteGuest(ram, quats, count * 0x10u);
+            }
 
             const float32x4_t scale = vsetq_lane_f32(0.0f, ldq(ram, scaleAt), 3);
             const float32x4_t posv = ldq(ram, pos);
@@ -1122,6 +1131,7 @@ namespace pose82
         const uint32_t base = rd32(ram, m + 4u * rd32(ram, m + 0x10u)), stride = rd32(ram, m + 0xCu) * 0x40u + 0x10u;
         if (!inRam(base & ~0xFu, static_cast<uint32_t>(rows - 1) * stride + static_cast<uint32_t>(cols) * 0x40u + 0xD0u) || (base & 0xFu) != 0u || (stride & 0xFu) != 0u)
             return false;
+        pf141::note(at(ram, base), static_cast<uint32_t>(rows - 1) * stride + static_cast<uint32_t>(cols) * 0x40u + 0xD0u); // round 141
         const float *pos[256];
         float *nrm[256];
         for (int32_t r = 0; r < rows; ++r)

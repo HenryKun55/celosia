@@ -72,6 +72,7 @@
 // CheckLetter's loop checkpoint is left out; GetScriptClass takes the
 // recompiled code (before any store) for a jump table entry it does not know.
 #include "sotc_decomp.h"
+#include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -275,6 +276,7 @@ namespace decomp_scriptvm3
         SET_GPR_S32(ctx, 4, (int32_t)READ32(GPR_U32(ctx, 2) + 0x134u)); // the layout's area
         callGuest(rdram, ctx, runtime, kAreaExist, 0x013CFC68u, kWorkStack);
         WRITE8(GPR_U32(ctx, 18) + 0x539u, (uint8_t)GPR_U32(ctx, 2));
+        pf141::segmentEnd(GPR_U32(ctx, 16)); // round 141: the segment closes, the next one after it asked for
         }
         const uint32_t f = leaveWork(rdram, ctx, runtime);
         SET_GPR_U64(ctx, 16, READ64(f + 0u));
