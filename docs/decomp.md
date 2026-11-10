@@ -18832,3 +18832,82 @@ sp-based), r139/env-console.txt = r137's with `SOTC_AB_FLAG=sub139,rnd139,sem139
 `tools/prof129.py err.txt --elf r139/celosia-r139.elf` (zone 0x2030, decomp_subthread::wake / sleep, kernel_sub_001C81B0,
 iosGetRandom, decomp_isys::*), `r139/zones.py`, `tools/abframes.py err.txt --summary --bin 100 --from <first field frame>`.
 Ride the field at a gallop; listen for the sound (sg2q139 changes when the driver's work runs).
+
+## Round 140: the display walk's group pass and sort lists, the strips' quads: clip140 (the layout objects' clips on a helper thread), sort140, quad140 (2026-11-10)
+
+Scripts, runs: `build/agent-scratch/r140/` (build.sh pN, run.sh / v3k.sh / v3kb.sh / stop.sh on the own trees
+../vita3k-celosia-r140 / -r140b, 222 MHz, muted; zpc.py: prof129's running samples by zone and guest pc;
+env-console.txt; STATE.md). Source: the r135 console profile riding (display 6.81 ms of the game thread).
+
+**What the console's display entries are** (`r140/zpc.py r135/console/err.txt r135/celosia-r135.elf`, % of the busy thread).
+- `decomp_tex64::wrap<12>` 2.37% = modelDisp's table entry: 2.28 of it in zone 0x2020, the frame change (syncFrame) the
+  frame's first modelDisp meets, running (its waits are marked apart). The frame log's own timing of that block on the
+  console (`sync ... end`) is 0.1-0.2 ms over its render wait, not 0.87 ms: prof129's sampler (cores 1-2) runs most when
+  those cores go idle, which is the frame change (round 129's caveat); not chased.
+- `decomp_walk::solidDisp` 0.93% = the model hook's phases called from it as a native (zones 0x2002-0x2005).
+- `decomp_tex64::wrap<10>` 2.11% = DispDispObjGroupModel's own code; its samples sit after ClipLayoutObjModel's return
+  (ra 0x10f550c, 0.55) and AddSortObj's (0x10f55a4, 0.37): the walk's next object's loads.
+- `decomp_walk::clipLayoutObjModel` 2.06%, all from the group pass (ra 0x10f550c): the layout objects' update.
+- `manager_sub_010F3FB0` 1.65% = the heat-haze strips (round 134): quads 0.97, segment math 0.41, 2D feed 0.25.
+- `decomp_layoutclass::getLayoutClass` 0.59%: called from the scripts / AI all over, not the walk.
+- Vita3K's host sampler (attract demo, the game thread) adds what prof129 cannot split: quad117 and its helpers 2.3%,
+  the sort lists' bucket loops (sortOrder 0.73, clearSortList 0.41: ~1000 buckets, a few dozen used, cleared twice,
+  copied twice and scanned twice a walk), clip83::clip 0.9%.
+
+**What changed (A/B names = the switch names).**
+- `clip140` (`SOTC_CLIP140`, default on; decomp_walk.cpp; exact): at the group pass's start the group's chain is read
+  as isysGroupForNext walks it (without its counters' writes) and the layout objects whose update is ClipLayoutObjModel
+  (no billboard / camera link, no clip callback) are listed for a helper thread (`threads::kOffload`, cores 1-2, the
+  game thread's FP mode), which computes their clips from the list's end back: clip83's arithmetic on the same words,
+  writing nothing; each result is the words the clip writes (rec +0x20 .. +0x34, geo +0x230 .. +0x23c and +0x250 ..
+  +0x257) and its v0 / f0. The walk, at such an object, writes them there and sets what the call leaves (ra, sp, pc,
+  v0, f0) instead of the call; an object the helper has not finished (not reached, or being clipped now) the walk
+  claims and clips as before: the walk never waits for the helper. Objects off clip83's fast path (skinned, self-LOD:
+  the characters) go to the walk. A generation number in each slot's state keeps a late helper from touching the next
+  walk's slots; the walk does not wait for the helper at its end. Nothing between the pass's start and an object's
+  turn writes what its clip reads (the earlier objects' clips, the billboards' simple updates, the particle geodisps'
+  updates, the visibility callbacks, AddSortObj): `SOTC_CLIP140_CHECK=1` runs every taken object's clip the old way
+  too and compares its writes and registers (`[clip140] differ`); `SOTC_CLIP140_LOG=1`: `[clip140]` counts every 600
+  walks.
+- `sort140` (`SOTC_SORT140`, default on; exact): the walk's sort lists' bucket arrays as host words (in plain RAM, away
+  from the list's own words): the clears as 16-byte stores, the order copies and the next-bucket scans 8 buckets a
+  test, the list's count and array read once. The same words written, the same values left (the index word as
+  GetFirstSortObj / GetNextSortObj leave it). `SOTC_SORT140_CHECK=1`: every scan also bucket by bucket ([sort140]).
+- `quad140` (`SOTC_QUAD140`, default on; exact): quad117 (the strips' and the immediate quads' four vertices) is now
+  quad117Body, called as before when off; on, through a copy with everything inlined (`flatten`): the PGO build left
+  its per-vertex helpers as calls, several through long-branch veneers (the VU0 product lambda three times a vertex,
+  the blend `sel`, the GIF pair emitter, glColor4f / glTexCoord2f). Same operations in the same order (the A9 has no
+  fused multiply-add). `SOTC_QUAD140_CHECK=<n>`: every n-th quad run both ways from the same state (gl block, the
+  packet's next 0x100 bytes, the host pairs, the context, the lane's CLIP record) ([quad140]).
+
+**Checks (Vita3K 222, the check switches on: every taken clip compared, every bucket scan, every quad).**
+| run | build | what | result |
+|---|---|---|---|
+| runs/chkA1 | p1 | attract demo 1200 s (both ride loops), clip140 (helper forward) + sort140 checks | clip140 2 685 144 clips 0 differ; sort140 3.4 M scans 0 differ; Agro 12-15 u/s in 309 of 854 `[pos]` samples, drops only at the demo's cuts |
+| runsb/chkW1 | p1 | the console card's save walked onto the plain 720 s | clip140 1 599 533 0 differ; sort140 1.9 M 0 differ |
+| runsb/chkA2 | p2 | attract demo 1200 s, + quad140 check | quad140 608 000 quads 0 differ; clip140 1.38 M 0 differ |
+| runsb/chkA3 | p3 (final) | attract demo 1200 s, all three checks (helper from the list's end, no waits) | clip140 1 127 175 0 differ; sort140 2.3 M 0 differ; quad140 642 000 0 differ; Agro 12-15 u/s in 179 samples |
+| runs/chkW3 | p3 (final) | the card's walk 720 s (the shrine, out onto the plain), all three checks | clip140 800 000 0 differ (105 listed a walk); sort140 1.8 M 0 differ; quad140 204 000 0 differ; pictures normal (shrine bloom, Wander and his shadow on the plain) |
+
+**Measured (Vita3K 222, attract demo 480 s, the same build (p3) with the three switches on (profOn3) and off
+(profOff3), host sampler, % of the game thread).** quad117 and its helpers 2.23 -> 2.10; ClipLayoutObjModel /
+clip83::clip 1.34 -> 0.41 (the walk's own share of the clips, ~35%) + clip140's walk side (take / apply / post) 0.26
+(the helper thread: 0.77% of the game thread's weight, on another core); the sort lists 1.37 -> 0.55; lodByDistance
+0.10 -> 0.03; the walk's own code 0.94 -> 0.96. The touched functions 5.04% -> 3.35% of the game thread (-1.7%). Field
+frames (draws > 500, `[frame]` medians): game 14.3 -> 13.8 ms, frame 31.2 -> 31.0 (Vita3K's frame is the render
+thread's here). `[clip140]` riding: 70-107 objects listed a walk, the helper's results taken for ~60% (43-68 a walk),
+the walk clipping ~35% itself, 2-24 off clip83's fast path (characters), the two meeting on ~0.35 a walk. (p2, the
+helper from the list's start with the walk waiting for an object being clipped, spun 0.82% of the game thread in
+`take`: the walk caught up with it; p3 runs the helper from the list's end and never waits.)
+
+**Console estimate** (r135's profile): ClipLayoutObjModel 2.06% (0.79 ms) -> ~0.35 of it left on the game thread, and
+the walk's own loads of those objects' class / geometry lines warm in the shared L2 after the helper's reads; the sort
+lists ~0.1-0.15 ms; the strips' quads ~5% of their 0.37 ms. About 0.5-0.7 ms riding, short of the 2 ms asked. Not
+done: the frame change's 0.87 ms in prof129 (a sampling artefact, see above); the render hand-over wait (the display
+pacing); the model hook's phases (~0.4 ms).
+
+**Console.** build/agent-scratch/celosia-r140.vpk (dev, prof129), r140/celosia-r140.elf (spalign: 725 NEON :128/:256,
+0 sp-based), r140/env-console.txt = r139's with `SOTC_AB_FLAG=sort140,quad140,clip140` (rotate, 600). Read:
+`tools/prof129.py err.txt --elf r140/celosia-r140.elf` (ClipLayoutObjModel, wrap<10>, manager_sub_010F3FB0's zones),
+`tools/abframes.py err.txt --summary --bin 100 --from <first field frame>` per switch. The helper runs on cores 1-2
+as `offload` in the `[frame]` cpu column.

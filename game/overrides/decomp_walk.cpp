@@ -73,9 +73,14 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
+#include "runtime/native_renderer.h"
 #include "runtime/ps2_thread_load.h"
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -302,8 +307,79 @@ namespace decomp_walk
     inline uint32_t geoDispClass(const Ram m, uint32_t object) { return m.u8(object + 8u) == 0x24u ? object + 0x20u : 0u; }
 
     // The sort lists (decomp_sortlist.cpp's GetNextSortObj / ClearSortList, GetFirstSortObj).
+    // Round 140 (sort140, SOTC_SORT140, default on; A/B `sort140`): the sort lists' bucket arrays (~1000 buckets,
+    // a few dozen used) as host words. The clears, the order copies and the scans for the next non-empty
+    // bucket did ~8-15 host instructions a bucket with the list's count and array read again each one (two
+    // clears, two order copies and two scans a walk: Vita3K's sampler 1.2% of the game thread in sortOrder
+    // and clearSortList alone). The same words are read and written, the same values left: the array in
+    // plain RAM and away from the list's own words (+0 .. +0x14) or the per-bucket code as before.
+    namespace sort140
+    {
+        typedef uint32_t __attribute__((may_alias)) AliasU32;
+        inline AliasU32 *words(const Ram m, uint32_t list, uint32_t buckets, int32_t count)
+        {
+            if (count <= 0 || count > 0x10000 || (buckets & 3u) || !sotc_decomp::sort140On())
+                return nullptr;
+            const uint32_t bytes = static_cast<uint32_t>(count) * 4u;
+            if (!Ram::ok(buckets, bytes) || !Ram::ok(list, 0x14u) || (list < buckets + bytes && buckets < list + 0x14u))
+                return nullptr;
+            return reinterpret_cast<AliasU32 *>(m.rdram + buckets);
+        }
+        // SOTC_SORT140_CHECK=1: each scan also done bucket by bucket and compared ([sort140]).
+        inline bool checkOn()
+        {
+            static const bool v = ps2_diag::env("SOTC_SORT140_CHECK") != nullptr;
+            return v;
+        }
+        inline uint64_t g_checks = 0, g_differ = 0;
+        // The first i in [from, count) whose word is nonzero (count when none).
+        inline int32_t scanFast(const AliasU32 *w, int32_t from, int32_t count)
+        {
+            int32_t i = from;
+            for (; i + 8 <= count; i += 8)
+                if ((w[i] | w[i + 1] | w[i + 2] | w[i + 3] | w[i + 4] | w[i + 5] | w[i + 6] | w[i + 7]) != 0u)
+                    break;
+            for (; i < count; ++i)
+                if (w[i] != 0u)
+                    return i;
+            return count;
+        }
+        inline int32_t scan(const AliasU32 *w, int32_t from, int32_t count)
+        {
+            const int32_t i = scanFast(w, from, count);
+            if (__builtin_expect(checkOn(), 0))
+            {
+                int32_t j = from;
+                while (j < count && w[j] == 0u)
+                    ++j;
+                ++g_checks;
+                if (j != i && ++g_differ <= 20u)
+                    std::fprintf(stderr, "[sort140] differ: from %d count %d fast %d slow %d\n", from, count, i, j);
+                if (g_checks % 100000u == 0u)
+                    std::fprintf(stderr, "[sort140] scans %llu differ %llu\n", (unsigned long long)g_checks, (unsigned long long)g_differ);
+            }
+            return i;
+        }
+    }
     void clearSortList(const Ram m, uint32_t list)
     {
+        if (sort140::AliasU32 *w = sort140::words(m, list, m.u32(list), m.s32(list + 4u)))
+        {
+            // (stores in the loop, not memset: Vita3K's sceClibMemset is an HLE call)
+            const int32_t count = m.s32(list + 4u);
+            int32_t i = 0;
+            uint8_t *b = reinterpret_cast<uint8_t *>(const_cast<uint32_t *>(w));
+            const __m128i zero = _mm_setzero_si128();
+            for (; i + 8 <= count; i += 8)
+            {
+                _mm_storeu_si128(reinterpret_cast<__m128i *>(b + i * 4), zero);
+                _mm_storeu_si128(reinterpret_cast<__m128i *>(b + i * 4 + 16), zero);
+            }
+            for (; i < count; ++i)
+                w[i] = 0u;
+            m.put32(list + 0x10u, 0u);
+            return;
+        }
         if (0 < m.s32(list + 4u))
             for (int32_t i = 0; i < m.s32(list + 4u); ++i)
                 m.put32(m.u32(list) + static_cast<uint32_t>(i) * 4u, 0u);
@@ -316,6 +392,14 @@ namespace decomp_walk
             return 0u;
         m.put32(list + 0x10u, 0u);
         const uint32_t buckets = m.u32(list);
+        if (const sort140::AliasU32 *w = sort140::words(m, list, buckets, count))
+        {
+            // The original stores each index it moves to: the bucket found, or count - 1 (none past 0).
+            const int32_t i = sort140::scan(w, 0, count);
+            if (i != 0)
+                m.put32(list + 0x10u, static_cast<uint32_t>(i < count ? i : count - 1));
+            return i < count ? w[i] : 0u;
+        }
         uint32_t result = m.u32(buckets);
         for (int32_t index = 1; result == 0u; ++index)
         {
@@ -336,6 +420,14 @@ namespace decomp_walk
         const int32_t count = m.s32(list + 4u);
         const uint32_t buckets = m.u32(list);
         int32_t index = m.s32(list + 0x10u);
+        if (index >= -1 && index < count)
+            if (const sort140::AliasU32 *w = sort140::words(m, list, buckets, count))
+            {
+                index = sort140::scan(w, index + 1, count);
+                result = index < count ? w[index] : 0u;
+                m.put32(list + 0x10u, static_cast<uint32_t>(index));
+                return result;
+            }
         for (;;)
         {
             ++index;
@@ -416,6 +508,17 @@ namespace decomp_walk
         const uint32_t buckets = m.u32(list);
         if (count <= 0 || count > 0x10000 || !Ram::ok(buckets, static_cast<uint32_t>(count) * 4u))
             return;
+        if (const sort140::AliasU32 *w = sort140::words(m, list, buckets, count))
+        {
+            for (int32_t index = sort140::scan(w, 0, count); index < count && out.size() < 4096u; index = sort140::scan(w, index + 1, count))
+                for (uint32_t node = w[index]; node != 0u && out.size() < 4096u; node = m.u32(node + 8u))
+                {
+                    if (!Ram::ok(node, 0x10u))
+                        break;
+                    out.push_back(node);
+                }
+            return;
+        }
         for (int32_t index = 0; index < count && out.size() < 4096u; ++index)
             for (uint32_t node = m.u32(buckets + static_cast<uint32_t>(index) * 4u); node != 0u && out.size() < 4096u; node = m.u32(node + 8u))
             {
@@ -1288,6 +1391,445 @@ namespace decomp_walk
             std::memcpy(rec + 0x24u, gp + 0x234u, 4);
             out = {object, geo, hf(gp, 0x234u)};
             return true;
+        }
+    }
+
+    // ---- Round 140 (clip140, SOTC_CLIP140; A/B `clip140`): the group pass's ClipLayoutObjModel run ahead ----
+    // The walk's group pass calls each layout object's update, ClipLayoutObjModel (clip83's fast path: the
+    // LOD level and the sort keys from the object's matrix, its model's sphere / boxes and the camera), one
+    // object after the other on the game thread (the console's profile: ClipLayoutObjModel 2.06% + the walk's
+    // misses around it). Here a helper thread (cores 1-2) computes those clips for the group's objects ahead
+    // of the walk, from the same words, without writing guest memory: each result is the words the clip
+    // would write (rec +0x20 .. +0x34, geo +0x230 .. +0x23c, geo +0x250 .. +0x257) and its v0 / f0. When the
+    // walk reaches the object, it writes them there and sets the registers the call leaves (ra / sp / pc as
+    // callGuest, v0, f0), in place of the call; an object the helper has not reached yet is claimed by the
+    // walk and clipped there as before. What the walk does between (the earlier objects' clips, billboards'
+    // simple updates, particle geodisps' updates, the visibility callbacks, AddSortObj) does not write what a
+    // clip reads (the object's class words, its matrix, its model's header / LOD record, the camera):
+    // SOTC_CLIP140_CHECK=1 runs every taken object's clip the old way too and compares ([clip140]).
+    // Objects with a billboard / camera link (their simple update before the clip), another update, a clip
+    // callback, or clip83's other paths (skinned, self-LOD models: ~characters) are left to the walk.
+    namespace clip140
+    {
+        using clip83::V4;
+        using clip83::host;
+        using clip83::hf;
+        using clip83::hu;
+        using clip83::hq;
+        using clip83::rows;
+        using clip83::load4;
+        using clip83::clipBits;
+        using clip83::boxOut;
+        struct Result
+        {
+            uint32_t object = 0, geo = 0, rec = 0;
+            float f0 = 0.0f;
+            uint8_t kind = 0; // 0 none (the walk clips), 1 geo 0, 2 faded (>= 1), 3 the full clip
+            bool keys = false; // geo +0x230 .. +0x23c written
+            uint32_t w30 = 0, w34 = 0, w20 = 0, w24 = 0, w28 = 0;
+            uint32_t k[4] = {};
+            uint64_t w250 = 0;
+        };
+        // clip83::clip's computation (the same reads and arithmetic, in the same order), its writes kept in r.
+        bool compute(const uint8_t *rdram, uint32_t object, Result &r)
+        {
+            r.kind = 0;
+            const uint8_t *ob = host(rdram, object, 0x10u);
+            if (!ob)
+                return false;
+            const uint32_t index = static_cast<uint32_t>(ob[8]) - 9u;
+            if (index >= 0xEu)
+                return false;
+            const uint32_t target = hu(rdram, kClassTable + index * 4u);
+            const uint32_t s0 = target == 0x010F1A58u ? object + 0x20u : target == 0x010F1A98u ? object + 0x90u : 0u;
+            const uint8_t *c0 = s0 ? host(rdram, s0, 0x170u) : nullptr;
+            if (!c0)
+                return false;
+            const uint32_t s1 = hu(c0, 0x140u), geo = hu(c0, 0x144u);
+            if (!host(rdram, s1, 0x40u))
+                return false;
+            r.object = object;
+            r.rec = s1;
+            r.geo = geo;
+            const float m1 = -1.0f;
+            if (geo == 0u)
+            {
+                std::memcpy(&r.w30, &m1, 4);
+                r.f0 = -1.0f;
+                r.kind = 1;
+                return true;
+            }
+            const uint8_t *gp = host(rdram, geo, 0x260u);
+            if (!gp)
+                return false;
+            // The kept words land at their places in one go: the record's and the geometry's ranges apart.
+            if (s1 + 0x20u < geo + 0x258u && geo + 0x230u < s1 + 0x38u)
+                return false;
+            const uint8_t *model = host(rdram, hu(gp, 0u), 0x24u);
+            const uint8_t *hd = model ? host(rdram, hu(model, 0x20u), 0x60u) : nullptr;
+            if (!hd || (hu(hd, 0x18u) & 1u) != 0u || hu(hd, 0xCu) != 0u)
+                return false;
+            const uint8_t *lod = host(rdram, hu(hd, 8u), 0x40u);
+            const uint8_t *mx = host(rdram, hu(c0, 0x15Cu), 0x40u);
+            const uint32_t cam = hu(rdram, 0x0122A8F0u + (hu(rdram, 0x0118FE4Cu) << 2));
+            const uint8_t *cp = host(rdram, cam, 0x5E0u);
+            if (hu(hd, 8u) == 0u || !lod || !mx || !cp)
+                return false;
+            const int32_t count = static_cast<int32_t>(hu(hd, 0x1Cu));
+            if (count <= 0 || count > 8)
+                return false;
+            const uint32_t mode = hu(lod, 0x14u);
+            uint32_t modeTarget = 0u;
+            if (mode < 5u)
+            {
+                modeTarget = hu(rdram, kLodModes + mode * 4u);
+                if (modeTarget != 0x01098968u && modeTarget != 0x01098970u && modeTarget != 0x01098978u && modeTarget != 0x01098980u && modeTarget != 0x010989D0u)
+                    return false;
+            }
+            std::memcpy(&r.w30, &m1, 4);
+            const float fade = hf(gp, 0x244u);
+            std::memcpy(&r.w34, &fade, 4);
+            if (!(fade < 1.0f))
+            {
+                r.f0 = fade;
+                r.kind = 2;
+                return true;
+            }
+            float lens = 1.0f;
+            if (hu(lod, 0x3Cu) != 0u && cam != 0u)
+                lens = 500.0f / hf(cp, 0xCu);
+            const float lodScale = hf(c0, 0x9Cu) * lens;
+            // geo +0x250 as the clip leaves it after its first store there (the scale in the low word).
+            uint32_t scaleBits;
+            std::memcpy(&scaleBits, &lodScale, 4);
+            uint64_t w250 = (static_cast<uint64_t>(hu(gp, 0x254u)) << 32) | scaleBits;
+            float level;
+            const V4 eye = hq(cp, 0x140u);
+            V4 M[4];
+            load4(mx, 0u, M);
+            auto dist3 = [](float x, float y, float z) { return std::sqrt(x * x + y * y + z * z); };
+            bool done = false;
+            if ((hu(hd, 0x18u) >> 24) & 1u)
+            {
+                level = -2.0f;
+                done = true;
+            }
+            if (!done && hu(rdram, kLodOn) != 0u)
+            {
+                const float far = hf(lod, 0x30u);
+                if (0.0f < far && dist3(M[3].x - eye.x, M[3].y - eye.y, M[3].z - eye.z) < far)
+                {
+                    level = -2.0f;
+                    done = true;
+                }
+            }
+            float keys[4];
+            for (int i = 0; i < 4; ++i)
+                keys[i] = hf(gp, 0x230u + static_cast<uint32_t>(i) * 4u);
+            if (!done)
+            {
+                const V4 c = hq(hd, 0x20u);
+                const float rr = c.w * lodScale;
+                const V4 world = rows(M, c.x, c.y, c.z, 1.0f);
+                V4 P[4], VP[4], V[4];
+                load4(cp, 0x1E0u, P);
+                load4(cp, 0x5A0u, VP);
+                load4(cp, 0x1A0u, V);
+                const V4 pr = rows(P, rr, 0.0f, 0.0f, 1.0f);
+                V4 clipP = rows(VP, world.x, world.y, world.z, 1.0f);
+                clipP.w += pr.x;
+                const bool crosses = clipBits(clipP) != 0u;
+                const V4 vc = rows(V, world.x, world.y, world.z, world.w);
+                keys[0] = vc.z + rr;
+                keys[1] = vc.z;
+                keys[2] = vc.z - rr;
+                keys[3] = vc.w;
+                r.keys = true;
+                const float f21 = crosses ? dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z) : -1.0f;
+                float d = 0.0f;
+                switch (modeTarget)
+                {
+                case 0x01098968u: d = keys[1]; break;
+                case 0x01098970u: d = keys[2]; break;
+                case 0x01098978u: d = keys[0]; break;
+                case 0x01098980u: d = dist3(world.x - eye.x, 0.0f, world.z - eye.z); break;
+                case 0x010989D0u: d = dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z); break;
+                default: d = 0.0f; break;
+                }
+                const bool keepsLast = static_cast<int32_t>(hu(lod, 0x28u)) == 0;
+                if (native_renderer::tuning().sacLod && keepsLast)
+                    d *= 1.6f;
+                if (native_renderer::tuning().sacDrawDist && !keepsLast)
+                    d *= 1.5f;
+                const Ram m{const_cast<uint8_t *>(rdram)};
+                float f12 = lodByDistance(m, hu(hd, 8u), d, static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
+                const int32_t lv = static_cast<int32_t>(f12);
+                float f20;
+                if (static_cast<uint64_t>(static_cast<int64_t>(lv)) < static_cast<uint64_t>(static_cast<int64_t>(count)))
+                    f20 = f12;
+                else
+                    f20 = keepsLast ? static_cast<float>(count - 1) : -1.0f;
+                if (f20 < 0.0f)
+                    level = -1.0f;
+                else if (f21 < 0.0f)
+                    level = f20;
+                else
+                {
+                    const uint32_t table = hu(hd, 0x30u + static_cast<uint32_t>(static_cast<int32_t>(f20)) * 4u);
+                    const uint8_t *tb = host(rdram, table, 0x20u);
+                    level = f20;
+                    if (tb)
+                    {
+                        V4 PM[4];
+                        for (int i = 0; i < 4; ++i)
+                            PM[i] = rows(VP, M[i].x, M[i].y, M[i].z, M[i].w);
+                        if (boxOut(PM, hq(tb, 0u), hq(tb, 0x10u)))
+                            level = -2.0f;
+                    }
+                }
+            }
+            const int32_t lvl = static_cast<int32_t>(level);
+            w250 = (w250 & 0xFFFFF8FFFFFFFFFFull) | (static_cast<uint64_t>(static_cast<uint32_t>(lvl) & 7u) << 40);
+            r.w250 = w250;
+            const float lf = static_cast<float>(static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
+            std::memcpy(&r.w30, &lf, 4);
+            std::memcpy(r.k, keys, 16);
+            r.w20 = r.k[0];
+            r.w28 = r.k[2];
+            r.w24 = r.k[1];
+            r.f0 = keys[1];
+            r.kind = 3;
+            return true;
+        }
+        // The kept words into guest memory (the walk, at the object's turn).
+        void apply(uint8_t *rdram, const Result &r)
+        {
+            uint8_t *rec = rdram + r.rec;
+            std::memcpy(rec + 0x30u, &r.w30, 4);
+            if (r.kind == 1)
+                return;
+            std::memcpy(rec + 0x34u, &r.w34, 4);
+            if (r.kind == 2)
+                return;
+            uint8_t *gp = rdram + r.geo;
+            std::memcpy(gp + 0x250u, &r.w250, 8);
+            if (r.keys)
+                std::memcpy(gp + 0x230u, r.k, 16);
+            std::memcpy(rec + 0x20u, &r.w20, 4);
+            std::memcpy(rec + 0x28u, &r.w28, 4);
+            std::memcpy(rec + 0x24u, &r.w24, 4);
+        }
+
+
+        // ---- the helper thread and the walk's side ----
+        // A slot's state: the walk's generation << 2 | 0 free, 1 the helper's, 2 done (result kept), 3 the
+        // walk's. The helper claims and finishes a slot by compare-and-swap on its generation, so a helper
+        // still busy with an earlier walk's slot when the next walk lists its objects only loses that result
+        // (the walk never waits for the helper to stop, and never reads a result of another walk).
+        constexpr int kMax = 2048;
+        struct Slot
+        {
+            std::atomic<uint32_t> state{0};
+            Result r;
+        };
+        Slot g_slots[kMax];
+        uint32_t g_objects[kMax];
+        std::atomic<int> g_count{0};
+        std::atomic<uint32_t> g_gen{0};
+        std::atomic<bool> g_abort{false};
+        std::atomic<uint32_t> g_posted{0};
+        std::mutex g_mutex;
+        std::condition_variable g_work;
+        bool g_started = false;
+        int g_n = 0; // this walk's count (the game thread's)
+        const uint8_t *g_rdram = nullptr;
+        // Counters (SOTC_CLIP140_LOG=1: a line every 600 walks).
+        uint64_t g_walks = 0, g_listed = 0, g_taken = 0, g_byWalk = 0, g_waited = 0, g_none = 0, g_missed = 0, g_checks = 0, g_differ = 0;
+        int checkMode()
+        {
+            static const int v = ps2_diag::env("SOTC_CLIP140_CHECK") ? std::atoi(ps2_diag::env("SOTC_CLIP140_CHECK")) : 0;
+            return v;
+        }
+        bool logOn()
+        {
+            static const bool v = ps2_diag::env("SOTC_CLIP140_LOG") != nullptr;
+            return v;
+        }
+        void loop()
+        {
+            native_renderer::threads::place(native_renderer::threads::kOffload);
+            ps2SetEeFloatingPointMode(); // the game thread's rounding (toward zero) and flush-to-zero
+            uint32_t seen = 0;
+            for (;;)
+            {
+                {
+                    std::unique_lock<std::mutex> lock(g_mutex);
+                    g_work.wait(lock, [&] { return g_posted.load(std::memory_order_acquire) != seen; });
+                }
+                seen = g_posted.load(std::memory_order_acquire);
+                const uint32_t gen = g_gen.load(std::memory_order_acquire) << 2;
+                const int n = g_count.load(std::memory_order_acquire);
+                // From the list's end back: the walk takes the objects from its start, the two meet (the
+                // walk never waits for an object the helper is clipping: it clips that one itself).
+                for (int i = n - 1; i >= 0 && !g_abort.load(std::memory_order_relaxed); --i)
+                {
+                    uint32_t expect = gen;
+                    if (!g_slots[i].state.compare_exchange_strong(expect, gen | 1u, std::memory_order_acq_rel))
+                        continue;
+                    compute(g_rdram, g_objects[i], g_slots[i].r);
+                    expect = gen | 1u;
+                    g_slots[i].state.compare_exchange_strong(expect, gen | 2u, std::memory_order_acq_rel);
+                }
+            }
+        }
+        // The walk's start: the group's objects the helper may clip, in the walk's order (the chain read as
+        // isysGroupForNext walks it, without its counters' writes). False: nothing posted.
+        bool post(const Ram m, uint32_t first, PS2Runtime *runtime)
+        {
+            g_n = 0;
+            if (!sotc_decomp::clip140On() || !sotc_decomp::walk83On() || clip83::checkMode() != 0 ||
+                sotc_decomp::guestFunction(runtime, kClip) != &clipLayoutObjModel)
+                return false;
+            static const bool clipPart83 = !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0');
+            if (!clipPart83)
+                return false;
+            int n = 0;
+            for (uint32_t e = first, steps = 0; e != 0u && n < kMax && steps < 0x10000u; ++steps)
+            {
+                if (!Ram::ok(e, 0x10u))
+                    break;
+                const uint32_t object = m.u32(e);
+                if (Ram::ok(object, 0x1C0u))
+                    if (const uint32_t lc = layoutClassHint(m, object); lc != 0u && Ram::ok(lc, 0x1C0u))
+                        if (m.s8(lc + 0x1B6u) == 0 && m.s8(lc + 0x1B7u) == 0 && m.s8(lc + 0x1B8u) != 0)
+                            if (const uint32_t rec = m.u32(lc + 0x140u); Ram::ok(rec, 0xE0u) && m.u32(rec + 0xD8u) == kClip && m.u32(rec + 0xDCu) == 0u)
+                                g_objects[n++] = object;
+                // isysGroupForNext's walk: the next index in +0xc's high half, past entries being deleted
+                // (+0xc's byte) and hidden objects (+0xa bit 0).
+                uint32_t index = static_cast<uint16_t>(m.u32(e + 0xCu) >> 16);
+                e = 0u;
+                for (uint32_t k = 0; index != 0u && k < 0x10000u; ++k)
+                {
+                    const uint32_t c = kEntries + index * 24u;
+                    if (!Ram::ok(c, 0x10u))
+                        break;
+                    if (m.u8(c + 0xCu) == 0u)
+                    {
+                        const uint32_t o = m.u32(c);
+                        if (Ram::ok(o, 0xCu) && (m.u8(o + 0xAu) & 1u) == 0u)
+                        {
+                            e = c;
+                            break;
+                        }
+                    }
+                    index = static_cast<uint16_t>(m.u32(c + 0xCu) >> 16);
+                }
+            }
+            if (n == 0)
+                return false;
+            const uint32_t gen = (g_gen.load(std::memory_order_relaxed) + 1u) & 0x3FFFFFFFu;
+            for (int i = 0; i < n; ++i)
+                g_slots[i].state.store(gen << 2, std::memory_order_relaxed);
+            g_rdram = m.rdram;
+            g_abort.store(false, std::memory_order_relaxed);
+            g_count.store(n, std::memory_order_relaxed);
+            g_gen.store(gen, std::memory_order_release);
+            g_n = n;
+            ++g_walks;
+            g_listed += static_cast<uint64_t>(n);
+            if (!g_started)
+            {
+                g_started = true;
+                std::thread(loop).detach();
+            }
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_posted.fetch_add(1u, std::memory_order_release);
+            }
+            g_work.notify_one();
+            return true;
+        }
+        // The walk's end (every way out): the helper told to stop (its results are of no use any more).
+        void finish()
+        {
+            if (g_n == 0)
+                return;
+            g_abort.store(true, std::memory_order_relaxed);
+            g_n = 0;
+            if (logOn() && g_walks % 600u == 0u)
+            {
+                std::fprintf(stderr, "[clip140] walks %llu: listed %.1f a walk, taken %.1f, met the helper %.2f, clipped by the walk %.1f, not the fast path %.1f, "
+                                     "out of order %.2f; checks %llu differ %llu\n",
+                             (unsigned long long)g_walks, g_listed / 600.0, g_taken / 600.0, g_waited / 600.0, g_byWalk / 600.0, g_none / 600.0, g_missed / 600.0,
+                             (unsigned long long)g_checks, (unsigned long long)g_differ);
+                g_listed = g_taken = g_waited = g_byWalk = g_none = g_missed = 0;
+            }
+        }
+        // SOTC_CLIP140_CHECK=1: the clip ran the old way (the truth); its writes and registers against the result.
+        void check(const uint8_t *rdram, const R5900Context *ctx, const Result &r)
+        {
+            ++g_checks;
+            auto w32 = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + a, 4); return v; };
+            uint32_t f0;
+            std::memcpy(&f0, &ctx->f[0], 4);
+            uint32_t rf0;
+            std::memcpy(&rf0, &r.f0, 4);
+            bool bad = GPR_U32(ctx, 2) != r.geo || f0 != rf0 || w32(r.rec + 0x30u) != r.w30;
+            if (r.kind >= 2)
+                bad |= w32(r.rec + 0x34u) != r.w34;
+            if (r.kind == 3)
+            {
+                uint64_t w250;
+                std::memcpy(&w250, rdram + r.geo + 0x250u, 8);
+                bad |= w250 != r.w250 || w32(r.rec + 0x20u) != r.w20 || w32(r.rec + 0x24u) != r.w24 || w32(r.rec + 0x28u) != r.w28;
+                if (r.keys)
+                    bad |= std::memcmp(rdram + r.geo + 0x230u, r.k, 16) != 0;
+            }
+            if (bad && ++g_differ <= 20u)
+                std::fprintf(stderr, "[clip140] differ: object %08x kind %d v0 %08x / %08x f0 %08x / %08x rec+30 %08x / %08x\n", r.object, r.kind, GPR_U32(ctx, 2), r.geo, f0, rf0,
+                             w32(r.rec + 0x30u), r.w30);
+            if (g_checks % 20000u == 0u)
+                std::fprintf(stderr, "[clip140] checks %llu differ %llu\n", (unsigned long long)g_checks, (unsigned long long)g_differ);
+        }
+        // The walk at `object` (its update ClipLayoutObjModel): the helper's result when it has one (the
+        // slot claimed), else nullptr (the walk calls the clip). cursor: the next slot in the list's order.
+        const Result *take(uint32_t object, int &cursor)
+        {
+            const int n = g_n;
+            int at = -1;
+            for (int i = cursor; i < n && i < cursor + 8; ++i)
+                if (g_objects[i] == object)
+                {
+                    at = i;
+                    break;
+                }
+            if (at < 0)
+            {
+                if (n)
+                    ++g_missed;
+                return nullptr;
+            }
+            cursor = at + 1;
+            const uint32_t gen = g_gen.load(std::memory_order_relaxed) << 2;
+            uint32_t expect = gen;
+            if (g_slots[at].state.compare_exchange_strong(expect, gen | 3u, std::memory_order_acq_rel))
+            {
+                ++g_byWalk;
+                return nullptr;
+            }
+            if (expect != (gen | 2u))
+            {
+                ++g_waited; // the helper is clipping it now: the walk clips it too (the helper's result unused)
+                return nullptr;
+            }
+            const Result &r = g_slots[at].r;
+            if (r.kind == 0 || r.object != object)
+            {
+                ++g_none;
+                return nullptr;
+            }
+            ++g_taken;
+            return &r;
         }
     }
 
@@ -2198,7 +2740,7 @@ namespace decomp_walk
         bool colour = true; // false: no glColor4f per vertex (glColor4fv once before: 01142350's quads)
     };
     // host (round 128, imm128): the pairs into host[] (value, register; *hostCount of them) instead of the GIF packet.
-    bool quad117(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host = nullptr, uint32_t *hostCount = nullptr)
+    bool quad117Body(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
     {
         const Ram m = g.m;
         R5900Context *ctx = g.ctx;
@@ -2475,6 +3017,75 @@ namespace decomp_walk
         SET_GPR_U32(ctx, 31, vs[n - 1].site + 8u);
         SET_GPR_U32(ctx, 29, sp);
         return true;
+    }
+    // Round 140 (quad140, SOTC_QUAD140, default on; A/B `quad140`): the same body with everything it calls
+    // inlined (GCC's flatten). The PGO build left its per-vertex helpers as calls, several through long-branch
+    // veneers (the hot order puts them apart): the VU0 product lambda (three a vertex), the blend `sel`, the
+    // GIF pair emitter, glColor4f / glTexCoord2f; Vita3K's sampler had quad117 and those helpers at ~2.5% of the
+    // game thread (the heat-haze strips, Wander's and the colossi's). Same operations in the same order (the
+    // A9 has no fused multiply-add: a contracted vmla rounds as the separate multiply and add did).
+    __attribute__((flatten)) bool quad117Flat(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
+    {
+        return quad117Body(g, sp, vs, n, host, hostCount);
+    }
+    // SOTC_QUAD140_CHECK=<n>: every n-th quad run both ways from the same state (the flat copy first, then the
+    // body as before: the truth stays) and compared: the gl block, the GIF packet's next 0x100 bytes, the host
+    // pairs, the context ([quad140]).
+    bool quad117Checked(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
+    {
+        static uint64_t quads = 0, checks = 0, differ = 0;
+        static const uint64_t every = ps2_diag::env("SOTC_QUAD140_CHECK") ? std::strtoull(ps2_diag::env("SOTC_QUAD140_CHECK"), nullptr, 10) : 0u;
+        const Ram m = g.m;
+        const uint32_t pkt = m.u32(kGl + 4u);
+        if (++quads % every != 0u || !Ram::ok(pkt, 0x100u) || !Ram::ok(kGl, 0x5300u))
+            return quad117Flat(g, sp, vs, n, host, hostCount);
+        // (static: nothing 16-aligned on the stack)
+        static std::vector<uint8_t> blk0(0x5300u), pk0(0x100u), blkA(0x5300u), pkA(0x100u), ctx0(sizeof(R5900Context)), ctxA(sizeof(R5900Context));
+        static std::vector<uint64_t> hostA;
+        // The lane's pending CLIP register joined first (clipNeeded would join it in one run only); the
+        // recorded judgements kept and put back with the rest.
+        sotc_decomp::clipNeeded(g.ctx);
+        const sotc_decomp::LazyClip lazy0 = sotc_decomp::g_lazyClip;
+        const uint32_t count0 = hostCount ? *hostCount : 0u;
+        std::memcpy(blk0.data(), m.p(kGl), 0x5300u);
+        std::memcpy(pk0.data(), m.p(pkt), 0x100u);
+        std::memcpy(ctx0.data(), g.ctx, sizeof(R5900Context));
+        const bool a = quad117Flat(g, sp, vs, n, host, hostCount);
+        const uint32_t countA = hostCount ? *hostCount : 0u;
+        hostA.assign(host ? host + 2u * count0 : nullptr, host ? host + 2u * countA : nullptr);
+        std::memcpy(blkA.data(), m.p(kGl), 0x5300u);
+        std::memcpy(pkA.data(), m.p(pkt), 0x100u);
+        std::memcpy(ctxA.data(), g.ctx, sizeof(R5900Context));
+        std::memcpy(m.p(kGl), blk0.data(), 0x5300u);
+        std::memcpy(m.p(pkt), pk0.data(), 0x100u);
+        std::memcpy(g.ctx, ctx0.data(), sizeof(R5900Context));
+        const sotc_decomp::LazyClip lazyA = sotc_decomp::g_lazyClip;
+        sotc_decomp::g_lazyClip = lazy0;
+        if (hostCount)
+            *hostCount = count0;
+        const bool b = quad117Body(g, sp, vs, n, host, hostCount);
+        ++checks;
+        const uint32_t countB = hostCount ? *hostCount : 0u;
+        const sotc_decomp::LazyClip &lazyB = sotc_decomp::g_lazyClip;
+        const bool same = a == b && countA == countB && lazyA.known == lazyB.known && lazyA.shifts == lazyB.shifts && lazyA.pending == lazyB.pending && std::memcmp(blkA.data(), m.p(kGl), 0x5300u) == 0 && std::memcmp(pkA.data(), m.p(pkt), 0x100u) == 0 &&
+                          std::memcmp(ctxA.data(), g.ctx, sizeof(R5900Context)) == 0 &&
+                          (!host || std::memcmp(hostA.data(), host + 2u * count0, hostA.size() * 8u) == 0);
+        if (!same && ++differ <= 20u)
+            std::fprintf(stderr, "[quad140] DIFFERS (site %08x): taken %d / %d pairs %u / %u\n", vs[0].site, a ? 1 : 0, b ? 1 : 0, countA, countB);
+        if (checks % 2000u == 0u)
+            std::fprintf(stderr, "[quad140] %llu quads checked, %llu differ\n", (unsigned long long)checks, (unsigned long long)differ);
+        return b;
+    }
+    bool quad117(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host = nullptr, uint32_t *hostCount = nullptr)
+    {
+        if (sotc_decomp::quad140On())
+        {
+            static const bool check = ps2_diag::env("SOTC_QUAD140_CHECK") != nullptr;
+            if (__builtin_expect(check, 0))
+                return quad117Checked(g, sp, vs, n, host, hostCount);
+            return quad117Flat(g, sp, vs, n, host, hostCount);
+        }
+        return quad117Body(g, sp, vs, n, host, hostCount);
     }
 
     // SOTC_GLV117_CHECK=<n>: every n-th quad both ways (glv117c).
@@ -3566,6 +4177,13 @@ namespace decomp_walk
         g.callRel(0x010F532Cu, sp); // isysGroupForFirst
         uint32_t s4 = g.v0(), s3 = 0u;
         set(20, s4);
+        // Round 140 (clip140): the group's layout objects' clips handed to the helper thread, ahead of the pass.
+        const bool c140 = clip140::post(m, s4, runtime);
+        int cursor140 = 0;
+        struct Finish140
+        {
+            ~Finish140() { clip140::finish(); }
+        } finish140;
         QuatProduct qp{};
         const bool walk83 = sotc_decomp::walk83On();
         bool s6Known = false;
@@ -3797,7 +4415,24 @@ namespace decomp_walk
                         g.a(4, s3);
                         {
                             const uint64_t t0_ = wprof::now();
-                            g.call(update, 0x010F5504u, sp);
+                            const clip140::Result *r140 = c140 && update == kClip && !simple ? clip140::take(s3, cursor140) : nullptr;
+                            if (r140 && clip140::checkMode() == 0)
+                            {
+                                // ClipLayoutObjModel's writes and what its call leaves (callGuest's ra / sp, the
+                                // native's return: pc = ra, v0 the geometry class, f0).
+                                clip140::apply(rdram, *r140);
+                                SET_GPR_U32(ctx, 31, 0x010F550Cu);
+                                SET_GPR_U32(ctx, 29, sp);
+                                ctx->pc = 0x010F550Cu;
+                                ctx->f[0] = r140->f0;
+                                SET_GPR_S32(ctx, 2, static_cast<int32_t>(r140->geo));
+                            }
+                            else
+                            {
+                                g.call(update, 0x010F5504u, sp);
+                                if (r140)
+                                    clip140::check(rdram, ctx, *r140);
+                            }
                             if (wp) wprof::add('U', update, sotc_prof::ticks() - t0_);
                         }
                     }
@@ -3882,6 +4517,7 @@ namespace decomp_walk
             s4 = next;
             set(20, s4);
         }
+        clip140::finish();
         set(18, 0x01190000u);
         if (s3 != 0u)
         {
