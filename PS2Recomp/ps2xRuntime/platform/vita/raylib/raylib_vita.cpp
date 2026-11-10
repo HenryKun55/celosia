@@ -123,17 +123,35 @@ namespace pace110
     std::atomic<int> g_ab132{1};      // SOTC_AB_FLAG pace132: off in its windows
     std::atomic<int> g_gameWaits{0};  // the game thread in the hand-over's wait (ps2x_vita_render_wait)
     std::atomic<int> g_inSwap{0};     // the render thread in vglSwapBuffers (EndDrawing)
+    // Round 143 (SOTC_PACE143, default on; A/B `pace143`): pace132 pulled a held slot only once the
+    // game thread was already waiting. The swap blocks earlier: vitaGL's display queue is short
+    // (gxm_display_buffer_count 3, maxPendingCount 2), so a picture swapped while the one held here
+    // still holds its place waits in sceGxmDisplayQueueAddEntry, and the render thread cannot start
+    // the frame handed over behind it. The r135 console log: in the windows where
+    // 'present' is 20-35 ms a frame (the swap blocked), the game thread's hand-over wait is 2.7 ms
+    // a frame against 0.75 elsewhere, and pace110's latency 9-11 refreshes against a floor of 4
+    // (late pictures move the chain later for good; pulls take it back one refresh at a time).
+    // On: a slot held while the render thread waits in the swap behind it (swapBlocked) comes one
+    // refresh earlier (once a picture, with pace132's pull: one of the two; not
+    // below the previous slot + the minimum hold). No picture is shown later than without it.
+    std::atomic<int> g_ab143{1}; // SOTC_AB_FLAG pace143: off in its windows
+    // Round 143: swaps over 2 ms by the pictures not yet taken by the display at their start (0, 1, 2, 3+),
+    // all swaps likewise; written by the presenting thread, printed by it (printPending).
+    uint32_t g_swapLong[4] = {}, g_swapAll[4] = {};
     int envInt(const char *name, int def)
     {
         const char *e = std::getenv(name);
         return e ? std::atoi(e) : def;
     }
     // Read once before the display callback is set (it takes no static-init guard: no lock there).
-    int g_setting = 1, g_calmNeed = 6, g_traceMax = 0, g_traced = 0, g_setting132 = 1;
+    int g_setting = 1, g_calmNeed = 6, g_traceMax = 0, g_traced = 0, g_setting132 = 1, g_setting143 = 1, g_test143 = 0;
+    uint32_t g_test143Count = 0;
     void init()
     {
         g_setting = envInt("SOTC_PACE110", 1);
         g_setting132 = envInt("SOTC_PACE132", 1);
+        g_setting143 = envInt("SOTC_PACE143", 1);
+        g_test143 = envInt("SOTC_PACE143_TEST", 0);
         // A pull: after this many pictures in a row that were already queued when the one before
         // them went on screen (ready a whole interval early: the slots run later than needed).
         g_calmNeed = envInt("SOTC_PACE110_CALM", 6);
@@ -143,6 +161,20 @@ namespace pace110
     bool on() { return setting() != 0 && g_ab.load(std::memory_order_relaxed) != 0; }
     bool on132() { return g_setting132 != 0 && g_ab132.load(std::memory_order_relaxed) != 0; }
     bool gameHeld() { return g_gameWaits.load(std::memory_order_relaxed) != 0 && g_inSwap.load(std::memory_order_relaxed) != 0; }
+    bool on143() { return g_setting143 != 0 && g_ab143.load(std::memory_order_relaxed) != 0; }
+    // Round 143: the render thread waits in the swap behind the picture held here: a picture swapped
+    // after it that the display has not taken, its swap begun over 1 ms ago (a swap that does not wait
+    // takes ~0.6 ms on the console). Measured ([pace143] lines): a swap that begins while one picture
+    // waits for the display takes over 2 ms nearly always; one that begins with none, when the picture
+    // in the display callback is held for its slot.
+    std::atomic<uint64_t> g_swapStartUs{0};
+    bool swapBlocked()
+    {
+        if (g_inSwap.load(std::memory_order_relaxed) == 0 ||
+            g_swaps.load(std::memory_order_relaxed) - g_shown.load(std::memory_order_relaxed) < 1u)
+            return false;
+        return sceKernelGetProcessTimeWide() > g_swapStartUs.load(std::memory_order_relaxed) + 1000u;
+    }
 
     void push(uint32_t seq) // EndDrawing, before the swap (under the GL lock: one producer at a time)
     {
@@ -169,6 +201,7 @@ namespace pace110
     {
         uint32_t pics = 0, untagged = 0, late = 0, lateRefreshes = 0, pulls = 0, resets = 0;
         uint32_t held132 = 0, pulls132 = 0; // round 132: holds that found the game waiting on the display; slots pulled for it
+        uint32_t blocked143 = 0, pulls143 = 0; // round 143: holds that found the render thread waiting in the swap; slots pulled for it
         uint32_t shown[8] = {};  // refreshes between this picture and the previous one
         uint32_t errRel[5] = {}; // shown - the release interval (refreshes): <=-2, -1, 0, +1, >=+2
         uint32_t errDt[5] = {};  // shown - the game's dt, rounded to refreshes
@@ -252,15 +285,22 @@ namespace pace110
                          "[pace110] %s pace %s %u pictures: shown (refreshes) 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u | vs release interval -2:%u -1:%u 0:%u +1:%u +2:%u"
                          " | vs game dt -2:%u -1:%u 0:%u +1:%u +2:%u (n %u, mean |err| %.2f ms, display/game %.4f) | latency (refreshes) min %u mean %.2f max %u"
                          " [<=3:%u 4:%u 5:%u 6:%u 7:%u 8:%u 9+:%u] | late %u (+%u refreshes), pulls %u, resets %u, untagged %u, waited %.2f refreshes/picture"
-                         " | quiet %u: shown 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u vs release -2:%u -1:%u 0:%u +1:%u +2:%u | hitches %u, catch-up pictures %u | r132: game held %u, pulled %u (%s)\n",
+                         " | quiet %u: shown 1:%u 2:%u 3:%u 4:%u 5:%u 6:%u 7+:%u vs release -2:%u -1:%u 0:%u +1:%u +2:%u | hitches %u, catch-up pictures %u | r132: game held %u, pulled %u (%s) | r143: swap blocked %u, pulled %u (%s)\n",
                          mode, which ? "on" : "off", w.pics, w.shown[1], w.shown[2], w.shown[3], w.shown[4], w.shown[5], w.shown[6], w.shown[7], w.errRel[0], w.errRel[1],
                          w.errRel[2], w.errRel[3], w.errRel[4], w.errDt[0], w.errDt[1], w.errDt[2], w.errDt[3], w.errDt[4], w.dtN, w.dtN ? w.absErrDtMs / w.dtN : 0.0,
                          w.gameMs > 0 ? w.shownMs / w.gameMs : 0.0, w.latN ? w.latMin : 0u, w.latN ? w.latSum / w.latN : 0.0, w.latMax, w.latHist[1], w.latHist[2],
                          w.latHist[3], w.latHist[4], w.latHist[5], w.latHist[6], w.latHist[7], w.late, w.lateRefreshes, w.pulls, w.resets, w.untagged,
                          w.pics ? w.waitSum / w.pics : 0.0, w.quiet, w.shownQ[1], w.shownQ[2], w.shownQ[3], w.shownQ[4], w.shownQ[5], w.shownQ[6], w.shownQ[7],
                          w.errRelQ[0], w.errRelQ[1], w.errRelQ[2], w.errRelQ[3], w.errRelQ[4], w.hitches, w.catchUps, w.held132, w.pulls132,
-                         g_setting132 ? "pace132 on" : "pace132 off");
+                         g_setting132 ? "pace132 on" : "pace132 off", w.blocked143, w.pulls143, g_setting143 ? "pace143 on" : "pace143 off");
             g_doneReady[which].store(0, std::memory_order_release);
+            if (which == 1)
+            {
+                std::fprintf(stderr, "[pace143] swaps by pictures queued at their start 0:%u 1:%u 2:%u 3+:%u; of them over 2 ms 0:%u 1:%u 2:%u 3+:%u\n", g_swapAll[0],
+                             g_swapAll[1], g_swapAll[2], g_swapAll[3], g_swapLong[0], g_swapLong[1], g_swapLong[2], g_swapLong[3]);
+                for (int k = 0; k < 4; ++k)
+                    g_swapAll[k] = g_swapLong[k] = 0;
+            }
         }
         uint32_t tail = g_traceTail.load(std::memory_order_relaxed);
         const uint32_t head = g_traceHead.load(std::memory_order_acquire);
@@ -340,19 +380,25 @@ namespace pace110
                 st.calm = 0;
             }
         }
+        // Round 143, testing (SOTC_PACE143_TEST=<n>): every 300th tagged picture's slot n refreshes
+        // later (the chain with it), as a run of late pictures moves it on the console: Vita3K's render
+        // thread is rarely late enough to fill the display queue by itself.
+        if (g_test143 > 0 && pace && tagged && ++g_test143Count % 300u == 0u)
+            T += static_cast<uint64_t>(g_test143);
         uint64_t nominal = T;
         uint64_t waited = 0;
-        bool held132 = false, pulled132 = false;
+        bool held132 = false, pulled132 = false, blocked143 = false, pulled143 = false;
         if (pace)
         {
             if (T < entry + 1u)
                 T = entry + 1u;
-            const bool p132 = on132();
+            const bool p132 = on132(), p143 = on143();
             const uint64_t floor132 = st.haveS ? st.S + static_cast<uint64_t>(hold) : 0u;
             for (uint64_t v = vc64(); v + 1u < T; v = vc64())
             {
+                const bool pulledHere = pulled132 || pulled143; // one pull a picture
                 // Round 132: the game held by this slot: one refresh earlier (once).
-                if (!pulled132 && gameHeld())
+                if (!pulledHere && gameHeld())
                 {
                     held132 = true;
                     if (p132 && T - 1u >= floor132 && nominal > 0u)
@@ -363,7 +409,20 @@ namespace pace110
                         continue;
                     }
                 }
-                if (p132 && !pulled132)
+                // Round 143: the render thread waits in the swap behind this slot: one refresh
+                // earlier (once), before the game thread comes to wait for it.
+                if (!pulledHere && swapBlocked())
+                {
+                    blocked143 = true;
+                    if (p143 && T - 1u >= floor132 && nominal > 0u)
+                    {
+                        --T;
+                        --nominal;
+                        pulled143 = true;
+                        continue;
+                    }
+                }
+                if ((p132 || p143) && !pulledHere)
                 {
                     // On: looked at every ms (the game reaches its wait during the hold); the slot's
                     // refresh is still found within ~1 ms of its start.
@@ -437,6 +496,8 @@ namespace pace110
                 ++w.pulls;
             w.held132 += held132;
             w.pulls132 += pulled132;
+            w.blocked143 += blocked143;
+            w.pulls143 += pulled143;
             if (reset)
                 ++w.resets;
             if (hitch)
@@ -477,7 +538,7 @@ namespace pace110
             st.chain = true;
             st.seq = tag.seq;
             st.relUs = relUs;
-            const bool queued = st.haveS && entry <= st.S && nRel >= 2 && !late && !pulled && !pulled132;
+            const bool queued = st.haveS && entry <= st.S && nRel >= 2 && !late && !pulled && !pulled132 && !pulled143;
             st.calm = queued ? st.calm + 1 : 0;
             if (tag.swapVc >= relVc)
                 st.arr[st.arrN++ & 63u] = static_cast<uint32_t>(tag.swapVc + 2u - relVc);
@@ -523,6 +584,8 @@ extern "C" void ps2x_vita_pace_ab(int on) { pace110::g_ab.store(on ? 1 : 0, std:
 // Round 132: SOTC_AB_FLAG pace132 (sotc_native.cpp); the game thread's hand-over wait (native_renderer_gl.cpp).
 extern "C" void ps2x_vita_pace132_ab(int on) { pace110::g_ab132.store(on ? 1 : 0, std::memory_order_relaxed); }
 extern "C" void ps2x_vita_render_wait(int on) { pace110::g_gameWaits.store(on, std::memory_order_relaxed); }
+// Round 143: SOTC_AB_FLAG pace143 (sotc_native.cpp).
+extern "C" void ps2x_vita_pace143_ab(int on) { pace110::g_ab143.store(on ? 1 : 0, std::memory_order_relaxed); }
 extern "C" void ps2x_vita_present_hist(uint32_t *out8)
 {
     for (int i = 0; i < 8; ++i)
@@ -951,13 +1014,19 @@ void EndDrawing(void)
     if (g_glReady)
     {
         const uint64_t swapStart = sceKernelGetProcessTimeWide();
+        const uint32_t queued143 = std::min<uint32_t>(g_swaps.load(std::memory_order_relaxed) - g_shown.load(std::memory_order_relaxed), 3u); // round 143
         g_swaps.fetch_add(1u, std::memory_order_relaxed); // (before: the display may take it at once)
         pace110::push(pace110::t_tag); // round 110: this swap's display entry, in order
         pace110::t_tag = 0u;
+        pace110::g_swapStartUs.store(swapStart, std::memory_order_relaxed); // round 143
         pace110::g_inSwap.store(1, std::memory_order_relaxed); // round 132
         vglSwapBuffers(GL_FALSE);
         pace110::g_inSwap.store(0, std::memory_order_relaxed);
-        ps2x_vita_swap_us += sceKernelGetProcessTimeWide() - swapStart;
+        const uint64_t swapTook = sceKernelGetProcessTimeWide() - swapStart;
+        ps2x_vita_swap_us += swapTook;
+        ++pace110::g_swapAll[queued143];
+        if (swapTook > 2000u)
+            ++pace110::g_swapLong[queued143];
     }
     const bool pacePrint = g_glReady;
     static bool firstShown = false;

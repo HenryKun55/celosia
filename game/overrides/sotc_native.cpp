@@ -91,6 +91,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" void ps2x_vita_pace_ab(int on);                // raylib_vita.cpp (round 110)
 extern "C" void ps2x_vita_pace132_ab(int on);             // raylib_vita.cpp (round 132)
+extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (round 143)
 #endif
 #include <vector>
 
@@ -3553,6 +3554,12 @@ namespace sotc_native
             static const int at132 = indexOf("pace132");
             if (at132 >= 0)
                 ps2x_vita_pace132_ab(isOffAt(at132) ? 0 : 1);
+        }
+        {
+            // Round 143: `pace143` (the display's slot pulled when the render thread waits in the swap behind it) off in its windows.
+            static const int at143 = indexOf("pace143");
+            if (at143 >= 0)
+                ps2x_vita_pace143_ab(isOffAt(at143) ? 0 : 1);
         }
 #endif
         {

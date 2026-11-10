@@ -19038,3 +19038,69 @@ the opening and the title loop twice with no fault. Looked at: the cliffs and th
 forest and out of the cliff path, Agro galloping across the misty plain with Wander, the bridge, the title screen
 (menu and copyright), close-ups of Wander on Agro. Nothing missing in the pictures (characters, terrain, fog, bloom,
 title text).
+
+## Round 143: the game thread's wait on the render thread: what the console's 3 ms is; pace143 (the held slot pulled when the swap waits behind it), [wait143] (2026-11-10)
+
+Scripts, runs: `build/agent-scratch/r143/` (build.sh pN, run.sh / v3k.sh / v3kb.sh: own trees ../vita3k-celosia-r143 and -r143b;
+cmp143.py: the round's lines summed; env-console.txt; STATE.md).
+
+**What the console's 3.02 ms is.** prof129 over the r135 console log (frames 4-8369) gives `wait render` 3.02 ms a frame, but by
+window: window 0 (frames 4-1779: boot, title, the card's load) 10.20 ms a frame; windows 1-5 (play) 0.60 / 0.18 / 0.30 / 1.03 /
+1.44. The 60-frame `[frame]` summaries agree: their `wait` (the backend's whole endFrame) averages 3.01 over the same frames and
+1.21 in play (115 summaries from frame 1500). So in play the hand-over wait is ~1.2 ms a frame, not 3; a 1.5-2 ms cut of it is
+not there to take. In play it follows the present, not the render thread's drawing:
+
+| play summaries (r135 console) | n | frame | game | render | present | wait |
+|---|---|---|---|---|---|---|
+| present < 3 ms | 75 | 45.5 | 41.7 | 26.7 | 0.9 | 0.75 |
+| present >= 10 ms (the swap blocked) | 24 | 47.6 | 42.5 | 20.7 | 21.7 | **2.67** |
+| render >= 28 ms | 50 | 47.1 | 42.5 | 31.9 | 2.8 | 1.08 |
+
+The r127 console log (every frame logged, before pace132): 84% of play frames wait 0; 93% of the wait is in the 8% of frames
+that wait 5-60 ms, and those follow a present of 14-40 ms. Why the present is long: the render thread presents a picture after
+giving its data back (glPresent86); vglSwapBuffers waits in sceGxmDisplayQueueAddEntry while vitaGL's short display queue
+(3 buffers, 2 pending) is full, and it is full when pace110's slots run late: a late picture moves the chain later for good
+(`late 55-99 (+55-99 refreshes)` per 600 pictures), pulls take a refresh back only after 6 calm pictures or (pace132) once the
+game thread already waits. The console's `[pace110]`: latency 6-11 refreshes against a floor of 4, pictures held 0.3-1.5
+refreshes each for their slot. Then the next frame starts drawing only when the swap returns, and when present + drawing passes
+the game thread's frame, the game waits.
+
+**pace143 (`SOTC_PACE143`, default on; A/B `pace143`, raylib_vita.cpp).** In the display callback's hold: when the render
+thread waits in the swap behind the held picture (in vglSwapBuffers for over 1 ms with a picture swapped that the display has
+not taken), the held slot comes one refresh earlier (once a picture, one pull with pace132's; not below the previous slot +
+the minimum hold). The chain goes on from the pulled slot: latency drops a refresh and the swap returns a refresh sooner. No
+picture is shown later than without it; nothing is drawn differently (the GL stream is untouched: only when a picture goes on
+screen changes), so the picture rule holds by construction. `[pace110]` lines end with `| r143: swap blocked N, pulled M`;
+`[pace143]` (with the on windows' line): swaps by the pictures queued at their start and the ones over 2 ms.
+- The first detection (two pictures swapped after the held one) never fired: measured in Vita3K, a swap that begins with one
+  picture queued is long nearly always (`1:324` of 324 over 2 ms), so a swap waits behind the held picture alone.
+- Testing knobs: `SOTC_PACE143_TEST=<n>` (every 300th picture's slot n refreshes later: the console's late chains in Vita3K),
+  `SOTC_WAIT143_RENDER_US=<us>` (the render thread's drawing made at least that long).
+
+**[wait143]** (with SOTC_FRAME_LOG, every 600 hand-overs, native_renderer_gl.cpp): the backend endFrame a frame, of it waiting
+for the render thread to pick up the frame handed over before (it was still presenting) and for its drawing, the hand-over's
+own work; waits of 1 ms or more, how many found the frame before still queued behind its present; the render thread's draw and
+present a frame and its presents over 2 ms. The next console log says which of the two waits is left.
+
+**Measured (Vita3K 222; the host ran another agent's Mac runs, load 20-30: timing noisy).**
+- Steady 20 with `SOTC_PACE143_TEST=6`, pairs on the two trees at once (runs/on5, runsb/off5, 420 s attract): on: latency 4.29
+  refreshes (off 4.54), swap blocked holds 587, pulled 111; present 4.55 ms a frame (off 5.99), the game thread's hand-over wait
+  0.12 ms (off 0.35); shown one refresh shorter than the release interval 219 of ~6 000 pictures (off 167).
+- Auto, attract 900 s, in-run A/B (runs/abA, `SOTC_AB_FLAG=pace143`, rotate 600; Vita3K's own display queue blocked the swap in
+  half the frames there): pace143 blocked 1 581 holds, pulled 475; draw-matched (abframes --summary, 30 summaries) pace143 off
+  minus on: wait **+1.16 +- 0.72 ms**, frame -1.84 +- 2.41 (n.s.).
+- Console expectation: the present-bound windows (21% of play in r135) wait 2.7 ms against 0.75; pace143 should bring them to
+  the low state: ~0.4 ms a frame over play, up to ~2 ms in those windows, and latency toward the floor.
+
+**Not done (why).** The render thread's per-frame CPU: no console breakdown since round 116 (plan 5-10, passes 12-17, calls 6-8
+ms riding); in the r135 play windows the render thread (21-38 ms) is below the game thread (37-50) and the waits do not follow
+it (render >= 28 ms: wait 1.08). A third recording buffer would let the game run past a slow drawing, but it is an extra
+buffered frame (excluded). Handing over at the VIF1 kick instead of the next frame's first hook moves latency, not the wait (the
+period is the same).
+
+**Checks.** spalign (p4): 725 NEON :128 / :256 accesses, 0 sp-based. Pictures (window shots): Wander at the shrine (haze,
+shadows), the opening's bridge, Agro galloping on the plain with Wander and his shadow; no fault in the runs. Mac build: builds.
+
+**Console.** build/agent-scratch/celosia-r143.vpk + r143/celosia-r143.elf (dev, prof129); r143/env-console.txt = r141's with
+`SOTC_AB_FLAG=pace143`. Read: `build/agent-scratch/r143/cmp143.py err.txt` (latency, pulls, [wait143]) and `tools/abframes.py
+err.txt --summary` (pace143 off minus on: wait, frame).

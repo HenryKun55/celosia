@@ -9277,8 +9277,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (timed)
             {
                 native_renderer::FrameCounters &c = native_renderer::frameCounters();
-                c.waitUs += native_renderer::nowUs() - start;
+                const uint64_t took = native_renderer::nowUs() - start;
+                c.waitUs += took;
                 c.renderThread = threaded;
+                wait143Frame(took);
             }
         }
         void finishFrames() override
@@ -9847,6 +9849,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 m_queued = false;
                 m_busy = true;
+                m_pickUs = native_renderer::nowUs(); // round 143
                 const uint32_t width = m_width, height = m_height;
                 r->paceSeq = m_paceSeq; // round 110 (read here: a deferred present runs after the next hand-over may begin)
                 const bool uploadsOnly = m_uploadsOnly; // flushUploads (SOTC_GL_FLUSH_WAIT)
@@ -9918,6 +9921,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     // the present, still under the GL lock; the next frame
                     // starts when it returns. Its time goes into the counters
                     // under the hand-over's mutex (the game thread reads them there).
+                    sim143(start);
+                    const uint64_t drawUs143 = native_renderer::nowUs() - start;
                     if (r->presentPending)
                     {
                         lock.lock();
@@ -9928,6 +9933,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         const uint64_t took = r->presentNow();
                         lock.lock();
                         r->stats.presentUs += took;
+                        ++m_w143.presents; // round 143
+                        m_w143.presentUs += took;
+                        m_w143.drawUs += drawUs143;
+                        if (took > 2000u)
+                            ++m_w143.presentsLong, m_w143.presentLongUs += took;
                         m_presenting = false;
                         m_idle.notify_all();
                         lock.unlock();
@@ -10003,11 +10013,74 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 #if defined(PS2X_NATIVE_VITA)
             ps2x_vita_render_wait(1); // round 132: pace132 (raylib_vita.cpp) sees the game held
 #endif
+            // Round 143 ([wait143], with the frame log): the wait split at the render thread's pick-up
+            // of the frame handed over before (m_pickUs): before it, the render thread was still
+            // presenting the picture before that one (or waking); after it, drawing.
+            const bool diag = native_renderer::tuning().frameTiming();
+            const uint64_t t0 = diag ? native_renderer::nowUs() : 0u;
+            const bool queued = m_queued, presenting = m_presenting;
             while (m_queued || m_busy)
                 m_idle.wait_for(lock, kRecheck);
+            if (diag)
+            {
+                const uint64_t t1 = native_renderer::nowUs();
+                const uint64_t pick = queued ? std::clamp(m_pickUs, t0, t1) : t0;
+                Wait143 &w = m_w143;
+                ++w.waits;
+                w.beforeUs += pick - t0;
+                w.afterUs += t1 - pick;
+                if (queued)
+                    ++(presenting ? w.inPresent : w.queuedOther);
+                if (t1 - t0 >= 1000u)
+                    ++w.over1ms;
+            }
 #if defined(PS2X_NATIVE_VITA)
             ps2x_vita_render_wait(0);
 #endif
+        }
+        // Round 143: the hand-over's account, every 600 frames with the frame log (SOTC_FRAME_LOG).
+        struct Wait143
+        {
+            uint32_t frames = 0, waits = 0, inPresent = 0, queuedOther = 0, over1ms = 0;
+            uint64_t endUs = 0, beforeUs = 0, afterUs = 0;
+            // The render thread's (under m_mutex): presents, the ones over 2 ms (vitaGL's display queue
+            // full: the swap waits for a picture to go on screen), their time.
+            uint32_t presents = 0, presentsLong = 0;
+            uint64_t presentUs = 0, presentLongUs = 0, drawUs = 0;
+        };
+        Wait143 m_w143;
+        uint64_t m_pickUs = 0; // the render thread's last pick-up of a frame (under m_mutex)
+        void wait143Frame(uint64_t endUs)
+        {
+            Wait143 &w = m_w143;
+            w.endUs += endUs;
+            if (++w.frames < 600u)
+                return;
+            const double n = w.frames;
+            std::fprintf(stderr,
+                         "[wait143] %u hand-overs: endFrame %.2f ms a frame, of it waiting %.2f (for the pick-up %.2f, for the drawing %.2f), work %.2f | waits %u "
+                         "(1 ms or more %u; the frame before still queued: behind its present %u, other %u) | render thread: draw %.2f ms a frame, present %.2f "
+                         "(over 2 ms: %u, %.2f ms a frame)\n",
+                         w.frames, w.endUs / n / 1000.0, (w.beforeUs + w.afterUs) / n / 1000.0, w.beforeUs / n / 1000.0, w.afterUs / n / 1000.0,
+                         (static_cast<double>(w.endUs) - static_cast<double>(w.beforeUs + w.afterUs)) / n / 1000.0, w.waits, w.over1ms, w.inPresent, w.queuedOther,
+                         w.presents ? w.drawUs / static_cast<double>(w.presents) / 1000.0 : 0.0, w.presents ? w.presentUs / static_cast<double>(w.presents) / 1000.0 : 0.0,
+                         w.presentsLong, w.presents ? w.presentLongUs / static_cast<double>(w.presents) / 1000.0 : 0.0);
+            m_w143 = Wait143{};
+        }
+        // Round 143, testing (SOTC_WAIT143_RENDER_US=<us>): the render thread's drawing made at least
+        // that long (a busy wait), so that Vita3K's render thread, ~2x the console's speed against the
+        // game thread, meets the display queue and the hand-over as the console's does.
+        static void sim143(uint64_t start)
+        {
+            static const uint64_t us = []
+            {
+                const char *e = ps2_diag::env("SOTC_WAIT143_RENDER_US");
+                return e ? static_cast<uint64_t>(std::max(0, std::atoi(e))) : 0u;
+            }();
+            if (us)
+                while (native_renderer::nowUs() < start + us)
+                {
+                }
         }
         bool m_presenting = false; // round 86: the render thread in a deferred present
         bool m_started = false, m_initOk = false;
