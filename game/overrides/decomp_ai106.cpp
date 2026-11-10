@@ -36,6 +36,7 @@
 // SOTC_AI106_CHECK=1: the native leg against the recompiled code for every
 // call the difftest takes (sotc_decomp.cpp).
 #include "sotc_decomp.h"
+#include "decomp_group.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -45,14 +46,6 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace decomp_group
-{
-    struct NextRegs
-    {
-        uint32_t v0, v1, a0, a1, a3;
-    };
-    bool nextAt(uint8_t *rdram, uint32_t entry, NextRegs &r);
-}
 
 namespace decomp_ai106
 {

@@ -686,11 +686,11 @@ namespace coll125
         d0 = fast::asFloat(static_cast<uint32_t>(dBits));
         d1 = fast::asFloat(static_cast<uint32_t>(dBits >> 32));
 #else
-        const __m128 n = vu::clamp(e.n), vf0c = vu::clamp(vf0);
+        const __m128 n = vu::clamp(e.n), vf0p = vu::clamp(vf0);
         auto distance = [&](__m128 q)
         {
             const __m128 prod = vu::mulN(n, vu::clamp(q));
-            __m128 acc = vu::addN(vf0c, lane<0>(prod));
+            __m128 acc = vu::addN(vf0p, lane<0>(prod));
             acc = vu::addN(acc, lane<1>(prod));
             const __m128 d = vu::addN(acc, lane<2>(prod));
             return x(vu::addN(d, lane<3>(n)));

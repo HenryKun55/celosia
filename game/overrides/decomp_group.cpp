@@ -22,6 +22,7 @@
 // anything is written for the iterators; for the walk, the rest of it from
 // its loop head with the registers it has there).
 #include "sotc_decomp.h"
+#include "decomp_group.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -55,11 +56,7 @@ namespace decomp_group
         uint8_t &u8(uint32_t a) const { return rdram[a & PS2_RAM_MASK]; }
     };
 
-    // The registers isysGroupForNext leaves (v0 the result).
-    struct NextRegs
-    {
-        uint32_t v0, v1, a0, a1, a3;
-    };
+    // (NextRegs: the registers isysGroupForNext leaves, decomp_group.h)
 
     // isysGroupForNext on `entry`; false: something outside main RAM (nothing written).
     bool next(const Ram m, uint32_t entry, NextRegs &r)

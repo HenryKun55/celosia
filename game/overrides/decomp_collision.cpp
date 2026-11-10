@@ -1351,7 +1351,11 @@ namespace decomp_collision
         return false;
 #endif
     }
+#if PS2X_VU_NEON_A32
     inline bool keepFastOk() { return sotc_decomp::fastNativeOn() && !fast::check49(); }
+#else
+    inline bool keepFastOk() { return false; } // (the fast natives are NEON only)
+#endif
     // The same for the surface id at `id` (the chain made here).
     bool keepEarly(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t id, uint32_t point, float keep)
     {

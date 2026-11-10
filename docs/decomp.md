@@ -19012,3 +19012,29 @@ r141/env-console.txt = r140's with `SOTC_AB_FLAG=pf141,pfc141` (rotate, 600) and
 `tools/prof129.py err.txt --elf r141/celosia-r141.elf --group characters` against r135's (motionMatrix, clothStep,
 execCharaGeometry, floatFrame; collision's directCallBack / finderLeaf). The helper runs as `offload` in the `[frame]`
 cpu column (with clip140's).
+
+## Round 142: the Mac build again (2026-11-10)
+
+The Mac build (the native test bed) had not compiled since about round 122. Four causes, each fixed without touching
+what the Vita compiles:
+
+- `native_renderer_gl.cpp`: `useRegion()` and the glow98 composite (mode 26) read `regionPrograms` / `quadPrograms`,
+  which only exist under `PS2X_NATIVE_VITA`. Both now sit under the same guard; on the Mac `useRegion` does nothing and
+  the composite takes its two-pass path (neither is reached there).
+- `decomp_collision.cpp`: `keepFastOk()` called `fast::check49()`, which only exists under `PS2X_VU_NEON_A32`. Without
+  NEON it returns false (the keep paths fall back to the recompiled code, as every other fast native there does).
+- `coll125.h` `clip()`: the scalar (non-NEON) plane test declared `vf0c`, and so did the u / v terms below it in the
+  same scope. The scalar one is now `vf0p`.
+- Unity build: `decomp_ai106.cpp` and `decomp_group.cpp` each defined `decomp_group::NextRegs` and the Mac's unity
+  batches put them in one translation unit (the Vita builds the overrides one file each). The struct and `nextAt()`'s
+  declaration are now in `game/overrides/decomp_group.h`, included by both.
+
+**Vita unchanged.** The Vita build (PGO profile, same configuration as round 141) built from main and from main + these
+changes: the four touched objects (`decomp_group`, `decomp_ai106`, `decomp_collision`, `native_renderer_gl`) are
+byte-identical, and so are the linked `ps2EntryRunner` ELF and the `.velf` (sha1 7c9d2457cd45...).
+
+**Mac run.** `ps2EntryRunner` (Release, Metal) muted (`PS2X_NO_SPU2_AUDIO=1`), no input, 600 s, a snapshot every 15 s:
+the opening and the title loop twice with no fault. Looked at: the cliffs and the eagle, Wander riding Agro through the
+forest and out of the cliff path, Agro galloping across the misty plain with Wander, the bridge, the title screen
+(menu and copyright), close-ups of Wander on Agro. Nothing missing in the pictures (characters, terrain, fog, bloom,
+title text).

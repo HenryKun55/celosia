@@ -3823,8 +3823,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // The region program of `mode` in use (uniform() then finds its uniforms).
         void useRegion(int mode)
         {
+#if defined(PS2X_NATIVE_VITA)
             quadProgram = regionPrograms[mode];
             useProgram(quadProgram);
+#else
+            (void)mode; // (region programs are the Vita's only)
+#endif
         }
 
         // The colour of `from` into `to` (bilinear: reducing blurs it).
@@ -7580,7 +7584,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // (Tuning glGlow98): both in one pass (mode 26) when both are drawn.
         auto glowComposite = [&](const Target &onto)
         {
+#if defined(PS2X_NATIVE_VITA)
             if (native_renderer::tuning().glGlow98 && glow.amountA > 0.0f && glow.amountB > 0.0f && quadPrograms[26])
+#else
+            if (false) // (mode 26 is the Vita's quad program only)
+#endif
             {
                 const float a[4] = {glow.tint[0], glow.tint[1], glow.tint[2], glow.amountA}, b[4] = {glow.tint[0], glow.tint[1], glow.tint[2], glow.amountB};
                 bindTexture(1, glowBlurred->texture);
