@@ -6011,9 +6011,57 @@ namespace decomp_collision
     }
     template <bool Filtered>
     void finderClipBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round 138: SOTC_FIN138_LOG=1: the finder clips' host time by state (0 fin125 off, 1 fin125 with round 135's
+    // validate(), 2 fin125 with validate138) and the validations a frame, every 600 frames ([fin138t]): the
+    // console's per-call reading of the A/B (its frame times are too noisy for a 0.1-0.5 ms change).
+    namespace fin138t
+    {
+        inline uint64_t us[3] = {}, n[3] = {}, checks[3] = {}, frames[3] = {}, lastFrame = 0, logFrame = 0;
+        inline bool want()
+        {
+            static const bool w = ps2_diag::env("SOTC_FIN138_LOG") && std::atoi(ps2_diag::env("SOTC_FIN138_LOG")) != 0;
+            return w;
+        }
+        inline void log()
+        {
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            if (frame < logFrame + 600u)
+                return;
+            if (logFrame != 0u)
+                for (int i = 0; i < 3; ++i)
+                    if (n[i])
+                        std::fprintf(stderr, "[fin138t] frame %llu %s: %llu clips in %llu frames, %.2f us each, %.3f ms a frame, validations %.1f a frame\n", (unsigned long long)frame,
+                                     i == 0 ? "fin125 off" : i == 1 ? "validate135" : "validate138", (unsigned long long)n[i], (unsigned long long)frames[i],
+                                     (double)us[i] / n[i], frames[i] ? (double)us[i] / 1000.0 / frames[i] : 0.0, frames[i] ? (double)checks[i] / frames[i] : 0.0);
+            for (int i = 0; i < 3; ++i)
+                us[i] = n[i] = checks[i] = frames[i] = 0;
+            logFrame = frame;
+        }
+    }
+    template <bool Filtered>
+    void finderClipBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     template <bool Filtered>
     void finderClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(fin138t::want(), 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = !coll125::on(runtime) ? 0 : coll125::on138() ? 2 : 1;
+            const uint64_t c0 = coll125::g_st.checks;
+            const uint64_t t0 = coll115::nowUs();
+            finderClipBody<Filtered>(rdram, ctx, runtime);
+            const uint64_t dt = coll115::nowUs() - t0;
+            fin138t::us[st] += dt;
+            ++fin138t::n[st];
+            fin138t::checks[st] += coll125::g_st.checks >= c0 ? coll125::g_st.checks - c0 : 0u;
+            if (sotc_decomp::g_gameFrame != fin138t::lastFrame)
+            {
+                fin138t::lastFrame = sotc_decomp::g_gameFrame;
+                ++fin138t::frames[st];
+            }
+            fin138t::log();
+            coll125::log(); // (the [fin125] / [fin135] / [fin138] lines when SOTC_COLL115_LOG / the check mode asks)
+            return;
+        }
         // Round 119: SOTC_COLL115_LOG=1: the call's host time by view119's state ([coll119t]).
         if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
         {

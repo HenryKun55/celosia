@@ -18625,3 +18625,63 @@ matched) where the plain means said -3.1 / -1.8 with different scenes; `pf134` o
 600). Ride the field at a gallop; read `tools/prof129.py err.txt --elf r135/celosia-r135.elf` (collision's ms/frame, finderClip,
 finderLeaf<true>, directCallBack) and `build/agent-scratch/tools/abframes.py err.txt --summary --bin 100` (fin125 / pf135 off
 against on in matched scenes). The gallop must hold with fin125 on.
+
+## Round 138: what fin125 does on the console (round 135's "-8.5 ms" was the title screen), validate138: fin125's check without its chain of dependent loads (2026-11-10)
+
+Scripts, runs: `build/agent-scratch/r138/` (build.sh pN, run.sh / v3k.sh / stop.sh on the own tree ../vita3k-celosia-r138,
+speed.py, env-console.txt, STATE.md).
+
+**Round 135's console log, read again (build/agent-scratch/r135/console/err.txt, celosia-r135.elf).**
+- The draw-matched A/B's `fin125 off -8.50 +- 4.93 ms game` is an artifact. The first fin125-off window (frames 600-1200) is the
+  title screen and the save's load (game 16-20 ms a frame at 144-1108 draws: the title menu draws ~1100 a frame), and the bins
+  of 100 draws matched it with "all on" summaries of the field that happen to draw as many (frames 9018-9198: game 36-44 ms at
+  ~1130 draws). With the summaries before frame 1500 left out (`abframes.py --summary --from 1500`): fin125 off minus on
+  **-3.4 +- 5.1 ms** (bins of 100, 5 bins), -1.7 +- 4.2 (200), -2.8 +- 3.7 (400); pf135 +2.8 +- 4.4 / -1.5 +- 3.7 / -1.1 +- 3.7.
+  None of these is a difference: the field windows differ by scene far more than by switch (the two field fin125-off windows
+  against the "all on" window just before them: -6.2 ms and +5.4 ms).
+- The profile cannot be split by A/B window: prof129's windows are 60 s (~1250-1775 frames) and the A/B's 600 frames, so each
+  holds two or three states. Its windows hold 0-49% fin125-off frames, and the collision group follows the scene, not that share
+  (w1 0% off 4.86 ms a frame, w2 49% 3.73, w3 0% 4.73, w4 36% 7.42, w5 6% 7.05; finderClip<true> + <false> 1.28 / 0.57 / 1.16 /
+  2.40 / 1.91% of the busy samples).
+- Whole runs, r134 (fin125 off throughout) against r135 (on 5/6 of the time), windows 1-5 (300 s, two sessions of a similar ride): collision
+  7.38 -> 5.67 ms a frame; finderClip<true> 1.19 -> 0.89%, finderClip<false> 0.88 -> 0.60%, clipKeep 0.49 -> 0.29%,
+  finderLeaf<true> 3.80 -> 1.26% (pf135's prefetch, not fin125). The functions fin125 replaces got cheaper with it on.
+- Verdict: no sign that fin125 costs the console anything; the A/B could not resolve its size (a 0.2-0.5 ms change under scene
+  noise of +-4 ms). validate() is inlined in finderClip<..> (prof129 names the native by its entry), so its whole cost is inside
+  those 1.5%; it is real memory latency though (a dependent chain of five to seven loads to cold lines per kept surface and
+  frame, plus the flags and values), so round 138 makes it cheaper and gives the console a direct per-call reading.
+
+**validate138 (`SOTC_FIN138`, default on; A/B `fin138`; coll125.h).** validate() walks the chain from the id words: the
+object's +8 (layoutClass), the class's +0x174 / +0x184 (work, record), then for a mesh surface the record's +0x20, its +8, the
+slot list and the index, for an independent one the work's part table; then the work's / part's flag and slot bases, the vertex
+cache list, and only then the five flags and the plane / boundary / three vertex qwords. Each load's address comes from the one
+before: on the A9 one memory wait per link. Round 138 keeps each link's value at the making (Meta: type, partTab, t2, t2v8, rv,
+index) and validate138 reads every link at its kept address and compares it with its kept value: all ~17 addresses are known
+before the first load, so they are asked for together (PLD) and the comparisons wait on memory about once. When every link reads
+as kept, derive() from the id words follows the same addresses and gives the same Addr, so the flag / value compares (validate()'s
+own) decide the same; a link that differs remakes the surface (validate() might have reached the same addresses another way: a
+remake, never a wrong answer). The clip loop also asks for the next entry's lines when that entry is kept and not current
+(prefetch138). Nothing else changes (the epochs, the frame stamp, make(), clip()).
+
+**Checks (Vita3K 222, SOTC_FIN125_CHECK=1: each clip the original way first, its answer used; check mode also runs validate138
+and validate() on every use of a kept surface and prints `[fin138] UNSAFE` when validate138 says good where validate() does not).**
+| run | build | scene | clips compared | hit / no hit | other surface or point > 1 cm | validate138 unsafe |
+|---|---|---|---|---|---|---|
+| runs/chkA1 | p1 | attract demo 1150 s (35 940 frames, Agro's gallop) | (not counted: the [fin125] lines need the log path) | 0 | 0 | 0 |
+| runs/chkA2 | p1 | attract demo 1200 s (43 230 frames; Agro 12-15 u/s in 835 of 979 `[pos]` samples, 0 gallop drops) | 680 312 | 0 | 0 | 0 |
+2 350 s of attract demo with its ride loops, 0 differences, 0 unsafe; `[fin135] cur bad` 0. (p1's SOTC_FIN138_LOG wrapper
+skipped coll125::log(), so the runs printed no [fin125] / [fin138] count lines, only the per-difference lines, of which there
+were none; p2 = the shipped build calls it. The counts come from [fin138t]: 680 312 clips, 1.84 M re-validations in chkA2.)
+A third run with the counting build (p2) and a no-check gameplay run could not start: Vita3K crashes at boot while the Mac's
+screen is locked (every tree, the other agent's too: `Unhandled access to 0x0` after settings.cfg).
+Window shots (chkA1 every 120 s, chkA2 every 150 s): the title, Agro galloping over the plain with his shadow under the hooves,
+the bridge, the cliffs; the picture as before (main's attract demo shows the same riderless gallop, r137/runs/abAA1).
+
+**[fin138t] (`SOTC_FIN138_LOG=1`).** The finder clips' host time by state (fin125 off / fin125 with validate() / with validate138)
+and the re-validations a frame, every 600 frames. The frame A/B cannot see a 0.2-0.5 ms change; this is the console's direct
+reading (about two process-time reads a finder clip, the same in every state).
+
+**Console.** build/agent-scratch/celosia-r138.vpk (= p2, dev, prof129), r138/celosia-r138.elf (spalign: 701 NEON aligned accesses,
+0 sp-based), r138/env-console.txt = r135's with `SOTC_AB_FLAG=fin125,fin138,pf135` (rotate, 600; fin138 off = round 135's
+validate()) and SOTC_FIN138_LOG=1. Read: `grep fin138t err.txt` (us a clip by state), `tools/abframes.py err.txt --summary
+--bin 100 --from <first field frame>` (always leave the title / load out: its summaries match field bins by draws).

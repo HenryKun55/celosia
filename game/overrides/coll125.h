@@ -63,6 +63,11 @@
 // "r125 missed" = what round 125's check let through) and, for a differing
 // clip, [fin135x] / [fin135t] / [fin135f] / [fin135c] (the slot, what the run
 // did with the entry, the filter both ways, the clip both ways).
+// Round 138 (SOTC_FIN138, default on): validate138 reads the chain's links at
+// their kept addresses (all asked for at once, the next entry's ahead) instead
+// of walking them one dependent load at a time; the check mode compares it with
+// validate() on every use ([fin138]: unsafe must be 0). SOTC_FIN138_LOG=1: the
+// finder clips' host time by state ([fin138t], decomp_collision.cpp).
 namespace coll125
 {
     inline uint64_t g_epoch = 1; // moved by a flush of a non-empty modified list not made through a collision work's flush
@@ -200,6 +205,9 @@ namespace coll125
         uint32_t cls, work, rec, vc;
         uint32_t vid[3], vflag[3], vtx[3];
         uint32_t vW[12];
+        // Round 138: the chain's links as read at the making (Addr's), for validate138.
+        uint32_t partTab, t2, t2v8, rv, index;
+        uint8_t type;
         uint8_t state;
         uint8_t indep;
         uint8_t hasAttr;
@@ -280,6 +288,11 @@ namespace coll125
         uint64_t curWhy[6] = {}, missWhy[6] = {};
     };
     inline Check135 g_c135;
+    struct Check138
+    {
+        uint64_t unsafe = 0, extra = 0, bothBad = 0;
+    };
+    inline Check138 g_c138;
     inline uint64_t g_logFrame = 0;
     inline void log()
     {
@@ -313,6 +326,8 @@ namespace coll125
                              (unsigned long long)c.curWhy[1], (unsigned long long)c.curWhy[2], (unsigned long long)c.curWhy[3], (unsigned long long)c.curWhy[4],
                              (unsigned long long)c.curWhy[5], (unsigned long long)c.r125Missed, (unsigned long long)c.missWhy[0], (unsigned long long)c.missWhy[1],
                              (unsigned long long)c.missWhy[2], (unsigned long long)c.missWhy[3], (unsigned long long)c.missWhy[4], (unsigned long long)c.missWhy[5]);
+                std::fprintf(stderr, "[fin138] frame %llu: validate138 vs validate on %llu uses: unsafe %llu extra %llu both bad %llu\n", (unsigned long long)frame,
+                             (unsigned long long)c.uses, (unsigned long long)g_c138.unsafe, (unsigned long long)g_c138.extra, (unsigned long long)g_c138.bothBad);
             }
             g_workBumps = g_globalBumps = 0;
             const double md = s.maxd;
@@ -332,11 +347,16 @@ namespace coll125
     struct Addr
     {
         uint32_t cls, work, rec, planeFlag, plane, bndFlag, bnd, vc;
+        // Round 138: the chain's links as read (validate138 reads each one again at its kept address, all at once):
+        // a kept surface: the part table (+0x24 of the work); else the record's +0x20, its +8, the slot list and the index.
+        uint32_t partTab, t2, t2v8, rv, index;
+        uint8_t type; // the object's +8 (layoutClass's switch)
     };
     inline bool derive(const G g, uint32_t w0, uint32_t w1, Addr &a)
     {
         if (!layoutClass(g, w0, a.cls) || a.cls == 0u || !G::plain(a.cls, 0x200u))
             return false;
+        a.type = g.u8(w0 + 8u);
         const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
         a.work = g.u32(a.cls + 0x174u);
         a.rec = g.u32(a.cls + 0x184u);
@@ -344,7 +364,9 @@ namespace coll125
             return false;
         if (static_cast<int32_t>(w1) < 0)
         {
-            const uint32_t part = g.u32(a.work + 0x24u) + s1 * 0x60u;
+            a.partTab = g.u32(a.work + 0x24u);
+            a.t2 = a.t2v8 = a.rv = a.index = 0u;
+            const uint32_t part = a.partTab + s1 * 0x60u;
             if (!G::plain(part, 0x60u))
                 return false;
             a.planeFlag = g.u32(part + 0x38u) + s3;
@@ -356,15 +378,20 @@ namespace coll125
         else
         {
             const uint32_t t2 = g.u32(a.rec + 0x20u);
+            a.partTab = 0u;
+            a.t2 = t2;
             if (!G::plain(t2, 0x10u))
                 return false;
-            const uint32_t r = s1 * 0x90u + g.u32(t2 + 8u) + 0x54u;
+            a.t2v8 = g.u32(t2 + 8u);
+            const uint32_t r = s1 * 0x90u + a.t2v8 + 0x54u;
             if (!G::plain(r, 4u))
                 return false;
-            const uint32_t at = g.u32(r) + s3 * 4u;
+            a.rv = g.u32(r);
+            const uint32_t at = a.rv + s3 * 4u;
             if (!G::plain(at, 4u))
                 return false;
             const uint32_t index = g.u32(at);
+            a.index = index;
             a.planeFlag = g.u32(a.work + 0x60u) + index;
             a.plane = g.u32(a.work + 0x6Cu) + index * 16u;
             a.bndFlag = g.u32(a.work + 0x78u) + index;
@@ -416,7 +443,94 @@ namespace coll125
             return false;
         return std::memcmp(g.rdram + m.bnd, m.bndW, 16) == 0;
     }
-    inline bool stillGood(const G g, const Meta &m, const Entry &e) { return validate(g, m, e) == 0u; }
+
+    // Round 138 (SOTC_FIN138, default on; A/B fin138): validate()'s answer without its chain of dependent loads.
+    // validate() walks the chain from the id words (the object's +8, the class's work / record, the record's
+    // tables, the slot list, the index: five to seven loads, each one's address from the one before, most of them
+    // a miss on the A9) and then reads the flags and values. Here every link is read at the address it had at the
+    // making (kept in Meta) and compared with the value it had: all the addresses are known before any load, so the
+    // lines are asked for together (PLD) and wait on memory once instead of once per link. Exact: when every link
+    // reads as kept, derive() from the id words now follows the same addresses and gives the kept Addr, so the
+    // flag / value compares below (validate()'s own) decide the same; when a link differs the surface is made again
+    // (validate() might have found the same addresses on another path: a remake, never a wrong answer).
+    inline void prefetch138(const G g, const Meta &m)
+    {
+        const uint8_t *r = g.rdram;
+        __builtin_prefetch(r + m.w0 + 8u);
+        __builtin_prefetch(r + m.cls + 0x174u);
+        __builtin_prefetch(r + m.cls + 0x184u);
+        if (m.indep)
+        {
+            __builtin_prefetch(r + m.work + 0x24u);
+            __builtin_prefetch(r + m.vc + 0x8u);
+            __builtin_prefetch(r + m.vc + 0x38u);
+            __builtin_prefetch(r + m.vc + 0x5Cu);
+        }
+        else
+        {
+            const uint32_t s3 = m.w1 & 0x00FFFFFFu, s1 = (m.w1 >> 24) & 0x7Fu;
+            __builtin_prefetch(r + m.rec + 0x20u);
+            __builtin_prefetch(r + m.t2 + 8u);
+            __builtin_prefetch(r + s1 * 0x90u + m.t2v8 + 0x54u);
+            __builtin_prefetch(r + m.rv + s3 * 4u);
+            __builtin_prefetch(r + m.work + 0x30u);
+            __builtin_prefetch(r + m.work + 0x60u);
+            __builtin_prefetch(r + m.work + 0x84u);
+        }
+        __builtin_prefetch(r + m.planeFlag);
+        __builtin_prefetch(r + m.bndFlag);
+        __builtin_prefetch(r + m.vflag[0]);
+        __builtin_prefetch(r + m.vflag[1]);
+        __builtin_prefetch(r + m.vflag[2]);
+        __builtin_prefetch(r + m.plane);
+        __builtin_prefetch(r + m.bnd);
+        __builtin_prefetch(r + m.vtx[0]);
+        __builtin_prefetch(r + m.vtx[1]);
+        __builtin_prefetch(r + m.vtx[2]);
+    }
+    inline unsigned validate138(const G g, const Meta &m, const Entry &e)
+    {
+        prefetch138(g, m);
+        const uint32_t s3 = m.w1 & 0x00FFFFFFu, s1 = (m.w1 >> 24) & 0x7Fu;
+        uint32_t cls = 0u;
+        bool chain = g.u8(m.w0 + 8u) == m.type && layoutClass(g, m.w0, cls) && cls == m.cls;
+        chain = chain & (g.u32(m.cls + 0x174u) == m.work) & (g.u32(m.cls + 0x184u) == m.rec);
+        bool addr;
+        if (m.indep)
+        {
+            chain = chain & (g.u32(m.work + 0x24u) == m.partTab);
+            const uint32_t part = m.partTab + s1 * 0x60u;
+            addr = (part == m.vc) & (g.u32(part + 0x38u) + s3 == m.planeFlag) & (g.u32(part + 0x44u) + s3 * 16u == m.plane) &
+                   (g.u32(part + 0x50u) + s3 == m.bndFlag) & (g.u32(part + 0x5Cu) + s3 * 16u == m.bnd);
+        }
+        else
+        {
+            chain = chain & (g.u32(m.rec + 0x20u) == m.t2) & (g.u32(m.t2 + 8u) == m.t2v8) & (g.u32(s1 * 0x90u + m.t2v8 + 0x54u) == m.rv) &
+                    (g.u32(m.rv + s3 * 4u) == m.index);
+            const uint32_t index = m.index;
+            addr = (m.work + 0x28u == m.vc) & (g.u32(m.work + 0x60u) + index == m.planeFlag) & (g.u32(m.work + 0x6Cu) + index * 16u == m.plane) &
+                   (g.u32(m.work + 0x78u) + index == m.bndFlag) & (g.u32(m.work + 0x84u) + index * 16u == m.bnd);
+        }
+        if (!chain)
+            return kBadChain;
+        const uint32_t vfl = g.u32(m.vc + 8u), vtab = g.u32(m.vc + 0x14u);
+        for (int k = 0; k < 3; ++k)
+            addr = addr & (vfl + m.vid[k] == m.vflag[k]) & (vtab + m.vid[k] * 16u == m.vtx[k]);
+        if (!addr)
+            return kBadAddr;
+        unsigned bad = 0u;
+        if ((g.rdram[m.planeFlag] == 0u) | (g.rdram[m.bndFlag] == 0u) | (g.rdram[m.vflag[0]] == 0u) | (g.rdram[m.vflag[1]] == 0u) | (g.rdram[m.vflag[2]] == 0u))
+            bad |= kBadFlag;
+        if (std::memcmp(g.rdram + m.plane, &e.n, 16) != 0)
+            bad |= kBadPlane;
+        if (std::memcmp(g.rdram + m.bnd, m.bndW, 16) != 0)
+            bad |= kBadBnd;
+        if ((std::memcmp(g.rdram + m.vtx[0], m.vW, 16) != 0) | (std::memcmp(g.rdram + m.vtx[1], m.vW + 4, 16) != 0) | (std::memcmp(g.rdram + m.vtx[2], m.vW + 8, 16) != 0))
+            bad |= kBadVerts;
+        return bad;
+    }
+    inline bool on138() { return sotc_decomp::switchOn(sotc_decomp::kFin138); }
+    inline bool stillGood(const G g, const Meta &m, const Entry &e) { return (on138() ? validate138(g, m, e) : validate(g, m, e)) == 0u; }
 
     // Make entry k (id at `id`) from the game's caches, as ClipCollisionDB reaches them; scratch: a guest
     // frame below the clip's (ClipCollisionDB's own: spIn - 0xF0). False: the entry goes to ClipCollisionDB.
@@ -508,6 +622,12 @@ namespace coll125
             m.work = a.work;
             m.rec = a.rec;
             m.vc = a.vc;
+            m.partTab = a.partTab;
+            m.t2 = a.t2;
+            m.t2v8 = a.t2v8;
+            m.rv = a.rv;
+            m.index = a.index;
+            m.type = a.type;
             const uint32_t vfl = g.u32(a.vc + 8u), vtab = g.u32(a.vc + 0x14u);
             for (uint32_t k = 0; k < 3u; ++k)
             {
@@ -630,6 +750,21 @@ namespace coll125
     {
         ++g_c135.uses;
         const unsigned bad = validate(g, x.m, x.e);
+        {
+            // Round 138: validate138 against validate on every use: "unsafe" (138 good where validate is not) must be 0;
+            // "extra" (138 bad where validate is good: a remake, not a wrong answer) is counted.
+            const unsigned b138 = validate138(g, x.m, x.e);
+            if (b138 == 0u && bad != 0u)
+            {
+                ++g_c138.unsafe;
+                if (g_c138.unsafe <= 20u)
+                    std::fprintf(stderr, "[fin138] frame %llu UNSAFE: validate %x, validate138 good: surface %08x %08x\n", (unsigned long long)frame, bad, x.m.w0, x.m.w1);
+            }
+            else if (b138 != 0u && bad == 0u)
+                ++g_c138.extra;
+            else if (b138 != 0u)
+                ++g_c138.bothBad;
+        }
         auto why = [&](uint64_t *to)
         {
             for (int b = 0; b < 6; ++b)
@@ -772,10 +907,20 @@ namespace coll125
         const bool tr = checkLevel() != 0;
         if (tr)
             g_traceN = 0;
+        const bool pf138 = on138();
         for (int32_t k = 0; k < n; ++k, cand += 8u)
         {
             uint32_t w[2];
             std::memcpy(w, g.rdram + cand, 8);
+            if (pf138 && k + 1 < n)
+            {
+                // Round 138: the next entry's validation asked for now when it will need one (kept, not current)
+                uint32_t nw[2];
+                std::memcpy(nw, g.rdram + cand + 8u, 8);
+                if (nw[0] != 0u)
+                    if (const Surf *nx = findSurf(nw[0], nw[1]); nx && nx->m.state == kHost && !nx->current(frame))
+                        prefetch138(g, nx->m);
+            }
             if (w[0] == 0u)
                 continue;
             bool fresh;
