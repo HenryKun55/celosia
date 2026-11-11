@@ -779,7 +779,7 @@
   {
    "round": "D1",
    "date": "2026-11-10",
-   "commit": "",
+   "commit": "be72dc5",
    "focus": "Decomp",
    "summary": "A tool that turns the game's remaining recompiled functions into native C++ by machine (tools/lift_d1.py), built so that the decomp can scale toward 100%. Round 126's attempt rewrote every instruction itself and ran 6-10x slower; this one keeps the recompiler's own, proven instruction code and only moves the CPU state into fast local variables, writing it back to the emulated CPU only where something can look at it (calls, returns, the scheduler). It lifts 98% of the 8 163 functions still recompiled. Proven on two areas: all of Math (102 functions) and the boot program's 519 small leaf helpers (matrix, vector, table, pad and timer helpers), 621 functions in all, behind one switch (SOTC_LIFTD1, on).",
    "result": "Decomp: 1 492 of 9 024 functions native (16.5%, was 9.5%), 16.9% of the code (was 14.8%), Math 100%. Exact: every checked call of the 281 lifted functions the test runs reached was compared with the original on the same state (attract demo, the console card's walk and ride: 235 000 checks): no register ever different, the only differences single memory bytes other threads wrote meanwhile. Speed (Vita3K 222 MHz, same build, switch on / off): the lifted set 1.20% -> 1.03% of the game thread (15% faster); statically 95% of the original's instructions on the hot path. Pictures in the attract demo, walking and riding unchanged."
