@@ -19104,3 +19104,175 @@ shadows), the opening's bridge, Agro galloping on the plain with Wander and his 
 **Console.** build/agent-scratch/celosia-r143.vpk + r143/celosia-r143.elf (dev, prof129); r143/env-console.txt = r141's with
 `SOTC_AB_FLAG=pace143`. Read: `build/agent-scratch/r143/cmp143.py err.txt` (latency, pulls, [wait143]) and `tools/abframes.py
 err.txt --summary` (pace143 off minus on: wait, frame).
+
+## Decomp D1: a lifter that scales (tools/lift_d1.py); Math and the boot ELF's leaf functions lifted (SOTC_LIFTD1) (2026-11-10)
+
+Scripts, runs and builds: `build/agent-scratch/d1/`. build.sh (mac / vita / pN), cc.sh (one file with the Vita build's
+flags), armcmp.py (Thumb-2 instruction counts, lifted vs recompiled, per function), setshare.py (a Vita3K profile
+window's share of a function set, lifted vs recompiled), macrun.sh (Mac runs; `DT=<names file>` runs the difftest over
+a list), run.sh / v3k.sh (own Vita3K tree ../vita3k-celosia-d1, 222 MHz, 3 cores, muted), survey.py (the recompiled
+functions by area, their mnemonics), d1set.txt (the lifted list). Final build p4: celosia-d1.vpk, d1/celosia-d1.elf,
+d1/env-console.txt (`SOTC_AB_FLAG=liftd1`).
+
+### Why round 126's lifter lost, and what this one does instead
+
+Round 126 (tools/lift126.py) wrote its own semantics for each MIPS instruction with every register as an `int64_t`
+local, plain host floats and a full register sync at every call: 6-10x slower than the recompiled code on the Vita,
+and not exact (plain floats). The recompiled code it raced is better than it looks: the generator already keeps
+registers in locals (`rc_N` / `rf_N`, ps2xRecomp's register_cache.cpp), knows where a value is a sign-extended word
+(`RC_U64X`), uses finite FPU fast paths where it can prove them (`FPU_ADD_SF`), and charges the EE clock only on loop
+back edges. What it pays for is the context: every GPR write is also stored to `ctx->r[n]` (two stores on the A9),
+every label reloads the registers it uses, fcr31 (the FPU condition bit) is read-modify-written in memory at every
+compare, and VU0's registers, ACC and Q live only in the context, so each VU0 macro instruction loads and stores
+128-bit registers (and any guest store through `rdram` may alias them, so the compiler cannot keep them).
+
+tools/lift_d1.py takes the semantics **from the generated function itself** and changes only where the state lives:
+
+- **Statements**: each instruction's C from build/runner/<name>_0x<addr>.cpp (the table's entry for the address),
+  with the reloads (`rc_N = Ps2GprU64(ctx, N)`) and write-throughs (`Ps2SetGpr64`, `ctx->f[n] = rf_n`) taken out and
+  every `rc_N` / `rf_N` / `ctx->vu0_vf[n]` / `vu0_acc` / `vu0_q` / `vu0_status` / `fcr31` / `f_acc` / `lo` / `hi`
+  rewritten to a host local (`a0`, `s1`, `f12`, `vf5`, `vacc`, `fcr31` ...). The FPU's clamps and finite fast paths,
+  the VU0 macros' normalisation, the relocated immediates (`_dynInsn`) stay exactly the generator's. An audit refuses
+  a function when any generated line the tool leaves out carries an effect (an assignment, a store, a runtime call),
+  so a statement the parser misreads cannot vanish silently (the difftest found two before the audit existed: `movz` /
+  `movn` lines start with `if (`, and a delay slot's write-through-and-goto line).
+- **Readable code for the common 32-bit instructions** on 32-bit registers: `v0 = a1 + 0x10u;`,
+  `f0 = lift_d1::flt(READ32(sp + 8u));`, `WRITE32(a0 + 0x18u, lift_d1::bits(f12));`, `s1 = a0;`,
+  `v0 = (int32_t)v1 < 11 ? 1u : 0u;`. Same results as the generated forms (the difftest checks them).
+- **Register types**: a GPR is `uint32_t` (the ABI keeps a 32-bit value sign-extended in its 64-bit register, so the
+  low word is the value) unless a 64 / 128-bit transfer writes it (`ld` other than a restore, `lq`, `qmfc2`) or a move
+  / bitwise op copies such a value into it (directed: a narrow value moved into a wide register stays exact). A
+  function with real 64-bit integer work (the `d*` shifts and adds, `lwu`, `mflo` / `mfhi`, MMI) keeps every GPR as
+  `uint64_t`, as the generated code does (66 of the 621 functions; 40 more have a few wide registers). A 64-bit read of
+  a register the function has not written since its entry, a call or a restore reads the context's full register
+  (`Ps2GprU64(ctx, n)` / `ctx->r[n]`), so the prologue's `sd` / `sq` of s0-s7 / ra save the caller's full values; an
+  epilogue's `ld` / `lq` of the same stack slot (sp's offset tracked through the CFG) writes the full value back to the
+  context ("restore").
+- **Syncs**: a forward data-flow over the CFG gives the registers (GPR, FPR, VU0, ACC, Q, status, fcr31 ...) whose
+  local may differ from the context; they are written back only before a call, a tail jump, a return, a runtime call
+  (syscall / break / COP0: `ctx->pc` set as the generator sets it) and in a loop checkpoint's slow path. After a call
+  every local is read back (the dead reads fold away).
+- **Control flow** from the MIPS: delay slots, likely branches, jump tables (the generated switch's cases), calls (the
+  generated `PS2_CALL_GUEST_KNOWN` / `PS2_CALL_GUEST` lines, so a natively replaced callee, a difftest checker or a
+  profiler wrapper still runs; a callee the same batch lifted is called directly), tail jumps
+  (`PS2_TAIL_GUEST_KNOWN` / `PS2_JUMP_GUEST`), relocated `jal` targets. The loops' EE clock checkpoints sit at the same
+  back edges with the same charge (32 cycles; checked against the generated code); their slow path syncs, stores the
+  loop head in `ctx->pc` and calls `eeCheckpointSlow()`. So the guest clock is charged exactly as by the recompiled
+  code, and a call that sleeps (a sub-thread) or a checkpoint that yields leaves the context as the recompiled code
+  would: the scheduler resumes at that label **in the recompiled function** (the lifted function only takes the entry
+  slot). Forward branches over code nobody else enters become nested `if (...) { }`; the rest is `goto L_<addr>`.
+- **Registration**: `SOTC_DECOMP_LIFT_FUNCTION(address, name, lift_d1::name, name_0xaddr)`. sotc_decomp::install puts a
+  lifted function in the table only while the slot still holds that generated function (on the Vita 8 of the 621
+  slots hold a hook or a Vita runtime override and keep it: putting the lifted code over them gave a game that ran at
+  60 fps and never drew a picture; the Mac has none) and only while `SOTC_LIFTD1` is on (default on; `SOTC_LIFTD1=0`
+  off). There is no check inside the functions: an A/B window (`SOTC_AB_FLAG=liftd1`) swaps the table entries
+  (`sotc_decomp::setSwitch` -> `g_switchChanged`; logged `[liftd1] frame N: on/off (k swapped)`).
+
+Usage: `tools/lift_d1.py -o game/overrides/decomp_liftd1_{n}.cpp --chunk 160 [--leaf] [--refused why.txt] addr|@file`
+(addresses hex; `--leaf`: only functions that call nothing and never hand the context to the runtime).
+
+**What it refuses** (the function stays recompiled), over the 8 163 functions still recompiled at round 142: 8 035 lift
+(98.4%), 128 refused: a `break` in a delay slot (98), the generator's eager checkpoint form (10), code that runs off
+the function's end (8) or branches into another function (7), `bc0f` / `bc2t` (3), two operand forms (2). COP0, VU0
+integer / control registers other than status and Q, `syscall`, `break`, `ei` / `di` are lifted as runtime calls
+(everything synced before, read back after). Self-modifying code is only the relocations, read from guest RAM as the
+generated code reads them.
+
+### What is converted (621 functions)
+
+- **Math**, the whole area: the 102 functions still recompiled at round 142 (the GAMEUTIL interpolators and springs,
+  the matrix / plane / region helpers, the transform matrix set, the AI random vectors ...), including the 40 that call
+  other functions.
+- **Boot ELF, SDK and libc: the leaf functions**, 519 of the 1 770 still recompiled (no calls, no runtime calls): the
+  `ios*` matrix / vector / quaternion / table helpers, the display-list and layer getters, the pad and timer getters,
+  Sg2's slot lookups, the kernel's small accessors. The rest of the area lifts too (1 701 of 1 770) but has syscalls,
+  thread and interrupt code: left for a round with longer console-card runs.
+
+game/overrides/decomp_liftd1_00..03.cpp (27 000 lines), regenerated by the tool from build/agent-scratch/d1/d1set.txt.
+
+### Exactness
+
+Mac, `SOTC_DIFFTEST=<the list> SOTC_DIFFTEST_ALLREGS=1 SOTC_DIFFTEST_VU0=1` (every register in full, FPU, hi / lo, VU0,
+and every RAM byte compared), the list in two halves (the checker has 512 slots):
+
+| run (Mac, 1200-1500 s) | functions checked | checks (of calls) | register mismatches | RAM-byte mismatches |
+|---|---:|---:|---:|---:|
+| attract demo, half A | 131 | 55 071 (43.0 M) | 0 | 2 167 |
+| attract demo, half B | 84 | 15 936 (6.4 M) | 0 | 316 |
+| console card, walk (in_walk2), A | 138 | 79 860 (64.6 M) | 0 | 2 583 |
+| console card, walk, B | 142 | 29 943 (10.2 M) | 0 | 55 |
+| console card, ride (in_ride), A | 138 | 28 660 (53.1 M) | 0 | 915 |
+| console card, ride, B | 137 | 25 338 (8.3 M) | 0 | 30 |
+
+281 of the 621 functions reached and checked (234 994 checks); **0 register mismatches**. Of the 6 066 RAM-byte
+mismatches, 5 667 are in functions with no store instruction at all, 385 at addresses that also mismatch in other,
+unrelated functions, and the last 14 at addresses away from anything the function writes (iosUnitMatrix's matrix at
+a0, the springs' fields at a0 + 0x18 ...; checked by hand). The control (`SOTC_DIFFTEST_CONTROL=1`: the recompiled code
+in both legs, half A, attract demo): the same 131 functions, 55 271 checks, 0 register mismatches and 867 RAM-byte mismatches in 11
+functions (849 of them in functions that store nothing): the same noise with no lifted code in either leg (its count
+follows the host's load: the lifted runs shared the machine with Vita3K and a build).
+
+Before that, two real differences were found and fixed (both statements the parser had dropped: `movz` / `movn` whose
+generated line starts with `if (`, in getTWH and kernel_sub_001CDDE8); the audit now refuses any dropped line with an
+effect. Every remaining mismatch is one RAM byte at an address the function does not write (most in functions with no
+store instruction at all: iosGetACosf, iosDlGetLayerNum, padSysGet, GAMEUTIL_get_interp_value_interp_value_cntrl ...),
+the same few addresses (0x29126c, 0x1568070 ...) across unrelated functions: other threads writing between the two
+legs, round 126's "known noise".
+
+### Speed
+
+Static (Thumb-2, the Vita build's flags, both sides compiled the same way; armcmp.py), instructions reachable without
+taking a guest memory access's slow path, a checkpoint's slow path or a call's not-returning path ("hot"): **86 300
+lifted vs 90 882 recompiled (95.0%)**, shorter in 369 functions, longer in 125; all instructions 136 448 vs 125 072
+(the write-backs and read-backs around calls and in the checkpoints' slow paths are longer, and cold). Math 96.9%, the
+boot leaves 93.4%. The largest hot gains are loops and VU0 code: iosGetScaleInverseVector 213 vs 335,
+doit_double_spring_interp_cntrl 1 775 vs 2 190, update_transform_matrix_set 2 145 vs 2 628, GAMEUTIL_get_interp_pitch
+369 vs 600. Longer: VU0-heavy functions that call out (IsInsideOfRegion 3 219 vs 2 043: each call writes back and reads
+back a dozen vf registers the generated code never holds in locals).
+
+Vita3K 222 MHz, the attract demo, the same p3 build with `SOTC_LIFTD1=1` / `=0`, sampler from 300 s to the run's end,
+game thread: the set's self time **1.202% -> 1.025%** of the game thread (-15% for the set, -0.18 points):
+iosGetScaleInverseVector 0.129 -> 0.103%, GAMEUTIL_doit_interp_ratio_cntrl 0.078 -> 0.067, iosApplyRotMatrix 0.040 ->
+0.029, iosGetACosf 0.039 -> 0.033, update_transform_matrix_set 0.051 -> 0.047; IsInsideOfRegion 0.036 -> 0.059 (the one
+clear loss, above). The whole set is ~1% of the game thread, so the frame-level gain is below any A/B's noise (~0.1 ms
+of a 45-55 ms console frame): the point of the round is that lifting no longer costs speed.
+
+Vita3K (p4, 222 MHz): the attract demo (bridge, forest, the plain), the console card's walk (out of the shrine, Wander
+on foot and on Agro across the plain) and ride (the shrine, the altar) with `SOTC_AB_FLAG=liftd1 SOTC_AB_PERIOD=600`
+(the swaps logged every 600 frames: 613 entries each time): pictures as before, no fault. The first Vita builds (p1,
+p2) put the lifted code over 8 slots that the Vita's runtime had hooked: the game ran at 60 fps and drew nothing from
+the start; install now leaves such slots alone (found by putting the boot half back with SOTC_DECOMP_SKIP).
+spalign.py on celosia-d1.elf: 0 sp-relative NEON accesses.
+
+### Decomp numbers
+
+tools/decomp_status.py (Mac replaced dump, attract demo to frame 1500; calls from round 71's attract + route
+SOTC_CALL_COUNT dumps, the ones still on disk: with them round 142's natives were 71.5% of calls, not the 68.4% the
+r122 refresh's dumps gave): **1 492 of 9 024 functions native (16.53%; was 861, 9.5%), 16.94% of the MIPS code by size
+(was 14.77%), 79.7% of calls (71.5% like for like), 14.79% of the game's own code.** Math 128 / 128 functions (100%);
+Boot ELF, SDK and libc 879 / 2 130 (26.9%). decomp_tree / decomp_history (label D1) from the attract demo's ON profile:
+70.0% of the game thread in native code, 19.3% recompiled, 10.7% runtime (r122's 68.9 / 20.5 / 10.6 were the shrine
+route: not the same window).
+
+### How far this goes, and in how many rounds
+
+- **Coverage** is not the limit: 98.4% of what is left lifts today, and the refusals are a handful of patterns (a
+  break in a delay slot, the eager checkpoint, branches between functions), each a few lines in the tool.
+- **Exactness** is a property of the method (the generator's own statements), but each batch still has to be run: the
+  difftest only sees what a run reaches (here 281 of the 621 in the attract demo and the console card's walk and ride).
+  Functions no test run reaches are lifted but unproven; replaying the user's recordings (tools/replay_compare) is the
+  way to widen that.
+- **Risks** that grow with the batches: hooks and runtime overrides (handled: a slot that is not the generated function
+  keeps its owner), coroutine resume entries (handled: resumes stay in the recompiled function), the A/B's swaps
+  (handled in the table), compile time and code size (+9% instructions over what it replaces, all of it in the cold
+  sync paths).
+- **Speed**: a few percent faster overall (95% of the hot path statically, -15% for this set in the sampler), more in
+  loops and VU0 code, less where VU0 code calls out; no large win by itself, but no loss, so lifting a subsystem first
+  and rewriting its hot part by hand afterwards (as rounds 43-141 did) costs nothing.
+- **Estimate**: the rest of the boot ELF / SDK (~1 250 functions with syscalls and threads) and the game's ~6 400 still
+  recompiled functions in batches of 1 000-1 500 an area (Characters, Display, Collision, Script and events, Camera,
+  Sound, Other), each with the Mac difftest over the attract demo, the console card's walk and ride and a route, and a
+  Vita3K sampler A/B: **6-8 rounds to ~98% of the functions native** (16.5% now). That figure is mechanical C++
+  (register-named locals, the generator's macros for the FPU / VU0 operations, gotos where the CFG does not structure):
+  a real decomp of a subsystem (types, struct fields, names from the Ghidra project) remains hand work on top, but on
+  code that is already native, exact and in the build.

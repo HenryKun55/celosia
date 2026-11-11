@@ -1,63 +1,63 @@
 {
- "updated": "2026-11-09",
- "commit": "5301a55",
+ "updated": "2026-11-10",
+ "commit": "2b97c76",
  "summary": {
   "by_functions": {
-   "native": 861,
+   "native": 1492,
    "partial": 0,
    "total": 9024,
-   "percent": 9.54
+   "percent": 16.53
   },
   "by_code_size": {
-   "native": 387764,
+   "native": 444820,
    "partial": 0,
    "total": 2625144,
-   "percent": 14.77
+   "percent": 16.94
   },
   "by_calls": {
-   "native": 119417428,
+   "native": 253496157,
    "partial": 0,
-   "total": 174504597,
-   "percent": 68.43
+   "total": 318073410,
+   "percent": 79.7
   },
   "game_code_by_size": {
-   "native": 307124,
+   "native": 326540,
    "total": 2208056,
-   "percent": 13.91
+   "percent": 14.79
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
-   "functions": 2145,
-   "native_functions": 375,
-   "bytes": 410468,
-   "native_bytes": 74020,
+   "functions": 2130,
+   "native_functions": 879,
+   "bytes": 408580,
+   "native_bytes": 109772,
    "partial_functions": 0,
-   "percent": 18.03
+   "percent": 26.87
   },
   "Math": {
-   "functions": 122,
-   "native_functions": 20,
-   "bytes": 23476,
-   "native_bytes": 6612,
+   "functions": 128,
+   "native_functions": 128,
+   "bytes": 25060,
+   "native_bytes": 25060,
    "partial_functions": 0,
-   "percent": 28.16
+   "percent": 100.0
   },
   "Display and models": {
    "functions": 975,
    "native_functions": 91,
-   "bytes": 250196,
-   "native_bytes": 60456,
+   "bytes": 247092,
+   "native_bytes": 57352,
    "partial_functions": 0,
-   "percent": 24.16
+   "percent": 23.21
   },
   "Characters and motion": {
-   "functions": 1195,
-   "native_functions": 58,
-   "bytes": 271800,
-   "native_bytes": 39136,
+   "functions": 1203,
+   "native_functions": 74,
+   "bytes": 272176,
+   "native_bytes": 41432,
    "partial_functions": 0,
-   "percent": 14.4
+   "percent": 15.22
   },
   "System and memory": {
    "functions": 231,
@@ -69,11 +69,11 @@
   },
   "Other game code": {
    "functions": 2897,
-   "native_functions": 205,
+   "native_functions": 207,
    "bytes": 1290828,
-   "native_bytes": 172324,
+   "native_bytes": 172956,
    "partial_functions": 0,
-   "percent": 13.35
+   "percent": 13.4
   },
   "Camera": {
    "functions": 281,
@@ -100,12 +100,12 @@
    "percent": 39.21
   },
   "Collision and physics": {
-   "functions": 329,
-   "native_functions": 47,
-   "bytes": 104136,
-   "native_bytes": 17432,
+   "functions": 330,
+   "native_functions": 48,
+   "bytes": 107168,
+   "native_bytes": 20464,
    "partial_functions": 0,
-   "percent": 16.74
+   "percent": 19.1
   },
   "Script and events": {
    "functions": 632,
@@ -158,6 +158,270 @@
    "source": "game/overrides/decomp_reloc.cpp"
   },
   {
+   "address": "0x001018b8",
+   "name": "RelocateSelfSymbol",
+   "bytes": 152,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00101a30",
+   "name": "SetHeapStartPoint",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00101a48",
+   "name": "GetHeapCurrentPoint",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102730",
+   "name": "LoaderSysEntryExternalIntcHandlerList",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102790",
+   "name": "LoaderSysEntryExternalThreadList",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001027e0",
+   "name": "LoaderSysEntryExternalSemaList",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102830",
+   "name": "LoaderSysEntryExternalIopMemoryList",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001028a0",
+   "name": "LoaderSysDeleteExternalIntcHandlerList",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001028f0",
+   "name": "LoaderSysDeleteExternalThreadList",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102930",
+   "name": "LoaderSysDeleteExternalSemaList",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102970",
+   "name": "LoaderSysDeleteExternalIopMemoryList",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001029c8",
+   "name": "LoaderSysInitExternalIntcHandlerList",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102a00",
+   "name": "LoaderSysInitExternalSemaList",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102a40",
+   "name": "LoaderSysInitExternalThreadList",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102c58",
+   "name": "LoaderSysInitExternalIopMemoryList",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00102fe0",
+   "name": "LoaderSysCheckCDBootMode",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00103110",
+   "name": "LoaderSysGetMemoryInfo",
+   "bytes": 328,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001032f0",
+   "name": "LoaderSysSendAbort",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001032f8",
+   "name": "LoaderSysFlushPrint",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00103ca8",
+   "name": "LoaderSysGetBootArg",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00103e90",
+   "name": "LoaderSysHookPoint",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00103ff8",
+   "name": "memprintf",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00104040",
+   "name": "imemprintf",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00104088",
+   "name": "initmemprintf",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00104e78",
+   "name": "padSysGet",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00104f58",
+   "name": "LoaderSysSetPowerOffCallBackFunc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00105948",
+   "name": "PutString",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00105990",
+   "name": "PutStringS",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00106380",
+   "name": "SetLocate",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00106390",
+   "name": "ScrollDisplay",
+   "bytes": 160,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00106430",
+   "name": "ClearDisplay",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00106b58",
+   "name": "PutChar",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00106ed0",
+   "name": "GetThreadId",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
    "address": "0x00107000",
    "name": "SignalSema",
    "bytes": 16,
@@ -166,12 +430,412 @@
    "source": "game/overrides/decomp_isys48.cpp"
   },
   {
+   "address": "0x00107030",
+   "name": "PollSema",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x00107c70",
+   "name": "sub_00107C70",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00107d90",
+   "name": "sub_00107D90",
+   "bytes": 144,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00108d10",
+   "name": "sub_00108D10",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00109268",
+   "name": "sub_00109268",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00109640",
+   "name": "sub_00109640",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0010f370",
+   "name": "sub_0010F370",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0010fbe8",
+   "name": "ps2___sceKernlGetEhSemaId",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0010fc08",
+   "name": "sub_0010FC08",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0010fc40",
+   "name": "sub_0010FC40",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0010fe50",
+   "name": "sub_0010FE50",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0010ffc0",
+   "name": "sub_0010FFC0",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110270",
+   "name": "sub_00110270",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110640",
+   "name": "GetTimerPreScaleFactor",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110910",
+   "name": "sub_00110910",
+   "bytes": 136,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110998",
+   "name": "sub_00110998",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110c78",
+   "name": "iGetTimerSystemTime",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110d48",
+   "name": "iAllocTimerCounter",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00110ef0",
+   "name": "iGetTimerUsedUnusedCounters",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00111288",
+   "name": "iGetTimerBaseTime",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00111700",
+   "name": "ps2__InitAlarm",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00111c50",
+   "name": "sceSifRemoveRebootNotifyHandler",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00111fc0",
+   "name": "ioctl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00112080",
+   "name": "isatty",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00112358",
+   "name": "sub_00112358",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00112380",
+   "name": "sub_00112380",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001123c0",
+   "name": "sub_001123C0",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001128a0",
+   "name": "sub_001128A0",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001128c0",
+   "name": "sub_001128C0",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00113368",
+   "name": "sceVif1PkAddGsData",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00113f10",
+   "name": "sceGsSetDefTexEnv",
+   "bytes": 272,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00114020",
+   "name": "sceGsSetDefAlphaEnv",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00114080",
+   "name": "sceGsSetHalfOffset",
+   "bytes": 136,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001148b8",
+   "name": "sub_001148B8",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001154f8",
+   "name": "scePad2GetButtonInfo",
+   "bytes": 224,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001157d8",
+   "name": "sub_001157D8",
+   "bytes": 176,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00116c58",
+   "name": "sub_00116C58",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00117a00",
+   "name": "_sceCdSC",
+   "bytes": 176,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00119aa0",
+   "name": "sub_00119AA0",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0011bae8",
+   "name": "sub_0011BAE8",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0011bbb8",
+   "name": "sub_0011BBB8",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0011bf68",
+   "name": "sub_0011BF68",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0011c138",
+   "name": "_sceMcFatInit",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0011c198",
+   "name": "_sceMcFatInit2",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
    "address": "0x0011c7d8",
    "name": "sub_0011C7D8",
    "bytes": 216,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_mcfat.cpp"
+  },
+  {
+   "address": "0x00120438",
+   "name": "_sceMcpInit",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00120d10",
+   "name": "_sceMcpIsSpeckOutBlock",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00120f18",
+   "name": "ps2__SceMcComGetSysInfo",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00121ec0",
+   "name": "sub_00121EC0",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00122378",
+   "name": "sceNetcnfifGetResult",
+   "bytes": 208,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00122448",
+   "name": "sceNetcnfifSetFNoDecode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
   },
   {
    "address": "0x00124b90",
@@ -188,6 +852,14 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x00125080",
+   "name": "sub_00125080",
+   "bytes": 608,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_softfloat.cpp"
   },
   {
    "address": "0x001252e0",
@@ -246,6 +918,102 @@
    "source": "game/overrides/decomp_softfloat.cpp"
   },
   {
+   "address": "0x00125998",
+   "name": "sub_00125998",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001259e0",
+   "name": "sub_001259E0",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00125a38",
+   "name": "sub_00125A38",
+   "bytes": 248,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001262b8",
+   "name": "sub_001262B8",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001262f8",
+   "name": "sub_001262F8",
+   "bytes": 144,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00126388",
+   "name": "sub_00126388",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x00127048",
+   "name": "ps2___unpack_f",
+   "bytes": 96,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_softfloat.cpp"
+  },
+  {
+   "address": "0x001270d8",
+   "name": "ps2___pack_d",
+   "bytes": 216,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_softfloat.cpp"
+  },
+  {
+   "address": "0x001271b0",
+   "name": "ps2___unpack_d",
+   "bytes": 192,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_softfloat.cpp"
+  },
+  {
+   "address": "0x00127270",
+   "name": "ps2___fpcmp_parts_d",
+   "bytes": 288,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_softfloat.cpp"
+  },
+  {
+   "address": "0x00127390",
+   "name": "ps2___pack_f",
+   "bytes": 184,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_softfloat.cpp"
+  },
+  {
+   "address": "0x00127528",
+   "name": "ps2___errno",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
    "address": "0x00127768",
    "name": "malloc",
    "bytes": 88,
@@ -262,6 +1030,14 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x00128b00",
+   "name": "sub_00128B00",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
    "address": "0x00128e6c",
    "name": "strcmp",
    "bytes": 324,
@@ -270,12 +1046,236 @@
    "source": "game/overrides/decomp_texsearch.cpp"
   },
   {
+   "address": "0x0012d7f0",
+   "name": "sub_0012D7F0",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012e520",
+   "name": "_localeconv_r",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012e890",
+   "name": "ps2__Bfree",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012eaf8",
+   "name": "_hi0bits",
+   "bytes": 128,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012eb78",
+   "name": "_lo0bits",
+   "bytes": 192,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012f0d8",
+   "name": "ps2___mcmp",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012f2d0",
+   "name": "_ulp",
+   "bytes": 208,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012f9b8",
+   "name": "isinf",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x0012fa00",
+   "name": "isnan",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
    "address": "0x00131b10",
    "name": "dptoli",
    "bytes": 156,
    "status": "native",
    "area": "Math",
    "source": "game/overrides/decomp_softfloat.cpp"
+  },
+  {
+   "address": "0x001acdf8",
+   "name": "iosCdStStart",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ace28",
+   "name": "iosCdStStop",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001acf40",
+   "name": "iosCdStSkip",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001acf60",
+   "name": "iosCdStSectorAlignSkip",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001acfb8",
+   "name": "iosCdSetErrorCallback",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001acfd0",
+   "name": "iosCdSetMode",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad140",
+   "name": "iosInitDebPc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad148",
+   "name": "iosStopPc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad150",
+   "name": "iosDebPcVsyncCounterCheck",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad158",
+   "name": "iosGetCnt0Pc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad160",
+   "name": "iosGetCnt1Pc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad168",
+   "name": "InitDebPc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad1f0",
+   "name": "iosGetClock",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad510",
+   "name": "iosGetTCount",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_sym120.cpp"
+  },
+  {
+   "address": "0x001ad528",
+   "name": "iosGetTCountExtension",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad628",
+   "name": "iosResetCpuRapCounter",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad658",
+   "name": "iosGetCpuRapCountPar1Int",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad948",
+   "name": "iosEE2IopEndChk",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001ad950",
+   "name": "iosCreateIopMgr",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
   },
   {
    "address": "0x001adbc0",
@@ -358,12 +1358,212 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x001b0530",
+   "name": "iosGetMallocPtn",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b0558",
+   "name": "iosGetMallocRootPtnRemainSize",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b06a8",
+   "name": "addMemoryDebugCallback",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b06b8",
+   "name": "getMemorySafetyLockFlag",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
    "address": "0x001b1138",
    "name": "iosRecvMsg",
    "bytes": 376,
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/sotc_native.cpp"
+  },
+  {
+   "address": "0x001b12b0",
+   "name": "iosInitMessageSystem",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b2058",
+   "name": "iosPadGetXZInputL",
+   "bytes": 504,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b2250",
+   "name": "iosPadGetXZInputLwithThreshold",
+   "bytes": 488,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b2438",
+   "name": "iosPadGetXZInputLwithThresholdIndepAxis",
+   "bytes": 368,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b25a8",
+   "name": "iosPadGetXZInputR",
+   "bytes": 504,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b27a0",
+   "name": "iosPadEntryTickFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b27b0",
+   "name": "iosPadRead",
+   "bytes": 240,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b29e8",
+   "name": "iosCreatePrintMgr",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b29f0",
+   "name": "iosGetPrintfMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b2a18",
+   "name": "iosMemToSprDmaAdrCopy",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b2a80",
+   "name": "iosSprToMemDmaAdrCopy",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b34f0",
+   "name": "endSCEDemo",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b3c18",
+   "name": "Init_ShockVoiceSet",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b3c50",
+   "name": "Init_Shock",
+   "bytes": 192,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b3d10",
+   "name": "Shock_SetShockVoiceSet",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b3d48",
+   "name": "Init_Player",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b3d88",
+   "name": "Init_Controler",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b40c8",
+   "name": "kernel_sub_001B40C8",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b40d0",
+   "name": "kernel_sub_001B40D0",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b4118",
+   "name": "kernel_sub_001B4118",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b4120",
+   "name": "kernel_sub_001B4120",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
   },
   {
    "address": "0x001b4760",
@@ -382,12 +1582,268 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x001b5f18",
+   "name": "IosGetMergeDataFileName",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
    "address": "0x001b5f28",
    "name": "isysSearchSymbol",
    "bytes": 88,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_sym120.cpp"
+  },
+  {
+   "address": "0x001b6798",
+   "name": "GetSymbolByIndex",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b6828",
+   "name": "isysGetXffWorkSize",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b6880",
+   "name": "isysGetModuleObjMallocSize",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b69b8",
+   "name": "GetExecModuleSize",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b69c8",
+   "name": "getModuleSize",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7500",
+   "name": "iosLoaderGetFileSize",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7550",
+   "name": "initDldSys",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7b58",
+   "name": "isysCreateExceptionThread",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7b78",
+   "name": "iosCubicBezier",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7bb8",
+   "name": "iosCubicInterVectorXYZ",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7c20",
+   "name": "iosFourthBezier",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b7c88",
+   "name": "iosCubicBezierVectorXYZ",
+   "bytes": 144,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_00.cpp"
+  },
+  {
+   "address": "0x001b85d0",
+   "name": "CompareString16",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8620",
+   "name": "iosUnitCurrentMatrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001b8668",
+   "name": "iosPushVu0RegistersToWork",
+   "bytes": 264,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b8770",
+   "name": "iosPopVu0RegistersFromWork",
+   "bytes": 264,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8878",
+   "name": "iosTransCurrentMatrix",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001b8898",
+   "name": "iosSetTransCurrentMatrix",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b88a8",
+   "name": "iosClearTransCurrentMatrix",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8c00",
+   "name": "iosScaleCurrentMatrix",
+   "bytes": 144,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8c90",
+   "name": "iosGetCurrentMatrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001b8ca8",
+   "name": "iosGetCurrentMatrixTrans",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b8cb8",
+   "name": "iosSetCurrentMatrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8cd0",
+   "name": "iosMulCurrentMatrixR",
+   "bytes": 104,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001b8d38",
+   "name": "iosMulCurrentMatrixL",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b8d90",
+   "name": "iosApplyCurrentMatrix",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8db0",
+   "name": "iosApplyRotCurrentMatrix",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8dd0",
+   "name": "iosRotTransPersCurrentMatrix",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8e00",
+   "name": "iosTransposeCurrentMatrix",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8e50",
+   "name": "iosTransposeRotationCurrentMatrix",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b8e80",
+   "name": "iosInverseCurrentMatrix",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001b9148",
@@ -398,6 +1854,118 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x001b9170",
+   "name": "iosApplyRotMatrix",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b91a0",
+   "name": "iosUnitMatrix",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b91c8",
+   "name": "iosUnitRotation",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b91f0",
+   "name": "iosTransposeMatrix",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9238",
+   "name": "iosInverseMatrix",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001b92d0",
+   "name": "iosScaleMatrixV",
+   "bytes": 56,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_layout.cpp"
+  },
+  {
+   "address": "0x001b9308",
+   "name": "iosFloatModulo",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9348",
+   "name": "iosSetCameraMatrix",
+   "bytes": 288,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9468",
+   "name": "iosMakeNormalLightMatrix",
+   "bytes": 248,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9560",
+   "name": "iosScaleNormalLightMatrix",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9598",
+   "name": "iosMakeLightColorMatrix",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b95d0",
+   "name": "iosTransMatrix",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9628",
+   "name": "iosTransMatrixF",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_gc13b8dc8.cpp"
+  },
+  {
+   "address": "0x001b96a0",
+   "name": "iosScaleMatrix",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001b9c88",
    "name": "iosGetScaleMatrixV",
    "bytes": 72,
@@ -406,9 +1974,177 @@
    "source": "game/overrides/decomp_layoutsimple.cpp"
   },
   {
+   "address": "0x001b9cd0",
+   "name": "iosGetYDirXYZFromMatrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9ce8",
+   "name": "iosGetXDirXYZFromMatrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9d18",
+   "name": "iosRotTransCurrentMatrix",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9d78",
+   "name": "iosMvecZero",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9d88",
+   "name": "iosMvecAllOnes",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9d98",
+   "name": "iosMvecAllOne",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9da8",
+   "name": "iosAddMvec",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9de8",
+   "name": "iosClampSW_AddMvec",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9e28",
+   "name": "iosClampUW_AddMvec",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001b9e68",
+   "name": "iosSubMvec",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba0a8",
+   "name": "iosIColAddVec",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba0d8",
+   "name": "iosSwClip255Mvec",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba108",
+   "name": "iosIColAddVecXYZ",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba180",
+   "name": "iosUcharColClampAdd",
+   "bytes": 192,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba240",
+   "name": "iosSWToMmColMvec",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba268",
+   "name": "iosMmColToSWMvec",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba290",
+   "name": "iosITOF15ToMmColMvec",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba2b8",
+   "name": "iosMmColToITOF15Mvec",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba360",
+   "name": "iosSwClipMvec",
+   "bytes": 128,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001ba428",
+   "name": "iosIColToMvecSl",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001ba4d0",
    "name": "GetDifferencialQuaternionWithNoRegularize",
    "bytes": 448,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001ba690",
+   "name": "kernel_sub_001BA690",
+   "bytes": 496,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_worker.cpp"
@@ -422,6 +2158,70 @@
    "source": "game/overrides/decomp_quat.cpp"
   },
   {
+   "address": "0x001bb868",
+   "name": "GetCurrentQuaternion",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001bb888",
+   "name": "GetLastQuaternion",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bb8a8",
+   "name": "MultiCurrentQuaternion",
+   "bytes": 88,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001bb900",
+   "name": "MultiCurrentQuaternionL",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bb958",
+   "name": "InvertCurrentQuaternion",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bb988",
+   "name": "SetCurrentQuaternion",
+   "bytes": 40,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001bbc08",
+   "name": "PopQuaternion",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x001bbc28",
+   "name": "InitQuaternionDrive",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001bbda8",
    "name": "SetQuaternionByAxisRotateVWithNoRegularize",
    "bytes": 104,
@@ -430,12 +2230,28 @@
    "source": "game/overrides/decomp_hot44b.cpp"
   },
   {
+   "address": "0x001bbe10",
+   "name": "DivQuaternion",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
    "address": "0x001bbe60",
    "name": "GetInverseMatrixFromQuaternionPos",
    "bytes": 152,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/decomp_light.cpp"
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bbf90",
+   "name": "GetMirrorQuaternion",
+   "bytes": 224,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001bc2d0",
@@ -462,12 +2278,44 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x001bc850",
+   "name": "SetQuaternionByCosineAxisRotateVWithNoRegularize",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bc8f8",
+   "name": "GetYRotQuaternionFromDir",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001bcb10",
    "name": "GetQuaternionByEulerYXZ",
    "bytes": 536,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_hot44b.cpp"
+  },
+  {
+   "address": "0x001bd9d0",
+   "name": "GetZDirFromQuaternion",
+   "bytes": 160,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bdd00",
+   "name": "SetQuaternionByCosineAxisRotateV",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001bddb0",
@@ -494,6 +2342,22 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x001be260",
+   "name": "iosGetACosf",
+   "bytes": 136,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be2e8",
+   "name": "iosGetACos",
+   "bytes": 160,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
    "address": "0x001be388",
    "name": "iosGetACosfExact",
    "bytes": 88,
@@ -510,12 +2374,116 @@
    "source": "game/overrides/decomp_gaze.cpp"
   },
   {
+   "address": "0x001be4d8",
+   "name": "iosGetASin",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be4e8",
+   "name": "iosGetATan2",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be4f8",
+   "name": "resetArcFuncCall",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be520",
+   "name": "iosGetTableSin",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be570",
+   "name": "iosGetTableCos",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be6d0",
+   "name": "iosFTOI15Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be6e8",
+   "name": "iosFTOI12Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001be700",
    "name": "iosFTOI4Vector",
    "bytes": 24,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_walk.cpp"
+  },
+  {
+   "address": "0x001be718",
+   "name": "iosFTOI0Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be730",
+   "name": "iosITOF15Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be748",
+   "name": "iosITOF12Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be760",
+   "name": "iosITOF4Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be778",
+   "name": "iosITOF0Vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001be790",
+   "name": "iosGetStabXZVector",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001be7c8",
@@ -566,12 +2534,180 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x001be8b0",
+   "name": "iosGetReflectVector",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be8e0",
+   "name": "iosDumpFVector",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be8e8",
+   "name": "iosDumpIVector",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001be8f0",
    "name": "iosGetArbitraryUpVectorElement",
    "bytes": 144,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be980",
+   "name": "iosGetScaleInverseVector",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001be9e0",
+   "name": "iosGetStabXYVector",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bea18",
+   "name": "iosGetStabYZVector",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bea50",
+   "name": "iosGetLengthPointToLine",
+   "bytes": 184,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001beb08",
+   "name": "iosGetInverseVectorXYZ",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001beb30",
+   "name": "iosGetExceptAxisVector",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001beb88",
+   "name": "iosCalcFColorToBrightness",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bebc0",
+   "name": "iosITOF15VectorXYZ",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bebd8",
+   "name": "iosScaleColorTo255",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bebf8",
+   "name": "iosScaleColorToONE",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bec18",
+   "name": "kernel_sub_001BEC18",
+   "bytes": 784,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf0b0",
+   "name": "iosSetDCViewPort",
+   "bytes": 176,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf160",
+   "name": "iosSetDCViewPortCenter",
+   "bytes": 136,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf2d8",
+   "name": "iosGetRootDC",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf308",
+   "name": "iosGetCurrentDC",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf420",
+   "name": "iosGetDCGroup",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf430",
+   "name": "kernel_sub_001BF430",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bf438",
+   "name": "kernel_sub_001BF438",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001bf590",
@@ -588,6 +2724,70 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_leaves.cpp"
+  },
+  {
+   "address": "0x001bfad8",
+   "name": "iosUsedPacketBufferSize",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bfb80",
+   "name": "iosDlGetTransAdrs",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bfba8",
+   "name": "iosGetPacketPtrPath1",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bfbf0",
+   "name": "iosSetPacketPtrPath1",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_hot48b.cpp"
+  },
+  {
+   "address": "0x001bfc08",
+   "name": "iosAllocPacketPtrPath1",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bfc30",
+   "name": "iosDlChainHead",
+   "bytes": 200,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bfcf8",
+   "name": "iosDlChainTail",
+   "bytes": 200,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001bfdc0",
+   "name": "iosDlChainHeadCurrent",
+   "bytes": 200,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001bfe88",
@@ -614,12 +2814,36 @@
    "source": "game/overrides/decomp_isys.cpp"
   },
   {
+   "address": "0x001c0138",
+   "name": "iosDlGetWorkBufId",
+   "bytes": 24,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_texanim.cpp"
+  },
+  {
+   "address": "0x001c0150",
+   "name": "iosDlGetTransBufId",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c0168",
+   "name": "iosDlGetEndAdrs",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001c0198",
    "name": "iosDlGetLayer",
    "bytes": 24,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
-   "source": "game/overrides/decomp_dl.cpp"
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001c0210",
@@ -628,6 +2852,246 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_leaves.cpp"
+  },
+  {
+   "address": "0x001c02c8",
+   "name": "iosDlGetLayerNum",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c03b8",
+   "name": "iosDlCheckAdrs",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c03f0",
+   "name": "iosDlCheckSize",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c0458",
+   "name": "iosDlGetCreateAdrs",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c0480",
+   "name": "iosAllocPacketPtrPath1UnCachedA",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c1538",
+   "name": "kernel_sub_001C1538",
+   "bytes": 192,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c15f8",
+   "name": "iosGsSetMode",
+   "bytes": 152,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2018",
+   "name": "getDispScreenWidth",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2028",
+   "name": "getDispScreenHeight",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2038",
+   "name": "getDrawScreenWidth",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001c2048",
+   "name": "getDrawScreenHeight",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001c20e8",
+   "name": "getDispBufferAddressTBP",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c20f0",
+   "name": "getDispBufferAddressFBP",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2158",
+   "name": "getZBufferAddressTBP",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2178",
+   "name": "getZBufferAddressFBP",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2208",
+   "name": "getScreenOffsetX",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2218",
+   "name": "getScreenOffsetY",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2228",
+   "name": "getAntiAlias",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2238",
+   "name": "getProgressiveMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c28b0",
+   "name": "iosGetField",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2a68",
+   "name": "iosSetSyncNoReturnFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2be8",
+   "name": "getCRTCoffsetU",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c2bf8",
+   "name": "getCRTCoffsetV",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c35e8",
+   "name": "iosChkGpDlTransExec",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c3720",
+   "name": "iosSetIStartFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c3730",
+   "name": "iosSetGpFinishFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c3740",
+   "name": "iosSetIFinishFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c3750",
+   "name": "getIntrGpCount",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c3768",
+   "name": "iosSetDlTransFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c3778",
+   "name": "iosSetVSchedulerFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001c3ad0",
@@ -660,6 +3124,30 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_hot44g.cpp"
+  },
+  {
+   "address": "0x001c5b48",
+   "name": "getSpriteDrawFirst",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c5b58",
+   "name": "gsReglist",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c5e00",
+   "name": "getTWH",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001c5e60",
@@ -742,6 +3230,14 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x001c7540",
+   "name": "isysSetObjImmediateDeleteFunc",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001c7548",
    "name": "isysRequestDeleteObj",
    "bytes": 272,
@@ -750,12 +3246,28 @@
    "source": "game/overrides/decomp_isys48.cpp"
   },
   {
+   "address": "0x001c7658",
+   "name": "isysInitGroup",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001c7668",
    "name": "isysAddGroupWithLinkParamNoWait",
    "bytes": 24,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_char104.cpp"
+  },
+  {
+   "address": "0x001c7680",
+   "name": "isysObjDeleteLock",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
   },
   {
    "address": "0x001c76a8",
@@ -790,6 +3302,30 @@
    "source": "game/overrides/decomp_sym120.cpp"
   },
   {
+   "address": "0x001c7948",
+   "name": "isysGetLinkNum",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c79a8",
+   "name": "isysGetLinkMax",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c79b0",
+   "name": "isysGetObjIdentifierByObj",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
    "address": "0x001c79e0",
    "name": "isysGetGroupSrhNext",
    "bytes": 56,
@@ -814,12 +3350,116 @@
    "source": "game/overrides/decomp_isys48.cpp"
   },
   {
+   "address": "0x001c7d98",
+   "name": "getVIntrCnt",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c7db0",
+   "name": "setVIntrBaseTime",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c7dc8",
+   "name": "getVIntrDiffTime",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c7e30",
+   "name": "addVIntrTime",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c7fa0",
+   "name": "iosGetISchedulerExecCnt",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_01.cpp"
+  },
+  {
+   "address": "0x001c7fb0",
+   "name": "ischedStop",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c7ff0",
+   "name": "ischedRestart",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8028",
+   "name": "iosSetISchedulerSubthreadTask",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8038",
+   "name": "iosSetIVSyncMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8048",
+   "name": "iosGetIVSyncMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8058",
+   "name": "vschedSetNextFrameForceGarbage",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8068",
+   "name": "GetGarbageTime",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
    "address": "0x001c8078",
    "name": "kernel_sub_001C8078",
    "bytes": 40,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
-   "source": "game/overrides/sotc_overrides.cpp"
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8298",
+   "name": "isysGetLetterObj",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
   },
   {
    "address": "0x001c82d8",
@@ -830,12 +3470,100 @@
    "source": "game/overrides/decomp_isys48.cpp"
   },
   {
+   "address": "0x001c84c0",
+   "name": "init_letter",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c84d8",
+   "name": "is_hope_letter_type",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c84e8",
+   "name": "get_letter_contents_data",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c84f0",
+   "name": "kernel_sub_001C84F0",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8500",
+   "name": "increment_letter_refcount",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8570",
+   "name": "is_letter_reach_time",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8598",
+   "name": "is_init_letter_called",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c85a0",
+   "name": "get_reference_letter_type",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c85a8",
+   "name": "get_letter_receiver_obj_group",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c85b0",
+   "name": "get_letter_receiver_data",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
    "address": "0x001c8888",
    "name": "discard_all_letter_in_post",
    "bytes": 112,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_isys48.cpp"
+  },
+  {
+   "address": "0x001c88f8",
+   "name": "get_total_letter_in_post",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
   },
   {
    "address": "0x001c8900",
@@ -846,12 +3574,148 @@
    "source": "game/overrides/decomp_isys48.cpp"
   },
   {
+   "address": "0x001c8910",
+   "name": "get_next_letter_in_post",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
    "address": "0x001c8938",
    "name": "close_letter_post",
    "bytes": 16,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_isys48.cpp"
+  },
+  {
+   "address": "0x001c8948",
+   "name": "kernel_sub_001C8948",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8ad0",
+   "name": "constructor_letter_type",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8af0",
+   "name": "entry_new_letter_type",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8b30",
+   "name": "init_letter_type_store",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8b68",
+   "name": "get_letter_type",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c8b98",
+   "name": "kernel_sub_001C8B98",
+   "bytes": 496,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c90d0",
+   "name": "iosGetDataSizeOfFont",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9160",
+   "name": "iosGetFontDataWithJIS",
+   "bytes": 152,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c91f8",
+   "name": "iosGetFontDataWithSJIS",
+   "bytes": 296,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9470",
+   "name": "iosGetFontIDWithJIS",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9498",
+   "name": "iosGetFontIDWithSJIS",
+   "bytes": 184,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9620",
+   "name": "iosEntryLocaleFontNoLoad",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9678",
+   "name": "iosGetFontInfo",
+   "bytes": 144,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9708",
+   "name": "iosGet2ByteCharCode",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9720",
+   "name": "_isysCreateSubMsgQueue",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001c9848",
+   "name": "isysInitSubThreadExecEnv",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
   },
   {
    "address": "0x001c9a40",
@@ -870,12 +3734,68 @@
    "source": "game/overrides/decomp_scriptvm.cpp"
   },
   {
+   "address": "0x001ca4a0",
+   "name": "isysGetSubThreadWorkSize",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ca4a8",
+   "name": "isysGetSubThreadStackUse",
+   "bytes": 176,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ca558",
+   "name": "isysGetSubThreadStackSize",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ca5a0",
+   "name": "isysDumpSubThreadPC",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ca5a8",
+   "name": "isysDebugSetSubThreadSleepProtection",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
    "address": "0x001caa10",
    "name": "sndSepReq",
    "bytes": 368,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/decomp_char104.cpp"
+  },
+  {
+   "address": "0x001cab80",
+   "name": "sndSepPlayerSrh",
+   "bytes": 136,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cac08",
+   "name": "sndSepPlayerSrh2",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
   },
   {
    "address": "0x001cac80",
@@ -902,6 +3822,158 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x001cad30",
+   "name": "sndSepSetDefaultParam",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cad90",
+   "name": "sndSepPauseAll",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cadb8",
+   "name": "sndSepPause",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cadd0",
+   "name": "sndSepCont",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cadf8",
+   "name": "sndSepStopTypeAll",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001caf10",
+   "name": "sndVabCreate",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001caf88",
+   "name": "sndVabDelete",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb168",
+   "name": "sndBDClose",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb170",
+   "name": "sndVabInit",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb3a0",
+   "name": "addAdpcmTickProcFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb3b0",
+   "name": "setPcmTickProcFunc",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb3c0",
+   "name": "soundGetTickProcCnt",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb3d0",
+   "name": "soundSetRevMode",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb408",
+   "name": "soundGetRevMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb460",
+   "name": "getSoundMode",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cb920",
+   "name": "iosKeybdSetCallBackFunc",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cbc70",
+   "name": "iosMouseSetCallBackFunc",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cbcb8",
+   "name": "GetStrHashWorkBuffer",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cbd70",
+   "name": "AddStrHashKey",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
    "address": "0x001cbdb8",
    "name": "MakeStrHashValue",
    "bytes": 184,
@@ -918,6 +3990,1078 @@
    "source": "game/overrides/decomp_sym120.cpp"
   },
   {
+   "address": "0x001cc028",
+   "name": "kernel_sub_001CC028",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc0c8",
+   "name": "Sg2CtrlEntryTickProcById",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc228",
+   "name": "Sg2CtrlSetTickMode",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc240",
+   "name": "Sg2CtrlGetTickMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc250",
+   "name": "Sg2CtrlSetTickTime",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc268",
+   "name": "Sg2CtrlGetTickTime",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc318",
+   "name": "Sg2DmaInit",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc7d8",
+   "name": "Sg2DspGetMasterVolume",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc7f8",
+   "name": "Sg2DspInit",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cc898",
+   "name": "Sg2ExStAdpcmStopMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cced0",
+   "name": "Sg2ExStAdpcmSetFd",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ccee0",
+   "name": "Sg2ExStAdpcmGetFd",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ccee8",
+   "name": "Sg2ExStAdpcmSetLsn",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ccef8",
+   "name": "Sg2ExStAdpcmGetLsn",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ccf00",
+   "name": "Sg2ExStAdpcmGetTargetLsn",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ccf18",
+   "name": "Sg2ExStAdpcmSetUserParam",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001ccf28",
+   "name": "Sg2ExStAdpcmGetUserParam",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cd448",
+   "name": "ps2_____VolPerBackup",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cd6f8",
+   "name": "Sg2ExStAdpcmLoopSecNum",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cd710",
+   "name": "Sg2ExStAdpcmGetBuffer",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cd738",
+   "name": "Sg2ExStAdpcmSetSignal",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cd748",
+   "name": "kernel_sub_001CD748",
+   "bytes": 176,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cdde8",
+   "name": "kernel_sub_001CDDE8",
+   "bytes": 336,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cdf38",
+   "name": "kernel_sub_001CDF38",
+   "bytes": 304,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cec38",
+   "name": "Sg2ModCheckSndOn",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cec70",
+   "name": "Sg2ModClose",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001cf6e8",
+   "name": "Sg2ModGetParam",
+   "bytes": 200,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d0d78",
+   "name": "kernel_sub_001D0D78",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d12a8",
+   "name": "kernel_sub_001D12A8",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d12e0",
+   "name": "kernel_sub_001D12E0",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1318",
+   "name": "kernel_sub_001D1318",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1350",
+   "name": "kernel_sub_001D1350",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1358",
+   "name": "kernel_sub_001D1358",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d13e8",
+   "name": "kernel_sub_001D13E8",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1420",
+   "name": "kernel_sub_001D1420",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1470",
+   "name": "kernel_sub_001D1470",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d14c8",
+   "name": "kernel_sub_001D14C8",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1520",
+   "name": "kernel_sub_001D1520",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1578",
+   "name": "kernel_sub_001D1578",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1580",
+   "name": "kernel_sub_001D1580",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d15b8",
+   "name": "kernel_sub_001D15B8",
+   "bytes": 160,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1658",
+   "name": "kernel_sub_001D1658",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1660",
+   "name": "kernel_sub_001D1660",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1698",
+   "name": "kernel_sub_001D1698",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1810",
+   "name": "kernel_sub_001D1810",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d18d8",
+   "name": "kernel_sub_001D18D8",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1f08",
+   "name": "kernel_sub_001D1F08",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1f10",
+   "name": "kernel_sub_001D1F10",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1f18",
+   "name": "kernel_sub_001D1F18",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d1f20",
+   "name": "kernel_sub_001D1F20",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2008",
+   "name": "kernel_sub_001D2008",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2150",
+   "name": "Sg2RemoteDmaTransStatus",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2170",
+   "name": "Sg2RemoteGetAdpStmAdr",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2188",
+   "name": "Sg2RemoteGetPcmStmTransOffset",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2198",
+   "name": "Sg2RemoteGetSlotReleaseLv",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d21b0",
+   "name": "Sg2RemoteGetDspChangeStatus",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2b98",
+   "name": "Sg2SepStatus",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d2da0",
+   "name": "Sg2SepMidiOut",
+   "bytes": 192,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d3428",
+   "name": "kernel_sub_001D3428",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d3430",
+   "name": "kernel_sub_001D3430",
+   "bytes": 176,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d3a48",
+   "name": "kernel_sub_001D3A48",
+   "bytes": 192,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d3b08",
+   "name": "Sg2SlotGetSlotClassIdx",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5cb8",
+   "name": "Sg2SlotBlock",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5d28",
+   "name": "Sg2SlotFree",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5d58",
+   "name": "Sg2SlotCheckSlotClass",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5db0",
+   "name": "Sg2SlotFindLoop",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5df8",
+   "name": "Sg2SlotFindVab",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5e48",
+   "name": "Sg2SlotFindVabCh",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5ea8",
+   "name": "Sg2SlotFindVabChNote",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5f10",
+   "name": "Sg2SlotFindVabChSsaBaseNote",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5f88",
+   "name": "Sg2SlotFindSlotClass",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d5fd8",
+   "name": "Sg2SlotFindSlotClassCh",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6038",
+   "name": "Sg2SlotFindSlotClassChNote",
+   "bytes": 104,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d60a0",
+   "name": "Sg2SlotFindSlotClassChSsaBaseNote",
+   "bytes": 120,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6250",
+   "name": "Sg2SlotSetGroup",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6270",
+   "name": "Sg2SlotSetMute",
+   "bytes": 128,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d62f0",
+   "name": "Sg2SlotSetMasVol",
+   "bytes": 112,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6360",
+   "name": "Sg2SlotSetSeMasVol",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d63b8",
+   "name": "Sg2SlotSetBaseVol",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6410",
+   "name": "Sg2SlotSetVol",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6440",
+   "name": "Sg2SlotSetMasPan",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d64a0",
+   "name": "Sg2SlotSetBasePan",
+   "bytes": 88,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d64f8",
+   "name": "Sg2SlotSetPan",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6528",
+   "name": "Sg2SlotSetBendRange",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6548",
+   "name": "Sg2SlotSetBendValue",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d65f0",
+   "name": "Sg2SlotSetPause",
+   "bytes": 128,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6670",
+   "name": "Sg2SlotSetDirectPitch",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d66a0",
+   "name": "Sg2SlotSetMasTune",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6720",
+   "name": "Sg2SlotSetVolPhase",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6758",
+   "name": "Sg2SlotSetLoop",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6780",
+   "name": "Sg2SlotSetDumperOn",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d67a8",
+   "name": "Sg2SlotSetLfoPitchTbl",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d68a8",
+   "name": "Sg2SlotSetLfoPitchDepth",
+   "bytes": 168,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6950",
+   "name": "Sg2SlotSetLfoVolTbl",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6c30",
+   "name": "Sg2SlotSetTimeVolParam",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6c70",
+   "name": "Sg2SlotSetTimePitchParam",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6cb0",
+   "name": "Sg2SlotSetTimePanParam",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6cf0",
+   "name": "Sg2SlotSetPoltamentParam",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_02.cpp"
+  },
+  {
+   "address": "0x001d6d50",
+   "name": "Sg2SlotGetVol",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d6d70",
+   "name": "Sg2SlotGetPan",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d7458",
+   "name": "Sg2SlotSetOutputMode",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d7470",
+   "name": "Sg2SlotSetVolShiftDownParam",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d7488",
+   "name": "Sg2SlotGetVolShiftDownParam",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d8000",
+   "name": "Sg2SlotTbl",
+   "bytes": 200,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d8250",
+   "name": "kernel_sub_001D8250",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d88f8",
+   "name": "Sg2SmfpStatus",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d8de0",
+   "name": "Sg2SmfpMidiOut",
+   "bytes": 152,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d8e78",
+   "name": "Sg2SmfpSetSignal",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d95c8",
+   "name": "kernel_sub_001D95C8",
+   "bytes": 8,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d95d0",
+   "name": "kernel_sub_001D95D0",
+   "bytes": 144,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d97f0",
+   "name": "kernel_sub_001D97F0",
+   "bytes": 128,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d9ec8",
+   "name": "get_vabid",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001d9f08",
+   "name": "kernel_sub_001D9F08",
+   "bytes": 408,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da0a0",
+   "name": "vab_check_alive",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da0e0",
+   "name": "vab_get_info",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da330",
+   "name": "vab_get_splitchunk",
+   "bytes": 24,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da348",
+   "name": "vab_get_veltbl",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da380",
+   "name": "vab_get_lfotbl_param",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da3c8",
+   "name": "vab_set_semastervol",
+   "bytes": 48,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001da3f8",
+   "name": "vab_get_semastervol",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001daab0",
+   "name": "kernel_sub_001DAAB0",
+   "bytes": 96,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dac18",
+   "name": "kernel_sub_001DAC18",
+   "bytes": 56,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001db3c8",
+   "name": "kernel_sub_001DB3C8",
+   "bytes": 80,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001db418",
+   "name": "kernel_sub_001DB418",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001db678",
+   "name": "kernel_sub_001DB678",
+   "bytes": 72,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001db9e8",
+   "name": "Sg2ExPcmInputGetLipFrame",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dbba0",
+   "name": "Sg2ExPcmInputSetOutputMode",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dbd90",
+   "name": "Sg2ExPcmInputAutoFilterCtrl",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dbfb8",
+   "name": "Sg2ExPcmOutputSetOutputMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dc068",
+   "name": "Sg2ExPcmOutputGetLipFrame",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dc1d0",
+   "name": "Sg2ExPcmOutputAutoFilterCtrl",
+   "bytes": 40,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dc2d0",
+   "name": "Sg2ExPcmSetSignal",
+   "bytes": 16,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dca28",
+   "name": "IirInit",
+   "bytes": 32,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x001dcb48",
+   "name": "IirFilter",
+   "bytes": 320,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x001dd190",
    "name": "mktime",
    "bytes": 664,
@@ -929,6 +5073,14 @@
    "address": "0x001dd538",
    "name": "atanf",
    "bytes": 656,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001dd8a0",
+   "name": "fabsf",
+   "bytes": 40,
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_worker.cpp"
@@ -982,6 +5134,14 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x001de720",
+   "name": "ps2___ieee754_fmodf",
+   "bytes": 464,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
    "address": "0x001df480",
    "name": "ps2___ieee754_sqrtf",
    "bytes": 208,
@@ -996,6 +5156,86 @@
    "status": "native",
    "area": "Boot ELF, SDK and libc",
    "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x001e01b0",
+   "name": "copysignf",
+   "bytes": 64,
+   "status": "native",
+   "area": "Boot ELF, SDK and libc",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x0107dd80",
+   "name": "GAMEUTIL_get_interp_pitch",
+   "bytes": 320,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x0107fbf0",
+   "name": "GAMEUTIL_get_vector_velocity_by_diff_move3D",
+   "bytes": 96,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x0107ff08",
+   "name": "GAMEUTIL_check_and_get_normalize_vector",
+   "bytes": 176,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x0107ffe0",
+   "name": "GAMEUTIL_get_divide_vector_value",
+   "bytes": 152,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01080078",
+   "name": "GAMEUTIL_get_except_axis_vector",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01080090",
+   "name": "GAMEUTIL_convert_from_cos_to_linear_ratio",
+   "bytes": 64,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010813e0",
+   "name": "GAMEUTIL_get_yaw_matrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010813f8",
+   "name": "GAMEUTIL_get_pitch_matrix",
+   "bytes": 256,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01081828",
+   "name": "GAMEUTIL_get_interp_yaw",
+   "bytes": 248,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x01082db0",
@@ -1030,12 +5270,260 @@
    "source": "game/overrides/decomp_hot48c.cpp"
   },
   {
+   "address": "0x010832a8",
+   "name": "GAMEUTIL_doit_interp_ratio_cntrl",
+   "bytes": 248,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010833a0",
+   "name": "doit_double_spring_interp_cntrl",
+   "bytes": 800,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083750",
+   "name": "GAMEUTIL_get_cos_ratio",
+   "bytes": 216,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083828",
+   "name": "GAMEUTIL_get_interp_value",
+   "bytes": 72,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083870",
+   "name": "GAMEUTIL_get_interp_value3D",
+   "bytes": 168,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083918",
+   "name": "GAMEUTIL_get_interp_value_ratio_pow",
+   "bytes": 128,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083b38",
+   "name": "GAMEUTIL_get_spring_interpolate_offset",
+   "bytes": 360,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083ca0",
+   "name": "GAMEUTIL_get_spring_interpolate_value_extend",
+   "bytes": 408,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01083e38",
+   "name": "GAMEUTIL_get_spring_interpolate_offset3D",
+   "bytes": 504,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084030",
+   "name": "GAMEUTIL_get_spring_interpolate_value3D",
+   "bytes": 560,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084260",
+   "name": "GAMEUTIL_constructor_interp_ratio_cntrl",
+   "bytes": 64,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010842a0",
+   "name": "GAMEUTIL_reset_interp_ratio_cntrl",
+   "bytes": 48,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010842d0",
+   "name": "GAMEUTIL_forward_timer_still_one_ratio_time_interp_ratio_cntrl",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010842e8",
+   "name": "GAMEUTIL_get_interp_ratio_interp_ratio_cntrl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010842f0",
+   "name": "GAMEUTIL_get_interp_timer_interp_ratio_cntrl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010842f8",
+   "name": "GAMEUTIL_set_act_interp_flag_interp_ratio_cntrl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084308",
+   "name": "GAMEUTIL_set_param_interp_ratio_cntrl",
+   "bytes": 112,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084378",
+   "name": "GAMEUTIL_set_param_extend_interp_ratio_cntrl",
+   "bytes": 176,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084428",
+   "name": "GAMEUTIL_reset_interp_value_cntrl",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01084450",
    "name": "GAMEUTIL_doit_interp_value_cntrl",
    "bytes": 176,
    "status": "native",
    "area": "Math",
    "source": "game/overrides/decomp_hot47j.cpp"
+  },
+  {
+   "address": "0x01084500",
+   "name": "GAMEUTIL_get_interp_value_interp_value_cntrl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084508",
+   "name": "GAMEUTIL_get_hope_value_interp_value_cntrl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084510",
+   "name": "set_param_double_spring_interp_common",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084528",
+   "name": "constructor_double_spring_interp_cntrl",
+   "bytes": 96,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084588",
+   "name": "set_rot_radi_value_flag_double_spring_interp_cntrl",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084590",
+   "name": "reset_double_spring_interp_cntrl",
+   "bytes": 32,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010845b0",
+   "name": "is_reach_src_value_double_spring_interp_cntrl",
+   "bytes": 72,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010845f8",
+   "name": "constructor_double_spring_interp_cntrl3D",
+   "bytes": 160,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01084698",
+   "name": "set_rot_radi_value_flag_double_spring_interp_cntrl3D",
+   "bytes": 16,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010846a8",
+   "name": "reset_double_spring_interp_cntrl3D",
+   "bytes": 64,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010846e8",
+   "name": "doit_double_spring_interp_cntrl3D",
+   "bytes": 224,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010847c8",
+   "name": "is_reach_src_value_double_spring_interp_cntrl3D",
+   "bytes": 184,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x01085e40",
@@ -1246,6 +5734,14 @@
    "source": "game/overrides/decomp_hot46i.cpp"
   },
   {
+   "address": "0x010ad048",
+   "name": "manager_sub_010AD048",
+   "bytes": 360,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
    "address": "0x010ad1b0",
    "name": "GetMotionFloatFrameNoCaribration",
    "bytes": 616,
@@ -1323,7 +5819,15 @@
    "bytes": 904,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_hot47i.cpp"
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x010b20e8",
+   "name": "GetInitialInverseMatrix",
+   "bytes": 560,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x010b28e0",
@@ -1382,6 +5886,22 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x010b63c0",
+   "name": "GetMotionOptionNodeParentId",
+   "bytes": 24,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x010b6428",
+   "name": "GetMotionNodeQuaternionPos",
+   "bytes": 72,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
    "address": "0x010b6e80",
    "name": "GetMotionNodeBasePos",
    "bytes": 224,
@@ -1412,6 +5932,14 @@
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_motionframe.cpp"
+  },
+  {
+   "address": "0x010b74c0",
+   "name": "IsFullFixFormat",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x010b81f8",
@@ -1518,12 +6046,36 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x010c10e0",
+   "name": "GetCharacterClassOptionNodeLocalQuaternionPos",
+   "bytes": 64,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x010c1580",
+   "name": "GetCharacterClassNodeQuaternionPos",
+   "bytes": 200,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_hot44d.cpp"
+  },
+  {
    "address": "0x010c1a98",
    "name": "regularizeMatAry",
    "bytes": 88,
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_skeleton.cpp"
+  },
+  {
+   "address": "0x010c29a0",
+   "name": "SetInertiaRotInterpMode",
+   "bytes": 96,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x010c2be8",
@@ -1710,6 +6262,22 @@
    "source": "game/overrides/decomp_hot43b.cpp"
   },
   {
+   "address": "0x010d2ce8",
+   "name": "getTurnLimitInterp",
+   "bytes": 96,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x010d2d48",
+   "name": "getRatioFromInterp",
+   "bytes": 72,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x010d41e0",
    "name": "manager_sub_010D41E0",
    "bytes": 520,
@@ -1764,6 +6332,14 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x010ed580",
+   "name": "getOutSideVectorXYZSquare",
+   "bytes": 88,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x010ed688",
@@ -2442,8 +7018,8 @@
    "name": "ClipCollisionDirectCallBackObjAry",
    "bytes": 3032,
    "status": "native",
-   "area": "Display and models",
-   "source": "game/overrides/decomp_collcensus.cpp"
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_collision.cpp"
   },
   {
    "address": "0x01130490",
@@ -2467,7 +7043,7 @@
    "bytes": 792,
    "status": "native",
    "area": "Math",
-   "source": "game/overrides/decomp_ctrlturn.cpp"
+   "source": "game/overrides/decomp_cam126.cpp"
   },
   {
    "address": "0x01132098",
@@ -2475,7 +7051,15 @@
    "bytes": 472,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/sotc_worker.cpp"
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x01132270",
+   "name": "GetGeometryPointerQuatPos",
+   "bytes": 992,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
   },
   {
    "address": "0x011329c0",
@@ -2486,6 +7070,14 @@
    "source": "game/overrides/decomp_charageo.cpp"
   },
   {
+   "address": "0x01132e20",
+   "name": "GetMultiLocalizeMatrix",
+   "bytes": 168,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01132ec8",
    "name": "CopyMultiMatrix",
    "bytes": 104,
@@ -2494,12 +7086,148 @@
    "source": "game/overrides/decomp_math.cpp"
   },
   {
+   "address": "0x01132f30",
+   "name": "GetMoveVectorOnWV",
+   "bytes": 616,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01133198",
+   "name": "GetXZVectorOnWV",
+   "bytes": 544,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01133408",
+   "name": "GetArbitraryDirectionMatrix",
+   "bytes": 320,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01133548",
    "name": "GetArbitraryDirectionInverseMatrix",
    "bytes": 512,
    "status": "native",
    "area": "Math",
    "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x01133948",
+   "name": "GetSpaceTransformMatrix",
+   "bytes": 616,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01133bb0",
+   "name": "GetSpaceTransformRotMatrix",
+   "bytes": 584,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01134140",
+   "name": "GetPointDistanceSquareFromUnnormalizedPlane",
+   "bytes": 88,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01134198",
+   "name": "GetPointDistanceFromPlane",
+   "bytes": 48,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x011341c8",
+   "name": "MultiMatrixByPlane",
+   "bytes": 96,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01134250",
+   "name": "GetSTPositionOfVectorPlane",
+   "bytes": 184,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x011346c8",
+   "name": "GetPlaneReflectionVector",
+   "bytes": 104,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01135720",
+   "name": "GetMatrixFromQuatPos",
+   "bytes": 136,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x011357a8",
+   "name": "ExchangeLWQuaternion",
+   "bytes": 120,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x01135b50",
+   "name": "GetPlaneDistance",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01135b78",
+   "name": "GetDistanceSquare",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01135ba0",
+   "name": "GetDistanceSquareXZ",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01135bc8",
+   "name": "ExchangeLWVector",
+   "bytes": 48,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01135dd8",
+   "name": "IsInsideOfRegion",
+   "bytes": 1128,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x01136f30",
@@ -4030,6 +8758,14 @@
    "source": "game/overrides/decomp_keyboard.cpp"
   },
   {
+   "address": "0x0114ae78",
+   "name": "mouseMoveCursorPosition",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x0114b0a8",
    "name": "FlushPadHistory",
    "bytes": 808,
@@ -4044,6 +8780,14 @@
    "status": "native",
    "area": "System and memory",
    "source": "game/overrides/decomp_keyboard.cpp"
+  },
+  {
+   "address": "0x01155b50",
+   "name": "windowSemiTransRate",
+   "bytes": 16,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x011583e8",
@@ -4078,6 +8822,14 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x0115ba38",
+   "name": "sheetFsInit",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x0115d170",
    "name": "sheetMgrResolve",
    "bytes": 752,
@@ -4086,12 +8838,132 @@
    "source": "game/overrides/decomp_sym120.cpp"
   },
   {
+   "address": "0x01160c20",
+   "name": "SetVSMatrix",
+   "bytes": 56,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01160f68",
    "name": "get_cur_camera_context",
    "bytes": 32,
    "status": "native",
    "area": "Display and models",
    "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x01162f18",
+   "name": "get_transform_matrix_set",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01162f20",
+   "name": "create_original_view_matrix",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01162fd0",
+   "name": "get_view_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164768",
+   "name": "create_directX_projection_matrix",
+   "bytes": 224,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cb8",
+   "name": "get_WV_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cc0",
+   "name": "get_VC_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cc8",
+   "name": "get_CS_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cd0",
+   "name": "get_WVC_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cd8",
+   "name": "get_VCS_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164ce0",
+   "name": "get_WVCS_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164ce8",
+   "name": "get_scissor_VC_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cf0",
+   "name": "get_scissor_WVC_matrix",
+   "bytes": 8,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164cf8",
+   "name": "create_transform_matrix_set",
+   "bytes": 64,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01164d70",
+   "name": "update_transform_matrix_set",
+   "bytes": 880,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x01166ba0",
@@ -4158,6 +9030,22 @@
    "source": "game/overrides/decomp_char104.cpp"
   },
   {
+   "address": "0x01341920",
+   "name": "getSnapShotFormat",
+   "bytes": 16,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x013420e8",
+   "name": "GAMEUTIL_doit_look_at_vs_offset_vec",
+   "bytes": 1088,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01344788",
    "name": "gamecore",
    "bytes": 56,
@@ -4172,6 +9060,46 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_hot44c.cpp"
+  },
+  {
+   "address": "0x01344ee8",
+   "name": "nico_kimurateststart",
+   "bytes": 120,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01345ed0",
+   "name": "getFrameRateMode",
+   "bytes": 16,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x01345ee0",
+   "name": "setFrameRateMode",
+   "bytes": 56,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x0134e658",
+   "name": "omakeGetAndSelectCls",
+   "bytes": 272,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x0134fb58",
+   "name": "omakeGetAndSelectSet",
+   "bytes": 80,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x01357898",
@@ -4220,6 +9148,14 @@
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x0137c1d8",
+   "name": "nico_parentAndScaleSync",
+   "bytes": 232,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x0137c348",
@@ -4278,6 +9214,14 @@
    "source": "game/overrides/decomp_hot47f.cpp"
   },
   {
+   "address": "0x0138beb0",
+   "name": "GAMEUTIL_get_cur_interp_ratio_expression",
+   "bytes": 24,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01391e30",
    "name": "gamecore_sub_01391E30",
    "bytes": 8232,
@@ -4326,6 +9270,38 @@
    "source": "game/overrides/decomp_bridle.cpp"
   },
   {
+   "address": "0x0139a2a0",
+   "name": "Init_TimeFVECTORInter",
+   "bytes": 40,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x0139a2c8",
+   "name": "Update_TimeFVECTORInter",
+   "bytes": 128,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x013a7218",
+   "name": "CalcFootVec",
+   "bytes": 128,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x013a74e8",
+   "name": "MVHIST_Update",
+   "bytes": 272,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
    "address": "0x013b54c8",
    "name": "playerPlaneJudgeFuncCameraFilter",
    "bytes": 304,
@@ -4356,6 +9332,14 @@
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x013cf228",
+   "name": "bootprogressivecheck",
+   "bytes": 48,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x013cf258",
@@ -4438,6 +9422,14 @@
    "source": "game/overrides/decomp_scriptvm.cpp"
   },
   {
+   "address": "0x013d2690",
+   "name": "AI_GetRandomSphereOfs",
+   "bytes": 328,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x013d3ab8",
    "name": "AI_GetSmallAnimalAIParam",
    "bytes": 432,
@@ -4446,12 +9438,52 @@
    "source": "game/overrides/decomp_aiparam.cpp"
   },
   {
+   "address": "0x013d3c68",
+   "name": "AI_GetYRotQuaternion",
+   "bytes": 312,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_cam126.cpp"
+  },
+  {
+   "address": "0x013d3ec0",
+   "name": "AI_GetRandomVelocity",
+   "bytes": 160,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x013d3f60",
+   "name": "AI_GetRandomRange",
+   "bytes": 64,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x013d4820",
    "name": "AI_GetRotVelocity",
    "bytes": 312,
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_hot48c.cpp"
+  },
+  {
+   "address": "0x013d50d0",
+   "name": "AI_GetRandomRectOfsXY",
+   "bytes": 280,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x013d5300",
+   "name": "AI_GetNegaVector",
+   "bytes": 48,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x013d54f0",
@@ -4622,6 +9654,22 @@
    "source": "game/overrides/decomp_pointsort.cpp"
   },
   {
+   "address": "0x014324f8",
+   "name": "setAttainmentPosAndDirAndLock",
+   "bytes": 184,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
+   "address": "0x014328f8",
+   "name": "setReductionCosUserPathWork",
+   "bytes": 88,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x01433450",
    "name": "getPointDataByAreaIdx",
    "bytes": 160,
@@ -4654,6 +9702,14 @@
    "source": "game/overrides/decomp_collision.cpp"
   },
   {
+   "address": "0x01437d60",
+   "name": "estimateAttainPos2",
+   "bytes": 152,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
+  },
+  {
    "address": "0x014383f0",
    "name": "moveCtrlWallJudgeFunc",
    "bytes": 88,
@@ -4668,6 +9724,14 @@
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_collision.cpp"
+  },
+  {
+   "address": "0x01447178",
+   "name": "getValueInterp",
+   "bytes": 80,
+   "status": "native",
+   "area": "Math",
+   "source": "game/overrides/decomp_liftd1_03.cpp"
   },
   {
    "address": "0x01450b60",
@@ -4766,5 +9830,5 @@
    "source": "game/overrides/decomp_scriptvm2.cpp"
   }
  ],
- "runtime_functions": 280
+ "runtime_functions": 278
 }

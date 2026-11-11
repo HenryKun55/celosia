@@ -77,10 +77,25 @@ def classify(name):
         return 'native', area if area != 'Other game code' else area_of(0x1000000, q.split('::')[-1])
     if ns == 'sotc_native':
         return 'native', 'Display and models'
+    if ns == 'lift_d1':  # decomp D1 (tools/lift_d1.py): named after the guest function, its area by its address
+        fname = q.split('::')[-1]
+        addr = lifted_addresses().get(fname)
+        return 'native', area_of(addr if addr is not None else 0x1000000, fname)
     if ns in override_namespaces():
         area = NATIVE_NS_AREAS.get(ns) or area_of(0x1000000, q)
         return 'native', area
     return 'runtime', RUNTIME
+
+
+_lifted = None
+
+
+def lifted_addresses():
+    """name -> guest address of the recompiled functions (lift_d1's natives are named after them)."""
+    global _lifted
+    if _lifted is None:
+        _lifted = {n: a for a, n in recompiled_functions().items()}
+    return _lifted
 
 
 # Natives written in their own namespaces (game/overrides), not decomp_*:
@@ -223,7 +238,7 @@ def write_readme(tree_path):
     tr = sum(a['tr'] for a in areas.values())
     tu = sum(a['tu'] for a in areas.values())
     out = ['<!-- decomp:start (tools/decomp_tree.py --readme writes this block) -->', '',
-           '**Game thread time on the Vita** (%s, Vita3K profile of the route):' % tree.get('label', ''), '',
+           '**Game thread time on the Vita** (%s, Vita3K profile):' % tree.get('label', ''), '',
            '| | share | |', '|---|---:|---|',
            '| Native code | %.1f%% | %s |' % (tn, bar(tn, 100, 20)),
            '| Recompiled MIPS | %.1f%% | %s |' % (tr, bar(tr, 100, 20)),

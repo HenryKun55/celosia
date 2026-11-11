@@ -787,6 +787,35 @@ namespace sotc_decomp
 
     bool abNew() { return g_abNew; }
 
+    // Decomp D1's lifted functions (tools/lift_d1.py): their table entries swapped when SOTC_LIFTD1 changes at run
+    // time (an A/B window, SOTC_AB_FLAG=liftd1), as abTick swaps SOTC_AB's set.
+    namespace
+    {
+        std::vector<AbEntry> g_lift;
+        int g_liftHooked = 0;
+        PS2Runtime *g_liftRuntime = nullptr;
+        void liftSwitchChanged(int which, bool on)
+        {
+            if (which != kLiftD1 || !g_liftRuntime)
+                return;
+            int swapped = 0;
+            for (const AbEntry &e : g_lift)
+            {
+                if (!e.recompiled || !e.native)
+                    continue;
+                const PS2Runtime::RecompiledFunction from = on ? e.recompiled : e.native, to = on ? e.native : e.recompiled;
+                if (g_liftRuntime->lookupFunction(e.address) == from)
+                {
+                    g_liftRuntime->registerFunction(e.address, to);
+                    ++swapped;
+                }
+                else
+                    sotc_prof::remapWrapped(from, to);
+            }
+            std::fprintf(stderr, "[liftd1] frame %llu: %s (%d swapped)\n", static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
+        }
+    }
+
     void abTick(uint64_t frame)
     {
         if (!g_abPeriod)
@@ -987,6 +1016,19 @@ namespace sotc_decomp
             }
             else
             {
+                if (f.lift && runtime.lookupFunction(f.address) != f.original)
+                {
+                    ++g_liftHooked; // a hook or a runtime override holds the slot: it stays
+                    continue;
+                }
+                if (f.lift)
+                {
+                    // Decomp D1: in the table while SOTC_LIFTD1 is on (read here, after the env file); kept for the
+                    // A/B's swaps either way.
+                    g_lift.push_back({f.address, f.native, runtime.lookupFunction(f.address)});
+                    if (!switchOn(kLiftD1))
+                        continue;
+                }
                 runtime.registerFunction(f.address, f.native);
                 if (f.ab)
                     g_ab.push_back({f.address, f.native, runtime.lookupFunction(f.address) == f.native ? g_recompiled[f.address] : nullptr});
@@ -1010,6 +1052,12 @@ namespace sotc_decomp
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
+        if (!g_lift.empty())
+        {
+            g_liftRuntime = &runtime;
+            g_switchChanged = liftSwitchChanged;
+ std::cerr << "[liftd1] " << g_lift.size() << " lifted functions (" << g_liftHooked << " left to a hook), " << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << std::endl;
+        }
         buildRecompiledTable();
 #if !defined(__vita__)
         installProbe(runtime);
