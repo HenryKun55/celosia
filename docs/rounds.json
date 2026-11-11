@@ -787,7 +787,7 @@
   {
    "round": "D2",
    "date": "2026-11-11",
-   "commit": "",
+   "commit": "b2d940c",
    "focus": "Decomp",
    "summary": "The next batch of machine-converted functions, picked by how much of the game thread they take: the top 1 300 of the still-recompiled code were converted and run through every check (call-by-call comparison with the original on the Mac, A/B timing and the console card's walk and ride on Vita3K). The checks found three real bugs in the converter and fixed them (a delay-slot case, values written back on paths that never changed them, and 64-bit values passed in registers the converter took for 32-bit ones, which kept the walk on the loading screen). Only the 245 leaf functions (no calls) ship this round, behind SOTC_LIFTD2 (on); the call-heavy rest waits for D3 to re-check with the fixes.",
    "result": "Decomp: 1 737 of 9 024 functions native (19.3%, was 16.5%), 18.4% of the code, 83.8% of calls. Exact: the shipped functions compared with the original on the same state in the attract demo, walk and ride, 0 register differences (the only differences single memory bytes other threads wrote meanwhile). Speed (Vita3K 222 MHz, in-run A/B): the leaves 12-28% faster than the recompiled code, about 0.2-0.4% of the game thread; the whole frame within the A/B's noise. Pictures: walk (29 000 frames), ride and the attract demo normal, Wander and Agro on the ground."
