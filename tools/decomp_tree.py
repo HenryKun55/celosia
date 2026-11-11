@@ -77,9 +77,12 @@ def classify(name):
         return 'native', area if area != 'Other game code' else area_of(0x1000000, q.split('::')[-1])
     if ns == 'sotc_native':
         return 'native', 'Display and models'
-    if ns == 'lift_d1':  # decomp D1 (tools/lift_d1.py): named after the guest function, its area by its address
+    if ns == 'lift_d1':  # decomp D1 / D2 (tools/lift_d1.py): named after the guest function, its area by its address
         fname = q.split('::')[-1]
         addr = lifted_addresses().get(fname)
+        if addr is None and fname.endswith('_lift'):  # D2: a guest function named like a libm one (powf_lift)
+            fname = fname[:-5]
+            addr = lifted_addresses().get(fname)
         return 'native', area_of(addr if addr is not None else 0x1000000, fname)
     if ns in override_namespaces():
         area = NATIVE_NS_AREAS.get(ns) or area_of(0x1000000, q)

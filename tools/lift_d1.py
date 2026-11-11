@@ -37,7 +37,22 @@ Registration: SOTC_DECOMP_LIFT_FUNCTION (sotc_decomp.h): sotc_decomp::install pu
 while SOTC_LIFTD1 is on and the slot still holds the generated function (a hook keeps its place); an A/B window
 (SOTC_AB_FLAG=liftd1) swaps the table entries. docs/decomp.md "Decomp D1".
 
-Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--refused refused.txt] addr|@file ...
+Decomp D2 (docs/decomp.md "Decomp D2"): `--d2` writes D2's batch (SOTC_DECOMP_LIFT_FUNCTION_D2, switch SOTC_LIFTD2),
+`--extern @d1set.txt` calls an earlier batch's lifted functions directly. Fixes and additions (D2's files only: D1's files stay as committed,
+see docs/decomp.md "Decomp D2" for why D1 regenerated with them is not shipped):
+  - a likely branch's delay slot (a restore's "clean" register too) counts only on the taken edge: the fall-through
+    edge carries the state before the slot (a register the slot restored was left unwritten back on the other path);
+  - write-back flags: a narrow GPR that is dirty on some paths into a write-back and not on others (a path that never
+    wrote it, or read a callee's 64-bit value back after a call) has a `df_<reg>` flag; its write-backs test it, so a
+    caller's or callee's 64-bit value is never replaced by the sign-extended low word;
+  - a register still holding its entry (or post-call) value is a wide local where it meets a 64-bit operation
+    (branch compares, slt*, bitwise ops, moves, movz / movn): callers pass 64-bit masks in "32-bit" registers;
+  - a `break` in a likely branch's delay slot (the divide-by-zero check) as a runtime call on the taken path;
+  - guest functions named like libm / libc ones get a `_lift` suffix as C++ names in D2's files;
+  - an entry with ctx->pc on one of the function's labels (a resume through the entry slot, which the generated
+    function's switch allows) runs the generated function (`--resume-delegate`, on with --d2).
+
+Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
 """
 import argparse
 import os
@@ -55,6 +70,24 @@ FIELDS = {'fcr31': ('fcr31', 'uint32_t'), 'f_acc': ('facc', 'float'), 'vu0_acc':
 
 class Refuse(Exception):
     pass
+
+
+# D2: guest functions named like C / C++ library functions (libc's fabsf, sqrtf ...) get a suffix as C++ names, so the
+# generator's macros (FPU_ABS_S -> fabsf) still reach the library inside namespace lift_d1.
+LIBC = set('''abs labs fabs fabsf sqrt sqrtf sin sinf cos cosf tan tanf asin asinf acos acosf atan atanf atan2 atan2f exp expf
+log logf log10 log10f pow powf floor floorf ceil ceilf fmod fmodf round roundf trunc truncf modf modff frexp frexpf ldexp
+ldexpf hypot hypotf copysign copysignf isnan isinf memcpy memmove memset memcmp memchr strlen strcpy strncpy strcmp
+strncmp strcat strncat strchr strrchr strstr strtol strtoul strtod atoi atol atof malloc free calloc realloc qsort bsearch
+rand srand printf sprintf snprintf vsprintf vsnprintf puts putchar abort exit div ldiv toupper tolower isdigit isalpha
+isspace isupper islower isalnum isprint sscanf fmin fmax fminf fmaxf'''.split())
+
+
+RESUME_DELEGATE = [False]  # on for --d2 and with --resume-delegate (D1 regenerated with it in D2)
+CXX_SUFFIX = [False]  # on for --d2 (D1's files keep their names: isinf, isnan, fabsf compiled there as they are)
+
+
+def cxx(name):
+    return name + '_lift' if CXX_SUFFIX[0] and name in LIBC else name
 
 
 def sx16(v):
@@ -325,8 +358,21 @@ class Lifter:
     def stmts(self):
         g = self.g
         self.raw = {}
+        # D2: a likely branch whose delay slot is a `break` (the compiler's divide-by-zero check, `beql $x, $zero` /
+        # `break 7`): the slot runs only when taken, as a runtime call (everything synced before, read back after).
+        self.brk = set()
         for a in self.addrs:
             k = self.kind.get(a, ('op',))
+            if a in self.delay and self.kind.get(a - 4, ('op',))[0] == 'br' and self.kind[a - 4][5] and g.mnem[a].split()[0] == 'break':
+                ch = [ln.strip() for ln in g.chunks.get(a, []) if ln.strip() and not re.fullmatch(r'Ps2SetGpr64\(ctx, (\d+), (?:RC_U64X\()?rc_\1\)?\);', ln.strip())]
+                if ch[:2] != ['runtime->handleBreak(rdram, ctx);', 'ctx->in_delay_slot = false;'] or not ch[2].startswith('goto label_'):
+                    raise Refuse(f'break slot form at {a:x}')
+                bt = g.block_text(a - 4)
+                if f'ctx->pc = 0x{a:X}u;' not in bt or 'ctx->in_delay_slot = true;' not in bt or f'ctx->branch_pc = 0x{a - 4:X}u;' not in bt:
+                    raise Refuse(f'break slot form at {a:x}')
+                self.brk.add(a)
+                self.raw[a] = ''
+                continue
             if a in self.delay or k[0] == 'op':
                 t = g.stmt_text(a)
                 if re.search(r'\b(goto|return)\b|label_', t):
@@ -379,6 +425,26 @@ class Lifter:
         if self.mode64:
             self.wide = set(range(1, 32))
             return
+        # D2: a register still holding its entry (or post-call) value is the caller's full 64-bit value, not
+        # necessarily a sign-extended word (ColCont2_IsColStatus gets 64-bit masks in a1 / a2). Where such a value
+        # meets a 64-bit operation (a branch compare, slt*, the bitwise ops and moves, movz / movn) the register is
+        # wide: the narrow local would compare or copy only its sign-extended low word.
+        WIDE_USE = {'slt', 'sltu', 'slti', 'sltiu', 'and', 'or', 'xor', 'nor', 'ori', 'xori', 'movz', 'movn', 'move'}
+        for a in self.order:
+            und = self.undef_in.get(a, set())
+            k = self.kind[a]
+            if k[0] == 'br' and k[1] not in ('c1t', 'c1f'):
+                wide |= {r for r in (k[2], k[3]) if r and r in und}
+            for x in ((a,) if k[0] == 'op' else ((a + 4,) if a + 4 in self.delay else ())):
+                t = self.raw.get(x)
+                if not t or x in self.restores:
+                    continue
+                m = g.mnem[x].split()[0]
+                w = W[x]
+                if m in ('daddu', 'dsubu', 'dadd', 'dsub') and (((w >> 16) & 31) == 0 or (m in ('daddu', 'dadd') and ((w >> 21) & 31) == 0)):
+                    m = 'move'
+                if m in WIDE_USE:
+                    wide |= (self.gpr_uses_raw(t) - {0}) & und
         changed = True
         while changed:
             changed = False
@@ -699,9 +765,12 @@ class Lifter:
         while work:
             a = work.pop()
             u = through(a, undef_in[a])
+            k = self.kind[a]
             for s_ in succ[a]:
+                # D2: a likely branch's delay slot runs only when taken: the fall-through edge carries the state before it
+                eu = set(undef_in[a]) if (k[0] == 'br' and k[5] and s_ != k[4]) else u
                 old = undef_in[s_]
-                new = u if old is None else (old & u)
+                new = eu if old is None else (old & eu)
                 if old is None or new != old:
                     undef_in[s_] = new
                     work.append(s_)
@@ -882,16 +951,78 @@ class Lifter:
             a = work.pop()
             out, at = transfer(a, dirty_in[a])
             self.sync_at[a] = at
+            k = nodes[a]['kind']
+            if k[0] == 'br' and k[5] and nodes[a]['dclean'] and self.succ[a].count(k[4]) > 1:
+                raise Refuse(f'likely branch to its own fall-through with a restore at {a:x}')
             for s in self.succ[a]:
+                # D2: a likely branch's delay slot (a restore's clean register too) only on the taken edge
+                eo = frozenset(dirty_in[a]) if (k[0] == 'br' and k[5] and s != k[4]) else out
                 old = dirty_in[s]
-                new = out if old is None else (old | out)
+                new = eo if old is None else (old | eo)
                 if old is None or new != old:
                     dirty_in[s] = new
                     work.append(s)
         self.dirty_in = dirty_in
         self.nodes = nodes
+        # D2: the same analysis with an intersection at merges (dirty on every path). A narrow GPR that is dirty on
+        # some paths into a write-back and not on others (a path that never wrote it, or read it back from the
+        # context after a call) would have its 64-bit context value replaced by the sign-extended low word on the
+        # paths that did not write it (a caller's or a callee's 64-bit value): such registers get a runtime flag,
+        # set where the local is written and cleared where the context is written or read back, and their
+        # write-backs test it. Wide GPRs and the FPU / VU0 state are full-width locals: writing them back is exact.
+        must_in = {a: None for a in order}
+        must_in[order[0]] = frozenset()
+        work = [order[0]]
+        while work:
+            a = work.pop()
+            out, at = transfer(a, must_in[a])
+            k = nodes[a]['kind']
+            for s_ in self.succ[a]:
+                eo = frozenset(must_in[a]) if (k[0] == 'br' and k[5] and s_ != k[4]) else out
+                old = must_in[s_]
+                new = eo if old is None else (old & eo)
+                if old is None or new != old:
+                    must_in[s_] = new
+                    work.append(s_)
+        flags = set()
+        for a in order:
+            if dirty_in[a] is None:
+                continue
+            mi = must_in[a] if must_in[a] is not None else frozenset()
+            diff = set(dirty_in[a]) - set(mi)
+            pmay, pmust = transfer(a, dirty_in[a])[1], transfer(a, mi)[1]
+            if pmay is not None and pmust is not None:
+                diff |= set(pmay) - set(pmust)
+            flags |= {x for x in diff if x[0] == 'g' and x[1] != 0 and not self.is_wide(x[1])}
+        self.flags = flags
+        if flags:
+            for a in order:
+                n = nodes[a]
+                if n['kind'][0] == 'op':
+                    n['code'] = self.flagged(a, n['code'], n['defs'], n['clean'])
+                elif 'dcode' in n and a + 4 not in self.brk:
+                    n['dcode'] = self.flagged(a + 4, n['dcode'], n['ddefs'], n['dclean'])
         reach = set(a for a in order if dirty_in[a] is not None)
         return self.emit(reach)
+
+    def fl(self, r):
+        return f'df_{self.gname(r)}'
+
+    def flagged(self, a, code, defs, clean):
+        """An instruction's code with the write-back flags of the registers it writes (D2)."""
+        fs = sorted(r for k, r in defs if k == 'g' and ('g', r) in self.flags and ('g', r) not in clean)
+        cs = sorted(r for k, r in clean if k == 'g' and ('g', r) in self.flags)
+        if not fs and not cs:
+            return code
+        m = self.g.mnem[a].split()[0] if a in self.g.mnem else ''
+        if m in ('movz', 'movn') and len(fs) == 1 and not cs:
+            n = self.gname(fs[0])
+            return f'{{ const uint32_t _o = {n}; {code} if ({n} != _o) {self.fl(fs[0])} = true; }}'
+        flags = ' '.join([f'{self.fl(r)} = true;' for r in fs] + [f'{self.fl(r)} = false;' for r in cs])
+        if '//' in code:  # a restore's trailing comment: the flags go before it
+            i = code.index('//')
+            return code[:i].rstrip() + ' ' + flags + ' ' + code[i:]
+        return (code + ' ' if code else '') + flags
 
     def cond_uses(self, k):
         if k[1] in ('c1t', 'c1f'):
@@ -927,7 +1058,8 @@ class Lifter:
             if kind == 'g':
                 if r == 0:
                     continue
-                out.append(f'Ps2SetGpr64(ctx, {r}, {self.gname(r) if self.is_wide(r) else "sx64(" + self.gname(r) + ")"});')
+                w = f'Ps2SetGpr64(ctx, {r}, {self.gname(r) if self.is_wide(r) else "sx64(" + self.gname(r) + ")"});'
+                out.append(f'if ({self.fl(r)}) {w}' if s in getattr(self, 'flags', ()) else w)
             elif kind == 'f':
                 out.append(f'ctx->f[{r}] = f{r};')
             elif kind == 'v':
@@ -949,7 +1081,9 @@ class Lifter:
         return f'{loc} = ctx->{r};'
 
     def reload_all(self):
-        return ' '.join(self.load(s) for s in sorted(self.allslots, key=lambda x: (x[0], str(x[1]))))
+        out = [self.load(s) for s in sorted(self.allslots, key=lambda x: (x[0], str(x[1])))]
+        out += [f'{self.fl(r)} = false;' for _, r in sorted(getattr(self, 'flags', ()))]
+        return ' '.join(out)
 
     def decls(self):
         out = []
@@ -969,6 +1103,8 @@ class Lifter:
         for k, r in sorted((s for s in self.allslots if s[0] == 'x'), key=lambda x: x[1]):
             loc, ty = FIELDS[r]
             out.append(f'{ty} {loc} = ctx->{r};')
+        if getattr(self, 'flags', None):
+            out.append('bool ' + ', '.join(f'{self.fl(r)} = false' for _, r in sorted(self.flags)) + ';')
         return out
 
     def emit(self, reach):
@@ -1035,6 +1171,9 @@ class Lifter:
                     L.append(I + n['code'])
                 continue
             dcode = n['dcode']
+            if a + 4 in self.brk:  # D2: a likely branch's `break` slot, as the generated code runs it (taken only)
+                dcode = (f'{self.sync(self.dirty_after_branch(a))} ctx->pc = 0x{a + 4:X}u; ctx->in_delay_slot = true; ctx->branch_pc = 0x{a:X}u; '
+                         f'runtime->handleBreak(rdram, ctx); ctx->in_delay_slot = false; {self.reload_all()}')
             if k[0] == 'br':
                 c = self.cond(k)
                 t = k[4]
@@ -1114,9 +1253,9 @@ class Lifter:
                         raise Refuse(f'jump target form at {a:x}')
                     L.append(f'{I}    const uint32_t jumpTarget = {jt.group(1)};')
                 if k[0] == 'jal':
-                    L.append(f'{I}    ra = 0x{a + 8:X}u;')
+                    L.append(f'{I}    ra = 0x{a + 8:X}u;' + (f' {self.fl(31)} = true;' if ('g', 31) in self.flags else ''))
                 if k[0] == 'jalr' and k[2]:
-                    L.append(f'{I}    {self.gname(k[2])} = 0x{a + 8:X}u;')
+                    L.append(f'{I}    {self.gname(k[2])} = 0x{a + 8:X}u;' + (f' {self.fl(k[2])} = true;' if ('g', k[2]) in self.flags else ''))
                 if dcode:
                     L.append(I + '    ' + dcode)
                 L.append(f'{I}    {self.sync(self.sync_at[a])}')
@@ -1168,11 +1307,15 @@ class Lifter:
 
     def text(self, switch):
         body = self.lift()
-        name = self.g.name
+        name = cxx(self.g.name)
         start = self.g.start
         out = [f'// {name} ({start:#x}-{self.g.end:#x})']
         out.append(f'void {name}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)')
         out.append('{')
+        if RESUME_DELEGATE[0] and re.search(r'if \(__builtin_expect\(ctx->pc != 0x%xu, 0\)\) \{\s*switch \(ctx->pc\)' % start, self.g.src):
+            # D2: entered through its entry slot with ctx->pc on one of its labels (a sub-thread resumed by a native
+            # that calls the entry, as the generated function's switch allows): the generated function resumes it.
+            out.append(f'    if (__builtin_expect(ctx->pc != 0x{start:X}u, 0)) {{ {self.g.cname}(rdram, ctx, runtime); return; }}')
         for d in self.decls():
             out.append('    ' + d)
         out.extend(body)
@@ -1227,6 +1370,15 @@ namespace lift_d1
 {
 '''
 
+HEADER_D2 = HEADER.replace('''// Generated by tools/lift_d1.py (decomp round D1): guest functions as native C++ on host locals, exact (the
+// recompiler's own instruction semantics, its call protocol and loop checkpoints), in the function table while
+// SOTC_LIFTD1 is on (sotc_decomp::install; an A/B window swaps them back).
+// Regenerate with the tool; see docs/decomp.md "Decomp D1".''', '''// Generated by tools/lift_d1.py --d2 (decomp round D2: the next batch, by game-thread time): guest functions as native
+// C++ on host locals, exact (the recompiler's own instruction semantics, its call protocol and loop checkpoints), in the
+// function table while SOTC_LIFTD2 is on (sotc_decomp::install; an A/B window swaps them back). D1's lifted functions
+// they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D2".''')
+assert HEADER_D2 != HEADER
+
 FOOTER = '''}
 
 #pragma GCC diagnostic pop
@@ -1240,12 +1392,26 @@ def main():
     ap.add_argument('--chunk', type=int, default=60)
     ap.add_argument('--refused', help='write the refused functions and why')
     ap.add_argument('--leaf', action='store_true', help='only functions that call nothing and never hand the context to the runtime')
+    ap.add_argument('--resume-delegate', action='store_true', help='an entry with ctx->pc on a label runs the generated function')
+    ap.add_argument('--d2', action='store_true', help="decomp D2's batch: SOTC_DECOMP_LIFT_FUNCTION_D2 (SOTC_LIFTD2), its header")
+    ap.add_argument('--extern', action='append', default=[], help='@file / addr: functions lifted in an earlier batch (lift_d1::name): called directly')
     ap.add_argument('addrs', nargs='+')
     args = ap.parse_args()
     addrs = []
     for x in args.addrs:
         addrs.extend(open(x[1:]).read().split() if x.startswith('@') else [x])
     addrs = [int(x, 16) for x in addrs]
+    CXX_SUFFIX[0] = args.d2
+    RESUME_DELEGATE[0] = args.d2 or args.resume_delegate
+    ext = {}
+    for x in args.extern:
+        for y in (open(x[1:]).read().split() if x.startswith('@') else [x]):
+            try:
+                n = Gen(int(y, 16)).name
+            except Refuse:
+                continue
+            if n not in LIBC:  # an earlier batch's function named like a library one: through the table
+                ext[int(y, 16)] = n
     # pass 1: which lift (names for direct calls between them)
     ok, refused = {}, []
     for a in addrs:
@@ -1257,24 +1423,27 @@ def main():
                     raise Refuse('not a leaf (calls)')
                 if any(n.get('opaque') for n in lf.nodes.values()):
                     raise Refuse('not a leaf (runtime call)')
-            ok[a] = lf.g.name
+            ok[a] = cxx(lf.g.name)
         except Refuse as e:
             refused.append((a, str(e)))
         except Exception as e:  # a parser bug: refuse, report
             refused.append((a, f'error {type(e).__name__}: {e}'))
     bodies, regs = [], []
+    known = dict(ext)
+    known.update(ok)
+    macro = 'SOTC_DECOMP_LIFT_FUNCTION_D2' if args.d2 else 'SOTC_DECOMP_LIFT_FUNCTION'
     for a in sorted(ok):
-        lf = Lifter(a, ok)
+        lf = Lifter(a, known)
         bodies.append(lf.text(args.switch))
-        regs.append(f'SOTC_DECOMP_LIFT_FUNCTION(0x{a:08X}u, {lf.g.name}, lift_d1::{lf.g.name}, {lf.g.cname});')
+        regs.append(f'{macro}(0x{a:08X}u, {lf.g.name}, lift_d1::{cxx(lf.g.name)}, {lf.g.cname});')
     if '{n}' in args.out:
         groups = [list(range(i, min(i + args.chunk, len(bodies)))) for i in range(0, len(bodies), args.chunk)]
     else:
         groups = [list(range(len(bodies)))]
     for n, grp in enumerate(groups):
         # the batch's functions: called directly across files, named in their own off<>
-        decl = ''.join(f'    void {ok[a]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a in sorted(ok))
-        text = HEADER.replace('SWITCH_NAME', args.switch) + decl + '\n'
+        decl = ''.join(f'    void {known[a]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a in sorted(known) if a in ok or a in ext)
+        text = (HEADER_D2 if args.d2 else HEADER).replace('SWITCH_NAME', args.switch) + decl + '\n'
         text += '\n\n'.join(bodies[i] for i in grp) + '\n' + FOOTER + '\n' + '\n'.join(regs[i] for i in grp) + '\n'
         open(args.out.replace('{n}', f'{n:02d}'), 'w').write(text)
     if args.refused:

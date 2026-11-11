@@ -789,17 +789,18 @@ namespace sotc_decomp
 
     // Decomp D1's lifted functions (tools/lift_d1.py): their table entries swapped when SOTC_LIFTD1 changes at run
     // time (an A/B window, SOTC_AB_FLAG=liftd1), as abTick swaps SOTC_AB's set.
+    // Decomp D2: the same for D2's batch (SOTC_LIFTD2, SOTC_AB_FLAG=liftd2), its own list.
     namespace
     {
-        std::vector<AbEntry> g_lift;
+        std::vector<AbEntry> g_lift, g_lift2;
         int g_liftHooked = 0;
         PS2Runtime *g_liftRuntime = nullptr;
         void liftSwitchChanged(int which, bool on)
         {
-            if (which != kLiftD1 || !g_liftRuntime)
+            if ((which != kLiftD1 && which != kLiftD2) || !g_liftRuntime)
                 return;
             int swapped = 0;
-            for (const AbEntry &e : g_lift)
+            for (const AbEntry &e : which == kLiftD1 ? g_lift : g_lift2)
             {
                 if (!e.recompiled || !e.native)
                     continue;
@@ -812,7 +813,7 @@ namespace sotc_decomp
                 else
                     sotc_prof::remapWrapped(from, to);
             }
-            std::fprintf(stderr, "[liftd1] frame %llu: %s (%d swapped)\n", static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
+            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : "liftd2", static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
         }
     }
 
@@ -1025,8 +1026,21 @@ namespace sotc_decomp
                 {
                     // Decomp D1: in the table while SOTC_LIFTD1 is on (read here, after the env file); kept for the
                     // A/B's swaps either way.
-                    g_lift.push_back({f.address, f.native, runtime.lookupFunction(f.address)});
-                    if (!switchOn(kLiftD1))
+                    const int sw = f.liftSwitch < 0 ? kLiftD1 : f.liftSwitch;
+                    // Decomp D2 (test knob): SOTC_LIFTD2_RANGE=<lo>:<hi> (hex guest addresses) installs only D2's
+                    // functions in [lo, hi), for bisecting on the Vita (the env file's lines are 4 KB at most).
+                    static const std::pair<uint32_t, uint32_t> d2Range = []
+                    {
+                        const char *r = ps2_diag::env("SOTC_LIFTD2_RANGE");
+                        if (!r || !std::strchr(r, ':'))
+                            return std::pair<uint32_t, uint32_t>{0u, 0xFFFFFFFFu};
+                        return std::pair<uint32_t, uint32_t>{static_cast<uint32_t>(std::strtoul(r, nullptr, 16)),
+                                                             static_cast<uint32_t>(std::strtoul(std::strchr(r, ':') + 1, nullptr, 16))};
+                    }();
+                    if (sw == kLiftD2 && (f.address < d2Range.first || f.address >= d2Range.second))
+                        continue;
+                    (sw == kLiftD1 ? g_lift : g_lift2).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
+                    if (!switchOn(sw))
                         continue;
                 }
                 runtime.registerFunction(f.address, f.native);
@@ -1052,11 +1066,12 @@ namespace sotc_decomp
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
-        if (!g_lift.empty())
+        if (!g_lift.empty() || !g_lift2.empty())
         {
             g_liftRuntime = &runtime;
             g_switchChanged = liftSwitchChanged;
- std::cerr << "[liftd1] " << g_lift.size() << " lifted functions (" << g_liftHooked << " left to a hook), " << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << std::endl;
+            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << " (" << g_liftHooked << " left to a hook), d1 "
+                      << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << ", d2 " << (switchOn(kLiftD2) ? "on" : "off (SOTC_LIFTD2=0)") << std::endl;
         }
         buildRecompiledTable();
 #if !defined(__vita__)
