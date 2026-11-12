@@ -791,6 +791,14 @@
    "focus": "Decomp",
    "summary": "The next batch of machine-converted functions, picked by how much of the game thread they take: the top 1 300 of the still-recompiled code were converted and run through every check (call-by-call comparison with the original on the Mac, A/B timing and the console card's walk and ride on Vita3K). The checks found three real bugs in the converter and fixed them (a delay-slot case, values written back on paths that never changed them, and 64-bit values passed in registers the converter took for 32-bit ones, which kept the walk on the loading screen). Only the 245 leaf functions (no calls) ship this round, behind SOTC_LIFTD2 (on); the call-heavy rest waits for D3 to re-check with the fixes.",
    "result": "Decomp: 1 737 of 9 024 functions native (19.3%, was 16.5%), 18.4% of the code, 83.8% of calls. Exact: the shipped functions compared with the original on the same state in the attract demo, walk and ride, 0 register differences (the only differences single memory bytes other threads wrote meanwhile). Speed (Vita3K 222 MHz, in-run A/B): the leaves 12-28% faster than the recompiled code, about 0.2-0.4% of the game thread; the whole frame within the A/B's noise. Pictures: walk (29 000 frames), ride and the attract demo normal, Wander and Agro on the ground."
+  },
+  {
+   "round": "D3",
+   "date": "2026-11-12",
+   "commit": "",
+   "focus": "Decomp",
+   "summary": "D1's machine-converted functions regenerated with the converter's three D2 fixes (235 of 621 changed), and D2's call-heavy functions converted and checked: 534 candidates, 414 ship behind SOTC_LIFTD3 (on). Each was compared call by call with the original on the Mac (attract demo, the console card's walk and ride), and the walk, ride and attract demo were run on Vita3K with the converted code on from boot and under the A/B. Left out: 37 that no test run reached and 83 that the A/B measured slower. No wild return or fault appeared, so the stack-pointer guard D2 proposed was not needed. The regenerated D1 also ran alone and under the rotating A/B with no slowdown.",
+   "result": "Decomp: 2 151 of 9 024 functions native (23.8%, was 19.3%), 23.3% of the code, 88.2% of calls, 75.1% of the game thread's time in native code (D2: 71.1%). Exact: the final 414 compared on 276 569 calls in three Mac runs, with 412 reached. There were 0 register differences in the converted code itself: the one register difference was a hardware timer value a callee leaves in a0. The remaining memory differences are the timer word and bytes that other threads write, as in a control run. Speed (Vita3K 222 MHz, in-run A/B): the set 2.7% faster than the recompiled code (4.57% vs 4.70% of the game thread); whole frame off minus on +0.55 +- 0.54 ms. Pictures: walk, ride, attract and the console env's rotation normal, Wander and Agro on the ground."
   }
  ]
 }
