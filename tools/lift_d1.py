@@ -73,6 +73,16 @@ preserve): `--summary-only @file` uses the summaries only in the functions liste
 writes the functions as alternative copies (namespace lift_alt, SOTC_DECOMP_LIFT_ALT, test builds only) that the
 liftalt switch puts in place, so two lifter versions of the same functions can be A/B'd in one run.
 
+Decomp D5 (docs/decomp.md "Decomp D5"): `--inline` splices small leaf callees (no call, loop, runtime call, sp / ra,
+64-bit work; at most --inline-max instructions; slot not a native) into their lifted callers: a guard (the table's slot
+holds that callee, the host stack has room, the dispatch charge, taken back when the checkpoint is due) jumps into a copy
+of the callee's instructions at addresses of their own (FAKE_BASE), whose `jr $ra`s go to one block per site with the
+call's unwinding check; the analyses run over the combined graph; when the guard fails the call is made as before.
+`--inline-only`, `--inline-callees`, `--inline-lifted`, `--inline-log`. Close to break-even on the A9 (the liftalt A/B):
+used only in the callers measured faster. `--d5` writes D5's batch (SOTC_DECOMP_LIFT_FUNCTION_D5, switch SOTC_LIFTD5,
+test knob SOTC_LIFTD5_RANGE); `--fallback` writes lifted copies of natively replaced functions
+(SOTC_DECOMP_LIFT_FALLBACK: what sotc_decomp::recompiled() gives the natives' fallbacks while SOTC_LIFTD5 is on).
+
 Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2 | --d3 | --d4] [--alt] [--summary [--summary-cache f.pkl]
        [--summary-log f.txt]] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
 """
@@ -112,6 +122,69 @@ SUMMARY = {}
 # D4: --summary-only @file: the summaries are used only in these functions (the ones the A/B measured faster with them);
 # the others are lifted as without --summary.
 SUMMARY_ONLY = set()
+# D5: --inline: small leaf callees spliced into their lifted callers (one host function: the callee's values stay in
+# host registers, no call). 'max': the largest callee inlined (instructions); 'only': callers allowed (None: all);
+# 'callees': callees allowed (None: all eligible); 'info': callee address -> its Lifter (eligible) or None; 'natives':
+# addresses whose slot may hold a native (never inlined: the guard would always fail).
+INLINE = {'on': False, 'max': 40, 'only': None, 'callees': None, 'info': {}, 'natives': None, 'sites': 0}
+FAKE_BASE = 0x40000000  # D5: the inlined copies' instructions get addresses of their own: FAKE_BASE + site * FAKE_STEP + offset
+FAKE_STEP = 0x10000
+
+
+def inline_callee(t):
+    """D5: the callee at t as a Lifter when it can be spliced into a caller, else None: a leaf (no call, jump out,
+    runtime call, break, loop), returns only through `jr $ra`, never touches sp or ra, no 64-bit integer work, at
+    most INLINE['max'] instructions, and its table slot holds the generated function or a lifted copy (not a native)."""
+    info = INLINE['info']
+    if t in info:
+        return info[t]
+    info[t] = None
+    why = INLINE.setdefault('why', {})
+    if INLINE['callees'] is not None and t not in INLINE['callees']:
+        why[t] = 'not listed'
+        return None
+    if INLINE['natives'] is None:
+        INLINE['natives'] = native_addresses(set(table()))
+    if t in INLINE['natives']:
+        why[t] = 'native'
+        return None
+    try:
+        lf = Lifter(t, {})
+        lf.inline_ok = False  # no splicing inside a callee
+        lf.build()
+    except Refuse as e:
+        why[t] = f'refused {e}'
+        return None
+    except Exception as e:
+        why[t] = f'error {e}'
+        return None
+    g = lf.g
+    if (g.end - g.start) // 4 > INLINE['max'] or lf.mode64 or lf.brk:
+        why[t] = 'size' if (g.end - g.start) // 4 > INLINE['max'] else 'mode64'
+        return None
+    rets = 0
+    for a, k in lf.kind.items():
+        if k[0] == 'ret':
+            rets += 1
+        elif k[0] == 'br':
+            if k[4] <= a:
+                why[t] = 'loop'
+                return None
+        elif k[0] != 'op':
+            why[t] = 'calls'
+            return None
+    if not rets:
+        why[t] = 'no return'
+        return None
+    for a, t_ in lf.raw.items():
+        if lf.raw_opaque(t_) or {29, 31} & (lf.gpr_defs_raw(t_) | lf.gpr_uses_raw(t_)):
+            why[t] = 'runtime / sp / ra'
+            return None
+        if re.search(r'\bctx->pc\b|runtime->', t_):
+            why[t] = 'runtime'
+            return None
+    info[t] = lf
+    return lf
 
 
 def cxx(name):
@@ -300,6 +373,7 @@ class Lifter:
         self.g = Gen(addr)
         self.addr = addr
         self.lifted = lifted_names  # address -> native name of the batch's other lifted functions
+        self.inline_ok = INLINE['on'] and (INLINE['only'] is None or addr in INLINE['only'])
 
     # ---------------------------------------------------------------- analysis
     def analyse(self):
@@ -384,7 +458,61 @@ class Lifter:
                 has = ('PS2_CHECKPOINT_DUE_AT(0x%Xu)' % t) in bt
                 if (t <= a) != has:
                     raise Refuse(f'checkpoint pattern at {a:x}')
+        self.regions = [(g.start, g.end)]
+        if self.inline_ok:
+            self.splice_inlines()
         self.stmts()
+
+    def splice_inlines(self):
+        """D5: each jal to an inlinable callee (inline_callee) becomes an 'ijal' node: a guard (the table's slot holds
+        that callee, the host stack has room, the call's dispatch charge) leads into a copy of the callee's
+        instructions at addresses of their own, whose `jr $ra` ('iret') goes on at the call's return address; when the
+        guard fails the call is made as before. The analyses (widths, the context's full values, dirty slots and
+        write-back flags) then run over the one combined control-flow graph, so the callee's statements use the
+        caller's locals and nothing is written back or read back around them."""
+        g = self.g
+        sites = [a for a in sorted(self.kind) if self.kind[a][0] == 'jal']
+        n = 0
+        for a in sites:
+            t = self.kind[a][1]
+            if t == self.addr:
+                continue
+            h = inline_callee(t)
+            if h is None:
+                continue
+            if a in self.dyncall:
+                # relocated: the generated call reads its target from the instruction word; the guard compares it
+                bt = g.block_text(a).split('\nlabel_')[0]
+                jt = re.search(r'const uint32_t jumpTarget = (.*?);\n', bt)
+                if not jt or 'READ32(' not in jt.group(1):
+                    continue
+            F = FAKE_BASE + n * FAKE_STEP
+            n += 1
+            hg = h.g
+            for x in h.addrs:
+                fx = F + (x - hg.start)
+                g.words[fx] = hg.words[x]
+                g.mnem[fx] = hg.mnem[x]
+                g.chunks[fx] = hg.chunks.get(x, [])
+                g.blocks[fx] = hg.blocks.get(x, [])
+                self.addrs.append(fx)
+                if x in h.delay:
+                    self.delay.add(fx)
+                k = h.kind.get(x)
+                if k is None:
+                    continue
+                if k[0] == 'br':
+                    tt = F + (k[4] - hg.start)
+                    self.kind[fx] = k[:4] + (tt,) + k[5:]
+                    self.targets.add(tt)
+                elif k[0] == 'ret':
+                    self.kind[fx] = ('iret', a + 8, a)
+                else:
+                    self.kind[fx] = k
+            self.targets.add(F)
+            self.regions.append((F, F + (hg.end - hg.start)))
+            self.kind[a] = ('ijal', t, F, hg.cname, self.lifted.get(t) or INLINE.setdefault('lifted', {}).get(t))
+        INLINE['sites'] += n
 
     # per-instruction statement texts and their slot effects
     def stmts(self):
@@ -714,11 +842,17 @@ class Lifter:
         # pass 1: may-defined GPRs (forward, union) on a coarse CFG, for the entry-value rule
         succ = {}
         order = [a for a in self.addrs if a not in self.delay]
-        nxt = {order[i]: order[i + 1] for i in range(len(order) - 1)}
+        reg = lambda x: next(i for i, (lo, hi) in enumerate(self.regions) if lo <= x < hi)
+        # D5: no fall-through between the function and an inlined copy, or between two copies
+        nxt = {order[i]: order[i + 1] for i in range(len(order) - 1) if reg(order[i]) == reg(order[i + 1])}
         for a in order:
             k = self.kind[a]
             s = []
-            if k[0] == 'br':
+            if k[0] == 'ijal':
+                s = [k[2], nxt.get(a)]
+            elif k[0] == 'iret':
+                s = [k[1]]
+            elif k[0] == 'br':
                 s = [k[4]]
                 if not (k[1] == 'eq' and k[2] == 0 and k[3] == 0):
                     s.append(nxt.get(a))
@@ -781,7 +915,7 @@ class Lifter:
             k = self.kind[a]
             if k[0] == 'op':
                 return step(a, u)
-            if k[0] == 'jal':
+            if k[0] in ('jal', 'ijal'):
                 u.discard(31)
             if k[0] == 'jalr':
                 u.discard(k[2])
@@ -806,6 +940,8 @@ class Lifter:
             for s_ in succ[a]:
                 # D2: a likely branch's delay slot runs only when taken: the fall-through edge carries the state before it
                 eu = set(undef_in[a]) if (k[0] == 'br' and k[5] and s_ != k[4]) else u
+                if k[0] == 'ijal' and s_ != k[2]:  # D5: the guard failed: the call made, everything read back after it
+                    eu = set(range(32))
                 old = undef_in[s_]
                 new = eu if old is None else (old & eu)
                 if old is None or new != old:
@@ -960,8 +1096,8 @@ class Lifter:
                 n.update(uses=set(), defs=set(), opaque=False, clean=set())
                 d = a + 4
                 dund = und
-                if k[0] in ('jal', 'jalr'):
-                    dund = und - {31 if k[0] == 'jal' else k[2]}
+                if k[0] in ('jal', 'jalr', 'ijal'):
+                    dund = und - {k[2] if k[0] == 'jalr' else 31}
                 code, uses, defs, opq, clean = self.stmt(d, dund)
                 if opq:
                     raise Refuse(f'opaque delay slot at {d:x}')
@@ -970,9 +1106,9 @@ class Lifter:
                     n['uses'] |= self.cond_uses(k)
                 if k[0] in ('jr', 'jalr'):
                     n['uses'].add(('g', k[1]))
-                if k[0] in ('jal', 'jalr'):
+                if k[0] in ('jal', 'jalr', 'ijal'):
                     n['uses'].add(('g', 29))
-                    rr = 31 if k[0] == 'jal' else k[2]
+                    rr = k[2] if k[0] == 'jalr' else 31
                     if rr:
                         n['defs'].add(('g', rr))
                         n['uses'].add(('g', rr))
@@ -1002,12 +1138,16 @@ class Lifter:
                 d -= n['clean']
                 return frozenset(d), None
             pre = set(d)
-            if k[0] in ('jal', 'jalr'):
-                rr = 31 if k[0] == 'jal' else k[2]
+            if k[0] in ('jal', 'jalr', 'ijal'):
+                rr = k[2] if k[0] == 'jalr' else 31
                 if rr:
                     pre.add(('g', rr))
             pre |= n['ddefs']
             pre -= n['dclean']
+            if k[0] == 'ijal':
+                # D5: into the inlined copy with everything as it is (edge_out: the guard's failure edge, the call,
+                # has everything written back before it and read back after); written back where the guard fails
+                return frozenset(pre), pre
             s = self.csum.get(a)
             if s is not None:
                 # D4: a callee with a summary: what it reads or writes is written back before it (what it writes
@@ -1030,6 +1170,8 @@ class Lifter:
             for s in self.succ[a]:
                 # D2: a likely branch's delay slot (a restore's clean register too) only on the taken edge
                 eo = frozenset(dirty_in[a]) if (k[0] == 'br' and k[5] and s != k[4]) else out
+                if k[0] == 'ijal' and s != k[2]:
+                    eo = frozenset()
                 old = dirty_in[s]
                 new = eo if old is None else (old | eo)
                 if old is None or new != old:
@@ -1052,6 +1194,8 @@ class Lifter:
             k = nodes[a]['kind']
             for s_ in self.succ[a]:
                 eo = frozenset(must_in[a]) if (k[0] == 'br' and k[5] and s_ != k[4]) else out
+                if k[0] == 'ijal' and s_ != k[2]:
+                    eo = frozenset()
                 old = must_in[s_]
                 new = eo if old is None else (old & eo)
                 if old is None or new != old:
@@ -1209,7 +1353,7 @@ class Lifter:
         for a in order:
             k = self.kind[a]
             for t in self.succ[a]:
-                if not (k[0] == 'op' or (k[0] in ('jal', 'jalr')) or (t == self.next_of(a) and k[0] == 'br' and t != k[4])):
+                if not (k[0] == 'op' or (k[0] in ('jal', 'jalr')) or (t == self.next_of(a) and k[0] == 'br' and t != k[4]) or (k[0] == 'ijal' and t != k[2])):
                     gotos.append((a, t))
         structured = {}
         ends = []
@@ -1332,6 +1476,54 @@ class Lifter:
                 L.append(f'{I}    return;')
                 L.append(f'{I}}}')
                 continue
+            if k[0] == 'ijal':
+                # D5: an inlined call: the guard, then the callee's copy at L_<F>; the call as before when it fails
+                t, F, cname, lname = k[1], k[2], k[3], k[4]
+                bt = g.block_text(a).split('\nlabel_')[0]
+                call = re.search(r'(if \(!PS2_CALL_GUEST(?:_KNOWN)?\(.*?\)\) \{)', bt)
+                jt = re.search(r'const uint32_t jumpTarget = (.*?);\n', bt)
+                if not call:
+                    raise Refuse(f'call form at {a:x}')
+                L.append(f'{I}{{')
+                if jt:
+                    if 'READ32(' not in jt.group(1) and not re.fullmatch(r'0x[0-9A-Fa-f]+u', jt.group(1)):
+                        raise Refuse(f'jump target form at {a:x}')
+                    L.append(f'{I}    const uint32_t jumpTarget = {jt.group(1)};')
+                L.append(f'{I}    ra = 0x{a + 8:X}u;' + (f' {self.fl(31)} = true;' if ('g', 31) in self.flags else ''))
+                if dcode:
+                    L.append(I + '    ' + dcode)
+                pre = self.sync_at[a]
+                sym = f'lift_d1::{lname}' if lname else cname
+                cond = (f'jumpTarget == 0x{t:X}u && ' if jt and 'READ32(' in jt.group(1) else '') + f'PS2_GUEST_FN(0x{t:X}u) == &{sym} && !runtime->hostStackDeep()'
+                L.append(f'{I}    if (__builtin_expect({cond}, 1)) {{')
+                # the call's dispatch charge; when the checkpoint is due it is taken back (the clock exactly as it
+                # was) and the call below makes it, with its slow path, as the generated code does
+                L.append(f'{I}        if (__builtin_expect(runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), 1))')
+                L.append(f'{I}            goto L_{F:x};')
+                L.append('#if PS2X_EE_CLOCK64')
+                L.append(f'{I}        runtime->m_eeClock.cycle -= PS2Runtime::kEeDispatchCycles;')
+                L.append('#else')
+                L.append(f'{I}        runtime->m_eeClock.run -= PS2Runtime::kEeDispatchCycles;')
+                L.append('#endif')
+                L.append(f'{I}    }}')
+                line = call.group(1)
+                if lname and 'PS2_CALL_GUEST_KNOWN' in line:
+                    line = re.sub(r'PS2_CALL_GUEST_KNOWN\(([^,]+), \w+,', lambda m: f'PS2_CALL_GUEST_KNOWN({m.group(1)}, lift_d1::{lname},', line)
+                L.append(f'{I}    {self.sync(pre)}')
+                L.append(f'{I}    ctx->pc = {"jumpTarget" if jt else "0x%Xu" % t};')
+                L.append(f'{I}    {line} return; }}')
+                L.append(f'{I}}}')
+                L.append(f'{I}{self.reload_all()}')
+                continue
+            if k[0] == 'iret':
+                # D5: the inlined callee's `jr $ra`: on at the call's return address (the call's own check after it
+                # returns: a thread switch unwinding leaves with everything written back, pc on the return address)
+                L.append(f'{I}{{')
+                if dcode:
+                    L.append(I + '    ' + dcode)
+                L.append(f'{I}    goto L_iu_{k[2]:x};')
+                L.append(f'{I}}}')
+                continue
             if k[0] in ('jal', 'jalr', 'tail', 'jr'):
                 bt = g.block_text(a).split('\nlabel_')[0]
                 call = re.search(r'(if \(!PS2_CALL_GUEST(?:_KNOWN)?\(.*?\)\) \{)', bt)
@@ -1402,6 +1594,15 @@ class Lifter:
                 L.append(f'{I}}}')
                 continue
             raise Refuse(f'kind {k}')
+        # D5: each inlined call's return, shared by the copy's `jr $ra`s: the call's own check after it returns (a thread
+        # switch unwinding leaves with everything written back, pc on the return address), then on after the call.
+        # The return address's dirty set covers every path into it (the write-back flags guard the narrow ones).
+        for a in order:
+            k = self.kind[a]
+            if k[0] == 'ijal':
+                L.append(f'L_iu_{a:x}:')
+                L.append(f'    if (__builtin_expect(runtime->m_eeClock.unwinding, 0)) {{ {self.sync(self.dirty_in[a + 8])} ctx->pc = 0x{a + 8:X}u; return; }}')
+                L.append(f'    goto L_{a + 8:x};')
         return L
 
     def next_of(self, a):
@@ -1709,6 +1910,10 @@ HEADER_D4 = HEADER_D3.replace('''// Generated by tools/lift_d1.py --d3 (decomp r
     'SOTC_LIFTD3 is on', 'SOTC_LIFTD4 is on').replace("D1's and D2's lifted", "Earlier batches' lifted").replace('"Decomp D3"', '"Decomp D4"')
 assert HEADER_D4 != HEADER_D3 and 'LIFTD4' in HEADER_D4 and 'Decomp D4' in HEADER_D4
 
+HEADER_D5 = HEADER_D4.replace('''// Generated by tools/lift_d1.py --d4 (decomp round D4: the next batch)''', '''// Generated by tools/lift_d1.py --d5 (decomp round D5: the next batch)''').replace(
+    'SOTC_LIFTD4 is on', 'SOTC_LIFTD5 is on').replace('"Decomp D4"', '"Decomp D5"')
+assert HEADER_D5 != HEADER_D4 and 'LIFTD5' in HEADER_D5 and 'Decomp D5' in HEADER_D5
+
 FOOTER = '''}
 
 #pragma GCC diagnostic pop
@@ -1733,21 +1938,48 @@ def main():
     ap.add_argument('--summary-cache', help='D4: the per-function facts (pickle; made when missing)')
     ap.add_argument('--summary-log', help="D4: write each function's summary (or why it has none)")
     ap.add_argument('--summary-only', help='D4: @file of addresses: use the summaries only in these functions')
+    ap.add_argument('--inline', action='store_true', help='D5: small leaf callees spliced into their callers (a guard on the table slot)')
+    ap.add_argument('--inline-max', type=int, default=40, help='D5: the largest callee inlined, in instructions')
+    ap.add_argument('--inline-only', help='D5: @file of addresses: inline only in these callers')
+    ap.add_argument('--inline-callees', help='D5: @file of addresses: inline only these callees')
+    ap.add_argument('--inline-log', help='D5: write each caller and the callees inlined into it')
+    ap.add_argument('--inline-lifted', action='append', default=[], help='D5: @file of addresses lifted in a later batch: an inlined '
+                    'callee among them is guarded on its lifted copy (direct calls are not changed)')
+    ap.add_argument('--fallback', action='store_true', help="D5: lifted copies of natively replaced functions (SOTC_DECOMP_LIFT_FALLBACK: "
+                    "what recompiled() gives the natives' fallbacks while SOTC_LIFTD5 is on)")
+    ap.add_argument('--d5', action='store_true', help="decomp D5's batch: SOTC_DECOMP_LIFT_FUNCTION_D5 (SOTC_LIFTD5), as --d2 otherwise")
     ap.add_argument('addrs', nargs='+')
     args = ap.parse_args()
+    if args.inline:
+        INLINE['on'] = True
+        INLINE['max'] = args.inline_max
+        if args.inline_only:
+            INLINE['only'] = set(int(x, 16) for x in open(args.inline_only.lstrip('@')).read().split())
+        if args.inline_callees:
+            INLINE['callees'] = set(int(x, 16) for x in open(args.inline_callees.lstrip('@')).read().split())
+        for x in args.inline_lifted:
+            for y in open(x.lstrip('@')).read().split():
+                try:
+                    n = Gen(int(y, 16)).name
+                except Refuse:
+                    continue
+                if n not in LIBC:
+                    INLINE.setdefault('lifted', {})[int(y, 16)] = n
     if args.summary_only:
         SUMMARY_ONLY.update(int(x, 16) for x in open(args.summary_only.lstrip('@')).read().split())
     if args.summary:
         SUMMARY.update(build_summaries(args.summary_cache, args.summary_log))
         print(f'{len(SUMMARY)} callee summaries', file=sys.stderr)
-    if args.d4:
+    if args.d4 or args.d5:
         args.d3 = False
+    if args.d5:
+        args.d4 = False
     addrs = []
     for x in args.addrs:
         addrs.extend(open(x[1:]).read().split() if x.startswith('@') else [x])
     addrs = [int(x, 16) for x in addrs]
-    CXX_SUFFIX[0] = args.d2 or args.d3 or args.d4
-    RESUME_DELEGATE[0] = args.d2 or args.d3 or args.d4 or args.resume_delegate
+    CXX_SUFFIX[0] = args.d2 or args.d3 or args.d4 or args.d5
+    RESUME_DELEGATE[0] = args.d2 or args.d3 or args.d4 or args.d5 or args.resume_delegate
     ext = {}
     for x in args.extern:
         for y in (open(x[1:]).read().split() if x.startswith('@') else [x]):
@@ -1776,11 +2008,15 @@ def main():
     bodies, regs = [], []
     known = dict(ext)
     known.update(ok)
-    macro = ('SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
+    macro = ('SOTC_DECOMP_LIFT_FALLBACK' if args.fallback else 'SOTC_DECOMP_LIFT_FUNCTION_D5' if args.d5 else 'SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
              'SOTC_DECOMP_LIFT_FUNCTION_D2' if args.d2 else 'SOTC_DECOMP_LIFT_FUNCTION')
+    ilog = []
     for a in sorted(ok):
         lf = Lifter(a, known)
         bodies.append(lf.text(args.switch))
+        ij = [k for k in lf.kind.values() if k[0] == 'ijal']
+        if ij:
+            ilog.append(f'{a:x} {lf.g.name} ' + ' '.join(f'{k[1]:x}' for k in ij))
         if args.alt:
             regs.append(f'SOTC_DECOMP_LIFT_ALT(0x{a:08X}u, {lf.g.name}, lift_alt::{cxx(lf.g.name)});')
         else:
@@ -1792,15 +2028,26 @@ def main():
     for n, grp in enumerate(groups):
         # the batch's functions: called directly across files, named in their own off<>
         decl = ''.join(f'    void {known[a]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a in sorted(known) if a in ok or a in ext)
-        hdr = HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
+        decl += ''.join(f'    void {n}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a, n in sorted(INLINE.get('lifted', {}).items()) if a not in known)
+        hdr = HEADER_D5 if args.d5 else HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
         if args.summary:
             hdr = hdr.replace('#include "sotc_decomp.h"', '// D4: --summary: a call writes back / reads back only what the callee (its whole-program summary)\n'
                               '// reads / writes; the rest is written back on the call\'s not-returning path.\n#include "sotc_decomp.h"')
+        if args.fallback:
+            hdr = hdr.replace('#include "sotc_decomp.h"', '// D5: --fallback: lifted copies of functions natives replace (their slots hold the natives); sotc_decomp::\n'
+                              '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD5 is on (SOTC_DECOMP_LIFT_FALLBACK).\n#include "sotc_decomp.h"')
+        if args.inline:
+            hdr = hdr.replace('#include "sotc_decomp.h"', '// D5: --inline: small leaf callees spliced into their lifted callers behind a guard (the table\'s slot holds\n'
+                              '// that callee, the host stack has room); the call as before when it fails.\n#include "sotc_decomp.h"')
         text = hdr.replace('SWITCH_NAME', args.switch) + decl + '\n'
         if args.alt:  # the bodies in their own namespace; calls between lifted functions still reach lift_d1's
             text += '}\n\nnamespace lift_alt\n{\nusing namespace lift_d1;\n\n'
         text += '\n\n'.join(bodies[i] for i in grp) + '\n' + FOOTER + '\n' + '\n'.join(regs[i] for i in grp) + '\n'
         open(args.out.replace('{n}', f'{n:02d}'), 'w').write(text)
+    if args.inline_log:
+        open(args.inline_log, 'w').write(''.join(x + '\n' for x in ilog))
+    if args.inline:
+        print(f'{len(ilog)} callers with inlined calls, {sum(len(x.split()) - 2 for x in ilog)} sites', file=sys.stderr)
     if args.refused:
         with open(args.refused, 'w') as f:
             for a, why in refused:

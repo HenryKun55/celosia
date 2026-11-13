@@ -19758,3 +19758,170 @@ code**, 11.1% recompiled, 10.9% runtime (D3: 75.1 / 13.5 / 11.4).
   control run of their own).
 - **Coverage**: a colossus-fight recording for the 36 unreached; a difftest mode for the blocking 370 + 63 and the
   rest's 175 that may block.
+
+## Decomp D5: lifted-to-lifted calls inlined (only where measured faster); natives' fallbacks served by lifted copies; D5's batch (SOTC_LIFTD5) (2026-11-13)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d5/` (STATE.md lists them): regen.sh (D1-D4 regenerated with the
+committed commands plus extra arguments; `regen.sh base` reproduces the committed files byte for byte), genalt.sh (the
+liftalt copies of a set of callers), gen5.sh (D5's files), whyinl.py (why a callee cannot be inlined), rank5.py /
+cand5.py (the ranking from a Vita3K profile of this round's build and its candidates), natrec.py / natfb.py (what the
+natives reach through `recompiled()`, and the game-thread time in natively replaced functions' generated code), dtseq.sh
+(Mac difftest runs in a row), final5.py (the shipped lists from the difftest logs), final5.sh (the final Vita3K runs in
+two lanes). Own Vita3K trees ../vita3k-celosia-d5 / -d5b (222 MHz, 3 cores, muted); at most two heavy processes, all
+`nice -n 20`, builds -j4.
+
+### Lifted-to-lifted calls inlined (tools/lift_d1.py --inline)
+
+D4 showed that call-heavy lifted code is break-even because of the A9's calling convention: a value live across a host
+call is spilled and filled. D5 removes the call itself for small callees. `--inline` splices a callee's instructions
+into its lifted caller as one control-flow graph:
+
+- **Callees inlined**: leaves (no call, jump out, runtime call, `break` or loop) that return only through `jr $ra`,
+  never touch sp or ra, do no 64-bit integer work, are at most 40 instructions long, and whose table slot cannot hold a
+  native (D4's `native_addresses`). Over D1-D4's callers: 616 call sites in 232 functions (getDrawScreenWidth / Height
+  83 of them; the rest are getters, small math helpers, table lookups). Most call sites are not eligible: 1 325 reach
+  natives (gsReg, GetLayoutClass, GetCharacterClass ...), 375 callees call out, 330 are larger (whyinl.py).
+- **The call site** (`ijal`): a guard that the table's slot holds exactly that callee (its lifted copy, or the
+  generated function when the callee is not lifted) and that the host stack has room, then the call's dispatch charge
+  (`kEeDispatchCycles`). When the checkpoint is due the charge is taken back (`run -= 8`: the clock exactly as before)
+  and the call is made as before, as is every case the guard rejects (a hook, a difftest checker, a profiler wrapper, an
+  A/B window that switched the callee off). Otherwise the code jumps into the callee's copy, whose instructions get
+  addresses of their own (0x40000000 + site * 0x10000 + offset) so the analyses see one function.
+- **The return** (`iret`): every `jr $ra` of the copy goes to one block per site that does the call's own check
+  (`m_eeClock.unwinding`: write everything back, pc on the return address, return), then on at the return address.
+- **The analyses run over the combined graph**: the widths, the context's full values, the dirty slots and the
+  write-back flags. The callee's statements use the caller's locals, and nothing is written back or read back around
+  them. The edge where the guard fails carries the full write-back before the call and the read-back after it.
+- `--inline-only @file` (inline only in these callers), `--inline-callees @file`, `--inline-lifted @file` (callees
+  lifted in a later batch: the guard names their lifted copy, direct calls unchanged), `--inline-log`.
+
+**Exact.** Mac difftest (every register, VU0, RAM) of the 232 callers with the first version (inl1), attract / walk /
+ride: 221 reached, 120 067 checks, **0 register mismatches**; RAM bytes at 0x29126c / 0x1568070 (other threads' bytes, as
+in every round). The shipped version: 0 register mismatches in its own runs (Exactness, below).
+
+**Speed.** liftalt A/B (the callers' inlined versions against their committed bodies, `--alt` copies swapped in within
+one run), Vita3K 222 MHz attract demo, 1 500 s, windows of 900 frames, the sampler every 10 s. The callers now hold the
+inlined callees' time, so the comparison is the callers plus their callees:
+
+| version | windows on / off | callers + callees, inlined | not inlined | change | frame, off minus on (draw-matched) |
+|---|---:|---:|---:|---:|---|
+| inl1: a write-back block per site and per return | 46 / 54 | 3.616% | 3.572% | +1.2% | +1.09 +- 3.71 ms |
+| inl3: charge taken back, one return block per site | 49 / 51 | 3.404% | 3.451% | -1.4% | +0.68 +- 1.16 ms |
+
+The first version doubled some callers' code (manager_sub_010EBDB0: 0x675c -> 0xd0b4 bytes): every site had a full
+write-back for the checkpoint's slow path and every `jr $ra` one for the unwinding check. The second version's set is
+1.4% faster, about 0.05% of the game thread: inlining is close to break-even overall, like D4's summaries. Per caller it
+is mixed: 23 callers faster with z <= -2 (with their callees' time inside), 41 slower with z >= 2 (most of them absorbed
+callee time: the callees' own share fell from 0.314% to 0.126%), the rest within the noise. **It ships only in the 15
+callers that were faster in both A/Bs** (z <= -2 in inl3's run, z <= 0 in inl1's): bossStatGetDeadBossNum,
+CheckClothChainDetect, is_reset_or_lws_movie_or_cutout_game_camera, depthOfField, iosInitKPrintfContext,
+manager_sub_0111F430, getConnectPointData, manager_sub_0111DDC0, gamecore_sub_01426B28, is_safety_camera_default_angle,
+GAMEUTIL_is_inside_of_region_yaw, charrootdyn_addWindDynamicsToRoot, screenBrightness, gamecore_sub_013DE688,
+CAM_is_need_obstacle_avoid_ofst (0.128% -> 0.094% of the game thread in inl3's run, 0.179% -> 0.133% in inl1's). D3's
+and D4's files change only in those 15 functions (and the header); D1 and D2 stay as committed. D5's own batch is lifted
+with `--inline` (it was measured that way).
+
+A register-passing entry for lifted-to-lifted calls was not built: the inlining result says the call's own overhead is
+not where the time goes on the A9 (the spill / fill cost reappears inside the merged function as register pressure).
+
+### Natives' fallbacks served by lifted copies (SOTC_DECOMP_LIFT_FALLBACK)
+
+The natives reach 167 guest addresses through `sotc_decomp::recompiled()` (natrec.py). All of them are natively replaced
+functions (the natives' own fallbacks to the original code), so none had a lifted copy. In the Vita3K profile of this
+round's build the generated code of natively replaced functions takes **2.8-3.3% of the game thread** (natfb.py;
+MVHIST_Update, manager_sub_0113C1A8, manager_sub_01146FB8, the geometry pointer getters ...). Part of it is the natives'
+fallbacks, part functions whose native is switched off by default (the generated function runs from the table).
+
+- `lift_d1.py --fallback` writes such functions with SOTC_DECOMP_LIFT_FALLBACK (registry name `<name>_fb`, switch
+  kLiftD5). sotc_decomp's install puts a lifted copy in the table when its slot still holds the generated function (the
+  native is off), and otherwise records it: `recompiled()`'s table then gives the lifted copy to the natives while
+  SOTC_LIFTD5 is on (patched in place when the switch changes: helper threads may read it). Any earlier batch's lifted
+  function whose slot a native or hook holds is served the same way (D1's update_transform_matrix_set and
+  doit_double_spring_interp_cntrl, for example).
+- **Difftest**: `SOTC_DIFFTEST=<name>_fb` puts a checker in `recompiled()`'s table, so the natives' real fallback calls
+  are checked against the generated function.
+- Candidates: the 110 natively replaced functions with game-thread samples, less 44 that may block (blk4.py) and the
+  already lifted: 62 lifted. Cut: 15 slower in the liftd5 A/B (z > 2), 6 with register mismatches (below), the stubs
+  memcpy / memset, isysWakeupSubThread (a coroutine). **44 ship** (decomp_liftd5_50.cpp); on the Mac 39 go into the table
+  (their natives are off) and 5 serve `recompiled()`. Speed in the liftd5 A/B (p3): the 64 together 2.219% of the game
+  thread lifted vs 2.210% generated (neutral); the 44 kept 1.477% vs 1.592% (the same run that chose them).
+- **Register mismatches** (left out): GetGeometryPointerPosition / Quaternion / QuatPos `_fb` differ in v0 on every
+  checked call (a control run, `SOTC_DIFFTEST_CONTROL=1`, has none: a real difference of the lifted copy, cause not
+  found); getLayoutClassCollisionIndepSurfBoundary_fb and manager_sub_01117340_fb differ in v1's upper 64 bits;
+  isysWakeupSubThread_fb (a sub-thread switch) mismatches in the control run too.
+
+### D5's batch (SOTC_LIFTD5)
+
+D2's ranking was used up by D4 (cand5.py: 94 left, D4's unreached and refused). A new ranking from the sampler of this
+round's first build (rank5.py, attract demo): the still-recompiled code is 8.7% of the game thread, and 452 of its 662
+functions may block or switch threads (blk4.py), 72 are D4's slower, 35 interrupt-side, 32 natives, 5 D4's mismatches:
+**66 candidates**, plus D4's 82 slower retried with `--inline`: 148; 143 lift (5 refused: a branch out of the function,
+a `break` form, two checkpoint patterns). They ship behind **SOTC_LIFTD5** (default on, A/B `liftd5`, test knob
+`SOTC_LIFTD5_RANGE=<lo>:<hi>`), game/overrides/decomp_liftd5_00.cpp, lifted with `--d5 --inline --extern` D1-D4.
+
+| out | functions | why |
+|---|---:|---|
+| slower in the first liftd5 A/B | 49 | z > 2 (all 49 are D4's slower again: player_HellDangerDetect 2.2x, gamecore_sub_013B8438 2.7x ...) |
+| slower in the second liftd5 A/B | 2 | manager_sub_010B00A8 (z 12), SpriteMenuIsFadeCheckAllLayer (z 3.9) |
+| may block (found by the difftest) | 3 | iosWaitIopSema, sceMc2ReadFileAsync, sub_0011B458: checking them twice left the Mac on the loading screen (blk4.py does not see their waits) |
+| register mismatch | 1 | gamecore_sub_0142FB60: a3's upper 64 bits, 4 of ~1 000 checks |
+| not reached | 2 | manager_sub_01147F80, demo_op1 (their legs leave by a thread switch: never checked) |
+
+**86 ship**: 55 new from the ranking and 31 of D4's 82 slower (not slower now, lifted with the inlining). By area: other
+game code 27, boot ELF / SDK 14, characters 13, display 12, system 6, camera 6, script 3, collision 3, particles 1,
+sound 1. Speed: in the first A/B (p2) the 86 took 0.199% of the game thread lifted vs 0.265% recompiled, in the second
+(p3, an independent run) 0.202% vs 0.259% (-22%). The whole 143 were +34% (p2) and +20% (p3): the cut functions are
+the same ones each time. Frame off minus on (draw-matched, the whole switch): -0.59 +- 0.92 ms (p2), -0.14 +- 0.95 ms
+(p3): within the noise.
+
+### Exactness
+
+Mac, `SOTC_DIFFTEST` with every register, VU0 and RAM, 1 200 s a run (nice'd), the build with D5's 91 candidates, the 62
+fallback copies and the 15 inlined callers (p4: the shipped code; the final files differ from it only in the direct-call
+targets of three fallback copies that called functions cut afterwards):
+
+| run | functions checked (of the 145 shipped) | checks | register mismatches | RAM-byte mismatches |
+|---|---:|---:|---:|---:|
+| attract | 117 | 44 115 | 0 | 12 |
+| walk (console card) | 145 | 57 618 | 0 | 79 |
+| ride (console card) | 144 | 57 916 | 0 | 193 |
+
+**All 145 shipped functions checked, 159 649 checks, 0 register mismatches.** RAM bytes: 297 of 304 at 0x29126c (the
+word that mismatches in every round's control runs), the rest single bytes other threads write.
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at). The final build (p5: D1-D4, D3 / D4 with the 15 inlined
+callers, D5's 86 and the 44 fallback copies, all on from boot): the console card's walk (22 038 frames), ride (19 998),
+the attract demo with the sampler (29 538) and the walk under the console env's rotation
+(`SOTC_AB_FLAG=liftd5,liftd4,liftd3,liftd2,liftd1`, 600 frames: 23 298 frames, 39 windows, each switch off in turn). Every
+run drew within two minutes (the watchdog never fired); no "No exact recompiled function", no wild return; one
+game-thread frame over 300 ms per run (the boot's). Wander and Agro on the ground ([pos] y -5.3 .. 11.3 and -3.8 .. 12.5
+on the walks, the baseline range), Agro standing by Wander with both shadows, the ride to the altar (y 11.31), the
+attract demo's plain, canyon (Agro at y -96 on the canyon floor, as in this round's earlier attract runs) and the gallop
+with its shadow. The test builds' runs (p1-p3: four in-run A/Bs of 1 500 s and p3's walk) had no fault either. The
+first difftest list (p2) hung the Mac at the loading screen: iosWaitIopSema and two other waiting functions (out, above).
+
+spalign (r110/spalign.py) on celosia-d5.elf: 756 NEON :128 accesses, 0 sp-based. The Mac and Vita builds compile.
+
+### Decomp numbers
+
+tools/decomp_status.py (Mac replaced dump of the final build, attract demo to frame 1 500; calls from round 71's attract
+and route dumps): **2 666 of 9 024 functions native (29.54%; D4 28.59%), 28.88% of the MIPS code by size (27.75%),
+91.66% of calls (90.45%), 27.62% of the game's own code.** By area: Math 100%, particles 56%, display 38%, boot ELF / SDK
+35%, characters 31%, collision 30%, other game code 26%, system 26%, camera 26%, sound 20%, script 5%. decomp_tree / decomp_history (label D5) from the final
+build's attract demo (sampler 300-690 s): **79.6% of the game thread in native code**, 9.2% recompiled, 11.2% runtime
+(D4: 78.0 / 11.1 / 10.9).
+
+### What D6 should take
+
+- **The blocking code is what is left on the game thread**: of the 8.7% still recompiled, the 452 functions that may
+  block or switch threads are most of it. They need a difftest mode that can run a leg that waits (the scheduler's state
+  saved and restored per leg, or one leg checked against a recorded trace), then the same pipeline.
+- **The 128-bit upper halves**: three functions (getLayoutClassCollisionIndepSurfBoundary, manager_sub_01117340,
+  gamecore_sub_0142FB60) lose a register's upper 64 bits on some paths, and the three GetGeometryPointer* copies differ
+  in v0 (control clean): find the lifter cause; D1-D4's checks never hit it, but it is a class.
+- **Speed from lifting is exhausted at the function level** (D4's summaries, D5's inlining: both within a few percent).
+  The 30 fps target needs whole-subsystem native rewrites of the hot paths (rounds 43-141's method) on top of the lifted
+  code, starting from the profile's top: the characters' motion and collision, the display walk, the particles.
+- D4's 51 slower that are still slower with inlining, and the 5 + 4 register-mismatch functions (control runs of their own).

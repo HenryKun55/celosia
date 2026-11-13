@@ -2,6 +2,8 @@
 // C++ on host locals, exact (the recompiler's own instruction semantics, its call protocol and loop checkpoints), in the
 // function table while SOTC_LIFTD4 is on (sotc_decomp::install; an A/B window swaps them back). Earlier batches' lifted
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D4".
+// D5: --inline: small leaf callees spliced into their lifted callers behind a guard (the table's slot holds
+// that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -1746,6 +1748,92 @@ namespace lift_d1
     void gamecore_sub_01461878(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void getEventScriptClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void getSScriptWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011BE48(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011BFB0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C200(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C320(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C3B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C4C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C8B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011D9E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011DC60(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcFatReadFile(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcFatGetDir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcpReadClust(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcpReadUserClustOnCache(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void Shock_Decode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010881D0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void setFogImmediate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void changeFogParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_0108CD80(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glEnable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glLoadMatrixf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010A21F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010AE658(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010B0F08(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetMotionRootInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void InitMotionBoolInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010B8AB8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetAnimationClassCurrentInfoDirectResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void getAnimationDefByName(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CreateAnimationDefObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void DebugCallCharacterObjMotionLeaveFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetDemoOrientNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void EntryJudgeVolumeClassObjectGroup(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SetLayoutClassCollisionWorkAdr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void DeleteGlobalLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010F8088(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010F9560(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010FDAC8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void updateParticleGeo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_0110E508(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_0110EDC8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01111300(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void FlushRequestViewIntervalClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void RelocateCollisionWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ps2__CalcCollisionMultiDepSurfBoundary(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ClipCollisionDirectCallBackOneObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void iosRotMatrixAxis(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void iosRotMatrixFromDirection(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetQuaternionAxisRot(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SetClothWorkDispFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sheetFsAddStageTexSegIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sheetFileUnloadCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sheetMgrUnloadSegmentIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_camera_lws_animation_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_boot_obj_camera_lws_animation(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void is_sub_type_camera_lws_animation(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01162748(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01162918(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_priority_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SequenceKickWind(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01169B20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_constructor_col_plane_info(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_init_col_plane_info_filter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CheckDemoCameraOrientFinished(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gStatPlaceIdToSavePoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void opflowChkTitleDemoStart(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void opflowSetDemoFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void opflowChkAbort(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01411AF8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01411ED0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void reset_camera_target_visible_angle_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CAM_get_interp_cam_and_look_at_posi(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CAM_reset_target_offset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CAM_reset_view_cut_avoid_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_0141B7A0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_0141B978(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01420CF0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void is_view_angle_exist_lws_anime_mode_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_view_angle_lws_anime_mode_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01426258(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01426B18(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01426B20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01427230(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01427270(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_interp_time_game_camera_param_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void setRouteMinAngle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 
 // gamecore_sub_01431738 (0x1431738-0x1431c30)
 void gamecore_sub_01431738(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -2506,7 +2594,7 @@ void getConnectPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     if (__builtin_expect(ctx->pc != 0x1433590u, 0)) { getConnectPointData_0x1433590(rdram, ctx, runtime); return; }
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19);
-    bool df_at = false, df_v0 = false, df_v1 = false, df_sp = false;
+    bool df_at = false, df_v0 = false, df_v1 = false, df_sp = false, df_ra = false;
     sp = sp - 0x30u; df_sp = true;
     v0 = 0xFFFFFFFFu; df_v0 = true;
     WRITE64(ADD32(sp, 16), s2);
@@ -2518,103 +2606,116 @@ void getConnectPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const bool c = (int64_t)a1 == (int64_t)(int32_t)v0;
         WRITE64(sp + 0x20u, Ps2GprU64(ctx, 31));
+        if (c) {
+            goto L_143367c;
+        }
+    }
+    {
+        const bool c = (int64_t)s2 == (int64_t)(int32_t)v0;
+        v0 = 0u; df_v0 = true;
+        if (c) {
+            goto L_1433680;
+        }
+    }
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 15440))))); df_v1 = true;
+    v0 = v1 << 2; df_v0 = true;
+    v0 = v0 + v1; df_v0 = true;
+    v0 = v0 << 2; df_v0 = true;
+    v0 = v0 - v1; df_v0 = true;
+    v0 = v0 << 3; df_v0 = true;
+    at = 0x1200000u; df_at = true;
+    at = at + 0x10C8u; df_at = true;
+    v0 = at + v0; df_v0 = true;
+    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v0, 144)))));
+    {
+        const bool c = (int64_t)a2 <= 0;
+        (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            {
-                const bool c = (int64_t)s2 == (int64_t)(int32_t)v0;
-                v0 = 0u; df_v0 = true;
-                if (c) {
-                    goto L_1433680;
-                }
-            }
-            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 15440))))); df_v1 = true;
-            v0 = v1 << 2; df_v0 = true;
-            v0 = v0 + v1; df_v0 = true;
-            v0 = v0 << 2; df_v0 = true;
-            v0 = v0 - v1; df_v0 = true;
-            v0 = v0 << 3; df_v0 = true;
-            at = 0x1200000u; df_at = true;
-            at = at + 0x10C8u; df_at = true;
-            v0 = at + v0; df_v0 = true;
-            (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v0, 144)))));
-            {
-                const bool c = (int64_t)a2 <= 0;
-                (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
-                if (!c) {
-                    (a0 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+            (a0 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
+            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
 L_14335f8:
-                    (s1 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
-                    v0 = READ32(v1 + 0x1Cu); df_v0 = true;
-                    {
-                        const bool c = (int64_t)a1 == (int64_t)(int32_t)v0;
-                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 36))));
-                        if (c) {
-                            goto L_1433620;
-                        }
-                    }
-                    (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a3, 1))));
-                    (v0 = (uint32_t)(((int64_t)(int64_t)RC_U64X(a3) < (int64_t)(int64_t)a2) ? 1 : 0)); df_v0 = true;
-                    if (v0 != 0) {
-                        (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
-                        if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); ctx->pc = 0x14335F8u; if (runtime->eeCheckpointSlow()) return; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_at = false; df_v0 = false; df_v1 = false; df_sp = false; }
-                        goto L_14335f8;
-                    }
-                }
-            }
-            (s1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
-L_1433620:
+            (s1 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
+            v0 = READ32(v1 + 0x1Cu); df_v0 = true;
             {
-                const bool c = (int64_t)s1 == 0;
-                v0 = 0u; df_v0 = true;
+                const bool c = (int64_t)a1 == (int64_t)(int32_t)v0;
+                (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 36))));
                 if (c) {
-                    goto L_1433680;
+                    goto L_1433620;
                 }
             }
-            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 4)))));
-            {
-                const bool c = (int64_t)a0 == 0;
-                { const uint64_t v = READ64(sp + 0u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
-                if (c) {
-                    goto L_1433684;
-                }
-            }
-            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v0 = true;
-            {
-                const bool c = v0 == 0;
-                (s0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
-                if (!c) {
-L_1433640:
-                    {
-                        const uint32_t jumpTarget = 0x0u | ((READ32(0x1433640u) & 0x3FFFFFFu) << 2);
-                        ra = 0x1433648u;
-                        (a1 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
-                        if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
-                        ctx->pc = jumpTarget;
-                        if (!PS2_CALL_GUEST_KNOWN(jumpTarget, lift_d1::getPointData, 0x1433648u, 0x1433640u, IndirectCall, "JALR")) { return; }
-                    }
-                    at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_at = false; df_v0 = false; df_v1 = false; df_sp = false;
-                    v1 = (uint32_t)(int16_t)READ16(v0 + 0x22u); df_v1 = true;
-                    if ((int64_t)(int32_t)v1 != (int64_t)s2) {
-                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 4)))));
-                    } else {
-                        if ((int64_t)s3 != 0) {
-                            WRITE32(ADD32((uint32_t)s3, 0), (uint32_t)s0);
-                            goto L_1433680;
-                        }
-                        { const uint64_t v = READ64(sp + 0u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
-                        goto L_1433684;
-                    }
-                    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s0, 1))));
-                    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v0 = true;
-                    (v0 = (uint32_t)(((uint64_t)RC_U64X(s0) < (uint64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
-                    if (v0 != 0) {
-                        if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 16, s0); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); ctx->pc = 0x1433640u; if (runtime->eeCheckpointSlow()) return; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_at = false; df_v0 = false; df_v1 = false; df_sp = false; }
-                        goto L_1433640;
-                    }
-                }
+            (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a3, 1))));
+            (v0 = (uint32_t)(((int64_t)(int64_t)RC_U64X(a3) < (int64_t)(int64_t)a2) ? 1 : 0)); df_v0 = true;
+            if (v0 != 0) {
+                (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+                if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); ctx->pc = 0x14335F8u; if (runtime->eeCheckpointSlow()) return; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_at = false; df_v0 = false; df_v1 = false; df_sp = false; df_ra = false; }
+                goto L_14335f8;
             }
         }
     }
+    (s1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
+L_1433620:
+    {
+        const bool c = (int64_t)s1 == 0;
+        v0 = 0u; df_v0 = true;
+        if (c) {
+            goto L_1433680;
+        }
+    }
+    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 4)))));
+    {
+        const bool c = (int64_t)a0 == 0;
+        { const uint64_t v = READ64(sp + 0u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
+        if (c) {
+            goto L_1433684;
+        }
+    }
+    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v0 = true;
+    {
+        const bool c = v0 == 0;
+        (s0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
+        if (c) {
+            goto L_143367c;
+        }
+    }
+L_1433640:
+    {
+        const uint32_t jumpTarget = 0x0u | ((READ32(0x1433640u) & 0x3FFFFFFu) << 2);
+        ra = 0x1433648u; df_ra = true;
+        (a1 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
+        if (__builtin_expect(jumpTarget == 0x1169D48u && PS2_GUEST_FN(0x1169D48u) == &lift_d1::getPointData && !runtime->hostStackDeep(), 1)) {
+            if (__builtin_expect(runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), 1))
+                goto L_40000000;
+#if PS2X_EE_CLOCK64
+            runtime->m_eeClock.cycle -= PS2Runtime::kEeDispatchCycles;
+#else
+            runtime->m_eeClock.run -= PS2Runtime::kEeDispatchCycles;
+#endif
+        }
+        if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); if (df_ra) Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
+        ctx->pc = jumpTarget;
+        if (!PS2_CALL_GUEST_KNOWN(jumpTarget, lift_d1::getPointData, 0x1433648u, 0x1433640u, IndirectCall, "JALR")) { return; }
+    }
+    at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_at = false; df_v0 = false; df_v1 = false; df_sp = false; df_ra = false;
+L_1433648:
+    v1 = (uint32_t)(int16_t)READ16(v0 + 0x22u); df_v1 = true;
+    if ((int64_t)(int32_t)v1 != (int64_t)s2) {
+        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 4)))));
+    } else {
+        if ((int64_t)s3 != 0) {
+            WRITE32(ADD32((uint32_t)s3, 0), (uint32_t)s0);
+            goto L_1433680;
+        }
+        { const uint64_t v = READ64(sp + 0u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
+        goto L_1433684;
+    }
+    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s0, 1))));
+    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v0 = true;
+    (v0 = (uint32_t)(((uint64_t)RC_U64X(s0) < (uint64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
+    if (v0 != 0) {
+        if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); if (df_ra) Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); ctx->pc = 0x1433640u; if (runtime->eeCheckpointSlow()) return; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_at = false; df_v0 = false; df_v1 = false; df_sp = false; df_ra = false; }
+        goto L_1433640;
+    }
+L_143367c:
     v0 = 0u; df_v0 = true;
 L_1433680:
     { const uint64_t v = READ64(sp + 0u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
@@ -2622,14 +2723,42 @@ L_1433684:
     { const uint64_t v = READ64(sp + 8u); Ps2SetGpr64(ctx, 17, v); s1 = (uint64_t)v; } // restore s1
     { const uint64_t v = READ64(sp + 16u); Ps2SetGpr64(ctx, 18, v); s2 = (uint64_t)v; } // restore s2
     { const uint64_t v = READ64(sp + 24u); Ps2SetGpr64(ctx, 19, v); s3 = (uint64_t)v; } // restore s3
-    { const uint64_t v = READ64(sp + 32u); Ps2SetGpr64(ctx, 31, v); ra = (uint32_t)v; } // restore ra
+    { const uint64_t v = READ64(sp + 32u); Ps2SetGpr64(ctx, 31, v); ra = (uint32_t)v; } df_ra = false; // restore ra
     {
         const uint32_t target = ra;
         sp = sp + 0x30u; df_sp = true;
-        if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
+        if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
         ctx->pc = target;
         return;
     }
+L_40000000:
+    {
+        const bool c = (int64_t)a0 == 0;
+        v0 = 0u; df_v0 = true;
+        if (!c) {
+            if ((int64_t)a1 >= 0) {
+                (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a1, 1)))); df_v0 = true;
+                (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+                (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a1)))); df_v0 = true;
+                v0 = v0 << 4; df_v0 = true;
+                (v1 = (uint32_t)(((uint64_t)a1 < (uint64_t)sx64(v1)) ? 1 : 0)); df_v1 = true;
+                (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, v0)))); df_v0 = true;
+                {
+                    const bool c = v1 != 0;
+                    v0 = v0 + 0x10u; df_v0 = true;
+                    if (!c) {
+                        v0 = 0u; df_v0 = true;
+                    }
+                }
+            }
+        }
+    }
+    {
+        goto L_iu_1433640;
+    }
+L_iu_1433640:
+    if (__builtin_expect(runtime->m_eeClock.unwinding, 0)) { if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); if (df_ra) Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); ctx->pc = 0x1433648u; return; }
+    goto L_1433648;
 }
 
 // getRootPointIdxForGroupID (0x1433ac8-0x1433c40)

@@ -2,6 +2,8 @@
 // C++ on host locals, exact (the recompiler's own instruction semantics, its call protocol and loop checkpoints), in the
 // function table while SOTC_LIFTD4 is on (sotc_decomp::install; an A/B window swaps them back). Earlier batches' lifted
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D4".
+// D5: --inline: small leaf callees spliced into their lifted callers behind a guard (the table's slot holds
+// that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -1746,6 +1748,92 @@ namespace lift_d1
     void gamecore_sub_01461878(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void getEventScriptClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void getSScriptWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011BE48(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011BFB0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C200(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C320(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C3B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C4C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011C8B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011D9E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sub_0011DC60(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcFatReadFile(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcFatGetDir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcpReadClust(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void _sceMcpReadUserClustOnCache(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void Shock_Decode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010881D0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void setFogImmediate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void changeFogParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_0108CD80(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glEnable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glLoadMatrixf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010A21F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010AE658(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010B0F08(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetMotionRootInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void InitMotionBoolInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010B8AB8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetAnimationClassCurrentInfoDirectResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void getAnimationDefByName(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CreateAnimationDefObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void DebugCallCharacterObjMotionLeaveFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetDemoOrientNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void EntryJudgeVolumeClassObjectGroup(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SetLayoutClassCollisionWorkAdr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void DeleteGlobalLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010F8088(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010F9560(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010FDAC8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void updateParticleGeo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_0110E508(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_0110EDC8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01111300(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void FlushRequestViewIntervalClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void RelocateCollisionWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ps2__CalcCollisionMultiDepSurfBoundary(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ClipCollisionDirectCallBackOneObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void iosRotMatrixAxis(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void iosRotMatrixFromDirection(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetQuaternionAxisRot(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SetClothWorkDispFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sheetFsAddStageTexSegIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sheetFileUnloadCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void sheetMgrUnloadSegmentIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_camera_lws_animation_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_boot_obj_camera_lws_animation(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void is_sub_type_camera_lws_animation(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01162748(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01162918(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_priority_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SequenceKickWind(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01169B20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_constructor_col_plane_info(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_init_col_plane_info_filter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CheckDemoCameraOrientFinished(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gStatPlaceIdToSavePoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void opflowChkTitleDemoStart(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void opflowSetDemoFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void opflowChkAbort(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01411AF8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01411ED0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void reset_camera_target_visible_angle_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CAM_get_interp_cam_and_look_at_posi(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CAM_reset_target_offset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CAM_reset_view_cut_avoid_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_0141B7A0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_0141B978(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01420CF0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void is_view_angle_exist_lws_anime_mode_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_view_angle_lws_anime_mode_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01426258(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01426B18(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01426B20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01427230(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void gamecore_sub_01427270(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_interp_time_game_camera_param_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void setRouteMinAngle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 
 // kernel_sub_001AF418 (0x1af418-0x1af658)
 void kernel_sub_001AF418(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

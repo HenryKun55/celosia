@@ -807,6 +807,14 @@
    "focus": "Decomp",
    "summary": "The converter learned what every function and everything it calls reads and writes (a whole-program summary), so a converted function could keep values in its own variables across calls instead of storing and reloading them. It is exact (compared call by call with the original on the Mac), but on the Vita's CPU it was 5-6% slower overall in an in-run A/B, so it is used only in the 8 functions it made faster. Then the next batch: 607 functions converted (D2 and D3's slower ones retried, the 36 indirect-call ones, the next of the ranking); 429 ship behind SOTC_LIFTD4 (on) after the A/B cut 82 slower, 5 differed from the original and 91 no test run reached. A test-harness bug that stopped checks after thread switches was found and fixed.",
    "result": "Decomp: 2 580 of 9 024 functions native (28.6%, was 23.8%), 27.8% of the code, 90.5% of calls, 78.0% of the game thread's time in native code (D3: 75.1%). Exact: every shipped function compared with the original (224 355 checks in six Mac runs plus an exploration run), 0 register differences; memory differences are the timer words and bytes other threads write, as in a control run. The 36 indirect-call functions D2 linked to wild returns ran on Vita3K (25 ship) with none. Pictures: walk, ride, attract and the console env's rotation normal, Wander and Agro on the ground."
+  },
+  {
+   "round": "D5",
+   "date": "2026-11-13",
+   "commit": "",
+   "focus": "Decomp",
+   "summary": "The converter can now paste small functions straight into the converted code that calls them (no call, values stay in registers), behind a check that the function table still holds that function. It is exact, but on the Vita's CPU it was close to break-even overall in an in-run A/B (1.4% faster for the functions involved), so it is used only in the 15 callers measured faster in two runs. The natives' fallbacks to the original code (about 3% of the game thread ran there) now get converted copies too: 44 ship. And the next batch: 86 functions behind SOTC_LIFTD5 (on), 55 new from a fresh profile and 31 of D4's slower ones that are no longer slower.",
+   "result": "Decomp: 2 666 of 9 024 functions native (29.5%, was 28.6%), 28.9% of the code, 91.7% of calls. Exact: all 145 shipped functions compared with the original in the attract demo, walk and ride (159 649 checks), 0 register differences. Speed: the shipped sets are faster than what they replace in the A/B (the batch -22%, the fallbacks -7%, the inlined callers -27%), but the whole frame stays within the A/B's noise: function-level conversion has no large speed left in it; 30 fps needs subsystem rewrites. Pictures: walk, ride, attract and the console env's rotation normal, Wander and Agro on the ground."
   }
  ]
 }
