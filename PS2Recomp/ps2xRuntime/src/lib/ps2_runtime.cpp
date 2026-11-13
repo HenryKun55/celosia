@@ -2011,10 +2011,36 @@ void PS2Runtime::vu0StartMicroProgram(uint8_t *rdram, R5900Context *ctx, uint32_
 
 void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx)
 {
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+    {
+        ps2_difftrace::event(this, ps2_difftrace::kSyscall, rdram, ctx, 0, 0, 0, 0, [&]() -> uint64_t
+                             { handleSyscallBody(rdram, ctx); return 0u; });
+        return;
+    }
+#endif
+    handleSyscallBody(rdram, ctx);
+}
+
+void PS2Runtime::handleSyscallBody(uint8_t *rdram, R5900Context *ctx)
+{
     handleSyscall(rdram, ctx, 0);
 }
 
 void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encodedSyscallId)
+{
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+    {
+        ps2_difftrace::event(this, ps2_difftrace::kSyscall, rdram, ctx, encodedSyscallId, 0, 0, 0, [&]() -> uint64_t
+                             { handleSyscallBody(rdram, ctx, encodedSyscallId); return 0u; });
+        return;
+    }
+#endif
+    handleSyscallBody(rdram, ctx, encodedSyscallId);
+}
+
+void PS2Runtime::handleSyscallBody(uint8_t *rdram, R5900Context *ctx, uint32_t encodedSyscallId)
 {
     if (ps2_worker::isShell(this)) // round 91: the kernel is the game thread's
         return ps2_worker::g_hooks.fault(this, rdram, ctx, "syscall");
@@ -2054,6 +2080,19 @@ void PS2Runtime::handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encod
 }
 
 void PS2Runtime::handleBreak(uint8_t *rdram, R5900Context *ctx)
+{
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+    {
+        ps2_difftrace::event(this, ps2_difftrace::kBreak, rdram, ctx, 0, 0, 0, 0, [&]() -> uint64_t
+                             { handleBreakBody(rdram, ctx); return 0u; });
+        return;
+    }
+#endif
+    handleBreakBody(rdram, ctx);
+}
+
+void PS2Runtime::handleBreakBody(uint8_t *rdram, R5900Context *ctx)
 {
     if (ps2_worker::isShell(this)) // round 91
         return ps2_worker::g_hooks.fault(this, rdram, ctx, "break");
@@ -2802,6 +2841,17 @@ void PS2Runtime::postEeEvent(EeEvent event)
 }
 
 bool PS2Runtime::eeCheckpointSlow() noexcept
+{
+#if PS2X_DIFFTRACE
+    // Decomp D6: a trace check's body reaches the scheduler (ps2_difftrace.h); the handler uses the check's own rdram / ctx.
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+        return ps2_difftrace::event(this, ps2_difftrace::kCheckpoint, nullptr, nullptr, 0, 0, 0, 0, [&]() -> uint64_t
+                                    { return eeCheckpointSlowBody() ? 1u : 0u; }) != 0u;
+#endif
+    return eeCheckpointSlowBody();
+}
+
+bool PS2Runtime::eeCheckpointSlowBody() noexcept
 {
     if (ps2_worker::isShell(this)) // round 91: the worker's clock has no scheduler (its gate is not reached)
     {

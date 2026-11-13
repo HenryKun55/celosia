@@ -19925,3 +19925,180 @@ build's attract demo (sampler 300-690 s): **79.6% of the game thread in native c
   The 30 fps target needs whole-subsystem native rewrites of the hot paths (rounds 43-141's method) on top of the lifted
   code, starting from the profile's top: the characters' motion and collision, the display walk, the particles.
 - D4's 51 slower that are still slower with inlining, and the 5 + 4 register-mismatch functions (control runs of their own).
+
+## Decomp D6: D5's "128-bit" mismatches were the difftest comparing with natives; a switch-aware difftest (trace check); the blocking functions lifted and checked (SOTC_LIFTD6) (2026-11-13)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d6/` (STATE.md lists them; new scripts authored in the worktree's
+build/agent-scratch/d6src/): regen6.sh (every committed lifted file regenerated with today's tool; `regen6.sh base`
+reproduces D1-D5 and the fallbacks byte for byte), cand6.py (the blocking candidates), final6.py (the difftest logs per
+function, with the RAM-noise addresses), ab6.sh (the liftd6 in-run A/B), patch_rt6.py / patch_rt6b.py / patch_hooks6.py
+(the runtime edits). Own Vita3K trees ../vita3k-celosia-d6 / -d6b (222 MHz, 3 cores, muted); at most two heavy
+processes, all `nice -n 20`, builds -j4.
+
+### Task 1: the "upper 64 bits" and "v0 every call" mismatches were not the lifter
+
+D5 left out six functions with register mismatches and asked for the lifter bug behind them:
+getLayoutClassCollisionIndepSurfBoundary_fb and manager_sub_01117340_fb (v1's 128 bits), gamecore_sub_0142FB60 (a3's
+128 bits, 4 of ~1 000) and the GetGeometryPointerPosition / Quaternion / QuatPos fallback copies (v0 on every call, a
+control run clean). The lifted code was read against the generated code first (every write-back, the 128-bit `lq` / `sq`
+paths, the jump tables, the read-backs after calls): no difference. Then the difftest itself, with new checking aids in
+sotc_decomp.cpp (Mac): the "(128 bits)" report now prints both legs' and the input's 128 bits, and
+`SOTC_DIFFTEST_REGDUMP=1` prints, at a function's first mismatch, every GPR of the input and both results, both legs'
+functions by symbol (dladdr), pc, the unwinding / pending flags and words at a1 (`SOTC_DIFFTEST_PEEK=<addr>`: anywhere);
+`SOTC_DIFFTEST_LEGLOG=1` logs each continuation a leg needed, `SOTC_DIFFTEST_SWAP=1` runs the legs in the other order.
+
+The register dump named the legs: **the "recompiled" leg was the native**. `install()` gave a checked function's checker
+the slot's current holder as its reference (`runtime.lookupFunction(address)`). For D1-D5's batches that is the
+generated function, but a D5 fallback copy (`<name>_fb`) shares its slot with a native, which `install()` put there
+first: SOTC_DIFFTEST=<name>_fb compared the lifted copy with cam126::geoPos / geoQuat / geoQuatPos and
+decomp_collision::waterSurface / indepSurfBoundary, ports that leave other values in v0 / v1 / a0 (the generated code
+returns s2+0x10 in v0 on GetGeometryPointerQuaternion's node path; geoQuat leaves 0). The control run was clean because
+both of its legs were the native. **Fix**: a lifted function is checked against the function it was lifted from
+(`f.original`). With it, the five fallback copies in a walk (two-leg check, t1h): GetGeometryPointerPosition_fb 700 checks, Quaternion 400, QuatPos 200, getLayoutClassCollisionIndepSurfBoundary_fb 200, manager_sub_01117340_fb 200: **0 register mismatches** (4 RAM bytes, all at 0x29126c).
+gamecore_sub_0142FB60 has no native; it may block (its callees reach the kernel), so D5's two-leg check ran its kernel calls
+twice. Re-checked with the trace check below (D6's batch): 0 mismatches. D5's 4 of ~1 000 were a two-leg artefact.
+
+So the lifter has no 128-bit bug class; `regen6.sh base` shows the tool still writes every committed file byte for byte,
+and nothing was regenerated for task 1. The same fix means **D5's 44 shipped fallback copies had been checked against
+the natives**: they were re-checked against the generated code in D6's trace runs (all 44 reached, 42 329 checks, 0
+register mismatches): D5's fallback file stays as committed.
+
+### Task 2: a difftest for functions that block or switch threads (the trace check, SOTC_DIFFTEST_TRACE)
+
+The two-leg check runs the lifted code, puts RAM, the scratchpad and the context back, then runs the generated code.
+That cannot hold a function that waits, signals or switches threads: its callees change the kernel's host state
+(semaphore counts, the ready queues, the IOP's requests, the CD stream), which no RAM snapshot holds, so the second leg
+sees another kernel (D5's dt5 hung the Mac's load: iosWaitIopSema waited twice), and a thread switch leaves the leg for
+good. Saving and restoring the whole scheduler and IOP per leg would have to copy host objects with callbacks and
+threads; not sound in practice.
+
+**Design.** A lifted function's own code touches only its context, guest memory and the EE clock between the points
+where it leaves its own body: a call (JAL / JALR, `callGuestKnown` / `callGuestFn`), a jump or tail jump out, a
+checkpoint that reaches the scheduler (`eeCheckpointSlow`), a syscall or `break`, an I/O register access (the memory
+slow path on a special address). lift_d1.py refuses every other runtime access, and a lifted function's code ends at a
+thread switch (it returns; the rest runs in the generated function, resumed at its labels through the entry slot). So:
+
+1. **Record (the generated code, live, once).** The checker runs the generated function for real; the game goes on
+   from it. Each event its own body makes (PS2Recomp/ps2xRuntime/include/runtime/ps2_difftrace.h: a hook in each of the
+   entries above, on the Mac only, `PS2X_DIFFTRACE`) is recorded around the real operation: the context, the EE clock
+   (cycle, run, gate, unwinding / transferred), the jump serial and the pages of main RAM (4 KB), the scratchpad and
+   VU0's data memory (256 B) that changed since the last point, before and after the event, and the event's result.
+   Inside the event (the callee, the kernel, other threads after a switch) nothing is recorded: `g_top` is
+   thread-local and cleared there. A thread switch comes back by returning (unwinding / transferred) or as the
+   EeDispatcherTransfer exception, recorded and rethrown.
+2. **Replay (the lifted code, from the same input).** RAM, the scratchpad, VU0 data, the context, the clock and the
+   jump serial are put back as they were at the call. The lifted function runs with every event answered from the
+   record: its kind and arguments, every register and the FPU / VU0 state (128-bit GPRs, f0-f31, vf0-vf31, ACC, Q, P, I,
+   R, status / MAC / clip flags, vi, hi / lo / sa, fcr31, f_acc, pc), the clock and the memory (main RAM, scratchpad,
+   VU0 data) must equal the generated code's at that event; then the recorded state after it is put in place and the
+   recorded result returned. Nothing outside the lifted body runs, so nothing runs twice. At its end its state must
+   equal the generated code's end state, with as many events. A difference ends the replay (the lifted code is wound up
+   as on a thread switch) and is reported with the event's index, kind and target.
+3. **The game goes on** from the generated code's end state (a switch's exception rethrown; a continuation in another
+   function run as before).
+
+Checkpoints: other host threads close the clock's gate at any time (the IOP, the VBlank timer post events), so where a
+checkpoint falls is not a function of the code alone. The replay arms the gate at the clock the generated code had at
+its next recorded checkpoint (open otherwise); a checkpoint the lifted code takes before that (a gate another thread
+closed) is answered "nothing due" (its slow path wrote its registers back and reads them again: no effect). A lifted
+function that charges the clock differently shows up at the next event's clock compare.
+
+Sound: equal states at every event and at the end, with every event's effect taken from the real run, is the same
+behaviour on that input. What is not covered: functions lifted with `--inline` (an inlined call is no event) or
+`--summary` (registers kept in locals across a call); D6's batch uses neither, and D1-D5's functions keep the two-leg
+check. Cost: two page diffs of 32 MB per event; `SOTC_DIFFTEST_TRACE_MAX` (1 500) events or 768 MB of record per call,
+past it that call is not checked. `SOTC_DIFFTEST_CONTROL=1` replays the generated code against its own record (the
+mechanism's control). Nested checked functions inside a recorded call run the generated code, unchecked.
+
+Control (tr1ctl, walk, the six task-1 functions, `SOTC_DIFFTEST_CONTROL=1`): ~700 checks, 0 mismatches and no RAM noise,
+including calls that ended at a checkpoint or a switch (~130).
+The first runs without the gate arming showed the gate effect (a lifted checkpoint where the generated code made a
+call, loop counters differing at a checkpoint): gone with it.
+
+### Task 3: the blocking functions lifted and checked (SOTC_LIFTD6)
+
+cand6.py: D5's ranking (rank5.txt, the sampler of D5's first build) less the lifted, natives and non-blocking; blocking
+by blk4.py's rule (a syscall or kernel stub reachable through direct calls), blocking.txt and D5's three waits:
+**442 candidates**, 439 lift with `--d6` (no `--inline`, no `--summary`; 3 refused: a checkpoint pattern). With them the
+five task-1 fallback copies, as D6 fallbacks (`SOTC_DECOMP_LIFT_FALLBACK_D6`, `lift_d1.py --d6 --fallback`: switch
+kLiftD6). They ship behind **SOTC_LIFTD6** (default on, A/B `liftd6`, test knob `SOTC_LIFTD6_RANGE=<lo>:<hi>`),
+game/overrides/decomp_liftd6_00..02.cpp (the batch) and decomp_liftd6_50.cpp (the fallback copy); gen6.sh writes them.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, every register / VU0 / FPU, the clock, RAM, scratchpad, VU0
+data at every event and at the end; SOTC_DIFFTEST_FIRST=20, EVERY=200, MAX=200), 1 200 s a run, nice'd. dt6a: the 439,
+the 44 shipped D5 fallback copies and the task-1 six (488 functions); dt6b: the second build's 353 + 6 fallbacks + the
+44. Check counts are lower bounds (the log prints at the 1st and every 100th check).
+
+| run | functions reached | checks (all / the 330 shipped) | register, clock or event mismatches | RAM-byte mismatches |
+|---|---:|---:|---:|---:|
+| dt6a walk (console card) | 488 | 42 284 / 25 520 | 0 | 4 (0x29126c) |
+| dt6a attract | 376 | 35 408 / 21 873 | 0 | 2 (0x29126c) |
+| dt6a ride (console card) | 488 | 45 175 / 27 018 | 0 | 2 (0x29126c) |
+| dt6b attract (p2) | 320 | 32 098 / 25 275 | 0 | 17 (13 at the noise words) |
+| dt6b walk (p2) | 402 | 38 546 / 30 117 | 0 | 8 (6 at the noise words) |
+
+**Every shipped function reached, 0 register, clock or event mismatches** in all five runs, including D5's three waits
+(iosWaitIopSema, sceMc2ReadFileAsync, sub_0011B458: the Mac's load no longer hangs, they run once) and every call that
+ended in a thread switch or an unwinding checkpoint (the logs count them per function). RAM: single bytes only, 25
+of 31 at the words that differ in every round (0x29126c, 0x1568070 / 71), and six single bytes at six other addresses
+(0x3aa47c, 0x91f5dc, 0xa0eb9c, 0xb54a9c, 0xb7db5c, 0x1de8240), once each in six functions that had 200-1 500 clean
+checks besides (AddTwoWayLinkNext_fb, a leaf with no event, among them): another thread's writes during one of the two
+runs. The trace control (ctl6, the generated code replayed against its own record over the shipped set) shows the same
+kind: 67 968 checks over the 330, 0 register / clock / event mismatches, 5 single RAM bytes (3 at 0x29126c, one at
+0x2c54cc, one at 0x1856470, both in functions with no event: GetGeometryPointerObject_fb, manager_sub_0110F1D0).
+
+**Speed** (Vita3K 222 MHz, attract demo, 1 500 s, liftd6 rotated every 900 frames, the sampler every 10 s):
+
+| A/B | set | lifted (on) | recompiled (off) | change | frame, off minus on (draw-matched) |
+|---|---|---:|---:|---:|---|
+| ab1 (p1) | the 439 | 4.519% | 4.368% | +3.5% | -0.11 +- 1.84 ms |
+| ab2 (p2) | the 353 left | 3.536% | 3.271% | +8.1% | -0.25 +- 1.71 ms |
+| ab1 / ab2 | the 285 shipped | 1.551% / 1.773% | 1.694% / 1.770% | -8.5% / +0.1% | |
+
+Most of D6's functions are call-heavy and wait-heavy, so lifting them gives the A9 little: as a set they are slower
+than the recompiled code (ab1 86 with z > 2, 45 faster; ab2 68 more with z > 2, 8 faster). The per-function z scores
+disagree between the two runs (iosDlSwap z -8.8 in ab1, +9.9 in ab2): the attract demo's content in the on and off
+windows differs, so a cut by z > 2 in either run removes noise as well as real losses. **285 ship** (the 439 less 86
+and 68 cut, every one reached and exact): other game code 149, boot ELF / SDK 36, characters 28, display 19, script 19,
+camera 15, system 10, collision 6, particles 2, sound 1. Their share is neutral: -8.5% in ab1 (the run that chose
+them, biased) and +0.1% in ab2. Of the task-1 fallback copies four were slower in ab2 (getLayoutClass...: z 12,
+GetGeometryPointerPosition 7.6, QuatPos 3.8, Quaternion 2.6): only manager_sub_01117340_fb ships (never sampled).
+The whole switch's frame effect is within the noise in both runs.
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at). The final build (p3: D1-D5 as committed, D6's 285 and the
+fallback copy, all on from boot): the console card's walk (17 538 frames), ride (10 518) and the attract demo with the
+sampler (22 398), and the walk under the console env's rotation
+(`SOTC_AB_FLAG=liftd6,liftd5,liftd4,liftd3,liftd2,liftd1`, 600 frames: 19 518 frames, 33 windows, each switch off in turn). Every run drew within two minutes (the
+watchdog never fired); no "No exact recompiled function", no wild return; one or two game-thread frames over 300 ms per
+run (the boot's and a load's). Wander and Agro on the ground ([pos] y -6.5 .. 11.3 and -5.8 .. 12.4 on the walk: the
+input clock put them a little further down the plain's slope than D5's run, the shots show them standing on the grass
+with their shadows), Agro beside Wander, the ride to the altar (y 11.31, the shrine's mist), the attract demo's plain and
+the gallop with its shadow. The test builds' runs (two in-run A/Bs of 1 500 s) had no fault either.
+
+spalign (r110/spalign.py) on celosia-d6.elf: 756 NEON :128 accesses, 0 sp-based. The Mac and Vita builds compile; the
+Vita build has none of the trace hooks (PS2X_DIFFTRACE is 0 there).
+
+### Decomp numbers
+
+tools/decomp_status.py (Mac replaced dump of the final build, attract demo to frame 1 500; calls from round 71's attract
+and route dumps): **2 951 of 9 024 functions native (32.70%; D5 29.54%), 34.36% of the MIPS code by size (28.88%),
+92.51% of calls (91.66%), 33.81% of the game's own code.** By area (code): Math 100%, particles 56%, display 41%,
+camera 39%, characters 37%, boot ELF / SDK 36%, system 36%, other game code 32%, collision 31%, sound 22%, script 14%.
+decomp_tree / decomp_history (label D6) from the final build's attract demo (sampler 300-690 s): **80.4% of the game
+thread in native code**, 7.7% recompiled, 11.9% runtime (D5: 79.6 / 9.2 / 11.2).
+
+### What D7 should take
+
+- **The rest of the still-recompiled code with the trace check**: it now covers any function lifted without
+  --inline / --summary, blocking or not, and is sound for callees with kernel or host-state effects. D6 lifted only
+  D5's ranking's blocking functions; the next ranking (a sampler run of this build) gives the next batch. The 154 cut
+  for speed are exact (checked) and could ship if the speed rule were relaxed for functions within the noise.
+- **The A/B's per-function noise is now larger than the effects being measured** (D6's two runs disagree in sign on
+  dozens of functions). A deterministic speed measure (the same input replayed, e.g. the Mac's instruction counts per
+  call or a fixed-content Vita3K scene) would separate real losses from window content.
+- **D1-D5's functions under the trace check**: the two-leg check ran their kernel-touching callees twice; their
+  checks were clean, but a re-check with the trace check (after making it handle --inline sites, or for the
+  non-inlined ones) would remove the doubt for the call-heavy batches (D3 / D4).
+- As D5 said: speed for 30 fps is not in lifting more functions; it is in whole-subsystem native rewrites.

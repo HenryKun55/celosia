@@ -1,5 +1,8 @@
 // The decompiled functions' registry and their differential test (see sotc_decomp.h).
 #include "sotc_decomp.h"
+#if !defined(__vita__)
+#include <dlfcn.h>
+#endif
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -13,6 +16,8 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cstdarg>
+#include <cstddef>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -176,6 +181,12 @@ namespace sotc_decomp
             while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
             {
                 PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
+                // Decomp D6 (checking): SOTC_DIFFTEST_LEGLOG=1: each continuation a leg needed (a checkpoint or a
+                // deferred call left the code at ctx->pc).
+                static const bool legLog = ps2_diag::env("SOTC_DIFFTEST_LEGLOG") != nullptr;
+                if (legLog)
+                    std::fprintf(stderr, "[difftest] leg continues at %08x (ra %08x sp %08x, want %08x / %08x) fn %p unwinding %d\n", ctx->pc, GPR_U32(ctx, 31),
+                                 GPR_U32(ctx, 29), ra, sp, reinterpret_cast<void *>(next), runtime->m_eeClock.unwinding ? 1 : 0);
                 if (!next)
                     break;
                 next(rdram, ctx, runtime);
@@ -183,11 +194,580 @@ namespace sotc_decomp
             }
         }
 
+#if !defined(__vita__)
+        // ---- Decomp D6: the switch-aware difftest (trace check), SOTC_DIFFTEST_TRACE=all|<names> --------------------
+        // The two-leg check above runs the native and then the recompiled code from the same input. A function that may
+        // block or switch threads cannot be run twice: its callees change the kernel's state (semaphores, the thread
+        // queues, the IOP's requests), which the RAM snapshot does not hold, and a thread switch leaves the leg for
+        // good (D5's dt5 hung the Mac's load that way). The trace check runs the generated function once, for real,
+        // and records each event its own body makes (ps2_difftrace.h: a call, a jump out, a checkpoint that reaches the
+        // scheduler, a syscall / break, an I/O access): the state the body left at it (every register and the VU0 /
+        // FPU state in the context, the EE clock, main RAM, the scratchpad, VU0's data memory) and the state after it.
+        // Then the lifted function runs from the same input with the events answered from the record: at each one its
+        // state must be the generated code's (else a mismatch, and the lifted run is wound up), then the recorded state
+        // after the event is put in place and its result returned; at its end its state must be the generated code's
+        // end state. Last the generated code's end state is put back and the game goes on from it (a thread switch's
+        // exception rethrown). Sound because the lifted code reaches nothing but its context, guest memory and the
+        // clock between events (lift_d1.py refuses any other runtime access; a lifted function's own code ends at a
+        // thread switch: the rest runs in the generated function, resumed at its labels), so equal states at every
+        // event and at the end are equal behaviour on that input. Not for functions lifted with --inline or --summary
+        // (an inlined call is no event; a summary keeps registers in locals across a call).
+        namespace trace
+        {
+            constexpr size_t kRamPage = 4096u, kSmallPage = 256u;
+            struct Diff
+            {
+                std::vector<uint32_t> pages;
+                std::vector<uint8_t> data;
+            };
+            struct Clock
+            {
+                uint64_t cycle = 0;
+#if PS2X_EE_CLOCK64
+                uint64_t gate = 0;
+#else
+                uint32_t run = 0, limit = 0;
+#endif
+                bool unwinding = false, transferred = false;
+                uint64_t now() const
+                {
+#if PS2X_EE_CLOCK64
+                    return cycle;
+#else
+                    return cycle + run;
+#endif
+                }
+            };
+            struct Event
+            {
+                ps2_difftrace::Kind kind = ps2_difftrace::kCall;
+                uint32_t a = 0, b = 0;
+                uint64_t v = 0, v2 = 0;
+                R5900Context pre, post;
+                Clock preClock, postClock;
+                uint32_t preSerial = 0, postSerial = 0;
+                Diff preRam, postRam, preSpr, postSpr, preVu, postVu;
+                uint64_t ret = 0, retHi = 0;
+                bool threw = false;
+            };
+            struct State
+            {
+                bool replay = false, stopped = false, overflow = false, threwInEvent = false;
+                size_t cursor = 0, bytes = 0;
+                std::vector<Event> events;
+                uint8_t *rdram = nullptr, *spr = nullptr, *vu = nullptr;
+                R5900Context *ctx = nullptr;
+                std::vector<uint8_t> ramBefore, ramShadow, ramExp, sprBefore, sprShadow, sprExp, vuBefore, vuShadow, vuExp;
+                std::string what; // the first difference
+            };
+            State g_t;
+            bool g_active = false; // a trace check is running (nested checks run the generated code, unchecked)
+
+            const char *kindName(ps2_difftrace::Kind k)
+            {
+                static const char *const names[] = {"call", "jump", "tail jump", "checkpoint", "syscall", "break", "I/O read", "I/O write"};
+                return names[k];
+            }
+            Clock clockNow(PS2Runtime *rt)
+            {
+                const EeClock &k = rt->m_eeClock;
+                Clock c;
+                c.cycle = k.cycle;
+#if PS2X_EE_CLOCK64
+                c.gate = k.gate;
+#else
+                c.run = k.run;
+                c.limit = k.limit;
+#endif
+                c.unwinding = k.unwinding;
+                c.transferred = k.transferred;
+                return c;
+            }
+            void clockSet(PS2Runtime *rt, const Clock &c)
+            {
+                EeClock &k = rt->m_eeClock;
+                k.cycle = c.cycle;
+#if PS2X_EE_CLOCK64
+                k.gate = c.gate;
+#else
+                k.run = c.run;
+                k.limit = c.limit;
+#endif
+                k.unwinding = c.unwinding;
+                k.transferred = c.transferred;
+                if (k.pending.load(std::memory_order_relaxed)) // an event posted meanwhile: the next checkpoint still sees it
+                    k.closeGate();
+            }
+            // Replay: the gate where the generated code took its next checkpoint (the clock it had there), else open:
+            // the lifted code's checkpoints fall where the generated code's did, whatever other threads did to the gate
+            // during either run (an early one is answered "nothing due", see onEvent).
+            void armGate(PS2Runtime *rt)
+            {
+                State &t = g_t;
+                EeClock &k = rt->m_eeClock;
+                const bool next = t.cursor < t.events.size() && t.events[t.cursor].kind == ps2_difftrace::kCheckpoint;
+#if PS2X_EE_CLOCK64
+                k.gate = next ? t.events[t.cursor].preClock.cycle : ~uint64_t{0};
+#else
+                if (next && t.events[t.cursor].preClock.cycle == k.cycle)
+                    k.limit = t.events[t.cursor].preClock.run;
+                else if (next)
+                    k.limit = 0u; // the base moved (cannot between events): at once, the clock compare decides
+                else
+                    k.limit = static_cast<uint32_t>(EeClock::kMaxLimit);
+#endif
+            }
+            void diff(const uint8_t *live, uint8_t *shadow, size_t size, size_t page, Diff &out)
+            {
+                out.pages.clear();
+                out.data.clear();
+                for (size_t off = 0; off < size; off += page)
+                    if (std::memcmp(live + off, shadow + off, page) != 0)
+                    {
+                        out.pages.push_back(static_cast<uint32_t>(off));
+                        out.data.insert(out.data.end(), live + off, live + off + page);
+                        std::memcpy(shadow + off, live + off, page);
+                    }
+            }
+            void apply(const Diff &d, uint8_t *dst, size_t page)
+            {
+                for (size_t i = 0; i < d.pages.size(); ++i)
+                    std::memcpy(dst + d.pages[i], d.data.data() + i * page, page);
+            }
+            // The first difference of two contexts in what code can leave behind (not insn_count / COP0).
+            bool ctxDiffers(const R5900Context &x, const R5900Context &y, bool pcToo, std::string &what)
+            {
+                char buf[192];
+                for (int r = 0; r < 32; ++r)
+                    if (std::memcmp(&x.r[r], &y.r[r], 16) != 0)
+                    {
+                        uint64_t a[2], b[2];
+                        std::memcpy(a, &x.r[r], 16);
+                        std::memcpy(b, &y.r[r], 16);
+                        std::snprintf(buf, sizeof(buf), "r%d lifted %016llx:%016llx generated %016llx:%016llx", r, (unsigned long long)a[1], (unsigned long long)a[0],
+                                      (unsigned long long)b[1], (unsigned long long)b[0]);
+                        what = buf;
+                        return true;
+                    }
+                for (int i = 0; i < 32; ++i)
+                    if (std::memcmp(&x.f[i], &y.f[i], 4) != 0)
+                    {
+                        uint32_t a, b;
+                        std::memcpy(&a, &x.f[i], 4);
+                        std::memcpy(&b, &y.f[i], 4);
+                        std::snprintf(buf, sizeof(buf), "f%d lifted %08x generated %08x", i, a, b);
+                        what = buf;
+                        return true;
+                    }
+                for (int i = 0; i < 32; ++i)
+                    if (std::memcmp(&x.vu0_vf[i], &y.vu0_vf[i], 16) != 0)
+                    {
+                        std::snprintf(buf, sizeof(buf), "vf%d", i);
+                        what = buf;
+                        return true;
+                    }
+                struct Field
+                {
+                    const char *name;
+                    size_t offset, size;
+                };
+#define SOTC_TRACE_FIELD(f) Field{#f, offsetof(R5900Context, f), sizeof(R5900Context::f)}
+                static const Field fields[] = {SOTC_TRACE_FIELD(hi), SOTC_TRACE_FIELD(lo), SOTC_TRACE_FIELD(hi1), SOTC_TRACE_FIELD(lo1), SOTC_TRACE_FIELD(sa),
+                                               SOTC_TRACE_FIELD(vi), SOTC_TRACE_FIELD(vu0_q), SOTC_TRACE_FIELD(vu0_p), SOTC_TRACE_FIELD(vu0_i), SOTC_TRACE_FIELD(vu0_r),
+                                               SOTC_TRACE_FIELD(vu0_acc), SOTC_TRACE_FIELD(vu0_status), SOTC_TRACE_FIELD(vu0_mac_flags),
+                                               SOTC_TRACE_FIELD(vu0_clip_flags), SOTC_TRACE_FIELD(vu0_clip_flags2), SOTC_TRACE_FIELD(vu0_cf),
+                                               SOTC_TRACE_FIELD(in_delay_slot), SOTC_TRACE_FIELD(branch_pc), SOTC_TRACE_FIELD(f_acc), SOTC_TRACE_FIELD(fcr31),
+                                               SOTC_TRACE_FIELD(llbit), SOTC_TRACE_FIELD(lladdr)};
+#undef SOTC_TRACE_FIELD
+                const uint8_t *px = reinterpret_cast<const uint8_t *>(&x), *py = reinterpret_cast<const uint8_t *>(&y);
+                for (const Field &f : fields)
+                    if (std::memcmp(px + f.offset, py + f.offset, f.size) != 0)
+                    {
+                        what = f.name;
+                        return true;
+                    }
+                if (pcToo && x.pc != y.pc)
+                {
+                    std::snprintf(buf, sizeof(buf), "pc lifted %08x generated %08x", x.pc, y.pc);
+                    what = buf;
+                    return true;
+                }
+                return false;
+            }
+            bool memDiffers(const uint8_t *live, const uint8_t *expected, size_t size, uint32_t base, const char *where, std::string &what)
+            {
+                if (std::memcmp(live, expected, size) == 0)
+                    return false;
+                size_t i = 0;
+                while (live[i] == expected[i])
+                    ++i;
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "%s %08x lifted %02x generated %02x", where, base + static_cast<uint32_t>(i), live[i], expected[i]);
+                what = buf;
+                return true;
+            }
+            void fail(const char *fmt, ...)
+            {
+                if (!g_t.what.empty())
+                    return;
+                char buf[256];
+                va_list ap;
+                va_start(ap, fmt);
+                std::vsnprintf(buf, sizeof(buf), fmt, ap);
+                va_end(ap);
+                g_t.what = buf;
+            }
+
+            uint64_t onEvent(PS2Runtime *rt, ps2_difftrace::Kind kind, uint8_t *, R5900Context *ctx, uint32_t a, uint32_t b, uint64_t v, uint64_t v2,
+                             ps2_difftrace::Real real, void *arg)
+            {
+                State &t = g_t;
+                static const size_t maxEvents = ps2_diag::env("SOTC_DIFFTEST_TRACE_MAX") ? std::strtoull(ps2_diag::env("SOTC_DIFFTEST_TRACE_MAX"), nullptr, 0) : 1500u;
+                if (!t.replay)
+                {
+                    // the generated code, live: the state at the event, the event itself, the state after it
+                    if (t.events.size() >= maxEvents || (ctx && ctx != t.ctx))
+                    {
+                        t.overflow = true; // past the budget (or another context): this call is not checked
+                        ps2_difftrace::g_top = false;
+                        return real(arg);
+                    }
+                    const size_t idx = t.events.size();
+                    t.events.emplace_back();
+                    {
+                        Event &e = t.events[idx];
+                        e.kind = kind;
+                        e.a = a;
+                        e.b = b;
+                        e.v = v;
+                        e.v2 = v2;
+                        e.pre = *t.ctx;
+                        e.preClock = clockNow(rt);
+                        e.preSerial = rt->m_guestJumpSerial;
+                        diff(t.rdram, t.ramShadow.data(), PS2_RAM_SIZE, kRamPage, e.preRam);
+                        diff(t.spr, t.sprShadow.data(), PS2_SCRATCHPAD_SIZE, kSmallPage, e.preSpr);
+                        diff(t.vu, t.vuShadow.data(), PS2_VU0_DATA_SIZE, kSmallPage, e.preVu);
+                    }
+                    ps2_difftrace::g_top = false;
+                    auto after = [&](bool threw, uint64_t r)
+                    {
+                        Event &e = t.events[idx];
+                        e.threw = threw;
+                        e.ret = r;
+                        e.retHi = (kind == ps2_difftrace::kIoRead && b == 16u) ? ps2_difftrace::g_ioHi : 0u;
+                        e.post = *t.ctx;
+                        e.postClock = clockNow(rt);
+                        e.postSerial = rt->m_guestJumpSerial;
+                        diff(t.rdram, t.ramShadow.data(), PS2_RAM_SIZE, kRamPage, e.postRam);
+                        diff(t.spr, t.sprShadow.data(), PS2_SCRATCHPAD_SIZE, kSmallPage, e.postSpr);
+                        diff(t.vu, t.vuShadow.data(), PS2_VU0_DATA_SIZE, kSmallPage, e.postVu);
+                        t.bytes += sizeof(Event) + e.preRam.data.size() + e.postRam.data.size() + e.preSpr.data.size() + e.postSpr.data.size();
+                    };
+                    uint64_t r = 0;
+                    try
+                    {
+                        r = real(arg);
+                    }
+                    catch (...)
+                    {
+                        after(true, 0u); // the body is left by a thread switch's exception: no more events
+                        t.threwInEvent = true;
+                        throw;
+                    }
+                    after(false, r);
+                    if (t.bytes > (size_t(768) << 20))
+                        t.overflow = true; // the record past 768 MB: this call is not checked, the rest runs untraced
+                    ps2_difftrace::g_top = !t.overflow;
+                    return r;
+                }
+                // the lifted code: the event answered from the record
+                auto windUp = [&]() -> uint64_t
+                {
+                    t.stopped = true;
+                    rt->m_eeClock.unwinding = true; // the lifted code returns at once (as on a thread switch)
+                    return kind == ps2_difftrace::kCheckpoint ? 1u : 0u;
+                };
+                if (t.stopped)
+                    return windUp();
+                if (ctx && ctx != t.ctx)
+                {
+                    fail("an event on another context");
+                    return windUp();
+                }
+                const size_t i = t.cursor;
+                if (kind == ps2_difftrace::kCheckpoint)
+                {
+                    // The gate is armed at the generated code's next checkpoint (armGate); one taken before it is another
+                    // host thread closing the gate (an event posted: the IOP, the VBlank timer): nothing is due then, the
+                    // lifted code goes on (its slow path wrote its registers back and reads them again: no effect).
+                    const Event *nx = i < t.events.size() ? &t.events[i] : nullptr;
+                    const uint64_t now = clockNow(rt).now();
+                    if (!nx || nx->kind != ps2_difftrace::kCheckpoint || now < nx->preClock.now())
+                    {
+                        armGate(rt);
+                        return 0u;
+                    }
+                }
+                if (i >= t.events.size())
+                {
+                    fail("event %zu (%s %08x) past the generated code's %zu", i, kindName(kind), a, t.events.size());
+                    return windUp();
+                }
+                const Event &e = t.events[t.cursor++];
+                if (e.kind != kind || e.a != a || e.b != b || e.v != v || e.v2 != v2)
+                {
+                    fail("event %zu: lifted %s %08x/%08x/%llx, generated %s %08x/%08x/%llx", i, kindName(kind), a, b, (unsigned long long)v, kindName(e.kind), e.a,
+                         e.b, (unsigned long long)e.v);
+                    return windUp();
+                }
+                std::string what;
+                const bool io = kind == ps2_difftrace::kIoRead || kind == ps2_difftrace::kIoWrite;
+                if (ctxDiffers(*t.ctx, e.pre, !io, what))
+                {
+                    fail("event %zu (%s %08x): %s", i, kindName(kind), a, what.c_str());
+                    return windUp();
+                }
+                const Clock now = clockNow(rt);
+                if (now.now() != e.preClock.now())
+                {
+                    fail("event %zu (%s %08x): EE clock lifted %llu generated %llu", i, kindName(kind), a, (unsigned long long)now.now(),
+                         (unsigned long long)e.preClock.now());
+                    return windUp();
+                }
+                apply(e.preRam, t.ramExp.data(), kRamPage);
+                apply(e.preSpr, t.sprExp.data(), kSmallPage);
+                apply(e.preVu, t.vuExp.data(), kSmallPage);
+                if (memDiffers(t.rdram, t.ramExp.data(), PS2_RAM_SIZE, 0u, "ram", what) ||
+                    memDiffers(t.spr, t.sprExp.data(), PS2_SCRATCHPAD_SIZE, 0x70000000u, "scratchpad", what) ||
+                    memDiffers(t.vu, t.vuExp.data(), PS2_VU0_DATA_SIZE, 0x11004000u, "vu0 data", what))
+                {
+                    fail("event %zu (%s %08x): %s", i, kindName(kind), a, what.c_str());
+                    return windUp();
+                }
+                // the event's result in place
+                *t.ctx = e.post;
+                clockSet(rt, e.postClock);
+                armGate(rt);
+                rt->m_guestJumpSerial = e.postSerial;
+                apply(e.postRam, t.ramExp.data(), kRamPage);
+                apply(e.postRam, t.rdram, kRamPage);
+                apply(e.postSpr, t.sprExp.data(), kSmallPage);
+                apply(e.postSpr, t.spr, kSmallPage);
+                apply(e.postVu, t.vuExp.data(), kSmallPage);
+                apply(e.postVu, t.vu, kSmallPage);
+                if (e.threw)
+                {
+                    // the generated code's body ended here (a thread switch's exception): so does the lifted one's
+                    t.stopped = true;
+                    rt->m_eeClock.unwinding = true;
+                    return kind == ps2_difftrace::kCheckpoint ? 1u : 0u;
+                }
+                if (kind == ps2_difftrace::kIoRead && b == 16u)
+                    ps2_difftrace::g_ioHi = e.retHi;
+                return e.ret;
+            }
+
+            // One trace check of c (its generated code live, then its lifted code against the record).
+            void check(Checked &c, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+            {
+                State &t = g_t;
+                uint8_t *spr = runtime->memory().getScratchpad(), *vu = runtime->memory().getVU0Data();
+                if (t.ramBefore.empty())
+                {
+                    t.ramBefore.resize(PS2_RAM_SIZE);
+                    t.ramShadow.resize(PS2_RAM_SIZE);
+                    t.ramExp.resize(PS2_RAM_SIZE);
+                    t.sprBefore.resize(PS2_SCRATCHPAD_SIZE);
+                    t.sprShadow.resize(PS2_SCRATCHPAD_SIZE);
+                    t.sprExp.resize(PS2_SCRATCHPAD_SIZE);
+                    t.vuBefore.resize(PS2_VU0_DATA_SIZE);
+                    t.vuShadow.resize(PS2_VU0_DATA_SIZE);
+                    t.vuExp.resize(PS2_VU0_DATA_SIZE);
+                    ps2_difftrace::g_event = &onEvent;
+                }
+                std::memcpy(t.ramBefore.data(), rdram, PS2_RAM_SIZE);
+                std::memcpy(t.ramShadow.data(), rdram, PS2_RAM_SIZE);
+                std::memcpy(t.sprBefore.data(), spr, PS2_SCRATCHPAD_SIZE);
+                std::memcpy(t.sprShadow.data(), spr, PS2_SCRATCHPAD_SIZE);
+                std::memcpy(t.vuBefore.data(), vu, PS2_VU0_DATA_SIZE);
+                std::memcpy(t.vuShadow.data(), vu, PS2_VU0_DATA_SIZE);
+                const R5900Context input = *ctx;
+                const Clock clock0 = clockNow(runtime);
+                const uint32_t serial0 = runtime->m_guestJumpSerial;
+                const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
+                t.events.clear();
+                t.replay = t.stopped = t.overflow = t.threwInEvent = false;
+                t.cursor = 0;
+                t.bytes = 0;
+                t.what.clear();
+                t.rdram = rdram;
+                t.spr = spr;
+                t.vu = vu;
+                t.ctx = ctx;
+                g_active = true;
+                // 1. the generated code, live (a thread switch by returning comes back here with the clock's flags set)
+                bool threw = false;
+                ps2_difftrace::g_top = true;
+                try
+                {
+                    c.recompiled(rdram, ctx, runtime);
+                }
+                catch (const EeDispatcherTransfer &)
+                {
+                    threw = true;
+                }
+                catch (...)
+                {
+                    ps2_difftrace::g_top = false;
+                    g_active = false;
+                    throw;
+                }
+                ps2_difftrace::g_top = false;
+                const R5900Context out = *ctx;
+                const Clock clockOut = clockNow(runtime);
+                const uint32_t serialOut = runtime->m_guestJumpSerial;
+                Diff endRam, endSpr, endVu;
+                diff(rdram, t.ramShadow.data(), PS2_RAM_SIZE, kRamPage, endRam); // ramShadow: the generated code's end state now
+                diff(spr, t.sprShadow.data(), PS2_SCRATCHPAD_SIZE, kSmallPage, endSpr);
+                diff(vu, t.vuShadow.data(), PS2_VU0_DATA_SIZE, kSmallPage, endVu);
+                const size_t events = t.events.size();
+                bool checked = false;
+                if (!t.overflow && (threw == t.threwInEvent))
+                {
+                    // 2. the lifted code from the input, its events answered from the record
+                    std::memcpy(rdram, t.ramBefore.data(), PS2_RAM_SIZE);
+                    std::memcpy(t.ramExp.data(), t.ramBefore.data(), PS2_RAM_SIZE);
+                    std::memcpy(spr, t.sprBefore.data(), PS2_SCRATCHPAD_SIZE);
+                    std::memcpy(t.sprExp.data(), t.sprBefore.data(), PS2_SCRATCHPAD_SIZE);
+                    std::memcpy(vu, t.vuBefore.data(), PS2_VU0_DATA_SIZE);
+                    std::memcpy(t.vuExp.data(), t.vuBefore.data(), PS2_VU0_DATA_SIZE);
+                    *ctx = input;
+                    clockSet(runtime, clock0);
+                    runtime->m_guestJumpSerial = serial0;
+                    t.replay = true;
+                    armGate(runtime);
+                    ps2_difftrace::g_top = true;
+                    // SOTC_DIFFTEST_CONTROL=1: the generated code replayed against its own record (the mechanism's control)
+                    static const bool control = ps2_diag::env("SOTC_DIFFTEST_CONTROL") != nullptr;
+                    try
+                    {
+                        (control ? c.recompiled : c.function->native)(rdram, ctx, runtime);
+                    }
+                    catch (...)
+                    {
+                        fail("the lifted code threw");
+                    }
+                    ps2_difftrace::g_top = false;
+                    t.replay = false;
+                    if (!t.stopped && t.what.empty())
+                    {
+                        std::string what;
+                        const Clock clockL = clockNow(runtime);
+                        apply(endRam, t.ramExp.data(), kRamPage);
+                        apply(endSpr, t.sprExp.data(), kSmallPage);
+                        apply(endVu, t.vuExp.data(), kSmallPage);
+                        if (t.cursor != events)
+                            fail("the lifted code ends after %zu of the generated code's %zu events", t.cursor, events);
+                        else if (ctxDiffers(*ctx, out, true, what))
+                            fail("at the end: %s", what.c_str());
+                        else if (clockL.now() != clockOut.now() || clockL.unwinding != clockOut.unwinding || clockL.transferred != clockOut.transferred)
+                            fail("at the end: EE clock lifted %llu generated %llu", (unsigned long long)clockL.now(), (unsigned long long)clockOut.now());
+                        else if (memDiffers(rdram, t.ramExp.data(), PS2_RAM_SIZE, 0u, "ram", what) ||
+                                 memDiffers(spr, t.sprExp.data(), PS2_SCRATCHPAD_SIZE, 0x70000000u, "scratchpad", what) ||
+                                 memDiffers(vu, t.vuExp.data(), PS2_VU0_DATA_SIZE, 0x11004000u, "vu0 data", what))
+                            fail("at the end: %s", what.c_str());
+                    }
+                    checked = true;
+                    // 3. the game goes on from the generated code's end state
+                    std::memcpy(rdram, t.ramShadow.data(), PS2_RAM_SIZE);
+                    std::memcpy(spr, t.sprShadow.data(), PS2_SCRATCHPAD_SIZE);
+                    std::memcpy(vu, t.vuShadow.data(), PS2_VU0_DATA_SIZE);
+                    *ctx = out;
+                    clockSet(runtime, clockOut);
+                    runtime->m_guestJumpSerial = serialOut;
+                }
+                g_active = false;
+                if (checked)
+                {
+                    const bool bad = !t.what.empty();
+                    if (bad)
+                    {
+                        char what[320];
+                        std::snprintf(what, sizeof(what), "trace, %zu events%s: %s", events, threw ? ", left by a thread switch" : "", t.what.c_str());
+                        report(c, input, what);
+                        c.mismatches.fetch_add(1, std::memory_order_relaxed);
+                    }
+                    static std::unordered_map<const Checked *, uint64_t> eventCount, switches;
+                    eventCount[&c] += events;
+                    if (threw || clockOut.transferred || clockOut.unwinding)
+                        ++switches[&c];
+                    const uint64_t checks = c.checks.fetch_add(1, std::memory_order_relaxed) + 1u;
+                    if (checks == 1u || checks % 100u == 0u)
+                        std::fprintf(stderr, "[difftest] %s: %llu checks, %llu mismatches (%llu calls; trace: %llu events, %llu left by a switch or checkpoint)\n",
+                                     c.function->name, (unsigned long long)checks, (unsigned long long)c.mismatches.load(),
+                                     (unsigned long long)c.calls.load(), (unsigned long long)eventCount[&c], (unsigned long long)switches[&c]);
+                }
+                else
+                {
+                    static uint64_t skipped = 0;
+                    if ((++skipped & 63u) == 1u)
+                        std::fprintf(stderr, "[difftest] %s: trace not checked (%s; %llu such calls in all)\n", c.function->name,
+                                     t.overflow ? "past SOTC_DIFFTEST_TRACE_MAX events" : "an exception outside an event", (unsigned long long)skipped);
+                }
+                if (threw)
+                    throw EeDispatcherTransfer{};
+                // a continuation left in another function (a branch past the end), as runToReturn: live, after the check
+                if (!clockOut.unwinding && !clockOut.transferred)
+                    while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
+                    {
+                        PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
+                        if (!next)
+                            break;
+                        next(rdram, ctx, runtime);
+                        if (runtime->m_eeClock.unwinding || runtime->m_eeClock.transferred)
+                            break;
+                    }
+            }
+            bool wanted(const Checked &c)
+            {
+                static const char *const list = ps2_diag::env("SOTC_DIFFTEST_TRACE");
+                return list && listed(list, c.function->name);
+            }
+        }
+#endif
+
         void checkedCallImpl(Checked &c, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             static const uint64_t first = ps2_diag::env("SOTC_DIFFTEST_FIRST") ? std::strtoull(ps2_diag::env("SOTC_DIFFTEST_FIRST"), nullptr, 0) : 200u;
             static const uint64_t every = std::max<uint64_t>(1u, ps2_diag::env("SOTC_DIFFTEST_EVERY") ? std::strtoull(ps2_diag::env("SOTC_DIFFTEST_EVERY"), nullptr, 0) : 1000u);
+#if !defined(__vita__)
+            // Decomp D6: inside a trace check's live run (a callee): the generated code, unchecked.
+            if (trace::g_active)
+            {
+                c.recompiled(rdram, ctx, runtime);
+                return;
+            }
+#endif
             const uint64_t n = c.calls.fetch_add(1, std::memory_order_relaxed);
+#if !defined(__vita__)
+            if (trace::wanted(c))
+            {
+                // a resume through the entry slot (ctx->pc on a label), the stride, or a two-leg check running: as without
+                if (ctx->pc != c.function->address || g_depth > 0 || (n >= first && n < c.next))
+                {
+                    c.recompiled(rdram, ctx, runtime);
+                    return;
+                }
+                if (n >= first)
+                {
+                    const uint64_t past = c.checks.load(std::memory_order_relaxed) > first ? c.checks.load(std::memory_order_relaxed) - first : 0u;
+                    const unsigned doublings = g_maxChecks ? static_cast<unsigned>(std::min<uint64_t>(40u, past / g_maxChecks)) : 0u;
+                    c.next = n + (every << doublings);
+                }
+                trace::check(c, rdram, ctx, runtime);
+                return;
+            }
+#endif
             // Too deep (a chain of checked functions reached from each
             // other's legs): the recompiled code, unchecked.
             // Round 126: SOTC_DIFFTEST_DEPTH=<1..3> (default 3): how deep checks nest (each level holds two 32 MB copies).
@@ -213,6 +793,7 @@ namespace sotc_decomp
             before.ram.assign(rdram, rdram + PS2_RAM_SIZE);
             before.scratch.assign(scratch, scratch + PS2_SCRATCHPAD_SIZE);
             const R5900Context input = *ctx;
+            const bool unwindingIn = runtime->m_eeClock.unwinding, pendingIn = runtime->m_eeClock.pending.load(std::memory_order_relaxed);
 
             ++g_depth;
             // Decomp D4: a thread switch inside a leg throws past this frame (ThrowScope above); the depth went up for
@@ -243,7 +824,12 @@ namespace sotc_decomp
             // the mismatches that come from the state, not the rewrite (a
             // function whose result depends on the clock, interrupts).
             static const bool control = ps2_diag::env("SOTC_DIFFTEST_CONTROL") != nullptr;
-            const PS2Runtime::RecompiledFunction leg = control ? c.recompiled : c.function->native;
+            // Decomp D6 (checking): SOTC_DIFFTEST_SWAP=1: the recompiled code in the first leg and the native in the second
+            // (reported with the names as without it; the game goes on from the native's leg): a difference that follows
+            // the order is the state, not the code.
+            static const bool swapLegs = ps2_diag::env("SOTC_DIFFTEST_SWAP") != nullptr;
+            const PS2Runtime::RecompiledFunction leg = control || swapLegs ? c.recompiled : c.function->native;
+            const PS2Runtime::RecompiledFunction leg2 = swapLegs ? c.function->native : c.recompiled;
             // SOTC_DIFFTEST_CYCLES=1 (checking, round 15): the EE cycles each
             // leg charges (the game's time step comes from the EE clock).
             static const bool cyclesOn = ps2_diag::env("SOTC_DIFFTEST_CYCLES") != nullptr;
@@ -337,9 +923,9 @@ namespace sotc_decomp
                 SET_GPR_U64(ctx, 30, mark(30));
             }
             if (c.function->once)
-                c.recompiled(rdram, ctx, runtime);
+                leg2(rdram, ctx, runtime);
             else
-                runToReturn(rdram, ctx, runtime, c.recompiled);
+                runToReturn(rdram, ctx, runtime, leg2);
             if (poison)
             {
                 for (int r = 16; r <= 23; ++r)
@@ -416,8 +1002,15 @@ namespace sotc_decomp
                 for (int r = 0; r < 32 && !bad; ++r)
                     if (std::memcmp(&ctx->r[r], &native->r[r], 16) != 0)
                     {
-                        char what[64];
-                        std::snprintf(what, sizeof(what), "r%d (128 bits)", r);
+                        // Decomp D6: both legs' 128 bits (high:low) and the input's, so an upper-half difference shows as one.
+                        char what[192];
+                        uint64_t rv[2], nv[2], iv[2];
+                        std::memcpy(rv, &ctx->r[r], 16);
+                        std::memcpy(nv, &native->r[r], 16);
+                        std::memcpy(iv, &input.r[r], 16);
+                        std::snprintf(what, sizeof(what), "r%d (128 bits) recompiled %016llx:%016llx native %016llx:%016llx input %016llx:%016llx", r,
+                                      (unsigned long long)rv[1], (unsigned long long)rv[0], (unsigned long long)nv[1], (unsigned long long)nv[0],
+                                      (unsigned long long)iv[1], (unsigned long long)iv[0]);
                         report(c, input, what);
                         bad = true;
                     }
@@ -646,6 +1239,45 @@ namespace sotc_decomp
                     runToReturn(rdram, ctx, runtime, c.recompiled);
                 --g_depth;
             }
+            // Decomp D6: SOTC_DIFFTEST_REGDUMP=1: at a function's first mismatch, every GPR of the input and of both legs'
+            // results (low 64 bits), pc and the depth (which register and where the difference comes from).
+            static const bool regDump = ps2_diag::env("SOTC_DIFFTEST_REGDUMP") != nullptr;
+            if (bad && regDump && c.mismatches.load(std::memory_order_relaxed) == 0u)
+            {
+                std::fprintf(stderr, "[difftest] regdump %s: input pc %08x, depth %d, out pc recompiled %08x native %08x, unwinding %d (in %d, pending in %d); reg input / recompiled / native\n",
+                             c.function->name, input.pc, depth, ctx->pc, native->pc, runtime->m_eeClock.unwinding ? 1 : 0, unwindingIn ? 1 : 0, pendingIn ? 1 : 0);
+                for (int r = 0; r < 32; ++r)
+                    std::fprintf(stderr, "[difftest]   r%-2d %016llx %016llx %016llx\n", r, (unsigned long long)GPR_U64(&input, r),
+                                 (unsigned long long)GPR_U64(ctx, r), (unsigned long long)GPR_U64(native, r));
+#if !defined(__vita__)
+                {
+                    Dl_info di{}, dn{};
+                    dladdr(reinterpret_cast<void *>(c.recompiled), &di);
+                    dladdr(reinterpret_cast<void *>(c.function->native), &dn);
+                    std::fprintf(stderr, "[difftest]   legs: recompiled %s, native %s\n", di.dli_sname ? di.dli_sname : "?", dn.dli_sname ? dn.dli_sname : "?");
+                }
+#endif
+                const uint32_t a1 = GPR_U32(&input, 5) & (PS2_RAM_SIZE - 1u) & ~3u;
+                if (a1 + 0x40u <= PS2_RAM_SIZE)
+                {
+                    uint32_t w[16];
+                    std::memcpy(w, before.ram.data() + a1, sizeof(w));
+                    std::fprintf(stderr, "[difftest]   words at a1 (before): %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n", w[0], w[1],
+                                 w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11], w[12], w[13], w[14], w[15]);
+                }
+                // SOTC_DIFFTEST_PEEK=<hex address>: 16 words there too (before the call).
+                if (const char *peek = ps2_diag::env("SOTC_DIFFTEST_PEEK"))
+                {
+                    const uint32_t pa = static_cast<uint32_t>(std::strtoul(peek, nullptr, 16)) & (PS2_RAM_SIZE - 1u) & ~3u;
+                    if (pa + 0x40u <= PS2_RAM_SIZE)
+                    {
+                        uint32_t w[16];
+                        std::memcpy(w, before.ram.data() + pa, sizeof(w));
+                        std::fprintf(stderr, "[difftest]   words at %08x: %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n", pa, w[0],
+                                     w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11], w[12], w[13], w[14], w[15]);
+                    }
+                }
+            }
             if (bad)
                 c.mismatches.fetch_add(1, std::memory_order_relaxed);
             const uint64_t checks = c.checks.load(std::memory_order_relaxed);
@@ -844,19 +1476,19 @@ namespace sotc_decomp
     // Decomp D1's lifted functions (tools/lift_d1.py): their table entries swapped when SOTC_LIFTD1 changes at run
     // time (an A/B window, SOTC_AB_FLAG=liftd1), as abTick swaps SOTC_AB's set.
     // Decomp D2: the same for D2's batch (SOTC_LIFTD2, SOTC_AB_FLAG=liftd2), its own list; D3 likewise (SOTC_LIFTD3,
-    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4), D5 likewise (SOTC_LIFTD5, liftd5).
+    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4), D5 likewise (SOTC_LIFTD5, liftd5), D6 likewise (SOTC_LIFTD6, liftd6).
     // Decomp D4 (test): liftalt off puts each lifted function's alternative copy (SOTC_DECOMP_LIFT_ALT) where the lifted
     // function is, on puts the lifted function back: two lifter versions of the same functions A/B'd in one run.
     namespace
     {
-        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4, g_lift5;
+        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4, g_lift5, g_lift6;
         int g_liftHooked = 0;
         PS2Runtime *g_liftRuntime = nullptr;
         void liftAltChanged(bool on)
         {
             int swapped = 0, remapped = 0;
             for (const auto &[address, alt] : liftAlts())
-                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5})
+                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5, &g_lift6})
                     for (const AbEntry &e : *v)
                     {
                         if (e.address != address || !e.native)
@@ -881,10 +1513,10 @@ namespace sotc_decomp
             if (which == kLiftAlt && g_liftRuntime)
                 return liftAltChanged(on);
             applyLiftFallbacks(which);
-            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4 && which != kLiftD5) || !g_liftRuntime)
+            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4 && which != kLiftD5 && which != kLiftD6) || !g_liftRuntime)
                 return;
             int swapped = 0;
-            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : which == kLiftD4 ? g_lift4 : g_lift5)
+            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : which == kLiftD4 ? g_lift4 : which == kLiftD5 ? g_lift5 : g_lift6)
             {
                 if (!e.recompiled || !e.native)
                     continue;
@@ -897,7 +1529,7 @@ namespace sotc_decomp
                 else
                     sotc_prof::remapWrapped(from, to);
             }
-            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : which == kLiftD4 ? "liftd4" : "liftd5",
+            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : which == kLiftD4 ? "liftd4" : which == kLiftD5 ? "liftd5" : "liftd6",
                          static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
         }
     }
@@ -1096,7 +1728,12 @@ namespace sotc_decomp
             if (listed(test, f.name) && checked < kMaxChecked)
             {
                 g_checked[checked].function = &f;
-                g_checked[checked].recompiled = runtime.lookupFunction(f.address);
+                // Decomp D6: a lifted function is checked against the generated function it was lifted from
+                // (f.original). The slot's holder was used before: for a lifted copy whose slot a native holds (D5's
+                // fallback copies, `<name>_fb`, put in the table by SOTC_DIFFTEST) that was the native, so D5's
+                // "register mismatches" of the GetGeometryPointer* trio, getLayoutClassCollisionIndepSurfBoundary_fb
+                // and manager_sub_01117340_fb compared the lifted copy with geo126's / decomp_collision's ports.
+                g_checked[checked].recompiled = f.lift && f.original ? f.original : runtime.lookupFunction(f.address);
                 runtime.registerFunction(f.address, checkers[checked]);
                 ++checked;
             }
@@ -1157,7 +1794,18 @@ namespace sotc_decomp
                     }();
                     if (sw == kLiftD5 && (f.address < d5Range.first || f.address >= d5Range.second))
                         continue;
-                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : sw == kLiftD4 ? g_lift4 : g_lift5).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
+                    // Decomp D6: SOTC_LIFTD6_RANGE, the same for D6's functions.
+                    static const std::pair<uint32_t, uint32_t> d6Range = []
+                    {
+                        const char *r = ps2_diag::env("SOTC_LIFTD6_RANGE");
+                        if (!r || !std::strchr(r, ':'))
+                            return std::pair<uint32_t, uint32_t>{0u, 0xFFFFFFFFu};
+                        return std::pair<uint32_t, uint32_t>{static_cast<uint32_t>(std::strtoul(r, nullptr, 16)),
+                                                             static_cast<uint32_t>(std::strtoul(std::strchr(r, ':') + 1, nullptr, 16))};
+                    }();
+                    if (sw == kLiftD6 && (f.address < d6Range.first || f.address >= d6Range.second))
+                        continue;
+                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : sw == kLiftD4 ? g_lift4 : sw == kLiftD5 ? g_lift5 : g_lift6).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
                     if (!switchOn(sw))
                         continue;
                 }
@@ -1184,14 +1832,14 @@ namespace sotc_decomp
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
-        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty() || !g_lift5.empty())
+        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty() || !g_lift5.empty() || !g_lift6.empty())
         {
             g_liftRuntime = &runtime;
             g_switchChanged = liftSwitchChanged;
-            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size() << ", D5 " << g_lift5.size()
+            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size() << ", D5 " << g_lift5.size() << ", D6 " << g_lift6.size()
                       << " (" << g_liftHooked << " left to a hook), d1 "
                       << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << ", d2 " << (switchOn(kLiftD2) ? "on" : "off (SOTC_LIFTD2=0)")
-                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)") << ", d5 " << (switchOn(kLiftD5) ? "on" : "off (SOTC_LIFTD5=0)")
+                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)") << ", d5 " << (switchOn(kLiftD5) ? "on" : "off (SOTC_LIFTD5=0)") << ", d6 " << (switchOn(kLiftD6) ? "on" : "off (SOTC_LIFTD6=0)")
                       << (liftAlts().empty() ? "" : ", alternative copies ") << (liftAlts().empty() ? "" : std::to_string(liftAlts().size())) << std::endl;
             // Decomp D4 (test): SOTC_LIFTALT=0 starts with the alternative copies in place.
             if (!liftAlts().empty() && !switchOn(kLiftAlt))

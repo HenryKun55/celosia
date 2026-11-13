@@ -4163,30 +4163,67 @@ namespace ps2_guest_mem
     {
         if (const uint8_t *p = spr<1>(runtime, a))
             return *p;
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+            return static_cast<uint8_t>(ps2_difftrace::event(runtime, ps2_difftrace::kIoRead, rdram, ctx, a, 1u, 0, 0, [&]() -> uint64_t
+                                                          { return ps2_worker::real(runtime)->Load8(rdram, ctx, a); }));
+#endif
         return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load8(rdram, ctx, a) : Ps2FastRead8(rdram, a);
     }
     uint16_t read16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<2>(runtime, a))
             return sprLoad<uint16_t>(p);
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+            return static_cast<uint16_t>(ps2_difftrace::event(runtime, ps2_difftrace::kIoRead, rdram, ctx, a, 2u, 0, 0, [&]() -> uint64_t
+                                                          { return ps2_worker::real(runtime)->Load16(rdram, ctx, a); }));
+#endif
         return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load16(rdram, ctx, a) : Ps2FastRead16(rdram, a);
     }
     uint32_t read32(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<4>(runtime, a))
             return sprLoad<uint32_t>(p);
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+            return static_cast<uint32_t>(ps2_difftrace::event(runtime, ps2_difftrace::kIoRead, rdram, ctx, a, 4u, 0, 0, [&]() -> uint64_t
+                                                          { return ps2_worker::real(runtime)->Load32(rdram, ctx, a); }));
+#endif
         return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load32(rdram, ctx, a) : Ps2FastRead32(rdram, a);
     }
     uint64_t read64(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<8>(runtime, a))
             return sprLoad<uint64_t>(p);
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+            return static_cast<uint64_t>(ps2_difftrace::event(runtime, ps2_difftrace::kIoRead, rdram, ctx, a, 8u, 0, 0, [&]() -> uint64_t
+                                                          { return ps2_worker::real(runtime)->Load64(rdram, ctx, a); }));
+#endif
         return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load64(rdram, ctx, a) : Ps2FastRead64(rdram, a);
     }
     __m128i read128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a)
     {
         if (const uint8_t *p = spr<16>(runtime, a))
             return sprLoad<__m128i>(p);
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+        {
+            __m128i r128;
+            const uint64_t lo = ps2_difftrace::event(runtime, ps2_difftrace::kIoRead, rdram, ctx, a, 16u, 0, 0, [&]() -> uint64_t
+                                                     {
+                                                         r128 = ps2_worker::real(runtime)->Load128(rdram, ctx, a);
+                                                         uint64_t h[2];
+                                                         std::memcpy(h, &r128, 16);
+                                                         ps2_difftrace::g_ioHi = h[1];
+                                                         return h[0];
+                                                     });
+            const uint64_t h[2] = {lo, ps2_difftrace::g_ioHi};
+            std::memcpy(&r128, h, 16);
+            return r128;
+        }
+#endif
         return Ps2IsSpecialAddress(a) ? ps2_worker::real(runtime)->Load128(rdram, ctx, a) : Ps2FastRead128(rdram, a);
     }
     void write8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t a, uint8_t v)
@@ -4196,6 +4233,14 @@ namespace ps2_guest_mem
             *p = v;
             return;
         }
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+        {
+            ps2_difftrace::event(runtime, ps2_difftrace::kIoWrite, rdram, ctx, a, 1u, static_cast<uint64_t>(v), 0, [&]() -> uint64_t
+                                 { ps2_worker::real(runtime)->Store8(rdram, ctx, a, v); return 0u; });
+            return;
+        }
+#endif
         if (Ps2IsSpecialAddress(a))
             return ps2_worker::real(runtime)->Store8(rdram, ctx, a, v);
         trace<uint8_t>(rdram, a, v, "WRITE8", ctx);
@@ -4208,6 +4253,14 @@ namespace ps2_guest_mem
             std::memcpy(p, &v, sizeof(v));
             return;
         }
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+        {
+            ps2_difftrace::event(runtime, ps2_difftrace::kIoWrite, rdram, ctx, a, 2u, static_cast<uint64_t>(v), 0, [&]() -> uint64_t
+                                 { ps2_worker::real(runtime)->Store16(rdram, ctx, a, v); return 0u; });
+            return;
+        }
+#endif
         if (Ps2IsSpecialAddress(a))
             return ps2_worker::real(runtime)->Store16(rdram, ctx, a, v);
         trace<uint16_t>(rdram, a, v, "WRITE16", ctx);
@@ -4220,6 +4273,14 @@ namespace ps2_guest_mem
             std::memcpy(p, &v, sizeof(v));
             return;
         }
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+        {
+            ps2_difftrace::event(runtime, ps2_difftrace::kIoWrite, rdram, ctx, a, 4u, static_cast<uint64_t>(v), 0, [&]() -> uint64_t
+                                 { ps2_worker::real(runtime)->Store32(rdram, ctx, a, v); return 0u; });
+            return;
+        }
+#endif
         if (Ps2IsSpecialAddress(a))
             return ps2_worker::real(runtime)->Store32(rdram, ctx, a, v);
         trace<uint32_t>(rdram, a, v, "WRITE32", ctx);
@@ -4232,6 +4293,14 @@ namespace ps2_guest_mem
             std::memcpy(p, &v, sizeof(v));
             return;
         }
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+        {
+            ps2_difftrace::event(runtime, ps2_difftrace::kIoWrite, rdram, ctx, a, 8u, static_cast<uint64_t>(v), 0, [&]() -> uint64_t
+                                 { ps2_worker::real(runtime)->Store64(rdram, ctx, a, v); return 0u; });
+            return;
+        }
+#endif
         if (Ps2IsSpecialAddress(a))
             return ps2_worker::real(runtime)->Store64(rdram, ctx, a, v);
         trace<uint64_t>(rdram, a, v, "WRITE64", ctx);
@@ -4244,6 +4313,16 @@ namespace ps2_guest_mem
             std::memcpy(p, &v, sizeof(v));
             return;
         }
+#if PS2X_DIFFTRACE
+        if (__builtin_expect(ps2_difftrace::g_top, 0) && Ps2IsSpecialAddress(a))
+        {
+            uint64_t h[2];
+            std::memcpy(h, &v, 16);
+            ps2_difftrace::event(runtime, ps2_difftrace::kIoWrite, rdram, ctx, a, 16u, h[0], h[1], [&]() -> uint64_t
+                                 { ps2_worker::real(runtime)->Store128(rdram, ctx, a, v); return 0u; });
+            return;
+        }
+#endif
         if (Ps2IsSpecialAddress(a))
             return ps2_worker::real(runtime)->Store128(rdram, ctx, a, v);
         trace<__m128i>(rdram, a, v, "WRITE128", ctx);

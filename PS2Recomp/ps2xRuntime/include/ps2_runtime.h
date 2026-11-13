@@ -31,6 +31,7 @@
 #include "runtime/gs/ps2_gif_arbiter.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ee_clock.h"
+#include "runtime/ps2_difftrace.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/ps2_vu1.h"
 #include "runtime/ps2_audio.h"
@@ -411,6 +412,10 @@ public:
     void handleSyscall(uint8_t *rdram, R5900Context *ctx);
     void handleSyscall(uint8_t *rdram, R5900Context *ctx, uint32_t encodedSyscallId);
     void handleBreak(uint8_t *rdram, R5900Context *ctx);
+    // Decomp D6: the three above without the trace hook (ps2_difftrace.h).
+    void handleSyscallBody(uint8_t *rdram, R5900Context *ctx);
+    void handleSyscallBody(uint8_t *rdram, R5900Context *ctx, uint32_t encodedSyscallId);
+    void handleBreakBody(uint8_t *rdram, R5900Context *ctx);
 
     void handleTrap(uint8_t *rdram, R5900Context *ctx);
     void handleTLBR(uint8_t *rdram, R5900Context *ctx);
@@ -462,6 +467,7 @@ public:
     // codeReadsPc), anything that reads it stores its own first.
     inline bool eeCheckpointDueAt(R5900Context *ctx, uint32_t pc, uint32_t cycles = 32u) noexcept;
     bool eeCheckpointSlow() noexcept;
+    bool eeCheckpointSlowBody() noexcept; // decomp D6: without the trace hook
     inline RecompiledFunction guestFunctionAt(uint32_t target) const noexcept;
     inline bool hostStackDeep() const noexcept;
     inline bool callGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
@@ -476,6 +482,14 @@ public:
     inline bool callGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
                             uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     inline void jumpGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target);
+    // Decomp D6: the bodies of the call / jump entries without the trace hook (ps2_difftrace.h).
+    inline bool callGuestFnBody(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,
+                                uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
+    inline void jumpGuestFnBody(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target);
+    static inline void tailGuestKnownBody(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
+                                          uint32_t target);
+    inline bool callGuestKnownBody(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, uint32_t target,
+                                   uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     static inline void tailGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
                                       uint32_t target);
     inline bool callGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, uint32_t target,
@@ -739,6 +753,18 @@ __attribute__((always_inline)) inline bool PS2Runtime::hostStackDeep() const noe
 __attribute__((always_inline)) inline bool PS2Runtime::callGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target,
                                                                    uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName)
 {
+#if PS2X_DIFFTRACE
+    // Decomp D6: a trace check's body calls out (ps2_difftrace.h): recorded around the call, or answered from the record.
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+        return ps2_difftrace::event(this, ps2_difftrace::kCall, rdram, ctx, target, returnPc, 0, 0, [&]() -> uint64_t
+                                    { return callGuestFnBody(fn, rdram, ctx, target, returnPc, sourcePc, kind, debugName) ? 1u : 0u; }) != 0u;
+#endif
+    return callGuestFnBody(fn, rdram, ctx, target, returnPc, sourcePc, kind, debugName);
+}
+
+__attribute__((always_inline)) inline bool PS2Runtime::callGuestFnBody(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target,
+                                                                       uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName)
+{
     ctx->pc = target;
     // m_hostStackFloor holds !m_directDispatch too (callGuestSlow tells them apart).
     if (__builtin_expect(!fn || hostStackDeep(), 0))
@@ -757,6 +783,18 @@ __attribute__((always_inline)) inline bool PS2Runtime::callGuestFn(RecompiledFun
 __attribute__((always_inline)) inline bool PS2Runtime::callGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx,
                                                                       uint32_t target, uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind,
                                                                       const char *debugName)
+{
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+        return ps2_difftrace::event(this, ps2_difftrace::kCall, rdram, ctx, target, returnPc, 0, 0, [&]() -> uint64_t
+                                    { return callGuestKnownBody(fn, known, rdram, ctx, target, returnPc, sourcePc, kind, debugName) ? 1u : 0u; }) != 0u;
+#endif
+    return callGuestKnownBody(fn, known, rdram, ctx, target, returnPc, sourcePc, kind, debugName);
+}
+
+__attribute__((always_inline)) inline bool PS2Runtime::callGuestKnownBody(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx,
+                                                                          uint32_t target, uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind,
+                                                                          const char *debugName)
 {
     ctx->pc = target;
     if (__builtin_expect(!fn || hostStackDeep(), 0))
@@ -786,6 +824,19 @@ __attribute__((always_inline)) inline bool PS2Runtime::callGuest(uint8_t *rdram,
 // budget they unwind to the scheduler.
 __attribute__((always_inline)) inline void PS2Runtime::jumpGuestFn(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target)
 {
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+    {
+        ps2_difftrace::event(this, ps2_difftrace::kJump, rdram, ctx, target, 0, 0, 0, [&]() -> uint64_t
+                             { jumpGuestFnBody(fn, rdram, ctx, target); return 0u; });
+        return;
+    }
+#endif
+    jumpGuestFnBody(fn, rdram, ctx, target);
+}
+
+__attribute__((always_inline)) inline void PS2Runtime::jumpGuestFnBody(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx, uint32_t target)
+{
     ctx->pc = target;
     ++m_guestJumpSerial;
     if (__builtin_expect(!fn || hostStackDeep(), 0))
@@ -803,6 +854,20 @@ __attribute__((always_inline)) inline void PS2Runtime::jumpGuestFn(RecompiledFun
 // empty slot (none expected: every generated function has one) goes as a jump.
 __attribute__((always_inline)) inline void PS2Runtime::tailGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram,
                                                                       R5900Context *ctx, PS2Runtime *runtime, uint32_t target)
+{
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+    {
+        ps2_difftrace::event(runtime, ps2_difftrace::kTail, rdram, ctx, target, 0, 0, 0, [&]() -> uint64_t
+                             { tailGuestKnownBody(fn, known, rdram, ctx, runtime, target); return 0u; });
+        return;
+    }
+#endif
+    tailGuestKnownBody(fn, known, rdram, ctx, runtime, target);
+}
+
+__attribute__((always_inline)) inline void PS2Runtime::tailGuestKnownBody(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram,
+                                                                          R5900Context *ctx, PS2Runtime *runtime, uint32_t target)
 {
     if (ps2_worker::isShell(runtime)) // round 91: the worker's jumps go through its hook
         return ps2_worker::g_hooks.jump(runtime, rdram, ctx, fn, target);
