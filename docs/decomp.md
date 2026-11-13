@@ -19578,3 +19578,183 @@ decomp_history (label D3) from p3's attract demo (sampler 300-690 s): **75.1% of
 - **The 36 `jalr` functions** linked to D2's wild returns: now that the 64-bit entry rule is in, re-test them on
   Vita3K behind SOTC_LIFTD3_RANGE-style bisecting.
 - The rest of the still-recompiled code (6 873 functions) in area batches with the same pipeline.
+
+## Decomp D4: callee summaries (exact, not faster on the A9: used only where measured faster); D4's batch (SOTC_LIFTD4) (2026-11-12)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d4/` (STATE.md lists them): sumstat.py / whyunk.py / natsrc.py
+(the summaries' coverage and why a callee has none), fndiff.py (the functions two generations of a file differ in),
+armcmp4.py (Thumb-2 counts, two lifter versions), cand4.py / blk4.py (D4's candidates, the blocking rule for any list),
+abrun4.sh / abwin4.py / onoff4.py (A/B with the sampler for any switch; onoff4 counts the Vita's lean copies as the
+recompiled code too), dtfinal4.py (difftest totals for any name list), final4.sh, in_mash.txt / in_mash2.txt (the
+exploration scripts). Own Vita3K trees ../vita3k-celosia-d3 / -d3b (222 MHz, 3 cores, muted); at most two heavy
+processes, all `nice -n 20`, builds -j4.
+
+### Callee summaries (tools/lift_d1.py --summary)
+
+Call-heavy lifted code was break-even (D3: every call wrote back and read back every register a callee might touch).
+D4 gives the lifter a whole-program summary of every function in the table (`build_summaries`, `function_facts`,
+`function_gpr_writes`):
+
+- **Reads**: every slot (GPR, FPR, VU0 vf, ACC, Q, status, fcr31, the FPU accumulator, lo / hi) the function or
+  anything it calls or tail-jumps to reads; sp and ra always.
+- **Writes**: the FPU / VU0 / other slots any of them writes, and the GPRs left changed in the context at a return or
+  tail jump: a forward may-analysis of "changed since entry" where a write adds the register, a restore of a
+  prologue save (an `sd` / `sq` before the first control instruction, the matching `ld` / `lq` of the same stack slot)
+  removes it, and a call adds the callee's writes (a likely branch's delay slot only on its taken edge).
+- **Unknown** (no summary: the call writes back and reads back everything, as before) when the function or anything
+  it reaches has a runtime call (syscall, break, COP0, VU0 integer registers ...), a `jalr` or an indirect `jr`, a
+  lifter refusal, or a table slot that may hold a native, a hook or a stub. That last set comes from the sources
+  (`native_addresses`): the addresses the natives register (the SOTC_DECOMP_* macros' first argument in a natives
+  file), every hex literal in the files that write the table any other way (sotc_native, sotc_overrides, sotc_replay,
+  sotc_worker less its kPure ranges, sotc_prof, the runtime's sources) and the recompiler's stub list. The lean copies
+  (the same generated code compiled again), the difftest checkers and the profiler's thunks have the generated
+  function's effects.
+- A relocated `jal` (GAMECORE's: the target read from the instruction word in guest RAM) counts as its static target;
+  at the call site the lifted code checks `jumpTarget` against it, and elsewhere (never in a working game) the call is
+  made with everything written back and the generated function resumes at the return label (its entry switch).
+
+Over the 9 024 functions: **2 940 have a summary**; 1 725 are unknown themselves (1 017 may hold a native, 263 `jalr`,
+178 runtime calls, 154 stubs, 83 `break`, 23 refusals), 4 359 reach one. The natives are what most call sites hit
+(gsReg, GetLayoutClass, GetCharacterClass, iosCopyMatrix, memset ...): in D3's 414, 555 of 1 820 call sites
+(30%) have a summarized callee (245 of them relocated).
+
+At a summarized call the lifter writes back only the dirty slots the callee reads or writes; the other dirty slots
+stay in host locals across the call and are written back on the call's not-returning path (a thread switch unwinds
+through `callGuestKnown` returning false: the checkpoint is noexcept, so nothing throws through a call whose callee has
+no runtime call). The undefined-register analysis (64-bit reads of the context) and the write-back flags follow.
+
+**Exact.** Mac difftest (every register, VU0, RAM) of the 205 D1 / D3 functions the first version changed (22 / 183):
+attract, walk, ride, 1 200 s each: 192 of 205 reached, 111 047 checks, **0 register mismatches**; RAM bytes all at
+addresses other functions mismatch too (0x29126c ...) but one single byte. The final version (below) in the A list:
+see "Exactness".
+
+**Not faster.** liftalt (sotc_decomp kLiftAlt, test builds only: `lift_d1.py --alt` writes the same functions'
+pre-summary code as `lift_alt::` copies; `SOTC_AB_FLAG=liftalt` swaps them in, so two lifter versions run in one run's
+alternating windows), Vita3K 222 MHz attract demo, 1 500 s, 48 / 48 windows, sampler:
+
+| version | the set, summaries | without | change | frame, off minus on (draw-matched) |
+|---|---:|---:|---:|---|
+| 1: read back what the callee writes | 2.686% | 2.553% | +5.2% | +0.02 +- 1.36 ms |
+| 2: read back everything but the dirty kept | 2.540% | 2.393% | +6.1% | +1.13 +- 1.35 ms |
+
+Version 1 kept clean values live across the call too; on the A9 a value live across a host call is spilled and filled
+(only r4-r11 and q4-q7 survive a call), a store and a load where the old code re-read the context once. Version 2
+reads back every clean slot as before and keeps only the dirty ones, which still costs about what the old write-back
+and read-back did, plus the not-returning path's code and the write-back flags. Static counts agree in direction
+(armcmp4: all instructions 109.5% of the old). The call-out cost is the A9's calling convention, not the context: a
+win needs the callees' values in host registers across the call (an inlined or register-passing callee), not a
+cheaper context.
+
+Eight functions were clearly faster with the summaries (z <= -3, >= 30 samples a side): AI_OptFloatFrameSample (-29%),
+AI_CheckViewInCameraClipVolume (-25%), gamecore_sub_013DD8D0 (-35%), manager_sub_010CD518 (-12%),
+GetMotionResourceOriginalFrames (-10%), AI_CheckDamage_Impact / _Reaction / _Sword. **D3's files keep the summaries
+for those eight only** (`--summary-only @fast.txt`); the other 406 are byte for byte as committed. D1 has none of
+the eight: unchanged. D4's batch is lifted without summaries. The tool keeps the analysis (--summary, --summary-only,
+--summary-log) for D5.
+
+### D4's batch (SOTC_LIFTD4)
+
+Candidates (cand4.py, from D2's ranking of the still-recompiled code by game-thread samples): D3's 83 slower, D2's 97
+slower (68 a check can run; blk4.py: 29 reach a syscall or a kernel stub), the 36 `jalr` functions D2 left out for the
+wild returns, D3's 37 unreached, and 387 of the rest of the ranking (175 more may block): 611, 607 lift (refused: a
+`break` slot form, two checkpoint patterns, a branch out of the function). They ship behind **SOTC_LIFTD4** (default
+on, A/B `liftd4`, test knob `SOTC_LIFTD4_RANGE=<lo>:<hi>`), game/overrides/decomp_liftd4_NN.cpp, lifted with
+`--d4 --extern @prevlifted.txt` (calls into D1-D3 lifted code direct), no summaries.
+
+| out | functions | why |
+|---|---:|---|
+| slower in the liftd4 A/B | 82 | attract, 1 500 s, z > 3 with >= 30 samples: 32 of D3's 83, 32 of D2's 68, 7 of the 36 `jalr`, 11 of the rest (player_HellDangerDetect again first: 64-bit mode, 30 VU0 registers, 13 calls) |
+| register mismatches | 2 | gamecore_sub_01346000 (returns a hardware timer count: v0 4 apart between legs) and windowSetMouseStatus (t3's upper half): D2's known pair, a control run mismatches them the same; they cannot be proven |
+| register mismatches (walk / ride) | 3 | charrootdyn_getLandingSurface (f0), charrootdyn_clipNoStopCollisionFinder (f0), manager_sub_01168650 (v0, f1): D2's other known three; real result differences, cause not found (a callee's result between legs or a lifter fault) |
+| not reached by any Mac difftest run of the shipped code | 91 | 36 of D3's 37 (the SCRCondition* script tests, the HP / grip ratios, IK helpers; the two judge-volume checks came up only in the pre-fix runs and are left for D5), 4 jalr-group script functions (SCRConditionSubFunc, SCRFuncConditionSendKey, SCRFuncHorseStandRundmSendkey, nico_player_avoid_ControlRootY), 51 of the rest |
+
+**429 ship**: 51 of D3's 83 slower (faster or even now), 36 of D2's 97 slower (retried), 25 of the 36 `jalr`
+functions (no wild return with them on, see below), 1 of D3's 37, 316 of the rest of the ranking. By area: other game
+code 163, display and models 84, characters and motion 71, collision 26, camera 26, boot ELF / SDK 24, script 16,
+system 12, particles 5, sound 2.
+
+**Difftest harness fix** (sotc_decomp.cpp): a thread switch inside a checked leg throws past the checker (its
+ThrowScope); the nesting depth stayed raised for good, so after three such throws every later call ran unchecked. In
+D4's first B-list runs that left 63 of 383 functions checked, all at boot. A scope guard now puts the depth back and logs
+`[difftest] <name>: a leg left by a thread switch, this call not checked` (the script sub-thread jump and the sheet file
+loaders do this). Earlier rounds' runs may have lost checks the same way late in a run.
+
+### Exactness
+
+Mac, `SOTC_DIFFTEST` with every register, VU0 and RAM, 1 200 s a run (nice'd), the build with D4's 525 (the final 429
+plus the cuts below them), after the harness fix. List A: the 8 summary functions and D4's 224 from the first groups
+(D3's 83, D2's 68, the 36, the 37); list B: D4's 383 from the rest of the ranking. Functions of the lists not in the build
+(the 82 slower) are not checked.
+
+| list | runs | functions checked | checks | register mismatches |
+|---|---|---:|---:|---:|
+| A | attract, walk, ride | 120 | 85 504 | 0 |
+| B | attract, walk, ride | 321 | 138 851 | 1 997, all in the 5 excluded functions |
+| exploration (in_mash2, the D4 build before the slow cut: same code for this function) | 1 | chkAttainExecOffsetData | 200 | 0 |
+
+**The 429 shipped and the 8 summary functions: every one checked, 0 register mismatches.** RAM-byte mismatches over
+the six runs: 2 662, of which 1 239 are the timer words 0x1465678 / 0x1465750 (D2 and D3's known pair, stored by the
+interrupt-side timer code), 1 086 at addresses that also mismatch in other functions (other threads writing between
+the legs), 320 in functions with no store instruction, 17 single bytes. Control run (`SOTC_DIFFTEST_CONTROL=1`,
+recompiled code in both legs, list B, walk): 295 functions, 41 779 checks, 0 register mismatches, 132 RAM bytes
+(90 shared addresses, 41 in functions that store nothing, 1 single byte): the same noise with no lifted code.
+
+Before the harness fix (the first build of D4's 607, list A + the 205 summary-changed functions): 194 of 232 reached,
+295 319 checks, 0 register mismatches; the summary version 1 runs above as well.
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at). The final build (p5: D1 + D2 + D3 + D4's 429, all on from
+boot): the console card's walk (20 478 frames), ride (10 158), the attract demo with the sampler (24 858) and the walk
+under the console env's rotation (`SOTC_AB_FLAG=liftd4,liftd3,liftd2,liftd1`, 600 frames: 29 238 frames, 49 swaps).
+Every run drew within two minutes (the watchdog never fired); no "No exact recompiled function", no wild return. Wander
+and Agro on the ground ([pos] y -6.9 .. 12.5, the baseline range), the gallop normal with its shadow, the ride to the
+shrine's floor and the altar (y 11.31). Game-thread frames over 300 ms (slowsplit.py): one boot frame per run and one in
+the ride; everything else over 300 ms is a render-thread wait (Vita3K's host stalls).
+
+Earlier builds: p1 (D4's 607 with summaries, on from boot) walk 21 018 frames; p4 (D4's 525) the walk under the rotation
+(20 058 frames) and the ride. That rotation walk logged 22 game-thread frames over 300 ms in the first field load, with
+the hooks' host time up to 10x its usual (host contention: a Mac difftest ran beside it); the final build's rotation walk
+had none. **The 36 `jalr` functions** (the ones D2 linked to wild returns) were all on in p1 and 29 of them in p4: no
+wild return; 25 ship (7 slower, 4 unreached). spalign.py on p5.elf: 755 NEON :128 accesses, 0 sp-based. The Mac and Vita
+builds compile.
+
+### Speed
+
+Vita3K 222 MHz, in-run A/B of the attract demo (`SOTC_AB_FLAG=liftd4 SOTC_AB_ROTATE=1`, windows of 900 frames, the
+sampler every 10 s), the 607: lifted 4.90% of the game thread vs recompiled 4.08%, 82 functions slower (z > 3), 7
+faster; frame off minus on -0.57 +- 1.86 ms (78 matched summaries: within the noise). The 82 are cut. onoff4.py also
+counts the Vita's lean copies (`lean_<name>_0x...`) as the recompiled code (onoff.py did not match them). The A/B was
+not run again on the final 429.
+
+### The 37 unreached
+
+No save reaches a colossus (D3). Two exploration scripts from the console card's shrine save, run on the Mac with the
+difftest over the 37: in_mash.txt (at the shrine: moves in four directions with jumps, R1 held, whistles, attacks, L1)
+and in_mash2.txt (the walk script's ride out with grip / jump / whistle / attack presses at each spur): the first
+reached none, the second chkAttainExecOffsetData (200 checks, 0 register mismatches; it ships). The pre-fix A runs also
+reached CheckPositionInsideOfJudgeVolumeInfo and ScriptAnimationObjCheckPositionInsideOfJudgeVolumeObject, not in the
+shipped code's runs (D5). The SCRCondition* tests (Agro's AI and event scripts), the HP / grip ratios, player_life_anim
+and the IK attention helpers need a colossus fight, fall damage or a script event a blind pad script did not hit.
+
+### Decomp numbers
+
+tools/decomp_status.py (Mac replaced dump of the final build, attract demo to frame 1 500; calls from round 71's attract
+and route dumps): **2 580 of 9 024 functions native (28.59%; D3 23.84%), 27.75% of the MIPS code by size (23.25%),
+90.45% of calls (88.2%), 26.55% of the game's own code.** By area: Math 100%, particles 51%, display 36%, boot ELF / SDK
+33%, characters 30%, collision 29%, other game code 25%, system 23%, camera 22%, sound 19%, script 5%. decomp_tree /
+decomp_history (label D4) from the final build's attract demo (sampler 300-690 s): **78.0% of the game thread in native
+code**, 11.1% recompiled, 10.9% runtime (D3: 75.1 / 13.5 / 11.4).
+
+### What D5 should take
+
+- **Speed of call-heavy lifted code**: not the context (the summaries proved that): the A9's calling convention. Inline
+  small summarized callees into their lifted callers (one host function, values in registers), or give lifted-to-lifted
+  calls a register-passing entry. The summary analysis (--summary, --summary-log) is the base for both.
+- **Natives' callees**: hand natives call guest functions through `sotc_decomp::recompiled()`, straight to the generated
+  code: lifting those callees changes nothing on those calls (and the difftest never sees them). Route natives through
+  the table, or lift natives' callees with the natives.
+- **The 82 slower** and **D2's 6 / D4's 5 register-mismatch functions** (two are timer reads; the other three need a
+  control run of their own).
+- **Coverage**: a colossus-fight recording for the 36 unreached; a difftest mode for the blocking 370 + 63 and the
+  rest's 175 that may block.

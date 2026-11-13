@@ -2,6 +2,8 @@
 // C++ on host locals, exact (the recompiler's own instruction semantics, its call protocol and loop checkpoints), in the
 // function table while SOTC_LIFTD3 is on (sotc_decomp::install; an A/B window swaps them back). D1's and D2's lifted
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D3".
+// D4: --summary: a call writes back / reads back only what the callee (its whole-program summary)
+// reads / writes; the rest is written back on the call's not-returning path.
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"

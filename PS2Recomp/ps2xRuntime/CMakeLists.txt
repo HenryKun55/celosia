@@ -554,10 +554,10 @@ foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/lean_[^/]*\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
-    # Decomp D2: the lifted batches (decomp_liftd*_NN.cpp, tools/lift_d1.py) are large and share namespace lift_d1:
+    # Decomp D2: the lifted batches (decomp_liftd*_NN.cpp, D4: decomp_liftalt_NN.cpp; tools/lift_d1.py) are large and share namespace lift_d1:
     # each a translation unit of its own (a guest function named like a libm one, D1's fabsf, stays out of the
     # other batches; they build in parallel).
-    if(PS2X_SOURCE MATCHES "/overrides/decomp_liftd[0-9]+_[0-9]+\\.cpp$")
+    if(PS2X_SOURCE MATCHES "/overrides/decomp_lift(d[0-9]+|alt)_[0-9]+\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
     # The second set (lean_part_tN.cpp) defines PS2X_EE_TRUST_FINITE before

@@ -56,7 +56,25 @@ Decomp D3 (docs/decomp.md "Decomp D3"): `--d3` writes D3's batch (SOTC_DECOMP_LI
 test knob SOTC_LIFTD3_RANGE), otherwise as --d2; D1's files are now regenerated with today's analysis
 (`--resume-delegate --chunk 160 @d1set.txt`: the three D2 fixes and the resume check).
 
-Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2 | --d3] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
+Decomp D4 (docs/decomp.md "Decomp D4"): `--summary` (whole-program callee summaries, build_summaries): for every
+function in the table, the slots (GPR, FPR, VU0, ACC / Q / status, fcr31, lo / hi ...) it or anything it calls reads,
+and the ones it may leave changed in the context (a callee-saved register saved in its prologue and restored is
+unchanged). A function has no summary (unknown: the call writes back and reads back everything, as before) when it or
+anything it reaches has a runtime call (syscall, break, COP0 ...), an indirect call or jump, a refusal, or a table slot
+that may hold a native or a hook (native_addresses: the addresses the overrides register, the stubs, the hooks'
+constants). At a call to a summarized callee only the dirty slots it reads or writes are written back; the other dirty
+slots stay in host locals across the call (on the call's not-returning path, a thread switch unwinding through it, they
+are written back too) and everything else is read back from the context as before (a clean value kept live across the
+host call costs a spill and a fill on the A9, more than the read: the first A/B measured that). A relocated call (GAMECORE's) checks its target: elsewhere (never in a
+working game) the call is made with everything written back and the generated function resumes at the return label.
+Exact (the difftest), but 5-6% slower on the Vita than without in the liftalt A/B (the A9 spills what a call does not
+preserve): `--summary-only @file` uses the summaries only in the functions listed (D3's eight measured faster).
+`--d4` writes D4's batch (SOTC_DECOMP_LIFT_FUNCTION_D4, switch SOTC_LIFTD4, test knob SOTC_LIFTD4_RANGE); `--alt`
+writes the functions as alternative copies (namespace lift_alt, SOTC_DECOMP_LIFT_ALT, test builds only) that the
+liftalt switch puts in place, so two lifter versions of the same functions can be A/B'd in one run.
+
+Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2 | --d3 | --d4] [--alt] [--summary [--summary-cache f.pkl]
+       [--summary-log f.txt]] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
 """
 import argparse
 import os
@@ -88,6 +106,12 @@ isspace isupper islower isalnum isprint sscanf fmin fmax fminf fmaxf'''.split())
 
 RESUME_DELEGATE = [False]  # on for --d2 / --d3 and with --resume-delegate (D1's files since D3)
 CXX_SUFFIX = [False]  # on for --d2 / --d3 (D1's files keep their names: isinf, isnan, fabsf compiled there as they are)
+# D4: callee summaries (--summary): guest address -> (reads, writes) as frozensets of slots (('g', n), ('f', n),
+# ('v', n), ('x', field)); a callee not in the dict is unknown (the full write-back and read-back as before).
+SUMMARY = {}
+# D4: --summary-only @file: the summaries are used only in these functions (the ones the A/B measured faster with them);
+# the others are lifted as without --summary.
+SUMMARY_ONLY = set()
 
 
 def cxx(name):
@@ -302,6 +326,8 @@ class Lifter:
         # instruction kinds
         self.kind = {}
         self.targets = set()
+        self.dyncall = set()
+        self.cguard = set()
         for a in addrs:
             if a in self.delay:
                 continue
@@ -321,6 +347,8 @@ class Lifter:
                 dyn = ('READ32(0x%Xu)' % a).lower() in g.block_text(a).split('// 0x')[0].lower()
                 if op == 3:
                     self.kind[a] = ('jal', t)
+                    if dyn:  # D4: a relocated jal's target is read from guest RAM: no summary
+                        self.dyncall.add(a)
                 elif g.start <= t < g.end and not dyn:
                     if t in self.delay:
                         raise Refuse(f'jump into a delay slot at {a:x}')
@@ -760,6 +788,11 @@ class Lifter:
             if a + 4 in self.delay:
                 u = step(a + 4, u)
             if k[0] in ('jal', 'jalr'):
+                s = self.call_summary(a)
+                if s is not None:
+                    # D4: the registers the callee reads or writes are written back before / read back after it (the
+                    # context holds their full value); the others keep their state across the call
+                    return u | {r for kk, r in (s[0] | s[1]) if kk == 'g'}
                 return set(range(32))
             return u
         order, succ = self.order, self.succ
@@ -779,6 +812,26 @@ class Lifter:
                     undef_in[s_] = new
                     work.append(s_)
         self.undef_in = {a: (v if v is not None else set()) for a, v in undef_in.items()}
+
+    def call_summary(self, a):
+        """D4: (reads, writes) of the callee of the jal at `a` when it has a summary, else None (unknown target,
+        relocated target, jalr, no summary)."""
+        k = self.kind.get(a)
+        if not SUMMARY or not k or k[0] != 'jal':
+            return None
+        if SUMMARY_ONLY and self.addr not in SUMMARY_ONLY:
+            return None
+        s = SUMMARY.get(k[1])
+        if s is None:
+            return None
+        jt = re.search(r'const uint32_t jumpTarget = (.*?);\n', self.g.block_text(a).split('\nlabel_')[0])
+        if a in self.dyncall or (jt and 'READ32(' in jt.group(1)):
+            # relocated: the summary holds while the target is the static one; otherwise the call goes out with
+            # everything written back and the generated function resumes at the return label (its entry switch)
+            if not re.search(r'case 0x%xu: goto label_%x;' % (a + 8, a + 8), self.g.src):
+                return None
+            self.cguard.add(a)
+        return s
 
     def stmt(self, a, undefined):
         """(code, uses, defs, opaque, clean) of a non-control instruction (or a delay slot)."""
@@ -887,9 +940,13 @@ class Lifter:
     # ---------------------------------------------------------------- emission
     def lift(self):
         self.build()
+        nodes = self.node_effects()
+        return self.analyse_dirty(nodes)
+
+    def node_effects(self):
+        """Per node: its code pieces and effects (slots used / defined, opaque, restored)."""
         g = self.g
         order = self.order
-        # per node: its code pieces, effects
         nodes = {}
         allslots = set()
         for a in order:
@@ -925,9 +982,14 @@ class Lifter:
             nodes[a] = n
         allslots.discard(('g', 0))
         self.allslots = allslots
+        return nodes
+
+    def analyse_dirty(self, nodes):
+        order = self.order
         # dirty analysis (forward, union): slots whose local may differ from the context
         dirty_in = {a: None for a in order}
         dirty_in[order[0]] = frozenset()
+        self.csum = {a: self.call_summary(a) for a in order}
 
         def transfer(a, din):
             n = nodes[a]
@@ -946,6 +1008,13 @@ class Lifter:
                     pre.add(('g', rr))
             pre |= n['ddefs']
             pre -= n['dclean']
+            s = self.csum.get(a)
+            if s is not None:
+                # D4: a callee with a summary: what it reads or writes is written back before it (what it writes
+                # only on some paths too), what it writes is read back after; the rest stays dirty in its local
+                # (written back on the call's not-returning path)
+                rw = s[0] | s[1]
+                return frozenset(pre - rw), frozenset(pre & rw)
             if k[0] in ('jal', 'jalr', 'jr'):
                 return frozenset(), pre  # synced before the call / jump, everything read back after a call
             return frozenset(pre), pre
@@ -1088,6 +1157,25 @@ class Lifter:
         out = [self.load(s) for s in sorted(self.allslots, key=lambda x: (x[0], str(x[1])))]
         out += [f'{self.fl(r)} = false;' for _, r in sorted(getattr(self, 'flags', ()))]
         return ' '.join(out)
+
+    def reload_slots(self, slots):
+        """D4: read back the slots a summarized callee may write (and clear their write-back flags)."""
+        sl = set(slots) & self.allslots
+        out = [self.load(s) for s in sorted(sl, key=lambda x: (x[0], str(x[1])))]
+        out += [f'{self.fl(r)} = false;' for _, r in sorted(set(getattr(self, 'flags', ())) & sl)]
+        return ' '.join(out)
+
+    def call_pre(self, a):
+        """The dirty slots at a call, after its delay slot and the link register's write (as transfer's `pre`)."""
+        n = self.nodes[a]
+        k = n['kind']
+        pre = set(self.dirty_in[a] or ())
+        rr = 31 if k[0] == 'jal' else k[2]
+        if rr:
+            pre.add(('g', rr))
+        pre |= n['ddefs']
+        pre -= n['dclean']
+        return pre
 
     def decls(self):
         out = []
@@ -1272,6 +1360,24 @@ class Lifter:
                         line = re.sub(r'PS2_CALL_GUEST_KNOWN\(([^,]+), \w+,', lambda m: f'PS2_CALL_GUEST_KNOWN({m.group(1)}, lift_d1::{self.lifted[t]},', line)
                     tgt = 'jumpTarget' if (jt or k[0] == 'jalr') else f'0x{k[1]:X}u'
                     L.append(f'{I}    ctx->pc = {tgt};')
+                    s = self.csum.get(a)
+                    if s is not None:
+                        # D4: the callee's summary: the dirty registers it neither reads nor writes stay in their
+                        # locals; written back if the call does not return here (a thread switch unwinds through it)
+                        rest = self.call_pre(a) - (s[0] | s[1])
+                        if a in self.cguard:
+                            # relocated elsewhere (never in a working game): everything written back, the call as the
+                            # generated code makes it, then the generated function resumes at the return label
+                            ok = re.sub(r'^if \(!(.*)\) \{$', r'\1', line)
+                            L.append(f'{I}    if (__builtin_expect(jumpTarget != 0x{k[1]:X}u, 0)) {{ {self.sync(rest)} if ({ok}) {{ ctx->pc = 0x{a + 8:X}u; {g.cname}(rdram, ctx, runtime); }} return; }}'.replace('{  if', '{ if'))
+                        L.append(f'{I}    {line} {self.sync(rest)} return; }}'.replace('{  return', '{ return'))
+                        L.append(f'{I}}}')
+                        # every slot the context holds is read back (what the callee wrote, and the clean ones it left
+                        # alone: a read of the context is as cheap as before, where keeping a clean value live across
+                        # the host call makes the compiler spill it, a store and a load; the A/B measured that); only
+                        # the dirty ones not written back stay in their locals
+                        L.append(f'{I}{self.reload_slots(self.allslots - rest)}')
+                        continue
                     L.append(f'{I}    {line} return; }}')
                     L.append(f'{I}}}')
                     L.append(f'{I}{self.reload_all()}')
@@ -1325,6 +1431,218 @@ class Lifter:
         out.extend(body)
         out.append('}')
         return '\n'.join(out)
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def native_addresses(funcs):
+    """D4: guest functions whose table slot may hold something other than the generated function or a lifted copy
+    of it (a native, a hook, a stub, a wrapper with effects of its own): every hex literal in the game's overrides
+    (not the lifted batches), the game's config and stub lists and the runtime's sources that is a function's start.
+    Conservative: a data address that happens to equal a function's start only costs that callee its summary.
+    The lean copies (game/lean_hot.txt) are the same generated code compiled again: not natives."""
+    roots = [f'{REPO}/game', f'{REPO}/PS2Recomp/ps2xRuntime/src', f'{REPO}/PS2Recomp/ps2xRuntime/include']
+    skip = {'lean_hot.txt', 'pinned_starts.txt'}
+    out = set()
+    for root in roots:
+        for dp, dn, fn in os.walk(root):
+            if '/pgo' in dp:
+                continue
+            for f in fn:
+                if f in skip or f.startswith('decomp_liftd') or not f.endswith(('.cpp', '.h', '.inc', '.toml', '.txt', '.hpp', '.c')):
+                    continue
+                try:
+                    s = open(os.path.join(dp, f), errors='replace').read()
+                except OSError:
+                    continue
+                pat = r'0x([0-9A-Fa-f]{5,8})'
+                if f.endswith('.toml'):  # the recompiler's config: only its stubs (entry points and patches are not slots)
+                    m = re.search(r'(?ms)^stubs = \[(.*?)^\]', s)
+                    s = m.group(1) if m else ''
+                if f == 'sotc_worker.cpp':  # its kPure ranges: functions the worker may call, not slots it takes
+                    s = re.sub(r'(?m)^\s*\{0x[0-9A-Fa-f]+u, 0x[0-9A-Fa-f]+u\},.*$', '', s)
+                if dp.endswith('game/overrides') and not re.search(r'registerFunction\(|replaceFunction\(|g_ps2RecompiledFunctionTable|'
+                                                                  r'lookupFunction|Registrar[ {(]|setSwitch|#define SOTC_DECOMP', s):
+                    # a file of natives that only registers through the SOTC_DECOMP_* macros: the addresses it
+                    # registers, not the callees it names
+                    pat = r'SOTC_DECOMP_\w+\(\s*0x([0-9A-Fa-f]{5,8})'
+                for m in re.finditer(pat, s):
+                    v = int(m.group(1), 16)
+                    if v in funcs:
+                        out.add(v)
+    return out
+
+
+class Unknown(Exception):
+    pass
+
+
+def function_facts(a):
+    """D4: one function's own effects for the summaries: slots read, non-GPR slots written, the CFG with each node's
+    GPR writes, its prologue saves and their restores, its callees. Raises Unknown (or Refuse) when its effects cannot
+    be bounded: a runtime call, an indirect call or jump, a relocated target."""
+    lf = Lifter(a, {})
+    lf.build()
+    nodes = lf.node_effects()
+    order = lf.order
+    reads, wother = {('g', 29), ('g', 31)}, set()
+    calls = set()
+    cfg = {}
+    for x in order:
+        n = nodes[x]
+        k = n['kind']
+        if k[0] == 'op' and n['opaque']:
+            raise Unknown('runtime call')
+        if x + 4 in lf.brk:
+            raise Unknown('break')
+        if k[0] == 'jalr':
+            raise Unknown('jalr')
+        if k[0] == 'jr' and not k[2]:
+            raise Unknown('indirect jump')
+        if k[0] in ('jal', 'tail'):
+            # a relocated jal / j (GAMECORE's: the target read from the instruction word in guest RAM) counts as its
+            # static target: the module is always where the recompiler saw it (the table's functions are compiled
+            # for those addresses), and a caller's summarized call checks its own target (Lifter.call_summary)
+            calls.add(k[1])
+        reads |= n['uses'] | n.get('duses', set())
+        for s_ in n['defs'] | n.get('ddefs', set()):
+            if s_[0] != 'g':
+                wother.add(s_)
+        gd = sorted(r for kk, r in n['defs'] if kk == 'g' and r)
+        dd = sorted(r for kk, r in n.get('ddefs', set()) if kk == 'g' and r)
+        cfg[x] = (k[0], k[1] if k[0] in ('jal', 'tail') else None, bool(k[0] == 'br' and k[5]), k[4] if k[0] == 'br' else None,
+                  tuple(lf.succ[x]), tuple(gd), tuple(dd))
+    first_ctl = min([x for x in order if lf.kind[x][0] != 'op'] + [lf.g.end])
+    saves = lf.find_saves()
+    psaved = {r for r, (o, sz, sx) in saves.items() if sx < first_ctl}
+    rest = {x: r for x, (r, sz) in lf.restores.items() if r in psaved}
+    reads.discard(('g', 0))
+    return {'order': order, 'cfg': cfg, 'reads': frozenset(reads), 'wother': frozenset(wother), 'calls': frozenset(calls),
+            'restores': rest, 'name': lf.g.name}
+
+
+def function_gpr_writes(f, wmap):
+    """D4: the GPRs a function may leave changed in the context when it returns or tail-jumps: a forward may-analysis
+    of "changed since entry" (a write adds the register, a restore of a prologue save removes it, a call adds the
+    callee's), given the callees' summaries in wmap (address -> set of GPR numbers)."""
+    cfg, rest, order = f['cfg'], f['restores'], f['order']
+    state = {order[0]: frozenset()}
+    work = [order[0]]
+    out = set()
+
+    def slot(x, s):
+        if x in rest:
+            return s - {rest[x]}
+        return s
+
+    while work:
+        x = work.pop()
+        kind, tgt, likely, btgt, succ, gd, dd = cfg[x]
+        s = set(state[x])
+        if kind == 'op':
+            s = slot(x, s) | set(gd) if x not in rest else slot(x, s)
+            after = s
+            before_slot = s
+        else:
+            before_slot = set(s)
+            if kind == 'jal':
+                s.add(31)
+            s = slot(x + 4, s) if (x + 4) in rest else s | set(dd)
+            if kind == 'jal':
+                s |= wmap[tgt]
+            after = s
+            if kind == 'ret':
+                out |= s
+            if kind == 'tail':
+                out |= s | wmap[tgt]
+        for y in succ:
+            e = before_slot if (kind == 'br' and likely and y != btgt) else after
+            old = state.get(y)
+            new = frozenset(e) if old is None else old | frozenset(e)
+            if old is None or new != old:
+                state[y] = new
+                work.append(y)
+    out.discard(0)
+    return out
+
+
+def build_summaries(cache=None, log=None):
+    """D4: the whole program's callee summaries: address -> (reads, writes) for every function whose effects can be
+    bounded (every function it reaches is generated code with no runtime call, indirect call or jump, and no table
+    slot that may hold a native). Reads: every slot the function or a callee reads (sp and ra always). Writes: the
+    FPU / VU0 / other slots any of them writes, and the GPRs left changed in the context at a return (a register
+    saved in the prologue and restored is unchanged)."""
+    import pickle
+    if cache and os.path.exists(cache):
+        facts, unknown = pickle.load(open(cache, 'rb'))
+    else:
+        tab = table()
+        funcs = set()
+        for a, cname in tab.items():
+            m = re.search(r'_0x([0-9a-f]+)$', cname)
+            if m and int(m.group(1), 16) == a:
+                funcs.add(a)
+        facts, unknown = {}, {}
+        for a in sorted(funcs):
+            try:
+                facts[a] = function_facts(a)
+            except (Refuse, Unknown) as e:
+                unknown[a] = str(e)
+            except Exception as e:
+                unknown[a] = f'error {type(e).__name__}'
+        for a in native_addresses(funcs):
+            facts.pop(a, None)
+            unknown[a] = 'may hold a native'
+        if cache:
+            pickle.dump((facts, unknown), open(cache, 'wb'))
+    # unknown spreads to the callers
+    callers = {}
+    for a, f in facts.items():
+        for c in f['calls']:
+            callers.setdefault(c, set()).add(a)
+    bad = set(a for a, f in facts.items() if any(c not in facts for c in f['calls']))
+    work = list(bad)
+    while work:
+        c = work.pop()
+        for a in callers.get(c, ()):
+            if a not in bad:
+                bad.add(a)
+                work.append(a)
+    good = {a: f for a, f in facts.items() if a not in bad}
+    reads = {a: set(f['reads']) for a, f in good.items()}
+    wother = {a: set(f['wother']) for a, f in good.items()}
+    wg = {a: set() for a in good}
+    changed = True
+    passes = 0
+    while changed:
+        changed = False
+        passes += 1
+        for a, f in good.items():
+            r = set(reads[a])
+            wo = set(wother[a])
+            for c in f['calls']:
+                r |= reads[c]
+                wo |= wother[c]
+            g = function_gpr_writes(f, wg)
+            if r != reads[a] or wo != wother[a] or g != wg[a]:
+                reads[a], wother[a], wg[a] = r, wo, g
+                changed = True
+    out = {}
+    for a in good:
+        out[a] = (frozenset(reads[a]), frozenset(wother[a] | {('g', r) for r in wg[a]}))
+    if log:
+        with open(log, 'w') as f:
+            f.write(f'# {len(facts) + len(unknown)} functions: {len(out)} summarized, {len(unknown)} unknown themselves, '
+                    f'{len(bad)} reach an unknown one; {passes} passes\n')
+            for a in sorted(unknown):
+                f.write(f'{a:08x} unknown {unknown[a]}\n')
+            for a in sorted(bad):
+                f.write(f'{a:08x} reaches-unknown\n')
+            for a in sorted(out):
+                r, w = out[a]
+                f.write(f'{a:08x} {facts[a]["name"]} R {len(r)} W {len(w)} vR {sum(1 for s in r if s[0] == "v")} vW {sum(1 for s in w if s[0] == "v")}\n')
+    return out
 
 
 HEADER = '''// Generated by tools/lift_d1.py (decomp round D1): guest functions as native C++ on host locals, exact (the
@@ -1387,6 +1705,9 @@ HEADER_D3 = HEADER_D2.replace('''// Generated by tools/lift_d1.py --d2 (decomp r
 // they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D2".''', '''D1's and D2's lifted
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D3".''')
 assert HEADER_D3 != HEADER_D2 and 'LIFTD3' in HEADER_D3 and 'Decomp D3' in HEADER_D3
+HEADER_D4 = HEADER_D3.replace('''// Generated by tools/lift_d1.py --d3 (decomp round D3: D2's call-heavy functions)''', '''// Generated by tools/lift_d1.py --d4 (decomp round D4: the next batch)''').replace(
+    'SOTC_LIFTD3 is on', 'SOTC_LIFTD4 is on').replace("D1's and D2's lifted", "Earlier batches' lifted").replace('"Decomp D3"', '"Decomp D4"')
+assert HEADER_D4 != HEADER_D3 and 'LIFTD4' in HEADER_D4 and 'Decomp D4' in HEADER_D4
 
 FOOTER = '''}
 
@@ -1405,14 +1726,28 @@ def main():
     ap.add_argument('--d2', action='store_true', help="decomp D2's batch: SOTC_DECOMP_LIFT_FUNCTION_D2 (SOTC_LIFTD2), its header")
     ap.add_argument('--d3', action='store_true', help="decomp D3's batch: SOTC_DECOMP_LIFT_FUNCTION_D3 (SOTC_LIFTD3), as --d2 otherwise")
     ap.add_argument('--extern', action='append', default=[], help='@file / addr: functions lifted in an earlier batch (lift_d1::name): called directly')
+    ap.add_argument('--d4', action='store_true', help="decomp D4's batch: SOTC_DECOMP_LIFT_FUNCTION_D4 (SOTC_LIFTD4), as --d2 otherwise")
+    ap.add_argument('--alt', action='store_true', help="D4 (test builds): the functions as alternative copies (namespace lift_alt, "
+                    "SOTC_DECOMP_LIFT_ALT): in place while liftalt is off, so two lifter versions can be A/B'd in one run")
+    ap.add_argument('--summary', action='store_true', help='D4: callee summaries (write back / read back only what a callee reads / writes)')
+    ap.add_argument('--summary-cache', help='D4: the per-function facts (pickle; made when missing)')
+    ap.add_argument('--summary-log', help="D4: write each function's summary (or why it has none)")
+    ap.add_argument('--summary-only', help='D4: @file of addresses: use the summaries only in these functions')
     ap.add_argument('addrs', nargs='+')
     args = ap.parse_args()
+    if args.summary_only:
+        SUMMARY_ONLY.update(int(x, 16) for x in open(args.summary_only.lstrip('@')).read().split())
+    if args.summary:
+        SUMMARY.update(build_summaries(args.summary_cache, args.summary_log))
+        print(f'{len(SUMMARY)} callee summaries', file=sys.stderr)
+    if args.d4:
+        args.d3 = False
     addrs = []
     for x in args.addrs:
         addrs.extend(open(x[1:]).read().split() if x.startswith('@') else [x])
     addrs = [int(x, 16) for x in addrs]
-    CXX_SUFFIX[0] = args.d2 or args.d3
-    RESUME_DELEGATE[0] = args.d2 or args.d3 or args.resume_delegate
+    CXX_SUFFIX[0] = args.d2 or args.d3 or args.d4
+    RESUME_DELEGATE[0] = args.d2 or args.d3 or args.d4 or args.resume_delegate
     ext = {}
     for x in args.extern:
         for y in (open(x[1:]).read().split() if x.startswith('@') else [x]):
@@ -1441,11 +1776,15 @@ def main():
     bodies, regs = [], []
     known = dict(ext)
     known.update(ok)
-    macro = 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else 'SOTC_DECOMP_LIFT_FUNCTION_D2' if args.d2 else 'SOTC_DECOMP_LIFT_FUNCTION'
+    macro = ('SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
+             'SOTC_DECOMP_LIFT_FUNCTION_D2' if args.d2 else 'SOTC_DECOMP_LIFT_FUNCTION')
     for a in sorted(ok):
         lf = Lifter(a, known)
         bodies.append(lf.text(args.switch))
-        regs.append(f'{macro}(0x{a:08X}u, {lf.g.name}, lift_d1::{cxx(lf.g.name)}, {lf.g.cname});')
+        if args.alt:
+            regs.append(f'SOTC_DECOMP_LIFT_ALT(0x{a:08X}u, {lf.g.name}, lift_alt::{cxx(lf.g.name)});')
+        else:
+            regs.append(f'{macro}(0x{a:08X}u, {lf.g.name}, lift_d1::{cxx(lf.g.name)}, {lf.g.cname});')
     if '{n}' in args.out:
         groups = [list(range(i, min(i + args.chunk, len(bodies)))) for i in range(0, len(bodies), args.chunk)]
     else:
@@ -1453,7 +1792,13 @@ def main():
     for n, grp in enumerate(groups):
         # the batch's functions: called directly across files, named in their own off<>
         decl = ''.join(f'    void {known[a]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a in sorted(known) if a in ok or a in ext)
-        text = (HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER).replace('SWITCH_NAME', args.switch) + decl + '\n'
+        hdr = HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
+        if args.summary:
+            hdr = hdr.replace('#include "sotc_decomp.h"', '// D4: --summary: a call writes back / reads back only what the callee (its whole-program summary)\n'
+                              '// reads / writes; the rest is written back on the call\'s not-returning path.\n#include "sotc_decomp.h"')
+        text = hdr.replace('SWITCH_NAME', args.switch) + decl + '\n'
+        if args.alt:  # the bodies in their own namespace; calls between lifted functions still reach lift_d1's
+            text += '}\n\nnamespace lift_alt\n{\nusing namespace lift_d1;\n\n'
         text += '\n\n'.join(bodies[i] for i in grp) + '\n' + FOOTER + '\n' + '\n'.join(regs[i] for i in grp) + '\n'
         open(args.out.replace('{n}', f'{n:02d}'), 'w').write(text)
     if args.refused:

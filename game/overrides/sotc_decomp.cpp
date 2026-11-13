@@ -29,6 +29,12 @@ namespace sotc_decomp
         return functions;
     }
 
+    std::vector<std::pair<uint32_t, PS2Runtime::RecompiledFunction>> &liftAlts()
+    {
+        static std::vector<std::pair<uint32_t, PS2Runtime::RecompiledFunction>> alts;
+        return alts;
+    }
+
     namespace
     {
         bool listed(const char *list, const char *name)
@@ -177,6 +183,21 @@ namespace sotc_decomp
             const R5900Context input = *ctx;
 
             ++g_depth;
+            // Decomp D4: a thread switch inside a leg throws past this frame (ThrowScope above); the depth went up for
+            // good each time, and after kMaxDepth such throws every later call ran unchecked (D4's walk: no check after
+            // boot). The guard puts it back and says so (that call is not checked).
+            struct DepthGuard
+            {
+                const char *name;
+                bool armed = true;
+                ~DepthGuard()
+                {
+                    if (!armed)
+                        return;
+                    --g_depth;
+                    std::fprintf(stderr, "[difftest] %s: a leg left by a thread switch, this call not checked\n", name);
+                }
+            } depthGuard{c.function->name};
             // SOTC_DIFFTEST_DRAWS=1: the native renderer's draws of each leg
             // (native_renderer::setDrawTap) compared too.
             static const bool drawsOn = ps2_diag::env("SOTC_DIFFTEST_DRAWS") != nullptr;
@@ -306,6 +327,7 @@ namespace sotc_decomp
                 runtime->m_eeClock.cycle = clock1;
                 runtime->m_eeClock.closeGate();
             }
+            depthGuard.armed = false;
             --g_depth;
             if (cycles)
             {
@@ -790,18 +812,46 @@ namespace sotc_decomp
     // Decomp D1's lifted functions (tools/lift_d1.py): their table entries swapped when SOTC_LIFTD1 changes at run
     // time (an A/B window, SOTC_AB_FLAG=liftd1), as abTick swaps SOTC_AB's set.
     // Decomp D2: the same for D2's batch (SOTC_LIFTD2, SOTC_AB_FLAG=liftd2), its own list; D3 likewise (SOTC_LIFTD3,
-    // liftd3).
+    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4).
+    // Decomp D4 (test): liftalt off puts each lifted function's alternative copy (SOTC_DECOMP_LIFT_ALT) where the lifted
+    // function is, on puts the lifted function back: two lifter versions of the same functions A/B'd in one run.
     namespace
     {
-        std::vector<AbEntry> g_lift, g_lift2, g_lift3;
+        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4;
         int g_liftHooked = 0;
         PS2Runtime *g_liftRuntime = nullptr;
+        void liftAltChanged(bool on)
+        {
+            int swapped = 0, remapped = 0;
+            for (const auto &[address, alt] : liftAlts())
+                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4})
+                    for (const AbEntry &e : *v)
+                    {
+                        if (e.address != address || !e.native)
+                            continue;
+                        const PS2Runtime::RecompiledFunction from = on ? alt : e.native, to = on ? e.native : alt;
+                        if (g_liftRuntime->lookupFunction(address) == from)
+                        {
+                            g_liftRuntime->registerFunction(address, to);
+                            ++swapped;
+                        }
+                        else
+                        {
+                            sotc_prof::remapWrapped(from, to);
+                            ++remapped;
+                        }
+                    }
+            std::fprintf(stderr, "[liftalt] frame %llu: %s (%d swapped, %d of %zu elsewhere)\n", static_cast<unsigned long long>(g_gameFrame),
+                         on ? "on (the lifted functions)" : "off (their alternative copies)", swapped, remapped, liftAlts().size());
+        }
         void liftSwitchChanged(int which, bool on)
         {
-            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3) || !g_liftRuntime)
+            if (which == kLiftAlt && g_liftRuntime)
+                return liftAltChanged(on);
+            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4) || !g_liftRuntime)
                 return;
             int swapped = 0;
-            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : g_lift3)
+            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : g_lift4)
             {
                 if (!e.recompiled || !e.native)
                     continue;
@@ -814,7 +864,8 @@ namespace sotc_decomp
                 else
                     sotc_prof::remapWrapped(from, to);
             }
-            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : "liftd3", static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
+            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : "liftd4",
+                         static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
         }
     }
 
@@ -1051,7 +1102,18 @@ namespace sotc_decomp
                     }();
                     if (sw == kLiftD3 && (f.address < d3Range.first || f.address >= d3Range.second))
                         continue;
-                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : g_lift3).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
+                    // Decomp D4: SOTC_LIFTD4_RANGE, the same for D4's functions.
+                    static const std::pair<uint32_t, uint32_t> d4Range = []
+                    {
+                        const char *r = ps2_diag::env("SOTC_LIFTD4_RANGE");
+                        if (!r || !std::strchr(r, ':'))
+                            return std::pair<uint32_t, uint32_t>{0u, 0xFFFFFFFFu};
+                        return std::pair<uint32_t, uint32_t>{static_cast<uint32_t>(std::strtoul(r, nullptr, 16)),
+                                                             static_cast<uint32_t>(std::strtoul(std::strchr(r, ':') + 1, nullptr, 16))};
+                    }();
+                    if (sw == kLiftD4 && (f.address < d4Range.first || f.address >= d4Range.second))
+                        continue;
+                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : g_lift4).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
                     if (!switchOn(sw))
                         continue;
                 }
@@ -1078,13 +1140,18 @@ namespace sotc_decomp
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
-        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty())
+        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty())
         {
             g_liftRuntime = &runtime;
             g_switchChanged = liftSwitchChanged;
-            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << " (" << g_liftHooked << " left to a hook), d1 "
+            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size()
+                      << " (" << g_liftHooked << " left to a hook), d1 "
                       << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << ", d2 " << (switchOn(kLiftD2) ? "on" : "off (SOTC_LIFTD2=0)")
-                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << std::endl;
+                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)")
+                      << (liftAlts().empty() ? "" : ", alternative copies ") << (liftAlts().empty() ? "" : std::to_string(liftAlts().size())) << std::endl;
+            // Decomp D4 (test): SOTC_LIFTALT=0 starts with the alternative copies in place.
+            if (!liftAlts().empty() && !switchOn(kLiftAlt))
+                liftAltChanged(false);
         }
         buildRecompiledTable();
 #if !defined(__vita__)
