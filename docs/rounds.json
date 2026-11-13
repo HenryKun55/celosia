@@ -811,7 +811,7 @@
   {
    "round": "D5",
    "date": "2026-11-13",
-   "commit": "",
+   "commit": "08bc437",
    "focus": "Decomp",
    "summary": "The converter can now paste small functions straight into the converted code that calls them (no call, values stay in registers), behind a check that the function table still holds that function. It is exact, but on the Vita's CPU it was close to break-even overall in an in-run A/B (1.4% faster for the functions involved), so it is used only in the 15 callers measured faster in two runs. The natives' fallbacks to the original code (about 3% of the game thread ran there) now get converted copies too: 44 ship. And the next batch: 86 functions behind SOTC_LIFTD5 (on), 55 new from a fresh profile and 31 of D4's slower ones that are no longer slower.",
    "result": "Decomp: 2 666 of 9 024 functions native (29.5%, was 28.6%), 28.9% of the code, 91.7% of calls. Exact: all 145 shipped functions compared with the original in the attract demo, walk and ride (159 649 checks), 0 register differences. Speed: the shipped sets are faster than what they replace in the A/B (the batch -22%, the fallbacks -7%, the inlined callers -27%), but the whole frame stays within the A/B's noise: function-level conversion has no large speed left in it; 30 fps needs subsystem rewrites. Pictures: walk, ride, attract and the console env's rotation normal, Wander and Agro on the ground."
