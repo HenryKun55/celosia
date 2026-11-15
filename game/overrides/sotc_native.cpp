@@ -6009,7 +6009,12 @@ namespace sotc_native
         {0x010A24C0u, 0x010A5270u}, // spriteDrawSpriteTexNoSet .. spriteDrawSpriteST2 (menus, title, map)
         {0x0108A288u, 0x0108A758u}, // drawFrontFog, fadeScreen, drawDemoBar (cinema bars)
         {0x0134B490u, 0x0134B6F8u}, // subtitles (pre-rendered lines, a textured sprite)
-        {0x013F6B20u, 0x013F78A8u}, // HUD gauges (fans and strips)
+        // HUD gauges (fans and strips): the grip ring's 013F6B20 / 7178 / 75D0, and (issue #8: the range
+        // ended at 78A8 before) its glow, 013F78A8 (the additive ring of the shrink history, shown while a
+        // jump or a thrust charges), the two flashes (013F7F38 normal, 013F8380 additive) and 013F8668's
+        // own writes (the ALPHA it sets back to normal before the rings: the glow's additive mode stays out
+        // of the next frame's ring).
+        {0x013F6B20u, 0x013F8958u},
         {0x014033F0u, 0x01403558u}, // title menu backdrop
         {0x001C2DD0u, 0x001C30D0u}, // loading indicator (lines)
         {0x0114FD00u, 0x01150278u}, // spriteDraw*, windowPrintf (windows)
