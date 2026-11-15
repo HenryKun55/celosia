@@ -180,6 +180,14 @@ not the same frame. That is why the per-draw check above is the frame-exact proo
   which no route reaches (docs/particles_map.md, the D8 table). Their draws go through the same three drawers.
 - Every run: No exact recompiled function 0, Wander's and Agro's [pos] y in the usual range (attract Agro -6..19, lake
   Wander 3.8..11.3), no stall over the watchdog. The shots were deleted after the check.
+- The shipped build (celosia-s1.vpk = p4, this commit), Vita3K: the console card's walk with S1 on from boot (finWalk,
+  916 s, 14 178 frames) and the same walk under the console env's rotation (finCon, `SOTC_AB_FLAG=s1ptcl
+  SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`, 16 158 frames). Both ok, No exact 0, Wander y -3.3..11.4, on the plain at the end.
+  spalign: 809 NEON :128 accesses, 0 sp-based. The Mac and Vita builds compile.
+
+**Console A/B:** build/agent-scratch/celosia-s1.vpk with build/agent-scratch/s1/env-console.txt
+(`SOTC_AB_FLAG=s1ptcl SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`: S1 off in every other 600-frame window). Read it with
+`python3 build/agent-scratch/tools/abframes.py err.txt --summary` (the draw-matched summaries).
 
 ## 6. What the next subsystem round should take from this
 
