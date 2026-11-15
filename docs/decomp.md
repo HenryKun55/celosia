@@ -20544,3 +20544,236 @@ script 39.4%. decomp_tree / decomp_history (label D8) come from the final build'
   lifter work D7 named. None is a particle function.
 - **The trace check's nesting** still needs a pass per level (D8 ran eleven passes). A record per level would remove
   that.
+
+## Decomp D9: collision and physics; natives that still ran their original code (fallback copies, lift-serve); D9's batch (SOTC_LIFTD9) (2026-11-15)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d9/` (STATE.md lists them; new scripts were written in the
+worktree's build/agent-scratch/d9src/): cc9.sh (a Mac call-count run, `SOTC_CALL_COUNT_FIRST`, `[tpos]`), first.py (which
+still-recompiled function a run reached first, at which frame, with Wander's position), fbmap.py (the fallback counts by
+native), cand9.py (D9's candidates), gen9.sh (D9's files), patch_rt9.py (the runtime's D9 switch and lift_d1.py's `--d9`),
+bigjt.py (functions whose jump table the lifter truncated), mkwall.py / mkva.py / mkdv3.py (the climbing, fight and lake
+inputs), reach9.py (what reached / would reach each collision function), collmap.py (docs/collision_map.md's table),
+abmix9.sh / final9.sh (the A/B and the final Vita3K lanes). Own Vita3K trees ../vita3k-celosia-d9 / -d9b (222 MHz, 3
+cores, muted). At most two heavy processes at once, all `nice -n 20`, builds `-j4`. The branch was rebased onto main's
+17a05d5 (the issue #8 build fixes) before the final build.
+
+### Task 1: the area's leftovers, and the natives that are not
+
+decomp_status's "Collision and physics" (by name: `collision|coll|hit|rigid|phys|dyn|ground|fit|swim|pendulum|volume`,
+or decomp_collision.cpp) had **158 of 319** functions native after D8 on the honest count (the `SOTC_WORKER91=0` dump).
+Why the 161 others were not native:
+
+| why | functions |
+|---|---|
+| reached in a D7 / D8 call-count run, never at top level in a trace run (D8's "unchecked / unreached") | charrootdyn_checkIYplane4D, motrootdyn_startxz_from_xzfit, motrootdyn_startxzfit, motrootdyn_parent_from_falldown, motrootdyn_startxzfit_from_falldown, SetCollisionEdgeLinkDBFinderVWallDirectionStatus, pathDetectCollision |
+| D7's speed rule (exact, slower in both of D7's A/Bs) | GetCollisionEdgeLinkDBVWallFinder |
+| never called on any D7 / D8 route | the other 153: Wander's hanging, climbing and parent-point modes (pendulum, edgepoint, parentpointxzfit and their motrootdyn_start*_from_* transitions), the fights' hit tests and judge volumes, the dynamics test object, debug modes |
+
+None was refused by the lifter, and none sits behind a hook.
+
+**A second count: natives that still run the original code.** A hand-written native falls back to
+`sotc_decomp::recompiled(addr)` (the generated function) when its fast path does not apply: the class has to be computed
+by a call, a plane is not cached yet, a jal target is not the expected one, an unusual size. decomp_status counts such a
+native as native. D9 counts the fallbacks at run time (`SOTC_FALLBACK_COUNT=<file>`, Mac only: every recompiled() lookup
+by address, written every 30 s). On the lake, walk and riding routes, **38 natives** in all areas ran their original code
+through recompiled() and had no lifted copy behind it, some of them millions of times (GetLayoutClass 3.3-5.7 million
+lookups in one run, manager_sub_01137F78 0.95-1.3 million, GetGeometryPointerPosition 0.6-0.7 million). **9 of them are
+in the collision area:** GetCollisionDBAttributeAdr, GetCollisionDBSurfBoundary, CollisionPlaneJudgeCallbackCameraVisibility,
+CollisionPlaneJudgeCallbackCameraLeave, ClipCollisionDirectCallBackDoubleSide (a pure wrapper: its body is always the
+recompiled code, under seg80's / seg123's memo), gamecore_sub_013CB8E8, GetCollisionDBPlane, EntryCollisionFinder and
+moveCtrlWallJudgeFunc. On that count the area stood at **149 of 319** after D8, not 158.
+
+The other hand-written collision natives are real: the traversal (ClipCollisionDirectCallBack, the node / low / high /
+leaf visitors, the finder walk and leaves, the skinned finder, CheckCollisionFinderExistData) never falls back, and the rest
+fall back only with their switch off (docs/collision_map.md has the table, native by native). CalcRootFitting is a lifted
+function (D4), not a hand-written native.
+
+### Task 2: reaching them
+
+New test aids (Mac; off unless set):
+
+- `SOTC_CALL_COUNT_FIRST=<frame>` (sotc_prof.cpp, with SOTC_CALL_COUNT): each function's first call from that game frame
+  on, with the frame (`[first] frame F addr`). first.py names them, keeps the still-recompiled ones, marks the collision
+  area's and adds Wander's last `[tpos]`. A route's inputs can be matched to what they reached frame by frame.
+- `SOTC_FALLBACK_COUNT=<file>` (sotc_decomp.cpp): every `recompiled()` lookup by address (Task 1).
+- `SOTC_TELEPORT` entries take `h<n>` after the place: that entry's own hold (h0: none), so tries from places in an area
+  already streamed in are not pulled back every 30 frames. `SOTC_TELEPORT_SCAN=<frame>,<every>,<x0>,<z0>,<dx>,<dz>,<nx>,
+  <nz>,<y>` puts Wander on a grid of places (a height map). It does not work for far places: the ground there is not
+  streamed in, and Wander stays where he was or falls through (sc1, abandoned).
+
+Routes (Mac call counts, the base build; Wander's world place is (-x, y, -z) of the teleport's numbers):
+
+| run | what it does | collision-area functions it reached first |
+|---|---|---|
+| lg1 | the console card; at the altar R1 held while walking off each side, jumps (teleported back every 900 frames) | none: the altar is ringed by slopes, not ledges |
+| ag1 | riding: mount, R1 / TRIANGLE / CROSS combinations on Agro | none |
+| dv1 | `2000:boss4`, then into Avion's lake (swimming from frame 2 854), TRIANGLE / R1 / CROSS / SQUARE holds while swimming, then no input from frame 9 400 | the fall-and-landing group (frame 13 092), SCRGetCollision (17 331), the parent point modes (19 422), pendulum and its transitions (19 513), the edge point (20 023): **31 of the area's functions**, and 153 others only this run reached. At frame 13 092 Wander hung from the edge of a pillar (nico_setPlayerEdgePoint, player_setEdgeHangPointGeometry) and climbed onto its top at (-1387.6, 20.4, -324.3); the later modes came at another pillar (-1455, 5.9, -303). No input was pressed then. |
+| dv2 | dv1's inputs again | none by frame 20 500: the run diverged (the game's timing is the host's, so a frame-clocked script does not replay the same game) |
+| dv3 | Wander put on that pillar's top, then R1 / jumps / the bow every 900 frames | he fell into the water (frame 6 423): the fall-into-water group, SCRGetCollision |
+| dv4 | swims into the same pillar from four sides at 8 and 14 units, R1 held | the teleport drop's landing group; no edge hang |
+| dr1 | drops and falls: the pillar top, walking off it into the water in four directions, drops onto the shore from 12-30 units and into the water from 10 | the fall / landing groups again (the trace passes dt9f / dt9h ran on it) |
+| va1 | a new game (the opening, ~30 000 frames), `30000:boss0`: the record is Valus' approach canyon (-305, 3.8, 271), not the arena; R1 + forward with jumps, the bow in four directions, the sword | pathDetectCollision, _setBackVolumeBaseMoveWork, _setSlideVolumeBaseMoveWork, the fall group; no colossus |
+| wl1 | the console card, `2000:boss0`, 15 climbing tries along the canyon's carved wall (R1, forward, three jumps) | motrootdyn_startxzfit_from_xz, charrootdyn_getCompleteFittingYQFromStabGPWithSlopeLimit (the last try fell off the canyon at x 340); no grab |
+| walk9 | the walk (fallback counts) | none new |
+
+**What reaches what.** Falls and landings (any teleport's drop, walking off a pillar, a drop into water) reach the
+xz / xzfit / falldown transitions, the landing offsets and SCRGetCollision every time. Hanging, climbing and the parent
+point modes need Wander on a ledge or a moving body, and the only run that got there did it by itself, once. Blind input
+did not grab a ledge on the canyon wall or on the lake's pillars. No route fought a colossus: Valus' record is the
+canyon below his plateau, the climb up is the game's first ledge climb, and Avion on the console card was never hit.
+
+### Task 3: D9's batch (SOTC_LIFTD9)
+
+**Two runtime changes first.**
+
+- **Fallback copies for the 36 natives** whose fallbacks ran generated code (Task 1; isysWakeupSubThread is a coroutine and
+  LoaderSysRelocateOnlineElfInfo a boot one-off, both left out). They are D5's mechanism: `lift_d1.py --d9 --fallback`
+  writes a lifted copy that recompiled() serves while SOTC_LIFTD9 is on, and `SOTC_DIFFTEST=<name>_fb` puts a checker on
+  the natives' fallback calls (the copy against the generated function, on the inputs the natives give it).
+- **Lift-serve** (sotc_decomp.cpp, `SOTC_LIFT_SERVE`, default on): a lifted function in its own table slot now also serves
+  recompiled() while its round's switch is on, as a fallback copy does. Before, a native that reached a lifted callee
+  through recompiled() would run the callee's generated body. The fallback counts of D9's routes found no such lookup
+  (every counted address was a native's own), so this is a guard for natives written later; the switch's A/B swaps flip
+  it with the table (applyLiftFallbacks).
+
+**A lifter bug** (found by the trace check on manager_sub_010C7B28's fallback copy: "event 0 (jump 010c8950) past the
+generated code's 0"): lift_d1.py read a jump's control block from the 60 lines after its comment. A jump table with
+more cases than that (this one has 125) lost the later cases, which then left the lifted code through PS2_JUMP_GUEST into
+the generated function at that label. The behaviour stayed right but the code was not lifted there. The block now runs to
+the table's PS2_JUMP_GUEST. bigjt.py over every committed lifted function finds no other table that long, so no
+committed file changes.
+
+**Candidates** (cand9.py): every function D9's and D8's call-count runs reach that is still recompiled on the honest count,
+not a stub, not interrupt-side, not the coroutine, not one of D7's speed cuts (except the collision area's): 333 (40 in the
+collision area). lift_d1.py `--d9` (as `--d7`, D9's macros; `--extern` D1-D8) lifts 315; the 18 refused are the same
+patterns as D7 / D8 (7 checkpoint patterns, 6 branches out of the function, 2 bc0f loops, 2 `break` operand forms, 1 `break` slot
+form), none in the collision area. They ship behind **SOTC_LIFTD9** (default on, A/B `liftd9`, test knob
+`SOTC_LIFTD9_RANGE=<lo>:<hi>`) in game/overrides/decomp_liftd9_00.cpp (the batch) and decomp_liftd9_90.cpp (the fallback
+copies, `SOTC_DECOMP_LIFT_FALLBACK_D9`); patch_rt9.py adds kLiftD9 and the macros as D8's did.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200; every register / VU0 / FPU, the
+clock, RAM, scratchpad, VU0 data at every event and at the end), the switches passed as separate words (dt8run.sh) and the
+`trace:` field checked in every log:
+
+| pass | build | route | functions checked | checks | register / clock / event mismatches | RAM outside the noise words |
+|---|---|---|---:|---:|---|---|
+| dt9a_walk | t0 (8 + 35 copies) | the walk | 31 | 21 401 | manager_sub_010C7B28_fb (the jump table above; fixed) | 0 |
+| dt9b_dv | t1 (315 + 36) | the lake (in_dv1.txt, `2000:boss4`) | 38 | 26 911 | 0 | 0 |
+| dt9c_walk | t1 | the walk | 38 | 24 107 | 0 | 0 |
+| dt9e_va | t1 | a new game, `30000:boss0`, the fight inputs | 50 | 3 736 | 0 | 14 functions, 1-7 single bytes |
+| dt9f_dr | t1 | the lake drops (in_dr1.txt) | 61 | 1 452 | 0 | 12 functions, 1-14 single bytes |
+| dt9h_dr | t1 | the drops again, the 200 unchecked only | 4 | 4 | 0 | 0 |
+| ctl9_dr | t1, `SOTC_DIFFTEST_CONTROL=1` | the drops, the 26 with RAM bytes | 12 | 3 402 | 0 | 11 of the 12 show RAM bytes in the control run too |
+
+The RAM bytes are single bytes at scattered addresses (0x49a3fc, 0x9fd70c, 0x1785d38, 0x1a5df70 ...) at the first event or
+at the end, in small script conditions, AI getters and the fight scripts' helpers. The control run (the generated code
+replayed against its own record) shows the same kind of bytes in 11 of the 12 it reached: another thread's writes between
+the record and the replay, as D7 found on its walk. Those 12 ship as control-equal. The 14 the control run did not reach
+(the new-game route's 0x13E5xxx group, AI_GetMotionBasicVelocity, nico_execMinotaurA_Cloth ...) stay out.
+
+**141 pass: 109 batch functions (11 in the collision area) and 32 fallback copies (6 of them for collision natives).**
+Every shipped body is byte for byte a checked one, except 10 whose callees were left out: their direct calls to those
+callees go through the table instead (bodydiff.py: the only differing lines are the PS2_CALL_GUEST_KNOWN symbols). Out:
+196 never at top level in a trace pass (most reached only in dv1's run, which no later run repeated; the rest are callees
+reached only inside checked callers), 14 with RAM bytes not cleared by a control run, and four fallback copies whose
+fallbacks no trace route took (the camera's visibility and leave filters, playerPlaneJudgeFuncCameraFilter,
+gamecore_sub_013CB8E8).
+
+### Speed (the interleaved A/B, D7's rule)
+
+Two SOTC_AB_MIX runs on p2 (Vita3K 222 MHz, the 141 checked functions; `SOTC_AB_FLAG=liftd9 SOTC_AB_PERIOD=1`, sampler
+snapshots 120-1440 s, `SOTC_WORKER91=0` as in D8). For a fallback copy the switch swaps what recompiled() serves, so the
+"recompiled" side is the natives' fallback calls into the generated body.
+
+| run | route | frames (on / off) | D9 set, lifted vs recompiled (samples per 1 000 frames) | slower z > 2 | faster z < -2 | sampled |
+|---|---|---|---|---:|---:|---:|
+| mixA (seed 7) | the attract demo | 15 990 / 16 010 | 857.0 vs 1 187.3 (72.2%) | 5 | 3 | 17 of 141 |
+| mixB (seed 11) | the console card, `2000:boss4` (bow, swim), back to the shrine at 7600 (in_tbz2.txt) | 9 968 / 10 032 | 3 914.5 vs 4 760.0 (82.2%) | 6 | 3 | 24 of 141 |
+
+**Five functions are slower in both runs, all of them fallback copies of call-heavy natives' slow paths:**
+manager_sub_01137858 (z 8.9 / 10.0), GetGeometryPointerPosition (7.5 / 7.4), manager_sub_010AF2A0 (6.4 / 7.3),
+manager_sub_010B06A8 (5.0 / 9.9) and manager_sub_010C7B28 (4.8 / 6.4). They are cut, and their natives keep falling back to
+the generated code. ClipCollisionDirectCallBackDoubleSide's copy is slower in mixB only (z 6.0) and ships. The big faster
+ones are fallback copies too: manager_sub_01137F78 (z -69 / -82: the copy takes an eighth of the generated body's
+samples), manager_sub_010F3CF0 (-24 / -28) and manager_sub_01117EA0 (-9.9, mixB). Those ratios are larger than any lifted
+function showed in D7 / D8, and D9 did not find out why; they are given as measured. The whole set
+is faster in both runs: **-0.12%** of the game thread on the attract demo (330 samples per 1 000 frames against
+276 400) and **-0.17%** on the lake route (845 against 490 200), with the five cut ones still in. These are the same two runs that chose the set, so the figure leans toward a gain, and a third
+run would give an unbiased one.
+
+**136 ship: 109 batch functions and 27 fallback copies.** The copies: GetLayoutClass (3-6 million fallback calls a run),
+manager_sub_01137F78, manager_sub_0113E940, manager_sub_010AF4D8, manager_sub_010F3CF0, manager_sub_0113CA58,
+manager_sub_01117EA0, manager_sub_010A9EA8, manager_sub_010D41E0, GetMotionFloatFrame, doit_cameraman_manager,
+gamecore_sub_013F8668, gamecore_sub_01434C00, pathJudgeFunc, IsWaterSurfaceExistAround, ClipCollisionDB, the six collision
+natives' (GetCollisionDBAttributeAdr, GetCollisionDBSurfBoundary, GetCollisionDBPlane, EntryCollisionFinder,
+moveCtrlWallJudgeFunc, ClipCollisionDirectCallBackDoubleSide), isysObjWaitSema / isysObjSignalSema, isysGroupForFirst,
+isysAddGroupWithLinkParam and kernel_sub_001C6180.
+
+### Task 5: the collision map
+
+docs/collision_map.md (new) is the map for S2. It covers what the area is (the collision library, the characters' root dynamics,
+gameplay users, debug), how collision runs in a frame, every hand-written native that touches collision (address, host
+function, switch, what it does and when it falls back), the host systems built so far (coll115, coll119, seg80 / seg123,
+fin125 / fin138, obj125, probe84, ground85, the per-thread natives) with their exactness and measured gains, the guest
+data layouts as the code states them (surface ids, the layout class, the DB, the 0x90-byte part, the tree and its 8-byte
+node, the segment test's parameters, the 0x50-byte hit record, the collision work, the modified managers, the finder),
+the cost (earlier rounds' console figures and D9's Vita3K sampler: **13.7% of the game thread on the attract demo, 21.6%
+on the lake route, almost all of it host code**), the area's status after D9 with what would reach each leftover, and a
+table of all 317 functions (status, direct callers, callees, argument offsets, globals, reach). The natives and host-system
+sections were drafted by a helper agent from the code and the rounds' write-ups and checked against both.
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at, then deleted). The final build is p3: D1-D8 as committed, S1,
+D9's 136, all on from boot, on main's 17a05d5.
+
+| run | frames | Wander y | Agro y | what the shots show |
+|---|---:|---|---|---|
+| the console card's walk (all on from boot) | 28 158 | -6.55 .. 11.33 | -5.06 .. 12.48 | Wander on the grass with his shadow; the lowest y is a dip of the plain (the shot at that point shows him standing on it) |
+| the ride | 13 398 | 3.77 .. 11.31 | -0.26 .. 12.45 | to the altar; the shrine's mist and Mono on the altar normal |
+| **Avion's lake** (in_tbz2.txt, `2000:boss4`, back to the shrine at 7600) | 13 818 | 3.77 .. 11.31 (the swim reads as a fixed place) | 0.58 .. 12.52 | swimming in the lake with the splashes, then Wander at the altar in the light shafts |
+| the attract demo with the sampler | 20 178 | 3.24 | -8.46 .. 8.39 | the gallop on the grass with Agro's shadow |
+| the walk under the console env's rotation (`SOTC_AB_FLAG=liftd9,s1ptcl,liftd8,...,liftd1`, 600 frames; liftd9 swaps 109, the 27 copies follow the switch through recompiled()) | 17 418 | -2.35 .. 11.31 | -1.23 .. 12.49 | Wander running on the plain with his shadow |
+
+Every run drew within two minutes (the watchdog never fired). There was no "No exact recompiled function" and no wild
+return; two or three game-thread frames over 300 ms per run (boot, loads). spalign (r110/spalign.py) on celosia-d9.elf
+finds 810 NEON :128 accesses, 0 of them sp-based. The Mac and Vita builds compile. The new test aids are off unless set
+(SOTC_CALL_COUNT_FIRST and SOTC_FALLBACK_COUNT are Mac only).
+
+### Decomp numbers
+
+tools/decomp_status.py on the final build's replaced dump with `SOTC_WORKER91=0` (the honest count; Mac, attract demo to
+frame 1 500; calls from round 71's dumps). docs/decomp_status.json is written from it:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D9 | **4 965 of 9 024 (55.02%)** | 57.07% | 96.35% | 57.59% |
+| as earlier rounds counted (gates on), D9 | 5 025 (55.68%) | 57.46% | 96.99% | 58.05% |
+| honest, D8 | 4 856 (53.81%) | 55.64% | 96.35% | 55.91% |
+
+Fallback copies do not change these counts (their natives were counted already); they change what runs. By area (honest,
+code by size): Math 100%, particles 87.7%, camera 73.8%, sound 72.0%, system 64.9%, characters 63.7%, display 60.6%, other
+game code 55.9%, boot ELF / SDK 53.6%, **collision 50.1% (167 of 317 functions)** and script 40.3%.
+
+### What S2 and D10 should take
+
+- **The collision area cannot reach 100% from scripted input.** 150 functions are left. 29 of them were reached (23 only in
+  one lake run that no later run repeated, 6 only inside checked callers); about 105 need gameplay that blind input
+  does not produce: hanging from a ledge or a colossus, climbing, a fight's hits and death, arenas with trigger volumes;
+  about 15 are debug, test or never called. The next step is a **recorded session**: the user plays from the console card
+  with the teleport and the recorder on (`SOTC_INPUT_RECORD=1 SOTC_TELEPORT=2000:boss4 SOTC_TELEPORT_HOLD=600`: swim to a
+  pillar, climb it, jump on Avion, hang, stab the weak points, kill it), and a Mac replay of it (SOTC_INPUT_REPLAY, tick-keyed)
+  runs the trace check. A new-game session to Valus' plateau (the first ledge climb) is the second one. dv1's run shows
+  the lake alone reaches 31 of the area's functions when Wander gets onto a pillar.
+- **S2 (the redesign):** docs/collision_map.md has the map. Collision is 13.7% (attract) to 21.6% (lake) of the Vita3K game
+  thread, and almost all of it is host code already (decomp_collision, coll115, fin125, the ground fill). The remaining
+  recompiled functions are rare paths. The gain is in the algorithms: the segment tests' object / part / tree walk, the
+  finder's per-frame fill from the groups, and the caches' lifetime (the modified managers that every host cache tracks).
+  The root dynamics (the motrootdyn / charrootdyn mode functions) are the clients' interface to keep.
+- **The natives' fallbacks** are a count of their own now (`SOTC_FALLBACK_COUNT`). Still running generated code on D9's
+  routes after D9: the five cut for speed (GetGeometryPointerPosition, manager_sub_01137858 / 010AF2A0 / 010B06A8 /
+  010C7B28), the camera filters' four (not trace-checked), the coroutine and a boot one-off. A native whose slow path runs millions of times is
+  a native that should take that path itself.
+- **The 14 with RAM bytes** (the new-game route's 0x13E5xxx group, AI_GetMotionBasicVelocity, nico_execMinotaurA_Cloth ...)
+  need a control run on that route. **The trace check's nesting** still needs a pass per level, and the 196 unchecked are
+  mostly that.

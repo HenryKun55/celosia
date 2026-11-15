@@ -25,6 +25,11 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#if !defined(__vita__)
+#include <chrono>
+#include <mutex>
+#include <thread>
+#endif
 
 namespace sotc_decomp
 {
@@ -1482,8 +1487,55 @@ namespace sotc_decomp
         runToReturn(rdram, ctx, runtime, recompiled(address));
     }
 
+#if !defined(__vita__)
+    // Decomp D9 (Mac only): SOTC_FALLBACK_COUNT=<file> counts every recompiled() lookup by address (a native's fallback to
+    // the original code, or a native calling a callee's recompiled body past the table) and writes them to <file> every
+    // 30 s ("address count"; the few lookups at install show up as small counts).
+    namespace
+    {
+        std::mutex g_fbCountLock;
+        std::unordered_map<uint32_t, uint64_t> *g_fbCounts = nullptr;
+        const bool g_fbCountOn = []
+        {
+            const char *path = std::getenv("SOTC_FALLBACK_COUNT");
+            if (!path || !path[0])
+                return false;
+            g_fbCounts = new std::unordered_map<uint32_t, uint64_t>();
+            const std::string file = path;
+            std::thread([file]
+                        {
+                            for (;;)
+                            {
+                                std::this_thread::sleep_for(std::chrono::seconds(30));
+                                std::vector<std::pair<uint32_t, uint64_t>> rows;
+                                {
+                                    std::lock_guard<std::mutex> lock(g_fbCountLock);
+                                    rows.assign(g_fbCounts->begin(), g_fbCounts->end());
+                                }
+                                std::sort(rows.begin(), rows.end());
+                                if (FILE *out = std::fopen(file.c_str(), "w"))
+                                {
+                                    for (const auto &r : rows)
+                                        std::fprintf(out, "%08x %llu\n", r.first, static_cast<unsigned long long>(r.second));
+                                    std::fclose(out);
+                                }
+                            }
+                        })
+                .detach();
+            return true;
+        }();
+    }
+#endif
+
     PS2Runtime::RecompiledFunction recompiled(uint32_t address)
     {
+#if !defined(__vita__)
+        if (__builtin_expect(g_fbCountOn, 0))
+        {
+            std::lock_guard<std::mutex> lock(g_fbCountLock);
+            ++(*g_fbCounts)[address];
+        }
+#endif
         if (g_recompiledMask != 0u && address != 0u)
         {
             for (uint32_t i = recompiledHash(address) & g_recompiledMask;; i = (i + 1u) & g_recompiledMask)
@@ -1517,19 +1569,19 @@ namespace sotc_decomp
     // Decomp D1's lifted functions (tools/lift_d1.py): their table entries swapped when SOTC_LIFTD1 changes at run
     // time (an A/B window, SOTC_AB_FLAG=liftd1), as abTick swaps SOTC_AB's set.
     // Decomp D2: the same for D2's batch (SOTC_LIFTD2, SOTC_AB_FLAG=liftd2), its own list; D3 likewise (SOTC_LIFTD3,
-    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4), D5 likewise (SOTC_LIFTD5, liftd5), D6 likewise (SOTC_LIFTD6, liftd6), D7 likewise (SOTC_LIFTD7, liftd7), D8 likewise (SOTC_LIFTD8, liftd8).
+    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4), D5 likewise (SOTC_LIFTD5, liftd5), D6 likewise (SOTC_LIFTD6, liftd6), D7 likewise (SOTC_LIFTD7, liftd7), D8 likewise (SOTC_LIFTD8, liftd8), D9 likewise (SOTC_LIFTD9, liftd9).
     // Decomp D4 (test): liftalt off puts each lifted function's alternative copy (SOTC_DECOMP_LIFT_ALT) where the lifted
     // function is, on puts the lifted function back: two lifter versions of the same functions A/B'd in one run.
     namespace
     {
-        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4, g_lift5, g_lift6, g_lift7, g_lift8;
+        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4, g_lift5, g_lift6, g_lift7, g_lift8, g_lift9;
         int g_liftHooked = 0;
         PS2Runtime *g_liftRuntime = nullptr;
         void liftAltChanged(bool on)
         {
             int swapped = 0, remapped = 0;
             for (const auto &[address, alt] : liftAlts())
-                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5, &g_lift6, &g_lift7, &g_lift8})
+                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5, &g_lift6, &g_lift7, &g_lift8, &g_lift9})
                     for (const AbEntry &e : *v)
                     {
                         if (e.address != address || !e.native)
@@ -1554,10 +1606,10 @@ namespace sotc_decomp
             if (which == kLiftAlt && g_liftRuntime)
                 return liftAltChanged(on);
             applyLiftFallbacks(which);
-            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4 && which != kLiftD5 && which != kLiftD6 && which != kLiftD7 && which != kLiftD8) || !g_liftRuntime)
+            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4 && which != kLiftD5 && which != kLiftD6 && which != kLiftD7 && which != kLiftD8 && which != kLiftD9) || !g_liftRuntime)
                 return;
             int swapped = 0;
-            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : which == kLiftD4 ? g_lift4 : which == kLiftD5 ? g_lift5 : which == kLiftD6 ? g_lift6 : which == kLiftD7 ? g_lift7 : g_lift8)
+            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : which == kLiftD4 ? g_lift4 : which == kLiftD5 ? g_lift5 : which == kLiftD6 ? g_lift6 : which == kLiftD7 ? g_lift7 : which == kLiftD8 ? g_lift8 : g_lift9)
             {
                 if (!e.recompiled || !e.native)
                     continue;
@@ -1574,7 +1626,7 @@ namespace sotc_decomp
             static const bool mixQuiet = ps2_diag::env("SOTC_AB_MIX") != nullptr;
             static uint64_t changes = 0;
             if (!mixQuiet || (changes++ % 1000u) == 0u)
-            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : which == kLiftD4 ? "liftd4" : which == kLiftD5 ? "liftd5" : which == kLiftD6 ? "liftd6" : which == kLiftD7 ? "liftd7" : "liftd8",
+            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : which == kLiftD4 ? "liftd4" : which == kLiftD5 ? "liftd5" : which == kLiftD6 ? "liftd6" : which == kLiftD7 ? "liftd7" : which == kLiftD8 ? "liftd8" : "liftd9",
                          static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
         }
     }
@@ -1872,7 +1924,18 @@ namespace sotc_decomp
                     }();
                     if (sw == kLiftD8 && (f.address < d8Range.first || f.address >= d8Range.second))
                         continue;
-                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : sw == kLiftD4 ? g_lift4 : sw == kLiftD5 ? g_lift5 : sw == kLiftD6 ? g_lift6 : sw == kLiftD7 ? g_lift7 : g_lift8).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
+                    // Decomp D9: SOTC_LIFTD9_RANGE, the same for D9's functions.
+                    static const std::pair<uint32_t, uint32_t> d9Range = []
+                    {
+                        const char *r = ps2_diag::env("SOTC_LIFTD9_RANGE");
+                        if (!r || !std::strchr(r, ':'))
+                            return std::pair<uint32_t, uint32_t>{0u, 0xFFFFFFFFu};
+                        return std::pair<uint32_t, uint32_t>{static_cast<uint32_t>(std::strtoul(r, nullptr, 16)),
+                                                             static_cast<uint32_t>(std::strtoul(std::strchr(r, ':') + 1, nullptr, 16))};
+                    }();
+                    if (sw == kLiftD9 && (f.address < d9Range.first || f.address >= d9Range.second))
+                        continue;
+                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : sw == kLiftD4 ? g_lift4 : sw == kLiftD5 ? g_lift5 : sw == kLiftD6 ? g_lift6 : sw == kLiftD7 ? g_lift7 : sw == kLiftD8 ? g_lift8 : g_lift9).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
                     if (!switchOn(sw))
                         continue;
                 }
@@ -1899,29 +1962,35 @@ namespace sotc_decomp
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
-        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty() || !g_lift5.empty() || !g_lift6.empty() || !g_lift7.empty() || !g_lift8.empty())
+        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty() || !g_lift5.empty() || !g_lift6.empty() || !g_lift7.empty() || !g_lift8.empty() || !g_lift9.empty())
         {
             g_liftRuntime = &runtime;
             g_switchChanged = liftSwitchChanged;
-            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size() << ", D5 " << g_lift5.size() << ", D6 " << g_lift6.size() << ", D7 " << g_lift7.size() << ", D8 " << g_lift8.size()
+            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size() << ", D5 " << g_lift5.size() << ", D6 " << g_lift6.size() << ", D7 " << g_lift7.size() << ", D8 " << g_lift8.size() << ", D9 " << g_lift9.size()
                       << " (" << g_liftHooked << " left to a hook), d1 "
                       << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << ", d2 " << (switchOn(kLiftD2) ? "on" : "off (SOTC_LIFTD2=0)")
-                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)") << ", d5 " << (switchOn(kLiftD5) ? "on" : "off (SOTC_LIFTD5=0)") << ", d6 " << (switchOn(kLiftD6) ? "on" : "off (SOTC_LIFTD6=0)") << ", d7 " << (switchOn(kLiftD7) ? "on" : "off (SOTC_LIFTD7=0)") << ", d8 " << (switchOn(kLiftD8) ? "on" : "off (SOTC_LIFTD8=0)")
+                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)") << ", d5 " << (switchOn(kLiftD5) ? "on" : "off (SOTC_LIFTD5=0)") << ", d6 " << (switchOn(kLiftD6) ? "on" : "off (SOTC_LIFTD6=0)") << ", d7 " << (switchOn(kLiftD7) ? "on" : "off (SOTC_LIFTD7=0)") << ", d8 " << (switchOn(kLiftD8) ? "on" : "off (SOTC_LIFTD8=0)") << ", d9 " << (switchOn(kLiftD9) ? "on" : "off (SOTC_LIFTD9=0)")
                       << (liftAlts().empty() ? "" : ", alternative copies ") << (liftAlts().empty() ? "" : std::to_string(liftAlts().size())) << std::endl;
             // Decomp D4 (test): SOTC_LIFTALT=0 starts with the alternative copies in place.
             if (!liftAlts().empty() && !switchOn(kLiftAlt))
                 liftAltChanged(false);
         }
         // Decomp D5: lifted functions whose slot a native or a hook holds: their copies serve recompiled()
+        // Decomp D9: and lifted functions in their own slot too (SOTC_LIFT_SERVE, default on): a native that reaches a lifted
+        // callee through recompiled() (GetLayoutClass: ~5 million lookups in a lake run) ran its generated body.
+        static const bool liftServe = [] { const char *e = ps2_diag::env("SOTC_LIFT_SERVE"); return !(e && e[0] == '0'); }();
         for (const Function &f : registry())
         {
-            if (!f.lift || !f.original || !runtime.hasFunction(f.address) || runtime.lookupFunction(f.address) == f.native)
+            if (!f.lift || !f.original || !runtime.hasFunction(f.address))
+                continue;
+            const bool inTable = runtime.lookupFunction(f.address) == f.native;
+            if (inTable && !liftServe)
                 continue;
             const auto it = g_recompiled.find(f.address);
             if (it == g_recompiled.end() || it->second != f.original || listed(skip, f.name))
                 continue;
             PS2Runtime::RecompiledFunction lifted = f.native;
-            if (listed(test, f.name) && checked < kMaxChecked)
+            if (!inTable && listed(test, f.name) && checked < kMaxChecked)
             {
                 // SOTC_DIFFTEST=<name>_fb: the natives' fallback calls go through a checker (the copy against the
                 // generated function, on the inputs the natives give it)

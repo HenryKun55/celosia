@@ -778,6 +778,7 @@ namespace sotc_prof
         void (*g_innerProbe)(R5900Context *, int) = nullptr;
         uint64_t g_frame0 = 0u, g_tick0 = 0u;
         const char *g_dump = nullptr;
+        uint64_t g_firstFrom = ~0ull;
 
         inline uint32_t hash(uint32_t a) { return ((a >> 2) * 0x9E3779B1u) >> (32u - kBits); }
 
@@ -803,7 +804,14 @@ namespace sotc_prof
                 std::abort();
             }
             ++g_calls;
-            ++e->count;
+            // Decomp D9: SOTC_CALL_COUNT_FIRST=<frame>: each function's first call from that game frame on, with the frame
+            // (which input reached what).
+            if (__builtin_expect(e->count++ == 0u && g_firstFrom != ~0ull, 0))
+            {
+                const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                if (frame >= g_firstFrom)
+                    std::fprintf(stderr, "[first] frame %llu %08x\n", static_cast<unsigned long long>(frame), e->address);
+            }
             if (e->stamp != g_stamp)
             {
                 e->stamp = g_stamp;
@@ -862,6 +870,8 @@ namespace sotc_prof
             g_innerProbe = g_eeDispatchProbe;
             g_eeDispatchProbe = dispatchProbe;
             g_dump = ps2_diag::env("SOTC_CALL_COUNT_DUMP");
+            if (const char *f = ps2_diag::env("SOTC_CALL_COUNT_FIRST"))
+                g_firstFrom = std::strtoull(f, nullptr, 10);
             g_installed = true;
 #if !defined(__vita__)
             // Decomp D7: the Mac's GS path never reaches syncFrame (no per-frame report there): the dump every 30 s from

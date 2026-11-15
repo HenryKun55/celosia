@@ -744,6 +744,7 @@ namespace sotc_replay
             int boss = -1;
             float p[4] = {0, 0, 0, 0};
             bool done = false;
+            int64_t hold = -1;                   // "h<n>" after the place: this entry's own hold (else SOTC_TELEPORT_HOLD)
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
         };
         uint64_t g_teleportHold = 0;
@@ -823,7 +824,7 @@ namespace sotc_replay
                     if (!t.done && frame >= t.frame && player && player < 0x2000000u)
                     {
                         t.done = true;
-                        t.holdUntil = frame + g_teleportHold;
+                        t.holdUntil = frame + (t.hold >= 0 ? static_cast<uint64_t>(t.hold) : g_teleportHold);
                         t.nextHold = frame + 30u;
                         float p[4] = {t.p[0], t.p[1], t.p[2], t.p[3]};
                         if (t.boss >= 0)
@@ -1109,8 +1110,33 @@ namespace sotc_replay
                         t.boss = std::atoi(what.c_str() + 4);
                     else
                         std::sscanf(what.c_str(), "%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3]);
+                    // Decomp D9: "h<n>" at the end: this entry's own hold (h0: none), e.g. tries from a place in an area
+                    // already streamed in.
+                    const size_t h = what.find('h', what.rfind("boss", 0) == 0 ? 4 : 0);
+                    if (h != std::string::npos)
+                        t.hold = std::strtoll(what.c_str() + h + 1, nullptr, 10);
                     g_teleports.push_back(t);
                 }
+            }
+            // Decomp D9: SOTC_TELEPORT_SCAN=<frame>,<every>,<x0>,<z0>,<dx>,<dz>,<nx>,<nz>,<y>: a grid of teleports (in the
+            // teleport's own coordinates, world = (-x, y, -z)) one every <every> frames from <frame>; each teleport's log line
+            // ("at x y z") is where the previous point landed: a height map of an area (ledges, pillars, water).
+            if (const char *sc = std::getenv("SOTC_TELEPORT_SCAN"))
+            {
+                unsigned long long f0 = 0, every = 0;
+                float x0 = 0, z0 = 0, dx = 0, dz = 0, y = 0;
+                int nx = 0, nz = 0;
+                if (std::sscanf(sc, "%llu,%llu,%f,%f,%f,%f,%d,%d,%f", &f0, &every, &x0, &z0, &dx, &dz, &nx, &nz, &y) == 9)
+                    for (int j = 0; j < nz; ++j)
+                        for (int i = 0; i < nx; ++i)
+                        {
+                            Teleport t;
+                            t.frame = f0 + every * static_cast<unsigned long long>(j * nx + i);
+                            t.p[0] = x0 + dx * static_cast<float>(i);
+                            t.p[1] = y;
+                            t.p[2] = z0 + dz * static_cast<float>(j);
+                            g_teleports.push_back(t);
+                        }
             }
             // SOTC_TELEPORT_LIST=<frame>: the boss table from that frame on; SOTC_TELEPORT_POS=<n>: both positions every n frames.
             if (const char *l = std::getenv("SOTC_TELEPORT_LIST"))
