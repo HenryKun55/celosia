@@ -835,7 +835,7 @@
   {
    "round": "D8",
    "date": "2026-11-15",
-   "commit": "",
+   "commit": "029a584",
    "focus": "Decomp",
    "summary": "Decomp D8: the particles and effects area, and new ways into the game. New routes: a new game (the opening cutscene, then the altar) and a teleport test aid (SOTC_TELEPORT, through the game's own warp) that puts Wander at any colossus' arena from the console card. On Avion's lake that reached the boss's set-up and release, arrows into the water and swimming. Two findings on the count itself. The worker thread's wrappers had made about 130 particle-module functions look decompiled when their original code still ran, and decomp_status now counts without them. And D8's first test passes had silently run the old two-run check instead of the trace check (a shell quoting slip): they were thrown away and redone. 365 functions ship behind SOTC_LIFTD8 (on), and docs/particles_map.md maps the particle code for the redesign round S1.",
    "result": "Particles and effects: 91 of 116 functions decompiled on the honest count (about 58 before D8; 98 of 116 on the old count, which included the wrappers). The other 25 need a colossus fight, a dive or a ledge, or are never called at all; docs say what would reach each one. Whole game: 4 856 of 9 024 functions (53.8%), 55.6% of the code, 96.4% of calls on the honest count (old count 4 916, 54.5%). Exact: every shipped function checked by the trace check on its final code, 0 register / clock / event differences. Speed (Vita3K 222 MHz, interleaved A/B): no function slower in both runs; the set +0.01% / -0.02% of the game thread (noise). Pictures: walk, ride, attract, Avion's lake and the rotation walk normal, Wander and Agro on the ground."
