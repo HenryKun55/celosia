@@ -38,7 +38,9 @@ lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 check_tools() {
     need cmake "brew install cmake"
     need ninja "brew install ninja"
-    need python3 "install Python 3.10+"
+    need python3 "install Python 3.9+"
+    python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' ||
+        die "python3 is $(python3 -V 2>&1); the tools need Python 3.9+ (brew install python)"
     need bsdtar "ships with macOS; on Linux: apt install libarchive-tools"
     need pkg-config "brew install pkg-config"
 }

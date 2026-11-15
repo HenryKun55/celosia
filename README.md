@@ -33,7 +33,8 @@ it talks to (DMA, IOP, SPU2) is reimplemented as host code.
 ## Requirements
 
 - macOS on Apple Silicon, Xcode Command Line Tools
-- `brew install cmake ninja pkg-config ffmpeg python`
+- `brew install cmake ninja pkg-config ffmpeg python` (the tools need Python
+  3.9 or newer; macOS's own `python3` 3.9 works)
 - A disc image of **Shadow of the Colossus (USA)** (`SCUS_974.72`), as an
   `.iso` or a `.zip` containing one
 - About 10 GB of free disk space and an internet connection for the first build

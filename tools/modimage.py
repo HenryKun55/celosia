@@ -3,6 +3,8 @@
 After the game's loader runs, the in-RAM header has absolute section addresses
 (memPt) and the symbol table holds final symbol addresses.
 """
+from __future__ import annotations  # `bytes | None` on Python 3.9 (macOS's own python3)
+
 import struct
 from dataclasses import dataclass
 from xff import Xff
