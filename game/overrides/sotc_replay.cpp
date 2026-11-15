@@ -59,6 +59,7 @@
 // <file>.shot<tick>.ppm, which only the console fills). At the recording's
 // end "[replay] end"; SOTC_REPLAY_EXIT=1 leaves there.
 #include "sotc_replay.h"
+#include "sotc_decomp.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime.h"
@@ -728,9 +729,131 @@ namespace sotc_replay
             g_garbageOriginal(rdram, ctx, runtime);
         }
 
+        // Decomp D8: a test aid to reach code the scripted routes never reach (a colossus' arena, water).
+        // SOTC_TELEPORT=<frame>:<x>,<y>,<z>[,<yaw>][;...] puts Wander (and Agro two units beside him) there through
+        // the game's own warp, gameflowSetPos (0x13522A0: a0 the object, f12 / f13 / f14 the position as the game
+        // passes it: the world place is (-f12, f13, -f14), as +0x170; f16 the yaw), at the first Agro step from that game frame (vif1 chains, as
+        // PS2X_INPUT_CLOCK=frames). <frame>:boss<n> takes the boss table's record n (+0xC count, +0x10 the
+        // records, 0xEC each; +0x64 / +0x68 / +0x6C / +0x70 the place bossStatStartDemo warps Agro to).
+        // SOTC_TELEPORT_HOLD=<n> puts them back there every 30 frames for n frames (the ground streams in meanwhile).
+        // SOTC_TELEPORT_LIST=<frame> prints the table from that frame; SOTC_TELEPORT_POS=<n> both positions every n frames.
+        // Off unless set.
+        struct Teleport
+        {
+            uint64_t frame = 0;
+            int boss = -1;
+            float p[4] = {0, 0, 0, 0};
+            bool done = false;
+            uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
+        };
+        uint64_t g_teleportHold = 0;
+        std::vector<Teleport> g_teleports;
+        bool g_teleportList = false;
+        uint64_t g_teleportListAt = 0, g_teleportPosEvery = 0, g_teleportPosNext = 0;
+        constexpr uint32_t kSetPos = 0x013522A0u;
+
+        void teleportCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, const float p[4], float dx)
+        {
+            const R5900Context keep = *ctx;
+            SET_GPR_U32(ctx, 4, object);
+            ctx->f[12] = p[0] + dx;
+            ctx->f[13] = p[1];
+            ctx->f[14] = p[2];
+            ctx->f[15] = 0.0f;
+            ctx->f[16] = p[3];
+            ctx->f[17] = 0.0f;
+            const uint32_t sp = (GPR_U32(ctx, 29) - 0x400u) & ~15u;
+            sotc_decomp::callGuest(rdram, ctx, runtime, kSetPos, GPR_U32(&keep, 31), sp);
+            *ctx = keep;
+        }
+
         void horseHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             g_horse = GPR_U32(ctx, 4);
+            if (__builtin_expect(!g_teleports.empty() || g_teleportList || g_teleportPosEvery, 0))
+            {
+                auto rd = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+                auto rf = [&](uint32_t a) { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+                // The table's address is a relocation site (lui / addiu at 0x134A51C / 0x134A528 in
+                // bossStatSrhSheetAliveBoss): read from the live code words.
+                const uint32_t table = sotc_decomp::relocated(rdram, 0x0134A51Cu, 0x0134A528u);
+                const uint32_t count = rd(table + 0xCu), records = rd(table + 0x10u);
+                const uint64_t now = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                if (g_teleportPosEvery && now >= g_teleportPosNext)
+                {
+                    g_teleportPosNext = now + g_teleportPosEvery;
+                    const uint32_t ix = rd(0x01465900u) & 0xFFFFu;
+                    const uint32_t pl = ix ? rd(0x0021B900u + ix * 24u) : 0u;
+                    if (pl && pl < 0x2000000u)
+                        std::fprintf(stderr, "[tpos] frame %llu: Wander %.2f %.2f %.2f Agro %.2f %.2f %.2f\n", (unsigned long long)now, rf(pl + 0x170u),
+                                     rf(pl + 0x174u), rf(pl + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u));
+                }
+                if (g_teleportList && now >= g_teleportListAt)
+                {
+                    g_teleportList = false;
+                    // The stage table (gcGetStageData: the relocation at 0x1365D1C / 0x1365D28, +0xC count, +0x10
+                    // records of 20 bytes).
+                    const uint32_t stages = sotc_decomp::relocated(rdram, 0x01365D1Cu, 0x01365D28u);
+                    const uint32_t nst = rd(stages + 0xCu), srec = rd(stages + 0x10u);
+                    for (uint32_t i = 0; i < nst && i < 128u && srec; ++i)
+                    {
+                        const uint32_t r = srec + i * 20u;
+                        std::fprintf(stderr, "[teleport] stage %u: %08x %08x %08x %08x %08x (%.2f %.2f %.2f %.2f)\n", i, rd(r), rd(r + 4u), rd(r + 8u), rd(r + 12u),
+                                     rd(r + 16u), rf(r + 4u), rf(r + 8u), rf(r + 12u), rf(r + 16u));
+                    }
+                    for (uint32_t i = 0; i < count && i < 64u && records; ++i)
+                    {
+                        const uint32_t r = records + i * 0xECu;
+                        std::fprintf(stderr, "[teleport] boss %u: rec %08x +18 %08x +50 %08x pos %.2f %.2f %.2f yaw %.3f\n", i, r, rd(r + 0x18u), rd(r + 0x50u),
+                                     rf(r + 0x64u), rf(r + 0x68u), rf(r + 0x6Cu), rf(r + 0x70u));
+                    }
+                }
+                const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                const uint32_t index = rd(0x01465900u) & 0xFFFFu;
+                const uint32_t player = index ? rd(0x0021B900u + index * 24u) : 0u;
+                for (Teleport &t : g_teleports)
+                {
+                    if (t.done && frame < t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u)
+                    {
+                        t.nextHold = frame + 30u;
+                        teleportCall(rdram, ctx, runtime, player, t.p, 0.0f);
+                        teleportCall(rdram, ctx, runtime, g_horse, t.p, 2.0f);
+                        continue;
+                    }
+                    if (!t.done && frame >= t.frame && player && player < 0x2000000u)
+                    {
+                        t.done = true;
+                        t.holdUntil = frame + g_teleportHold;
+                        t.nextHold = frame + 30u;
+                        float p[4] = {t.p[0], t.p[1], t.p[2], t.p[3]};
+                        if (t.boss >= 0)
+                        {
+                            if (!records || static_cast<uint32_t>(t.boss) >= count)
+                            {
+                                std::fprintf(stderr, "[teleport] no boss record %d (count %u)\n", t.boss, count);
+                                continue;
+                            }
+                            const uint32_t r = records + static_cast<uint32_t>(t.boss) * 0xECu;
+                            // As bossStatStartDemo: the record's place is in its seamless area's own space (+0x51 the
+                            // area: YattsukeGetSeamlessAreaCenter, a 10 x 10 grid of 600-unit areas centred on 0).
+                            const uint32_t area = rdram[(r + 0x51u) & 0x1FFFFFFu];
+                            const float cx = 2700.0f - 600.0f * static_cast<float>(area % 10u), cz = 600.0f * static_cast<float>(area / 10u) - 2700.0f;
+                            p[0] = rf(r + 0x64u) - cx;
+                            p[1] = rf(r + 0x68u);
+                            p[2] = rf(r + 0x6Cu) - cz;
+                            p[3] = rf(r + 0x70u);
+                        }
+                        for (int k = 0; k < 4; ++k)
+                            t.p[k] = p[k];
+                        std::fprintf(stderr, "[teleport] frame %llu: Wander %08x (at %.2f %.2f %.2f) and Agro %08x to %.2f %.2f %.2f yaw %.3f\n",
+                                     (unsigned long long)frame, player, rf(player + 0x170u), rf(player + 0x174u), rf(player + 0x178u), g_horse, p[0], p[1], p[2], p[3]);
+                        teleportCall(rdram, ctx, runtime, player, p, 0.0f);
+                        teleportCall(rdram, ctx, runtime, g_horse, p, 2.0f);
+                        std::fprintf(stderr, "[teleport] now Wander at %.2f %.2f %.2f, Agro at %.2f %.2f %.2f\n", rf(player + 0x170u), rf(player + 0x174u),
+                                     rf(player + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u));
+                    }
+                }
+            }
             g_horseOriginal(rdram, ctx, runtime);
         }
 
@@ -965,7 +1088,41 @@ namespace sotc_replay
         {
             // Round 135: SOTC_POS_LOG alone: only Agro's step wrapped (its object noted, nothing else changes).
             const char *pos = ps2_diag::env("SOTC_POS_LOG");
-            if (pos && std::atoi(pos) > 0 && runtime.hasFunction(kHorseStep))
+            if (const char *tp = std::getenv("SOTC_TELEPORT"))
+            {
+                std::string all = tp;
+                size_t start = 0;
+                while (start < all.size())
+                {
+                    size_t end = all.find(';', start);
+                    if (end == std::string::npos)
+                        end = all.size();
+                    const std::string item = all.substr(start, end - start);
+                    start = end + 1;
+                    const size_t colon = item.find(':');
+                    if (colon == std::string::npos)
+                        continue;
+                    Teleport t;
+                    t.frame = std::strtoull(item.c_str(), nullptr, 10);
+                    const std::string what = item.substr(colon + 1);
+                    if (what.rfind("boss", 0) == 0)
+                        t.boss = std::atoi(what.c_str() + 4);
+                    else
+                        std::sscanf(what.c_str(), "%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3]);
+                    g_teleports.push_back(t);
+                }
+            }
+            // SOTC_TELEPORT_LIST=<frame>: the boss table from that frame on; SOTC_TELEPORT_POS=<n>: both positions every n frames.
+            if (const char *l = std::getenv("SOTC_TELEPORT_LIST"))
+            {
+                g_teleportList = true;
+                g_teleportListAt = std::strtoull(l, nullptr, 10);
+            }
+            if (const char *e = std::getenv("SOTC_TELEPORT_HOLD"))
+                g_teleportHold = std::strtoull(e, nullptr, 10);
+            if (const char *e = std::getenv("SOTC_TELEPORT_POS"))
+                g_teleportPosEvery = std::strtoull(e, nullptr, 10);
+            if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery) && runtime.hasFunction(kHorseStep))
             {
                 g_horseOriginal = runtime.lookupFunction(kHorseStep);
                 runtime.registerFunction(kHorseStep, horseHook);

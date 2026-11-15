@@ -9,7 +9,10 @@ build/recomp/game/functions.csv. A function counts as native when
     calls, SDK and libc pieces), or
   - a game override replaces its table entry at run time: a run with
     PS2X_REPLACED_DUMP=<file> and PS2X_EXIT_AT_FRAME=<n> writes those
-    addresses (default env, so no profiler / difftest wrappers).
+    addresses (default env, so no profiler / difftest wrappers). Decomp D8: take it with SOTC_WORKER91=0 as
+    well. sotc_worker.cpp's gate<I> wraps every particle-module entry and calls whatever the slot held, so with the
+    gates installed ~130 functions whose recompiled bodies still ran counted as native. The dump without them is
+    the honest count.
 A replaced address inside a function (a native that resumes the recompiled
 code at a label) makes that function "partial".
 

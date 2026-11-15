@@ -20287,3 +20287,253 @@ thread in native code**, 5.3% recompiled, 10.9% runtime (D6: 80.4 / 7.7 / 11.9).
   The 13 refused (checkpoint patterns, `break` forms, bc0f loops) need lifter work.
 - **The summary read sets** are the one static assumption left in the checks.
 - As D5 / D6 said: 30 fps comes from subsystem rewrites, not from lifting.
+
+## Decomp D8: new routes (new game, a teleport to a colossus' lake); the particle area's leftovers and the worker gate's "natives"; D8's batch (SOTC_LIFTD8) (2026-11-15)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d8/` (STATE.md lists them; new scripts were written in the
+worktree's build/agent-scratch/d8src/): ptcl_list.py (an area's functions and status), callers.py / access.py (callers,
+argument offsets, globals and callees from the recompiled code), mcls.py (a PS2 memory card's directory), cand8.py (D8's
+candidates), gen8.sh (D8's files), dtun.py (the names a trace pass has not checked yet), final8.py (the shipped list),
+gated.py (natives that are only the worker's gate), mapgen.py (docs/particles_map.md's table), patch_rt8.py (the
+runtime's D8 switch and lift_d1.py's `--d8`), dt8run.sh (one Mac trace-check run with its switches as separate words),
+stat8.sh (the two replaced dumps and decomp_status), bodydiff.py (lifted bodies that differ between two batches),
+profshare.py / map_cost.py / map_area.py / mkmap.sh (the map's tables), abmix8.sh / final8.sh (the A/B and the final
+Vita3K lanes). Own Vita3K trees are ../vita3k-celosia-d8 / -d8b (222 MHz, 3 cores, muted).
+At most two heavy processes ran at once, all `nice -n 20`, builds `-j4`.
+
+### Task 1: the particle area's leftovers
+
+decomp_status's "Particles and effects" (by name: `ptcl|particle|effect|eff|splash|dust|smoke|fire|water|rain|wave`)
+stood at 80 of 116 after D7. Its 36 recompiled functions, and why each was not native:
+
+| why | functions |
+|---|---|
+| cut by D7's speed rule (exact, slower in both A/Bs) | charrootdyn_getWaterStatus, GetWaterSurfacePositionYExtend |
+| in D7's batch but never reached at top level in a trace run | fsEffectCreateSetScriptWithPlayMode |
+| never called on the four Mac routes (walk, ride, attract, in_mash2) | the other 33: the boss blood / weak-point / damage-work group (effect_blood_init / free / frame / set, getEffectBloodWorkSize, get{WeakPoint,TriggerPoint}EffectIntensity, init / boot / boot_hit / fadeout / cancel_fadeout / end_weakpoint_effect, effect_death, effect{Set,Clear,Get}DamageWork, getBloodEffectEnableFlag), the water and arrow ones (charrootdyn_checkUnderWater, coliJudgeNotWater, NICO_is_hit_except_underwater, EnableArrowWater, EndArrowWater), the opening and demo ones (fsEffectCreateSetScriptSheetSeg, fsEffectReset, getCurrentFsEffect, inInNowLoadingEffect, updateParticleDissolveGeo, kickEffect), the HUD ones (startGaugeMaxAddEffect, startAttackEffect), CollisionPlaneJudgeCallbackParticle and charrootdyn_getUpperEdgeEffectiveHeight |
+
+None were refused by the lifter, and none were wrapped by a hook.
+
+**A second finding: at least 11 of the area's 80 "natives" are not natives.** sotc_worker.cpp (round 91) wraps every entry of the
+particle module (0x1139CA0-0x1147530) in `gate<I>`. The gate joins the worker, then calls whatever the slot held at
+install time. decomp_status counts any replaced table entry as native, so the gate made the module's functions look decompiled
+when their bodies are still the recompiled code. gated.py (no other override file names the address in code) finds 90
+of the module's 177. In the area
+they are add_particle_segment, boot_particle_emitter_extend, get_particle_name_from_effect_id, get_particle_camera_data,
+recreate_particle_effects, particleGWorkPut, get_radiate_range_coefficient, radiate_particle_collision_check_ray, free_particle_segment,
+constructor_wind_effect_data and get_wind_effect_data_direct. **On this first count the area stood at 69 of 116. The replaced-dump count (t5, below) finds 21 gate-only functions in
+the area and puts it at about 58.**
+D8 took the gate-only functions into its candidates (cand8.py group G; P when they are in the area). A lifted copy
+registered at boot is what the gate wraps (g_orig), so the worker runs it as before.
+
+### Task 2: reaching them
+
+The four Mac routes start from the console card's save and never fight, swim, shoot or watch a cutscene. The card
+(mcls.py on a copy: one save file, BASCUS-97472nico) holds one save: "Shrine of Worship, 4 defeated, 0:55:49" (slot 1).
+The only colossus alive on it is the fifth, Avion, minutes of riding away. Three new ways in:
+
+- **New game** (in_ng5.txt / in_ng6.txt: START x3, UP to "New Game", CROSS x2). The opening cutscene plays (Mac: about
+  28 800 frames). Gameplay then starts at the altar with 0 defeated; ng6 adds SQUARE / R1 / weapon switches / a walk.
+- **SOTC_TELEPORT** (a test aid in sotc_replay.cpp; any platform, off unless set). `<frame>:<x>,<y>,<z>[,<yaw>]` puts
+  Wander, and Agro two units beside him, at a place through the game's own warp, gameflowSetPos (0x13522A0: a0 the
+  object, f12 / f13 / f14 the place, with the world position (-f12, f13, -f14) as +0x170 holds it, f16 the yaw), at Agro's
+  first step from that game frame (it wraps Agro's step 0x1391E30 as SOTC_POS_LOG does). `<frame>:boss<n>` takes the
+  boss table's record n, the place bossStatStartDemo warps Agro to before a colossus' demo. The table is a relocation
+  site, read from the live code at 0x134A51C / 0x134A528: +0xC count, +0x10 records of 0xEC bytes, +0x64 / +0x68 / +0x6C
+  / +0x70 the place and yaw in its seamless area's own space, +0x51 the area. YattsukeGetSeamlessAreaCenter gives a 10 x
+  10 grid of 600-unit areas: x = 2700 - 600 * (area % 10), z = 600 * (area / 10) - 2700. `SOTC_TELEPORT_HOLD=<n>` puts
+  them back every 30 frames for n frames while the ground streams in, `SOTC_TELEPORT_LIST=<frame>` prints the boss table
+  (16 records) and `SOTC_TELEPORT_POS=<n>` prints both positions every n frames. Without the area offset Wander lands in
+  the void and the game says Game Over (Retry puts him back at the shrine). With it, `2000:boss4` (Avion, area 47) puts
+  him at (-1285.2, 6.4, -334.0), on the shore of Avion's lake. The boss's work is set up there (SCRCharaInitBossWork:
+  effect_blood_init, init_weakpoint_effect ...), and a walk forward ends in the water, swimming.
+- **Input on the lake** (in_tby.txt, after the console card's load and `2000:boss4`): the bow (RIGHT), three draws and
+  shots with SQUARE (the arrows land in the lake: EnableArrowWater / EndArrowWater), the sword back, a walk into the
+  water, CIRCLE / R1 / TRIANGLE / SQUARE / L1 while swimming.
+
+**What reaches what** (Mac call counts, SOTC_CALL_COUNT, on the base D7 build or the teleport builds; cand8.py names
+the first route that reached each function):
+
+| route (first in cand8.py's order) | particle-area functions it reached first | candidates it reached first |
+|---|---|---:|
+| new game, the opening (cc_ng5) | fsEffectCreateSetScriptWithPlayMode, updateParticleDissolveGeo, inInNowLoadingEffect, fadeout_weakpoint_effect (a weapon switch), D7's two speed cuts, and the five gate-only ones (add_particle_segment, boot_particle_emitter_extend, recreate_particle_effects, get_radiate_range_coefficient, free_particle_segment, which every route reaches) | 177 |
+| new game + input (cc_ng6) | kickEffect, cancel_fadeout_weakpoint_effect | 39 |
+| the teleport to Avion's lake (cc_tb4c; tb0 / tb4 / tb4r: the first teleport tries) | effect_blood_init, effect_blood_frame, getEffectBloodWorkSize, getWeakPointEffectIntensity, init_weakpoint_effect, effectClearDamageWork | 84 + 23 |
+| Avion: walk, input, bow and swim (cc_tb4w / tb4x / tb4y) | EnableArrowWater, EndArrowWater | 54 |
+| Avion, then back to the shrine (cc_tbz) | effect_blood_free, end_weakpoint_effect (SCRReleaseBossWork) | 15 |
+| D7's attract / in_mash2 | none (module functions only) | 12 |
+
+Across all areas, the new routes reached 404 still-recompiled functions: 343 newly reached, 38 gate-only module
+functions and 23 in the particle area. The teleport is the general tool here. Any of the 16 boss records (or any world
+position) can be reached from the console card in about 2 000 frames.
+
+**Not reached: 24 of the area's 47.** They are listed below with what would reach them. Eleven need a colossus fight
+or one of its parts: a hit on a weak point, the sword's light on a weak point, a full charge on a colossus, a colossus'
+death, or a serpent's IK. startGaugeMaxAddEffect also comes from eating a fruit or a white-tailed lizard's tail. Two
+belong to the particles' radiate-collision mode (radiate_particle_collision_check_ray and its plane callback), which no
+effect on these routes uses. Two need Wander under the water or hanging from a ledge. Nine have no caller in the
+recompiled code at all: no `jal` and no address constant other than a neighbour's fall-through (dead code, or entries of
+tables the code never fills). On the console card's lake, D8's inputs (bow shots, R1, SQUARE holds, CIRCLE / TRIANGLE in
+the water) did not land a hit, light a weak point or dive. Avion flies, and blind input does not climb it.
+
+### Task 3: D8's batch (SOTC_LIFTD8)
+
+Candidates (cand8.py): every function the new routes' call counts reach that is still recompiled in D7's final build
+(its replaced dump less the gate-only ones), not a stub, not interrupt-side, not one of D7's speed cuts (except the
+particle area's). That is 404 candidates: 23 P, 38 G and 343 N. lift_d1.py `--d8` (as `--d7`, D8's macros; `--extern` D1-D7)
+lifts 386 of them. The 18 refused are D7's patterns again: 7 checkpoint patterns, 6 branches out of the function, 3
+`break` forms and 2 bc0f loops. None is in the particle area. They ship behind **SOTC_LIFTD8** (default on, A/B `liftd8`,
+test knob `SOTC_LIFTD8_RANGE=<lo>:<hi>`) in game/overrides/decomp_liftd8_00..02.cpp (patch_rt8.py: kLiftD8 and the
+macros, as D7's).
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200: every register / VU0 / FPU,
+the clock, RAM, scratchpad, VU0 data at every event and at the end), in passes. Each pass takes only the functions no
+earlier pass checked at top level, because a callee inside a checked caller's record is not checked:
+
+| pass | build | route | functions checked | checks (lower bound) | register / clock / event mismatches |
+|---|---|---|---:|---:|---|
+| dt8e_tb | p2 (t2) | console card, `2000:boss4`, bow / swim, back at 7600 (in_tbz2.txt) | 172 | 1 762 | 0 |
+| dt8f_tb | p3 (t4) | the same | 59 | 1 257 | 0 |
+| dt8g_ng | p3 | new game + input (in_ng6.txt, 32 000 frames) | 82 | 1 375 | 0 |
+| dt8h_tbz | p3 | console card, `2000:boss4`, back at 5000 | 7 | 7 | 0 |
+| dt8i_walk / ng | p3 | D7's walk; new game again | 10 | 109 | 0 |
+| fin8_tb | p4 (the 330) | in_tbz2.txt, the shipped list | 172 | 2 561 | 0 |
+| dt8k walk / lake | p5 (t5) | the 37 gate-only + the 6 changed bodies | 32 | 2 446 | 0 |
+| dt8l attract / new game | p5 | the rest of those | 8 | 1 403 | 0 |
+
+RAM: no byte outside the known noise words in any pass. **330 functions ship from the first batch** (plus 35 from t5,
+below), every one trace-checked on its current body (bodydiff.py: the final files' bodies are byte for byte checked
+ones). Three of them were checked on the
+t2 build, whose bodies differed: SCRExecBossPreProcess, free_wind_segment and manager_sub_01140B70. The final run fin8_tb checked
+all three again on their final bodies. The 56 left out were reached in a call-count run but never at top level in a trace pass: boot-ELF
+one-offs, menu and loader pieces, and callees reached only inside other functions. They stay recompiled.
+
+**A harness lesson (no code change):** D8's first five passes ran from zsh with the trace switches in one variable
+(`$T`). zsh does not word-split it, so SOTC_DIFFTEST_TRACE got the whole string and every check fell back to the
+two-leg difftest. Its "mismatches" were the two-leg artefacts D6 described: _Balloc / _s2b / iosAllocIopHeap
+returning a second heap block, and kickEffect / SCRSetupArrow1ByPlayer2 / swim showing a random f1 or hi/lo because
+VU0's R stepped twice. A control run in the same mode showed the same, which confirmed the artefact. Those passes were
+thrown away. dt8run.sh passes the switches as separate words, and every number above comes from trace runs.
+
+### Speed (the interleaved A/B, D7's rule)
+
+Two SOTC_AB_MIX runs on p1 (Vita3K 222 MHz, D8's batch t2, 367 functions; `SOTC_AB_FLAG=liftd8 SOTC_AB_PERIOD=1`,
+sampler snapshots 120-1440 s). Both ran with `SOTC_WORKER91=0`. With the worker on, its gate keeps whatever the slot
+held at install time, so the A/B could not switch the module's functions. Without it they run on the game thread and
+both copies are sampled.
+
+| run | route | frames (on / off) | D8 set, lifted vs recompiled | slower z > 2 | faster z < -2 | sampled |
+|---|---|---|---|---:|---:|---:|
+| mixa (seed 7) | attract demo | 17 021 / 16 979 | 381.4 vs 355.9 samples per 1 000 frames (107.2%) | 2 | 0 | 37 of 367 |
+| mixb (seed 11) | the console card, `2000:boss4` (bow, swim), back to the shrine at 7600 (in_tbz2.txt) | 10 969 / 11 031 | 1 476 vs 1 560 per 1 000 frames (94.6%) | 5 | 7 | 83 of 367 |
+
+**No function is slower in both runs** (z > 2 with >= 20 samples on a side in each). mixa's two are
+manager_sub_0113A918 (79 / 34 samples; mixb 13 / 0) and GetWaterSurfacePositionYExtend (z 3.2; mixb z 0.8). mixb's five
+(manager_sub_01145D28, gamecore_sub_013685D8, gamecore_sub_0143B988, SCRExecBossPreProcess, SCRConditionHintPlayFunc)
+are all within the noise in mixa. So under the rule every exact, reached function ships. The whole set costs
+**+0.01%** of the game thread on the attract demo (25 samples per 1 000 frames against 256 600) and **-0.02%** on the
+lake route (84 against 476 400). That is within the noise both ways.
+
+**The particles exception:** D7 cut charrootdyn_getWaterStatus and GetWaterSurfacePositionYExtend as slower in both of
+its runs. Here GetWaterSurfacePositionYExtend is slower in mixa only (241.2 vs 224.4 samples per 1 000 frames: **+0.007%
+of the game thread**) and even in mixb (715.3 vs 706.6, z 0.8). charrootdyn_getWaterStatus is within the noise in both
+(18.8 vs 16.8, 46.5 vs 45.1: < 0.002%). Both ship, and both are far inside the ~0.05% the exception allows.
+
+### The worker's gate, counted properly (t5)
+
+gated.py found gate-only functions by an address no other override names. That undercounts, because a lifted caller
+names its callees' addresses as call targets. The definitive test is the replaced dump twice: once as every round has
+taken it (`rep_on`, gates installed) and once with `SOTC_WORKER91=0` (`rep_off`, no gate). After the first D8 batch,
+**95 addresses were replaced only with the gates on**. Ten of them are core particle API functions: init_particle_manager,
+boot_particle_emitter, set_generate_particle_flag, set_npe_blend_ratio_particle_emitter, get_particle_effect_id_by_name /
+_from_sheet, get_particle_emitter_from_emitter_id, is_loop_particle, free_all_emitter_and_particle_particle_manager and
+get_wind_effect_data. 37 of the 95 are reached in a call-count run, and all 37 lift.
+
+D8's second batch (t5) adds them to the 330 for 367 in all. Six of the 330 change body, because a callee that is now
+lifted is called directly. All 43 (37 + 6) went through the same trace check: dt8k walk / lake (p5) and dt8l attract /
+new game for the rest. Results: 35 of the 37 and 5 of the 6 checked (dt8k: 32 functions and 2 446 checks; dt8l: 8 functions and 1 403
+checks), with 0 register / clock / event mismatches and no RAM byte outside the noise. get_particle_effect_id_from_sheet and
+get_sub_particle_effect_lod_from_sheet were never called at top level, so they stay out. **365 functions ship** (330 +
+35). Each final body is byte for byte one that was checked (bodydiff.py). add_particle_segment, gamecore_sub_013FC7E0 and
+manager_sub_0110D618 keep their re-checked t5 bodies. end_weakpoint_effect, init_weakpoint_effect and
+gamecore_sub_01386EF8 are back on their checked t4 bodies, because the callees that changed them stay out.
+
+decomp_status.py's own figure still counts the gate. Both counts are given below, and docs/decomp_status.json is now
+written from the `SOTC_WORKER91=0` dump (the honest count). Every earlier round's figure included the gate: D7's
+4 625 would be about 4 500 on the honest count.
+
+### manager_sub_01146FB8
+
+The final build's attract profile showed manager_sub_01146FB8 (lifted) at 0.61% of the game thread, against 0.05% for
+its recompiled code in mixa. D7 had cut its fallback copy as slower too, unmeasured. A targeted interleaved A/B
+(`SOTC_LIFTD8_RANGE=1146FB8:1146FB9`, so only it switches; `SOTC_WORKER91=0`, attract, 20 000 frames) settles it.
+Lifted 425.2 vs recompiled 448.1 samples per 1 000 frames, z -2.45: the lifted copy is **5% faster**. The 0.61 / 0.05
+gap came from comparing two different builds and windows. The function is a wind volume's rate test, called per emitter
+in windy areas, and it ships.
+
+### Task 5: the particle map
+
+docs/particles_map.md (new) is the map for S1. It covers what the area is (four different things, with the particle module and ptclman as the subsystem), one frame of a particle from kick to draw, the data layouts guessed from the natives' headers and D8's access pass, the globals, the host code that already touches particles, the cost on the game thread (Vita3K sampler), the area's 57 D8 functions with what reached or would reach each one, and a table of every function of the module, ptclman and the area (status, direct callers, argument offsets, globals).
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at, then deleted). The final build is p3: D1-D7 as committed plus
+D8's 365, all on from boot.
+
+| run | frames | Wander y | Agro y | what the shots show |
+|---|---:|---|---|---|
+| the console card's walk (all on from boot) | 16 458 | 0.05 .. 11.31 | -0.15 .. 12.45 | Wander on the grass with his shadow, Agro standing by him at the cliff |
+| the ride | 8 958 | 3.77 .. 11.31 | 0.70 .. 12.43 | to the altar; the shrine's light shafts and haze normal |
+| **Avion's lake** (in_tbz2.txt, `2000:boss4`, back to the shrine at 7600) | 10 938 | 0.00 .. 11.31 (0: swimming) | 0.81 .. 12.52 | the bow drawn at the sky, swimming in the lake, then Wander at the altar again |
+| the attract demo with the sampler | 19 218 | 3.24 | -0.32 .. 9.82 | the gallop under the arches with its shadow |
+| the walk under the console env's rotation (`SOTC_AB_FLAG=liftd8,...,liftd1`, 600 frames; liftd8 swaps 291 of the 365, the rest sit behind the worker's gate) | 13 878 | -3.25 .. 11.56 | -0.86 .. 12.49 | Wander on the plain with his shadow; Agro on the ground |
+
+Every run drew within two minutes (the watchdog never fired). There was no "No exact recompiled function" and no wild
+return. p2's attract run (the 330, before t5) ran past D7's 19 758 frames into the demo's long gallop south, where Agro's y goes
+down to about -98. That is the canyon floor, and the shot shows him galloping on the ground with his shadow. spalign (r110/spalign.py)
+on celosia-d8.elf finds 804 NEON :128 accesses, 0 of them sp-based. The Mac and Vita builds compile. The teleport aid is
+off unless SOTC_TELEPORT is set.
+
+### Decomp numbers
+
+tools/decomp_status.py ran on the final build's replaced dumps (Mac, attract demo to frame 1 500; calls from round 71's
+dumps). **docs/decomp_status.json now comes from the `SOTC_WORKER91=0` dump**, so a gated entry is not counted as
+native:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D8 | **4 856 of 9 024 (53.81%)** | 55.64% | 96.35% | 55.91% |
+| as earlier rounds counted (gates on), D8 | 4 916 (54.48%) | 56.03% | 96.99% | 56.37% |
+| as earlier rounds counted, D7 | 4 625 (51.25%) | 52.14% | 96.82% | 52.33% |
+
+By area on the honest count (code by size): Math 100%, particles 88.9% (91 of 116 functions), camera 73.8%, sound
+71.6%, system 64.9%, characters 61.0%, display 60.2%, other game code 54.0%, boot ELF / SDK 53.6%, collision 46.5% and
+script 39.4%. decomp_tree / decomp_history (label D8) come from the final build's attract demo (sampler
+300-690 s): **84.1% of the game thread in native code**, 4.7% recompiled, 11.2% runtime (D7: 83.7 / 5.3 / 10.9).
+
+### What S1 and D9 should take
+
+- **The particle area cannot reach 100% from scripted input alone.** Of its 24 leftovers, 11 need a colossus fight's
+  parts (a hit, the sword's light on a weak point, a full charge on the colossus, a death, a serpent's IK;
+  startGaugeMaxAddEffect also comes from eating a fruit or a lizard's tail). 2 are the particles' radiate-collision mode,
+  which no effect on these routes uses. 2 need Wander under water or on a ledge, and 9 have no caller in the recompiled
+  code. The quickest way to the fight ones:
+  the user plays one fight in Vita3K **with the input recorder**, starting from the console card with the teleport
+  (`SOTC_INPUT_RECORD=1 SOTC_TELEPORT=2000:boss4 SOTC_TELEPORT_HOLD=600`; Avion: shoot it, ride it, stab the weak points,
+  kill it). A Mac replay of that recording (SOTC_INPUT_REPLAY, tick-keyed, its CD reads and timers in step) then runs the
+  trace check over everything a fight reaches, not just the particle area. New game with 0 defeated plus `boss0` (Valus)
+  is the other starting point, since Valus' leg weak point is reachable from the ground. A dive and a ledge would come
+  from the same kind of recording.
+- **The 9 with no caller** (getCurrentFsEffect, fsEffectReset, getBloodEffectEnableFlag, NICO_is_hit_except_underwater,
+  get_particle_name_from_effect_id, get_particle_camera_data, particleGWorkPut, constructor_wind_effect_data,
+  get_wind_effect_data_direct) are dead code or entries of tables the code never fills. No route reaches them. Their
+  lifted copies would be exact by construction, but the trace check cannot show it. S1 can drop them.
+- **The worker's gate** still makes about 58 more addresses look native that are not (the 95 less D8's 37). They are
+  not reached on these routes: loader pieces, debug, LOD and texture helpers. Count with `SOTC_WORKER91=0` from now on.
+- **S1 (the redesign):** docs/particles_map.md has the map. The hot path is host code already, the job thread exists
+  but is off by default, and the guest-facing entry points are few. The redesign can own the module's data (host pools)
+  and keep only those entry points and the sheets' effect records as the interface.
+- **The 18 refusals** (checkpoint patterns, branches out of the function, `break` forms, bc0f loops) are the same
+  lifter work D7 named. None is a particle function.
+- **The trace check's nesting** still needs a pass per level (D8 ran eleven passes). A record per level would remove
+  that.
