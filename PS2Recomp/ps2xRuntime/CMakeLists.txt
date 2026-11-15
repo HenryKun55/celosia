@@ -518,6 +518,13 @@ foreach(runner_dir IN LISTS PS2X_RUNNER_DIRS)
     file(GLOB runner_dir_files CONFIGURE_DEPENDS "${runner_dir}/*.cpp")
     list(APPEND RUNNER_SRC_FILES ${runner_dir_files})
 endforeach()
+# Sources left out of the runner (a regex on the full path; empty: none). ./celosia setup's early stages
+# (only some modules recompiled yet) leave out the lifted batches (game/overrides/decomp_lift*_NN.cpp): they
+# call recompiled functions of every module by name, which exist only once the whole game is recompiled.
+set(PS2X_RUNNER_EXCLUDE_REGEX "" CACHE STRING "Regex of ps2EntryRunner sources to leave out (empty: none)")
+if(PS2X_RUNNER_EXCLUDE_REGEX)
+    list(FILTER RUNNER_SRC_FILES EXCLUDE REGEX "${PS2X_RUNNER_EXCLUDE_REGEX}")
+endif()
 
 set(RUNNER_MAIN_CPP "${CMAKE_CURRENT_SOURCE_DIR}/src/runner/main.cpp")
 set(ROOT_MAIN_CPP "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
