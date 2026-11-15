@@ -232,6 +232,15 @@ cmd_run() {
     [ -x "$RUNNER" ] || die "not built yet (run: ./celosia setup --iso <path>)"
     check_disc
     mkdir -p "$LOGS" "$VU1_DUMPS"
+    # Native, as on the Vita (ps2_vita_runtime.cpp): the native renderer, sound
+    # (the host's audio thread pulls the mix: PS2X_AUDIO_PULL, on with it),
+    # IOP and system. SOTC_NATIVE=0 plays on the emulated PS2 instead (some
+    # switches only ask whether the variable is set, so 0 unsets it).
+    if [ -z "${SOTC_NATIVE+set}" ]; then
+        export SOTC_NATIVE=1
+    elif [ "$SOTC_NATIVE" = 0 ]; then
+        unset SOTC_NATIVE
+    fi
     say "playing (log: logs/play.log)"
     cd "$ROOT"
     PS2X_MEMCARD_DIR=$MEMCARDS PS2X_VU1_DUMP_MISSING=${PS2X_VU1_DUMP_MISSING:-$VU1_DUMPS} exec "$RUNNER" "$DISC/$BOOT" "$@" >"$LOGS/play.log" 2>&1
@@ -326,7 +335,7 @@ cmd_help() {
 Commands:
   setup [--iso PATH]   extract the disc (if given) and run the whole pipeline
   extract PATH         only extract an ISO (or a zip containing one)
-  run [args]           play (new VU1 microcode is saved for `vu1`)
+  run [args]           play, native as on the Vita (SOTC_NATIVE=0: emulated PS2)
   vu1                  recompile collected VU1 microcode and rebuild
   recompile            relink modules + recompile game code + rebuild
   build                rebuild the runner (after editing PS2Recomp sources)

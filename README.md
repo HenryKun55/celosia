@@ -312,7 +312,7 @@ xychart-beta
 | `PS2X_STATS=1` | frame, VU1 and GS statistics |
 | `PS2X_GS_BOB=1` | bob deinterlacing instead of weave |
 | `PS2X_GS_THREADS=n` | raster threads |
-| `SOTC_NATIVE=1` / `2` | native renderer shown (default) / drawn but not shown, for side-by-side checks |
+| `SOTC_NATIVE=1` / `2` / `0` | native renderer, sound (the host audio thread pulls the mix), IOP and system (the default of `./celosia run` and the Vita) / native drawn but not shown, for side-by-side checks / the emulated PS2 (`./celosia run`; a runner started directly is emulated unless the variable is set) |
 | `SOTC_NATIVE_GL=1` / `check` | the OpenGL renderer on the Mac / compared against Metal |
 | `PS2X_GS_GPU=0` | emulated view rasterized on the CPU (exact GS fog: the reference for fidelity checks) |
 | `PS2X_MTVU=0` | run VIF1/VU1/GIF on the game thread instead of their own thread |
