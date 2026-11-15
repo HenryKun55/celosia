@@ -2366,7 +2366,7 @@ void nico_IK_legGetLower(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 16))));
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 6))));
     {
-        const bool c = (int64_t)v0 <= 0;
+        const bool c = (int32_t)v0 <= 0;
         (v1 = (uint64_t)(RC_U64X(v0) & RC_U64X(v1)));
         if (!c) {
             if ((int64_t)v1 == 0) {
@@ -2449,7 +2449,7 @@ L_1374264:
     WRITE128(ADD32((uint32_t)s3, 0), _mm_castps_si128(vf10));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 20)))));
 L_1374314:
-    if ((int64_t)v1 <= 0) {
+    if ((int32_t)v1 <= 0) {
         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 16)))));
     } else {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)1 << 16))));
@@ -7382,7 +7382,7 @@ L_13e6be0:
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v1, 4294967295))));
     WRITE32(ADD32((uint32_t)v0, 0), 0u);
     {
-        const bool c = (int64_t)v1 >= 0;
+        const bool c = (int32_t)v1 >= 0;
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, 4294967292))));
         if (c) {
             if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, sx64(a2)); ctx->pc = 0x13E6BE0u; if (runtime->eeCheckpointSlow()) return; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); vf0 = ctx->vu0_vf[0]; }
@@ -8036,7 +8036,7 @@ void Kite_GetPassageWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         if (!c) {
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s0, 4)))));
             {
-                const bool c = (int64_t)v0 < 0;
+                const bool c = (int32_t)v0 < 0;
                 (a0 = (uint64_t)((uint64_t)s3 + (uint64_t)0ULL));
                 if (!c) {
                     (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s2, 28)))));
@@ -8117,7 +8117,7 @@ L_13e752c:
     if ((int64_t)s4 != 0) {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s0, 4)))));
         {
-            const bool c = (int64_t)v0 < 0;
+            const bool c = (int32_t)v0 < 0;
             (a0 = (uint64_t)((uint64_t)s3 + (uint64_t)0ULL));
             if (!c) {
                 (a1 = (uint64_t)((int64_t)(int32_t)((int16_t)READ16(ADD32((uint32_t)s4, 20)))));
@@ -13068,7 +13068,7 @@ L_1424e7c:
     {
         ra = 0x1424E90u; df_ra = true;
         if (__builtin_expect(PS2_GUEST_FN(0x142C248u) == &lift_d1::act_camera_cutout_game_camera_param_manager && !runtime->hostStackDeep(), 1)) {
-            if (__builtin_expect(runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), 1))
+            if (__builtin_expect(runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), 1) && PS2_DIFFTRACE_INLINE(runtime, 0x142C248u, 0x1424E90u))
                 goto L_40000000;
 #if PS2X_EE_CLOCK64
             runtime->m_eeClock.cycle -= PS2Runtime::kEeDispatchCycles;
@@ -14572,20 +14572,20 @@ void gamecore_sub_0142F4E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)v0, (uint32_t)v1))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 3))));
     {
-        const bool c = (int64_t)a1 < 0;
+        const bool c = (int32_t)a1 < 0;
         (t4 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a0)))); df_t4 = true;
         if (!c) {
             {
-                const bool c = (int64_t)a2 < 0;
+                const bool c = (int32_t)a2 < 0;
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (c) {
                     goto L_142f9b4;
                 }
             }
-            if ((int64_t)a3 < 0) {
+            if ((int32_t)a3 < 0) {
                 goto L_142f9b4;
             }
-            if ((int64_t)t0 < 0) {
+            if ((int32_t)t0 < 0) {
                 { const uint64_t v = READ64(sp + 64u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
                 goto L_142f9b8;
             }
@@ -14602,7 +14602,7 @@ void gamecore_sub_0142F4E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
             WRITE32(ADD32((uint32_t)sp, 4), 0u);
             WRITE32(ADD32((uint32_t)sp, 16), 0u);
             {
-                const bool c = (int64_t)v1 <= 0;
+                const bool c = (int32_t)v1 <= 0;
                 WRITE32(ADD32((uint32_t)sp, 20), 0u);
                 if (!c) {
                     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)327 << 16))));
@@ -14880,7 +14880,7 @@ L_142f7a8:
                 (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)sp, 20)))));
             }
             {
-                const bool c = (int64_t)v1 <= 0;
+                const bool c = (int32_t)v1 <= 0;
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (c) {
                     goto L_142f9b4;
@@ -15060,11 +15060,11 @@ void gamecore_sub_01430248(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     v0 = v0 - v1;
     v0 = v0 << 3;
     {
-        const bool c = (int64_t)a3 < 0;
+        const bool c = (int32_t)a3 < 0;
         v1 = v0 + a0;
         if (!c) {
             {
-                const bool c = (int64_t)t0 < 0;
+                const bool c = (int32_t)t0 < 0;
                 t2 = 0xFFFFFFFFu; df_t2 = true;
                 if (c) {
                     goto L_14302d4;

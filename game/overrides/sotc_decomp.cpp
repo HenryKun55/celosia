@@ -55,7 +55,12 @@ namespace sotc_decomp
         // ---- differential test --------------------------------------------
         // One slot (a trampoline) per checked function. Round 40: was 64, so
         // `all` left every function registered after the 64th unchecked.
+        // Decomp D7: 2560 on the Mac (a trace run over a whole batch); the Vita keeps 512.
+#if defined(__vita__)
         constexpr int kMaxChecked = 512;
+#else
+        constexpr int kMaxChecked = 2560;
+#endif
         struct Checked
         {
             const Function *function = nullptr;
@@ -210,8 +215,9 @@ namespace sotc_decomp
         // exception rethrown). Sound because the lifted code reaches nothing but its context, guest memory and the
         // clock between events (lift_d1.py refuses any other runtime access; a lifted function's own code ends at a
         // thread switch: the rest runs in the generated function, resumed at its labels), so equal states at every
-        // event and at the end are equal behaviour on that input. Not for functions lifted with --inline or --summary
-        // (an inlined call is no event; a summary keeps registers in locals across a call).
+        // event and at the end are equal behaviour on that input. Decomp D7: --inline and --summary too: an inlined
+        // call takes its recorded call event as its own (onInline, PS2_DIFFTRACE_INLINE), and a summarized call writes
+        // back every dirty register first while a trace check runs (lift_d1.py), so the context is whole at the event.
         namespace trace
         {
             constexpr size_t kRamPage = 4096u, kSmallPage = 256u;
@@ -521,8 +527,11 @@ namespace sotc_decomp
                     return windUp();
                 }
                 std::string what;
+                // Decomp D7: an I/O access is no write-back point of the lifted code (its registers stay in locals, where
+                // the generated code's are in the context): its inputs are the event's address, size and value (compared
+                // above); the context is neither compared nor replaced there (the next event or the end compares it).
                 const bool io = kind == ps2_difftrace::kIoRead || kind == ps2_difftrace::kIoWrite;
-                if (ctxDiffers(*t.ctx, e.pre, !io, what))
+                if (!io && ctxDiffers(*t.ctx, e.pre, true, what))
                 {
                     fail("event %zu (%s %08x): %s", i, kindName(kind), a, what.c_str());
                     return windUp();
@@ -545,7 +554,8 @@ namespace sotc_decomp
                     return windUp();
                 }
                 // the event's result in place
-                *t.ctx = e.post;
+                if (!io)
+                    *t.ctx = e.post;
                 clockSet(rt, e.postClock);
                 armGate(rt);
                 rt->m_guestJumpSerial = e.postSerial;
@@ -567,6 +577,34 @@ namespace sotc_decomp
                 return e.ret;
             }
 
+            // Decomp D7: an inlined call site of the lifted code (ps2_difftrace.h, PS2_DIFFTRACE_INLINE). The inlined
+            // callee is a leaf (lift_d1.py's inline_callee: no call, jump out, runtime call, loop or `break`), so the
+            // generated code's call event and the copy's instructions do the same work: the recorded event's memory
+            // changes become part of the expected state (the lifted copy makes them itself), its context and clock are
+            // not put in place (the lifted code computes them; the next event or the end compares them). A call the
+            // record does not have there, or one whose callee left by a thread switch or an unwinding checkpoint, is
+            // made for real (false): its event is compared as any other.
+            uint64_t g_inlined = 0;
+            bool onInline(PS2Runtime *rt, uint32_t target, uint32_t returnPc)
+            {
+                State &t = g_t;
+                if (!t.replay || t.stopped || t.cursor >= t.events.size())
+                    return false;
+                const Event &e = t.events[t.cursor];
+                if (e.kind != ps2_difftrace::kCall || e.a != target || e.b != returnPc || e.threw || e.postClock.unwinding || e.postClock.transferred)
+                    return false;
+                ++t.cursor;
+                ++g_inlined;
+                apply(e.preRam, t.ramExp.data(), kRamPage);
+                apply(e.preSpr, t.sprExp.data(), kSmallPage);
+                apply(e.preVu, t.vuExp.data(), kSmallPage);
+                apply(e.postRam, t.ramExp.data(), kRamPage);
+                apply(e.postSpr, t.sprExp.data(), kSmallPage);
+                apply(e.postVu, t.vuExp.data(), kSmallPage);
+                armGate(rt);
+                return true;
+            }
+
             // One trace check of c (its generated code live, then its lifted code against the record).
             void check(Checked &c, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
             {
@@ -584,6 +622,7 @@ namespace sotc_decomp
                     t.vuShadow.resize(PS2_VU0_DATA_SIZE);
                     t.vuExp.resize(PS2_VU0_DATA_SIZE);
                     ps2_difftrace::g_event = &onEvent;
+                    ps2_difftrace::g_inline = &onInline;
                 }
                 std::memcpy(t.ramBefore.data(), rdram, PS2_RAM_SIZE);
                 std::memcpy(t.ramShadow.data(), rdram, PS2_RAM_SIZE);
@@ -592,6 +631,7 @@ namespace sotc_decomp
                 std::memcpy(t.vuBefore.data(), vu, PS2_VU0_DATA_SIZE);
                 std::memcpy(t.vuShadow.data(), vu, PS2_VU0_DATA_SIZE);
                 const R5900Context input = *ctx;
+                const uint64_t inlined0 = g_inlined;
                 const Clock clock0 = clockNow(runtime);
                 const uint32_t serial0 = runtime->m_guestJumpSerial;
                 const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
@@ -697,15 +737,16 @@ namespace sotc_decomp
                         report(c, input, what);
                         c.mismatches.fetch_add(1, std::memory_order_relaxed);
                     }
-                    static std::unordered_map<const Checked *, uint64_t> eventCount, switches;
+                    static std::unordered_map<const Checked *, uint64_t> eventCount, switches, inlinedCount;
                     eventCount[&c] += events;
+                    inlinedCount[&c] += g_inlined - inlined0;
                     if (threw || clockOut.transferred || clockOut.unwinding)
                         ++switches[&c];
                     const uint64_t checks = c.checks.fetch_add(1, std::memory_order_relaxed) + 1u;
                     if (checks == 1u || checks % 100u == 0u)
-                        std::fprintf(stderr, "[difftest] %s: %llu checks, %llu mismatches (%llu calls; trace: %llu events, %llu left by a switch or checkpoint)\n",
+                        std::fprintf(stderr, "[difftest] %s: %llu checks, %llu mismatches (%llu calls; trace: %llu events, %llu left by a switch or checkpoint, %llu of them inlined calls)\n",
                                      c.function->name, (unsigned long long)checks, (unsigned long long)c.mismatches.load(),
-                                     (unsigned long long)c.calls.load(), (unsigned long long)eventCount[&c], (unsigned long long)switches[&c]);
+                                     (unsigned long long)c.calls.load(), (unsigned long long)eventCount[&c], (unsigned long long)switches[&c], (unsigned long long)inlinedCount[&c]);
                 }
                 else
                 {
@@ -1476,19 +1517,19 @@ namespace sotc_decomp
     // Decomp D1's lifted functions (tools/lift_d1.py): their table entries swapped when SOTC_LIFTD1 changes at run
     // time (an A/B window, SOTC_AB_FLAG=liftd1), as abTick swaps SOTC_AB's set.
     // Decomp D2: the same for D2's batch (SOTC_LIFTD2, SOTC_AB_FLAG=liftd2), its own list; D3 likewise (SOTC_LIFTD3,
-    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4), D5 likewise (SOTC_LIFTD5, liftd5), D6 likewise (SOTC_LIFTD6, liftd6).
+    // liftd3), D4 likewise (SOTC_LIFTD4, liftd4), D5 likewise (SOTC_LIFTD5, liftd5), D6 likewise (SOTC_LIFTD6, liftd6), D7 likewise (SOTC_LIFTD7, liftd7).
     // Decomp D4 (test): liftalt off puts each lifted function's alternative copy (SOTC_DECOMP_LIFT_ALT) where the lifted
     // function is, on puts the lifted function back: two lifter versions of the same functions A/B'd in one run.
     namespace
     {
-        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4, g_lift5, g_lift6;
+        std::vector<AbEntry> g_lift, g_lift2, g_lift3, g_lift4, g_lift5, g_lift6, g_lift7;
         int g_liftHooked = 0;
         PS2Runtime *g_liftRuntime = nullptr;
         void liftAltChanged(bool on)
         {
             int swapped = 0, remapped = 0;
             for (const auto &[address, alt] : liftAlts())
-                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5, &g_lift6})
+                for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5, &g_lift6, &g_lift7})
                     for (const AbEntry &e : *v)
                     {
                         if (e.address != address || !e.native)
@@ -1513,10 +1554,10 @@ namespace sotc_decomp
             if (which == kLiftAlt && g_liftRuntime)
                 return liftAltChanged(on);
             applyLiftFallbacks(which);
-            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4 && which != kLiftD5 && which != kLiftD6) || !g_liftRuntime)
+            if ((which != kLiftD1 && which != kLiftD2 && which != kLiftD3 && which != kLiftD4 && which != kLiftD5 && which != kLiftD6 && which != kLiftD7) || !g_liftRuntime)
                 return;
             int swapped = 0;
-            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : which == kLiftD4 ? g_lift4 : which == kLiftD5 ? g_lift5 : g_lift6)
+            for (const AbEntry &e : which == kLiftD1 ? g_lift : which == kLiftD2 ? g_lift2 : which == kLiftD3 ? g_lift3 : which == kLiftD4 ? g_lift4 : which == kLiftD5 ? g_lift5 : which == kLiftD6 ? g_lift6 : g_lift7)
             {
                 if (!e.recompiled || !e.native)
                     continue;
@@ -1529,7 +1570,11 @@ namespace sotc_decomp
                 else
                     sotc_prof::remapWrapped(from, to);
             }
-            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : which == kLiftD4 ? "liftd4" : which == kLiftD5 ? "liftd5" : "liftd6",
+            // Decomp D7: under SOTC_AB_MIX (a switch on or off at random each frame) one line in 1 000.
+            static const bool mixQuiet = ps2_diag::env("SOTC_AB_MIX") != nullptr;
+            static uint64_t changes = 0;
+            if (!mixQuiet || (changes++ % 1000u) == 0u)
+            std::fprintf(stderr, "[%s] frame %llu: %s (%d swapped)\n", which == kLiftD1 ? "liftd1" : which == kLiftD2 ? "liftd2" : which == kLiftD3 ? "liftd3" : which == kLiftD4 ? "liftd4" : which == kLiftD5 ? "liftd5" : which == kLiftD6 ? "liftd6" : "liftd7",
                          static_cast<unsigned long long>(g_gameFrame), on ? "on" : "off", swapped);
         }
     }
@@ -1805,7 +1850,18 @@ namespace sotc_decomp
                     }();
                     if (sw == kLiftD6 && (f.address < d6Range.first || f.address >= d6Range.second))
                         continue;
-                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : sw == kLiftD4 ? g_lift4 : sw == kLiftD5 ? g_lift5 : g_lift6).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
+                    // Decomp D7: SOTC_LIFTD7_RANGE, the same for D7's functions.
+                    static const std::pair<uint32_t, uint32_t> d7Range = []
+                    {
+                        const char *r = ps2_diag::env("SOTC_LIFTD7_RANGE");
+                        if (!r || !std::strchr(r, ':'))
+                            return std::pair<uint32_t, uint32_t>{0u, 0xFFFFFFFFu};
+                        return std::pair<uint32_t, uint32_t>{static_cast<uint32_t>(std::strtoul(r, nullptr, 16)),
+                                                             static_cast<uint32_t>(std::strtoul(std::strchr(r, ':') + 1, nullptr, 16))};
+                    }();
+                    if (sw == kLiftD7 && (f.address < d7Range.first || f.address >= d7Range.second))
+                        continue;
+                    (sw == kLiftD1 ? g_lift : sw == kLiftD2 ? g_lift2 : sw == kLiftD3 ? g_lift3 : sw == kLiftD4 ? g_lift4 : sw == kLiftD5 ? g_lift5 : sw == kLiftD6 ? g_lift6 : g_lift7).push_back({f.address, f.native, runtime.lookupFunction(f.address)});
                     if (!switchOn(sw))
                         continue;
                 }
@@ -1832,14 +1888,14 @@ namespace sotc_decomp
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;
-        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty() || !g_lift5.empty() || !g_lift6.empty())
+        if (!g_lift.empty() || !g_lift2.empty() || !g_lift3.empty() || !g_lift4.empty() || !g_lift5.empty() || !g_lift6.empty() || !g_lift7.empty())
         {
             g_liftRuntime = &runtime;
             g_switchChanged = liftSwitchChanged;
-            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size() << ", D5 " << g_lift5.size() << ", D6 " << g_lift6.size()
+            std::cerr << "[liftd1] " << g_lift.size() << " lifted functions, D2 " << g_lift2.size() << ", D3 " << g_lift3.size() << ", D4 " << g_lift4.size() << ", D5 " << g_lift5.size() << ", D6 " << g_lift6.size() << ", D7 " << g_lift7.size()
                       << " (" << g_liftHooked << " left to a hook), d1 "
                       << (switchOn(kLiftD1) ? "on" : "off (SOTC_LIFTD1=0)") << ", d2 " << (switchOn(kLiftD2) ? "on" : "off (SOTC_LIFTD2=0)")
-                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)") << ", d5 " << (switchOn(kLiftD5) ? "on" : "off (SOTC_LIFTD5=0)") << ", d6 " << (switchOn(kLiftD6) ? "on" : "off (SOTC_LIFTD6=0)")
+                      << ", d3 " << (switchOn(kLiftD3) ? "on" : "off (SOTC_LIFTD3=0)") << ", d4 " << (switchOn(kLiftD4) ? "on" : "off (SOTC_LIFTD4=0)") << ", d5 " << (switchOn(kLiftD5) ? "on" : "off (SOTC_LIFTD5=0)") << ", d6 " << (switchOn(kLiftD6) ? "on" : "off (SOTC_LIFTD6=0)") << ", d7 " << (switchOn(kLiftD7) ? "on" : "off (SOTC_LIFTD7=0)")
                       << (liftAlts().empty() ? "" : ", alternative copies ") << (liftAlts().empty() ? "" : std::to_string(liftAlts().size())) << std::endl;
             // Decomp D4 (test): SOTC_LIFTALT=0 starts with the alternative copies in place.
             if (!liftAlts().empty() && !switchOn(kLiftAlt))

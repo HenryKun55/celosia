@@ -56,5 +56,15 @@ namespace ps2_difftrace
         using Fn = std::remove_reference_t<F>;
         return g_event(runtime, kind, rdram, ctx, a, b, v, v2, [](void *p) -> uint64_t { return (*static_cast<Fn *>(p))(); }, &f);
     }
+    // Decomp D7: a lifted function's inlined call (lift_d1.py --inline: the callee's instructions spliced in, its guard
+    // passed and the dispatch charged) during a trace check's replay. The generated code made that call (a recorded
+    // call event); the handler takes the event as the inlined copy's (its RAM changes go to the expected state, the
+    // context and clock are the lifted code's own) and returns true, or false when the record has no such call there
+    // (or the callee left by a thread switch / an unwinding checkpoint): the lifted code then makes the call itself, an
+    // event as any other.
+    inline bool (*g_inline)(PS2Runtime *runtime, uint32_t target, uint32_t returnPc) = nullptr;
 }
+#define PS2_DIFFTRACE_INLINE(runtime, target, returnPc) (__builtin_expect(!ps2_difftrace::g_top, 1) || ps2_difftrace::g_inline(runtime, target, returnPc))
+#else
+#define PS2_DIFFTRACE_INLINE(runtime, target, returnPc) true
 #endif

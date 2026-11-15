@@ -1223,7 +1223,7 @@ void InitModifiedManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
             }
             WRITE32(ADD32(a0, 12), (uint32_t)a2);
             {
-                const bool c = (int64_t)a1 <= 0;
+                const bool c = (int32_t)a1 <= 0;
                 (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (!c) {
 L_11479e8:
@@ -1874,7 +1874,7 @@ void getPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         const bool c = (int64_t)a0 == 0;
         (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            if ((int64_t)a1 >= 0) {
+            if ((int32_t)a1 >= 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
                 (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a1))));
@@ -1910,7 +1910,7 @@ void getConnectLineArray(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
             {
-                const bool c = (int64_t)a1 < 0;
+                const bool c = (int32_t)a1 < 0;
                 (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a1, 1)))); df_v0 = true;
                 if (!c) {
                     (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
@@ -1961,7 +1961,7 @@ void getLineData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         const bool c = (int64_t)a0 == 0;
         (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            if ((int64_t)a1 >= 0) {
+            if ((int32_t)a1 >= 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
                 (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a1))));
@@ -1996,7 +1996,7 @@ void getLayoutPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         const bool c = (int64_t)a0 == 0;
         (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            if ((int64_t)a1 >= 0) {
+            if ((int32_t)a1 >= 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
                 (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a1))));
@@ -2219,7 +2219,7 @@ void GAMEUTIL_get_data_record_info(uint8_t *rdram, R5900Context *ctx, PS2Runtime
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
     bool df_v0 = false;
-    if ((int64_t)a1 >= 0) {
+    if ((int32_t)a1 >= 0) {
         v0 = READ32(a0 + 0xCu); df_v0 = true;
         (v0 = (uint32_t)(((int64_t)(int64_t)a1 < (int64_t)(int64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
         if (v0 != 0) {
@@ -2704,7 +2704,7 @@ void gamecore_sub_01358D88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     bool df_at = false, df_v0 = false, df_v1 = false, df_t3 = false, df_t4 = false, df_t7 = false, df_t8 = false;
     (t5 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     {
-        const bool c = (int64_t)t5 < 0;
+        const bool c = (int32_t)t5 < 0;
         (t6 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));
         if (!c) {
             v0 = 0x1460000u; df_v0 = true;
@@ -2718,7 +2718,7 @@ void gamecore_sub_01358D88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                     goto L_1358dcc;
                 }
             }
-            if ((int64_t)t6 < 0) {
+            if ((int32_t)t6 < 0) {
                 goto L_1358dcc;
             }
             (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 76))))); df_v0 = true;
@@ -2828,7 +2828,7 @@ L_1358ea8:
                     (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8))))); df_v1 = true;
                     v0 = v0 << 3; df_v0 = true;
                     {
-                        const bool c = (int64_t)t1 < 0;
+                        const bool c = (int32_t)t1 < 0;
                         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(v0, v1))));
                         if (!c) {
                             (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 72))))); df_v1 = true;
@@ -2837,7 +2837,7 @@ L_1358ea8:
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
                                 goto L_1358ef0;
                             }
-                            if ((int64_t)t2 < 0) {
+                            if ((int32_t)t2 < 0) {
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
                                 goto L_1358ef0;
                             }
@@ -2881,7 +2881,7 @@ L_1358f20:
                     (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8))))); df_v1 = true;
                     v0 = v0 << 3; df_v0 = true;
                     {
-                        const bool c = (int64_t)t1 < 0;
+                        const bool c = (int32_t)t1 < 0;
                         t8 = v0 + v1; df_t8 = true;
                         if (!c) {
                             (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 72))))); df_v1 = true;
@@ -2890,7 +2890,7 @@ L_1358f20:
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
                                 goto L_1358f68;
                             }
-                            if ((int64_t)t2 < 0) {
+                            if ((int32_t)t2 < 0) {
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
                                 goto L_1358f68;
                             }
@@ -3364,7 +3364,7 @@ L_135b5d0:
                                         }
                                     }
                                     {
-                                        const bool c = (int64_t)t3 < 0;
+                                        const bool c = (int32_t)t3 < 0;
                                         a2 = 0u; df_a2 = true;
                                         if (c) {
                                             goto L_135b614;
@@ -5159,7 +5159,7 @@ void gamecore_sub_013F1330(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
     (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
-        const bool c = (int64_t)v0 <= 0;
+        const bool c = (int32_t)v0 <= 0;
         (a1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 20)))));
         if (!c) {
             (a0 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
@@ -5196,7 +5196,7 @@ void gamecore_sub_013F1370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     bool df_v1 = false, df_a0 = false, df_a1 = false, df_a2 = false, df_t0 = false, df_t2 = false, df_t3 = false;
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a0, 0)))));
     {
-        const bool c = (int64_t)v0 <= 0;
+        const bool c = (int32_t)v0 <= 0;
         (t1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
             t0 = a0 + 0x14u; df_t0 = true;

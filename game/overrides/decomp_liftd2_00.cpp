@@ -5864,7 +5864,7 @@ void GetMotionFrameDirectResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
         if ((int64_t)v0 == 0) {
             WRITE32(a0, 0u);
         } else {
-            if ((int64_t)v0 >= 0) {
+            if ((int32_t)v0 >= 0) {
                 f1 = FPU_MOV_S(f0);
             } else {
                 WRITE32(a0, 0u);

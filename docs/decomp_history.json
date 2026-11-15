@@ -277,6 +277,16 @@
    "time": 80.4,
    "generated": 7.7,
    "runtime": 11.9
+  },
+  {
+   "date": "2026-11-15",
+   "label": "D7",
+   "commit": "",
+   "code": 52.14,
+   "calls": 96.82,
+   "time": 83.7,
+   "generated": 5.3,
+   "runtime": 10.9
   }
  ]
 }

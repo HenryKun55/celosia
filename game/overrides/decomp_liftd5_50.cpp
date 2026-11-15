@@ -2165,7 +2165,7 @@ void RelocateElfInfoHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)t1, 64)))));
     (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)t1, v0))));
     {
-        const bool c = (int64_t)a0 <= 0;
+        const bool c = (int32_t)a0 <= 0;
         WRITE32(ADD32((uint32_t)t1, 48), v0);
         if (!c) {
             (v1 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
@@ -2967,7 +2967,7 @@ L_108609c:
             (s3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, 25248))));
             (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s3, 0)))));
             {
-                const bool c = (int64_t)v1 <= 0;
+                const bool c = (int32_t)v1 <= 0;
                 (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 76))));
                 if (!c) {
                     (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s1, 0)))));
@@ -3288,7 +3288,7 @@ L_108609c:
                                 (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s6, 4294948688))));
                                 if (!c) {
                                     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v1, 1))));
-                                    if ((int64_t)v0 <= 0) {
+                                    if ((int32_t)v0 <= 0) {
                                         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)sp, 132)))));
                                         goto L_1086a20;
                                     }
@@ -7050,7 +7050,7 @@ L_13a7580:
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 4294967295))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, 16))));
     {
-        const bool c = (int64_t)a1 >= 0;
+        const bool c = (int32_t)a1 >= 0;
         f1 = FPU_ADD_S(f1, f0);
         if (c) {
             if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { ctx->f[0] = f0; ctx->f[1] = f1; Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, sx64(a2)); Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, t0); ctx->vu0_vf[4] = vf4; ctx->vu0_vf[5] = vf5; ctx->vu0_vf[6] = vf6; ctx->pc = 0x13A7580u; if (runtime->eeCheckpointSlow()) return; f0 = ctx->f[0]; f1 = ctx->f[1]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); vf0 = ctx->vu0_vf[0]; vf4 = ctx->vu0_vf[4]; vf5 = ctx->vu0_vf[5]; vf6 = ctx->vu0_vf[6]; fcr31 = ctx->fcr31; }

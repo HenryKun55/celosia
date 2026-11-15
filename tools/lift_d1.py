@@ -91,6 +91,12 @@ kLiftD6 (SOTC_DECOMP_LIFT_FALLBACK_D6). No change to the analyses: D5's "128-bit
 the fallback copies with the natives holding their slots, not the lifter (`regen6.sh base` rewrites every committed file
 byte for byte).
 
+Decomp D7 (docs/decomp.md "Decomp D7"): `--d7` writes D7's batch (SOTC_DECOMP_LIFT_FUNCTION_D7, switch SOTC_LIFTD7, test
+knob SOTC_LIFTD7_RANGE; `--d7 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D7). The trace check covers --inline and --summary:
+an inlined call's guard asks PS2_DIFFTRACE_INLINE (true outside the Mac's trace check; in a replay the recorded call event
+is taken as the inlined copy's), and a summarized call writes back the registers it keeps in locals while a trace check
+runs (`#if PS2X_DIFFTRACE`, ps2_difftrace::g_top), so the context is whole at the call event.
+
 Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2 | --d3 | --d4] [--alt] [--summary [--summary-cache f.pkl]
        [--summary-log f.txt]] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
 """
@@ -443,7 +449,9 @@ class Lifter:
                 if rs == 31:
                     self.kind[a] = ('ret',)
                 else:
-                    cases = [int(x, 16) for x in re.findall(r'case 0x([0-9A-Fa-f]+)u: goto label_', g.block_text(a).split('PS2_JUMP_GUEST')[0])]
+                    # D7: a case may write registers back first (`case 0x..u: { Ps2SetGpr64(...); goto label_..; }`): the
+                    # lifted code writes every dirty register back before the jump anyway (a jump table's targets read back)
+                    cases = [int(x, 16) for x in re.findall(r'case 0x([0-9A-Fa-f]+)u: (?:\{[^{}]*?)?goto label_', g.block_text(a).split('PS2_JUMP_GUEST')[0])]
                     if not cases:
                         self.kind[a] = ('jr', rs, [])
                     else:
@@ -1273,7 +1281,10 @@ class Lifter:
             return f'{v(rs)} == {v(rt)}' if rt else f'{v(rs)} == 0'
         if kind == 'ne':
             return f'{v(rs)} != {v(rt)}' if rt else f'{v(rs)} != 0'
-        sv = v(rs) if wide else f'(int32_t){N(rs)}'
+        # D7: the recompiler's bltz / bgez / blez / bgtz (and the -al / -l forms) test the low 32 bits (RC_S32), even of a
+        # register holding a 64-bit value (a `ld`): so does the lifted code (a 64-bit compare differed when bit 31 and
+        # bit 63 disagree, gamecore_sub_013454B8's 64-bit counter, found by the D7 trace check)
+        sv = f'(int32_t){N(rs)}'
         return {'lez': f'{sv} <= 0', 'gtz': f'{sv} > 0', 'ltz': f'{sv} < 0', 'gez': f'{sv} >= 0'}[kind]
 
     def sync(self, slots):
@@ -1410,7 +1421,10 @@ class Lifter:
                     din = self.dirty_in[a]
                     L.append(f'{I}{self.sync(din)} // {g.mnem[a]}: the runtime reads the context')
                     L.append(f'{I}{n["code"]}')
-                    L.append(f'{I}{self.sync(n["defs"])} {self.reload_all()}')
+                    # D7: a register the op's own code writes in the context (SET_GPR_VEC(ctx, r, ...): a 128-bit result)
+                    # is not written back from its stale local after it (iosMulMvec's pmfhl.lw, found by the trace check)
+                    vec = set(('g', int(x)) for x in re.findall(r'SET_GPR_VEC\(ctx, (\d+),', n['code']))
+                    L.append(f'{I}{self.sync(set(n["defs"]) - vec)} {self.reload_all()}')
                 elif n['code']:
                     L.append(I + n['code'])
                 continue
@@ -1506,7 +1520,9 @@ class Lifter:
                 L.append(f'{I}    if (__builtin_expect({cond}, 1)) {{')
                 # the call's dispatch charge; when the checkpoint is due it is taken back (the clock exactly as it
                 # was) and the call below makes it, with its slow path, as the generated code does
-                L.append(f'{I}        if (__builtin_expect(runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), 1))')
+                # D7: a trace check's replay takes the generated code's recorded call as the copy's (PS2_DIFFTRACE_INLINE:
+                # always true outside the Mac's trace check), else the call is made below
+                L.append(f'{I}        if (__builtin_expect(runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), 1) && PS2_DIFFTRACE_INLINE(runtime, 0x{t:X}u, 0x{a + 8:X}u))')
                 L.append(f'{I}            goto L_{F:x};')
                 L.append('#if PS2X_EE_CLOCK64')
                 L.append(f'{I}        runtime->m_eeClock.cycle -= PS2Runtime::kEeDispatchCycles;')
@@ -1565,6 +1581,12 @@ class Lifter:
                         # D4: the callee's summary: the dirty registers it neither reads nor writes stay in their
                         # locals; written back if the call does not return here (a thread switch unwinds through it)
                         rest = self.call_pre(a) - (s[0] | s[1])
+                        if rest:
+                            # D7: while a trace check runs (the Mac's SOTC_DIFFTEST_TRACE) the kept registers are written
+                            # back too, so the context at the call event is whole (they stay in their locals as before)
+                            L.append('#if PS2X_DIFFTRACE')
+                            L.append(f'{I}    if (__builtin_expect(ps2_difftrace::g_top, 0)) {{ {self.sync(rest)} }}')
+                            L.append('#endif')
                         if a in self.cguard:
                             # relocated elsewhere (never in a working game): everything written back, the call as the
                             # generated code makes it, then the generated function resumes at the return label
@@ -1924,6 +1946,9 @@ assert HEADER_D5 != HEADER_D4 and 'LIFTD5' in HEADER_D5 and 'Decomp D5' in HEADE
 HEADER_D6 = HEADER_D5.replace('''// Generated by tools/lift_d1.py --d5 (decomp round D5: the next batch)''', '''// Generated by tools/lift_d1.py --d6 (decomp round D6: functions that may block or switch threads)''').replace(
     'SOTC_LIFTD5 is on', 'SOTC_LIFTD6 is on').replace('"Decomp D5"', '"Decomp D6"')
 assert HEADER_D6 != HEADER_D5 and 'LIFTD6' in HEADER_D6 and 'Decomp D6' in HEADER_D6
+HEADER_D7 = HEADER_D5.replace('''// Generated by tools/lift_d1.py --d5 (decomp round D5: the next batch)''', '''// Generated by tools/lift_d1.py --d7 (decomp round D7: the next batch and the earlier rounds' speed cuts)''').replace(
+    'SOTC_LIFTD5 is on', 'SOTC_LIFTD7 is on').replace('"Decomp D5"', '"Decomp D7"')
+assert HEADER_D7 != HEADER_D5 and 'LIFTD7' in HEADER_D7 and 'Decomp D7' in HEADER_D7
 
 FOOTER = '''}
 
@@ -1960,6 +1985,7 @@ def main():
                     "what recompiled() gives the natives' fallbacks while SOTC_LIFTD5 is on)")
     ap.add_argument('--d5', action='store_true', help="decomp D5's batch: SOTC_DECOMP_LIFT_FUNCTION_D5 (SOTC_LIFTD5), as --d2 otherwise")
     ap.add_argument('--d6', action='store_true', help="decomp D6's batch: SOTC_DECOMP_LIFT_FUNCTION_D6 (SOTC_LIFTD6), as --d2 otherwise")
+    ap.add_argument('--d7', action='store_true', help="decomp D7's batch: SOTC_DECOMP_LIFT_FUNCTION_D7 (SOTC_LIFTD7), as --d2 otherwise")
     ap.add_argument('addrs', nargs='+')
     args = ap.parse_args()
     if args.inline:
@@ -1982,18 +2008,20 @@ def main():
     if args.summary:
         SUMMARY.update(build_summaries(args.summary_cache, args.summary_log))
         print(f'{len(SUMMARY)} callee summaries', file=sys.stderr)
-    if args.d4 or args.d5 or args.d6:
+    if args.d4 or args.d5 or args.d6 or args.d7:
         args.d3 = False
-    if args.d5 or args.d6:
+    if args.d5 or args.d6 or args.d7:
         args.d4 = False
-    if args.d6:
+    if args.d6 or args.d7:
         args.d5 = False
+    if args.d7:
+        args.d6 = False
     addrs = []
     for x in args.addrs:
         addrs.extend(open(x[1:]).read().split() if x.startswith('@') else [x])
     addrs = [int(x, 16) for x in addrs]
-    CXX_SUFFIX[0] = args.d2 or args.d3 or args.d4 or args.d5 or args.d6
-    RESUME_DELEGATE[0] = args.d2 or args.d3 or args.d4 or args.d5 or args.d6 or args.resume_delegate
+    CXX_SUFFIX[0] = args.d2 or args.d3 or args.d4 or args.d5 or args.d6 or args.d7
+    RESUME_DELEGATE[0] = args.d2 or args.d3 or args.d4 or args.d5 or args.d6 or args.d7 or args.resume_delegate
     ext = {}
     for x in args.extern:
         for y in (open(x[1:]).read().split() if x.startswith('@') else [x]):
@@ -2022,7 +2050,8 @@ def main():
     bodies, regs = [], []
     known = dict(ext)
     known.update(ok)
-    macro = (('SOTC_DECOMP_LIFT_FALLBACK_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FALLBACK') if args.fallback else 'SOTC_DECOMP_LIFT_FUNCTION_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FUNCTION_D5' if args.d5 else 'SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
+    macro = (('SOTC_DECOMP_LIFT_FALLBACK_D7' if args.d7 else 'SOTC_DECOMP_LIFT_FALLBACK_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FALLBACK') if args.fallback else
+             'SOTC_DECOMP_LIFT_FUNCTION_D7' if args.d7 else 'SOTC_DECOMP_LIFT_FUNCTION_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FUNCTION_D5' if args.d5 else 'SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
              'SOTC_DECOMP_LIFT_FUNCTION_D2' if args.d2 else 'SOTC_DECOMP_LIFT_FUNCTION')
     ilog = []
     for a in sorted(ok):
@@ -2043,13 +2072,14 @@ def main():
         # the batch's functions: called directly across files, named in their own off<>
         decl = ''.join(f'    void {known[a]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a in sorted(known) if a in ok or a in ext)
         decl += ''.join(f'    void {n}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a, n in sorted(INLINE.get('lifted', {}).items()) if a not in known)
-        hdr = HEADER_D6 if args.d6 else HEADER_D5 if args.d5 else HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
+        hdr = HEADER_D7 if args.d7 else HEADER_D6 if args.d6 else HEADER_D5 if args.d5 else HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
         if args.summary:
             hdr = hdr.replace('#include "sotc_decomp.h"', '// D4: --summary: a call writes back / reads back only what the callee (its whole-program summary)\n'
                               '// reads / writes; the rest is written back on the call\'s not-returning path.\n#include "sotc_decomp.h"')
         if args.fallback:
             hdr = hdr.replace('#include "sotc_decomp.h"', '// D5: --fallback: lifted copies of functions natives replace (their slots hold the natives); sotc_decomp::\n' +
-                              ('// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD6 is on (SOTC_DECOMP_LIFT_FALLBACK_D6).\n' if args.d6 else
+                              ('// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD7 is on (SOTC_DECOMP_LIFT_FALLBACK_D7).\n' if args.d7 else
+                               '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD6 is on (SOTC_DECOMP_LIFT_FALLBACK_D6).\n' if args.d6 else
                                '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD5 is on (SOTC_DECOMP_LIFT_FALLBACK).\n') +
                               '#include "sotc_decomp.h"')
         if args.inline:

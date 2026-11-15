@@ -2213,7 +2213,7 @@ L_1cae10:
         (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 4294967295))));
     }
     {
-        const bool c = (int64_t)a2 >= 0;
+        const bool c = (int32_t)a2 >= 0;
         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 112))));
         if (c) {
             if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); ctx->pc = 0x1CAE10u; if (runtime->eeCheckpointSlow()) return; v0 = Ps2GprU64(ctx, 2); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); }
@@ -2851,7 +2851,7 @@ L_1cd468:
     a0 = a0 + 4u;
     WRITE32(v1, v0);
     {
-        const bool c = (int64_t)a1 >= 0;
+        const bool c = (int32_t)a1 >= 0;
         v1 = v1 + 4u;
         if (c) {
             if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 5, a1); ctx->pc = 0x1CD468u; if (runtime->eeCheckpointSlow()) return; v0 = Ps2GprU32(ctx, 2); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU64(ctx, 5); df_v0 = false; }
@@ -3189,7 +3189,7 @@ void Sg2ModCheckSndOn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     {
-        const bool c = (int64_t)a0 < 0;
+        const bool c = (int32_t)a0 < 0;
         (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
         if (!c) {
             (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a0))));
@@ -3225,7 +3225,7 @@ void Sg2ModClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t a0 = Ps2GprU64(ctx, 4);
     bool df_at = false, df_v1 = false;
     {
-        const bool c = (int64_t)a0 < 0;
+        const bool c = (int32_t)a0 < 0;
         (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
         if (!c) {
             (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a0))));

@@ -2636,11 +2636,11 @@ void gamecore_sub_0145FA68(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                 if (!PS2_CALL_GUEST_KNOWN(0x1461878u, lift_d1::gamecore_sub_01461878, 0x145FAC4u, 0x145FABCu, DirectCall, "JAL")) { return; }
             }
             s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); vf0 = ctx->vu0_vf[0]; vf11 = ctx->vu0_vf[11]; vf12 = ctx->vu0_vf[12]; vf13 = ctx->vu0_vf[13]; vf14 = ctx->vu0_vf[14]; vf15 = ctx->vu0_vf[15]; vf16 = ctx->vu0_vf[16]; vf5 = ctx->vu0_vf[5]; vacc = ctx->vu0_acc; vq = ctx->vu0_q; vstat = ctx->vu0_status;
-            if ((int64_t)v0 < 0) {
+            if ((int32_t)v0 < 0) {
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 goto L_145fcb0;
             }
-            if ((int64_t)s1 < 0) {
+            if ((int32_t)s1 < 0) {
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 goto L_145fcb0;
             }
@@ -2742,13 +2742,13 @@ void gamecore_sub_0145FA68(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         goto L_145fcb0;
     }
     {
-        const bool c = (int64_t)s1 < 0;
+        const bool c = (int32_t)s1 < 0;
         (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (c) {
             goto L_145fcb0;
         }
     }
-    if ((int64_t)s1 <= 0) {
+    if ((int32_t)s1 <= 0) {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)s2, 4)))));
     } else {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)1 << 16))));

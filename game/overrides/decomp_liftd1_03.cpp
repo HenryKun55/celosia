@@ -860,7 +860,7 @@ void Sg2SmfpStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     {
-        const bool c = (int64_t)a0 < 0;
+        const bool c = (int32_t)a0 < 0;
         (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a0, 7))));
         if (!c) {
             at = 0x290000u;
@@ -891,7 +891,7 @@ void Sg2SmfpMidiOut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a3 = Ps2GprU64(ctx, 7), t2 = Ps2GprU64(ctx, 10);
     bool df_at = false, df_v0 = false, df_v1 = false, df_a2 = false, df_t0 = false, df_t1 = false;
     {
-        const bool c = (int64_t)a0 < 0;
+        const bool c = (int32_t)a0 < 0;
         (t2 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));
         if (!c) {
             (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a0, 7))));
@@ -1273,7 +1273,7 @@ void vab_check_alive(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
-        const bool c = (int64_t)a0 < 0;
+        const bool c = (int32_t)a0 < 0;
         (v1 = (uint64_t)(((int64_t)(int64_t)a0 < (int64_t)(int32_t)8) ? 1 : 0));
         if (!c) {
             {
@@ -1450,7 +1450,7 @@ void kernel_sub_001DAAB0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (a3 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));
     (t0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 4)))));
     {
-        const bool c = (int64_t)a3 <= 0;
+        const bool c = (int32_t)a3 <= 0;
         (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
             (at = (uint32_t)((int32_t)((int32_t)((uint32_t)16128 << 16)))); df_at = true;
@@ -1496,7 +1496,7 @@ void kernel_sub_001DAC18(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = ctx->f[0], f1 = ctx->f[1];
     v0 = READ32(a0 + 4u);
     {
-        const bool c = (int64_t)a2 <= 0;
+        const bool c = (int32_t)a2 <= 0;
         v1 = READ32(a1 + 4u);
         if (!c) {
 L_1dac28:
@@ -1995,7 +1995,7 @@ L_1de7f8:
                     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a1, (uint32_t)a2))));
                     if (!c) {
                         {
-                            const bool c = (int64_t)v1 < 0;
+                            const bool c = (int32_t)v1 < 0;
                             (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
                             if (c) {
                                 if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { ctx->f[0] = f0; ctx->f[1] = f1; Ps2SetGpr64(ctx, 10, t2); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, sx64(a3)); if (df_t0) Ps2SetGpr64(ctx, 8, sx64(t0)); Ps2SetGpr64(ctx, 9, t1); ctx->pc = 0x1DE7F8u; if (runtime->eeCheckpointSlow()) return; f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU64(ctx, 10); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU64(ctx, 9); fcr31 = ctx->fcr31; df_at = false; df_t0 = false; }

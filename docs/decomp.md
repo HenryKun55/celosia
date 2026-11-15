@@ -20102,3 +20102,188 @@ thread in native code**, 7.7% recompiled, 11.9% runtime (D5: 79.6 / 9.2 / 11.2).
   checks were clean, but a re-check with the trace check (after making it handle --inline sites, or for the
   non-inlined ones) would remove the doubt for the call-heavy batches (D3 / D4).
 - As D5 said: speed for 30 fps is not in lifting more functions; it is in whole-subsystem native rewrites.
+
+## Decomp D7: an interleaved A/B (the same content in both states); the trace check covers --inline / --summary and found two lifter bugs; D7's batch of 1 681 (SOTC_LIFTD7) (2026-11-15)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d7/` (STATE.md lists them; new scripts authored in the worktree's
+build/agent-scratch/d7src/): patch_rt7.py (the runtime's D7 switch), regen7.sh (every committed lifted file regenerated
+with today's tool), cc7.sh / cand7.py (D7's candidates from Mac call counts), gen7.sh (D7's files), abmix7.sh / mix7.py
+(the interleaved A/B), dtnames7.py / dt7b.py (trace-check name lists), final7.py (the shipped lists), final7.sh (the final
+Vita3K runs in two lanes). Own Vita3K trees ../vita3k-celosia-d7 / -d7b (222 MHz, 3 cores, muted); at most two heavy
+processes, all `nice -n 20`, builds -j4.
+
+### Task 1: a speed measure without the window-content noise (SOTC_AB_MIX)
+
+D6's per-function z scores came from 900-frame A/B windows: the attract demo's content differs between the on and off
+windows, so the two runs disagreed in sign on dozens of functions. Per-call host cycle counts on the Vita are not
+available (Vita3K has no cycle counter; the µs clock is too coarse for calls of 1-20 µs), and the Mac's timings are not
+the A9's. The cheap fix is to remove the content difference itself:
+
+- `SOTC_AB_MIX=<seed>` (sotc_native.cpp abSwitches, with `SOTC_AB_PERIOD=1`, no rotation): each frame is on or off at
+  random (a hash of the frame and the seed), so both states see the same scenes, frame by frame. `[abmix] frame F: N
+  frames, M off` every 1 000 frames; the switch's own log lines are cut to one in 1 000.
+- mix7.py: from the sampler's first and last snapshots, per function the game-thread samples in its lifted copy
+  (`lift_d1::<name>`) and in its recompiled code (`<name>_0x...`, the lean copies too), each per frame of its own state; z
+  is the Poisson z of the two rates. The only noise left is the sampler's counting noise.
+- **It is reproducible.** Two independent runs (p1, attract demo, 1 500 s, seeds 7 and 11; ~32 000 frames each, half on):
+  the per-function z scores of the 239 functions with >= 40 samples correlate at **0.93** between the runs. (D6's window
+  method had functions at z -8.8 in one run and +9.9 in the other.)
+- Limit: a slot wrapped by another hook keeps calling whatever it held at install. mdsjoin wraps modelSetSurface and
+  manager_sub_0108C188 with the lifted copy as the original, and three fallback copies are reached through the natives'
+  tables. Those five showed lifted samples in both states and almost no recompiled ones: they cannot be measured this way.
+
+**Rule used (the user's):** an exact, reached function ships unless it is slower in both interleaved A/Bs (z > 2 with
+>= 20 samples on a side in each run). Within the noise, or not sampled, ships.
+
+### Task 2: D6's 154 speed cuts and D4 / D5's slower ones under the new rule
+
+All of them were lifted again in D7's batch (`--d7`, no --inline / --summary) and trace-checked with it (below):
+
+| group | candidates | ship | slower in both A/Bs |
+|---|---:|---:|---:|
+| D6's 154 speed cuts | 154 | 116 | 38 |
+| D5's 49 + 2 speed cuts (D4's slower again) | 51 | 12 | 39 |
+| fallback copies cut for speed (D5's 15, D6's 4) | 16 | 7 | 9 (5 of them the unswitchable ones above) |
+| D2 / D4's six register-mismatch functions | 6 | 6 | 0 |
+
+The six (gamecore_sub_01346000, windowSetMouseStatus, mouseGetStatus, charrootdyn_getLandingSurface,
+charrootdyn_clipNoStopCollisionFinder, manager_sub_01168650) have **0 mismatches under the trace check**. The timer reads
+are I/O events answered from the record, and the others' callees run once. Their old mismatches came from the two-leg
+check running timer reads and kernel callees twice. The slowest functions are still the same ones as in D4 / D5
+(player_HellDangerDetect lifted 1.7x, gamecore_sub_013B8438 1.8x, gamecore_sub_0138CB48 1.45x).
+
+### Task 3: the trace check for --inline and --summary; D3 / D4 / D5 re-checked
+
+- **Inlined calls** (ps2_difftrace.h `PS2_DIFFTRACE_INLINE`, sotc_decomp.cpp `trace::onInline`). The inlined callee is a
+  leaf, so the generated code's call event and the copy's instructions do the same work. After the guard passes and the
+  dispatch is charged, the lifted code asks the hook. In a replay, the hook takes the record's call event (same target,
+  same return address, callee not left by a switch) as the copy's own: its memory changes go into the expected state,
+  and the context and clock stay the lifted code's (the next event or the end compares them). Otherwise it answers
+  false and the lifted code makes the call itself, an event like any other. The macro is `true` on the Vita and outside
+  a trace check, so the Vita build compiles the same code as before.
+- **Summarized calls**: while a trace check runs (`#if PS2X_DIFFTRACE`, `g_top`), a summarized call also writes back the
+  registers it keeps in locals, so the context is whole at the call event. Still not covered: whether a callee really
+  reads only its summary's read set (the replay does not run the callee; the summary is a static analysis).
+- **I/O events** are no write-back point of the lifted code. Comparing the whole context there was a harness artefact
+  (kernel_sub_001C37F0's GS CSR read: r2 holds the address in the generated code's context, in a local in the lifted
+  code), so an I/O event now compares its address, size and value only.
+- regen7.sh: with the hook, the committed files change only in the 125 inline guards (D3_00-03, D4_01-04, D5_00) and 10
+  summary sites.
+- The Mac's difftest slots went from 512 to 2 560 (`kMaxChecked`; the Vita keeps 512). D7's first trace runs left 1 514
+  functions unchecked.
+- **Nesting:** a function called inside a checked function's recorded call is not checked there (inner checks are off
+  while one records). With lists of 900-2 000 functions, many callees are reached only that way, so every list was run
+  again with only the functions not checked yet (a second and third pass).
+
+**D3 / D4 / D5 re-checked** (879 functions, less 50 inlined callees that would disable their callers' inline paths; the
+76 inlined callees were checked in D7's runs): re walk / attract / ride (p1b) and the second pass reu walk / attract
+(final build): **862 of the 879 checked, 232 392 checks**. The 8 summary functions were all checked (602-4 803 checks
+each). 19 of the 29 inline callers took inlined calls through the hook (at least 16 779); the other 10 were not reached at top level.
+Results:
+
+- **gamecore_sub_013454B8: a real lifter bug** (71-124 of 100-200 checks; control run clean). The recompiler's `bltz /
+  bgez / blez / bgtz` test the low 32 bits (`RC_S32`) even of a register holding a 64-bit value, and lift_d1.py's
+  `cond()` compared all 64 bits when the register was wide. The function branches on a 64-bit counter at 0x14659F0 whose
+  bit 31 and bit 63 differ. Fixed (`(int32_t)` always). **199 committed functions change** (D1 21, D2 13, D3 42, D4 52,
+  D5 8 + 3 fallback copies, D6 59 + 1). 185 of them were re-checked after the fix (D7's runs and a pass over the rest, sg walk / attract), with 0
+  mismatches; the other 14 were not reached again. The 198 other than 013454B8 had been exact on every input checked
+  before; the old code differed only when bits 31 and 63 of the tested register disagreed.
+- kernel_sub_001C37F0: the I/O-event artefact above (0 mismatches with the fix).
+- RAM: the p1b walk / attract runs had 1-4 single bytes in ~100 functions with hundreds of clean checks each (0x1785c48,
+  0x1785ee8 ... counters other threads bump). The ride run, the control run over those 98 functions
+  (`SOTC_DIFFTEST_CONTROL=1`, 42 508 checks), the second pass and every D7 run show none beyond the known noise words.
+  Not explained beyond "another thread's write between the two runs of a call".
+
+Two more lifter bugs came from D7's own batch in the same check:
+
+- **Jump tables whose cases write a register back first** (`case 0x..u: { Ps2SetGpr64(...); goto label_...; }`) were
+  not recognised, so the lifted code jumped out to its own generated function at the label. The result was still the
+  right behaviour, but the trace check flagged it (ptclmanBuildVtxPacket). The pattern is now accepted. No committed
+  file changes.
+- **An opaque op that writes a 128-bit GPR** (`SET_GPR_VEC`, here pmfhl.lw) was followed by the write-back of that
+  register's stale 64-bit local over the low half (iosMulMvec: r2 and the 128-bit store wrong). Fixed; no committed file
+  changes. iosMulMvec's fixed version was not reached again, so it does not ship.
+
+### Task 4: D7's batch (SOTC_LIFTD7)
+
+Candidates (cand7.py): A (D6's 154) + B (D5's 51, the six mismatch functions) + C: **every function the Mac call-count
+runs reach** that is still recompiled. cc7.sh: SOTC_CALL_COUNT on the Mac; the dump now also comes from a helper thread
+every 30 s, since the Mac's GS path never reaches the per-frame report. Runs: walk, ride, attract, in_mash2, 900 s each.
+C excludes the lifted, natively replaced (the D6 build's replaced dump), stubs, interrupt-side code and the coroutine:
+1 614. Total 1 825 + 16 fallback copies; 1 812 lift (13 refused: 9 checkpoint patterns, 2 `break` forms, 2 bc0f
+loops), all 16 copies lift. They ship behind **SOTC_LIFTD7** (default on, A/B `liftd7`, test knob
+`SOTC_LIFTD7_RANGE=<lo>:<hi>`), game/overrides/decomp_liftd7_00..11.cpp (the batch, 150 a file) and decomp_liftd7_90.cpp
+(fallback copies, `SOTC_DECOMP_LIFT_FALLBACK_D7`); lifted with `--d7 --extern` D1-D6, no --inline / --summary.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, every register / VU0 / FPU, the clock, RAM, scratchpad, VU0
+data at every event and at the end; FIRST=20, EVERY=200, MAX=200), nice'd. Check counts are lower bounds (printed at the
+1st and every 100th check).
+
+| run | build | functions checked | checks | register / clock / event mismatches |
+|---|---|---:|---:|---|
+| dt7 walk / ride / attract (1 200 s each) | p2 | 1 139 / 1 195 / 857 | 164 755 | ptclmanBuildVtxPacket (fixed) |
+| dt7m in_mash2 / walk (+ the 76 inlined callees) | p3 | 1 285 / 1 176 | 93 461 | 0 |
+| dt7u walk (second pass, the unchecked alone) | p3 | 474 | 14 016 | iosMulMvec (fixed, not reached again: cut) |
+| dt7v walk / in_mash2 (third pass) | p4 | 91 / 249 | 2 736 | 0 |
+| fin7 walk (the shipped 1 681, final build) | p5 | 758 | 8 131 | 0 |
+
+**Every shipped function checked on its current body, 0 register, clock or event mismatches.** RAM: 17 single bytes over
+all runs, all at the known noise words (0x29126c, 0x1568070 / 71). The final files differ from the checked ones only in
+the direct-call symbol of 42 functions whose callee was cut (the call goes through the table instead).
+
+| out | functions | why |
+|---|---:|---|
+| slower in both interleaved A/Bs | 84 | z > 2 in mixa and mixb (38 of D6's cuts, 39 of D5's, 1 new, 6 fallback copies) |
+| not switchable by the A/B | 5 | the wrapped slots above (no measure) |
+| not reached by any trace run | 57 | boot-ELF loader pieces and one-off paths (reached in the call counts, never at top level in a check) |
+| fixed version not reached | 1 | iosMulMvec |
+
+**1 674 batch functions and 7 fallback copies ship.** By area: other game code 585, boot ELF / SDK 252, characters 251,
+display 188, script 112, camera 81, system 78, collision 54, sound 45, particles 28.
+
+**Speed** (the interleaved A/B on p1, all 1 828): the whole batch was 106.2% (mixa) and 112.0% (mixb) of its recompiled
+time. Most of the batch is call-heavy and wait-heavy, as D6 found. The shipped set: **lifted 81% / 80% of recompiled**
+in the two runs, about 3.3% of the game thread recompiled vs 2.7% lifted (~0.2 ms of a 33 ms frame). Those figures come
+from the same two runs that chose the set, so they are biased toward a gain. The 0.93 run-to-run correlation says the
+per-function differences are real; a third run would give an unbiased figure.
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at, then deleted). The final build (p2: D1-D6 regenerated with the
+sign fix and the trace hooks, D7's 1 674 + 7, all on from boot):
+
+- the console card's walk: 18 198 frames, Wander y -2.83 .. 11.31, Agro -0.53 .. 12.47; Wander on the grass with his
+  shadow;
+- the ride: 9 138 frames, to the altar (y 11.31);
+- the attract demo with the sampler: 19 758 frames, the gallop with its shadow under the arches;
+- the walk under the console env's rotation (`SOTC_AB_FLAG=liftd7,liftd6,...,liftd1`, 600 frames): 17 478 frames, 30
+  windows, Wander y -3.26 .. 11.31, Agro -2.16 .. 12.45; Agro standing on the plain beside Wander.
+
+Every run drew within two minutes (the watchdog never fired); no "No exact recompiled function", no wild return; one or
+two game-thread frames over 300 ms per run (boot, a load). The many render-thread waits over 300 ms are Vita3K's host
+stalls while the Mac is locked. spalign (r110/spalign.py) on celosia-d7.elf: 782 NEON :128 accesses, 0 sp-based. The Mac
+and Vita builds compile. The Vita build has none of the trace hooks (PS2X_DIFFTRACE is 0 there; `PS2_DIFFTRACE_INLINE` is
+`true`).
+
+### Decomp numbers
+
+tools/decomp_status.py (Mac replaced dump of the final build, attract demo to frame 1 500; calls from round 71's attract
+and route dumps): **4 625 of 9 024 functions native (51.25%; D6 32.70%), 52.14% of the MIPS code by size (34.36%),
+96.82% of calls (92.51%), 52.33% of the game's own code.** By area (functions): Math 100%, particles 80%, camera 73%,
+sound 64%, system 64%, display 58%, characters 55%, boot ELF / SDK 50%, other game code 50%, collision 45%, script 36%.
+decomp_tree / decomp_history (label D7) from the final build's attract demo (sampler 300-690 s): **83.7% of the game
+thread in native code**, 5.3% recompiled, 10.9% runtime (D6: 80.4 / 7.7 / 11.9).
+
+### What D8 should take
+
+- **Coverage is now the limit, not the lifter.** 4 399 functions are still recompiled; most were never called in the
+  four Mac scripts (colossus fights, menus, cutscenes, the other areas). A colossus save (or a recorded fight) and
+  menu / cutscene input scripts would reach most of the rest; the pipeline (call counts, cand7.py, gen7.sh, passes of
+  the trace check until no unchecked function is left) can take them unchanged.
+- **The nesting limit of the difftest:** a callee is not checked inside a checked caller's record. A mode that also
+  checks nested calls (a record per level) would make the extra passes unnecessary.
+- **The 89 speed cuts** are exact; they are slower because they are call-heavy (the A9's calling convention, D4 / D5).
+  Shipping them needs the callers' callees inlined (D5's --inline, now covered by the trace check) or a native rewrite.
+  The 13 refused (checkpoint patterns, `break` forms, bc0f loops) need lifter work.
+- **The summary read sets** are the one static assumption left in the checks.
+- As D5 / D6 said: 30 fps comes from subsystem rewrites, not from lifting.

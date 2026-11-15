@@ -863,6 +863,27 @@ namespace sotc_prof
             g_eeDispatchProbe = dispatchProbe;
             g_dump = ps2_diag::env("SOTC_CALL_COUNT_DUMP");
             g_installed = true;
+#if !defined(__vita__)
+            // Decomp D7: the Mac's GS path never reaches syncFrame (no per-frame report there): the dump every 30 s from
+            // a helper thread too (the counts read as they are; a reached function has a count > 0 either way).
+            if (g_dump)
+                std::thread([]
+                            {
+                                for (;;)
+                                {
+                                    std::this_thread::sleep_for(std::chrono::seconds(30));
+                                    if (FILE *out = std::fopen(g_dump, "w"))
+                                    {
+                                        std::fprintf(out, "# address calls (since start)\n");
+                                        for (uint32_t i = 0; i < kSize; ++i)
+                                            if (g_entries[i].count)
+                                                std::fprintf(out, "%08x %llu\n", g_entries[i].address, static_cast<unsigned long long>(g_entries[i].count));
+                                        std::fclose(out);
+                                    }
+                                }
+                            })
+                    .detach();
+#endif
             std::fprintf(stderr, "[calls] %u functions counted behind one thunk\n", n);
         }
 

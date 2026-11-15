@@ -2197,7 +2197,7 @@ void manager_sub_01117340(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     WRITE128(ADD32((uint32_t)a0, 0), _mm_castps_si128(vf10));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(s3, 56)))));
     {
-        const bool c = (int64_t)v0 <= 0;
+        const bool c = (int32_t)v0 <= 0;
         (s1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
 L_1117430:

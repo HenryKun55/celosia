@@ -3503,7 +3503,7 @@ L_14300a0:
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, t5))));
             (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
             {
-                const bool c = (int64_t)v1 <= 0;
+                const bool c = (int32_t)v1 <= 0;
                 (t0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (!c) {
                     (a2 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
@@ -3552,7 +3552,7 @@ L_1430114:
         }
     }
     (t0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 1056)))));
-    if ((int64_t)t0 < 0) {
+    if ((int32_t)t0 < 0) {
         (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 132)))));
         goto L_14301c8;
     }
@@ -3567,7 +3567,7 @@ L_1430114:
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(at, (uint32_t)v0))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
     {
-        const bool c = (int64_t)v1 <= 0;
+        const bool c = (int32_t)v1 <= 0;
         t1 = 0u; df_t1 = true;
         if (!c) {
             (a3 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
@@ -3618,7 +3618,7 @@ L_14301c0:
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     goto L_1430238;
 L_14301c8:
-    if ((int64_t)a2 < 0) {
+    if ((int32_t)a2 < 0) {
         goto L_1430240;
     }
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 15440)))));
@@ -3632,7 +3632,7 @@ L_14301c8:
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(at, (uint32_t)v0))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
     {
-        const bool c = (int64_t)v1 <= 0;
+        const bool c = (int32_t)v1 <= 0;
         (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
             (a0 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
@@ -3868,10 +3868,10 @@ void gamecore_sub_01434610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     at = at + 0x10C8u;
     v0 = at + v0;
     {
-        const bool c = (int64_t)a1 < 0;
+        const bool c = (int32_t)a1 < 0;
         (t1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            if ((int64_t)a2 < 0) {
+            if ((int32_t)a2 < 0) {
                 v0 = 0xFFFFFFFFu;
                 goto L_1434694;
             }

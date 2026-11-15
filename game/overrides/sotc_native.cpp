@@ -3082,7 +3082,33 @@ namespace sotc_native
         }();
         const uint64_t window = g_frame / period;
         const size_t slot = rotate ? static_cast<size_t>(window % (names.size() + 1u)) : 0u;
-        const bool odd = window % 2u == 1u;
+        // Decomp D7: SOTC_AB_MIX=<seed> (without SOTC_AB_ROTATE; best with SOTC_AB_PERIOD=1): each window on or off at
+        // random (a hash of the window and the seed) instead of in turn, so both states see the same content, frame by
+        // frame: a function's lifted and recompiled copies are sampled over the same scenes (the sampler tells them
+        // apart by symbol; build/agent-scratch/d7/mix7.py). "[abmix] frame F: N frames, M off" every 1 000 frames.
+        static const uint64_t mixSeed = ps2_diag::env("SOTC_AB_MIX") ? std::strtoull(ps2_diag::env("SOTC_AB_MIX"), nullptr, 0) : 0u;
+        auto mixOff = [&](uint64_t w)
+        {
+            uint64_t z = w * 0x9E3779B97F4A7C15ull + mixSeed * 0xBF58476D1CE4E5B9ull + 0x94D049BB133111EBull;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+            z ^= z >> 31;
+            return (z >> 63) != 0u;
+        };
+        const bool odd = (mixSeed && !rotate) ? mixOff(window) : window % 2u == 1u;
+        if (mixSeed && !rotate)
+        {
+            static uint64_t lastFrame = ~uint64_t(0), frames = 0, offFrames = 0;
+            if (g_frame != lastFrame && g_frame >= period)
+            {
+                lastFrame = g_frame;
+                ++frames;
+                offFrames += odd ? 1u : 0u;
+                if (frames % 1000u == 0u)
+                    std::fprintf(stderr, "[abmix] frame %llu: %llu frames, %llu off\n", (unsigned long long)g_frame, (unsigned long long)frames,
+                                 (unsigned long long)offFrames);
+            }
+        }
         // Round 124: `gfx124preset` (best listed alone, without
         // SOTC_AB_ROTATE): the Graphics presets in turn, Max, High, Medium,
         // Low, Off, one a window of SOTC_AB_PERIOD frames, each applied once at
@@ -3215,7 +3241,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftalt"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftalt"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
