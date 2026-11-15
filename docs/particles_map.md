@@ -75,7 +75,7 @@ emitter list head is at +0xE8, and its view vectors are at +0x40 / +0x80.
 |---|---|
 | 0x118CFD0-0x118D054, 0x118D228-0x118D238 | manager configuration and counters (init_particle_manager writes them). *0x118CFE8 is the frame step: +0 dt, +4 a second step, +0xC VBlanks this frame |
 | 0x1216DF0-0x1216EF4 | the manager's state: isys groups (geodisps, emitters, segments), lists, flags. *0x1216ED0 is the draw skip / layer switch |
-| 0x1215BE8-0x1215C00 | ptclman's packet state (vtx / mat cursors) |
+| 0x1215BE8-0x1215C00 | ptclman's packet state: +0 the packet's base, +4 qwords used (see below); +0x8 (0x1215BF0) written by ptclmanBuildEnvPacket, read by the vtx packet |
 | 0x118BFF0 / 0x118BFF4 | ptclman's frame matrices (ptclmanFrameInit: the camera context copied) |
 | 0x1214750-0x1214790 | the full-screen effect manager (fsEffect*) |
 | 0x11862F0 / 0x11862F4 | the current full-screen effect parameters (effectSet, fsEffectSetParam) |
@@ -84,6 +84,64 @@ emitter list head is at +0xE8, and its view vectors are at +0x40 / +0x80.
 | 0x118C034-0x118C058 | in-water screen effect (inWaterEffectInit, getIsInWater) |
 | 0x11920B0-0x11920D8 | water refraction pass parameters |
 | 0x122B860-0x122B880, 0x118FE88-0x118FE98 | ExecEff's last kick (position / attribute) |
+
+## Facts from RafaelScharf (PRs #4–#6)
+
+PRs #4, #5 and #6 (closed, not merged) carried native ports of ptclman, the fog factors, the geodisp light / display
+passes, the emitter display and the module's control / lookup entries. Their code was not taken; the facts below were,
+each one checked against the recompiled code (build/runner, the MIPS comments) and our own natives before writing it.
+ptcl_types.h has the field names (`ptcl::sheet`, `effect::kSize` / `kLightMode` / `kCameraFollow` / `kMatrix`,
+`manager::kPtclman*`).
+
+**Fog state, 0x12147D8** (0x28 bytes; setFogImmediate 0x10896F0 copies it from the target at 0x12147B0,
+setFogParamDefault 0x1089AA0 from the defaults at 0x11862F8). With B = +0x4, A = +0x8, C = +0xC, D = +0x10, E = +0x14
+(native_renderer_map.md: near / far distances at +0x4 / +0x8, their rates at +0xC / +0x10):
+
+    getFogFactor0 (0x1089B70) = A·B·(C − D) / (A − B)
+    getFogFactor1 (0x1089BB0) = ((D − C)·(A + B) / (A − B) + (D + C)) · E
+
+glSetFogFactor (0x108F530) evaluates F = clamp(F1 + F0 / w, 0, 255) for one point (w from the camera matrix, at least
+1), the same line the microcode applies per vertex. With E = 0.5 the line goes exactly through (near, C) and (far, D);
+native_renderer_map.md's "half of getFogFactor1's base" is the same remark.
+
+**ptclman's packet state, 0x1215BE8.** +0 the packet's base (ptclmanBegin 0x109A1F8: the packet allocator's current
+pointer, a relocated `jal`), +4 the qwords used (Begin zeroes it). ptclmanGet (0x109A3D8) = base + used × 16,
+ptclmanPut (0x109A3F8) adds a0 qwords. ptclmanEnd (0x109A228) appends the qword 0x60000000, 0, 0, 0x13000000 (a DMA
+`ret` tag and VIF FLUSHA), then passes the new end to one packet call and the base to another (both relocated: what they
+do is not checked here). ptclDisplayListGet (0x109A1A8, a0 = particles) returns the same allocator's current pointer
+(the call ptclmanBegin makes), or 0 when its limit leaves fewer than a0 × 48 bytes.
+
+**The light-need test.** 01140E60 (a0 the emitter E, a1 the effect set Mr, a2 Mr's LOD record 0 — Mr +0xD4 itself, not
+indexed by E +0x118): 0 when E +0x110 is set (the light was done this frame by 0113B408), else 1 when Mr +0x64 != 0
+(the light colour's source mode, the same word 0113B408 switches on), Mr +0xB0 == 1 (view-facing) or the record's
++0x164 == 2 (aim at the camera); else 0. 01140C80 walks the geodisp's nodes and stops at the first 1;
+calc_light_particle_geodisp (0x113F600) then copies the first node's emitter position (node +0x20 = E +0x10) into the
+class's +0x10 with w = 1, clears bit 0 of the class's 64-bit +0xC0 and tail-calls SetGeoDispClassLightColMan.
+
+**The depth sort.** In 0113ACB8 the nodes go in runs of equal draw key (sheet +0x34). A run of two or more is copied
+as node pointers into a 16-aligned array on the stack and sorted with qsort (0x116A310, 4-byte elements, compare
+0x1140EA8). The compare reads node +0x144 (E +0x134, the depth along the camera's axis) and returns 1 when a's depth
+is less than b's, else −1. It never returns 0, so the larger depth sorts first: each run is drawn **back to front**.
+Runs themselves stay in list order; nothing is sorted across draw keys.
+
+**Sheet records.** An effect id is the address of a 0x54-byte sheet record (get_particle_effect_id_from_sheet returns
+its argument). get_particle_effect_id_by_name (0x113F8F8; a0 a resource handle whose word 0 & 0x3FFFF is the distance
+back to its owner, a1 the name) walks owner +0x10 for owner +0xC records at stride 0x54 and compares the string that
++0x24 points to. An owner of 0, or equal to the "no owner" word that the code loads with `lui 0x1e` + 0xED4 (a
+relocation placeholder, so the real address must be read live), gives 0. get_particle_name_from_effect_id returns
++0x24 (0 for a null id), get_main_particle_effect_lod_from_sheet +0x48, get_top_particle_effect_from_lod Mr +0xD4,
+get_particle_emitter_from_emitter_id id + 0x10.
+
+**The effect set.** create_particle_effect_lod (0x113FBF0) allocates **0x140 bytes** (a1 = 0x1195840), zeroes +0xD0..+0xDC and makes +0xE0 a unit matrix. get_particle_camera_follow_attr_from_effect_id (0x113FA40)
+returns Mr **+0xBC**, the camera-follow attribute (−1 for a null id), which updateParticleGeo reads.
+is_loop_particle (0x113F700) is 1 when LOD record 0's +0x10 is 1.
+
+Not taken: the PRs' natives themselves. Some read relocation placeholders literally (`0x001E0ED4` as the no-owner
+word, `0x001B91A0` as a call fallback, both from `lui 0x1e` / `0x1b`), and much of the path they cover is already host
+code here (decomp_hot46j, decomp_ptcl117, decomp_lift*); the rest (calc_light_particle_geodisp and the entries that
+only have sotc_worker.cpp's gate) is left to S1's redesign rather than a second exact port. The PRs' function names (ptclEmitterNeedLight, ptclEmitterSortCmp, ptclLightListPass,
+ptclDispEmitterList, ptclDispEmitterNode, ptclEmitterLightDir, ptclEmitterMatrixMode, ptclWorldMatrixSR) are theirs,
+not symbols; the map keeps the manager_sub_ names.
 
 ## Host code that already touches particles
 

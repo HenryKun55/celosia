@@ -89,6 +89,25 @@ namespace ptcl
         constexpr uint32_t kEmitter = 0x10; // the emitter E
         constexpr uint32_t kNext = 0x1B0;   // the next node of the geodisp's list
     }
+
+    // ---- Sheet record (0x54 bytes; node +0x00). Facts from RafaelScharf (PRs #4-#6),
+    // checked against the recompiled code. The "effect id" the effect users hold
+    // is the record's address (get_particle_effect_id_from_sheet returns its
+    // argument). get_particle_effect_id_by_name (0113F8F8; a0 a resource handle
+    // whose word 0 & 0x3FFFF is the distance back to its owner, a1 the name)
+    // walks owner +0x10 (the records, this stride) for owner +0x0C entries,
+    // strcmp on +0x24; an owner of 0 or equal to the "no owner" global (lui 0x1e
+    // + 0xED4 in the code: a relocation placeholder, read the real address live)
+    // gives 0.
+    namespace sheet
+    {
+        constexpr uint32_t kStride = 0x54;    // records are packed at this stride
+        constexpr uint32_t kName = 0x24;      // -> the effect's name (get_particle_name_from_effect_id; 0 for a null id)
+        constexpr uint32_t kLayer = 0x28;     // layer 0..4
+        constexpr uint32_t kDrawKey = 0x34;   // 0113ACB8 groups runs of equal keys (the depth sort runs inside a run)
+        constexpr uint32_t kMainSet = 0x48;   // the main effect set Mr (get_main_particle_effect_lod_from_sheet)
+        constexpr uint32_t kSubSet = 0x4C;    // the blend partner's effect set
+    }
     namespace emitter
     {
         constexpr uint32_t kWind = 0x00;         // vec4: the wind at the emitter (GetWindVector), x the particle's +0x88
@@ -105,7 +124,9 @@ namespace ptcl
         constexpr uint32_t kSpawned = 0x120;     // particles made so far
         constexpr uint32_t kLive = 0x124;        // List: the live particles (count, first, last)
         constexpr uint32_t kDistance = 0x130;    // distance to the camera
-        constexpr uint32_t kDepth = 0x134;       // |depth| along the camera's axis
+        constexpr uint32_t kDepth = 0x134;       // |depth| along the camera's axis; the sort key of 0113ACB8's runs:
+                                                 // 01140EA8 (qsort compare on node pointers, node +0x144) returns 1 when
+                                                 // a's depth < b's, else -1 (never 0): the farthest first, back to front
         constexpr uint32_t kBaseAlpha = 0x138;   // base alpha (init)
         constexpr uint32_t kDistFade = 0x13C;    // distance fade (011410D0)
         constexpr uint32_t kAlphaScale = 0x140;  // draw alpha = +0x138 x +0x13C (0 hides the emitter)
@@ -122,8 +143,11 @@ namespace ptcl
     }
 
     // ---- Effect set Mr (sheet +0x48 / +0x4C; a2 of the drawers, a1 of the step) ----
+    // 0x140 bytes: create_particle_effect_lod (0113FBF0) allocates 0x140, zeroes
+    // +0xD0..+0xDC and sets a unit matrix at +0xE0 (RafaelScharf, PRs #4-#6).
     namespace effect
     {
+        constexpr uint32_t kSize = 0x140;
         constexpr uint32_t kLodMode = 0x08;       // LOD by screen radius (+0x0C..+0x18 thresholds)
         constexpr uint32_t kMaxParticles = 0x1C;  // the live cap; also the display-list room asked for
         constexpr uint32_t kFadeOut = 0x24;       // the draws' fade: 1 - this
@@ -131,13 +155,28 @@ namespace ptcl
         constexpr uint32_t kScaleY = 0x54;        // ... y
         constexpr uint32_t kTexExtentU = 0x58;    // the sprite's texture extent (u, v): the env packet's vec
         constexpr uint32_t kTexExtentV = 0x5C;
+        // The light colour (0113B408, once a frame into E +0x70): +0x64 its source (0 / >= 6 the
+        // default colour; 1 the class's +0xB0 vector; 2..5 the mean of the class's +0x80/+0x90/+0xA0
+        // plus +0xB0), x +0x6C, clamped to 0..1, blended with the default by +0x68. The light-need
+        // test 01140E60 (a0 E, a1 Mr, a2 Mr's LOD record 0): 0 when E +0x110 is set (done this
+        // frame), else 1 when +0x64 != 0, Mr +0xB0 == 1 or the record's +0x164 == 2.
+        // calc_light_particle_geodisp (0113F600) asks it for every node (01140C80, stops at the
+        // first 1); on a 1 it copies the first node's E +0x10 into the class's +0x10 (w = 1),
+        // clears bit 0 of the class's +0xC0 and tail-calls SetGeoDispClassLightColMan (RafaelScharf, PRs #4-#6).
+        constexpr uint32_t kLightMode = 0x64;
+        constexpr uint32_t kLightBlend = 0x68;
+        constexpr uint32_t kLightScale = 0x6C;
         constexpr uint32_t kViewFacing = 0xB0;    // 1: view-facing (particleDraw, the light direction written)
         constexpr uint32_t kShadeK = 0xB4;        // the lit draw's shade w
         constexpr uint32_t kBrightness = 0xB8;    // x gluGetBrightness, clamped 0..1: the lit draw's shade
+        constexpr uint32_t kCameraFollow = 0xBC;  // camera-follow attribute (get_particle_camera_follow_attr_from_effect_id:
+                                                  // sheet +0x48 -> this; -1 for a null id; read by updateParticleGeo)
         constexpr uint32_t kPlanes = 0xCC;        // 1: the floor / ceiling planes on
         constexpr uint32_t kLodCount = 0xD0;      // LOD records: count
         constexpr uint32_t kLodRecords = 0xD4;    // LOD records: array, 0x1BC each, indexed by emitter::kLod
         constexpr uint32_t kInfo = 0xD8;          // -> +0x24 the effect's name, +0x44 the damage test's handle
+                                                  // (guess: the sheet record itself, whose name is at +0x24 too)
+        constexpr uint32_t kMatrix = 0xE0;        // 4x4 matrix, set to unit by create_particle_effect_lod
         constexpr uint32_t kFrames = 0x120;       // animation frames (>= 2: the animated drawer)
         constexpr uint32_t kFrameLength = 0x128;  // animated drawers: frames per texture cell
         constexpr uint32_t kCellU = 0x12C;        // the texture cell's size (u, v); 0113DBF8 mode 7's extent
@@ -151,7 +190,7 @@ namespace ptcl
         constexpr uint32_t kSpace = 0x00;    // 1 / 3: follow the emitter's move; 2 / 3: local matrix
         constexpr uint32_t kTotal = 0x04;    // particles to make in all
         constexpr uint32_t kShape = 0x0C;    // 0 trap, 1 sprites (drawer by +0x18C / Mr +0xB0 / Mr +0x120), 2 streaks, 4 lit puffs
-        constexpr uint32_t kGenMode = 0x10;  // 0: counts E +0x120
+        constexpr uint32_t kGenMode = 0x10;  // 0: counts E +0x120; 1 in record 0 = a looping effect (is_loop_particle)
         constexpr uint32_t kBlend = 0x14;    // material: 1 adds, 2 subtracts, else blends
         constexpr uint32_t kSpin = 0xC8;     // orbit about the emitter's axis
         constexpr uint32_t kCollision = 0x104;
@@ -180,5 +219,11 @@ namespace ptcl
         constexpr uint32_t kFreeList = 0x01216DF0u;   // List of free Particle records
         constexpr uint32_t kViewRows = 0x01216E40u;   // the particles' view matrix (four rows; the lit draw's environment)
         constexpr uint32_t kLayerSwitch = 0x01216ED0u;
+        // ptclman's packet state (RafaelScharf, PRs #4-#6): +0 the packet's base (ptclmanBegin: the
+        // packet allocator's current pointer), +4 qwords used (ptclmanBegin zeroes it, ptclmanPut adds;
+        // ptclmanGet = base + used x 16). ptclmanEnd appends the qword 0x60000000 0 0 0x13000000
+        // (a DMA ret tag, VIF FLUSHA) before closing the packet.
+        constexpr uint32_t kPtclmanBase = 0x01215BE8u;
+        constexpr uint32_t kPtclmanUsed = 0x01215BECu;
     }
 }
