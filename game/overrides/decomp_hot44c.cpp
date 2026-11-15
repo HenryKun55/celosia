@@ -63,15 +63,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace decomp_group
-{
-    // decomp_group.cpp: isysGroupForNext's work (round 106's caller).
-    struct NextRegs
-    {
-        uint32_t v0, v1, a0, a1, a3;
-    };
-    bool nextAt(uint8_t *rdram, uint32_t entry, NextRegs &r);
-}
+#include "decomp_group.h" // decomp_group.cpp: isysGroupForNext's work (round 106's caller)
 
 namespace decomp_hot44c
 {
