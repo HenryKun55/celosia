@@ -41,6 +41,7 @@ namespace decomp_particles
     bool damageWanted(const uint8_t *rdram, uint32_t a2);
     extern uint64_t g_damageCalls, g_damageSkipped;
 }
+#include "s1_particles.h" // round S1: the emitter's particle step as one batch
 namespace decomp_hot47e
 {
     void blend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -1243,6 +1244,11 @@ namespace decomp_ptclupdate
             const float zero = 0.0f;
             (count ? f20 : f21) = zero;
             const bool p123 = sotc_decomp::switchOn(sotc_decomp::kPtcl123);
+            // Round S1: the emitter's per-frame values derived once for its particles (not with round 123's check).
+            static const uint32_t s1Every = [] { const char *v = ps2_diag::env("SOTC_S1PTCL_CHECK"); return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u; }();
+            decomp_particles::Emitter123 e123;
+            const bool s1 = p123 && sotc_decomp::switchOn(sotc_decomp::kS1Ptcl) && !check123() &&
+                            decomp_particles::prep123(rdram, ctx, runtime, E, Mr, K, P, sp + 0x10u, sp, e123);
             const uint64_t t123 = st.on ? coll115t::nowUs() : 0u;
             struct Done
             {
@@ -1259,6 +1265,40 @@ namespace decomp_ptclupdate
                 }
             } done{st, t123, p123 ? 1 : 0, n};
             s0 = static_cast<uint64_t>(static_cast<int64_t>(n));
+            if (s1)
+            {
+                // Round S1: the emitter's particles as one batch (decomp_particles::stepRun); a particle S1 does not
+                // step goes to the original here, with the loop's registers as the original has them.
+                auto fallback = [&](uint32_t p, int32_t left, uint32_t next, float &fr)
+                {
+                    s0 = static_cast<uint64_t>(static_cast<int64_t>(left));
+                    s2 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(next)));
+                    st.o123 += st.on;
+                    g.a(4, p);
+                    g.a(5, E);
+                    g.a(6, Mr);
+                    g.a(7, K);
+                    g.a(8, P);
+                    g.a(9, sp + 0x10u);
+                    regs();
+                    ctx->f[0] = fr;
+                    g.callNative(&decomp_particles::particleUpdate, kUpdate, site, sp);
+                    fr = ctx->f[0];
+                    if (count && g.v0() == 0u)
+                        ++s3;
+                };
+                using Fb = decltype(fallback);
+                uint32_t last = 0u;
+                const uint32_t stepped = decomp_particles::stepRun(
+                    rdram, ctx, runtime, e123, a0, n, s1Every, f0, [](void *arg, uint32_t p, int32_t left, uint32_t next, float &fr) { (*static_cast<Fb *>(arg))(p, left, next, fr); },
+                    &fallback, last);
+                st.h123 += st.on ? stepped : 0u;
+                if (count)
+                    s3 += stepped;
+                s0 = 0u;
+                s2 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(last)));
+                return;
+            }
             for (int32_t left = n; left != 0; --left)
             {
                 f0 = m.f32(a0 + 0x40u);

@@ -34,6 +34,11 @@ namespace sotc_native
                        float fade);
 }
 
+namespace s1ptcl_api
+{
+    bool drawLit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
 namespace decomp_ptcldraw
 {
     constexpr uint32_t kDraw = 0x0113E940u;
@@ -154,6 +159,8 @@ namespace decomp_ptcldraw
 
     void draw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (s1ptcl_api::drawLit(rdram, ctx, runtime)) // round S1: the records straight into the renderer's job
+            return;
         const Ram ram{rdram};
         const uint32_t s2 = GPR_U32(ctx, 4), fp = GPR_U32(ctx, 5), s4 = GPR_U32(ctx, 6);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp1 = sp0 - 0xF0u;

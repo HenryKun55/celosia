@@ -3241,7 +3241,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftalt"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftalt", "s1ptcl"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -7930,6 +7930,7 @@ namespace sotc_native
     }
 
     void ptclVtxTake(uint32_t a, uint32_t count, uint32_t header, uint32_t layer);
+    void s1CheckAgainst(uint32_t a, uint32_t count, uint32_t header, uint32_t layer); // round S1's check
     // Round 103's check (SOTC_PTCL103_CHECK): the direct path's job, compared
     // with the hooks' at the next ptclVtxTake.
     struct Ptcl103Check
@@ -7973,6 +7974,7 @@ namespace sotc_native
             if (c.checks % 2000u == 0u)
                 std::fprintf(stderr, "[ptcl103c] %llu particle draws checked, %llu differ\n", (unsigned long long)c.checks, (unsigned long long)c.differ);
         }
+        s1CheckAgainst(a, count, header, layer);
         const bool off = !native_renderer::tuning().particles;
         const ParticleEnv &env = g_ptclEnvState;
         if (off || !g_cameraContext || count == 0u || count > 4096u || (!(env.type >= 1u && env.type <= 5u) && env.type != 7u))
@@ -8083,6 +8085,174 @@ namespace sotc_native
         if (vertices)
             ptclVtxTake(data, count, g_requested, g_layers.empty() ? 18u : g_layers.back()); // ptclVtxHook
         return true;
+    }
+
+    // Round S1 (s1_particles.cpp, SOTC_S1PTCL): a particle draw whose 48-byte
+    // records the caller writes straight into the renderer's job (host
+    // floats, no guest display list, no copy). ptclS1Begin: false when the
+    // hooks are not the drawing path (the caller takes the original path);
+    // else *room holds `most` records' room (the job's own data, or with
+    // `check` a side buffer). ptclS1Commit(written, ...): what the original's
+    // packets would have done for `written` records (none: nothing at all,
+    // as the original draws and sets nothing then): the blend and environment
+    // set as ptclDirect117 sets them, the job pushed. With `check` the records
+    // are kept for the next ptclVtxTake (the original's job) to be compared
+    // with (s1CheckAgainst).
+    struct PtclS1Check
+    {
+        bool pending = false;
+        uint32_t count = 0, header = 0, layer = 0, blend = 0;
+        ParticleEnv env;
+        std::vector<float> data;
+        uint64_t draws = 0, envOff = 0, countOff = 0, words = 0, wordsOff = 0, missed = 0, stateOff = 0;
+        double maxAbs = 0.0, maxRel = 0.0;
+    } g_s1Check;
+    PtclVtxJob *g_s1Job = nullptr;
+    PtclVtxJob g_s1Local;
+
+    bool ptclS1Begin(uint32_t most, bool check, float **room)
+    {
+        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+            return false;
+        syncFrame(const_cast<uint8_t *>(g_ram));
+        if (check)
+        {
+            g_s1Check.data.resize(std::max<uint32_t>(most, 1u) * 12u);
+            *room = g_s1Check.data.data();
+            return true;
+        }
+        PtclVtxJob &job = hookjobs::g_on ? hookjobs::next().ptcl : g_s1Local;
+        job.data.resize(std::max<uint32_t>(most, 1u) * 12u);
+        g_s1Job = &job;
+        *room = job.data.data();
+        return true;
+    }
+
+    void ptclS1Commit(uint32_t count, uint32_t blend, const float vec[2], uint32_t type, const float mat[16], const float light[4], const float shade[4], float fade,
+                      bool check)
+    {
+        PtclVtxJob *job = g_s1Job;
+        g_s1Job = nullptr;
+        if (count == 0u)
+            return;
+        ParticleEnv env = g_ptclEnvState;
+        env.type = type;
+        env.fade = fade;
+        std::memcpy(env.m, mat, sizeof(env.m));
+        env.vec[0] = vec[0];
+        env.vec[1] = vec[1];
+        for (int i = 0; i < 4; ++i)
+        {
+            if (light)
+                env.light[i] = light[i];
+            if (shade)
+                env.shade[i] = shade[i];
+        }
+        for (int i = 0; i < 3; ++i)
+            env.k[i] = real(0x118BFE0u + i * 4u);
+        const uint32_t consts = word(0x118BFF4u);
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 3; ++c)
+                env.axes[c][r] = consts ? env.k[c] * real(consts + r * 16u + c * 4u) : 0.0f;
+        const uint32_t header = g_requested, layer = g_layers.empty() ? 18u : g_layers.back();
+        if (check)
+        {
+            PtclS1Check &c = g_s1Check;
+            if (c.pending)
+                ++c.missed;
+            c.pending = true;
+            c.count = count;
+            c.header = header;
+            c.layer = layer;
+            c.blend = blend;
+            c.env = env;
+            c.data.resize(count * 12u);
+            return;
+        }
+        g_ptclBlend = blend;  // ptclMatHook
+        g_ptclEnvState = env; // ptclEnvHook
+        const bool off = !native_renderer::tuning().particles;
+        if (!job || off || !g_cameraContext || count > 4096u || (!(type >= 1u && type <= 5u) && type != 7u))
+            return;
+        HookTimer hookTimer;
+        job->count = count;
+        job->header = header;
+        job->layer = layer;
+        job->blend = blend;
+        for (int i = 0; i < 16; ++i)
+            job->camera[i] = real(g_cameraContext + 0x5A0u + i * 4u);
+        const uint32_t cst = word(0x118BFF4u) & 0x0FFFFFFFu;
+        for (int i = 0; i < 3; ++i)
+            job->eye[i] = cst ? real(cst + 0x100u + i * 4u) : 0.0f;
+        job->env.resize(sizeof(ParticleEnv));
+        std::memcpy(job->env.data(), &env, sizeof(ParticleEnv));
+        job->data.resize(count * 12u);
+        if (!hookjobs::g_on)
+        {
+            ptclVtxDraw(*job, env);
+            return;
+        }
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobPtcl;
+        hookjobs::push();
+    }
+
+    void ptclS1DropCheck() { g_s1Check.pending = false; }
+    // The S1 check's report (s1_particles.cpp prints it with its own counters).
+    void ptclS1CheckStats(uint64_t &draws, uint64_t &countOff, uint64_t &envOff, uint64_t &stateOff, uint64_t &words, uint64_t &wordsOff, uint64_t &missed,
+                          double &maxAbs, double &maxRel)
+    {
+        const PtclS1Check &c = g_s1Check;
+        draws = c.draws, countOff = c.countOff, envOff = c.envOff, stateOff = c.stateOff, words = c.words, wordsOff = c.wordsOff, missed = c.missed;
+        maxAbs = c.maxAbs, maxRel = c.maxRel;
+    }
+    // A pending S1 record set compared with the original's job (count, texture, layer, blend, environment, every
+    // word; the records' last two words only for type 7, the only one that reads them). Tolerance: 1e-4 relative
+    // or 1e-5 absolute (the S1 records are plain float products of the same inputs; the original's FPU macros
+    // round toward zero and clamp).
+    void s1CheckAgainst(uint32_t a, uint32_t count, uint32_t header, uint32_t layer)
+    {
+        PtclS1Check &c = g_s1Check;
+        if (!c.pending)
+            return;
+        c.pending = false;
+        ++c.draws;
+        if (c.count != count)
+        {
+            if (c.countOff++ < 20u)
+                std::fprintf(stderr, "[s1ptclc] count differs: s1 %u original %u\n", c.count, count);
+            return;
+        }
+        if (c.header != header || c.layer != layer || c.blend != g_ptclBlend)
+            ++c.stateOff;
+        const ParticleEnv &e = g_ptclEnvState;
+        bool envSame = c.env.type == e.type && std::fabs(c.env.fade - e.fade) <= 1e-5f && c.env.vec[0] == e.vec[0] && c.env.vec[1] == e.vec[1];
+        for (int i = 0; i < 16 && envSame; ++i)
+            envSame = std::fabs(c.env.m[i] - e.m[i]) <= 1e-4f * std::max(1.0f, std::fabs(e.m[i]));
+        for (int i = 0; i < 4 && envSame; ++i)
+            envSame = (e.type != 4u && e.type != 5u) || (std::fabs(c.env.light[i] - e.light[i]) <= 1e-5f && std::fabs(c.env.shade[i] - e.shade[i]) <= 1e-5f);
+        if (!envSame && c.envOff++ < 20u)
+            std::fprintf(stderr, "[s1ptclc] env differs: type %u/%u fade %g/%g m0 %g/%g m12 %g/%g\n", c.env.type, e.type, c.env.fade, e.fade, c.env.m[0], e.m[0], c.env.m[12],
+                         e.m[12]);
+        std::vector<float> now(count * 12u);
+        guestBlock(a, count * 48u, now.data());
+        for (uint32_t i = 0; i < count * 12u; ++i)
+        {
+            if ((i % 12u) >= 10u && e.type != 7u)
+                continue;
+            ++c.words;
+            const double x = c.data[i], y = now[i], d = std::fabs(x - y), rel = d / std::max(1e-30, std::fabs(y));
+            if (d > 1e-5 && rel > 1e-4)
+            {
+                if (c.wordsOff++ < 20u)
+                    std::fprintf(stderr, "[s1ptclc] word %u of particle %u (type %u): s1 %.9g original %.9g\n", i % 12u, i / 12u, e.type, x, y);
+            }
+            if (std::isfinite(d))
+            {
+                c.maxAbs = std::max(c.maxAbs, d);
+                if (std::fabs(y) > 1e-3)
+                    c.maxRel = std::max(c.maxRel, rel);
+            }
+        }
     }
 
     // Round 103: the model hook is installed and draws natively (no PS2

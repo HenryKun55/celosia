@@ -70,6 +70,12 @@ namespace sotc_native
                        bool vertices);
 }
 
+namespace s1ptcl_api
+{
+    bool drawSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool drawAnimated(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
 namespace decomp_hot46j
 {
     using sotc_decomp::callGuest;
@@ -179,6 +185,8 @@ namespace decomp_hot46j
 
     void drawSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (s1ptcl_api::drawSinCos(rdram, ctx, runtime)) // round S1: the records straight into the renderer's job
+            return;
         if (!sotc_decomp::hotList46On())
             return fallback(kDrawSinCos, rdram, ctx, runtime);
         float *f = ctx->f;
@@ -370,6 +378,8 @@ namespace decomp_hot46j
 
     void drawAnimated(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (s1ptcl_api::drawAnimated(rdram, ctx, runtime)) // round S1
+            return;
         if (!sotc_decomp::hotList46On())
             return fallback(kDrawAnimated, rdram, ctx, runtime);
         float *f = ctx->f;
