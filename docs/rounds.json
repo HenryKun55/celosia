@@ -827,7 +827,7 @@
   {
    "round": "D7",
    "date": "2026-11-15",
-   "commit": "",
+   "commit": "8bf87dc",
    "focus": "Decomp",
    "summary": "Decomp D7. A new speed measure: the A/B now switches the lifted code on or off at random every frame, so both sides see the same scenes; two runs agree (per-function correlation 0.93, where D6's window A/B disagreed in sign). The trace check now covers the inlined and summarized calls too. Re-checking D3-D5 with it found a real converter bug: the original's sign branches test only the low 32 bits, and the converted code tested 64. It is fixed in 199 already shipped functions. Two more bugs turned up in the new batch (a jump-table form, a 128-bit write-back). D7's batch is everything the Mac's walk, ride, attract and exploration runs reach, plus the earlier rounds' speed cuts: 1 681 functions ship behind SOTC_LIFTD7 (on).",
    "result": "Decomp: 4 625 of 9 024 functions native (51.3%, was 32.7%), 52.1% of the code, 96.8% of calls; 83.7% of the game thread in native code (was 80.4%). Exact: every shipped function checked with the trace check on its current code, 0 register / clock / event differences; D3-D5 re-checked: 862 of 879, 0 after the fix. Speed (Vita3K 222 MHz, interleaved A/B): the shipped set took about 80% of its recompiled time, about 0.6% of the game thread (chosen with the same runs, so the figure is optimistic); 89 functions slower in both runs, or not measurable, left out. Pictures: walk, ride, attract demo and the rotation walk normal, Wander and Agro on the ground."
