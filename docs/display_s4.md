@@ -228,7 +228,27 @@ the split as it is.
 
 ## 7. Pictures
 
-(filled in below)
+Vita3K 222 MHz, muted, window shots. Every run "ok" (drew within two minutes), No exact recompiled function 0.
+
+- **On / off side by side** (s4/pics.sh, the shipped p5, `SOTC_S4DISP=1` on tree s4 and `=0` on s4b at once, shots every
+  30 s): picA1p5 / picA0p5 (attract, 540 s, 18 438 / 17 658 frames) and picL1p5 / picL0p5 (the lake route, 12 198 /
+  12 138 frames). Wall-clock shots of two runs are not the same frame: RMSE (magick compare) 0.025-0.029 on the three
+  lake pairs taken before the runs drifted apart (the same moment of the swim), 0.03-0.24 on the attract demo's pairs and
+  ~0.27 once the lake runs reach the shrine's hold at different moments. Looked at pair by pair: the gallop (Agro with
+  her shadow on the grass, the cliffs' shading, the distance fog, the sky and bloom), the rain opening, Wander under
+  water at the lake with the HUD's grip ring, the shrine's light and its drifting smoke: nothing differs but the moment.
+  The frame-exact picture check is the in-run one (section 4): the renderer received the same emissions and host state
+  with the passes' original runs as the variants leave.
+- **Mixed runs** (the A/Bs, shots every 120 s, each shot's frame on or off at random): the title screen, the gallop on
+  the plain and by the cliffs, the lake's swim, the shrine: normal in all.
+- **Check runs** (the original passes drawing): chkAp4 / chkLp4 / chkRp4 / chkLp5 / chkRp5 normal (the ride's shrine
+  floor, the lake shore and swim).
+
+spalign (r110/spalign.py) on celosia-s4.elf: 830 NEON :128 / :256 accesses, 0 sp-based. sotc_vita_elf_room unchanged (80
+KB: the Vita build links). Junk deleted after looking (the runs' shots and sampler snapshots but the first and last).
+
+Console A/B: build/agent-scratch/celosia-s4.vpk with build/agent-scratch/s4/env-console.txt
+(`SOTC_AB_FLAG=s4disp,a9cmp,liftd11 SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`, as D11's).
 
 ## 8. What S4 leaves for the next round
 
