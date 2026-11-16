@@ -307,6 +307,16 @@
    "time": 83.3,
    "generated": 4.6,
    "runtime": 12.1
+  },
+  {
+   "date": "2026-11-16",
+   "label": "D10",
+   "commit": "14e9577",
+   "code": 58.32,
+   "calls": 96.46,
+   "time": 83.6,
+   "generated": 4.7,
+   "runtime": 11.7
   }
  ]
 }

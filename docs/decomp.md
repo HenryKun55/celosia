@@ -20861,3 +20861,218 @@ and Vita builds compile. Console A/B: celosia-s2.vpk with build/agent-scratch/s2
 - **When killing a Vita3K run, kill its tools/vita3k.sh too**: its timer kills the tree's next Vita3K later.
 - Next collision items (docs/collision_s2.md section 7): the segment tests' object loop and walk (a per-frame host
   broadphase of each group's objects), the ground fill (a host index of static surfaces), the attribute lookups.
+
+## Decomp D10: characters and motion; a fight with Valus from a new game (the opening skipped, teleports by place, object probes); D10's batch (SOTC_LIFTD10) and the first hand native of a D7 speed cut (2026-11-16)
+
+Scripts, lists, runs and builds: `build/agent-scratch/d10/` (STATE.md lists them; new scripts were written in the
+worktree's build/agent-scratch/d10src/): why10.py (why each of the area's recompiled functions was not native),
+reachc.py (which call-count runs reached which of a list), cand10.py (D10's candidates), gen10.sh (D10's files),
+patch_rt10.py (the runtime's D10 switch and lift_d1.py's `--d10`), patch_probe.py / mkfight*.py / mkhang.py (the new
+teleport aids and the fight / grab inputs), first10.py (first calls, the area's marked), mkreach10.py / chmap.py
+(docs/characters_map.md's per-function table), abmix10.sh (the A/B). Own Vita3K trees ../vita3k-celosia-d10 / -d10b
+(222 MHz, 3 cores, muted). At most two heavy processes at once, all `nice -n 20`, builds `-j4`.
+
+### Task 1: the area's leftovers, and why they were left
+
+decomp_status's "Characters and motion" (by name: `chara|motion|skeleton|bone|joint|pose|ik|gaze|quat|euler|curve|anim|
+cloth|bridle|wander|horse|agro|player|enemy|boss|colossus|grip|climb`, or a native in decomp_(bridle|chara|cloth|clothdyn|
+clothstep|curve|quat|skeleton|skinpal).cpp) had **623 of 1 206** functions native after D9 on the honest count (63.66% by
+code). The natives' fallback count (`SOTC_FALLBACK_COUNT`, D9) on D10's routes finds **no** native of this area that still
+runs generated code without a lifted copy behind it: the area's natives that fall back (GetMotionOptionNodeParentId,
+GetCharacterClassOptionNodeLocalQuaternionPos, AI_GetYRotQuaternion, GetGeometryPointerQuaternion / QuatPos,
+GetCharacterClassGazeAddMotions, bossDeathEffectEnd, GetMotionFloatFrame ...) are all served by D5-D9's fallback copies.
+The five that still fall back to generated code (GetGeometryPointerPosition, manager_sub_01137858 / 010AF2A0 / 010B06A8 /
+010C7B28: D9's speed cuts) belong to other areas. So the honest count before D10 is 623.
+
+Why the 583 others were not native (why10.py, the call counts of D7-D9's runs):
+
+| why | functions |
+|---|---:|
+| D7's speed rule: exact, but the lifted copy slower in both of D7's A/Bs; all thirteen are hot (0.6-10.7 million calls a run): GetMotionRootFloatFrame, GetMainAnimation, CharaCtrlAIControl, GetMotionOptionNodeFloatFrame, GetMorphAnimation, getClothGeometry, GetCharacterClassMotionInterpNodePosition, charrootdyn_getMotionRootInfo, ExecMotionSyncAnimation, nico_horseClothOverSurfDetectFunc, nico_execHorseBriddle, player_HellDangerDetect, nico_execPlayerMantle | 13 |
+| reached in an earlier call-count run, never at top level in a trace pass (30 of them only in D9's dv1 lake run, which no later run repeated: the pendulum / colfit effectors, the grip and edge-hang geometry, the boss-part damage getters) | 42 |
+| never called on any route | 528 |
+
+The 528: a colossus' own code (its start, AI, IK, parts, the boss scripts' conditions and functions: about 100),
+Wander's grip, hang and climb modes (about 45), hits, damage and death (about 45), Agro's riding modes, calls and kicks
+(about 45), IK and gaze of the colossi (about 30), the boss table, time attack and fight state (about 25), cutscenes, the
+ending and the menus (about 25), camera animations (about 15), swimming under water (about 7), debug display and dumps
+(about 40), and about 160 whose names say nothing about what calls them (docs/characters_map.md section 8 has the guess
+for each).
+
+### Task 2: reaching them: a fight with Valus
+
+Valus (the first colossus) is the only colossus a scripted run can meet: on the console card four are dead and Avion
+never fought D8 / D9's blind input, and a new game starts with Valus alive. D9's new-game route took ~25 000 frames of
+opening before the teleport. New test aids (sotc_replay.cpp; off unless set):
+
+- **The opening skipped.** A START press at frame 2 500 of the new game (after the menu's CROSS) skips the opening: Wander
+  stands at the altar from frame ~2 600 (Mac, no difftest), not ~24 800. Under the trace check the game's frames run
+  against the host's loading times differently and the press can land before the cutscene starts, so the trace route
+  (in_fv3.txt) plays the opening and starts the fight at frame 26 000.
+- **`SOTC_TELEPORT_OBJS=<n>`**: every character object of the handle table (0x21B900, 24-byte entries, object +8 type 9 or
+  0x16, as GetCharacterClass) with its place, every n frames (`[tobj]`). It finds Wander (handle 4 783) and Agro, not Valus:
+  his object is of another type.
+- **`SOTC_TELEPORT_PROBE=<addr>`** (`SOTC_TELEPORT_PROBE_OFF=<off>`): that guest function wrapped; its a0 is kept and
+  printed with the words at the offset every 300 frames (`[tprobe]`, the object's place-like words dumped once), and a
+  `<frame>:probe,dx,dy,dz` teleport goes to it. On nico_execMinotaurA_Cloth (0x13983B0) a0 is a layout object with the
+  same vtable as Wander's (0x110CA58), its +0x170 zero, and the place (-270, 30, 316) four times in its words: Valus'
+  home on the plateau above the canyon. The probe's object changes between runs, so the fight uses fixed places.
+- `<frame>:obj<k>,dx,dy,dz`: the place of handle k plus an offset.
+- Teleport coordinates: an object's +0x170 holds (-x, y, -z) of the teleport's numbers (D8's note: the world place is
+  (-f12, f13, -f14)).
+
+A height scan (sv1: `SOTC_TELEPORT_SCAN` from 60 units up over the canyon) found the plateau at y 29-48 north of the
+canyon record. **fv2** (mkfight2.py, in_fv2.txt / tp_fv2.txt): the new game with the skip, `3500:boss0` (Valus streams
+in), then 14 rounds of 1 500 frames: Wander dropped 15-30 units from Valus' home, 40-44 up, in eight directions, R1 held
+with a stick direction and jumps, sword slashes, a roll. Wander lands on the plateau (y 29.4-29.9), Valus walks to him
+and stamps: the quake attack's hit test, the attack IK of the waist and an optional bone, the parts' damage getters, the
+boss cloud, the checkpoint hook, Wander's death (frame 8 890) and the game over flow (gameflowGameOver,
+gameflowSelectGameoverMenu, gameover), the retry at the plateau. **34 of the area's still-recompiled functions** ran in
+fv2, 13 that no earlier run had reached. Wander did not grip Valus' fur in 14 tries.
+
+| run | what it does | the area's functions it reached first |
+|---|---|---|
+| ngv1 / ngv2 | new game, START at 2 500 (the opening skipped), `3500:boss0`, D9's fight block in the canyon | ExecMotionSyncAnimation, SCRConditionGameObjMotionShiftCheck, AI_GetMotionBasicVelocity, nico_execMinotaurA_Cloth (Valus streams in) |
+| hang1 | the console card, Avion's lake, drops in a ring around a pillar with R1 held (grab tries) | none: places inside the pillar sent Wander to a fallback place and out of the world |
+| ngo1 / ngo2 / ngp1 / ngp2 / fv1 | the object list and the probe (finding Valus) | - |
+| sv1 | a height scan of Valus' canyon from 60 up | the plateau (y 29-48); Wander lost past x 405 |
+| **fv2** | the fight (above) | 21 first calls after frame 3 000; 34 of the area in all |
+
+### Task 3: D10's batch (SOTC_LIFTD10) and a hand native
+
+**Candidates** (cand10.py): every function D7-D10's call-count runs reach that is still recompiled on the honest count,
+not a stub, not interrupt-side, not the coroutine, not lifted by D9, not an earlier speed cut unless in this area: **296
+(68 in the area)**. lift_d1.py `--d10` (as `--d7`, D10's macros; `--extern` D1-D9) lifts 277; the 18 refused are outside
+the area (7 checkpoint patterns, 6 branches out of the function, 2 bc0f loops, 3 `break` forms), as in D7-D9. They ship
+behind **SOTC_LIFTD10** (default on, A/B `liftd10`, test knob `SOTC_LIFTD10_RANGE=<lo>:<hi>`) in
+game/overrides/decomp_liftd10_00.cpp; patch_rt10.py adds kLiftD10 and the macros as D9's did (the fallback macro
+SOTC_DECOMP_LIFT_FALLBACK_D10 too; D10 needed no fallback copy).
+
+**A hand native for a D7 speed cut.** nico_horseClothOverSurfDetectFunc (0x13970A0, 88 bytes, 0.7-1.3 million calls a run:
+Agro's cloth's surface callback) was 7 times slower lifted (D7: 12.3 against 1.7 samples per 1 000 frames): the lifted
+entry and exit cost more than the body. game/overrides/decomp_chara10.cpp writes it by hand with GetCharacterClass inlined
+(object +8 type 9 or 0x16: +0x90), every register and the stack word the code leaves (ra stored at sp - 0x10, v1, a0, at,
+f0 / f1, the condition bit, v0), falling back to the generated code when the jal at 0x13970A8 no longer targets
+GetCharacterClass or the object is out of RAM. It is registered as a D10 function (namespace lift_d1, SOTC_LIFTD10, so
+the A/B and the sampler split measure it like a lifted one). The trace check does not apply to it (it makes no call
+where the generated code makes one: "the lifted code ends after 0 of the generated code's 1 events"), so it was checked
+with the two-leg difftest (`SOTC_DIFFTEST=nico_horseClothOverSurfDetectFunc`, every register, VU0, RAM; the walk): **700
+checks, 0 mismatches**. The other twelve hot ones call other guest functions between their steps; writing them by hand
+with the same register state at every call is a round of its own.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200; every register / VU0 / FPU, the
+clock, RAM, scratchpad, VU0 data at every event and at the end):
+
+| pass | build | route | functions checked | checks | register / clock / event mismatches | RAM outside the noise words |
+|---|---|---|---:|---:|---|---|
+| dtf_fv0 | t2 (277 + the native) | the new game, all names (stopped in the opening: the hot ones checked) | 12 | 2 900 (the native's 200 among them) | 0 (the native: see above) | 0 (one noise word, 0x29126c) |
+| dtw_walk | t2 | the console card's walk | 12 | 4 200 | 0 | 0 |
+| **dtf_fv3** | t2 | the new game with the opening, `26000:boss0`, the fight (in_fv3.txt), the 266 not checked yet | 82 | 5 961 | 0 | 0 |
+| dtx_tb | t2 | Avion's lake, D8's tb4x input (in_tbx.txt, `2000:boss4`) | 13 | 13 | 0 | 0 |
+| dtl_dv / dt3_dv3 | t2 | D9's dv1 / dv3 lake inputs | 1 / 1 | 200 / 1 | 0 | 0 |
+| dtn_walk | t2, the two-leg difftest | the walk, the hand native | 1 | 700 | 0 | 0 |
+
+108 functions checked at top level, **0 mismatches** (no RAM byte outside the noise words, so no control run was needed).
+dv1's and dv3's runs did not repeat their events (D9 found the same: the game's timing is the host's), so the 30
+functions only dv1 reached stay unchecked.
+
+### Speed (the interleaved A/B, D7's rule)
+
+Two SOTC_AB_MIX runs on p1 (Vita3K 222 MHz, the 278; `SOTC_AB_FLAG=liftd10 SOTC_AB_PERIOD=1`, sampler 120-1 440 s).
+A third, the fight on Vita3K, did not start: a new game in Vita3K stays at "Checking memory card" with the menu inputs
+(the S2 note's Mac symptom), so the fight's functions are not sampled; under the rule they ship.
+
+| run | route | frames (on / off) | the 278, lifted vs recompiled (samples per 1 000 frames) | slower z > 2 | faster z < -2 | sampled |
+|---|---|---|---|---:|---:|---:|
+| mixA (seed 7) | the attract demo | 15 504 / 15 496 | 1 848.8 vs 1 359.3 (136.0%) | 11 | 1 | 14 of 278 |
+| mixB (seed 11) | the console card, `2000:boss4` (bow, swim), back to the shrine (in_tbz2.txt) | 9 968 / 10 032 | 3 191.1 vs 2 274.4 (140.3%) | 11 | 1 | 13 of 278 |
+
+**Ten of D7's thirteen hot cuts are slower again in both runs** (z in mixA / mixB): player_HellDangerDetect (lifted takes
+1.7-1.9 times the samples), GetCharacterClassMotionInterpNodePosition, GetMainAnimation, GetMorphAnimation,
+GetMotionOptionNodeFloatFrame, ExecMotionSyncAnimation, GetMotionRootFloatFrame, charrootdyn_getMotionRootInfo,
+nico_execHorseBriddle and nico_execPlayerMantle. They are cut again. getClothGeometry (z 3.2 / 1.4) and
+CharaCtrlAIControl (0.9 / 4.6) are slower in one run each and ship under the rule. **The hand native is faster in both**
+(z -2.5 / -2.7: 8.3 against 11.2 and 13.2 against 17.9 samples per 1 000 frames, 74-75% of the generated code). The
+shipped set's sampled functions together: 216.2 against 206.8 (attract) and 342.4 against 310.1 (lake) samples per
+1 000 frames of 278 000 / 476 000: +0.003% and +0.007% of the game thread, the two one-run-slower functions' share.
+
+**98 ship: 97 batch functions (22 in the area) and the hand native.**
+
+### Task 5: the characters map
+
+docs/characters_map.md (new) is the map for S3. It covers the area's parts (the per-character frame driver, the
+skeleton and pose, motion sampling and blending, the quaternion helpers, IK and fitting, gaze, cloth and the reins, the
+characters' control and state machines, AI, skinning palettes, LOD), the frame flow (the script pass and charaCtrl, the
+frame end, charaGeometry, ExecCharaGeometry's eight steps with each callee's site, the display walk), every hand-written
+native of the area with its switch, exactness and fallback conditions, the host systems built so far (Fast / r49 /
+pose82 / pose136, keys122 / key136, quat122 / euler136, gaze122, cloth122, charlod78, farchara, ai106, geo126 / ctl126,
+char104, pf141) with the gains the rounds measured, the guest data layouts (the character class's offsets, the object,
+handle, skeleton, motion resource, layout class, cloth, bridle, skin palette), **what is per-character independent and
+what is shared** (section 5: the VU0 R stream the cloths draw in character order, the collision queries of the foot IK
+and root dynamics with their lane-0 memos and shared modified managers, guest callbacks through pointers, shared guest
+words such as the quaternion stack 0x202AC0 / 0x1E0F60 and the foot-IK scratch 0x11E5DC0, host statics without
+per-thread copies, the order between characters; what char104 tried in rounds 104-121 and why it lost on the console),
+the costs earlier rounds measured, where the area stands after D10, and a table of all 1 206 functions (status, direct
+callers, callees, argument offsets, globals, and what reached or would reach each one). Sections 1-6 were drafted by a
+helper agent from the code and the rounds' write-ups and spot-checked; it found a likely race in shipped code worth a
+look before S3: keys122's `static float tmp[512*4]` (decomp_char122.cpp:964) serves GetMotionFloatFrameNoCaribration
+(0x10AD1B0), which round 108's worker list allows beside the game thread (sotc_worker.cpp:418) with no lane check; off
+the Vita SOTC_CHAR104 defaults to 1 (on the Vita it is off), and no run has shown a collision.
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, window shots every 60 s (looked at, then deleted). The final build is p2 (celosia-d10.vpk): D1-D9
+as committed, S1, S2, D10's 98, all on from boot.
+
+| run | frames | Wander y | Agro y | what the shots show |
+|---|---:|---|---|---|
+| the console card's walk (all on from boot) | 14 538 | -0.26 .. 11.31 | -0.18 .. 12.46 | Wander walking the shrine's stairs and ramp; this run's walk stayed at the shrine (see below) |
+| the walk again (p2_walk2) | ~9 000 (stopped) | -5.0 .. 11.31 | | Wander and Agro on the plain's grass with their shadows |
+| the ride | 9 678 | 3.77 .. 11.31 | 0.60 .. 12.46 | the shrine's mist and light, Wander at the altar beside Mono |
+| **Avion's lake** (in_tbz2.txt, `2000:boss4`, back to the shrine at 7600) | 11 538 | 3.77 .. 11.31 | 0.87 .. 12.51 | Wander swimming in the lake with the splashes |
+| the attract demo with the sampler | 19 038 | 3.24 | 0.18 .. 10.03 | Agro's gallop on the grass in the canyon |
+| the walk under the console env's rotation (`SOTC_AB_FLAG=liftd10,s2coll,liftd9`, 600 frames) | 14 238 | -0.05 .. 12.57 | -0.05 .. 12.45 | Wander at the shrine, then the plain |
+
+**The walk's spread.** In three of five walks Wander spent minutes on the shrine's stairs before leaving (y 7-10). The
+same happened with `SOTC_LIFTD10=0` on p2 and with S2's own build (celosia-s2.vpk) run beside p2 in the other tree,
+while p2's run in that pair reached the plain by frame 2 700: the frame-clocked walk script against Vita3K's speed, not
+D10.
+
+Every run drew within two minutes (the watchdog never fired); no "No exact recompiled function", no wild return; one to
+four game-thread frames over 300 ms per run (boot, loads). spalign (r110/spalign.py) on celosia-d10.elf finds 809 NEON
+:128 accesses, 0 of them sp-based. The Mac and Vita builds compile. The new test aids are off unless set.
+
+### Decomp numbers
+
+tools/decomp_status.py on the final build's replaced dump with `SOTC_WORKER91=0` (the honest count; Mac, attract demo to
+frame 1 500; calls from round 71's dumps). docs/decomp_status.json is written from it:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D10 | **5 063 of 9 024 (56.11%)** | 58.32% | 96.46% | 59.06% |
+| as earlier rounds counted (gates on), D10 | 5 121 (56.75%) | 58.71% | 97.10% | 59.52% |
+| honest, D9 | 4 965 (55.02%) | 57.07% | 96.35% | 57.59% |
+
+By area (honest, functions): **characters and motion 646 of 1 206 (623 after D9; 66.0% of the code, 63.7%)**, collision
+174 of 317 (167; D10's batch had seven of its functions), script 227 of 633, other game code 1 608 of 2 905. The Vita3K
+profile of the attract demo (300-690 s): native 83.5%, recompiled MIPS 4.7%, runtime 11.8% of the game thread; the
+area's share 16.6% native, 0.6% MIPS (D9: 15.7% / 0.7%).
+
+### What S3 and D11 should take
+
+- **S3 (the characters' redesign)**: docs/characters_map.md section 5 is the list of what blocks per-character parallel
+  poses. The poses themselves (pose82's pose, layout and bone products, key decoding, CalcNodeInterp, the cloth mesh
+  loops) are per character today, apart from one guest word (the quaternion stack's top) and register write-back. The
+  chain inside a character (root dynamics and fitting with collision, then IK and gaze, then the pose, then the cloths
+  with the R stream, then the anime tables) and the reads between characters (Agro before the reins, Wander read 0.04-0.2
+  ms after his geometry) decide what can run beside what. Fix keys122's static scratch first.
+- **The ten hot speed cuts** (player_HellDangerDetect, GetMainAnimation, GetMotionRootFloatFrame ...) are exact lifted
+  but slower; they need hand natives (decomp_chara10.cpp is the pattern for a leaf; the others call 3-30 guest functions
+  each, so the register state at each call must match).
+- **Reaching the rest needs recorded play.** A new game reaches Valus in ~2 600 frames now (START at 2 500) and a
+  teleport puts Wander on his plateau, but blind input does not climb a colossus or hit a weak point. A recorded session
+  (Valus: climb, stab, kill, then ride to the second colossus) replayed on the Mac with the trace check would reach the
+  grip / hang / weak-point / boss-death code and the next colossus' own code. Vita3K's new-game menu stays at "Checking
+  memory card" with the scripted inputs: a fight A/B on Vita3K needs that fixed or a save made at Valus.
+- **The trace check under a skipped opening**: a START press keyed to a frame lands at a different game moment when the
+  run is slower; a press keyed to the cutscene's own start (a hook) would make the skip safe for trace runs.

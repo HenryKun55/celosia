@@ -77,6 +77,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -745,12 +746,56 @@ namespace sotc_replay
             float p[4] = {0, 0, 0, 0};
             bool done = false;
             int64_t hold = -1;                   // "h<n>" after the place: this entry's own hold (else SOTC_TELEPORT_HOLD)
+            int obj = -1;                        // Decomp D10: "obj<k>,dx,dy,dz": object handle k's place (+0x170) plus (dx, dy, dz)
+            float d[3] = {0, 0, 0};
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
         };
         uint64_t g_teleportHold = 0;
         std::vector<Teleport> g_teleports;
         bool g_teleportList = false;
         uint64_t g_teleportListAt = 0, g_teleportPosEvery = 0, g_teleportPosNext = 0;
+        uint64_t g_teleportObjsEvery = 0, g_teleportObjsNext = 0; // Decomp D10: SOTC_TELEPORT_OBJS=<n>
+        // Decomp D10: SOTC_TELEPORT_PROBE=<hex addr>: that guest function wrapped; its a0 (an object) is kept, printed with
+        // its place every 300 frames ([tprobe]), and a "probe,dx,dy,dz" teleport goes to that place plus (dx, dy, dz).
+        uint32_t g_probeAddr = 0, g_probeObj = 0, g_probeOff = 0x170u; // SOTC_TELEPORT_PROBE_OFF: the place's offset
+        bool g_probeDumped = false;
+        uint64_t g_probeNext = 0;
+        PS2Runtime::RecompiledFunction g_probeOriginal = nullptr;
+        void probeHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            const uint32_t o = GPR_U32(ctx, 4);
+            if (o >= 0x100000u && o < 0x1FFFF00u)
+            {
+                g_probeObj = o;
+                const uint64_t now = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                if (now >= g_probeNext)
+                {
+                    g_probeNext = now + 300u;
+                    float x, y, z;
+                    std::memcpy(&x, rdram + o + g_probeOff, 4);
+                    std::memcpy(&y, rdram + o + g_probeOff + 4u, 4);
+                    std::memcpy(&z, rdram + o + g_probeOff + 8u, 4);
+                    if (!g_probeDumped)
+                    {
+                        // The object's words that read as places (floats 20..3000 in size) and code / data pointers.
+                        g_probeDumped = true;
+                        for (uint32_t k = 0; k < 0x800u; k += 4u)
+                        {
+                            float f;
+                            uint32_t w;
+                            std::memcpy(&f, rdram + o + k, 4);
+                            std::memcpy(&w, rdram + o + k, 4);
+                            if (std::fabs(f) > 20.0f && std::fabs(f) < 3000.0f)
+                                std::fprintf(stderr, "[tprobe] +%03x %.2f\n", k, f);
+                            else if (w >= 0x1000000u && w < 0x2000000u && k < 0x200u)
+                                std::fprintf(stderr, "[tprobe] +%03x ptr %08x\n", k, w);
+                        }
+                    }
+                    std::fprintf(stderr, "[tprobe] frame %llu: %08x a0 %08x at %.2f %.2f %.2f\n", (unsigned long long)now, g_probeAddr, o, x, y, z);
+                }
+            }
+            g_probeOriginal(rdram, ctx, runtime);
+        }
         constexpr uint32_t kSetPos = 0x013522A0u;
 
         void teleportCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, const float p[4], float dx)
@@ -771,7 +816,7 @@ namespace sotc_replay
         void horseHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             g_horse = GPR_U32(ctx, 4);
-            if (__builtin_expect(!g_teleports.empty() || g_teleportList || g_teleportPosEvery, 0))
+            if (__builtin_expect(!g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery, 0))
             {
                 auto rd = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
                 auto rf = [&](uint32_t a) { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
@@ -788,6 +833,25 @@ namespace sotc_replay
                     if (pl && pl < 0x2000000u)
                         std::fprintf(stderr, "[tpos] frame %llu: Wander %.2f %.2f %.2f Agro %.2f %.2f %.2f\n", (unsigned long long)now, rf(pl + 0x170u),
                                      rf(pl + 0x174u), rf(pl + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u));
+                }
+                // Decomp D10: SOTC_TELEPORT_OBJS=<n>: every object of the handle table (0x21B900, 24-byte entries, as the
+                // player's lookup) with its place (+0x170), every n frames: finds a colossus for an "obj<k>" teleport.
+                if (g_teleportObjsEvery && now >= g_teleportObjsNext)
+                {
+                    g_teleportObjsNext = now + g_teleportObjsEvery;
+                    std::fprintf(stderr, "[tobj] frame %llu: player index %u\n", (unsigned long long)now, rd(0x01465900u) & 0xFFFFu);
+                    for (uint32_t k = 1; k < 0x2000u; ++k)
+                    {
+                        const uint32_t e = 0x0021B900u + k * 24u, o = rd(e);
+                        // Characters only: GetCharacterClass's types (object +8: 9 or 0x16).
+                        if (o < 0x100000u || o >= 0x2000000u || (o & 3u) || (rdram[o + 8u] != 9u && rdram[o + 8u] != 0x16u))
+                            continue;
+                        const float x = rf(o + 0x170u), y = rf(o + 0x174u), z = rf(o + 0x178u);
+                        if (!(std::fabs(x) < 8000.0f && std::fabs(y) < 8000.0f && std::fabs(z) < 8000.0f) || (std::fabs(x) < 0.5f && std::fabs(z) < 0.5f))
+                            continue;
+                        std::fprintf(stderr, "[tobj] frame %llu: %u %08x %08x %08x %08x | %08x %08x | %.2f %.2f %.2f\n", (unsigned long long)now, k, o, rd(e + 4u), rd(e + 8u),
+                                     rd(e + 12u), rd(o), rd(o + 4u), x, y, z);
+                    }
                 }
                 if (g_teleportList && now >= g_teleportListAt)
                 {
@@ -843,6 +907,31 @@ namespace sotc_replay
                             p[1] = rf(r + 0x68u);
                             p[2] = rf(r + 0x6Cu) - cz;
                             p[3] = rf(r + 0x70u);
+                        }
+                        if (t.obj == 0)
+                        {
+                            if (!g_probeObj)
+                            {
+                                std::fprintf(stderr, "[teleport] no probed object yet\n");
+                                continue;
+                            }
+                            // +0x170 holds (-x, y, -z) of the teleport's numbers; (dx, dy, dz) in the teleport's numbers.
+                            p[0] = -rf(g_probeObj + g_probeOff) + t.d[0];
+                            p[1] = rf(g_probeObj + g_probeOff + 4u) + t.d[1];
+                            p[2] = -rf(g_probeObj + g_probeOff + 8u) + t.d[2];
+                        }
+                        if (t.obj > 0)
+                        {
+                            const uint32_t o = rd(0x0021B900u + static_cast<uint32_t>(t.obj) * 24u);
+                            if (o < 0x100000u || o >= 0x2000000u)
+                            {
+                                std::fprintf(stderr, "[teleport] no object %d\n", t.obj);
+                                continue;
+                            }
+                            // +0x170 holds (-x, y, -z) of the teleport's numbers; (dx, dy, dz) in the teleport's numbers.
+                            p[0] = -rf(o + 0x170u) + t.d[0];
+                            p[1] = rf(o + 0x174u) + t.d[1];
+                            p[2] = -rf(o + 0x178u) + t.d[2];
                         }
                         for (int k = 0; k < 4; ++k)
                             t.p[k] = p[k];
@@ -1108,11 +1197,18 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what.rfind("boss", 0) == 0)
                         t.boss = std::atoi(what.c_str() + 4);
+                    else if (what.rfind("obj", 0) == 0)
+                        std::sscanf(what.c_str() + 3, "%d,%f,%f,%f", &t.obj, &t.d[0], &t.d[1], &t.d[2]);
+                    else if (what.rfind("probe", 0) == 0)
+                    {
+                        t.obj = 0;
+                        std::sscanf(what.c_str() + 5, ",%f,%f,%f", &t.d[0], &t.d[1], &t.d[2]);
+                    }
                     else
                         std::sscanf(what.c_str(), "%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3]);
                     // Decomp D9: "h<n>" at the end: this entry's own hold (h0: none), e.g. tries from a place in an area
                     // already streamed in.
-                    const size_t h = what.find('h', what.rfind("boss", 0) == 0 ? 4 : 0);
+                    const size_t h = what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
                     if (h != std::string::npos)
                         t.hold = std::strtoll(what.c_str() + h + 1, nullptr, 10);
                     g_teleports.push_back(t);
@@ -1148,7 +1244,20 @@ namespace sotc_replay
                 g_teleportHold = std::strtoull(e, nullptr, 10);
             if (const char *e = std::getenv("SOTC_TELEPORT_POS"))
                 g_teleportPosEvery = std::strtoull(e, nullptr, 10);
-            if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery) && runtime.hasFunction(kHorseStep))
+            if (const char *e = std::getenv("SOTC_TELEPORT_OBJS"))
+                g_teleportObjsEvery = std::strtoull(e, nullptr, 10);
+            if (const char *e = std::getenv("SOTC_TELEPORT_PROBE"))
+            {
+                g_probeAddr = static_cast<uint32_t>(std::strtoul(e, nullptr, 16));
+                if (const char *f = std::getenv("SOTC_TELEPORT_PROBE_OFF"))
+                    g_probeOff = static_cast<uint32_t>(std::strtoul(f, nullptr, 16)) & ~3u;
+                if (g_probeAddr && runtime.hasFunction(g_probeAddr))
+                {
+                    g_probeOriginal = runtime.lookupFunction(g_probeAddr);
+                    runtime.registerFunction(g_probeAddr, probeHook);
+                }
+            }
+            if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery) && runtime.hasFunction(kHorseStep))
             {
                 g_horseOriginal = runtime.lookupFunction(kHorseStep);
                 runtime.registerFunction(kHorseStep, horseHook);
