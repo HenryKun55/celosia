@@ -113,7 +113,34 @@ namespace s4disp
         ctx->pc = ra;
         sotc_native::s4NoteCamera(cameraNow(Ram{rdram}));
     }
-    void bloomVariant(uint8_t *, R5900Context *, PS2Runtime *, Fn) { sotc_native::s4BloomRan(); }
+    // The bloom chain (bloomDisplay, decomp_hot48a.cpp): its six values eased toward their targets each call (a + (t - a)
+    // / 12, at least one step; the renderer reads them at endFrame), then the bloom flag.
+    void bloomEffects(const Ram &ram, R5900Context *, std::vector<Effect> &out)
+    {
+        static const uint32_t kPairs[6][2] = {{0x0118C0A8u, 0x0118C140u}, {0x0118C0ACu, 0x0118C144u}, {0x0118C0B0u, 0x0118C148u},
+                                              {0x0118C0A4u, 0x0118C14Cu}, {0x0118C0A0u, 0x0118C13Cu}, {0x0118C09Cu, 0x0118C12Cu}};
+        for (const auto &p : kPairs)
+        {
+            const uint32_t target = ram.u32(p[0]), value = ram.u32(p[1]);
+            uint32_t v = value;
+            if (target != value)
+            {
+                const int32_t d = static_cast<int32_t>(target - value), q = d / 12;
+                v = q != 0 ? value + static_cast<uint32_t>(q) : value + (d < 0 ? 0xFFFFFFFFu : 1u);
+            }
+            out.push_back({p[1], v});
+        }
+    }
+    void bloomVariant(uint8_t *rdram, R5900Context *ctx, PS2Runtime *, Fn)
+    {
+        static std::vector<Effect> e;
+        e.clear();
+        const Ram ram{rdram};
+        bloomEffects(ram, ctx, e);
+        for (const Effect &x : e)
+            ram.put32(x.at, x.value);
+        sotc_native::s4BloomRan();
+    }
 
     // reflectionBegin: the ripple clock (0x118c030 += 0.1 x the frame step f12, the code's FPU ops: mul.s then add.s).
     constexpr uint32_t kRippleTime = 0x0118C030u;
@@ -125,28 +152,45 @@ namespace s4disp
         std::memcpy(&b, &t, 4);
         out.push_back({kRippleTime, b});
     }
-    void reflectionVariant(uint8_t *rdram, R5900Context *ctx, PS2Runtime *, Fn)
+    // The shadow reduce's handshake (0x118c080): shadowReset sets it when shadows are on (*0x118c07c != 0), shadowDraw
+    // draws only when it is set and clears it.
+    constexpr uint32_t kShadowOn = 0x0118C07Cu, kShadowPending = 0x0118C080u;
+    void shadowResetEffects(const Ram &ram, R5900Context *, std::vector<Effect> &out)
     {
-        std::vector<Effect> e;
+        if (ram.u32(kShadowOn) != 0u)
+            out.push_back({kShadowPending, 1u});
+    }
+    void shadowDrawEffects(const Ram &ram, R5900Context *, std::vector<Effect> &out)
+    {
+        if (ram.u32(kShadowPending) != 0u)
+            out.push_back({kShadowPending, 0u});
+    }
+    // A variant that is its effects (computed from the entry state, then written).
+    template <void (*Effects)(const Ram &, R5900Context *, std::vector<Effect> &), bool Camera>
+    void apply(uint8_t *rdram, R5900Context *ctx, PS2Runtime *, Fn)
+    {
+        static std::vector<Effect> e;
+        e.clear();
         const Ram ram{rdram};
-        reflectionEffects(ram, ctx, e);
+        Effects(ram, ctx, e);
         for (const Effect &x : e)
             ram.put32(x.at, x.value);
+        if (Camera)
+            sotc_native::s4NoteCamera(cameraNow(ram));
     }
 
     // The passes. Bits of SOTC_S4DISP_PASSES in this order.
     const Pass kPasses[] = {
-        {0x0109AD58u, "reflectionBegin", reflectionEffects, reflectionVariant, {}},
+        {0x0109AD58u, "reflectionBegin", reflectionEffects, apply<reflectionEffects, false>, {}},
         {0x010AC0A8u, "zFog", noEffects, zFogVariant, {true, false, 1}},
-        {0x0109D320u, "shadowDraw", noEffects, noteCamera, {true, false, 0}},
-        {0x0109D158u, "shadowReset", noEffects, nothing, {}},
+        {0x0109D320u, "shadowDraw", shadowDrawEffects, apply<shadowDrawEffects, true>, {true, false, 0}},
+        {0x0109D158u, "shadowReset", shadowResetEffects, apply<shadowResetEffects, false>, {}},
         {0x01084DE8u, "bgEnd", noEffects, nothing, {}},
         {0x010874E8u, "depthOfField", noEffects, noteCamera, {true, false, 0}},
         {0x0109C108u, "waterRefractionBegin", noEffects, nothing, {}},
-        {0x0109E2A0u, "bloomDisplay", noEffects, bloomVariant, {false, true, 1}},
+        {0x0109E2A0u, "bloomDisplay", bloomEffects, bloomVariant, {false, true, 1}},
         {0x0109FB08u, "bloom2_0109FB08", noEffects, nothing, {}},
         {0x010A1518u, "solarFlareReset", noEffects, nothing, {}},
-        {0x010F37C8u, "hazeCopy_010F37C8", noEffects, nothing, {}},
     };
     constexpr int kPassCount = sizeof(kPasses) / sizeof(kPasses[0]);
     Fn g_orig[kPassCount] = {};
@@ -160,17 +204,28 @@ namespace s4disp
     // ---- the check -------------------------------------------------------------------------------------------------
     struct CheckStats
     {
-        uint64_t checks = 0, incomplete = 0, hostDiffer = 0, emitDiffer = 0, effectDiffer = 0, unknownWords = 0, stackWords = 0, packetWords = 0;
+        uint32_t sp = 0;
+        uint64_t checks = 0, incomplete = 0, hostDiffer = 0, emitDiffer = 0, effectDiffer = 0, unknownWords = 0, stackWords = 0, packetWords = 0, tailWords = 0;
         std::map<uint32_t, std::pair<uint32_t, uint64_t>> unknown; // range start -> (end, times)
+        std::map<uint32_t, std::pair<uint32_t, uint32_t>> sample;  // an unknown word -> (before, after), the first 16 addresses
     };
     CheckStats g_check[kPassCount];
     uint8_t *g_snap = nullptr;
+    uint8_t *g_ram = nullptr;
+    std::string hex(uint32_t v)
+    {
+        char b[16];
+        std::snprintf(b, sizeof(b), "%x", v);
+        return b;
+    }
 
     // The display list's packet memory as the entry state gives it: the work buffer from its free pointer on (new packets),
     // the two packet buffers' layer packets (their chain tails), gsReg's packet state.
     struct DeadRanges
     {
         std::vector<std::pair<uint32_t, uint32_t>> r;
+        uint32_t newFrom = 0, newTo = 0; // the call's new packets
+        bool tail(uint32_t v) const { return v >= newFrom && v < newTo; }
         bool has(uint32_t a) const
         {
             for (const auto &x : r)
@@ -179,18 +234,16 @@ namespace s4disp
             return false;
         }
     };
-    DeadRanges deadRanges(const Ram &ram)
+    DeadRanges deadRanges(const Ram &ram, uint32_t entryNext)
     {
         DeadRanges d;
         const uint32_t list = disp::kDisplayList;
-        const uint32_t work = ram.u32(list + 0x10u);
-        if (work && work < PS2_RAM_SIZE)
-        {
-            const uint32_t free = ram.u32(work + 0x20u);
-            if (free && free < PS2_RAM_SIZE)
-                d.r.push_back({free & ~0xFu, std::min<uint32_t>((free & ~0xFu) + 0x100000u, PS2_RAM_SIZE)});
-            d.r.push_back({work, work + 0x40u});
-        }
+        // The current buffer's packets (+0 / +4 by buffer: its start; +0x10 the next free word, read after the call): the
+        // new packets and the links written into earlier ones (a layer's tail tag's address field).
+        const uint32_t buf = ram.u32(list + 0x18u) & 1u, start = ram.u32(list + 4u * buf), next = ram.u32(list + 0x10u);
+        if (start && next > start && next < PS2_RAM_SIZE && next - start < 0x400000u)
+            d.r.push_back({start, next});
+        d.newFrom = entryNext, d.newTo = next;
         for (uint32_t k = 0; k < 2u; ++k)
         {
             const uint32_t packets = ram.u32(list + 8u + 4u * k), count = ram.u32(list + 0x14u);
@@ -213,6 +266,18 @@ namespace s4disp
         if (sotc_native::g_frame < told + 600u)
             return;
         told = sotc_native::g_frame;
+        if (g_checkEvery > 0 && g_ram)
+        {
+            // The display list record and gsReg's state (to place the unknown words).
+            const Ram ram{g_ram};
+            std::string dl;
+            for (uint32_t k = 0; k < 8u; ++k)
+                dl += " " + std::to_string(k) + ":" + hex(ram.u32(disp::kDisplayList + 4u * k));
+            std::fprintf(stderr, "[s4check] frame %llu display list%s | gsReg state %s -> %s %s %s %s | work free %s\n", (unsigned long long)sotc_native::g_frame,
+                         dl.c_str(), hex(ram.u32(disp::kGsRegState)).c_str(), hex(ram.u32(ram.u32(disp::kGsRegState))).c_str(),
+                         hex(ram.u32(ram.u32(disp::kGsRegState) + 4u)).c_str(), hex(ram.u32(ram.u32(disp::kGsRegState) + 8u)).c_str(),
+                         hex(ram.u32(ram.u32(disp::kGsRegState) + 12u)).c_str(), hex(ram.u32(ram.u32(disp::kDisplayList + 0x10u) + 0x20u)).c_str());
+        }
         if (g_log)
         {
             std::string calls;
@@ -235,12 +300,16 @@ namespace s4disp
                 std::snprintf(b, sizeof(b), " %08x-%08x x%llu", u.first, u.second.first, (unsigned long long)u.second.second);
                 line += b;
             }
+            line += " sp " + hex(c.sp);
+            for (const auto &x : c.sample)
+                line += " [" + hex(x.first) + " " + hex(x.second.first) + "->" + hex(x.second.second) + "]";
             std::fprintf(stderr,
                          "[s4check] frame %llu %s: %llu checked (%llu incomplete): guest words unknown %llu, effects differ %llu, host state differ %llu, "
-                         "emissions differ %llu (stack %llu, packet %llu words);%s\n",
+                         "emissions differ %llu (stack %llu, packet %llu, list bookkeeping %llu words);%s\n",
                          (unsigned long long)sotc_native::g_frame, kPasses[i].name, (unsigned long long)c.checks, (unsigned long long)c.incomplete,
                          (unsigned long long)c.unknownWords, (unsigned long long)c.effectDiffer, (unsigned long long)c.hostDiffer,
-                         (unsigned long long)c.emitDiffer, (unsigned long long)c.stackWords, (unsigned long long)c.packetWords, line.c_str());
+                         (unsigned long long)c.emitDiffer, (unsigned long long)c.stackWords, (unsigned long long)c.packetWords,
+                         (unsigned long long)c.tailWords, line.c_str());
         }
     }
 
@@ -248,6 +317,7 @@ namespace s4disp
     {
         const Pass &p = kPasses[i];
         CheckStats &c = g_check[i];
+        g_ram = rdram;
         if (!g_snap)
             g_snap = static_cast<uint8_t *>(std::malloc(PS2_RAM_SIZE));
         if (!g_snap)
@@ -256,10 +326,10 @@ namespace s4disp
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
         std::vector<Effect> expected;
         p.effects(ram, ctx, expected);
-        const DeadRanges dead = deadRanges(ram);
         // The host state the variant would leave: the entry state plus its notes.
         const uint64_t emits0 = sotc_native::s4Emits();
         std::memcpy(g_snap, rdram, PS2_RAM_SIZE);
+        const uint32_t entryNext = ram.u32(disp::kDisplayList + 0x10u);
         // (host digest after the variant's notes: computed after the original, from the same notes)
         g_orig[i](rdram, ctx, runtime);
         if (ctx->pc != ra0 || runtime->transferPending())
@@ -268,6 +338,8 @@ namespace s4disp
             return;
         }
         ++c.checks;
+        c.sp = sp0;
+        const DeadRanges dead = deadRanges(ram, entryNext); // (after the call: the packets it added)
         const uint64_t emitsOrig = sotc_native::s4Emits() - emits0;
         const uint64_t digestOrig = sotc_native::s4HostDigest();
         // The variant's host side from the original's end state: its notes again (camera: the context as the table gives
@@ -310,7 +382,17 @@ namespace s4disp
                     ++c.packetWords;
                     continue;
                 }
+                // A word now pointing into this call's new packets: the list's per-layer bookkeeping (the draw context's
+                // last packet of each layer, cleared at the buffer's reset; a layer without the pass's packets keeps its
+                // earlier value, as in the frames where the pass does not run).
+                if (dead.tail(now))
+                {
+                    ++c.tailWords;
+                    continue;
+                }
                 ++c.unknownWords;
+                if (c.sample.size() < 16u)
+                    c.sample.emplace(a, std::make_pair(was, now));
                 // Coalesce into ranges (64-byte gaps).
                 auto it = c.unknown.upper_bound(a);
                 if (it != c.unknown.begin())
