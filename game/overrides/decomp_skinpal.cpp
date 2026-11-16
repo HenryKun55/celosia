@@ -22,6 +22,11 @@
 
 #include <cstring>
 
+namespace s4disp
+{
+    void paletteWritten(uint32_t own);
+}
+
 namespace decomp_skinpal
 {
     namespace vu = sotc_decomp::vu;
@@ -59,6 +64,13 @@ namespace decomp_skinpal
     {
         const Ram ram{rdram};
         const uint32_t object = GPR_U32(ctx, 5);
+        // Round S4 (s4_palette.cpp): the instance chain's palette is (or may be: the fallback paths) written now.
+        if (inRam(object, 0x1B8u))
+        {
+            const uint32_t d = ram.u32(object + 0x144u);
+            if (inRam(d, 0x10u))
+                s4disp::paletteWritten(ram.u32(d + 0xCu));
+        }
         if (!inRam(object, 0x1B8u) || ram.u32(object + 0x194u) != 0u)
             return sotc_decomp::recompiled(kSkinned)(rdram, ctx, runtime);
         const int32_t bones = ram.s16(object + 0x1B4u);

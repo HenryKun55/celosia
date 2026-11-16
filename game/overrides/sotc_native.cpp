@@ -95,6 +95,17 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 #endif
 #include <vector>
 
+namespace s4disp
+{
+    // Round S4 part "palette" (s4_disp.cpp): skinned palettes' write serials (dispSkinned) and the worker's last copy.
+    bool paletteOn();
+    bool paletteCheck();
+    void paletteRead(uint32_t own);
+    bool paletteUnchanged(uint32_t own);
+    void paletteDrawn(uint32_t own, uint32_t lo, uint32_t hi, const std::vector<float> &data);
+    bool paletteLast(uint32_t own, uint32_t &lo, uint32_t &hi, const std::vector<float> *&data);
+    void paletteKickStats(uint64_t elided, uint64_t read, uint64_t checked, uint64_t differ);
+}
 namespace sotc_native
 {
     bool mdsTraceOn(); // round 61's SOTC_MDS_TRACE (mdstrace, below)
@@ -103,6 +114,9 @@ namespace sotc_native
     constexpr uint32_t kModelDisp = 0x01097118u, kGetCameraContext = 0x0108F518u;
     PS2Runtime::RecompiledFunction g_modelDisp = nullptr, g_getCameraContext = nullptr;
     uint32_t g_cameraContext = 0;
+    // Round S4: host emissions (draw records, 2D writes, effect notes) counted for SOTC_S4DISP_CHECK (s4_disp.cpp).
+    uint64_t g_s4Emits = 0;
+    bool g_s4SkipZFog = false; // S4: zFog's hook with the guest zFog left out (s4_disp.cpp)
     uint64_t g_frame = 0;
     uint32_t g_frameDraws = 0;
     uint32_t g_modelDraws = 0; // 3D draws this frame
@@ -2611,6 +2625,8 @@ namespace sotc_native
     {
         uint32_t own = 0, lo = 0, hi = 0;
         bool ok = false;
+        bool fromLast = false; // round S4: unchanged since its last hook read: the worker's copy of that read (no guest read here)
+        bool checkData = false; // with SOTC_S4DISP_CHECK: data read anyway, compared with the worker's copy
         std::vector<float> data; // qwords lo..hi
     };
     struct KickJob
@@ -2636,13 +2652,28 @@ namespace sotc_native
         if (job.palettes.size() < g_kickOwns.size())
             job.palettes.resize(g_kickOwns.size());
         job.count = static_cast<uint32_t>(g_kickOwns.size());
+        const bool s4 = s4disp::paletteOn(), s4check = s4 && s4disp::paletteCheck();
+        uint64_t elided = 0;
         for (uint32_t i = 0; i < job.count; ++i)
         {
             KickPalette &k = job.palettes[i];
             uint32_t ret = 0, bytes = 0;
             k.own = g_kickOwns[i];
+            // Round S4: a skinned palette dispSkinned has not written since its last hook read is that read (the worker
+            // keeps its copy, s4disp::paletteDrawn): no guest read here.
+            k.fromLast = s4 && s4disp::paletteUnchanged(k.own);
+            k.checkData = false;
+            if (k.fromLast && !s4check)
+            {
+                k.ok = true;
+                ++elided;
+                continue;
+            }
             k.ok = readChainPaletteLean(k.own, k.lo, k.hi, k.data, ret, bytes);
+            k.checkData = k.fromLast;
         }
+        if (s4)
+            s4disp::paletteKickStats(elided, job.count - elided, 0, 0);
         g_skinKickStats.copied += job.count;
         ++g_skinKickStats.deferred;
     }
@@ -2661,14 +2692,33 @@ namespace sotc_native
             }
             if (!k->ok)
                 return false;
+            uint32_t lo = k->lo, hi = k->hi;
+            const std::vector<float> *data = &k->data;
+            if (k->fromLast)
+            {
+                // Round S4: the last hook read of this chain, as the worker kept it.
+                const std::vector<float> *last = nullptr;
+                uint32_t llo = 0, lhi = 0;
+                const bool have = s4disp::paletteLast(own, llo, lhi, last);
+                if (k->checkData)
+                    s4disp::paletteKickStats(0, 0, 1, (!have || llo != lo || lhi != hi || *last != k->data) ? 1u : 0u);
+                if (!have)
+                {
+                    ++g_skinKickStats.missed;
+                    if (!k->checkData)
+                        return readChainPalette(own, now);
+                }
+                else if (!k->checkData)
+                    lo = llo, hi = lhi, data = last;
+            }
             // As readChainPalette leaves the picture: the last palette's
             // qwords cleared, this one's written (zero where no UNPACK wrote).
             if (now.hi > now.lo)
                 std::fill(now.vu.begin() + now.lo * 4u, now.vu.begin() + now.hi * 4u, 0.0f);
-            if (k->hi > k->lo)
-                std::copy(k->data.begin(), k->data.end(), now.vu.begin() + k->lo * 4u);
-            now.lo = k->lo;
-            now.hi = k->hi;
+            if (hi > lo)
+                std::copy(data->begin(), data->end(), now.vu.begin() + lo * 4u);
+            now.lo = lo;
+            now.hi = hi;
             return true;
         });
     }
@@ -2986,6 +3036,7 @@ namespace sotc_native
 
     void zFogHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         // Round 32: no wait here (SOTC_ZFOG_JOIN=1: as before). The hook's own
         // part (g_fog) is the game thread's alone; whatever zFog draws comes
         // through gsReg's 2D path, which keeps the jobs' order itself. With
@@ -3022,7 +3073,7 @@ namespace sotc_native
         }
         // SOTC_SKIP_ZFOG=1 (debugging): the game's own zFog does not run.
         static const bool skip = std::getenv("SOTC_SKIP_ZFOG") != nullptr;
-        if (!skip)
+        if (!skip && !g_s4SkipZFog)
             g_zFog(rdram, ctx, runtime);
     }
 
@@ -3257,7 +3308,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -6345,6 +6396,7 @@ namespace sotc_native
     // One GS register write of a 2D draw, as gsReg or an A+D packet gives it.
     void feed2D(uint32_t reg, uint64_t value)
     {
+        ++g_s4Emits;
         Assembler &a = g_2d;
         a.layer = g_layers.empty() ? 25u : g_layers.back();
         a.header = g_requested;
@@ -6572,6 +6624,7 @@ namespace sotc_native
 
     void glEndHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         syncFrame(rdram);
         // The 2D draws after the model jobs before them: flush2D waits for
         // them, or queues an untextured batch behind them (round 28).
@@ -6669,8 +6722,12 @@ namespace sotc_native
     }
     void immArm128(std::vector<uint64_t> *rec) { g_immRec128 = rec; }
 
+    void gsRegLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool s4LeanHooks();
     void gsRegHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (s4LeanHooks())
+            return gsRegLean(rdram, ctx, runtime);
         const uint32_t ra = GPR_U32(ctx, 31);
         gsRegCensus(ra);
         // SOTC_LOG_GSREG=<reg>: who writes that register, in which layer, with what (debugging).
@@ -6683,7 +6740,7 @@ namespace sotc_native
                              static_cast<unsigned long long>(GPR_U64(ctx, 5)));
         }
         if (ra >= 0x0109E2A0u && ra < 0x0109FB08u)
-            g_bloomRan = true;
+            g_bloomRan = true, ++g_s4Emits;
         if (ra >= 0x01089BF8u && ra < 0x0108A0E0u)
         {
             // feedbackBlur / feedbackBlur2 (layer 29): the display buffer, the
@@ -6758,8 +6815,11 @@ namespace sotc_native
         g_texTransRequest(rdram, ctx, runtime);
     }
 
+    void pushLayerLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void pushLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (s4LeanHooks())
+            return pushLayerLean(rdram, ctx, runtime);
         // SOTC_LOG_LAYER=<n> (debugging): who pushes display list layer n (caller, count).
         static const int logLayer = ps2_diag::env("SOTC_LOG_LAYER") ? std::atoi(ps2_diag::env("SOTC_LOG_LAYER")) : -1;
         if (logLayer >= 0 && GPR_U32(ctx, 4) == static_cast<uint32_t>(logLayer))
@@ -6838,8 +6898,11 @@ namespace sotc_native
     constexpr uint32_t kShadowPopSkinned = 0x0109E1C4u, kShadowPopRigid = 0x0109E274u;
     void shadowCapture(uint32_t chain, uint32_t model, bool skinnedShadow);
 
+    void popLayerLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void popLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (s4LeanHooks())
+            return popLayerLean(rdram, ctx, runtime);
         // Decomp D11 (SOTC_LAYER_MIRROR): popped after the guest's pop and only when it took (the depth word fell); the guest
         // leaves its stack as it is on its error path (empty stack, a negative saved layer).
         static const bool mirror = !(std::getenv("SOTC_LAYER_MIRROR") && std::getenv("SOTC_LAYER_MIRROR")[0] == '0');
@@ -6851,6 +6914,109 @@ namespace sotc_native
         const uint32_t shadowModel = GPR_U32(ctx, 17), shadowChain = GPR_U32(ctx, 18);
         g_popLayer(rdram, ctx, runtime);
         if (mirror && word(kLayerDepth) != depth0 && !g_layers.empty())
+            g_layers.pop_back();
+        if (runtime->transferPending())
+            return; // a thread switch below (round 52): nothing more here
+        if (shadow && (ra == kShadowPopRigid || native_renderer::tuning().bodyShadows))
+        {
+            syncFrame(rdram);
+            shadowCapture(shadowChain, shadowModel, ra == kShadowPopSkinned);
+        }
+    }
+
+    // ---- Round S4 (SOTC_S4DISP, part "hooks"): the packet-level hooks without their per-call env reads -------------
+    //
+    // gsReg (a few hundred calls a frame), iosDlPushLayer and iosDlPopLayer read their debugging switches through
+    // function-local statics: GCC's guard for each is a load and a `dmb ish` on every call on the A9 (gsRegHook 5,
+    // pushLayerHook 7, popLayerHook 1, gsRegCensus 2 in celosia-d11.elf), plus gsRegCensus's full prologue for a switch
+    // that is off. Here the same work for the default switches, read once (s4HookEnv, at the first call with S4 on);
+    // with any of those debugging switches set the lean hooks stay off (the round's code as it was).
+    // SOTC_S4DISP_HOOKS=0: off.
+    struct S4HookEnv
+    {
+        bool ready = false, usable = false, census = false, async2d = true, mirror = true;
+    };
+    S4HookEnv g_s4Hook;
+    void s4HookEnv()
+    {
+        S4HookEnv &e = g_s4Hook;
+        e.census = ps2_diag::env("SOTC_GSREG_CENSUS") != nullptr;
+        e.async2d = !std::getenv("SOTC_GSREG_ASYNC") || std::atoi(std::getenv("SOTC_GSREG_ASYNC")) != 0;
+        e.mirror = !(std::getenv("SOTC_LAYER_MIRROR") && std::getenv("SOTC_LAYER_MIRROR")[0] == '0');
+        const bool debugging = std::getenv("SOTC_LOG_GSREG") || ps2_diag::env("SOTC_LOG_LAYER") || std::getenv("SOTC_FORCE_UNDERWATER") ||
+                               std::getenv("SOTC_FORCE_FEEDBACK") || std::getenv("SOTC_FORCE_BOSSFAN");
+        const bool knob = !(std::getenv("SOTC_S4DISP_HOOKS") && std::getenv("SOTC_S4DISP_HOOKS")[0] == '0');
+        e.usable = !debugging && e.mirror && knob;
+        e.ready = true;
+    }
+    bool s4LeanHooks()
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kS4Disp))
+            return false;
+        if (__builtin_expect(!g_s4Hook.ready, 0))
+            s4HookEnv();
+        return g_s4Hook.usable;
+    }
+    void gsRegLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31);
+        if (__builtin_expect(g_s4Hook.census, 0))
+            gsRegCensus(ra);
+        if (ra >= 0x0109E2A0u && ra < 0x0109FB08u)
+        {
+            // The bloom chain: the renderer's bloom pass this frame (gsRegHook's flag).
+            g_bloomRan = true, ++g_s4Emits;
+            return g_gsReg(rdram, ctx, runtime);
+        }
+        if ((ra >= 0x01089BF8u && ra < 0x0108A0E0u) || (ra >= 0x0109C610u && ra < 0x0109CD28u))
+        {
+            // feedbackBlur / refractionEnd: gsRegHook's own paths.
+            g_s4Hook.usable = false;
+            gsRegHook(rdram, ctx, runtime);
+            g_s4Hook.usable = true;
+            return;
+        }
+        for (const Range &r : k2D)
+        {
+            if (ra < r.start || ra >= r.end)
+                continue;
+            syncFrame(rdram);
+            if (!g_s4Hook.async2d)
+                hookJoin(hookjobs::k_gsreg_2d);
+            g_2dDefer = g_s4Hook.async2d;
+            feed2D(GPR_U32(ctx, 4) & 0xFFu, GPR_U64(ctx, 5));
+            g_2dDefer = false;
+            break;
+        }
+        g_gsReg(rdram, ctx, runtime);
+    }
+    void pushLayerLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31);
+        if (ra >= 0x01089E50u && ra < 0x0108A0E0u)
+            g_2d.alpha = 0x60u; // feedbackBlur2 (pushLayerHook's note)
+        const uint32_t raw = GPR_U32(ctx, 4), depth0 = word(kLayerDepth);
+        g_pushLayer(rdram, ctx, runtime);
+        if (word(kLayerDepth) != depth0)
+        {
+            const uint32_t set = word(kLayerList + 0x1Cu);
+            g_layers.push_back(set);
+            if (__builtin_expect(set != raw, 0))
+            {
+                static int said = 0;
+                if (said < 8)
+                    std::fprintf(stderr, "[layermirror] %d: push of layer %u from %08x made %u current\n", ++said, raw, ra, set);
+            }
+        }
+    }
+    void popLayerLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t depth0 = word(kLayerDepth);
+        const uint32_t ra = GPR_U32(ctx, 31);
+        const bool shadow = ra == kShadowPopSkinned || ra == kShadowPopRigid;
+        const uint32_t shadowModel = GPR_U32(ctx, 17), shadowChain = GPR_U32(ctx, 18);
+        g_popLayer(rdram, ctx, runtime);
+        if (word(kLayerDepth) != depth0 && !g_layers.empty())
             g_layers.pop_back();
         if (runtime->transferPending())
             return; // a thread switch below (round 52): nothing more here
@@ -6879,6 +7045,7 @@ namespace sotc_native
 
     void meshDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         syncFrame(rdram);
         const lines67::Scope l67(lines67::kHook, true);
         const uint32_t object = GPR_U32(ctx, 4);
@@ -7126,6 +7293,7 @@ namespace sotc_native
     // shadow, a guest call from 010F3A08, was drawn).
     void shadowDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         syncFrame(rdram);
         g_shadowDisp(rdram, ctx, runtime);
     }
@@ -7937,6 +8105,7 @@ namespace sotc_native
 
     void ptclMatHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         g_ptclBlend = GPR_U32(ctx, 4);
         g_ptclMat(rdram, ctx, runtime);
     }
@@ -7973,6 +8142,7 @@ namespace sotc_native
 
     void ptclEnvHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         syncFrame(rdram);
         ptclEnvTake(GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), nullptr, GPR_U32(ctx, 7), GPR_U32(ctx, 8), ctx->f[12]);
         g_ptclEnv(rdram, ctx, runtime);
@@ -7993,6 +8163,7 @@ namespace sotc_native
 
     void ptclVtxHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         syncFrame(rdram);
         const uint32_t a = GPR_U32(ctx, 4), count = GPR_U32(ctx, 5);
         const uint32_t header = g_requested, layer = g_layers.empty() ? 18u : g_layers.back();
@@ -8561,6 +8732,7 @@ namespace sotc_native
     // joins first, as before.
     void screenBlurHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         syncFrame(rdram);
         // Default: the join at every call, as before (the lazy join measured
         // no gain and the title screen's world a little worse, round 59).
@@ -10640,6 +10812,7 @@ namespace sotc_native
 
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_s4Emits;
         // Round 132: the hook's phases as prof129 zones (0x2000 | phase; a
         // relaxed store each on the game thread, put back at the way out).
         const ps2_load::GameZone hookZone(0x2001u);
@@ -11079,6 +11252,8 @@ namespace sotc_native
                 uint32_t &lastLo = g_palLastLo, &lastHi = g_palLastHi;
                 uint32_t lo = lastLo, hi = lastHi, ret = 0, bytes = 0;
                 job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+                if (job.hasPalette)
+                    s4disp::paletteRead(own); // round S4: the serial this read saw
                 job.paletteDeferred = mdslane::g_frameOn;
                 if (leanStatsOn() && job.hasPalette)
                     g_leanStats.paletteHostBytes += job.palette.size() * 4u; // its own copy
@@ -11287,6 +11462,8 @@ namespace sotc_native
         case kJobModel:
         {
             ModelDispJob &m = job.model;
+            if (m.hasPalette && s4disp::paletteOn())
+                s4disp::paletteDrawn(m.own, m.paletteLo, m.paletteHi, m.palette); // round S4: the kick's copy of this read
             if (m.lane) // round 61: its state from the lane
             {
                 mdslane::Job &l = mdslane::g_ring[m.laneSeq % mdslane::kRing];
@@ -12261,6 +12438,47 @@ namespace mdsjoin
     }
 }
 
+// Round S4 (s4_disp.cpp): what the screen passes' host-only variants need of the renderer's state.
+namespace sotc_native
+{
+    // The native renderer draws (no PS2 lists, the GS rasterises nothing): the screen passes' packets have no reader.
+    bool s4NativeDrawing() { return !native_renderer::tuning().ps2Lists && GS::skipRaster(); }
+    uint64_t s4Emits() { return g_s4Emits; }
+    // The host state a screen pass's hooks may change (the layer mirror, the requested texture, the camera note, the bloom
+    // flag, the fog), hashed.
+    uint64_t s4HostDigest()
+    {
+        uint64_t h = 1469598103934665603ull;
+        const auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+        mix(g_layers.size());
+        for (uint32_t l : g_layers)
+            mix(l);
+        mix(g_requested);
+        mix(g_cameraContext);
+        mix(g_bloomRan ? 1u : 0u);
+        mix(g_fog.enabled ? 1u : 0u);
+        uint32_t b;
+        std::memcpy(&b, &g_fog.width, 4);
+        mix(b);
+        std::memcpy(&b, &g_fog.start, 4);
+        mix(b);
+        mix(static_cast<uint32_t>(g_fog.steps));
+        return h;
+    }
+    // iosgluGetCameraContext's note (getCameraContextHook) without the guest call.
+    void s4NoteCamera(uint32_t context)
+    {
+        g_cameraContext = context;
+        sotc_decomp::g_cameraContextAddr = context;
+    }
+    void s4BloomRan() { g_bloomRan = true, ++g_s4Emits; }
+    void s4SkipZFog(bool on) { g_s4SkipZFog = on; }
+}
+
+namespace s4disp
+{
+    void install(PS2Runtime &runtime);
+}
 namespace decomp_collcensus
 {
     void install(PS2Runtime &runtime);
@@ -12284,6 +12502,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
     if (std::getenv("SOTC_NATIVE") && runtime.hasFunction(sotc_native::kModelDisp))
         mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
     mdstrace::install(runtime);
+    s4disp::install(runtime);            // round S4: the screen passes' host-only variants (SOTC_S4DISP)
 }
 namespace sotc_native
 {
