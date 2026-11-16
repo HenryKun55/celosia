@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_hot47i
 {
@@ -73,14 +74,18 @@ namespace decomp_motionpredict
         uint64_t calls = 0, matches = 0;
     };
     Stats g_stats;
-    bool statsOn()
-    {
-        static const bool on = []
+    A9S_HOIST(bool, a9s_decomp_motionpredict_on_78, []
         {
             const char *e = ps2_diag::env("SOTC_MOTIONPREDICT_STATS");
             return e && e[0] == '1';
-        }();
-        return on;
+        }()); // round A9 sweep (a9sweep.h)
+    bool statsOn()
+    {
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_motionpredict_on_78, bool, []
+        {
+            const char *e = ps2_diag::env("SOTC_MOTIONPREDICT_STATS");
+            return e && e[0] == '1';
+        }());
     }
 
     // true: a record matches (the recompiled code does the rest).

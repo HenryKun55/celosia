@@ -7,6 +7,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_stats.h"
 #include "runtime/ps2_thread_load.h"
+#include "runtime/ps2_a9.h"
 #include "ps2x/iop/audio_stats.h"
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <map>
 #include <tuple>
 #include <chrono>
+#include <type_traits>
 #include <iostream>
 #include <stdexcept>
 #if !defined(__vita__)
@@ -107,8 +109,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_rdram = rdram;
     m_readyQueues = {};
     m_threads.clear();
-    m_threadCacheId = -1;
-    m_threadCache = nullptr;
+    forgetThreadCache();
     m_semaphores.clear();
     m_semaphoreCacheId = -1;
     m_semaphoreCache = nullptr;
@@ -422,7 +423,7 @@ void EeScheduler::run()
                 g_eeDispatchProbe(&context, 0);
             // Round 134: prof129's zone 0x2040 (the dispatcher between two guest runs: a thread switch, the
             // events) ends here; set again below once the run is over.
-            if (ps2_load::t_slot == ps2_load::kGame)
+            if (ps2_load::zonesWanted() && ps2_load::t_slot == ps2_load::kGame) // (round A9 sweep: zonesWanted)
                 ps2_load::gameZone.store(0u, std::memory_order_relaxed);
             if (__builtin_expect(stat139::on(), 0))
             {
@@ -497,7 +498,7 @@ void EeScheduler::run()
             publishSnapshot();
             throw;
         }
-        if (ps2_load::t_slot == ps2_load::kGame)
+        if (ps2_load::zonesWanted() && ps2_load::t_slot == ps2_load::kGame)
             ps2_load::gameZone.store(0x2040u, std::memory_order_relaxed);
         if (g_eeDispatchProbe)
         {
@@ -739,8 +740,7 @@ int EeScheduler::deleteThread(int id, uint32_t &ownedStack)
         ownedStack = it->second.stack;
     }
     m_threads.erase(it);
-    m_threadCacheId = -1;
-    m_threadCache = nullptr;
+    forgetThreadCache();
     publishSnapshot();
     return KE_OK;
 }
@@ -789,8 +789,7 @@ int EeScheduler::startThread(int id, uint32_t arg, const R5900Context &caller, b
     if (deleteThreadRecord && id != kMainThreadId)
     {
         m_threads.erase(id);
-        m_threadCacheId = -1;
-        m_threadCache = nullptr;
+        forgetThreadCache();
     }
     if (ownedStack != 0u)
     {
@@ -935,11 +934,24 @@ int EeScheduler::wakeupThread(int id, bool interruptSafe)
     // Its tick count paces the sound streams' disc reads (the stream manager
     // issues them every 360 sound ticks) and the sequencer: the streams ran
     // dry and replayed old data. PS2X_SELF_WAKE=0: the old behaviour.
-    static const bool selfWake = []
+    const auto readSelfWake = []
     {
         const char *env = std::getenv("PS2X_SELF_WAKE");
         return !(env && std::atoi(env) == 0);
-    }();
+    };
+    bool selfWake;
+    if (ps2_a9::on())
+    {
+        // Round A9 sweep: a member read at the first call (-1: not yet), not a guarded function-local static.
+        if (__builtin_expect(m_selfWakeA9 < 0, 0))
+            m_selfWakeA9 = readSelfWake() ? 1 : 0;
+        selfWake = m_selfWakeA9 != 0;
+    }
+    else
+    {
+        static const bool selfWakeStatic = readSelfWake();
+        selfWake = selfWakeStatic;
+    }
     if (id != 0 && id == m_currentThreadId && interruptSafe && selfWake)
     {
         if (GuestThread *self = thread(id))
@@ -1471,9 +1483,15 @@ uint32_t EeScheduler::invocationStackTop()
     const size_t depth = owner ? owner->invocations.size() : 0u;
     const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(owner->id)) << 32u) |
                          static_cast<uint32_t>(depth);
+    const bool a9 = ps2_a9::on();
+    StackTopWay &way = m_stackTopWay[(static_cast<uint32_t>(owner->id) * 5u + static_cast<uint32_t>(depth)) & 15u];
+    if (a9 && way.key == key)
+        return way.top;
     const auto existing = m_invocationStackTops.find(key);
     if (existing != m_invocationStackTops.end())
     {
+        if (a9)
+            way = StackTopWay{key, existing->second};
         return existing->second;
     }
     const uint32_t top = m_runtime.reserveAsyncCallbackStack(ps2x::kernel_memory::kCallbackStackSize, 16u);
@@ -1482,6 +1500,8 @@ uint32_t EeScheduler::invocationStackTop()
         throw std::runtime_error("EE invocation stack space exhausted");
     }
     m_invocationStackTops.emplace(key, top);
+    if (a9)
+        way = StackTopWay{key, top};
     return top;
 }
 
@@ -1732,6 +1752,18 @@ GuestThread *EeScheduler::thread(int id)
     // The last one found (the running thread, asked for at every dispatch):
     // an unordered_map lookup divides, which the Vita's CPU does in software.
     // Map nodes stay put; erase and clear forget the entry.
+    if (ps2_a9::on())
+    {
+        const unsigned way = static_cast<unsigned>(id) & 7u;
+        if (id == m_threadWayId[way] && m_threadWay[way])
+            return m_threadWay[way];
+        auto it = m_threads.find(id);
+        if (it == m_threads.end())
+            return nullptr;
+        m_threadWayId[way] = id;
+        m_threadWay[way] = &it->second;
+        return m_threadWay[way];
+    }
     if (id == m_threadCacheId && m_threadCache)
         return m_threadCache;
     auto it = m_threads.find(id);
@@ -2644,8 +2676,20 @@ void EeScheduler::syncCyclesToHostClock()
         return;
     }
     const auto elapsed = std::chrono::steady_clock::now() - m_hostClockBase;
-    const uint64_t hostCycles = microsecondsToEeCycles(static_cast<uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()));
+    // Round A9 sweep: the two 64-bit divisions (nanoseconds -> microseconds, then microsecondsToEeCycles' / 10^6) without
+    // __aeabi_ldivmod / __aeabi_uldivmod (the A9 has no divide instruction; ps2_a9.h: the same quotients for every input,
+    // the product's and the sum's 64-bit wrap kept).
+    const bool a9 = ps2_a9::on();
+    uint64_t hostCycles;
+    if (a9)
+    {
+        static_assert(std::is_same_v<std::remove_const_t<decltype(elapsed)>, std::chrono::nanoseconds>, "syncCyclesToHostClock: steady_clock in ns");
+        const uint64_t us = static_cast<uint64_t>(ps2_a9::sdiv1000(static_cast<int64_t>(elapsed.count())));
+        hostCycles = ps2_a9::udiv1e6(us * EeScheduler::kEeClockHz + 999999ull);
+    }
+    else
+        hostCycles = microsecondsToEeCycles(static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()));
     if (hostCycles > eeNow())
     {
         uint64_t lag = hostCycles - eeNow();
@@ -2660,13 +2704,26 @@ void EeScheduler::syncCyclesToHostClock()
         // does when it drops frames, and its movement, physics and scripts
         // follow that step (docs/decomp.md, "Round 10").
         // PS2X_HOST_CLOCK_MAX_LAG=<VBlanks>: another cap (2: the old one).
-        static const uint64_t maxLag = []
+        const auto readMaxLag = []
         {
             constexpr uint64_t kDefaultMaxLagVBlanks = 8u;
             const char *env = std::getenv("PS2X_HOST_CLOCK_MAX_LAG");
             const uint64_t vblanks = env ? std::strtoull(env, nullptr, 10) : kDefaultMaxLagVBlanks;
             return std::max<uint64_t>(1u, vblanks) * kVBlankPeriodCycles;
-        }();
+        };
+        uint64_t maxLag;
+        if (a9)
+        {
+            // (a member read at the first call, not a function-local static: no guard load + dmb ish per call; never 0)
+            if (__builtin_expect(m_maxLagA9 == 0u, 0))
+                m_maxLagA9 = readMaxLag();
+            maxLag = m_maxLagA9;
+        }
+        else
+        {
+            static const uint64_t maxLagStatic = readMaxLag();
+            maxLag = maxLagStatic;
+        }
         if (lag > maxLag)
         {
             m_hostClockBase += std::chrono::microseconds((lag - maxLag) * 1000000ull / kEeClockHz);

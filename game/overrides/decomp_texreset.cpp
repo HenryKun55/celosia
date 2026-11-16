@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include "a9sweep.h"
 
 namespace decomp_texreset
 {
@@ -221,6 +222,7 @@ namespace decomp_texreset
         sotc_decomp::returnTo(ctx);
     }
 
+    A9S_HOIST(bool, a9s_decomp_texreset_check_232, ps2_diag::env("SOTC_TEXR128_CHECK") != nullptr); // round A9 sweep (a9sweep.h)
     void reset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         static sotc_decomp::NativeCount count("texResetTransfers");
@@ -229,7 +231,7 @@ namespace decomp_texreset
         {
             // SOTC_TEXR128_CHECK=1: the list walked read-only first (each record, its flag, its 16 bytes),
             // then the indexed call; every record must hold zeros where flagged, its bytes otherwise.
-            static const bool check = ps2_diag::env("SOTC_TEXR128_CHECK") != nullptr;
+            const bool check = A9S_VAL(::a9sweep::on(), a9s_decomp_texreset_check_232, bool, ps2_diag::env("SOTC_TEXR128_CHECK") != nullptr);
             if (!check)
                 return resetIndexed(rdram, ctx, runtime);
             struct Seen
@@ -255,7 +257,7 @@ namespace decomp_texreset
             static const uint8_t zero[16] = {};
             uint32_t bad = 0;
             for (const Seen &s : seen)
-                bad += std::memcmp(rdram + s.rec + 0x10u, s.flag ? zero : s.bytes, 16) != 0 ? 1u : 0u;
+                bad += !A9_MEMEQ(rdram + s.rec + 0x10u, s.flag ? zero : s.bytes, 16) ? 1u : 0u;
             ++checks;
             if (bad && differ++ < 20u)
                 std::fprintf(stderr, "[texr128c] DIFFERS: %u of %u records\n", bad, (unsigned)seen.size());

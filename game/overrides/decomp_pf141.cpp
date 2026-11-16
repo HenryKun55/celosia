@@ -26,6 +26,7 @@
 #include <thread>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
+#include "a9sweep.h"
 #endif
 
 namespace pf141
@@ -51,10 +52,10 @@ namespace pf141
             static const int v = ps2_diag::env("SOTC_PF141_AHEAD") ? std::atoi(ps2_diag::env("SOTC_PF141_AHEAD")) : 1;
             return v < 0 ? 0 : v > 4 ? 4 : v;
         }
+        A9S_HOIST(bool, a9s_decomp_pf141_v_56, ps2_diag::env("SOTC_PF141_LOG") != nullptr && ps2_diag::env("SOTC_PF141_LOG")[0] != '0'); // round A9 sweep (a9sweep.h)
         bool logOn()
         {
-            static const bool v = ps2_diag::env("SOTC_PF141_LOG") != nullptr && ps2_diag::env("SOTC_PF141_LOG")[0] != '0';
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_pf141_v_56, bool, ps2_diag::env("SOTC_PF141_LOG") != nullptr && ps2_diag::env("SOTC_PF141_LOG")[0] != '0');
         }
 
         // Requests: (pass, set, first segment, last segment); a small ring the helper drains in order.

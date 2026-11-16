@@ -46,6 +46,7 @@
 #include <vector>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
+#include "a9sweep.h"
 #endif
 
 namespace pose82
@@ -295,15 +296,15 @@ namespace pose82
             uint64_t calls = 0, bones = 0, kept = 0, rawHit = 0, entriesNew = 0, start = 0, checks = 0, checkBad = 0;
         };
         thread_local Counters t_cnt;
+        A9S_HOIST(int, a9s_decomp_pose82_v_300, envInt("SOTC_POSE136_LOG", 0)); // round A9 sweep (a9sweep.h)
         int logEvery()
         {
-            static const int v = envInt("SOTC_POSE136_LOG", 0);
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_pose82_v_300, int, envInt("SOTC_POSE136_LOG", 0));
         }
+        A9S_HOIST(bool, a9s_decomp_pose82_v_305, envInt("SOTC_POSE136_CHECK", 0) != 0); // round A9 sweep (a9sweep.h)
         bool checkOn()
         {
-            static const bool v = envInt("SOTC_POSE136_CHECK", 0) != 0;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_pose82_v_305, bool, envInt("SOTC_POSE136_CHECK", 0) != 0);
         }
 
         Entry &entryFor(uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t bones, uint32_t count)
@@ -559,15 +560,15 @@ namespace pose82
             s.bones += static_cast<uint64_t>(bones);
         s.us += us;
     }
+    A9S_HOIST(bool, a9s_decomp_pose82_on_564, envInt("SOTC_POSE82_LOG", 0) > 0); // round A9 sweep (a9sweep.h)
     bool logOn()
     {
-        static const bool on = envInt("SOTC_POSE82_LOG", 0) > 0;
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_pose82_on_564, bool, envInt("SOTC_POSE82_LOG", 0) > 0);
     }
+    A9S_HOIST(bool, a9s_decomp_pose82_on_569, envInt("SOTC_POSE82_CHECK", 0) != 0); // round A9 sweep (a9sweep.h)
     bool checkOn()
     {
-        static const bool on = envInt("SOTC_POSE82_CHECK", 0) != 0;
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_pose82_on_569, bool, envInt("SOTC_POSE82_CHECK", 0) != 0);
     }
 
     // The previous code's call, measured (SOTC_POSE82_LOG, pose82 off).

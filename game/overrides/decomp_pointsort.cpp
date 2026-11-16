@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_pointdata
 {
@@ -87,6 +88,7 @@ namespace decomp_pointsort
         return 0u;
     }
 
+    A9S_HOIST(bool, a9s_decomp_pointsort_check97_195, ps2_diag::env("SOTC_PATH97_CHECK") && std::atoi(ps2_diag::env("SOTC_PATH97_CHECK")) != 0); // round A9 sweep (a9sweep.h)
     void sortFast(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0xB0u;
@@ -192,7 +194,7 @@ namespace decomp_pointsort
                     {
                         const int64_t si = static_cast<int64_t>(static_cast<int32_t>(i));
                         point = hTable != 0u && si >= 0 && static_cast<uint64_t>(si) < static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(hCount))) ? hTable + i * 0x30u + 0x10u : 0u;
-                        static const bool check97 = ps2_diag::env("SOTC_PATH97_CHECK") && std::atoi(ps2_diag::env("SOTC_PATH97_CHECK")) != 0;
+                        const bool check97 = A9S_VAL(::a9sweep::on(), a9s_decomp_pointsort_check97_195, bool, ps2_diag::env("SOTC_PATH97_CHECK") && std::atoi(ps2_diag::env("SOTC_PATH97_CHECK")) != 0);
                         if (check97)
                         {
                             static uint64_t checks = 0, bad = 0;

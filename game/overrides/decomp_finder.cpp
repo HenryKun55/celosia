@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_finder
 {
@@ -76,9 +77,10 @@ namespace decomp_finder
     };
     Stats g_stats{};
 
+    A9S_HOIST(bool, a9s_decomp_finder_stats_81, ps2_diag::env("SOTC_FINDER_STATS") != nullptr); // round A9 sweep (a9sweep.h)
     void finder(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        static const bool stats = ps2_diag::env("SOTC_FINDER_STATS") != nullptr;
+        const bool stats = A9S_VAL(::a9sweep::on(), a9s_decomp_finder_stats_81, bool, ps2_diag::env("SOTC_FINDER_STATS") != nullptr);
         if (stats && (++g_stats.calls & 0x3FFFu) == 0u)
             std::fprintf(stderr, "[finder] %llu calls: parts %llu, surfaces %llu (planes %llu), parts calls %llu, triangles %llu (corners %llu), entries %llu, callbacks %llu\n",
                          (unsigned long long)g_stats.calls, (unsigned long long)g_stats.parts, (unsigned long long)g_stats.surfaces,

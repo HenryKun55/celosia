@@ -63,6 +63,7 @@
 #include <vector>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
+#include "a9sweep.h"
 #endif
 
 namespace rest81
@@ -201,10 +202,10 @@ namespace decomp_charageo
             static Stats s;
             return s;
         }
+        A9S_HOIST(float, a9s_decomp_charageo_d_206, std::getenv("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(std::getenv("SOTC_SAC_FARCHARA_DIST"))) : 40.0f); // round A9 sweep (a9sweep.h)
         float limit()
         {
-            static const float d = std::getenv("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(std::getenv("SOTC_SAC_FARCHARA_DIST"))) : 40.0f;
-            return d;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_charageo_d_206, float, std::getenv("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(std::getenv("SOTC_SAC_FARCHARA_DIST"))) : 40.0f);
         }
         Seen &seen(uint32_t cls)
         {
@@ -286,10 +287,10 @@ namespace decomp_charageo
     // callees by target, ms a frame).
     namespace geo80
     {
+        A9S_HOIST(uint32_t, a9s_decomp_charageo_n_291, ps2_diag::env("SOTC_CHARGEO80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_CHARGEO80_LOG"))) : 0u); // round A9 sweep (a9sweep.h)
         uint32_t every()
         {
-            static const uint32_t n = ps2_diag::env("SOTC_CHARGEO80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_CHARGEO80_LOG"))) : 0u;
-            return n;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_charageo_n_291, uint32_t, ps2_diag::env("SOTC_CHARGEO80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_CHARGEO80_LOG"))) : 0u);
         }
         uint64_t nowUs()
         {

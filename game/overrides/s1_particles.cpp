@@ -44,6 +44,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
+#include "runtime/ps2_a9.h"
 
 namespace sotc_native
 {
@@ -75,8 +77,15 @@ namespace s1ptcl
         bool log = ps2_diag::env("SOTC_S1PTCL_LOG") != nullptr;
         uint64_t calls[3] = {}, done[3] = {}, fallbacks[3] = {}, records = 0, nolist = 0, n = 0;
     };
+    // Round A9 sweep (a9sweep.h): under SOTC_A9SWEEP the counters live at namespace scope, made at install (env.txt read),
+    // not in a guarded function-local static (a load + dmb ish at every drawer call). (An interleaved A/B splits the
+    // counters between the two objects: only the [s1ptcl] lines' and SOTC_S1PTCL_CHECK's cadence see it.)
+    Stats g_a9sStats;
+    static const ::a9sweep::Hoist g_a9sStatsHoist([] { g_a9sStats = Stats(); });
     Stats &stats()
     {
+        if (__builtin_expect(::a9sweep::on(), 1))
+            return g_a9sStats;
         static Stats s;
         return s;
     }
@@ -101,7 +110,9 @@ namespace s1ptcl
     inline void tick()
     {
         Stats &s = stats();
-        if (++s.n % 4000u == 0u)
+        ++s.n;
+        // (round A9 sweep: the 64-bit remainder without __aeabi_uldivmod; ps2_a9.h, exact for every n)
+        if (::a9sweep::on() ? s.n == ps2_a9::udivSmall<4000u>(s.n) * 4000u : s.n % 4000u == 0u)
             report();
     }
     // This call is a checked one: the S1 records go aside, the original draws.

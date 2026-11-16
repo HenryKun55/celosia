@@ -28,6 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include "a9sweep.h"
 
 namespace decomp_prefetch
 {
@@ -169,13 +170,16 @@ namespace decomp_prefetch
     };
     Sequence g_clip, g_disp;
 
-    bool enabled()
-    {
-        static const bool on = [] {
+    A9S_HOIST(bool, a9s_decomp_prefetch_on_174, [] {
             const char *v = std::getenv("SOTC_OBJ_PREFETCH");
             return !v || std::atoi(v) != 0;
-        }();
-        return on;
+        }()); // round A9 sweep (a9sweep.h)
+    bool enabled()
+    {
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_prefetch_on_174, bool, [] {
+            const char *v = std::getenv("SOTC_OBJ_PREFETCH");
+            return !v || std::atoi(v) != 0;
+        }());
     }
 
     inline void ask(const uint8_t *rdram, const Record &r)
@@ -192,14 +196,18 @@ namespace decomp_prefetch
     // only for the one that comes into the window (the first call of a
     // frame, or after a resync, for the whole window), so a call's lines
     // have ~ahead calls of time to arrive instead of one.
-    size_t ahead67()
-    {
-        static const size_t n = [] {
+    A9S_HOIST(size_t, a9s_decomp_prefetch_n_197, [] {
             const char *v = std::getenv("SOTC_WALK67_AHEAD");
             const long a = v ? std::atol(v) : 3;
             return static_cast<size_t>(a < 1 ? 1 : a > 16 ? 16 : a);
-        }();
-        return n;
+        }()); // round A9 sweep (a9sweep.h)
+    size_t ahead67()
+    {
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_prefetch_n_197, size_t, [] {
+            const char *v = std::getenv("SOTC_WALK67_AHEAD");
+            const long a = v ? std::atol(v) : 3;
+            return static_cast<size_t>(a < 1 ? 1 : a > 16 ? 16 : a);
+        }());
     }
 
     // Round 67: the lines the walk itself reads around the call that

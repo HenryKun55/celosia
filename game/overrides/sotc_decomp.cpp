@@ -29,6 +29,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include "a9sweep.h"
 #endif
 
 namespace sotc_decomp
@@ -1356,10 +1357,10 @@ namespace sotc_decomp
             std::unordered_map<uint32_t, uint64_t> byTarget, bySite;
             uint64_t calls = 0, from = 0;
         };
+        A9S_HOIST(uint64_t, a9s_sotc_decomp_p_1361, ps2_diag::env("SOTC_CALLGUEST_STATS") ? std::strtoull(ps2_diag::env("SOTC_CALLGUEST_STATS"), nullptr, 0) : 0u); // round A9 sweep (a9sweep.h)
         uint64_t callStatsPeriod()
         {
-            static const uint64_t p = ps2_diag::env("SOTC_CALLGUEST_STATS") ? std::strtoull(ps2_diag::env("SOTC_CALLGUEST_STATS"), nullptr, 0) : 0u;
-            return p;
+            return A9S_VAL(::a9sweep::on(), a9s_sotc_decomp_p_1361, uint64_t, ps2_diag::env("SOTC_CALLGUEST_STATS") ? std::strtoull(ps2_diag::env("SOTC_CALLGUEST_STATS"), nullptr, 0) : 0u);
         }
         bool isNative(PS2Runtime::RecompiledFunction fn)
         {

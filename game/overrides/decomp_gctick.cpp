@@ -34,6 +34,7 @@
 #include <cstdlib>
 
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_gctick
 {
@@ -144,6 +145,11 @@ namespace decomp_gctick
         return on;
     }
 
+    A9S_HOIST(bool, a9s_decomp_gctick_log_171, ps2_diag::env("SOTC_GC_LOG") != nullptr); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_decomp_gctick_budgetOn_193, !(std::getenv("SOTC_GC_BUDGET") && std::atoi(std::getenv("SOTC_GC_BUDGET")) == 0)); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(uint64_t, a9s_decomp_gctick_maxWork_194, (std::getenv("SOTC_GC_MAX_KB") ? std::strtoull(std::getenv("SOTC_GC_MAX_KB"), nullptr, 10) : 512u) * 1024u); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(uint64_t, a9s_decomp_gctick_minWork_195, (std::getenv("SOTC_GC_MIN_KB") ? std::strtoull(std::getenv("SOTC_GC_MIN_KB"), nullptr, 10) : 128u) * 1024u); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_decomp_gctick_check139_251, ps2_diag::env("SOTC_GC139_CHECK") != nullptr); // round A9 sweep (a9sweep.h)
     template <bool Fast>
     void tickT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -168,7 +174,7 @@ namespace decomp_gctick
         uint32_t s1 = (ram.u32(ram.u32(0x001E0BF4u) + 8u) & 0xFFFFFFu) << 2;
         SET_GPR_U32(ctx, 17, s1);
         // SOTC_GC_LOG=1 (debugging): each call's blocks, moves and how it ended.
-        static const bool log = ps2_diag::env("SOTC_GC_LOG") != nullptr;
+        const bool log = A9S_VAL(::a9sweep::on(), a9s_decomp_gctick_log_171, bool, ps2_diag::env("SOTC_GC_LOG") != nullptr);
         uint32_t blocks = 0, moves = 0;
         bool stopped = false;
         const uint64_t cycle0 = runtime->eeScheduler().eeCycle();
@@ -190,9 +196,9 @@ namespace decomp_gctick
         // host's speed. Vita3K at 240 MHz moves ~85 KB a ms (round 14's
         // area change: 3-4 MB in 41-48 ms), so 512 KB is about round 14's 6
         // ms and 128 KB its 1.5. SOTC_GC_BUDGET=0: the clock alone.
-        static const bool budgetOn = !(std::getenv("SOTC_GC_BUDGET") && std::atoi(std::getenv("SOTC_GC_BUDGET")) == 0);
-        static const uint64_t maxWork = (std::getenv("SOTC_GC_MAX_KB") ? std::strtoull(std::getenv("SOTC_GC_MAX_KB"), nullptr, 10) : 512u) * 1024u;
-        static const uint64_t minWork = (std::getenv("SOTC_GC_MIN_KB") ? std::strtoull(std::getenv("SOTC_GC_MIN_KB"), nullptr, 10) : 128u) * 1024u;
+        const bool budgetOn = A9S_VAL(::a9sweep::on(), a9s_decomp_gctick_budgetOn_193, bool, !(std::getenv("SOTC_GC_BUDGET") && std::atoi(std::getenv("SOTC_GC_BUDGET")) == 0));
+        const uint64_t maxWork = A9S_VAL(::a9sweep::on(), a9s_decomp_gctick_maxWork_194, uint64_t, (std::getenv("SOTC_GC_MAX_KB") ? std::strtoull(std::getenv("SOTC_GC_MAX_KB"), nullptr, 10) : 512u) * 1024u);
+        const uint64_t minWork = A9S_VAL(::a9sweep::on(), a9s_decomp_gctick_minWork_195, uint64_t, (std::getenv("SOTC_GC_MIN_KB") ? std::strtoull(std::getenv("SOTC_GC_MIN_KB"), nullptr, 10) : 128u) * 1024u);
         const bool budget = budgetOn && callback == kTimeCheck;
         const uint64_t bytes0 = sotc_decomp::g_gcStats.bytes;
         const bool fast3 = sotc_decomp::fastNative3On();
@@ -248,7 +254,7 @@ namespace decomp_gctick
                 // SOTC_GC139_CHECK=1 (checking): the run stepped again the way the per-block code below steps it
                 // (its time check kept, its budget test, its skip tests in its order), on a copy of its counters:
                 // the same blocks, end block, forced goes and s3 ([gc139] lines).
-                static const bool check139 = ps2_diag::env("SOTC_GC139_CHECK") != nullptr;
+                const bool check139 = A9S_VAL(::a9sweep::on(), a9s_decomp_gctick_check139_251, bool, ps2_diag::env("SOTC_GC139_CHECK") != nullptr);
                 if (__builtin_expect(check139, 0))
                 {
                     uint32_t cs1 = s1, cblocks = blocks, cgoes = 0u, cr19 = 0u, cn = 0u;
@@ -345,7 +351,7 @@ namespace decomp_gctick
                         const uint32_t fcr = ctx->fcr31, pc = ctx->pc;
                         go = timeCheckT<Fast>(ram, ctx, runtime, rdram, arg, cf);
                         fc.note(go == checkedGo && v0 == GPR_U64(ctx, 2) && v1 == GPR_U64(ctx, 3) && at == GPR_U64(ctx, 1) && r31 == GPR_U64(ctx, 31) &&
-                                std::memcmp(&f0, &ctx->f[0], 4) == 0 && std::memcmp(&f1, &ctx->f[1], 4) == 0 && fcr == ctx->fcr31 && pc == ctx->pc);
+                                A9_MEMEQ(&f0, &ctx->f[0], 4) && A9_MEMEQ(&f1, &ctx->f[1], 4) && fcr == ctx->fcr31 && pc == ctx->pc);
                     }
                     else
                         g_timeCheckCount.hit();

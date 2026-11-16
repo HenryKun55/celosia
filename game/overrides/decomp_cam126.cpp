@@ -45,6 +45,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace cam126
 {
@@ -79,10 +80,10 @@ namespace cam126
         const char *e = std::getenv(name);
         return e ? std::atoi(e) : def;
     }
+    A9S_HOIST(int, a9s_decomp_cam126_n_84, envInt("SOTC_CAM126_LOG", 0)); // round A9 sweep (a9sweep.h)
     int logEvery()
     {
-        static const int n = envInt("SOTC_CAM126_LOG", 0);
-        return n;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_cam126_n_84, int, envInt("SOTC_CAM126_LOG", 0));
     }
 
     struct Counts
@@ -205,10 +206,10 @@ namespace cam126
     constexpr uint32_t kPosTable = 0x011955C0u, kQuatTable = 0x011955F0u, kQuatPosTable = 0x01195640u;
 
     inline bool geoOn() { return sotc_decomp::switchOn(sotc_decomp::kGeo126); }
+    A9S_HOIST(int, a9s_decomp_cam126_n_210, envInt("SOTC_GEO126_CHECK", 0) > 0 ? 16 : 0); // round A9 sweep (a9sweep.h)
     int checkEvery()
     {
-        static const int n = envInt("SOTC_GEO126_CHECK", 0) > 0 ? 16 : 0;
-        return n;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_cam126_n_210, int, envInt("SOTC_GEO126_CHECK", 0) > 0 ? 16 : 0);
     }
 
     // The callee-saved registers around a guest call made by a native (some natives the call reaches leave them as

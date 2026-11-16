@@ -146,10 +146,10 @@ namespace coll125
     }
 
     inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kFin125) && !sotc_decomp::onWorkerLane(runtime); }
+    A9S_HOIST(int, a9s_coll125_v_151, ps2_diag::env("SOTC_FIN125_CHECK") ? std::atoi(ps2_diag::env("SOTC_FIN125_CHECK")) : 0); // round A9 sweep (a9sweep.h)
     inline int checkLevel()
     {
-        static const int v = ps2_diag::env("SOTC_FIN125_CHECK") ? std::atoi(ps2_diag::env("SOTC_FIN125_CHECK")) : 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_coll125_v_151, int, ps2_diag::env("SOTC_FIN125_CHECK") ? std::atoi(ps2_diag::env("SOTC_FIN125_CHECK")) : 0);
     }
 
     enum : uint8_t
@@ -429,11 +429,11 @@ namespace coll125
         unsigned bad = 0u;
         if (g.rdram[m.planeFlag] == 0u || g.rdram[m.bndFlag] == 0u || g.rdram[m.vflag[0]] == 0u || g.rdram[m.vflag[1]] == 0u || g.rdram[m.vflag[2]] == 0u)
             bad |= kBadFlag;
-        if (std::memcmp(g.rdram + m.plane, &e.n, 16) != 0)
+        if (!A9_MEMEQ(g.rdram + m.plane, &e.n, 16))
             bad |= kBadPlane;
-        if (std::memcmp(g.rdram + m.bnd, m.bndW, 16) != 0)
+        if (!A9_MEMEQ(g.rdram + m.bnd, m.bndW, 16))
             bad |= kBadBnd;
-        if (std::memcmp(g.rdram + m.vtx[0], m.vW, 16) != 0 || std::memcmp(g.rdram + m.vtx[1], m.vW + 4, 16) != 0 || std::memcmp(g.rdram + m.vtx[2], m.vW + 8, 16) != 0)
+        if (!A9_MEMEQ(g.rdram + m.vtx[0], m.vW, 16) || !A9_MEMEQ(g.rdram + m.vtx[1], m.vW + 4, 16) || !A9_MEMEQ(g.rdram + m.vtx[2], m.vW + 8, 16))
             bad |= kBadVerts;
         return bad;
     }
@@ -442,9 +442,9 @@ namespace coll125
     {
         if (g.rdram[m.planeFlag] == 0u || g.rdram[m.bndFlag] == 0u)
             return false;
-        if (std::memcmp(g.rdram + m.plane, &e.n, 16) != 0)
+        if (!A9_MEMEQ(g.rdram + m.plane, &e.n, 16))
             return false;
-        return std::memcmp(g.rdram + m.bnd, m.bndW, 16) == 0;
+        return A9_MEMEQ(g.rdram + m.bnd, m.bndW, 16);
     }
 
     // Round 138 (SOTC_FIN138, default on; A/B fin138): validate()'s answer without its chain of dependent loads.
@@ -533,11 +533,11 @@ namespace coll125
         unsigned bad = 0u;
         if ((g.rdram[m.planeFlag] == 0u) | (g.rdram[m.bndFlag] == 0u) | (g.rdram[m.vflag[0]] == 0u) | (g.rdram[m.vflag[1]] == 0u) | (g.rdram[m.vflag[2]] == 0u))
             bad |= kBadFlag;
-        if (std::memcmp(g.rdram + m.plane, &e.n, 16) != 0)
+        if (!A9_MEMEQ(g.rdram + m.plane, &e.n, 16))
             bad |= kBadPlane;
-        if (std::memcmp(g.rdram + m.bnd, m.bndW, 16) != 0)
+        if (!A9_MEMEQ(g.rdram + m.bnd, m.bndW, 16))
             bad |= kBadBnd;
-        if ((std::memcmp(g.rdram + m.vtx[0], m.vW, 16) != 0) | (std::memcmp(g.rdram + m.vtx[1], m.vW + 4, 16) != 0) | (std::memcmp(g.rdram + m.vtx[2], m.vW + 8, 16) != 0))
+        if ((!A9_MEMEQ(g.rdram + m.vtx[0], m.vW, 16)) | (!A9_MEMEQ(g.rdram + m.vtx[1], m.vW + 4, 16)) | (!A9_MEMEQ(g.rdram + m.vtx[2], m.vW + 8, 16)))
             bad |= kBadVerts;
         return bad;
     }

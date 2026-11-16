@@ -42,6 +42,7 @@ namespace decomp_particles
     extern uint64_t g_damageCalls, g_damageSkipped;
 }
 #include "s1_particles.h" // round S1: the emitter's particle step as one batch
+#include "a9sweep.h"
 namespace decomp_hot47e
 {
     void blend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -382,9 +383,9 @@ namespace decomp_ptclupdate
             Check &c = check();
             ++c.checks;
             ++c.perLeaf[leaf];
-            bool same = std::memcmp(a.block, b.block, len) == 0 && std::memcmp(a.f, b.f, sizeof a.f) == 0 && a.fcr == b.fcr;
+            bool same = std::memcmp(a.block, b.block, len) == 0 && A9_MEMEQ(a.f, b.f, sizeof a.f) && a.fcr == b.fcr;
             if (vu)
-                same = same && std::memcmp(a.vf, b.vf, sizeof a.vf) == 0 && std::memcmp(&a.acc, &b.acc, sizeof a.acc) == 0;
+                same = same && A9_MEMEQ(a.vf, b.vf, sizeof a.vf) && A9_MEMEQ(&a.acc, &b.acc, sizeof a.acc);
             if (!same)
             {
                 ++c.perDiffer[leaf];
@@ -398,8 +399,8 @@ namespace decomp_ptclupdate
                             break;
                         }
                     std::fprintf(stderr, "[leaf117c] DIFFERS %s at %08x: first byte +%x, f %d, c %d, vu %d (f0 %08x / %08x f1 %08x / %08x)\n", names[leaf], at, first,
-                                 std::memcmp(a.f, b.f, sizeof a.f) == 0 ? 0 : 1, a.fcr == b.fcr ? 0 : 1,
-                                 vu && (std::memcmp(a.vf, b.vf, sizeof a.vf) != 0 || std::memcmp(&a.acc, &b.acc, sizeof a.acc) != 0) ? 1 : 0, fbits(a.f[0]),
+                                 A9_MEMEQ(a.f, b.f, sizeof a.f) ? 0 : 1, a.fcr == b.fcr ? 0 : 1,
+                                 vu && (!A9_MEMEQ(a.vf, b.vf, sizeof a.vf) || !A9_MEMEQ(&a.acc, &b.acc, sizeof a.acc)) ? 1 : 0, fbits(a.f[0]),
                                  fbits(b.f[0]), fbits(a.f[1]), fbits(b.f[1]));
                 }
             }
@@ -670,10 +671,10 @@ namespace decomp_ptclupdate
     // 1: new particles this frame. v0 1 when the emitter is done.
     // Round 123's check (SOTC_PTCL123_CHECK=1): the host step against the original, per float field: the largest
     // relative difference and the count of fields over 1e-4 relative (and 1e-5 absolute), every 600 frames.
+    A9S_HOIST(bool, a9s_decomp_ptclupdate_on_675, [] { const char *e = ps2_diag::env("SOTC_PTCL123_CHECK"); return e && e[0] == '1'; }()); // round A9 sweep (a9sweep.h)
     inline bool check123()
     {
-        static const bool on = [] { const char *e = ps2_diag::env("SOTC_PTCL123_CHECK"); return e && e[0] == '1'; }();
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_ptclupdate_on_675, bool, [] { const char *e = ps2_diag::env("SOTC_PTCL123_CHECK"); return e && e[0] == '1'; }());
     }
     struct Check123
     {
@@ -689,7 +690,7 @@ namespace decomp_ptclupdate
         {
             if (i == 0xA4 / 4 || i == 0xA8 / 4)
             {
-                c.ints += std::memcmp(host + i * 4, orig + i * 4, 4) != 0;
+                c.ints += !A9_MEMEQ(host + i * 4, orig + i * 4, 4);
                 continue;
             }
             float a, b;
@@ -714,6 +715,7 @@ namespace decomp_ptclupdate
         }
     }
 
+    A9S_HOIST(uint32_t, a9s_decomp_ptclupdate_s1Every_1249, [] { const char *v = ps2_diag::env("SOTC_S1PTCL_CHECK"); return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u; }()); // round A9 sweep (a9sweep.h)
     void step(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         G g(rdram, ctx, runtime);
@@ -1245,7 +1247,7 @@ namespace decomp_ptclupdate
             (count ? f20 : f21) = zero;
             const bool p123 = sotc_decomp::switchOn(sotc_decomp::kPtcl123);
             // Round S1: the emitter's per-frame values derived once for its particles (not with round 123's check).
-            static const uint32_t s1Every = [] { const char *v = ps2_diag::env("SOTC_S1PTCL_CHECK"); return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u; }();
+            const uint32_t s1Every = A9S_VAL(::a9sweep::on(), a9s_decomp_ptclupdate_s1Every_1249, uint32_t, [] { const char *v = ps2_diag::env("SOTC_S1PTCL_CHECK"); return v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 10)) : 0u; }());
             decomp_particles::Emitter123 e123;
             const bool s1 = p123 && sotc_decomp::switchOn(sotc_decomp::kS1Ptcl) && !check123() &&
                             decomp_particles::prep123(rdram, ctx, runtime, E, Mr, K, P, sp + 0x10u, sp, e123);

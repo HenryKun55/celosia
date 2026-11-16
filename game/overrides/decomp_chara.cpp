@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_chara
 {
@@ -94,6 +95,7 @@ namespace decomp_chara
         return c.base + ((v >> 18) & 0xFFFu) * c.size;
     }
 
+    A9S_HOIST(bool, a9s_decomp_chara_check97_254, ps2_diag::env("SOTC_LINKS97_CHECK") && std::atoi(ps2_diag::env("SOTC_LINKS97_CHECK")) != 0); // round A9 sweep (a9sweep.h)
     template <bool Fast>
     void charaLinksT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -251,7 +253,7 @@ namespace decomp_chara
         int32_t from = count;
         if (links97)
         {
-            static const bool check97 = ps2_diag::env("SOTC_LINKS97_CHECK") && std::atoi(ps2_diag::env("SOTC_LINKS97_CHECK")) != 0;
+            const bool check97 = A9S_VAL(::a9sweep::on(), a9s_decomp_chara_check97_254, bool, ps2_diag::env("SOTC_LINKS97_CHECK") && std::atoi(ps2_diag::env("SOTC_LINKS97_CHECK")) != 0);
             if (check97)
             {
                 // The original second scan's reads up to its first call: where it acts first, and its v0 without a call.

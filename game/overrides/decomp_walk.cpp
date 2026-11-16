@@ -91,6 +91,7 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
+#include "a9sweep.h"
 
 namespace decomp_prefetch
 {
@@ -327,10 +328,10 @@ namespace decomp_walk
             return reinterpret_cast<AliasU32 *>(m.rdram + buckets);
         }
         // SOTC_SORT140_CHECK=1: each scan also done bucket by bucket and compared ([sort140]).
+        A9S_HOIST(bool, a9s_decomp_walk_v_332, ps2_diag::env("SOTC_SORT140_CHECK") != nullptr); // round A9 sweep (a9sweep.h)
         inline bool checkOn()
         {
-            static const bool v = ps2_diag::env("SOTC_SORT140_CHECK") != nullptr;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_332, bool, ps2_diag::env("SOTC_SORT140_CHECK") != nullptr);
         }
         inline uint64_t g_checks = 0, g_differ = 0;
         // The first i in [from, count) whose word is nonzero (count when none).
@@ -594,10 +595,10 @@ namespace decomp_walk
     // ---- Round 79's measurement (SOTC_WALK79_LOG=1): the walk's time by step and callee ----
     namespace wprof
     {
+        A9S_HOIST(bool, a9s_decomp_walk_v_599, ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0); // round A9 sweep (a9sweep.h)
         inline bool on()
         {
-            static const bool v = ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_599, bool, ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0);
         }
         struct Slot
         {
@@ -1218,10 +1219,10 @@ namespace decomp_walk
 #endif
         }
         uint64_t g_calls = 0, g_fast = 0, g_checks = 0, g_bad = 0, g_frames = 0;
+        A9S_HOIST(int, a9s_decomp_walk_v_1223, ps2_diag::env("SOTC_WALK83_CHECK") ? std::atoi(ps2_diag::env("SOTC_WALK83_CHECK")) : 0); // round A9 sweep (a9sweep.h)
         int checkMode()
         {
-            static const int v = ps2_diag::env("SOTC_WALK83_CHECK") ? std::atoi(ps2_diag::env("SOTC_WALK83_CHECK")) : 0;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_1223, int, ps2_diag::env("SOTC_WALK83_CHECK") ? std::atoi(ps2_diag::env("SOTC_WALK83_CHECK")) : 0);
         }
         struct Out
         {
@@ -1646,15 +1647,15 @@ namespace decomp_walk
         const uint8_t *g_rdram = nullptr;
         // Counters (SOTC_CLIP140_LOG=1: a line every 600 walks).
         uint64_t g_walks = 0, g_listed = 0, g_taken = 0, g_byWalk = 0, g_waited = 0, g_none = 0, g_missed = 0, g_checks = 0, g_differ = 0;
+        A9S_HOIST(int, a9s_decomp_walk_v_1651, ps2_diag::env("SOTC_CLIP140_CHECK") ? std::atoi(ps2_diag::env("SOTC_CLIP140_CHECK")) : 0); // round A9 sweep (a9sweep.h)
         int checkMode()
         {
-            static const int v = ps2_diag::env("SOTC_CLIP140_CHECK") ? std::atoi(ps2_diag::env("SOTC_CLIP140_CHECK")) : 0;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_1651, int, ps2_diag::env("SOTC_CLIP140_CHECK") ? std::atoi(ps2_diag::env("SOTC_CLIP140_CHECK")) : 0);
         }
+        A9S_HOIST(bool, a9s_decomp_walk_v_1656, ps2_diag::env("SOTC_CLIP140_LOG") != nullptr); // round A9 sweep (a9sweep.h)
         bool logOn()
         {
-            static const bool v = ps2_diag::env("SOTC_CLIP140_LOG") != nullptr;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_1656, bool, ps2_diag::env("SOTC_CLIP140_LOG") != nullptr);
         }
         void loop()
         {
@@ -1685,13 +1686,14 @@ namespace decomp_walk
         }
         // The walk's start: the group's objects the helper may clip, in the walk's order (the chain read as
         // isysGroupForNext walks it, without its counters' writes). False: nothing posted.
+        A9S_HOIST(bool, a9s_decomp_walk_clipPart83_1695, !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0')); // round A9 sweep (a9sweep.h)
         bool post(const Ram m, uint32_t first, PS2Runtime *runtime)
         {
             g_n = 0;
             if (!sotc_decomp::clip140On() || !sotc_decomp::walk83On() || clip83::checkMode() != 0 ||
                 sotc_decomp::guestFunction(runtime, kClip) != &clipLayoutObjModel)
                 return false;
-            static const bool clipPart83 = !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0');
+            const bool clipPart83 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_clipPart83_1695, bool, !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0'));
             if (!clipPart83)
                 return false;
             int n = 0;
@@ -1784,7 +1786,7 @@ namespace decomp_walk
                 std::memcpy(&w250, rdram + r.geo + 0x250u, 8);
                 bad |= w250 != r.w250 || w32(r.rec + 0x20u) != r.w20 || w32(r.rec + 0x24u) != r.w24 || w32(r.rec + 0x28u) != r.w28;
                 if (r.keys)
-                    bad |= std::memcmp(rdram + r.geo + 0x230u, r.k, 16) != 0;
+                    bad |= !A9_MEMEQ(rdram + r.geo + 0x230u, r.k, 16);
             }
             if (bad && ++g_differ <= 20u)
                 std::fprintf(stderr, "[clip140] differ: object %08x kind %d v0 %08x / %08x f0 %08x / %08x rec+30 %08x / %08x\n", r.object, r.kind, GPR_U32(ctx, 2), r.geo, f0, rf0,
@@ -2013,6 +2015,7 @@ namespace decomp_walk
     }
 
     // ---- 010F3A08 (a0 the camera object, a1 the layout class, a2 its character class)
+    A9S_HOIST(bool, a9s_decomp_walk_poison_2066, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0); // round A9 sweep (a9sweep.h)
     void solidDisp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const lines67::Scope l67(lines67::kDisp, false, GPR_U32(ctx, 29));
@@ -2062,7 +2065,7 @@ namespace decomp_walk
             ctx->f[0] = 1.0f;
             // SOTC_SOLID103_POISON=1 (checking): the skipped blocks filled with
             // NaNs, so any reader left would show (a model gone or broken).
-            static const bool poison = std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0;
+            const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0);
             if (poison)
             {
                 const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());
@@ -2403,9 +2406,10 @@ namespace decomp_walk
         }
         std::fprintf(stderr, "%s\n", line.c_str());
     }
+    A9S_HOIST(bool, a9s_decomp_walk_glv116_2409, ps2_diag::env("SOTC_GLV116_LOG") != nullptr); // round A9 sweep (a9sweep.h)
     void glVertexKick(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        static const bool glv116 = ps2_diag::env("SOTC_GLV116_LOG") != nullptr;
+        const bool glv116 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_glv116_2409, bool, ps2_diag::env("SOTC_GLV116_LOG") != nullptr);
         if (glv116)
             glv116Note(GPR_U32(ctx, 31));
         sotc_decomp::clipNeeded(ctx); // round 61: it reads the whole CLIP register (left in s0)
@@ -2749,6 +2753,7 @@ namespace decomp_walk
     };
     // host (round 128, imm128): the pairs into host[] (value, register; *hostCount of them) instead of the GIF packet.
     // Decomp D11 (SOTC_A9CMP): two copies (A9: the integer compares; a9cmp.h), apart for the sampler.
+    A9S_HOIST(bool, a9s_decomp_walk_glv116_2791, ps2_diag::env("SOTC_GLV116_LOG") != nullptr); // round A9 sweep (a9sweep.h)
     template <bool A9>
     __attribute__((noinline)) bool quad117BodyA9(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
     {
@@ -2787,7 +2792,7 @@ namespace decomp_walk
                              (sotc_decomp::g_lazyClip.pending || sotc_decomp::g_lazyClip.tracking);
         if (!lazy134)
             sotc_decomp::clipNeeded(ctx);
-        static const bool glv116 = ps2_diag::env("SOTC_GLV116_LOG") != nullptr;
+        const bool glv116 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_glv116_2791, bool, ps2_diag::env("SOTC_GLV116_LOG") != nullptr);
         __m128 *vf = ctx->vu0_vf;
         const __m128 vf0 = vf[0];
         const uint32_t view = kViewStack + (m.u32(kViewIndex) << 6);
@@ -3081,8 +3086,8 @@ namespace decomp_walk
         ++checks;
         const uint32_t countB = hostCount ? *hostCount : 0u;
         const sotc_decomp::LazyClip &lazyB = sotc_decomp::g_lazyClip;
-        const bool same = a == b && countA == countB && lazyA.known == lazyB.known && lazyA.shifts == lazyB.shifts && lazyA.pending == lazyB.pending && std::memcmp(blkA.data(), m.p(kGl), 0x5300u) == 0 && std::memcmp(pkA.data(), m.p(pkt), 0x100u) == 0 &&
-                          std::memcmp(ctxA.data(), g.ctx, sizeof(R5900Context)) == 0 &&
+        const bool same = a == b && countA == countB && lazyA.known == lazyB.known && lazyA.shifts == lazyB.shifts && lazyA.pending == lazyB.pending && A9_MEMEQ(blkA.data(), m.p(kGl), 0x5300u) && A9_MEMEQ(pkA.data(), m.p(pkt), 0x100u) &&
+                          A9_MEMEQ(ctxA.data(), g.ctx, sizeof(R5900Context)) &&
                           (!host || std::memcmp(hostA.data(), host + 2u * count0, hostA.size() * 8u) == 0);
         if (!same && ++differ <= 20u)
             std::fprintf(stderr, "[quad140] DIFFERS (site %08x): taken %d / %d pairs %u / %u\n", vs[0].site, a ? 1 : 0, b ? 1 : 0, countA, countB);
@@ -3147,9 +3152,9 @@ namespace decomp_walk
         calls();
         ++c.checks;
         const R5900Context *A = reinterpret_cast<const R5900Context *>(ctxA.data());
-        const bool blkSame = std::memcmp(blkA.data(), m.p(kGl), 0x5300u) == 0, pkSame = std::memcmp(pkA.data(), m.p(pkt), 0x100u) == 0;
-        const bool vuSame = std::memcmp(A->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) == 0 && std::memcmp(&A->vu0_acc, &ctx->vu0_acc, 16) == 0 &&
-                            std::memcmp(&A->vu0_q, &ctx->vu0_q, 4) == 0 && A->vu0_clip_flags == ctx->vu0_clip_flags;
+        const bool blkSame = A9_MEMEQ(blkA.data(), m.p(kGl), 0x5300u), pkSame = A9_MEMEQ(pkA.data(), m.p(pkt), 0x100u);
+        const bool vuSame = A9_MEMEQ(A->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) && A9_MEMEQ(&A->vu0_acc, &ctx->vu0_acc, 16) &&
+                            A9_MEMEQ(&A->vu0_q, &ctx->vu0_q, 4) && A->vu0_clip_flags == ctx->vu0_clip_flags;
         const bool fSame = std::memcmp(A->f, ctx->f, 3 * sizeof(float)) == 0;
         if (!(blkSame && pkSame && vuSame && fSame) && c.differ++ < 20u)
         {
@@ -3314,10 +3319,10 @@ namespace decomp_walk
             std::memcpy(blkN.data() + 4u, m.p(kGl) + 4u, 8u);
             const bool recSame = recN == recO;
             // With a clip flag 0108CD80 ran in the old path only (its work area, VU0): the record alone.
-            const bool blkSame = clipped || std::memcmp(blkN.data(), m.p(kGl), 0x5300u) == 0;
+            const bool blkSame = clipped || A9_MEMEQ(blkN.data(), m.p(kGl), 0x5300u);
             const R5900Context *N = reinterpret_cast<const R5900Context *>(ctxN.data());
-            const bool vuSame = clipped || (std::memcmp(N->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) == 0 && std::memcmp(&N->vu0_acc, &ctx->vu0_acc, 16) == 0 &&
-                                            std::memcmp(&N->vu0_q, &ctx->vu0_q, 4) == 0 && N->vu0_clip_flags == ctx->vu0_clip_flags &&
+            const bool vuSame = clipped || (A9_MEMEQ(N->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) && A9_MEMEQ(&N->vu0_acc, &ctx->vu0_acc, 16) &&
+                                            A9_MEMEQ(&N->vu0_q, &ctx->vu0_q, 4) && N->vu0_clip_flags == ctx->vu0_clip_flags &&
                                             std::memcmp(N->f, ctx->f, 3 * sizeof(float)) == 0);
             if (!(recSame && blkSame && vuSame) && st.differ++ < 20u)
             {
@@ -3546,7 +3551,7 @@ namespace decomp_walk
         const ps2_load::GameZone zone134(0x2010u);
         const auto zone = [](uint32_t z)
         {
-            if (ps2_load::t_slot == ps2_load::kGame)
+            if (ps2_load::zonesWanted() && ps2_load::t_slot == ps2_load::kGame)
                 ps2_load::gameZone.store(z, std::memory_order_relaxed);
         };
         G g(rdram, ctx, runtime);
@@ -3706,7 +3711,7 @@ namespace decomp_walk
                     const __m128i guest = m.qi(out);
                     viewCoord(ctx, m, out, point);
                     const __m128i mine = m.qi(out);
-                    if (std::memcmp(&guest, &mine, 16) != 0)
+                    if (!A9_MEMEQ(&guest, &mine, 16))
                     {
                         float a[4], b[4];
                         std::memcpy(a, &guest, 16);
@@ -4102,10 +4107,10 @@ namespace decomp_walk
             run(rdram, ctx, runtime, sp, nodes);
             g_lightNodes = nodes;
         }
+        A9S_HOIST(bool, a9s_decomp_walk_on_4107, ps2_diag::env("SOTC_DRAW95_CHECK") && std::atoi(ps2_diag::env("SOTC_DRAW95_CHECK")) != 0); // round A9 sweep (a9sweep.h)
         bool checkOn()
         {
-            static const bool on = ps2_diag::env("SOTC_DRAW95_CHECK") && std::atoi(ps2_diag::env("SOTC_DRAW95_CHECK")) != 0;
-            return on;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_on_4107, bool, ps2_diag::env("SOTC_DRAW95_CHECK") && std::atoi(ps2_diag::env("SOTC_DRAW95_CHECK")) != 0);
         }
         void report()
         {
@@ -4122,6 +4127,11 @@ namespace decomp_walk
     }
 
     // ---- DispDispObjGroupModel (0x10f52c8; a0 the camera object) -------------
+    A9S_HOIST(int, a9s_decomp_walk_invert79_4236, std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_decomp_walk_order95_4698, std::getenv("SOTC_DRAW95_ORDER") && std::atoi(std::getenv("SOTC_DRAW95_ORDER")) != 0); // round A9 sweep (a9sweep.h)
+    // Round A9 sweep (a9sweep.h): dispDispObjGroupModel's scratch vectors (cleared before use each call) at namespace scope
+    // under SOTC_A9SWEEP: a function-local static with a destructor is guarded (load + dmb ish) on every call.
+    std::vector<uint32_t> g_a9sDeferred91, g_a9sOrder, g_a9sReach, g_a9sAll;
     void dispDispObjGroupModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const lines67::Scope l67(lines67::kGroup, false, GPR_U32(ctx, 29));
@@ -4232,7 +4242,7 @@ namespace decomp_walk
                 ctx->f[0] = f0;
                 // Round 79: a particle system wholly outside the view is not drawn.
                 // SOTC_PTCL79_INVERT=1 (checking): only those are drawn; =2: no particle system.
-                static const int invert79 = std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0;
+                const int invert79 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_invert79_4236, int, std::getenv("SOTC_PTCL79_INVERT") ? std::atoi(std::getenv("SOTC_PTCL79_INVERT")) : 0);
                 const bool culled79 = sotc_decomp::ptcl79Culled(s3);
                 const bool draw79 = invert79 == 0 ? !culled79 : invert79 == 1 ? culled79 : false;
                 if (FPU_C_OLE_S(0.0f, f0) && draw79)
@@ -4253,7 +4263,8 @@ namespace decomp_walk
         // freed it before the walk). Their sort keys put them where they would
         // have gone (AddSortObj sorts by key; only equal keys can differ).
         const bool defer91 = sotc_worker::busy();
-        static std::vector<uint32_t> deferred91;
+        const bool a9s = ::a9sweep::on();
+        std::vector<uint32_t> &deferred91 = a9s ? g_a9sDeferred91 : []() -> std::vector<uint32_t> & { static std::vector<uint32_t> v; return v; }();
         deferred91.clear();
         auto flush91 = [&]()
         {
@@ -4560,7 +4571,7 @@ namespace decomp_walk
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[1] += t - wt0; wt0 = t; }
         // The second list: the first one without the objects with bit 4 of +0x260.
         clearSortList(m, m.u32(kSortList2));
-        static std::vector<uint32_t> order;
+        std::vector<uint32_t> &order = a9s ? g_a9sOrder : []() -> std::vector<uint32_t> & { static std::vector<uint32_t> v; return v; }();
         size_t turn = 0;
         if (w67)
             sortOrder(m, m.u32(kSortList), order);
@@ -4636,11 +4647,11 @@ namespace decomp_walk
                     light95(node);
                     std::memcpy(after, rdram + id + 0x20u, sizeof(after));
                     ++late95::g_checked;
-                    if (std::memcmp(before, after, sizeof(before)) != 0)
+                    if (!A9_MEMEQ(before, after, sizeof(before)))
                     {
                         if (++late95::g_differ <= 8u)
                             for (uint32_t i = 0; i < sizeof(before); i += 4)
-                                if (std::memcmp(before + i, after + i, 4) != 0)
+                                if (!A9_MEMEQ(before + i, after + i, 4))
                                 {
                                     uint32_t b, a2;
                                     std::memcpy(&b, before + i, 4);
@@ -4694,7 +4705,7 @@ namespace decomp_walk
             // they keep their turn; default 0: no wait in the loop (p3 measured
             // the turn coming early: most of the wait stayed), those whose turn
             // has passed are drawn when the job is done or at the loop's end.
-            static const bool order95 = std::getenv("SOTC_DRAW95_ORDER") && std::atoi(std::getenv("SOTC_DRAW95_ORDER")) != 0;
+            const bool order95 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_order95_4698, bool, std::getenv("SOTC_DRAW95_ORDER") && std::atoi(std::getenv("SOTC_DRAW95_ORDER")) != 0);
             const int32_t first95 = pending95 && order95 ? late95::predictedFirst(m, list) : 0x7FFFFFFF;
             auto insert95 = [&](uint32_t next)
             {
@@ -4707,7 +4718,8 @@ namespace decomp_walk
                 if (nodes95.empty())
                     return;
                 const uint32_t index = m.u32(list + 16u);
-                static std::vector<uint32_t> reach, all;
+                std::vector<uint32_t> &reach = a9s ? g_a9sReach : []() -> std::vector<uint32_t> & { static std::vector<uint32_t> v; return v; }();
+                std::vector<uint32_t> &all = a9s ? g_a9sAll : []() -> std::vector<uint32_t> & { static std::vector<uint32_t> v; return v; }();
                 reach.clear();
                 all.clear();
                 for (uint32_t x = next; x != 0u && reach.size() < 4096u; x = nextSortObj(m, list, x))

@@ -56,6 +56,7 @@
 #include <thread>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
+#include "a9sweep.h"
 #endif
 
 namespace pose82
@@ -98,22 +99,22 @@ namespace s3chara
         return e ? std::atoi(e) : def;
     }
     bool on() { return sotc_decomp::switchOn(sotc_decomp::kS3Chara); }
+    A9S_HOIST(int, a9s_s3_chara_v_103, envInt("SOTC_S3CHARA_CHECK", 0)); // round A9 sweep (a9sweep.h)
     int checkMode()
     {
-        static const int v = envInt("SOTC_S3CHARA_CHECK", 0);
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s3_chara_v_103, int, envInt("SOTC_S3CHARA_CHECK", 0));
     }
+    A9S_HOIST(int, a9s_s3_chara_v_108, envInt("SOTC_S3CHARA_LOG", 0)); // round A9 sweep (a9sweep.h)
     int logEvery()
     {
-        static const int v = envInt("SOTC_S3CHARA_LOG", 0);
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s3_chara_v_108, int, envInt("SOTC_S3CHARA_LOG", 0));
     }
     // Jobs: SOTC_S3CHARA_JOBS (default below); the smallest skeleton split (SOTC_S3CHARA_JOB_MIN, bones).
     bool jobsOn();
+    A9S_HOIST(int, a9s_s3_chara_v_115, envInt("SOTC_S3CHARA_JOB_MIN", 40)); // round A9 sweep (a9sweep.h)
     int jobMin()
     {
-        static const int v = envInt("SOTC_S3CHARA_JOB_MIN", 40);
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s3_chara_v_115, int, envInt("SOTC_S3CHARA_JOB_MIN", 40));
     }
 
     // ---- counters (game thread; the worker's own are atomics) ----
@@ -164,10 +165,10 @@ namespace s3chara
         std::mutex g_mutex;
         std::condition_variable g_cv;
         bool g_started = false, g_failed = false;
+        A9S_HOIST(int, a9s_s3_chara_v_169, envInt("SOTC_S3CHARA_SPIN_US", 1500)); // round A9 sweep (a9sweep.h)
         int spinUs()
         {
-            static const int v = envInt("SOTC_S3CHARA_SPIN_US", 1500);
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_s3_chara_v_169, int, envInt("SOTC_S3CHARA_SPIN_US", 1500));
         }
 
         __attribute__((noinline)) bool spinFor(uint64_t until)
@@ -496,10 +497,10 @@ namespace s3chara
     // Off unless SOTC_S3CHARA_KEEP=1: in the Vita3K A/B only ~9% of the bones were kept (the lake route) and the
     // kept copies' stores (128 bytes a computed bone) cost more than the arithmetic skipped (the sampler: S3's pose 86%
     // of round 82's with it, 74% without; docs/characters_s3.md).
+    A9S_HOIST(bool, a9s_s3_chara_v_501, envInt("SOTC_S3CHARA_KEEP", 0) != 0); // round A9 sweep (a9sweep.h)
     bool keepOn()
     {
-        static const bool v = envInt("SOTC_S3CHARA_KEEP", 0) != 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s3_chara_v_501, bool, envInt("SOTC_S3CHARA_KEEP", 0) != 0);
     }
     uint64_t g_kept = 0, g_keptOf = 0; // bones taken from the kept copy / bones posed with a kept set (game thread)
 
@@ -927,10 +928,10 @@ namespace s3chara
     bool timing() { return logEvery() > 0; }
 
     // ---- keys122's split (decomp_char122.cpp: decodeRange over two channel ranges) ----
+    A9S_HOIST(int, a9s_s3_chara_v_932, envInt("SOTC_S3CHARA_KEYS_MIN", 24)); // round A9 sweep (a9sweep.h)
     int keysMin()
     {
-        static const int v = envInt("SOTC_S3CHARA_KEYS_MIN", 24);
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s3_chara_v_932, int, envInt("SOTC_S3CHARA_KEYS_MIN", 24));
     }
     int32_t keysSplitAt(PS2Runtime *runtime, int32_t n)
     {

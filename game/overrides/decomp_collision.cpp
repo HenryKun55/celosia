@@ -59,6 +59,7 @@
 // one object's step is being captured (the surface, its boundary sphere and
 // plane as the leaf tested them, the leaf's query centre and radius).
 #include "ground85_capture.h"
+#include "a9sweep.h"
 namespace ground85
 {
     Capture g_cap;
@@ -441,7 +442,7 @@ namespace decomp_collision
             std::memcpy(&v, &bits, 4);
             return v;
         }
-        inline bool same(__m128 a, __m128 b) { return std::memcmp(&a, &b, 16) == 0; }
+        inline bool same(__m128 a, __m128 b) { return A9_MEMEQ(&a, &b, 16); }
 
         // SOTC_COLLISION_FASTCHECK=1: every fast result also made the exact
         // way (the clamped chains these replace) and compared, counted
@@ -1613,7 +1614,7 @@ namespace decomp_collision
                 static sotc_decomp::FastCheck fc("collision.leaf101");
                 const __m128 f0v = transform(g, m, e0), f1v = transform(g, m, e1), k0 = g.q(sp), k1 = g.q(sp + 0x10u);
                 const vu::Rows fresh{{vu::clamp(g.q(m2)), vu::clamp(g.q(m2 + 0x10u)), vu::clamp(g.q(m2 + 0x20u)), vu::clamp(g.q(m2 + 0x30u))}};
-                fc.note(std::memcmp(&f0v, &k0, 16) == 0 && std::memcmp(&f1v, &k1, 16) == 0 && std::memcmp(&fresh, &keptM2.rows, sizeof(fresh)) == 0);
+                fc.note(A9_MEMEQ(&f0v, &k0, 16) && A9_MEMEQ(&f1v, &k1, 16) && A9_MEMEQ(&fresh, &keptM2.rows, sizeof(fresh)));
             }
             rows = keptM2.rows;
             rowsAt = m2;
@@ -2514,7 +2515,7 @@ namespace decomp_collision
         uint32_t b0, b1;
         std::memcpy(&b0, &f0New, 4);
         std::memcpy(&b1, &f0Old, 4);
-        fc.note(rNew == rOld && b0 == b1 && (!blockOk || std::memcmp(afterNew, g.rdram + s.a0, 0x50) == 0));
+        fc.note(rNew == rOld && b0 == b1 && (!blockOk || A9_MEMEQ(afterNew, g.rdram + s.a0, 0x50)));
         return rOld;
     }
     // The walk101 form of sidesF / lowF / highF from guest ends; false: not taken.
@@ -2854,7 +2855,7 @@ namespace decomp_collision
             k.r = radius;
             k.query = true;
         }
-        else if (std::memcmp(k.c, cv, 12) != 0 || k.r != radius)
+        else if (!A9_MEMEQ(k.c, cv, 12) || k.r != radius)
             k.queryDiffers = true;
         k.record(id, dup, bq, pq);
     }
@@ -4087,7 +4088,7 @@ namespace decomp_collision
         }
         bool same(const Slot &s, const Key &k)
         {
-            if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || std::memcmp(s.filt, k.filt, sizeof k.filt) != 0 || std::memcmp(s.judge, k.judge, sizeof k.judge) != 0)
+            if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || !A9_MEMEQ(s.filt, k.filt, sizeof k.filt) || !A9_MEMEQ(s.judge, k.judge, sizeof k.judge))
                 return false;
             const float e = epsFor(k.ra);
             for (int i = 0; i < 3; ++i)
@@ -4193,7 +4194,7 @@ namespace decomp_collision
             float best = -1.0f;
             for (const seg80::Slot &s : std::span<seg80::Slot>(pool, poolSize))
             {
-                if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || std::memcmp(s.filt, k.filt, sizeof k.filt) != 0 || std::memcmp(s.judge, k.judge, sizeof k.judge) != 0)
+                if (!s.live || s.fn != k.fn || s.ra != k.ra || s.group != k.group || s.user != k.user || !A9_MEMEQ(s.filt, k.filt, sizeof k.filt) || !A9_MEMEQ(s.judge, k.judge, sizeof k.judge))
                     continue;
                 float d = 0.0f;
                 for (int i = 0; i < 3; ++i)
@@ -4236,7 +4237,7 @@ namespace decomp_collision
         {
             static sotc_decomp::FastCheck fc("collision.obj101");
             const __m128 a = transformKept(g, k, m, v), b = transform(g, m, v);
-            fc.note(std::memcmp(&a, &b, 16) == 0);
+            fc.note(A9_MEMEQ(&a, &b, 16));
             return b;
         }
         return transformKept(g, k, m, v);
@@ -4321,10 +4322,10 @@ namespace decomp_collision
         return transform(g, m, v);
     }
     inline bool obj125On(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kObj125) && !sotc_decomp::onWorkerLane(runtime); }
+    A9S_HOIST(int, a9s_decomp_collision_v_4326, ps2_diag::env("SOTC_OBJ125_CHECK") ? std::atoi(ps2_diag::env("SOTC_OBJ125_CHECK")) : 0); // round A9 sweep (a9sweep.h)
     inline int obj125Check()
     {
-        static const int v = ps2_diag::env("SOTC_OBJ125_CHECK") ? std::atoi(ps2_diag::env("SOTC_OBJ125_CHECK")) : 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_collision_v_4326, int, ps2_diag::env("SOTC_OBJ125_CHECK") ? std::atoi(ps2_diag::env("SOTC_OBJ125_CHECK")) : 0);
     }
     struct Obj125Check
     {
@@ -4804,7 +4805,7 @@ namespace decomp_collision
             c.sumDist += dist;
             if (dist > 0.01)
                 ++c.far;
-            if (std::memcmp(recA, recB, 8) != 0)
+            if (!A9_MEMEQ(recA, recB, 8))
             {
                 ++c.idDiffer;
                 if (dist < 1e-3)
@@ -5853,8 +5854,8 @@ namespace decomp_collision
                 std::memcpy(g.rdram + cross, cb, 0x10);
                 float f0n = f0;
                 const bool slowN = s2water::surface(g.rdram, t0, count, _mm_cvtss_f32(p0), p0y, _mm_cvtss_f32(vu::lane<2>(p0)), _mm_cvtss_f32(p1), p1y, _mm_cvtss_f32(vu::lane<2>(p1)), [&](uint32_t t) { return tri(t, f0n); });
-                const bool same = slowO == slowN && (slowO || (floatBits(f0o) == floatBits(f0n) && std::memcmp(wo, g.rdram + work, 0x40) == 0 &&
-                                                                std::memcmp(co, g.rdram + cross, 0x10) == 0));
+                const bool same = slowO == slowN && (slowO || (floatBits(f0o) == floatBits(f0n) && A9_MEMEQ(wo, g.rdram + work, 0x40) &&
+                                                                A9_MEMEQ(co, g.rdram + cross, 0x10)));
                 s2water::compared(1, same);
                 std::memcpy(g.rdram + work, wo, 0x40);
                 std::memcpy(g.rdram + cross, co, 0x10);
@@ -6200,10 +6201,10 @@ namespace decomp_collision
     // CallBack variant asks t0(id, t1) first (the id filters natively when
     // known, else a guest call). A negative count goes to the recompiled
     // code (nothing written yet). v0 / f0 as the original leaves them.
+    A9S_HOIST(int, a9s_decomp_collision_v_6205, ps2_diag::env("SOTC_GROUND85_CHECK") ? std::atoi(ps2_diag::env("SOTC_GROUND85_CHECK")) : 0); // round A9 sweep (a9sweep.h)
     inline int ground85Check()
     {
-        static const int v = ps2_diag::env("SOTC_GROUND85_CHECK") ? std::atoi(ps2_diag::env("SOTC_GROUND85_CHECK")) : 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_collision_v_6205, int, ps2_diag::env("SOTC_GROUND85_CHECK") ? std::atoi(ps2_diag::env("SOTC_GROUND85_CHECK")) : 0);
     }
     template <bool Filtered>
     void finderClipBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -6213,10 +6214,10 @@ namespace decomp_collision
     namespace fin138t
     {
         inline uint64_t us[3] = {}, n[3] = {}, checks[3] = {}, frames[3] = {}, lastFrame = 0, logFrame = 0;
+        A9S_HOIST(bool, a9s_decomp_collision_w_6218, ps2_diag::env("SOTC_FIN138_LOG") && std::atoi(ps2_diag::env("SOTC_FIN138_LOG")) != 0); // round A9 sweep (a9sweep.h)
         inline bool want()
         {
-            static const bool w = ps2_diag::env("SOTC_FIN138_LOG") && std::atoi(ps2_diag::env("SOTC_FIN138_LOG")) != 0;
-            return w;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_collision_w_6218, bool, ps2_diag::env("SOTC_FIN138_LOG") && std::atoi(ps2_diag::env("SOTC_FIN138_LOG")) != 0);
         }
         inline void log()
         {
@@ -6357,7 +6358,7 @@ namespace decomp_collision
                     const double d = std::sqrt(double(po[0] - ph[0]) * (po[0] - ph[0]) + double(po[1] - ph[1]) * (po[1] - ph[1]) + double(po[2] - ph[2]) * (po[2] - ph[2]));
                     if (d > cs.maxd)
                         cs.maxd = d;
-                    const bool otherId = std::memcmp(after, rdram + a0, 8) != 0;
+                    const bool otherId = !A9_MEMEQ(after, rdram + a0, 8);
                     if (otherId)
                         ++cs.differId;
                     if (otherId || d > 0.01)
@@ -6561,7 +6562,7 @@ namespace decomp_finderwalk
                 std::memcpy(k.b, b, 16);
                 k.box = true;
             }
-            else if (std::memcmp(k.b, b, 16) != 0)
+            else if (!A9_MEMEQ(k.b, b, 16))
                 k.boxDiffers = true;
         }
         void walk(uint32_t node, uint32_t spIn) const

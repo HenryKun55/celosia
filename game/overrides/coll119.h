@@ -91,10 +91,10 @@ namespace coll119
     inline Stats g_vst;
 
     inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kView119) && !sotc_decomp::onWorkerLane(runtime); }
+    A9S_HOIST(int, a9s_coll119_v_96, ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0); // round A9 sweep (a9sweep.h)
     inline int checkLevel()
     {
-        static const int v = ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_coll119_v_96, int, ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0);
     }
 
     // The view of the n entries at list for this frame (its entries made as they are tested).

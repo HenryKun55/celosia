@@ -64,6 +64,7 @@
 #include <cstring>
 
 #include "decomp_group.h" // decomp_group.cpp: isysGroupForNext's work (round 106's caller)
+#include "a9sweep.h"
 
 namespace decomp_hot44c
 {
@@ -98,6 +99,10 @@ namespace decomp_hot44c
                jalTarget(rdram, kSiteSrhNext2) == 0x001C79E0u && jalTarget(rdram, kSiteForNext) == 0x001C76D0u;
     }
 
+    A9S_HOIST(bool, a9s_decomp_hot44c_check_153, [] {
+            const char *e = ps2_diag::env("SOTC_GRP106_CHECK");
+            return e && e[0] == '1';
+        }()); // round A9 sweep (a9sweep.h)
     void groupFix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::hotList44On())
@@ -150,10 +155,10 @@ namespace decomp_hot44c
         // call's result is the one used). isysGroupForNext is not (it writes:
         // decomp_group::next is the native it would call). =2: the difftest.
         const bool fast = sotc_decomp::grp106On() && grp106SitesOk(rdram);
-        static const bool check = [] {
+        const bool check = A9S_VAL(::a9sweep::on(), a9s_decomp_hot44c_check_153, bool, [] {
             const char *e = ps2_diag::env("SOTC_GRP106_CHECK");
             return e && e[0] == '1';
-        }();
+        }());
         static uint64_t checks = 0, differ = 0;
         auto guestLeaf = [&](uint64_t arg, uint32_t site) -> uint64_t
         {

@@ -58,6 +58,7 @@
 #endif
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_quat
 {
@@ -402,6 +403,8 @@ namespace decomp_hot44b
         }
         finderWithKeepBody(rdram, ctx, runtime);
     }
+    A9S_HOIST(int, a9s_decomp_hot44b_check119_491, ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_decomp_hot44b_log119_492, a9s_decomp_hot44b_check119_491 || (ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0)); // round A9 sweep (a9sweep.h)
     void finderWithKeepBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t a3 = GPR_U32(ctx, 7);
@@ -488,8 +491,8 @@ namespace decomp_hot44b
                 if (keepCall(pendS0, pendS1) != 0u)
                     ++g_keep119Wrong; // (never: the first return gives no hit)
             };
-            static const int check119 = ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0;
-            static const bool log119 = check119 || (ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0);
+            const int check119 = A9S_VAL(::a9sweep::on(), a9s_decomp_hot44b_check119_491, int, ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0);
+            const bool log119 = A9S_VAL(::a9sweep::on(), a9s_decomp_hot44b_log119_492, bool, a9s_decomp_hot44b_check119_491 || (ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0));
             if (log119 && sotc_decomp::g_gameFrame >= g_keep119Frame + 600u)
             {
                 if (g_keep119Frame != 0u)

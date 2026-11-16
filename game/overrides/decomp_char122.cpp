@@ -57,6 +57,7 @@ namespace s3chara
 #include <vector>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
+#include "a9sweep.h"
 #endif
 
 namespace char122
@@ -102,15 +103,15 @@ namespace char122
         const char *e = std::getenv(name);
         return e ? std::atoi(e) : def;
     }
+    A9S_HOIST(int, a9s_decomp_char122_n_107, envInt("SOTC_CHAR122_LOG", 0)); // round A9 sweep (a9sweep.h)
     int logEvery()
     {
-        static const int n = envInt("SOTC_CHAR122_LOG", 0);
-        return n;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_char122_n_107, int, envInt("SOTC_CHAR122_LOG", 0));
     }
+    A9S_HOIST(int, a9s_decomp_char122_n_112, envInt("SOTC_CHAR122_CHECK", 0) > 0 ? 8 : 0); // round A9 sweep (a9sweep.h)
     int checkEvery()
     {
-        static const int n = envInt("SOTC_CHAR122_CHECK", 0) > 0 ? 8 : 0;
-        return n;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_char122_n_112, int, envInt("SOTC_CHAR122_CHECK", 0) > 0 ? 8 : 0);
     }
 
     // ---- NEON quaternion helpers (x, y, z, w) -------------------------------

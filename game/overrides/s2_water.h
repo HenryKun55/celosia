@@ -30,21 +30,21 @@ namespace s2water
     inline float s2mx(float a, float b) { return a > b ? a : b; }
     inline float s2mn(float a, float b) { return a < b ? a : b; }
     // SOTC_S2COLL_WATER=0 leaves the water pre-tests out while SOTC_S2COLL stays on; read once.
+    A9S_HOIST(bool, a9s_s2_water_v_35, !(ps2_diag::env("SOTC_S2COLL_WATER") && ps2_diag::env("SOTC_S2COLL_WATER")[0] == '0')); // round A9 sweep (a9sweep.h)
     inline bool waterOn()
     {
-        static const bool v = !(ps2_diag::env("SOTC_S2COLL_WATER") && ps2_diag::env("SOTC_S2COLL_WATER")[0] == '0');
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s2_water_v_35, bool, !(ps2_diag::env("SOTC_S2COLL_WATER") && ps2_diag::env("SOTC_S2COLL_WATER")[0] == '0'));
     }
     inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kS2Coll) && waterOn() && !sotc_decomp::onWorkerLane(runtime); }
+    A9S_HOIST(bool, a9s_s2_water_v_41, ps2_diag::env("SOTC_S2COLL_CHECK") && std::atoi(ps2_diag::env("SOTC_S2COLL_CHECK")) != 0); // round A9 sweep (a9sweep.h)
     inline bool checkOn()
     {
-        static const bool v = ps2_diag::env("SOTC_S2COLL_CHECK") && std::atoi(ps2_diag::env("SOTC_S2COLL_CHECK")) != 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s2_water_v_41, bool, ps2_diag::env("SOTC_S2COLL_CHECK") && std::atoi(ps2_diag::env("SOTC_S2COLL_CHECK")) != 0);
     }
+    A9S_HOIST(bool, a9s_s2_water_v_46, checkOn() || (ps2_diag::env("SOTC_S2COLL_LOG") && std::atoi(ps2_diag::env("SOTC_S2COLL_LOG")) != 0)); // round A9 sweep (a9sweep.h)
     inline bool logOn()
     {
-        static const bool v = checkOn() || (ps2_diag::env("SOTC_S2COLL_LOG") && std::atoi(ps2_diag::env("SOTC_S2COLL_LOG")) != 0);
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s2_water_v_46, bool, checkOn() || (ps2_diag::env("SOTC_S2COLL_LOG") && std::atoi(ps2_diag::env("SOTC_S2COLL_LOG")) != 0));
     }
     struct Stats
     {

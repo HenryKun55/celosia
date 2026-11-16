@@ -55,6 +55,7 @@
 #include <vector>
 
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_hot47e
 {
@@ -99,10 +100,10 @@ namespace decomp_hot47e
     // Round 79's measurement (SOTC_WALK79_LOG=1): the geodisps' steps by last frame's clip (+0x30 of the class).
     namespace pprof
     {
+        A9S_HOIST(bool, a9s_decomp_hot47e_v_104, ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0); // round A9 sweep (a9sweep.h)
         inline bool on()
         {
-            static const bool v = ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_hot47e_v_104, bool, ps2_diag::env("SOTC_WALK79_LOG") && std::atoi(ps2_diag::env("SOTC_WALK79_LOG")) != 0);
         }
         static uint64_t tVis, tHid, nVis, nHid, tEmit, nEmit, tAll, frames;
         static uint64_t bT[6], bN[6], bP[6];
@@ -394,10 +395,10 @@ namespace decomp_hot47e
                 return true;
             }
         }
+        A9S_HOIST(float, a9s_decomp_hot47e_v_399, std::getenv("SOTC_PTCL83_FAR") ? static_cast<float>(std::atof(std::getenv("SOTC_PTCL83_FAR"))) : 0.0f); // round A9 sweep (a9sweep.h)
         float farDist()
         {
-            static const float v = std::getenv("SOTC_PTCL83_FAR") ? static_cast<float>(std::atof(std::getenv("SOTC_PTCL83_FAR"))) : 0.0f;
-            return v;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_hot47e_v_399, float, std::getenv("SOTC_PTCL83_FAR") ? static_cast<float>(std::atof(std::getenv("SOTC_PTCL83_FAR"))) : 0.0f);
         }
         uint64_t g_nNear[5] = {0, 0, 0, 0, 0}, g_nHalf = 0;
         // get_top_emitter_list_from_particle_geodisp(gd): GetGeoDispClass(gd) + 0xe8 (0 for no gd).
@@ -1152,13 +1153,15 @@ namespace decomp_hot47e
     constexpr uint32_t dstOf(int i) { return 0xCu + 4u * static_cast<uint32_t>(i); }
 
     void blendOriginal(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    A9S_HOIST(bool, a9s_decomp_hot47e_statsOn_1162, ps2_diag::env("SOTC_PTCL_STATS") != nullptr); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_decomp_hot47e_check_1234, [] { const char *e = ps2_diag::env("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }()); // round A9 sweep (a9sweep.h)
     void blend(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::hotList47On())
             return fallback(kBlend, rdram, ctx, runtime);
         {
             // SOTC_PTCL_STATS=1: blends by kind every 600 frames ([blend123]).
-            static const bool statsOn = ps2_diag::env("SOTC_PTCL_STATS") != nullptr;
+            const bool statsOn = A9S_VAL(::a9sweep::on(), a9s_decomp_hot47e_statsOn_1162, bool, ps2_diag::env("SOTC_PTCL_STATS") != nullptr);
             static uint64_t nCopy = 0, nBlend = 0, frame = 0;
             if (statsOn)
             {
@@ -1230,7 +1233,7 @@ namespace decomp_hot47e
                     }
                     using af = float __attribute__((may_alias));
                     const af *a = reinterpret_cast<const af *>(rdram + rec1), *b = reinterpret_cast<const af *>(rdram + rec2);
-                    static const bool check = [] { const char *e = ps2_diag::env("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }();
+                    const bool check = A9S_VAL(::a9sweep::on(), a9s_decomp_hot47e_check_1234, bool, [] { const char *e = ps2_diag::env("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }());
                     float tmp[88];
                     af *o = check ? tmp : reinterpret_cast<af *>(rdram + out);
                     o[0] = w0 * fb(READ32(set + 0x78u)) + w1 * fb(READ32(other + 0x78u));

@@ -32,24 +32,24 @@ namespace s2coll
 {
     inline float s2mx(float a, float b) { return a > b ? a : b; } // (std::fmax is a library call on the A9's VFPv3)
     // SOTC_S2COLL_VIEWS=0 leaves the list views out while SOTC_S2COLL stays on (the water pre-tests alone); read once.
+    A9S_HOIST(bool, a9s_s2_coll_v_37, !(ps2_diag::env("SOTC_S2COLL_VIEWS") && ps2_diag::env("SOTC_S2COLL_VIEWS")[0] == '0')); // round A9 sweep (a9sweep.h)
     inline bool viewsOn()
     {
-        static const bool v = !(ps2_diag::env("SOTC_S2COLL_VIEWS") && ps2_diag::env("SOTC_S2COLL_VIEWS")[0] == '0');
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s2_coll_v_37, bool, !(ps2_diag::env("SOTC_S2COLL_VIEWS") && ps2_diag::env("SOTC_S2COLL_VIEWS")[0] == '0'));
     }
     inline bool on(const PS2Runtime *runtime)
     {
         return sotc_decomp::switchOn(sotc_decomp::kS2Coll) && viewsOn() && coll125::on(runtime);
     }
+    A9S_HOIST(int, a9s_s2_coll_v_46, ps2_diag::env("SOTC_S2COLL_CHECK") ? std::atoi(ps2_diag::env("SOTC_S2COLL_CHECK")) : 0); // round A9 sweep (a9sweep.h)
     inline int checkLevel()
     {
-        static const int v = ps2_diag::env("SOTC_S2COLL_CHECK") ? std::atoi(ps2_diag::env("SOTC_S2COLL_CHECK")) : 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s2_coll_v_46, int, ps2_diag::env("SOTC_S2COLL_CHECK") ? std::atoi(ps2_diag::env("SOTC_S2COLL_CHECK")) : 0);
     }
+    A9S_HOIST(bool, a9s_s2_coll_v_51, ps2_diag::env("SOTC_S2COLL_LOG") && std::atoi(ps2_diag::env("SOTC_S2COLL_LOG")) != 0); // round A9 sweep (a9sweep.h)
     inline bool logOn()
     {
-        static const bool v = ps2_diag::env("SOTC_S2COLL_LOG") && std::atoi(ps2_diag::env("SOTC_S2COLL_LOG")) != 0;
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_s2_coll_v_51, bool, ps2_diag::env("SOTC_S2COLL_LOG") && std::atoi(ps2_diag::env("SOTC_S2COLL_LOG")) != 0);
     }
 
     constexpr int kMaxEntries = 256;
@@ -528,11 +528,11 @@ namespace s2coll
             bool same = (best != 0u) == (bestO != 0u);
             if (same && best != 0u)
             {
-                same = std::memcmp(mine, after, 0x10) == 0 && std::memcmp(mine + 0x30, after + 0x30, 4) == 0 && std::memcmp(mine + 0x40, after + 0x40, 12) == 0;
+                same = A9_MEMEQ(mine, after, 0x10) && A9_MEMEQ(mine + 0x30, after + 0x30, 4) && A9_MEMEQ(mine + 0x40, after + 0x40, 12);
                 uint32_t kind;
                 std::memcpy(&kind, after + 0x30, 4);
                 if (same && kind == 2u)
-                    same = std::memcmp(mine + 0x10, after + 0x10, 12) == 0;
+                    same = A9_MEMEQ(mine + 0x10, after + 0x10, 12);
             }
             if (!same)
             {

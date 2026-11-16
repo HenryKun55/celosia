@@ -44,6 +44,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include "a9sweep.h"
 
 namespace decomp_lifebar
 {
@@ -75,15 +76,15 @@ namespace decomp_lifebar
         return v;
     }
 
+    A9S_HOIST(bool, a9s_decomp_lifebar_on_80, !(std::getenv("SOTC_LIFEBAR_SHORTCUT") && std::atoi(std::getenv("SOTC_LIFEBAR_SHORTCUT")) == 0)); // round A9 sweep (a9sweep.h)
     bool shortcutOn()
     {
-        static const bool on = !(std::getenv("SOTC_LIFEBAR_SHORTCUT") && std::atoi(std::getenv("SOTC_LIFEBAR_SHORTCUT")) == 0);
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_lifebar_on_80, bool, !(std::getenv("SOTC_LIFEBAR_SHORTCUT") && std::atoi(std::getenv("SOTC_LIFEBAR_SHORTCUT")) == 0));
     }
+    A9S_HOIST(bool, a9s_decomp_lifebar_on_85, ps2_diag::env("SOTC_LIFEBAR_CHECK") != nullptr); // round A9 sweep (a9sweep.h)
     bool checkOn()
     {
-        static const bool on = ps2_diag::env("SOTC_LIFEBAR_CHECK") != nullptr;
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_lifebar_on_85, bool, ps2_diag::env("SOTC_LIFEBAR_CHECK") != nullptr);
     }
 
     // The shortcut's memory: words written straight, or (the check) kept in

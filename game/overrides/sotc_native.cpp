@@ -94,6 +94,7 @@ extern "C" void ps2x_vita_pace132_ab(int on);             // raylib_vita.cpp (ro
 extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (round 143)
 #endif
 #include <vector>
+#include "a9sweep.h"
 
 namespace s4disp
 {
@@ -299,9 +300,10 @@ namespace sotc_native
     // 4-7 read as -4..-1, i.e. 0xFFFFFFFC.. as the unsigned word the sltu against the level count then sees: clamped to the
     // last level when the model has LODs). The hook / plan / lane paths read it unsigned ((lw >> 40) & 7: 4..7), which differs
     // from the guest for a raw 4-7 ([lodraw] logs the first ones). SOTC_LOD_SIGNED=0: the old unsigned read.
+    A9S_HOIST(bool, g_a9sLodSigned, !(std::getenv("SOTC_LOD_SIGNED") && std::getenv("SOTC_LOD_SIGNED")[0] == '0')); // round A9 sweep
     inline uint32_t gameLodRaw(uint64_t lw)
     {
-        static const bool on = !(std::getenv("SOTC_LOD_SIGNED") && std::getenv("SOTC_LOD_SIGNED")[0] == '0');
+        const bool on = A9S_VAL(::a9sweep::on(), g_a9sLodSigned, bool, !(std::getenv("SOTC_LOD_SIGNED") && std::getenv("SOTC_LOD_SIGNED")[0] == '0'));
         const uint32_t u = static_cast<uint32_t>((lw >> 40) & 7u);
         if (__builtin_expect(u >= 4u, 0))
         {
@@ -2265,7 +2267,7 @@ namespace sotc_native
                 o.weight[k] = b.weight[k];
             }
         }
-        const auto same = [&](uint32_t a, uint32_t b) { return std::memcmp(&packet.bind[a], &packet.bind[b], sizeof(SkinBind)) == 0; };
+        const auto same = [&](uint32_t a, uint32_t b) { return A9_MEMEQ(&packet.bind[a], &packet.bind[b], sizeof(SkinBind)); };
         indices.clear();
         uint32_t first = 0;
         for (const uint32_t end : packet.stripEnd)
@@ -3106,10 +3108,10 @@ namespace sotc_native
     // guest screenBlur's own GS writes keep the jobs' order through gsReg's
     // hooks, and a recorded blur still joins first.
     bool g_sblur100 = true;
+    A9S_HOIST(bool, a9s_sotc_native_v_3111, [] { const char *e = std::getenv("SOTC_SBLUR100"); return !e || std::atoi(e) != 0; }()); // round A9 sweep (a9sweep.h)
     bool sblur100Start()
     {
-        static const bool v = [] { const char *e = std::getenv("SOTC_SBLUR100"); return !e || std::atoi(e) != 0; }();
-        return v;
+        return A9S_VAL(::a9sweep::on(), a9s_sotc_native_v_3111, bool, [] { const char *e = std::getenv("SOTC_SBLUR100"); return !e || std::atoi(e) != 0; }());
     }
     void abSwitches()
     {
@@ -3308,7 +3310,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -5373,7 +5375,7 @@ namespace sotc_native
                     continue;
                 ++changed;
                 for (size_t l = 0; l < g_pageBytes; l += 64u)
-                    if (std::memcmp(a + l, b + l, 64u) != 0)
+                    if (!A9_MEMEQ(a + l, b + l, 64u))
                     {
                         ++lines;
                         if (where.size() < 400u)
@@ -5405,7 +5407,7 @@ namespace sotc_native
                             {
                                 const size_t addr = (b * 8u + k) * 4u;
                                 ++words;
-                                if (std::memcmp(g_snap + addr, g_live + addr, 4) != 0)
+                                if (!A9_MEMEQ(g_snap + addr, g_live + addr, 4))
                                 {
                                     ++differ;
                                     {
@@ -5836,6 +5838,14 @@ namespace sotc_native
 
     // A frame of the game ends when the display list goes to the VIF1.
     void newDrawOrder();
+    A9S_HOIST(uint64_t, a9s_sotc_native_stallMs_5905, std::getenv("SOTC_FRAME_STALL_MS") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_MS"), nullptr, 10) : 0u); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(uint64_t, a9s_sotc_native_stallFrom_5906, std::getenv("SOTC_FRAME_STALL_FROM") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_FROM"), nullptr, 10) : 0u); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(uint64_t, a9s_sotc_native_posEvery_5912, ps2_diag::env("SOTC_POS_LOG") ? std::strtoull(ps2_diag::env("SOTC_POS_LOG"), nullptr, 10) : 0u); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(uint32_t, a9s_sotc_native_verify_5993, ps2_diag::env("SOTC_PLAN_VERIFY") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_PLAN_VERIFY"))) : 0u); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(int32_t, a9s_sotc_native_budget_5995, std::getenv("SOTC_PLAN_BUDGET") ? std::atoi(std::getenv("SOTC_PLAN_BUDGET")) : 3000); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_sotc_native_planStats_5998, ps2_diag::env("SOTC_PLAN_STATS") != nullptr); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_sotc_native_cacheLog_6013, ps2_diag::env("SOTC_GL_CACHE_LOG") != nullptr); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_sotc_native_planStats_6038, ps2_diag::env("SOTC_PLAN_STATS") != nullptr); // round A9 sweep (a9sweep.h)
     void syncFrame(uint8_t *rdram)
     {
         if (g_ram != rdram) // (read by the model jobs: written once)
@@ -5900,14 +5910,14 @@ namespace sotc_native
             // sleeps that long at each frame's end from frame
             // SOTC_FRAME_STALL_FROM (default 0) on, so the Mac runs frames as
             // slow as the Vita's (the host clock's catch-up, the game's step).
-            static const uint64_t stallMs = std::getenv("SOTC_FRAME_STALL_MS") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_MS"), nullptr, 10) : 0u;
-            static const uint64_t stallFrom = std::getenv("SOTC_FRAME_STALL_FROM") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_FROM"), nullptr, 10) : 0u;
+            const uint64_t stallMs = A9S_VAL(::a9sweep::on(), a9s_sotc_native_stallMs_5905, uint64_t, std::getenv("SOTC_FRAME_STALL_MS") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_MS"), nullptr, 10) : 0u);
+            const uint64_t stallFrom = A9S_VAL(::a9sweep::on(), a9s_sotc_native_stallFrom_5906, uint64_t, std::getenv("SOTC_FRAME_STALL_FROM") ? std::strtoull(std::getenv("SOTC_FRAME_STALL_FROM"), nullptr, 10) : 0u);
             if (stallMs && frame >= stallFrom)
                 std::this_thread::sleep_for(std::chrono::milliseconds(stallMs));
             // SOTC_POS_LOG=<n> (measuring, round 10): every n game frames the
             // guest VBlank, the game step and where the player and the camera
             // are ([pos]): runs at other frame rates compared by game time.
-            static const uint64_t posEvery = ps2_diag::env("SOTC_POS_LOG") ? std::strtoull(ps2_diag::env("SOTC_POS_LOG"), nullptr, 10) : 0u;
+            const uint64_t posEvery = A9S_VAL(::a9sweep::on(), a9s_sotc_native_posEvery_5912, uint64_t, ps2_diag::env("SOTC_POS_LOG") ? std::strtoull(ps2_diag::env("SOTC_POS_LOG"), nullptr, 10) : 0u);
             if (posEvery && frame % posEvery == 0u)
             {
                 auto w = [rdram](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
@@ -5988,12 +5998,12 @@ namespace sotc_native
                 };
                 static const bool r2 = envOn("SOTC_NATIVE_R2"), quickTextures = envOn("SOTC_TEX_QUICK"), surfaceMemo = envOn("SOTC_SURFACE_MEMO"),
                                   prefetch = envOn("SOTC_HOOK_PREFETCH"), plans = envOn("SOTC_PLAN"), planRuns = envOn("SOTC_PLAN_RUNS");
-                static const uint32_t verify = ps2_diag::env("SOTC_PLAN_VERIFY") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_PLAN_VERIFY"))) : 0u;
+                const uint32_t verify = A9S_VAL(::a9sweep::on(), a9s_sotc_native_verify_5993, uint32_t, ps2_diag::env("SOTC_PLAN_VERIFY") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_PLAN_VERIFY"))) : 0u);
                 g_planOn = plans;
-                static const int32_t budget = std::getenv("SOTC_PLAN_BUDGET") ? std::atoi(std::getenv("SOTC_PLAN_BUDGET")) : 3000;
+                const int32_t budget = A9S_VAL(::a9sweep::on(), a9s_sotc_native_budget_5995, int32_t, std::getenv("SOTC_PLAN_BUDGET") ? std::atoi(std::getenv("SOTC_PLAN_BUDGET")) : 3000);
                 g_planBudget = budget;
                 g_planRuns = planRuns;
-                static const bool planStats = ps2_diag::env("SOTC_PLAN_STATS") != nullptr;
+                const bool planStats = A9S_VAL(::a9sweep::on(), a9s_sotc_native_planStats_5998, bool, ps2_diag::env("SOTC_PLAN_STATS") != nullptr);
                 g_planStatsOn = planStats;
                 g_planVerify = verify;
                 g_r2 = r2;
@@ -6008,7 +6018,7 @@ namespace sotc_native
             // A packet's id hashes its content: another area loaded in its
             // place makes new ids, the old ones never come back (the title's
             // demo filled the Vita's heap). Gone after ~30 s undrawn.
-            static const bool cacheLog = ps2_diag::env("SOTC_GL_CACHE_LOG") != nullptr;
+            const bool cacheLog = A9S_VAL(::a9sweep::on(), a9s_sotc_native_cacheLog_6013, bool, ps2_diag::env("SOTC_GL_CACHE_LOG") != nullptr);
             if (cacheLog && frame % 600u == 0u)
             {
                 size_t strips = 0;
@@ -6033,7 +6043,7 @@ namespace sotc_native
             if (frame % 256u == 0u)
                 sweepPlans();
             // SOTC_PLAN_STATS=1 / SOTC_PLAN_VERIFY: the draw plans, every 600 frames.
-            static const bool planStats = ps2_diag::env("SOTC_PLAN_STATS") != nullptr;
+            const bool planStats = A9S_VAL(::a9sweep::on(), a9s_sotc_native_planStats_6038, bool, ps2_diag::env("SOTC_PLAN_STATS") != nullptr);
             if ((planStats || g_planVerify) && frame % 600u == 0u)
             {
                 const PlanStats &ps = g_planStats;
@@ -6112,10 +6122,10 @@ namespace sotc_native
     // Round 32: textured 2D batches go to the worker too (flush2D);
     // SOTC_2D_TEX_ASYNC=0: they wait for the jobs, as before (read at the
     // first flush).
+    A9S_HOIST(bool, a9s_sotc_native_on_6117, !std::getenv("SOTC_2D_TEX_ASYNC") || std::atoi(std::getenv("SOTC_2D_TEX_ASYNC")) != 0); // round A9 sweep (a9sweep.h)
     inline bool texAsync2D()
     {
-        static const bool on = !std::getenv("SOTC_2D_TEX_ASYNC") || std::atoi(std::getenv("SOTC_2D_TEX_ASYNC")) != 0;
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_sotc_native_on_6117, bool, !std::getenv("SOTC_2D_TEX_ASYNC") || std::atoi(std::getenv("SOTC_2D_TEX_ASYNC")) != 0);
     }
     // SOTC_HOOK_ASYNC_VERIFY: a texture's bytes (its format, the first
     // level's pixels, the palette) as a hash, at the hook and in the job.
@@ -6451,10 +6461,10 @@ namespace sotc_native
     BossMask g_bossMask;
     constexpr uint64_t kBossMaskId = 0x0200B05500000000ull; // bit 57: apart from the texture keys (bit 58) and the meshes (59-63)
     // SOTC_BOSSMASK=0: the bit-17 surfaces keep their own texture (round 26's picture).
+    A9S_HOIST(bool, a9s_sotc_native_on_6456, !std::getenv("SOTC_BOSSMASK") || std::atoi(std::getenv("SOTC_BOSSMASK")) != 0); // round A9 sweep (a9sweep.h)
     bool bossMaskOn()
     {
-        static const bool on = !std::getenv("SOTC_BOSSMASK") || std::atoi(std::getenv("SOTC_BOSSMASK")) != 0;
-        return on;
+        return A9S_VAL(::a9sweep::on(), a9s_sotc_native_on_6456, bool, !std::getenv("SOTC_BOSSMASK") || std::atoi(std::getenv("SOTC_BOSSMASK")) != 0);
     }
 
     // The packet's (value, register) qwords from `start` + 0x20 to `end`, as
@@ -6688,14 +6698,16 @@ namespace sotc_native
     // iosDlGetLayer), the screen copy for the haze strips, the same `not
     // drawn` conditions. pairs: (value, register) x count, TEST and PRIM
     // first, as the packet has them.
+    A9S_HOIST(bool, a9s_sotc_native_async_6697, !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_sotc_native_off_6700, std::getenv("SOTC_NATIVE_NOGL") != nullptr); // round A9 sweep (a9sweep.h)
     void immFeed128(uint8_t *rdram, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze)
     {
         const ps2_load::GameZone zone134(0x2013u); // round 134 (prof129): the 2D assembler's part of an immediate quad
         syncFrame(rdram);
-        static const bool async = !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0;
+        const bool async = A9S_VAL(::a9sweep::on(), a9s_sotc_native_async_6697, bool, !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0);
         if (!async)
             hookJoin(hookjobs::k_glend);
-        static const bool off = std::getenv("SOTC_NATIVE_NOGL") != nullptr;
+        const bool off = A9S_VAL(::a9sweep::on(), a9s_sotc_native_off_6700, bool, std::getenv("SOTC_NATIVE_NOGL") != nullptr);
         if (off || count == 0u || word(0x0118B5B0u) != 0u)
             return;
         const uint32_t requested = g_requested;
@@ -7298,12 +7310,14 @@ namespace sotc_native
         g_shadowDisp(rdram, ctx, runtime);
     }
 
+    A9S_HOIST(bool, a9s_sotc_native_idColours_7307, std::getenv("SOTC_NATIVE_IDCOLOR") != nullptr); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_sotc_native_shadowLog_7308, ps2_diag::env("SOTC_SHADOW_LOG") != nullptr); // round A9 sweep (a9sweep.h)
     void shadowCapture(uint32_t chain, uint32_t model, bool skinnedShadow)
     {
         HookTimer hookTimer;
         const bool shadows = native_renderer::tuning().shadows;
-        static const bool idColours = std::getenv("SOTC_NATIVE_IDCOLOR") != nullptr;
-        static const bool shadowLog = ps2_diag::env("SOTC_SHADOW_LOG") != nullptr; // debugging: each call
+        const bool idColours = A9S_VAL(::a9sweep::on(), a9s_sotc_native_idColours_7307, bool, std::getenv("SOTC_NATIVE_IDCOLOR") != nullptr);
+        const bool shadowLog = A9S_VAL(::a9sweep::on(), a9s_sotc_native_shadowLog_7308, bool, ps2_diag::env("SOTC_SHADOW_LOG") != nullptr); // debugging: each call
         if (shadowLog && g_frame % 60u == 0u)
             std::fprintf(stderr, "[shadow] frame %llu chain %08x model %08x skinned %d tag %08x ret %08x retq %08x\n", (unsigned long long)g_frame, chain, model,
                          skinnedShadow ? 1 : 0, chain ? word(chain) : 0u, chain ? word(chain + 4u) : 0u, chain ? word(word(chain + 4u)) : 0u);
@@ -7518,7 +7532,7 @@ namespace sotc_native
                         out[r] += w * (b[r] * v.x + b[4 + r] * v.y + b[8 + r] * v.z + b[12 + r]);
                 }
                 g_worker105Stats.verts.fetch_add(1, std::memory_order_relaxed);
-                if (std::memcmp(mine, out, sizeof(mine)) != 0)
+                if (!A9_MEMEQ(mine, out, sizeof(mine)))
                     g_worker105Stats.vertsDiffer.fetch_add(1, std::memory_order_relaxed);
                 return;
             }
@@ -8185,11 +8199,11 @@ namespace sotc_native
             std::vector<float> now(count * 12u);
             guestBlock(a, count * 48u, now.data());
             const bool same = c.count == count && c.header == header && c.layer == layer && c.blend == g_ptclBlend &&
-                              std::memcmp(&c.env, &g_ptclEnvState, sizeof(ParticleEnv)) == 0 && c.data.size() == now.size() &&
+                              A9_MEMEQ(&c.env, &g_ptclEnvState, sizeof(ParticleEnv)) && c.data.size() == now.size() &&
                               std::memcmp(c.data.data(), now.data(), now.size() * sizeof(float)) == 0;
             if (!same && c.differ++ < 20u)
                 std::fprintf(stderr, "[ptcl103c] DIFFERS: count %u/%u header %08x/%08x layer %u/%u blend %u/%u env %d data %d\n", c.count, count, c.header, header, c.layer,
-                             layer, c.blend, g_ptclBlend, std::memcmp(&c.env, &g_ptclEnvState, sizeof(ParticleEnv)) == 0 ? 1 : 0,
+                             layer, c.blend, g_ptclBlend, A9_MEMEQ(&c.env, &g_ptclEnvState, sizeof(ParticleEnv)) ? 1 : 0,
                              c.data.size() == now.size() && std::memcmp(c.data.data(), now.data(), now.size() * sizeof(float)) == 0 ? 1 : 0);
             if (c.checks % 2000u == 0u)
                 std::fprintf(stderr, "[ptcl103c] %llu particle draws checked, %llu differ\n", (unsigned long long)c.checks, (unsigned long long)c.differ);
@@ -10124,6 +10138,7 @@ namespace sotc_native
         }
         return true;
     }
+    A9S_HOIST(bool, a9s_sotc_native_log_10159, ps2_diag::env("SOTC_SCROLL127_LOG") != nullptr); // round A9 sweep (a9sweep.h)
     void hookScrolls127(ModelDispJob &job)
     {
         const ModelPlan *plan = job.plan;
@@ -10154,7 +10169,7 @@ namespace sotc_native
             r.w1 = word(at + 4u);
             job.scrolls.push_back(r);
         }
-        static const bool log = ps2_diag::env("SOTC_SCROLL127_LOG") != nullptr;
+        const bool log = A9S_VAL(::a9sweep::on(), a9s_sotc_native_log_10159, bool, ps2_diag::env("SOTC_SCROLL127_LOG") != nullptr);
         static uint64_t told = 0;
         if (log && g_frame >= told + 600u)
         {
@@ -10412,7 +10427,7 @@ namespace sotc_native
         struct Digest
         {
             uint64_t part[5] = {};
-            bool operator!=(const Digest &o) const { return std::memcmp(part, o.part, sizeof(part)) != 0; }
+            bool operator!=(const Digest &o) const { return !A9_MEMEQ(part, o.part, sizeof(part)); }
         };
         Digest g_checkDigest[kRing];
         bool g_checkHave[kRing] = {};
@@ -10810,29 +10825,88 @@ namespace sotc_native
         }
     }
 
+    // Round A9 sweep (a9sweep.h): modelDispHook's switches read once at install, not through nine function-local
+    // statics (a guard load + dmb ish each, per call); the lean switches' side effects (g_hookLean, g_leanStats.on) are
+    // still made at the hook's first call, as the statics' initialisers made them.
+    struct MdhSwitches
+    {
+        bool lean = false, leanCheck = false, leanStats = false, check = false, viewChecks = false;
+        uint32_t hideHeader = 0u, skipHeader = 0u;
+        bool operator==(const MdhSwitches &o) const
+        {
+            return lean == o.lean && leanCheck == o.leanCheck && leanStats == o.leanStats && check == o.check && viewChecks == o.viewChecks &&
+                   hideHeader == o.hideHeader && skipHeader == o.skipHeader;
+        }
+    };
+    MdhSwitches readMdhSwitches()
+    {
+        MdhSwitches s;
+        s.lean = !std::getenv("SOTC_HOOK_LEAN") || std::atoi(std::getenv("SOTC_HOOK_LEAN")) != 0;
+        s.leanCheck = ps2_diag::env("SOTC_HOOK_LEAN_CHECK") != nullptr;
+        s.leanStats = s.leanCheck || ps2_diag::env("SOTC_HOOK_LEAN_STATS") != nullptr;
+        s.check = ps2_diag::env("SOTC_MODELDISP_CHECK") != nullptr;
+        s.hideHeader = std::getenv("SOTC_HIDE_HEADER") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_HIDE_HEADER"), nullptr, 16)) : 0u;
+        s.viewChecks = ps2_diag::env("SOTC_VIEW_CHECK") != nullptr;
+        s.skipHeader = std::getenv("SOTC_NATIVE_SKIP") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_NATIVE_SKIP"), nullptr, 16)) : 0u;
+        return s;
+    }
+    MdhSwitches g_a9sMdh;
+    ModelDispEnv g_a9sMdEnv;
+    bool g_a9sMdhSeen = false;
+    VuPalette g_a9sMdhNow;                 // (both paths: state kept from call to call; was a function-local static)
+    std::vector<uint8_t> g_a9sMdhPartsLean; // (both paths; was a function-local static)
+    static const ::a9sweep::Hoist g_a9sMdhHoist([]
+    {
+        g_a9sMdh = readMdhSwitches();
+        g_a9sMdEnv = ModelDispEnv();
+        ::a9sweep::logNew("modelDispHook.lean", g_a9sMdh.lean);
+        ::a9sweep::logNew("modelDispHook.leanCheck", g_a9sMdh.leanCheck);
+        ::a9sweep::logNew("modelDispHook.leanStats", g_a9sMdh.leanStats);
+        ::a9sweep::logNew("modelDispHook.check", g_a9sMdh.check);
+        ::a9sweep::logNew("modelDispHook.viewChecks", g_a9sMdh.viewChecks);
+        ::a9sweep::logNew("modelDispHook.hideHeader", g_a9sMdh.hideHeader);
+        ::a9sweep::logNew("modelDispHook.skipHeader", g_a9sMdh.skipHeader);
+    });
+
     void modelDispHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ++g_s4Emits;
+        const bool a9s = ::a9sweep::on();
         // Round 132: the hook's phases as prof129 zones (0x2000 | phase; a
         // relaxed store each on the game thread, put back at the way out).
         const ps2_load::GameZone hookZone(0x2001u);
         const auto zone = [](uint32_t z)
         {
-            if (ps2_load::t_slot == ps2_load::kGame)
+            if (ps2_load::zonesWanted() && ps2_load::t_slot == ps2_load::kGame)
                 ps2_load::gameZone.store(z, std::memory_order_relaxed);
         };
         { SOTC_PROF_SCOPE(kHookSync); syncFrame(rdram); }
         zone(0x2002u);
         const lines67::Scope l67(lines67::kHook, true);
-        static const ModelDispEnv env;
+        const ModelDispEnv &env = __builtin_expect(a9s, 1) ? g_a9sMdEnv : []() -> const ModelDispEnv & { static const ModelDispEnv e; return e; }();
         const uint32_t instance = GPR_U32(ctx, 4), matrix = GPR_U32(ctx, 5);
         float model[16];
 #if defined(SOTC_HOOK_ASM_LEAN)
         constexpr bool lean = true, leanCheck = false, leanStats = false;
 #else
-        static const bool lean = g_hookLean = !std::getenv("SOTC_HOOK_LEAN") || std::atoi(std::getenv("SOTC_HOOK_LEAN")) != 0;
-        static const bool leanCheck = ps2_diag::env("SOTC_HOOK_LEAN_CHECK") != nullptr;
-        static const bool leanStats = g_leanStats.on = leanCheck || ps2_diag::env("SOTC_HOOK_LEAN_STATS") != nullptr;
+        bool lean, leanCheck, leanStats;
+        if (__builtin_expect(a9s, 1))
+        {
+            lean = g_a9sMdh.lean, leanCheck = g_a9sMdh.leanCheck, leanStats = g_a9sMdh.leanStats;
+            if (__builtin_expect(!g_a9sMdhSeen, 0))
+            {
+                g_a9sMdhSeen = true;
+                g_hookLean = lean;
+                g_leanStats.on = leanStats;
+            }
+        }
+        else
+        {
+            static const bool leanS = g_hookLean = !std::getenv("SOTC_HOOK_LEAN") || std::atoi(std::getenv("SOTC_HOOK_LEAN")) != 0;
+            static const bool leanCheckS = ps2_diag::env("SOTC_HOOK_LEAN_CHECK") != nullptr;
+            static const bool leanStatsS = g_leanStats.on = leanCheckS || ps2_diag::env("SOTC_HOOK_LEAN_STATS") != nullptr;
+            lean = leanS, leanCheck = leanCheckS, leanStats = leanStatsS;
+        }
 #endif
         g_leanStats.draws += leanStats;
         if (leanStats && g_frame % 600u == 0u)
@@ -10856,7 +10930,7 @@ namespace sotc_native
                 model[i] = real(matrix + i * 4u);
         // The lists are built while the GS draws (the emulated picture shown).
         const bool ps2Lists = native_renderer::tuning().ps2Lists || !GS::skipRaster();
-        static const bool check = ps2_diag::env("SOTC_MODELDISP_CHECK") != nullptr;
+        const bool check = A9S_VAL(a9s, g_a9sMdh.check, bool, ps2_diag::env("SOTC_MODELDISP_CHECK") != nullptr);
         if (ps2Lists && !check)
             { SOTC_PROF_SCOPE(kHookPs2List); g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); } // the emulated drawing goes on as before
         else
@@ -10871,7 +10945,7 @@ namespace sotc_native
         if (!g_cameraContext)
             return;
         // SOTC_HIDE_HEADER=<hex> (debugging, round 12): that model left out.
-        static const uint32_t hideHeader = std::getenv("SOTC_HIDE_HEADER") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_HIDE_HEADER"), nullptr, 16)) : 0u;
+        const uint32_t hideHeader = A9S_VAL(a9s, g_a9sMdh.hideHeader, uint32_t, std::getenv("SOTC_HIDE_HEADER") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_HIDE_HEADER"), nullptr, 16)) : 0u);
         if (hideHeader && word(word(instance) + 0x20u) == hideHeader)
             return;
         CallRecord *record = nullptr; // this draw's, for the next frame's prefetch
@@ -10901,7 +10975,7 @@ namespace sotc_native
                     sum += camera[k * 4 + r] * model[c * 4 + k];
                 clip[c * 4 + r] = sum;
             }
-        static const bool viewChecks = ps2_diag::env("SOTC_VIEW_CHECK") != nullptr;
+        const bool viewChecks = A9S_VAL(a9s, g_a9sMdh.viewChecks, bool, ps2_diag::env("SOTC_VIEW_CHECK") != nullptr);
         if (viewChecks)
         {
             const uint32_t own = word(instance + 0xCu);
@@ -11043,7 +11117,7 @@ namespace sotc_native
         zone(0x2004u);
 
         const uint32_t header = word(word(instance) + 0x20u);
-        static const uint32_t skipHeader = std::getenv("SOTC_NATIVE_SKIP") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_NATIVE_SKIP"), nullptr, 16)) : 0u; // debugging
+        const uint32_t skipHeader = A9S_VAL(a9s, g_a9sMdh.skipHeader, uint32_t, std::getenv("SOTC_NATIVE_SKIP") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_NATIVE_SKIP"), nullptr, 16)) : 0u); // debugging
         if (header == skipHeader)
             return;
         const bool fading = real(instance + 0x244u) > 0.0f; // modelDisp: param_1[0x91]
@@ -11101,7 +11175,7 @@ namespace sotc_native
         // the same table, each node once): the second walk below would give
         // the same vector. SOTC_HOOK_LEAN_CHECK=1 makes it anyway and compares.
         const bool partsReady = partCulled && lean && partsTaken && partsTable == table && !ps2Lists && !check && lod == gameLod;
-        static std::vector<uint8_t> partsLean;
+        std::vector<uint8_t> &partsLean = g_a9sMdhPartsLean; // (round A9 sweep: was a function-local static)
         if (partsReady && leanCheck)
             partsLean = partVisible;
         job.lane = laneUsed; // round 61: the lane makes the parts and the out-of-view decision
@@ -11240,7 +11314,7 @@ namespace sotc_native
         }
         {
             SOTC_PROF_SCOPE(kHookPalette);
-            static VuPalette now;
+            VuPalette &now = g_a9sMdhNow; // (round A9 sweep: was a function-local static)
             const uint32_t own = word(instance + 0xCu);
             job.own = own;
             if (lean)
@@ -11293,12 +11367,12 @@ namespace sotc_native
                                       (!had || now.hi <= now.lo ? job.palette.empty()
                                                                 : job.palette.size() == (now.hi - now.lo) * 4u &&
                                                                       std::memcmp(job.palette.data(), now.data() + now.lo * 4u, job.palette.size() * 4u) == 0) &&
-                                      std::memcmp(lights, job.lights, sizeof(lights)) == 0;
+                                      A9_MEMEQ(lights, job.lights, sizeof(lights));
                     g_leanStats.paletteDiffer += same ? 0u : 1u;
                     float projection[16];
                     for (int i = 0; i < 16; ++i)
                         projection[i] = real(g_cameraContext + 0x40u + i * 4u);
-                    g_leanStats.paletteDiffer += std::memcmp(projection, job.projection, sizeof(projection)) == 0 ? 0u : 1u;
+                    g_leanStats.paletteDiffer += A9_MEMEQ(projection, job.projection, sizeof(projection)) ? 0u : 1u;
                 }
             }
             else

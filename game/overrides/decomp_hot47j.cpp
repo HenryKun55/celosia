@@ -106,6 +106,7 @@
 #endif
 
 #include "ground85_capture.h"
+#include "a9sweep.h"
 
 namespace decomp_hot47j
 {
@@ -1139,7 +1140,7 @@ namespace decomp_hot47j
             g85::Slot *slot = nullptr, *victim = &g85::g_slots[0];
             for (g85::Slot &sl : g85::g_slots)
             {
-                if (sl.live && sl.h == h && std::memcmp(sl.key, key, sizeof key) == 0)
+                if (sl.live && sl.h == h && A9_MEMEQ(sl.key, key, sizeof key))
                 {
                     slot = &sl;
                     break;
@@ -1414,7 +1415,7 @@ namespace decomp_hot47j
             find84::Slot *slot = &find84::g_slots[0], *hit = nullptr;
             for (find84::Slot &sl : find84::g_slots)
             {
-                bool same = sl.live && sl.h == h && sl.frame + find84::params().age >= frame && std::memcmp(sl.key, key, sizeof key) == 0;
+                bool same = sl.live && sl.h == h && sl.frame + find84::params().age >= frame && A9_MEMEQ(sl.key, key, sizeof key);
                 for (int i = 0; same && i < 3; ++i)
                     same = std::fabs(sl.a[i] - qa[i]) <= e && std::fabs(sl.b[i] - qb[i]) <= e;
                 if (same)

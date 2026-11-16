@@ -26,6 +26,7 @@
 void installSotcNative(PS2Runtime &runtime); // sotc_native.cpp
 void installSotcNativeLate(PS2Runtime &runtime);
 #include "sotc_decomp.h"
+#include "a9sweep.h"
 #include "sotc_prof.h"
 #include "sotc_replay.h"
 
@@ -1143,6 +1144,7 @@ namespace
 
         void install(PS2Runtime &runtime)
         {
+            a9sweep::init(); // round A9 sweep: the hoisted switches' values, before any native or hook is registered
             const char *native = std::getenv("SOTC_NATIVE");
             if (!native || std::atoi(native) == 0 || std::getenv("SOTC_SYSTEM_EMULATED"))
                 return;

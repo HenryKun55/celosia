@@ -58,6 +58,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_curve
 {
@@ -817,13 +818,16 @@ namespace decomp_hot46h
     // compared: v0 / f0 (no caller reads them; the generated code's register
     // cache need not write its last scratch values back to the context).
     // =2: the difftest (sotc_decomp.cpp).
-    inline bool oanCheckOn()
-    {
-        static const bool on = [] {
+    A9S_HOIST(bool, a9s_decomp_hot46h_on_822, [] {
             const char *e = ps2_diag::env("SOTC_OAN106_CHECK");
             return e && e[0] == '1';
-        }();
-        return on;
+        }()); // round A9 sweep (a9sweep.h)
+    inline bool oanCheckOn()
+    {
+        return A9S_VAL(::a9sweep::on(), a9s_decomp_hot46h_on_822, bool, [] {
+            const char *e = ps2_diag::env("SOTC_OAN106_CHECK");
+            return e && e[0] == '1';
+        }());
     }
     void oanChecked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, PS2Runtime::RecompiledFunction native, uint32_t self, int which)
     {

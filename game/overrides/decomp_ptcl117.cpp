@@ -46,6 +46,7 @@
 #include <cstring>
 #include <functional>
 #include <vector>
+#include "a9sweep.h"
 
 namespace decomp_ptcl117
 {
@@ -262,7 +263,7 @@ namespace decomp_ptcl117
         uint32_t f12;
         bool operator==(const Rec &o) const
         {
-            if (target != o.target || ra != o.ra || sp != o.sp || std::memcmp(sreg, o.sreg, sizeof sreg) != 0)
+            if (target != o.target || ra != o.ra || sp != o.sp || !A9_MEMEQ(sreg, o.sreg, sizeof sreg))
                 return false;
             const int n = argsRead(target);
             for (int i = 0; i < n; ++i)
@@ -618,10 +619,10 @@ namespace decomp_ptcl117
             SET_GPR_U32(ctx, 8, a2);
             callGuest(rdram, ctx, runtime, 0x0113B408u, 0x01140F04u, sp);
             const R5900Context *A = reinterpret_cast<const R5900Context *>(ctxA.data());
-            const bool mem = std::memcmp(eA, rdram + E, 0x200) == 0 && std::memcmp(sA, rdram + sp - 0x10u, 0x10) == 0;
-            bool vu = std::memcmp(&A->vu0_acc, &ctx->vu0_acc, 16) == 0 && std::memcmp(&A->vu0_q, &ctx->vu0_q, 4) == 0;
+            const bool mem = A9_MEMEQ(eA, rdram + E, 0x200) && A9_MEMEQ(sA, rdram + sp - 0x10u, 0x10);
+            bool vu = A9_MEMEQ(&A->vu0_acc, &ctx->vu0_acc, 16) && A9_MEMEQ(&A->vu0_q, &ctx->vu0_q, 4);
             for (int i = 5; i <= 8; ++i)
-                vu = vu && std::memcmp(&A->vu0_vf[i], &ctx->vu0_vf[i], 16) == 0;
+                vu = vu && A9_MEMEQ(&A->vu0_vf[i], &ctx->vu0_vf[i], 16);
             const bool fl = std::memcmp(A->f, ctx->f, 3 * sizeof(float)) == 0;
             char what[300];
             int wn = std::snprintf(what, sizeof what, "emitter / frame %d, vu0 %d, f0-f2 %d", mem ? 1 : 0, vu ? 1 : 0, fl ? 1 : 0);
@@ -632,7 +633,7 @@ namespace decomp_ptcl117
                     uint32_t p[4], q[4];
                     std::memcpy(p, &x, 16);
                     std::memcpy(q, &y, 16);
-                    if (std::memcmp(p, q, 16) != 0 && wn < static_cast<int>(sizeof what) - 80)
+                    if (!A9_MEMEQ(p, q, 16) && wn < static_cast<int>(sizeof what) - 80)
                         wn += std::snprintf(what + wn, sizeof what - wn, " %s nat %08x %08x %08x %08x rec %08x %08x %08x %08x", tag, p[0], p[1], p[2], p[3], q[0], q[1], q[2], q[3]);
                 };
                 lanes("acc", A->vu0_acc, ctx->vu0_acc);
@@ -640,7 +641,7 @@ namespace decomp_ptcl117
                 lanes("vf6", A->vu0_vf[6], ctx->vu0_vf[6]);
                 lanes("vf7", A->vu0_vf[7], ctx->vu0_vf[7]);
                 lanes("vf8", A->vu0_vf[8], ctx->vu0_vf[8]);
-                if (std::memcmp(&A->vu0_q, &ctx->vu0_q, 4) != 0)
+                if (!A9_MEMEQ(&A->vu0_q, &ctx->vu0_q, 4))
                     wn += std::snprintf(what + wn, sizeof what - wn, " q differs");
             }
             noteCheck(2, mem && vu && fl, what);

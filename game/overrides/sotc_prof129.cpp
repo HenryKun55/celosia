@@ -377,6 +377,7 @@ namespace prof129
         if (!e || std::atoi(e) == 0)
             return;
         g_runtime = &runtime;
+        ps2_load::g_zoneReader = true; // round A9 sweep: the zones are read (ps2_thread_load.h)
         if (const char *v = std::getenv("SOTC_PROF129_US"))
             g_us = std::clamp(static_cast<unsigned>(std::strtoul(v, nullptr, 0)), 200u, 100000u);
         if (const char *v = std::getenv("SOTC_PROF129_SECS"))

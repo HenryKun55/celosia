@@ -830,7 +830,7 @@ namespace coll115
         Recent &rc = g_recent[((s.a3 >> 4) ^ (cls >> 6) ^ (m158 >> 6)) & 15u];
         const uint64_t frame = sotc_decomp::g_gameFrame;
         if (rc.frame == frame && rc.tree == s.a3 && rc.cls == cls && rc.m158 == m158 && rc.m15c == m15c && G::plain(m158, 0x40u) && G::plain(m15c, 0x40u) &&
-            std::memcmp(rc.mats, g.rdram + m158, 64) == 0 && std::memcmp(rc.mats + 16, g.rdram + m15c, 64) == 0)
+            A9_MEMEQ(rc.mats, g.rdram + m158, 64) && A9_MEMEQ(rc.mats + 16, g.rdram + m15c, 64))
         {
             k = rc.k;
             m = static_cast<Model *>(rc.model);
@@ -976,7 +976,7 @@ namespace coll115
             const double dist = std::sqrt((double)(pa[0] - pb[0]) * (pa[0] - pb[0]) + (double)(pa[1] - pb[1]) * (pa[1] - pb[1]) + (double)(pa[2] - pb[2]) * (pa[2] - pb[2]));
             s.maxDist = std::max(s.maxDist, dist);
             s.sumDist += dist;
-            if (std::memcmp(recA, recB, 8) != 0)
+            if (!A9_MEMEQ(recA, recB, 8))
             {
                 ++s.idDiffer;
                 if (dist < 1e-3)
@@ -1016,7 +1016,7 @@ namespace coll115
             std::memcpy(pb, recB + 0x40, 12);
             const float dd = std::fabs(pa[0] - pb[0]) + std::fabs(pa[1] - pb[1]) + std::fabs(pa[2] - pb[2]);
             static int shown = 0;
-            if (((rA != 0u) != (out != 0u) || (rA != 0u && (std::memcmp(recA, recB, 8) != 0 || dd > 0.01f))) && shown < 40)
+            if (((rA != 0u) != (out != 0u) || (rA != 0u && (!A9_MEMEQ(recA, recB, 8) || dd > 0.01f))) && shown < 40)
             {
                 ++shown;
                 float e0[4], e1[4];
@@ -1043,7 +1043,7 @@ namespace coll115
             const double dist = std::sqrt((double)(pa[0] - pb[0]) * (pa[0] - pb[0]) + (double)(pa[1] - pb[1]) * (pa[1] - pb[1]) + (double)(pa[2] - pb[2]) * (pa[2] - pb[2]));
             st.maxDist = std::max(st.maxDist, dist);
             st.sumDist += dist;
-            if (std::memcmp(recA, recB, 8) != 0)
+            if (!A9_MEMEQ(recA, recB, 8))
             {
                 ++st.idDiffer;
                 if (dist < 1e-3)

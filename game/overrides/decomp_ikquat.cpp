@@ -48,6 +48,7 @@
 #include <chrono>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
+#include "a9sweep.h"
 #endif
 
 namespace decomp_ikquat
@@ -56,10 +57,10 @@ namespace decomp_ikquat
     // (object, callback): host us a frame, calls a frame.
     namespace ik80
     {
+        A9S_HOIST(uint32_t, a9s_decomp_ikquat_n_61, ps2_diag::env("SOTC_IK80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_IK80_LOG"))) : 0u); // round A9 sweep (a9sweep.h)
         uint32_t every()
         {
-            static const uint32_t n = ps2_diag::env("SOTC_IK80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_IK80_LOG"))) : 0u;
-            return n;
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_ikquat_n_61, uint32_t, ps2_diag::env("SOTC_IK80_LOG") ? static_cast<uint32_t>(std::atoi(ps2_diag::env("SOTC_IK80_LOG"))) : 0u);
         }
         uint64_t nowUs()
         {

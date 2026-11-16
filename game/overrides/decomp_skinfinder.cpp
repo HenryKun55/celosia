@@ -41,6 +41,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "a9sweep.h"
 
 namespace decomp_skinfinder
 {
@@ -118,6 +119,7 @@ namespace decomp_skinfinder
         return dst;
     }
 
+    A9S_HOIST(bool, a9s_decomp_skinfinder_stats_135, ps2_diag::env("SOTC_SKINFINDER_STATS") != nullptr); // round A9 sweep (a9sweep.h)
     void corners(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const Ram ram{rdram};
@@ -132,7 +134,7 @@ namespace decomp_skinfinder
                     return sotc_decomp::recompiled(kCorners)(rdram, ctx, runtime);
             }
         // SOTC_SKINFINDER_STATS=1 (checking): the corners by path.
-        static const bool stats = ps2_diag::env("SOTC_SKINFINDER_STATS") != nullptr;
+        const bool stats = A9S_VAL(::a9sweep::on(), a9s_decomp_skinfinder_stats_135, bool, ps2_diag::env("SOTC_SKINFINDER_STATS") != nullptr);
         static uint64_t calls = 0, plain = 0, plainMade = 0, blended = 0, blendMade = 0;
         // The frame as the original leaves it (callers' uninitialised locals
         // may read it later): a2, a3, t2, the loop counter (-1 at the end),
