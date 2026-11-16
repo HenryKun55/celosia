@@ -6830,6 +6830,11 @@ namespace sotc_native
     void pushLayerLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void pushLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // S4 console fix: the layer mirror (D11) reads the guest's depth word through g_ram, and the first push
+        // (iosResetDC, at GAMECORE's start) comes before any hook that sets it: a null read of 0x1E10B0. Vita3K
+        // has memory mapped there and read it; the console's data abort killed the boot.
+        if (g_ram != rdram)
+            g_ram = rdram;
         if (s4LeanHooks())
             return pushLayerLean(rdram, ctx, runtime);
         // SOTC_LOG_LAYER=<n> (debugging): who pushes display list layer n (caller, count).
@@ -6913,6 +6918,8 @@ namespace sotc_native
     void popLayerLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void popLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (g_ram != rdram) // (pushLayerHook's note)
+            g_ram = rdram;
         if (s4LeanHooks())
             return popLayerLean(rdram, ctx, runtime);
         // Decomp D11 (SOTC_LAYER_MIRROR): popped after the guest's pop and only when it took (the depth word fell); the guest

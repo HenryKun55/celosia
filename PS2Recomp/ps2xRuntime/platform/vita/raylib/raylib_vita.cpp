@@ -607,7 +607,11 @@ std::recursive_mutex &ps2xVitaGlMutex()
 // The boot's timeline (as ps2_stats::bootMark: the process clock).
 static void bootMark(const char *what)
 {
-    std::fprintf(stderr, "[boot] %.3f s %s\n", static_cast<double>(sceKernelGetProcessTimeWide()) / 1e6, what);
+    SceKernelFreeMemorySizeInfo info{};
+    info.size = sizeof(info);
+    sceKernelGetFreeMemorySize(&info);
+    std::fprintf(stderr, "[boot] %.3f s %s (free user %.1f MB, cdram %.1f, phycont %.1f)\n", static_cast<double>(sceKernelGetProcessTimeWide()) / 1e6, what,
+                 info.size_user / 1048576.0, info.size_cdram / 1048576.0, info.size_phycont / 1048576.0);
 }
 
 // vitaGL's own steps inside vglInit (our patch calls it; round 20: the

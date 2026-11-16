@@ -30,6 +30,9 @@
 #include "ps2_host_backend.h"
 #include "ps2_iop_host.h"
 #include "ps2x/iop/iop_subsystem.h"
+#if defined(__vita__)
+#include <psp2/kernel/sysmem.h>
+#endif
 #include "ps2x/iop/audio_stats.h"
 
 #include <iostream>
@@ -71,7 +74,16 @@ double ps2_stats::bootSeconds()
 }
 void ps2_stats::bootMark(const char *what)
 {
+#if defined(__vita__)
+    // S4 console fix: the free memory at each boot stage (the console's boot logs are the only view of it).
+    SceKernelFreeMemorySizeInfo info{};
+    info.size = sizeof(info);
+    sceKernelGetFreeMemorySize(&info);
+    std::fprintf(stderr, "[boot] %.3f s %s (free user %.1f MB, cdram %.1f, phycont %.1f)\n", bootSeconds(), what, info.size_user / 1048576.0,
+                 info.size_cdram / 1048576.0, info.size_phycont / 1048576.0);
+#else
     std::fprintf(stderr, "[boot] %.3f s %s\n", bootSeconds(), what);
+#endif
 }
 
 namespace ps2_stubs
