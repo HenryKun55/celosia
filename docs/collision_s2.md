@@ -182,15 +182,18 @@ replaced by plain compares, see below).
 | mixL5a (p5, 7) | lake route | 96.6 -> 79.9 (15.5); 2.12 -> 1.76 | 55.2%, z 104, 1.30% | 140 -> 173 (**-14.8**) | 206 -> 201 (1.5) | -0.11 +- 0.14 |
 | **mixL6a (p6, 7)** | lake route | 76.0 -> 55.1 (**20.4**); 1.64 -> 1.19 | 60.0%, z **76**, 0.92% | 150 -> 60 (**56**); 1.74 -> 0.70 | 213 -> 112 (**37**); 1.49 -> 0.77 | -0.07 +- 0.18 |
 | **mixL6c (p6, 11)** | lake route | 75.2 -> 55.1 (**18.1**); 1.59 -> 1.17 | 61.4%, z **65**, 0.79% | 145 -> 55 (**54**); 1.67 -> 0.65 | 221 -> 119 (**32**); 1.54 -> 0.84 | +0.08 +- 0.20 |
+| **mixA6 (p6, 7)** | attract demo | 25.4 -> 21.4 (**7.8**); 0.59 -> 0.50 | 75.7%, z **35**, 0.23% | 13.5 -> 8.4 (3.6); 0.040 -> 0.024 | 48.6 -> 48.2 (0.1); 0.184 -> 0.182 | +0.01 +- 0.13 |
 
 **The first water form was slower** (p5, mixL5a: the under-end probe 140 -> 173 us a call). Its box tests used std::fmax
 / std::fmin, which on the A9's VFPv3 (no vmaxnm) are library calls: ten a triangle cost more than the body they skipped.
 p6 uses plain compares (every operand is finite where they are used): the under-end probe then costs 40% of the
-original's, the crossing probe 53%.
+original's on the lake, the crossing probe 53%; in the attract demo (small meshes, few calls) the under-end probe 62% (z 3.6)
+and the crossing probe the same (z 0.1).
 
-**Frame times do not move** in any run (every busy difference within 2 SE, -0.11..+0.12 ms), as in S1. The game's frame
-is paced by VBlanks (43-46 ms frames at 222 MHz, between two and three VBlanks), and with the state flipping every
-frame the CPU a frame saves is absorbed by the wait for the next VBlank; per-frame noise is ~5 ms. What the runs do
+**Frame times do not resolve it** (busy differences -0.11..+0.12 ms; all within 2 SE but mixA5a's +0.115 +- 0.112, at
+the edge), as in S1. The likely reason: the game's frame is paced by VBlanks (43-46 ms frames at 222 MHz, between two
+and three VBlanks), so with the state flipping every frame the CPU a frame saves mostly goes into the wait for the next
+VBlank; per-frame noise is ~5 ms. Not proven here. What the runs do
 resolve is the game thread's work: on Avion's lake route **about 2.2 ms a frame less** (mixL6a: finder clips 0.45,
 under-end probes 1.04, crossing probes 0.72; mixL6c: 0.43, 1.02, 0.70; host timing, the timer's own cost in both
 states), about 5% of the game thread; in the attract demo (no water) 0.03-0.09 ms a frame of finder clips, 0.23-0.33% of the game thread by the

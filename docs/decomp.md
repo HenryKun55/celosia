@@ -20831,6 +20831,7 @@ called with S2 off; z Poisson), frame times (mixframes.py, +- 2 SE).
 | mixL5a (p5, 7) | lake | 2.12 -> 1.76 (15.5) | 55% z 104 | **slower** 140 -> 173 us (-14.8) | (1.5) | -0.11 +- 0.14 |
 | **mixL6a (p6, 7)** | lake | 1.64 -> 1.19 (**20.4**) | 60% z **76** | 1.74 -> 0.70 ms (**56**) | 1.49 -> 0.77 ms (**37**) | -0.07 +- 0.18 |
 | **mixL6c (p6, 11)** | lake | 1.59 -> 1.17 (**18.1**) | 61% z **65** | 1.67 -> 0.65 ms (**54**) | 1.54 -> 0.84 ms (**32**) | +0.08 +- 0.20 |
+| **mixA6 (p6, 7)** | attract | 0.59 -> 0.50 (**7.8**) | 76% z **35** | 13.5 -> 8.4 us (3.6) | (0.1) | +0.01 +- 0.13 |
 
 p5's water box tests were slower: std::fmax / fmin are library calls on the A9's VFPv3; p6 (shipped) uses plain compares.
 **Kept:** the views (faster in every run, both measures) and the water pre-tests (p6, faster in both lake seeds). On
