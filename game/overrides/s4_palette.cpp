@@ -6,7 +6,7 @@
 // seen (kickCopy, round 34: a chain shared by several instances is drawn by the PS2 with its last palette, so the kick's
 // pass reposes the draws whose palette changed after their hook). Here dispSkinned counts its writes per chain (a
 // serial), the hook notes the serial it read, and at the kick a chain dispSkinned has not written since its last hook
-// read is not read again: the worker, which runs the jobs in order, kept that read's copy (paletteDrawn) and the kick's
+// read is not read again: the worker, which runs the jobs in order, kept that read (paletteKeep) and the kick's
 // pass takes it. Only chains dispSkinned wrote this frame (skinned instances) qualify; rigid chains are read at the kick
 // as before.
 // SOTC_S4DISP_CHECK=<n>: those chains are read at the kick anyway (and used, as before) and compared with the worker's
@@ -93,13 +93,15 @@ namespace s4disp
         std::vector<float> data;
     };
     std::unordered_map<uint32_t, LastPal> g_last;
-    void paletteDrawn(uint32_t own, uint32_t lo, uint32_t hi, const std::vector<float> &data)
+    // The job's vector is swapped in (the job slot gets the old one back: its room reused by the next read); the job is
+    // done with it (runJob calls this after modelDispDraw, or at the lane's out-of-view skip).
+    void paletteKeep(uint32_t own, uint32_t lo, uint32_t hi, std::vector<float> &data)
     {
         if (g_last.size() > 4096u)
             g_last.clear(); // (bounded: chains come and go with areas; the next reads refill it)
         LastPal &l = g_last[own];
         l.lo = lo, l.hi = hi;
-        l.data.assign(data.begin(), data.end());
+        l.data.swap(data);
     }
     bool paletteLast(uint32_t own, uint32_t &lo, uint32_t &hi, const std::vector<float> *&data)
     {

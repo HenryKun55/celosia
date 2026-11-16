@@ -102,7 +102,7 @@ namespace s4disp
     bool paletteCheck();
     void paletteRead(uint32_t own);
     bool paletteUnchanged(uint32_t own);
-    void paletteDrawn(uint32_t own, uint32_t lo, uint32_t hi, const std::vector<float> &data);
+    void paletteKeep(uint32_t own, uint32_t lo, uint32_t hi, std::vector<float> &data); // (swaps data out)
     bool paletteLast(uint32_t own, uint32_t &lo, uint32_t &hi, const std::vector<float> *&data);
     void paletteKickStats(uint64_t elided, uint64_t read, uint64_t checked, uint64_t differ);
 }
@@ -2660,7 +2660,7 @@ namespace sotc_native
             uint32_t ret = 0, bytes = 0;
             k.own = g_kickOwns[i];
             // Round S4: a skinned palette dispSkinned has not written since its last hook read is that read (the worker
-            // keeps its copy, s4disp::paletteDrawn): no guest read here.
+            // keeps that read, s4disp::paletteKeep): no guest read here.
             k.fromLast = s4 && s4disp::paletteUnchanged(k.own);
             k.checkData = false;
             if (k.fromLast && !s4check)
@@ -11462,15 +11462,19 @@ namespace sotc_native
         case kJobModel:
         {
             ModelDispJob &m = job.model;
-            if (m.hasPalette && s4disp::paletteOn())
-                s4disp::paletteDrawn(m.own, m.paletteLo, m.paletteHi, m.palette); // round S4: the kick's copy of this read
+            // Round S4: this read's palette kept for the kick's pass (moved, not copied, once the job is done with it).
+            const bool s4keep = m.hasPalette && s4disp::paletteOn();
             if (m.lane) // round 61: its state from the lane
             {
                 mdslane::Job &l = mdslane::g_ring[m.laneSeq % mdslane::kRing];
                 if (mdslane::g_done.load(std::memory_order_acquire) <= m.laneSeq)
                     mdslane::workerWait(m.laneSeq); // round 72: runs them itself when the token is free (SOTC_LANE_HELP bit 1)
                 if (l.skip)
+                {
+                    if (s4keep)
+                        s4disp::paletteKeep(m.own, m.paletteLo, m.paletteHi, m.palette);
                     break; // out of view: modelDisp draws nothing (and keeps the last palette)
+                }
                 m.partVisible.swap(l.parts);
             }
             if (m.paletteDeferred)
@@ -11481,6 +11485,8 @@ namespace sotc_native
                     m.paletteLo = g_palLastLo, m.paletteHi = g_palLastHi;
             }
             modelDispDraw(m, true);
+            if (s4keep)
+                s4disp::paletteKeep(m.own, m.paletteLo, m.paletteHi, m.palette);
             break;
         }
         case kJobMesh:
