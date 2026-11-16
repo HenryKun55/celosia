@@ -21282,3 +21282,103 @@ zero by construction (S3, docs/characters_s3.md section 7). **The frame-time col
 are invalid** (they read ~0 whatever the change did); their sampler and per-call measures (a per-copy split, not a
 per-frame state) stand. tools/mixframes.py and tools/frametime.py are now in the repo with `--shift -1` the default
 (frametime.py `--scan` prints shifts -3..3: only the right one shows a saving).
+
+### Part B: the display and models area; D11's batch (SOTC_LIFTD11)
+
+**Where the area stood** (D10's honest count): 978 functions, 489 native. why11.py sorts the 489 still recompiled:
+**457 never called** in any call-count run (D7-D10's routes, and D11's two new ones), **24 reached** (most only in D9 /
+D10's new-game and fight routes) and **8** earlier speed cuts. D11 added a route that reaches the pause menu (in_menu.txt,
+mkmenu.py: the map, Options, Quit Game): its call-count run (cc_menu) reached 12 display functions no route had (the
+SpriteMenu* family, glColor4fv, glVertex2f). No display native falls back to its recompiled code without a lifted copy
+(fallback counts fb_menu / fb_att; only D9's five cuts, in other areas).
+
+**Candidates** (cand11.py): every function the call-count runs reach that is still recompiled on the honest count, not a
+stub, not the coroutine, not lifted by D9 / D10, not an earlier speed cut unless in the display area (re-measured), and
+not interrupt-side unless in the display area (D2 kept glBegin / glEnd / vramAlloc ... out because the two-leg difftest
+ran them twice; the trace check runs nothing twice): **296 (44 in the area)**. lift_d1.py `--d11` (as `--d10`, D11's
+macros, `--extern` D1-D10) lifts **278**; the 18 refused (checkpoint patterns, branches out of the function, bc0f loops) hold
+one display function, SpriteMenuSetDispFlagByHash (a checkpoint). They ship behind **SOTC_LIFTD11** (default on, A/B
+`liftd11`, test knob `SOTC_LIFTD11_RANGE=<lo>:<hi>`) in game/overrides/decomp_liftd11_00.cpp.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200; every register / VU0 / FPU, the
+clock, RAM, scratchpad, VU0 data at every event and at the end), the 278 on runner-t1, 900 s a route:
+
+| pass | route | functions checked | checks | register / clock / event mismatches | RAM bytes |
+|---|---|---:|---:|---|---|
+| dt11_walk | the console card's walk | 17 | 11 001 | 0 | 0 |
+| dt11_menu | the console card, the pause menu (in_menu.txt) | 108 | 12 571 | 0 | 0 |
+| dt11_att | the attract demo | 16 | 9 502 | 0 | 0 |
+| dt11_lake | Avion's lake (in_tbz2.txt, `2000:boss4`) | 17 | 9 001 | 0 | 0 |
+
+**108 functions checked at top level, 0 mismatches**, no RAM byte at all (no control run needed). The other 170 were not
+reached at top level on these routes (most are reached only on D9 / D10's new-game and fight routes; execPause,
+init_camera_pause_rise and request_end_camera_pause_rise ran once or twice in cc_menu but not under the trace's slower
+timing; InitTableSinCos's one call is past the trace's event cap): they stay recompiled.
+
+**Speed** (Vita3K 222 MHz, the interleaved A/B `SOTC_AB_FLAG=liftd11 SOTC_AB_PERIOD=1`, p1 with the 278, 1 260 s a run, the
+sampler 120-1 200 s; mix7.py over the 278):
+
+| run | frames (on / off) | the 278, lifted vs recompiled (samples per 1 000 frames) | slower z > 2 | faster z < -2 | sampled | frame ms off - on |
+|---|---|---|---:|---:|---:|---|
+| lfA7 (attract, seed 7) | 18 992 / 19 008 | 1 890.0 vs 1 553.1 (121.7%) | 10 | 3 | 17 | +0.037 +- 0.095 |
+| lfL7 (lake, seed 7) | 9 478 / 9 522 | 2 802.4 vs 2 150.8 (130.3%) | 9 | 6 | 17 | +0.031 +- 0.408 |
+| lfA11 (attract, seed 11) | 17 293 / 17 707 | 2 103.1 vs 1 695.2 (124.1%) | 10 | 2 | 18 | +0.000 +- 0.142 |
+| lfL11 (lake, seed 11) | 9 498 / 9 502 | 2 812.4 vs 2 131.2 (132.0%) | 9 | 4 | 17 | -0.058 +- 0.515 |
+
+**Ten are slower in both seeds**, all in the area: modelSetSurface (the lifted copy 198 samples per 1 000 frames, its
+recompiled code ~1: the generated code leaves most of it to a native callee), vramAlloc / vramReset (1.25-1.3x),
+modelClipSkin, ClipCollisionFinderWithKeepSlopeLimit (a collision finder the area's regex files here), ExecFogColMan,
+glBeginWithDlLayerNo, SpriteMenuIsFadeCheckAllLayer, modelReInitialize, windowDraw. They are cut (all are checked
+exact). Faster in both seeds: glEnd (z -37 / -47: the lifted body is a third of the generated code's samples), glReset,
+glBegin, glTexCoord2f, glSetLightColor. The shipped set's sampled functions together: 397.9 against 493.2 (attract 7),
+500.1 / 803.0 (lake 7), 419.6 / 517.3 (attract 11), 515.8 / 793.1 (lake 11) samples per 1 000 frames: the lifted copies
+take 62-81% of the generated code's time.
+
+**98 ship** (regenerated with only them: one call, st_menupause's to execPause, now goes to the recompiled execPause):
+**19 in the area** (glBegin, glEnd, glReset, glColor4fv, glTexCoord2f, glVertex2f, glSetLightColor, modelGetDlLayerIndex,
+vramFree and ten SpriteMenu* menu functions), 63 other game code, 6 camera, 5 script, 4 characters, 1 boot ELF.
+
+**docs/display_map.md** (for S4): the area's parts (the VU1 microcode, the native renderer's hooks, the frame flow from
+the game thread to the present), every hand-written native with its switch and fallback, the host systems built so far,
+the guest data layouts as the code states them, what S4 needs (what still goes through PS2 packets and who reads them,
+what the game produces that a native draw could consume, the threads, blockers, candidate first steps), the costs earlier
+rounds measured, and a table of all 977 functions (status, callers, callees, the offsets and globals each touches, what
+reaches the recompiled ones). Its "caution" section lists how decomp_status.py's substring regex misfiles functions
+(`tex` in `context`: two camera getters; `sort` in execPointListSort; `clip` in the collision clips; `disp` in
+`dispatch`; UpdateLayoutClassGeometry filed by its file): the rule is kept so the counts stay comparable.
+
+### Pictures and the console card
+
+The shipped build (p2 = build/agent-scratch/celosia-d11.vpk), Vita3K 222 MHz, muted, shots looked at and deleted: f_walk
+(the console card's walk, 16 218 frames: Wander on the plain and in the shrine), f_att (the attract demo, 24 918 frames:
+Agro galloping), f_lake (Avion's lake: Wander swimming with the ripples, then the altar), f_conwalk (the walk under the
+console env's rotation, 21 738 frames). All ok, No exact 0, 1-3 game-thread frames over 300 ms per run (boot, loads), 0
+`[lodraw]` / `[layermirror]` lines. spalign on celosia-d11.elf: 830 NEON :128 accesses, 0 sp-based. vita-elf-create needed
+`sotc_vita_elf_room` 72 -> 80 KB. Console A/B: build/agent-scratch/celosia-d11.vpk with build/agent-scratch/d11/env-console.txt
+(`SOTC_AB_FLAG=a9cmp,liftd11,s3chara SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`).
+
+### Decomp numbers
+
+tools/decomp_status.py on the final build's replaced dump with `SOTC_WORKER91=0` (the honest count; Mac, attract demo to
+frame 1 500; calls from round 71's dumps); docs/decomp_status.json is written from it:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D11 | **5 161 of 9 024 (57.19%)** | 59.36% | 97.16% | 60.30% |
+| as earlier rounds counted (gates on), D11 | 5 219 (57.83%) | 59.75% | 97.79% | 60.76% |
+| honest, D10 | 5 063 (56.11%) | 58.32% | 96.46% | 59.06% |
+
+By area (honest, functions): **display and models 507 of 977 (489 of 978 after D10; 61.6% of the code, 60.8%)**,
+other game code 1 671 of 2 905 (1 608), characters 651 of 1 207 (646 of 1 206; one function moved in by its file), camera
+199 of 282 (193), script 232 of 633 (227), boot ELF 1 305. The Vita3K profile of the attract demo (300-690 s): native 83.5%,
+recompiled MIPS 4.0%, runtime 12.5% of the game thread; the display area 19.1% native, 0.6% MIPS (D10: 16.8% / 0.8%).
+
+### What the next rounds should take
+
+- S4 (display): docs/display_map.md, section 5. 457 of the area's 470 recompiled functions are never called on any route.
+- The display functions lifted slower (modelSetSurface, vramAlloc / vramReset, modelClipSkin, ExecFogColMan,
+  glBeginWithDlLayerNo, windowDraw, modelReInitialize) are candidates for hand natives, as D10's
+  nico_horseClothOverSurfDetectFunc was.
+- The integer-compare form for the generated and lifted code's vftoi (`_mm_cmpnlt_ps` in vu_translation_helpers.cpp:
+  24 sites in the runner) needs a regenerated runner: a codegen round.
+- The 170 lifted functions not reached at top level need D9 / D10's new-game and fight routes under the trace check.
