@@ -20777,3 +20777,86 @@ game code 55.9%, boot ELF / SDK 53.6%, **collision 50.1% (167 of 317 functions)*
 - **The 14 with RAM bytes** (the new-game route's 0x13E5xxx group, AI_GetMotionBasicVelocity, nico_execMinotaurA_Cloth ...)
   need a control run on that route. **The trace check's nesting** still needs a pass per level, and the 196 unchecked are
   mostly that.
+
+## Redesign S2: collision, part 1: finder clips on host list views, the water probes' pre-tests (SOTC_S2COLL) (2026-11-15)
+
+The second subsystem round after S1 (particles). The full write-up is docs/collision_s2.md; this is the summary.
+Scripts, runs and logs: `build/agent-scratch/s2/` (STATE.md; new scripts authored in the worktree's
+build/agent-scratch/s2src/: abs2.sh, the s2coll interleaved A/B with the sampler, frame times and per-call timing;
+tools/s2groups.py, the sampler split by state; final.sh, the shipped build's lanes). Own Vita3K trees
+../vita3k-celosia-s2 / -s2b (222 MHz, 3 cores, muted); at most two heavy processes, all `nice -n 20`, builds `-j4`.
+
+### What changed
+
+- **coll_types.h**: the collision data as C++ types (SurfaceId, DB, Part, the two surface records, Tree / Node, Hit,
+  ModifiedManager, the collision work, Finder / FinderQuery, GroupLink), pinned with static_asserts.
+- **Finder list views** (s2_coll.h): a character's contact list is clipped 15-23 times a frame. After its first clip
+  through fin125 with every entry current it gets a host view: the id words, fin125's slot pointers, the planes as SoA.
+  A later clip uses it while the frame, fin125's epochs, its work-epoch bumps, its slot generation (new: coll125::g_gen)
+  and the list's id words are unchanged: then every entry is current in fin125's cache, which is when coll125::run uses
+  it unchecked, and the view asks clip() of the same entries in the same order. On the Vita the plane test runs four
+  entries at a time with round 49's NEON operations in the same order (the same bits); a sphere pre-test (plain floats,
+  a margin) passes over surfaces out of the segment's reach. The keep pass takes its slots from the view too.
+- **Water probes** (s2_water.h): waterProbe (01117EA0) runs its body only for the triangles whose xz box holds the
+  segment's end, the ones the box cannot vouch for, and the last one (f0 is the last one's); waterSurface (01117340, no
+  triangle filter) only for the triangles with their height between the ends and an xz box meeting the ends' box, the
+  last such one and the last triangle (the work block, the crossing block and f0 are theirs). They were the largest
+  collision items on the lake route (4.1% of the game thread).
+- `SOTC_S2COLL` (default on, A/B `s2coll`), `SOTC_S2COLL_VIEWS=0` / `SOTC_S2COLL_WATER=0` (one part out),
+  `SOTC_S2COLL_CHECK=1` (in-run compare), `SOTC_S2COLL_LOG=1` (counts, per-call timing by state).
+
+### Equivalence
+
+In-run, from the same state, both ways, compared bit for bit, no tolerance (the original side: fin125 off, the guest's
+own ClipCollisionDB loop; the water probes' full loops):
+
+| run | frames | finder clips by a view | keep tests | water probes (under-end / crossing) | differ |
+|---|---:|---:|---:|---:|---:|
+| chkA (p1, attract) | 31 038 | 272 262 | 775 426 | - | 0 |
+| chkL (p1, lake route) | 12 858 | 204 680 | 1 245 714 | - | 0 |
+| chkL3 (p3, lake route) | 15 078 | 232 329 | 1 528 680 | 150 035 / 86 373 | 0 |
+| fin_lake (p6 shipped, lake route) | 14 898 | 223 762 | 1 505 500 | 151 236 / 86 678 | 0 |
+| fin_att (p6 shipped, attract) | 33 738 | 529 884 | 639 902 | 7 339 / 9 080 | 0 |
+
+### Speed (Vita3K 222 MHz, interleaved A/B, the rule: z > 2 in both seeds)
+
+Measures per state: per-call host time (`SOTC_S2COLL_LOG=1`: [s2time] finder clips, [s2wtime] water probes; Welch z),
+the sampler split by state (tools/s2groups.py: s2coll's code and fin125's copies called with S2 on, against the copies
+called with S2 off; z Poisson), frame times (mixframes.py, +- 2 SE).
+
+| run (build, seed) | route | finder clips ms a frame off -> on (z) | views, sampler (on / off, z) | water under-end (z) | water crossing (z) | busy off - on |
+|---|---|---|---|---|---|---|
+| mixL4a / mixL4b (p4, 7 / 11) | lake | 1.78 -> 1.48 (15.1) / 2.18 -> 1.77 (16.6) | 54% z 104 / 52% z 116 | | | -0.05 / +0.06 (+- 0.14-0.18) |
+| mixA5a / mixA5b (p5, 7 / 11) | attract | 1.19 -> 1.10 (6.8) / 0.79 -> 0.76 (2.6) | 79% z 48 / 79% z 41 | slower (-2.6 / -3.6) | (1.2 / -1.2) | +0.12 +- 0.11 / -0.00 +- 0.10 |
+| mixL5a (p5, 7) | lake | 2.12 -> 1.76 (15.5) | 55% z 104 | **slower** 140 -> 173 us (-14.8) | (1.5) | -0.11 +- 0.14 |
+| **mixL6a (p6, 7)** | lake | 1.64 -> 1.19 (**20.4**) | 60% z **76** | 1.74 -> 0.70 ms (**56**) | 1.49 -> 0.77 ms (**37**) | -0.07 +- 0.18 |
+| **mixL6c (p6, 11)** | lake | 1.59 -> 1.17 (**18.1**) | 61% z **65** | 1.67 -> 0.65 ms (**54**) | 1.54 -> 0.84 ms (**32**) | +0.08 +- 0.20 |
+
+p5's water box tests were slower: std::fmax / fmin are library calls on the A9's VFPv3; p6 (shipped) uses plain compares.
+**Kept:** the views (faster in every run, both measures) and the water pre-tests (p6, faster in both lake seeds). On
+the lake route S2 takes **about 2.2 ms a frame** off the game thread (collision ~9.2-9.7 ms -> ~7.1-7.5 ms a frame, ~22%
+-> ~17% of the game thread); in the attract demo 0.03-0.09 ms (0.2-0.3%). Frame times do not resolve it (VBlank pacing,
+per-frame noise ~5 ms), as in S1. Another core: not clean (each query's caller uses its answer at once; the cores are
+busy; docs/collision_s2.md section 6).
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, shots looked at and deleted. The shipped build p6 (celosia-s2.vpk): fin_lake (the lake route
+with the check mode, 14 898 frames: Wander swimming with the ripples, then at the altar), fin_att (the attract demo with
+the check mode, 33 738 frames: Agro galloping on the grass with his shadow), fin_conwalk (the console card's walk under
+the console env's rotation `SOTC_AB_FLAG=s2coll,liftd9,s1ptcl SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`, 17 538 frames:
+Wander running on the plain, y -5.30..11.31). All ok, No exact 0. spalign: 809 NEON :128 accesses, 0 sp-based. The Mac
+and Vita builds compile. Console A/B: celosia-s2.vpk with build/agent-scratch/s2/env-console.txt.
+
+### What the next round should take
+
+- **Frame times in Vita3K do not show these changes** (S1 found the same): the frame is paced by VBlanks and per-frame
+  noise is ~5 ms. The sampler split by state (code only one state runs; tagged copies of shared helpers, as
+  coll125::run<.., Tag>) and per-call host timing by state are the measures that resolve them.
+- **std::fmax / std::fmin are library calls on the A9's VFPv3**: in a per-triangle loop they made S2's first water form
+  slower than the code it replaced. Plain compares where the operands are known finite.
+- **Vita3K has no memory latency for independent loads**: the views remove dependent guest loads and should gain more
+  on the console than Vita3K shows; the water pre-tests remove arithmetic, which Vita3K shows fully.
+- **When killing a Vita3K run, kill its tools/vita3k.sh too**: its timer kills the tree's next Vita3K later.
+- Next collision items (docs/collision_s2.md section 7): the segment tests' object loop and walk (a per-frame host
+  broadphase of each group's objects), the ground fill (a host index of static surfaces), the attribute lookups.

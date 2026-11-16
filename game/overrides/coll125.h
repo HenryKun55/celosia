@@ -236,6 +236,8 @@ namespace coll125
     };
     constexpr uint32_t kSurf = 512;
     inline Surf g_surf[kSurf];
+    // Round S2: moved whenever a slot is taken over or made again (s2_coll.h: a list view is used only while it holds).
+    inline uint64_t g_gen = 1;
     inline uint64_t g_use = 0;
     inline uint32_t hashId(uint32_t w0, uint32_t w1) { return ((w0 * 0x9E3779B1u) ^ (w1 * 0x85EBCA77u)) >> 23; }
     // The surface (w0, w1) when kept, else nullptr.
@@ -269,6 +271,7 @@ namespace coll125
         }
         victim->m.state = kUnmade;
         victim->used = ++g_use;
+        ++g_gen; // round S2: a slot taken over (s2_coll.h's list views hold slot pointers)
         fresh = true;
         return *victim;
     }
@@ -547,6 +550,7 @@ namespace coll125
     {
         R5900Context *ctx = g.ctx;
         const uint32_t sp = spIn - 0xF0u;
+        ++g_gen; // round S2
         const uint32_t w0 = g.u32(id), w1 = g.u32(id + 4u);
         m.w0 = w0;
         m.w1 = w1;
@@ -896,8 +900,9 @@ namespace coll125
     // the segment, a3 the finder, n its count (1..256), sp the clip's frame (the segment's copy at sp
     // as the original keeps it). Returns the last hit's entry address (0: none); the record as the last
     // ClipCollisionDB that hit leaves it.
-    template <bool Filtered>
-    uint32_t run(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, int32_t n, uint32_t filter, uint32_t user, uint32_t sp, uint32_t filterSite,
+    // (Round S2: Tag 1 is the copy s2_coll.h calls, so the sampler tells the two switch states' code apart.)
+    template <bool Filtered, int Tag = 0>
+    __attribute__((noinline)) uint32_t run(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, int32_t n, uint32_t filter, uint32_t user, uint32_t sp, uint32_t filterSite,
                  uint32_t clipSite)
     {
         ++g_st.calls;
@@ -1053,7 +1058,15 @@ namespace coll125
     // The keep pass (ClipCollisionFinderWithKeep, decomp_hot44b): whether clipKeep's first return (the point at
     // least `keep` in front of the surface's plane) answers the entry at `id`, from the surface cache
     // (checked this frame and epoch, the entry made from the same id words): 1 yes, 0 no, -1 not known here.
+    template <int Tag>
+    __attribute__((noinline)) int keepEarly125T(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, uint32_t id, uint32_t point, float keep);
     int keepEarly125(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, uint32_t id, uint32_t point, float keep)
+    {
+        return keepEarly125T<0>(rdram, ctx, runtime, id, point, keep);
+    }
+    // (Round S2: Tag 1 is the copy asked with s2coll on, for the sampler's A/B.)
+    template <int Tag>
+    int keepEarly125T(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, uint32_t id, uint32_t point, float keep)
     {
         if (!on(runtime) || !G::plain(point & ~0xFu, 16u) || !G::plain(id, 8u))
             return -1;

@@ -1376,9 +1376,32 @@ namespace decomp_collision
     namespace coll125
     {
         int keepEarly125(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, uint32_t id, uint32_t point, float keep); // coll125.h
+        template <int Tag>
+        int keepEarly125T(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, uint32_t id, uint32_t point, float keep);
+    }
+    namespace s2coll
+    {
+        inline int keepEarly(const uint8_t *rdram, const R5900Context *ctx, const PS2Runtime *runtime, int32_t k, uint32_t id, uint32_t point, float keep); // s2_coll.h
+        inline int checkLevel();
+        inline void keepChecked(int view, int fin125);
+        inline bool on(const PS2Runtime *runtime);
     }
     bool keepEarlyFrom(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const void *view, int32_t k, uint32_t id, uint32_t point, float keep)
     {
+        // Round S2 (SOTC_S2COLL): the plane from the list's host view (s2_coll.h); the check mode compares it with fin125's.
+        if (const int s = s2coll::keepEarly(rdram, ctx, runtime, k, id, point, keep); s >= 0)
+        {
+            if (__builtin_expect(s2coll::checkLevel() != 0, 0))
+                s2coll::keepChecked(s, coll125::keepEarly125(rdram, ctx, runtime, id, point, keep));
+            return s != 0;
+        }
+        if (s2coll::on(runtime))
+        {
+            // (S2 on, no view for it: fin125's answer through its own copy, for the sampler's A/B)
+            if (const int e = coll125::keepEarly125T<1>(rdram, ctx, runtime, id, point, keep); e >= 0)
+                return e != 0;
+        }
+        else
         // Round 125 (SOTC_FIN125): the plane from the list's contact set when it holds the entry (this frame, this epoch).
         if (const int e = coll125::keepEarly125(rdram, ctx, runtime, id, point, keep); e >= 0)
             return e != 0;
@@ -5557,6 +5580,7 @@ namespace decomp_collision
         returnTo(ctx);
     }
 
+#include "s2_water.h" // round S2: the water probes' triangle pre-tests
     // ---- round 40: manager_sub_01117EA0, the water surface under a segment ----
     // a1 / a2 the segment's points, a3 the water's object, a0 the result.
     // Both points into the object's space (+0x164's matrix), then each of its
@@ -5588,7 +5612,21 @@ namespace decomp_collision
         return _mm_cvtss_f32(vu::addN(acc, vu::mulN(one, vu::lane<2>(m))));
     }
 
+    void waterProbeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round S2: SOTC_S2COLL_LOG=1: each call's host time by the s2coll switch's state ([s2wtime]).
     void waterProbe(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(s2water::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = s2water::on(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            waterProbeBody(rdram, ctx, runtime);
+            s2water::timed(0, st, coll115::nowUs() - t0);
+            return;
+        }
+        waterProbeBody(rdram, ctx, runtime);
+    }
+    void waterProbeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x01117EE8u) != kGetLayoutClass)
             return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
@@ -5606,8 +5644,10 @@ namespace decomp_collision
         const int32_t count = static_cast<int32_t>(g.u32(rec + 0x38u));
         const float lowLimit = bitsFloat(0xB7A7C5ACu), highLimit = bitsFloat(0x37A7C5ACu), one = bitsFloat(0x3F800000u);
         float f0 = ctx->f[0];
-        uint32_t t = g.u32(rec + 0x3Cu);
-        for (int32_t i = 0; i < count; ++i, t += 0x20u)
+        const uint32_t t0 = g.u32(rec + 0x3Cu);
+        // One triangle as the loop runs it: true when it sends the call to the recompiled code (the point in the
+        // triangle and a point under its height); f0 as the loop leaves it otherwise.
+        auto tri = [&](uint32_t t, float &f0) -> bool
         {
             const float vx = g.f32(t + 8u), vz = g.f32(t + 0xCu);
             const __m128 a = vu::clamp(_mm_setr_ps(FPU_SUB_S(g.f32(t + 0x10u), vx), 0.0f, FPU_SUB_S(g.f32(t + 0x14u), vz), 0.0f));
@@ -5620,25 +5660,52 @@ namespace decomp_collision
             const float v = ps2FpuDivide(ctx->fcr31, dotX(na, c), dotX(na, b));
             f0 = u;
             if (FPU_C_OLT_S(u, lowLimit))
-                continue;
+                return false;
             f0 = v;
             if (FPU_C_OLT_S(v, lowLimit))
-                continue;
+                return false;
             f0 = FPU_SUB_S(FPU_ADD_S(u, v), one);
             if (FPU_C_OLT_S(highLimit, f0))
-                continue;
+                return false;
             const float h = g.f32(t + 4u);
             if (FPU_C_OLT_S(p1y, h))
-            {
-                COLL_STAT(waterSlow);
-                return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
-            }
+                return true;
             f0 = p0y;
             if (FPU_C_OLT_S(p0y, h))
+                return true;
+            return false;
+        };
+        auto original = [&](float &f0) -> bool
+        {
+            for (int32_t i = 0; i < count; ++i)
+                if (tri(t0 + 0x20u * static_cast<uint32_t>(i), f0))
+                    return true;
+            return false;
+        };
+        bool slow;
+        // Round S2 (SOTC_S2COLL): only the triangles whose xz box (with a margin) holds the point can send the call to
+        // the recompiled code, and f0 is the last triangle's: those and the last one run the loop's own body
+        // (s2water::probe); the check mode runs both and compares the outcome and f0's bits.
+        if (count > 0 && s2water::on(runtime) && G::plain(t0, 0x20u * static_cast<uint32_t>(count)))
+        {
+            float f0n = f0;
+            slow = s2water::probe(g.rdram, t0, count, p1x, p1z, [&](uint32_t t) { return tri(t, f0n); });
+            if (__builtin_expect(s2water::checkOn(), 0))
             {
-                COLL_STAT(waterSlow);
-                return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
+                float f0o = f0;
+                const bool slowO = original(f0o);
+                s2water::compared(0, slowO == slow && (slow || floatBits(f0o) == floatBits(f0n)));
+                slow = slowO;
+                f0n = f0o;
             }
+            f0 = f0n;
+        }
+        else
+            slow = original(f0);
+        if (slow)
+        {
+            COLL_STAT(waterSlow);
+            return sotc_decomp::recompiled(kWaterProbe)(rdram, ctx, runtime);
         }
         ctx->f[0] = f0;
         SET_GPR_U64(ctx, 2, 0u);
@@ -5660,7 +5727,20 @@ namespace decomp_collision
     // is a guest call for each triangle (a0 the object, a1 the work block, a2
     // t3), allowed only when no crossing can come (b not under a).
     constexpr uint32_t kWaterSurface = 0x01117340u;
+    void waterSurfaceBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void waterSurface(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(s2water::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = s2water::on(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            waterSurfaceBody(rdram, ctx, runtime);
+            s2water::timed(1, st, coll115::nowUs() - t0);
+            return;
+        }
+        waterSurfaceBody(rdram, ctx, runtime);
+    }
+    void waterSurfaceBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x01117394u) != kGetLayoutClass)
             return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
@@ -5691,7 +5771,97 @@ namespace decomp_collision
         const float lowLimit = bitsFloat(0xB7A7C5ACu), highLimit = bitsFloat(0x37A7C5ACu), one = bitsFloat(0x3F800000u);
         const __m128 vf0 = ctx->vu0_vf[0];
         float f0 = ctx->f[0];
-        uint32_t t = g.u32(rec + 0x3Cu);
+        const uint32_t t0 = g.u32(rec + 0x3Cu);
+        // Round S2 (SOTC_S2COLL), no triangle filter: a triangle that does not have p1y < h < p0y only writes its words
+        // into the work block (the last triangle's stay) and leaves f0 (the last triangle's stays); so the loop's body
+        // runs for those that do and for the last one (s2water::surface); the check mode runs both from the same
+        // block and compares the outcome, f0 and the work / crossing blocks.
+        if (filter == 0u && count > 0 && s2water::on(runtime) && G::plain(t0, 0x20u * static_cast<uint32_t>(count)) && G::plain(work, 0x40u) &&
+            G::plain(cross, 0x10u))
+        {
+            auto tri = [&](uint32_t t, float &f0) -> bool
+            {
+                const float vx = g.f32(t + 8u), vz = g.f32(t + 0xCu), h = g.f32(t + 4u);
+                g.put32(work + 0x10u, floatBits(FPU_SUB_S(g.f32(t + 0x10u), vx)));
+                g.put32(work + 0x18u, floatBits(FPU_SUB_S(g.f32(t + 0x14u), vz)));
+                g.put32(work + 0x20u, floatBits(FPU_SUB_S(g.f32(t + 0x18u), vx)));
+                g.put32(work, floatBits(vx));
+                g.put32(work + 8u, floatBits(vz));
+                g.put32(work + 0x28u, floatBits(FPU_SUB_S(g.f32(t + 0x1Cu), vz)));
+                g.put32(work + 0x30u, floatBits(h));
+                f0 = h;
+                if (!FPU_C_OLT_S(p1y, h))
+                    return false;
+                f0 = p0y;
+                if (!FPU_C_OLT_S(h, p0y))
+                    return false;
+                const float k = ps2FpuDivide(ctx->fcr31, FPU_SUB_S(h, p0y), FPU_SUB_S(p1y, p0y));
+                const __m128 kx = vu::clamp(_mm_set1_ps(k));
+                const __m128 w = vu::subN(vf0, kx); // vsubx.w vf8, vf0, vf7 (lane w)
+                const __m128 q = vu::addN(vu::mulN(p1, kx), vu::mulN(p0, vu::lane<3>(w)));
+                g.put32(cross, floatBits(FPU_SUB_S(_mm_cvtss_f32(q), vx)));
+                g.put32(cross + 8u, floatBits(FPU_SUB_S(_mm_cvtss_f32(vu::lane<2>(q)), vz)));
+                const __m128 a = vu::clamp(g.q(work + 0x10u)), b = vu::clamp(g.q(work + 0x20u)), c = vu::clamp(g.q(cross));
+                const __m128 n = outer(a, b);
+                const __m128 nb = outer(n, b);
+                const float u = ps2FpuDivide(ctx->fcr31, dotX(nb, c), dotX(nb, a));
+                const __m128 na = outer(n, a);
+                const float v = ps2FpuDivide(ctx->fcr31, dotX(na, c), dotX(na, b));
+                f0 = u;
+                if (FPU_C_OLT_S(u, lowLimit) || FPU_C_OLT_S(v, lowLimit))
+                    return false;
+                f0 = FPU_SUB_S(FPU_ADD_S(u, v), one);
+                if (FPU_C_OLT_S(highLimit, f0))
+                    return false;
+                return true;
+            };
+            auto original = [&](float &f0) -> bool
+            {
+                for (int32_t i = 0; i < count; ++i)
+                    if (tri(t0 + 0x20u * static_cast<uint32_t>(i), f0))
+                        return true;
+                return false;
+            };
+            bool slow;
+            if (__builtin_expect(s2water::checkOn(), 0))
+            {
+                uint8_t wb[0x40], cb[0x10], wo[0x40], co[0x10];
+                std::memcpy(wb, g.rdram + work, 0x40);
+                std::memcpy(cb, g.rdram + cross, 0x10);
+                float f0o = f0;
+                const bool slowO = original(f0o);
+                std::memcpy(wo, g.rdram + work, 0x40);
+                std::memcpy(co, g.rdram + cross, 0x10);
+                std::memcpy(g.rdram + work, wb, 0x40);
+                std::memcpy(g.rdram + cross, cb, 0x10);
+                float f0n = f0;
+                const bool slowN = s2water::surface(g.rdram, t0, count, _mm_cvtss_f32(p0), p0y, _mm_cvtss_f32(vu::lane<2>(p0)), _mm_cvtss_f32(p1), p1y, _mm_cvtss_f32(vu::lane<2>(p1)), [&](uint32_t t) { return tri(t, f0n); });
+                const bool same = slowO == slowN && (slowO || (floatBits(f0o) == floatBits(f0n) && std::memcmp(wo, g.rdram + work, 0x40) == 0 &&
+                                                                std::memcmp(co, g.rdram + cross, 0x10) == 0));
+                s2water::compared(1, same);
+                std::memcpy(g.rdram + work, wo, 0x40);
+                std::memcpy(g.rdram + cross, co, 0x10);
+                slow = slowO;
+                f0 = f0o;
+            }
+            else
+            {
+                float f0n = f0;
+                slow = s2water::surface(g.rdram, t0, count, _mm_cvtss_f32(p0), p0y, _mm_cvtss_f32(vu::lane<2>(p0)), _mm_cvtss_f32(p1), p1y, _mm_cvtss_f32(vu::lane<2>(p1)), [&](uint32_t t) { return tri(t, f0n); });
+                f0 = f0n;
+            }
+            if (slow)
+            {
+                COLL_STAT(surfaceSlow);
+                return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+            }
+            ctx->f[0] = f0;
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, spIn);
+            SET_GPR_U64(ctx, 2, 0u);
+            return returnTo(ctx);
+        }
+        uint32_t t = t0;
         for (int32_t i = 0; i < count; ++i, t += 0x20u)
         {
             const float vx = g.f32(t + 8u), vz = g.f32(t + 0xCu), h = g.f32(t + 4u);
@@ -5803,6 +5973,7 @@ namespace decomp_collision
     }
 
 #include "coll125.h"
+#include "s2_coll.h" // round S2
     // ---- FlushModifiedManager (0x1147798), round 11 ---------------------------
     // a0: a cache's modified list (+0 the count, +8 the flags base, +0xc the
     // index size 1 / 2 / 4, +0x10 the indices): each listed flag byte
@@ -6051,6 +6222,16 @@ namespace decomp_collision
     template <bool Filtered>
     void finderClip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round S2: SOTC_S2COLL_LOG=1: each finder clip's host time by the s2coll switch's state ([s2time]: the in-run A/B
+        // under SOTC_AB_MIX, the switch flipping frame by frame).
+        if (__builtin_expect(s2coll::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = s2coll::on(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            finderClipBody<Filtered>(rdram, ctx, runtime);
+            s2coll::timed(st, coll115::nowUs() - t0);
+            return;
+        }
         if (__builtin_expect(fin138t::want(), 0) && !sotc_decomp::onWorkerLane(runtime))
         {
             const int st = !coll125::on(runtime) ? 0 : coll125::on138() ? 2 : 1;
@@ -6180,7 +6361,13 @@ namespace decomp_collision
             }
             else
             {
-                best = coll125::run<Filtered>(g, a0, a1, a2, a3, n, filter, user, sp, filterSite, clipSite);
+                // Round S2 (SOTC_S2COLL): the list's host view (s2_coll.h); SOTC_S2COLL_CHECK=1 compares it with the original.
+                if (s2coll::on(runtime))
+                    best = __builtin_expect(s2coll::checkLevel() != 0, 0) ? s2coll::checked<Filtered>(g, a0, a1, a2, a3, n, filter, user, sp, filterSite, clipSite,
+                                                                                                       [&] { finderClipBody<Filtered>(rdram, ctx, runtime); })
+                                                                         : s2coll::clipList<Filtered>(g, a0, a1, a2, a3, n, filter, user, sp, filterSite, clipSite);
+                else
+                    best = coll125::run<Filtered>(g, a0, a1, a2, a3, n, filter, user, sp, filterSite, clipSite);
                 if (best != 0u)
                 {
                     g.put32(a0, g.u32(best));
