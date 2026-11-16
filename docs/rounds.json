@@ -867,7 +867,7 @@
   {
    "round": "D10",
    "date": "2026-11-16",
-   "commit": "",
+   "commit": "7c934e3",
    "focus": "Decomp",
    "summary": "Decomp D10: characters and motion, the subsystem after collision. A new game now reaches the first colossus in about 2 600 frames (one START press skips the opening), and teleports by place, an object list and a function probe put Wander on Valus' plateau: Valus walks to him and stamps, Wander dies and retries, and the fight's code runs (attack IK, the quake hit test, the parts' damage getters, the game over flow). 98 functions ship behind SOTC_LIFTD10 (on): 97 converted ones and the first hand-written replacement of a function the converter made slower (Agro's cloth callback, now faster than the original in both speed runs). docs/characters_map.md maps the characters' code for the redesign round S3, with what each character's frame shares with the others.",
    "result": "Characters and motion: 646 of 1 206 functions decompiled (623 after D9), 66.0% of the code. Whole game (honest count): 5 063 of 9 024 functions (56.1%), 58.3% of the code, 96.5% of calls. Exact: 108 functions checked by the trace check (and the hand native by the two-leg check, 700 checks), 0 differences. Speed (Vita3K 222 MHz, interleaved A/B): ten hot functions the converter makes slower were cut again; the shipped set is neutral (+0.003% / +0.007% of the game thread). The rest of the area needs recorded play (climbing a colossus, hitting weak points, the other fifteen colossi) or hand-written replacements for the ten hot ones."
