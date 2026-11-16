@@ -30,6 +30,19 @@
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
 
+namespace s3chara
+{
+    int32_t keysSplitAt(PS2Runtime *runtime, int32_t n);
+    void post(void (*fn)(void *), void *arg);
+    void join();
+    int checkMode();
+    void keysChecked(uint64_t channels, bool bad);
+    bool timing();
+    bool on();
+    uint64_t nowUs();
+    void keysTime(bool on, uint64_t us);
+}
+
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
@@ -167,11 +180,14 @@ namespace char122
     // A key into out (x, y, z, w), plain float. False for a format the
     // translation never saw (the caller then takes the old path).
     constexpr uint32_t kCurveTable = 0x01193230u;
+    // Note: round 141's prefetch notes (the game thread only: S3's worker decodes with Note false).
+    template <bool Note = true>
     bool decodeKey(const uint8_t *ram, uint32_t format, uint32_t chan, uint32_t index, float out[4])
     {
         if (!inRam(chan, 0x24u))
             return false;
-        pf141::noteGuest(ram, chan, 0x24u); // round 141 (prefetch only)
+        if (Note)
+            pf141::noteGuest(ram, chan, 0x24u); // round 141 (prefetch only)
         const uint32_t target = format < 15u ? rd32(ram, kCurveTable + format * 4u) : 0x010AC700u;
         switch (target)
         {
@@ -190,7 +206,8 @@ namespace char122
             const uint32_t key = rd32(ram, chan + 0x20u) + (index << 2);
             if (!inRam(key, 4u))
                 return false;
-            pf141::noteGuest(ram, key, 16u);
+            if (Note)
+                pf141::noteGuest(ram, key, 16u);
             int s0, s1, s2, s3, l0, l1, l2, l3, sb;
             if (target == 0x010AC978u)
                 s0 = 5, s1 = 14, s2 = 23, s3 = 1, l0 = 1, l1 = 2, l2 = 3, l3 = 0, sb = 31;
@@ -229,7 +246,8 @@ namespace char122
             const uint32_t rec = rd32(ram, chan + 0x18u) + index * 6u;
             if (!inRam(rec, 6u))
                 return false;
-            pf141::noteGuest(ram, rec, 24u);
+            if (Note)
+                pf141::noteGuest(ram, rec, 24u);
             float c[6];
             std::memcpy(c, at(ram, chan), 24);
             const float k = 1.0f / 32767.5f;
@@ -938,6 +956,36 @@ namespace char122
     namespace keys
     {
         constexpr uint32_t kSelf = 0x010AD1B0u;
+        // Channels [lo, hi) of frame k (+ frac) into tmp: keys122's loops as they were (round S3 runs two ranges at once).
+        template <bool Note>
+        bool decodeRange(const uint8_t *rdram, uint32_t formats, uint32_t chans, int32_t k, float frac, int32_t lo, int32_t hi, float *tmp)
+        {
+            if (frac == 0.0f)
+            {
+                for (int32_t i = lo; i < hi; ++i)
+                    if (!decodeKey<Note>(rdram, *at(rdram, formats + static_cast<uint32_t>(i)), rd32(rdram, chans + static_cast<uint32_t>(i) * 4u), static_cast<uint32_t>(k), tmp + i * 4))
+                        return false;
+                return true;
+            }
+            const float32x4_t vf = vdupq_n_f32(frac), vf1 = vdupq_n_f32(1.0f - frac);
+            const bool below = frac < 0.5f;
+            for (int32_t i = lo; i < hi; ++i)
+            {
+                const uint32_t fmt = *at(rdram, formats + static_cast<uint32_t>(i)), ch = rd32(rdram, chans + static_cast<uint32_t>(i) * 4u);
+                float a[4], b[4];
+                if (!decodeKey<Note>(rdram, fmt, ch, static_cast<uint32_t>(k), a) || !decodeKey<Note>(rdram, fmt, ch, static_cast<uint32_t>(k) + 1u, b))
+                    return false;
+                float32x4_t va = vld1q_f32(a), vb = vld1q_f32(b);
+                const bool flip = dot4(va, vb) < 0.0f;
+                float32x4_t r;
+                if (below)
+                    r = vmlaq_f32(vmulq_f32(va, vf1), flip ? vnegq_f32(vb) : vb, vf);
+                else
+                    r = vmlaq_f32(vmulq_f32(vb, vf), flip ? vnegq_f32(va) : va, vf1);
+                vst1q_f32(tmp + i * 4, r);
+            }
+            return true;
+        }
         Account g_acc;
         bool floatFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, void (*old)(uint8_t *, R5900Context *, PS2Runtime *))
         {
@@ -961,33 +1009,54 @@ namespace char122
                 return ++why[3], false;
             const int32_t k = static_cast<int32_t>(f12);
             const float frac = f12 - static_cast<float>(k);
-            static float tmp[512 * 4];
-            if (frac == 0.0f)
+            // One scratch per lane (S3, the race D10 found): 0x10AD1B0 is in round 108's kNat108, so off the Vita
+            // (SOTC_CHAR104=1) the guest worker runs this native beside the game thread. A shared static buffer let
+            // one thread's keys overwrite the other's between the decode and the memcpy. Not on the stack: 8 KB, and
+            // the NEON stores below would be sp-based.
+            static float s_tmp[2][512 * 4];
+            float *const tmp = s_tmp[sotc_decomp::lane(runtime)];
+            // Round S3 (SOTC_S3CHARA with SOTC_S3CHARA_JOBS): a large motion's channels split, the upper part decoded on
+            // S3's worker while this thread decodes the lower (the same per-channel code: the same bits).
+            const uint64_t kt0 = s3chara::timing() ? s3chara::nowUs() : 0u;
+            const int32_t split = s3chara::keysSplitAt(runtime, n);
+            bool ok;
+            if (split > 0)
             {
-                for (int32_t i = 0; i < n; ++i)
-                    if (!decodeKey(rdram, *at(rdram, formats + static_cast<uint32_t>(i)), rd32(rdram, chans + static_cast<uint32_t>(i) * 4u), static_cast<uint32_t>(k), tmp + i * 4))
-                        return ++why[4], false;
-            }
-            else
-            {
-                const float32x4_t vf = vdupq_n_f32(frac), vf1 = vdupq_n_f32(1.0f - frac);
-                const bool below = frac < 0.5f;
-                for (int32_t i = 0; i < n; ++i)
+                struct Job
                 {
-                    const uint32_t fmt = *at(rdram, formats + static_cast<uint32_t>(i)), ch = rd32(rdram, chans + static_cast<uint32_t>(i) * 4u);
-                    float a[4], b[4];
-                    if (!decodeKey(rdram, fmt, ch, static_cast<uint32_t>(k), a) || !decodeKey(rdram, fmt, ch, static_cast<uint32_t>(k) + 1u, b))
-                        return ++why[4], false;
-                    float32x4_t va = vld1q_f32(a), vb = vld1q_f32(b);
-                    const bool flip = dot4(va, vb) < 0.0f;
-                    float32x4_t r;
-                    if (below)
-                        r = vmlaq_f32(vmulq_f32(va, vf1), flip ? vnegq_f32(vb) : vb, vf);
-                    else
-                        r = vmlaq_f32(vmulq_f32(vb, vf), flip ? vnegq_f32(va) : va, vf1);
-                    vst1q_f32(tmp + i * 4, r);
+                    const uint8_t *ram;
+                    uint32_t formats, chans;
+                    int32_t k, lo, hi;
+                    float frac;
+                    float *tmp;
+                    bool ok;
+                };
+                static Job job;
+                job = Job{rdram, formats, chans, k, split, n, frac, tmp, false};
+                s3chara::post(
+                    [](void *a)
+                    {
+                        Job &j = *static_cast<Job *>(a);
+                        j.ok = decodeRange<false>(j.ram, j.formats, j.chans, j.k, j.frac, j.lo, j.hi, j.tmp);
+                    },
+                    &job);
+                ok = decodeRange<true>(rdram, formats, chans, k, frac, 0, split, tmp);
+                s3chara::join();
+                ok = ok && job.ok;
+                if (ok && s3chara::checkMode() > 0)
+                {
+                    // S3's check: the whole motion decoded here again, compared bit for bit with the split's.
+                    static float ref[512 * 4];
+                    const bool rok = decodeRange<false>(rdram, formats, chans, k, frac, 0, n, ref);
+                    s3chara::keysChecked(static_cast<uint64_t>(n), !rok || std::memcmp(ref, tmp, static_cast<size_t>(n) * 16u) != 0);
                 }
             }
+            else
+                ok = decodeRange<true>(rdram, formats, chans, k, frac, 0, n, tmp);
+            if (kt0 != 0u)
+                s3chara::keysTime(s3chara::on(), s3chara::nowUs() - kt0);
+            if (!ok)
+                return ++why[4], false;
             static uint64_t kc = 0;
             if (checkEvery() > 0 && (++kc % 16u) == 0u)
             {

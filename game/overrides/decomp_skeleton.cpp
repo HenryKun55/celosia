@@ -34,6 +34,15 @@ namespace pose82
     void after(uint8_t *rdram);
 }
 
+namespace s3chara
+{
+    bool motionMatrix(uint8_t *ram, R5900Context *ctx, PS2Runtime *runtime);
+    bool on();
+    bool timing();
+    uint64_t nowUs();
+    void offTime(uint64_t us);
+}
+
 namespace decomp_skeleton
 {
     using sotc_decomp::returnTo;
@@ -1508,13 +1517,20 @@ namespace decomp_skeleton
     }
 
     void motionMatrixPrev(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    // Round 82: the pose for the A9 (decomp_pose82.cpp, SOTC_POSE82) first.
+    // Round S3: the pose over the host rig (s3_chara.cpp, SOTC_S3CHARA) first; round 82's pose for the A9
+    // (decomp_pose82.cpp, SOTC_POSE82) next. With SOTC_S3CHARA_LOG the off state's calls are timed ([s3time]).
     void motionMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (pose82::motionMatrix(rdram, ctx, runtime))
+        if (s3chara::motionMatrix(rdram, ctx, runtime))
             return;
-        motionMatrixPrev(rdram, ctx, runtime);
-        pose82::after(rdram);
+        const uint64_t t0 = s3chara::timing() && !s3chara::on() ? s3chara::nowUs() : 0u;
+        if (!pose82::motionMatrix(rdram, ctx, runtime))
+        {
+            motionMatrixPrev(rdram, ctx, runtime);
+            pose82::after(rdram);
+        }
+        if (t0 != 0u)
+            s3chara::offTime(s3chara::nowUs() - t0);
     }
     void motionMatrixPrev(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
