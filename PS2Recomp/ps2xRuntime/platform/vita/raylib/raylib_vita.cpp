@@ -838,6 +838,17 @@ void InitWindow(int, int, const char *)
     // so leave it plenty. GPU memory (CDRAM) is all vitaGL's.
     // Returns whether it had to fall back to a smaller resolution, not success.
     shaderCacheRoot();
+    // Testing (Vita3K): SOTC_VITA_EAT_USER_MB=<n> keeps n MB of user memory taken from here on, so that Vita3K (~181 MB
+    // free here) has what a console has (S4: 92 MB) and vitaGL sizes its pools as on the console.
+    if (const char *e = std::getenv("SOTC_VITA_EAT_USER_MB"))
+    {
+        const int mb = std::atoi(e);
+        if (mb > 0)
+        {
+            const SceUID block = sceKernelAllocMemBlock("celosia_eat", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, static_cast<SceSize>(mb) << 20, nullptr);
+            std::fprintf(stderr, "[vita] SOTC_VITA_EAT_USER_MB=%d: %s\n", mb, block >= 0 ? "taken" : "allocation failed");
+        }
+    }
     {
         SceKernelFreeMemorySizeInfo info{};
         info.size = sizeof(info);
