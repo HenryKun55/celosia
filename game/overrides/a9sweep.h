@@ -19,10 +19,19 @@
 #include <cstdlib>
 #include <type_traits>
 #include "sotc_decomp.h"
+#include "runtime/ps2_a9.h"
 
 namespace a9sweep
 {
-    inline bool on() { return sotc_decomp::switchOn(sotc_decomp::kA9Sweep); }
+    // A part of the sweep (ps2_a9.h's parts): the switch, or SOTC_A9SWEEP's fixed value when SOTC_A9SWEEP_AB_PARTS leaves
+    // the part out of the A/B. on() = the hoisted statics' part.
+    inline bool onPart(unsigned part)
+    {
+        if (__builtin_expect((ps2_a9::g_abParts & part) != 0u, 1))
+            return sotc_decomp::switchOn(sotc_decomp::kA9Sweep);
+        return *ps2_a9::g_fixed > 0;
+    }
+    inline bool on() { return onPart(ps2_a9::kHoist); }
 
     // A registered initialiser of hoisted values (a namespace-scope object's constructor, before main: no guard at use).
     struct Hoist
@@ -111,4 +120,4 @@ namespace a9eq
     }
 }
 // memcmp(a, b, n) == 0 for a constant n: a9eq under SOTC_A9SWEEP, the library call off.
-#define A9_MEMEQ(a, b, n) (__builtin_expect(::a9sweep::on(), 1) ? ::a9eq::eq<(n)>((a), (b)) : std::memcmp((a), (b), (n)) == 0)
+#define A9_MEMEQ(a, b, n) (__builtin_expect(::a9sweep::onPart(ps2_a9::kMemcmp), 1) ? ::a9eq::eq<(n)>((a), (b)) : std::memcmp((a), (b), (n)) == 0)

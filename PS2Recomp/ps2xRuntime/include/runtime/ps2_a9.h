@@ -16,8 +16,22 @@
 namespace ps2_a9
 {
     inline const signed char kOff = 0;
+    inline const signed char kOn = 1;
     inline const signed char *g_flag = &kOff;
-    inline bool on() { return *g_flag > 0; }
+    // The sweep's parts, for an A/B of one part (SOTC_A9SWEEP_AB_PARTS, a mask, default all: the parts that follow the
+    // switch; the others follow g_fixed, SOTC_A9SWEEP's own value, set by a9sweep::init; off until then like g_flag).
+    enum : unsigned
+    {
+        kHoist = 1u,  // function-local static guards hoisted (a9sweep.h A9S_VAL, members instead of statics)
+        kMemcmp = 2u, // memcmp(a, b, N) == 0 as word compares (A9_MEMEQ)
+        kDiv = 4u,    // syncCyclesToHostClock's 64-bit divisions, s1ptcl's n % 4000
+        kCache = 8u,  // invocationStackTop's direct-mapped answers, thread()'s 8-way cache
+        kZone = 16u,  // GameZone / dispatch zones not stored while nothing reads them (no emulated TLS)
+        kAllParts = 31u,
+    };
+    inline unsigned g_abParts = kAllParts;
+    inline const signed char *g_fixed = &kOff;
+    inline bool on(unsigned part) { return *((g_abParts & part) ? g_flag : g_fixed) > 0; }
 
     // floor(n / D) for any 64-bit n and a constant 1 < D < 2^16: schoolbook long division in base 2^16. Each step's
     // dividend is (r << 16) | digit with r < D, so below D * 2^16 <= 2^32: a 32-bit division by a constant, which GCC

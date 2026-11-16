@@ -940,7 +940,7 @@ int EeScheduler::wakeupThread(int id, bool interruptSafe)
         return !(env && std::atoi(env) == 0);
     };
     bool selfWake;
-    if (ps2_a9::on())
+    if (ps2_a9::on(ps2_a9::kHoist))
     {
         // Round A9 sweep: a member read at the first call (-1: not yet), not a guarded function-local static.
         if (__builtin_expect(m_selfWakeA9 < 0, 0))
@@ -1483,7 +1483,7 @@ uint32_t EeScheduler::invocationStackTop()
     const size_t depth = owner ? owner->invocations.size() : 0u;
     const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(owner->id)) << 32u) |
                          static_cast<uint32_t>(depth);
-    const bool a9 = ps2_a9::on();
+    const bool a9 = ps2_a9::on(ps2_a9::kCache);
     StackTopWay &way = m_stackTopWay[(static_cast<uint32_t>(owner->id) * 5u + static_cast<uint32_t>(depth)) & 15u];
     if (a9 && way.key == key)
         return way.top;
@@ -1752,7 +1752,7 @@ GuestThread *EeScheduler::thread(int id)
     // The last one found (the running thread, asked for at every dispatch):
     // an unordered_map lookup divides, which the Vita's CPU does in software.
     // Map nodes stay put; erase and clear forget the entry.
-    if (ps2_a9::on())
+    if (ps2_a9::on(ps2_a9::kCache))
     {
         const unsigned way = static_cast<unsigned>(id) & 7u;
         if (id == m_threadWayId[way] && m_threadWay[way])
@@ -2679,7 +2679,7 @@ void EeScheduler::syncCyclesToHostClock()
     // Round A9 sweep: the two 64-bit divisions (nanoseconds -> microseconds, then microsecondsToEeCycles' / 10^6) without
     // __aeabi_ldivmod / __aeabi_uldivmod (the A9 has no divide instruction; ps2_a9.h: the same quotients for every input,
     // the product's and the sum's 64-bit wrap kept).
-    const bool a9 = ps2_a9::on();
+    const bool a9 = ps2_a9::on(ps2_a9::kDiv);
     uint64_t hostCycles;
     if (a9)
     {

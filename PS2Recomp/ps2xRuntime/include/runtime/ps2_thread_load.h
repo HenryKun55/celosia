@@ -60,7 +60,7 @@ namespace ps2_load
     // installs). With nothing reading it the zones are left alone under ps2_a9::on(): t_slot is a thread_local, which
     // the Vita's GCC reaches through __emutls_get_address (a call, pthread_getspecific, a dmb) at every hook.
     inline bool g_zoneReader = false;
-    inline bool zonesWanted() { return g_zoneReader || !ps2_a9::on(); }
+    inline bool zonesWanted() { return g_zoneReader || !ps2_a9::on(ps2_a9::kZone); }
     struct GameZone
     {
         bool on;

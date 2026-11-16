@@ -112,7 +112,7 @@ namespace s1ptcl
         Stats &s = stats();
         ++s.n;
         // (round A9 sweep: the 64-bit remainder without __aeabi_uldivmod; ps2_a9.h, exact for every n)
-        if (::a9sweep::on() ? s.n == ps2_a9::udivSmall<4000u>(s.n) * 4000u : s.n % 4000u == 0u)
+        if (::a9sweep::onPart(ps2_a9::kDiv) ? s.n == ps2_a9::udivSmall<4000u>(s.n) * 4000u : s.n % 4000u == 0u)
             report();
     }
     // This call is a checked one: the S1 records go aside, the original draws.
