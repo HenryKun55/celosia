@@ -21076,3 +21076,87 @@ area's share 16.6% native, 0.6% MIPS (D9: 15.7% / 0.7%).
   memory card" with the scripted inputs: a fight A/B on Vita3K needs that fixed or a save made at Valus.
 - **The trace check under a skipped opening**: a START press keyed to a frame lands at a different game moment when the
   run is slower; a press keyed to the cutscene's own start (a hook) would make the skip safe for trace runs.
+
+## Redesign S3: characters and motion: the pose over a host rig; the keys122 race; a second core measured; why S1 / S2's frame A/Bs read zero (SOTC_S3CHARA) (2026-11-16)
+
+The third subsystem round (after S1 particles, S2 collision). The full write-up is docs/characters_s3.md; this is the
+summary. Scripts, runs and logs: `build/agent-scratch/s3/` (STATE.md; new scripts authored in the worktree's
+build/agent-scratch/s3src/: abs3.sh, the s3chara interleaved A/B; tools/s3groups.py, the area's profile, the sampler split
+by state and every thread's load; tools/mixframes.py with `--shift -1`; tools/frametime.py). Own Vita3K trees
+../vita3k-celosia-s3 / -s3b (222 MHz, 3 cores, muted); at most two heavy processes, all `nice -n 20`, builds `-j4`.
+
+### What changed
+
+- **Step 0, the race D10 found:** keys122 (0x10AD1B0, in round 108's kNat108 list, no lane check) decoded into a shared
+  `static float tmp[512 * 4]`; off the Vita (SOTC_CHAR104=1) the guest worker and the game thread could decode into it at
+  once. Now one scratch per lane (`sotc_decomp::lane`), not on the stack (8 KB; the NEON stores would be sp-based).
+- **chara_types.h**: the skeleton (Bone 0x40, Skeleton), motion resources (MotionHeader, Channel, the curve evaluators),
+  the motion record, IK records, gazes, ~90 named offsets of the character class, the area's fixed guest words; pinned with
+  static_asserts.
+- **The profile first** (Vita3K 222, sampler): the area is 15.6-16.8% of the game thread and flat; the pose (round 82's
+  pose + its link pre-pass) is the only item over 1% (lake 1.49%, attract ~1.15%).
+- **The pose over a host rig** (s3_chara.cpp): each skeleton's shape kept host-side in the walk's visit order (bone,
+  parent's visit, has-children; the links and offsets as read, compared with the guest's on every call: independent loads
+  instead of round 82's chained pre-pass), the pose one flat loop over it with the parent from registers or a host array;
+  round 82's arithmetic (pose82_math.h, moved out of decomp_pose82.cpp) in the same order: the same bits.
+- **A9 codegen finding**: GCC (arm-vita-eabi 15) compiles `vcgtq_f32` as four scalar vcmpe + vmrs + conditional moves +
+  a stack reload (NEON float compares are not IEEE); round 82's normalize did that twice a bone. `normalizeA9`: the same
+  mask from integer compares (exact for every bit pattern of the sum of squares). Also in decomp_hot47j / decomp_walk /
+  decomp_char122 (left).
+- Built, measured and **left off**: kept bones (`SOTC_S3CHARA_KEEP=1`: a buffer set's last pose reused for unchanged
+  bones; only 9% kept in the A/B, slower than the rig alone) and the **S3 worker** (`SOTC_S3CHARA_JOBS=1`: a host thread
+  taking half of a large skeleton's pose (a closed subtree) and half of a motion's channels, fork / join with work
+  stealing; exact, but ~2 hand-overs a frame of 10-20 us, 35-47% stolen, the game thread ~0.05 ms better, the worker
+  spinning 11% of a core).
+
+### Equivalence
+
+In-run, both ways, bit for bit (every pose against round 82's pose() into host buffers first; every split decode against
+a whole decode): chkA1 (p1, attract, jobs on) 140 001 poses / 3.92 M bones, 75 935 split decodes; chkL (p4, lake, kept
+bones + jobs on) 206 197 poses / 5.62 M bones, 68 385 split decodes; chkR (p4, ride, jobs on) 240 001 poses / 5.98 M bones, 62 730 split decodes: **0
+differences**. No tolerance anywhere.
+
+### Speed (Vita3K 222 MHz, interleaved A/B, the rule: z > 2 in both seeds)
+
+| run (build, seed) | route | S3's pose code vs round 82's (sampler) | saved a frame | frame time off - on (+- 2 SE) |
+|---|---|---|---|---|
+| mixA7f (shipped path, 7) | attract | 81.5%, z 29.3 | 0.056 ms | +0.129 +- 0.111 |
+| mixA11f (p4, 11) | attract | 81.7%, z 29.2 | 0.058 ms | +0.175 +- 0.109 |
+| mixL7b (p2, 7) | lake | 73.6%, z 52.2 | 0.190 ms | +0.184 +- 0.122 |
+| mixL11f (shipped path, 11) | lake | 82.5%, z 33.3 | 0.131 ms | +0.359 +- 0.146 |
+
+**Kept: SOTC_S3CHARA on** (faster in all runs by the sampler, and by the frame times at z 2.3-4.9). The pose ~0.30 ->
+~0.25 ms a frame in the attract demo, ~0.66 -> ~0.53 ms on the lake; the area 15.6-16.7% of the game thread (mixed).
+The per-call wall timer ([s3time]) disagrees in Vita3K (host time under the throttle's sleeps); not used for decisions.
+
+### Frame times: the A/B analysis was off by one frame
+
+`abSwitches()` sets frame f's state at the end of frame f - 1 (sotc_native endFrame), so the [frame] line of frame f
+belongs with the state hashed from f - 1. mixframes.py (D7-S2) paired it with f's: with a random state per frame that
+reads zero by construction. Re-read with `--shift -1`, S2's lake A/Bs give **+2.10 +- 0.46 ms and +2.19 +- 0.57 ms**
+(S2's own timers: ~2.2 ms), every other shift ~0. So the game thread's savings reach Vita3K's frame time one for one (the
+game thread never waits: "wait" ~0.07 ms); VBlank pacing was not the cause. S3's tools default to `--shift -1`; the
+frame-time columns of D7-S2's mixed A/Bs are void (their sampler and timer columns stand).
+
+### Per-core load
+
+The sampler's threads (share of one core at 222 MHz, attract): game 58%, render 35%, hook worker 15%, the helpers 1-3%
+each; shipped S3 adds no thread. With the jobs on, S3's worker adds 11.1% (spin).
+
+### Pictures and the console card
+
+Vita3K 222 MHz, muted, shots looked at and deleted: chkA1 (attract: Agro galloping with Wander and their shadow), chkL
+(Avion's lake: Wander on the shore, then swimming with the splashes), chkR (the ride's shrine: Wander on the floor), conwalk (the
+console card's walk under the console env's rotation, 11 598 frames: Wander and Agro on the plain with their shadows,
+Wander y -1.15..11.31). All ok, No exact 0. spalign on celosia-s3.elf: 809 NEON :128 accesses, 0 sp-based. The Vita build
+compiles (vita-elf-create needed `sotc_vita_elf_room` 64 -> 72 KB); the Mac runner was not rebuilt (syntax-checked). Console A/B: build/agent-scratch/celosia-s3.vpk with
+build/agent-scratch/s3/env-console.txt (`SOTC_AB_FLAG=s3chara,liftd10,s2coll SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`).
+
+### What the next round should take
+
+- Frame-time A/Bs: `--shift -1`. They resolve 0.1-0.2 ms in ~25 000 frames.
+- The pose's next step is the arithmetic: four bones at a time (a level of the rig in SoA lanes, the same operations).
+- GCC's scalarised NEON float compares elsewhere (pose82, hot47j, walk, char122).
+- The area's flat rest: charaLinks, the gaze worker, clothStep, keys122's decode, the layout (0.4-0.8% each).
+- A second core needs host-only work of a millisecond or more per hand-over (cloth row passes with the R stream counted
+  ahead, the skin palettes, the cloth meshes), its readers gated, and the console's room on cores 1-2 measured.
