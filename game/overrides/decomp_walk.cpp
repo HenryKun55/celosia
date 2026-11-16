@@ -65,6 +65,7 @@
 // with the registers it has there, the callbacks from their entry before
 // anything is written.
 #include "sotc_decomp.h"
+#include "a9cmp.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 #include "lines67.h"
@@ -2351,9 +2352,16 @@ namespace decomp_walk
 
     // vftoi0 / vftoi4 as the generated code has them (truncation, positive
     // overflow to 0x7fffffff by the xor).
-    inline __m128 ftoi(__m128 v, float scale)
+    inline __m128 ftoi(__m128 v, float scale, bool a9)
     {
         const __m128 src = _mm_mul_ps(v, _mm_set1_ps(scale));
+#if defined(__ARM_NEON)
+        // Decomp D11 (SOTC_A9CMP): the positive-overflow lanes as one integer compare (a9cmp.h: posOverflowQ, the same
+        // mask for every src); sse2neon's _mm_cmpnlt_ps is vcltq_f32, which GCC scalarises.
+        if (a9)
+            return _mm_castsi128_ps(_mm_xor_si128(_mm_cvttps_epi32(src),
+                                                  vreinterpretq_m128i_u32(a9cmp::posOverflowQ(vreinterpretq_f32_m128(src)))));
+#endif
         const __m128i positiveOverflow =
             _mm_andnot_si128(_mm_srai_epi32(_mm_castps_si128(src), 31), _mm_castps_si128(_mm_cmpnlt_ps(src, _mm_set1_ps(2147483648.0f))));
         return _mm_castsi128_ps(_mm_xor_si128(_mm_cvttps_epi32(src), positiveOverflow));
@@ -2456,7 +2464,7 @@ namespace decomp_walk
             __m128 vf27 = apply(screenM, vf10, acc);
             const __m128 vf26 = apply(clipM, vf10, acc);
             ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
-            vf25 = ftoi(vf25, 1.0f);
+            vf25 = ftoi(vf25, 1.0f, false);
             const uint32_t flags = ((ctx->vu0_clip_flags << 6) | ps2VuClipFlags(vf26, vf26)) & 0xFFFFFFu;
             ctx->vu0_clip_flags = flags;
             m.putq(sp + 0x30u, vf25);
@@ -2467,7 +2475,7 @@ namespace decomp_walk
                 vf24 = sel(vf24, PS2_VMUL(vf24, q), kXyz);
             const uint32_t s0 = flags;
             m.putq(sp + 0x40u, vf24);
-            vf27 = sel(vf27, ftoi(vf27, 16.0f), kXyz);
+            vf27 = sel(vf27, ftoi(vf27, 16.0f, false), kXyz);
             m.putq(t1, vf26);
             m.putq(sp + 0x20u, vf27);
             vf[10] = vf10;
@@ -2740,7 +2748,9 @@ namespace decomp_walk
         bool colour = true; // false: no glColor4f per vertex (glColor4fv once before: 01142350's quads)
     };
     // host (round 128, imm128): the pairs into host[] (value, register; *hostCount of them) instead of the GIF packet.
-    bool quad117Body(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
+    // Decomp D11 (SOTC_A9CMP): two copies (A9: the integer compares; a9cmp.h), apart for the sampler.
+    template <bool A9>
+    __attribute__((noinline)) bool quad117BodyA9(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
     {
         const Ram m = g.m;
         R5900Context *ctx = g.ctx;
@@ -2834,7 +2844,7 @@ namespace decomp_walk
             vf27 = applyN(screenN, vf10, acc);
             vf26 = applyN(clipN, vf10, acc);
             ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
-            vf25 = ftoi(vf25, 1.0f);
+            vf25 = ftoi(vf25, 1.0f, A9);
             const uint32_t judgement = ps2VuClipFlags(vf26, vf26);
             const uint32_t flags = ((ctx->vu0_clip_flags << 6) | judgement) & 0xFFFFFFu;
             ctx->vu0_clip_flags = flags;
@@ -2846,7 +2856,7 @@ namespace decomp_walk
             if (perspective)
                 vf24 = sel(vf24, PS2_VMUL(vf24, q), kXyz);
             const uint32_t s0 = flags;
-            vf27 = sel(vf27, ftoi(vf27, 16.0f), kXyz);
+            vf27 = sel(vf27, ftoi(vf27, 16.0f, A9), kXyz);
             m.putq(slot + 0x1F0u, vf26);
             uint32_t w24[4], w25[4], w27[4];
             std::memcpy(w24, &vf24, 16);
@@ -2875,7 +2885,7 @@ namespace decomp_walk
             {
                 // UV: iosFTOI4Vector(the frame, the slot's ST): vftoi4 of the raw ST.
                 vf5 = m.q(slot + 0x210u);
-                vf6 = ftoi(vf5, 16.0f);
+                vf6 = ftoi(vf5, 16.0f, A9);
                 uint32_t uv[4];
                 std::memcpy(uv, &vf6, 16);
                 emit(static_cast<uint64_t>(uv[0]) | (static_cast<uint64_t>(uv[1]) << 16), 3u);
@@ -3017,6 +3027,10 @@ namespace decomp_walk
         SET_GPR_U32(ctx, 31, vs[n - 1].site + 8u);
         SET_GPR_U32(ctx, 29, sp);
         return true;
+    }
+    bool quad117Body(const G g, uint32_t sp, const Vert117 *vs, int n, uint64_t *host, uint32_t *hostCount)
+    {
+        return a9cmp::on() ? quad117BodyA9<true>(g, sp, vs, n, host, hostCount) : quad117BodyA9<false>(g, sp, vs, n, host, hostCount);
     }
     // Round 140 (quad140, SOTC_QUAD140, default on; A/B `quad140`): the same body with everything it calls
     // inlined (GCC's flatten). The PGO build left its per-vertex helpers as calls, several through long-branch

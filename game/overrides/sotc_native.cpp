@@ -281,6 +281,22 @@ namespace sotc_native
             for (uint32_t i = 0; i < bytes; i += 4u)
                 std::memcpy(static_cast<uint8_t *>(out) + i, g_ram + ((addr + i) & 0x1FFFFFCu), 4);
     }
+    // Decomp D11: the instance's LOD (+0x250 bits 40-42) as modelDisp reads it (0x1097160: dsll 21, dsra32 29: signed, so
+    // 4-7 read as -4..-1, i.e. 0xFFFFFFFC.. as the unsigned word the sltu against the level count then sees: clamped to the
+    // last level when the model has LODs). The hook / plan / lane paths read it unsigned ((lw >> 40) & 7: 4..7), which differs
+    // from the guest for a raw 4-7 ([lodraw] logs the first ones). SOTC_LOD_SIGNED=0: the old unsigned read.
+    inline uint32_t gameLodRaw(uint64_t lw)
+    {
+        static const bool on = !(std::getenv("SOTC_LOD_SIGNED") && std::getenv("SOTC_LOD_SIGNED")[0] == '0');
+        const uint32_t u = static_cast<uint32_t>((lw >> 40) & 7u);
+        if (__builtin_expect(u >= 4u, 0))
+        {
+            static int said = 0;
+            if (said < 8)
+                std::fprintf(stderr, "[lodraw] %d: raw LOD %u (signed %d)\n", ++said, u, static_cast<int>(u) - 8);
+        }
+        return on ? static_cast<uint32_t>(static_cast<int64_t>(lw << 21) >> 61) : u;
+    }
     uint32_t word(uint32_t addr)
     {
         noteRead(addr, 4u);
@@ -3241,7 +3257,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftalt", "s1ptcl", "s2coll", "s3chara"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -6022,6 +6038,7 @@ namespace sotc_native
     };
 
     std::vector<uint32_t> g_layers; // iosDlPushLayer stack
+    constexpr uint32_t kLayerDepth = 0x001E10B0u, kLayerList = 0x002132D8u; // the guest's layer stack depth and display list (decomp_leaves)
     constexpr uint32_t kScreenCopy = 1u; // a 2D "header" for 0x10f37c8's screen copy
     constexpr uint32_t kPreviousFrame = 2u; // and for feedbackBlur's display buffer (the last frame shown)
     uint32_t g_requested = 0;       // NTO2 header of the last texTransRequest
@@ -6792,8 +6809,29 @@ namespace sotc_native
                     std::memcpy(rdram + 0x1214740u, uv, 8);
             }
         }
-        g_layers.push_back(GPR_U32(ctx, 4));
+        // Decomp D11 (SOTC_LAYER_MIRROR, default on): the host stack follows the guest's: a layer is pushed only when the
+        // guest's push took (its depth word 0x1E10B0 grew), and it is the layer the guest made current (0x2132D8 + 0x1C:
+        // a0 clamped to the list's count - 1), not the raw a0. SOTC_LAYER_MIRROR=0: round 2x's raw push before the call.
+        static const bool mirror = !(std::getenv("SOTC_LAYER_MIRROR") && std::getenv("SOTC_LAYER_MIRROR")[0] == '0');
+        if (!mirror)
+        {
+            g_layers.push_back(GPR_U32(ctx, 4));
+            g_pushLayer(rdram, ctx, runtime);
+            return;
+        }
+        const uint32_t raw = GPR_U32(ctx, 4), depth0 = word(kLayerDepth);
         g_pushLayer(rdram, ctx, runtime);
+        if (word(kLayerDepth) != depth0)
+        {
+            const uint32_t set = word(kLayerList + 0x1Cu);
+            g_layers.push_back(set);
+            if (set != raw)
+            {
+                static int said = 0;
+                if (said < 8)
+                    std::fprintf(stderr, "[layermirror] %d: push of layer %u from %08x made %u current\n", ++said, raw, GPR_U32(ctx, 31), set);
+            }
+        }
     }
 
     // shadowDisp's two iosDlPopLayer calls return to these: the skinned path's, the rigid one's.
@@ -6802,12 +6840,18 @@ namespace sotc_native
 
     void popLayerHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (!g_layers.empty())
+        // Decomp D11 (SOTC_LAYER_MIRROR): popped after the guest's pop and only when it took (the depth word fell); the guest
+        // leaves its stack as it is on its error path (empty stack, a negative saved layer).
+        static const bool mirror = !(std::getenv("SOTC_LAYER_MIRROR") && std::getenv("SOTC_LAYER_MIRROR")[0] == '0');
+        const uint32_t depth0 = mirror ? word(kLayerDepth) : 0u;
+        if (!mirror && !g_layers.empty())
             g_layers.pop_back();
         const uint32_t ra = GPR_U32(ctx, 31);
         const bool shadow = ra == kShadowPopSkinned || ra == kShadowPopRigid;
         const uint32_t shadowModel = GPR_U32(ctx, 17), shadowChain = GPR_U32(ctx, 18);
         g_popLayer(rdram, ctx, runtime);
+        if (mirror && word(kLayerDepth) != depth0 && !g_layers.empty())
+            g_layers.pop_back();
         if (runtime->transferPending())
             return; // a thread switch below (round 52): nothing more here
         if (shadow && (ra == kShadowPopRigid || native_renderer::tuning().bodyShadows))
@@ -10709,7 +10753,7 @@ namespace sotc_native
             const uint32_t h = word(word(instance) + 0x20u);
             uint64_t lw;
             std::memcpy(&lw, rdram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
-            uint32_t l = static_cast<uint32_t>((lw >> 40) & 7u);
+            uint32_t l = gameLodRaw(lw);
             if ((word(h + 0x18u) & 1u) && l >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
                 l = word(h + 0x1Cu) - 1u;
             gamePlan = modelPlan(h, l);
@@ -10745,7 +10789,7 @@ namespace sotc_native
                 std::memcpy(&lw, rdram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
                 // The hook's LOD and table as it works them out below (gameLod,
                 // then "Model detail"'s finer level, tested by the hook itself).
-                uint32_t gl = static_cast<uint32_t>((lw >> 40) & 7u);
+                uint32_t gl = gameLodRaw(lw);
                 if ((word(h + 0x18u) & 1u) && gl >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
                     gl = word(h + 0x1Cu) - 1u;
                 uint32_t l = gl;
@@ -10849,7 +10893,7 @@ namespace sotc_native
         opacity = std::min(opacity, 1.0f);
         uint64_t lodWord;
         std::memcpy(&lodWord, rdram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
-        uint32_t lod = static_cast<uint32_t>((lodWord >> 40) & 7u);
+        uint32_t lod = gameLodRaw(lodWord);
         if ((word(header + 0x18u) & 1u) && lod >= word(header + 0x1Cu) && word(header + 0x1Cu) != 0u)
             lod = word(header + 0x1Cu) - 1u;
         // Quality "Model detail" (SOTC_MODEL_DETAIL): one level finer than

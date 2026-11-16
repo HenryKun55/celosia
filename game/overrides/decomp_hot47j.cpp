@@ -85,6 +85,7 @@
 // GAMEUTIL_get_interp_value_interp_value_cntrl: not called through the
 // table), and the loops' EE checkpoints (left out).
 #include "sotc_decomp.h"
+#include "a9cmp.h"
 #include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
 
@@ -865,7 +866,9 @@ namespace decomp_hot47j
         // each one's leaf (box: centre, margin), then the leaf's two tests (centre
         // c, radius r); a surface enters once, at its first leaf that passes, in
         // the walk's order.
-        int select(const Slot &s, const float c[3], float r, const float box[4], uint32_t *out)
+        // Decomp D11 (SOTC_A9CMP): two copies (A9: the integer compares; a9cmp.h), apart for the sampler.
+        template <bool A9>
+        __attribute__((noinline)) int selectA9(const Slot &s, const float c[3], float r, const float box[4], uint32_t *out)
         {
             int m = 0;
             // The tree path and the duplicate check of one surface that passed the sphere and the plane.
@@ -896,6 +899,10 @@ namespace decomp_hot47j
                 // the surfaces that pass go through the tree path and the duplicate check
                 // in index order: the same surfaces, in the same order.
                 const float32x4_t cx = vdupq_n_f32(c[0]), cy = vdupq_n_f32(c[1]), cz = vdupq_n_f32(c[2]), rv = vdupq_n_f32(r);
+                // Decomp D11 (SOTC_A9CMP): the two compares as integers (a9cmp.h: ltNonNegQ). d2 and reach^2 are NEON
+                // results (sums of squares: the sign clear, no denormals), |d| too; r flushed as the compare sees it.
+                const bool a9 = A9;
+                const uint32x4_t rrBits = vdupq_n_u32(a9cmp::flushBits(r));
                 int i = 0;
                 for (; i + 4 <= s.n; i += 4)
                 {
@@ -904,12 +911,13 @@ namespace decomp_hot47j
                     float32x4_t d2 = vmulq_f32(dx, dx);
                     d2 = vmlaq_f32(d2, dy, dy);
                     d2 = vmlaq_f32(d2, dz, dz);
-                    const uint32x4_t inSphere = vcltq_f32(d2, vmulq_f32(reach, reach));
+                    const float32x4_t reach2 = vmulq_f32(reach, reach);
+                    const uint32x4_t inSphere = a9 ? a9cmp::ltNonNegQ(d2, vreinterpretq_u32_f32(reach2)) : vcltq_f32(d2, reach2);
                     float32x4_t d = vmulq_f32(vld1q_f32(s.nx + i), cx);
                     d = vmlaq_f32(d, vld1q_f32(s.ny + i), cy);
                     d = vmlaq_f32(d, vld1q_f32(s.nz + i), cz);
                     d = vaddq_f32(d, vld1q_f32(s.nw + i));
-                    const uint32x4_t pass = vandq_u32(inSphere, vcltq_f32(vabsq_f32(d), rv));
+                    const uint32x4_t pass = vandq_u32(inSphere, a9 ? a9cmp::ltNonNegQ(vabsq_f32(d), rrBits) : vcltq_f32(vabsq_f32(d), rv));
                     const uint32x2_t h = vorr_u32(vget_low_u32(pass), vget_high_u32(pass));
                     if ((vget_lane_u32(h, 0) | vget_lane_u32(h, 1)) == 0u)
                         continue;
@@ -991,6 +999,10 @@ namespace decomp_hot47j
                     out[m++] = s.ids[i];
             }
             return m;
+        }
+        int select(const Slot &s, const float c[3], float r, const float box[4], uint32_t *out)
+        {
+            return a9cmp::on() ? selectA9<true>(s, c, r, box, out) : selectA9<false>(s, c, r, box, out);
         }
     }
 

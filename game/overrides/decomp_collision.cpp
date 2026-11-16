@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "a9cmp.h"
 #include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
 #include "lines67.h"
@@ -360,7 +361,7 @@ namespace decomp_collision
         // The leaf's plain rejection (x^2 + y^2 > r^2 (1 + 2^-19), r the
         // boundary's w, the sum finite; see the leaf) in NEON, with small;
         // c.y to *cy (f0 = c.y^2 when it says no).
-        inline bool cylinderOutside(__m128 c, __m128 boundary, uint32x2_t small, float *cy)
+        inline bool cylinderOutside(__m128 c, __m128 boundary, uint32x2_t small, float *cy, bool a9)
         {
             const float32x2_t lo = vget_low_f32(f(c));
             vst1_lane_f32(cy, lo, 1);
@@ -368,7 +369,17 @@ namespace decomp_collision
             const float32x2_t sum = vpadd_f32(sq, sq);
             const float32x2_t r = vdup_lane_f32(vget_high_f32(f(boundary)), 1);
             const float32x2_t r2k = vmul_f32(vmul_f32(r, r), vdup_n_f32(1.0000019f));
-            uint32x2_t out = vand_u32(vcgt_f32(sum, r2k), vclt_f32(sum, vdup_n_f32(__builtin_inff())));
+            // Decomp D11 (SOTC_A9CMP): sum > r2k and sum < inf as integers: sum and r2k are NEON results (no denormals),
+            // sum's sign clear (a sum of squares), r2k's too (r^2 times a positive constant); gtNonNeg gives sum > r2k
+            // with sum <= inf, and the extra "< inf" is "!= inf as bits" there (a9cmp.h).
+            uint32x2_t out;
+            if (a9)
+            {
+                const int32x2_t si = vreinterpret_s32_f32(sum);
+                out = vand_u32(vcgt_s32(si, vreinterpret_s32_f32(r2k)), vclt_s32(si, vdup_n_s32(0x7F800000)));
+            }
+            else
+                out = vand_u32(vcgt_f32(sum, r2k), vclt_f32(sum, vdup_n_f32(__builtin_inff())));
             return vget_lane_u32(vand_u32(out, small), 0) != 0u;
         }
         // clipDB's two plane distances, n . p + n.w for p = a and b, as
@@ -494,7 +505,7 @@ namespace decomp_collision
             uint32x2_t small;
             const __m128 oc = applySmall(r, b, small);
             float cy;
-            const bool out = cylinderOutside(oc, m(bq), small, &cy);
+            const bool out = cylinderOutside(oc, m(bq), small, &cy, a9cmp::on());
             fc.note(rejected == out && (!out || (same(oc, m(c)) && cy == vgetq_lane_f32(c, 1))));
             c = f(oc);
             return out;
@@ -1562,9 +1573,10 @@ namespace decomp_collision
     // Round 101 (walk101): hostSeg, when given, holds the segment's two ends
     // (the qwords at a1 / a2 the original reads; the walk keeps them in host
     // memory instead of its guest frames).
-    template <bool Fast>
-    uint64_t leafT(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn, const __m128 *hostSeg = nullptr)
-    {
+    // Decomp D11 (SOTC_A9CMP): two copies (A9: cylinderOutside's integer compares; a9cmp.h), apart for the sampler.
+    template <bool Fast, bool A9>
+    __attribute__((noinline)) uint64_t leafTA9(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn, const __m128 *hostSeg)
+{
         R5900Context *ctx = g.ctx;
         COLL_STAT(leaf);
         const uint32_t sp = spIn - 0xD0u;
@@ -1754,7 +1766,7 @@ namespace decomp_collision
             {
                 uint32x2_t small;
                 c = fast::applySmall(rows, bound, small);
-                const bool outside = fast::cylinderOutside(c, bq, small, &lastCy);
+                const bool outside = fast::cylinderOutside(c, bq, small, &lastCy, A9);
                 if (__builtin_expect(fast::checkOn(), 0))
                 {
                     if (vget_lane_u32(small, 0) == 0u)
@@ -1969,6 +1981,11 @@ namespace decomp_collision
         }
         flushFrame();
         return hit;
+    }
+    template <bool Fast>
+    inline uint64_t leafT(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn, const __m128 *hostSeg = nullptr)
+    {
+        return a9cmp::on() ? leafTA9<Fast, true>(g, s, a1, a2, index, spIn, hostSeg) : leafTA9<Fast, false>(g, s, a1, a2, index, spIn, hostSeg);
     }
 
     uint64_t leaf(const G g, const Seg &s, uint32_t a1, uint32_t a2, uint32_t index, uint32_t spIn)

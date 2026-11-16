@@ -32,6 +32,7 @@
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
 #include "pose82_math.h"
+#include "a9cmp.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1009,7 +1010,9 @@ namespace pose82
     // then position and unit normal into the mesh's vertices (+0xb0 /
     // +0xc0). False (the previous loops): fewer than 2 rows or columns, a
     // range outside main RAM, a mesh of another type.
-    bool clothMesh(uint8_t *ram, R5900Context *ctx, uint32_t o, uint32_t grid, uint32_t rows0, int32_t rows)
+    // Decomp D11 (SOTC_A9CMP): two copies (A9: the integer compares; a9cmp.h), apart for the sampler.
+    template <bool A9>
+    __attribute__((noinline)) bool clothMeshA9(uint8_t *ram, R5900Context *ctx, uint32_t o, uint32_t grid, uint32_t rows0, int32_t rows)
     {
         const int32_t cols = static_cast<int32_t>(rd32(ram, grid + 8u));
         if (rows < 2 || cols < 2 || rows > 256 || cols > 256 || !inRam(rows0 & ~0xFu, static_cast<uint32_t>(rows) * 0x18u + 0x20u))
@@ -1048,6 +1051,7 @@ namespace pose82
             }
         float32x4_t sq = vdupq_n_f32(0.0f);
         float32x2_t rq = vdup_n_f32(0.0f);
+        const bool a9 = A9;
         for (int32_t r = 0; r < rows; ++r)
         {
             uint8_t *v = at(ram, base + static_cast<uint32_t>(r) * stride);
@@ -1061,7 +1065,8 @@ namespace pose82
                 float32x2_t r = vrsqrte_f32(len2);
                 r = vmul_f32(r, vrsqrts_f32(vmul_f32(len2, r), r));
                 r = vmul_f32(r, vrsqrts_f32(vmul_f32(len2, r), r));
-                r = vbsl_f32(vcgt_f32(len2, vdup_n_f32(1e-30f)), r, vdup_n_f32(0.0f));
+                // Decomp D11 (SOTC_A9CMP): len2 > 1e-30 as integers (a9cmp.h: the same mask for every len2).
+                r = vbsl_f32(a9 ? a9cmp::gtPosConst(len2, 0x0DA24260u) : vcgt_f32(len2, vdup_n_f32(1e-30f)), r, vdup_n_f32(0.0f));
                 rq = r;
                 sq = withW(sq, len2);
                 vst1q_f32(reinterpret_cast<float *>(v + 0xC0), withW(vmulq_lane_f32(n, r, 0), vdup_n_f32(0.0f)));
@@ -1070,5 +1075,9 @@ namespace pose82
         ctx->vu0_vf[7] = (__m128)sq;
         ctx->vu0_q = vget_lane_f32(rq, 0);
         return true;
+    }
+    bool clothMesh(uint8_t *ram, R5900Context *ctx, uint32_t o, uint32_t grid, uint32_t rows0, int32_t rows)
+    {
+        return a9cmp::on() ? clothMeshA9<true>(ram, ctx, o, grid, rows0, rows) : clothMeshA9<false>(ram, ctx, o, grid, rows0, rows);
     }
 }

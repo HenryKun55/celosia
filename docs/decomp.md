@@ -21160,3 +21160,125 @@ build/agent-scratch/s3/env-console.txt (`SOTC_AB_FLAG=s3chara,liftd10,s2coll SOT
 - The area's flat rest: charaLinks, the gaze worker, clothStep, keys122's decode, the layout (0.4-0.8% each).
 - A second core needs host-only work of a millisecond or more per hand-over (cloth row passes with the R stream counted
   ahead, the skin palettes, the cloth meshes), its readers gated, and the console's room on cores 1-2 measured.
+
+## Decomp D11: the display and models area; NEON float compares as integer compares on the A9 (SOTC_A9CMP); two native bug fixes; D11's batch (SOTC_LIFTD11) (2026-11-16)
+
+Scripts, runs and logs: `build/agent-scratch/d11/` (STATE.md; new scripts authored in the worktree's
+build/agent-scratch/d11src/: aba9.sh, the a9cmp / liftd11 interleaved A/B with the sampler; tools/a9groups.py, per site
+the two copies' samples; a9test.cpp, the exhaustive check; cand11.py, mkmenu.py, why11.py, dispmap.py). Own Vita3K trees
+../vita3k-celosia-d11 / -d11b (222 MHz, 3 cores, muted); at most two heavy processes, all `nice -n 20`, builds `-j4`.
+
+### Part A1: NEON float compares as integer compares (SOTC_A9CMP)
+
+S3 found that the Vita's GCC (arm-vita-eabi 15.2, `-O3 -mfpu=neon`) does not emit NEON's `vcgt.f32` for `vcgtq_f32`.
+D11 checked the whole family on a test file with the build's flags: `vcgtq_f32`, `vcltq_f32` (and the d-register
+`vcgt_f32` / `vclt_f32`) each become one scalar `vcmpe.f32` + `vmrs APSR_nzcv, FPSCR` (a pipeline sync on the A9) +
+`it` / `mov` per lane, the lanes stored to the stack and the vector reloaded (4 compares, 4 vmrs and a 16-byte round
+trip for a q register). `vceqq_f32` and the absolute compares `vcaltq_f32` / `vcagtq_f32` do compile to NEON
+(`vceq.f32`, `vacgt.f32`): they are not affected. sse2neon's `_mm_cmpnlt_ps` is `vmvnq_u32(vcltq_f32(...))`, so the
+vftoi pattern (`_mm_andnot(sign, _mm_cmpnlt_ps(src, 2^31))`) is affected too.
+
+**game/overrides/a9cmp.h** gives the float compare's mask from integer compares (`vcgt.s32` / `vcgt.u32`: one NEON
+instruction a vector) for the operand ranges each site has, with the argument in the header:
+
+| helper | computes | needs | why it is the same mask |
+|---|---|---|---|
+| `gtPosConstQ(d, cb)` / `gtPosConst` | d > c, c a positive normal constant | nothing (any d) | sign clear: the bits' order is the values'; `d <= +inf` as bits leaves out NaN and every pattern with the sign set (-0, negatives, -NaN), for which the compare is false; a denormal is below c flushed or not |
+| `gtNonNegQ(x, w)` | x > w | w's sign clear; neither a denormal (NEON results) | signed words: x with the sign set is below every w; x a NaN is above +inf (left out); w a NaN: no x <= +inf above it |
+| `ltNegNonNegQ(x, w)` | x < -w | as gtNonNegQ | -x > w (negation flips only the sign; the compare is symmetric under it) |
+| `ltNonNegQ(a, flushBits(b))` | a < b | a's sign clear, not a denormal; b any (flushed as the flush-to-zero compare sees it) | unsigned words, and b <= +inf: b NaN or with the sign set is false, as the compare (a >= +0) |
+| `posOverflowQ(src)` | sign clear and !(src < 2^31) | nothing (any src) | signed words >= 0x4F000000: exactly 2^31 .. +inf and the NaNs with the sign clear |
+
+The game thread and the workers run with flush-to-zero (ps2SetEeFloatingPointMode), so the scalar compares GCC emits see
+a denormal as zero, as NEON would; where a site's operand can be a denormal the helper flushes it first (flushBits).
+
+**Exhaustive check** (build/agent-scratch/d11src/a9test.cpp, the Mac's arm64 with FPCR.FZ and round toward zero set, the
+reference the scalar float compare): `gtPosConstQ` over all 2^32 patterns of d (and NEON's vcgt.f32: the same),
+`posOverflowQ` over all 2^32 patterns, `gtNonNegQ` / `ltNegNonNegQ` over every non-denormal x against an edge set of w
+(+0, the smallest normal, 1e-30, 1, 1 + ulp, 2^31, the largest finite, +inf, NaNs) and 10^8 random pairs, `ltNonNegQ` over
+every sign-clear a against an edge set of b (incl. denormals, -0, negatives, -inf, -NaN) and 10^8 random pairs, the
+collision pair over every sign-clear sum against the edge set: **0 differences in 4.3 + 4.3 + 47.2 + 38.6 + 23.5 billion
+cases**. The site arguments (below) give each site's operand ranges.
+
+**The sites tried** (each A9 site's function is compiled twice, `name...A9<true>` with the integer compares and `<false>` with
+the float ones, noinline, chosen per call by `SOTC_A9CMP`, so the sampler sees the two apart; the A/B flag `a9cmp`):
+
+| site | function (share of the Vita3K game thread, S3's lake / attract runs) | compare | operands |
+|---|---|---|---|
+| hot47j | `g85::select` (1.27% / 0.61%): round 96/97's sphere and plane tests four surfaces at a time | d2 < reach^2, abs(d) < r | NEON results (sums of squares, an absolute value: sign clear); r flushed |
+| walk (clip83 / clip140) | `clip83::clip` (0.41%) and `clip140::compute` (the walk helpers): boxOut, the box's 8 corners against the frustum | x > abs(w), x < -abs(w) | NEON results; abs(w) sign clear |
+| pose82 | `pose82::clothMesh` (0.30% / 0.34%): the cloth mesh's normals | len2 > 1e-30 (d registers) | any |
+| walk (glVertex) | `glVertexKick` (0.29% lake), `quad117Body`: vftoi's positive overflow | posOverflowQ | any |
+| collision | `leafT<Fast>` (0.25% lake): the leaf's cylinder rejection | sum > r^2 k, sum < inf | NEON results, sign clear |
+| leaves | `iosFTOI4Vector` native (0.09%) | posOverflowQ | any |
+| char122 | `normalize` (quat122's diffQuat / axisDirZY, 0.07%; gaze122's, off by default) | d > 1e-30 | any |
+
+Not changed: pose82's own `normalize` (pose82_math.h): with S3 on it runs only in S3's check, as the reference the check
+compares against (S3's normalizeA9 is already the integer form). The lifted and generated code's vftoi
+(`_mm_cmpnlt_ps`: 24 sites in the generated runner, a few in the lifted batches) comes from the recompiler's
+vu_translation_helpers.cpp; changing it means regenerating the runner, left for a codegen round.
+
+**Measured** (Vita3K 222 MHz, the interleaved A/B `SOTC_AB_FLAG=a9cmp SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>`, 1 260 s each,
+sampler snapshots 120..1 200 s; aba9.sh; z: Poisson, positive = the integer copy cheaper; samples per 1 000 frames of the
+copy's own state):
+
+| site | attract seed 7 | lake seed 7 | attract seed 11 | lake seed 11 | int / float samples (attract 7) | kept |
+|---|---:|---:|---:|---:|---|---|
+| `quad117Body` (vftoi) | **22.6** | **4.9** | **20.0** | **3.3** | 4 587 / 5 174 (88.7%) | yes |
+| `pose82::clothMesh` | **13.3** | **11.3** | **12.3** | **13.0** | 782 / 926 (84.4%) | yes |
+| `g85::select` (hot47j) | **4.9** | **6.6** | **10.5** | **11.6** | 358 / 393 (91.1%) | yes |
+| `iosFTOI4Vector` (leaves ftoi4) | not reached | **14.5** | not reached | **10.2** | (lake 7: 254 / 378, 67.0%) | yes |
+| `leafT` (collision cylinder) | 1.1 | **5.0** | -0.9 | **2.03** | (lake 7: 2 171 / 2 286, 95.0%) | yes (z > 2 in both seeds, the second barely) |
+| `clip83::clip` / `clip140::compute` (boxOut) | 1.7 | -0.4 | 0.1 | 2.2 | 597 / 612 (97.5%) | no: reverted |
+| `glVertexKick` (vftoi) | -1.7 | 1.7 | 1.0 | 3.5 | (lake 7: 1 271 / 1 301) | no: reverted |
+| char122 `normalize` (runtime switch, one copy) | - | - | - | - | the sampler cannot split it | no: reverted (unmeasurable, 0.07%) |
+
+All sites together (the integer copies' samples against the float ones'): 89.0% / 94.4% / 91.4% / 93.7% (attract 7, lake 7,
+attract 11, lake 11), z 25.7 / 13.7 / 24.0 / 16.9: **0.064-0.078 ms a frame** of game-thread time saved by the sampler.
+The reverted sites' bodies are the pre-D11 code again (boxOut's float compares, glVertexKick's own ftoi; char122's diff in
+d11src/char122_a9.diff). The kept ones stay two noinline copies chosen per call by `SOTC_A9CMP` (default on; A/B `a9cmp`).
+
+Frame time (tools/mixframes.py, `--shift -1`, from frame 3 000, 300-frame blocks; off - on, +- 2 SE; the runs measured every
+site, the reverted ones included):
+
+| run | frames (blocks) | frame ms off - on | busy ms off - on |
+|---|---:|---:|---:|
+| attract seed 7 (a9A7) | 107 | +0.106 +- 0.112 | +0.128 +- 0.107 |
+| lake seed 7 (a9L7) | 60 | **+0.255 +- 0.131** | **+0.244 +- 0.133** |
+| attract seed 11 (a9A11) | 127 | -0.025 +- 0.114 | -0.011 +- 0.098 |
+| lake seed 11 (a9L11) | 70 | +0.099 +- 0.128 | +0.075 +- 0.124 |
+
+The mean of the four (+0.11 ms frame) agrees with the sampler's 0.07 ms; one run resolves it alone, the others sit inside
+their +- 0.11-0.13 ms. tools/frametime.py --scan on a9L7 peaks at shift -1 (+0.097 +- 0.055 against -0.07..-0.01 at the
+other shifts), as S3 found.
+
+### Part A2: two bugs in the native renderer's hooks (SOTC_LOD_SIGNED, SOTC_LAYER_MIRROR)
+
+Found while mapping the display area (Part B's map):
+
+- **The LOD read** (sotc_native.cpp `gameLodRaw`): modelDisp (0x1097160) reads the instance's LOD (+0x250, bits 40-42)
+  with `dsll 21` / `dsra32 29`: signed, so a raw 4-7 reads -4..-1, which the unsigned `sltu` against the model's level count
+  then sees as 0xFFFFFFFC..: clamped to the last level when the model has LODs. The hook, the plan and the lane paths read it
+  unsigned (`(lw >> 40) & 7`: 4..7). Now read signed as the guest does (`SOTC_LOD_SIGNED=0`: the old read); `[lodraw]` logs
+  the first eight raw 4-7.
+- **The layer stack** (`pushLayerHook` / `popLayerHook`): the host's stack pushed the raw a0 before the guest's
+  iosDlPushLayer and popped before its pop. The guest clamps a0 to the list's count - 1 (the layer it makes current is
+  0x2132D8 + 0x1C) and leaves its stack unchanged on its error paths (a full stack, an empty one). The host stack now
+  follows the guest's: a push after the guest's, of the layer it made current, only when its depth word (0x1E10B0) grew; a
+  pop after the guest's, only when the depth fell (`SOTC_LAYER_MIRROR=0`: the old order); `[layermirror]` logs a push whose
+  current layer differs from a0.
+
+Runs with both on (the default): the walk (bfW, 23 418 frames), attract seeds 7 / 11 and the lake seeds 7 / 11 (the part A
+runs): **0 `[lodraw]` and 0 `[layermirror]` lines**: no raw LOD of 4-7 and no clamped or refused push on these routes, so the
+fixes change nothing there (the pictures: Wander and Agro on the plain, the gallop, the lake, the altar, as before). They
+matter only where the guest hits those cases (a model flagged with a 4-7 LOD, a layer above the list's count).
+
+### Part A3: the frame-time A/Bs of D7-S2 (the off-by-one)
+
+`SOTC_AB_MIX` sets each frame's state in `abSwitches()`, which runs in `endFrame` from the number of the frame that just
+ended: the work logged as frame f ran in the state hashed from f - 1. mixframes.py paired each frame with the hash of its own
+number (`--shift 0`); with a random state per frame that pairs every time with an unrelated state: a difference of
+zero by construction (S3, docs/characters_s3.md section 7). **The frame-time columns of D7, D8, D9, D10, S1 and S2's mixed A/Bs
+are invalid** (they read ~0 whatever the change did); their sampler and per-call measures (a per-copy split, not a
+per-frame state) stand. tools/mixframes.py and tools/frametime.py are now in the repo with `--shift -1` the default
+(frametime.py `--scan` prints shifts -3..3: only the right one shows a saving).

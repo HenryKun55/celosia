@@ -32,6 +32,7 @@
 // - iosFTOI4Vector (0x1be700): vftoi4 of the quadword at a1 to a0 (vf5 /
 //   vf6 as the code leaves them).
 #include "sotc_decomp.h"
+#include "a9cmp.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -317,18 +318,33 @@ namespace decomp_leaves
     }
 
     // ---- iosFTOI4Vector ---------------------------------------------------------
-    void ftoi4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Decomp D11 (SOTC_A9CMP): two copies (A9: the integer compares; a9cmp.h), apart for the sampler.
+    template <bool A9>
+    __attribute__((noinline)) void ftoi4A9(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::leavesOn())
             return sotc_decomp::recompiled(kFtoi4)(rdram, ctx, runtime);
         const __m128 v = _mm_castsi128_ps(READ128(GPR_U32(ctx, 5)));
         ctx->vu0_vf[5] = v;
         const __m128 src = _mm_mul_ps(v, _mm_set1_ps(16.0f));
+#if defined(__ARM_NEON)
+        // Decomp D11 (SOTC_A9CMP): the positive-overflow lanes as one integer compare (a9cmp.h: posOverflowQ).
+        const __m128i positiveOverflow = A9 ? vreinterpretq_m128i_u32(a9cmp::posOverflowQ(vreinterpretq_f32_m128(src))) :
+            _mm_andnot_si128(_mm_srai_epi32(_mm_castps_si128(src), 31), _mm_castps_si128(_mm_cmpnlt_ps(src, _mm_set1_ps(2147483648.0f))));
+#else
         const __m128i positiveOverflow =
             _mm_andnot_si128(_mm_srai_epi32(_mm_castps_si128(src), 31), _mm_castps_si128(_mm_cmpnlt_ps(src, _mm_set1_ps(2147483648.0f))));
+#endif
         ctx->vu0_vf[6] = _mm_castsi128_ps(_mm_xor_si128(_mm_cvttps_epi32(src), positiveOverflow));
         WRITE128(GPR_U32(ctx, 4), _mm_castps_si128(ctx->vu0_vf[6]));
         returnTo(ctx);
+    }
+    void ftoi4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (a9cmp::on())
+            ftoi4A9<true>(rdram, ctx, runtime);
+        else
+            ftoi4A9<false>(rdram, ctx, runtime);
     }
 }
 
