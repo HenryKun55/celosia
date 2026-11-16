@@ -241,6 +241,9 @@ Vita3K 222 MHz, muted, window shots. Every run "ok" (drew within two minutes), N
   with the passes' original runs as the variants leave.
 - **Mixed runs** (the A/Bs, shots every 120 s, each shot's frame on or off at random): the title screen, the gallop on
   the plain and by the cliffs, the lake's swim, the shrine: normal in all.
+- **The console card's walk under env-console's rotation** (conwalk, p5, `s4disp,a9cmp,liftd11` off one at a time in
+  600-frame windows): 15 978 frames, one game-thread frame over 300 ms (the load), Wander and Agro on the plain's grass with
+  their shadows, the cliffs and the fog normal.
 - **Check runs** (the original passes drawing): chkAp4 / chkLp4 / chkRp4 / chkLp5 / chkRp5 normal (the ride's shrine
   floor, the lake shore and swim).
 
