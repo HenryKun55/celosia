@@ -21382,3 +21382,56 @@ recompiled MIPS 4.0%, runtime 12.5% of the game thread; the display area 19.1% n
 - The integer-compare form for the generated and lifted code's vftoi (`_mm_cmpnlt_ps` in vu_translation_helpers.cpp:
   24 sites in the runner) needs a regenerated runner: a codegen round.
 - The 170 lifted functions not reached at top level need D9 / D10's new-game and fight routes under the trace check.
+
+## Redesign S4: display / draw prep without the PS2 packets nobody reads: host-only screen passes, lean packet hooks, the kick's palettes from the worker (SOTC_S4DISP) (2026-11-16)
+
+The fourth subsystem round (after S1 particles, S2 collision, S3 characters), on D11's map (docs/display_map.md). The full
+write-up is docs/display_s4.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s4/` (STATE.md; abs4.sh
+the s4disp interleaved A/B; prof.sh the sampler profile; chk1.sh / lanes.sh / lanes5.sh the check and A/B queues;
+pics.sh the on / off pictures; tools/s4groups.py the display area, the sampler split and every thread's top symbols;
+dmbscan.py). tools/s4rank.py (repo) groups draw prep from a sampler dump. Own Vita3K trees ../vita3k-celosia-s4 / -s4b
+(222 MHz, 3 cores, muted); at most two heavy processes, all `nice -n 20`, builds `-j4`.
+
+### What changed
+
+- **disp_types.h**: the display's guest records as the native path uses them (DMA / VIF words, model header, part node,
+  surface, draw packet, instance, the skinned palette layout, instance lights, the display list record and layer packets,
+  gsReg's packet state, NTO2, the cloth block, camera context offsets), static_asserts.
+- **The profile first** (Vita3K 222, attract / lake / ride, base = celosia-d11): the display area 20.7-23.2% of the game
+  thread and flat; the PS2-packet side (gsReg packets 1.0-1.7%, the screen passes' own code 0.8-1.6%, the layer stack
+  0.5-0.8%, palettes read back 0.4-0.6%) ~3-4.5%. The render thread translates no guest packet any more (vitaGL / sceGxm
+  per draw).
+- **Part "passes"** (s4_disp.cpp): ten screen passes (reflectionBegin, zFog + bgDraw, shadowDraw, shadowReset, bgEnd,
+  depthOfField, waterRefractionBegin, the bloom chain and its second part, solarFlareReset) replaced while the native
+  renderer draws by host-only variants that keep the guest words others read (the ripple clock, the shadow handshake
+  0x118C080, the bloom's six eased values) and the host notes (camera, bloom flag, zFog's fog), no GS packet.
+- **Part "hooks"**: gsReg / iosDlPushLayer / iosDlPopLayer hooks without per-call env reads. **A9 finding**: a
+  function-local `static const` is a load and a `dmb ish` on every call (gsRegHook 5, pushLayerHook 7, modelDispHook 19).
+- **Part "palette"** (s4_palette.cpp): dispSkinned counts its palette writes per chain; at the kick a chain not written
+  since its last hook read is not read again: the worker keeps that read (moved, not copied) for the kick's pass.
+
+### Equivalence
+
+`SOTC_S4DISP_CHECK=<n>`: the original pass runs with a 32 MB snapshot of guest RAM; every changed word is classified
+(stack, the current display-list buffer's packets and links, the per-layer last-packet bookkeeping, a word the variant
+writes and its value, or unknown), and the renderer's emissions and host state compared. p4: attract 573, lake 377, ride
+347 checked calls: **0 unknown words, 0 effect / host-state / emission differences**. Palettes: 147 000 kick reads compared
+with the worker's copy, **0 differ**. Tolerated: the (unread) display list lacks the passes' packets and the per-layer
+last-packet words keep their earlier value, as in frames where a pass does not run.
+
+### Speed (Vita3K 222 MHz, interleaved A/B, both seeds, the shipped p5)
+
+| route | seed 7: frame off - on | seed 11 | sampler NEW / OLD |
+|---|---|---|---|
+| attract | +0.504 +- 0.199 ms | +0.693 +- 0.128 ms | 17-18%, z 272 / 283 |
+| lake | +1.173 +- 0.525 ms | +0.885 +- 0.475 ms | 22%, z 219 / 222 |
+
+Kept: `SOTC_S4DISP` on (p4's four runs agree: +0.51..+1.21 ms). Game thread busy -0.75..-1.17 ms a frame; the render
+thread unchanged on the attract demo, +0.28..+0.44 ms a frame at the lake (z 1.5-3.0); the hook worker unchanged after
+p5's swap. Part 4 (moving draw prep to another core) not done: S4's cuts remove work; the remaining per-object prep must
+copy at the hook or writes guest state the next frame reads.
+
+### Next
+
+The static guards in modelDispHook / mdslane::join / obj125Run; the hook's own palette read through a host arena; the 2D
+(k2D) path handing quads to the renderer directly; the haze copy's two unplaced words; a host FINISH without the DMA walk.

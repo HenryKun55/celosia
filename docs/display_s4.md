@@ -122,15 +122,109 @@ frame) and chains written after their last hook read are read at the kick as bef
 
 ## 4. Equivalence
 
-(filled in below)
+**Passes.** `SOTC_S4DISP_CHECK=<n>` (s4_disp.cpp checkCall): every n-th call of each pass runs the *original* with the
+guest RAM (32 MB) snapshotted at entry and the renderer's emissions counted (`g_s4Emits`: draw jobs, 2D writes, zFog's
+hook, the bloom flag, glEnd / screenBlur / mesh / shadow / particle hooks) and its host state hashed (layer mirror,
+requested texture, camera note, bloom flag, fog). After the call every changed word is classified:
+
+- the stack below the entry sp (16 KB: its frames and its callees');
+- packet memory: the current display-list buffer from its start (0x2132D8 +0 / +4 by buffer) to its next free word
+  (+0x10, read after the call): the new packets and the link words written into earlier ones; the layer packets
+  (+8 / +0xC, count +0x14); gsReg's state; the layer stack (0x1E10B0, 0x213308); the list record itself;
+- list bookkeeping: a word whose new value points into the call's new packets (the root draw context's per-layer
+  "last packet" words, two arrays 0xB0 bytes apart from 0x1657E90 on these runs: a layer the pass alone uses keeps its
+  earlier value, cleared at the buffer's reset, as in the frames where the pass does not run);
+- a word the variant writes: compared with the value the variant computes from the entry state;
+- anything else: **unknown** (a write the variant would miss).
+
+Host side: the original's emissions must equal the variant's own (zFog: its hook, 1; bloom: one or more flag sets), and
+the host digest after the original must equal the digest after the variant's notes.
+
+The first check builds found what each variant must keep: p1 listed the shadow handshake 0x118C080 (shadowReset sets it,
+shadowDraw clears it) and words at 0x122xxxx / 0x12Axxxx / 0x1657Exx; p2-p3's value dumps placed those as the two
+display-list buffers (0x122B8C0 / 0x12A80F0) and the per-layer last-packet words, and showed the bloom's eased values
+(0x118C12C .. 0x118C14C, 68 -> 67 ...) as real state the renderer reads; the haze copy 0x10F37C8 left two words at
+0x1658004 (values 0x463820 -> 0x41efc0, not packet pointers) S4 could not place: it is not replaced. Shipped (p4 / p5),
+`SOTC_S4DISP_CHECK=150`, 720 s each:
+
+| run | route | pass calls checked (incomplete: a thread switch inside) | unknown words | effects differ | host state differ | emissions differ |
+|---|---|---|---|---|---|---|
+| chkAp4 | attract demo | 573 (0) | 0 | 0 | 0 | 0 |
+| chkLp4 | Avion's lake (teleport) | 377 (1) | 0 | 0 | 0 | 0 |
+| chkRp4 | the ride (console card) | 347 (1) | 0 | 0 | 0 | 0 |
+| chkRp5 (shipped) | the ride | 414 (2) | 0 | 0 | 0 | 0 |
+| chkLp5 (shipped) | Avion's lake | 471 (3) | 0 | 0 | 0 | 0 |
+
+(Per pass on the attract run: reflectionBegin 81, zFog 15, shadowDraw 83, shadowReset 81, bgEnd 83, depthOfField 81,
+waterRefractionBegin 81, bloomDisplay 67, the bloom's second part 1; words classified: stack ~39 000, packet ~10 600, list
+bookkeeping ~435. p1's longer runs (CHECK=150, the attract demo and the lake, 13 200 / 9 000 frames) had 0 host-state and
+0 emission differences over ~1 100 checked calls before the dead ranges were placed.)
+
+**Tolerated difference.** The display list sent to the (idle) GS path is shorter: it has no packets from these passes, and
+the per-layer last-packet words keep their earlier value. The DMA thread's walk still finds the frame's FINISH (in the
+list's end packet, untouched); the game paced as before in every run (no hang, the [frame] counts of on and off frames
+the same within 1%).
+
+**Hooks.** The lean hooks are the old hooks' default paths with the switches read once (section 3b); no check beyond
+the runs themselves (same draws on and off: draws on 1107 / off 1107 a frame in mixA7p4).
+
+**Palettes.** With the check mode on, every elidable chain is read at the kick anyway (and used, as before), and compared
+with the worker's kept read: chkAp4 57 854, chkLp4 34 445, chkRp4 54 679, and on the shipped p5 (the read moved, not copied) chkRp5 64 460, chkLp5 43 467 compared, **0 differ** (p1's runs: 57 555 and
+46 827, 0 differ).
 
 ## 5. Speed (Vita3K 222 MHz, interleaved A/B)
 
-(filled in below)
+`SOTC_AB_FLAG=s4disp SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>` (s4/abs4.sh): all of S4 on or off at random each frame, 1 260 s
+a run (from frame 3 000), own trees ../vita3k-celosia-s4 / -s4b. Frame times: tools/mixframes.py (`--shift -1`, 300-frame
+blocks, +- 2 SE), now also the frame log's render-thread and hook-job columns. Sampler split (s4/tools/s4groups.py): NEW =
+S4's code (s4disp::, the lean hooks), OLD = the code only the off state runs (the ten passes' own code, gsRegCensus,
+spriteNoTexFast, the old hooks, kickCopy), samples per 1 000 frames of each state, Poisson z.
+
+| run (build, seed) | route | frames on / off | sampler NEW / OLD, z | saved (sampler) | **frame off - on** | game busy off - on | render thread off - on | hook jobs off - on |
+|---|---|---|---|---|---|---|---|---|
+| mixA7p4 (p4, 7) | attract | 14 298 / 14 351 | 17.1%, z 240 | 0.543 ms | +0.543 +- 0.131 | +0.805 +- 0.104 | +0.039 +- 0.128 | +0.003 +- 0.051 |
+| mixA11p4 (p4, 11) | attract | 13 194 / 13 351 | 17.5%, z 232 | 0.551 ms | +0.513 +- 0.151 | +0.720 +- 0.128 | +0.041 +- 0.094 | -0.008 +- 0.051 |
+| mixL7p4 (p4, 7) | lake | 8 422 / 8 386 | 22.6%, z 203 | 0.693 ms | +0.945 +- 0.128 | +0.932 +- 0.127 | -0.370 +- 0.253 | -0.115 +- 0.048 |
+| mixL11p4 (p4, 11) | lake | 9 395 / 9 431 | 22.4%, z 212 | 0.709 ms | +1.208 +- 0.298 | +1.137 +- 0.282 | -0.443 +- 0.266 | +0.009 +- 0.108 |
+| **mixA7p5 (shipped, 7)** | attract | 16 505 / 16 495 (sampler) | **17.0%, z 272** | 0.569 ms | **+0.504 +- 0.199** | +0.753 +- 0.169 | -0.024 +- 0.111 | +0.014 +- 0.072 |
+| **mixA11p5 (shipped, 11)** | attract | 18 286 / 18 714 (sampler) | **18.0%, z 283** | 0.555 ms | **+0.693 +- 0.128** | +0.867 +- 0.106 | -0.007 +- 0.091 | +0.039 +- 0.060 |
+| **mixL7p5 (shipped, 7)** | lake | 9 958 / 10 042 (sampler) | **22.4%, z 219** | 0.679 ms | **+1.173 +- 0.525** | +1.169 +- 0.535 | -0.431 +- 0.251 | -0.018 +- 0.101 |
+| **mixL11p5 (shipped, 11)** | lake | 10 466 / 10 534 (sampler) | **22.3%, z 222** | 0.666 ms | **+0.885 +- 0.475** | +0.877 +- 0.470 | -0.279 +- 0.186 | -0.087 +- 0.162 |
+
+(p5 = p4 + the palette swap: p4's lake seed 7 showed the worker +0.115 ms a frame copying palettes; p5's lake runs show
+-0.018 / -0.087, within noise. mixL11p4 ran through a ~80-minute host stall (the Mac asleep): frames >= 200 ms are left
+out, the blocks around it are fewer.)
+
+**Decision (z > 2 in both seeds, sampler and frame time):** `SOTC_S4DISP` on. Frame time -0.50..-0.69 ms on the attract
+demo (z 5.1-10.8) and -0.89..-1.21 ms at the lake (z 3.7-14.8): 2.0-2.6% of the frame. The sampler's NEW / OLD sets cover
+the passes' and hooks' own code (0.55-0.71 ms a frame); the frame times include their callees (gsReg, spriteNoTexFast,
+callGuest, the layer natives) and the kick's reads.
+
+**Per-thread cost before / after** (frame log means, the shipped runs, on vs off): game thread busy 25.30 vs 26.04 /
+22.58 vs 23.42 ms (attract), 45.35 vs 46.45 / 45.51 vs 46.34 ms (lake); render thread 14.45 vs 14.41 / 13.13 vs 13.11
+(attract), 17.44 vs 17.02 / 17.45 vs 17.22 (lake); hook jobs 5.33 vs 5.36 / 4.85 vs 4.87 (attract), 10.98 vs 10.91 /
+11.04 vs 10.97 (lake). The render thread's slightly higher figure at the lake with S4 on (0.28-0.44 ms, z 1.5-3.0 over
+the four lake runs) is discussed in section 6.
 
 ## 6. Per-core load and another core
 
-(filled in below)
+From the sampler (guest instructions / (222 MHz x seconds), both states mixed) in the A/Bs: attract mixA7p4 game 57.4%,
+render thread 40.4%, hook worker 15.6%, mds lane 3.6%, VIF walker 3.1%, texture animation 1.9%; lake mixL7p4 game
+66.1%, render 30.9%, worker 17.4%, VIF walker 3.3%, lane 2.7%, pf141 1.4%. By state, from the frame log (section 5):
+the game thread's busy time falls 0.7-1.1 ms a frame with S4 on, the render thread's own time does not fall (attract
++0.04 ms, lake -0.37 / -0.44 ms: slightly *more* render time a frame with S4 on at the lake, z 1.7-2.9; S4 changes no
+draw record (section 4) and the draws a frame are the same, so this is the render thread's share of shorter game frames
+in Vita3K's scheduling (guess), and p4's hook worker +0.115 ms a frame on the lake (the palette copies it then made;
+p5 swaps instead of copying).
+
+**Part 4 (draw prep off the game thread): not done.** What S4 removed is work, not moved work: the passes' variants are a
+few guest words each (nothing to hand over), the lean hooks are cheaper in place, and the palette part already moved the
+kick's read to the worker. The per-object host-side draw prep that remains on the game thread is the model hook's half
+(round 23 / 61 already put the draw building on the worker and modelDispState on the lane: what is left is the copies
+the jobs need, which must happen at the hook because the game changes them after it, display_map.md 5d) and the walk's
+natives, which write guest state the next frame reads. Cores 1-2 on the console were 70-85% busy (round 89) and the
+render thread (core 2) is the console's critical path in heavy frames: moving more onto them is not clean, so S4 leaves
+the split as it is.
 
 ## 7. Pictures
 
@@ -138,4 +232,17 @@ frame) and chains written after their last hook read are read at the kick as bef
 
 ## 8. What S4 leaves for the next round
 
-(filled in below)
+- **Static guards in hot code** (section 2): modelDispHook (19 `dmb` a call, ~50-100 calls a frame), mdslane::join (11),
+  obj125Run (30), dispDispObjGroupModel (5), the particle emitter (6): the same fix as the lean hooks (switches read once
+  into plain globals at install), worth a sweep over every function the sampler shows (s4/dmbscan.py).
+- **The hook's own palette read** (readChainPaletteLean at the model hook, 0.26-0.38% of the game thread): dispSkinned
+  could write the palette into a host arena too and the hook take that (with the chain's UNPACK layout cached and
+  validated); S4 only removed the kick's second read.
+- **The rest of the gsReg / 2D path**: the 2D (k2D) writes still go through gsReg A+D pairs that the hook parses back
+  into the 2D assembler (feed2D / vertex2D, 0.6-2.7%); the sprite functions could hand their quads to the renderer
+  directly. The haze screen copy (0x10F37C8) needs its two unplaced words understood first.
+- **The display list itself**: with the passes gone, the list's remaining packets are the 2D, shadows and the models'
+  leftovers; a host FINISH without the DMA walk (display_map.md 5e step 2) needs every remaining producer proven
+  event-free.
+- **The render thread** is unchanged by S4 (its cost is per draw, round 116); the console's GPU-bound heavy frames are not
+  touched by any game-thread saving.
