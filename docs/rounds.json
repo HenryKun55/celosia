@@ -899,7 +899,7 @@
   {
    "round": "A9 sweep",
    "date": "2026-11-16",
-   "commit": "PENDING",
+   "commit": "a212ed1",
    "focus": "A9 codegen",
    "summary": "A sweep for what the Vita's compiler turns into slow Cortex-A9 code in hot paths, found with the emulator's sampler and fixed without changing behaviour. Settings read once into function-level statics cost a memory barrier on every call: 90 such values are now read once at start. Equality checks of fixed-size blocks (memcmp, 1% of the game thread) are now word compares at 82 places. The scheduler's divisions (the A9 has no divide instruction) are now multiplies, two of its lookups are cached, and a per-call thread-local store nobody read is skipped. Every part can be A/B tested on its own.",
    "result": "Exact: the divisions checked over 1.1e11 inputs and the compares over 1.6e7, 0 differ; every hoisted value equal to the original; the S2 / S3 / S4 checks 0 differences; pictures unchanged. Speed (Vita3K 222 MHz, interleaved A/B, two seeds): frame time -0.30 / -0.44 ms on the attract demo and -0.71 / -0.75 ms at the lake (z 5.5-11.4); the game thread 0.31-0.73 ms a frame less busy. Per part at the lake: the compares -0.25 / -0.37 ms, the scheduler -0.28 / -0.41 ms; the hoisted settings not measurable in Vita3K (a barrier costs one instruction there), kept for the console. SOTC_A9SWEEP on."
