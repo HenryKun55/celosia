@@ -21746,3 +21746,132 @@ the camera's checks, need the per-part guest caches (EntryModifiedManager's appe
 made safe for two writers first (appends kept per thread and replayed in order at the join). The ride route mounts by pad
 input (the Vita3K runs mounted at frames ~4 100, ~5 000 and ~14 400, the Mac run never): a pad-script
 condition on the ridden state (the horse class's +0x950) would make it exact.
+## Decomp D13: records 0-3 switched in, a ledge route that hangs Wander from an edge, the lifter's last two refusals; D13's batch (SOTC_LIFTD13) (2026-11-17)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d13/` (STATE.md; survey13.py, cover13.py, unreached13.py,
+mkact.py, mkledge.py, mkbird.py, gen13.sh, pass13.py, passtab13.py, ship13.py, bodydiff13.py, patch_rt13.py, q1-q5.sh).
+Own Vita3K tree ../vita3k-celosia-d13 (222 MHz, 3 cores, muted); one heavy process at a time, all `nice -n 20`, builds
+`-j4`.
+
+### Routes (Mac call counts, D12's shipped build)
+
+| run | what it does | reached and still recompiled, new |
+|---|---|---|
+| act3 | D12's act1 again with the Retry presses (records 4-9, 3 000 frames each) | +1: colossi 4-9 give nothing more to blind input |
+| act0 | mkact.py for records 0-3 (never switched in before: D12 started at 4) | **+31**: the Kirin's falling rocks (SCRFuncKirinFallRock*, SCRFuncSetFallRockTimer*), the pin-attack IK, the boss starts of Knight / Kirin / Mammos, weak-life conditions |
+| ledge | mkledge.py: Wander dropped 3.6 units above the top of D9's pillar in Avion's lake (world (-1387.6, 20.4, -324.3)) at radius 2-10 in 8 directions, R1 held through the fall | Wander **hangs from the pillar's edge** from frame ~9 300 (player_setEdgeHangPointGeometry, the fall-and-landing group); later teleports do not move a hanging Wander, so he stays there |
+| bird | mkbird.py: the bird's control work (SOTC_TELEPORT_PROBE=1438c80, SOTC_TELEPORT_PROBE_OFF=a0) holds Avion's live place (it moves from its perch at (-1925.6, 58.9, -309.7) once Wander is in the lake); `probe,dx,dy,dz` drops onto it with R1 held | nothing: the teleport moved Agro but not Wander (places 60-130 units up); abandoned |
+
+The 108 functions only D9's dv1 reached (Wander on Avion's back: grip, parent points, pendulum, weak points) stay
+unreached by any replayable route; the ledge route reaches the edge-hang part of that code reproducibly.
+
+### The lifter (tools/lift_d1.py)
+
+D12's last 8 refusals, all lifted now:
+
+- **Conditional branches out of the function** (6: manager_sub_0109C5B0 / 0109C610, kernel_sub_001C2CE0,
+  gamecore_sub_0134B2C8 / 0134B3E8 / 0134B490). The generated code's taken path is `PS2_JUMP_GUEST(t); return;` after the
+  slot. The lifted branch goes to an exit stub of its own (EXIT_BASE + n * 0x10: a tail jump to t with a nop slot, its own
+  region in the control-flow graph, so every dirty register is written back there). The first version set `ctx->pc = t`
+  before the jump, as the lifter's tail jumps do; the generated code does not (PS2_JUMP_GUEST sets it inside the runtime),
+  and the trace check compares ctx->pc at the jump event: 2 functions mismatched on that alone in the first passes
+  (`pc lifted 001c2dd4 generated 001c2d58`). Fixed (commit 9141581); re-checked: 0 mismatches.
+- **bc0f loops** (2: kernel_sub_001B06C8, iosWaitDMA, the DMA waits). The recompiler's condition for any bc0 is `false`
+  (never taken), so a non-likely bc0f / bc0t is an ordinary instruction and its slot runs next.
+
+### D13's batch (SOTC_LIFTD13)
+
+patch_rt13.py adds kLiftD13 / `SOTC_LIFTD13` (default on, A/B `liftd13`, knob `SOTC_LIFTD13_RANGE=<lo>:<hi>`), the macros
+SOTC_DECOMP_LIFT_FUNCTION_D13 / _FALLBACK_D13 and `lift_d1.py --d13`. Candidates (survey13.py over every call-count run,
+D7-D13): 213 reached, still recompiled, not a stub, not interrupt-side and not an earlier speed cut, plus the 79 earlier
+speed cuts (D7-D12) the routes reach, re-measured: **292 lifted, 0 refused**.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200, `SOTC_WORKER91=0`; every
+register / VU0 / FPU, the clock, RAM, scratchpad, VU0 data at every event and at the end), runner-t1 with the 292 (t2 for
+the 8 lifter-extension functions after the exit-stub fix):
+
+| pass | route | functions checked | checks | register / pc mismatches | RAM bytes at the noise words / elsewhere |
+|---|---|---:|---:|---|---|
+| dt13_act0 | act0 (records 0-3) | 113 | 17 448 | 46 (the exit stub's ctx->pc, fixed) | 31 / 20 |
+| dt13_ledge | the ledge route | 67 | 11 923 | 20 (the same) | 8 / 1 |
+| dt13_act2 | D12's act2 (records 10-15) | 115 | 30 843 | 43 (the same) | 10 / 5 |
+| dt13_fv2 | the new game with the opening skipped, Valus' plateau | 79 | 24 904 | 23 (the same) | 35 / 8 |
+| dt13_act3 | act3 (records 4-9) | 93 | 18 230 | 64 (the same) | 12 / 8 |
+| dt13_att | the attract demo | 56 | 9 911 | 21 (the same) | 41 / 13 |
+| dtx_act0 / dtx_fv2 | t2, the 8 branch-out / bc0 functions | 8 / 6 | 506 / 205 | 0 | 0 / 0 |
+| ctl_act0 | t2, `SOTC_DIFFTEST_CONTROL=1` (the recompiled code in both legs), act0, the 292 | 100 | 28 730 | 0 | 0 / 0 |
+
+Verdict (pass13.py): a function passes when it was checked at top level with no register / pc mismatch and its only
+RAM differences are single bytes at the known noise words 0x29126c / 0x1568070 (other threads' writes between the
+record and the replay: rounds 65, 71, 106, D3, D7, D9). **124 pass** (51 937 checks). 29 out with single RAM bytes
+elsewhere (0x67d05c, 0xb5b8ec, 0x9f3eac, 0x1a5e281 ... at rates of 0.1-0.5% of their checks, all hot motion / camera
+functions that earlier rounds had cut for speed): the control run did not reproduce them (its run had no RAM byte at
+all), so they stay out, as D9's 14. 139 were never checked at top level (108 dv1-only, the rest single calls).
+
+**Speed** (Vita3K 222 MHz, the interleaved A/B `SOTC_AB_FLAG=liftd13 SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>`, p1 with the 292,
+1 260 s a run, sampler 120-1 200 s; mix7.py over the 292; frame times tools/mixframes.py `--shift -1`, from frame 3 000,
+300-frame blocks, off - on +- 2 SE):
+
+| run | the 292, lifted vs recompiled (samples / 1 000 frames) | slower z > 2 | faster z < -2 | frame ms off - on | busy ms off - on |
+|---|---|---:|---:|---|---|
+| lfA7 (attract, seed 7) | 9 191 vs 6 951 (132.2%) | 69 | 0 | -0.146 +- 0.112 | -0.168 +- 0.102 |
+| lfL7 (lake, seed 7) | 14 652 vs 11 645 (125.8%) | 62 | 2 | -0.365 +- 0.100 | -0.363 +- 0.098 |
+| lfA11 (attract, seed 11) | 8 769 vs 6 847 (128.1%) | 67 | 1 | -0.157 +- 0.132 | -0.160 +- 0.130 |
+| lfL11 (lake, seed 11) | 14 543 vs 11 541 (126.0%) | 58 | 2 | -0.381 +- 0.171 | -0.394 +- 0.169 |
+
+The set was slower (0.15-0.39 ms a frame), and the slower functions are mostly the earlier speed cuts again: the
+lifter's code for the hot motion and camera functions is still slower than the generated code on the A9
+(modelSetSurface z 65-87: its generated code leaves the work to a native callee, as D11 / D12 found; gamecore_sub_013B8438
+z 25-40; updateUserPathWork, get_apply_camera_region, gamecore_sub_01395EF0 z 7-19 ...). **Cut: every passing function
+slower (z > 2) in any of the four runs, 46** (cut13.txt). Only one of the 79 re-measured earlier cuts ships.
+manager_sub_0109C610 reads as much faster on the lake (z -110) but that is the sampler's attribution: 0109C5B0's branch out
+enters 0109C610 in its middle, where the lifted copy hands the call to the generated function (`--resume-delegate`), so
+the work runs in the generated code in both states.
+
+**78 ship** (regenerated with only them: game/overrides/decomp_liftd13_00.cpp; bodydiff13.py: 76 bodies byte for byte
+the checked ones, 2 differ only in direct-call symbols to callees left out, which go through the table): 41 other game
+code, 14 characters, 7 script, 5 collision, 4 camera, 3 boot ELF, 2 display, 2 system. All 78 were checked at top level.
+
+**The shipped 78** (p2, one more interleaved A/B, attract, seed 7, 1 260 s, lfA7f): 35.0 vs 33.1 samples / 1 000 frames
+(4 of the 78 sampled at all: they are cold), 0 slower, 0 faster; frame time off - on -0.010 +- 0.103 ms, busy -0.037 +- 0.091
+ms: neutral.
+
+### Checks and pictures
+
+The shipped build (p2 = build/agent-scratch/celosia-d13.vpk), Vita3K 222 MHz, muted, `SOTC_VITA_EAT_USER_MB=89` (the
+console's free memory), 900 s each: f_walk (the console card's walk, to frame 19 158), f_att (the attract demo, 28 578),
+f_lake (Avion's lake and back to the shrine, 16 338): all boot and run (`[liftd1] ... D13 78 ... d13 on`), no fault.
+Fewer frames and many slow render frames than D12's checks: the Mac was shared with other agents' runners and builds
+(median load 12.4 against D12's 3.0); the interleaved A/B, which shares the host between both states, is the speed
+measure. Window pictures (windows may show again): the walk (Wander running past the shrine's stairs), the attract demo
+(Agro at the shrine's gate), Avion's lake (the pillars, Wander swimming, the HUD), the altar; looked at and deleted.
+spalign on celosia-d13.elf: 840 NEON :128/:256 accesses, 0 sp-based. The 78 are lifted guest functions, reading through
+the same RAM accessors as the generated code (no native reads guest memory before the guest sets it).
+
+### Decomp numbers
+
+tools/decomp_status.py on the shipped Mac build's replaced dump with `SOTC_WORKER91=0` (the honest count; attract demo to
+frame 1 500; calls from round 71's dumps); docs/decomp_status.json written from it:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D13 | **5 515 of 9 024 (61.11%)** | 64.39% | 97.63% | 66.14% |
+| as earlier rounds counted (gates on), D13 | 5 559 (61.60%) | 64.58% | 98.16% | 66.37% |
+| honest, D12 | 5 437 (60.25%) | 63.40% | 97.61% | 64.97% |
+
+By area (honest, functions; D12 in brackets): script and events 274 of 633 (267), collision and physics 189 of 317 (184),
+display and models 520 of 976 (518), characters and motion 718 of 1 206 (704), other game code 1 851 of 2 905 (1 810),
+camera 208 of 282 (204), system and memory 155 of 230 (153), particles 93 of 114 (93), sound 71 of 102 (71), boot ELF
+1 314 of 2 137 (1 311), math 122 of 122.
+
+### What the next rounds should take
+
+- Blind routes are exhausted for colossi 4-15 (act3: +1); records 0-3 gave 31. Script (359 left) and collision (128 left)
+  are now almost all fight code: each colossus' reactions to being climbed, stabbed and shot. A recorded session per
+  colossus (SOTC_INPUT_RECORD on a real play, replayed on the Mac with the trace check) is the way to reach them.
+- From the ledge route's hang: shimmy (LS_LEFT / RIGHT), drop, climb up (TRIANGLE) while hanging reach the pendulum and
+  edge-point transitions; the hang is reproducible from frame ~9 300 of mkledge.py's route.
+- The 29 functions with scattered RAM bytes: a control run on the same routes (act2, act3, attract), or a per-function
+  SOTC_DIFFTEST_WATCH on the addresses, to tell thread noise from a lifter difference.
+- The lifter's code for the hot motion / camera functions stays slower than the generated code on the A9 (46 cut again):
+  hand natives, not lifting, are the route for them (modelSetSurface, gamecore_sub_013B8438, updateUserPathWork ...).
