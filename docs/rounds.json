@@ -907,7 +907,7 @@
   {
    "round": "D12",
    "date": "2026-11-17",
-   "commit": "b76a206",
+   "commit": "d0b319a",
    "focus": "Decomp",
    "summary": "Decomp D12: more of the game converted, chosen from what the test routes actually run. Most still-unconverted code belongs to colossi the console save never meets (only one colossus is in the world at a time). A new test aid calls the game's own switch of the current colossus, so two new routes visit colossi 5 to 16 from the console save: the functions the routes reach and that were still unconverted nearly doubled (291 to 566), mostly script, characters and collision. The converter learned three more code patterns (one of them the most-called function left, a message send with 29 million calls a run). 455 functions converted, 282 checked exact on the colossus routes and the pause menu; six were slower and cut: 276 ship behind SOTC_LIFTD12 (on), 35 of them script and 10 collision.",
    "result": "Whole game (honest count): 5 437 of 9 024 functions (60.2%, 57.2% after D11), 63.4% of the code, 97.6% of calls. Script and events 267 of 633 (232), collision 184 of 317 (174), characters 704 of 1 206 (651). Exact: 282 functions checked by the trace check, 0 differences. Speed (Vita3K 222 MHz, interleaved A/B, two seeds): frame time neutral in all four runs (within 0.1 ms); the message send about 30% cheaper converted. Boots and runs with the console's free memory (Vita3K, 89 MB taken)."
