@@ -73,8 +73,24 @@ namespace decomp_wind
         // The non-empty slots in ascending order, from a copy of the table equal to guest memory.
         inline void refresh(const uint8_t *rdram)
         {
-            if (g_listN >= 0 && std::memcmp(g_copy, rdram + kSlots, sizeof(g_copy)) == 0)
-                return;
+            if (g_listN >= 0)
+            {
+                // 64-bit words, OR-reduced (the Vita's memcmp goes a byte at a time: 320 compares).
+                uint64_t diff = 0;
+                const uint8_t *live = rdram + kSlots;
+                const uint8_t *copy = reinterpret_cast<const uint8_t *>(g_copy);
+                for (uint32_t o = 0; o < sizeof(g_copy); o += 16u)
+                {
+                    uint64_t a0, a1, b0, b1;
+                    std::memcpy(&a0, live + o, 8);
+                    std::memcpy(&a1, live + o + 8u, 8);
+                    std::memcpy(&b0, copy + o, 8);
+                    std::memcpy(&b1, copy + o + 8u, 8);
+                    diff |= (a0 ^ b0) | (a1 ^ b1);
+                }
+                if (diff == 0u)
+                    return;
+            }
             std::memcpy(g_copy, rdram + kSlots, sizeof(g_copy));
             g_listN = 0;
             for (int i = 0; i < kCount; ++i)
