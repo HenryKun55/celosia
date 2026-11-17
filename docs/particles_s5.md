@@ -154,7 +154,21 @@ A/B (`build/agent-scratch/celosia-s5.vpk`, `s5/env-console.txt`: s5ptcl, liftd12
 ## 5. Pictures
 
 Vita3K cannot take window shots with its window hidden (the user's rule), so the pictures come from the Mac runner with
-the same code (`PS2X_HIDDEN_WINDOW=1`, frame-locked shots with `PS2X_SNAPSHOT_FRAMES`), S5 on and off: PLACEHOLDER_PICS
+the same code (`PS2X_HIDDEN_WINDOW=1`, frame-locked shots with `PS2X_SNAPSHOT_FRAMES`), S5 on and off
+(`build/agent-scratch/s5/macrun.sh`, the rebased build):
+
+- **Gallop dust**: the attract demo (the opening and the title's demo, 480 s, a shot every 300 game frames). The soft
+  dust puffs under and behind Agro's hooves on grass and sand look the same with S5 on and off, as do the opening's
+  rain and the forest. The two Mac runs drift apart in time after the opening (the runner paces by the wall clock), so a
+  pixel RMSE across the runs measures that drift, not S5; the shots were compared by eye. The ride script
+  (r141/in_ride.txt) does not work on the Mac runner (Wander stays in the shrine), so the attract demo stood in for it.
+- **The lake**: the in_tbz2.txt route with the 7600 teleport is the shrine altar's view in both states. Wander is put
+  at the teleport target (the `[pos]` line prints x / z negated), but the camera stays at the shrine (eye -1855, 50,
+  -347), as in the Vita3K A/B runs. So **the water itself was not on screen**: the "lake" A/B and check runs measure
+  that scene (the shrine view with the lake area loaded), not a swim. The shrine view is identical by eye in both states.
+
+The shots were looked at and deleted.
+
 
 ## 6. Next
 

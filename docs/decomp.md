@@ -21635,7 +21635,10 @@ Own Vita3K tree ../vita3k-celosia-s5 (222 MHz, 3 cores, muted); one heavy proces
 `SOTC_S5PTCL_CHECK=1` (every deferred record stepped again on the game thread from a copy and compared byte for byte,
 the random state, the draw values): attract 2 132 765 particles / 1 730 026 draw values, the lake 1 789 581 / 1 625 092,
 **0 differ**; nothing written before a join, no damage test inside a deferred emitter. spalign on celosia-s5.elf: 0
-sp-based NEON accesses. PLACEHOLDER_DPICS
+sp-based NEON accesses. Pictures (Mac runner, `PS2X_HIDDEN_WINDOW=1`; Vita3K cannot take
+shots of a hidden window): the gallop dust on the attract demo is the same on and off; the "lake" route's picture is the
+shrine altar's view in both states (Wander is put at the lake, but the camera stays at the shrine), so the water was not
+on screen. Boot: celosia-s5.vpk on the ride with `SOTC_VITA_EAT_USER_MB=89` in Vita3K, to frame 10 278, a job every frame.
 
 ### Speed (Vita3K 222 MHz, interleaved A/B, both seeds, p5)
 
