@@ -1052,7 +1052,8 @@ bool PS2Runtime::initialize(const char *title)
 #if defined(PLATFORM_VITA) && !defined(PS2X_VITA_SDL2_SHIM)
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title); // raylib vita does not support audio
 #else
-        SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+        // PS2X_HIDDEN_WINDOW=1: the window created hidden (test runs that must not appear on screen).
+        SetConfigFlags(FLAG_WINDOW_RESIZABLE | (std::getenv("PS2X_HIDDEN_WINDOW") ? FLAG_WINDOW_HIDDEN : 0));
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title);
 #if defined(__APPLE__)
         if (std::getenv("PS2X_GS_HW"))
