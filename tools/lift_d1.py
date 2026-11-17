@@ -1700,7 +1700,10 @@ class Lifter:
                     if not m:
                         raise Refuse(f'tail jump form at {a:x}')
                     tgt = 'jumpTarget' if jt else f'0x{k[1]:X}u'
-                    L.append(f'{I}    ctx->pc = {tgt};')
+                    # D13: an exit stub (a branch out of the function) leaves ctx->pc as the generated code does: its
+                    # `PS2_JUMP_GUEST(t)` sets it in the runtime (the trace check compares ctx->pc at the jump event)
+                    if a < EXIT_BASE:
+                        L.append(f'{I}    ctx->pc = {tgt};')
                     L.append(f'{I}    {m.group(1)}' + ('' if m.group(1).endswith('return;') else ' return;'))
                     L.append(f'{I}}}')
                     continue
