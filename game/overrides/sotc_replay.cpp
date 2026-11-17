@@ -736,7 +736,8 @@ namespace sotc_replay
         // passes it: the world place is (-f12, f13, -f14), as +0x170; f16 the yaw), at the first Agro step from that game frame (vif1 chains, as
         // PS2X_INPUT_CLOCK=frames). <frame>:boss<n> takes the boss table's record n (+0xC count, +0x10 the
         // records, 0xEC each; +0x64 / +0x68 / +0x6C / +0x70 the place bossStatStartDemo warps Agro to).
-        // Round S6: <frame>:ride puts Wander on Agro (the game's nico_ForceChangePlayerHorseRidingControl), for a ride route.
+        // Round S6: <frame>:ride calls the game's nico_ForceChangePlayerHorseRidingControl on Wander (a test aid; it does not
+        // mount him by itself, see rideCall).
         // Decomp D12: <frame>:active<n> calls bossStatSetActiveBoss (0x13494D8) with record n (no teleport): the colossus the
         // world holds switched as the game does after a fight (a test aid to reach the other colossi from the console card).
         // SOTC_TELEPORT_HOLD=<n> puts them back there every 30 frames for n frames (the ground streams in meanwhile).
@@ -804,7 +805,8 @@ namespace sotc_replay
         constexpr uint32_t kSetPos = 0x013522A0u;
         constexpr uint32_t kSetActiveBoss = 0x013494D8u; // Decomp D12: bossStatSetActiveBoss (a0 the boss record)
         // Round S6: nico_ForceChangePlayerHorseRidingControl (a0 the player; the horse is the game's own, handle 0x1465904):
-        // the game's own switch of Wander to riding Agro (a scripted route's mount does not depend on where Agro stands).
+        // the game's own switch of Wander's controls to riding Agro. In Vita3K it did not mount Wander by itself (it switches
+        // the controls of a pair the mount animation has placed); the S6 ride route mounts by pad input instead.
         constexpr uint32_t kForceRide = 0x013B6F88u;
         void rideCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t player)
         {
