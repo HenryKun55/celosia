@@ -21607,3 +21607,52 @@ camera 204 of 282 (199), system and memory 153 of 230 (138), particles 93 of 114
   back with R1 held (a probe teleport on the colossus' live place) would reach them reproducibly.
 - The lifter's last refusals: conditional branches out of the function (6) and bc0f loops (2).
 - The cut functions that delegate to a native callee (manager_sub_01147070 ...) are candidates for hand natives.
+
+
+## Redesign S5: particles, second pass: the per-particle step and the draws' values on a host worker (SOTC_S5PTCL) (2026-11-17)
+
+The fifth subsystem round, the second on the particles after S1. The full write-up is docs/particles_s5.md; this is the
+summary. Scripts, runs and logs: `build/agent-scratch/s5/` (STATE.md; abs5.sh the s5ptcl interleaved A/B, chk5.sh the
+in-run check, macrun.sh the Mac runner's hidden-window pictures, tools/s4groups.py the particle area's sampler split).
+Own Vita3K tree ../vita3k-celosia-s5 (222 MHz, 3 cores, muted); one heavy process at a time, all `nice -n 20`, builds `-j4`.
+
+### What changed (`SOTC_S5PTCL`, default on; A/B `s5ptcl`)
+
+- **The step as host code**: S1's `step123` became `stepT<kHost>`: the guest version unchanged, and a host version on any
+  copy of the record with the floor / ceiling reflection as host code (`reflectHost`, the recompiled function's seven
+  VU0 operations with the same PS2_V* macros) and the random state as an argument.
+- **The batch**: inside doit_particle_manager's native the emitter's particle loop appends each particle `step123` would
+  step to a structure-of-arrays batch (record addresses, emitter segments with their `Emitter123`), counted as stepped;
+  every other node goes to the original in its place. Emitters whose damage test is live (0113C8C8's own early test,
+  `damageWanted`) are stepped inline after the batch so far is run, so the host random stream keeps its order.
+- **The worker**: at the manager's end the batch goes to a host thread (kOffload, cores 1-2) that steps it and makes the
+  draws' sin / cos / fade per particle (`s1ptcl_api::drawPrep`); the game thread joins at the module gates (except
+  eleven entries checked to read no particle record), the drawers' natives, the frame's end and the next manager call.
+  The draw values are kept past the frame's end (the draws come after it) and keyed by the record's age / angle bits.
+
+### Equivalence
+
+`SOTC_S5PTCL_CHECK=1` (every deferred record stepped again on the game thread from a copy and compared byte for byte,
+the random state, the draw values): attract 2 132 765 particles / 1 730 026 draw values, the lake 1 789 581 / 1 625 092,
+**0 differ**; nothing written before a join, no damage test inside a deferred emitter. spalign on celosia-s5.elf: 0
+sp-based NEON accesses. PLACEHOLDER_DPICS
+
+### Speed (Vita3K 222 MHz, interleaved A/B, both seeds, p5)
+
+| route | seed 7: frame off - on | seed 11 | sampler NEW / OLD |
+|---|---|---|---|
+| attract | +0.104 +- 0.098 ms | +0.107 +- 0.093 ms | 60% / 63%, z 58 / 52 |
+| lake | +0.103 +- 0.119 ms | +0.092 +- 0.100 ms | 67% / 66%, z 45 / 46 |
+
+Kept on, honestly a small gain: about 0.1 ms a frame. The attract runs clear z > 2 per seed (2.1, 2.3), **the lake runs
+alone do not (1.7, 1.8)**. The decision rests on the four runs agreeing in sign and size, their pooled +0.10 +- 0.05 ms
+(z about 4), the sampler's NEW / OLD in every run, and the exact check. A job is ~95 particles in ~70 emitters, 0.07-0.09
+ms on the worker; the game thread never waited at a join, and the render thread does not move.
+Console A/B: `build/agent-scratch/celosia-s5.vpk` with `build/agent-scratch/s5/env-console.txt` (s5ptcl, liftd12,
+a9sweep, s4disp, a9cmp rotated every 600 frames).
+
+### Next
+
+The emitter frame (~1% of the game thread) uses the game's own random generator and writes guest state read in the same
+frame: it needs the generator's draws replayed in order, not a deferral. The list walks over a host view of the emitter
+list. The S1 inline path can go once the console agrees.

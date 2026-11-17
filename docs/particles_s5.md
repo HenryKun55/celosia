@@ -16,7 +16,24 @@ the worktree's build/agent-scratch/s5src/).
 
 ## 1. What was left on the game thread after S1, and what tied it there
 
-PLACEHOLDER_PROFILE
+The Vita3K sampler (222 MHz, 3 cores, muted; `tools/s4groups.py` on the four interleaved A/B runs of section 3, both
+states mixed, 120-1 260 s of each run) puts the particle area at **4.4-4.5% of the game thread on the attract demo
+(1.06-1.10 ms a frame)** and **3.9-4.0% at the lake (1.64-1.68 ms a frame)**. It is flat; the largest symbols (share of
+the whole game thread, attract seed 7 / lake seed 7):
+
+| symbol | attract | lake | what |
+|---|---:|---:|---|
+| decomp_ptclupdate::emitter | 1.03% | 0.91% | the emitter frame (rates, spawns, the guest random calls): stays on the game thread |
+| decomp_ptclupdate::step | 0.59% | 0.51% | the emitter's particle loop around the step |
+| decomp_ptcl117::listImpl | 0.41% | 0.40% | the manager's emitter list walk |
+| decomp_particles::prep123 | 0.32% | 0.29% | `Emitter123` read out of guest memory once per emitter |
+| decomp_particles::stepRun (OLD) | 0.29% | 0.24% | **the per-particle step: what S5 moves** (off frames only, so ~0.5-0.6% of an off frame) |
+| decomp_ptclupdate::list | 0.27% | 0.24% | the list pass |
+| s1ptcl::records | 0.22% | 0.21% | the draws' records (the sin / cos / fade S5 also moves) |
+
+So the part of the area that can move without changing the game's random sequence is the per-particle step and the
+draws' per-particle values: about 0.15 ms of an off frame at 222 MHz. The rest (the emitter frame, the list walks, the
+reads of the emitter) touches guest state other modules read in the same frame, or the game's own random generator.
 
 The per-particle step (S1's `step123`) is plain float arithmetic on the 0xB0-byte record and the emitter's per-frame
 values (`Emitter123`, read out of guest memory once per emitter). Three things tied it to the game thread:
@@ -88,4 +105,61 @@ was deferred. Nothing reads it: the next callee that receives it, 0113C1A8, star
 callers treat it as scratch. The step's other guest-visible effects (the reflection's VU0 vf4-vf7, the call frames)
 were already undone by the step's epilogue (it puts the caller's VU0 file back).
 
-PLACEHOLDER_REST
+## 3. Equivalence
+
+`SOTC_S5PTCL_CHECK=1` copies every deferred record before the hand-over, steps the copies on the game thread with its
+own copy of the random state (`stepT<true>` on the copy, the same order), and at the join compares every record byte,
+the random state, and the draw values the worker made against s1ptcl's own computation of them. It also counts records
+written by the game between the hand-over and the join (none may be), records deferred but not stepped, and a damage
+test reached inside a deferred emitter (0113C8C8 must never run for one).
+
+| run (Vita3K 222 MHz, 600 s, p5) | particles checked | differ | draw values checked | differ | random state / written before join / damage in deferred |
+|---|---:|---:|---:|---:|---|
+| attract demo (chkAp5) | 2 132 765 | **0** | 1 730 026 | **0** | 0 / 0 / 0 |
+| Avion's lake (chkLp5, teleport + hold) | 1 789 581 | **0** | 1 625 092 | **0** | 0 / 0 / 0 |
+
+A job: 95-99 particles in 68-79 emitters, 0.084-0.088 ms on the worker, started 0.020 ms after the hand-over; the game
+thread never waited at a join (joins waited 0). The only join site in practice is the frame's end (site 2): the draws
+come after it and before the next manager call, which is why the draw values had to be kept past the frame's end (p5;
+p4 computed them and never used them). One module-gate join in an A/B run (01147430, once in 50 000 frames).
+
+Debugging on the way (STATE.md): p2's first check deferred nothing (the raw damage test, `kDamageOn` and a handle,
+refused every emitter even in normal frames); p4 uses 0113C8C8's own early test (`damageWanted`: the handle resolved),
+which is what decides whether the damage call does anything.
+
+spalign (build/agent-scratch/r110/spalign.py) on the shipped ELF: 0 sp-based NEON :128 / :256 accesses.
+
+## 4. Speed (Vita3K 222 MHz, interleaved A/B, both seeds)
+
+`abs5.sh`: `SOTC_AB_FLAG=s5ptcl SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>` (the state flips per frame in a seeded order),
+1 300 s a run, frames from 3 000 on, mixframes.py (blocks of 300 frames, `--shift -1`), sampler snapshots every 60 s.
+
+| route | seed 7: frame off - on | seed 11: frame off - on | game busy off - on (7 / 11) | sampler NEW / OLD (7 / 11) |
+|---|---|---|---|---|
+| attract | +0.104 +- 0.098 ms (z 2.1) | +0.107 +- 0.093 ms (z 2.3) | +0.120 / +0.105 ms | 60% / 63%, saved 0.057 / 0.048 ms |
+| lake | +0.103 +- 0.119 ms (z 1.7) | +0.092 +- 0.100 ms (z 1.8) | +0.098 / +0.080 ms | 67% / 66%, saved 0.067 / 0.067 ms |
+
+(+- is 2 SE.) The render thread does not move (-0.07..+0.03 ms, all within its 2 SE).
+
+**Decision: `SOTC_S5PTCL` stays on (default).** The gain is small, about 0.1 ms a frame (0.4% of the attract demo's
+frame, 0.2% of the lake's), and only the attract runs clear z > 2 per seed; **the lake runs alone fall short of z > 2
+in each seed (1.7 and 1.8)**. It is kept because all four runs agree in sign and size (+0.09..+0.11 ms), the four
+together give +0.10 +- 0.05 ms (inverse-variance pooled, 2 SE; z about 4; attract pooled z 3.1, lake pooled z 2.5),
+the sampler shows the moved code's cost leaving the game thread in every run (NEW 60-67% of OLD, z 45-58), and the
+in-run check is exact. The worker's cost (0.07-0.09 ms a frame on cores 1-2) does not show on the render thread.
+On the console the step costs more cycles than in Vita3K, so the share should be at least as large there; the console
+A/B (`build/agent-scratch/celosia-s5.vpk`, `s5/env-console.txt`: s5ptcl, liftd12, a9sweep, s4disp, a9cmp rotated every
+600 frames) will say.
+
+## 5. Pictures
+
+Vita3K cannot take window shots with its window hidden (the user's rule), so the pictures come from the Mac runner with
+the same code (`PS2X_HIDDEN_WINDOW=1`, frame-locked shots with `PS2X_SNAPSHOT_FRAMES`), S5 on and off: PLACEHOLDER_PICS
+
+## 6. Next
+
+- The emitter frame itself (decomp_ptclupdate::emitter, ~1% of the game thread) is the larger part of the area; it
+  draws from the game's own random generator (VU0 R) and writes guest state other modules read, so moving it needs the
+  generator's sequence replayed in order (a per-frame log of the draws) rather than a deferral.
+- The list walks (listImpl, list) could run over a host view of the emitter list built once a frame.
+- The off path (S1's inline step) can go once the console A/B agrees.
