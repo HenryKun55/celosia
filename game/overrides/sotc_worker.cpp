@@ -45,6 +45,7 @@
 // Not as the PS2: the job's guest calls charge no EE cycles to the game's
 // clock; its random numbers are its own stream.
 #include "sotc_worker.h"
+#include "s5_particles.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_decomp.h"
 
@@ -945,6 +946,9 @@ namespace sotc_worker
         template <int I>
         void gate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
+            // Round S5: the particle batch's worker done before an entry that may read a particle record.
+            if constexpr (!s5ptcl::allowed(kModuleEntries[I]))
+                s5ptcl::joinIfPending(kModuleEntries[I]);
             if (g_skipEntry == kModuleEntries[I] && !t_onWorker)
             {
                 g_skipEntry = 0;

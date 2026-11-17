@@ -41,6 +41,7 @@
 #include "sotc_decomp.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
+#include "s5_particles.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -943,6 +944,7 @@ namespace decomp_hot47e
             env.eye83 = env.eyeBuf;
         }
         const int mode91 = !skipStep && sotc_decomp::ptcl91On() ? sotc_decomp::ptcl91Mode() : 0;
+        s5ptcl::managerBegin(rdram, mode91 == 0); // round S5: the particles' steps go to a batch until managerEnd
         uint64_t s1 = 0u;
         SET_GPR_S32(ctx, 4, kGroups);
         SET_GPR_U64(ctx, 5, 0u);
@@ -1057,6 +1059,7 @@ namespace decomp_hot47e
             afterSteps();
             layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
         }
+        s5ptcl::managerEnd(); // round S5: the batch handed to the worker
         SET_GPR_S32(ctx, 20, 0xFFFFFFFFu);
         SET_GPR_S32(ctx, 4, kGroups);
         if (pp) { pprof::tAll += sotc_prof::ticks() - pt0; pprof::report(); }

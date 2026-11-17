@@ -41,6 +41,7 @@
 #include "sotc_prof.h"
 #include "sotc_decomp.h"
 #include "sotc_worker.h"
+#include "s5_particles.h"
 namespace char104 // round 104 (decomp_char104.cpp)
 {
     void install(PS2Runtime &runtime);
@@ -3310,7 +3311,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -5947,6 +5948,7 @@ namespace sotc_native
             }
             sotc_prof::frameTick(frame);
             sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
+            s5ptcl::frameEnd();            // round S5: the particle batch joined at the frame's end, its statistics
             char104::frameTick(frame);     // round 104
             sotc_decomp::g_gameFrame = frame;
             sotc_decomp::fastStatsTick(frame);
@@ -12727,13 +12729,13 @@ void installSotcNative(PS2Runtime &runtime)
 // data move the end past it; if that message comes back after code grows or
 // shrinks, change the size (any value that moves the text end more than
 // ~4.5 KB away from the boundary below it). Round 73: 16 KB. Round 85: 24 KB.
-// Round mem99: 32 KB. Round 105 (with round 104): 40 KB. Round 120: 56 KB. Round 122: 64 KB. Round S3: 72 KB. Decomp D11: 80 KB. Round 121: SOTC_VITA_ELF_ROOM
+// Round mem99: 32 KB. Round 105 (with round 104): 40 KB. Round 120: 56 KB. Round 122: 64 KB. Round S3: 72 KB. Decomp D11: 80 KB. Round S5: 88 KB. Round 121: SOTC_VITA_ELF_ROOM
 // overrides it (the instrumented PGO build, CMake PS2X_VITA_PGO=gen, sets its own).
 #ifndef SOTC_VITA_ELF_ROOM
 #if SOTC_RELEASE // round 130: the release build's smaller text needs more ("segment 1 overlaps" at 64 KB)
-#define SOTC_VITA_ELF_ROOM 81920
+#define SOTC_VITA_ELF_ROOM 90112
 #else
-#define SOTC_VITA_ELF_ROOM 81920
+#define SOTC_VITA_ELF_ROOM 90112
 #endif
 #endif
 extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[SOTC_VITA_ELF_ROOM] = {1};

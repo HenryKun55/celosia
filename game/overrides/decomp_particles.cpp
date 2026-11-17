@@ -444,9 +444,8 @@ namespace decomp_particles
         // and shape 4's random axis no longer step VU0's R register (the game's other random draws get another
         // sequence: random either way).
         uint32_t g_rndState = 0x2545F491u; // (round S1: at namespace scope, so its check can put it back)
-        inline float rnd()
+        inline float rndOf(uint32_t &x)
         {
-            uint32_t &x = g_rndState;
             x ^= x << 13;
             x ^= x >> 17;
             x ^= x << 5;
@@ -455,6 +454,7 @@ namespace decomp_particles
             std::memcpy(&f, &b, 4);
             return f - 1.0f;
         }
+        inline float rnd() { return rndOf(g_rndState); }
         inline float pw(float f, int32_t n)
         {
             if (f == 1.0f || n <= 0)
@@ -862,12 +862,34 @@ namespace decomp_particles
         return true;
     }
 
-    // One particle's step on the emitter's derived values: update123's statements in its order.
-    __attribute__((always_inline)) inline bool step123(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const Emitter123 &e, uint32_t p, float &f0out)
+    // Round S5: iosGetReflectVector (boot ELF 0x1be8b0: out = in - n x (in . n) x 2, xyz; w of in kept) on host
+    // memory, the recompiled code's VU0 operations in its order on locals (the same macros: the same bits). VU0's
+    // vf4-vf7 are not written (the step's epilogue puts the caller's VU0 file back in any case).
+    __attribute__((always_inline)) inline void reflectHost(const uint8_t *rdram, af *v, uint32_t normal)
     {
-        if (p == 0u || p >= PS2_RAM_SIZE - 0x200u || (p & 0xFu) != 0u)
-            return false;
-        af *P = reinterpret_cast<af *>(rdram + p);
+        const __m128 xyz = _mm_castsi128_ps(_mm_set_epi32(0, -1, -1, -1)), xOnly = _mm_castsi128_ps(_mm_set_epi32(0, 0, 0, -1));
+        __m128 vf4, vf5;
+        std::memcpy(&vf4, v, 16);
+        std::memcpy(&vf5, rdram + (normal & PS2_RAM_MASK & ~0xFu), 16);
+        const __m128 vf0 = _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f);
+        __m128 vf7 = PS2_VBLEND(_mm_setzero_ps(), PS2_VMUL(vf4, vf5), xyz);
+        vf7 = _mm_blendv_ps(vf7, PS2_VADD_K(1, 1, vf7, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(1, 1, 1, 1))), xOnly);
+        vf7 = _mm_blendv_ps(vf7, PS2_VADD_K(1, 1, vf7, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(2, 2, 2, 2))), xOnly);
+        const __m128 vf6 = PS2_VADD_K(1, 1, vf0, vf0);
+        vf5 = _mm_blendv_ps(vf5, PS2_VMUL_K(0, 1, vf5, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(0, 0, 0, 0))), xyz);
+        vf5 = _mm_blendv_ps(vf5, PS2_VMUL_K(1, 1, vf5, _mm_shuffle_ps(vf6, vf6, _MM_SHUFFLE(3, 3, 3, 3))), xyz);
+        vf4 = PS2_VBLEND(vf4, PS2_VSUB_K(0, 1, vf4, vf5), xyz);
+        std::memcpy(v, &vf4, 16);
+    }
+
+    // One particle's step on the emitter's derived values: update123's statements in its order.
+    // kHost (round S5): the step as host code that needs no guest context: P any host copy of the record, the floor /
+    // ceiling's reflections by reflectHost, no damage test (S5 defers only emitters whose test is off), no ctx.
+    // The same statements otherwise, so the same bits (SOTC_S5PTCL_CHECK compares them).
+    template <bool kHost>
+    __attribute__((always_inline)) inline bool stepT(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const Emitter123 &e, uint32_t p, af *P, float &f0out,
+                                                     uint32_t &rs)
+    {
         const float dt = e.dt;
         if (P[0x40 / 4] < P[0x44 / 4] + dt || e.shape == 0u || (e.collision != 0u && reinterpret_cast<const au *>(P)[0xA4 / 4] == 0u))
             return false;
@@ -940,7 +962,7 @@ namespace decomp_particles
         }
         if (e.jitter)
             for (int i = 0; i < 3; ++i)
-                P[i] += rnd() * e.jitterAmp - e.jitterHalf;
+                P[i] += rndOf(rs) * e.jitterAmp - e.jitterHalf;
         {
             const Guest g{rdram, ctx, runtime};
             const float f1 = e.margin * P[0x4C / 4];
@@ -949,8 +971,17 @@ namespace decomp_particles
             auto hit = [&](float to, uint32_t normal, uint32_t site1, uint32_t site2, const float *k)
             {
                 P[1] = to;
-                g.reflect(p + 0x10u, normal, site1, frame);
-                g.reflect(p + 0x20u, normal, site2, frame);
+                if constexpr (kHost)
+                {
+                    (void)site1, (void)site2, (void)frame, (void)g;
+                    reflectHost(rdram, P + 4, normal);
+                    reflectHost(rdram, P + 8, normal);
+                }
+                else
+                {
+                    g.reflect(p + 0x10u, normal, site1, frame);
+                    g.reflect(p + 0x20u, normal, site2, frame);
+                }
                 for (int c = 0; c < 3; ++c)
                 {
                     P[4 + c] *= k[0];
@@ -1001,9 +1032,9 @@ namespace decomp_particles
             P[0x9C / 4] = (speed + turn * dt) * f0;
             if (e.randomAxis)
             {
-                const float r0 = rnd();
+                const float r0 = rndOf(rs);
                 P[0x30 / 4] = e.axisBase + e.axisRange * r0;
-                const float r1 = rnd();
+                const float r1 = rndOf(rs);
                 f0 = e.axisRange * r1;
                 P[0x38 / 4] = 0.0f;
                 P[0x3C / 4] = 0.0f;
@@ -1019,6 +1050,7 @@ namespace decomp_particles
             P[0x9C / 4] = (speed + e.span2Ch * dt) * f0;
         }
         // 0113C8C8: the damage test, when it is on and its handle resolves (as update123: asked per particle).
+        if constexpr (!kHost)
         {
             const Guest g{rdram, ctx, runtime};
             if (g.u32(kDamageOn) != 0u && reinterpret_cast<const au *>(rdram + e.a2)[0xD8 / 4] != 0u)
@@ -1044,6 +1076,32 @@ namespace decomp_particles
         f0out = f0;
         return true;
     }
+    __attribute__((always_inline)) inline bool step123(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const Emitter123 &e, uint32_t p, float &f0out)
+    {
+        if (p == 0u || p >= PS2_RAM_SIZE - 0x200u || (p & 0xFu) != 0u)
+            return false;
+        return stepT<false>(rdram, ctx, runtime, e, p, reinterpret_cast<af *>(rdram + p), f0out, g_rndState);
+    }
+
+    // Round S5 (s5_particles.cpp): the host step of a deferred batch. `P` the record (in guest RAM, or a check copy);
+    // its emitter's values in a local (the record's may_alias stores cannot touch them). The random state is
+    // rsIo: g_rndState (the job owns it while it runs) or the check's own copy.
+    void stepHostRun(uint8_t *rdram, const Emitter123 &eIn, const uint32_t *recs, uint8_t *const *copies, uint32_t n, uint32_t &rsIo)
+    {
+        const Emitter123 e = eIn;
+        uint32_t rs = rsIo;
+        float f0;
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            const uint32_t p = recs[i];
+            af *P = copies ? reinterpret_cast<af *>(copies[i]) : reinterpret_cast<af *>(rdram + p);
+            if (i + 1u < n && !copies)
+                __builtin_prefetch(rdram + recs[i + 1u] + 0x40u);
+            stepT<true>(rdram, nullptr, nullptr, e, p, P, f0, rs);
+        }
+        rsIo = rs;
+    }
+    uint32_t &rndState() { return g_rndState; }
 
     // SOTC_S1PTCL_CHECK (the step's half): every n-th batched particle also run through update123 on a copy, from the
     // same random state; the two records compared bit for bit ([s1step] lines).

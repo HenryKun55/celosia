@@ -42,6 +42,7 @@ namespace decomp_particles
     extern uint64_t g_damageCalls, g_damageSkipped;
 }
 #include "s1_particles.h" // round S1: the emitter's particle step as one batch
+#include "s5_particles.h" // round S5: the batch on a worker
 #include "a9sweep.h"
 namespace decomp_hot47e
 {
@@ -1291,9 +1292,13 @@ namespace decomp_ptclupdate
                 };
                 using Fb = decltype(fallback);
                 uint32_t last = 0u;
-                const uint32_t stepped = decomp_particles::stepRun(
-                    rdram, ctx, runtime, e123, a0, n, s1Every, f0, [](void *arg, uint32_t p, int32_t left, uint32_t next, float &fr) { (*static_cast<Fb *>(arg))(p, left, next, fr); },
-                    &fallback, last);
+                const auto fbThunk = [](void *arg, uint32_t p, int32_t left, uint32_t next, float &fr) { (*static_cast<Fb *>(arg))(p, left, next, fr); };
+                // Round S5: the emitter's steps to the batch the worker runs (s5_particles.cpp), else here as S1.
+                const bool s5 = s5ptcl::wantDefer(rdram, e123);
+                if (!s5)
+                    s5ptcl::beforeInlineStep();
+                const uint32_t stepped = s5 ? s5ptcl::deferRun(rdram, ctx, runtime, e123, a0, n, f0, fbThunk, &fallback, last)
+                                            : decomp_particles::stepRun(rdram, ctx, runtime, e123, a0, n, s1Every, f0, fbThunk, &fallback, last);
                 st.h123 += st.on ? stepped : 0u;
                 if (count)
                     s3 += stepped;
@@ -1301,6 +1306,7 @@ namespace decomp_ptclupdate
                 s2 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(last)));
                 return;
             }
+            s5ptcl::beforeInlineStep(); // round S5: update123 draws from the host random stream too
             for (int32_t left = n; left != 0; --left)
             {
                 f0 = m.f32(a0 + 0x40u);

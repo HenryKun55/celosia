@@ -34,6 +34,7 @@
 // ([s1ptclr]). The step's half of S1 (each emitter's particles as one batch on
 // its per-frame values derived once) is decomp_particles::prep123 / stepRun.
 #include "sotc_decomp.h"
+#include "s5_particles.h"
 #include "ptcl_types.h"
 #include "runtime/ps2_diag.h"
 
@@ -176,10 +177,17 @@ namespace s1ptcl
             cellV = f32At(rdram, fx + effect::kCellV);
         }
         uint32_t written = 0;
+        // Round S5: the sin / cos pair and the fade the particle step's worker made (the deferred particles, in list
+        // order); the others computed here.
+        const s5ptcl::DrawCache dc = s5ptcl::drawCache(E);
+        uint32_t k = 0, hits = 0, checked = 0, differ = 0;
         for (int32_t visited = 0; visited < n; ++visited)
         {
             if (!inRam(p, sizeof(Particle)) || (p & 0xFu) != 0u)
+            {
+                s5ptcl::drawNote(hits, written - hits, checked, differ);
                 return -1;
+            }
             const Particle &q = *view<Particle>(rdram, p);
             const uint32_t next = q.next;
             if (next)
@@ -187,18 +195,42 @@ namespace s1ptcl
             if (q.life != 0.0f)
             {
                 if (written >= most)
+                {
+                    s5ptcl::drawNote(hits, written - hits, checked, differ);
                     return -1;
+                }
                 DrawRecord &d = out[written++];
                 d.x = q.pos.x;
                 d.y = q.pos.y;
                 d.z = q.pos.z;
                 d.size = sizeScale * q.size;
-                const float a = (alphaScale * q.alpha) * fadeOf(q);
+                float fade, s, o;
+                if (k < dc.n && dc.recs[k] == p)
+                {
+                    fade = dc.fade[k], s = dc.s[k], o = dc.c[k];
+                    ++k, ++hits;
+                    if (__builtin_expect(dc.check, 0))
+                    {
+                        float s2, o2;
+                        sinCos(q.angle + 0.785398126f, s2, o2);
+                        const float f2 = fadeOf(q);
+                        ++checked;
+                        if (std::memcmp(&s2, &s, 4) != 0 || std::memcmp(&o2, &o, 4) != 0 || std::memcmp(&f2, &fade, 4) != 0)
+                        {
+                            if (differ++ < 4u)
+                                std::fprintf(stderr, "[s5ptcl] draw values of %08x differ: sin %g/%g cos %g/%g fade %g/%g\n", p, s, s2, o, o2, fade, f2);
+                        }
+                    }
+                }
+                else
+                {
+                    fade = fadeOf(q);
+                    sinCos(q.angle + 0.785398126f, s, o);
+                }
+                const float a = (alphaScale * q.alpha) * fade;
                 __m128 c = _mm_mul_ps(_mm_setr_ps(q.r, q.g, q.b, a), scale);
                 c = _mm_max_ps(_mm_min_ps(c, one), zero);
                 _mm_storeu_ps(&d.r, c);
-                float s, o;
-                sinCos(q.angle + 0.785398126f, s, o);
                 d.s = s;
                 d.c = o;
                 if (kind == 2)
@@ -216,6 +248,8 @@ namespace s1ptcl
             }
             p = next;
         }
+        if (dc.n || hits)
+            s5ptcl::drawNote(hits, written - hits, checked, differ);
         return static_cast<int32_t>(written);
     }
 
@@ -461,6 +495,7 @@ namespace s1ptcl
 
     bool entry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, int kind)
     {
+        s5ptcl::joinIfPending(3u); // round S5: the records are read here
         RamCheck &rc = ramCheck();
         if (rc.bypass || !on())
             return false;
@@ -473,6 +508,18 @@ namespace s1ptcl
 // The drawers' natives call these first (decomp_ptcldraw.cpp, decomp_hot46j.cpp).
 namespace s1ptcl_api
 {
+    // Round S5 (the particle step's worker, after each emitter's batch): the draws' per-particle values from the
+    // stepped records (or the check's copies), as records() computes them: sin / cos of angle + pi/4, the fade.
+    void drawPrep(const uint8_t *rdram, const uint32_t *recs, uint8_t *const *copies, uint32_t n, float *s, float *c, float *fade)
+    {
+        const s1ptcl::SinCos sinCos(rdram);
+        for (uint32_t i = 0; i < n; ++i)
+        {
+            const ptcl::Particle &q = copies ? *reinterpret_cast<const ptcl::Particle *>(copies[i]) : *s1ptcl::view<ptcl::Particle>(rdram, recs[i]);
+            fade[i] = s1ptcl::fadeOf(q);
+            sinCos(q.angle + 0.785398126f, s[i], c[i]);
+        }
+    }
     bool drawLit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { return s1ptcl::entry(rdram, ctx, runtime, s1ptcl::kLit); }
     bool drawSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { return s1ptcl::entry(rdram, ctx, runtime, s1ptcl::kSinCosK); }
     bool drawAnimated(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { return s1ptcl::entry(rdram, ctx, runtime, s1ptcl::kAnimated); }

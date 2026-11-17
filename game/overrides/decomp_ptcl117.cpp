@@ -36,6 +36,7 @@
 // LOD record) or memory outside main RAM goes to the recompiled code
 // before anything is written.
 #include "sotc_decomp.h"
+#include "s5_particles.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -567,6 +568,7 @@ namespace decomp_ptcl117
 
     void dispEmitter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        s5ptcl::joinIfPending(0x0113D988u); // round S5
         if (on() && checkDue(0))
         {
             const uint32_t sp0 = GPR_U32(ctx, 29);
@@ -824,6 +826,7 @@ namespace decomp_ptcl117
     // ---- disp_particle_geodisp (0x113f6a8; a1 the geodisp) -------------
     void geodispDraw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        s5ptcl::joinIfPending(0x0113F6A8u); // round S5: the draws read the records
         const uint32_t gd = GPR_U32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x20u;
         if (!on() || (sp & 0xFu) != 0u || !ram(sp, 0x20u) || (gd != 0u && !ram(gd, 0x110u)))
