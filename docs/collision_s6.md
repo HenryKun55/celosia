@@ -32,7 +32,9 @@ The fixed routes (build/agent-scratch/s6/, scenes in run.sh):
 | scene | input | teleport | what it shows |
 |---|---|---|---|
 | `lake6` | in_lake6.txt: in_tbz2's inputs to frame 7 300, then a swim loop (stick up / left / up / right / down / right, 300 / 150 frames) to frame 80 000 | `SOTC_TELEPORT=2000:boss4 SOTC_TELEPORT_HOLD=600` (no return entry) | Avion's lake: the intro view of the pillars, then Wander swimming |
-| `ride6` | in_ride6.txt: CROSS (call Agro) at 2 300, stick up 40 at 2 900, TRIANGLE at 3 000, CROSS + stick up at 3 600 (Wander runs to Agro and mounts; in three Vita3K runs at frames ~4 100, ~5 000 and ~14 400: not at a fixed frame); from 4 300 blocks of 260 frames: CROSS twice (spur), stick up 200, stick left 50 | `SOTC_TELEPORT=2000:182.26,0,333.6,0h120` | the plain on the attract demo's gallop path (world -182, -334, south-east of the shrine): Wander rides Agro in wide left turns |
+| `ride6` | in_ride6.txt: CROSS (call Agro) at 2 300, stick up 40 at 2 900, TRIANGLE at 3 000, CROSS + stick up at 3 600 (Wander runs to Agro; he mounts when the run brings him to Agro's side: three Vita3K runs mounted at frames ~4 100, ~5 000 and ~14 400, the Mac picture run not in 23 000 frames); from 4 300 blocks of 260 frames: CROSS twice (spur), stick up 200, stick left 50 | `SOTC_TELEPORT=2000:182.26,0,333.6,0h120` | the plain on the attract demo's gallop path (world -182, -334, south-east of the shrine): Wander runs in wide left turns and rides Agro once mounted; **not a fixed ride** |
+
+**The ride route is not reliable**: mounting depends on where Agro's AI stands when Wander reaches him. The Vita3K runs mounted (at different frames); the Mac pictures (runs/mR1, 67 shots to ~23 000) show Wander running on the plain and along the shrine's walls, never mounted. Its A/Bs measure the plain with Wander on foot for part of the run and riding for the rest. The attract demo remains the steady gallop (Agro with Wander on the plain and through the canyon). A pad-script condition on the ridden state (the horse class's +0x950, read through the horse's handle) would make the mount certain.
 
 While Wander rides, `[tpos]` / `[pos]` stop moving: the objects' +0x170 is not updated for a ridden pair (the Mac
 pictures of a gallop show it), so a frozen position there means "mounted", not "stuck".
@@ -213,4 +215,22 @@ modern engine does with static collision (an acceleration structure built and va
 
 ## 6. Pictures, boot and the console card
 
-PLACEHOLDER_PICS
+Pictures (the Mac runner of this tree, `PS2X_HIDDEN_WINDOW=1`, muted, a copy of the console card; looked at, then the
+frames deleted, composites kept in build/agent-scratch/s6/runs/):
+
+- **the lake, S6 on and off** (mL1 / mL0, `lake6`, shots every 600 frames from 3 000; mLcmp.jpg): Avion's pillars and
+  the lake, Wander swimming with his ripples, once on a pillar's foot; the two states show the same water, ripples and
+  swim. (Mac runs drift in time against each other, so later shots differ in where Wander is, not in how anything is
+  drawn.)
+- **the route fix** (e1, S5's Mac build): with the return teleport left out, Wander swims in the lake to the run's end
+  and the camera follows him (e1a-d.jpg).
+- **the ride** (mR1, `ride6`, 67 shots): Wander runs on the plain and along the shrine's walls; he did not mount in this
+  run (see section 0). Earlier tries (e2: mounted, galloping on the plain) show what the mount looks like.
+
+Boot: celosia-s6.vpk on `lake6` with `SOTC_VITA_EAT_USER_MB=89` in Vita3K (92 MB user memory left before vitaGL): to
+frame 10 818, the index in use (12.5 of 16.6 under-end probes a frame), no fault.
+
+**Console A/B:** build/agent-scratch/celosia-s6.vpk (= p1, commit 709a523; later commits change comments and docs only)
+with build/agent-scratch/s6/env-console.txt (`SOTC_AB_FLAG=s6coll,s5ptcl,liftd12,a9sweep,s4disp,a9cmp`,
+`SOTC_AB_ROTATE=1 SOTC_AB_PERIOD=600`). The console gain is expected only where Wander is in or near a large water mesh
+(the lakes, the rivers); riding the plains it is neutral.

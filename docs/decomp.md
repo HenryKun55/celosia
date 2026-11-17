@@ -21685,7 +21685,9 @@ The fixed routes (build/agent-scratch/s6/, `run.sh` scene names; inputs in_lake6
   (no return entry). Avion's lake from ~2 000, Wander swimming from ~2 850.
 - **`ride6`**: `SOTC_TELEPORT=2000:182.26,0,333.6,0h120` (the plain on the attract demo's gallop path, world -182, -334);
   CROSS (call Agro) at 2 300, stick up at 2 900, TRIANGLE at 3 000, CROSS + stick up at 3 600: Wander runs to Agro and
-  mounts (Vita3K: at frames ~4 100, ~5 000, ~14 400 in three runs: not at a fixed frame); from 4 300 blocks of 260 frames (CROSS twice, stick up 200, stick left 50).
+  mounts when the run brings him to Agro's side (Vita3K: at frames ~4 100, ~5 000, ~14 400 in three runs; the Mac
+  picture run never in 23 000 frames: **not a fixed ride**); from 4 300 blocks of 260 frames (CROSS twice, stick up 200,
+  stick left 50). The attract demo stays the steady gallop (Agro with Wander).
 - The attract demo as before (Agro's gallop, no rider).
 
 A new teleport entry `<frame>:ride` (the game's nico_ForceChangePlayerHorseRidingControl) does not mount by itself in
@@ -21719,7 +21721,9 @@ Vita3K; it stays as a test aid, unused.
 triangles looked up in the index's candidates): chkLp1 (`lake6`, 16 398 frames) 121 661 under-end and 101 036 crossing
 probes, **0 differ, 0 missing**. A probe by the index runs the body for ~1.5 triangles where S2's loop box-tested ~75.
 The worker's job 0.009-0.044 ms a frame, no waits at the join, no spot-check failure. spalign on celosia-s6.elf: 846
-NEON :128 / :256 accesses, 0 sp-based.
+NEON :128 / :256 accesses, 0 sp-based. Pictures (Mac runner, hidden window): the lake with S6 on and off shows the same
+water, ripples and swim; the ride run did not mount (Wander runs on the plain). Boot: celosia-s6.vpk on `lake6` with
+`SOTC_VITA_EAT_USER_MB=89` in Vita3K to frame 10 818, the index in use, no fault.
 
 ### Speed (Vita3K 222 MHz, interleaved A/B, both seeds, p1)
 
@@ -21740,5 +21744,5 @@ unchanged; the S6 worker is under 1% of a core. Console A/B: `build/agent-scratc
 Collision's real batch: gamecore_sub_013CAEE0's table of segment tests (5 a frame at the lake, ~0.7 ms census), then
 the camera's checks, need the per-part guest caches (EntryModifiedManager's appends) and coll115 / fin125's lane-0 caches
 made safe for two writers first (appends kept per thread and replayed in order at the join). The ride route mounts by pad
-input (every Vita3K run of the final route mounted, but at different times: frames ~4 100, ~5 000 and ~14 400): a pad-script
+input (the Vita3K runs mounted at frames ~4 100, ~5 000 and ~14 400, the Mac run never): a pad-script
 condition on the ridden state (the horse class's +0x950) would make it exact.
