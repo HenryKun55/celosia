@@ -67,7 +67,7 @@ namespace sotc_decomp
         // kLiftD3 for decomp_liftd3_*.cpp, kLiftD4 for decomp_liftd4_*.cpp, kLiftD5 for decomp_liftd5_*.cpp, kLiftD6 for
         // decomp_liftd6_*.cpp, kLiftD7 for decomp_liftd7_*.cpp, kLiftD8 for decomp_liftd8_*.cpp,
         // kLiftD9 for decomp_liftd9_*.cpp, kLiftD10 for decomp_liftd10_*.cpp,
-        // kLiftD11 for decomp_liftd11_*.cpp).
+        // kLiftD11 for decomp_liftd11_*.cpp, kLiftD12 for decomp_liftd12_*.cpp).
         int liftSwitch = -1;
     };
 
@@ -659,6 +659,7 @@ namespace sotc_decomp
         kLiftD9,   // decomp D9: the collision and physics area's rest (ledges, climbing, swimming, fights) and natives' fallback copies, trace-checked (exact; decomp_liftd9_*.cpp)
         kLiftD10,  // decomp D10: the characters and motion area's rest (skeleton, motion, IK, the characters' state machines) and natives' fallback copies, trace-checked (exact; decomp_liftd10_*.cpp)
         kLiftD11,  // decomp D11: the display and models area's rest (model / mesh draw prep, GS packets, textures) and newly reached functions, trace-checked (exact; decomp_liftd11_*.cpp)
+        kLiftD12,  // decomp D12: the functions the routes reach that were still recompiled (script, collision, the climbing route), trace-checked (exact; decomp_liftd12_*.cpp)
         kLiftAlt,  // decomp D4 (test): off puts each lifted function's alternative copy (SOTC_DECOMP_LIFT_ALT: another lifter
                    // version of the same function, decomp_liftalt_*.cpp in test builds only) in its place: an A/B of two lifters
         kS1Ptcl,   // round S1: the particle subsystem's first redesign: draw records from a host snapshot taken at the
@@ -677,8 +678,8 @@ namespace sotc_decomp
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it)
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it)
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -1020,6 +1021,9 @@ namespace sotc_decomp
 // Decomp D11: a lifted function of D11's batch, in the table while SOTC_LIFTD11 is on.
 #define SOTC_DECOMP_LIFT_FUNCTION_D11(address, name, fn, original) \
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, false, false, false, false, false, true, original, ::sotc_decomp::kLiftD11}
+// Decomp D12: a lifted function of D12's batch, in the table while SOTC_LIFTD12 is on.
+#define SOTC_DECOMP_LIFT_FUNCTION_D12(address, name, fn, original) \
+    static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name{address, #name, fn, false, false, false, false, false, false, true, original, ::sotc_decomp::kLiftD12}
 // Decomp D5: a lifted copy of a function a native replaces (its slot holds the native): what sotc_decomp::recompiled()
 // gives the natives (their fallbacks to the original code) while SOTC_LIFTD5 is on. Registered as "<name>_fb", so
 // SOTC_DECOMP_SKIP=<name> (the native left out) puts the copy in the table, where the difftest can check it.
@@ -1043,6 +1047,9 @@ namespace sotc_decomp
 // Decomp D11: a fallback copy (as SOTC_DECOMP_LIFT_FALLBACK) lifted in D11's round: served while SOTC_LIFTD11 is on.
 #define SOTC_DECOMP_LIFT_FALLBACK_D11(address, name, fn, original) \
     static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name##_fb{address, #name "_fb", fn, false, false, false, false, false, false, true, original, ::sotc_decomp::kLiftD11}
+// Decomp D12: a fallback copy (as SOTC_DECOMP_LIFT_FALLBACK) lifted in D12's round: served while SOTC_LIFTD12 is on.
+#define SOTC_DECOMP_LIFT_FALLBACK_D12(address, name, fn, original) \
+    static const ::sotc_decomp::Registrar sotc_decomp_registrar_##name##_fb{address, #name "_fb", fn, false, false, false, false, false, false, true, original, ::sotc_decomp::kLiftD12}
 // Decomp D4 (test builds): another lifter version of a lifted function, in its place while liftalt is off.
 #define SOTC_DECOMP_LIFT_ALT(address, name, fn) \
     static const ::sotc_decomp::LiftAltRegistrar sotc_decomp_liftalt_##name{address, fn}

@@ -736,6 +736,8 @@ namespace sotc_replay
         // passes it: the world place is (-f12, f13, -f14), as +0x170; f16 the yaw), at the first Agro step from that game frame (vif1 chains, as
         // PS2X_INPUT_CLOCK=frames). <frame>:boss<n> takes the boss table's record n (+0xC count, +0x10 the
         // records, 0xEC each; +0x64 / +0x68 / +0x6C / +0x70 the place bossStatStartDemo warps Agro to).
+        // Decomp D12: <frame>:active<n> calls bossStatSetActiveBoss (0x13494D8) with record n (no teleport): the colossus the
+        // world holds switched as the game does after a fight (a test aid to reach the other colossi from the console card).
         // SOTC_TELEPORT_HOLD=<n> puts them back there every 30 frames for n frames (the ground streams in meanwhile).
         // SOTC_TELEPORT_LIST=<frame> prints the table from that frame; SOTC_TELEPORT_POS=<n> both positions every n frames.
         // Off unless set.
@@ -747,6 +749,7 @@ namespace sotc_replay
             bool done = false;
             int64_t hold = -1;                   // "h<n>" after the place: this entry's own hold (else SOTC_TELEPORT_HOLD)
             int obj = -1;                        // Decomp D10: "obj<k>,dx,dy,dz": object handle k's place (+0x170) plus (dx, dy, dz)
+            int active = -1;                     // Decomp D12: "active<n>": bossStatSetActiveBoss(record n) called, no teleport
             float d[3] = {0, 0, 0};
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
         };
@@ -797,6 +800,16 @@ namespace sotc_replay
             g_probeOriginal(rdram, ctx, runtime);
         }
         constexpr uint32_t kSetPos = 0x013522A0u;
+        constexpr uint32_t kSetActiveBoss = 0x013494D8u; // Decomp D12: bossStatSetActiveBoss (a0 the boss record)
+
+        void activeBossCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t record)
+        {
+            const R5900Context keep = *ctx;
+            SET_GPR_U32(ctx, 4, record);
+            const uint32_t sp = (GPR_U32(ctx, 29) - 0x400u) & ~15u;
+            sotc_decomp::callGuest(rdram, ctx, runtime, kSetActiveBoss, GPR_U32(&keep, 31), sp);
+            *ctx = keep;
+        }
 
         void teleportCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, const float p[4], float dx)
         {
@@ -891,6 +904,21 @@ namespace sotc_replay
                         t.holdUntil = frame + (t.hold >= 0 ? static_cast<uint64_t>(t.hold) : g_teleportHold);
                         t.nextHold = frame + 30u;
                         float p[4] = {t.p[0], t.p[1], t.p[2], t.p[3]};
+                        if (t.active >= 0)
+                        {
+                            // Decomp D12: the game's own switch of the colossus the world holds (the light's target):
+                            // a test aid to reach the other colossi's scripts from the console card.
+                            t.holdUntil = 0;
+                            if (!records || static_cast<uint32_t>(t.active) >= count)
+                                std::fprintf(stderr, "[teleport] no boss record %d (count %u)\n", t.active, count);
+                            else
+                            {
+                                activeBossCall(rdram, ctx, runtime, records + static_cast<uint32_t>(t.active) * 0xECu);
+                                std::fprintf(stderr, "[teleport] frame %llu: active boss %d (rec %08x)\n", (unsigned long long)frame, t.active,
+                                             records + static_cast<uint32_t>(t.active) * 0xECu);
+                            }
+                            continue;
+                        }
                         if (t.boss >= 0)
                         {
                             if (!records || static_cast<uint32_t>(t.boss) >= count)
@@ -1197,6 +1225,8 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what.rfind("boss", 0) == 0)
                         t.boss = std::atoi(what.c_str() + 4);
+                    else if (what.rfind("active", 0) == 0)
+                        t.active = std::atoi(what.c_str() + 6);
                     else if (what.rfind("obj", 0) == 0)
                         std::sscanf(what.c_str() + 3, "%d,%f,%f,%f", &t.obj, &t.d[0], &t.d[1], &t.d[2]);
                     else if (what.rfind("probe", 0) == 0)
@@ -1208,7 +1238,7 @@ namespace sotc_replay
                         std::sscanf(what.c_str(), "%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3]);
                     // Decomp D9: "h<n>" at the end: this entry's own hold (h0: none), e.g. tries from a place in an area
                     // already streamed in.
-                    const size_t h = what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
+                    const size_t h = what.rfind("active", 0) == 0 ? std::string::npos : what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
                     if (h != std::string::npos)
                         t.hold = std::strtoll(what.c_str() + h + 1, nullptr, 10);
                     g_teleports.push_back(t);
