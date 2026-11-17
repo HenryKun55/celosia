@@ -931,7 +931,7 @@
   {
    "round": "D13",
    "date": "2026-11-17",
-   "commit": "57aba82",
+   "commit": "b70acc6",
    "focus": "Decomp",
    "summary": "Decomp D13: more of the game converted. The colossus switch now also brings in colossi 1 to 4 (never visited before: 31 new functions, among them one colossus' falling rocks and several boss starts), and a new test route drops Wander beside a pillar's edge in the fifth colossus' lake so that he hangs from it, a climbing position earlier rounds reached only once by chance. The converter now handles its last two refused code patterns (a conditional jump out of a function, and the DMA wait loops). 292 functions converted (including 79 earlier speed cuts measured again), 124 checked exact; 46 of those were slower on the Vita and cut (mostly the earlier cuts again): 78 ship behind SOTC_LIFTD13 (on), 7 of them script and 5 collision.",
    "result": "Whole game (honest count): 5 515 of 9 024 functions (61.1%, 60.2% after D12), 64.4% of the code, 97.6% of calls. Script and events 274 of 633 (267), collision 189 of 317 (184), characters 718 of 1 206 (704). Exact: all 78 shipped functions checked by the trace check, 0 register differences (single bytes only at the known noise words other threads write). Speed (Vita3K 222 MHz, interleaved A/B): the shipped 78 neutral (frame time within 0.1 ms). Boots and runs with the console's free memory (Vita3K, 89 MB taken)."
