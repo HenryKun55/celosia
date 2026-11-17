@@ -21435,3 +21435,53 @@ copy at the hook or writes guest state the next frame reads.
 
 The static guards in modelDispHook / mdslane::join / obj125Run; the hook's own palette read through a host arena; the 2D
 (k2D) path handing quads to the renderer directly; the haze copy's two unplaced words; a host FINISH without the DMA walk.
+
+
+## A9 sweep: A9 codegen costs in hot code: static guards, memcmp, the scheduler's divisions and hash walks, emulated TLS (SOTC_A9SWEEP) (2026-11-16)
+
+A codebase-wide sweep for what the Vita's GCC turns into expensive Cortex-A9 code, found with the Vita3K sampler and fixed
+without a change of behaviour. Full write-up: docs/a9_sweep.md. Scripts, runs and logs: `build/agent-scratch/a9s/`
+(STATE.md; aba9s.sh the interleaved A/B, abparts.sh / serialq.sh the per-part A/Bs, chka9.sh the checks, a9rank.py /
+guards.py / callers.py / divsites.py the ranking, src/divtest.cpp / eqtest.cpp the exhaustive tests). Own Vita3K trees
+../vita3k-celosia-a9s / -a9sb (222 MHz, 3 cores, muted).
+
+### What changed (all behind `SOTC_A9SWEEP`, default on; A/B `a9sweep`; `SOTC_A9SWEEP_AB_PARTS=<mask>` flips some parts only)
+
+- **Hoisting (1)**: function-local statics with a dynamic initialiser cost a guard load and a `dmb ish` on every call on
+  ARMv7. 90 values in 85 initialisers (48 switch helpers, 35 in-body statics of hot functions, modelDispHook's nine, gameLodRaw, s1ptcl's
+  counters, two scheduler members) are now plain globals set once at install (a9sweep.h `A9S_HOIST` / `A9S_VAL`); the
+  original static is the off path.
+- **memcmp (2)**: `memcmp(a, b, N) == 0` with a constant N as word compares (`a9eq::eq<N>`, 82 sites: the cache
+  validations in coll125 / coll115 / seg80 / s2coll / the particles / modelDispHook ...); newlib's memcmp was 1% of the game thread.
+- **Divisions (4)**: syncCyclesToHostClock's two 64-bit divisions and s1ptcl's `n % 4000` by long division in base 2^16
+  (ps2_a9.h: four multiplies by a reciprocal; the A9 has no divide instruction).
+- **Scheduler caches (8)**: invocationStackTop's answers direct-mapped in front of its hash table (its 32-bit hash is the
+  depth only), thread()'s last 8 by `id & 7`.
+- **Zones (16)**: GameZone's and the dispatch's thread_local zone stores (an emulated-TLS call each) skipped while prof129
+  is off.
+
+### Equivalence
+
+divtest 1.1e11 cases and eqtest 1.6e7 cases, 0 differ. `SOTC_A9SWEEP_LOG=1`: every hoisted value printed beside the off
+path's original (73-76 initialised in each A/B run): 0 DIFFERS. With the sweep on: `SOTC_S4DISP_CHECK` 1 338 pass checks and
+5 744 palettes, `SOTC_S3CHARA_CHECK` 340 001 poses / 7.41 M bones, `SOTC_S2COLL_CHECK` 183 167 view clips / 1 065 990 keep
+tests (and s2water's 215 234 probes): 0 differences. Pictures unchanged (ground, gallop, swimming, the shrine).
+
+### Speed (Vita3K 222 MHz, interleaved A/B, both seeds)
+
+| route | seed 7: frame off - on | seed 11 | game busy off -> on (7 / 11) |
+|---|---|---|---|
+| attract | +0.437 +- 0.131 ms | +0.302 +- 0.109 ms | 25.99 -> 25.50 / 24.14 -> 23.79 ms |
+| lake | +0.748 +- 0.152 ms | +0.711 +- 0.125 ms | 43.11 -> 42.42 / 42.51 -> 41.82 ms |
+
+Per part at the lake (`SOTC_A9SWEEP_AB_PARTS`): hoisting +0.05 / +0.09 (z < 2: kept on exactness, the barrier's cost is
+console-only), memcmp +0.25 / +0.37 (z 4.0 / 5.6), the scheduler parts together +0.41 / +0.28 (z 4.7 / 4.9). The sampler
+cannot split shared helpers by state (no state per sample, LR = 0 in leaf helpers), so the per-part test is frame time.
+The render thread +0.21 ms a frame at the lake with the sweep on (as with S4: the next frame comes sooner).
+Binary: text +185 492 bytes, bss +1 136 against celosia-s4.elf (0.18 MB in all).
+
+### Next
+
+The console A/B (`build/agent-scratch/celosia-a9s.vpk`, `a9s/env-console.txt`: a9sweep, s4disp, a9cmp rotated every
+600 frames) prices the barriers; syncAccounting's `this_thread::get_id` (TLS) and malloc's reent are left; the off paths can
+go once the console agrees.
