@@ -856,6 +856,7 @@ namespace sotc_replay
         // (object + 0x90) +0x950 is the horse ridden (0, or the player itself, when on foot). A script waits on it with
         // "@f0=1:WAIT" and presses TRIANGLE until it holds with "r<n>@f0=1" (the ride7 route); changes go to the log ([ride]).
         bool g_rideFlag = false;
+        uint64_t g_steerFrom = 0; // Round S7: SOTC_RIDE_STEER
         float g_wanderTrail[3] = {0, 0, 0}; // Round S7: Wander's place 8 horse steps ago (the "ahead" teleport's heading)
         float g_wanderRing[8][3] = {};
         uint32_t g_wanderRingN = 0;
@@ -877,6 +878,7 @@ namespace sotc_replay
                 auto rd = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
                 if (g_rideFlag)
                 {
+                    auto rf = [&](uint32_t a) { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
                     const uint32_t ix = rd(0x01465900u) & 0xFFFFu;
                     const uint32_t pl = ix ? rd(0x0021B900u + ix * 24u) : 0u;
                     uint32_t h = ridingHorse(rdram, pl);
@@ -918,6 +920,50 @@ namespace sotc_replay
                     }
                     if (!h && aiFlag)
                         h = g_horse;
+                    // Round S7: SOTC_RIDE_STEER=<frame>: from that frame, while Wander is on foot, the left stick is steered
+                    // (closed loop on his motion, so the camera's angle does not matter) toward Agro, and TRIANGLE is
+                    // pressed in short beats once he is within 2.2 units: he leaps on. Off once he rides.
+                    if (g_steerFrom && pl && pl < 0x2000000u && g_horse && g_horse < 0x2000000u)
+                    {
+                        static float theta = 0.0f, sign = 1.0f, errSum = 0.0f;
+                        static uint32_t errN = 0, beat = 0;
+                        const uint64_t fr = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+                        if (h || fr < g_steerFrom)
+                        {
+                            PSPadBackend::setSteerStick(false, 0, 0);
+                            PSPadBackend::setSteerButtons(0);
+                        }
+                        else
+                        {
+                            const float wx = rf(pl + 0x170u), wz = rf(pl + 0x178u);
+                            const float ax = rf(g_horse + 0x170u), az = rf(g_horse + 0x178u);
+                            const float dx = ax - wx, dz = az - wz;
+                            const float dist = std::sqrt(dx * dx + dz * dz);
+                            const float hx = wx - g_wanderTrail[0], hz = wz - g_wanderTrail[2];
+                            if (std::sqrt(hx * hx + hz * hz) > 0.08f && dist > 0.5f)
+                            {
+                                float err = std::atan2(dx, dz) - std::atan2(hx, hz);
+                                while (err > 3.14159265f)
+                                    err -= 6.2831853f;
+                                while (err < -3.14159265f)
+                                    err += 6.2831853f;
+                                theta += sign * 0.3f * err;
+                                errSum += std::fabs(err);
+                                // A mirrored stick-to-world map turns the wrong way: the error stays large; flip once.
+                                if (++errN == 90u)
+                                {
+                                    if (errSum / 90.0f > 1.6f)
+                                        sign = -sign;
+                                    errN = 0;
+                                    errSum = 0.0f;
+                                }
+                            }
+                            PSPadBackend::setSteerStick(true, std::sin(theta), -std::cos(theta));
+                            const bool close = dist < 2.2f;
+                            beat = close ? beat + 1u : 0u;
+                            PSPadBackend::setSteerButtons(close && (beat % 16u) < 6u ? 0x1000u : 0u);
+                        }
+                    }
                     if (h != g_rideSeen)
                     {
                         g_rideSeen = h;
@@ -1019,6 +1065,9 @@ namespace sotc_replay
                             float q[4] = {-rf(player + 0x170u) + dx * t.p[0], rf(player + 0x174u), -rf(player + 0x178u) + dz * t.p[0],
                                           std::atan2(dx, dz) + t.p[1]};
                             teleportCall(rdram, ctx, runtime, g_horse, q, 0.0f);
+                            // The input script's host flag 1 counts the placements: a try's presses wait on "@f1=<n>".
+                            static uint32_t placed = 0;
+                            PSPadBackend::setScriptFlag(1, ++placed);
                             std::fprintf(stderr, "[teleport] frame %llu: Agro put %.1f ahead of Wander at %.2f %.2f %.2f yaw %.3f (heading %.2f %.2f)\n",
                                          (unsigned long long)frame, t.p[0], q[0], q[1], q[2], q[3], dx, dz);
                             continue;
@@ -1428,7 +1477,9 @@ namespace sotc_replay
                     runtime.registerFunction(g_probeAddr, probeHook);
                 }
             }
-            g_rideFlag = !g_teleports.empty() || (std::getenv("SOTC_RIDE_FLAG") && std::atoi(std::getenv("SOTC_RIDE_FLAG")) > 0);
+            if (const char *st = std::getenv("SOTC_RIDE_STEER"))
+                g_steerFrom = std::strtoull(st, nullptr, 10);
+            g_rideFlag = g_steerFrom || !g_teleports.empty() || (std::getenv("SOTC_RIDE_FLAG") && std::atoi(std::getenv("SOTC_RIDE_FLAG")) > 0);
             if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery || g_rideFlag) && runtime.hasFunction(kHorseStep))
             {
                 g_horseOriginal = runtime.lookupFunction(kHorseStep);

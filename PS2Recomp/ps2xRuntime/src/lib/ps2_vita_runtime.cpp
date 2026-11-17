@@ -644,7 +644,9 @@ namespace
             // KEY=VALUE lines (the PS2X_* switches of a scripted run).
             if (FILE *env = std::fopen("ux0:data/celosia/env.txt", "r"))
             {
-                char line[4096];
+                // Round S7: 64 KB lines (static: off the stack). At 4 KB a long PS2X_INPUT_SCRIPT (S6's ride6, 23 KB) was cut
+                // on the Vita while the Mac ran all of it.
+                static char line[65536];
                 while (std::fgets(line, sizeof(line), env))
                 {
                     line[std::strcspn(line, "\r\n")] = '\0';

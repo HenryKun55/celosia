@@ -44,6 +44,8 @@ namespace
     // Round S7: "@f<k>" in a script's memory condition reads host flag k (set by game code: e.g. Wander mounted on Agro)
     // instead of a guest RAM word; such an address is encoded as 0xF0000000 | k.
     std::atomic<uint32_t> g_scriptFlags[8];
+    std::atomic<uint32_t> g_steerStick{0};
+    std::atomic<uint16_t> g_steerButtons{0}; // Round S7: buttons held down by game code (PS2 masks, e.g. 0x1000 TRIANGLE) // Round S7: 0 = off, else 0x10000 | y << 8 | x (stick bytes)
     constexpr uint32_t kFlagAddress = 0xF0000000u;
     uint32_t scriptWord(uint32_t address)
     {
@@ -64,6 +66,12 @@ namespace
 
 void PSPadBackend::setScriptMemory(const uint8_t *rdram) { g_scriptRam = rdram; }
 void PSPadBackend::setScriptFlag(int k, uint32_t value) { g_scriptFlags[k & 7].store(value, std::memory_order_relaxed); }
+void PSPadBackend::setSteerButtons(uint16_t mask) { g_steerButtons.store(mask, std::memory_order_relaxed); }
+void PSPadBackend::setSteerStick(bool on, float x, float y)
+{
+    auto byte = [](float v) { const float c = v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); return static_cast<uint32_t>(127.5f + 127.5f * c) & 0xFFu; };
+    g_steerStick.store(on ? (0x10000u | byte(y) << 8 | byte(x)) : 0u, std::memory_order_relaxed);
+}
 
 bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t size)
 {
@@ -209,6 +217,12 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         data[yIndex] = static_cast<uint8_t>(y < 0 ? 0x00 : (y > 0 ? 0xFF : kPadStickCenter));
     };
     setStick(6, 7, keyAxis(KEY_A, KEY_D), keyAxis(KEY_W, KEY_S));
+    // Round S7: a left stick steered by game code (the ride route's walk to Agro); script stick entries still override it.
+    if (const uint32_t steer = g_steerStick.load(std::memory_order_relaxed))
+    {
+        data[6] = static_cast<uint8_t>(steer & 0xFFu);
+        data[7] = static_cast<uint8_t>((steer >> 8) & 0xFFu);
+    }
 
     // PS2X_INPUT_SCRIPT="<sec>:<BUTTON>:<duration>;..." scripted presses for testing.
     // Besides buttons, LS_UP/LS_DOWN/LS_LEFT/LS_RIGHT push the left stick,
@@ -431,7 +445,9 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 else if (e.onMemory)
                 {
                     // In script order: only once the entries before it started.
-                    due = g_scriptRam && (previous == nullptr || previous->state != 0) && scriptWord(e.memoryAddress) == e.memoryValue;
+                    // A host flag ("@f<k>") is waited on whatever the entries before it do (it is state, not a menu step).
+                    const bool flag = (e.memoryAddress & 0xFFFFFFF8u) == kFlagAddress;
+                    due = g_scriptRam && (flag || previous == nullptr || previous->state != 0) && scriptWord(e.memoryAddress) == e.memoryValue;
                 }
                 else
                 {
@@ -507,6 +523,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         }
     }
 
+    btns &= static_cast<uint16_t>(~g_steerButtons.load(std::memory_order_relaxed)); // Round S7: buttons held by game code
     data[2] = static_cast<uint8_t>(btns & 0xFF);
     data[3] = static_cast<uint8_t>(btns >> 8);
     native_recorder::padRead(data); // (the scene recorder: what the game read)

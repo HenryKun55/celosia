@@ -15,6 +15,9 @@ public:
     static void setScriptMemory(const uint8_t *rdram);
     // Round S7: host-side flags an input script can wait on ("@f<k>=<v>", "r<n>@f<k>=<v>"), set by game code (k < 8).
     static void setScriptFlag(int k, uint32_t value);
+    // Round S7: the left stick held at (x, y) (-1..1, y down) by game code while on.
+    static void setSteerStick(bool on, float x, float y);
+    static void setSteerButtons(uint16_t mask); // held down while set (PS2 masks)
 };
 
 #endif
