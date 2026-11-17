@@ -98,6 +98,11 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 #include <vector>
 #include "a9sweep.h"
 
+namespace decomp_wind
+{
+    extern bool g_s7AbOff; // round S7 (decomp_wind.cpp): the A/B windows' `s7wind`
+}
+
 namespace s4disp
 {
     // Round S4 part "palette" (s4_disp.cpp): skinned palettes' write serials (dispSkinned) and the worker's last copy.
@@ -3602,6 +3607,12 @@ namespace sotc_native
         }
         if (keep99At >= 0) // round mem99
             g_jobTrimOff = isOffAt(keep99At);
+        {
+            // Round S7: `s7wind` (decomp_wind.cpp's wind-zone query; not a sotc_decomp switch).
+            static const int s7windAt = indexOf("s7wind");
+            if (s7windAt >= 0)
+                decomp_wind::g_s7AbOff = isOffAt(s7windAt);
+        }
         if (sblur100At >= 0 || r100AllAt >= 0) // round 100
             g_sblur100 = !((sblur100At >= 0 && isOffAt(sblur100At)) || (r100AllAt >= 0 && isOffAt(r100AllAt)));
         // Round 102: `sw102` (the switch table) and `fmt102` each off in their
