@@ -21659,3 +21659,86 @@ a9sweep, s4disp, a9cmp rotated every 600 frames).
 The emitter frame (~1% of the game thread) uses the game's own random generator and writes guest state read in the same
 frame: it needs the generator's draws replayed in order, not a deferral. The list walks over a host view of the emitter
 list. The S1 inline path can go once the console agrees.
+
+
+## Redesign S6: collision, second pass: the water probes over a host index made and vouched for on a worker; the measuring routes fixed (SOTC_S6COLL) (2026-11-17)
+
+The sixth subsystem round, the second on collision after S2. The full write-up is docs/collision_s6.md; this is the
+summary. Scripts, runs and logs: `build/agent-scratch/s6/` (STATE.md; abs6.sh the s6coll interleaved A/B, chk6.sh the
+in-run check, chain_ab.sh the A/B queue, prof.sh the sampler, macrun.sh the Mac runner's hidden-window pictures, run.sh
+the scenes). Own Vita3K tree ../vita3k-celosia-s6 (222 MHz, 3 cores, muted); one heavy process at a time, all
+`nice -n 20`, builds `-j4`.
+
+### The measuring routes (use these from now on)
+
+**The old "lake" route measured the shrine.** in_tbz2.txt with `SOTC_TELEPORT=2000:boss4;7600:300,11.3,278.45,0`
+is at Avion's lake from frame 2 000 only until its second entry, which teleports Wander back to his load place on the
+altar (the teleport's numbers are world (-x, y, -z): -300, 11.31, -278.4). Every "lake" A/B since S2 analysed frames
+3 000 onwards, so mostly the altar. S5's reading (camera left behind) was not it: without the return entry the Mac
+pictures show Wander swimming with the camera on him. The `[pos]` "eye" is not the camera position and the player's
+`[pos]` / `[tpos]` stop moving while he swims or rides (stale object / +0x170 not updated for a ridden pair). The r141
+ride route (in_ride.txt) never mounts: Wander stands on the altar the whole run.
+
+The fixed routes (build/agent-scratch/s6/, `run.sh` scene names; inputs in_lake6.txt / in_ride6.txt):
+
+- **`lake6`**: in_tbz2's inputs, then a swim loop to frame 80 000; `SOTC_TELEPORT=2000:boss4 SOTC_TELEPORT_HOLD=600`
+  (no return entry). Avion's lake from ~2 000, Wander swimming from ~2 850.
+- **`ride6`**: `SOTC_TELEPORT=2000:182.26,0,333.6,0h120` (the plain on the attract demo's gallop path, world -182, -334);
+  CROSS (call Agro) at 2 300, stick up at 2 900, TRIANGLE at 3 000, CROSS + stick up at 3 600: Wander runs to Agro and
+  mounts (Vita3K: at frames ~4 100, ~5 000, ~14 400 in three runs: not at a fixed frame); from 4 300 blocks of 260 frames (CROSS twice, stick up 200, stick left 50).
+- The attract demo as before (Agro's gallop, no rider).
+
+A new teleport entry `<frame>:ride` (the game's nico_ForceChangePlayerHorseRidingControl) does not mount by itself in
+Vita3K; it stays as a test aid, unused.
+
+### What changed (`SOTC_S6COLL`, A/B `s6coll`)
+
+- **The profile first** (celosia-s5, `lake6`, sampler + round 63's census): collision 16.7% of the game thread (6.8 ms a
+  frame); the largest queries at the lake are the two water natives (under-end ~12 calls, crossing ~10 a frame: ~0.9 ms
+  of game thread by the sampler after S2's pre-tests), then gamecore_sub_013CAEE0's loop of 5 segment tests, an AI sight
+  line, the ground fill, the camera's five checks.
+- **s6_coll.cpp: a host index per water mesh**: a uniform xz grid whose cells list (ascending) every triangle whose box,
+  widened by a margin that bounds S2's, reaches the cell; a superset list of the triangles S2's box tests never pass
+  over; the heights sorted by FPU_C_OLT_S's key with a range-max of their indices (the last triangle between the ends in
+  two binary searches).
+- **The probes** (decomp_collision.cpp's waterProbeBody / waterSurfaceBody): the cell's candidates through S2's own box
+  and height tests, the last-between triangle always, the last triangle: exactly the bodies S2's loop runs, in its order.
+  Coordinates beyond the index's bound, more than 16 cells, or no vouched index: S2's loop.
+- **The worker**: at each frame's end the game thread hands a host thread (cores 1-2) the meshes probed in the last 120
+  frames (each table compared byte for byte with the index's copy: equal = vouched for the next frame, changed = made
+  again) and the meshes asked for (made). The game thread joins at its first water probe of the next frame or the next
+  frame's end, and per probe compares the table's first / middle / last triangles with the copy.
+- **Not moved** (collision_s6.md section 5): the segment tests. gamecore_sub_013CAEE0's table of segments is a real batch
+  (known before the first test), but a segment test makes planes / boundaries / vertices on demand into guest caches and
+  appends to the modified managers' lists, and coll115 / fin125 keep lane-0 host caches: two tests at once would race.
+  Those caches need a two-writer design first.
+
+### Equivalence
+
+`SOTC_S6COLL_CHECK=1` (each probe the index answers also run through S2's loop from the same blocks; S2's visited
+triangles looked up in the index's candidates): chkLp1 (`lake6`, 16 398 frames) 121 661 under-end and 101 036 crossing
+probes, **0 differ, 0 missing**. A probe by the index runs the body for ~1.5 triangles where S2's loop box-tested ~75.
+The worker's job 0.009-0.044 ms a frame, no waits at the join, no spot-check failure. spalign on celosia-s6.elf: 846
+NEON :128 / :256 accesses, 0 sp-based.
+
+### Speed (Vita3K 222 MHz, interleaved A/B, both seeds, p1)
+
+| route | seed 7: frame off - on | seed 11 | water probes, us a call off -> on (seed 7 / 11) |
+|---|---|---|---|
+| `lake6` | **+0.817 +- 0.109 ms** | **+0.933 +- 0.128 ms** | under-end 90 -> 57 / 95 -> 63 (z 43 / 35); crossing 120 -> 97 / 125 -> 105 (z 14 / 13) |
+| attract | +0.132 +- 0.265 ms | -0.125 +- 0.193 ms | small meshes only (not indexed): 9-54 us, no change |
+| `ride6` | -0.001 +- 0.116 ms | -0.001 +- 0.117 ms | small meshes only: 9-12 us, no change |
+
+Kept on: at the lake ~0.8-0.9 ms a frame of game thread (z ~15 per seed; busy 38.6 -> 37.8 ms), elsewhere neutral, as
+expected (no large water mesh on the plain). A first seed-7 lake run under heavy Mac load (another job's tests, load ~33)
+read +1.22 +- 1.22 ms; a first seed-11 run lost the boot menu's input; both were run again. Render thread and hook jobs
+unchanged; the S6 worker is under 1% of a core. Console A/B: `build/agent-scratch/celosia-s6.vpk` with
+`build/agent-scratch/s6/env-console.txt` (s6coll added to the rotation).
+
+### Next
+
+Collision's real batch: gamecore_sub_013CAEE0's table of segment tests (5 a frame at the lake, ~0.7 ms census), then
+the camera's checks, need the per-part guest caches (EntryModifiedManager's appends) and coll115 / fin125's lane-0 caches
+made safe for two writers first (appends kept per thread and replayed in order at the join). The ride route mounts by pad
+input (every Vita3K run of the final route mounted, but at different times: frames ~4 100, ~5 000 and ~14 400): a pad-script
+condition on the ridden state (the horse class's +0x950) would make it exact.

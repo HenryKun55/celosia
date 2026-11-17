@@ -32,7 +32,7 @@ The fixed routes (build/agent-scratch/s6/, scenes in run.sh):
 | scene | input | teleport | what it shows |
 |---|---|---|---|
 | `lake6` | in_lake6.txt: in_tbz2's inputs to frame 7 300, then a swim loop (stick up / left / up / right / down / right, 300 / 150 frames) to frame 80 000 | `SOTC_TELEPORT=2000:boss4 SOTC_TELEPORT_HOLD=600` (no return entry) | Avion's lake: the intro view of the pillars, then Wander swimming |
-| `ride6` | in_ride6.txt: CROSS (call Agro) at 2 300, stick up 40 at 2 900, TRIANGLE at 3 000, CROSS + stick up at 3 600 (Wander runs to Agro and mounts, ~3 900 in each Vita3K try); from 4 300 blocks of 260 frames: CROSS twice (spur), stick up 200, stick left 50 | `SOTC_TELEPORT=2000:182.26,0,333.6,0h120` | the plain on the attract demo's gallop path (world -182, -334, south-east of the shrine): Wander rides Agro in wide left turns |
+| `ride6` | in_ride6.txt: CROSS (call Agro) at 2 300, stick up 40 at 2 900, TRIANGLE at 3 000, CROSS + stick up at 3 600 (Wander runs to Agro and mounts; in three Vita3K runs at frames ~4 100, ~5 000 and ~14 400: not at a fixed frame); from 4 300 blocks of 260 frames: CROSS twice (spur), stick up 200, stick left 50 | `SOTC_TELEPORT=2000:182.26,0,333.6,0h120` | the plain on the attract demo's gallop path (world -182, -334, south-east of the shrine): Wander rides Agro in wide left turns |
 
 While Wander rides, `[tpos]` / `[pos]` stop moving: the objects' +0x170 is not updated for a ridden pair (the Mac
 pictures of a gallop show it), so a frozen position there means "mounted", not "stuck".
@@ -131,11 +131,58 @@ lake), and a build (a few ms) when a mesh first appears or changes.
 
 ## 3. Equivalence
 
-PLACEHOLDER_CHECK
+`SOTC_S6COLL_CHECK=1` (chk6.sh), in-run, from the same state both ways, no tolerance:
+
+- every probe the index answers is also run through S2's loop: for the crossing probe the work and crossing blocks are
+  saved before the index's run, put back, S2's loop run, and its blocks kept; compared bit for bit: the outcome (to the
+  recompiled code or not), f0, the 0x40-byte work block and the 0x10-byte crossing block;
+- "missing": every triangle S2's loop would run the body for (its box test keeps it; for the crossing probe, with its
+  height between the ends) is looked up in the index's candidate list, and S2's last-between index is compared with the
+  one from the sorted heights.
+
+| run (build) | where | frames | under-end probes compared | crossing probes compared | differ | missing |
+|---|---|---:|---:|---:|---:|---:|
+| chkLp1 (p1) | `lake6`, 600 s | 16 398 | 121 661 | 101 036 | **0** | **0** |
+
+In that run 75% of the probes went through the index (the rest: meshes under 32 triangles, which are not indexed, and
+the first frames of a mesh); a probe by the index ran the body for 1.6 (under-end) / 1.4 (crossing) triangles, where
+S2's loop box-tested ~74 / ~76 (S2_LOG: 888 / 758 triangles a frame over 12 / 10 probes). The worker's job (verifying
+three tables) took 0.009-0.044 ms; the game thread never waited at a join (waits 0-1 in every run); no table changed
+while in use (the spot checks never failed; "changed" only when a mesh streamed in). spalign on p1.elf: 846 NEON
+:128 / :256 accesses, 0 sp-based.
 
 ## 4. Speed
 
-PLACEHOLDER_SPEED
+`SOTC_AB_FLAG=s6coll SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>` (abs6.sh, 1 000 s each, frames from 3 000): S6 on or off at
+random each frame. Frame times by tools/mixframes.py (`--shift -1`, blocks of 300 frames, +- 2 SE); the water probes'
+host time per call by state (`SOTC_S6COLL_LOG=1`, [s6time], Welch z). Build p1.
+
+| run | route | frame off - on | busy off - on | under-end probe: us a call off -> on (z); ms a frame | crossing probe: us (z); ms a frame |
+|---|---|---|---|---|---|
+| mixL7p1b | `lake6`, seed 7 | **+0.817 +- 0.109 ms** | +0.814 +- 0.108 | 90.4 -> 56.5 (**42.8**); 1.62 -> 1.02 | 119.8 -> 97.3 (**13.6**); 1.04 -> 0.85 |
+| mixL11p1b | `lake6`, seed 11 | **+0.933 +- 0.128 ms** | +0.924 +- 0.128 | 95.1 -> 63.4 (**34.6**); 1.78 -> 1.19 | 124.6 -> 104.7 (**13.2**); 1.14 -> 0.96 |
+| mixL7p1 | `lake6`, seed 7, the Mac at load ~33 (another job's fuzz tests), 15 fps | +1.218 +- 1.215 ms | +1.122 +- 1.172 | 105.1 -> 72.6 (9.0) | 166.8 -> 139.8 (4.7) |
+| mixA7p1 | attract, seed 7 | +0.132 +- 0.265 ms | +0.120 +- 0.233 | 14.1 -> 13.7 (0.2) | 53.6 -> 54.4 (-0.3) |
+| mixA11p1 | attract, seed 11 | -0.125 +- 0.193 ms | | 9.6 -> 10.1 (-1.5) | 30.1 -> 32.6 (-1.3) |
+| mixR7p1 | `ride6`, seed 7 | -0.001 +- 0.116 ms | | 8.9 -> 9.3 (-1.1) | 12.2 -> 12.5 (-0.6) |
+| mixR11p1 | `ride6`, seed 11 | -0.001 +- 0.117 ms | -0.013 +- 0.069 | 9.1 -> 10.4 (-1.0) | 11.1 -> 11.4 (-0.8) |
+
+(mixL11p1, the first seed-11 lake run, never left the title screen: the boot menu's input was lost while the Mac was
+loaded; run again as mixL11p1b. mixL7p1 is listed but not used for the decision: its noise is ten times the others'.)
+
+**At the lake: about 0.8-0.9 ms a frame of game thread** (z ~15 and ~15 per seed by frame time, z 13-43 per probe kind),
+2.1-2.4% of the ~38.6 ms game thread there; the probes' own time accounts for ~0.8 of it. The game thread at the lake:
+busy 38.59 -> 37.83 ms (seed 7), 39.00 -> 38.09 ms (seed 11). **Away from big water nothing changes**: the attract demo
+and the ride see only small meshes (under 32 triangles, not indexed; 9-54 us a probe), and their frame A/Bs are 0 within
++- 0.12-0.27 ms; the probes there are ~1 us slower with S6 on (the index lookup that finds nothing; ~0.001 ms a frame).
+
+Other threads: the render thread unchanged (off - on -0.03..-0.08 +- 0.10 ms at the lake), the hook jobs unchanged; the S6
+worker runs 0.009-0.027 ms a frame (one memcmp of each live table) and does not appear among the sampler's threads
+(under 1% of a core).
+
+**Decision: `SOTC_S6COLL` on by default.** Both lake seeds clear z > 2 by a wide margin in frame time and in per-call
+time; the attract demo and the ride are neutral (no large water mesh), as expected from what was changed; the check is
+exact.
 
 ## 5. What was not moved, and why
 
