@@ -736,6 +736,7 @@ namespace sotc_replay
         // passes it: the world place is (-f12, f13, -f14), as +0x170; f16 the yaw), at the first Agro step from that game frame (vif1 chains, as
         // PS2X_INPUT_CLOCK=frames). <frame>:boss<n> takes the boss table's record n (+0xC count, +0x10 the
         // records, 0xEC each; +0x64 / +0x68 / +0x6C / +0x70 the place bossStatStartDemo warps Agro to).
+        // Round S6: <frame>:ride puts Wander on Agro (the game's nico_ForceChangePlayerHorseRidingControl), for a ride route.
         // Decomp D12: <frame>:active<n> calls bossStatSetActiveBoss (0x13494D8) with record n (no teleport): the colossus the
         // world holds switched as the game does after a fight (a test aid to reach the other colossi from the console card).
         // SOTC_TELEPORT_HOLD=<n> puts them back there every 30 frames for n frames (the ground streams in meanwhile).
@@ -750,6 +751,7 @@ namespace sotc_replay
             int64_t hold = -1;                   // "h<n>" after the place: this entry's own hold (else SOTC_TELEPORT_HOLD)
             int obj = -1;                        // Decomp D10: "obj<k>,dx,dy,dz": object handle k's place (+0x170) plus (dx, dy, dz)
             int active = -1;                     // Decomp D12: "active<n>": bossStatSetActiveBoss(record n) called, no teleport
+            bool ride = false;                   // Round S6: "ride": Wander put on Agro (nico_ForceChangePlayerHorseRidingControl)
             float d[3] = {0, 0, 0};
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
         };
@@ -801,6 +803,17 @@ namespace sotc_replay
         }
         constexpr uint32_t kSetPos = 0x013522A0u;
         constexpr uint32_t kSetActiveBoss = 0x013494D8u; // Decomp D12: bossStatSetActiveBoss (a0 the boss record)
+        // Round S6: nico_ForceChangePlayerHorseRidingControl (a0 the player; the horse is the game's own, handle 0x1465904):
+        // the game's own switch of Wander to riding Agro (a scripted route's mount does not depend on where Agro stands).
+        constexpr uint32_t kForceRide = 0x013B6F88u;
+        void rideCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t player)
+        {
+            const R5900Context keep = *ctx;
+            SET_GPR_U32(ctx, 4, player);
+            const uint32_t sp = (GPR_U32(ctx, 29) - 0x400u) & ~15u;
+            sotc_decomp::callGuest(rdram, ctx, runtime, kForceRide, GPR_U32(&keep, 31), sp);
+            *ctx = keep;
+        }
 
         void activeBossCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t record)
         {
@@ -904,6 +917,13 @@ namespace sotc_replay
                         t.holdUntil = frame + (t.hold >= 0 ? static_cast<uint64_t>(t.hold) : g_teleportHold);
                         t.nextHold = frame + 30u;
                         float p[4] = {t.p[0], t.p[1], t.p[2], t.p[3]};
+                        if (t.ride)
+                        {
+                            t.holdUntil = 0;
+                            rideCall(rdram, ctx, runtime, player);
+                            std::fprintf(stderr, "[teleport] frame %llu: Wander %08x put on Agro %08x\n", (unsigned long long)frame, player, g_horse);
+                            continue;
+                        }
                         if (t.active >= 0)
                         {
                             // Decomp D12: the game's own switch of the colossus the world holds (the light's target):
@@ -1223,7 +1243,9 @@ namespace sotc_replay
                     Teleport t;
                     t.frame = std::strtoull(item.c_str(), nullptr, 10);
                     const std::string what = item.substr(colon + 1);
-                    if (what.rfind("boss", 0) == 0)
+                    if (what == "ride")
+                        t.ride = true;
+                    else if (what.rfind("boss", 0) == 0)
                         t.boss = std::atoi(what.c_str() + 4);
                     else if (what.rfind("active", 0) == 0)
                         t.active = std::atoi(what.c_str() + 6);
@@ -1238,7 +1260,7 @@ namespace sotc_replay
                         std::sscanf(what.c_str(), "%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3]);
                     // Decomp D9: "h<n>" at the end: this entry's own hold (h0: none), e.g. tries from a place in an area
                     // already streamed in.
-                    const size_t h = what.rfind("active", 0) == 0 ? std::string::npos : what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
+                    const size_t h = (what.rfind("active", 0) == 0 || t.ride) ? std::string::npos : what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
                     if (h != std::string::npos)
                         t.hold = std::strtoll(what.c_str() + h + 1, nullptr, 10);
                     g_teleports.push_back(t);

@@ -60,6 +60,7 @@
 // plane as the leaf tested them, the leaf's query centre and radius).
 #include "ground85_capture.h"
 #include "a9sweep.h"
+#include "s6_coll.h" // round S6: the water probes over a host index
 namespace ground85
 {
     Capture g_cap;
@@ -5634,6 +5635,14 @@ namespace decomp_collision
     // Round S2: SOTC_S2COLL_LOG=1: each call's host time by the s2coll switch's state ([s2wtime]).
     void waterProbe(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s6coll::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = s6coll::active(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            waterProbeBody(rdram, ctx, runtime);
+            s6coll::timed(0, st, coll115::nowUs() - t0);
+            return;
+        }
         if (__builtin_expect(s2water::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
         {
             const int st = s2water::on(runtime) ? 1 : 0;
@@ -5707,7 +5716,57 @@ namespace decomp_collision
         if (count > 0 && s2water::on(runtime) && G::plain(t0, 0x20u * static_cast<uint32_t>(count)))
         {
             float f0n = f0;
-            slow = s2water::probe(g.rdram, t0, count, p1x, p1z, [&](uint32_t t) { return tri(t, f0n); });
+            // Round S6 (SOTC_S6COLL): the triangles S2's loop runs the body for, from the mesh's host index (s6_coll.h):
+            // the cell's candidates (ascending) through S2's own box test, then the last triangle.
+            const s6coll::Index *ix = s6coll::active(runtime) ? s6coll::find(g.rdram, t0, count) : nullptr;
+            std::vector<uint16_t> &cands = s6coll::scratch();
+            if (ix && s6coll::pointCands(*ix, p1x, p1z, cands))
+            {
+                uint32_t visited = 0;
+                bool done = false;
+                slow = false;
+                for (const uint16_t i : cands)
+                {
+                    if (static_cast<int32_t>(i) + 1 >= count)
+                        break;
+                    const uint32_t t = t0 + 0x20u * i;
+                    if (s2water::outside(g.rdram, t, p1x, p1z))
+                        continue;
+                    ++visited;
+                    if (tri(t, f0n))
+                    {
+                        slow = done = true;
+                        break;
+                    }
+                }
+                if (!done)
+                {
+                    ++visited;
+                    slow = tri(t0 + 0x20u * static_cast<uint32_t>(count - 1), f0n);
+                }
+                s6coll::noteProbe(0, true, visited);
+                if (__builtin_expect(s6coll::checkOn(), 0))
+                {
+                    // S2's loop from the same state (the probe writes nothing but f0); every triangle S2's box test keeps
+                    // must be a candidate.
+                    float f0s = f0;
+                    const bool slowS = s2water::probe(g.rdram, t0, count, p1x, p1z, [&](uint32_t t) { return tri(t, f0s); });
+                    uint32_t missing = 0;
+                    for (int32_t i = 0; i + 1 < count; ++i)
+                        if (!s2water::outside(g.rdram, t0 + 0x20u * static_cast<uint32_t>(i), p1x, p1z) &&
+                            !std::binary_search(cands.begin(), cands.end(), static_cast<uint16_t>(i)))
+                            ++missing;
+                    s6coll::noteCheck(0, slowS == slow && (slow || floatBits(f0s) == floatBits(f0n)), missing);
+                    slow = slowS;
+                    f0n = f0s;
+                }
+            }
+            else
+            {
+                if (s6coll::logOn())
+                    s6coll::noteProbe(0, false, 0);
+                slow = s2water::probe(g.rdram, t0, count, p1x, p1z, [&](uint32_t t) { return tri(t, f0n); });
+            }
             if (__builtin_expect(s2water::checkOn(), 0))
             {
                 float f0o = f0;
@@ -5748,6 +5807,14 @@ namespace decomp_collision
     void waterSurfaceBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void waterSurface(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s6coll::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const int st = s6coll::active(runtime) ? 1 : 0;
+            const uint64_t t0 = coll115::nowUs();
+            waterSurfaceBody(rdram, ctx, runtime);
+            s6coll::timed(1, st, coll115::nowUs() - t0);
+            return;
+        }
         if (__builtin_expect(s2water::logOn(), 0) && !sotc_decomp::onWorkerLane(runtime))
         {
             const int st = s2water::on(runtime) ? 1 : 0;
@@ -5865,7 +5932,110 @@ namespace decomp_collision
             else
             {
                 float f0n = f0;
-                slow = s2water::surface(g.rdram, t0, count, _mm_cvtss_f32(p0), p0y, _mm_cvtss_f32(vu::lane<2>(p0)), _mm_cvtss_f32(p1), p1y, _mm_cvtss_f32(vu::lane<2>(p1)), [&](uint32_t t) { return tri(t, f0n); });
+                // Round S6 (SOTC_S6COLL): from the mesh's host index (s6_coll.h): the last triangle with its height between
+                // the ends by the sorted heights, the candidates of the cells under the ends' xz box; then S2's loop's own
+                // tests on those (ascending), the last-between one always, and the last triangle.
+                const float p0x = _mm_cvtss_f32(p0), p0z = _mm_cvtss_f32(vu::lane<2>(p0)), p1x = _mm_cvtss_f32(p1), p1z = _mm_cvtss_f32(vu::lane<2>(p1));
+                s6coll::Index *ix = s6coll::active(runtime) ? const_cast<s6coll::Index *>(s6coll::find(g.rdram, t0, count)) : nullptr;
+                std::vector<uint16_t> &cands = s6coll::scratch();
+                const float bx0 = p0x < p1x ? p0x : p1x, bx1 = p0x > p1x ? p0x : p1x, bz0 = p0z < p1z ? p0z : p1z, bz1 = p0z > p1z ? p0z : p1z;
+                const int32_t lastB = ix ? s6coll::lastBetween(*ix, p1y, p0y) : -1;
+                bool byIndex = ix != nullptr;
+                if (byIndex)
+                {
+                    cands.clear();
+                    if (lastB >= 0)
+                        byIndex = s6coll::boxCands(*ix, bx0, bx1, bz0, bz1, cands);
+                }
+                if (byIndex)
+                {
+                    uint8_t wsave[0x40], csave[0x10];
+                    const bool check = s6coll::checkOn();
+                    if (__builtin_expect(check, 0))
+                    {
+                        std::memcpy(wsave, g.rdram + work, 0x40);
+                        std::memcpy(csave, g.rdram + cross, 0x10);
+                    }
+                    auto between = [&](uint32_t t)
+                    {
+                        const float h = g.f32(t + 4u);
+                        return FPU_C_OLT_S(p1y, h) && FPU_C_OLT_S(h, p0y);
+                    };
+                    uint32_t visited = 0;
+                    bool done = false;
+                    slow = false;
+                    auto visit = [&](int32_t i)
+                    {
+                        const uint32_t t = t0 + 0x20u * static_cast<uint32_t>(i);
+                        if (!between(t))
+                            return;
+                        if (i != lastB && s2water::outsideBox(g.rdram, t, bx0, bx1, bz0, bz1))
+                            return;
+                        ++visited;
+                        if (tri(t, f0n))
+                            slow = done = true;
+                    };
+                    // S2's loop: i < count - 1 and i <= lastB, ascending; the last-between one runs whether or not a cell
+                    // lists it (it is the highest index visited).
+                    bool lastSeen = false;
+                    for (const uint16_t i : cands)
+                    {
+                        const int32_t k = static_cast<int32_t>(i);
+                        if (k + 1 >= count || k > lastB)
+                            break;
+                        lastSeen = lastSeen || k == lastB;
+                        visit(k);
+                        if (done)
+                            break;
+                    }
+                    if (!done && !lastSeen && lastB >= 0 && lastB + 1 < count)
+                        visit(lastB);
+                    if (!done)
+                    {
+                        ++visited;
+                        slow = tri(t0 + 0x20u * static_cast<uint32_t>(count - 1), f0n);
+                    }
+                    s6coll::noteProbe(1, true, visited);
+                    if (__builtin_expect(check, 0))
+                    {
+                        // S2's loop from the same blocks, its blocks kept; every triangle S2's loop runs the body for
+                        // must be a candidate (or the last-between one).
+                        uint8_t wn[0x40], cn[0x10];
+                        std::memcpy(wn, g.rdram + work, 0x40);
+                        std::memcpy(cn, g.rdram + cross, 0x10);
+                        std::memcpy(g.rdram + work, wsave, 0x40);
+                        std::memcpy(g.rdram + cross, csave, 0x10);
+                        float f0s = f0;
+                        const bool slowS = s2water::surface(g.rdram, t0, count, p0x, p0y, p0z, p1x, p1y, p1z, [&](uint32_t t) { return tri(t, f0s); });
+                        uint32_t missing = 0;
+                        int32_t lastS = -1;
+                        for (int32_t i = count - 1; i >= 0; --i)
+                            if (between(t0 + 0x20u * static_cast<uint32_t>(i)))
+                            {
+                                lastS = i;
+                                break;
+                            }
+                        missing += lastS != lastB;
+                        for (int32_t i = 0; i + 1 < count && i < lastS; ++i)
+                        {
+                            const uint32_t t = t0 + 0x20u * static_cast<uint32_t>(i);
+                            if (between(t) && !s2water::outsideBox(g.rdram, t, bx0, bx1, bz0, bz1) &&
+                                !std::binary_search(cands.begin(), cands.end(), static_cast<uint16_t>(i)))
+                                ++missing;
+                        }
+                        const bool same = slowS == slow && (slow || (floatBits(f0s) == floatBits(f0n) && A9_MEMEQ(wn, g.rdram + work, 0x40) &&
+                                                                      A9_MEMEQ(cn, g.rdram + cross, 0x10)));
+                        s6coll::noteCheck(1, same, missing);
+                        slow = slowS;
+                        f0n = f0s;
+                    }
+                }
+                else
+                {
+                    if (s6coll::logOn())
+                        s6coll::noteProbe(1, false, 0);
+                    slow = s2water::surface(g.rdram, t0, count, p0x, p0y, p0z, p1x, p1y, p1z, [&](uint32_t t) { return tri(t, f0n); });
+                }
                 f0 = f0n;
             }
             if (slow)
