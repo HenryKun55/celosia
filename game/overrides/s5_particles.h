@@ -53,9 +53,17 @@ namespace s5ptcl
 
     // The draws' per-particle values the worker made for an emitter's deferred particles (in the batch's order, which
     // is the live list's order): sin / cos of angle + pi/4 and the fade. n = 0: none (s1ptcl computes them).
+    // The draw values' key: the record's age and angle bits when the worker made them.
+    inline uint32_t drawKey(const float *age, const float *angle)
+    {
+        uint32_t a, b;
+        __builtin_memcpy(&a, age, 4);
+        __builtin_memcpy(&b, angle, 4);
+        return a ^ (b * 0x9E3779B1u);
+    }
     struct DrawCache
     {
-        const uint32_t *recs = nullptr;
+        const uint32_t *recs = nullptr, *key = nullptr;
         const float *s = nullptr, *c = nullptr, *fade = nullptr;
         uint32_t n = 0;
         bool check = false; // SOTC_S5PTCL_CHECK: compare them with the values computed from the record

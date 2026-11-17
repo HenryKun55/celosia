@@ -205,7 +205,9 @@ namespace s1ptcl
                 d.z = q.pos.z;
                 d.size = sizeScale * q.size;
                 float fade, s, o;
-                if (k < dc.n && dc.recs[k] == p)
+                // (the key: the record's age and angle as the worker saw them, so a record freed and reused between
+                // the step and the draw computes its own values)
+                if (k < dc.n && dc.recs[k] == p && dc.key[k] == s5ptcl::drawKey(&q.age, &q.angle))
                 {
                     fade = dc.fade[k], s = dc.s[k], o = dc.c[k];
                     ++k, ++hits;
@@ -224,6 +226,7 @@ namespace s1ptcl
                 }
                 else
                 {
+                    k += k < dc.n && dc.recs[k] == p; // (a stale key: that record's values not taken)
                     fade = fadeOf(q);
                     sinCos(q.angle + 0.785398126f, s, o);
                 }
@@ -510,12 +513,13 @@ namespace s1ptcl_api
 {
     // Round S5 (the particle step's worker, after each emitter's batch): the draws' per-particle values from the
     // stepped records (or the check's copies), as records() computes them: sin / cos of angle + pi/4, the fade.
-    void drawPrep(const uint8_t *rdram, const uint32_t *recs, uint8_t *const *copies, uint32_t n, float *s, float *c, float *fade)
+    void drawPrep(const uint8_t *rdram, const uint32_t *recs, uint8_t *const *copies, uint32_t n, float *s, float *c, float *fade, uint32_t *key)
     {
         const s1ptcl::SinCos sinCos(rdram);
         for (uint32_t i = 0; i < n; ++i)
         {
             const ptcl::Particle &q = copies ? *reinterpret_cast<const ptcl::Particle *>(copies[i]) : *s1ptcl::view<ptcl::Particle>(rdram, recs[i]);
+            key[i] = s5ptcl::drawKey(&q.age, &q.angle);
             fade[i] = s1ptcl::fadeOf(q);
             sinCos(q.angle + 0.785398126f, s[i], c[i]);
         }

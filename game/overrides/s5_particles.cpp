@@ -64,10 +64,12 @@ namespace decomp_particles
 {
     void stepHostRun(uint8_t *rdram, const Emitter123 &e, const uint32_t *recs, uint8_t *const *copies, uint32_t n, uint32_t &rsIo);
     uint32_t &rndState();
+    bool damageWanted(const uint8_t *rdram, uint32_t a2);
+    extern uint64_t g_damageCalls;
 }
 namespace s1ptcl_api
 {
-    void drawPrep(const uint8_t *rdram, const uint32_t *recs, uint8_t *const *copies, uint32_t n, float *s, float *c, float *fade);
+    void drawPrep(const uint8_t *rdram, const uint32_t *recs, uint8_t *const *copies, uint32_t n, float *s, float *c, float *fade, uint32_t *key);
 }
 
 namespace s5ptcl
@@ -118,8 +120,9 @@ namespace s5ptcl
             // The draws' per-particle values the worker makes after the step (SoA, one per record): sin / cos of
             // angle + pi/4 and the fade (s1ptcl's records() takes them instead of computing them).
             std::vector<float> ds, dc, df;
+            std::vector<uint32_t> dk; // the values' keys (s5ptcl::drawKey)
             std::vector<std::pair<uint32_t, uint32_t>> byEmitter; // (E, segment), sorted at the hand-over
-            bool drawn = false;                                   // the draw values are valid (joined, this frame)
+            bool drawn = false;                                   // the draw values are valid (joined; until the next manager call)
         };
         Job g_job;
         bool g_drawOn = true;
@@ -133,6 +136,8 @@ namespace s5ptcl
             uint32_t joinSiteAt[8] = {};
             uint64_t checked = 0, differ = 0, rndDiffer = 0, touched = 0, notStepped = 0;
             uint64_t drawHits = 0, drawMiss = 0, drawChecked = 0, drawDiffer = 0;
+            uint64_t managers = 0, windows = 0, wants = 0, noWindow = 0, noOk = 0, noDamage = 0, damageInDeferred = 0;
+            bool firstLogged = false;
         };
         Stats g_st;
         bool g_init = false;
@@ -158,7 +163,7 @@ namespace s5ptcl
             uint8_t *rdram = j.rdram;
             const uint32_t n = static_cast<uint32_t>(j.recs.size());
             if (g_drawOn)
-                j.ds.resize(n), j.dc.resize(n), j.df.resize(n);
+                j.ds.resize(n), j.dc.resize(n), j.df.resize(n), j.dk.resize(n);
             if (!g_st.check)
             {
                 uint32_t &rs = decomp_particles::rndState();
@@ -168,7 +173,7 @@ namespace s5ptcl
                     decomp_particles::stepHostRun(rdram, j.emitters[sg.emitter], j.recs.data() + sg.begin, nullptr, sg.end - sg.begin, rs);
                     if (g_drawOn)
                         s1ptcl_api::drawPrep(rdram, j.recs.data() + sg.begin, nullptr, sg.end - sg.begin, j.ds.data() + sg.begin, j.dc.data() + sg.begin,
-                                             j.df.data() + sg.begin);
+                                             j.df.data() + sg.begin, j.dk.data() + sg.begin);
                 }
                 j.segDone = static_cast<uint32_t>(j.segs.size());
                 return;
@@ -185,7 +190,7 @@ namespace s5ptcl
                 j.rndDiffer += rs != sg.rsEnd;
                 if (g_drawOn)
                     s1ptcl_api::drawPrep(rdram, j.recs.data() + sg.begin, j.copies.data() + sg.begin, sg.end - sg.begin, j.ds.data() + sg.begin,
-                                         j.dc.data() + sg.begin, j.df.data() + sg.begin);
+                                         j.dc.data() + sg.begin, j.df.data() + sg.begin, j.dk.data() + sg.begin);
             }
             j.segDone = static_cast<uint32_t>(j.segs.size());
             for (size_t i = 0; i < n; ++i)
@@ -297,15 +302,26 @@ namespace s5ptcl
         g_window = may && sotc_decomp::switchOn(sotc_decomp::kS5Ptcl) && sotc_worker::gated() && !sotc_worker::onWorker() &&
                    !sotc_decomp::switchOn(sotc_decomp::kPtcl91);
         g_job.rdram = rdram;
+        ++g_st.managers;
+        g_st.windows += g_window;
+        if (g_st.log && !g_st.firstLogged && (g_st.firstLogged = true))
+            std::fprintf(stderr, "[s5ptcl] first manager call: may %d, switch %d, gated %d, on worker %d, ptcl91 %d\n", may ? 1 : 0,
+                         sotc_decomp::switchOn(sotc_decomp::kS5Ptcl) ? 1 : 0, sotc_worker::gated() ? 1 : 0, sotc_worker::onWorker() ? 1 : 0,
+                         sotc_decomp::switchOn(sotc_decomp::kPtcl91) ? 1 : 0);
     }
 
     bool wantDefer(const uint8_t *rdram, const Emitter123 &e)
     {
-        if (!g_window || !e.ok)
-            return false;
+        ++g_st.wants;
+        if (!g_window)
+            return ++g_st.noWindow, false;
+        if (!e.ok)
+            return ++g_st.noOk, false;
         // The damage test calls the guest per particle: such an emitter stays on the game thread.
-        if (u32At(rdram, kDamageOn) != 0u && u32At(rdram, e.a2 + 0xD8u) != 0u)
-            return false;
+        // (0113C8C8's own early test, as step123 asks it: the target set and the emitter's handle resolving to an entry;
+        // in a normal frame the target is set and the handle is not 0 but resolves to nothing)
+        if (decomp_particles::damageWanted(rdram, e.a2))
+            return ++g_st.noDamage, false;
         return true;
     }
 
@@ -323,6 +339,7 @@ namespace s5ptcl
     {
         Job &j = g_job;
         const bool check = g_st.check != 0;
+        const uint64_t damage0 = decomp_particles::g_damageCalls;
         Seg seg{static_cast<uint32_t>(j.emitters.size()), static_cast<uint32_t>(j.recs.size()), 0u, check ? decomp_particles::rndState() : 0u, 0u};
         j.emitters.push_back(e);
         const float dt = e.dt;
@@ -377,6 +394,8 @@ namespace s5ptcl
             p = next;
         }
         last = next;
+        if (check && decomp_particles::g_damageCalls != damage0 && g_st.damageInDeferred++ < 20u)
+            std::fprintf(stderr, "[s5ptcl] the damage test called in a deferred emitter (%08x)\n", e.list);
         seg.end = static_cast<uint32_t>(j.recs.size());
         if (check)
             seg.rsEnd = decomp_particles::rndState();
@@ -466,7 +485,8 @@ namespace s5ptcl
     {
         const Job &j = g_job;
         DrawCache d{};
-        if (!j.drawn || g_pending)
+        // (not in a frame with S5 off: an A/B's off frames compute their values as S1)
+        if (!j.drawn || g_pending || !sotc_decomp::switchOn(sotc_decomp::kS5Ptcl))
             return d;
         const auto it = std::lower_bound(j.byEmitter.begin(), j.byEmitter.end(), std::make_pair(E, 0u));
         if (it == j.byEmitter.end() || it->first != E)
@@ -476,6 +496,7 @@ namespace s5ptcl
         d.s = j.ds.data() + sg.begin;
         d.c = j.dc.data() + sg.begin;
         d.fade = j.df.data() + sg.begin;
+        d.key = j.dk.data() + sg.begin;
         d.n = sg.end - sg.begin;
         d.check = g_st.check != 0;
         return d;
@@ -488,7 +509,8 @@ namespace s5ptcl
     void frameEnd()
     {
         joinIfPending(2u);
-        reset(g_job);
+        // (the batch and its draw values are kept: the display walk that draws these particles runs after the frame's
+        // end and before the next manager call (chkAp4: the frame's end was the only join site); managerBegin resets)
         if (!g_init || !g_st.log || ++g_st.frames % 600u != 0u)
             return;
         const double jobs = g_st.jobs ? static_cast<double>(g_st.jobs) : 1.0;
@@ -501,9 +523,14 @@ namespace s5ptcl
         for (int i = 0; i < 8; ++i)
             if (g_st.joinSites[i])
                 std::fprintf(stderr, " %08x x%llu", g_st.joinSiteAt[i], (unsigned long long)g_st.joinSites[i]);
+        std::fprintf(stderr, " | manager calls %llu (window open %llu), emitters asked %llu (no window %llu, not prepared %llu, damage test %llu)",
+                     (unsigned long long)g_st.managers, (unsigned long long)g_st.windows, (unsigned long long)g_st.wants, (unsigned long long)g_st.noWindow,
+                     (unsigned long long)g_st.noOk, (unsigned long long)g_st.noDamage);
         std::fprintf(stderr, " | draw values used %llu, computed %llu", (unsigned long long)g_st.drawHits, (unsigned long long)g_st.drawMiss);
         if (g_st.check)
             std::fprintf(stderr, " | draw values checked %llu, differ %llu", (unsigned long long)g_st.drawChecked, (unsigned long long)g_st.drawDiffer);
+        if (g_st.check)
+            std::fprintf(stderr, " | damage test called in a deferred emitter %llu", (unsigned long long)g_st.damageInDeferred);
         if (g_st.check)
             std::fprintf(stderr, " | check: %llu particles, %llu differ, random state differs %llu, written before the join %llu, not stepped %llu",
                          (unsigned long long)g_st.checked, (unsigned long long)g_st.differ, (unsigned long long)g_st.rndDiffer, (unsigned long long)g_st.touched,
@@ -512,7 +539,9 @@ namespace s5ptcl
         const uint64_t frames = g_st.frames;
         const int check = g_st.check;
         const uint64_t c = g_st.checked, d = g_st.differ, r = g_st.rndDiffer, t = g_st.touched, ns = g_st.notStepped, dc = g_st.drawChecked, dd = g_st.drawDiffer;
+        const uint64_t did = g_st.damageInDeferred;
         g_st = Stats{};
+        g_st.firstLogged = true, g_st.damageInDeferred = did;
         g_st.frames = frames, g_st.check = check, g_st.log = true;
         g_st.checked = c, g_st.differ = d, g_st.rndDiffer = r, g_st.touched = t, g_st.notStepped = ns, g_st.drawChecked = dc, g_st.drawDiffer = dd;
     }
