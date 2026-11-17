@@ -67,6 +67,7 @@
 #include "runtime/ee_scheduler.h"
 #include "runtime/host_menu.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_pad.h"
 
 #if defined(__vita__)
 #include <psp2/display.h>
@@ -753,7 +754,15 @@ namespace sotc_replay
             int obj = -1;                        // Decomp D10: "obj<k>,dx,dy,dz": object handle k's place (+0x170) plus (dx, dy, dz)
             int active = -1;                     // Decomp D12: "active<n>": bossStatSetActiveBoss(record n) called, no teleport
             bool ride = false;                   // Round S6: "ride": Wander put on Agro (nico_ForceChangePlayerHorseRidingControl)
+            // Round S7: "ahead,<d>,<yaw offset>": Agro alone put d units ahead of Wander along his last 8 steps' motion, his
+            // yaw that heading's (atan2 of the teleport numbers' dx, dz) plus the offset: a running Wander meets his flank and
+            // TRIANGLE mounts (the ride7 route).
+            bool ahead = false;
             float d[3] = {0, 0, 0};
+            // Round S7: "x,y,z,yaw,adx,adz,ayaw": Agro's place relative to Wander's (in the teleport's numbers) and his own yaw
+            // (default: 2 units on x, Wander's yaw).
+            float agro[3] = {2.0f, 0.0f, 0.0f};
+            bool agroYaw = false;
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
         };
         uint64_t g_teleportHold = 0;
@@ -826,27 +835,97 @@ namespace sotc_replay
             *ctx = keep;
         }
 
-        void teleportCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, const float p[4], float dx)
+        void teleportCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, const float p[4], float dx, float dz = 0.0f,
+                          const float *yaw = nullptr)
         {
             const R5900Context keep = *ctx;
             SET_GPR_U32(ctx, 4, object);
             ctx->f[12] = p[0] + dx;
             ctx->f[13] = p[1];
-            ctx->f[14] = p[2];
+            ctx->f[14] = p[2] + dz;
             ctx->f[15] = 0.0f;
-            ctx->f[16] = p[3];
+            ctx->f[16] = yaw ? *yaw : p[3];
             ctx->f[17] = 0.0f;
             const uint32_t sp = (GPR_U32(ctx, 29) - 0x400u) & ~15u;
             sotc_decomp::callGuest(rdram, ctx, runtime, kSetPos, GPR_U32(&keep, 31), sp);
             *ctx = keep;
         }
 
+        // Round S7: SOTC_RIDE_FLAG=1 (on with any SOTC_TELEPORT): the input script's host flag 0 says whether Wander rides
+        // Agro, as the game's own nico_GetPlayerCharacterRidingHorseObject (0x134C308) reads it: the player's character class
+        // (object + 0x90) +0x950 is the horse ridden (0, or the player itself, when on foot). A script waits on it with
+        // "@f0=1:WAIT" and presses TRIANGLE until it holds with "r<n>@f0=1" (the ride7 route); changes go to the log ([ride]).
+        bool g_rideFlag = false;
+        float g_wanderTrail[3] = {0, 0, 0}; // Round S7: Wander's place 8 horse steps ago (the "ahead" teleport's heading)
+        float g_wanderRing[8][3] = {};
+        uint32_t g_wanderRingN = 0;
+        uint32_t g_rideSeen = 0;
+        uint32_t ridingHorse(uint8_t *rdram, uint32_t player)
+        {
+            if (!player || player >= 0x2000000u || (player & 3u))
+                return 0u;
+            uint32_t h;
+            std::memcpy(&h, rdram + player + 0x90u + 0x950u, 4);
+            return h == player ? 0u : h;
+        }
+
         void horseHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             g_horse = GPR_U32(ctx, 4);
-            if (__builtin_expect(!g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery, 0))
+            if (__builtin_expect(!g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery || g_rideFlag, 0))
             {
                 auto rd = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+                if (g_rideFlag)
+                {
+                    const uint32_t ix = rd(0x01465900u) & 0xFFFFu;
+                    const uint32_t pl = ix ? rd(0x0021B900u + ix * 24u) : 0u;
+                    uint32_t h = ridingHorse(rdram, pl);
+                    // Two more signs of a ridden pair: the player's AI riding flag (nico_returnPlayerRidingFlag, AI work +0xD98,
+                    // asked every 10 steps) and both places (+0x170) bit-identical for 300 steps (not updated while ridden; logged only: a teleport hold also
+                    // keeps them still).
+                    static uint32_t aiFlag = 0, still = 0, stepN = 0;
+                    static uint32_t lastPos[6] = {0, 0, 0, 0, 0, 0};
+                    if (pl && pl < 0x2000000u && (++stepN % 10u) == 0u)
+                    {
+                        const R5900Context keep = *ctx;
+                        SET_GPR_U32(ctx, 4, pl);
+                        const uint32_t sp = (GPR_U32(ctx, 29) - 0x400u) & ~15u;
+                        sotc_decomp::callGuest(rdram, ctx, runtime, 0x013B5138u, GPR_U32(&keep, 31), sp);
+                        aiFlag = GPR_U32(ctx, 2);
+                        *ctx = keep;
+                    }
+                    if (pl && pl < 0x2000000u)
+                    {
+                        float *slot = g_wanderRing[g_wanderRingN++ & 7u];
+                        std::memcpy(g_wanderTrail, slot, sizeof(g_wanderTrail)); // the oldest of the eight
+                        std::memcpy(slot, rdram + pl + 0x170u, 12);
+                    }
+                    if (pl && pl < 0x2000000u && g_horse && g_horse < 0x2000000u)
+                    {
+                        uint32_t now[6];
+                        std::memcpy(now, rdram + pl + 0x170u, 12);
+                        std::memcpy(now + 3, rdram + g_horse + 0x170u, 12);
+                        still = std::memcmp(now, lastPos, sizeof(now)) == 0 ? still + 1u : 0u;
+                        std::memcpy(lastPos, now, sizeof(now));
+                    }
+                    static uint32_t seenSigns = 0;
+                    const uint32_t signs = (h ? 1u : 0u) | (aiFlag ? 2u : 0u) | (still >= 300u ? 4u : 0u);
+                    if (signs != seenSigns)
+                    {
+                        seenSigns = signs;
+                        std::fprintf(stderr, "[ride] frame %llu: signs %u (class +0x950 %08x, AI flag %08x, still %u)\n",
+                                     (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), signs, h, aiFlag, still);
+                    }
+                    if (!h && aiFlag)
+                        h = g_horse;
+                    if (h != g_rideSeen)
+                    {
+                        g_rideSeen = h;
+                        PSPadBackend::setScriptFlag(0, h ? 1u : 0u);
+                        std::fprintf(stderr, "[ride] frame %llu: %s (horse %08x, Agro %08x)\n", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed),
+                                     h ? "mounted" : "on foot", h, g_horse);
+                    }
+                }
                 auto rf = [&](uint32_t a) { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
                 // The table's address is a relocation site (lui / addiu at 0x134A51C / 0x134A528 in
                 // bossStatSrhSheetAliveBoss): read from the live code words.
@@ -859,8 +938,9 @@ namespace sotc_replay
                     const uint32_t ix = rd(0x01465900u) & 0xFFFFu;
                     const uint32_t pl = ix ? rd(0x0021B900u + ix * 24u) : 0u;
                     if (pl && pl < 0x2000000u)
-                        std::fprintf(stderr, "[tpos] frame %llu: Wander %.2f %.2f %.2f Agro %.2f %.2f %.2f\n", (unsigned long long)now, rf(pl + 0x170u),
-                                     rf(pl + 0x174u), rf(pl + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u));
+                        std::fprintf(stderr, "[tpos] frame %llu: Wander %.2f %.2f %.2f Agro %.2f %.2f %.2f ride %08x %08x | %08x %08x\n", (unsigned long long)now, rf(pl + 0x170u),
+                                     rf(pl + 0x174u), rf(pl + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u), rd(pl + 0x9E0u), rd(pl + 0x9F0u),
+                                     rd(g_horse + 0x9E0u), rd(g_horse + 0x9F0u));
                 }
                 // Decomp D10: SOTC_TELEPORT_OBJS=<n>: every object of the handle table (0x21B900, 24-byte entries, as the
                 // player's lookup) with its place (+0x170), every n frames: finds a colossus for an "obj<k>" teleport.
@@ -906,11 +986,16 @@ namespace sotc_replay
                 const uint32_t player = index ? rd(0x0021B900u + index * 24u) : 0u;
                 for (Teleport &t : g_teleports)
                 {
-                    if (t.done && frame < t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u)
+                    if (t.done && frame < t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && !g_rideSeen)
                     {
                         t.nextHold = frame + 30u;
                         teleportCall(rdram, ctx, runtime, player, t.p, 0.0f);
-                        teleportCall(rdram, ctx, runtime, g_horse, t.p, 2.0f);
+                        teleportCall(rdram, ctx, runtime, g_horse, t.p, t.agro[0], t.agro[1], t.agroYaw ? &t.agro[2] : nullptr);
+                        continue;
+                    }
+                    if (!t.done && frame >= t.frame && player && player < 0x2000000u && g_rideSeen)
+                    {
+                        t.done = true; // Round S7: no teleport while Wander rides (a route's later tries are skipped)
                         continue;
                     }
                     if (!t.done && frame >= t.frame && player && player < 0x2000000u)
@@ -919,6 +1004,25 @@ namespace sotc_replay
                         t.holdUntil = frame + (t.hold >= 0 ? static_cast<uint64_t>(t.hold) : g_teleportHold);
                         t.nextHold = frame + 30u;
                         float p[4] = {t.p[0], t.p[1], t.p[2], t.p[3]};
+                        if (t.ahead)
+                        {
+                            t.holdUntil = 0;
+                            const float hx = rf(player + 0x170u) - g_wanderTrail[0], hz = rf(player + 0x178u) - g_wanderTrail[2];
+                            const float len = std::sqrt(hx * hx + hz * hz);
+                            if (len < 0.05f)
+                            {
+                                std::fprintf(stderr, "[teleport] frame %llu: ahead: Wander not moving (%.3f)\n", (unsigned long long)frame, len);
+                                continue;
+                            }
+                            // Teleport numbers are (-x, y, -z) of the place.
+                            const float dx = -hx / len, dz = -hz / len;
+                            float q[4] = {-rf(player + 0x170u) + dx * t.p[0], rf(player + 0x174u), -rf(player + 0x178u) + dz * t.p[0],
+                                          std::atan2(dx, dz) + t.p[1]};
+                            teleportCall(rdram, ctx, runtime, g_horse, q, 0.0f);
+                            std::fprintf(stderr, "[teleport] frame %llu: Agro put %.1f ahead of Wander at %.2f %.2f %.2f yaw %.3f (heading %.2f %.2f)\n",
+                                         (unsigned long long)frame, t.p[0], q[0], q[1], q[2], q[3], dx, dz);
+                            continue;
+                        }
                         if (t.ride)
                         {
                             t.holdUntil = 0;
@@ -988,7 +1092,7 @@ namespace sotc_replay
                         std::fprintf(stderr, "[teleport] frame %llu: Wander %08x (at %.2f %.2f %.2f) and Agro %08x to %.2f %.2f %.2f yaw %.3f\n",
                                      (unsigned long long)frame, player, rf(player + 0x170u), rf(player + 0x174u), rf(player + 0x178u), g_horse, p[0], p[1], p[2], p[3]);
                         teleportCall(rdram, ctx, runtime, player, p, 0.0f);
-                        teleportCall(rdram, ctx, runtime, g_horse, p, 2.0f);
+                        teleportCall(rdram, ctx, runtime, g_horse, p, t.agro[0], t.agro[1], t.agroYaw ? &t.agro[2] : nullptr);
                         std::fprintf(stderr, "[teleport] now Wander at %.2f %.2f %.2f, Agro at %.2f %.2f %.2f\n", rf(player + 0x170u), rf(player + 0x174u),
                                      rf(player + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u));
                     }
@@ -1247,6 +1351,12 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what == "ride")
                         t.ride = true;
+                    else if (what.rfind("ahead", 0) == 0)
+                    {
+                        t.ahead = true;
+                        t.p[0] = 3.0f;
+                        std::sscanf(what.c_str() + 5, ",%f,%f", &t.p[0], &t.p[1]);
+                    }
                     else if (what.rfind("boss", 0) == 0)
                         t.boss = std::atoi(what.c_str() + 4);
                     else if (what.rfind("active", 0) == 0)
@@ -1259,10 +1369,17 @@ namespace sotc_replay
                         std::sscanf(what.c_str() + 5, ",%f,%f,%f", &t.d[0], &t.d[1], &t.d[2]);
                     }
                     else
-                        std::sscanf(what.c_str(), "%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3]);
+                    {
+                        float a[3];
+                        const int n = std::sscanf(what.c_str(), "%f,%f,%f,%f,%f,%f,%f", &t.p[0], &t.p[1], &t.p[2], &t.p[3], &a[0], &a[1], &a[2]);
+                        if (n >= 6)
+                            t.agro[0] = a[0], t.agro[1] = a[1];
+                        if (n >= 7)
+                            t.agro[2] = a[2], t.agroYaw = true;
+                    }
                     // Decomp D9: "h<n>" at the end: this entry's own hold (h0: none), e.g. tries from a place in an area
                     // already streamed in.
-                    const size_t h = (what.rfind("active", 0) == 0 || t.ride) ? std::string::npos : what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
+                    const size_t h = (what.rfind("active", 0) == 0 || t.ride || t.ahead) ? std::string::npos : what.find('h', what.rfind("boss", 0) == 0 ? 4 : what.rfind("obj", 0) == 0 ? 3 : what.rfind("probe", 0) == 0 ? 5 : 0);
                     if (h != std::string::npos)
                         t.hold = std::strtoll(what.c_str() + h + 1, nullptr, 10);
                     g_teleports.push_back(t);
@@ -1311,7 +1428,8 @@ namespace sotc_replay
                     runtime.registerFunction(g_probeAddr, probeHook);
                 }
             }
-            if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery) && runtime.hasFunction(kHorseStep))
+            g_rideFlag = !g_teleports.empty() || (std::getenv("SOTC_RIDE_FLAG") && std::atoi(std::getenv("SOTC_RIDE_FLAG")) > 0);
+            if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery || g_rideFlag) && runtime.hasFunction(kHorseStep))
             {
                 g_horseOriginal = runtime.lookupFunction(kHorseStep);
                 runtime.registerFunction(kHorseStep, horseHook);

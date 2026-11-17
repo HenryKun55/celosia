@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
@@ -40,9 +41,29 @@ namespace
 namespace
 {
     const uint8_t *g_scriptRam = nullptr;
+    // Round S7: "@f<k>" in a script's memory condition reads host flag k (set by game code: e.g. Wander mounted on Agro)
+    // instead of a guest RAM word; such an address is encoded as 0xF0000000 | k.
+    std::atomic<uint32_t> g_scriptFlags[8];
+    constexpr uint32_t kFlagAddress = 0xF0000000u;
+    uint32_t scriptWord(uint32_t address)
+    {
+        if ((address & 0xFFFFFFF8u) == kFlagAddress)
+            return g_scriptFlags[address & 7u].load(std::memory_order_relaxed);
+        uint32_t word = 0;
+        if (g_scriptRam)
+            std::memcpy(&word, g_scriptRam + (address & 0x1FFFFFCu), sizeof(word));
+        return word;
+    }
+    uint32_t scriptAddress(const char *text) // "f<k>" or a hex guest address
+    {
+        if (text[0] == 'f')
+            return kFlagAddress | (static_cast<uint32_t>(std::atoi(text + 1)) & 7u);
+        return static_cast<uint32_t>(std::strtoul(text, nullptr, 16));
+    }
 }
 
 void PSPadBackend::setScriptMemory(const uint8_t *rdram) { g_scriptRam = rdram; }
+void PSPadBackend::setScriptFlag(int k, uint32_t value) { g_scriptFlags[k & 7].store(value, std::memory_order_relaxed); }
 
 bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t size)
 {
@@ -236,6 +257,10 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         // "r<n>@<addr>=<value>": until the word holds that value.
         bool repeatOnMemory = false, repeatUntilEqual = false;
         uint32_t repeatAddress = 0, repeatValue = 0;
+        // Round S7: "<start>?<addr|f<k>>=<value>": when due, the entry is pressed only if the word / flag holds the value,
+        // else skipped (a retry that must not press when it is no longer needed, e.g. TRIANGLE once Wander rides).
+        bool guarded = false;
+        uint32_t guardAddress = 0, guardValue = 0;
     };
     static constexpr uint16_t kStickUp = 0xF001u, kStickDown = 0xF002u, kStickLeft = 0xF003u, kStickRight = 0xF004u, kSnap = 0xF005u, kRamDump = 0xF006u, kMark = 0xF007u;
     static constexpr uint16_t kRStickLeft = 0xF008u, kRStickRight = 0xF009u; // round 112: the camera turned (RS_LEFT / RS_RIGHT)
@@ -267,13 +292,23 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 if (it == names.end())
                     continue;
                 ScriptEntry e;
+                const size_t q = at.find('?');
+                if (q != std::string::npos)
+                {
+                    const std::string guard = at.substr(q + 1);
+                    at.resize(q);
+                    const size_t eq = guard.find('=');
+                    e.guarded = true;
+                    e.guardAddress = scriptAddress(guard.c_str());
+                    e.guardValue = eq == std::string::npos ? 0u : static_cast<uint32_t>(std::strtoul(guard.c_str() + eq + 1, nullptr, 16));
+                }
                 e.afterPrevious = !at.empty() && at[0] == '+';
                 e.on3d = at == "@3d";
                 e.onMemory = !e.on3d && !at.empty() && at[0] == '@';
                 if (e.onMemory)
                 {
                     const size_t eq = at.find('=');
-                    e.memoryAddress = static_cast<uint32_t>(std::strtoul(at.c_str() + 1, nullptr, 16));
+                    e.memoryAddress = scriptAddress(at.c_str() + 1);
                     e.memoryValue = eq == std::string::npos ? 0u : static_cast<uint32_t>(std::strtoul(at.c_str() + eq + 1, nullptr, 16));
                 }
                 else
@@ -294,7 +329,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                     if (atSign != std::string::npos)
                     {
                         e.repeatOnMemory = true;
-                        e.repeatAddress = static_cast<uint32_t>(std::strtoul(extra.c_str() + atSign + 1, nullptr, 16));
+                        e.repeatAddress = scriptAddress(extra.c_str() + atSign + 1);
                         const size_t eq = extra.find('=', atSign);
                         if (eq != std::string::npos)
                         {
@@ -358,13 +393,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
         for (size_t i = 0; i < script.size(); ++i)
         {
             ScriptEntry &e = script[i];
-            auto ramWord = [](uint32_t address)
-            {
-                uint32_t word = 0;
-                if (g_scriptRam)
-                    std::memcpy(&word, g_scriptRam + (address & 0x1FFFFFCu), sizeof(word));
-                return word;
-            };
+            auto ramWord = [](uint32_t address) { return scriptWord(address); };
             if (e.state == 3)
             {
                 if (e.repeatOnMemory ? (ramWord(e.repeatAddress) == e.repeatValue) == e.repeatUntilEqual : loadedAt > e.firstVblank)
@@ -402,10 +431,7 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 else if (e.onMemory)
                 {
                     // In script order: only once the entries before it started.
-                    uint32_t word = 0;
-                    if (g_scriptRam && (previous == nullptr || previous->state != 0))
-                        std::memcpy(&word, g_scriptRam + (e.memoryAddress & 0x1FFFFFCu), sizeof(word));
-                    due = g_scriptRam && (previous == nullptr || previous->state != 0) && word == e.memoryValue;
+                    due = g_scriptRam && (previous == nullptr || previous->state != 0) && scriptWord(e.memoryAddress) == e.memoryValue;
                 }
                 else
                 {
@@ -417,6 +443,13 @@ bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t s
                 }
                 if (!due)
                     continue;
+                if (e.guarded && scriptWord(e.guardAddress) != e.guardValue)
+                {
+                    e.state = 2;
+                    e.startVblank = vblank;
+                    std::fprintf(stderr, "[input] entry %d skipped (guard) at frame %llu vblank %llu\n", static_cast<int>(i), (unsigned long long)frame, (unsigned long long)vblank);
+                    continue;
+                }
                 e.state = 1;
                 e.startVblank = vblank;
                 e.firstVblank = vblank;
