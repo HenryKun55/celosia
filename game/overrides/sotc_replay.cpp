@@ -764,7 +764,10 @@ namespace sotc_replay
             float agro[3] = {2.0f, 0.0f, 0.0f};
             bool agroYaw = false;
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
+            uint64_t trackEvery = 0;             // Decomp D14: "ptrack,dx,dy,dz,every,frames": Wander alone put at the probe's
+                                                 // live place plus (dx, dy, dz) every <every> frames for <frames> frames
         };
+        bool g_teleportNoAgro = false;           // Decomp D14: SOTC_TELEPORT_NOAGRO=1: Agro stays where he is
         uint64_t g_teleportHold = 0;
         std::vector<Teleport> g_teleports;
         bool g_teleportList = false;
@@ -774,6 +777,7 @@ namespace sotc_replay
         // its place every 300 frames ([tprobe]), and a "probe,dx,dy,dz" teleport goes to that place plus (dx, dy, dz).
         uint32_t g_probeAddr = 0, g_probeObj = 0, g_probeOff = 0x170u; // SOTC_TELEPORT_PROBE_OFF: the place's offset
         bool g_probeDumped = false;
+        bool g_probeDumpAll = false; // Decomp D14: SOTC_TELEPORT_PROBE_DUMPALL=1: the place-like words every 300 frames (which ones move)
         uint64_t g_probeNext = 0;
         PS2Runtime::RecompiledFunction g_probeOriginal = nullptr;
         void probeHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -790,7 +794,7 @@ namespace sotc_replay
                     std::memcpy(&x, rdram + o + g_probeOff, 4);
                     std::memcpy(&y, rdram + o + g_probeOff + 4u, 4);
                     std::memcpy(&z, rdram + o + g_probeOff + 8u, 4);
-                    if (!g_probeDumped)
+                    if (!g_probeDumped || g_probeDumpAll)
                     {
                         // The object's words that read as places (floats 20..3000 in size) and code / data pointers.
                         g_probeDumped = true;
@@ -1032,11 +1036,29 @@ namespace sotc_replay
                 const uint32_t player = index ? rd(0x0021B900u + index * 24u) : 0u;
                 for (Teleport &t : g_teleports)
                 {
+                    if (t.trackEvery)
+                    {
+                        // Decomp D14: a moving colossus (the probe's object, e.g. Avion's control work): Wander dropped onto
+                        // its live place, again and again, so that a grab (R1 held) can catch it. Agro is left alone.
+                        // Not while Wander is parented (gripping or standing on the colossus: his +0x170 then reads (0, 0, 0)).
+                        const bool parented = player && player < 0x2000000u && std::fabs(rf(player + 0x170u)) < 1.0f && std::fabs(rf(player + 0x178u)) < 1.0f;
+                        if (frame >= t.frame && frame < t.frame + t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && g_probeObj && !parented)
+                        {
+                            t.nextHold = frame + t.trackEvery;
+                            float p[4] = {-rf(g_probeObj + g_probeOff) + t.d[0], rf(g_probeObj + g_probeOff + 4u) + t.d[1],
+                                          -rf(g_probeObj + g_probeOff + 8u) + t.d[2], 0.0f};
+                            std::fprintf(stderr, "[teleport] frame %llu: track: Wander (at %.2f %.2f %.2f) to %.2f %.2f %.2f\n", (unsigned long long)frame,
+                                         rf(player + 0x170u), rf(player + 0x174u), rf(player + 0x178u), p[0], p[1], p[2]);
+                            teleportCall(rdram, ctx, runtime, player, p, 0.0f);
+                        }
+                        continue;
+                    }
                     if (t.done && frame < t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && !g_rideSeen)
                     {
                         t.nextHold = frame + 30u;
                         teleportCall(rdram, ctx, runtime, player, t.p, 0.0f);
-                        teleportCall(rdram, ctx, runtime, g_horse, t.p, t.agro[0], t.agro[1], t.agroYaw ? &t.agro[2] : nullptr);
+                        if (!g_teleportNoAgro)
+                            teleportCall(rdram, ctx, runtime, g_horse, t.p, t.agro[0], t.agro[1], t.agroYaw ? &t.agro[2] : nullptr);
                         continue;
                     }
                     if (!t.done && frame >= t.frame && player && player < 0x2000000u && g_rideSeen)
@@ -1141,7 +1163,8 @@ namespace sotc_replay
                         std::fprintf(stderr, "[teleport] frame %llu: Wander %08x (at %.2f %.2f %.2f) and Agro %08x to %.2f %.2f %.2f yaw %.3f\n",
                                      (unsigned long long)frame, player, rf(player + 0x170u), rf(player + 0x174u), rf(player + 0x178u), g_horse, p[0], p[1], p[2], p[3]);
                         teleportCall(rdram, ctx, runtime, player, p, 0.0f);
-                        teleportCall(rdram, ctx, runtime, g_horse, p, t.agro[0], t.agro[1], t.agroYaw ? &t.agro[2] : nullptr);
+                        if (!g_teleportNoAgro)
+                            teleportCall(rdram, ctx, runtime, g_horse, p, t.agro[0], t.agro[1], t.agroYaw ? &t.agro[2] : nullptr);
                         std::fprintf(stderr, "[teleport] now Wander at %.2f %.2f %.2f, Agro at %.2f %.2f %.2f\n", rf(player + 0x170u), rf(player + 0x174u),
                                      rf(player + 0x178u), rf(g_horse + 0x170u), rf(g_horse + 0x174u), rf(g_horse + 0x178u));
                     }
@@ -1412,6 +1435,16 @@ namespace sotc_replay
                         t.active = std::atoi(what.c_str() + 6);
                     else if (what.rfind("obj", 0) == 0)
                         std::sscanf(what.c_str() + 3, "%d,%f,%f,%f", &t.obj, &t.d[0], &t.d[1], &t.d[2]);
+                    else if (what.rfind("ptrack", 0) == 0)
+                    {
+                        unsigned long long every = 30, frames = 600;
+                        std::sscanf(what.c_str() + 6, ",%f,%f,%f,%llu,%llu", &t.d[0], &t.d[1], &t.d[2], &every, &frames);
+                        t.trackEvery = every ? every : 30u;
+                        t.holdUntil = frames;
+                        t.obj = 0;
+                        g_teleports.push_back(t);
+                        continue;
+                    }
                     else if (what.rfind("probe", 0) == 0)
                     {
                         t.obj = 0;
@@ -1460,6 +1493,7 @@ namespace sotc_replay
                 g_teleportList = true;
                 g_teleportListAt = std::strtoull(l, nullptr, 10);
             }
+            g_teleportNoAgro = ps2_diag::env("SOTC_TELEPORT_NOAGRO") && std::atoi(ps2_diag::env("SOTC_TELEPORT_NOAGRO")) > 0;
             if (const char *e = std::getenv("SOTC_TELEPORT_HOLD"))
                 g_teleportHold = std::strtoull(e, nullptr, 10);
             if (const char *e = std::getenv("SOTC_TELEPORT_POS"))
@@ -1469,6 +1503,7 @@ namespace sotc_replay
             if (const char *e = std::getenv("SOTC_TELEPORT_PROBE"))
             {
                 g_probeAddr = static_cast<uint32_t>(std::strtoul(e, nullptr, 16));
+                g_probeDumpAll = std::getenv("SOTC_TELEPORT_PROBE_DUMPALL") != nullptr;
                 if (const char *f = std::getenv("SOTC_TELEPORT_PROBE_OFF"))
                     g_probeOff = static_cast<uint32_t>(std::strtoul(f, nullptr, 16)) & ~3u;
                 if (g_probeAddr && runtime.hasFunction(g_probeAddr))
