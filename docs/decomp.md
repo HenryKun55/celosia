@@ -21485,3 +21485,125 @@ Binary: text +185 492 bytes, bss +1 136 against celosia-s4.elf (0.18 MB in all).
 The console A/B (`build/agent-scratch/celosia-a9s.vpk`, `a9s/env-console.txt`: a9sweep, s4disp, a9cmp rotated every
 600 frames) prices the barriers; syncAccounting's `this_thread::get_id` (TLS) and malloc's reent are left; the off paths can
 go once the console agrees.
+
+## Decomp D12: two routes that switch the world's colossus (SOTC_TELEPORT active<n>); three lifter extensions; D12's batch (SOTC_LIFTD12) (2026-11-17)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d12/` (STATE.md; survey12.py, cover12.py, unreached12.py,
+mkact.py, gen12.sh, abl.sh, checked12.py, patch_rt12.py). Own Vita3K tree ../vita3k-celosia-d12 (222 MHz, 3 cores, muted);
+one heavy process at a time, all `nice -n 20`, builds `-j4`; Mac runs with the new `PS2X_HIDDEN_WINDOW=1` (the runner's
+window created hidden) and Vita3K hidden by the run scripts.
+
+### Where it stood
+
+The union of every call-count run (D7-D11, 38 runs) reached **291 functions still recompiled** on the honest count: 188
+not an earlier speed cut and not interrupt-side. The rest of the code is never called on any route: Script and events had
+390 such functions of its 401 recompiled ones, most of them a single colossus' own (SCRFuncYamori*, Kame*, Kirin*, Unagi*,
+Knight*, Bird* ...). On the console card only the fifth colossus (Avion) is alive in the world.
+
+### New routes: the world's colossus switched (SOTC_TELEPORT `<frame>:active<n>`)
+
+The game holds one colossus in the world at a time; `bossStatSetActiveBoss` (0x13494D8, a0 the boss record) makes another
+one current (the shrine's light, the boss's event flags and its stage). The new teleport entry `<frame>:active<n>` calls it
+on the game thread (as the teleports call gameflowSetPos) with record n; a `boss<n>` teleport then puts Wander and Agro at
+that colossus' start. mkact.py writes the route: the console card loaded, then per colossus a 3 000-frame block (active,
+boss, walk forward, R1 held with jumps, the sword, CROSS for Retry after a game over).
+
+| run | colossi | what it reached |
+|---|---|---|
+| act1 (cc) | records 4-9 (Wander died at the first and the game over menu held the rest; Retry presses added afterwards) | +223 reached and recompiled functions: the Tortoise's geysers (Basaran), the worm (Dirge), MinoB's wall break, the beard, volume shapes, discharge, the game over flow |
+| act2 (cc) | records 10-15 | +52 |
+
+Reached and still recompiled: 291 -> 566 (script 11 -> 47, collision 25 -> 40, characters 43 -> 98).
+
+### The lifter (tools/lift_d1.py)
+
+Three patterns that refused 10 of the 188:
+
+- **Checkpoint pattern**: the back-edge test read a 60-line window after a branch, which could hold a *later* back-edge's
+  checkpoint to the same target (a forward branch then looked like one with a checkpoint). It now reads only the branch's
+  own control block, up to its closing brace (`Gen.own_block_text`). 7 functions (manager_sub_010FB010, 2.4 million calls a
+  run, among them).
+- **Break slots** whose write-through line holds several `Ps2SetGpr64` (`Ps2SetGpr64(ctx, 5, rc_5); Ps2SetGpr64(ctx, 6,
+  rc_6);`): all dropped (the lifted code syncs every dirty register before the runtime call), as one was before.
+- **A `break` outside a delay slot** with the generated code's write-through before `runtime->handleBreak` (iosSendMsg,
+  29 million calls a run): the write-throughs dropped for the same reason.
+
+Still refused: 6 branches out of the function (a conditional tail jump) and 2 bc0f loops (the DMA waits).
+
+### D12's batch (SOTC_LIFTD12)
+
+patch_rt12.py adds kLiftD12 / `SOTC_LIFTD12` (default on, A/B `liftd12`, knob `SOTC_LIFTD12_RANGE=<lo>:<hi>`), the macros
+SOTC_DECOMP_LIFT_FUNCTION_D12 / _FALLBACK_D12 and `lift_d1.py --d12`, as D11's did. Candidates: the 463 reached, still
+recompiled, not a stub, not interrupt-side and not an earlier speed cut; **455 lifted**, 8 refused.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200; every register / VU0 / FPU, the
+clock, RAM, scratchpad, VU0 data at every event and at the end), runner-t2 with the 455:
+
+| pass | route | functions checked | checks | register / clock / event mismatches | RAM bytes |
+|---|---|---:|---:|---|---|
+| dt12_act1 | act1 (records 4-9) | 250 | 7 028 | 0 | 0 |
+| dt12_act2 | act2 (records 10-15) | 58 | 3 848 | 0 | 0 |
+| dt12_fv3 | the new game with the opening, Valus' fight (in_fv3.txt), the 176 not checked yet | 0 | 0 | - | - |
+| dt12_att | the attract demo, the same 176 | 0 | 0 | - | - |
+| dt12_menu | the pause menu (in_menu.txt), the same 176 | 3 | 3 | 0 | 0 |
+
+**282 functions checked at top level, 0 mismatches**, no RAM byte (no control run needed). The 173 not checked stay
+recompiled: 108 only D9's dv1 reached (Wander on Avion's back: the parent point, pendulum and grip code; dv1 does not
+replay, as D9 / D10 found), 34 act2's later colossi under the trace's slower timing, the rest single calls of fv2 / ngv2 / dv3.
+
+**Speed** (Vita3K 222 MHz, the interleaved A/B `SOTC_AB_FLAG=liftd12 SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>`, p1 with the 455,
+1 260 s a run, sampler 120-1 200 s; mix7.py over the 455; frame times tools/mixframes.py `--shift -1`, from frame 3 000,
+300-frame blocks, off - on +- 2 SE):
+
+| run | frames (on / off) | the 455, lifted vs recompiled (samples / 1 000 frames) | slower z > 2 | faster z < -2 | sampled | frame ms off - on | busy ms off - on |
+|---|---|---|---:|---:|---:|---|---|
+| lfA7 (attract, seed 7) | 22 506 / 22 494 | 326.4 vs 337.3 (96.7%) | 2 | 2 | 11 | -0.039 +- 0.091 | -0.021 +- 0.086 |
+| lfL7 (lake, seed 7) | 13 011 / 12 989 | 589.0 vs 581.5 (101.3%) | 2 | 2 | 7 | -0.018 +- 0.107 | -0.016 +- 0.106 |
+| lfA11 (attract, seed 11) | 20 832 / 21 168 | 886.5 vs 379.8 (233.4%) | 6 | 2 | 15 | +0.045 +- 0.088 | +0.086 +- 0.082 |
+| lfL11 (lake, seed 11) | 12 919 / 13 081 | 601.3 vs 578.7 (103.9%) | 1 | 2 | 7 | +0.008 +- 0.094 | -0.011 +- 0.092 |
+
+Frame time: neutral in all four (inside +- 0.09-0.11 ms). Faster in every run: iosSendMsg (z -4.5 .. -10.4: the lifted body
+~70% of the generated code's samples) and nico_parentSync. **Cut (slower)**: gamecore_sub_01359DA0 and gamecore_sub_01361E88
+(both attract seeds), manager_sub_010FB010 (both lake seeds, z 5.6 / 6.8), and three that attract seed 11 alone reached,
+manager_sub_01147070 / 011472A8 / 01146D90 (the lifted copies 475 / 29 / 2 samples per 1 000 frames against ~1: the
+generated code leaves the work to a native callee, as D11's modelSetSurface). sheetMgrCheckSegInitList is +3.3 / -3.3 in
+the two lake seeds: kept.
+
+**276 ship** (regenerated with only them: game/overrides/decomp_liftd12_00/01.cpp): 139 other game code, 54 characters, 35
+script, 15 system, 12 display, 10 collision, 5 camera, 4 boot ELF, 2 particles.
+
+### Checks and pictures
+
+The shipped build (p2 = build/agent-scratch/celosia-d12.vpk), Vita3K 222 MHz, muted, `SOTC_VITA_EAT_USER_MB=89` (the
+console's free memory): f_walk (the console card's walk, 28 398 frames), f_att (the attract demo, 30 318), f_lake (Avion's
+lake, 17 838): all boot and run, No exact 0, 1-2 game-thread frames over 300 ms (boot, loads). No Vita3K window pictures this
+round: test windows must stay hidden (the user's rule), and the window capture needs a shown window; the pictures were taken
+from the Mac runner with the same 276 (PS2X_SNAPSHOT_DIR, which reads the frame itself): the walk (Wander and Agro on the
+plain), the attract demo (Wander riding Agro), Avion's lake (Wander swimming, the ripples), the shrine, looked at and deleted. spalign on celosia-d12.elf: 838 NEON
+:128/:256 accesses, 0 sp-based. None of the 276 is a native reading guest memory before the guest sets it (they are lifted
+guest functions, reading through the same RAM accessors as the generated code).
+
+### Decomp numbers
+
+tools/decomp_status.py on the shipped Mac build's replaced dump with `SOTC_WORKER91=0` (the honest count; attract demo to
+frame 1 500; calls from round 71's dumps); docs/decomp_status.json written from it:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D12 | **5 437 of 9 024 (60.25%)** | 63.40% | 97.61% | 64.97% |
+| as earlier rounds counted (gates on), D12 | 5 481 (60.74%) | 63.59% | 98.14% | 65.21% |
+| honest, D11 | 5 161 (57.19%) | 59.36% | 97.16% | 60.30% |
+
+By area (honest, functions; D11 in brackets): script and events 267 of 633 (232), collision and physics 184 of 317 (174),
+display and models 518 of 976 (507), characters and motion 704 of 1 206 (651), other game code 1 810 of 2 905 (1 671),
+camera 204 of 282 (199), system and memory 153 of 230 (138), particles 93 of 114 (91), sound 71 of 102, boot ELF 1 311 of
+2 137 (1 305), math 122 of 122.
+
+### What the next rounds should take
+
+- act1 again with the Retry presses (mkact.py's records 4-9 now press CROSS after each block): most of act1 ran at the game
+  over menu, so colossi 5-9 were barely visited; a call-count run and a trace pass of it should give the next batch.
+- The 108 dv1-only functions (climbing a colossus: parent points, pendulum, grips): a route that puts Wander on a colossus'
+  back with R1 held (a probe teleport on the colossus' live place) would reach them reproducibly.
+- The lifter's last refusals: conditional branches out of the function (6) and bc0f loops (2).
+- The cut functions that delegate to a native callee (manager_sub_01147070 ...) are candidates for hand natives.
