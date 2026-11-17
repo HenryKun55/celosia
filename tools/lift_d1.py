@@ -112,6 +112,12 @@ test knob SOTC_LIFTD11_RANGE; `--d11 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D11)
 Decomp D12 (docs/decomp.md "Decomp D12"): `--d12` writes D12's batch (SOTC_DECOMP_LIFT_FUNCTION_D12, switch SOTC_LIFTD12,
 test knob SOTC_LIFTD12_RANGE; `--d12 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D12), as --d7 otherwise.
 
+Decomp D13 (docs/decomp.md "Decomp D13"): `--d13` writes D13's batch (SOTC_DECOMP_LIFT_FUNCTION_D13, switch SOTC_LIFTD13,
+test knob SOTC_LIFTD13_RANGE; `--d13 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D13), as --d7 otherwise. Two refusals lifted:
+a conditional branch out of the function goes to an exit stub of its own (EXIT_BASE: the generated code's
+`PS2_JUMP_GUEST(t); return;` as a tail jump after the slot), and a non-likely bc0f / bc0t (the DMA waits' loops; the
+recompiler's condition is `false`) is an ordinary instruction whose slot runs next.
+
 Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2 | --d3 | --d4] [--alt] [--summary [--summary-cache f.pkl]
        [--summary-log f.txt]] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
 """
@@ -158,6 +164,13 @@ SUMMARY_ONLY = set()
 INLINE = {'on': False, 'max': 40, 'only': None, 'callees': None, 'info': {}, 'natives': None, 'sites': 0}
 FAKE_BASE = 0x40000000  # D5: the inlined copies' instructions get addresses of their own: FAKE_BASE + site * FAKE_STEP + offset
 FAKE_STEP = 0x10000
+EXIT_BASE = 0x48000000  # D13: a conditional branch out of the function goes to an exit stub of its own (a tail jump at
+EXIT_STEP = 0x10        # EXIT_BASE + n * EXIT_STEP, a nop slot after it), as the generated code's `PS2_JUMP_GUEST(t); return;`
+
+
+def is_bc0(w):
+    """D13: a COP0 condition branch (bc0f / bc0t / bc0fl / bc0tl): the recompiler's condition is `false` (never taken)."""
+    return (w >> 26) == 0x10 and ((w >> 21) & 31) == 8 and ((w >> 16) & 31) in (0, 1, 2, 3)
 
 
 def inline_callee(t):
@@ -445,6 +458,10 @@ class Lifter:
         W = g.words
         self.delay = set()
         for a in addrs:
+            # D13: a non-likely bc0 is never taken in the generated code (its condition is `false`): an ordinary
+            # instruction, its slot the next one in sequence (run either way)
+            if is_bc0(W[a]) and not ((W[a] >> 16) & 2):
+                continue
             if is_ctl(W[a]):
                 if a + 4 >= g.end:
                     raise Refuse('control at the end')
@@ -456,16 +473,35 @@ class Lifter:
         self.targets = set()
         self.dyncall = set()
         self.cguard = set()
+        self.bc0 = set()
+        exits = []
         for a in addrs:
             if a in self.delay:
                 continue
             w = W[a]
             op, fn = w >> 26, w & 63
+            if is_bc0(w) and not ((w >> 16) & 2):
+                # D13: the DMA waits' `bc0f` loops: the generated branch is `branch_taken = (false)`, never taken
+                if f'const bool branch_taken_0x{a:x} = (false);' not in g.own_block_text(a):
+                    raise Refuse(f'bc0 form at {a:x}')
+                self.kind[a] = ('op',)
+                self.bc0.add(a)
+                continue
             br = decode_branch(a, w)
             if br:
                 t = br[3]
                 if not (g.start <= t < g.end):
-                    raise Refuse(f'branch out of the function at {a:x}')
+                    # D13: a conditional branch out of the function (a conditional tail jump): the generated code's
+                    # taken path is `PS2_JUMP_GUEST(t); return;` after the slot; the lifted branch goes to an exit stub
+                    # (a tail jump to t with a nop slot) at an address of its own
+                    bt = g.own_block_text(a)
+                    if ('PS2_JUMP_GUEST(0x%Xu);' % t) not in bt or 'PS2_CHECKPOINT_DUE_AT' in bt:
+                        raise Refuse(f'branch out of the function at {a:x}')
+                    F = EXIT_BASE + len(exits) * EXIT_STEP
+                    exits.append((F, t))
+                    self.kind[a] = ('br',) + br[:3] + (F,) + br[4:]
+                    self.targets.add(F)
+                    continue
                 if t in self.delay:
                     raise Refuse(f'branch into a delay slot at {a:x}')
                 self.kind[a] = ('br',) + br
@@ -517,6 +553,14 @@ class Lifter:
                 if (t <= a) != has:
                     raise Refuse(f'checkpoint pattern at {a:x}')
         self.regions = [(g.start, g.end)]
+        for F, t in exits:
+            g.words[F], g.mnem[F], g.chunks[F] = 0x08000000 | ((t >> 2) & 0x3FFFFFF), 'j', []
+            g.blocks[F] = ['    PS2_JUMP_GUEST(0x%Xu);' % t, '    return;']
+            g.words[F + 4], g.mnem[F + 4], g.chunks[F + 4], g.blocks[F + 4] = 0, 'nop', [], []
+            self.addrs += [F, F + 4]
+            self.delay.add(F + 4)
+            self.kind[F] = ('tail', t)
+            self.regions.append((F, F + 8))
         if self.inline_ok:
             self.splice_inlines()
         self.stmts()
@@ -591,6 +635,9 @@ class Lifter:
                 if f'ctx->pc = 0x{a:X}u;' not in bt or 'ctx->in_delay_slot = true;' not in bt or f'ctx->branch_pc = 0x{a - 4:X}u;' not in bt:
                     raise Refuse(f'break slot form at {a:x}')
                 self.brk.add(a)
+                self.raw[a] = ''
+                continue
+            if a in self.bc0:
                 self.raw[a] = ''
                 continue
             if a in self.delay or k[0] == 'op':
@@ -2008,6 +2055,9 @@ assert HEADER_D11 != HEADER_D5 and 'LIFTD11' in HEADER_D11 and 'Decomp D11' in H
 HEADER_D12 = HEADER_D5.replace('''// Generated by tools/lift_d1.py --d5 (decomp round D5: the next batch)''', '''// Generated by tools/lift_d1.py --d12 (decomp round D12: the functions the routes reach that were still recompiled)''').replace(
     'SOTC_LIFTD5 is on', 'SOTC_LIFTD12 is on').replace('"Decomp D5"', '"Decomp D12"')
 assert HEADER_D12 != HEADER_D5 and 'LIFTD12' in HEADER_D12 and 'Decomp D12' in HEADER_D12
+HEADER_D13 = HEADER_D5.replace('''// Generated by tools/lift_d1.py --d5 (decomp round D5: the next batch)''', '''// Generated by tools/lift_d1.py --d13 (decomp round D13: the colossus-switch and ledge routes' functions still recompiled)''').replace(
+    'SOTC_LIFTD5 is on', 'SOTC_LIFTD13 is on').replace('"Decomp D5"', '"Decomp D13"')
+assert HEADER_D13 != HEADER_D5 and 'LIFTD13' in HEADER_D13 and 'Decomp D13' in HEADER_D13
 
 FOOTER = '''}
 
@@ -2050,6 +2100,7 @@ def main():
     ap.add_argument('--d10', action='store_true', help="decomp D10's batch: SOTC_DECOMP_LIFT_FUNCTION_D10 (SOTC_LIFTD10), as --d7 otherwise")
     ap.add_argument('--d11', action='store_true', help="decomp D11's batch: SOTC_DECOMP_LIFT_FUNCTION_D11 (SOTC_LIFTD11), as --d7 otherwise")
     ap.add_argument('--d12', action='store_true', help="decomp D12's batch: SOTC_DECOMP_LIFT_FUNCTION_D12 (SOTC_LIFTD12), as --d7 otherwise")
+    ap.add_argument('--d13', action='store_true', help="decomp D13's batch: SOTC_DECOMP_LIFT_FUNCTION_D13 (SOTC_LIFTD13), as --d7 otherwise")
     ap.add_argument('addrs', nargs='+')
     args = ap.parse_args()
     if args.inline:
@@ -2072,12 +2123,13 @@ def main():
     if args.summary:
         SUMMARY.update(build_summaries(args.summary_cache, args.summary_log))
         print(f'{len(SUMMARY)} callee summaries', file=sys.stderr)
-    D12 = args.d12
-    D11 = args.d11 and not D12
-    D10 = args.d10 and not D11 and not D12
-    D9 = args.d9 and not D10 and not D11 and not D12
-    D8 = args.d8 and not D9 and not D10 and not D11 and not D12
-    if D8 or D9 or D10 or D11 or D12:
+    D13 = args.d13
+    D12 = args.d12 and not D13
+    D11 = args.d11 and not D12 and not D13
+    D10 = args.d10 and not D11 and not D12 and not D13
+    D9 = args.d9 and not D10 and not D11 and not D12 and not D13
+    D8 = args.d8 and not D9 and not D10 and not D11 and not D12 and not D13
+    if D8 or D9 or D10 or D11 or D12 or D13:
         args.d7 = True  # as --d7, with D8's macros and header
     if args.d4 or args.d5 or args.d6 or args.d7:
         args.d3 = False
@@ -2121,8 +2173,8 @@ def main():
     bodies, regs = [], []
     known = dict(ext)
     known.update(ok)
-    macro = (('SOTC_DECOMP_LIFT_FALLBACK_D12' if D12 else 'SOTC_DECOMP_LIFT_FALLBACK_D11' if D11 else 'SOTC_DECOMP_LIFT_FALLBACK_D10' if D10 else 'SOTC_DECOMP_LIFT_FALLBACK_D9' if D9 else 'SOTC_DECOMP_LIFT_FALLBACK_D8' if D8 else 'SOTC_DECOMP_LIFT_FALLBACK_D7' if args.d7 else 'SOTC_DECOMP_LIFT_FALLBACK_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FALLBACK') if args.fallback else
-             'SOTC_DECOMP_LIFT_FUNCTION_D12' if D12 else 'SOTC_DECOMP_LIFT_FUNCTION_D11' if D11 else 'SOTC_DECOMP_LIFT_FUNCTION_D10' if D10 else 'SOTC_DECOMP_LIFT_FUNCTION_D9' if D9 else 'SOTC_DECOMP_LIFT_FUNCTION_D8' if D8 else 'SOTC_DECOMP_LIFT_FUNCTION_D7' if args.d7 else 'SOTC_DECOMP_LIFT_FUNCTION_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FUNCTION_D5' if args.d5 else 'SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
+    macro = (('SOTC_DECOMP_LIFT_FALLBACK_D13' if D13 else 'SOTC_DECOMP_LIFT_FALLBACK_D12' if D12 else 'SOTC_DECOMP_LIFT_FALLBACK_D11' if D11 else 'SOTC_DECOMP_LIFT_FALLBACK_D10' if D10 else 'SOTC_DECOMP_LIFT_FALLBACK_D9' if D9 else 'SOTC_DECOMP_LIFT_FALLBACK_D8' if D8 else 'SOTC_DECOMP_LIFT_FALLBACK_D7' if args.d7 else 'SOTC_DECOMP_LIFT_FALLBACK_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FALLBACK') if args.fallback else
+             'SOTC_DECOMP_LIFT_FUNCTION_D13' if D13 else 'SOTC_DECOMP_LIFT_FUNCTION_D12' if D12 else 'SOTC_DECOMP_LIFT_FUNCTION_D11' if D11 else 'SOTC_DECOMP_LIFT_FUNCTION_D10' if D10 else 'SOTC_DECOMP_LIFT_FUNCTION_D9' if D9 else 'SOTC_DECOMP_LIFT_FUNCTION_D8' if D8 else 'SOTC_DECOMP_LIFT_FUNCTION_D7' if args.d7 else 'SOTC_DECOMP_LIFT_FUNCTION_D6' if args.d6 else 'SOTC_DECOMP_LIFT_FUNCTION_D5' if args.d5 else 'SOTC_DECOMP_LIFT_FUNCTION_D4' if args.d4 else 'SOTC_DECOMP_LIFT_FUNCTION_D3' if args.d3 else
              'SOTC_DECOMP_LIFT_FUNCTION_D2' if args.d2 else 'SOTC_DECOMP_LIFT_FUNCTION')
     ilog = []
     for a in sorted(ok):
@@ -2143,13 +2195,14 @@ def main():
         # the batch's functions: called directly across files, named in their own off<>
         decl = ''.join(f'    void {known[a]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a in sorted(known) if a in ok or a in ext)
         decl += ''.join(f'    void {n}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for a, n in sorted(INLINE.get('lifted', {}).items()) if a not in known)
-        hdr = HEADER_D12 if D12 else HEADER_D11 if D11 else HEADER_D10 if D10 else HEADER_D9 if D9 else HEADER_D8 if D8 else HEADER_D7 if args.d7 else HEADER_D6 if args.d6 else HEADER_D5 if args.d5 else HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
+        hdr = HEADER_D13 if D13 else HEADER_D12 if D12 else HEADER_D11 if D11 else HEADER_D10 if D10 else HEADER_D9 if D9 else HEADER_D8 if D8 else HEADER_D7 if args.d7 else HEADER_D6 if args.d6 else HEADER_D5 if args.d5 else HEADER_D4 if args.d4 else HEADER_D3 if args.d3 else HEADER_D2 if args.d2 else HEADER
         if args.summary:
             hdr = hdr.replace('#include "sotc_decomp.h"', '// D4: --summary: a call writes back / reads back only what the callee (its whole-program summary)\n'
                               '// reads / writes; the rest is written back on the call\'s not-returning path.\n#include "sotc_decomp.h"')
         if args.fallback:
             hdr = hdr.replace('#include "sotc_decomp.h"', '// D5: --fallback: lifted copies of functions natives replace (their slots hold the natives); sotc_decomp::\n' +
-                              ('// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD12 is on (SOTC_DECOMP_LIFT_FALLBACK_D12).\n' if D12 else
+                              ('// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD13 is on (SOTC_DECOMP_LIFT_FALLBACK_D13).\n' if D13 else
+                               '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD12 is on (SOTC_DECOMP_LIFT_FALLBACK_D12).\n' if D12 else
                                '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD11 is on (SOTC_DECOMP_LIFT_FALLBACK_D11).\n' if D11 else
                                '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD10 is on (SOTC_DECOMP_LIFT_FALLBACK_D10).\n' if D10 else
                                '// recompiled() gives them to the natives\' fallbacks while SOTC_LIFTD9 is on (SOTC_DECOMP_LIFT_FALLBACK_D9).\n' if D9 else
