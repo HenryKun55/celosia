@@ -1041,7 +1041,7 @@ namespace sotc_replay
                         // Decomp D14: a moving colossus (the probe's object, e.g. Avion's control work): Wander dropped onto
                         // its live place, again and again, so that a grab (R1 held) can catch it. Agro is left alone.
                         // Not while Wander is parented (gripping or standing on the colossus: his +0x170 then reads (0, 0, 0)).
-                        const bool parented = player && player < 0x2000000u && std::fabs(rf(player + 0x170u)) < 1.0f && std::fabs(rf(player + 0x178u)) < 1.0f;
+                        const bool parented = player && player < 0x2000000u && !(std::fabs(rf(player + 0x170u)) >= 1.0f) && !(std::fabs(rf(player + 0x178u)) >= 1.0f); // NaN counts as parented
                         if (frame >= t.frame && frame < t.frame + t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && g_probeObj && !parented)
                         {
                             t.nextHold = frame + t.trackEvery;
