@@ -54,7 +54,9 @@ namespace decomp_wind
         {
             if (__builtin_expect(g_on < 0, 0))
             {
-                g_on = envOn("SOTC_S7WIND", true) ? 1 : 0;
+                // Off by default (round S7's rule: kept on only with z > 2 in both seeds; the ride's seed 11 read -0.10 ms):
+                // SOTC_S7WIND=1 turns it on (the console A/B's env-console.txt does, with `s7wind` in its rotation).
+                g_on = envOn("SOTC_S7WIND", false) ? 1 : 0;
                 g_check = envOn("SOTC_S7WIND_CHECK", false) ? 1 : 0;
                 g_log = envOn("SOTC_S7WIND_LOG", false) ? 1 : 0;
                 std::fprintf(stderr, "[s7wind] init: on %d, check %d, log %d\n", g_on, g_check, g_log);
