@@ -21875,3 +21875,43 @@ camera 208 of 282 (204), system and memory 155 of 230 (153), particles 93 of 114
   SOTC_DIFFTEST_WATCH on the addresses, to tell thread noise from a lifter difference.
 - The lifter's code for the hot motion / camera functions stays slower than the generated code on the A9 (46 cut again):
   hand natives, not lifting, are the route for them (modelSetSurface, gamecore_sub_013B8438, updateUserPathWork ...).
+
+## V1: the dark / white smoky blobs at the shrine and Avion (the glow layer on the Vita) (2026-11-17)
+
+**Report.** Vita3K, the console card's shrine load (~21 h, late game): big soft dark blobs over and around Wander and
+a white haze at the doorway; the same smudges at Avion; "the colossi's mark always on".
+
+**What draws them.** Layer 8, the glow layer (bossDeathEffect's composite, `[bossfx]`). Late in the game Wander's model
+has surfaces with flag bit 24 (setShadowEffect): while they are drawn, bossDeathEffectEnd turns the request into
+flag bit 1 of 0x1186290 every frame, so the composite is on in most frames (shrine: tint 1.99, amounts 0 / 1.25,
+3 rounds; Avion: 0.70 / 0.70, 2 rounds). That part is the game's own state (the GS reference has it too); the blobs
+were the Vita's way of drawing it.
+
+**Bisect (Vita3K 222 MHz, celosia-s6.vpk, shrine, same frames; build/agent-scratch/v1/runs/*_sheet.jpg).**
+
+| run | picture |
+|---|---|
+| default (vbase) | big dark blurred blobs + white haze over the doorway |
+| SOTC_GLOW_VITA=0 (plain layer 8) | no blobs; Wander slightly veiled |
+| SOTC_GL_GLOW94=0 FX94=0 GLOW98=0 | blobs (not the round 94 / 98 chains) |
+| SOTC_GL_FEW_SCENES=0 | no blobs; a soft halo at Wander's head |
+| p1: round 73's hoisted glow off | white blobs instead of dark ones |
+| p2: + a glow layer per picture (default) | clean (before_after_shrine.jpg) |
+| p2 with SOTC_GL_GLOW_PAIR=0 | the blobs again |
+| p2 with SOTC_GL_GLOW_HOIST=1 | the blobs again (the hoisted glow is broken on its own too: both changes needed) |
+
+Mac references: the GS (`SOTC_NATIVE` unset; `PS2X_GS_GPU=0` too) and the native Metal renderer show Wander clean; the
+Mac's native OpenGL (`SOTC_NATIVE=1 SOTC_NATIVE_GL=1`) a see-through dark veil over him (no shared depth for the glow
+layer on desktop GL, `buildGlow` ignores `depthOf` there: the whole shadow mesh is drawn; not the Vita's path).
+
+**Cause.** Round 73 (glFewScenes) draws the frames into two pictures in turn (color / colorAlt, own depth each). The
+glow layer is drawn on the picture's depth through `vglFramebufferShareDepth`, so the one glow layer was pointed at
+picture A's depth one frame and picture B's the next. In Vita3K that glow layer then came out as a copy of the
+picture (the doorway's brightness, the shadows), blurred and laid over at 1.25: the blobs. Not proven on the console
+(no console run here).
+
+**Fix (native_renderer_gl.cpp).** `glowLayerAlt`: colorAlt's own glow layer, made with it and swapped with
+`glowLayer` when the pictures swap, so each glow layer always shares the same picture's depth (+1 picture-sized colour
+target, ~0.9 MB). `SOTC_GL_GLOW_PAIR=0` goes back to one. Also: `Tuning::glGlowHoist` (`SOTC_GL_GLOW_HOIST`, default
+off) gates round 73's glow built at the soft shadows' break; GL `SOTC_GLOW_SHOW=1..4` (debugging: the layer, its
+blur, their alphas).

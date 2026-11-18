@@ -1631,6 +1631,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             makeTarget(colorAlt, w, h, true);
             wantStencil(colorAlt);
+            if (glowPairOn())
+                makeTarget(glowLayerAlt, w, h, false);
             if (colorAltPlain.fbo)
                 glDeleteFramebuffers(1, &colorAltPlain.fbo);
             colorAltPlain = Target{};
@@ -1691,6 +1693,18 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             boundFbo = ~0u;
         }
         Target glowLayer, glowSmall[4]; // bossDeathEffect: layer 8 apart (on the picture's depth); 256, 128, 64, 64
+        // 2026-11-17 (v1, the Vita): colorAlt's own glow layer, swapped with
+        // glowLayer as the pictures are (glFewScenes), so that each glow
+        // layer always shares the depth of the same picture. One glow layer
+        // shared in turn with both pictures' depths drew the shrine's glow
+        // (Wander's shadow-effect surfaces) as big blurred white / dark blobs
+        // in Vita3K. SOTC_GL_GLOW_PAIR=0: one glow layer, as before.
+        Target glowLayerAlt;
+        static bool glowPairOn()
+        {
+            static const bool on = !std::getenv("SOTC_GL_GLOW_PAIR") || std::atoi(std::getenv("SOTC_GL_GLOW_PAIR")) != 0;
+            return on;
+        }
         Target bloomTex[3];
         bool bloomHistory = false;
         // The GS chain (as Metal): 0 mask 256, 1 128, 2 64, 3 64 lerped, 4 64 history, 5 128, 6 256.
@@ -3468,6 +3482,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 release(blurOut);
                 release(colorAltPlain, false); // (colorAlt's texture)
                 release(colorAlt);
+                release(glowLayerAlt);
                 boundFbo = boundProgram = ~0u;
                 vglCollectGarbageNow();
             }
@@ -3571,7 +3586,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 uint32_t made = 0;
                 for (Target *t : {&color, &background, &snapshot, &shadowMask, &previous, &shownFrame[0], &shownFrame[1], &glowLayer, &glowSmall[0], &glowSmall[1],
                                   &glowSmall[2], &glowSmall[3], &backgroundSmall, &reflection, &refraction, &hazeSmall, &refractionHalf, &bloomTex[0], &bloomTex[1],
-                                  &bloomTex[2], &colorPlain, &colorAlt, &colorAltPlain, &fxAtlas[0], &fxAtlas[1], &bloomAtlas})
+                                  &bloomTex[2], &colorPlain, &colorAlt, &colorAltPlain, &glowLayerAlt, &fxAtlas[0], &fxAtlas[1], &bloomAtlas})
                     if (t->fbo)
                     {
                         glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
@@ -6101,6 +6116,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             std::swap(color, colorAlt);
             std::swap(colorPlain, colorAltPlain);
+            if (glowLayerAlt.fbo)
+                std::swap(glowLayer, glowLayerAlt);
         }
 #else
         const bool fewScenes = false;
@@ -7867,6 +7884,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 return;
             }
             finalKeep();
+            // Debugging (as Metal's): the picture replaced by the glow layer (1) or its blurred copy (2).
+            static const int glowShow = ps2_diag::env("SOTC_GLOW_SHOW") ? std::atoi(ps2_diag::env("SOTC_GLOW_SHOW")) : 0;
+            if (glowShow == 1 || glowShow == 2)
+            {
+                bindTexture(0, glowShow == 1 ? glowLayer.texture : glowBlurred->texture);
+                quad(color, 13, QuadBlend::None);
+                return;
+            }
+            if (glowShow == 3 || glowShow == 4) // its alpha as black over the picture (3 the layer, 4 the blurred)
+            {
+                const float black[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+                bindTexture(0, glowShow == 3 ? glowLayer.texture : glowBlurred->texture);
+                quad(color, 14, QuadBlend::Over, black);
+                return;
+            }
             glowComposite(color);
         };
 #if defined(PS2X_NATIVE_VITA)
@@ -8761,7 +8793,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             lastEvent = ei == lastRun;
 #if defined(PS2X_NATIVE_VITA)
             // Round 73: the glow layer at the shadows' layer (the shadows' event comes first there).
-            hoistGlow = fewScenes && ev.blur == -3 && ei + 1u < events.size() && events[ei + 1u].blur == -2 && events[ei + 1u].order == ev.order &&
+            hoistGlow = fewScenes && native_renderer::tuning().glGlowHoist && ev.blur == -3 && ei + 1u < events.size() && events[ei + 1u].blur == -2 && events[ei + 1u].order == ev.order &&
                         !eventSkipped(events[ei + 1u]);
 #endif
             // The picture's first scene starts from a clear (nothing to load);

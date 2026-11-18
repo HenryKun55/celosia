@@ -272,6 +272,14 @@ namespace native_renderer
         // last scene does not store its depth / stencil (nothing reads them
         // after it). SOTC_GL_FEW_SCENES=0/1; A/B name `scenes73`.
         bool glFewScenes = true;
+        // Round 73's second part alone: the glow layer (bossDeathEffect,
+        // layer 8) drawn and reduced at the soft shadows' break. Off since
+        // 2026-11-17 (v1): with it the glow composite laid big dark blurred
+        // blobs over the shrine (Wander's shadow-effect surfaces, flag bit
+        // 24, are on layer 8 there; the same at Avion) in Vita3K; without
+        // it the glow is built as before round 73 (one picture scene more
+        // in frames with both). SOTC_GL_GLOW_HOIST=0/1.
+        bool glGlowHoist = false;
         // Round 73 (the Vita): textures uploaded in GXM's swizzled layout (the
         // same texels; vitaGL lays them out in rows), read at upload, so a
         // change applies to textures uploaded after it. SOTC_GL_SWIZZLE=0/1;
