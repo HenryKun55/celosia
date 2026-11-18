@@ -66,6 +66,7 @@ Lines to look for: `[resume-test] ... suspended`, `[resume] read of ... failed .
 | tW5 | p3 | walk | 5 s at frame 405, mid-load | reads reopened, 2 239 frames at t=80 s |
 | tW6 | p3 | walk, SPU2 on, `SOTC_LOG_STDERR=0` (the console's logging) | 5 s at 413 mid-load, 8 s (q) at 2637 mid-load, **60 s** at 4200 | after each: reads reopened, card write ok (the quiet one through the failed-write path: reopened, try 2), game back within ~5 s and on to 9 138 frames (t=570 s), the sound engine's 5 s lines carry on right after the 60 s stop, pictures: Wander walking the shrine stairs before and after |
 | cW1 | p3 | walk, no suspend | - | 2 943 frames at t=150 s (the normal path) |
+| mW2 | Mac (same code) | walk, `SOTC_NATIVE=1` | 5 s at 447 mid-load, 20 s at 1500 | card image reopened, write ok; on to frame 6 198 in 200 s, Wander running on the plain after both (the Mac reads through a stream opened per read: no disc handles to lose) |
 
 `spalign.py p3.elf`: 868 NEON :128/:256 accesses, 0 sp-based.
 
