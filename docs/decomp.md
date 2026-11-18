@@ -22196,3 +22196,48 @@ is; the chain's levers are its own cost (the motion keys' decode 2.6%: an exact 
 gaze helpers' guest calls 2.2%; charaLinks; the S3 rig's per-call validation), each 0.1-0.3 ms, and outside the
 characters the display per-object chain. The crash with the main ELF's cloth natives wrapped in the function table
 (pass-throughs, jobs off) is unexplained and worth a look before the next round that wraps natives.
+
+## Redesign S9: the game thread's runtime costs on the ride by caller; the eviction pass's no-op mesh walk, the hooks' clock reads, libc long copies (SOTC_S9RT, on by default) (2026-11-18)
+
+The ninth subsystem round, the third on the ride. The full write-up is docs/runtime_s9.md; this is the summary. Scripts,
+runs and logs: `build/agent-scratch/s9/` (STATE.md; prof.sh the sampler + tools/callers9.py its samples by the LR's
+symbol, diag.sh + tools/diagsum.py the measuring build's library calls by caller, chk9.sh the check, abs9.sh /
+chain_ab.sh the A/B). Own Vita3K tree ../vita3k-celosia-s9 (222 MHz, 3 cores, muted).
+
+### The bucket by caller (profR0r: celosia-s8, ride7, 18 455 riding frames, game thread 31.8 ms)
+
+Runtime 11.0% = 3.51 ms. The leaf helpers' callers from the samples' LR, the call rates from a measuring build
+(`PS2X_VITA_DIAGCOUNT=ON`, now also memcpy / memmove / memset / malloc / free by caller): **GlBackend::evictKept 1.14% +
+IdSet::insert 0.16%** (the renderer's heap-only pressure pass every ~16 frames riding: ~7 600 meshes and every draw's ids
+walked into hash sets, nothing evicted); sceKernelGetProcessTimeWide 0.64% (from S5's one hand-over stamp a frame);
+sceClibMemcpy 0.63% (the camera parameter copy, once a frame); sceClibMemmove 0.43% (the skinned shadow palette, ~3 a
+frame); sceClibMemset 0.22% (ctrlTurn's zeroed VU0 block); memcpy 1.2% spread over ~80-a-frame sites; veneers 0.92%;
+dispatch / scheduler / isys syscalls ~1.9% together; SceLibKernel imports 2.6% in all.
+
+### What changed (`SOTC_S9RT`, A/B `s9rt`; `SOTC_S9RT_PARTS`, `_CHECK`, `_LOG`, `_HOOKTIME`)
+
+kEvict: the heap-only pressure pass without an aged or budget cut lists the in-heap textures alone (no mesh can go in
+it; the same evictions). kClock: S5's hand-over / join clock reads only with its log. kCopy: the camera copy as NEON
+loads / stores (no sceClibMemcpy). kShadow: the shadow palette read straight into the job (round 32's lean read).
+kZero: ctrlTurn zeroes only the 13 registers its load leaves alone. kHookTime: the display hooks' frame-log timer reads
+no clock (~275 sceKernelGetProcessTimeWide a frame with the console's SOTC_FRAME_LOG=1). p3 takes the renderer's flag
+before abSwitches() (p2's A/B ran the pass in the next frame's state and read ~0).
+
+### Checks, A/B, decision
+
+chkRp1 (ride7, 17 400 frames): 846 eviction passes against the full pass's list, 50 928 shadow palettes, 17 378 camera
+copies: **0 differences**. A/B (Vita3K 222 MHz, off - on): **ride7 p3 +0.440 ± 0.347 (seed 7, z 2.5) / +0.384 ± 0.191 ms
+(seed 11, z 4.0)**; lake6 +0.05 / +0.20, attract +0.03 / -0.00 (p2, no loss). **S9 stays on.** The sampler: the eviction
+pass 0.24-0.36 ms a frame removed; the HLE parts' samples moved to the next import call of the frame (Vita3K charges a
+per-frame wait to whichever import sits there), so Vita3K cannot price them; they are real but small work on the console
+(kHookTime the most). Boot with 89 MB taken (bootR3): mounted at 2 339, riding to 14 455, no fault, the picture normal. spalign 952 NEON :128 / :256, 0 sp-based.
+
+### What it leaves
+
+The ≥ 1.5 ms aimed at is not there: S9 took ~0.4 ms. The PS2 layers priced riding: guest calls / dispatch 0.21 ms,
+the scheduler's explicit symbols 0.25 ms, the isys syscalls 0.16 ms, guest memory helpers 0.07 ms, recompiled guest code
+still running 1.1 ms; R5900Context traffic inside the natives is not separable. What blocks removing them: natives
+still call guest functions (recompiled or native) through the table with ctx arguments; several EE threads, VBlank and
+alarms still go through the scheduler's checkpoints; the isys locks ask thread ids and semaphores. The next whole-ms
+steps are chains of natives turned into host routines on host data (as S3 / S7 did) and the remaining EE threads made
+host threads; a regenerated hot order (veneers 0.29 ms) is exact but needs a two-build measurement.
