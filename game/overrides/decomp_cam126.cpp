@@ -721,6 +721,8 @@ namespace cam126
         // *(track + 0xC) as the original does; rootKey above read them from the track itself, wrong for those tracks),
         // the original's v0 too. A packed track while s13mot kPacked is off, or an address the views do not cover: the
         // recompiled function. SOTC_S13MOT_CHECK=1 runs that too and compares (out, v0, f0).
+        if (__builtin_expect(s13mot::g_check, 0) && !sotc_decomp::onWorkerLane(runtime))
+            s13mot::emuSync();
         const s11motion::Key k = s11motion::rootKey(rdram, tr, GPR_U32(ctx, 6));
         if (!k.ok)
         {

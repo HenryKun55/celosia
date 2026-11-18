@@ -115,6 +115,8 @@ namespace s13motion
     {
         if (!s13mot::on(s13mot::kRoot))
             return recInt()(rdram, ctx, runtime);
+        if (__builtin_expect(s13mot::g_check, 0) && !sotc_decomp::onWorkerLane(runtime))
+            s13mot::emuSync();
         const IntResult r = computeInt(rdram, ctx);
         if (!r.ok)
         {
@@ -244,6 +246,8 @@ namespace s13motion
         if (!s13mot::on(s13mot::kRoot))
             return recInfo()(rdram, ctx, runtime);
         R5900Context &sc = g_scratch[sotc_decomp::lane(runtime)];
+        if (__builtin_expect(s13mot::g_check, 0) && !sotc_decomp::onWorkerLane(runtime))
+            s13mot::emuSync();
         const InfoResult r = computeInfo(rdram, ctx, sc);
         if (!r.ok)
         {

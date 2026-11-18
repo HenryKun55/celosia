@@ -145,6 +145,8 @@ namespace s11motion
     {
         if (!s11rt::on(s11rt::kMotion))
             return rec()(rdram, ctx, runtime);
+        if (__builtin_expect(s13mot::g_check, 0) && !sotc_decomp::onWorkerLane(runtime))
+            s13mot::emuSync();
         const Result r = compute(rdram, ctx);
         if (!r.ok)
         {

@@ -23,6 +23,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include "sotc_decomp.h"
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 
 namespace s13mot
 {
@@ -40,6 +43,10 @@ namespace s13mot
     inline uint32_t g_stretch = 8u;
     inline void init()
     {
+        // Off unless SOTC_S13MOT=1 (A/B riding even: +0.12 / -0.10 ms, docs/motion_s13.md); the A/B's turns still flip it.
+        // (set here, not in sotc_decomp.h's default list: that header is in every translation unit)
+        const char *e = std::getenv("SOTC_S13MOT");
+        sotc_decomp::g_switch[sotc_decomp::kS13Mot] = (e && e[0] >= '1' && e[0] <= '3') ? 1 : 0;
         const char *v = std::getenv("SOTC_S13MOT_PARTS");
         g_parts = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 0)) & kAll : static_cast<uint32_t>(kAll);
         v = std::getenv("SOTC_S13MOT_LOG");
@@ -82,6 +89,17 @@ namespace s13mot
 
     // The float unit's control word (the rounding mode: bits 22-23 on the A9, 0 round to nearest, 3 toward zero).
     uint32_t fpscr();
+    // The check's guard against Vita3K's float mode (docs/motion_s13.md): after the rounding-mode switch of a divide /
+    // root by a non-normal operand (ps2FpuDivideNearestCsr: two FPSCR writes), the emulator's translated code can go on
+    // rounding to nearest for a while although the FPSCR reads toward zero, until its next exit to the host (a kernel
+    // call). The check makes one (a clock read) before each compared call, so both legs run in the mode the FPSCR
+    // says. A no-op outside the check, and on the console's hardware the FPSCR is what rounds.
+    inline void emuSync()
+    {
+#if defined(__vita__)
+        (void)sceKernelGetProcessTimeLow();
+#endif
+    }
     inline uint32_t fpscrInline()
     {
 #if defined(__arm__)
