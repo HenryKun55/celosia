@@ -766,6 +766,14 @@ namespace sotc_replay
             uint64_t holdUntil = 0, nextHold = 0; // SOTC_TELEPORT_HOLD: put back there every 30 frames until then
             uint64_t trackEvery = 0;             // Decomp D14: "ptrack,dx,dy,dz,every,frames": Wander alone put at the probe's
                                                  // live place plus (dx, dy, dz) every <every> frames for <frames> frames
+            // Decomp D16: arena aids (no teleport): "gflag<k>" sets game flag k (_gameFlagSet), "bootflag<n>" sets boss record
+            // n's +0x1C flag (the one bossStatBootChk reads: the colossus woken), "bdemo" calls bossStatStartDemo (the script
+            // command BootBoss: the active colossus' arrival demo), "bkill" calls setBossAbsoluteDeath on the colossus behind the
+            // boss handle (its AI work +0x48: the next stab kills), "pkill" the player's final-blow routine (0x13B7730: the
+            // absolute death and the attack message onto what Wander grips).
+            int gflag = -1;
+            int bootRec = -1;
+            int call = 0;                        // 1 bdemo, 2 bkill, 3 pkill
         };
         bool g_teleportNoAgro = false;           // Decomp D14: SOTC_TELEPORT_NOAGRO=1: Agro stays where he is
         uint64_t g_teleportHold = 0;
@@ -833,6 +841,19 @@ namespace sotc_replay
                 probeSee(rdram, GPR_U32(ctx, 2));
         }
         constexpr uint32_t kSetPos = 0x013522A0u;
+        // Decomp D16: one guest call (a0 = arg) from the horse hook, as activeBossCall; returns v0.
+        uint32_t guestCall1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t fn, uint32_t arg)
+        {
+            const R5900Context keep = *ctx;
+            SET_GPR_U32(ctx, 4, arg);
+            const uint32_t sp = (GPR_U32(ctx, 29) - 0x400u) & ~15u;
+            sotc_decomp::callGuest(rdram, ctx, runtime, fn, GPR_U32(&keep, 31), sp);
+            const uint32_t v0 = GPR_U32(ctx, 2);
+            *ctx = keep;
+            return v0;
+        }
+        constexpr uint32_t kGameFlagSet = 0x0134EFB0u, kGameFlagChk = 0x0134F030u, kBossStartDemo = 0x01349A98u,
+                           kBossAbsoluteDeath = 0x01378B40u, kPlayerFinalBlow = 0x013B7730u, kGetGObjAdrs = 0x013536D8u;
         constexpr uint32_t kSetActiveBoss = 0x013494D8u; // Decomp D12: bossStatSetActiveBoss (a0 the boss record)
         // Round S6: nico_ForceChangePlayerHorseRidingControl (a0 the player; the horse is the game's own, handle 0x1465904):
         // the game's own switch of Wander's controls to riding Agro. In Vita3K it did not mount Wander by itself (it switches
@@ -1046,6 +1067,13 @@ namespace sotc_replay
                         const uint32_t r = records + i * 0xECu;
                         std::fprintf(stderr, "[teleport] boss %u: rec %08x +18 %08x +50 %08x pos %.2f %.2f %.2f yaw %.3f\n", i, r, rd(r + 0x18u), rd(r + 0x50u),
                                      rf(r + 0x64u), rf(r + 0x68u), rf(r + 0x6Cu), rf(r + 0x70u));
+                        // Decomp D16: the record's flags (+0x18 set by SetActiveBoss, +0x1C the boot flag, +0x20 cleared there),
+                        // their state, the checkpoint place (+0x54) and the boss game object (+0xE8, gStatGetGObjAdrs).
+                        const uint32_t f18 = rd(r + 0x18u), f1c = rd(r + 0x1Cu), f20 = rd(r + 0x20u), go = rd(r + 0xE8u);
+                        std::fprintf(stderr, "[teleport] boss %u flags +18 %u=%u +1c %u=%u +20 %u=%u area %u check %.2f %.2f %.2f gobj %u -> %08x\n", i, f18,
+                                     guestCall1(rdram, ctx, runtime, kGameFlagChk, f18), f1c, guestCall1(rdram, ctx, runtime, kGameFlagChk, f1c), f20,
+                                     guestCall1(rdram, ctx, runtime, kGameFlagChk, f20), rdram[(r + 0x51u) & 0x1FFFFFFu], rf(r + 0x54u), rf(r + 0x58u), rf(r + 0x5Cu), go,
+                                     go ? guestCall1(rdram, ctx, runtime, kGetGObjAdrs, go) : 0u);
                     }
                 }
                 const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
@@ -1061,9 +1089,24 @@ namespace sotc_replay
                     if (frame >= g_probeNext)
                     {
                         g_probeNext = frame + 300u;
-                        std::fprintf(stderr, "[tprobe] frame %llu: boss handle %u obj %08x at %.2f %.2f %.2f\n", (unsigned long long)frame, bi, g_probeObj,
+                        std::fprintf(stderr, "[tprobe] frame %llu: boss handle %u obj %08x at %.2f %.2f %.2f home %.2f %.2f %.2f\n", (unsigned long long)frame, bi, g_probeObj,
                                      g_probeObj ? rf(g_probeObj + g_probeOff) : 0.0f, g_probeObj ? rf(g_probeObj + g_probeOff + 4u) : 0.0f,
-                                     g_probeObj ? rf(g_probeObj + g_probeOff + 8u) : 0.0f);
+                                     g_probeObj ? rf(g_probeObj + g_probeOff + 8u) : 0.0f, g_probeObj ? rf(g_probeObj + 0xA0u) : 0.0f,
+                                     g_probeObj ? rf(g_probeObj + 0xA4u) : 0.0f, g_probeObj ? rf(g_probeObj + 0xA8u) : 0.0f);
+                        // Decomp D16: SOTC_TELEPORT_BOSS_DUMP=1: the boss object's place-like words and its pointers' targets at
+                        // the probe offset (a colossus whose +0x170 stays 0, Avion: which words move).
+                        static const bool bossDump = std::getenv("SOTC_TELEPORT_BOSS_DUMP") != nullptr;
+                        if (bossDump && g_probeObj)
+                            for (uint32_t k = 0; k < 0x800u; k += 4u)
+                            {
+                                const float f = rf(g_probeObj + k);
+                                const uint32_t w = rd(g_probeObj + k);
+                                if (std::fabs(f) > 2.0f && std::fabs(f) < 3000.0f)
+                                    std::fprintf(stderr, "[tbdump] %llu +%03x %.2f\n", (unsigned long long)frame, k, f);
+                                else if (w >= 0x1000000u && w < 0x1FFFF00u && k < 0x400u && !(w & 3u))
+                                    std::fprintf(stderr, "[tbdump] %llu +%03x ptr %08x -> %.2f %.2f %.2f\n", (unsigned long long)frame, k, w, rf(w + g_probeOff),
+                                                 rf(w + g_probeOff + 4u), rf(w + g_probeOff + 8u));
+                            }
                     }
                 }
                 for (Teleport &t : g_teleports)
@@ -1074,12 +1117,15 @@ namespace sotc_replay
                         // its live place, again and again, so that a grab (R1 held) can catch it. Agro is left alone.
                         // Not while Wander is parented (gripping or standing on the colossus: his +0x170 then reads (0, 0, 0)).
                         const bool parented = player && player < 0x2000000u && !(std::fabs(rf(player + 0x170u)) >= 1.0f) && !(std::fabs(rf(player + 0x178u)) >= 1.0f); // NaN counts as parented
+                        // Decomp D16: a colossus not moving yet (asleep / perched: its +0x170 still 0) is tracked at its home place
+                        // (+0xA0, world coordinates, as the boss object's dump shows).
+                        const uint32_t off = (g_probeBoss && g_probeObj && std::fabs(rf(g_probeObj + g_probeOff)) + std::fabs(rf(g_probeObj + g_probeOff + 8u)) <= 1.0f) ? 0xA0u : g_probeOff;
                         if (frame >= t.frame && frame < t.frame + t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && g_probeObj && !parented &&
-                            std::fabs(rf(g_probeObj + g_probeOff)) + std::fabs(rf(g_probeObj + g_probeOff + 8u)) > 1.0f) // D15: not onto a place not set yet
+                            std::fabs(rf(g_probeObj + off)) + std::fabs(rf(g_probeObj + off + 8u)) > 1.0f) // D15: not onto a place not set yet
                         {
                             t.nextHold = frame + t.trackEvery;
-                            float p[4] = {-rf(g_probeObj + g_probeOff) + t.d[0], rf(g_probeObj + g_probeOff + 4u) + t.d[1],
-                                          -rf(g_probeObj + g_probeOff + 8u) + t.d[2], 0.0f};
+                            float p[4] = {-rf(g_probeObj + off) + t.d[0], rf(g_probeObj + off + 4u) + t.d[1],
+                                          -rf(g_probeObj + off + 8u) + t.d[2], 0.0f};
                             std::fprintf(stderr, "[teleport] frame %llu: track: Wander (at %.2f %.2f %.2f) to %.2f %.2f %.2f\n", (unsigned long long)frame,
                                          rf(player + 0x170u), rf(player + 0x174u), rf(player + 0x178u), p[0], p[1], p[2]);
                             teleportCall(rdram, ctx, runtime, player, p, 0.0f);
@@ -1134,6 +1180,58 @@ namespace sotc_replay
                             std::fprintf(stderr, "[teleport] frame %llu: Wander %08x put on Agro %08x\n", (unsigned long long)frame, player, g_horse);
                             continue;
                         }
+                        if (t.gflag >= 0 || t.bootRec >= 0)
+                        {
+                            // Decomp D16: a game flag set (a colossus woken by its record's +0x1C flag).
+                            t.holdUntil = 0;
+                            int k = t.gflag;
+                            if (t.bootRec >= 0)
+                                k = (records && static_cast<uint32_t>(t.bootRec) < count) ? static_cast<int>(rd(records + static_cast<uint32_t>(t.bootRec) * 0xECu + 0x1Cu)) : -1;
+                            if (k >= 0)
+                                guestCall1(rdram, ctx, runtime, kGameFlagSet, static_cast<uint32_t>(k));
+                            std::fprintf(stderr, "[teleport] frame %llu: game flag %d set (now %u; boot rec %d)\n", (unsigned long long)frame, k,
+                                         k >= 0 ? guestCall1(rdram, ctx, runtime, kGameFlagChk, static_cast<uint32_t>(k)) : 0u, t.bootRec);
+                            continue;
+                        }
+                        if (t.call)
+                        {
+                            // Decomp D16: bdemo / bkill / pkill.
+                            t.holdUntil = 0;
+                            if (t.call == 4)
+                            {
+                                g_teleportList = true; // D16: "list": the boss table again from this frame
+                                g_teleportListAt = frame;
+                                continue;
+                            }
+                            if (t.call == 5)
+                            {
+                                // D16: the boss work (GetSCRCharaAIWorkPtr's [0]): +0x54 the parts, +0x10 their records (0x58 each,
+                                // +0x1C the life), +0xE8 the damage (+0x24 + 8 i), as getBossPartsLifeRatio reads them.
+                                if (g_probeObj)
+                                {
+                                    const uint32_t w = rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj));
+                                    const uint32_t n = rd(w + 0x54u), parts = rd(w + 0x10u), dmg = rd(w + 0xE8u);
+                                    for (uint32_t i = 0; i < n && i < 64u && parts && dmg; ++i)
+                                    {
+                                        const float life = rf(parts + i * 0x58u + 0x1Cu), d = life * (1.0f - t.d[0] / 100.0f);
+                                        std::memcpy(rdram + ((dmg + 0x24u + i * 8u) & 0x1FFFFFCu), &d, 4);
+                                        std::fprintf(stderr, "[teleport] frame %llu: boss part %u attr %08x weak %08x life %.2f damage set %.2f\n", (unsigned long long)frame, i,
+                                                     rd(parts + i * 0x58u), rd(parts + i * 0x58u + 0x28u), life, d);
+                                    }
+                                }
+                                continue;
+                            }
+                            if (t.call == 1)
+                                guestCall1(rdram, ctx, runtime, kBossStartDemo, 0u);
+                            else if (t.call == 2 && g_probeObj)
+                                guestCall1(rdram, ctx, runtime, kBossAbsoluteDeath, g_probeObj);
+                            else if (t.call == 3)
+                                guestCall1(rdram, ctx, runtime, kPlayerFinalBlow, player);
+                            std::fprintf(stderr, "[teleport] frame %llu: %s (boss obj %08x, player %08x)\n", (unsigned long long)frame,
+                                         t.call == 1 ? "bossStatStartDemo" : t.call == 2 ? (g_probeObj ? "setBossAbsoluteDeath" : "bkill: no boss") : "the final blow",
+                                         g_probeObj, player);
+                            continue;
+                        }
                         if (t.active >= 0)
                         {
                             // Decomp D12: the game's own switch of the colossus the world holds (the light's target):
@@ -1174,9 +1272,10 @@ namespace sotc_replay
                                 continue;
                             }
                             // +0x170 holds (-x, y, -z) of the teleport's numbers; (dx, dy, dz) in the teleport's numbers.
-                            p[0] = -rf(g_probeObj + g_probeOff) + t.d[0];
-                            p[1] = rf(g_probeObj + g_probeOff + 4u) + t.d[1];
-                            p[2] = -rf(g_probeObj + g_probeOff + 8u) + t.d[2];
+                            const uint32_t off = (g_probeBoss && std::fabs(rf(g_probeObj + g_probeOff)) + std::fabs(rf(g_probeObj + g_probeOff + 8u)) <= 1.0f) ? 0xA0u : g_probeOff; // D16: home place
+                            p[0] = -rf(g_probeObj + off) + t.d[0];
+                            p[1] = rf(g_probeObj + off + 4u) + t.d[1];
+                            p[2] = -rf(g_probeObj + off + 8u) + t.d[2];
                         }
                         if (t.obj > 0)
                         {
@@ -1456,6 +1555,24 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what == "ride")
                         t.ride = true;
+                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "list" || what.rfind("blife", 0) == 0)
+                    {
+                        // Decomp D16: the arena aids (no place, no hold).
+                        if (what[0] == 'g')
+                            t.gflag = std::atoi(what.c_str() + 5);
+                        else if (what.rfind("bootflag", 0) == 0)
+                            t.bootRec = std::atoi(what.c_str() + 8);
+                        else if (what.rfind("blife", 0) == 0)
+                        {
+                            t.call = 5; // D16: "blife<pct>": every boss part's damage set to (100 - pct)% of its life
+                            t.d[0] = static_cast<float>(std::atof(what.c_str() + 5));
+                        }
+                        else
+                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : 3;
+                        t.hold = 0;
+                        g_teleports.push_back(t);
+                        continue;
+                    }
                     else if (what.rfind("ahead", 0) == 0)
                     {
                         t.ahead = true;
