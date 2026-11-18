@@ -987,7 +987,7 @@
   {
    "round": "S10",
    "date": "2026-11-18",
-   "commit": "5a81bf5",
+   "commit": "1f3ef2c",
    "focus": "Subsystem redesign",
    "summary": "Round S10, Display and models riding (24.7% of the game thread, 7.9 ms in Vita3K). The map by step: walk / clip / LOD / sort 2.69 ms, model hook and modelDispState lane 1.06, lights 0.88, immediate quads / 2D 0.74 (+ strips ~0.8), prefetch notes 0.64, GS texture requests 0.45, particles 0.38, layer / gsReg hooks 0.28; ~3.95 ms real work, ~2.5 ms that exists only because the draw is shaped for the GS / VIF / DMA. Its largest piece: the GS layer cache *0x118bfc8, whose readers (modelSetSurface for the cloths, modelResetSurface for the particle geodisps, ~57 calls a frame riding) joined the lane and ran its pending jobs on the game thread. SOTC_S10DRAW (A/B s10draw, on): the cache left out (modelSetSurface as its host effect, the cloth's texture note; the lane no longer writes it), texTransRequest without its GS upload request (the hook's note and the lock kept), the lock taken once per texture per buffer build.",
    "result": "Exact where the renderer reads: the in-run check compared the cloth's draw record old way / new way, 516 711 records over ride7, lake6 and attract, 0 differences. Faster on every route in the interleaved A/B (Vita3K 222 MHz, off - on, shipped p3 seeds 7 / 11; p1 in brackets): ride7 riding +0.41 / +0.58 (+0.74 / +0.91) ms, from frame 3 000 +0.96 / +0.98 ms, game busy up to -1.3 ms; lake6 +1.37 / +1.68 ms; attract +0.49 / +0.37 ms. Below the 2 ms aim riding; pictures normal, the 89 MB-taken boot clean. Next: the lane's +0x2c / CLIP mirror, the palette and lights out of the instance chain's VIF records, plans from host model data, the strips' GS pairs."
