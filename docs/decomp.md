@@ -22403,3 +22403,54 @@ rotation).
 The lane's mirror of modelDisp (+0x2c part results, the CLIP chain), the palette and lights read out of the instance
 chain's VIF / VU1 records, the plans validated against guest packet lists, the immediate quads' GS pairs, the layer
 stack: docs/display_s10.md section 6.
+
+## Redesign S11: the PS2 machinery still on the game thread riding: the isys lock inline, the IOP in larger batches, the motion root as host code (SOTC_S11RT, on by default) (2026-11-18)
+
+The full write-up is docs/runtime_s11.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s11/`
+(STATE.md; prof.sh the sampler, chk11.sh the in-run check, abs11.sh / chain_ab.sh the s11rt interleaved A/B, dis.sh a
+function's MIPS listing from the recompiled source). Own Vita3K tree ../vita3k-celosia-s11 (222 MHz, 3 cores, muted).
+
+### The profile (profR0: celosia-s9, ride7, 20 245 riding frames, game thread 32.8 ms)
+
+Recompiled `_0x` code 3.54% (1.16 ms), flat over ~400 functions (top GetMotionRootFloatFrame 0.12%); D5's lifted root key
+0.12% and its wrapper's hash lookup (sotc_decomp::recompiled, ctl126 off) 0.09%; the isys lock 0.42% (getThreadId139 +
+veneer, pollSema139, the scheduler's out-of-line accessor); the scheduler ~0.5% (checkpointSlow, updateGate, run, the IOP's
+batches); callGuest's out-of-line copy 0.70%, most of it from the particles' display walk (S10's). Counted (`[s11]`): 40-150
+slow checkpoints a frame, the gate set by the IOP's batch most of the time (~80 IOP runs a frame at 2 048 cycles), the
+time slice's end ~11-16, ~7 events a frame (3.5 interrupts, 3.1 wake-ups) unwinding to the scheduler, ~8-9 thread
+switches a frame (threads 4, 5, 8, 9, 10, 11), no preemption.
+
+### What changed (`SOTC_S11RT`, A/B `s11rt`; `_PARTS`, `_CHECK`, `_LOG`, `_IOPBATCH`, `_PACKED`)
+
+- kLock: the isys lock's GetThreadId / PollSema / release SignalSema inline from the scheduler's state (a pointer kept at
+  install), no out-of-line helper, accessor or table call when uncontended; riding ~180-260 inline signals a frame, 0
+  fallbacks.
+- kIop: the IOP runs behind the EE in batches of 16 384 EE cycles (was 2 048): ~11-13 IOP runs and slow checkpoints a
+  frame instead of ~80. Every EE -> IOP call still catches the IOP up first. Not bit-exact by design (the IOP's own
+  progress between calls is coarser by 56 µs of EE time); the game sees the same IOP state at each call.
+- kMotion: GetMotionRootFloatFrame (0x10b4478) and its root key (manager_sub_010AD048) as one host routine over named views
+  of the motion data (s11_motion.cpp: MotionRef / MotionSet / Motion / RootTrack), the original's visible results written
+  back (out, v0, f0, VU0 vf5-vf8 / ACC / t0). Packed (int16) tracks go to the recompiled function: with host arithmetic
+  ~0.2% of their keys came out one or two units apart (the original matched a fused multiply-add in round-toward-zero in
+  the case worked out by hand; not pursued). ~16 calls a frame riding, ~9 of them packed.
+- kRootKey: cam126::rootKeyEntry keeps its recompiled function in a pointer (no hash lookup per call).
+
+### Checks, A/B, decision
+
+chkRp4 (p4, ride7, `SOTC_S11RT_CHECK=1`): 106 573 kMotion calls compared (out, v0, f0, VU0), **0 differences** (2 075 legs
+unwound by a checkpoint inside the recompiled function skipped). chkRp3 (p3, packed keys on the host): 385 434 checks, 675
+differences, all packed. A/B (Vita3K 222 MHz, off - on): **ride7 p3 +0.346 ± 0.199 ms (seed 7, z 3.5) / +0.249 ± 0.174 ms
+(seed 11, z 2.9)**; lake6 p3 +0.372 ± 0.143 / +0.410 ± 0.233 ms (z 5.2 / 3.5); attract p3 +0.015 ± 0.106 / +0.058 ± 0.130 (no
+loss); ride7 p4 (packed keys to the recompiled function, the shipped build) +0.400 ± 0.338 ms (seed 7, z 2.4; a first seed-7 run that
+mounted late read +0.194 ± 0.293) / +0.173 ± 0.156 ms (seed 11, z 2.2). **S11 on by default.** Boot with 89 MB taken (bootR4, p4): mounted
+at 3 186, riding to 16 235, no fault, the picture normal. spalign (p4) 959 NEON :128 / :256, 0 sp-based.
+
+### What it leaves
+
+~0.2-0.35 ms of the ~1.8 ms priced. The recompiled code left is flat (0.06-0.10% a function; the next natural batch is the
+motion curves and root-info getters next to kMotion's views); the scheduler's remaining slow checkpoints are the time
+slice's end (a longer slice while one thread runs would cut ~10 a frame) and ~7 event unwinds a frame that only host sound /
+streaming / loader threads would remove (their guest code first); the lock's users still keep it in guest RAM; the
+particles' display walk's guest calls (0.44%) are S10's. Found on the way: cam126::rootKey (ctl126, off) reads the packed
+and constant encodings' data from the track instead of *(track + 0xC): wrong root motion with SOTC_CTL126=1, possibly the
+round-131 route-6 bug that turned it off.
