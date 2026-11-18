@@ -43,6 +43,7 @@
 // iosInverseMatrix) are relocated jals, called where the site points, as the
 // recompiled code does. SOTC_MOTION=0 puts the recompiled code back.
 #include "sotc_decomp.h"
+#include "s9rt.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -230,13 +231,43 @@ namespace decomp_ctrlturn
     constexpr uint32_t kDeg = 0x42652EE0u; // 57.295776
     constexpr uint32_t kSmall = 0x38D1B716u; // 9.999999e-05
 
+    void ctrlTurnBody(St &s, uint8_t *rdram, R5900Context *ctx, uint32_t out, uint32_t chara, uint32_t dir, uint32_t sp0, uint32_t ra0, uint32_t sp);
+
     void ctrlTurn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::motionOn() || !sites(rdram))
             return sotc_decomp::recompiled(kFunction)(rdram, ctx, runtime);
         const uint32_t out = GPR_U32(ctx, 4), chara = GPR_U32(ctx, 5), dir = GPR_U32(ctx, 6);
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x1A0u;
-        St s{rdram, ctx, runtime, sp, {}, {}, 0.0f, 0};
+        // Round S9 (s9rt kZero): the registers load() does not fill zeroed one by one (no 512-byte memset, which newlib
+        // sends to sceClibMemset); load() fills the rest: the same values as the zero-initialised St.
+        if (s9rt::on(s9rt::kZero))
+        {
+            static constexpr int kUnloaded[] = {1, 2, 3, 9, 18, 19, 20, 21, 22, 23, 27, 30, 31};
+            ++s9rt::g_st.zeros;
+            St s; // (an aggregate without member initialisers: nothing written here)
+            s.rdram = rdram;
+            s.ctx = ctx;
+            s.runtime = runtime;
+            s.sp = sp;
+            for (int r : kUnloaded)
+                s.v[r] = _mm_setzero_ps();
+            s.acc = _mm_setzero_ps();
+            s.q = 0.0f;
+            s.status = 0;
+            ctrlTurnBody(s, rdram, ctx, out, chara, dir, sp0, ra0, sp);
+        }
+        else
+        {
+            ++s9rt::g_st.zerosOff;
+            St s{rdram, ctx, runtime, sp, {}, {}, 0.0f, 0};
+            ctrlTurnBody(s, rdram, ctx, out, chara, dir, sp0, ra0, sp);
+        }
+    }
+
+    void ctrlTurnBody(St &s, uint8_t *rdram, R5900Context *ctx, const uint32_t out, const uint32_t chara,
+                                                            const uint32_t dir, const uint32_t sp0, const uint32_t ra0, const uint32_t sp)
+    {
         s.load();
         __m128 *v = s.v;
         __m128 &acc = s.acc;

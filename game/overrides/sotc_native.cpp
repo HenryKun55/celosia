@@ -98,10 +98,16 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 #endif
 #include <vector>
 #include "a9sweep.h"
+#include "s9rt.h"
 
 namespace decomp_wind
 {
     extern bool g_s7AbOff; // round S7 (decomp_wind.cpp): the A/B windows' `s7wind`
+}
+namespace native_renderer
+{
+    extern bool g_s9Evict, g_s9Check; // round S9 (native_renderer_gl.cpp): evictKept's textures-only pass, its check
+    extern uint64_t g_s9Stats[5]; // its counts: full passes, textures-only passes, checked, differ, evicted
 }
 namespace s8cloth
 {
@@ -3322,7 +3328,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3927,6 +3933,20 @@ namespace sotc_native
             mdsTraceFrame();
         lines67::frame(g_frame);
         abSwitches();
+        // Round S9: the renderer's eviction pass (native_renderer_gl.cpp) asks this flag at the hand-over.
+        native_renderer::g_s9Evict = s9rt::on(s9rt::kEvict);
+        if (s9rt::g_log && g_frame % s9rt::g_log == 0u)
+        {
+            const s9rt::Stats &st = s9rt::g_st;
+            std::fprintf(stderr,
+                         "[s9rt] frame %llu: camera copies %llu (off %llu), shadow palettes %llu (off %llu), ctrlTurn %llu (off %llu), s5 clock reads skipped %llu; checks %llu, differ %llu; "
+                         "evict passes %llu full / %llu textures only (%llu checked, %llu differ), evicted %llu\n",
+                         (unsigned long long)g_frame, (unsigned long long)st.copies, (unsigned long long)st.copiesOff, (unsigned long long)st.shadows,
+                         (unsigned long long)st.shadowsOff, (unsigned long long)st.zeros, (unsigned long long)st.zerosOff, (unsigned long long)st.clockSkips,
+                         (unsigned long long)st.checks, (unsigned long long)st.differ, (unsigned long long)native_renderer::g_s9Stats[0],
+                         (unsigned long long)native_renderer::g_s9Stats[1], (unsigned long long)native_renderer::g_s9Stats[2],
+                         (unsigned long long)native_renderer::g_s9Stats[3], (unsigned long long)native_renderer::g_s9Stats[4]);
+        }
         prio100Apply();
         native_renderer::gfxLogIfChanged(g_frame); // round 124: [gfx124] at start and at each change
         flush2D();
@@ -7366,8 +7386,29 @@ namespace sotc_native
         {
             // The instance's matrix / palette and light rows as they are now.
             const uint32_t ret = word(chain + 4u);
-            if (skinnedShadow)
+            if (skinnedShadow && s9rt::on(s9rt::kShadow))
             {
+                // Round S9 (s9rt kShadow): the palette's rows straight into the job (readChainPaletteLean: the same
+                // values as the picture's rows lo..hi below), no 16 KB picture and no second copy (sceClibMemmove).
+                ++s9rt::g_st.shadows;
+                uint32_t lo = 0, hi = 0, retAt = 0, bytes = 0;
+                if (!readChainPaletteLean(chain, lo, hi, job.palette, retAt, bytes))
+                    return;
+                job.paletteLo = lo;
+                job.paletteHi = hi;
+                if (__builtin_expect(s9rt::g_check, 0))
+                {
+                    static VuPalette now;
+                    ++s9rt::g_st.checks;
+                    const bool read = readChainPalette(chain, now);
+                    s9rt::g_st.differ += !read || now.lo != lo || now.hi != hi ||
+                                         (hi > lo && std::memcmp(now.data() + lo * 4u, job.palette.data(), (hi - lo) * 16u) != 0) ||
+                                         (hi <= lo && !job.palette.empty());
+                }
+            }
+            else if (skinnedShadow)
+            {
+                ++s9rt::g_st.shadowsOff;
                 static VuPalette now;
                 if (!readChainPalette(chain, now))
                     return;
@@ -12621,6 +12662,8 @@ void installSotcNativeLate(PS2Runtime &runtime)
     mdstrace::install(runtime);
     s4disp::install(runtime);            // round S4: the screen passes' host-only variants (SOTC_S4DISP)
     s8cloth::install(runtime);           // round S8: the cloth jobs' joins (SOTC_S8CLOTH)
+    s9rt::init();                        // round S9: the runtime costs' parts, check and log (SOTC_S9RT_*)
+    native_renderer::g_s9Check = s9rt::g_check;
 }
 namespace sotc_native
 {

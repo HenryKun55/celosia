@@ -40,6 +40,7 @@
 
 #include "sotc_decomp.h"
 #include "sotc_worker.h"
+#include "s9rt.h"
 #include "runtime/ps2_diag.h"
 #include "runtime/native_renderer.h"
 #include "runtime/ps2_memory.h"
@@ -426,7 +427,11 @@ namespace s5ptcl
         }
         ++g_st.jobs;
         g_pending = true;
-        g_kickUs.store(nowUs(), std::memory_order_relaxed);
+        // Round S9 (s9rt kClock): the hand-over's stamp is the [s5ptcl] log's start lag only: read with the log on.
+        if (g_st.log || !s9rt::on(s9rt::kClock))
+            g_kickUs.store(nowUs(), std::memory_order_relaxed);
+        else
+            ++s9rt::g_st.clockSkips;
         if (g_started)
         {
             g_state.store(kPosted, std::memory_order_release);
@@ -456,15 +461,18 @@ namespace s5ptcl
         {
             // Not taken yet: run here.
             ++g_st.steals;
-            const uint64_t t0 = nowUs();
+            const bool timed = g_st.log || !s9rt::on(s9rt::kClock); // (round S9: the log's job time only)
+            const uint64_t t0 = timed ? nowUs() : 0u;
             runJob(g_job);
-            g_st.jobUs += nowUs() - t0;
+            if (timed)
+                g_st.jobUs += nowUs() - t0;
         }
         else
         {
             if (g_state.load(std::memory_order_acquire) != kDone)
             {
-                const uint64_t t0 = nowUs();
+                const bool timed = g_st.log || !s9rt::on(s9rt::kClock); // (round S9: the log's wait time only)
+                const uint64_t t0 = timed ? nowUs() : 0u;
                 while (g_state.load(std::memory_order_acquire) != kDone)
                 {
 #if defined(__arm__) || defined(__aarch64__)
@@ -472,7 +480,8 @@ namespace s5ptcl
 #endif
                 }
                 ++g_st.waits;
-                g_st.waitUs += nowUs() - t0;
+                if (timed)
+                    g_st.waitUs += nowUs() - t0;
             }
             g_st.jobUs += g_runUs.load(std::memory_order_relaxed);
             g_st.startLagUs += g_takeUs.load(std::memory_order_relaxed) - g_kickUs.load(std::memory_order_relaxed);

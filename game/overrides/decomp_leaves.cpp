@@ -33,6 +33,7 @@
 //   vf6 as the code leaves them).
 #include "sotc_decomp.h"
 #include "a9cmp.h"
+#include "s9rt.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -363,7 +364,22 @@ namespace decomp_leaves
         if (!sotc_decomp::leavesOn() || to >= PS2_RAM_SIZE - kBytes || from >= PS2_RAM_SIZE - kBytes ||
             (to < from + kBytes && from < to + kBytes))
             return sotc_decomp::recompiled(0x014274A8u)(rdram, ctx, runtime);
-        std::memcpy(rdram + to, rdram + from, kBytes);
+        // Round S9 (s9rt kCopy): the copy without newlib's long-copy call (sceClibMemcpy); the same bytes.
+        if (s9rt::on(s9rt::kCopy))
+        {
+            ++s9rt::g_st.copies;
+            s9rt::copyBytes(rdram + to, rdram + from, kBytes);
+            if (__builtin_expect(s9rt::g_check, 0))
+            {
+                ++s9rt::g_st.checks;
+                s9rt::g_st.differ += std::memcmp(rdram + to, rdram + from, kBytes) != 0;
+            }
+        }
+        else
+        {
+            ++s9rt::g_st.copiesOff;
+            std::memcpy(rdram + to, rdram + from, kBytes);
+        }
         uint32_t last;
         std::memcpy(&last, rdram + from + 0x650u, 4);
         SET_GPR_S32(ctx, 2, static_cast<int32_t>(last));

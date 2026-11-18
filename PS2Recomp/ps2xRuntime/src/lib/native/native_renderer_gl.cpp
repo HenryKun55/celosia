@@ -74,6 +74,15 @@ extern "C" void ps2x_vita_pace_tag(uint32_t seq);        // raylib_vita.cpp (rou
 #include <array>
 #include <atomic>
 
+namespace native_renderer
+{
+    // Round S9 (game/overrides/s9rt.h, part kEvict; sotc_native sets it each frame): GlBackend::evictKept's heap-only
+    // pressure pass over the textures alone (no mesh can go in that pass). Counts for the [s9rt] log: full passes,
+    // textures-only passes, passes checked against the full candidate list (SOTC_S9RT_CHECK), differ, evicted.
+    bool g_s9Evict = false, g_s9Check = false;
+    uint64_t g_s9Stats[5] = {};
+}
+
 namespace
 {
     // Round 86 (SOTC_GPU86_LOG, the Vita; on by default with
@@ -9665,20 +9674,32 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const bool overBudget = (r->textureBytes + r->meshBytes > m_cacheBudget || poolShort) && frame >= m_nextBudget;
             if (!aging && !pressure && !overBudget)
                 return;
-            m_keepMeshes = native_renderer::IdSet();
-            m_keepTextures = native_renderer::IdSet();
-            for (const Draw &d : r->draws)
+            // The draws' / uploads' meshes and textures, kept whatever their age (round S9: built later, and only what
+            // the pass reads, in its textures-only pass).
+            auto buildKeep = [&](bool meshes)
             {
-                m_keepMeshes.insert(d.mesh);
-                if (d.state.texture)
-                    m_keepTextures.insert(d.state.texture);
-            }
-            for (const uint64_t mesh : r->extraMeshes) // drawMulti's, not expanded yet
-                m_keepMeshes.insert(mesh);
-            for (const Renderer::Upload &u : r->uploads)
-                (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
-            for (const Renderer::Upload &u : m_side) // flushed, not applied yet
-                (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
+                m_keepMeshes = native_renderer::IdSet();
+                m_keepTextures = native_renderer::IdSet();
+                for (const Draw &d : r->draws)
+                {
+                    if (meshes)
+                        m_keepMeshes.insert(d.mesh);
+                    if (d.state.texture)
+                        m_keepTextures.insert(d.state.texture);
+                }
+                if (meshes)
+                    for (const uint64_t mesh : r->extraMeshes) // drawMulti's, not expanded yet
+                        m_keepMeshes.insert(mesh);
+                for (const Renderer::Upload &u : r->uploads)
+                    if (meshes || u.kind == Renderer::Upload::TextureKind)
+                        (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
+                for (const Renderer::Upload &u : m_side) // flushed, not applied yet
+                    if (meshes || u.kind == Renderer::Upload::TextureKind)
+                        (u.kind == Renderer::Upload::TextureKind ? m_keepTextures : m_keepMeshes).insert(u.id);
+            };
+            const bool s9 = native_renderer::g_s9Evict;
+            if (!s9)
+                buildKeep(true);
             const uint64_t agedBefore = aging ? frame - kUnused : 0u;
             const bool critical = pressure && m_heapLimit > m_heapHigh && m_heap > m_heapHigh + (m_heapLimit - m_heapHigh) / 2u;
             // Round 33: under pressure (not critical) only what lives in the
@@ -9718,6 +9739,57 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 budgetBefore = std::min(budgetBefore, frameBefore(frame, nowTime, kBudgetMs));
             const uint64_t oldest = std::max({agedBefore, pressureBefore, budgetBefore});
             m_candidates.clear();
+            // Round S9 (g_s9Evict): a heap-only pressure pass without an aged or a budget cut evicts no mesh (each one
+            // is spared below: not aged, no budget) and only the textures that live in the newlib heap: riding, the heap
+            // sits over its high mark and this pass came every 16 frames, walking ~7 600 meshes and every draw's ids
+            // into two hash sets for nothing. Here it lists those textures alone (the kept-texture set only when one is
+            // old enough to go); the same evictions. SOTC_S9RT_CHECK=1 also builds the full list and compares the
+            // entries each path would evict.
+            if (s9 && heapOnly && !budgetBefore && !agedBefore)
+            {
+                ++native_renderer::g_s9Stats[1];
+                bool any = false;
+                r->textures.forEach([&](uint64_t, const Texture &t) { any |= t.used < oldest && t.inHeap; });
+                if (any)
+                {
+                    buildKeep(false);
+                    r->textures.forEach([&](uint64_t id, const Texture &t)
+                    {
+                        if (t.used < oldest && t.inHeap && !m_keepTextures.count(id))
+                            m_candidates.push_back({t.used, id, t.bytes, true});
+                    });
+                }
+                if (native_renderer::g_s9Check)
+                {
+                    // The full pass's list, and the entries its loop below would evict (aged / pressed / budget as
+                    // there; here neither aged nor budget can hold): the same set as S9's?
+                    ++native_renderer::g_s9Stats[2];
+                    buildKeep(true);
+                    std::vector<uint64_t> full, mine;
+                    r->meshes.forEach([&](uint64_t id, const Mesh &m)
+                    {
+                        if (!m.dynamic && m.used < oldest && !m_keepMeshes.count(id) && !(heapOnly && !budgetBefore && !(m.used < agedBefore)))
+                            full.push_back(id << 1);
+                    });
+                    r->textures.forEach([&](uint64_t id, const Texture &t)
+                    {
+                        if (t.used < oldest && !m_keepTextures.count(id) && t.used < pressureBefore && t.inHeap)
+                            full.push_back((id << 1) | 1u);
+                    });
+                    for (const Candidate &c : m_candidates)
+                        mine.push_back((c.id << 1) | (c.texture ? 1u : 0u));
+                    std::sort(full.begin(), full.end());
+                    std::sort(mine.begin(), mine.end());
+                    native_renderer::g_s9Stats[3] += full != mine;
+                }
+            }
+            else
+            {
+            if (s9)
+            {
+                ++native_renderer::g_s9Stats[0];
+                buildKeep(true);
+            }
             r->meshes.forEach([&](uint64_t id, const Mesh &m)
             {
                 if (!m.dynamic && m.used < oldest && !m_keepMeshes.count(id))
@@ -9735,6 +9807,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 if (t.used < oldest && !m_keepTextures.count(id))
                     m_candidates.push_back({t.used, id, t.bytes, true});
             });
+            }
             // Round 127: only the budget's cut depends on the order (the least
             // recently drawn first while over the target); the aged and pressure
             // cuts take every candidate older than their frame whatever the
@@ -9760,6 +9833,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     ++m_pressureSpared;
                     continue;
                 }
+                if (s9)
+                    ++native_renderer::g_s9Stats[4];
                 if (aged)
                     ++m_evictedAged;
                 else if (pressed)

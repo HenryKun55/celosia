@@ -873,7 +873,7 @@ if(PS2X_IS_VITA)
         target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_diagcount.cpp)
         set_source_files_properties(src/lib/ps2_vita_diagcount.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE COMPILE_OPTIONS "-fno-lto")
         target_link_options(ps2EntryRunner PRIVATE
-            "-Wl,--wrap=sceKernelGetProcessTimeWide,--wrap=sceKernelGetProcessTimeLow,--wrap=getenv,--wrap=sceKernelGetThreadInfo,--wrap=vsnprintf,--wrap=snprintf,--wrap=fprintf,--wrap=sceKernelSignalSema,--wrap=sceKernelLibcGettimeofday")
+            "-Wl,--wrap=sceKernelGetProcessTimeWide,--wrap=sceKernelGetProcessTimeLow,--wrap=getenv,--wrap=sceKernelGetThreadInfo,--wrap=vsnprintf,--wrap=snprintf,--wrap=fprintf,--wrap=sceKernelSignalSema,--wrap=sceKernelLibcGettimeofday,--wrap=memcpy,--wrap=memmove,--wrap=memset,--wrap=malloc,--wrap=free")
     endif()
     target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_runtime.cpp)
     set_source_files_properties(src/lib/ps2_vita_runtime.cpp PROPERTIES

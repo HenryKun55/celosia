@@ -27,10 +27,18 @@ namespace
         kFprintf,
         kSignalSema,
         kGettimeofday,
+        kMemcpyMid, // round S9: memcpy of 32..512 bytes (newlib's NEON loop; > 512 goes to sceClibMemcpy)
+        kMemcpyLong,
+        kMemmove,
+        kMemset,
+        kUidivmod,
+        kMalloc,
+        kFree,
         kFns
     };
     const char *const kNames[kFns] = {"sceKernelGetProcessTimeWide", "sceKernelGetProcessTimeLow", "getenv", "sceKernelGetThreadInfo",
-                                      "vsnprintf", "snprintf", "fprintf", "sceKernelSignalSema", "gettimeofday"};
+                                      "vsnprintf", "snprintf", "fprintf", "sceKernelSignalSema", "gettimeofday",
+                                      "memcpy32-512", "memcpy>512", "memmove", "memset", "__aeabi_uidivmod", "malloc", "free"};
     constexpr uint32_t kSlots = 4096u;
     struct Slot
     {
@@ -150,5 +158,38 @@ extern "C"
     {
         count(kGettimeofday, __builtin_return_address(0));
         return __real_sceKernelLibcGettimeofday(tv, tz);
+    }
+
+    // Round S9 (PS2X_VITA_DIAGCOUNT, measuring builds only): the copies, divisions and allocations by caller.
+    void *__real_memcpy(void *, const void *, size_t);
+    void *__real_memmove(void *, const void *, size_t);
+    void *__real_memset(void *, int, size_t);
+    void *__real_malloc(size_t);
+    void __real_free(void *);
+    void *__wrap_memcpy(void *to, const void *from, size_t n)
+    {
+        if (n >= 32u)
+            count(n > 512u ? kMemcpyLong : kMemcpyMid, __builtin_return_address(0));
+        return __real_memcpy(to, from, n);
+    }
+    void *__wrap_memmove(void *to, const void *from, size_t n)
+    {
+        count(kMemmove, __builtin_return_address(0));
+        return __real_memmove(to, from, n);
+    }
+    void *__wrap_memset(void *to, int c, size_t n)
+    {
+        count(kMemset, __builtin_return_address(0));
+        return __real_memset(to, c, n);
+    }
+    void *__wrap_malloc(size_t n)
+    {
+        count(kMalloc, __builtin_return_address(0));
+        return __real_malloc(n);
+    }
+    void __wrap_free(void *p)
+    {
+        count(kFree, __builtin_return_address(0));
+        __real_free(p);
     }
 }
