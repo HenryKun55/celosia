@@ -690,7 +690,7 @@ namespace sotc_decomp
                    // readers no longer join the modelDispState lane (sotc_native.cpp s10draw; checked in-run: SOTC_S10DRAW_CHECK)
         kS11Rt,    // round S11: the PS2 machinery on the game thread (s11rt.h): the isys lock's kernel calls inline from the
                    // scheduler's state, the IOP in larger batches (fewer slow checkpoints); SOTC_S11RT_PARTS picks parts
-        kS12Draw,  // round S12: the display's immediate quads (the strips) as host vertex records: one host pass per quad,
+        kS12Draw,  // round S12 (off unless SOTC_S12DRAW=1): the display's immediate quads (the strips) as host vertex records: one host pass per quad,
                    // the gl block written once, the vertices straight into the 2D assembler without GS A+D pairs
                    // (sotc_native.cpp s12draw, decomp_walk.cpp quad12; checked in-run: SOTC_S12DRAW_CHECK)
         kSwitchCount
@@ -743,9 +743,11 @@ namespace sotc_decomp
             // Round 136: pose136 off unless SOTC_POSE136=1: exact (checks: 0 bones differ in ~1.7 M), but its kept bones
             // (17-43% of them) do not pay for the kept arrays' stores and compares (Vita3K host sampler: the pose 1.19 -> 1.22%
             // of the game thread); the console's A/B (env-console turns it on) decides. key136 and euler136 on (SOTC_<name>=0 off).
+            // Round S12: s12draw off unless SOTC_S12DRAW=1: exact (checks: 0 differences), the sampler's NEW / OLD 0.22 ms a
+            // frame less riding in every run, but the frame time's A/B below z 2 in a seed (+0.30 / +0.15 ms, +0.11 / -0.08).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
