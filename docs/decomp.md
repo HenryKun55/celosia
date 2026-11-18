@@ -21915,3 +21915,70 @@ picture (the doorway's brightness, the shadows), blurred and laid over at 1.25: 
 target, ~0.9 MB). `SOTC_GL_GLOW_PAIR=0` goes back to one. Also: `Tuning::glGlowHoist` (`SOTC_GL_GLOW_HOIST`, default
 off) gates round 73's glow built at the soft shadows' break; GL `SOTC_GLOW_SHOW=1..4` (debugging: the layer, its
 blur, their alphas).
+
+
+## Redesign S7: a ride route that mounts (ride7), the ride's profile, the wind query without its slot scans (SOTC_S7WIND, off by default) (2026-11-17)
+
+The seventh subsystem round, aimed at the ride (the goal: a stable 30 fps on the Vita riding Agro across the plains). The
+full write-up is docs/wind_s7.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s7/` (STATE.md;
+run.sh the scenes (`ride7`, `lake6`, attract), abs7.sh the s7wind interleaved A/B, chk7.sh the in-run check, prof.sh the
+sampler, chain_ab.sh the queue, macrun.sh the Mac runner). Own Vita3K tree ../vita3k-celosia-s7 (222 MHz, 3 cores,
+muted); heavy processes nice'd, builds `-j4`.
+
+### The ride route (`ride7`, use it from now on)
+
+- **Mounting needs Wander running at Agro and TRIANGLE as he reaches him** (he leaps on); TRIANGLE beside a standing Agro
+  (ten placements), CROSS, CIRCLE, R1, a drop from above do not mount; nico_ForceChangePlayerHorseRidingControl leaves
+  Wander floating with the reins stretched. Fixed stick timings do not carry from the Mac to Vita3K (the stick is
+  camera-relative; Vita3K's camera after the teleport makes "up" run away from Agro).
+- **S6's ride6 script was cut on Vita3K**: the Vita's env.txt reader took 4 KB lines (ride6's script is 23 KB). Now 64 KB.
+- New test aids: input-script host flags (`@f<k>=<v>` waits, `r<n>@f<k>=<v>` repeats, `<start>?f<k>=<v>` guards);
+  `SOTC_RIDE_FLAG` (flag 0 = Wander rides, the player class +0x950 / the AI riding flag as the game reads them; `[ride]`
+  lines; no teleport while riding); `SOTC_RIDE_STEER=<frame>` (the stick steered toward Agro in closed loop on Wander's
+  motion, TRIANGLE beats within 2.2 units); teleport entries with Agro's offset and yaw.
+- `ride7`: the console card, the boot menu as ride6, teleport to the plain (attract path, Agro 6 units off, again every
+  900 frames while on foot), steer from 2 130; once mounted (`@f0=1`) a 520-vblank ride block repeated for the run (CROSS
+  twice, stick up, stick left). Mounted at frames 2 479-9 858 on the Mac and 2 551-6 606 in Vita3K; ridden to the run's end
+  in every run. A/Bs analyse from the mount + 600.
+
+### The ride's profile (p0, Vita3K 222, sampler, riding window 9 111 frames)
+
+Game thread 34.9 ms: display 8.4 ms, other game code 7.9, characters 6.0, runtime 4.0, collision 3.3. Flat: no symbol
+over 1.7% (coll115::walkT 0.56 ms, quad117BodyA9 0.51, modelDispHook 0.48, memcpy 0.45, prefetch notes ~0.77 together,
+windZones 0.36). The wind query (windZones + GetWindVector + the zones' weights + managers) is ~1.8%, ~0.63 ms: the largest
+self-contained subsystem left.
+
+### What changed (`SOTC_S7WIND`, A/B `s7wind`; decomp_wind.cpp)
+
+- The non-empty zone slots in a host list, made from a copy of the 320-byte slot table and made again whenever the table
+  differs (compared 64 bits at a time: the Vita's memcmp goes a byte at a time and made the first build slower); the
+  up-front check and the zone loop visit only the listed slots, in order, reading each zone live.
+- The sphere zones' weight (manager_sub_01146EB8) as host code with the original's operations and delay slots, leaving
+  the registers, the frame and both outputs as the guest call does. Box / judge zones stay guest calls. Lane 0 only.
+- The A/B window through sotc_native's abSwitches (decomp_wind::g_s7AbOff), no sotc_decomp.h switch.
+
+### Equivalence
+
+`SOTC_S7WIND_CHECK=1` (every call run both ways from the same saved context, result list and frame; compared: the list,
+the frame, all GPRs / FPRs, fcr31, pc, vf5-vf7): Mac `ride7` 448 180 calls, Vita3K chkRp1 (`ride7`, 16 518 frames)
+704 957 calls (1.72 M sphere zones by host, 0.84 M box zones by guest), bootR3 (p3, `ride7`, 12 438 frames) 641 455 calls: **0 differ**. spalign p3.elf: 850 NEON
+:128 / :256, 0 sp-based.
+
+### Speed (Vita3K 222, interleaved A/B, p2)
+
+| route | seed 7: frame off - on | seed 11 | windZones a call off -> on |
+|---|---|---|---|
+| `ride7` | +0.146 +- 0.140 ms | -0.101 +- 0.146 ms | 13.4 -> 10.8 / 13.0 -> 10.3 us |
+| `lake6` | +0.124 +- 0.128 ms | +0.222 +- 0.113 ms | 22.7 -> 20.0 / 22.2 -> 19.8 us |
+| attract | +0.262 +- 0.150 ms | +0.063 +- 0.154 ms | 19.2 -> 17.5 / 11.0 -> 8.7 us |
+
+**Off by default**: no route clears z > 2 in both seeds (the round's rule); pooled +0.12 +- 0.06 ms (z ~4), every run's
+per-call time and sampler NEW / OLD (z 3-7) agree. ~0.12 ms of a ~33.5 ms ride: real, small. env-console.txt sets
+`SOTC_S7WIND=1` with `s7wind` first in the rotation: the console decides. Console A/B: `build/agent-scratch/celosia-s7.vpk`
+(p3, ef0f3b9) with `build/agent-scratch/s7/env-console.txt`. Boot: celosia-s7.vpk on `ride7` with `SOTC_VITA_EAT_USER_MB=89`
+(and S7 on, checked) to frame 12 438, mounted at 4 219, no fault.
+
+### Next
+
+The wind's other round trips (GetWindVector's per-source call, the box weight through rateCube); the display walk's
+per-object chain and the characters' frame chain need structural designs; a console A/B of the prefetch aids riding.
