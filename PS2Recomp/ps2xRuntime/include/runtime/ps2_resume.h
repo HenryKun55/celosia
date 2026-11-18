@@ -11,10 +11,12 @@
 //  - preadReopen: a read of a cached handle that fails reopens the file (by its path) and reads again,
 //    retried for up to 10 s (the card may still be coming back). The normal path is the same read and
 //    one compare (Support.h readHostRangeTimed, CD.cpp aheadPread).
-//  - gen(): a count of the resumes seen (the Vita: a power callback for standby, a wall-clock gap in a
-//    250 ms watcher thread for the rest, raylib_vita.cpp; a failed read too). Read where a baseline must
-//    be taken again: the EE scheduler's VBlank host deadlines (EeScheduler.cpp), the display pacing's
-//    chain (raylib_vita.cpp pace110), the memory card image's handle (MemoryCard2.cpp), the log file.
+//  - gen(): a count of the resumes seen (the Vita: ScePower's resume flags, or a wall-clock gap in a
+//    250 ms watcher thread, raylib_vita.cpp). Read where a baseline must be taken again: the display
+//    pacing's chain (raylib_vita.cpp pace110), the memory card image's handle (MemoryCard2.cpp), the log
+//    files. The EE scheduler is left as it is: its host clock sync already caps a gap at 8 VBlanks (no
+//    catch-up storm), and moving its VBlank host deadlines on a resume stalled the walk route's load for good
+//    in the test (every other deadline, alarms and CD timings included, moved seconds on with them).
 //  - SOTC_TEST_SUSPEND=<frame>:<ms>[:q][:l][,...] (testing; Vita3K and the Mac cannot
 //    suspend): at that game frame the game thread stops for <ms>, the disc reads and the audio callback
 //    are held as long, every cached disc handle is closed behind its cache's back (the Vita: what a
@@ -48,7 +50,7 @@ namespace ps2_resume
         if (g_logResume)
             g_logResume();
         const uint32_t g = g_gen.fetch_add(1u, std::memory_order_acq_rel) + 1u;
-        std::fprintf(stderr, "[resume] #%u: %s (gap %.1f s): disc handles, pacing, VBlank deadlines and the card image start over\n", g, why, gapSeconds);
+        std::fprintf(stderr, "[resume] #%u: %s (gap %.1f s): pacing, card image and logs start over (disc handles reopen on their first failed read)\n", g, why, gapSeconds);
     }
 
     // ---- the test (SOTC_TEST_SUSPEND) ----
