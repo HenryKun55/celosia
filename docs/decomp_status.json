@@ -1,18 +1,18 @@
 {
- "updated": "2026-11-17",
- "commit": "9141581",
+ "updated": "2026-11-18",
+ "commit": "263ae21",
  "summary": {
   "by_functions": {
-   "native": 5515,
+   "native": 5627,
    "partial": 0,
    "total": 9024,
-   "percent": 61.11
+   "percent": 62.36
   },
   "by_code_size": {
-   "native": 1690240,
+   "native": 1731040,
    "partial": 0,
    "total": 2625144,
-   "percent": 64.39
+   "percent": 65.94
   },
   "by_calls": {
    "native": 310530342,
@@ -21,19 +21,19 @@
    "percent": 97.63
   },
   "game_code_by_size": {
-   "native": 1460320,
+   "native": 1501120,
    "total": 2208056,
-   "percent": 66.14
+   "percent": 67.98
   }
  },
  "areas": {
   "Boot ELF, SDK and libc": {
-   "functions": 2137,
-   "native_functions": 1314,
-   "bytes": 412080,
-   "native_bytes": 224912,
+   "functions": 2136,
+   "native_functions": 1313,
+   "bytes": 412032,
+   "native_bytes": 224864,
    "partial_functions": 0,
-   "percent": 54.58
+   "percent": 54.57
   },
   "Math": {
    "functions": 122,
@@ -45,19 +45,27 @@
   },
   "Characters and motion": {
    "functions": 1206,
-   "native_functions": 718,
+   "native_functions": 749,
    "bytes": 270248,
-   "native_bytes": 193856,
+   "native_bytes": 198840,
    "partial_functions": 0,
-   "percent": 71.73
+   "percent": 73.58
   },
   "Display and models": {
    "functions": 976,
-   "native_functions": 520,
+   "native_functions": 525,
    "bytes": 257228,
-   "native_bytes": 163196,
+   "native_bytes": 164380,
    "partial_functions": 0,
-   "percent": 63.44
+   "percent": 63.9
+  },
+  "Particles and effects": {
+   "functions": 115,
+   "native_functions": 98,
+   "bytes": 23000,
+   "native_bytes": 21480,
+   "partial_functions": 0,
+   "percent": 93.39
   },
   "System and memory": {
    "functions": 230,
@@ -69,11 +77,11 @@
   },
   "Other game code": {
    "functions": 2905,
-   "native_functions": 1851,
+   "native_functions": 1889,
    "bytes": 1294076,
-   "native_bytes": 860756,
+   "native_bytes": 878820,
    "partial_functions": 0,
-   "percent": 66.52
+   "percent": 67.91
   },
   "Camera": {
    "functions": 282,
@@ -91,29 +99,21 @@
    "partial_functions": 0,
    "percent": 72.15
   },
-  "Particles and effects": {
-   "functions": 114,
-   "native_functions": 93,
-   "bytes": 22952,
-   "native_bytes": 20568,
-   "partial_functions": 0,
-   "percent": 89.61
-  },
   "Collision and physics": {
    "functions": 317,
-   "native_functions": 189,
+   "native_functions": 213,
    "bytes": 95120,
-   "native_bytes": 52784,
+   "native_bytes": 67008,
    "partial_functions": 0,
-   "percent": 55.49
+   "percent": 70.45
   },
   "Script and events": {
    "functions": 633,
-   "native_functions": 274,
+   "native_functions": 284,
    "bytes": 133408,
-   "native_bytes": 63800,
+   "native_bytes": 65280,
    "partial_functions": 0,
-   "percent": 47.82
+   "percent": 48.93
   }
  },
  "native_functions": [
@@ -4594,8 +4594,8 @@
    "name": "iosGetReflectVector",
    "bytes": 48,
    "status": "native",
-   "area": "Boot ELF, SDK and libc",
-   "source": "game/overrides/sotc_worker.cpp"
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_particles.cpp"
   },
   {
    "address": "0x001be8e0",
@@ -9171,7 +9171,7 @@
    "bytes": 136,
    "status": "native",
    "area": "System and memory",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01082ed0",
@@ -11854,6 +11854,14 @@
    "source": "game/overrides/decomp_hot46i.cpp"
   },
   {
+   "address": "0x010af7c0",
+   "name": "manager_sub_010AF7C0",
+   "bytes": 376,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_hot46i.cpp"
+  },
+  {
    "address": "0x010af938",
    "name": "manager_sub_010AF938",
    "bytes": 424,
@@ -13750,6 +13758,22 @@
    "source": "game/overrides/decomp_liftd2_00.cpp"
   },
   {
+   "address": "0x010d2b60",
+   "name": "RequestCharacterClassMotionDirectionByGPTop",
+   "bytes": 16,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_ctrlwalk.cpp"
+  },
+  {
+   "address": "0x010d2b70",
+   "name": "RequestCharacterClassMotionDirectionByGPTail",
+   "bytes": 16,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_ctrlwalk.cpp"
+  },
+  {
    "address": "0x010d2b90",
    "name": "RequestCharacterClassMotionTurnLevel",
    "bytes": 16,
@@ -13939,7 +13963,7 @@
    "bytes": 472,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd7_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010d48b8",
@@ -13955,7 +13979,7 @@
    "bytes": 1256,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010d5308",
@@ -13966,12 +13990,20 @@
    "source": "game/overrides/decomp_liftd3_01.cpp"
   },
   {
+   "address": "0x010d5750",
+   "name": "charrootdyn_updateParentPointGPInfo",
+   "bytes": 752,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010d5a40",
    "name": "charrootdyn_getChainStatus",
    "bytes": 432,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010d5bf0",
@@ -13979,7 +14011,7 @@
    "bytes": 384,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd3_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010d5d70",
@@ -14078,12 +14110,28 @@
    "source": "game/overrides/decomp_charageo.cpp"
   },
   {
+   "address": "0x010db610",
+   "name": "ReparentCharacterObj",
+   "bytes": 528,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010dbb68",
+   "name": "charrootdyn_getCyclicCollisionDetectZY",
+   "bytes": 912,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010dbef8",
    "name": "ResetCharacterClassPositionMemoryInfo",
    "bytes": 24,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd7_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dbf10",
@@ -14107,7 +14155,7 @@
    "bytes": 96,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dc1d8",
@@ -14115,7 +14163,7 @@
    "bytes": 72,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dc220",
@@ -14155,7 +14203,7 @@
    "bytes": 344,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd7_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dc760",
@@ -14163,7 +14211,7 @@
    "bytes": 96,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dc7c0",
@@ -14171,7 +14219,7 @@
    "bytes": 72,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dc808",
@@ -14182,12 +14230,28 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x010dc898",
+   "name": "charrootdyn_getSlideCollisionJudgeCBArg",
+   "bytes": 48,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010dc8c8",
+   "name": "charrootdyn_checkUnderWater",
+   "bytes": 200,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_liftd6_01.cpp"
+  },
+  {
    "address": "0x010dc990",
    "name": "charrootdyn_getWaterStatus",
    "bytes": 384,
    "status": "native",
    "area": "Particles and effects",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dcb10",
@@ -14246,6 +14310,14 @@
    "source": "game/overrides/decomp_liftd6_00.cpp"
   },
   {
+   "address": "0x010dd258",
+   "name": "charrootdyn_findLocalYGeometryPoint",
+   "bytes": 192,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010dd350",
    "name": "charrootdyn_checkIYplane4D",
    "bytes": 352,
@@ -14275,7 +14347,15 @@
    "bytes": 184,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010ddb60",
+   "name": "charrootdyn_getLocalYGlobalXZOffsetFromParentGP",
+   "bytes": 456,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010ddd28",
@@ -14283,7 +14363,7 @@
    "bytes": 224,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd7_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dde20",
@@ -14339,7 +14419,7 @@
    "bytes": 384,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010de1a0",
@@ -14374,6 +14454,14 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x010de380",
+   "name": "charrootdyn_getForceNoLimitMode",
+   "bytes": 24,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd10_00.cpp"
+  },
+  {
    "address": "0x010de398",
    "name": "charrootdyn_getLimitMode",
    "bytes": 64,
@@ -14390,12 +14478,20 @@
    "source": "game/overrides/decomp_liftd4_01.cpp"
   },
   {
+   "address": "0x010de670",
+   "name": "charrootdyn_getCyclicCollisionDetectZYOneWayCB",
+   "bytes": 1232,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010deb40",
    "name": "charrootdyn_getCyclicCollisionDetectZYOneWayComplexCB",
    "bytes": 920,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010deed8",
@@ -14422,6 +14518,22 @@
    "source": "game/overrides/decomp_liftd3_01.cpp"
   },
   {
+   "address": "0x010df130",
+   "name": "charrootdyn_isParentToEdge",
+   "bytes": 32,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010df150",
+   "name": "charrootdyn_getGPPlaneInfoByCollisionDBData",
+   "bytes": 200,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010df218",
    "name": "charrootdyn_updateCharacterClassParentGeometry",
    "bytes": 248,
@@ -14435,7 +14547,15 @@
    "bytes": 240,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd7_90.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010df400",
+   "name": "charrootdyn_setFallDownLandingOffset",
+   "bytes": 72,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010df448",
@@ -14443,7 +14563,7 @@
    "bytes": 280,
    "status": "native",
    "area": "Particles and effects",
-   "source": "game/overrides/decomp_liftd7_03.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010df5d0",
@@ -14470,12 +14590,20 @@
    "source": "game/overrides/decomp_liftd7_03.cpp"
   },
   {
+   "address": "0x010dfb88",
+   "name": "motrootdyn_startfreefall_from_pendulum",
+   "bytes": 208,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010dfc58",
    "name": "manager_sub_010DFC58",
    "bytes": 192,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd7_03.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010dfd18",
@@ -14590,6 +14718,94 @@
    "source": "game/overrides/decomp_liftd7_03.cpp"
   },
   {
+   "address": "0x010e4020",
+   "name": "charrootdyn_parentpointxzfitstab",
+   "bytes": 1392,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4590",
+   "name": "manager_sub_010E4590",
+   "bytes": 808,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e48b8",
+   "name": "parentpointxzfit",
+   "bytes": 880,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4c28",
+   "name": "motrootdyn_startparentpointxzfit_from_pendulum",
+   "bytes": 128,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4ca8",
+   "name": "motrootdyn_startparentpointxzfit",
+   "bytes": 32,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4d78",
+   "name": "motrootdyn_startparentpointxzfit_from_xzfit",
+   "bytes": 48,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4da8",
+   "name": "motrootdyn_startparentpointxzfit_from_xz",
+   "bytes": 88,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4e00",
+   "name": "manager_sub_010E4E00",
+   "bytes": 488,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e4fe8",
+   "name": "pendulum",
+   "bytes": 6560,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e6988",
+   "name": "motrootdyn_startpendulum_nochange_parent",
+   "bytes": 40,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x010e69b0",
+   "name": "motrootdyn_startpendulum",
+   "bytes": 72,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010e6ae8",
    "name": "swim",
    "bytes": 1440,
@@ -14614,12 +14830,20 @@
    "source": "game/overrides/decomp_liftd8_00.cpp"
   },
   {
+   "address": "0x010e82d0",
+   "name": "motrootdyn_startxz_from_parentpoint",
+   "bytes": 224,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010e83b0",
    "name": "motrootdyn_startxz_from_xzfit",
    "bytes": 232,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010e8498",
@@ -14630,12 +14854,20 @@
    "source": "game/overrides/decomp_liftd7_03.cpp"
   },
   {
+   "address": "0x010e8560",
+   "name": "manager_sub_010E8560",
+   "bytes": 472,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010e8738",
    "name": "motrootdyn_startxzfit",
    "bytes": 1136,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010e8ba8",
@@ -14654,6 +14886,22 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x010e9260",
+   "name": "manager_sub_010E9260",
+   "bytes": 792,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd10_00.cpp"
+  },
+  {
+   "address": "0x010e9578",
+   "name": "manager_sub_010E9578",
+   "bytes": 1240,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010ea718",
    "name": "manager_sub_010EA718",
    "bytes": 3360,
@@ -14662,12 +14910,28 @@
    "source": "game/overrides/decomp_liftd7_03.cpp"
   },
   {
+   "address": "0x010eb438",
+   "name": "motrootdyn_changehcol_from_xz",
+   "bytes": 304,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x010eb6b0",
    "name": "motrootdyn_startxzfit_from_falldown",
    "bytes": 72,
    "status": "native",
    "area": "Collision and physics",
    "source": "game/overrides/decomp_liftd9_00.cpp"
+  },
+  {
+   "address": "0x010eb768",
+   "name": "motrootdyn_startxzfit_from_parentpointxzfit",
+   "bytes": 128,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x010eb858",
@@ -16795,7 +17059,7 @@
    "bytes": 72,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0110a7d8",
@@ -16803,7 +17067,7 @@
    "bytes": 80,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0110a838",
@@ -16998,12 +17262,20 @@
    "source": "game/overrides/decomp_liftd6_01.cpp"
   },
   {
+   "address": "0x0110c400",
+   "name": "manager_sub_0110C400",
+   "bytes": 32,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_hot46i.cpp"
+  },
+  {
    "address": "0x0110c420",
    "name": "manager_sub_0110C420",
    "bytes": 272,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0110c790",
@@ -17025,6 +17297,14 @@
    "address": "0x0110c918",
    "name": "manager_sub_0110C918",
    "bytes": 96,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd12_00.cpp"
+  },
+  {
+   "address": "0x0110c978",
+   "name": "ReparentChildObjects",
+   "bytes": 72,
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd12_00.cpp"
@@ -18035,7 +18315,7 @@
    "bytes": 512,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd3_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0111a938",
@@ -18115,7 +18395,7 @@
    "bytes": 3888,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd8_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0111ecf0",
@@ -18438,6 +18718,22 @@
    "source": "game/overrides/decomp_hot44b.cpp"
   },
   {
+   "address": "0x01126090",
+   "name": "ClipCollisionFinderWithKeep4D",
+   "bytes": 256,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x011262d0",
+   "name": "ClipCollisionFinderWithKeep_VWallOnly",
+   "bytes": 280,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x011265e8",
    "name": "ClipCollisionFinderWithKeepSlopeLimitCB",
    "bytes": 592,
@@ -18451,7 +18747,7 @@
    "bytes": 600,
    "status": "native",
    "area": "Collision and physics",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01127088",
@@ -18507,7 +18803,7 @@
    "bytes": 312,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01127d80",
@@ -18692,6 +18988,14 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd3_01.cpp"
+  },
+  {
+   "address": "0x011298a8",
+   "name": "manager_sub_011298A8",
+   "bytes": 224,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01129988",
@@ -18966,6 +19270,14 @@
    "source": "game/overrides/decomp_liftd7_08.cpp"
   },
   {
+   "address": "0x01132650",
+   "name": "GetGeometryPointerVirtualSurfacePlane",
+   "bytes": 352,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x011327b0",
    "name": "CopyGeometryPointer",
    "bytes": 72,
@@ -19211,7 +19523,7 @@
    "bytes": 48,
    "status": "native",
    "area": "Math",
-   "source": "game/overrides/decomp_liftd4_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x011341c8",
@@ -19275,7 +19587,7 @@
    "bytes": 104,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd4_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01134528",
@@ -19379,6 +19691,14 @@
    "bytes": 312,
    "status": "native",
    "area": "Characters and motion",
+   "source": "game/overrides/sotc_worker.cpp"
+  },
+  {
+   "address": "0x011359f8",
+   "name": "GetTargetLocalDir",
+   "bytes": 296,
+   "status": "native",
+   "area": "Other game code",
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
@@ -19585,6 +19905,14 @@
    "address": "0x01139380",
    "name": "FlushClothWork",
    "bytes": 320,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd6_00.cpp"
+  },
+  {
+   "address": "0x011394c0",
+   "name": "SetClothAccessSwitch",
+   "bytes": 240,
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_liftd6_00.cpp"
@@ -20606,6 +20934,14 @@
    "source": "game/overrides/sotc_worker.cpp"
   },
   {
+   "address": "0x01146818",
+   "name": "boot_wind_emitter_by_judge_volume",
+   "bytes": 360,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd12_00.cpp"
+  },
+  {
    "address": "0x01146980",
    "name": "stop_wind_emitter_geometry_pointer_reference",
    "bytes": 80,
@@ -21454,12 +21790,20 @@
    "source": "game/overrides/decomp_liftd2_01.cpp"
   },
   {
+   "address": "0x011590b0",
+   "name": "seDelayPlay3DTest",
+   "bytes": 8,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x011590b8",
    "name": "dsysInit",
    "bytes": 32,
    "status": "native",
    "area": "System and memory",
-   "source": "game/overrides/decomp_liftd7_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0115a060",
@@ -25526,6 +25870,14 @@
    "source": "game/overrides/decomp_liftd3_02.cpp"
   },
   {
+   "address": "0x0134c4e8",
+   "name": "nico_StabCharacterRootRotationToXZ",
+   "bytes": 112,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x0134c7e0",
    "name": "ps2__SCRStartLwsDemoOrient",
    "bytes": 88,
@@ -26118,6 +26470,14 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x013527d8",
+   "name": "gamecore_sub_013527D8",
+   "bytes": 32,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013527f8",
    "name": "gameflowJumpOp2DemoNoSkip",
    "bytes": 128,
@@ -26318,12 +26678,20 @@
    "source": "game/overrides/decomp_liftd3_02.cpp"
   },
   {
+   "address": "0x01353768",
+   "name": "gStatGetPlayerAccessoriesDamgeRaitoToBoss",
+   "bytes": 56,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013537a0",
    "name": "gStatLoadPlayerChara",
    "bytes": 112,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd7_06.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013538e8",
@@ -26803,7 +27171,15 @@
    "bytes": 16,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd8_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x01358798",
+   "name": "getAttackPowerRatio",
+   "bytes": 32,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd7_08.cpp"
   },
   {
    "address": "0x013587f8",
@@ -26814,12 +27190,20 @@
    "source": "game/overrides/decomp_liftd7_08.cpp"
   },
   {
+   "address": "0x01358840",
+   "name": "setFullPower",
+   "bytes": 24,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01358858",
    "name": "SCRPowerReset",
    "bytes": 32,
    "status": "native",
    "area": "Script and events",
-   "source": "game/overrides/decomp_liftd7_06.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01358878",
@@ -28118,12 +28502,20 @@
    "source": "game/overrides/decomp_liftd8_01.cpp"
   },
   {
+   "address": "0x0136eb78",
+   "name": "SCRFuncBirdSetLandingPos",
+   "bytes": 192,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x0136ec38",
    "name": "SCRFuncBirdInitRotMode",
    "bytes": 40,
    "status": "native",
    "area": "Script and events",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0136ec60",
@@ -28398,6 +28790,22 @@
    "source": "game/overrides/decomp_liftd8_01.cpp"
   },
   {
+   "address": "0x013772b8",
+   "name": "gamecore_sub_013772B8",
+   "bytes": 456,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x01377480",
+   "name": "gamecore_sub_01377480",
+   "bytes": 640,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01377700",
    "name": "SCRExecBossPreProcess",
    "bytes": 2536,
@@ -28438,6 +28846,14 @@
    "source": "game/overrides/decomp_liftd12_00.cpp"
   },
   {
+   "address": "0x01378990",
+   "name": "chkBossTrigTexExist",
+   "bytes": 200,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd12_00.cpp"
+  },
+  {
    "address": "0x01378a58",
    "name": "chkBossTrigTurnOff",
    "bytes": 152,
@@ -28470,12 +28886,44 @@
    "source": "game/overrides/decomp_liftd12_00.cpp"
   },
   {
+   "address": "0x01378bd8",
+   "name": "SCRGetBossPartsDamageFromColAttr",
+   "bytes": 144,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd12_00.cpp"
+  },
+  {
+   "address": "0x01378c68",
+   "name": "SCRGetBackStageBossPartsDamageFromColAttr",
+   "bytes": 152,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd6_02.cpp"
+  },
+  {
    "address": "0x01378d00",
    "name": "SCRGetBossWeakPointIndexFromColAttr",
    "bytes": 144,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x01378e78",
+   "name": "getBossWeakCurDamage",
+   "bytes": 152,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x01378f10",
+   "name": "IsBossDeathNextAttack",
+   "bytes": 400,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd6_02.cpp"
   },
   {
    "address": "0x013790a0",
@@ -28556,6 +29004,14 @@
    "status": "native",
    "area": "Script and events",
    "source": "game/overrides/decomp_liftd7_07.cpp"
+  },
+  {
+   "address": "0x0137b998",
+   "name": "ps2__SCRPlayLWSWithTargetAttackedPoint",
+   "bytes": 360,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd12_01.cpp"
   },
   {
    "address": "0x0137bb00",
@@ -28902,12 +29358,28 @@
    "source": "game/overrides/decomp_liftd12_00.cpp"
   },
   {
+   "address": "0x01386308",
+   "name": "gamecore_sub_01386308",
+   "bytes": 1128,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x01386770",
+   "name": "gamecore_sub_01386770",
+   "bytes": 1064,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01386b98",
    "name": "gamecore_sub_01386B98",
    "bytes": 200,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd8_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01386c60",
@@ -28934,6 +29406,14 @@
    "source": "game/overrides/decomp_liftd12_00.cpp"
   },
   {
+   "address": "0x01387a10",
+   "name": "effectSetDamageWork",
+   "bytes": 440,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01387db8",
    "name": "effect_blood_init",
    "bytes": 256,
@@ -28956,6 +29436,14 @@
    "status": "native",
    "area": "Particles and effects",
    "source": "game/overrides/decomp_liftd8_01.cpp"
+  },
+  {
+   "address": "0x01387f70",
+   "name": "effect_blood_set",
+   "bytes": 168,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01388048",
@@ -29033,6 +29521,14 @@
    "address": "0x013886b8",
    "name": "gamecore_sub_013886B8",
    "bytes": 48,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd12_00.cpp"
+  },
+  {
+   "address": "0x013886e8",
+   "name": "gamecore_sub_013886E8",
+   "bytes": 168,
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd12_00.cpp"
@@ -29278,6 +29774,14 @@
    "source": "game/overrides/decomp_liftd7_07.cpp"
   },
   {
+   "address": "0x01391138",
+   "name": "SCRFuncHorseBossCircumferenceMain",
+   "bytes": 864,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01391498",
    "name": "SCRFuncHorseEscapeFromBossMain",
    "bytes": 832,
@@ -29318,12 +29822,20 @@
    "source": "game/overrides/decomp_liftd4_03.cpp"
   },
   {
+   "address": "0x01394580",
+   "name": "gamecore_sub_01394580",
+   "bytes": 1160,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01394a08",
    "name": "gamecore_sub_01394A08",
    "bytes": 1296,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd4_03.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01395418",
@@ -29772,6 +30284,14 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd12_00.cpp"
+  },
+  {
+   "address": "0x0139ab30",
+   "name": "MotSpdCtrl_Start",
+   "bytes": 32,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0139ac08",
@@ -30982,12 +31502,44 @@
    "source": "game/overrides/decomp_liftd8_01.cpp"
   },
   {
+   "address": "0x013b3a08",
+   "name": "gamecore_sub_013B3A08",
+   "bytes": 200,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013b3ad0",
+   "name": "gamecore_sub_013B3AD0",
+   "bytes": 200,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013b3d08",
    "name": "gamecore_sub_013B3D08",
    "bytes": 352,
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd8_01.cpp"
+  },
+  {
+   "address": "0x013b3fc8",
+   "name": "gamecore_sub_013B3FC8",
+   "bytes": 352,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013b4128",
+   "name": "gamecore_sub_013B4128",
+   "bytes": 240,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013b4218",
@@ -31222,6 +31774,14 @@
    "source": "game/overrides/decomp_liftd8_01.cpp"
   },
   {
+   "address": "0x013b5cc8",
+   "name": "gamecore_sub_013B5CC8",
+   "bytes": 240,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013b5db8",
    "name": "nico_deletePlayerParachute",
    "bytes": 80,
@@ -31294,12 +31854,20 @@
    "source": "game/overrides/decomp_liftd7_08.cpp"
   },
   {
+   "address": "0x013b6260",
+   "name": "SCRPlayerBeginAccumulateAttack",
+   "bytes": 48,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013b6290",
    "name": "SCRArrowStart",
    "bytes": 32,
    "status": "native",
    "area": "Script and events",
-   "source": "game/overrides/decomp_liftd8_01.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013b62d0",
@@ -31318,12 +31886,52 @@
    "source": "game/overrides/decomp_liftd8_01.cpp"
   },
   {
+   "address": "0x013b63f0",
+   "name": "SCRPlayerSendDamageLater",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013b6430",
+   "name": "SCRPlayerSendDiveDamageLater",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013b6470",
    "name": "SCRPlayerSowrdHitSound",
    "bytes": 32,
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_liftd8_01.cpp"
+  },
+  {
+   "address": "0x013b64b0",
+   "name": "SCRPlayerSowrdHitSoundLarge",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013b64d0",
+   "name": "SCRPlayerSowrdDiveHitSound",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013b64f0",
+   "name": "SCRPlayerFullPower",
+   "bytes": 32,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013b6530",
@@ -31406,6 +32014,14 @@
    "source": "game/overrides/decomp_liftd9_00.cpp"
   },
   {
+   "address": "0x013b70f0",
+   "name": "nico_setPlayerGripPoint",
+   "bytes": 48,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013b7120",
    "name": "SetPlayerDangerEdgePoint",
    "bytes": 48,
@@ -31436,6 +32052,14 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd8_01.cpp"
+  },
+  {
+   "address": "0x013b77c8",
+   "name": "gamecore_sub_013B77C8",
+   "bytes": 24,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013b7808",
@@ -31508,6 +32132,14 @@
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_liftd7_08.cpp"
+  },
+  {
+   "address": "0x013b8cd8",
+   "name": "player_setHellDangerPoint",
+   "bytes": 24,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd12_00.cpp"
   },
   {
    "address": "0x013b8cf0",
@@ -31750,12 +32382,28 @@
    "source": "game/overrides/decomp_collision.cpp"
   },
   {
+   "address": "0x013cba28",
+   "name": "player_setEdgeHangPointGeometry",
+   "bytes": 128,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013cbaa8",
+   "name": "player_setGripHangPointGeometry",
+   "bytes": 104,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013cbb10",
    "name": "gamecore_sub_013CBB10",
    "bytes": 656,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013cbda0",
@@ -31774,12 +32422,20 @@
    "source": "game/overrides/decomp_liftd9_00.cpp"
   },
   {
+   "address": "0x013cc788",
+   "name": "gamecore_sub_013CC788",
+   "bytes": 1192,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013ccc30",
    "name": "nico_player_colfit_GetLower",
    "bytes": 72,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013ccc78",
@@ -31796,6 +32452,62 @@
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_liftd9_00.cpp"
+  },
+  {
+   "address": "0x013ccd60",
+   "name": "nico_player_colfit_HandEffector",
+   "bytes": 192,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013cce20",
+   "name": "nico_player_colfit_Shoulder",
+   "bytes": 128,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013ccea0",
+   "name": "nico_player_pendulum_HandEffector",
+   "bytes": 248,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013ccf98",
+   "name": "nico_player_pendulum_Shoulder",
+   "bytes": 128,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013cd018",
+   "name": "nico_player_pendulum_FootEffector",
+   "bytes": 344,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013cd170",
+   "name": "nico_player_pendulum_Leg",
+   "bytes": 168,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x013cd218",
+   "name": "pendulum_test",
+   "bytes": 296,
+   "status": "native",
+   "area": "Collision and physics",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013cd340",
@@ -33846,6 +34558,14 @@
    "source": "game/overrides/decomp_liftd7_08.cpp"
   },
   {
+   "address": "0x013f8380",
+   "name": "gamecore_sub_013F8380",
+   "bytes": 744,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd9_90.cpp"
+  },
+  {
    "address": "0x013f8668",
    "name": "gamecore_sub_013F8668",
    "bytes": 752,
@@ -33942,12 +34662,20 @@
    "source": "game/overrides/decomp_liftd6_01.cpp"
   },
   {
+   "address": "0x013fa628",
+   "name": "startAttackEffect",
+   "bytes": 56,
+   "status": "native",
+   "area": "Particles and effects",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x013fa660",
    "name": "setgrip",
    "bytes": 160,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd3_03.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x013fa768",
@@ -38790,6 +39518,14 @@
    "source": "game/overrides/decomp_liftd12_00.cpp"
   },
   {
+   "address": "0x01432358",
+   "name": "setAttainmentPosAndDirPosAndLock",
+   "bytes": 240,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd12_01.cpp"
+  },
+  {
    "address": "0x014324f8",
    "name": "setAttainmentPosAndDirAndLock",
    "bytes": 184,
@@ -38854,12 +39590,28 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x01432818",
+   "name": "getNowPassagePointIdx",
+   "bytes": 8,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd10_00.cpp"
+  },
+  {
+   "address": "0x01432820",
+   "name": "getNowPassageAreaIdx",
+   "bytes": 8,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01432828",
    "name": "setRouteMinAngle",
    "bytes": 40,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_liftd4_03.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01432850",
@@ -38902,12 +39654,20 @@
    "source": "game/overrides/decomp_liftd12_01.cpp"
   },
   {
+   "address": "0x01432950",
+   "name": "setEventLineAttr",
+   "bytes": 232,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01432a38",
    "name": "unsetEventLineAttr",
    "bytes": 248,
    "status": "native",
    "area": "Script and events",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01432c08",
@@ -39310,6 +40070,14 @@
    "source": "game/overrides/decomp_liftd12_01.cpp"
   },
   {
+   "address": "0x01437b88",
+   "name": "_setAttainFlagBaseMoveWork",
+   "bytes": 8,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01437b90",
    "name": "_initBaseMoveTmpWork",
    "bytes": 296,
@@ -39414,12 +40182,36 @@
    "source": "game/overrides/decomp_liftd8_02.cpp"
   },
   {
+   "address": "0x01439c78",
+   "name": "gamecore_sub_01439C78",
+   "bytes": 848,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x0143aba8",
+   "name": "gamecore_sub_0143ABA8",
+   "bytes": 896,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x0143af28",
+   "name": "gamecore_sub_0143AF28",
+   "bytes": 2656,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x0143b988",
    "name": "gamecore_sub_0143B988",
    "bytes": 5336,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd8_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0143d568",
@@ -39483,7 +40275,7 @@
    "bytes": 32,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd8_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0143d718",
@@ -39892,6 +40684,14 @@
    "status": "native",
    "area": "Other game code",
    "source": "game/overrides/decomp_liftd4_03.cpp"
+  },
+  {
+   "address": "0x014460a8",
+   "name": "chkMoveAngle",
+   "bytes": 120,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01446150",
@@ -40414,12 +41214,20 @@
    "source": "game/overrides/decomp_liftd4_04.cpp"
   },
   {
+   "address": "0x0144e5e0",
+   "name": "setAttackHeadDataFormNowMode",
+   "bytes": 256,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x0144e6e0",
    "name": "gamecore_sub_0144E6E0",
    "bytes": 72,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd13_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0144e728",
@@ -40470,12 +41278,20 @@
    "source": "game/overrides/decomp_liftd12_01.cpp"
   },
   {
+   "address": "0x0144f8d0",
+   "name": "SCRFuncSetNextRouteMaxAngle",
+   "bytes": 72,
+   "status": "native",
+   "area": "Display and models",
+   "source": "game/overrides/decomp_liftd12_01.cpp"
+  },
+  {
    "address": "0x0144f918",
    "name": "SCRFuncLineCut",
    "bytes": 48,
    "status": "native",
    "area": "Script and events",
-   "source": "game/overrides/decomp_liftd13_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0144f948",
@@ -40638,6 +41454,30 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x01451890",
+   "name": "SCRFuncParentRelateInit",
+   "bytes": 40,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd10_00.cpp"
+  },
+  {
+   "address": "0x014518b8",
+   "name": "SCRFuncParentRelateMain",
+   "bytes": 416,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x014521f0",
+   "name": "SCRFuncSetAngryValue",
+   "bytes": 40,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01452858",
    "name": "SCRFuncSetDistByHorseForWormCtrl",
    "bytes": 352,
@@ -40723,7 +41563,7 @@
    "bytes": 664,
    "status": "native",
    "area": "Characters and motion",
-   "source": "game/overrides/decomp_liftd4_04.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01455aa0",
@@ -40822,12 +41662,28 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x014566c8",
+   "name": "SCRConditionNowPassagePointEventID",
+   "bytes": 120,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
+   "address": "0x014567f0",
+   "name": "SCRConditionCheckWayOrientAttainPlayer",
+   "bytes": 112,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01456860",
    "name": "SCRConditionCheckAngleToNextPoint",
    "bytes": 472,
    "status": "native",
    "area": "Display and models",
-   "source": "game/overrides/decomp_liftd8_02.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01456a38",
@@ -40836,6 +41692,14 @@
    "status": "native",
    "area": "Characters and motion",
    "source": "game/overrides/decomp_scriptvm2.cpp"
+  },
+  {
+   "address": "0x01456b50",
+   "name": "SCRConditionPlayerParentRangeColAttr",
+   "bytes": 200,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01456c18",
@@ -41158,6 +42022,14 @@
    "source": "game/overrides/decomp_liftd13_00.cpp"
   },
   {
+   "address": "0x01458e90",
+   "name": "SCRConditionMyselfWeakDamaged",
+   "bytes": 48,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01458f58",
    "name": "SCRConditionOverPlayerLife",
    "bytes": 64,
@@ -41270,6 +42142,14 @@
    "source": "game/overrides/decomp_liftd8_02.cpp"
   },
   {
+   "address": "0x01459ae8",
+   "name": "SCRConditionHardMode",
+   "bytes": 24,
+   "status": "native",
+   "area": "Script and events",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x01459b30",
    "name": "SCRConditionArrowParentOverNum",
    "bytes": 48,
@@ -41292,6 +42172,14 @@
    "status": "native",
    "area": "Script and events",
    "source": "game/overrides/decomp_liftd12_01.cpp"
+  },
+  {
+   "address": "0x01459bf0",
+   "name": "SCRConditionPlayerBossParentOverTime",
+   "bytes": 72,
+   "status": "native",
+   "area": "Characters and motion",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x01459e40",
@@ -41318,12 +42206,20 @@
    "source": "game/overrides/decomp_liftd10_00.cpp"
   },
   {
+   "address": "0x0145a3e0",
+   "name": "gamecore_sub_0145A3E0",
+   "bytes": 64,
+   "status": "native",
+   "area": "Other game code",
+   "source": "game/overrides/decomp_liftd14_00.cpp"
+  },
+  {
    "address": "0x0145a420",
    "name": "gamecore_sub_0145A420",
    "bytes": 600,
    "status": "native",
    "area": "Other game code",
-   "source": "game/overrides/decomp_liftd9_00.cpp"
+   "source": "game/overrides/decomp_liftd14_00.cpp"
   },
   {
    "address": "0x0145a678",
