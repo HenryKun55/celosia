@@ -780,9 +780,13 @@ namespace sotc_replay
         bool g_probeDumpAll = false; // Decomp D14: SOTC_TELEPORT_PROBE_DUMPALL=1: the place-like words every 300 frames (which ones move)
         uint64_t g_probeNext = 0;
         PS2Runtime::RecompiledFunction g_probeOriginal = nullptr;
-        void probeHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        bool g_probeRet = false; // Decomp D15: SOTC_TELEPORT_PROBE_RET=1: the probed function's v0 (a getter's object), not its a0
+        bool g_probeBoss = false; // Decomp D15: SOTC_TELEPORT_PROBE_BOSS=1 (no function hooked): the active colossus through the boss handle
+        uint32_t g_probeDeref = 0; // Decomp D15: SOTC_TELEPORT_PROBE_DEREF=<hex>: the object is the pointer at a0 (or v0) + that offset (+1)
+        void probeSee(uint8_t *rdram, uint32_t o)
         {
-            const uint32_t o = GPR_U32(ctx, 4);
+            if (g_probeDeref && o >= 0x100000u && o < 0x1FFFF00u)
+                std::memcpy(&o, rdram + o + (g_probeDeref - 1u), 4);
             if (o >= 0x100000u && o < 0x1FFFF00u)
             {
                 g_probeObj = o;
@@ -807,13 +811,26 @@ namespace sotc_replay
                             if (std::fabs(f) > 20.0f && std::fabs(f) < 3000.0f)
                                 std::fprintf(stderr, "[tprobe] +%03x %.2f\n", k, f);
                             else if (w >= 0x1000000u && w < 0x2000000u && k < 0x200u)
-                                std::fprintf(stderr, "[tprobe] +%03x ptr %08x\n", k, w);
+                            {
+                                // Decomp D15: and the pointed-to object's place at the probe offset (which pointer leads to the boss).
+                                float q[3] = {0, 0, 0};
+                                if (w + g_probeOff + 12u < 0x2000000u)
+                                    std::memcpy(q, rdram + w + g_probeOff, 12);
+                                std::fprintf(stderr, "[tprobe] +%03x ptr %08x -> %.2f %.2f %.2f\n", k, w, q[0], q[1], q[2]);
+                            }
                         }
                     }
                     std::fprintf(stderr, "[tprobe] frame %llu: %08x a0 %08x at %.2f %.2f %.2f\n", (unsigned long long)now, g_probeAddr, o, x, y, z);
                 }
             }
+        }
+        void probeHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            if (!g_probeRet)
+                probeSee(rdram, GPR_U32(ctx, 4));
             g_probeOriginal(rdram, ctx, runtime);
+            if (g_probeRet)
+                probeSee(rdram, GPR_U32(ctx, 2));
         }
         constexpr uint32_t kSetPos = 0x013522A0u;
         constexpr uint32_t kSetActiveBoss = 0x013494D8u; // Decomp D12: bossStatSetActiveBoss (a0 the boss record)
@@ -1034,6 +1051,21 @@ namespace sotc_replay
                 const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
                 const uint32_t index = rd(0x01465900u) & 0xFFFFu;
                 const uint32_t player = index ? rd(0x0021B900u + index * 24u) : 0u;
+                if (g_probeBoss)
+                {
+                    // Decomp D15: SOTC_TELEPORT_PROBE_BOSS=1: the probed object is the active colossus, through the game's boss
+                    // handle (0x1465908, as the player's 0x1465900 and Agro's 0x1465904): its +0x170 is the colossus' root.
+                    const uint32_t bi = rd(0x01465908u) & 0xFFFFu;
+                    const uint32_t bo = bi ? rd(0x0021B900u + bi * 24u) : 0u;
+                    g_probeObj = (bo >= 0x100000u && bo < 0x1FFFF00u && !(bo & 3u) && bo != player && bo != g_horse) ? bo : 0u;
+                    if (frame >= g_probeNext)
+                    {
+                        g_probeNext = frame + 300u;
+                        std::fprintf(stderr, "[tprobe] frame %llu: boss handle %u obj %08x at %.2f %.2f %.2f\n", (unsigned long long)frame, bi, g_probeObj,
+                                     g_probeObj ? rf(g_probeObj + g_probeOff) : 0.0f, g_probeObj ? rf(g_probeObj + g_probeOff + 4u) : 0.0f,
+                                     g_probeObj ? rf(g_probeObj + g_probeOff + 8u) : 0.0f);
+                    }
+                }
                 for (Teleport &t : g_teleports)
                 {
                     if (t.trackEvery)
@@ -1042,7 +1074,8 @@ namespace sotc_replay
                         // its live place, again and again, so that a grab (R1 held) can catch it. Agro is left alone.
                         // Not while Wander is parented (gripping or standing on the colossus: his +0x170 then reads (0, 0, 0)).
                         const bool parented = player && player < 0x2000000u && !(std::fabs(rf(player + 0x170u)) >= 1.0f) && !(std::fabs(rf(player + 0x178u)) >= 1.0f); // NaN counts as parented
-                        if (frame >= t.frame && frame < t.frame + t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && g_probeObj && !parented)
+                        if (frame >= t.frame && frame < t.frame + t.holdUntil && frame >= t.nextHold && player && player < 0x2000000u && g_probeObj && !parented &&
+                            std::fabs(rf(g_probeObj + g_probeOff)) + std::fabs(rf(g_probeObj + g_probeOff + 8u)) > 1.0f) // D15: not onto a place not set yet
                         {
                             t.nextHold = frame + t.trackEvery;
                             float p[4] = {-rf(g_probeObj + g_probeOff) + t.d[0], rf(g_probeObj + g_probeOff + 4u) + t.d[1],
@@ -1500,10 +1533,14 @@ namespace sotc_replay
                 g_teleportPosEvery = std::strtoull(e, nullptr, 10);
             if (const char *e = std::getenv("SOTC_TELEPORT_OBJS"))
                 g_teleportObjsEvery = std::strtoull(e, nullptr, 10);
+            g_probeBoss = std::getenv("SOTC_TELEPORT_PROBE_BOSS") && std::atoi(std::getenv("SOTC_TELEPORT_PROBE_BOSS")) > 0;
             if (const char *e = std::getenv("SOTC_TELEPORT_PROBE"))
             {
                 g_probeAddr = static_cast<uint32_t>(std::strtoul(e, nullptr, 16));
                 g_probeDumpAll = std::getenv("SOTC_TELEPORT_PROBE_DUMPALL") != nullptr;
+                g_probeRet = std::getenv("SOTC_TELEPORT_PROBE_RET") != nullptr;
+                if (const char *f = std::getenv("SOTC_TELEPORT_PROBE_DEREF"))
+                    g_probeDeref = (static_cast<uint32_t>(std::strtoul(f, nullptr, 16)) & 0xFFCu) + 1u;
                 if (const char *f = std::getenv("SOTC_TELEPORT_PROBE_OFF"))
                     g_probeOff = static_cast<uint32_t>(std::strtoul(f, nullptr, 16)) & ~3u;
                 if (g_probeAddr && runtime.hasFunction(g_probeAddr))
