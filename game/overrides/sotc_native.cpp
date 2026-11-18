@@ -3935,9 +3935,10 @@ namespace sotc_native
         if (mdsTraceOn())
             mdsTraceFrame();
         lines67::frame(g_frame);
-        abSwitches();
-        // Round S9: the renderer's eviction pass (native_renderer_gl.cpp) asks this flag at the hand-over.
+        // Round S9: the renderer's eviction pass (native_renderer_gl.cpp) asks this flag at this frame's hand-over:
+        // taken before abSwitches() sets the next frame's state, so the pass runs in the state of the frame it ends.
         native_renderer::g_s9Evict = s9rt::on(s9rt::kEvict);
+        abSwitches();
         if (s9rt::g_log && g_frame % s9rt::g_log == 0u)
         {
             const s9rt::Stats &st = s9rt::g_st;
