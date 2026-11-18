@@ -327,8 +327,16 @@ namespace s8cloth
                 std::memcpy(&g, game + i, 8);
                 std::memcpy(&j, job + i, 8);
                 std::memcpy(&l, atLast + i, 8);
-                if (g == j)
+                // (the jobs did not write these 8 bytes, or the game thread holds the same: nothing to take; p11 went
+                // byte by byte wherever the game thread had changed them, 1.45% of the game thread riding)
+                if (j == l || g == j)
                     continue;
+                if (g == l)
+                {
+                    std::memcpy(game + i, &j, 8);
+                    g_mergedBytes += 8;
+                    continue;
+                }
                 for (uint32_t k = 0; k < 8; ++k)
                     if (game[i + k] == atLast[i + k] && job[i + k] != game[i + k])
                     {
