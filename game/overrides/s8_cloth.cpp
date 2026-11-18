@@ -47,11 +47,12 @@
 // them win). Not as the original: the scratch GPRs / FPRs a call leaves (v0, f12 / f13 set as it leaves them), and
 // the job's guest calls charge no EE cycles to the game's clock (round 91).
 //
-// SOTC_S8CLOTH_CHECK=<n>: every n-th call is run both ways from the same state (the whole of guest RAM, the scratchpad,
-// VU0 data and the context saved first; round 91's job and S5's particle batch joined first): the original inline on
-// the game thread twice (a word the two runs leave different is another thread's: noise, left out), then the queued
-// call alone, joined at once; guest RAM compared page by page (the two stacks' free areas left out), R, v0, f12 / f13,
-// VU0 registers, VU0 data, the scratchpad ([s8chk]). SOTC_S8CLOTH_LOG=<frames>: [s8cloth] counts.
+// SOTC_S8CLOTH_CHECK=<n>: every n-th call is run both ways from the same state (round 91's job and S5's particle batch
+// joined first): the original on the game thread on a copy of guest RAM (each page's hash kept first; the live RAM is
+// never put back, so other threads' writes to it stay), then the queued call alone on the live RAM, joined at once;
+// the pages the original changed compared word for word, R, v0, f12 / f13, VU0 registers, VU0 data and the scratchpad
+// against the original's; pages changed outside the original's are counted apart (noise: another thread, or the job
+// writing where the original did not) ([s8chk]). SOTC_S8CLOTH_LOG=<frames>: [s8cloth] counts.
 #include "sotc_decomp.h"
 #include "sotc_worker.h"
 #include "s5_particles.h"
@@ -730,6 +731,18 @@ namespace s8cloth
         bool g_snapFailed = false;
         uint8_t g_sprA[PS2_SCRATCHPAD_SIZE], g_sprB[PS2_SCRATCHPAD_SIZE], g_vu0A[PS2_VU0_DATA_SIZE], g_vu0B[PS2_VU0_DATA_SIZE];
         constexpr uint32_t kPage = 4096u;
+        // A page's hash (FNV-1a over 64-bit words).
+        inline uint64_t pageHash(const uint8_t *a)
+        {
+            uint64_t h = 1469598103934665603ull;
+            for (uint32_t i = 0; i < kPage; i += 8)
+            {
+                uint64_t x;
+                std::memcpy(&x, a + i, 8);
+                h = (h ^ x) * 1099511628211ull;
+            }
+            return h;
+        }
         // A page the same (64-bit words: the Vita's memcmp goes a byte at a time, round S7).
         inline bool pageSame(const uint8_t *a, const uint8_t *b)
         {
@@ -774,89 +787,67 @@ namespace s8cloth
             if (!g_snap)
                 return queue(rdram, ctx, runtime, src);
             uint8_t *spr = runtime->memory().getScratchpad(), *vu0 = runtime->memory().getVU0Data();
-            // The other writers of guest RAM quiet first (round 91's job and ours, S5's particle batch: their records
-            // would change between the runs), then the state saved.
+            // The other writers of guest RAM quiet first (round 91's job and ours, S5's particle batch).
             joinNow(-1);
             sotc_worker::join(sotc_worker::kSiteKick);
             s5ptcl::joinIfPending(0u);
+            // The state before: each page's hash, and a copy of guest RAM for the original to run on (nothing of the live
+            // RAM is put back afterwards: other threads' writes to it stay; the guest code and the natives on this path
+            // address guest RAM only through the rdram they are given).
+            static std::vector<uint64_t> h0(PS2_RAM_SIZE / kPage);
+            for (uint32_t p = 0; p < PS2_RAM_SIZE; p += kPage)
+                h0[p / kPage] = pageHash(rdram + p);
             std::memcpy(g_snap, rdram, PS2_RAM_SIZE);
             std::memcpy(g_sprA, spr, sizeof(g_sprA));
             std::memcpy(g_vu0A, vu0, sizeof(g_vu0A));
-            static R5900Context ctxA, ctxB; // (static: the context is a 16-aligned type, no stack copy)
-            ctxA = *ctx;
-            // The original, inline, twice from the same state (the pages each run changed, their bytes): a word the two
-            // runs leave different is another thread's (noise), not the call's.
-            static std::vector<uint32_t> pages[2];
-            static std::vector<uint8_t> after[2];
-            auto restore = [&]()
-            {
-                for (uint32_t p = 0; p < PS2_RAM_SIZE; p += kPage)
-                    if (!pageSame(rdram + p, g_snap + p))
-                        std::memcpy(rdram + p, g_snap + p, kPage);
-                std::memcpy(spr, g_sprA, sizeof(g_sprA));
-                std::memcpy(vu0, g_vu0A, sizeof(g_vu0A));
-                *ctx = ctxA;
-            };
-            for (int run = 0; run < 2; ++run)
-            {
-                g_inline = true;
-                sotc_decomp::callGuest(rdram, ctx, runtime, kGetCloth, src.ra, sp);
-                g_inline = false;
-                if (run == 0)
-                {
-                    ctxB = *ctx;
-                    std::memcpy(g_sprB, spr, sizeof(g_sprB));
-                    std::memcpy(g_vu0B, vu0, sizeof(g_vu0B));
-                }
-                pages[run].clear();
-                after[run].clear();
-                for (uint32_t p = 0; p < PS2_RAM_SIZE; p += kPage)
-                    if (!pageSame(rdram + p, g_snap + p) && !skipped(p, sp))
-                    {
-                        pages[run].push_back(p);
-                        after[run].insert(after[run].end(), rdram + p, rdram + p + kPage);
-                    }
-                restore();
-            }
-            // The queued call alone, joined at once.
+            static R5900Context ctxB; // (static: the context is a 16-aligned type, no stack copy)
+            ctxB = *ctx;
+            // The original, on the copy (VU0 data and the scratchpad are the live ones: kept, then put back).
+            g_inline = true;
+            sotc_decomp::callGuest(g_snap, &ctxB, runtime, kGetCloth, src.ra, sp);
+            g_inline = false;
+            std::memcpy(g_sprB, spr, sizeof(g_sprB));
+            std::memcpy(g_vu0B, vu0, sizeof(g_vu0B));
+            std::memcpy(spr, g_sprA, sizeof(g_sprA));
+            std::memcpy(vu0, g_vu0A, sizeof(g_vu0A));
+            // The queued call alone, on the live RAM, joined at once.
             if (!queue(rdram, ctx, runtime, src))
                 return false; // (refused: nothing ran; the caller runs the original)
             joinNow(-1);
             ++g_st.checks;
-            g_st.checkPagesOrig += pages[0].size();
-            // Guest RAM: each word as the original leaves it (both runs agreeing), the job's the same.
-            size_t k0 = 0, k1 = 0;
+            // Guest RAM: the pages the original changed (its copy's hash moved) word for word against the job's; any other
+            // page the job's run left changed is counted apart (the job wrote outside the original's pages, or another
+            // thread wrote there meanwhile: the noise words of the earlier checks).
             uint64_t diffHere = 0;
             for (uint32_t p = 0; p < PS2_RAM_SIZE; p += kPage)
             {
                 if (skipped(p, sp))
                     continue;
-                const bool c0 = k0 < pages[0].size() && pages[0][k0] == p, c1 = k1 < pages[1].size() && pages[1][k1] == p;
-                const uint8_t *w0 = c0 ? after[0].data() + k0 * kPage : g_snap + p, *w1 = c1 ? after[1].data() + k1 * kPage : g_snap + p;
-                k0 += c0 ? 1u : 0u;
-                k1 += c1 ? 1u : 0u;
-                if (pageSame(rdram + p, w0) && pageSame(rdram + p, w1))
-                    continue;
-                for (uint32_t b = 0; b < kPage; b += 4)
+                if (pageHash(g_snap + p) != h0[p / kPage])
                 {
-                    uint32_t o0, o1, m;
-                    std::memcpy(&o0, w0 + b, 4);
-                    std::memcpy(&o1, w1 + b, 4);
-                    std::memcpy(&m, rdram + p + b, 4);
-                    if (o0 != o1)
+                    ++g_st.checkPagesOrig;
+                    if (pageSame(rdram + p, g_snap + p))
+                        continue;
+                    for (uint32_t b = 0; b < kPage; b += 4)
                     {
-                        ++g_st.checkNoise;
-                        static int shownNoise = 0;
-                        if (shownNoise++ < 12)
-                            std::fprintf(stderr, "[s8chk] frame %llu: noise at %08x (the original's two runs: %08x / %08x, the job %08x)\n",
-                                         (unsigned long long)sotc_decomp::g_gameFrame, p + b, o0, o1, m);
+                        uint32_t o, m;
+                        std::memcpy(&o, g_snap + p + b, 4);
+                        std::memcpy(&m, rdram + p + b, 4);
+                        if (o != m)
+                        {
+                            g_st.checkDiffBytes += 4;
+                            ++diffHere;
+                            logCheck("RAM", p + b, o, m, src.obj);
+                        }
                     }
-                    else if (o0 != m)
-                    {
-                        g_st.checkDiffBytes += 4;
-                        ++diffHere;
-                        logCheck("RAM", p + b, o0, m, src.obj);
-                    }
+                }
+                else if (pageHash(rdram + p) != h0[p / kPage])
+                {
+                    ++g_st.checkNoise;
+                    static int shownOut = 0;
+                    if (shownOut++ < 12)
+                        std::fprintf(stderr, "[s8chk] frame %llu: page %08x changed outside the original's pages (the job's run, or another thread)\n",
+                                     (unsigned long long)sotc_decomp::g_gameFrame, p);
                 }
             }
             if (diffHere)
@@ -921,7 +912,7 @@ namespace s8cloth
                     std::fprintf(stderr, " %08x:%.2f", kGates[i], s.gateJoins[i] / fr);
             if (s.checks || g_check > 0)
                 std::fprintf(stderr, " | [s8chk] %llu checked (%.1f pages each changed by the original), %llu with a RAM difference: RAM bytes differ %llu (noise words left out %llu), "
-                                     "R / v0 / f12 differ %llu, VU0 registers differ %llu, VU0 data %llu, scratchpad %llu",
+                                     "R / v0 / f12 differ %llu, VU0 registers differ %llu, VU0 data %llu, scratchpad %llu (pages changed outside the original's: noise)",
                              (unsigned long long)s.checks, s.checks ? static_cast<double>(s.checkPagesOrig) / s.checks : 0.0, (unsigned long long)s.checkBad,
                              (unsigned long long)s.checkDiffBytes, (unsigned long long)s.checkNoise, (unsigned long long)s.checkRDiff, (unsigned long long)s.checkVuRegDiff,
                              (unsigned long long)s.checkVu0Diff, (unsigned long long)s.checkSprDiff);
