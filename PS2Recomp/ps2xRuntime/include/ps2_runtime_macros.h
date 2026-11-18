@@ -1284,6 +1284,13 @@ static constexpr uint32_t PS2_FCR31_SD = 0x00000020u;
 // PS2X_FPU_SETCSR=1: switch the rounding mode around every FPU divide /
 // square root, as before (ps2_runtime.cpp reads it at start).
 extern bool g_ps2FpuSetcsrNearest;
+// Round S13 (the game's s13mot kZeroDiv, set per frame): a divide whose dividend is zero (or a denormal, flushed) by a
+// normal divisor, and the root of a zero (or a denormal), answered as the signed zero they are in every rounding mode
+// instead of through the rounding-mode switch below (two FPSCR writes, fegetround / fesetround calls). Besides the
+// cost, the switch's writes left Vita3K's translated code rounding to nearest for a while after them (the A32
+// recompiler keeps the rounding mode per translated block; docs/motion_s13.md): float results on the game thread
+// then depended on the emulator, not on the code.
+extern bool g_ps2xFpuZeroFast;
 
 static PS2_FORCE_INLINE float ps2FpuDivideNearestCsr(float dividend, float divisor)
 {
@@ -1346,6 +1353,12 @@ static PS2_FORCE_INLINE float ps2FpuDivideNearest(float dividend, float divisor)
     if (!g_ps2FpuSetcsrNearest && ps2FloatIsPlainNormal(dividend) && ps2FloatIsPlainNormal(divisor) &&
         ps2NearestFloatFromTruncated(static_cast<double>(dividend) / static_cast<double>(divisor), result))
         return result;
+    if (g_ps2xFpuZeroFast && !g_ps2FpuSetcsrNearest && (ps2FloatBits(dividend) & 0x7F800000u) == 0u && ps2FloatIsPlainNormal(divisor))
+    {
+        const uint32_t zero = (ps2FloatBits(dividend) ^ ps2FloatBits(divisor)) & 0x80000000u;
+        std::memcpy(&result, &zero, sizeof(result));
+        return result;
+    }
     return ps2FpuDivideNearestCsr(dividend, divisor);
 }
 
@@ -1355,6 +1368,12 @@ static PS2_FORCE_INLINE float ps2FpuSqrtNearest(float value)
     if (!g_ps2FpuSetcsrNearest && ps2FloatIsPlainNormal(value) && !std::signbit(value) &&
         ps2NearestFloatFromTruncated(std::sqrt(static_cast<double>(value)), result))
         return result;
+    if (g_ps2xFpuZeroFast && !g_ps2FpuSetcsrNearest && (ps2FloatBits(value) & 0x7F800000u) == 0u)
+    {
+        const uint32_t zero = ps2FloatBits(value) & 0x80000000u;
+        std::memcpy(&result, &zero, sizeof(result));
+        return result;
+    }
     return ps2FpuSqrtNearestCsr(value);
 }
 

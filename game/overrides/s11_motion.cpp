@@ -22,175 +22,11 @@
 //
 // SOTC_S11RT_CHECK=1: each call computes the host answer without writing, then runs the recompiled function and
 // compares the 16 bytes out, v0, f0 and VU0 vf5..vf8 / ACC with it ([s11] log: motion checks / differ).
-#include "s11rt.h"
-#include "sotc_decomp.h"
-
-#include "ps2_runtime_macros.h"
-
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
+#include "s11_motion.h"
 
 namespace s11motion
 {
     using sotc_decomp::returnTo;
-
-    // ---- guest memory views (main RAM only; callers check okAddr first) ----------------------------------------
-    inline bool okAddr(uint32_t a) { return a >= 0x1000u && a < PS2_RAM_SIZE - 0x40u; }
-    inline uint32_t rd32(const uint8_t *ram, uint32_t a)
-    {
-        uint32_t v;
-        std::memcpy(&v, ram + a, 4);
-        return v;
-    }
-    inline float rdf(const uint8_t *ram, uint32_t a)
-    {
-        float v;
-        std::memcpy(&v, ram + a, 4);
-        return v;
-    }
-    inline int16_t rd16s(const uint8_t *ram, uint32_t a)
-    {
-        int16_t v;
-        std::memcpy(&v, ram + a, 2);
-        return v;
-    }
-    inline uint16_t rd16(const uint8_t *ram, uint32_t a)
-    {
-        uint16_t v;
-        std::memcpy(&v, ram + a, 2);
-        return v;
-    }
-    inline float fbits(uint32_t b)
-    {
-        float f;
-        std::memcpy(&f, &b, 4);
-        return f;
-    }
-    inline uint32_t bitsf(float f)
-    {
-        uint32_t b;
-        std::memcpy(&b, &f, 4);
-        return b;
-    }
-
-    namespace layout
-    {
-        constexpr uint32_t kRefOffsetMask = 0x3FFFFu; // MotionRef: the distance back to the owner pointer
-        constexpr uint32_t kRefIndexShift = 18, kRefIndexMask = 0xFFFu;
-        constexpr uint32_t kSetDescriptor = 0x08, kSetMotions = 0x10, kDescStride = 0x0C;
-        constexpr uint32_t kMotionRoot = 0x0C, kRootTrack = 0x20;
-        constexpr uint32_t kTrackKind = 0x00, kTrackEncoding = 0x06, kTrackData = 0x0C;
-        constexpr uint32_t kPackedTable = 0x18;
-    }
-
-    // A root track's key (manager_sub_010AD048): the 16 bytes it writes (w always 1) and the v0 / f0 it leaves.
-    struct Key
-    {
-        float v[4];
-        uint64_t v0;
-        float f0;
-        bool ok;
-        bool packed; // a packed track while SOTC_S11RT_PACKED is off: the recompiled function
-        uint32_t data; // (packed, for the check's print)
-    };
-    inline Key rootKey(const uint8_t *ram, uint32_t track, uint32_t frame)
-    {
-        Key k{};
-        k.v[3] = 1.0f;
-        if (!okAddr(track))
-            return k;
-        const int16_t kind = rd16s(ram, track + layout::kTrackKind);
-        const uint32_t data = rd32(ram, track + layout::kTrackData);
-        if (kind < 6)
-        {
-            const uint32_t p = data + frame * 12u;
-            if (!okAddr(p))
-                return k;
-            k.v[0] = rdf(ram, p);
-            k.v[1] = rdf(ram, p + 4u);
-            k.v[2] = rdf(ram, p + 8u);
-            // the original builds the 16 bytes on its stack and moves them with ld / sq through v0: v0's low 64 bits
-            k.v0 = static_cast<uint64_t>(bitsf(k.v[0])) | (static_cast<uint64_t>(bitsf(k.v[1])) << 32);
-            k.f0 = k.v[2];
-            k.ok = true;
-            return k;
-        }
-        const uint16_t enc16 = rd16(ram, track + layout::kTrackEncoding);
-        const uint32_t enc = enc16 & 0xFu;
-        if (!okAddr(data))
-            return k;
-        if (enc == 0u)
-        {
-            k.v[0] = rdf(ram, data);
-            k.v[1] = rdf(ram, data + 4u);
-            k.v[2] = rdf(ram, data + 8u);
-            k.v0 = enc16;
-            k.f0 = k.v[2];
-        }
-        else if (enc == 2u)
-        {
-            // Packed keys: p3's check found ~0.2% of calls one or two units apart in z here (the cause not found yet;
-            // the same FPU macros as the lifted code); by default these calls run the recompiled function (exact),
-            // SOTC_S11RT_PACKED=1 keeps the host arithmetic (with SOTC_S11RT_CHECK: its inputs printed on a difference).
-            if (!s11rt::g_packed)
-            {
-                k.packed = true;
-                return k;
-            }
-            const uint32_t p = rd32(ram, data + layout::kPackedTable) + frame * 6u;
-            if (!okAddr(p))
-                return k;
-            k.data = data;
-            const float scale = fbits(0x38000100u); // 2^-15 (1 + 2^-15)
-            float o[3];
-            int16_t last = 0;
-            for (int i = 0; i < 3; ++i)
-            {
-                last = rd16s(ram, p + 2u * i);
-                const float raw = FPU_CVT_S_W(static_cast<int32_t>(last));
-                o[i] = FPU_ADD_S(FPU_MUL_S(FPU_MUL_S(raw, rdf(ram, data + 4u + 8u * i)), scale), rdf(ram, data + 8u * i));
-            }
-            k.v[0] = o[0];
-            k.v[1] = o[1];
-            k.v[2] = o[2];
-            k.v0 = static_cast<uint64_t>(static_cast<int64_t>(last));
-            k.f0 = o[2];
-        }
-        else
-        {
-            const uint32_t p = data + frame * 12u;
-            if (!okAddr(p))
-                return k;
-            k.v[0] = rdf(ram, p);
-            k.v[1] = rdf(ram, p + 4u);
-            k.v[2] = rdf(ram, p + 8u);
-            k.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(p)));
-            k.f0 = k.v[2];
-        }
-        k.ok = true;
-        return k;
-    }
-
-    // The owner of a MotionRef (the same test the original makes at three sites, each with its own relocated global).
-    inline uint32_t ownerOf(const uint8_t *ram, uint32_t ref, uint32_t word, uint32_t exclude)
-    {
-        const uint32_t off = word & layout::kRefOffsetMask;
-        const uint32_t owner = off != 0u ? rd32(ram, ref - off) : 0u;
-        return (owner != 0u && owner != exclude) ? owner : 0u;
-    }
-
-    // What the host path computes (no writes): the 16 bytes out, v0, f0 and the VU0 registers the original leaves.
-    struct Result
-    {
-        bool ok = false;
-        __m128 out, vf5, vf6, vf7, vf8, acc;
-        uint64_t v0 = 0, t0 = 0;
-        bool lerp = false;
-        Key key{};
-    };
-
-    constexpr uint32_t kSelf = 0x010B4478u;
 
     Result compute(const uint8_t *ram, R5900Context *ctx)
     {
@@ -239,8 +75,12 @@ namespace s11motion
                 return r;
             }
             r.key = k;
+            r.packed = k.packedHost;
             r.out = _mm_setr_ps(k.v[0], k.v[1], k.v[2], 1.0f);
             r.v0 = k.v0;
+            r.v0Full = k.full;
+            r.v0Upper = keyUpper(k.v);
+            r.cEq = true;
             r.ok = true;
             return r;
         }
@@ -251,7 +91,11 @@ namespace s11motion
             s11rt::g_st.motionPacked += k1.packed || k2.packed;
             return r;
         }
-        r.key = k1;
+        r.key = k1.packedHost ? k1 : k2;
+        r.packed = k1.packedHost || k2.packedHost;
+        r.v0Full = k2.full; // (both keys come from one track: one kind)
+        r.v0Upper = keyUpper(k2.v);
+        r.cEq = false;
         // The lerp as the original's VU0 code (0x10b45b4..0x10b45d4), the runtime's own VU0 operations.
         const uint32_t sp = GPR_U32(ctx, 29) - 0x50u;
         const uint64_t t0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(bitsf(frac))));
@@ -289,27 +133,8 @@ namespace s11motion
         return r;
     }
 
-    // The registers the host path writes, as the original leaves them.
-    inline void apply(uint8_t *ram, R5900Context *ctx, const Result &r)
-    {
-        _mm_storeu_ps(reinterpret_cast<float *>(ram + GPR_U32(ctx, 4)), r.out);
-        SET_GPR_U64(ctx, 2, r.v0);
-        ctx->f[0] = 1.0f;
-        if (r.lerp)
-        {
-            ctx->vu0_vf[5] = r.vf5;
-            ctx->vu0_vf[6] = r.vf6;
-            ctx->vu0_vf[7] = r.vf7;
-            ctx->vu0_vf[8] = r.vf8;
-            ctx->vu0_acc = r.acc;
-            SET_GPR_U64(ctx, 8, r.t0);
-        }
-    }
-
-    inline bool same(__m128 a, __m128 b) { return std::memcmp(&a, &b, 16) == 0; }
-
     PS2Runtime::RecompiledFunction g_rec = nullptr;
-    inline PS2Runtime::RecompiledFunction rec()
+    PS2Runtime::RecompiledFunction rec()
     {
         if (__builtin_expect(g_rec == nullptr, 0))
             g_rec = sotc_decomp::recompiled(kSelf);
@@ -328,18 +153,37 @@ namespace s11motion
         }
         // (the check runs on the game thread only: on round 91's guest worker a guest call can park the job and return
         // early, so the recompiled leg is not a whole run there)
-        if (__builtin_expect(s11rt::g_check, 0) && !sotc_decomp::onWorkerLane(runtime))
+        const bool s13check = s13mot::g_check; // (all kMotion calls: kPacked's keys and the v0 / condition bit S13 adds)
+        if (__builtin_expect(s11rt::g_check || s13check, 0) && !sotc_decomp::onWorkerLane(runtime))
         {
             // the recompiled function on the live state, then its results against the host answer
             const uint32_t out = GPR_U32(ctx, 4), ra = GPR_U32(ctx, 31);
+            // (round S13: the float mode before and after the recompiled leg, and the call's inputs kept to answer it
+            // again after the leg)
+            const uint32_t fpscrBefore = s13mot::fpscr();
+            static R5900Context saved;
+            saved = *ctx;
+            // (the experiment on a packed key: the answer again before the leg, then again after the control word is
+            // written back unchanged)
+            Result pre{}, rewritten{};
+            if (s13check && r.packed)
+            {
+                pre = compute(rdram, &saved);
+                s13mot::fpscrRewrite();
+                rewritten = compute(rdram, &saved);
+            }
             rec()(rdram, ctx, runtime);
+            const uint32_t fpscrAfter = s13mot::fpscr();
             if (ctx->pc != ra)
             {
                 // a checkpoint inside the recompiled leg unwound it to the scheduler (it resumes there later): not a
                 // whole run, nothing to compare
                 ++s11rt::g_st.motionUnwound;
+                s13mot::g_st.unwound += s13check;
                 return;
             }
+            if (s13check && fpscrBefore != fpscrAfter)
+                ++s13mot::g_st.fpscrMoved;
             float got[4];
             std::memcpy(got, rdram + out, 16);
             const __m128 g = _mm_loadu_ps(got);
@@ -347,7 +191,33 @@ namespace s11motion
             if (r.lerp)
                 ok = ok && same(ctx->vu0_vf[5], r.vf5) && same(ctx->vu0_vf[6], r.vf6) && same(ctx->vu0_vf[7], r.vf7) && same(ctx->vu0_vf[8], r.vf8) &&
                      same(ctx->vu0_acc, r.acc) && GPR_U64(ctx, 8) == r.t0;
+            if (s13check)
+            {
+                // round S13: v0's upper half (when the key path sets it) and the FPU condition bit too
+                uint64_t upper;
+                std::memcpy(&upper, reinterpret_cast<const uint8_t *>(&ctx->r[2]) + 8, 8);
+                ok = ok && (!r.v0Full || upper == r.v0Upper) && ((ctx->fcr31 & 0x800000u) != 0u) == r.cEq;
+            }
             ++s11rt::g_st.motionChecks;
+            s13mot::g_st.checks += s13check;
+            if (!ok && s13check)
+            {
+                // the host answer again, after the recompiled leg, from the call's inputs (the input data unchanged)
+                const Result again = compute(rdram, &saved);
+                const bool againSame = again.ok && same(again.out, g);
+                if (r.packed)
+                    ++s13mot::g_st.packedDiffer[(pre.ok && same(pre.out, g) ? 1 : 0) | (rewritten.ok && same(rewritten.out, g) ? 2 : 0) | (againSame ? 4 : 0)];
+                if (s13mot::differ(0))
+                {
+                    float h[4];
+                    _mm_storeu_ps(h, r.out);
+                    std::fprintf(stderr, "[s13] motion differ (packed %d): out %08x %08x %08x %08x host %08x %08x %08x %08x lerp %d fpscr %08x -> %08x, host again %s; raw %d %d %d data %08x: %08x %08x %08x %08x %08x %08x ra %08x\n",
+                                 r.packed ? 1 : 0, bitsf(got[0]), bitsf(got[1]), bitsf(got[2]), bitsf(got[3]), bitsf(h[0]), bitsf(h[1]), bitsf(h[2]), bitsf(h[3]), r.lerp ? 1 : 0,
+                                 fpscrBefore, fpscrAfter, againSame ? "same as the leg" : "differs too", r.key.raw[0], r.key.raw[1], r.key.raw[2], r.key.data,
+                                 rd32(rdram, r.key.data), rd32(rdram, r.key.data + 4u), rd32(rdram, r.key.data + 8u), rd32(rdram, r.key.data + 0xCu),
+                                 rd32(rdram, r.key.data + 0x10u), rd32(rdram, r.key.data + 0x14u), ra);
+                }
+            }
             if (!ok)
             {
                 if (s11rt::g_st.motionDiffer++ < 16u)
@@ -366,6 +236,7 @@ namespace s11motion
         }
         apply(rdram, ctx, r);
         ++s11rt::g_st.motionHost;
+        s13mot::g_st.packedHost += r.packed;
         if (sotc_decomp::onWorkerLane(runtime))
             ++s11rt::g_st.motionWorker;
         returnTo(ctx);

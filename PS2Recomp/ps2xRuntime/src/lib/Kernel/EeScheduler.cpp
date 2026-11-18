@@ -612,7 +612,51 @@ bool EeScheduler::checkpointSlow() noexcept
 
     ++g_eeS11.renew;
     renewTimeSlice();
+    // Round S13 (g_ps2xSliceStretch): no thread at or above this one's priority is ready, so the next slice ends would
+    // only renew the slice again: one stretched slice instead (cut back if a thread becomes ready: sliceStretchCut).
+    if (g_ps2xSliceStretch > 1u && running != nullptr)
+    {
+        m_sliceBase = eeNow();
+        m_sliceEndCycle = m_sliceBase + kDefaultTimeSliceCycles * g_ps2xSliceStretch;
+        m_sliceStretched = true;
+        ++g_eeS11.stretch;
+        updateGate();
+    }
     return false;
+}
+
+uint32_t g_ps2xSliceStretch = 1u;
+
+// Round S13: a thread became ready (or the running one's priority changed) while the slice is stretched. If a ready
+// thread could take the running one's place at a slice end (at or above its priority), the slice ends where the plain
+// slices would have ended next: the first boundary m_sliceBase + k slices at or after now (the plain renewals land at
+// the first checkpoint past each boundary, a few cycles later; counted: sliceCuts, 0 riding). A thread above the
+// running one's priority preempts at once anyway (requestPreemptionIfHigher).
+void EeScheduler::sliceStretchCut(const GuestThread &readied)
+{
+    if (!m_sliceStretched || readied.id == m_currentThreadId)
+        return;
+    const GuestThread *running = currentThread();
+    if (running == nullptr || !hasReadyAtOrAbovePriority(running->currentPriority))
+        return;
+    const uint64_t now = eeNow();
+    uint64_t k = now > m_sliceBase ? (now - m_sliceBase + kDefaultTimeSliceCycles - 1u) / kDefaultTimeSliceCycles : 1u;
+    if (k == 0u)
+        k = 1u;
+    const uint64_t end = m_sliceBase + k * kDefaultTimeSliceCycles;
+    m_sliceStretched = false;
+    ++g_eeS11.sliceCuts;
+    // (a thread above the running one preempts at once anyway: only an equal one waits for the slice's end)
+    if (readied.currentPriority == running->currentPriority)
+        ++g_eeS11.sliceCutsEqual;
+    if (end < m_sliceEndCycle)
+    {
+        m_sliceEndCycle = end;
+        if (std::this_thread::get_id() == m_executorThread)
+            updateGate();
+        else
+            flagCheckpoint(11);
+    }
 }
 
 void EeScheduler::accountCycles(uint32_t cycles) noexcept
@@ -1060,6 +1104,15 @@ int EeScheduler::changePriority(int id, int priority, bool interruptSafe, int &o
         target->currentPriority = priority;
         if (target->status == EeThreadStatus::Running)
         {
+            // Round S13: the running thread's priority moved; a ready thread may now be at or above it.
+            if (m_sliceStretched)
+                for (int p = 0; p <= priority && p < kPriorityCount; ++p)
+                    if (!m_readyQueues[static_cast<size_t>(p)].empty())
+                    {
+                        if (GuestThread *other = thread(m_readyQueues[static_cast<size_t>(p)].front()))
+                            sliceStretchCut(*other);
+                        break;
+                    }
             for (int p = 0; p < target->currentPriority; ++p)
             {
                 if (!m_readyQueues[p].empty())
@@ -2051,6 +2104,8 @@ void EeScheduler::enqueueReady(GuestThread &item, bool front)
     {
         queue.push_back(item.id);
     }
+    if (m_sliceStretched)
+        sliceStretchCut(item);
 }
 
 void EeScheduler::removeReady(GuestThread &item)
@@ -2803,6 +2858,7 @@ void EeScheduler::enableHostClockSync()
 
 void EeScheduler::renewTimeSlice()
 {
+    m_sliceStretched = false;
     m_sliceEndCycle = eeNow() + kDefaultTimeSliceCycles;
     m_timeSliceExpired = false;
     updateGate();

@@ -57,6 +57,7 @@
 
 // See ps2FpuDivideNearest (ps2_runtime_macros.h).
 bool g_ps2FpuSetcsrNearest = false;
+bool g_ps2xFpuZeroFast = false; // round S13 (ps2_runtime_macros.h)
 
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>

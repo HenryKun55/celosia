@@ -36,6 +36,7 @@
 // was slower than the recompiled code in the sampler (docs/decomp.md, round 126).
 #include "cam126.h"
 #include "s11rt.h"
+#include "s11_motion.h"
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -656,7 +657,7 @@ namespace cam126
     constexpr uint32_t kRootKey = 0x010AD048u;
     PS2Runtime::RecompiledFunction g_rootKeyRec = nullptr; // round S11 (s11rt kRootKey)
     // (returns the value the original leaves in f0: the last float it loaded / made)
-    inline float rootKey(uint8_t *rdram, uint32_t out, uint32_t tr, uint32_t frame)
+    [[maybe_unused]] inline float rootKey(uint8_t *rdram, uint32_t out, uint32_t tr, uint32_t frame)
     {
         const int16_t kind = static_cast<int16_t>(rd32(rdram, tr) & 0xFFFFu);
         if (kind < 6)
@@ -702,7 +703,9 @@ namespace cam126
     void rootKeyEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t out = GPR_U32(ctx, 4), tr = GPR_U32(ctx, 5);
-        if (!ctlOn() || !okAddr(out) || !okAddr(tr))
+        // Round S13 (s13mot kRoot): the host key below for every caller (natives' callGuest, the recompiled callers),
+        // not only with ctl126 on.
+        if (!(ctlOn() || s13mot::on(s13mot::kRoot)) || !okAddr(out) || !okAddr(tr))
         {
             // Round S11 (s11rt kRootKey): the recompiled function kept in a pointer, not looked up in the hash table each call.
             // (a plain pointer, no function-local static: its guard is a load and a barrier a call on the Vita)
@@ -714,7 +717,45 @@ namespace cam126
             }
             return sotc_decomp::recompiled(kRootKey)(rdram, ctx, runtime);
         }
-        ctx->f[0] = rootKey(rdram, out, tr, GPR_U32(ctx, 6));
+        // Round S13: the key from S11's views (s11motion::rootKey: the constant and packed encodings' data read through
+        // *(track + 0xC) as the original does; rootKey above read them from the track itself, wrong for those tracks),
+        // the original's v0 too. A packed track while s13mot kPacked is off, or an address the views do not cover: the
+        // recompiled function. SOTC_S13MOT_CHECK=1 runs that too and compares (out, v0, f0).
+        const s11motion::Key k = s11motion::rootKey(rdram, tr, GPR_U32(ctx, 6));
+        if (!k.ok)
+        {
+            if (__builtin_expect(g_rootKeyRec == nullptr, 0))
+                g_rootKeyRec = sotc_decomp::recompiled(kRootKey);
+            return g_rootKeyRec(rdram, ctx, runtime);
+        }
+        if (__builtin_expect(s13mot::g_check, 0) && !sotc_decomp::onWorkerLane(runtime))
+        {
+            const uint32_t ra = GPR_U32(ctx, 31);
+            if (__builtin_expect(g_rootKeyRec == nullptr, 0))
+                g_rootKeyRec = sotc_decomp::recompiled(kRootKey);
+            g_rootKeyRec(rdram, ctx, runtime);
+            if (ctx->pc == ra)
+            {
+                float got[4];
+                std::memcpy(got, at(rdram, out), 16);
+                const bool ok = std::memcmp(got, k.v, 12) == 0 && got[3] == 1.0f && GPR_U64(ctx, 2) == k.v0 && std::memcmp(&ctx->f[0], &k.f0, 4) == 0;
+                ++s13mot::g_st.checks;
+                if (!ok && s13mot::differ(3))
+                    std::fprintf(stderr, "[s13] ctl126 root key differ: track %08x frame %u\n", tr, GPR_U32(ctx, 6));
+            }
+            else
+                ++s13mot::g_st.unwound;
+            return;
+        }
+        const float o[4] = {k.v[0], k.v[1], k.v[2], 1.0f};
+        std::memcpy(at(rdram, out), o, 16);
+        SET_GPR_U64(ctx, 2, k.v0);
+        if (k.full)
+        {
+            const uint64_t upper = s11motion::keyUpper(k.v);
+            std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[2]) + 8, &upper, 8);
+        }
+        ctx->f[0] = k.f0;
         SET_GPR_U32(ctx, 7, out);
         ++g_ctl.rootKey;
         returnTo(ctx);
@@ -734,7 +775,17 @@ namespace cam126
     void parentIdEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!ctlOn())
+        {
+            // Round S13 (s13mot kRoot): the recompiled function kept in a pointer (as S11's kRootKey), no hash lookup a call
+            static PS2Runtime::RecompiledFunction rec = nullptr;
+            if (s13mot::on(s13mot::kRoot))
+            {
+                if (__builtin_expect(rec == nullptr, 0))
+                    rec = sotc_decomp::recompiled(kParentId);
+                return rec(rdram, ctx, runtime);
+            }
             return sotc_decomp::recompiled(kParentId)(rdram, ctx, runtime);
+        }
         parentIdBody(rdram, ctx);
         returnTo(ctx);
     }
@@ -761,7 +812,17 @@ namespace cam126
     void localQPEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!ctlOn())
+        {
+            // Round S13 (s13mot kRoot): the recompiled function kept in a pointer, no hash lookup a call
+            static PS2Runtime::RecompiledFunction rec = nullptr;
+            if (s13mot::on(s13mot::kRoot))
+            {
+                if (__builtin_expect(rec == nullptr, 0))
+                    rec = sotc_decomp::recompiled(kLocalQP);
+                return rec(rdram, ctx, runtime);
+            }
             return sotc_decomp::recompiled(kLocalQP)(rdram, ctx, runtime);
+        }
         localQPBody(rdram, ctx);
         returnTo(ctx);
     }

@@ -265,11 +265,18 @@ struct EeS11Stats
     uint64_t iopRuns = 0;
     uint64_t runs[16] = {}; // threads made running, by id (15: ids >= 15)
     uint64_t flags[12] = {}; // flagCheckpoint by call site (EeScheduler.cpp: the site numbers there)
+    uint64_t stretch = 0, sliceCuts = 0, sliceCutsEqual = 0; // round S13: slices renewed stretched, stretched slices cut back (a thread became ready)
 };
 extern EeS11Stats g_eeS11;
 // Round S11: the EE cycles the IOP collects before it runs (PS2Runtime::advanceIopEeCycles; 2048 before S11, the game
 // sets it per frame: s11rt kIop). Read on the executor only.
 extern uint64_t g_ps2xIopBatchEeCycles;
+// Round S13 (s13mot kSlice): the time slice renewed this many slices long (1: off) when the slice ends with no ready thread
+// at or above the running one's priority (EeScheduler::checkpointSlow's renew: then the end of a slice only renews it, so
+// the stretch drops ~10 slow checkpoints a frame riding). A thread made ready at or above that priority during a stretch
+// cuts it back to the next plain slice boundary (EeScheduler::sliceStretchCut), so the round robin among equal priorities
+// keeps its turns. Read on the executor only; the game sets it per frame.
+extern uint32_t g_ps2xSliceStretch;
 
 class EeScheduler
 {
@@ -525,6 +532,7 @@ private:
     void updateNextDeadline();
     [[nodiscard]] bool hasReadyAtOrAbovePriority(int priority) const;
     void renewTimeSlice();
+    void sliceStretchCut(const GuestThread &readied);
     void updateGate() noexcept;
     void copyMainContextToRuntime();
     void publishDebugContext(const R5900Context &context);
@@ -613,6 +621,8 @@ private:
     std::chrono::steady_clock::time_point m_hostClockBase{};
     bool m_hostClockSync = false;
     uint64_t m_sliceEndCycle = kDefaultTimeSliceCycles;
+    uint64_t m_sliceBase = 0;      // round S13: the cycle the stretched slice was renewed at
+    bool m_sliceStretched = false; // round S13: the slice ends g_ps2xSliceStretch plain slices after m_sliceBase
     std::thread::id m_executorThread{};
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_guestExecuting{false};
