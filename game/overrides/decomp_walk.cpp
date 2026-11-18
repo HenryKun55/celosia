@@ -65,6 +65,7 @@
 // with the registers it has there, the callbacks from their entry before
 // anything is written.
 #include "sotc_decomp.h"
+#include "s12_draw.h"
 #include "a9cmp.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
@@ -3276,6 +3277,419 @@ namespace decomp_walk
         return true;
     }
 
+    // ---- Round S12 (SOTC_S12DRAW part `strips`, bit 0; s12_draw.h): the quad as one host pass. quad117's
+    // operations in its order (the colour clamp of glColor4f, glTexCoord2f's ST, the kick's three products, Q,
+    // the CLIP history, the primitive's decision, the Z and fog) on values in registers: the gl block is read once
+    // (the state words, the pending count, the Z scale, the fog byte, the colour, the ring slots' unwritten ST
+    // lanes) and written once at the end with what quad117 leaves there (the ring slots, the ADC bytes, the colour,
+    // the ST words, the state words, the ring index). The output is the 2D assembler's record (Quad12), not pairs.
+    // False (nothing written): another path for any vertex, as quad117.
+    template <bool A9>
+    __attribute__((noinline, flatten)) bool quad12Body(const G g, uint32_t sp, const Vert117 *vs, int n, s12draw::Quad12 &out)
+    {
+        const Ram m = g.m;
+        R5900Context *ctx = g.ctx;
+        const uint32_t camera = m.u32(kGl);
+        const uint32_t index0 = m.u32(kGl + 0x41F0u);
+        if (n < 1 || n > 4 || camera == 0u || !Ram::ok(camera, 0x6A0u) || index0 + static_cast<uint32_t>(n) >= 0x100u || m.u32(kViewIndex) >= 0x20u)
+            return false;
+        const bool texturing = m.u32(kGl + 0x18u) != 0u;
+        const uint32_t uvMode = texturing ? m.u32(kGl + 0x2Cu) : 0u;
+        if (uvMode > 1u || (uvMode == 1u && sotc_decomp::jalTarget(g.rdram, 0x0108D9B0u) != 0x001BE700u))
+            return false;
+        const uint32_t prim = m.u32(kGl + 0x10u);
+        const uint32_t target = prim < 7u ? m.u32(0x01191730u + prim * 4u) : 0x0108DC48u;
+        if (target != 0x0108DAE0u && target != 0x0108DAF8u && target != 0x0108DB58u && target != 0x0108DB78u && target != 0x0108DC48u)
+            return false;
+        for (int i = 0; i < n; ++i)
+            if (!Ram::ok(vs[i].pos, 0x10u))
+                return false;
+        const bool lazy134 = index0 == 0u && sotc_decomp::clip134On() && sotc_decomp::g_lazyClip.ctx == ctx &&
+                             (sotc_decomp::g_lazyClip.pending || sotc_decomp::g_lazyClip.tracking);
+        if (!lazy134)
+            sotc_decomp::clipNeeded(ctx);
+        const bool glv116 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_glv116_2791, bool, ps2_diag::env("SOTC_GLV116_LOG") != nullptr);
+        __m128 *vf = ctx->vu0_vf;
+        const __m128 vf0 = vf[0];
+        const uint32_t view = kViewStack + (m.u32(kViewIndex) << 6);
+        const __m128 viewM[4] = {m.q(view), m.q(view + 0x10u), m.q(view + 0x20u), m.q(view + 0x30u)};
+        const __m128 clipM[4] = {m.q(camera + 0x5E0u), m.q(camera + 0x5F0u), m.q(camera + 0x600u), m.q(camera + 0x610u)};
+        const __m128 screenM[4] = {m.q(camera + 0x660u), m.q(camera + 0x670u), m.q(camera + 0x680u), m.q(camera + 0x690u)};
+        __m128 viewN[4], clipN[4], screenN[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            viewN[i] = PS2X_VU_IN(viewM[i]);
+            clipN[i] = PS2X_VU_IN(clipM[i]);
+            screenN[i] = PS2X_VU_IN(screenM[i]);
+        }
+        auto applyN = [](const __m128 c[4], __m128 v, __m128 &acc) -> __m128
+        {
+            const __m128 vn = PS2X_VU_IN(v);
+            acc = PS2_VMUL_K(1, 1, c[0], lane<0>(vn));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[1], lane<1>(vn)));
+            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[2], lane<2>(vn)));
+            return PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[3], lane<3>(vn)));
+        };
+        const bool perspective = m.u32(kGl + 0x5Cu) != 0u;
+        // Part `reuse` (bit 1): a strip segment's second quad repeats two vertices of its first (sp+0x120 / +0x130).
+        // The three products of a vertex depend on its position and the three matrices only (pure VU0 arithmetic):
+        // when the matrices are the same bits as the quad before's and the position too, its results are taken.
+        // (Game thread only: the strips and 01142350's quads.)
+        struct Reuse12
+        {
+            bool valid = false;
+            int n = 0;
+            __m128 mats[12];
+            __m128 pos[4], v10[4], v27[4], v26[4], acc[4];
+        };
+        static Reuse12 r12;
+        const bool reuse = s12draw::reuseOn();
+        bool sameMats = false;
+        if (reuse && r12.valid)
+        {
+            sameMats = true;
+            for (int k = 0; k < 4 && sameMats; ++k)
+                sameMats = A9_MEMEQ(&r12.mats[k], &viewM[k], 16) && A9_MEMEQ(&r12.mats[4 + k], &clipM[k], 16) && A9_MEMEQ(&r12.mats[8 + k], &screenM[k], 16);
+        }
+        __m128 newPos[4], newV10[4], newV27[4], newV26[4], newAcc[4];
+        // The gl block's words, once.
+        uint64_t state = m.u64(kGl + 0x1B0u);
+        int32_t pending = m.s32(kGl + 0x1B4u);
+        const float zScale = m.f32(kGl + 0x41F4u);
+        const uint64_t fog = static_cast<uint64_t>(m.u32(kGl + 0x60u)) << 56;
+        __m128 colour = m.q(kGl + 0x90u);
+        bool colourSet = false;
+        __m128 vf5 = vf[5], vf6 = vf[6];
+        __m128 vf10 = vf[10], vf23 = vf[23], vf24 = vf[24], vf25 = vf[25], vf26 = vf[26], vf27 = vf[27], acc = ctx->vu0_acc;
+        float f0 = 0.0f, f1 = 0.0f, f2 = 0.0f;
+        // What the ring slots get (written at the end).
+        __m128 slotClip[4], slotPos[4], slotColour[4];
+        float slotS[4], slotT[4];
+        uint8_t adc[4];
+        auto sx = [](uint32_t v) -> uint64_t { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); };
+        for (int i = 0; i < n; ++i)
+        {
+            const Vert117 &vx = vs[i];
+            if (glv116)
+                glv116Note(vx.site + 8u);
+            if (vx.colour)
+            {
+                // glColor4f(0.5, 0.5, 0.5, alpha): the products, then each word clamped to 255 above, 0 below.
+                float c[4] = {FPU_MUL_S(0.5f, 255.0f), FPU_MUL_S(0.5f, 255.0f), FPU_MUL_S(0.5f, 255.0f), FPU_MUL_S(vx.alpha, 128.0f)};
+                for (int k = 0; k < 4; ++k)
+                {
+                    float w = c[k];
+                    if (FPU_C_OLT_S(255.0f, w))
+                    {
+                        c[k] = 255.0f;
+                        w = 255.0f;
+                    }
+                    if (FPU_C_OLT_S(w, 0.0f))
+                        c[k] = 0.0f;
+                }
+                std::memcpy(&colour, c, 16);
+                colourSet = true;
+            }
+            const uint32_t index = index0 + static_cast<uint32_t>(i);
+            const uint32_t slot = kGl + (index << 6);
+            // glVertex3fv's own part: the state's bits 0 / 3, the slot's colour, ST and position.
+            state = (state & ~9ull) | 8u;
+            slotColour[i] = colour;
+            slotS[i] = vx.u;
+            slotT[i] = vx.v;
+            slotPos[i] = m.q(vx.pos);
+            __m128 raw24 = m.q(slot + 0x210u); // (its lanes 2 / 3 as the slot has them; 0 / 1 the ST when texturing)
+            if (texturing)
+            {
+                float st4[4];
+                std::memcpy(st4, &raw24, 16);
+                st4[0] = vx.u;
+                st4[1] = vx.v;
+                std::memcpy(&raw24, st4, 16);
+            }
+            // The kick.
+            vf23 = slotPos[i];
+            vf24 = raw24;
+            vf25 = colour;
+            int hit = -1;
+            if (sameMats)
+                for (int j = 0; j < r12.n; ++j)
+                    if (A9_MEMEQ(&r12.pos[j], &vf23, 16))
+                    {
+                        hit = j;
+                        break;
+                    }
+            if (hit >= 0)
+            {
+                vf10 = r12.v10[hit];
+                vf27 = r12.v27[hit];
+                vf26 = r12.v26[hit];
+                acc = r12.acc[hit];
+                ++s12draw::g_reused;
+            }
+            else
+            {
+                vf10 = applyN(viewN, vf23, acc);
+                vf27 = applyN(screenN, vf10, acc);
+                vf26 = applyN(clipN, vf10, acc);
+            }
+            ++s12draw::g_vertices;
+            newPos[i] = vf23;
+            newV10[i] = vf10;
+            newV27[i] = vf27;
+            newV26[i] = vf26;
+            newAcc[i] = acc;
+            ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
+            vf25 = ftoi(vf25, 1.0f, A9);
+            const uint32_t judgement = ps2VuClipFlags(vf26, vf26);
+            const uint32_t flags = ((ctx->vu0_clip_flags << 6) | judgement) & 0xFFFFFFu;
+            ctx->vu0_clip_flags = flags;
+            if (lazy134)
+                sotc_decomp::clipShift(ctx, judgement & 0x3Fu);
+            const __m128 q = _mm_set1_ps(ctx->vu0_q);
+            vf27 = sel(vf27, PS2_VMUL(vf27, q), kXyz);
+            vf27 = sel(vf27, PS2_VMUL(vf0, q), kW);
+            if (perspective)
+                vf24 = sel(vf24, PS2_VMUL(vf24, q), kXyz);
+            const uint32_t s0 = flags;
+            vf27 = sel(vf27, ftoi(vf27, 16.0f, A9), kXyz);
+            slotClip[i] = vf26;
+            uint32_t w24[4], w25[4], w27[4];
+            std::memcpy(w24, &vf24, 16);
+            std::memcpy(w25, &vf25, 16);
+            std::memcpy(w27, &vf27, 16);
+            out.stReg[i] = 0u;
+            if (texturing && uvMode == 0u)
+            {
+                out.st[i] = static_cast<uint64_t>(w24[0]) | (static_cast<uint64_t>(w24[1]) << 32);
+                out.stReg[i] = 2u;
+            }
+            else if (texturing)
+            {
+                vf5 = raw24;
+                vf6 = ftoi(vf5, 16.0f, A9);
+                uint32_t uv[4];
+                std::memcpy(uv, &vf6, 16);
+                out.st[i] = static_cast<uint64_t>(uv[0]) | (static_cast<uint64_t>(uv[1]) << 16);
+                out.stReg[i] = 3u;
+            }
+            {
+                const uint64_t q32 = perspective ? (sx(w27[3]) << 32) : 0x3F80000000000000ull;
+                out.rgbaq[i] = (sx(w25[0]) | q32) | ((sx(w25[2]) << 16) | (sx(w25[1]) << 8)) | (sx(w25[3]) << 24);
+            }
+            uint32_t s2 = 0u, s5 = 0u;
+            const int32_t count = static_cast<int32_t>(index);
+            auto pairs = [&](const uint32_t *masks, int k) -> bool
+            {
+                for (int j = 0; j < k; ++j)
+                    if ((s0 & masks[j]) == masks[j])
+                        return true;
+                return false;
+            };
+            switch (target)
+            {
+            case 0x0108DAE0u:
+                if (s0 & 0x3Fu)
+                    s2 = 1u;
+                break;
+            case 0x0108DAF8u:
+            {
+                static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
+                if (count > 0 && (s0 & 0xFFFu) != 0u)
+                {
+                    if (!pairs(two, 5))
+                        s5 = ((s0 & 0x820u) ^ 0x820u) != 0u ? 1u : 0u;
+                    s2 = 1u;
+                }
+                break;
+            }
+            case 0x0108DB58u:
+                if (count > 0 && (s0 & 0xFFFu) != 0u)
+                    s2 = 1u;
+                break;
+            case 0x0108DB78u:
+            {
+                static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
+                if (count == 0 && (s0 & 0x3Fu) != 0u)
+                {
+                    state |= 0x10u;
+                    s2 = 1u;
+                }
+                const bool run = ((state >> 4) & 1u) != 0u;
+                if (count < 2)
+                {
+                    if (run)
+                    {
+                        s5 = 1u;
+                        s2 = 1u;
+                    }
+                }
+                else if ((s0 & 0xFFFu) == 0u)
+                {
+                    if (run)
+                    {
+                        s5 = 1u;
+                        s2 = 1u;
+                    }
+                }
+                else
+                {
+                    if (pairs(two, 5) || (s0 & 0x820u) == 0x820u)
+                        s5 = run ? 0u : 1u;
+                    else
+                        s5 = 1u;
+                    s2 = 1u;
+                }
+                break;
+            }
+            default: // 0x0108DC48: triangles / fans
+            {
+                static const uint32_t three[] = {0x1041u, 0x2082u, 0x4104u, 0x8208u, 0x10410u};
+                if (!(count < 2) && (s0 & 0x3FFFFu) != 0u)
+                {
+                    if (!pairs(three, 5))
+                        s5 = ((s0 & 0x20820u) ^ 0x20820u) != 0u ? 1u : 0u;
+                    s2 = 1u;
+                }
+                break;
+            }
+            }
+            s2 |= (0 < pending) ? 1u : 0u;
+            uint8_t reg = 4u;
+            if (s2 != 0u)
+            {
+                if (pending > 0)
+                    --pending;
+                reg = 0xCu;
+            }
+            f1 = zScale;
+            f2 = 2147483648.0f;
+            f0 = FPU_MUL_S(FPU_CVT_S_W(static_cast<int32_t>(w27[2]) >> 4), f1);
+            uint64_t z;
+            if (FPU_C_OLE_S(f2, f0))
+            {
+                f0 = FPU_SUB_S(f0, f2);
+                z = static_cast<uint64_t>(static_cast<int64_t>(FPU_CVT_W_S(f0))) | 0xFFFFFFFF80000000ull;
+            }
+            else
+                z = static_cast<uint64_t>(static_cast<int64_t>(FPU_CVT_W_S(f0)));
+            {
+                const int32_t zi = static_cast<int32_t>(z);
+                std::memcpy(&f1, &zi, 4);
+            }
+            out.xyz[i] = (sx(w27[0]) | fog) | ((z << 32) | (sx(w27[1]) << 16));
+            out.xyzReg[i] = reg;
+            adc[i] = static_cast<uint8_t>(s5);
+        }
+        out.n = n;
+        if (reuse)
+        {
+            for (int k = 0; k < 4; ++k)
+            {
+                r12.mats[k] = viewM[k];
+                r12.mats[4 + k] = clipM[k];
+                r12.mats[8 + k] = screenM[k];
+            }
+            for (int i = 0; i < n; ++i)
+            {
+                r12.pos[i] = newPos[i];
+                r12.v10[i] = newV10[i];
+                r12.v27[i] = newV27[i];
+                r12.v26[i] = newV26[i];
+                r12.acc[i] = newAcc[i];
+            }
+            r12.n = n;
+            r12.valid = true;
+        }
+        // The gl block as quad117 leaves it.
+        for (int i = 0; i < n; ++i)
+        {
+            const uint32_t index = index0 + static_cast<uint32_t>(i);
+            const uint32_t slot = kGl + (index << 6);
+            m.putq(slot + 0x220u, slotColour[i]);
+            if (texturing)
+            {
+                m.putf(slot + 0x210u, slotS[i]);
+                m.putf(slot + 0x214u, slotT[i]);
+            }
+            m.putq(slot + 0x200u, slotPos[i]);
+            m.putq(slot + 0x1F0u, slotClip[i]);
+            m.put8(kGl + 0x41F8u + index, adc[i]);
+        }
+        if (colourSet)
+            m.putq(kGl + 0x90u, colour);
+        m.putf(kGl + 0xA0u, vs[n - 1].u); // glTexCoord2f's (s, t, 1, 0)
+        m.putf(kGl + 0xA4u, vs[n - 1].v);
+        m.putf(kGl + 0xA8u, 1.0f);
+        m.put32(kGl + 0xACu, 0u);
+        m.put64(kGl + 0x1B0u, state);
+        m.put32(kGl + 0x1B4u, static_cast<uint32_t>(pending));
+        m.put32(kGl + 0x41F0u, index0 + static_cast<uint32_t>(n));
+        // What the last kick leaves.
+        vf[5] = vf5;
+        vf[6] = vf6;
+        vf[10] = vf10;
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[11 + i] = viewM[i];
+            vf[15 + i] = clipM[i];
+            vf[19 + i] = screenM[i];
+        }
+        vf[23] = vf23;
+        vf[24] = vf24;
+        vf[25] = vf25;
+        vf[26] = vf26;
+        vf[27] = vf27;
+        ctx->vu0_acc = acc;
+        ctx->f[0] = f0;
+        ctx->f[1] = f1;
+        ctx->f[2] = f2;
+        const uint32_t last = index0 + static_cast<uint32_t>(n);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(last));
+        SET_GPR_U32(ctx, 4, last - 1u);
+        SET_GPR_U32(ctx, 31, vs[n - 1].site + 8u);
+        SET_GPR_U32(ctx, 29, sp);
+        return true;
+    }
+
+    // imm128 the S12 way: glBegin's words (begin128), the quad in one pass (quad12Body), its record to the 2D
+    // assembler (s12draw::feed), glEnd's software clip as imm128 calls it. rec (the check): the record only, dry.
+    bool imm12(const G g, uint32_t sp, const Vert117 *vs, int n, uint32_t prim, bool haze, std::vector<uint64_t> *rec, bool *clippedOut = nullptr)
+    {
+        const Ram m = g.m;
+        uint64_t pairs[4];
+        uint32_t layer = 0;
+        if (n > 4 || !begin128(m, prim, pairs, &layer))
+            return false;
+        s12draw::Quad12 q;
+        q.test = pairs[0];
+        q.testReg = pairs[1];
+        q.prim = pairs[2];
+        q.layer = layer;
+        q.haze = haze;
+        if (!(a9cmp::on() ? quad12Body<true>(g, sp, vs, n, q) : quad12Body<false>(g, sp, vs, n, q)))
+            return false; // (begin128's words are glBegin's own: the calls write them again)
+        bool clipped = false;
+        for (int i = 0; i < n; ++i)
+            clipped |= m.u8(kGl + 0x41F8u + static_cast<uint32_t>(i)) != 0u;
+        if (clippedOut)
+            *clippedOut = clipped;
+        if (rec)
+        {
+            s12draw::record(*rec, q);
+            return true;
+        }
+        s12draw::feed(g.rdram, q);
+        if (clipped)
+        {
+            ++g_imm128.clipped;
+            sotc_decomp::clipNeeded(g.ctx);
+            g.call(0x0108CD80u, 0x0108D128u, sp);
+        }
+        SET_GPR_U32(g.ctx, 2, 0u);
+        return true;
+    }
+
     // glBegin(prim) at beginSite, body() (the vertices), glEnd at endSite: as
     // imm128 when it takes them, else as the calls.
     template <class Body>
@@ -3293,6 +3707,79 @@ namespace decomp_walk
             body();
             g.call(kGlEnd, endSite, sp);
         };
+        // Round S12 (part `strips`): the quad as one host pass, its record straight to the 2D assembler.
+        if (s12draw::stripsOn() && sotc_native::nativeDraws())
+        {
+            if (__builtin_expect(s12draw::checkOn(), 0))
+            {
+                // Both ways from the same state: the new dry (the record, the gl block, VU0 / f0 - f2 / the
+                // registers it leaves), then the old (imm128, else the calls: the picture's), the old feed's
+                // record taken at immFeed128. With a clip flag 0108CD80 ran in the old way only: the record alone.
+                const Ram m = g.m;
+                R5900Context *ctx = g.ctx;
+                static std::vector<uint8_t> blk0(0x5300u), blkN(0x5300u), ctx0(sizeof(R5900Context)), ctxN(sizeof(R5900Context));
+                static std::vector<uint64_t> recN, recO;
+                recN.clear();
+                recO.clear();
+                std::memcpy(blk0.data(), m.p(kGl), 0x5300u);
+                std::memcpy(ctx0.data(), ctx, sizeof(R5900Context));
+                const sotc_decomp::LazyClip lazy0 = sotc_decomp::g_lazyClip;
+                bool clipped = false;
+                const bool took = imm12(g, sp, vs, n, prim, haze, &recN, &clipped);
+                std::memcpy(blkN.data(), m.p(kGl), 0x5300u);
+                std::memcpy(ctxN.data(), ctx, sizeof(R5900Context));
+                std::memcpy(m.p(kGl), blk0.data(), 0x5300u);
+                std::memcpy(ctx, ctx0.data(), sizeof(R5900Context));
+                sotc_decomp::g_lazyClip = lazy0;
+                s12draw::armOld(&recO);
+                const bool oldFast = sotc_decomp::imm128On() && sotc_decomp::glv117On() && imm128(g, sp, vs, n, prim, haze, nullptr);
+                if (!oldFast)
+                {
+                    sotc_native::immArm128(&recO); // (glEndHook records the packet's pairs the same way)
+                    calls();
+                    sotc_native::immArm128(nullptr);
+                }
+                s12draw::armOld(nullptr);
+                if (!took)
+                {
+                    s12draw::noteQuad(false, false, false, false);
+                    return;
+                }
+                const bool recSame = recN == recO;
+                const bool blkSame = clipped || (A9_MEMEQ(blkN.data() + 0xCu, m.p(kGl) + 0xCu, 0x5300u - 0xCu) &&
+                                                 A9_MEMEQ(blkN.data(), m.p(kGl), 4u)); // (+4 / +8: the old way's packet words)
+                const R5900Context *N = reinterpret_cast<const R5900Context *>(ctxN.data());
+                const bool vuSame = clipped || (A9_MEMEQ(N->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) && A9_MEMEQ(&N->vu0_acc, &ctx->vu0_acc, 16) &&
+                                                A9_MEMEQ(&N->vu0_q, &ctx->vu0_q, 4) && N->vu0_clip_flags == ctx->vu0_clip_flags &&
+                                                std::memcmp(N->f, ctx->f, 3 * sizeof(float)) == 0);
+                const bool same = recSame && blkSame && vuSame;
+                static uint64_t said = 0;
+                if (!same && said++ < 20u)
+                {
+                    uint32_t first = 0x5300u;
+                    for (uint32_t i = 0; i < 0x5300u; ++i)
+                        if (blkN[i] != m.p(kGl)[i])
+                        {
+                            first = i;
+                            break;
+                        }
+                    size_t at = 0;
+                    while (at < recN.size() && at < recO.size() && recN[at] == recO[at])
+                        ++at;
+                    std::fprintf(stderr, "[s12draw] check DIFFERS (site %08x, old %s): record %d (sizes %u / %u, first word %u: %016llx / %016llx) gl block %d (first +%x) vu0/f %d clipped %d\n",
+                                 beginSite, oldFast ? "imm128" : "calls", recSame ? 0 : 1, (unsigned)recN.size(), (unsigned)recO.size(), (unsigned)at,
+                                 (unsigned long long)(at < recN.size() ? recN[at] : 0), (unsigned long long)(at < recO.size() ? recO[at] : 0), blkSame ? 0 : 1, first,
+                                 vuSame ? 0 : 1, clipped ? 1 : 0);
+                }
+                s12draw::noteQuad(false, clipped, true, !same);
+                return;
+            }
+            if (imm12(g, sp, vs, n, prim, haze, nullptr))
+            {
+                s12draw::noteQuad(true, false, false, false);
+                return;
+            }
+        }
         if (on && st.every > 0 && st.quads % static_cast<uint64_t>(st.every) == 0u)
         {
             const Ram m = g.m;
