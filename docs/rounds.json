@@ -979,7 +979,7 @@
   {
    "round": "D15",
    "date": "2026-11-18",
-   "commit": "0f26be5",
+   "commit": "aa41248",
    "focus": "Decomp",
    "summary": "Decomp D15: more of the game converted, from climbing other colossi. The test aid now finds the active colossus through the game's own boss handle, so the drop-until-he-grabs trick works on any colossus that is already in its arena: Wander climbs Quadratus' back by the horns, stands on Gaius' belt and hangs off his armour, rides Basaran's shell, and switching in the (already beaten) Phaedra plays its death with the black tentacles. Ten colossi only appear when the player walks into their arena, which the scripted runs could not do yet. 120 functions converted, 80 checked exact with not a single difference, none of them slower: 80 ship behind SOTC_LIFTD15 (on), among them the death sequence, the Knight's (Gaius') script and the edge / hang climbing code.",
    "result": "Whole game (honest count): 5 707 of 9 024 functions (63.2%, 62.4% after D14), 67.4% of the code, 97.6% of calls. Script 294 of 633 (284), collision 219 of 317 (213), characters 760 of 1 206 (749). Exact: 80 functions, 5 981 checks, 0 differences. Speed (Vita3K 222 MHz, interleaved A/B): neutral (the converted code is never hot). Boots and runs with the console's free memory (Vita3K, 89 MB taken)."
