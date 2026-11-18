@@ -3284,6 +3284,27 @@ namespace decomp_walk
     // lanes) and written once at the end with what quad117 leaves there (the ring slots, the ADC bytes, the colour,
     // the ST words, the state words, the ring index). The output is the 2D assembler's record (Quad12), not pairs.
     // False (nothing written): another path for any vertex, as quad117.
+    // ps2VuClipFlags(v, v) on NEON (round S12): x, y, z against |w| as the same integer compares (bits > limit for +,
+    // sign-flipped bits > limit for -), the limit |w|'s bits or 0x7fffff when w's exponent is 0, i.e. max(|w| bits,
+    // 0x7fffff); the six bits put together without the scalar version's store and lane loads.
+    inline uint32_t clipFlags12(__m128 v)
+    {
+#if defined(__ARM_NEON)
+        const int32x4_t b = vreinterpretq_s32_f32(vreinterpretq_f32_m128(v));
+        const int32x2_t w = vdup_lane_s32(vget_high_s32(b), 1);
+        const int32x2_t lim2 = vmax_s32(vreinterpret_s32_u32(vand_u32(vreinterpret_u32_s32(w), vdup_n_u32(0x7FFFFFFFu))), vdup_n_s32(0x007FFFFF));
+        const int32x4_t lim = vcombine_s32(lim2, lim2);
+        const uint32x4_t gt = vcgtq_s32(b, lim);
+        const uint32x4_t lt = vcgtq_s32(veorq_s32(b, vdupq_n_s32(static_cast<int32_t>(0x80000000u))), lim);
+        static const uint32_t kGt[4] = {1u, 4u, 16u, 0u}, kLt[4] = {2u, 8u, 32u, 0u};
+        const uint32x4_t bits = vorrq_u32(vandq_u32(gt, vld1q_u32(kGt)), vandq_u32(lt, vld1q_u32(kLt)));
+        const uint32x2_t two = vorr_u32(vget_low_u32(bits), vget_high_u32(bits));
+        return vget_lane_u32(vorr_u32(two, vrev64_u32(two)), 0);
+#else
+        return ps2VuClipFlags(v, v);
+#endif
+    }
+
     // Part `reuse`'s memory (game thread only): the last quad's vertices, double-buffered (the quad reads the one
     // before while it fills the other). Plain storage: no guard, no constructor.
     struct Reuse12
@@ -3450,7 +3471,7 @@ namespace decomp_walk
             }
             ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
             vf25 = ftoi(vf25, 1.0f, A9);
-            const uint32_t judgement = ps2VuClipFlags(vf26, vf26);
+            const uint32_t judgement = clipFlags12(vf26);
             const uint32_t flags = ((ctx->vu0_clip_flags << 6) | judgement) & 0xFFFFFFu;
             ctx->vu0_clip_flags = flags;
             if (lazy134)
