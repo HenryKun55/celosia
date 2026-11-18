@@ -3284,8 +3284,18 @@ namespace decomp_walk
     // lanes) and written once at the end with what quad117 leaves there (the ring slots, the ADC bytes, the colour,
     // the ST words, the state words, the ring index). The output is the 2D assembler's record (Quad12), not pairs.
     // False (nothing written): another path for any vertex, as quad117.
+    // Part `reuse`'s memory (game thread only): the last quad's vertices, double-buffered (the quad reads the one
+    // before while it fills the other). Plain storage: no guard, no constructor.
+    struct Reuse12
+    {
+        uint32_t n;
+        __m128 mats[12];
+        __m128 pos[4], v10[4], v27[4], v26[4], acc[4];
+    };
+    Reuse12 g_reuse12[2];
+    uint32_t g_reuse12Cur = 0; // the buffer the last quad filled; g_reuse12[cur].n 0: none
     template <bool A9>
-    __attribute__((noinline, flatten)) bool quad12Body(const G g, uint32_t sp, const Vert117 *vs, int n, s12draw::Quad12 &out)
+    __attribute__((noinline)) bool quad12Body(const G g, uint32_t sp, const Vert117 *vs, int n, s12draw::Quad12 &out)
     {
         const Ram m = g.m;
         R5900Context *ctx = g.ctx;
@@ -3335,23 +3345,23 @@ namespace decomp_walk
         // The three products of a vertex depend on its position and the three matrices only (pure VU0 arithmetic):
         // when the matrices are the same bits as the quad before's and the position too, its results are taken.
         // (Game thread only: the strips and 01142350's quads.)
-        struct Reuse12
-        {
-            bool valid = false;
-            int n = 0;
-            __m128 mats[12];
-            __m128 pos[4], v10[4], v27[4], v26[4], acc[4];
-        };
-        static Reuse12 r12;
         const bool reuse = s12draw::reuseOn();
+        const Reuse12 &r12 = g_reuse12[g_reuse12Cur];
+        Reuse12 &next = g_reuse12[g_reuse12Cur ^ 1u];
         bool sameMats = false;
-        if (reuse && r12.valid)
+        if (reuse)
         {
-            sameMats = true;
-            for (int k = 0; k < 4 && sameMats; ++k)
-                sameMats = A9_MEMEQ(&r12.mats[k], &viewM[k], 16) && A9_MEMEQ(&r12.mats[4 + k], &clipM[k], 16) && A9_MEMEQ(&r12.mats[8 + k], &screenM[k], 16);
+            // (the rows compared as integers: the same bits)
+            uint32x4_t diff = vdupq_n_u32(0u);
+            for (int k = 0; k < 4; ++k)
+            {
+                diff = vorrq_u32(diff, veorq_u32(vreinterpretq_u32_f32(r12.mats[k]), vreinterpretq_u32_f32(viewM[k])));
+                diff = vorrq_u32(diff, veorq_u32(vreinterpretq_u32_f32(r12.mats[4 + k]), vreinterpretq_u32_f32(clipM[k])));
+                diff = vorrq_u32(diff, veorq_u32(vreinterpretq_u32_f32(r12.mats[8 + k]), vreinterpretq_u32_f32(screenM[k])));
+            }
+            const uint32x2_t d2 = vorr_u32(vget_low_u32(diff), vget_high_u32(diff));
+            sameMats = r12.n != 0u && (vget_lane_u32(d2, 0) | vget_lane_u32(d2, 1)) == 0u;
         }
-        __m128 newPos[4], newV10[4], newV27[4], newV26[4], newAcc[4];
         // The gl block's words, once.
         uint64_t state = m.u64(kGl + 0x1B0u);
         int32_t pending = m.s32(kGl + 0x1B4u);
@@ -3363,9 +3373,6 @@ namespace decomp_walk
         __m128 vf10 = vf[10], vf23 = vf[23], vf24 = vf[24], vf25 = vf[25], vf26 = vf[26], vf27 = vf[27], acc = ctx->vu0_acc;
         float f0 = 0.0f, f1 = 0.0f, f2 = 0.0f;
         // What the ring slots get (written at the end).
-        __m128 slotClip[4], slotPos[4], slotColour[4];
-        float slotS[4], slotT[4];
-        uint8_t adc[4];
         auto sx = [](uint32_t v) -> uint64_t { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); };
         for (int i = 0; i < n; ++i)
         {
@@ -3394,31 +3401,30 @@ namespace decomp_walk
             const uint32_t slot = kGl + (index << 6);
             // glVertex3fv's own part: the state's bits 0 / 3, the slot's colour, ST and position.
             state = (state & ~9ull) | 8u;
-            slotColour[i] = colour;
-            slotS[i] = vx.u;
-            slotT[i] = vx.v;
-            slotPos[i] = m.q(vx.pos);
-            __m128 raw24 = m.q(slot + 0x210u); // (its lanes 2 / 3 as the slot has them; 0 / 1 the ST when texturing)
+            m.putq(slot + 0x220u, colour);
             if (texturing)
             {
-                float st4[4];
-                std::memcpy(st4, &raw24, 16);
-                st4[0] = vx.u;
-                st4[1] = vx.v;
-                std::memcpy(&raw24, st4, 16);
+                m.putf(slot + 0x210u, vx.u);
+                m.putf(slot + 0x214u, vx.v);
             }
+            vf23 = m.q(vx.pos);
+            m.putq(slot + 0x200u, vf23);
+            const __m128 raw24 = m.q(slot + 0x210u);
             // The kick.
-            vf23 = slotPos[i];
             vf24 = raw24;
             vf25 = colour;
             int hit = -1;
             if (sameMats)
-                for (int j = 0; j < r12.n; ++j)
-                    if (A9_MEMEQ(&r12.pos[j], &vf23, 16))
+                for (uint32_t j = 0; j < r12.n; ++j)
+                {
+                    const uint32x4_t d = veorq_u32(vreinterpretq_u32_f32(r12.pos[j]), vreinterpretq_u32_f32(vf23));
+                    const uint32x2_t d2 = vorr_u32(vget_low_u32(d), vget_high_u32(d));
+                    if ((vget_lane_u32(d2, 0) | vget_lane_u32(d2, 1)) == 0u)
                     {
-                        hit = j;
+                        hit = static_cast<int>(j);
                         break;
                     }
+                }
             if (hit >= 0)
             {
                 vf10 = r12.v10[hit];
@@ -3434,11 +3440,14 @@ namespace decomp_walk
                 vf26 = applyN(clipN, vf10, acc);
             }
             ++s12draw::g_vertices;
-            newPos[i] = vf23;
-            newV10[i] = vf10;
-            newV27[i] = vf27;
-            newV26[i] = vf26;
-            newAcc[i] = acc;
+            if (reuse)
+            {
+                next.pos[i] = vf23;
+                next.v10[i] = vf10;
+                next.v27[i] = vf27;
+                next.v26[i] = vf26;
+                next.acc[i] = acc;
+            }
             ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
             vf25 = ftoi(vf25, 1.0f, A9);
             const uint32_t judgement = ps2VuClipFlags(vf26, vf26);
@@ -3453,7 +3462,7 @@ namespace decomp_walk
                 vf24 = sel(vf24, PS2_VMUL(vf24, q), kXyz);
             const uint32_t s0 = flags;
             vf27 = sel(vf27, ftoi(vf27, 16.0f, A9), kXyz);
-            slotClip[i] = vf26;
+            m.putq(slot + 0x1F0u, vf26);
             uint32_t w24[4], w25[4], w27[4];
             std::memcpy(w24, &vf24, 16);
             std::memcpy(w25, &vf25, 16);
@@ -3579,43 +3588,21 @@ namespace decomp_walk
             }
             out.xyz[i] = (sx(w27[0]) | fog) | ((z << 32) | (sx(w27[1]) << 16));
             out.xyzReg[i] = reg;
-            adc[i] = static_cast<uint8_t>(s5);
+            m.put8(kGl + 0x41F8u + index, static_cast<uint8_t>(s5));
         }
         out.n = n;
         if (reuse)
         {
-            for (int k = 0; k < 4; ++k)
+            for (int k = 0; k < 4; ++k) // (read again: nothing here writes them; fewer registers held over the loop)
             {
-                r12.mats[k] = viewM[k];
-                r12.mats[4 + k] = clipM[k];
-                r12.mats[8 + k] = screenM[k];
+                next.mats[k] = m.q(view + 16u * k);
+                next.mats[4 + k] = m.q(camera + 0x5E0u + 16u * k);
+                next.mats[8 + k] = m.q(camera + 0x660u + 16u * k);
             }
-            for (int i = 0; i < n; ++i)
-            {
-                r12.pos[i] = newPos[i];
-                r12.v10[i] = newV10[i];
-                r12.v27[i] = newV27[i];
-                r12.v26[i] = newV26[i];
-                r12.acc[i] = newAcc[i];
-            }
-            r12.n = n;
-            r12.valid = true;
+            next.n = static_cast<uint32_t>(n);
+            g_reuse12Cur ^= 1u;
         }
-        // The gl block as quad117 leaves it.
-        for (int i = 0; i < n; ++i)
-        {
-            const uint32_t index = index0 + static_cast<uint32_t>(i);
-            const uint32_t slot = kGl + (index << 6);
-            m.putq(slot + 0x220u, slotColour[i]);
-            if (texturing)
-            {
-                m.putf(slot + 0x210u, slotS[i]);
-                m.putf(slot + 0x214u, slotT[i]);
-            }
-            m.putq(slot + 0x200u, slotPos[i]);
-            m.putq(slot + 0x1F0u, slotClip[i]);
-            m.put8(kGl + 0x41F8u + index, adc[i]);
-        }
+        // The gl block's words as quad117 leaves them (the ring slots are written as they are made).
         if (colourSet)
             m.putq(kGl + 0x90u, colour);
         m.putf(kGl + 0xA0u, vs[n - 1].u); // glTexCoord2f's (s, t, 1, 0)
@@ -3629,11 +3616,11 @@ namespace decomp_walk
         vf[5] = vf5;
         vf[6] = vf6;
         vf[10] = vf10;
-        for (int i = 0; i < 4; ++i)
+        for (uint32_t i = 0; i < 4u; ++i)
         {
-            vf[11 + i] = viewM[i];
-            vf[15 + i] = clipM[i];
-            vf[19 + i] = screenM[i];
+            vf[11 + i] = m.q(view + 16u * i);
+            vf[15 + i] = m.q(camera + 0x5E0u + 16u * i);
+            vf[19 + i] = m.q(camera + 0x660u + 16u * i);
         }
         vf[23] = vf23;
         vf[24] = vf24;
