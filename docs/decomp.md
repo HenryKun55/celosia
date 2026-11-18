@@ -22353,3 +22353,53 @@ of 115 (98), sound 72 of 102 (71); camera 208, system 155, boot ELF 1 313, math 
   ptrack, or a recorded session per colossus. Their script is most of the 339 script functions left.
 - Valus does not die from blind stabs: drop Wander at his weak points (head, back) instead of the root plus dy.
 - The 40 unchecked of D15's 120 and D14's 29 hot motion / camera cuts stay recompiled.
+## Redesign S10: the model draw path without the GS's state on the game thread: the layer cache and the texture requests left out (SOTC_S10DRAW, on) (2026-11-18)
+
+The tenth subsystem round, Display and models riding. The full write-up is docs/display_s10.md; this is the summary.
+Scripts, runs and logs: `build/agent-scratch/s10/` (STATE.md; abs10.sh the interleaved A/B, chk10.sh the in-run check,
+chain_ab.sh / queue1-3.sh the queues, waitslot.sh the cap of two heavy processes). Own Vita3K tree
+../vita3k-celosia-s10 (222 MHz, 3 cores, muted); builds `-j4`, nice'd.
+
+### The map (ride7, Vita3K 222 MHz, base celosia-s8, game thread 32.2 ms)
+
+Display and models 24.7% (7.9 ms), by step: walk / clip / LOD / sort 2.69 ms, the model hook and the modelDispState lane
+1.06, lights 0.88, immediate quads / 2D 0.74 (+ the strips' ~0.8 under "Other"), the console's prefetch notes 0.64,
+GS texture requests 0.45, particles' draw side 0.38, layer / gsReg hooks 0.28. Real work (culling, LOD, sort, lights,
+particles) ~3.95 ms; work that exists because the draw is shaped for the GS / VIF / DMA ~2.5 ms. Its largest single
+item: the GS layer cache *0x118bfc8 made every modelSetSurface / modelResetSurface (the cloth grid, the particle
+geodisps; ~10 + ~47 a frame riding) join the lane, and the game thread then ran the lane's pending jobs (0.52 ms a
+frame riding; ~1 ms on the console, round 105).
+
+### What changed (`SOTC_S10DRAW`, A/B `s10draw`, `SOTC_S10DRAW_PARTS`, default 7)
+
+- `surface`: modelSetSurface reduced to its host effect (the cloth's texture note, as texTransRequest's hook makes it),
+  modelResetSurface without the join, the lane's jobs no longer write the cache; both through round 61's existing
+  wrapper (no new table entry).
+- `texture`: texTransRequest keeps its hook's note and the lock, without the GS upload request (packets, owner count,
+  the layer's request list: texTransResolve / VRAM only).
+- `lockonce`: that lock once per texture per display-list buffer build (dlReset's epoch; game thread only): 93% skipped.
+
+### Equivalence
+
+`SOTC_S10DRAW_CHECK=1`: every modelSetSurface the old way, the new way's texture compared at the cloth's draw record
+(meshDispHook): chkRp2 245 399, chkLp2 117 404, chkAp2 153 908 records, **0 differ** (the old way's cache never hit).
+spalign 952 NEON, 0 sp-based.
+
+### Speed (Vita3K 222 MHz, interleaved A/B, off - on, ms a frame)
+
+| route | p1 seed 7 | p1 seed 11 | p3 seed 7 | p3 seed 11 |
+|---|---|---|---|---|
+| ride7 (mount + 600) | +0.741 +- 0.173 | +0.908 +- 0.224 | +0.414 +- 0.354 | +0.577 +- 0.238 |
+| ride7 (from frame 3 000) | +0.819 +- 0.174 | +1.219 +- 0.230 | +0.961 +- 0.346 | +0.983 +- 0.237 |
+| lake6 | +1.514 +- 0.153 | +1.555 +- 0.201 | +1.368 +- 0.147 | +1.682 +- 0.176 |
+| attract | +0.247 +- 0.129 | +0.437 +- 0.205 | +0.486 +- 0.162 | +0.370 +- 0.150 |
+
+(p1: parts surface + texture; p3: + lockonce, shipped.) z > 2 everywhere: **on by default**. Pictures (bootRp3 with
+89 MB taken, the A/Bs' and checks' shots): normal. Console: celosia-s10.vpk with s10/env-console.txt (`s10draw` in the
+rotation).
+
+### Next (what still ties the draw to the PS2)
+
+The lane's mirror of modelDisp (+0x2c part results, the CLIP chain), the palette and lights read out of the instance
+chain's VIF / VU1 records, the plans validated against guest packet lists, the immediate quads' GS pairs, the layer
+stack: docs/display_s10.md section 6.
