@@ -106,6 +106,11 @@
 
 #include <cstring>
 
+namespace sotc_native
+{
+    bool s10TexRequestLean(); // round S10 part `texture` (sotc_native.cpp s10draw)
+}
+
 namespace decomp_isys48
 {
     using sotc_decomp::callGuest;
@@ -743,6 +748,20 @@ namespace decomp_isys48
 
         // iosDlLockObj(texture).
         callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x010AAD68u), 0x010AAD70u, sp);
+        if (sotc_native::s10TexRequestLean())
+        {
+            // Round S10 part `texture` (sotc_native.cpp s10draw): with the native renderer drawing, the request's
+            // packets, the owner count and the layer's request list feed only the GS VRAM upload (texTransResolve);
+            // the renderer takes the texture from its hook's note (texTransRequestHook, before this). The lock stays
+            // (the texture's delete held past the frame, as the renderer may read it later). v0: the layer's tail slot.
+            const uint32_t tail = (READ32(0x002132D8u + 0x1Cu) << 2) + READ32(0x01215E48u);
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(tail));
+            f.restore();
+            SET_GPR_U64(ctx, 31, READ64(sp + 0x20u));
+            SET_GPR_U32(ctx, 29, entrySp);
+            returnTo(ctx);
+            return;
+        }
         // The request packet: iosAllocPacketPtrPath1(0x20).
         SET_GPR_S32(ctx, 4, 0x20);
         callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x010AAD70u), 0x010AAD78u, sp);

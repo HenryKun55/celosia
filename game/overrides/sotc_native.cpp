@@ -128,6 +128,8 @@ namespace s4disp
 namespace sotc_native
 {
     bool mdsTraceOn(); // round 61's SOTC_MDS_TRACE (mdstrace, below)
+    bool s10LaneSkipsCache(); // round S10 (s10draw, below): the lane's jobs leave the layer cache alone
+    void s10CheckMesh(uint32_t header); // round S10's check at the cloth's draw record (meshDispHook)
     void mdsTraceModel();
     void mdsTraceFrame();
     constexpr uint32_t kModelDisp = 0x01097118u, kGetCameraContext = 0x0108F518u;
@@ -3331,7 +3333,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -7119,6 +7121,7 @@ namespace sotc_native
         const lines67::Scope l67(lines67::kHook, true);
         const uint32_t object = GPR_U32(ctx, 4);
         const uint32_t header = g_requested;
+        s10CheckMesh(header); // round S10's check: the cloth's record against the note the new way made
         const uint32_t layer = g_layers.empty() ? 2u : g_layers.back();
         g_meshDisp(rdram, ctx, runtime);
         if (runtime->transferPending())
@@ -9336,8 +9339,11 @@ namespace sotc_native
                 if (fog != 0u)
                     continue;
             }
-            const uint32_t to = cache + info.layer[layerAt] * 4u;
-            std::memcpy(ram + (to & 0x1FFFFFCu), &s, 4);
+            if (cache) // (round S10: 0 on the lane when the layer cache is left out)
+            {
+                const uint32_t to = cache + info.layer[layerAt] * 4u;
+                std::memcpy(ram + (to & 0x1FFFFFCu), &s, 4);
+            }
         }
         if (pumpQueue)
         {
@@ -11140,6 +11146,8 @@ namespace sotc_native
                 in.boss = word(0x1186290u);
                 in.cache = word(0x118BFC8u);
                 in.fog = word(0x1186328u);
+                if (s10LaneSkipsCache() && !mdslane::g_verify)
+                    in.cache = 0u; // round S10: the layer cache left out (s10draw)
                 if (!mdslane::g_verify)
                 {
                     mdsOpacity(instance, h);
@@ -12480,6 +12488,181 @@ namespace sotc_native
     }
 }
 
+// ---- Round S10 (SOTC_S10DRAW, A/B `s10draw`): the model draw path without the PS2's GS state ----------
+//
+// The end state this round lays out (docs/display_s10.md): the game's objects drawn from host data (model, matrix,
+// material) into vitaGL, with nothing shaped for the GS / VIF / DMA built or read on the game thread. What modelDisp
+// did for the PS2 and the native path still mirrors, piece by piece:
+//   - the layer cache *0x118bfc8 ("the last surface each layer's GS registers were set to", modelDisp's packet loop
+//     and modelSetSurface): GS packet state. Its only readers that run under SOTC_NATIVE are modelSetSurface (the
+//     cloth grid's surface, manager_sub_01137F78) and modelResetSurface; modelDisp's own internals do not run.
+//     modelSetEnviroment clears it at every walk. Yet every one of those calls joined the modelDispState lane
+//     (round 61), and the game thread then ran the lane's pending jobs itself (round 72's help): ~8.5 joins and
+//     ~22 lane jobs a frame riding, ~0.5-0.6 ms of the game thread in Vita3K, ~1 ms on the console (round 105).
+//     Part `surface` (bit 0): the cache left out. modelSetSurface is its host effect only: the texture note the
+//     renderer's cloth draw takes (g_requested, as texTransRequest's hook makes it), without the cache test, the
+//     texture request packets and the surface's GS packet; modelResetSurface runs without the join (a store of 0
+//     into a cache nobody reads); the lane's jobs no longer write the cache (MdsIn::cache 0).
+//   - still tied to the PS2 (next rounds): the part tree's results at +0x2c and the VU0 CLIP register's chain
+//     (the lane), the palette in the instance chain's VU1 UNPACKs (dispSkinned -> readChainPaletteLean), the lights in
+//     the instance's VU1 packet, the scroll rows, the plans built from and validated against the guest packet lists.
+// SOTC_S10DRAW_CHECK=1: every modelSetSurface runs the old way (the join, the recompiled function with the cache)
+// and the texture note it leaves is compared with the one the new way computes from the same entry state
+// ([s10draw] lines: calls, cache hits, differ).
+namespace sotc_native
+{
+    namespace s10draw
+    {
+        constexpr uint32_t kSetSurface = 0x01099768u, kResetSurface = 0x010993C8u;
+        struct Config
+        {
+            bool read = false;
+            uint32_t parts = 3u; // SOTC_S10DRAW_PARTS (bit 0 surface, bit 1 texture)
+            bool check = false;  // SOTC_S10DRAW_CHECK
+            uint32_t log = 600u; // SOTC_S10DRAW_LOG (frames between [s10draw] lines, 0 none)
+        };
+        Config g_cfg;
+        struct Stats
+        {
+            uint64_t setCalls = 0, resetCalls = 0, checks = 0, hits = 0, differ = 0, multi = 0, plain = 0, none = 0, texLean = 0;
+        };
+        Stats g_stats;
+        uint64_t g_logFrame = 0;
+        // The check: the new way's note for the next cloth draw record.
+        bool g_armed = false, g_expectHit = false;
+        uint32_t g_expect = 0, g_expectHeader = 0, g_expectIndex = 0;
+        uint64_t g_meshChecks = 0;
+        void readConfig()
+        {
+            g_cfg.read = true;
+            if (const char *e = std::getenv("SOTC_S10DRAW_PARTS"))
+                g_cfg.parts = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
+            const char *c = ps2_diag::env("SOTC_S10DRAW_CHECK");
+            g_cfg.check = c && std::atoi(c) != 0;
+            if (const char *e = std::getenv("SOTC_S10DRAW_LOG"))
+                g_cfg.log = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
+            std::fprintf(stderr, "[s10draw] parts %u check %d log %u\n", g_cfg.parts, g_cfg.check ? 1 : 0, g_cfg.log);
+        }
+        // Part `surface` in force (the switch, the native renderer drawing).
+        bool surfaceOn()
+        {
+            if (__builtin_expect(!g_cfg.read, 0))
+                readConfig();
+            return (g_cfg.parts & 1u) && sotc_decomp::s10DrawOn() && !native_renderer::tuning().ps2Lists && GS::skipRaster();
+        }
+        // The lane's jobs leave the cache alone (not while the check runs the old way, which reads it).
+        bool laneSkipsCache() { return surfaceOn() && !g_cfg.check; }
+
+        void logLine()
+        {
+            if (!g_cfg.log || g_frame < g_logFrame + g_cfg.log)
+                return;
+            g_logFrame = g_frame;
+            const Stats &t = g_stats;
+            std::fprintf(stderr, "[s10draw] frame %llu: modelSetSurface %llu (texture note: plain %llu, two textures %llu, none %llu), modelResetSurface %llu; "
+                                 "check %llu calls (cloth records compared %llu), cache hits %llu, records differ %llu; texture requests lean %llu\n",
+                         (unsigned long long)g_frame, (unsigned long long)t.setCalls, (unsigned long long)t.plain, (unsigned long long)t.multi,
+                         (unsigned long long)t.none, (unsigned long long)t.resetCalls, (unsigned long long)t.checks, (unsigned long long)g_meshChecks, (unsigned long long)t.hits,
+                         (unsigned long long)t.differ, (unsigned long long)t.texLean);
+        }
+
+        // modelSetSurface(a0 the model header, a1 the surface index) as the renderer sees it: the surface record
+        // (header +0x50, 0x120 bytes each); two textures (bit 5 of +0x18, or +0x1c == 2) -> texTransRequestMulti (no
+        // note: its hook is texTransRequest's only); one (+0x1c == 1) -> texTransRequest(texture +0x2c's resource):
+        // the note is the resource's +0x20 (texTransRequestHook); else no request. kind: 0 none, 1 plain, 2 multi.
+        uint32_t surfaceNote(uint32_t header, uint32_t index, int &kind)
+        {
+            const uint32_t surface = word(header + 0x50u) + index * 0x120u;
+            const uint32_t type = word(surface + 0x1Cu);
+            if ((word(surface + 0x18u) & 0x20u) != 0u || type == 2u)
+            {
+                kind = 2;
+                return 0u;
+            }
+            if (type != 1u)
+            {
+                kind = 0;
+                return 0u;
+            }
+            kind = 1;
+            const uint32_t resource = word(word(header + 0x40u) + word(surface + 0x2Cu) * 32u + 0x10u);
+            return resource ? word(resource + 0x20u) : 0u;
+        }
+
+        // The cache sites' wrapper (mdsjoin::wrap): true when handled here.
+        bool cacheSite(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t address, PS2Runtime::RecompiledFunction orig)
+        {
+            if (!surfaceOn())
+                return false;
+            if (g_ram != rdram)
+                g_ram = rdram;
+            logLine();
+            if (address == kResetSurface)
+            {
+                ++g_stats.resetCalls;
+                if (g_cfg.check)
+                    return false; // (the old way: the join, then the store)
+                orig(rdram, ctx, runtime); // a store of 0 into the cache: no join (nothing reads it)
+                return true;
+            }
+            ++g_stats.setCalls;
+            const uint32_t header = GPR_U32(ctx, 4), index = GPR_U32(ctx, 5);
+            int kind = 0;
+            const uint32_t note = surfaceNote(header, index, kind);
+            g_stats.plain += kind == 1;
+            g_stats.multi += kind == 2;
+            g_stats.none += kind == 0;
+            if (g_cfg.check)
+            {
+                // The old way for real (the picture as before), the new note compared with what it leaves.
+                mdslane::join(mdslane::kJCache);
+                const uint32_t layer = word(0x002132D8u + 0x1Cu); // iosDlGetLayer
+                const uint32_t surface = word(header + 0x50u) + index * 0x120u;
+                const bool hit = word(word(0x0118BFC8u) + layer * 4u) == surface;
+                // The texture the new way leaves for the cloth's draw record; compared at that record (meshDispHook,
+                // s10CheckMesh): the old way's request can land after this returns (the recompiled function resumed
+                // past a checkpoint), so the record, not this call's return, is the place to compare.
+                g_expect = kind == 1 ? note : g_requested;
+                g_expectHit = hit;
+                g_expectHeader = header, g_expectIndex = index;
+                g_armed = true;
+                ++g_stats.checks;
+                g_stats.hits += hit;
+                orig(rdram, ctx, runtime);
+                return true;
+            }
+            if (kind == 1)
+                g_requested = note;
+            ctx->pc = GPR_U32(ctx, 31); // jr ra (its one caller keeps nothing of v0 / the scratch registers)
+            return true;
+        }
+    }
+    bool s10LaneSkipsCache() { return s10draw::laneSkipsCache(); }
+    void s10CheckMesh(uint32_t header)
+    {
+        using namespace s10draw;
+        if (!g_armed)
+            return;
+        g_armed = false;
+        ++g_meshChecks;
+        if (header != g_expect && g_stats.differ++ < 20u)
+            std::fprintf(stderr, "[s10draw] check: the cloth's record after modelSetSurface(%08x, %u) (cache %s): texture %08x the old way, %08x the new\n",
+                         g_expectHeader, g_expectIndex, g_expectHit ? "hit" : "miss", header, g_expect);
+    }
+    // Part `texture` (bit 1): texTransRequest (decomp_isys48.cpp) without its GS upload request (the packets, the
+    // owner count, the layer's request list: texTransResolve's input, GS VRAM only); its hook's note and the lock stay.
+    bool s10TexRequestLean()
+    {
+        if (__builtin_expect(!s10draw::g_cfg.read, 0))
+            s10draw::readConfig();
+        s10draw::logLine();
+        if (!(s10draw::g_cfg.parts & 2u) || s10draw::g_cfg.check || !sotc_decomp::s10DrawOn() || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+            return false;
+        ++s10draw::g_stats.texLean;
+        return true;
+    }
+}
+
 // Round 61 (SOTC_MDS_TRACE=1, debugging): who reads what modelDispState
 // writes, and how soon after a model hook: the layer cache's users
 // (modelSetSurface, modelResetSurface and the four model functions that
@@ -12585,6 +12768,10 @@ namespace mdsjoin
     template <int I>
     void wrap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round S10: the layer cache's two users that run under SOTC_NATIVE, without the join (s10draw).
+        if (kFns[I].address == sotc_native::s10draw::kSetSurface || kFns[I].address == sotc_native::s10draw::kResetSurface)
+            if (sotc_native::s10draw::cacheSite(rdram, ctx, runtime, kFns[I].address, g_orig[I]))
+                return;
         sotc_native::mdslane::join(kFns[I].site);
         g_orig[I](rdram, ctx, runtime);
     }
