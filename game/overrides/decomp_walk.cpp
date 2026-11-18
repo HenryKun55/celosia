@@ -110,6 +110,11 @@ namespace sotc_native
     void immArm128(std::vector<uint64_t> *rec);
 }
 
+namespace s8cloth
+{
+    void displayJoin(); // round S8 (s8_cloth.cpp): the cloth jobs joined before the display walk
+}
+
 namespace decomp_walk
 {
     using sotc_decomp::returnTo;
@@ -4134,6 +4139,7 @@ namespace decomp_walk
     std::vector<uint32_t> g_a9sDeferred91, g_a9sOrder, g_a9sReach, g_a9sAll;
     void dispDispObjGroupModel(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        s8cloth::displayJoin(); // round S8: the cloths and the strings' layout objects drawn below are the jobs'
         const lines67::Scope l67(lines67::kGroup, false, GPR_U32(ctx, 29));
         G g(rdram, ctx, runtime);
         const Ram m = g.m;

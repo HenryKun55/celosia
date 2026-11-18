@@ -108,6 +108,13 @@
 #include "ground85_capture.h"
 #include "a9sweep.h"
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): a cloth function entered by the game thread joins the queued cloth calls first.
+    extern bool g_open;
+    void clothEntry(PS2Runtime *runtime, uint32_t fn);
+}
+
 namespace decomp_hot47j
 {
     using sotc_decomp::callGuest;
@@ -518,6 +525,8 @@ namespace decomp_hot47j
     // ra +0x20, f20 +0x28, f21 +0x30.
     void clothStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x011399E0u);
         if (!sotc_decomp::hotList47On())
             return fallback(kClothStep, rdram, ctx, runtime);
         float *f = ctx->f;
@@ -547,7 +556,8 @@ namespace decomp_hot47j
         {
             auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
             const uint32_t cloth = static_cast<uint32_t>(cloth64);
-            pf141::noteCloth(rdram, cloth); // round 141 (prefetch only)
+            if (!ps2_worker::isShell(runtime)) // (round S8: not from the guest worker: the notes are the game thread's)
+                pf141::noteCloth(rdram, cloth); // round 141 (prefetch only)
             const uint8_t toggle = static_cast<uint8_t>((READ8(cloth + 0x80u) + 1u) & 1u);
             uint32_t points = READ32(cloth + 0xCu);
             uint32_t n = READ32(READ32(cloth) + 4u);

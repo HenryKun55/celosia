@@ -85,6 +85,9 @@ namespace sotc_worker
     // one per lane or none: sotc_decomp::lane) instead of their recompiled
     // code; anything else stays recompiled. Set before the hand-over.
     void nativesNext(bool on);
+    // Round S8 (s8_cloth.cpp): the next kickAs's job does not own the particle / wind module: the game thread enters
+    // the module's functions without joining it (the job's admit must park before the module).
+    void moduleFreeNext();
     // Round 108 (SOTC_SNAP108): the isys group walks (isysGroupForFirst / Next /
     // Exit) of the groups in `groups` answered on the worker from a copy of
     // their lists the game thread makes at the hand-over (snapGroups, before

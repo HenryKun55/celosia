@@ -103,6 +103,10 @@ namespace decomp_wind
 {
     extern bool g_s7AbOff; // round S7 (decomp_wind.cpp): the A/B windows' `s7wind`
 }
+namespace s8cloth
+{
+    extern bool g_abOff; // round S8 (s8_cloth.cpp): the A/B windows' `s8cloth`
+}
 
 namespace s4disp
 {
@@ -3613,6 +3617,10 @@ namespace sotc_native
             static const int s7windAt = indexOf("s7wind");
             if (s7windAt >= 0)
                 decomp_wind::g_s7AbOff = isOffAt(s7windAt);
+            // Round S8: `s8cloth` (s8_cloth.cpp's cloth jobs on the guest worker).
+            static const int s8clothAt = indexOf("s8cloth");
+            if (s8clothAt >= 0)
+                s8cloth::g_abOff = isOffAt(s8clothAt);
         }
         if (sblur100At >= 0 || r100AllAt >= 0) // round 100
             g_sblur100 = !((sblur100At >= 0 && isOffAt(sblur100At)) || (r100AllAt >= 0 && isOffAt(r100AllAt)));
@@ -12596,6 +12604,10 @@ namespace decomp_tex64
 {
     void install(PS2Runtime &runtime);
 }
+namespace s8cloth
+{
+    void install(PS2Runtime &runtime);
+}
 // After sotc_decomp::install (the natives at these addresses wrapped too).
 void installSotcNativeLate(PS2Runtime &runtime)
 {
@@ -12608,6 +12620,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
         mdsjoin::installAll(runtime, std::make_integer_sequence<int, mdsjoin::kFnCount>{});
     mdstrace::install(runtime);
     s4disp::install(runtime);            // round S4: the screen passes' host-only variants (SOTC_S4DISP)
+    s8cloth::install(runtime);           // round S8: the cloth jobs' joins (SOTC_S8CLOTH)
 }
 namespace sotc_native
 {

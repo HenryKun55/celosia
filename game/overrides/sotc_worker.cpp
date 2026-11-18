@@ -493,6 +493,9 @@ namespace sotc_worker
             0x0137D790u, // _setNodeHPBIllegal
         };
         bool g_nat108 = false, g_nextNat108 = false;
+        // Round S8: the job running now does not own the particle / wind module (s8_cloth.cpp's cloth jobs: its
+        // admit parks before the module), so the game thread enters the module without the join.
+        bool g_moduleFree = false, g_nextModuleFree = false;
         inline bool nat108(uint32_t target)
         {
             const uint32_t *e = std::end(kNat108);
@@ -955,7 +958,7 @@ namespace sotc_worker
                 ctx->pc = GPR_U32(ctx, 31);
                 return;
             }
-            if (g_busy.load(std::memory_order_relaxed) && !t_onWorker)
+            if (g_busy.load(std::memory_order_relaxed) && !t_onWorker && !g_moduleFree)
             {
                 if (kModuleEntries[I] == kSetBlendRatio &&
                     afterJobF(kSetBlendRatio, GPR_U32(ctx, 31), GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), ctx->f[12]))
@@ -1061,6 +1064,7 @@ namespace sotc_worker
     uint32_t spMin() { return g_spMin; }
     void recompiledNext() { g_nextRecomp = true; }
     void nativesNext(bool on) { g_nextNat108 = on; }
+    void moduleFreeNext() { g_nextModuleFree = true; }
     void deferNext(uint32_t target) { g_deferNextTarget = target; }
     bool deferHost(void (*fn)(void *), void *arg)
     {
@@ -1198,6 +1202,8 @@ namespace sotc_worker
         g_nextRecomp = false;
         g_nat108 = g_nextNat108;
         g_nextNat108 = false;
+        g_moduleFree = g_nextModuleFree;
+        g_nextModuleFree = false;
         g_snapOn = g_snapNext;
         g_snapNext = false;
         g_deferTarget = g_deferNextTarget;

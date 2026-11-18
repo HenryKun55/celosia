@@ -22,6 +22,13 @@
 
 #include <cstring>
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): a cloth function entered by the game thread joins the queued cloth calls first.
+    extern bool g_open;
+    void clothEntry(PS2Runtime *runtime, uint32_t fn);
+}
+
 namespace decomp_clothdyn
 {
     using sotc_decomp::returnTo;
@@ -72,6 +79,8 @@ namespace decomp_clothdyn
     // 01137858(a0 the cloth's dynamics): the length constraint along the rows.
     void constrain(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x01137858u);
         const Ram ram{rdram};
         const uint32_t t0 = GPR_U32(ctx, 4);
         const uint32_t a2 = ram.u32(t0);
@@ -274,6 +283,8 @@ namespace decomp_clothdyn
     // 01137640(a0 the cloth's dynamics, f13): the velocities.
     void velocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x01137640u);
         const Ram ram{rdram};
         const uint32_t t3 = GPR_U32(ctx, 4);
         const uint32_t s8 = ram.u32(t3);

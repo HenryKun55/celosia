@@ -75,6 +75,12 @@ namespace pose82
     bool boneProducts(uint8_t *ram, uint32_t out, uint32_t a, uint32_t b, int count);
 }
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): ExecCharaGeometry's last GetClothDynamics on the guest worker (true: done there).
+    bool lastCloth(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t lc, uint32_t ra, uint32_t sp);
+}
+
 namespace decomp_charageo
 {
     using sotc_decomp::relocated;
@@ -1246,7 +1252,9 @@ namespace decomp_charageo
                 setF(13, f20);
                 SET_GPR_U32(ctx, 6, s0c);
                 SET_GPR_U32(ctx, 4, obj);
-                call(0x010C06F4u, 0x01137A68u);
+                // Round S8: on the guest worker beside the game thread (s8_cloth.cpp), else here.
+                if (!s8cloth::lastCloth(rdram, ctx, runtime, layoutClass, 0x010C06FCu, sp))
+                    call(0x010C06F4u, 0x01137A68u);
             }
         }
         // the anime tables, near enough

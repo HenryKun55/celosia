@@ -60,6 +60,13 @@ namespace s3chara
 #include "a9sweep.h"
 #endif
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): a cloth function entered by the game thread joins the queued cloth calls first.
+    extern bool g_open;
+    void clothEntry(PS2Runtime *runtime, uint32_t fn);
+}
+
 namespace char122
 {
     using sotc_decomp::returnTo;
@@ -827,6 +834,8 @@ namespace char122
 
         void dynamics(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
+            if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+                s8cloth::clothEntry(runtime, 0x01137A68u);
             maybeLog();
             if (!sotc_decomp::switchOn(sotc_decomp::kCloth122) || !sotc_decomp::motionOn() || sotc_decomp::jalTarget(rdram, 0x01137AA4u) != kGetLayoutClass ||
                 sotc_decomp::jalTarget(rdram, 0x01137BC0u) != kStep || sotc_decomp::jalTarget(rdram, 0x01137BD0u) != kConstrain ||
@@ -924,7 +933,8 @@ namespace char122
                             continue;
                         }
                         uint32_t r = rOf(ctx);
-                        pf141::noteCloth(rdram, c); // round 141 (prefetch only)
+                        if (!ps2_worker::isShell(runtime)) // (round S8: not from the guest worker: the notes are the game thread's)
+                            pf141::noteCloth(rdram, c); // round 141 (prefetch only)
                         fused(rdram, c, owner, full, dt, f13, grid, rows, cols, r);
                         if (rows > 0)
                             setR(ctx, r);

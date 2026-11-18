@@ -19,6 +19,13 @@
 
 #include <cstring>
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): a cloth function entered by the game thread joins the queued cloth calls first.
+    extern bool g_open;
+    void clothEntry(PS2Runtime *runtime, uint32_t fn);
+}
+
 namespace decomp_clothstep
 {
     using sotc_decomp::returnTo;
@@ -394,6 +401,8 @@ namespace decomp_clothstep
 
     void clothStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x011370E8u);
         static sotc_decomp::NativeCount count("clothStep");
         count.hit();
         if (sotc_decomp::fastNativeOn())

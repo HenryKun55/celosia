@@ -25,6 +25,13 @@ namespace pose82
     bool clothMesh(uint8_t *ram, R5900Context *ctx, uint32_t o, uint32_t grid, uint32_t rows0, int32_t rows);
 }
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): a cloth function entered by the game thread joins the queued cloth calls first.
+    extern bool g_open;
+    void clothEntry(PS2Runtime *runtime, uint32_t fn);
+}
+
 namespace decomp_cloth
 {
     constexpr uint32_t kCloth = 0x01137F78u;
@@ -62,6 +69,8 @@ namespace decomp_cloth
 
     void cloth(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x01137F78u);
         const Ram ram{rdram};
         const uint32_t o = GPR_U32(ctx, 4);
         pf141::noteCloth(rdram, o); // round 141 (prefetch only)

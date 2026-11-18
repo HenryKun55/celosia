@@ -26,6 +26,13 @@
 
 #include <cstring>
 
+namespace s8cloth
+{
+    // Round S8 (s8_cloth.cpp): a cloth function entered by the game thread joins the queued cloth calls first.
+    extern bool g_open;
+    void clothEntry(PS2Runtime *runtime, uint32_t fn);
+}
+
 namespace decomp_clothtension
 {
     using sotc_decomp::returnTo;
@@ -60,6 +67,8 @@ namespace decomp_clothtension
 
     void tensionMove(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x01139B30u);
         if (!sotc_decomp::motionOn())
             return sotc_decomp::recompiled(kAddress)(rdram, ctx, runtime);
         const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6);
