@@ -22112,3 +22112,87 @@ camera 208 of 282 (208), system and memory 155 of 230 (155), particles 98 of 115
 - The 29 hot motion / camera functions: exact (D14 found no difference) but slower lifted; hand natives are the route.
 - With ptrack every colossus can be climbed in a replayable run: one route per colossus (records 1-15) reaches each one's
   own reactions to being climbed and stabbed, which is most of what is left in script and collision.
+
+## Redesign S8: the characters' chain on the ride mapped; the frame's cloth calls as one queue on the guest worker (SOTC_S8CLOTH, off by default) (2026-11-18)
+
+The eighth subsystem round, the second on the ride. The full write-up is docs/characters_s8.md; this is the summary.
+Scripts, runs and logs: `build/agent-scratch/s8/` (STATE.md; sprof.sh the inclusive timers + tools/profsum.py, abs8.sh
+the s8cloth interleaved A/B, chk8.sh the in-run check, chain_ab.sh / queue2.sh the queue, waitslot.sh the machine-wide
+cap of two heavy processes). Own Vita3K tree ../vita3k-celosia-s8 (222 MHz, 3 cores, muted); heavy processes nice'd,
+builds `-j4`.
+
+### The map (ride7, Vita3K 222 MHz)
+
+- **The sampler** (S7's profR0r, game thread 34.9 ms): the characters' area 17.2% (6.0 ms), flat (largest symbol
+  char122::decodeKey 1.04%): motion keys and curves 2.6% (0.90 ms), IK / gaze / quaternion helpers 2.2% (0.77), **cloth
+  dynamics 2.1% (0.74)**, control / AI 1.6% (0.56), the pose 1.4% (0.47), the frame driver's bodies 0.8%, layout and
+  skinning matrices 0.7%, object animations 0.6%, display-side character work 0.6%; ~3% more of character motion sits
+  under "Other game code".
+- **Inclusive timers** (sprofR0, 70 character functions wrapped, 56 windows riding): ExecCharaGeometry 7.66 calls a
+  frame (Wander, Agro, ~5.7 far characters), inside it root dynamics 1.65 ms (4.2 calls), CalcNodeQuaternionWithIK 1.36,
+  **GetClothDynamics 1.63 (8.4 calls: Agro's bridle 0.47, Wander's fringe 0.44 / mantle 0.30, Agro's cloth 0.28)**,
+  root fitting 0.99, gaze 0.56, 13.7 poses 0.55, option nodes / sub-geometries 0.9, layout 0.26, anime tables 0.17;
+  outside it charaCtrl 2.27 (8.7 calls), object animations 2.79 (14.5), charaTail / Preprocess 0.65, horseStep 0.65, the
+  cloth mesh 0.63 and dispSkinned 0.52 in the display walk (probe-inflated: the structure, not the size).
+- **The dependencies**: inside ExecCharaGeometry a chain (root dynamics and fitting with collision -> node interpolation
+  -> IK / gaze write +0x2e8 -> the pose writes +0x158 / +0x154 -> the layout +0x15c / +0x16c / +0x170 / +0x160 -> the
+  cloths pin to +0x15c -> anime tables); across characters Wander is read 0.04 ms after his geometry, Agro 0.38 ms
+  (round 141). **Only the cloths' outputs are read late** (DispCloth's mesh and the strings' models in the display walk,
+  the next step), riding 9-14 calls a frame ~0.7-1.5 ms; they draw VU0's R (3 a grid point) and walk isys groups.
+
+### What changed (`SOTC_S8CLOTH`, A/B `s8cloth`)
+
+- ExecCharaGeometry's last GetClothDynamics is queued for round 91's guest worker: the frame's first call hands over a
+  job running a queue, later calls append; one join a frame at the first consumer.
+- R: the draws a call makes are k x 3 x rows x columns of its cloth set, k learned inline per kind (30 calls); the
+  worker starts from R as it was, the game thread's R jumps ahead by the count, compared at the join.
+- VU0 registers / VU0 data / scratchpad ordered per queued call and merged at the join (the job's writes first, the game
+  thread's after win). The strings' isys walks answered from snap108's copy of their groups (learned, aged).
+- Joins: the owners' / player's / horse's ExecCharaGeometry, the cloth natives' entries (`clothEntry`), the gamecore
+  cloth functions, geometry pointers, object / group / link changes (table wrappers), the display walk
+  (`displayJoin`), the next hand-over, the frame's end. The job parks before the heap, kernels, sound, anime tables,
+  rand and the particle / wind module (`moduleFreeNext`: that module's gates do not join this job).
+- **Found on the way**: with the main ELF's cloth natives wrapped in the function table (even as pass-throughs, jobs
+  off) Vita3K crashed within 1 200-4 500 frames (offR7; the other wrapper groups alone ran clean: gmR10 10 458, g3R10
+  10 578 frames; the base 10 878, no wrappers 13 338). Those join from their natives' entries now, and nothing is
+  installed unless `SOTC_S8CLOTH=1` at start.
+- Tried and dropped: one job per call (p2: every job joined at once, 3.6-4.1 ms a frame waiting), the alias objects'
+  script calls queued and a geometry-pointer filter (p5 / p6, with the crashing wrappers; not retested).
+
+### Equivalence
+
+`SOTC_S8CLOTH_CHECK=<n>`: a call run both ways from the same state (the original on the game thread on a copy of guest
+RAM, the queued call alone on the live RAM, joined at once), the pages the original changed compared word for word,
+R / v0 / f12 / VU0 registers / VU0 data / the scratchpad after the join's merge. **chkRp13** (p13, ride7, every 256th
+call): mounted at 2 741 and riding to frame 20 418, 209 708 calls queued, **819 checked, 0 differences**, 0 pages
+changed outside the original's, 0 R mismatches. The first check (p1 / p11) put the live RAM back after the original's
+run and so reverted other threads' writes (its "differences" were those words, and check mode crashed once): replaced.
+Every queued call of every run compares the worker's R with the predicted one: 0 mismatches in all runs. spalign:
+p11 866 NEON :128 / :256 accesses, 0 sp-based.
+
+### Speed (Vita3K 222 MHz, interleaved A/B, `SOTC_S8CLOTH=1` + `SOTC_AB_FLAG=s8cloth`)
+
+| route | seed 7: frame off - on | seed 11 | cloth calls a frame / waiting at the joins (on frames) |
+|---|---|---|---|
+| ride7 riding | p11 **-1.094 ± 0.099 ms**; p13 **-2.094 ± 0.094 ms** | p13 **-1.884 ± 0.391 ms** (mounted at 2 809; a first run that did not mount read -3.114 ± 0.175) | 4-5 / 0.4-0.9 ms |
+| lake6 | **-0.898 ± 0.155 ms** | **-0.907 ± 0.176 ms** | 3 / 0.5-0.6 ms |
+| attract | **-0.686 ± 0.224 ms** | **-0.763 ± 0.233 ms** | 5.7-6.6 / 0.7-0.8 ms |
+
+**Off by default** (slower in every run, z 6-44). The queued calls are joined ~0.1-0.4 ms after their hand-over (the
+riding pair's parent links, geometry pointers, the alias objects' own cloth calls: ~0.5 each per frame), so the game
+thread waits for most of the work anyway, and the exactness costs more than the cloth on the plain: the context /
+VU0 data / 16 KB scratchpad copied at each hand-over and merged back at each join, byte by byte where both the cloth
+callbacks and the game thread wrote the scratchpad (p13's sampler: 3% of the game thread in the merge). The cloth on
+the plain is 4-5 calls of ~0.1 ms a frame: even free bookkeeping and no waiting would save a few tenths of a ms.
+The pictures (Vita3K window shots of smkR11 and chkRp13, S8 on) show Wander riding Agro with the mantle and the reins
+as usual, the ground and the shadows normal. Boot: celosia-s8.vpk (p13) with `SOTC_VITA_EAT_USER_MB=89` taken and `SOTC_S8CLOTH=1` in Vita3K (bootR13): mounted at 2 222, riding to frame 13 038, 104 481 calls queued, 0 R mismatches, no fault. Console A/B:
+`build/agent-scratch/celosia-s8.vpk` with `build/agent-scratch/s8/env-console.txt` (`SOTC_S8CLOTH=1`, s8cloth first in
+the rotation) for the record; the Vita3K numbers say it should lose there too.
+
+### Next
+
+S8 confirms round 141 with numbers: riding, no ≥ 2 ms of character work can run beside the game thread as the code
+is; the chain's levers are its own cost (the motion keys' decode 2.6%: an exact host cache of decoded keys; the IK /
+gaze helpers' guest calls 2.2%; charaLinks; the S3 rig's per-call validation), each 0.1-0.3 ms, and outside the
+characters the display per-object chain. The crash with the main ELF's cloth natives wrapped in the function table
+(pass-throughs, jobs off) is unexplained and worth a look before the next round that wraps natives.
