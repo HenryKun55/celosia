@@ -20,6 +20,7 @@
 // sotc_decomp::install. SOTC_SEMA_FAST=0 (or SOTC_DECOMP=0,
 // SOTC_DECOMP_SKIP=SignalSema) leaves the stub in the table.
 #include "sotc_decomp.h"
+#include "s11rt.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -121,6 +122,7 @@ namespace sotc_decomp
 #endif
         decomp_sema::g_stub = runtime.lookupFunction(decomp_sema::kSignalSema);
         runtime.registerFunction(decomp_sema::kSignalSema, decomp_sema::signalSema);
+        s11rt::g_signalNative = decomp_sema::signalSema; // round S11: the natives' inline signal while the table holds it
         // Round 139 (sem139; SOTC_SEM139=0 leaves the natives in, on their stub paths).
         if (runtime.hasFunction(decomp_sema::kGetThreadId) && runtime.hasFunction(decomp_sema::kPollSema))
         {

@@ -527,7 +527,7 @@ void EeScheduler::run()
 void EeScheduler::requestStop()
 {
     m_stopRequested.store(true, std::memory_order_release);
-    flagCheckpoint();
+    flagCheckpoint(1);
     m_eventCv.notify_all();
 }
 
@@ -542,7 +542,7 @@ void EeScheduler::postEvent(EeEvent event)
     {
         std::lock_guard lock(m_eventMutex);
         m_events.push_back(event);
-        flagCheckpoint();
+        flagCheckpoint(2);
     }
     m_eventCv.notify_one();
 }
@@ -552,8 +552,11 @@ bool EeScheduler::checkpointDue(uint32_t cycles) noexcept
     return m_runtime.eeCheckpointDue(cycles);
 }
 
+EeS11Stats g_eeS11;
+
 bool EeScheduler::checkpointSlow() noexcept
 {
+    ++g_eeS11.slow;
 #if !defined(__vita__)
     // PS2X_XFER_AUDIT=1: guest code ran after a thread switch made by
     // returning, before the dispatcher took over: a host frame on the way
@@ -576,6 +579,7 @@ bool EeScheduler::checkpointSlow() noexcept
     if (m_checkpointPending.load(std::memory_order_relaxed) ||
         m_stopRequested.load(std::memory_order_relaxed))
     {
+        ++g_eeS11.pending;
         m_unwinding = true;
         return true;
     }
@@ -583,13 +587,15 @@ bool EeScheduler::checkpointSlow() noexcept
     const uint64_t nextEventCycle = m_nextDeadlineCycle.load(std::memory_order_relaxed);
     if (nextEventCycle != 0u && eeNow() >= nextEventCycle)
     {
-        flagCheckpoint();
+        ++g_eeS11.deadline;
+        flagCheckpoint(3);
         m_unwinding = true;
         return true;
     }
 
     if (eeNow() < m_sliceEndCycle)
     {
+        ++g_eeS11.cont;
         updateGate();
         return false;
     }
@@ -597,12 +603,14 @@ bool EeScheduler::checkpointSlow() noexcept
     const GuestThread *running = currentThread();
     if (running != nullptr && hasReadyAtOrAbovePriority(running->currentPriority))
     {
+        ++g_eeS11.preempt;
         m_rescheduleRequested = true;
         m_timeSliceExpired = true;
         m_unwinding = true;
         return true;
     }
 
+    ++g_eeS11.renew;
     renewTimeSlice();
     return false;
 }
@@ -626,7 +634,7 @@ void EeScheduler::syncAccounting() noexcept
     m_runtime.advanceIopEeCycles(elapsed);
     if (m_pendingEeTimerInterrupts != 0u)
     {
-        flagCheckpoint();
+        flagCheckpoint(4);
     }
 }
 
@@ -637,8 +645,9 @@ void EeScheduler::syncAccounting() noexcept
 // itself before. A gate set by the executor at the same time is fixed by
 // updateGate (seq_cst fences on both sides: either it sees the flag, or
 // this 0 comes after its gate).
-void EeScheduler::flagCheckpoint() noexcept
+void EeScheduler::flagCheckpoint(int site) noexcept
 {
+    ++g_eeS11.flags[site < 12 ? site : 11]; // (other threads too: a racy count, for the log only)
     m_checkpointPending.store(true, std::memory_order_release);
     std::atomic_thread_fence(std::memory_order_seq_cst);
     m_clock.closeGate();
@@ -654,13 +663,22 @@ void EeScheduler::updateGate() noexcept
     }
     // The nearest of: the next EE timer flush or IOP batch (counted from the
     // cycles they have seen), the next deadline, the end of the time slice.
-    uint64_t gate = m_accountedCycle + std::min(m_runtime.memory().eeTimerSlack(), PS2Runtime::iopBatchSlack());
+    const uint64_t timerSlack = m_runtime.memory().eeTimerSlack(), iopSlack = PS2Runtime::iopBatchSlack();
+    uint64_t gate = m_accountedCycle + std::min(timerSlack, iopSlack);
+    int by = timerSlack < iopSlack ? 0 : 1;
     const uint64_t nextEventCycle = m_nextDeadlineCycle.load(std::memory_order_relaxed);
-    if (nextEventCycle != 0u)
+    if (nextEventCycle != 0u && nextEventCycle < gate)
     {
-        gate = std::min(gate, nextEventCycle);
+        gate = nextEventCycle;
+        by = 2;
     }
-    m_clock.setGate(std::min(gate, m_sliceEndCycle));
+    if (m_sliceEndCycle < gate)
+    {
+        gate = m_sliceEndCycle;
+        by = 3;
+    }
+    m_clock.setGate(gate);
+    ++(by == 0 ? g_eeS11.gateTimer : by == 1 ? g_eeS11.gateIop : by == 2 ? g_eeS11.gateDeadline : g_eeS11.gateSlice);
     // The pending flag lives in the gate (flagCheckpoint): one posted while
     // the gate was being set is seen here (the fences order the two sides).
     std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -1421,7 +1439,7 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
     assertExecutor();
     invocation.sequence = ++m_invocationSequence;
     m_pendingInvocations.push_back(std::move(invocation));
-    flagCheckpoint();
+    flagCheckpoint(5);
 }
 
 [[noreturn]] void EeScheduler::invokeCurrent(GuestInvocation invocation)
@@ -1628,7 +1646,7 @@ void EeScheduler::dispatchIrq(bool dmac, uint32_t cause)
         SET_GPR_U32(&invocation.context, 28, handler.gp);
         SET_GPR_U32(&invocation.context, 29, 0u);
         SET_GPR_U32(&invocation.context, 31, 0u);
-        flagCheckpoint();
+        flagCheckpoint(6);
     }
 }
 
@@ -2071,6 +2089,7 @@ void EeScheduler::makeRunning(GuestThread &item)
     assert(item.status == EeThreadStatus::Ready);
     item.status = EeThreadStatus::Running;
     m_currentThreadId = item.id;
+    ++g_eeS11.runs[item.id < 15 ? item.id : 15];
     renewTimeSlice();
 }
 
@@ -2250,7 +2269,7 @@ void EeScheduler::requestPreemptionIfHigher(const GuestThread &readyThread, bool
     // Applied by the scheduler: return to it at the next checkpoint (guest
     // code no longer comes back to it at every call return).
     (void)interruptSafe;
-    flagCheckpoint();
+    flagCheckpoint(7);
 }
 
 void EeScheduler::applyPendingPreemption()
@@ -2312,7 +2331,7 @@ void EeScheduler::processPendingEvents()
         const bool cycleEventDue = nextEventCycle != 0u && eeNow() >= nextEventCycle;
         const bool pendingWork = !m_events.empty() || cycleEventDue || m_stopRequested.load(std::memory_order_acquire);
         if (pendingWork)
-            flagCheckpoint();
+            flagCheckpoint(8);
         else
             m_checkpointPending.store(false, std::memory_order_release);
     }
@@ -2616,7 +2635,7 @@ void EeScheduler::waitForEvent()
             accountCycles(step);
             remaining -= step;
         }
-        flagCheckpoint();
+        flagCheckpoint(9);
     }
 }
 
@@ -2769,7 +2788,7 @@ void EeScheduler::idleWait()
         m_profileContext.store(running, std::memory_order_relaxed);
     }
     syncCyclesToHostClock();
-    flagCheckpoint();
+    flagCheckpoint(10);
 }
 
 void EeScheduler::enableHostClockSync()

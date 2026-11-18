@@ -704,7 +704,6 @@ namespace
     // was a third of the game thread on the Vita. Every EE -> IOP call below
     // first brings the IOP up to date. ~7 us of EE time, under one SPU2
     // sample, invisible to the game (the IOP is its own processor).
-    constexpr uint64_t kIopBatchEeCycles = 2048u;
     uint64_t g_iopPendingEeCycles = 0;
 
     void catchUpIop(ps2x::iop::IopSubsystem *iop) noexcept
@@ -766,16 +765,21 @@ void PS2Runtime::notifyIopSifTransfer(uint8_t *rdram, const ps2x::iop::SifTransf
     m_iopSubsystem->onSifTransfer(transfer);
 }
 
+uint64_t g_ps2xIopBatchEeCycles = 2048u;
+
 void PS2Runtime::advanceIopEeCycles(uint64_t eeCycles) noexcept
 {
     g_iopPendingEeCycles += eeCycles;
-    if (g_iopPendingEeCycles >= kIopBatchEeCycles)
+    if (g_iopPendingEeCycles >= g_ps2xIopBatchEeCycles)
+    {
+        ++g_eeS11.iopRuns;
         catchUpIop(m_iopSubsystem.get());
+    }
 }
 
 uint64_t PS2Runtime::iopBatchSlack() noexcept
 {
-    return g_iopPendingEeCycles < kIopBatchEeCycles ? kIopBatchEeCycles - g_iopPendingEeCycles : 0u;
+    return g_iopPendingEeCycles < g_ps2xIopBatchEeCycles ? g_ps2xIopBatchEeCycles - g_iopPendingEeCycles : 0u;
 }
 
 void PS2Runtime::catchUpIopNow() const noexcept

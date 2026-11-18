@@ -35,6 +35,7 @@
 // host C++) was measured this round and is not in the build: the lifted code
 // was slower than the recompiled code in the sampler (docs/decomp.md, round 126).
 #include "cam126.h"
+#include "s11rt.h"
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -653,6 +654,7 @@ namespace cam126
     // int16 from +0x18 scaled by +4 / +0xc / +0x14 (x 2^-15 (1 + 2^-15)) plus +0 / +8 / +0x10, others three floats
     // from +0xc.
     constexpr uint32_t kRootKey = 0x010AD048u;
+    PS2Runtime::RecompiledFunction g_rootKeyRec = nullptr; // round S11 (s11rt kRootKey)
     // (returns the value the original leaves in f0: the last float it loaded / made)
     inline float rootKey(uint8_t *rdram, uint32_t out, uint32_t tr, uint32_t frame)
     {
@@ -701,7 +703,17 @@ namespace cam126
     {
         const uint32_t out = GPR_U32(ctx, 4), tr = GPR_U32(ctx, 5);
         if (!ctlOn() || !okAddr(out) || !okAddr(tr))
+        {
+            // Round S11 (s11rt kRootKey): the recompiled function kept in a pointer, not looked up in the hash table each call.
+            // (a plain pointer, no function-local static: its guard is a load and a barrier a call on the Vita)
+            if (s11rt::on(s11rt::kRootKey))
+            {
+                if (__builtin_expect(g_rootKeyRec == nullptr, 0))
+                    g_rootKeyRec = sotc_decomp::recompiled(kRootKey);
+                return g_rootKeyRec(rdram, ctx, runtime);
+            }
             return sotc_decomp::recompiled(kRootKey)(rdram, ctx, runtime);
+        }
         ctx->f[0] = rootKey(rdram, out, tr, GPR_U32(ctx, 6));
         SET_GPR_U32(ctx, 7, out);
         ++g_ctl.rootKey;

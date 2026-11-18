@@ -256,6 +256,21 @@ struct EeThreadCreateParams
     uint32_t option = 0;
 };
 
+// Round S11 (the [s11] log, game/overrides/s11rt.h): what the game thread's slow checkpoints were for, counted on the
+// executor only (plain increments on the slow path). gate*: which term set the gate when updateGate set it.
+struct EeS11Stats
+{
+    uint64_t slow = 0, pending = 0, deadline = 0, cont = 0, preempt = 0, renew = 0;
+    uint64_t gateTimer = 0, gateIop = 0, gateDeadline = 0, gateSlice = 0;
+    uint64_t iopRuns = 0;
+    uint64_t runs[16] = {}; // threads made running, by id (15: ids >= 15)
+    uint64_t flags[12] = {}; // flagCheckpoint by call site (EeScheduler.cpp: the site numbers there)
+};
+extern EeS11Stats g_eeS11;
+// Round S11: the EE cycles the IOP collects before it runs (PS2Runtime::advanceIopEeCycles; 2048 before S11, the game
+// sets it per frame: s11rt kIop). Read on the executor only.
+extern uint64_t g_ps2xIopBatchEeCycles;
+
 class EeScheduler
 {
 public:
@@ -281,7 +296,7 @@ public:
     [[nodiscard]] bool checkpointDue(uint32_t cycles = kGeneratedCheckpointCycles) noexcept;
     // The part of a checkpoint past the clock's gate (see EeClock).
     [[nodiscard]] bool checkpointSlow() noexcept;
-    void flagCheckpoint() noexcept;
+    void flagCheckpoint(int site = 0) noexcept;
     void accountCycles(uint32_t cycles) noexcept;
     // Hand the cycles run since the last checkpoint that reached the
     // scheduler to the EE timers and the IOP (on the executor thread only:

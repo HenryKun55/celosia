@@ -99,6 +99,7 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 #include <vector>
 #include "a9sweep.h"
 #include "s9rt.h"
+#include "s11rt.h"
 
 namespace decomp_wind
 {
@@ -3333,7 +3334,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -3941,6 +3942,41 @@ namespace sotc_native
         // taken before abSwitches() sets the next frame's state, so the pass runs in the state of the frame it ends.
         native_renderer::g_s9Evict = s9rt::on(s9rt::kEvict);
         abSwitches();
+        // Round S11 (s11rt kIop): the IOP's batch for the next frame, in the state abSwitches() just chose for it.
+        g_ps2xIopBatchEeCycles = s11rt::on(s11rt::kIop) ? s11rt::g_iopBatch : 2048u;
+        if (s11rt::g_log && g_frame % s11rt::g_log == 0u)
+        {
+            static EeS11Stats last{};
+            static s11rt::Stats lastSt{};
+            static uint64_t lastFrame = 0;
+            const EeS11Stats &e = g_eeS11;
+            const s11rt::Stats &st = s11rt::g_st;
+            const double n = g_frame > lastFrame ? static_cast<double>(g_frame - lastFrame) : 1.0;
+            char runs[384];
+            int at = 0;
+            for (int t = 0; t < 16 && at < 230; ++t)
+                if (e.runs[t] != last.runs[t])
+                    at += std::snprintf(runs + at, sizeof(runs) - at, "%s%d:%.2f", at ? " " : "", t, (e.runs[t] - last.runs[t]) / n);
+            // the checkpoint flag by site (EeScheduler.cpp: 2 posted events, 3 deadline, 4 timer IRQ, 5 invocation, 6 IRQ
+            // handler, 7 preemption, 8 re-flag after events, 9 timed wait, 10 idle wait)
+            at += std::snprintf(runs + at, sizeof(runs) - at, "; flags");
+            for (int t = 1; t < 12 && at < 360; ++t)
+                if (e.flags[t] != last.flags[t])
+                    at += std::snprintf(runs + at, sizeof(runs) - at, " %d:%.1f", t, (e.flags[t] - last.flags[t]) / n);
+            runs[at < 383 ? at : 383] = 0;
+            std::fprintf(stderr,
+                         "[s11] frame %llu (a frame over %llu): slow checkpoints %.1f (pending %.1f, deadline %.1f, go on %.1f, preempt %.2f, renew %.2f); "
+                         "gate by timer %.1f iop %.1f deadline %.1f slice %.1f; iop runs %.1f (batch %llu); lock signal fast %.1f slow %.1f; motion host %.1f fallback %.1f (packed %.1f; on the worker %llu; checks %llu, unwound %llu, differ %llu); threads run %s\n",
+                         (unsigned long long)g_frame, (unsigned long long)(g_frame - lastFrame), (e.slow - last.slow) / n, (e.pending - last.pending) / n,
+                         (e.deadline - last.deadline) / n, (e.cont - last.cont) / n, (e.preempt - last.preempt) / n, (e.renew - last.renew) / n,
+                         (e.gateTimer - last.gateTimer) / n, (e.gateIop - last.gateIop) / n, (e.gateDeadline - last.gateDeadline) / n,
+                         (e.gateSlice - last.gateSlice) / n, (e.iopRuns - last.iopRuns) / n, (unsigned long long)g_ps2xIopBatchEeCycles,
+                         (st.signalFast - lastSt.signalFast) / n, (st.signalSlow - lastSt.signalSlow) / n, (st.motionHost - lastSt.motionHost) / n,
+                         (st.motionFallback - lastSt.motionFallback) / n, (st.motionPacked - lastSt.motionPacked) / n, (unsigned long long)st.motionWorker, (unsigned long long)st.motionChecks, (unsigned long long)st.motionUnwound, (unsigned long long)st.motionDiffer, runs);
+            last = e;
+            lastSt = st;
+            lastFrame = g_frame;
+        }
         if (s9rt::g_log && g_frame % s9rt::g_log == 0u)
         {
             const s9rt::Stats &st = s9rt::g_st;
@@ -12858,6 +12894,8 @@ void installSotcNativeLate(PS2Runtime &runtime)
     s4disp::install(runtime);            // round S4: the screen passes' host-only variants (SOTC_S4DISP)
     s8cloth::install(runtime);           // round S8: the cloth jobs' joins (SOTC_S8CLOTH)
     s9rt::init();                        // round S9: the runtime costs' parts, check and log (SOTC_S9RT_*)
+    s11rt::init(runtime);                // round S11: the PS2 machinery's parts and log (SOTC_S11RT_*)
+    g_ps2xIopBatchEeCycles = s11rt::on(s11rt::kIop) ? s11rt::g_iopBatch : 2048u;
     native_renderer::g_s9Check = s9rt::g_check;
 }
 namespace sotc_native

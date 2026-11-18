@@ -26,6 +26,7 @@
 // recompiled code has at that call (its return label may resume there
 // after a blocking WaitSema).
 #include "sotc_decomp.h"
+#include "s11rt.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -97,7 +98,13 @@ namespace decomp_isys
     };
     Lock acquire(const M &m, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        sotc_decomp::getThreadId139(rdram, ctx, runtime);
+        // Round S11 (s11rt kLock): GetThreadId / PollSema inline from the scheduler's state (the same v0).
+        const bool s11 = s11rt::on(s11rt::kLock);
+        int fast = s11 ? s11rt::threadId(rdram, runtime) : -1;
+        if (fast >= 0)
+            setReturnS32(ctx, fast);
+        else
+            sotc_decomp::getThreadId139(rdram, ctx, runtime);
         const uint32_t tid = GPR_U32(ctx, 2);
         if (tid == m.u32(kOwner))
         {
@@ -112,7 +119,10 @@ namespace decomp_isys
             return Lock::Nested;
         }
         SET_GPR_U32(ctx, 4, m.u32(kSemaWord));
-        sotc_decomp::pollSema139(rdram, ctx, runtime);
+        if (s11 && s11rt::pollSema(static_cast<int32_t>(m.u32(kSemaWord)), rdram, runtime, fast))
+            setReturnS32(ctx, fast);
+        else
+            sotc_decomp::pollSema139(rdram, ctx, runtime);
         if (static_cast<int32_t>(GPR_U32(ctx, 2)) < 0)
         {
             stat(2);
@@ -141,7 +151,7 @@ namespace decomp_isys
     void signal(const M &m, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp)
     {
         SET_GPR_U32(ctx, 4, m.u32(kSemaWord));
-        sotc_decomp::callGuest(rdram, ctx, runtime, kSignalSema, ra, sp);
+        s11rt::signalSema(rdram, ctx, runtime, ra, sp); // round S11: inline when uncontended (s11rt kLock), else the table's
     }
     // The callee-saved registers s0..s(n-1) and ra into a frame as a prologue
     // writes them (s at +8 i, ra at raAt).

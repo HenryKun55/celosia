@@ -99,6 +99,7 @@
 // walks isysDeleteObjManager makes after its passes (to the end of the kept
 // links and the kept objects: no store, no register it leaves that is read).
 #include "sotc_decomp.h"
+#include "s11rt.h"
 
 #include "ps2_runtime_macros.h"
 #include "ps2_syscalls.h"
@@ -162,7 +163,13 @@ namespace decomp_isys48
     };
     Lock acquire(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t &tid)
     {
-        sotc_decomp::getThreadId139(rdram, ctx, runtime);
+        // Round S11 (s11rt kLock): GetThreadId / PollSema inline from the scheduler's state (the same v0).
+        const bool s11 = s11rt::on(s11rt::kLock);
+        int fast = s11 ? s11rt::threadId(rdram, runtime) : -1;
+        if (fast >= 0)
+            setReturnS32(ctx, fast);
+        else
+            sotc_decomp::getThreadId139(rdram, ctx, runtime);
         tid = GPR_U64(ctx, 2);
         if (tid == sx(READ32(kOwner)))
         {
@@ -173,7 +180,10 @@ namespace decomp_isys48
             return Lock::Nested;
         }
         SET_GPR_S32(ctx, 4, static_cast<int32_t>(READ32(kSemaWord)));
-        sotc_decomp::pollSema139(rdram, ctx, runtime);
+        if (s11 && s11rt::pollSema(static_cast<int32_t>(READ32(kSemaWord)), rdram, runtime, fast))
+            setReturnS32(ctx, fast);
+        else
+            sotc_decomp::pollSema139(rdram, ctx, runtime);
         if (static_cast<int32_t>(GPR_U32(ctx, 2)) < 0)
             return Lock::No;
         WRITE32(kOwner, static_cast<uint32_t>(tid));
@@ -204,7 +214,7 @@ namespace decomp_isys48
         f.restore();
         const uint64_t ra = READ64(f.sp + raAt);
         SET_GPR_U64(ctx, 31, ra);
-        callGuest(rdram, ctx, runtime, kSignalSema, static_cast<uint32_t>(ra), entrySp);
+        s11rt::signalSema(rdram, ctx, runtime, static_cast<uint32_t>(ra), entrySp); // round S11 (kLock)
     }
 
     // ---- isysDeleteGroupAllObj ----------------------------------------------
@@ -282,7 +292,7 @@ namespace decomp_isys48
             f.setS32(1, kOwner);
             f.set(2, a0);
             f.setS32(3, 0x001E0000u);
-            callGuest(rdram, ctx, runtime, kSignalSema, 0x001C733Cu, sp);
+            s11rt::signalSema(rdram, ctx, runtime, 0x001C733Cu, sp); // round S11 (kLock)
         }
         SET_GPR_S32(ctx, 2, static_cast<int32_t>(link));
         f.restore();
