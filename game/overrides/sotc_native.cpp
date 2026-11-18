@@ -12517,14 +12517,14 @@ namespace sotc_native
         struct Config
         {
             bool read = false;
-            uint32_t parts = 3u; // SOTC_S10DRAW_PARTS (bit 0 surface, bit 1 texture)
+            uint32_t parts = 7u; // SOTC_S10DRAW_PARTS (bit 0 surface, bit 1 texture, bit 2 lockonce)
             bool check = false;  // SOTC_S10DRAW_CHECK
             uint32_t log = 600u; // SOTC_S10DRAW_LOG (frames between [s10draw] lines, 0 none)
         };
         Config g_cfg;
         struct Stats
         {
-            uint64_t setCalls = 0, resetCalls = 0, checks = 0, hits = 0, differ = 0, multi = 0, plain = 0, none = 0, texLean = 0;
+            uint64_t setCalls = 0, resetCalls = 0, checks = 0, hits = 0, differ = 0, multi = 0, plain = 0, none = 0, texLean = 0, lockSkipped = 0;
         };
         Stats g_stats;
         uint64_t g_logFrame = 0;
@@ -12560,10 +12560,10 @@ namespace sotc_native
             g_logFrame = g_frame;
             const Stats &t = g_stats;
             std::fprintf(stderr, "[s10draw] frame %llu: modelSetSurface %llu (texture note: plain %llu, two textures %llu, none %llu), modelResetSurface %llu; "
-                                 "check %llu calls (cloth records compared %llu), cache hits %llu, records differ %llu; texture requests lean %llu\n",
+                                 "check %llu calls (cloth records compared %llu), cache hits %llu, records differ %llu; texture requests lean %llu (locks skipped %llu)\n",
                          (unsigned long long)g_frame, (unsigned long long)t.setCalls, (unsigned long long)t.plain, (unsigned long long)t.multi,
                          (unsigned long long)t.none, (unsigned long long)t.resetCalls, (unsigned long long)t.checks, (unsigned long long)g_meshChecks, (unsigned long long)t.hits,
-                         (unsigned long long)t.differ, (unsigned long long)t.texLean);
+                         (unsigned long long)t.differ, (unsigned long long)t.texLean, (unsigned long long)t.lockSkipped);
         }
 
         // modelSetSurface(a0 the model header, a1 the surface index) as the renderer sees it: the surface record
@@ -12661,6 +12661,10 @@ namespace sotc_native
         ++s10draw::g_stats.texLean;
         return true;
     }
+    // Part `lockonce` (bit 2): texTransRequest's lock once per texture per buffer build (decomp_isys48.cpp), on the
+    // game thread only (its table is the game thread's: the caller tests sotc_decomp::onWorkerLane).
+    bool s10LockOnce() { return (s10draw::g_cfg.parts & 4u) != 0u; }
+    void s10LockSkipped() { ++s10draw::g_stats.lockSkipped; }
 }
 
 // Round 61 (SOTC_MDS_TRACE=1, debugging): who reads what modelDispState

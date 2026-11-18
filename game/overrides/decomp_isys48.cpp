@@ -109,6 +109,8 @@
 namespace sotc_native
 {
     bool s10TexRequestLean(); // round S10 part `texture` (sotc_native.cpp s10draw)
+    bool s10LockOnce();       // round S10 part `lockonce`
+    void s10LockSkipped();
 }
 
 namespace decomp_isys48
@@ -341,8 +343,11 @@ namespace decomp_isys48
     }
 
     // ---- kernel_sub_001BF590: the display list buffer reset ------------------
+    // Round S10 part `lockonce`: a new buffer's build (its locks taken from here until its next reset).
+    uint64_t g_dlEpoch = 1;
     void dlReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        ++g_dlEpoch;
         if (!sotc_decomp::isysOn())
             return fallback(kDlReset, rdram, ctx, runtime);
         constexpr uint32_t kDl = 0x002132D8u, kGifTag = 0x001E10C0u;
@@ -746,9 +751,30 @@ namespace decomp_isys48
         f.set(2, word);
         const uint32_t tex = static_cast<uint32_t>(texture);
 
+        const bool lean = sotc_native::s10TexRequestLean();
+        // Round S10 part `lockonce` (bit 2): the lock taken once per texture per buffer build. A locked object's
+        // delete waits for the buffer's release, so the texture seen locked in this build (dlReset's epoch) is the
+        // same object still held; a second lock only adds a link and a count released at the same moment.
+        bool locked = false;
+        if (lean && sotc_native::s10LockOnce() && !sotc_decomp::onWorkerLane(runtime))
+        {
+            struct Seen
+            {
+                uint32_t object;
+                uint64_t epoch;
+            };
+            static Seen seen[512]; // (a plain table: no guard, game thread only)
+            Seen &s = seen[((tex >> 4) * 0x9E3779B1u) >> 23];
+            locked = s.object == tex && s.epoch == g_dlEpoch && tex < PS2_RAM_SIZE - 0x10u && (READ32(tex + 8u) >> 17) != 0u;
+            if (!locked)
+                s = Seen{tex, g_dlEpoch};
+            else
+                sotc_native::s10LockSkipped();
+        }
         // iosDlLockObj(texture).
-        callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x010AAD68u), 0x010AAD70u, sp);
-        if (sotc_native::s10TexRequestLean())
+        if (!locked)
+            callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x010AAD68u), 0x010AAD70u, sp);
+        if (lean)
         {
             // Round S10 part `texture` (sotc_native.cpp s10draw): with the native renderer drawing, the request's
             // packets, the owner count and the layer's request list feed only the GS VRAM upload (texTransResolve);
