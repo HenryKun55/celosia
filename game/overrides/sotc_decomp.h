@@ -743,8 +743,8 @@ namespace sotc_decomp
             // Round 136: pose136 off unless SOTC_POSE136=1: exact (checks: 0 bones differ in ~1.7 M), but its kept bones
             // (17-43% of them) do not pay for the kept arrays' stores and compares (Vita3K host sampler: the pose 1.19 -> 1.22%
             // of the game thread); the console's A/B (env-console turns it on) decides. key136 and euler136 on (SOTC_<name>=0 off).
-            // Round S12: s12draw off unless SOTC_S12DRAW=1: exact (checks: 0 differences), the sampler's NEW / OLD 0.22 ms a
-            // frame less riding in every run, but the frame time's A/B below z 2 in a seed (+0.30 / +0.15 ms, +0.11 / -0.08).
+            // Round S12: s12draw off unless SOTC_S12DRAW=1: exact (checks: 0 differences) but about even riding (the frame
+            // time's A/B +0.30 / +0.15 ms, +0.11 / -0.08, below z 2; the sampler: the new quad path 99-101% of the old).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
                  which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw)

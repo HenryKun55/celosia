@@ -22454,3 +22454,41 @@ streaming / loader threads would remove (their guest code first); the lock's use
 particles' display walk's guest calls (0.44%) are S10's. Found on the way: cam126::rootKey (ctl126, off) reads the packed
 and constant encodings' data from the track instead of *(track + 0xC): wrong root motion with SOTC_CTL126=1, possibly the
 round-131 route-6 bug that turned it off.
+## Redesign S12: the immediate quads as host vertex records, not GS A+D pairs (SOTC_S12DRAW, off by default) (2026-11-18)
+
+The twelfth subsystem round, the display's next step after S10. The full write-up is docs/display_s12.md; this is the
+summary. Scripts, runs and logs: `build/agent-scratch/s12/` (q0-q8.sh the queues, abs12.sh the interleaved A/B, chk12.sh
+the in-run check, chain_ab.sh, waitslot.sh, vq.out / chain.log). Own Vita3K trees ../vita3k-celosia-s12 / -s12b (222 MHz,
+3 cores, muted); builds `-j4`, nice'd.
+
+### The map (ride7, Vita3K 222 MHz, base celosia-s10, game thread 29.55 ms)
+
+What S10 left shaped for the GS / VIF / DMA, by its game-thread cost riding: the immediate quads (the heat-haze strips,
+01142350's quads: quad117 1.79%, vertex2D 0.36, immFeed128 0.27, glColor4f 0.21, feed2D / emit2D / imm128 0.22; 0.85 ms)
+and the strips' own segment walk (0.25 ms); the model hook's VIF / VU1 reads (palette 0.61%, plans 0.18%); glVertexKick's
+other callers (0.16 ms); the texture records' GS transfer state (0.14 ms); the layer / gsReg hooks (0.17 ms). The
+modelDispState lane's mirror costs the game thread ~0.03 ms a frame after S10 (its joins), so the quads came first.
+
+### What changed
+
+Part `strips`: a quad as one host pass (quad12Body / imm12): the colour clamp, ST, state words, CLIP history, pending
+count, Z scale and fog in registers, the ring slots written as made, the gl block's words written once with quad117's
+final values, the VU0 registers / Q / f0 - f2 / GPRs as the fourth kick leaves them; its record (Quad12) handed to the
+2D assembler (s12Feed: feed2D's writes, vertex2D) without the GS A+D pairs and feed2D's register switch; the CLIP
+judgement on NEON. Part `reuse`: a strip segment's two shared vertices take their three VU0 products from the quad
+before when the matrices and the position are the same bits (33% of the vertices riding).
+
+### Checks, A/Bs, decision
+
+SOTC_S12DRAW_CHECK=1 (both ways from the same state; the 2D assembler's input, the gl block, VU0 / Q / CLIP / f0 - f2
+compared): p4 1 172 659 quads over ride7, lake6 and attract (27 with glEnd's software clip), **0 differences**. Frame
+time off - on (Vita3K 222 MHz, interleaved, seeds 7 / 11): ride7 p3 +0.30 +- 0.29 / +0.15 +- 0.16 ms, p4 +0.11 +- 0.24 /
+-0.08 +- 0.30; lake6 and attract in display_s12.md. The sampler: the new quad path costs 99-101% of the old one (the
+VU-exact arithmetic is the quad's cost, not the gl block's memory round trips). Not z > 2 in both seeds riding:
+**off by default** (SOTC_S12DRAW=1 turns it on; exact, kept for the console's A/B and for the next step).
+
+### Next (what still ties the draw to the PS2)
+
+The quads' VU-exact arithmetic (a host strip vertex needs exactness relaxed for the haze), the strips' segment walk, the
+model hook's palette / light reads out of the VIF / VU1 records, the plans checked against guest packet lists, the
+lane's +0x2c / CLIP mirror, the texture records' GS state, the layer stack: docs/display_s12.md section 6.
