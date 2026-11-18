@@ -12,6 +12,9 @@
 // ./memcards) as Mcd001.ps2 / Mcd002.ps2. Slot 1 always holds a card (a blank,
 // unformatted one is created on first use); slot 2 only if its image exists.
 #include "Common.h"
+#include "runtime/ps2_resume.h"
+#include <chrono>
+#include <thread>
 
 namespace ps2_stubs
 {
@@ -79,6 +82,7 @@ namespace ps2_stubs
             // (one seek and read for each of thousands of pages).
             std::vector<uint8_t> image;
             bool newCard = true; // reported once by CheckNewCard after insertion
+            uint32_t resumeGen = 0, testGen = 0; // round V2: ps2_resume's counts when the handle was opened
         };
 
         struct Socket
@@ -91,6 +95,7 @@ namespace ps2_stubs
         std::array<Card, 2> g_cards;
         std::array<Socket, kSockets> g_sockets;
         std::vector<uint8_t> g_lastWrite;
+        bool writeRun(Card &card, std::streamoff at, const uint8_t *p, std::streamsize n);
 
         std::filesystem::path cardDirectory()
         {
@@ -134,6 +139,15 @@ namespace ps2_stubs
                 std::cerr << "[mc2] cannot open " << card.path << std::endl;
                 return nullptr;
             }
+            card.resumeGen = ps2_resume::gen();
+            card.testGen = ps2_resume::g_testCardGen.load(std::memory_order_relaxed);
+            if (port == 0 && ps2_resume::testArmed())
+                ps2_resume::g_testCardWrite = [] // SOTC_TEST_SUSPEND: slot 1's first page written back as it is
+                {
+                    std::lock_guard<std::mutex> lock(g_mutex);
+                    Card &c = g_cards[0];
+                    return c.image.size() >= kRawPageSize && writeRun(c, 0, c.image.data(), kRawPageSize);
+                };
             if (std::filesystem::file_size(card.path, ec) < kCardBytes)
                 std::cerr << "[mc2] warning: " << card.path << " is not an 8 MB card image" << std::endl;
             card.image.assign(kCardBytes, 0xFF);
@@ -162,6 +176,56 @@ namespace ps2_stubs
             return true;
         }
 
+        // Round V2: the image's handle opened again (the image in memory holds every page).
+        bool reopenCard(Card &card)
+        {
+            card.file.close();
+            card.file.clear();
+            card.file.open(card.path, std::ios::binary | std::ios::in | std::ios::out);
+            card.resumeGen = ps2_resume::gen();
+            card.testGen = ps2_resume::g_testCardGen.load(std::memory_order_relaxed);
+            return card.file.is_open();
+        }
+        // A run of the image written to the file. Back from standby / LiveArea the Vita has closed the
+        // handle the image was opened with (the writes failed: no save after a resume): after a resume
+        // the file is opened again first, and a write that fails is retried on a new handle (every
+        // 100 ms, up to 5 s).
+        bool writeRun(Card &card, std::streamoff at, const uint8_t *p, std::streamsize n)
+        {
+            if (__builtin_expect(card.testGen != ps2_resume::g_testCardGen.load(std::memory_order_relaxed), 0))
+            {
+                card.file.close(); // (SOTC_TEST_SUSPEND: the handle lost behind the card's back)
+                card.testGen = ps2_resume::g_testCardGen.load(std::memory_order_relaxed);
+            }
+            if (__builtin_expect(card.resumeGen != ps2_resume::gen(), 0))
+            {
+                const bool ok = reopenCard(card);
+                std::cerr << "[resume] memory card image " << card.path << " opened again after a resume: " << (ok ? "ok" : "failed") << std::endl;
+            }
+            for (int attempt = 0; attempt < 50; ++attempt)
+            {
+                if (attempt)
+                {
+                    if (attempt > 1)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    const bool ok = reopenCard(card);
+                    if (attempt == 1 || ok)
+                        std::cerr << "[resume] memory card write failed: image " << card.path << " opened again (try " << attempt << "): " << (ok ? "ok" : "failed") << std::endl;
+                }
+                card.file.seekp(at);
+                card.file.write(reinterpret_cast<const char *>(p), n);
+                card.file.flush();
+                if (card.file)
+                {
+                    if (attempt)
+                        std::cerr << "[resume] memory card write went through (try " << attempt + 1 << ")" << std::endl;
+                    return true;
+                }
+                card.file.clear();
+            }
+            return false;
+        }
+
         bool writePages(Card &card, uint32_t page, uint32_t count, const uint8_t *data)
         {
             if (page >= kCardPages || count > kCardPages - page)
@@ -178,15 +242,7 @@ namespace ps2_stubs
                     computeChunkEcc(raw + c * 128, raw + kPageSize + c * 3);
             }
             // The pages are one run in the image: one write.
-            card.file.seekp(static_cast<std::streamoff>(page) * kRawPageSize);
-            card.file.write(reinterpret_cast<const char *>(first), static_cast<std::streamsize>(count) * kRawPageSize);
-            card.file.flush();
-            if (!card.file)
-            {
-                card.file.clear();
-                return false;
-            }
-            return true;
+            return writeRun(card, static_cast<std::streamoff>(page) * kRawPageSize, first, static_cast<std::streamsize>(count) * kRawPageSize);
         }
 
         uint8_t *guestRange(uint8_t *rdram, uint32_t addr, uint32_t size)

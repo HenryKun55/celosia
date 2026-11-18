@@ -1,5 +1,6 @@
 #include "runtime/ps2_thread_load.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_resume.h"
 #include <mutex>
 #include <vector>
 #if defined(PLATFORM_VITA)
@@ -475,13 +476,13 @@ namespace
             static std::vector<std::pair<std::string, SceUID>> openFiles;
             std::lock_guard<std::mutex> lock(fdMutex);
             const std::string key = path.string();
-            SceUID fd = -1;
-            for (const auto &[name, handle] : openFiles)
-                if (name == key)
-                    fd = handle;
-            if (fd < 0)
+            SceUID *slot = nullptr;
+            for (auto &entry : openFiles)
+                if (entry.first == key)
+                    slot = &entry.second;
+            if (!slot)
             {
-                fd = sceIoOpen(key.c_str(), SCE_O_RDONLY, 0);
+                const SceUID fd = sceIoOpen(key.c_str(), SCE_O_RDONLY, 0);
                 if (fd < 0)
                 {
                     g_lastCdError = -1;
@@ -489,12 +490,16 @@ namespace
                 }
                 if (openFiles.size() >= 8u)
                 {
+                    ps2_resume::dropFd(openFiles.front().second);
                     sceIoClose(openFiles.front().second);
                     openFiles.erase(openFiles.begin());
                 }
                 openFiles.emplace_back(key, fd);
+                ps2_resume::addFd(fd);
+                slot = &openFiles.back().second;
             }
-            if (sceIoPread(fd, dst, static_cast<SceSize>(byteCount), static_cast<SceOff>(offsetBytes)) < 0)
+            // Round V2: a handle the system closed (the Vita back from standby / LiveArea) is reopened.
+            if (ps2_resume::preadReopen(*slot, key.c_str(), dst, static_cast<SceSize>(byteCount), static_cast<SceOff>(offsetBytes)) < 0)
             {
                 g_lastCdError = -1;
                 return false;

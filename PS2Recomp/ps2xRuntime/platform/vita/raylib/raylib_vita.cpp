@@ -26,6 +26,9 @@
 #include <map>
 #include <mutex>
 #include <vector>
+#include <chrono>
+
+#include "../../../include/runtime/ps2_resume.h"
 
 // Round 107: how long each picture stayed on screen, in display refreshes.
 // vitaGL's display queue calls this as it hands a picture to the display
@@ -71,9 +74,15 @@ namespace pace110
     constexpr double kVBlankUs = 1000000.0 / 60.0;   // the game's VBlank (EeScheduler)
     std::atomic<uint64_t> g_vcLast{0};
     // sceDisplayGetVcount unwrapped to 64 bits (Vita3K gives 16), one count for every thread.
+    // Round V2: the count never goes back. It took a jump of 0x8000+ refreshes (9 min: back from
+    // LiveArea / standby, or the counter reset by the resume) as a step back: the slots (pace110's T,
+    // from the last picture's S) were then up to 9 minutes ahead and the display callback waited for
+    // them (the picture, the render thread and the game held: "stops moving"). Only a small step back
+    // (another thread's newer read) is one now; anything else is a step forward (a resume's jump: the
+    // chain starts again at the next picture).
     uint64_t vc64()
     {
-        const uint64_t raw = static_cast<uint64_t>(static_cast<uint32_t>(sceDisplayGetVcount()) & 0xFFFFu);
+        const uint64_t raw = static_cast<uint64_t>(static_cast<uint32_t>(sceDisplayGetVcount() + ps2_resume::g_testVcBias.load(std::memory_order_relaxed)) & 0xFFFFu);
         uint64_t base = g_vcLast.load(std::memory_order_relaxed);
         if (base == 0u)
         {
@@ -82,7 +91,7 @@ namespace pace110
             base = g_vcLast.load(std::memory_order_relaxed);
         }
         int64_t d = static_cast<int64_t>((raw - (base & 0xFFFFu)) & 0xFFFFu);
-        if (d >= 0x8000)
+        if (d >= 0x10000 - 256)
             d -= 0x10000;
         const uint64_t v = base + d;
         while (v > base && !g_vcLast.compare_exchange_weak(base, v, std::memory_order_relaxed))
@@ -324,6 +333,15 @@ namespace pace110
         g_shown.fetch_add(1u, std::memory_order_relaxed);
         const int calmNeed = g_calmNeed;
         State &st = g_st;
+        // Round V2: after a resume the chain starts again (its slots and the release times are from before).
+        static uint32_t s_resumeGen = 0;
+        if (__builtin_expect(s_resumeGen != ps2_resume::gen(), 0))
+        {
+            s_resumeGen = ps2_resume::gen();
+            st.haveS = st.chain = st.catchUp = false;
+            st.arrN = 0;
+            st.calm = 0;
+        }
         const uint64_t entry = vc64();
         const int hold = std::clamp(g_minHold.load(std::memory_order_relaxed), 1, 4);
         const bool pace = on();
@@ -392,6 +410,10 @@ namespace pace110
         {
             if (T < entry + 1u)
                 T = entry + 1u;
+            // Round V2: never a slot more than 30 refreshes (0.5 s) away: the longest the chain asks is
+            // 8 + the hold; past that the counts it came from are not this session's (a resume).
+            if (__builtin_expect(T > entry + 30u, 0))
+                T = nominal = entry + 1u;
             const bool p132 = on132(), p143 = on143();
             const uint64_t floor132 = st.haveS ? st.S + static_cast<uint64_t>(hold) : 0u;
             for (uint64_t v = vc64(); v + 1u < T; v = vc64())
@@ -800,8 +822,74 @@ namespace
     }
 }
 
+// Round V2: the game left and back (PS button / LiveArea, standby, the screen off; ps2_resume.h). A thread
+// of its own, asleep in sceKernelDelayThreadCB (so ScePower's callback runs on it), wakes every 250 ms:
+// a resume is ScePower's resume flags (standby, the app's suspend) or a
+// wall-clock gap of 3 s+ between two wake-ups (nothing ran meanwhile). Then: the clocks set again (the
+// system's defaults after a resume), and ps2_resume::noteResume (the disc handles, the pacing, the VBlank
+// deadlines, the card image, the log). Its cost: a wake-up every 250 ms (a high priority, so it is not starved).
+namespace resume_watch
+{
+    std::atomic<uint32_t> g_powerFlags{0};
+    void setClocks()
+    {
+        scePowerSetArmClockFrequency(444);
+        scePowerSetBusClockFrequency(222);
+        scePowerSetGpuClockFrequency(222);
+        scePowerSetGpuXbarClockFrequency(166);
+    }
+    int powerCallback(int, int, int arg, void *)
+    {
+        g_powerFlags.fetch_or(static_cast<uint32_t>(arg), std::memory_order_relaxed);
+        return 0;
+    }
+    double wallSeconds()
+    {
+        return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+    int loop(SceSize, void *)
+    {
+        const SceUID cb = sceKernelCreateCallback("celosia_power", 0, powerCallback, nullptr);
+        const int reg = cb >= 0 ? scePowerRegisterCallback(cb) : cb;
+        std::fprintf(stderr, "[resume] watcher up (power callback %s)\n", reg >= 0 ? "registered" : "not registered");
+        double lastWall = wallSeconds();
+        uint64_t lastProc = sceKernelGetProcessTimeWide();
+        for (;;)
+        {
+            sceKernelDelayThreadCB(250000);
+            const double wall = wallSeconds();
+            const uint64_t proc = sceKernelGetProcessTimeWide();
+            const double gap = wall - lastWall, procGap = static_cast<double>(proc - lastProc) / 1e6;
+            lastWall = wall;
+            lastProc = proc;
+            const uint32_t flags = g_powerFlags.exchange(0u, std::memory_order_relaxed);
+            const bool powerResume = (flags & (SCE_POWER_CB_SYSTEM_RESUME | SCE_POWER_CB_APP_RESUME)) != 0u;
+            if (flags & (SCE_POWER_CB_SYSTEM_SUSPEND | SCE_POWER_CB_APP_SUSPEND))
+                std::fprintf(stderr, "[resume] power: suspending (flags 0x%08x)\n", static_cast<unsigned>(flags));
+            // (SceAppMgr's ON_RESUME event is not polled: Vita3K answers every sceAppMgrReceiveSystemEvent
+            // with it, a resume every 250 ms.)
+            const bool gapResume = gap > 3.0;
+            if (!powerResume && !gapResume)
+                continue;
+            setClocks();
+            char why[160];
+            std::snprintf(why, sizeof(why), "%s%s(power flags 0x%08x; process clock moved %.1f s)", powerResume ? "power: resumed " : "",
+                          gapResume ? "wall-clock gap " : "", static_cast<unsigned>(flags), procGap);
+            ps2_resume::noteResume(why, gap);
+        }
+        return 0;
+    }
+    void start()
+    {
+        const SceUID thread = sceKernelCreateThread("celosia_resume", loop, 96, 0x10000, 0, 0, nullptr);
+        if (thread >= 0)
+            sceKernelStartThread(thread, 0, nullptr);
+    }
+}
+
 void InitWindow(int, int, const char *)
 {
+    resume_watch::start(); // round V2
     // The Vita screen, whatever size the host asked for.
     const int width = 960, height = 544;
     g_width = width;

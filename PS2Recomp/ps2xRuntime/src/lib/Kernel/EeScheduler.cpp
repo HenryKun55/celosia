@@ -6,6 +6,7 @@
 #include "ps2_log.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_resume.h"
 #include "runtime/ps2_thread_load.h"
 #include "runtime/ps2_a9.h"
 #include "ps2x/iop/audio_stats.h"
@@ -2346,6 +2347,23 @@ void EeScheduler::processDueDeadlines()
             // Read the host clock only once a deadline is due by cycles: this
             // runs at every scheduler checkpoint.
             const auto now = std::chrono::steady_clock::now();
+            // Round V2: after a resume (the Vita back from standby / LiveArea; ps2_resume.h) the host
+            // deadlines start again from now: each VBlank's is the one before + 16.7 ms, so a suspend
+            // left them all in the past and the pacing off for good (VBlanks as fast as the cycles came);
+            // the host clock's base too (no catch-up step: the game goes on where it stopped).
+            static uint32_t s_resumeGen = 0;
+            if (__builtin_expect(s_resumeGen != ps2_resume::gen(), 0))
+            {
+                s_resumeGen = ps2_resume::gen();
+                const auto behind = now > pacingDeadline ? now - pacingDeadline : std::chrono::steady_clock::duration::zero();
+                for (ScheduledEvent &item : m_deadlines)
+                    item.hostDeadline += behind;
+                pacingDeadline += behind;
+                if (m_hostClockSync)
+                    m_hostClockBase = now - std::chrono::microseconds(eeNow() * 1000000ull / kEeClockHz);
+                std::fprintf(stderr, "[resume] EE scheduler: VBlank host deadlines moved %.1f ms on, host clock base reset\n",
+                             std::chrono::duration<double, std::milli>(behind).count());
+            }
             if (now < pacingDeadline)
             {
                 ps2_load::Wait pacing(ps2_load::kSitePacing);

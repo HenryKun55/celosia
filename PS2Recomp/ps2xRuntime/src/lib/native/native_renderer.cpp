@@ -26,8 +26,10 @@
 #include <deque>
 #include <mutex>
 #if defined(__vita__)
+#include <fcntl.h>
 #include <unistd.h>
 #endif
+#include "runtime/ps2_resume.h"
 #include <thread>
 #include <unordered_set>
 #if defined(__vita__)
@@ -1617,16 +1619,50 @@ namespace native_renderer
         // Round 34 (the Vita, logCaptureStderr): stderr's own file, which the
         // writer alone writes once every stderr line goes through the ring.
         int g_logSinkFd = -1;
+#if defined(__vita__)
+        // Round V2: back from standby / LiveArea the Vita has closed the log file's handle (the console
+        // logs ended at the suspend): a write that fails opens err.txt again (appending), at most once
+        // a second, and writes again.
+        std::atomic<bool> g_logTestFail{false};
+        __attribute__((noinline, cold)) bool logSinkReopen()
+        {
+            static uint64_t lastTry = 0;
+            const uint64_t now = sceKernelGetProcessTimeWide();
+            if (lastTry && now - lastTry < 1000000u)
+                return false;
+            lastTry = now;
+            ::close(g_logSinkFd);
+            const int fd = ::open("ux0:data/celosia/err.txt", O_WRONLY | O_CREAT | O_APPEND, 0666);
+            if (fd < 0)
+                return false;
+            g_logSinkFd = fd;
+            static const char kNote[] = "[resume] log file opened again (its handle was closed: a suspend)\n";
+            (void)!::write(fd, kNote, sizeof(kNote) - 1);
+            return true;
+        }
+#endif
         void logSinkWrite(const char *p, size_t n)
         {
 #if defined(__vita__)
             if (g_logSinkFd >= 0)
             {
+                bool reopened = false;
                 while (n)
                 {
-                    const ssize_t w = ::write(g_logSinkFd, p, n);
-                    if (w <= 0)
+                    ssize_t w;
+                    if (__builtin_expect(g_logTestFail.load(std::memory_order_relaxed), 0) && g_logTestFail.exchange(false))
+                        w = -1; // (SOTC_TEST_SUSPEND: as a write on a handle the system closed)
+                    else
+                        w = ::write(g_logSinkFd, p, n);
+                    if (__builtin_expect(w <= 0, 0))
+                    {
+                        if (!reopened && logSinkReopen())
+                        {
+                            reopened = true;
+                            continue;
+                        }
                         return;
+                    }
                     p += w;
                     n -= static_cast<size_t>(w);
                 }
@@ -2016,11 +2052,23 @@ namespace native_renderer
     void logCaptureStderr()
     {
 #if defined(__vita__)
+        // Round V2: after a resume, stderr / stdout written straight to their files (SOTC_LOG_STDERR=0,
+        // the console's env.txt) are opened again, appending (the ring's writer reopens its own handle).
+        ps2_resume::g_logResume = []
+        {
+            if (g_logSinkFd >= 0)
+                return;
+            std::freopen("ux0:data/celosia/err.txt", "a", stderr);
+            std::setvbuf(stderr, nullptr, _IONBF, 0);
+            std::freopen("ux0:data/celosia/log.txt", "a", stdout);
+            std::setvbuf(stdout, nullptr, _IOLBF, 0);
+        };
         const char *e = std::getenv("SOTC_LOG_STDERR");
         if (!logAsync() || (e && std::atoi(e) == 0))
             return;
         std::fflush(stderr);
         g_logSinkFd = fileno(stderr);
+        ps2_resume::g_testCloseLog = [] { g_logTestFail.store(true, std::memory_order_relaxed); };
         if (g_logSinkFd < 0)
             return;
         stderr->_write = stderrToRing;

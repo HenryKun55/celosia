@@ -6,6 +6,7 @@
 #include <set>
 #include <map>
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_resume.h"
 #include "runtime/ps2_vu1_native.h"
 #include "ps2_runtime.h"
 #include "runtime/native_renderer.h"
@@ -968,6 +969,7 @@ namespace
 
     void spu2AudioCallback(void *buffer, unsigned int frames)
     {
+        ps2_resume::testWait(); // (SOTC_TEST_SUSPEND: the audio output held as long as the suspend)
         namespace as = ps2x::iop::audio_stats;
         // audio_stats: the gap since the last call (the device's period is
         // frames / 48 kHz), late calls, the mix's own time.

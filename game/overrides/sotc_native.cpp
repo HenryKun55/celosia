@@ -34,6 +34,7 @@
 #include "runtime/gs/ps2_gs_psmt4.h"
 #include "runtime/gs/ps2_gs_psmt8.h"
 #include "runtime/ps2_stats.h"
+#include "runtime/ps2_resume.h"
 #include "runtime/ps2_fast_paths.h"
 #include "ps2x/iop/audio_stats.h"
 #include "runtime/ps2_thread_load.h"
@@ -6004,6 +6005,8 @@ namespace sotc_native
             if (HookStats &hs = hookStats(); hs.on)
                 hs.headers.clear(), hs.surfaceSet.clear(), hs.textureSet.clear(); // distinct per frame: summed below as sizes
             g_frame = frame;
+            if (__builtin_expect(ps2_resume::testArmed(), 0)) // round V2: SOTC_TEST_SUSPEND
+                ps2_resume::testTick(frame);
             newDrawOrder();
             {
                 const auto envOn = [](const char *name)

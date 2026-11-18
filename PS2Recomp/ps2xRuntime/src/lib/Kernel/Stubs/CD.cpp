@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "runtime/ps2_diag.h"
+#include "runtime/ps2_resume.h"
 #include "CD.h"
 #include "MPEG.h"
 #include "runtime/ee_scheduler.h"
@@ -316,18 +317,21 @@ namespace ps2_stubs
             {
 #if defined(PLATFORM_VITA)
                 thread_local std::vector<std::pair<std::string, SceUID>> files; // this thread's only (round 100: two threads)
-                SceUID fd = -1;
-                for (const auto &[name, handle] : files)
-                    if (name == path)
-                        fd = handle;
-                if (fd < 0)
+                SceUID *slot = nullptr;
+                for (auto &entry : files)
+                    if (entry.first == path)
+                        slot = &entry.second;
+                if (!slot)
                 {
-                    fd = sceIoOpen(path.c_str(), SCE_O_RDONLY, 0);
+                    const SceUID fd = sceIoOpen(path.c_str(), SCE_O_RDONLY, 0);
                     if (fd < 0)
                         return false;
                     files.emplace_back(path, fd);
+                    ps2_resume::addFd(fd);
+                    slot = &files.back().second;
                 }
-                return sceIoPread(fd, dst, static_cast<SceSize>(bytes), static_cast<SceOff>(offset)) == static_cast<int>(bytes);
+                // Round V2: a handle the system closed (back from standby / LiveArea) is reopened.
+                return ps2_resume::preadReopen(*slot, path.c_str(), dst, static_cast<SceSize>(bytes), static_cast<SceOff>(offset)) == static_cast<int>(bytes);
 #else
                 std::ifstream file(path, std::ios::binary);
                 if (!file.is_open())
@@ -361,6 +365,7 @@ namespace ps2_stubs
                     }
                     std::vector<uint8_t> data(bytes);
                     bool ok = true;
+                    ps2_resume::testWait(); // (SOTC_TEST_SUSPEND)
                     for (size_t done = 0; ok && done < bytes; done += kAheadPiece)
                     {
                         while (a.workerReading.load(std::memory_order_acquire))
@@ -479,6 +484,7 @@ namespace ps2_stubs
                     }
                     bool ok = true;
                     size_t done = 0;
+                    ps2_resume::testWait(); // (SOTC_TEST_SUSPEND)
                     while (ok && done < bytes)
                     {
                         const size_t n = std::min(kAheadPiece, bytes - done);
@@ -564,6 +570,7 @@ namespace ps2_stubs
                     uint8_t *dst = s.buffer.data();
                     const bool toIop = s.toIop;
                     lock.unlock();
+                    ps2_resume::testWait(); // (SOTC_TEST_SUSPEND: a read asked for during the suspend waits for its end)
                     bool ok;
                     const std::string key = path.string();
                     // Round 100 (Tuning cdAhead100): an EE read the EE read-ahead
