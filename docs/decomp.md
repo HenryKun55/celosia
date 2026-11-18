@@ -22241,3 +22241,115 @@ still call guest functions (recompiled or native) through the table with ctx arg
 alarms still go through the scheduler's checkpoints; the isys locks ask thread ids and semaphores. The next whole-ms
 steps are chains of natives turned into host routines on host data (as S3 / S7 did) and the remaining EE threads made
 host threads; a regenerated hot order (veneers 0.29 ms) is exact but needs a two-build measurement.
+## Decomp D15: a grip route per colossus through the game's boss handle (Quadratus, Gaius, Basaran climbed; Phaedra's death); D15's batch (SOTC_LIFTD15) (2026-11-18)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d15/` (STATE.md; mkgrip15.py, qg.sh, qrun.sh, newfn.py,
+pdump.py, survey15.py, cand15.py, gen15.sh, pass15.py, ship15.py, patch_rt15.py, repoff.sh, jobs*.txt). Build dirs cloned
+from D14's (same-length path sed, the object dir and the PGO profile names renamed, mtimes kept, `.ninja_log` rehashed
+with V2's ninja_rehash.py): the first Mac build took 2.5 min instead of a rebuild from zero. Own Vita3K tree
+../vita3k-celosia-d15 (222 MHz, 3 cores, muted); at most two heavy processes machine-wide, all `nice -n 20`, builds `-j4`.
+
+### The test aid: the active colossus through the boss handle (sotc_replay.cpp)
+
+D14's ptrack needed a function whose a0 is the colossus (nico_execMinotaurA_Cloth for Valus only). Three generic tries:
+
+- `SOTC_TELEPORT_PROBE_RET=1` (the probed function's v0) on GAMEUTIL_get_boss_obj (0x13439B0): it returns a static
+  (0x122B790) whose +0xE0 followed Valus' path by chance (the boss interest place, ~6 below his root); under ptrack it
+  read the drop targets themselves. Not the colossus.
+- SCRExecBossPreProcess's a0 (0x1377700): a boss work record; `SOTC_TELEPORT_PROBE_DUMPALL` now also prints each pointer
+  field's target place (`ptr -> x y z`): none of them leads to the colossus. `SOTC_TELEPORT_PROBE_DEREF=<off>` (the object
+  is the pointer at a0 + off) kept as a knob.
+- **The boss handle.** SOTC_TELEPORT_OBJS over records 0-15: the handle table entry whose back-pointer is 0x1465908 (as
+  the player's 0x1465900 and Agro's 0x1465904) holds the active colossus, its +0x170 the root (Valus y 42, record 1 y -78,
+  Gaius y 58, Phaedra y 72). `SOTC_TELEPORT_PROBE_BOSS=1` resolves it every frame (no hook), prints `[tprobe] ... boss
+  handle <i> obj <o> at x y z` every 300 frames, and ptrack drops onto it. ptrack now also skips a place not set yet
+  ((0, 0, 0): Basaran's handle flickered while he streamed in and the first try dropped Wander towards the world origin).
+
+### Routes (Mac call counts, D14's build + the aid; mkgrip15.py / qg.sh: `active<n>`, `boss<n>h600`, then from frame 3 200
+ptrack entries of 600 frames at dy 6 / 10 / 14 / 18 / 24 and dx / dz 0 / +-3, R1 held in 1 000-frame stretches, the stick
+every 300, SQUARE held 40 frames every 150, CROSS at the end of each R1 stretch for Retry; 800 s, ~24 000 frames)
+
+| record | colossus | what it looked like | new reached | of D14's 106 dv1-only |
+|---:|---|---|---:|---:|
+| 0 | Valus (val3: D14's val2 run to frame 47 800, 2 500 s) | Wander on Valus' back, top-down, the health bar about a third down; Valus did not die (the stabs land on the back's weak point only now and then) | 2 | 62 |
+| 1 | Quadratus | **Wander gripping its back by the horns** (two pictures, the boss bar on top) | 9 | 63 |
+| 2 | Gaius | **Wander standing on Gaius' belt ledge, then hanging off his armour edge** with the hint "The colossus's sword shall be thy path...", in the trace pass at his head with the sword's light | 10 | 52 |
+| 3 | Phaedra (dead on the console card) | switching it in plays its death: the black tentacles, Wander knocked down in the dark, Agro beside him | 41 | 5 |
+| 8 | Basaran | after the fix, **Wander standing on its shell** while it walks (two top-down pictures) | 2 | 0 |
+| 7 | Kuromori | no colossus behind the handle: Wander on the grass at the arrival, later inside the ruin | 4 (its arena code) | 3 |
+| 4, 5, 6, 9-15 | Avion, Barba, Hydrus, Dirge, Celosia, Pelagia, Phalanx, Cenobia, Argus, Malus | the handle stays 0: these colossi are spawned by the player's approach, not by `active` + `boss`; a watchdog stops the run at frame 6 000. Re-runs with the stick held forward 1 200-2 400 frames from 3 100 (`WALK`) did not spawn them either (Wander walks / rides 40-100 units) | 0-1 | 0-3 |
+
+Union: survey15.py over every call-count run (78 files): 228 reached and still recompiled (158 before D15).
+
+### D15's batch (SOTC_LIFTD15)
+
+patch_rt15.py adds kLiftD15 / `SOTC_LIFTD15` (default on, A/B `liftd15`, knob `SOTC_LIFTD15_RANGE=<lo>:<hi>`), the macros
+SOTC_DECOMP_LIFT_FUNCTION_D15 / _FALLBACK_D15 and `lift_d1.py --d15`. Candidates (cand15.py: reached, still recompiled,
+not interrupt-side, not any round's speed cut incl. D13 / D14's): **120 lifted, 0 refused** (D14's 50 never checked at
+top level and 70 new).
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200, `SOTC_WORKER91=0`), runner-t1
+with the 120:
+
+| pass | route | functions checked | checks | mismatches |
+|---|---|---:|---:|---|
+| dt15_g3 | Phaedra's death | 40 | 5 728 | 0 |
+| dt15_g2 | Gaius | 25 | 25 | 0 |
+| dt15_g1 | Quadratus | 17 | 17 | 0 |
+| dt15_val3 | Valus, long | 6 | 6 | 0 |
+| dt15_g7 | Kuromori's arena | 4 | 203 | 0 |
+| dt15_objs | records 0-15 switched in | 2 | 2 | 0 |
+| dt15_att / g8b / grip1 | attract, Basaran, Avion | 0 | 0 | 0 |
+
+**80 functions checked at top level, 5 981 checks, not one mismatch line.** 40 not checked: 30 of them only D9's dv1
+ever reached (not replayable), the rest single calls the passes did not repeat (the climbing functions are mostly called
+lifted-to-lifted, so few calls go through the table where the check sits).
+
+**Speed** (Vita3K 222 MHz, the interleaved A/B `SOTC_AB_FLAG=liftd15 SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>`, p1 with the 120,
+1 260 s a run, sampler 120-1 200 s; frame times tools/mixframes.py `--shift -1`, from frame 3 000, 300-frame blocks,
+off - on +- 2 SE):
+
+| run | frames | the 120 sampled | slower z > 2 | frame ms off - on | busy ms off - on |
+|---|---:|---:|---:|---|---|
+| lfA7 (attract, seed 7) | 27 000 | 0 | 0 | +0.017 +- 0.117 | +0.010 +- 0.116 |
+| lfL7 (lake6, seed 7) | 20 000 | 0 | 0 | +0.002 +- 0.122 | +0.001 +- 0.121 |
+| lfA11 (attract, seed 11) | 29 000 | 0 | 0 | +0.090 +- 0.118 | +0.076 +- 0.104 |
+| lfL11 (lake6, seed 11) | 22 000 | 0 | 0 | +0.035 +- 0.332 | +0.068 +- 0.328 |
+| lfL7f (p2, the shipped 80, lake6, seed 7) | 21 000 | 0 | 0 | -0.149 +- 0.342 | -0.207 +- 0.341 |
+
+None of the set is ever sampled (fight, death and climbing code): **nothing cut, 80 ship** (game/overrides/
+decomp_liftd15_00.cpp): 47 other game code (the death tentacles' / dark effect's gamecore_sub_0137E..01384 family, the AI
+accel getters), 11 characters, 10 script (SCRCharaDead, the Knight's SetWalk / SetStand / ShakeStop /
+ParentMoveControlScriptKey / StandKeyFlag, SCRFuncAttackCancelForOneBoneRay, SCRConditionOrientLapsedTime ...),
+6 collision (edge points, hangable edge wall, climbable wall), 3 display, 2 particles, 1 sound; 13 of them D14's dv1-only.
+
+### Checks and pictures
+
+The shipped build (p2 = build/agent-scratch/celosia-d15.vpk / .elf), Vita3K 222 MHz, muted, `SOTC_VITA_EAT_USER_MB=89`,
+900 s each: f_walk (18 736 frames), f_att (32 361), f_lake (21 300): all boot and run (`D15 80 ... d15 on`), no fault.
+Pictures every 150 s looked at (Wander running by the shrine's wall on the plain, Agro galloping in the attract demo,
+Wander swimming in Avion's lake with the HUD) and deleted. spalign on celosia-d15.elf: 855 NEON :128/:256 accesses, 0
+sp-based. Mac pictures kept in runs/keep/ (Quadratus' back and horns, Gaius' belt / edge / head, Basaran's shell,
+Phaedra's death, Valus' back).
+
+### Decomp numbers
+
+tools/decomp_status.py on the shipped Mac build's replaced dump (attract to frame 1 500, round 71's calls):
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (`SOTC_WORKER91=0`), D15 | **5 707 of 9 024 (63.24%)** | 67.43% | 97.63% | 69.76% |
+| gates on, D15 | 5 750 (63.72%) | 67.61% | 98.16% | 69.97% |
+| honest, D14 | 5 627 (62.36%) | 65.94% | 97.63% | 67.98% |
+
+By area (honest; D14 in brackets): script and events 294 of 633 (284), collision and physics 219 of 317 (213), characters
+and motion 760 of 1 206 (749), other game code 1 936 of 2 905 (1 889), display and models 528 of 976 (525), particles 100
+of 115 (98), sound 72 of 102 (71); camera 208, system 155, boot ELF 1 313, math 122 unchanged.
+
+### What the next rounds should take
+
+- Ten colossi are spawned by the player's approach (or a story event), not by `active<n>` + `boss<n>`: a teleport into
+  each arena (the boss's own start place from its layout / stage data, or SOTC_TELEPORT_SCAN over the arena) before the
+  ptrack, or a recorded session per colossus. Their script is most of the 339 script functions left.
+- Valus does not die from blind stabs: drop Wander at his weak points (head, back) instead of the root plus dy.
+- The 40 unchecked of D15's 120 and D14's 29 hot motion / camera cuts stay recompiled.
