@@ -17,6 +17,10 @@
 //                zero where no UNPACK wrote, later UNPACKs over earlier ones). (~0.47%)
 //   kZero (16)   ctrlTurn zeroed its 32 VU0 registers (a 512-byte memset: sceClibMemset) and then loaded 19 of them:
 //                only the other 13 are zeroed now (the same values). (~0.2%)
+//   kHookTime (32) with the frame log on (SOTC_FRAME_LOG=1, the console's env) every display hook on the game thread
+//                (modelDispHook, ptclS1Commit, meshDispHook, shadowCapture, ...) read the clock twice for the log's
+//                "hooks" time: ~350 sceKernelGetProcessTimeWide a frame riding (a syscall on the console). Not read
+//                (the log's hooks time reads 0 on those frames) unless SOTC_S9RT_HOOKTIME=1.
 //
 // SOTC_S9RT_PARTS=<mask> (default all) limits the switch to some parts (the rest stay as before); SOTC_S9RT_CHECK=1 runs
 // the checkable parts both ways (kEvict: the full pass's candidate list against S9's; kShadow: the two palettes; kCopy:
@@ -38,12 +42,14 @@ namespace s9rt
         kCopy = 4u,
         kShadow = 8u,
         kZero = 16u,
-        kAll = 31u
+        kHookTime = 32u,
+        kAll = 63u
     };
     // Read once at install (s9rt::init from sotc_native's install): plain loads in the hot paths, no static guards.
     inline uint32_t g_parts = kAll;
     inline bool g_check = false;
     inline uint32_t g_log = 0;
+    inline bool g_hookTimeAll = false; // SOTC_S9RT_HOOKTIME=1: the hooks' clock reads kept with S9 on
     inline void init()
     {
         const char *v = std::getenv("SOTC_S9RT_PARTS");
@@ -52,6 +58,8 @@ namespace s9rt
         g_check = v && std::atoi(v) != 0;
         v = std::getenv("SOTC_S9RT_LOG");
         g_log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_check ? 600u : 0u);
+        v = std::getenv("SOTC_S9RT_HOOKTIME");
+        g_hookTimeAll = v && std::atoi(v) != 0;
     }
     inline bool on(uint32_t part) { return (g_parts & part) != 0u && sotc_decomp::switchOn(sotc_decomp::kS9Rt); }
 

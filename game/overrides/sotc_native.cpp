@@ -144,7 +144,10 @@ namespace sotc_native
     // native hooks' own time (after the recompiled call they wrap).
     struct HookTimer
     {
-        uint64_t start = ps2_diag::kTimers && native_renderer::tuning().frameTiming() ? native_renderer::nowUs() : 0u;
+        // (round S9, s9rt kHookTime: not with S9 on, unless SOTC_S9RT_HOOKTIME=1: ~350 clock reads a frame riding)
+        uint64_t start = ps2_diag::kTimers && native_renderer::tuning().frameTiming() && (s9rt::g_hookTimeAll || !s9rt::on(s9rt::kHookTime))
+                             ? native_renderer::nowUs()
+                             : 0u;
         ~HookTimer()
         {
             if (start)
