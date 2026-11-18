@@ -21982,3 +21982,133 @@ per-call time and sampler NEW / OLD (z 3-7) agree. ~0.12 ms of a ~33.5 ms ride: 
 
 The wind's other round trips (GetWindVector's per-source call, the box weight through rateCube); the display walk's
 per-object chain and the characters' frame chain need structural designs; a console A/B of the prefetch aids riding.
+## Decomp D14: a grip route on the first colossus (Wander on Valus' back) and one on Avion; the climbing code trace-checked; D14's batch (SOTC_LIFTD14) (2026-11-18)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d14/` (STATE.md; mkgrip.py, mkgrip2.py, mkval.py, dvhit.py,
+survey14.py, cand14.py, gen14.sh, pass14.py, dtsum14.py, ship14.py, patch_rt14.py, heavy.sh, q1 / q2 / qab / qf / qz.sh).
+Own Vita3K tree ../vita3k-celosia-d14 (222 MHz, 3 cores, muted); at most two heavy processes machine-wide (heavy.sh counts
+Vita3K, Mac runners and ninja by executable name), all `nice -n 20`, builds `-j4`.
+
+### Where it stood
+
+After D13, 106 still-recompiled functions had been reached by one run only, D9's dv1 (Wander, by chance, on Avion: grip,
+parent points, pendulum, weak points, the boss-part damage getters), which no later run repeated. No route put Wander on a
+colossus on purpose.
+
+### The test aid: `ptrack` (sotc_replay.cpp)
+
+`SOTC_TELEPORT=<frame>:ptrack,dx,dy,dz,every,frames` drops Wander alone (Agro stays) onto the live place of the probed
+object (`SOTC_TELEPORT_PROBE=<function>`, its a0, `SOTC_TELEPORT_PROBE_OFF`) plus (dx, dy, dz), every <every> frames for
+<frames> frames, but never while he is parented: a gripping or riding Wander's +0x170 reads (0, 0, 0) (or NaN under the
+trace check), and the drop is skipped then, so a grip is not broken by the next drop. Also `SOTC_TELEPORT_NOAGRO=1` and
+`SOTC_TELEPORT_PROBE_DUMPALL=1` (the probe object's place-like words every 300 frames: which of them move). Off unless set.
+
+### Routes (Mac call counts, D13 + S6's build with the aid)
+
+| run | colossus | what it does | of the 106 dv1-only | pictures |
+|---|---|---|---:|---|
+| grip1 | Avion (record 4) | the console card, `2000:boss4h600`, Wander on D9's pillar, then 600-frame blocks: ptrack onto the bird control work (probe 0x1438C80, +0xA0) at dy 1-4 every 12 frames for 240, R1 held, then the stick / SQUARE | 55 | Avion's fur and armour plates close up with the grip gauge; the gauge drained (gripping); then Avion's probe sank to y -16 with Wander parented and the pictures stayed grey (under water) to the end |
+| grip2 | Avion | grip1 with the parented check and longer tracking | 1 | Wander standing on a pillar top seen from above, the probe still: failed |
+| val1 | **Valus (record 0)** | `2400:active0`, `2460:boss0h600`, Wander dropped near Valus' home; probe nico_execMinotaurA_Cloth (0x13983B0): its a0's +0x170 **is Valus' live root** (~12 above the ground; D10 had read it before he streamed in) | 0 | Valus walks his round and reaches Wander (his legs beside Wander and Agro on the plateau) |
+| **val2** | **Valus** | mkval.py: val1's start, then from 3 200 ptrack onto Valus' root plus dy 6 / 10 / 14 / 18 (every 30 frames, 600-frame entries), R1 held in 1 000-frame stretches, the stick every 300, SQUARE held 40 frames every 150 | **64** | **Wander on Valus' back, gripping the fur** (top-down: the back, the fur ridge, the boss's health bar dented by the stabs, Agro on the ground below; the grip gauge drained) |
+
+grip1 and val2 together reach 87 of the 106; with val2 also Valus' fight code (boss part damage, weak-point damage, the
+stab's effects and sounds). The user asked for the first colossus as the primary grip route: val2 is the route of record.
+
+### D14's batch (SOTC_LIFTD14)
+
+patch_rt14.py adds kLiftD14 / `SOTC_LIFTD14` (default on, A/B `liftd14`, knob `SOTC_LIFTD14_RANGE=<lo>:<hi>`), the macros
+SOTC_DECOMP_LIFT_FUNCTION_D14 / _FALLBACK_D14 and `lift_d1.py --d14`. Candidates (survey14.py over every call-count run,
+D7-D14: 270 reached and still recompiled; cand14.py): not interrupt-side, not an earlier speed cut, plus D13's 29 functions
+left out for scattered RAM bytes: **191 lifted, 0 refused**.
+
+**Exact.** Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200, `SOTC_WORKER91=0`), runner-t1
+with the 191:
+
+| pass | route | functions checked | checks | mismatches |
+|---|---|---:|---:|---|
+| dt14_val2 | val2 (Wander on Valus) | 115 | 14 386 | 0 |
+| dt14_grip1 | grip1 (Avion) | 80 | 15 353 | 0 |
+| dt14_act0 | D13's act0 (records 0-3) | 36 | 15 608 | 0 |
+| dt14_fv2 | the new game, Valus' plateau | 20 | 5 802 | 0 |
+| dt14_att | the attract demo | 21 | 7 602 | 0 |
+| dt14_act2 | D12's act2 (records 10-15) | 32 | 16 204 | 0 |
+| dt14_act3 | D13's act3 (records 4-9) | 34 | 10 606 | 0 |
+| dt14_ledge | D13's ledge route | 31 | 14 003 | 0 |
+
+**141 functions checked at top level, 99 564 checks, not one mismatch line** (no register, pc, clock or RAM difference,
+not even at the noise words 0x29126c / 0x1568070 that every earlier round saw). 50 were never checked at top level (single
+calls, or only dv1 / ngv2 reached them).
+
+**D13's 29 RAM-byte functions** (D13 left them out for single RAM bytes at scattered addresses on act0 / act2 / act3 /
+attract / fv2): all 29 were checked again on the same routes and gave no RAM byte at all (on the full list's eight passes, 99 564 checks with all 191 hooked). Checked alone (the 29 the only hooks, so the game
+runs faster under the check), the bytes come back, and only with the host workers on: nz_att_on (attract, workers on)
+6 402 checks, 4 single RAM bytes off the noise words (0x01a5e100 twice, 0x017bf450, 0x00b39e4c); nz_att_off (S5 / S6
+threads and worker 105 off: `SOTC_S5PTCL_THREAD=0 SOTC_S6COLL_THREAD=0 SOTC_WORKER105=0`) 7 602 checks, 0; nz_act0_off
+(act0, workers off) 13 101 checks, 0 (one byte at 0x1568071, inside the known noise word); nz_att_ctl (the control:
+generated code in both legs) 7 302 checks, 0. The bytes are the host workers' writes landing
+between the record and the replay, not a lifter difference: the 29 are exact. They are cut for speed anyway (below).
+
+**Speed** (Vita3K 222 MHz, the interleaved A/B `SOTC_AB_FLAG=liftd14 SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>`, p1 with the 191,
+1 260 s a run, sampler 120-1 200 s; mix7.py over the 191; frame times tools/mixframes.py `--shift -1`, from frame 3 000,
+300-frame blocks, off - on +- 2 SE). The lake is S6's `lake6` (in_lake6.txt, `2000:boss4`, hold 600), not in_tbz2:
+
+| run | frames (on / off) | the 191, lifted vs recompiled (samples / 1 000 frames) | slower z > 2 | faster z < -2 | frame ms off - on | busy ms off - on |
+|---|---|---|---:|---:|---|---|
+| lfA7 (attract, seed 7) | 14 038 / 14 070 | 3 296 vs 2 746 (120.0%) | 21 | 0 | +0.030 +- 0.129 | -0.011 +- 0.128 |
+| lfL7 (lake6, seed 7) | 10 492 / 10 503 | 8 585 vs 6 292 (136.4%) | 21 | 1 | -0.229 +- 0.126 | -0.225 +- 0.123 |
+| lfA11 (attract, seed 11) | 21 108 / 21 526 | 3 084 vs 2 563 (120.3%) | 24 | 1 | -0.000 +- 0.101 | -0.010 +- 0.092 |
+| lfL11 (lake6, seed 11) | 10 170 / 10 259 | 8 738 vs 6 446 (135.5%) | 21 | 2 | -0.232 +- 0.135 | -0.250 +- 0.133 |
+
+The set was slower on the lake (0.23 ms a frame), and the slower functions are exactly the 29 earlier speed cuts / RAM-byte
+functions again (player_HellDangerDetect z 18, gamecore_sub_0138CB48 z 13, manager_sub_010B00A8, manager_sub_010D5130,
+GetMainAnimation, GetMotionRootFloatFrame, charrootdyn_getMotionRootInfo ...): the lifter's code for hot motion and camera
+functions stays slower than the generated code on the A9. **Cut: every passing function slower (z > 2) in any run, 29**
+(cut14.txt). None of the climbing / fight functions is hot enough to be sampled slower.
+
+**112 ship** (regenerated with only them: game/overrides/decomp_liftd14_00.cpp): 38 other game code, 31 characters, 24
+collision, 10 script, 5 display, 4 particles; 76 of them functions only D9's dv1 had reached (pendulum and its effectors,
+the colfit shoulder / hand effectors, parent point xz fit and GP info, edge points, grip point / hang geometry, boss parts
+damage from collision attributes, weak-point damage, the attack accumulate / send-damage / hit-sound script calls).
+
+**The shipped 112** (p2, one more interleaved A/B on the lake, where the 191 were slower: lake6, seed 7, 1 260 s, lfL7f):
+8 810 / 8 776 frames, none of the 112 sampled at all (they are cold: climbing and fight code), frame time off - on
++0.013 +- 0.093 ms, busy +0.015 +- 0.092 ms: neutral (the 191 read -0.229 +- 0.126 on the same route).
+
+### Checks and pictures
+
+The shipped build (p2 = build/agent-scratch/celosia-d14.vpk in the worktree), Vita3K 222 MHz, muted,
+`SOTC_VITA_EAT_USER_MB=89` (the console's free memory), 900 s each: f_walk (the console card's walk, 21 009 frames), f_att
+(the attract demo, 35 489), f_lake (lake6: Avion's lake, 16 660): all boot and run (`[liftd1] ... D13 78, D14 112 ... d14
+on`), no fault. Window pictures every 150 s: Wander running past Agro on the plain, Agro galloping along a ridge in the
+attract demo, Wander swimming in Avion's lake with the HUD; looked at and deleted. spalign on celosia-d14.elf: 849 NEON
+:128/:256 accesses, 0 sp-based. The 112 are lifted guest functions, reading through the same RAM accessors as the
+generated code (no native reads guest memory before the guest sets it). Mac pictures of the grip routes kept in
+runs/cc_val2/ (frames 25, 29, 70, 90: Wander on Valus' back) and runs/cc_grip1/ (5, 7, 13, 16: Avion close up).
+
+### Decomp numbers
+
+tools/decomp_status.py on the shipped Mac build's replaced dump with `SOTC_WORKER91=0` (the honest count; attract demo to
+frame 1 500; calls from round 71's dumps); docs/decomp_status.json written from it:
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (gates off), D14 | **5 627 of 9 024 (62.36%)** | 65.94% | 97.63% | 67.98% |
+| as earlier rounds counted (gates on), D14 | 5 670 (62.83%) | 66.12% | 98.16% | 68.20% |
+| honest, D13 | 5 515 (61.11%) | 64.39% | 97.63% | 66.14% |
+
+By area (honest, functions; D13 in brackets): script and events 284 of 633 (274), collision and physics 213 of 317 (189),
+display and models 525 of 976 (520), characters and motion 749 of 1 206 (718), other game code 1 889 of 2 905 (1 851),
+camera 208 of 282 (208), system and memory 155 of 230 (155), particles 98 of 115 (93), sound 71 of 102 (71), boot ELF
+1 313 of 2 136 (1 314; one function moved from boot ELF to particles in the area split), math 122 of 122.
+
+### What the next rounds should take
+
+- The 19 dv1-only functions neither route reached (the swim-under-water ones, the bird's own path data, MotSpdCtrl, the
+  lws plays): a ptrack route on another colossus whose weak point is reached by climbing (Gaius, Phalanx) or an Avion
+  route that starts from the pillar when it swoops.
+- The 50 reached but never checked at top level: single calls; a second val2 run with a longer fight (Valus killed: the
+  death and the boss-end script) would check most of them.
+- The 29 hot motion / camera functions: exact (D14 found no difference) but slower lifted; hand natives are the route.
+- With ptrack every colossus can be climbed in a replayable run: one route per colossus (records 1-15) reaches each one's
+  own reactions to being climbed and stabbed, which is most of what is left in script and collision.
