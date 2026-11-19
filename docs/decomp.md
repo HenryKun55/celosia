@@ -22958,3 +22958,46 @@ D19 looked for a direct death instead of D18's stab path, so the kill routes cou
   no kLiftD19 switch (the tables were made and dropped).
 - **Next**: what the death sequence waits for after SCRCharaDead (the death motion load from checkDeadMotionLoad, or a script
   wait on the death demo); the Argus death of D17 (k14) did complete and is the reference to diff call counts against.
+
+## Redesign S19: the ambient light lookups without guest calls; the ride's profile on main + S17 + S16 (SOTC_S19AMB, off by default) (2026-11-19)
+
+The full write-up is docs/lights_s19.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s19/`
+(clone.sh the build dir cloned from S16's, prof.sh the sampler, chk19.sh the check, abs19.sh the s19amb interleaved A/B,
+chainA.sh / chainB.sh / chainC.sh build-then-queue started with nohup, vq.out). Own Vita3K trees ../vita3k-celosia-s19 /
+-s19b (222 MHz, 3 cores, muted), deleted at the end.
+
+### The profile (ride7, Vita3K 222 MHz, p0 = 1f8bb16, every default-on switch; game thread 34.3 ms, a loaded machine)
+
+Top 10 (self): memcpy 1.41%, modelDispHook 1.36 (S10 / S14 / S16), quad117 1.22 (S12), char122::decodeKey 1.15 (host
+since round 122), objectLines67 1.13 (the console's prefetch), coll115::walkT 1.09 (host leaf blocks since round 115),
+dispDispObjGroupModel 1.04 (S4 / S10), windZonesBody 1.02 (S7), s3chara::pose 0.99 (S3), obj125Run 0.91; then callGuest
+0.77 (0.53 of it from the particle draw list), finder 0.77, the particle emitter 0.75, addSortObj 0.73, lightPass 0.70.
+No unredesigned item past 1% is guest-shaped any more; the light pass (~2.6% over its functions) is the largest area no
+S round took, and getAmbientColorC (0.41%) its most PS2-shaped piece: the ambient colour at a point, asking the kernel's
+group API for the ambient light objects through guest calls.
+
+### What changed (`SOTC_S19AMB`, A/B `s19amb`; `_CHECK`, `_LOG`)
+
+getAmbientColorC's group walks (isysGroupForFirst, GetAmbientLightClass and isysGroupForNext per light object,
+isysGroupForExit; one walk for the point's cell and one per sample in a neighbouring cell) as host reads of the isys
+link table, the links and objects passed over as ForFirst / ForNext pass them; GetAmbientLightObjGroup inline; floorf
+(eight a call) called as its native, not through the table. Taken only while this thread holds the isys lock already
+(the walk's guest calls then only move walk counts up and back down: nothing left changed), with every relocated site
+naming the function it stands in for, on the game's runtime. Riding: ~14 calls a frame, all on the host path, ~13 table
+calls out of each.
+
+### Checks, A/B, decision
+
+`SOTC_S19AMB_CHECK=1` (each call the old way first, then the host way from the same state; the colour, the cell call's
+outputs, v0, f0 / f1, fcr31, vf5..vf7, pc / sp / ra compared): ride7 164 834, lake6 111 468, attract 97 212 calls,
+**0 differences**. A/B (Vita3K 222 MHz, interleaved, off - on): ride7 +0.394 +- 0.328 ms (seed 7, 700 s), -0.137 +-
+0.257 (seed 11, 700 s), +0.012 +- 0.215 (seed 13, 900 s); lake6 -0.130 +- 0.146; attract -0.006 +- 0.145. The sampler bounds the saving: the old walk's
+own samples 0.02 ms a frame, the callees' from it ~0.01 ms, the inline table calls inside getAmbientColorC not
+separable (its self time 0.41%). **Off by default** (`SOTC_S19AMB=1` on; exact, for the console's A/B). Boot with 89 MB
+taken (bootRp1, S19 on): mounted at 2 339, rode to 12 232, no fault; pictures normal. spalign 0 sp-based.
+
+### What it leaves
+
+The whole global light query as a host record per object (ExecGlobalLightMan 0.51%, ~12 us a call, with the ambient
+colour inside it), getAmbientColorC's own arithmetic as a per-point memo, the particle draw list's per-node table calls
+(callGuest 0.53% from decomp_ptcl117::listImpl): docs/lights_s19.md section 6.
