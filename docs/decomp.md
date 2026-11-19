@@ -23190,3 +23190,43 @@ kLiftD21 switch; what the trace passes found is kept here for whoever picks the 
   mode end?), and whether Wander in / on the water keeps it set.
 - Celosia: a steadier handle than the probe's last a0 (keep only an a0 whose CheckSCRCharaAIWorkPtr gives a boss work), then
   why its pre-process never takes the death path after bdie.
+## Redesign S23: the light pass's later walks over a host list (SOTC_S23LIGHT, off by default) (2026-11-19)
+
+The full write-up is docs/lights_s23.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s23/`
+(clone.sh the build dir cloned from S21's, b.sh the build, prof.sh / profA.sh the profile, tools/pclines.py, chk23.sh
+the check, abs23.sh / q.sh the interleaved A/B, chainA..C.sh started with nohup, vq.out, NOTES.txt). Own Vita3K trees
+../vita3k-celosia-s23 / -s23b (222 MHz, 3 cores, muted), deleted at the end.
+
+### The profile
+
+Riding (ride7, S21's p3, 120-660 s, 34.9 ms a frame on a loaded machine) the light pass's functions take ~3.2% of the
+game thread: lightPass 0.72%, execImpl 0.52%, getAmbientColorC's impl 0.41%, objectLight 0.28%, calcLightLayoutObj
+0.25%, lightMatrices 0.13%, blendLights 0.11%, setWorkImpl 0.11%, normalLightMatrix 0.09%, colMan83 0.08%,
+SetGeoDispClassLightColMan 0.08%, walk83ParticleLight 0.08%, ExecGameLight 0.06%. lightPass, the biggest, is flat
+over its 19 KB.
+
+### What changed (`SOTC_S23LIGHT`, A/B `s23light`; `_CHECK`, `_LOG`)
+
+The pass walks the frame's sort list (~130 nodes riding) three times; walks 2 and 3 act only on layout objects (~72
+riding) and pass over the rest without touching memory or a register. S23 keeps, from walk 1, every node the later
+walks do not pass over at once (a nonzero inline class, or a class the guest GetLayoutClass gives: those nodes make the
+guest call again) and runs walks 2 and 3 over that host list, everything read live; the sort list's index word is
+stored as the full walk leaves it; the pass runs the full walks when round 95's join adds a node that is not class 0
+(never seen). The first build (p1) also fell back on guest-class nodes, which are in every frame's list: p2 keeps them.
+
+### Checks, A/B, decision
+
+`SOTC_S23LIGHT_CHECK=1` (the walks the old way; the nodes they do not pass over at once, in order, and the index word
+each leaves compared with the host list's): ride7 23 310, lake6 16 180, attract 31 436 walks, **0 differences**. A/B
+(Vita3K 222 MHz, interleaved, off - on, SOTC_S23LIGHT=1): ride7 +0.144 +- 0.322 ms (seed 7), -0.041 +- 0.163 (seed 13),
+-0.167 +- 0.432 (seed 11); lake6 +0.605 +- 1.005; pooled -0.008 +- 0.068 ms, z -0.1: **off by default** (in
+sotc_decomp.h's off list; SOTC_S23LIGHT=1 on): the ~116 node visits and two bucket scans it saves a frame riding are
+~0.02-0.04 ms, below the A/B's resolution. Boot with 89 MB taken: mounted and rode, pictures normal. spalign 0 sp-based.
+
+### What it leaves
+
+lightPass's own ~0.7% is the guest-call machinery around its callbacks (11 inlined callGuest sites), not the walks'
+reads; the global light query (execImpl 0.52%), getAmbientColorC (0.41%), and the per-object colour manager
+(SetGeoDispClassLightColMan's lift calling ExecGlobalLightMan, SetWorkFromGlobalLight, ExecGameLight and the light
+matrices through the table, ~0.55% with the matrices' helpers): one host function for the colour manager, and the pass
+calling the native callbacks directly, are what is left (docs/lights_s23.md section 6).

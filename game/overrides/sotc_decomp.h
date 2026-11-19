@@ -717,7 +717,7 @@ namespace sotc_decomp
         kS22Ptcl,  // round S22: the particle draw list (0113ACB8) without a guest call per node: its runs' sort as a host
                    // copy of the libc qsort over the nodes' depths, each node's view pass and disp_particle_emitter called
                    // straight (decomp_ptcl117.cpp; exact: SOTC_S22PTCL_CHECK)
-        kS23Light, // round S23: the light pass's second and third walks over the layout objects the first walk found (a host
+        kS23Light, // round S23 (off unless SOTC_S23LIGHT=1): the light pass's second and third walks over the layout objects the first walk found (a host
                    // list), not the whole sort list again (decomp_light.cpp; exact: SOTC_S23LIGHT_CHECK)
         kSwitchCount
     };
@@ -779,9 +779,11 @@ namespace sotc_decomp
             // Round S21: s21light on (SOTC_S21LIGHT=0 off): exact (checks: 0 differences in 355 850 calls), its A/Bs pooled
             // +0.13 +- 0.05 ms (z about 2.4; docs/lights_s21.md).
             // Round S22: s22ptcl off unless SOTC_S22PTCL=1 (docs/ptcl_s22.md).
+            // Round S23: s23light off unless SOTC_S23LIGHT=1: exact (checks: 0 differences in 71 926 walks) but even in the
+            // frame time's A/B (the walks it shortens are ~0.05 ms a frame riding; docs/lights_s23.md).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
