@@ -109,6 +109,7 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 namespace decomp_wind
 {
     extern bool g_s7AbOff; // round S7 (decomp_wind.cpp): the A/B windows' `s7wind`
+    extern bool g_s7AbOn;  // round S20: the A/B's on windows of a listed s7wind
 }
 namespace native_renderer
 {
@@ -3505,10 +3506,21 @@ namespace sotc_native
         {
             for (size_t i = 0; i < kTuningCount; ++i)
                 tuningAt[i] = indexOf(kTuningFlags[i].name);
+            // Round S20: a switch listed by name that starts off (off by default and its SOTC_<NAME> not set to 1) is turned
+            // ON in its on windows. Before S20 the on windows restored the starting value, so the A/B of a default-off switch
+            // without its env compared off with off (S17's A/Bs: docs/runtime_s18.md, docs/ab_s20.md). SOTC_AB_FORCE_ON=0
+            // keeps the old rule (on windows = the starting value). Either way a loud [ab] line names each such switch.
+            static const bool forceOn = !(ps2_diag::env("SOTC_AB_FORCE_ON") && ps2_diag::env("SOTC_AB_FORCE_ON")[0] == '0');
             for (int i = 0; i < sotc_decomp::kSwitchCount; ++i)
             {
                 switchStart[i] = sotc_decomp::switchOn(i);
                 switchAt[i] = indexOf(switchNames[i]);
+                if (switchAt[i] >= 0 && !switchStart[i])
+                {
+                    std::fprintf(stderr, "[ab] WARNING: %s (%s) is off at the start: its on windows turn it %s\n", switchNames[i], sotc_decomp::kSwitchEnv[i],
+                                 forceOn ? "ON (S20 rule; SOTC_AB_FORCE_ON=0: stays off, an A/A)" : "OFF too (SOTC_AB_FORCE_ON=0: this A/B compares off with off)");
+                    switchStart[i] = forceOn;
+                }
             }
             for (uint32_t layer = 0; layer < 32u; ++layer) // L<n>: display list layer n hidden
                 layerAt[layer] = indexOf("L" + std::to_string(layer));
@@ -3779,7 +3791,20 @@ namespace sotc_native
             // Round S7: `s7wind` (decomp_wind.cpp's wind-zone query; not a sotc_decomp switch).
             static const int s7windAt = indexOf("s7wind");
             if (s7windAt >= 0)
+            {
+                // Round S20: listed, its on windows turn it on even without SOTC_S7WIND=1 (SOTC_AB_FORCE_ON=0: the old rule).
+                static const bool s7On = []
+                {
+                    const bool force = !(ps2_diag::env("SOTC_AB_FORCE_ON") && ps2_diag::env("SOTC_AB_FORCE_ON")[0] == '0');
+                    const char *e = std::getenv("SOTC_S7WIND");
+                    if (e && std::atoi(e) == 0) // on by default since S20; off only with SOTC_S7WIND=0
+                        std::fprintf(stderr, "[ab] WARNING: s7wind (SOTC_S7WIND) is off at the start: its on windows turn it %s\n",
+                                     force ? "ON (S20 rule)" : "OFF too (SOTC_AB_FORCE_ON=0: an A/A)");
+                    return force;
+                }();
                 decomp_wind::g_s7AbOff = isOffAt(s7windAt);
+                decomp_wind::g_s7AbOn = s7On && !decomp_wind::g_s7AbOff;
+            }
             // Round S8: `s8cloth` (s8_cloth.cpp's cloth jobs on the guest worker).
             static const int s8clothAt = indexOf("s8cloth");
             if (s8clothAt >= 0)

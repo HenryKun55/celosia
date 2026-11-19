@@ -42,6 +42,7 @@ namespace decomp_wind
     // ways from the same state and compared (results, count, registers, the frame); SOTC_S7WIND_LOG=1: [s7wind] counts
     // and [s7time] the host time a call by state, every 600 frames.
     bool g_s7AbOff = false; // set by sotc_native's A/B windows (`s7wind`)
+    bool g_s7AbOn = false;  // round S20: listed in SOTC_AB_FLAG, its on windows turn it on even without SOTC_S7WIND=1
     namespace s7
     {
         int g_on = -1, g_check = 0, g_log = 0;
@@ -54,14 +55,15 @@ namespace decomp_wind
         {
             if (__builtin_expect(g_on < 0, 0))
             {
-                // Off by default (round S7's rule: kept on only with z > 2 in both seeds; the ride's seed 11 read -0.10 ms):
-                // SOTC_S7WIND=1 turns it on (the console A/B's env-console.txt does, with `s7wind` in its rotation).
-                g_on = envOn("SOTC_S7WIND", false) ? 1 : 0;
+                // On by default since round S20 (S7 left it off: z > 2 was asked of each seed): exact (0 differ), and all its
+                // A/Bs pooled with S20's ride7 seed 13 (+0.22 +- 0.39) read +0.12 +- 0.06 ms (2 SE), z about 4 (docs/ab_s20.md).
+                // SOTC_S7WIND=0 turns it off.
+                g_on = envOn("SOTC_S7WIND", true) ? 1 : 0;
                 g_check = envOn("SOTC_S7WIND_CHECK", false) ? 1 : 0;
                 g_log = envOn("SOTC_S7WIND_LOG", false) ? 1 : 0;
                 std::fprintf(stderr, "[s7wind] init: on %d, check %d, log %d\n", g_on, g_check, g_log);
             }
-            return g_on && !g_s7AbOff;
+            return (g_on || g_s7AbOn) && !g_s7AbOff;
         }
         uint32_t g_copy[kCount];
         uint8_t g_list[kCount];

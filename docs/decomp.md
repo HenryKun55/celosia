@@ -23001,3 +23001,10 @@ taken (bootRp1, S19 on): mounted at 2 339, rode to 12 232, no fault; pictures no
 The whole global light query as a host record per object (ExecGlobalLightMan 0.51%, ~12 us a call, with the ambient
 colour inside it), getAmbientColorC's own arithmetic as a per-point memo, the particle draw list's per-node table calls
 (callGuest 0.53% from decomp_ptcl117::listImpl): docs/lights_s19.md section 6.
+## Redesign S20: the A/B of default-off switches re-checked; the A/B fixed; s7wind on by default (2026-11-19)
+
+S18 found S17's A/Bs were A/A (an off-by-default switch stays off in the A/B's on windows unless its env is 1). S20 audited every
+off switch: only S17 was A/A; the others were measured on but with little power. Re-measured with the env on: pose136 -0.04 +- 0.33,
+s14hook -0.06 +- 0.21 (even, unchanged), s7wind ride7 seed 13 +0.22 +- 0.39, pooled with S7's runs +0.12 +- 0.06 ms (z about 4):
+s7wind (exact) is now on by default (SOTC_S7WIND=0 off). abSwitches now turns a listed switch that starts off ON in its on
+windows and prints an [ab] WARNING (SOTC_AB_FORCE_ON=0: old rule). Details: docs/ab_s20.md.

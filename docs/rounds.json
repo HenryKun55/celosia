@@ -1087,6 +1087,14 @@
    "focus": "Subsystem redesign",
    "summary": "Round S19 profiled the ride on main + S17 + S16 (Vita3K 222 MHz, every default-on switch, game thread 34.3 ms on a loaded machine): a flat top ten (memcpy 1.41%, modelDispHook 1.36, quad117 1.22, decodeKey 1.15, the prefetch 1.13, coll115's walk 1.09, the display walk 1.04, the wind zones 1.02, the pose 0.99, the object collision loop 0.91), each either host code already or an earlier S round's. The light pass (~2.6% over its functions) is the largest area no S round took; S19 took its most PS2-shaped piece, getAmbientColorC (0.41%): the ambient colour at a lit object's point, which walked the ambient light group through the kernel's group API as guest calls. Its walks are now host reads of the isys link table (links and objects passed over as isysGroupForFirst / ForNext pass them, the light class inline), GetAmbientLightObjGroup inline and floorf called as its native: ~13 table calls fewer a call, ~14 calls a frame riding. Taken only while the thread holds the isys lock already, so the walk's guest calls would have left nothing changed.",
    "result": "Exact: SOTC_S19AMB_CHECK=1 ran every call the old way first and compared the colour, the cell outputs, v0, f0 / f1, fcr31, vf5..vf7: 164 834 calls riding, 111 468 at the lake, 97 212 in the attract demo, 0 differences. Speed even (Vita3K 222 MHz, interleaved, off - on): ride7 +0.394 +- 0.328 ms (seed 7), -0.137 +- 0.257 (seed 11), +0.012 +- 0.215 (seed 13, 900 s); lake6 -0.130 +- 0.146; attract -0.006 +- 0.145; the sampler bounds the saving to ~0.05-0.1 ms a frame. Off by default (SOTC_S19AMB=1 on), for the console's A/B. Boot with 89 MB taken: mounted, rode to frame 12 232, no fault, pictures normal; spalign 0 sp-based."
+  },
+  {
+   "round": "S20",
+   "date": "2026-11-19",
+   "commit": "",
+   "focus": "Measurement",
+   "summary": "Round S20 audited the A/Bs of every default-off switch after S18 found S17's were A/A, re-measured with the env on, and fixed the A/B so a listed switch that starts off is turned on in its on windows (with a warning).",
+   "result": "Only S17 was A/A. Re-measured: pose136 -0.04 +- 0.33 ms, s14hook -0.06 +- 0.21 (even); s7wind +0.22 +- 0.39 (ride7 seed 13), pooled with S7's runs +0.12 +- 0.06 ms, z about 4: s7wind (exact) on by default. The fix checked on the Vita build (warning printed, s12draw active in its on windows)."
   }
  ]
 }
