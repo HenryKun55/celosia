@@ -415,6 +415,14 @@ void EeScheduler::run()
                 m_vu0OwnerValid = true;
             }
         }
+        if (__builtin_expect(g_ps2xS17Log != 0u, 0) && s18Since != 0u)
+        {
+            // Round S18: a run of the home thread's pending checkpoints ends at this dispatch.
+            const uint32_t n = s18Since;
+            s18Since = 0u;
+            ++g_eeS17.s18Runs;
+            ++g_eeS17.s18Hist[n < 2u ? 0 : n < 4u ? 1 : n < 16u ? 2 : n < 64u ? 3 : n < 256u ? 4 : 5];
+        }
         if (__builtin_expect(g_ps2xS17Log != 0u, 0) && running->invocations.empty() && running->id == m_s17Home)
         {
             // Round S17: the home thread dispatched again at its own context (an unwound episode's end; the rebuild's hops)
@@ -594,6 +602,8 @@ bool EeScheduler::checkpointSlow() noexcept
         // Round S17: the dispatch nested here instead of the unwind (s17Checkpoint).
         if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
         {
+            if (g_ps2xS17Log != 0u)
+                s18NotePending();
             const int r = s17Checkpoint();
             if (r == 0)
                 return false;
@@ -2971,6 +2981,44 @@ void EeScheduler::publishIdleDebugContext()
 uint32_t g_ps2xS17Parts = 0u, g_ps2xS17Check = 0u, g_ps2xS17Log = 0u;
 int g_ps2xS17Home = 0;
 EeS17Stats g_eeS17;
+
+// Round S18: the home thread's pending checkpoints at its own context, counted (the [s18] lines; docs/runtime_s18.md).
+uint32_t EeScheduler::s18Since = 0u;
+
+static void s18Note(EeS17Stats::Pc (&table)[32], uint32_t key) noexcept
+{
+    EeS17Stats::Pc *free = nullptr;
+    for (EeS17Stats::Pc &e : table)
+    {
+        if (e.key == key && e.n != 0u)
+        {
+            ++e.n;
+            return;
+        }
+        if (!free && e.n == 0u)
+            free = &e;
+    }
+    if (free)
+    {
+        free->key = key;
+        free->n = 1u;
+    }
+}
+
+void EeScheduler::s18NotePending() noexcept
+{
+    if (m_s17Depth != 0 || std::this_thread::get_id() != m_executorThread)
+        return;
+    GuestThread *home = currentThread();
+    if (!home || g_ps2xS17Home == 0 || home->id != g_ps2xS17Home || m_insideInterrupt || !home->invocations.empty())
+        return;
+    ++g_eeS17.s18Pend;
+    if (m_unwinding || m_clock.transferred)
+        ++g_eeS17.s18PendUnw;
+    const R5900Context &c = home->activeContext();
+    s18Note(s18Since == 0u ? g_eeS17.s18First : g_eeS17.s18Rep, c.pc & 0x1FFFFFFu);
+    ++s18Since;
+}
 
 void EeScheduler::s17NotePc(uint32_t key) noexcept
 {

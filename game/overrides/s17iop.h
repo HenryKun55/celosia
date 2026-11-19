@@ -9,7 +9,7 @@
 // loop would pick the game thread again its frames go on. Not nested: inside a handler or invocation, a posted external
 // wake whose waiter has not parked (S15's lost reply), less than 192 KB of host stack left.
 //
-// SOTC_S17IOP=1 on (off by default unless the A/B says otherwise); SOTC_S17IOP_CHECK=1 sends every other episode the old
+// On by default since round S18 (SOTC_S17IOP=0 off: the A/B with S17 really on, docs/runtime_s18.md); SOTC_S17IOP_CHECK=1 sends every other episode the old
 // way and records both paths' episodes (threads run, kernel calls in order: runs, parks, signals, wakes, readies,
 // handlers queued, invocations, dormant) as order hashes; SOTC_S17IOP_LOG=<frames> prints "[s17]" counts (and records
 // the episodes, also with the switch off: the profile of what unwinds).
@@ -28,9 +28,11 @@ namespace s17iop
 
     inline void init()
     {
-        // Off unless SOTC_S17IOP=1 (set here, not in sotc_decomp.h's default list); the A/B's turns still flip it.
+        // Round S18: on unless SOTC_S17IOP=0 (set here, not in sotc_decomp.h's default list); the A/B's off turns still
+        // flip it (an A/B of s17iop now compares on with off without any env; S17's runs, with it off by default and no
+        // SOTC_S17IOP=1, compared off with off).
         const char *e = std::getenv("SOTC_S17IOP");
-        sotc_decomp::g_switch[sotc_decomp::kS17Iop] = (e && e[0] == '1') ? 1 : 0;
+        sotc_decomp::g_switch[sotc_decomp::kS17Iop] = (e && e[0] == '0') ? 0 : 1;
         const char *v = std::getenv("SOTC_S17IOP_LOG");
         g_log = v ? static_cast<uint32_t>(std::atoi(v)) : 0u;
         v = std::getenv("SOTC_S17IOP_CHECK");
@@ -119,6 +121,25 @@ namespace s17iop
             for (int i = 0; i < 16 && (top[i].n[0] | top[i].n[1]) && at < 1300; ++i)
                 at += std::snprintf(line + at, sizeof(line) - at, " %04llx=%llu/%llu", (unsigned long long)(top[i].h & 0xFFFFu), (unsigned long long)top[i].n[0], (unsigned long long)top[i].n[1]);
             std::fprintf(stderr, "%s\n", line);
+        }
+        {
+            // Round S18: the home thread's pending checkpoints at its own context (old path): per frame, the runs between
+            // two dispatches by length, the ones met with `unwinding` already set; the top pcs (totals since boot).
+            std::fprintf(stderr, "[s18] frame %llu: pending at home %.2f (unwinding already set %.2f); runs %.2f: 1 %.2f, 2-3 %.2f, 4-15 %.2f, 16-63 %.2f, 64-255 %.2f, 256+ %.3f\n",
+                         (unsigned long long)frame, d(e.s18Pend, last.s18Pend), d(e.s18PendUnw, last.s18PendUnw), d(e.s18Runs, last.s18Runs),
+                         d(e.s18Hist[0], last.s18Hist[0]), d(e.s18Hist[1], last.s18Hist[1]), d(e.s18Hist[2], last.s18Hist[2]), d(e.s18Hist[3], last.s18Hist[3]),
+                         d(e.s18Hist[4], last.s18Hist[4]), d(e.s18Hist[5], last.s18Hist[5]));
+            for (int w = 0; w < 2; ++w)
+            {
+                EeS17Stats::Pc top[32];
+                std::copy(std::begin(w ? e.s18Rep : e.s18First), std::end(w ? e.s18Rep : e.s18First), top);
+                std::sort(std::begin(top), std::end(top), [](const EeS17Stats::Pc &a, const EeS17Stats::Pc &b) { return a.n > b.n; });
+                char line[1400];
+                int at = std::snprintf(line, sizeof(line), "[s18] %s pcs frame %llu:", w ? "repeat" : "first", (unsigned long long)frame);
+                for (int i = 0; i < 24 && top[i].n && at < 1300; ++i)
+                    at += std::snprintf(line + at, sizeof(line) - at, " %x=%llu", top[i].key, (unsigned long long)top[i].n);
+                std::fprintf(stderr, "%s\n", line);
+            }
         }
         last = e;
         last11 = k;

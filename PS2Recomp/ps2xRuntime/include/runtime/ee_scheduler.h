@@ -310,6 +310,12 @@ struct EeS17Stats
     } sigs[96];
     uint64_t sigOther[2] = {};
     uint32_t homeId = 0;
+    // Round S18 (the [s18] lines, with g_ps2xS17Log): the home thread's pending checkpoints at its own context on the
+    // old path, by how many came between two of run()'s dispatches (hist: 1, 2-3, 4-15, 16-63, 64-255, 256+), how many
+    // ran with `unwinding` already set (a frame went on after its callee unwound), and their pcs (repeats: the 2nd+ of a
+    // run, key pc | ra's low bits not kept: the guest pc only).
+    uint64_t s18Pend = 0, s18PendUnw = 0, s18Hist[6] = {}, s18Runs = 0;
+    Pc s18First[32], s18Rep[32];
 };
 extern EeS17Stats g_eeS17;
 
@@ -570,6 +576,8 @@ private:
     void sliceStretchCut(const GuestThread &readied);
     // Round S17 (g_ps2xS17Parts): -1 not nested (the caller unwinds as before), 0 go on, 1 unwind (state set).
     int s17Checkpoint() noexcept;
+    void s18NotePending() noexcept; // round S18: the [s18] counts
+    static uint32_t s18Since;        // round S18: the home thread's pending checkpoints since run()'s last dispatch
     int s17Nest(GuestThread &home) noexcept;
     void s17Begin(int home, int path) noexcept;
     void s17End() noexcept;
