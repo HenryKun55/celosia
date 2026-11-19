@@ -35,6 +35,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "ps2_sg2_direct.h"
+#include "ps2x/iop/audio_stats.h"
 #include "sotc_decomp.h"
 
 namespace sound_n2
@@ -130,6 +131,12 @@ namespace sound_n2
 
     void sg2RemoteTickProc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        {
+            // The mixer's N2 paths follow the switch (an A/B window flips it between ticks).
+            const int on = sotc_decomp::switchOn(sotc_decomp::kN2Snd) ? 1 : 0;
+            if (ps2x::iop::audio_stats::g_n2Mix.load(std::memory_order_relaxed) != on)
+                ps2x::iop::audio_stats::setN2Mix(on != 0);
+        }
         if (!sotc_decomp::switchOn(sotc_decomp::kN2Snd) || g_driver == 0 || (g_driver < 0 && !driverLoaded(rdram, ctx, runtime)))
         {
             if (!g_queue.empty())

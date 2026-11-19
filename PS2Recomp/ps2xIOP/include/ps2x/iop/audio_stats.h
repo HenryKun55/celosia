@@ -142,6 +142,10 @@ namespace ps2x::iop::audio_stats
     inline void setSg2q139(bool on) { g_sg2q139.store(on ? 1 : 0, std::memory_order_relaxed); }
     inline std::atomic<uint64_t> sg2Deferred{0}, sg2Drains{0}, sg2Requests{0};
     inline bool mix90Core() { return switchOn(g_mix90Core, "SOTC_MIX90_CORE"); }
+    // Round N2 (SOTC_N2SND, A/B `n2snd`: the game's switch kN2Snd sets it): the mixer's N2 paths (docs/sound_n2.md).
+    inline std::atomic<int> g_n2Mix{-1};
+    inline bool n2Mix() { return switchOn(g_n2Mix, "SOTC_N2SND"); }
+    inline void setN2Mix(bool on) { g_n2Mix.store(on ? 1 : 0, std::memory_order_relaxed); }
     // The audio thread's mix piece (frames under the mixer's lock at a time,
     // 1..64): SOTC_MIX90_CHUNK (default 32 since round 90, was 16 since round 12); PS2X_MIX_CHUNK
     // still overrides it. A/B name `chunk90`: 16 in its windows.

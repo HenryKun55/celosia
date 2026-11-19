@@ -233,6 +233,32 @@ namespace ps2x::iop::detail
         int m_pathOverride = -1; // round 90's checking: 0 the older paths, 1 round 90's, -1 the switches
         void pushOutput(const int16_t *frames, size_t count);
 
+        // Round N2 (audio_stats::n2Mix): each ADPCM block decoded once. A block's 28 samples are a function of its
+        // 8 words and the two samples before it (the filter's history), so a block decoded from the same history
+        // gives the same samples: kept per block (direct-mapped by block number), taken again when the history
+        // matches (a sample played again, a loop's next pass). A write into sound RAM drops the blocks it touches;
+        // blocks inside a reverb work area (written by the reverb itself) are never kept.
+        struct DecodedBlock
+        {
+            uint32_t tag = ~0u; // block number (word address / 8)
+            int16_t prev1 = 0, prev2 = 0; // the history it was decoded from
+            int16_t samples[28]{};
+        };
+        static constexpr uint32_t kDecodedEntries = 2048u;
+        void decodeBlockN2(Voice &voice);
+        void dropDecoded(uint32_t first, uint32_t words);
+        std::vector<DecodedBlock> m_decoded;
+        bool m_n2 = false; // render()'s: the N2 paths this piece
+        uint64_t m_decodeHits = 0, m_decodeMisses = 0;
+        // Round N2: the reverb's 24 kHz steps of a block in one loop (renderCores90's linear case).
+        void reverbRunN2(Core &core, const int32_t *inL, const int32_t *inR, int32_t *outL, int32_t *outR, uint32_t n, uint16_t *const *lin,
+                         uint32_t &steps, uint32_t &idle);
+
+    public:
+        [[nodiscard]] uint64_t decodeHits() const { return m_decodeHits; }
+        [[nodiscard]] uint64_t decodeMisses() const { return m_decodeMisses; }
+
+    private:
         std::mutex m_lock;
         std::atomic<int> m_driverWaiting{0}; // holdSpinning callers waiting for m_lock
         std::atomic<void (*)(void *)> m_pieceHookFn{nullptr};
