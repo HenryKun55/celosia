@@ -1135,6 +1135,14 @@
    "focus": "Subsystem redesign",
    "summary": "Round S23 profiled the light pass riding (~3.2% of the game thread over its functions; lightPass 0.72% the biggest) and redesigned the pass's second and third walks of the sort list: they run over the nodes the first walk found that are not passed over at once (layout objects, ~72 of ~130 riding) as a host list instead of the whole list again (SOTC_S23LIGHT, A/B s23light).",
    "result": "Exact: SOTC_S23LIGHT_CHECK=1 compared the old walks' nodes and the index word they leave on 23 310 walks riding, 16 180 at the lake, 31 436 in the attract demo: 0 differences. A/B (Vita3K 222 MHz, off - on): ride7 +0.144 +- 0.322, -0.041 +- 0.163, -0.167 +- 0.432 ms, lake6 +0.605 +- 1.005; pooled -0.008 +- 0.068 ms, z -0.1: off by default (SOTC_S23LIGHT=1 on); the work it saves is ~0.02-0.04 ms a frame. Boot with 89 MB taken rode normally; pictures normal; no sp-based NEON accesses."
+  },
+  {
+   "round": "N2",
+   "date": "2026-11-19",
+   "commit": "",
+   "focus": "Native layers",
+   "summary": "Round N2 made the sound engine's game side native: the SG2 remote layer (command queue and driver call) on the host with no guest ring or SIF RPC, Sg2SlotTickProc (the 48 voice slots' per-tick update) as host code, and the mixer's N2 paths (ADPCM blocks decoded once, NEON gather and mix, the reverb a block at a time, 64-frame pieces) (SOTC_N2SND, default on).",
+   "result": "Exact: in-run checks 0 differ (512 slot ticks, 12 288 mixer pieces against round 90, 36 000 remote ticks); recordings sample for sample the same until the attract demo's timing drifts. Mixer 1.61 vs 1.94 ms (attract), 2.94 vs 3.19 ms (ride7). Boot with 89 MB taken rode normally; pictures normal; no sp-based NEON accesses."
   }
  ]
 }

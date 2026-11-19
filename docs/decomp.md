@@ -23230,3 +23230,24 @@ reads; the global light query (execImpl 0.52%), getAmbientColorC (0.41%), and th
 (SetGeoDispClassLightColMan's lift calling ExecGlobalLightMan, SetWorkFromGlobalLight, ExecGameLight and the light
 matrices through the table, ~0.55% with the matrices' helpers): one host function for the colour manager, and the pass
 calling the native callbacks directly, are what is left (docs/lights_s23.md section 6).
+
+## Round N2: the sound native, step one: the SG2 remote layer and the slot tick on the host, the mixer's N2 paths (2026-11-19)
+
+The full write-up is docs/sound_n2.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/n2/`.
+Switch `SOTC_N2SND` (A/B `n2snd`, `kN2Snd`, default on).
+
+- **No command ring, no RPC.** Sg2RemoteSend (0x1d2010) appends to a host queue; Sg2RemoteTickProc (0x1d21e8) does
+  the DMA ring's steps and calls the native driver straight (`Sg2Driver::serve`, the RPC's body split out: the same
+  handlers, round 139's queueing, the same 400-byte reply written into the game's status block 0x28b540). No guest
+  ring, no SIF client / server records, no send-buffer copy.
+- **Sg2SlotTickProc (0x1d7498) as host code**: the 48 voice slots' per-tick update (slides, LFO, portamento, the
+  dead-voice reset), its volume / pitch / reverb-send / key commands into the host queue; the EE float operations
+  through the recompiled code's FPU helpers. `SOTC_N2SLOT=0` the original, `SOTC_N2SLOT_CHECK=1` both compared.
+- **Mixer (exact)**: each ADPCM block decoded once per history (2 048-block table), the voice's gather and mix fused
+  four outputs at a time (NEON), the reverb's steps of a block in one loop, the audio thread's piece 64 frames.
+  Mac harness (random ADPCM, ~20 voices, studio C on both cores, every piece and the state compared): 0 differ,
+  56-67% of round 90's time.
+
+- **Results**: in-run checks 0 differ (512 slot ticks, 12 288 mixer pieces, 36 000 remote ticks); recordings the same
+  sample for sample until the attract demo's own timing drifts; mixer 1.61 vs 1.94 ms (attract), 2.94 vs 3.19 ms
+  (ride7); boot with 89 MB taken rode normally, pictures normal, 0 sp-based NEON accesses.
