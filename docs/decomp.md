@@ -22492,3 +22492,112 @@ VU-exact arithmetic is the quad's cost, not the gl block's memory round trips). 
 The quads' VU-exact arithmetic (a host strip vertex needs exactness relaxed for the haze), the strips' segment walk, the
 model hook's palette / light reads out of the VIF / VU1 records, the plans checked against guest packet lists, the
 lane's +0x2c / CLIP mirror, the texture records' GS state, the layer stack: docs/display_s12.md section 6.
+
+## Decomp D16: the colossi woken in their arenas (boot flag, checkpoint places), Valus killed; D16's batch (SOTC_LIFTD16) (2026-11-18)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d16/` (STATE.md; patch_rt16.py, patch_aid16.py, mkgrip16.py,
+mkchain16.py, qg.sh, qrun.sh, survey16.py, cand16.py, gen16.sh, dtq.sh, pass16.py, ship16.py, t1prep.sh, jobs.txt). Build
+dirs cloned from D15's (same-length path sed over text and binary files: the PCH holds the worktree path, and a sed that
+skipped binary files left it pointing at D15's headers, a "redefinition" build error), own Vita3K tree
+../vita3k-celosia-d16 (222 MHz, 3 cores, muted); at most two heavy processes machine-wide, `nice -n 20`, `-j4`.
+
+### Why ten colossi "never spawned"
+
+- `bossStatBootChk` (the boss "booted" test the camera and the boss bar use) is: the active record's game object (+0xE8,
+  gStatGetGObjAdrs) present **and** game flag record+0x1C set. `bossStatSetActiveBoss` sets +0x18, clears every +0x20 and
+  enables the record's layout; the script command BootBoss (`SCRFuncBootBoss`) is `bossStatStartDemo` (Agro's warp, the
+  clouds, the checkpoint save). On the console card records 0-3 have +0x1C set (beaten), 4-15 not.
+- For 4, 5, 6, 9, 11 and 12 the boss handle **was** there after `active<n>` + `boss<n>`: D15's watchdog dropped it because
+  the colossus' +0x170 reads (0, 0, 0) while it sleeps / perches. Its home place is the object's **+0xA0** (world
+  coordinates; it moves once the colossus does).
+- For 10, 13, 14 and 15 the record's arrival place (+0x64, where bossStatStartDemo puts Agro) is a void in the streamed
+  world (Wander falls, game over): their arenas stream in from the record's **checkpoint place** (+0x54, in the same area's
+  space) instead.
+
+### The test aids (sotc_replay.cpp, SOTC_TELEPORT entries)
+
+`gflag<k>` (_gameFlagSet), `bootflag<n>` (record n's +0x1C flag), `bdemo` (bossStatStartDemo), `bkill`
+(setBossAbsoluteDeath on the boss handle's object), `pkill` (the player's final-blow routine 0x13B7730), `blife<pct>` (every
+boss part's damage set to (100 - pct)% of its life: the boss work's +0x54 parts, +0x10 records of 0x58 with the life at
++0x1C, the damage at +0xE8 + 0x24 + 8 i, as getBossPartsLifeRatio reads them), `list` (the boss table again, now with
+each record's flags, area, checkpoint and game object). ptrack / `probe` fall back to the home place (+0xA0) while +0x170
+is unset; `SOTC_TELEPORT_BOSS_DUMP=1` dumps the boss object's place-like words.
+
+### Routes (Mac call-count runs; "new" = reached and still recompiled, not reached by any run before D16)
+
+| record | colossus | route | what it looked like | new |
+|---:|---|---|---|---:|
+| 0 | Valus | v2: grip route + `blife3` / `bkill` every ~4 000 frames | **Valus dies**: the collapse cutscene, the black tentacles, the gauge growth, then the shrine's save screen (the run's own card copy) | 36 |
+| 4 | Avion | b4 / ch2 / a4: `bootflag` + approach | the boss bar; the intro cutscene (letterboxed); Avion flies (home place moves); later Wander on its perch pillar | 1 |
+| 5 | Barba | ch1 / a5 | the boss bar, Wander climbing the pit's walls; Barba's home stays still (no intro) | 2 |
+| 6 | Hydrus | a6 | the eel's script runs (thunder, damage check, line routes); the thunder kills Wander (game over) | 8 |
+| 9 | Dirge | a9 / c9 | handle present, home moves a little; no grip | 1 |
+| 10 | Celosia | c10 (checkpoint place) | the arena streams in: nico_leoBossStart, the torches, the armour check; Wander in the arena by the tower | 36 |
+| 11 | Pelagia | ch2 / a11 | the intro cutscene (Pelagia in the lake); the live root moves; Wander above / in the water with the bar | 6 (+7 in ch2) |
+| 12 | Phalanx | a12 / c12 | handle present, the home 387 below the sand never moves; some worm / snake script | 6 |
+| 13 | Cenobia | c13 (checkpoint place) | spawned, moving; its glowing eye close up with the bar | 27 |
+| 14 | Argus | c14 (checkpoint place) | nico_BossMinotaurCStart; **Wander on its back** in the fortress | 23 |
+| 15 | Malus | c15 (checkpoint place) | nico_buddhaStart, the missiles' init, aim IK; **Wander on Malus' hand** | 16 |
+
+Union over D16's runs: 116 new; with D15's 40 unchecked, **156 candidates, 156 lifted, 0 refused**.
+
+### Exact
+
+Mac, the trace check (`SOTC_DIFFTEST_TRACE=all`, FIRST=20, EVERY=200, MAX=200, `SOTC_WORKER91=0`), runner-t1 with the 156:
+
+| pass | route | functions with a check line | check lines (all, incl. nested) | mismatches |
+|---|---|---:|---:|---|
+| dt16_v2 | Valus' death | 39 | 635 | 0 |
+| dt16_a6 | Hydrus | 21 | 2 508 | 0 |
+| dt16_c10 | Celosia | 39 | 39 | 0 |
+| dt16_a11 | Pelagia | 11 | 507 | 0 |
+| dt16_ch2 | the chain (stopped at frame 11 270: Wander in an unloaded area, the game frame stalled) | 7 | 7 | 0 |
+| dt16_c13 | Cenobia | 14 | 14 | 0 |
+
+**88 functions checked at top level (pass16.py: 2 198 counted checks), not one mismatch line.** 68 not checked: the
+c14 / c15 / a5 passes were dropped to close the round, and single calls the passes did not repeat; 36 of D15's 40
+unchecked are still among them (4 checked now).
+
+### Speed
+
+Vita3K 222 MHz, the interleaved A/B (`SOTC_AB_FLAG=liftd16 SOTC_AB_PERIOD=1 SOTC_AB_MIX=<seed>`), p1 with the 156, 400 s a
+run (shortened to close the round), tools/mixframes.py from frame 3 000, 300-frame blocks, off - on +- 2 SE:
+
+| run | frames | the 156 sampled | slower z > 2 | frame ms off - on | busy ms off - on |
+|---|---:|---:|---:|---|---|
+| lgL7 (lake6, seed 7) | 7 364 | 0 | 0 | -0.065 +- 0.148 | -0.065 +- 0.157 |
+| lgA11 (attract, seed 11) | 13 097 | 0 | 0 | +0.096 +- 0.189 | +0.072 +- 0.180 |
+
+None of the set is sampled (fight, death and arena code): **nothing cut, 88 ship** (game/overrides/decomp_liftd16_00.cpp):
+41 other game code, 19 characters, 18 script, 3 display, 2 collision, 2 particles, 1 camera, 1 system, 1 boot.
+
+### Checks
+
+The shipped build p2 = build/agent-scratch/celosia-d16.vpk / .elf: spalign 866 NEON :128/:256 accesses, 0 sp-based.
+Vita3K boot check (222 MHz, muted, `SOTC_VITA_EAT_USER_MB=89`, the console card's walk, 600 s): boots on the first try, `[liftd1] ... D16 88 ... d16 on`, 12 300 frames, no fault; pictures every 120 s looked at (Wander in the ruins' corridor, game ~26 fps) and deleted. Mac pictures kept in runs/keep/ (Valus' death and the save screen after, Avion's
+and Pelagia's intros, Barba's pit, Celosia's arena, Cenobia's eye, Argus' back, Malus' hand).
+
+### Decomp numbers
+
+tools/decomp_status.py on the shipped Mac build's replaced dump (attract to frame 1 500, round 71's calls):
+
+| count | functions | code by size | calls | game code |
+|---|---:|---:|---:|---:|
+| honest (`SOTC_WORKER91=0`), D16 | **5 795 of 9 024 (64.22%)** | 68.85% | 97.63% | 71.44% |
+| gates on, D16 | 5 838 (64.69%) | 69.04% | 98.16% | 71.66% |
+| honest, D15 | 5 707 (63.24%) | 67.43% | 97.63% | 69.76% |
+
+By area (honest; D15 in brackets): script and events 312 of 633 (294), characters and motion 778 of 1 205 (760), other
+game code 1 979 of 2 907 (1 936), collision and physics 221 of 317 (219), display and models 530 of 975 (528), particles
+102 of 115 (100), camera 209 (208), system 156 (155), boot ELF 1 314 (1 313); sound 72, math 122 unchanged.
+
+### What the next rounds should take
+
+- Kill the others as Valus: the c<rec> routes plus `blife` / `bkill` on Argus, Malus, Cenobia, Celosia (a stab must land),
+  and one route per colossus recorded from the checkpoint place; Barba and Phalanx need their wake-up (the intro is not
+  triggered by the boot flag alone; the approach region is elsewhere).
+- The 68 unchecked (c14 / c15 / a5 trace passes) and the save screen after Valus' death (the route stops there: TRIANGLE /
+  the cursor, not CROSS).
+- Trace passes need a frame watchdog: a route that drops Wander into an unloaded area stalls the game frame (dt16_ch2).
+- Per the redesign directive: the small lifted getters of this batch (path data by area, DP group, torch info) are the
+  first candidates for plain C++ over named struct views.
