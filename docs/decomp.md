@@ -22644,3 +22644,53 @@ off - on): ride7 +0.123 ± 0.192 ms (seed 7, 800 s), -0.099 ± 0.228 ms (seed 11
 The curve evaluators 0x010B00A8 / 0x010AEE18 (0.10 / 0.08%, ~1 500 MIPS instructions with their callees), GetMotionRootInfo's
 looping path and GetMotionRootDirInfo, the slow checkpoints' unwinds (~85-130 a frame: S11 §5), the divides by other
 non-normal operands that still switch the rounding mode.
+## Decomp D17: Argus killed, Malus climbed, Cenobia ridden; D17's batch of D16's unchecked lifts (SOTC_LIFTD17) (2026-11-19)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d17/` (patch_rt17.py, mkkill17.py, dtk.sh, pass17u.py,
+ship17.py, qrun.sh, jobsF/G/H.txt, macrun.sh / v3k.sh with the frame watchdog). Build dirs cloned from D16's (same-length
+path sed over text and binary files, .ninja_log rehashed, mtimes kept: the Mac rebuild was 99 steps). Own Vita3K tree
+../vita3k-celosia-d17 (222 MHz, 3 cores, muted).
+
+### The frame watchdog
+
+D16's runs could hang with Wander in an area that never streamed in (game thread at 0 fps, the run sat out its full
+length). `macrun.sh` now follows the game frame in the [tpos] / [tprobe] lines and the input script's [input] lines (these
+keep coming through cutscenes and Wander's death; the first version read only [tpos] and killed k14a in Argus' death
+cutscene) and kills a run whose frame stands still 30 s (`runs/<name>.wd`); `v3k.sh` kills a Vita3K run whose err.txt
+stops growing for 30 s (`wd.txt`).
+
+### Kill routes (Mac call-count + trace-check runs in one, `dtk.sh`, SOTC_WORKER91=0)
+
+| record | colossus | route | result |
+|---:|---|---|---|
+| 14 | Argus | k14: `bootflag14`, checkpoint place, `blife2` + `bkill` from frame 8 000 | **killed**: the collapse, the black tentacles, the gauge, the shrine's save screen |
+| 15 | Malus | k15 | Wander climbs Malus; not killed (three weak points; `blife` only sets the parts' damage, it does not break the points) |
+| 13 | Cenobia | k13 | Wander on her back; not killed (one part, no weak point exposed until the armour breaks) |
+| 5 | Barba | k5 | no checked function reached |
+| 12 | Phalanx | c12 | 3 functions checked |
+| - | chain | ch2 | 6 functions checked, no stall to frame 28 190 |
+
+Argus' death reached no new function: the death path is Valus' (shipped in D16).
+
+### The batch
+
+Of D16's 68 lifted-but-unchecked functions, 32 were trace-checked exact (1 037 checks, 0 mismatch lines; pass17u.py): 10
+characters, 10 other game code, 8 script, one each sound, display, system, particles (among them nico_BossMinotaurCStart,
+nico_execMinotaurC_Cloth, nico_buddhaStart, SCRFuncBuddhaMissileInit, the aim IK work, SCRPoseidonShoot,
+playerlifebar_effect, startGaugeMaxAddEffect). Of the other 36, 19 were never reached by any run. The 32 are
+`game/overrides/decomp_liftd17_00.cpp` behind SOTC_LIFTD17 (default on, A/B `liftd17`, kLiftD17 after kLiftD16).
+
+### Checks and numbers
+
+- A/B (Vita3K 222 MHz, interleaved, 400 s): lake seed 7 and attract seed 11: 0 of 32 slower (z > 2), none faster; the
+  converted code is not hot.
+- Boot walk with the console's free memory (SOTC_VITA_EAT_USER_MB=89, 600 s): booted on the first try, the temple
+  route's pictures normal.
+- spalign: 0 sp-based :128/:256 NEON accesses (of 883 with an alignment hint).
+- Honest count (runner-f, replaced dump): 5 828 of 9 024 functions (64.58%; D16 5 795), 69.24% of the code, 97.72% of
+  calls; script 320 of 633, characters 789 of 1 205, other game code 1 989 of 2 907.
+
+### Next
+
+An aid that breaks weak points / armour (Malus' three points, Cenobia's armour) for their deaths; new routes for the 19
+never reached.
