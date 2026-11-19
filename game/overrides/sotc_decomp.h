@@ -704,9 +704,9 @@ namespace sotc_decomp
         kS17Iop,   // round S17: a checkpoint that would unwind the running thread to the EE scheduler (the IOP's replies waking
                    // the streaming / loader threads, the interrupt handlers) runs the dispatch nested there and lets the
                    // thread's frames go on when it is picked again (s17iop.h, EeScheduler::s17Nest; SOTC_S17IOP_CHECK)
-        kS16Plan,  // round S16 (off unless SOTC_S16PLAN=1): the model draw plans vouched for by the heap's garbage moves and the
-                   // model display class inits (modelInitDispModelClass), not checked against the guest packet list every
-                   // frame (s16plan.h, sotc_native.cpp planChecked; exact: SOTC_S16PLAN_CHECK)
+        kS16Plan,  // round S16 (off unless SOTC_S16PLAN=1): the model draw plans vouched for by the game's model setup calls
+                   // (modelInitialize / modelReInitialize / modelInitDispModelClass, hooked), not checked against the guest
+                   // packet list every frame (s16plan.h, sotc_native.cpp planChecked; exact: SOTC_S16PLAN_CHECK)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",

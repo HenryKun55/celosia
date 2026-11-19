@@ -22851,3 +22851,44 @@ ee_scheduler.h (compiled after this worktree's edits); p2 after touching the cha
 
 A longer block A/B or the console's to price the old path's state; why the old path re-enters ~90 times (not traced);
 the woken threads as host code only matters for the console's core time, not the game thread's unwinds.
+
+## Redesign S16: the model draw plans vouched for by the game's model setup calls, not checked every frame (SOTC_S16PLAN, off by default) (2026-11-19)
+
+The full write-up is docs/display_s16.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s16/`
+(prof.sh the sampler, chk16.sh the in-run check, abs16.sh the s16plan interleaved A/B, q1.sh / q3.sh the queues,
+chain1.sh / chain2.sh build-then-queue started with nohup, vq.out). Own Vita3K tree ../vita3k-celosia-s16 (222 MHz,
+3 cores, muted); build dir cloned from S15's (same-length path sed, .ninja_log rehashed).
+
+### The profile (ride7, Vita3K 222 MHz, main's celosia-s13)
+
+planChecked 0.169% of the game thread (~0.054 ms a frame, packetListHash inlined): ~40 plans a frame riding, each
+reading two cache lines of guest memory (the header's list / surface pointers, the list's first five words), and one
+frame in 16 per header the whole list hashed. Small: at best ~0.05 ms a frame.
+
+### What changed (`SOTC_S16PLAN`, A/B `s16plan`; `_CHECK`, `_LOG`, `_MOVES`)
+
+The game's own model setup calls are hooked: modelInitialize (0x1099680, loadCdNmoFile's setup of a model file just
+read), modelReInitialize (0x1096f60, garbageNmoCallBack's after the garbage pass moved and relocated the model file) and
+modelInitDispModelClass (0x1096b88). Each notes its header and withdraws the stamps of that header's plans (from the
+guest worker lane: queued for the game thread; none came). A plan stamped at its build or after round 8's checks held
+in full is taken with no guest read while its header was seen set up and no setup call came since; a withdrawn plan is
+checked in full once and stamped again; a header never seen set up keeps round 8's checks. The first builds also
+withdrew every stamp at each garbage move (p1-p3; `SOTC_S16PLAN_MOVES=1`): riding the garbage pass keeps moving
+blocks, every plan not taken was hashed in full each frame, and the sampler had planChecked no cheaper (0.24% half-on
+against 0.23% off); p4 relies on modelReInitialize for moved models and takes 99.8% of the uses riding.
+
+### Checks, A/B, decision
+
+`SOTC_S16PLAN_CHECK=1` (every unchecked take also checked the old way in full): p4 ride7 522 046 (mounted), lake6
+168 548, attract 168 664 takes, through 17 460 garbage moves and 10 021 setup calls: **0 differences** (p3: 0 in
+543 500). A/B (Vita3K 222 MHz, off - on, p4, 400 s, a loaded machine): ride7 -0.085 +- 0.371 ms (seed 7, mounted),
++0.058 +- 0.247 (seed 11, on foot), lake6 +0.106 +- 0.258, attract -0.033 +- 0.252: even. **Off by default**
+(`SOTC_S16PLAN=1` on; the A/B needs it too, since the A/B only turns switches off); exact, for the console's A/B. Boot
+with 89 MB taken (bootRp4, S16 on): mounted at 4 208, rode to 11 478, 2 game-thread frames over 300 ms (the boot), No
+exact 0; pictures normal. spalign 0 sp-based.
+
+### What it leaves
+
+The lights as a host record (objectLight's block in the instance packet), the plans' per-packet questions (packet ids,
+skinned / lit lookups, the surface memo) as per-model host data filled at modelInitialize, the headers never seen set up
+(the lake arena's: another setup path), S14's list.

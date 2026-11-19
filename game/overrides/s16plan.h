@@ -6,16 +6,16 @@
 // surface table pointers and the list's first five words are read back from guest memory and compared; one frame in 16
 // (by header) the whole list (size, LOD, surface, part, data of every packet) is hashed again (packetListHash).
 //
-// Now: a plan carries a stamp of what vouched for it: the heap's garbage-move serial (sotc_decomp::g_guestMoveSerial,
-// bumped by copyViaSpr before every move), the frame it was vouched for, and whether the game's model setup was seen
-// on that header (the calls below, hooked).
-// A plan is taken as it is when no garbage move came since it was vouched for, it was vouched for at least two frames
-// after the last move (the game's pointer fixups after a move are done by then), and the game has not set the model up
-// again since: modelInitialize (0x1099680, loadCdNmoFile's setup of a model file just read), modelReInitialize
-// (0x1096f60, garbageNmoCallBack's after a move of the model file) or modelInitDispModelClass (0x1096b88) on that
-// header marks its plans (from the guest worker lane: queued for the game thread). Any other plan gets round 8's
-// checks in full (the pointers, the first words and the whole list hashed, every time), and is vouched for again when
-// they hold (rebuilt when not). A header never seen set up is never taken unchecked.
+// Now: a plan carries a stamp of what vouched for it (its build, or round 8's checks held in full): the frame, and
+// whether the game's model setup was seen on that header. The game's setup calls are hooked: modelInitialize
+// (0x1099680, loadCdNmoFile's setup of a model file just read), modelReInitialize (0x1096f60, garbageNmoCallBack's
+// after the garbage pass moved and relocated the model file) and modelInitDispModelClass (0x1096b88); each notes its
+// header and withdraws the stamps of that header's plans (from the guest worker lane: queued for the game thread).
+// A stamped plan of a header seen set up is taken as it is; a plan whose stamp was withdrawn is checked in full once
+// (the pointers, the first words and the whole list hashed) and stamped again (rebuilt when the check fails); a plan of
+// a header never seen set up keeps round 8's checks at their cadence.
+// SOTC_S16PLAN_MOVES=1 (the first builds' rule): every garbage move (sotc_decomp::g_guestMoveSerial) also withdraws
+// every stamp, and a plan is taken only two frames after the last move.
 //
 // SOTC_S16PLAN_CHECK=1: a plan taken unchecked is also checked in full; a difference is counted (the first 8 printed)
 // and the plan rebuilt as the old checks would. SOTC_S16PLAN_LOG=<frames>: "[s16plan]" counts (default 600 with the
