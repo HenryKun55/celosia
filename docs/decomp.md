@@ -22892,3 +22892,45 @@ exact 0; pictures normal. spalign 0 sp-based.
 The lights as a host record (objectLight's block in the instance packet), the plans' per-packet questions (packet ids,
 skinned / lit lookups, the surface memo) as per-model host data filled at modelInitialize, the headers never seen set up
 (the lake arena's: another setup path), S14's list.
+## Redesign S18: why the old path met the pending flag ~90 times a frame; S17 measured with S17 really on, now on by default (2026-11-19)
+
+The full write-up is docs/runtime_s18.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s18/` (in the
+worktree; the Vita build dir at the main checkout's `build/agent-scratch/s18/vita`): clone.sh, lab.sh (long-block A/B),
+q1-q4.sh, tools/winab.py, tools/pcname18.py. Own Vita3K trees ../vita3k-celosia-s18 / -s18b / -s18c, deleted at the end.
+
+### S17's A/Bs were A/A
+
+The A/B turns a listed switch off in its off windows and back to its starting value in the others; s17iop was off by
+default and S17's runs did not set `SOTC_S17IOP=1`, so both turns ran the old path (every `[s17]` line `nested 0` in
+S18's first long-block runs, made the same way). S17's +0.156 ± 0.168 / -0.005 ± 0.250 / ... were noise. An A/B of a
+default-off switch needs its env at 1.
+
+### Root cause (`[s18]` counters, rcOff: ride7 600 s, S17 off)
+
+About one pending checkpoint a frame is the normal unwind (the GS FINISH handler; first pc iosGetTCountExtension). The
+other ~98% (35-99 a frame riding, 588 in the load) run with `unwinding` already set, in rare long runs (~0.03-0.05 a
+frame, ~1 500-2 000 checkpoints each, no dispatch in between): the episode's checkpoint fired inside guest code called by
+a native (decomp C++), whose run-to-return loop (sotc_decomp::callGuest / callMaySleep / runToReturn: a native cannot
+return early) goes on from the resume point. With `unwinding` and the pending flag both up until run(), every guest call
+under the native returns at its first checkpoint and every guest return finds no host frame: each becomes a turn of the
+native's loop (a table lookup, a re-entry at a label mid-function) until the native returns and the generated code above
+unwinds to run(), where the handler finally runs. The repeats' pcs: scrRun 6 877 and isysGroupForFirst 4 502 (the native
+script pass, decomp_hot44d's scriptPass waking each script's sub-thread), iosDlPopLayer / PushLayer 4 828 / 4 763 and
+iosDlChainTailCurrent 1 412 (the native draw code), cameraBlur, resetMicroCodeManager, glReset, the light matrices. S17's
+check hid it: each repeated checkpoint drew old / nested again, so a chopped run ended after ~2. With S17 on the first
+pending checkpoint nests and none of this happens; a separate old-path fix would be S17 again in the natives' loops, so
+there is no kS18Chk.
+
+### A/B with S17 on (Vita3K 222 MHz, off - on), decision
+
+Per-frame (p1, `SOTC_S17IOP=1`): ride7 seed 7 +0.262 ± 0.292 ms, seed 13 +0.507 ± 0.234, seed 11 (an emptier stretch, 25 ms
+frames) +0.047 ± 0.101, lake6 +0.447 ± 0.258; the gain follows the off turn's chopped checkpoints (~2-5 µs each). Ride7
+together +0.132 ± 0.088 (z 3.0), with the lake +0.165 ± 0.084 (z 3.9). Long blocks (600 frames, 1 600 s): seed 7
++0.448 ± 0.859, seed 11 -0.147 ± 0.889 (scenery noise; no build-up: the cost is per episode, within the frame). **S17 on by
+default** (`SOTC_S17IOP=0` off). Boot with 89 MB taken (p2, the default): mounted at 5 978, rode to 11 337, no fault, pictures normal; spalign 0 sp-based. Code ae8ef1f.
+
+### Next
+
+The console A/B of s17iop; the natives' run-to-return loops are the last place a nested unwind can still go chopped (S17's
+not-nested cases: inside a handler / invocation, a posted wake whose waiter has not parked, < 192 KB of stack, 0.2-0.8 a
+frame).
