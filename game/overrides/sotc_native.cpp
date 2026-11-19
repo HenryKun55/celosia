@@ -102,6 +102,7 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 #include "s9rt.h"
 #include "s11rt.h"
 #include "s13mot.h"
+#include "s14hook.h"
 
 namespace decomp_wind
 {
@@ -13057,6 +13058,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
     s9rt::init();                        // round S9: the runtime costs' parts, check and log (SOTC_S9RT_*)
     s11rt::init(runtime);                // round S11: the PS2 machinery's parts and log (SOTC_S11RT_*)
     s13mot::init();                      // round S13: the motion getters' / time slice's parts and log (SOTC_S13MOT_*)
+    s14hook::init();                     // round S14: the model hook's palette record's parts, check and log (SOTC_S14HOOK_*)
     g_ps2xIopBatchEeCycles = s11rt::on(s11rt::kIop) ? s11rt::g_iopBatch : 2048u;
     g_ps2xSliceStretch = s13mot::on(s13mot::kSlice) ? s13mot::g_stretch : 1u;
     g_ps2xFpuZeroFast = s13mot::on(s13mot::kZeroDiv);
