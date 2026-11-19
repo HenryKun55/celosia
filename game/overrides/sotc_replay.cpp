@@ -881,10 +881,6 @@ namespace sotc_replay
             {
                 uint32_t lo;
                 std::memcpy(&lo, rdram + out, 4);
-                static uint64_t seen = 0;
-                if ((seen++ % 50u) == 0u)
-                    std::fprintf(stderr, "[teleport] frame %llu: boss hit's surface %08x (ra %08x, %llu)\n",
-                                 (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), lo, ra, (unsigned long long)seen);
                 if (lo & 8u)
                 {
                     const uint32_t nl = (lo & ~0x3F0u) | (g_weakId & 0x3F0u);
@@ -1348,6 +1344,32 @@ namespace sotc_replay
                                 }
                                 continue;
                             }
+                            if (t.call == 9)
+                            {
+                                // Decomp D19: "bzero": the boss work's total life (+0x44, what bosslifebar_sethp shows and
+                                // IsBossDeathNextAttack tests) to 0. SCRExecBossPreProcess then takes its own death path on the
+                                // boss' next frame: checkDeadMotionLoadByScriptDataSystem once (the death motion's stage),
+                                // +0xEC set, SCRCharaDead (the character's dead flag the boss script waits on) every frame.
+                                const uint32_t w = g_probeObj ? rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj)) : 0u;
+                                if (w)
+                                    std::memset(rdram + ((w + 0x44u) & 0x1FFFFFCu), 0, 4);
+                                std::fprintf(stderr, "[teleport] frame %llu: bzero (boss obj %08x, work %08x death %u)\n", (unsigned long long)frame, g_probeObj, w,
+                                             w ? rd(w + 0xECu) : 0u);
+                                continue;
+                            }
+                            if (t.call == 8)
+                            {
+                                // Decomp D19: "bdeath": the game's own debug death, SCRBossDebugDeath (0x136FF80) on the boss
+                                // object: it queues gamecore_sub_0136FFC0 on the boss' motion shift (RequestCharacterMotionShiftFunc),
+                                // which runs in the boss' own frame: the boss work's total life (+0x44) 0, its death flag (+0xEC) 1
+                                // and the script interrupt (scriptIntrSignal on the boss' script) that starts the death.
+                                if (g_probeObj)
+                                    guestCall1(rdram, ctx, runtime, 0x0136FF80u, g_probeObj);
+                                const uint32_t w = g_probeObj ? rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj)) : 0u;
+                                std::fprintf(stderr, "[teleport] frame %llu: bdeath (boss obj %08x, work %08x life %.2f death %u)\n", (unsigned long long)frame,
+                                             g_probeObj, w, w ? rf(w + 0x44u) : 0.0f, w ? rd(w + 0xECu) : 0u);
+                                continue;
+                            }
                             if (t.call == 1)
                                 guestCall1(rdram, ctx, runtime, kBossStartDemo, 0u);
                             else if (t.call == 2 && g_probeObj)
@@ -1682,7 +1704,7 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what == "ride")
                         t.ride = true;
-                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "pstab" || what == "list" || what.rfind("blife", 0) == 0 ||
+                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "pstab" || what == "bdeath" || what == "bzero" || what == "list" || what.rfind("blife", 0) == 0 ||
                              what.rfind("bweak", 0) == 0)
                     {
                         // Decomp D16: the arena aids (no place, no hold).
@@ -1703,7 +1725,7 @@ namespace sotc_replay
                             t.d[1] = all ? 1.0f : 0.0f;
                         }
                         else
-                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : what == "pstab" ? 7 : 3;
+                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : what == "pstab" ? 7 : what == "bdeath" ? 8 : what == "bzero" ? 9 : 3;
                         t.hold = 0;
                         g_teleports.push_back(t);
                         continue;

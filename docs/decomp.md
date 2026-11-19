@@ -22934,3 +22934,27 @@ default** (`SOTC_S17IOP=0` off). Boot with 89 MB taken (p2, the default): mounte
 The console A/B of s17iop; the natives' run-to-return loops are the last place a nested unwind can still go chopped (S17's
 not-nested cases: inside a handler / invocation, a posted wake whose waiter has not parked, < 192 KB of stack, 0.2-0.8 a
 frame).
+
+## Decomp D19: the colossi's deaths forced (bdeath, bzero): every death starts but stalls before setBossDeathEffect; no batch (2026-11-19)
+
+D19 looked for a direct death instead of D18's stab path, so the kill routes could reach the death code to lift.
+
+- **The game's own debug death**: `SCRBossDebugDeath` (0x136FF80) asks RequestCharacterMotionShiftFunc(boss, 0x136FFC0) to run
+  at the boss' next ExecCharaGeometry: total life (work+0x44) = 0, death flag (work+0xEC) = 1, scriptIntrSignal.
+  SCRExecBossPreProcess with +0x44 <= 0: if +0xEC is 0 it calls checkDeadMotionLoadByScriptDataSystem once and sets +0xEC, then
+  SCRCharaDead(boss) every frame (flag 0x200 in chara class+0x858).
+- **The stab path** (for later): CheckDamageLetter (0x1166C98) puts the damage class in state 3 only when the letter's sender is
+  not its receiver; the real stab (013B08B0) needs a ray hit between two sword bones (_SCRGetCollisionTwoBoneRay) and player AI
+  work+0xA0+0x40 == 1.
+- **Aids (sotc_replay.cpp, SOTC_TELEPORT)**: `bdeath` calls SCRBossDebugDeath on the boss object; `bzero` only zeroes work+0x44
+  (leaves +0xEC 0) so the pre-process takes its own death path, checkDeadMotionLoad included. D18's "boss hit's surface" debug
+  print is gone.
+- **Routes** (Mac, 450 s each, bzero at 5000 and 7500, ptrack stopping at the kill): Malus (15), Cenobia (13), Hydrus? (6),
+  4, 11, 5, 9, 12, 10. Every boss found gets bossStatSetDeadBoss 1; SCRCharaDead runs 4 500-20 000 times (15, 13, 6, 11, 12);
+  route 12 reaches st_boss_dead; none reaches setBossDeathEffect, CheckDeathTentacle, the bossDemoPlayerBreakDown* calls or
+  memoryCardSaveScript. Malus at frame 25 177: still standing, the death's dark patches on its body. With bdeath (x15) the same
+  stall (st_boss_dead 1, CreateDeathTentacle 1). Celosia (10): no boss handle (g_probeObj 0), so neither aid reaches it.
+- **Batch**: D18's 34 unchecked in a test batch traced on all nine routes: 0 checked (none reached at top level). Nothing lifted;
+  no kLiftD19 switch (the tables were made and dropped).
+- **Next**: what the death sequence waits for after SCRCharaDead (the death motion load from checkDeadMotionLoad, or a script
+  wait on the death demo); the Argus death of D17 (k14) did complete and is the reference to diff call counts against.
