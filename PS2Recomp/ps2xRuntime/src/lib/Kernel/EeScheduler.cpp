@@ -492,6 +492,15 @@ void EeScheduler::run()
                 function(m_rdram, &context, &m_runtime);
                 lastEnd = ps2_stats::nowUs();
             }
+            else if (__builtin_expect(g_ps2xN5Log != 0u, 0))
+            {
+                const uint64_t t0 = ps2_stats::nowUs(), n0 = n5stat::nestedUs;
+                const uint32_t tid = static_cast<uint32_t>(running->id) & 31u;
+                function(m_rdram, &context, &m_runtime);
+                n5stat::us[tid] += (ps2_stats::nowUs() - t0) - (n5stat::nestedUs - n0);
+                ++n5stat::runs[tid];
+                n5stat::line(ps2_stats::vif1Chains.load(std::memory_order_relaxed));
+            }
             else
                 function(m_rdram, &context, &m_runtime);
             m_guestExecuting.store(false, std::memory_order_relaxed);
@@ -628,6 +637,9 @@ bool EeScheduler::checkpointSlow() noexcept
         return true;
     }
 
+    // Round N5: switched off with a slice of n5sched's length running: back to the plain slice from now.
+    if (__builtin_expect(g_ps2xN5Sched == 0u && m_sliceEndCycle > eeNow() + kDefaultTimeSliceCycles * g_ps2xSliceStretch, 0))
+        m_sliceEndCycle = eeNow() + kDefaultTimeSliceCycles;
     if (eeNow() < m_sliceEndCycle)
     {
         ++g_eeS11.cont;
@@ -636,7 +648,8 @@ bool EeScheduler::checkpointSlow() noexcept
     }
 
     const GuestThread *running = currentThread();
-    if (running != nullptr && hasReadyAtOrAbovePriority(running->currentPriority))
+    // (n5sched: an equal-priority ready thread waits until the running one blocks or yields, as on the PS2)
+    if (running != nullptr && hasReadyAtOrAbovePriority(running->currentPriority - (g_ps2xN5Sched != 0u ? 1 : 0)))
     {
         ++g_eeS11.preempt;
         m_rescheduleRequested = true;
@@ -655,7 +668,7 @@ bool EeScheduler::checkpointSlow() noexcept
     renewTimeSlice();
     // Round S13 (g_ps2xSliceStretch): no thread at or above this one's priority is ready, so the next slice ends would
     // only renew the slice again: one stretched slice instead (cut back if a thread becomes ready: sliceStretchCut).
-    if (g_ps2xSliceStretch > 1u && running != nullptr)
+    if (g_ps2xSliceStretch > 1u && running != nullptr && g_ps2xN5Sched == 0u)
     {
         m_sliceBase = eeNow();
         m_sliceEndCycle = m_sliceBase + kDefaultTimeSliceCycles * g_ps2xSliceStretch;
@@ -668,6 +681,36 @@ bool EeScheduler::checkpointSlow() noexcept
 
 uint32_t g_ps2xSliceStretch = 1u;
 
+// Round N5 (sotc switch n5sched, SOTC_N5SCHED; set per frame by the game): the EE kernel's own rule for threads of
+// equal priority. The PS2 kernel never time-slices: a thread runs until it blocks, yields (RotateThreadReadyQueue) or a
+// higher-priority thread becomes ready (that preempts at once: requestPreemptionIfHigher). The runtime's 20 000-cycle
+// slice ending with an equal-priority thread ready was a switch the game never asked for (the service threads taking
+// turns with the game thread at its checkpoints). On: the slice never ends (a slice end only renews it) and only a
+// strictly higher-priority ready thread preempts there; so only explicit blocking / yielding / waking points switch
+// threads. g_ps2xN5Log (SOTC_N5_LOG=<frames>, read by the game): "[n5]" lines, each guest thread's host time a frame.
+uint32_t g_ps2xN5Sched = 0u;
+uint32_t g_ps2xN5Log = 0u;
+namespace n5stat
+{
+    static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
+    static void line(uint64_t frame)
+    {
+        if (frame / g_ps2xN5Log == lastFrame / g_ps2xN5Log || frame <= lastFrame)
+            return;
+        const double f = static_cast<double>(frame - lastFrame);
+        lastFrame = frame;
+        char buf[1200];
+        int n = std::snprintf(buf, sizeof(buf), "[n5] frame %llu (sched %u): a frame, host us by guest thread (exclusive of nested runs) / runs:",
+                              (unsigned long long)frame, g_ps2xN5Sched);
+        for (uint32_t t = 0; t < 32u && n > 0 && n < 1100; ++t)
+            if (runs[t])
+                n += std::snprintf(buf + n, sizeof(buf) - n, " t%u %.0f/%.2f", t, us[t] / f, runs[t] / f);
+        std::fprintf(stderr, "%s\n", buf);
+        for (uint32_t t = 0; t < 32u; ++t)
+            us[t] = runs[t] = 0;
+    }
+}
+
 // Round S13: a thread became ready (or the running one's priority changed) while the slice is stretched. If a ready
 // thread could take the running one's place at a slice end (at or above its priority), the slice ends where the plain
 // slices would have ended next: the first boundary m_sliceBase + k slices at or after now (the plain renewals land at
@@ -675,7 +718,7 @@ uint32_t g_ps2xSliceStretch = 1u;
 // running one's priority preempts at once anyway (requestPreemptionIfHigher).
 void EeScheduler::sliceStretchCut(const GuestThread &readied)
 {
-    if (!m_sliceStretched || readied.id == m_currentThreadId)
+    if (!m_sliceStretched || readied.id == m_currentThreadId || g_ps2xN5Sched != 0u)
         return;
     const GuestThread *running = currentThread();
     if (running == nullptr || !hasReadyAtOrAbovePriority(running->currentPriority))
@@ -2912,7 +2955,8 @@ void EeScheduler::enableHostClockSync()
 void EeScheduler::renewTimeSlice()
 {
     m_sliceStretched = false;
-    m_sliceEndCycle = eeNow() + kDefaultTimeSliceCycles;
+    // Round N5 (n5sched): a slice that does not end (2^40 cycles: ~37 minutes of EE time; renewed at every dispatch).
+    m_sliceEndCycle = eeNow() + (g_ps2xN5Sched != 0u ? (uint64_t{1} << 40) : uint64_t{kDefaultTimeSliceCycles});
     m_timeSliceExpired = false;
     updateGate();
 }
@@ -3323,7 +3367,19 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             m_unwinding = false;
             m_clock.transferred = false;
             updateGate();
-            function(m_rdram, &context, &m_runtime);
+            if (__builtin_expect(g_ps2xN5Log != 0u, 0))
+            {
+                // Round N5: a nested thread's time, taken out of the home thread's run around it (run() above).
+                const uint64_t t0 = ps2_stats::nowUs(), n0 = n5stat::nestedUs;
+                const uint32_t tid = static_cast<uint32_t>(running->id) & 31u;
+                function(m_rdram, &context, &m_runtime);
+                const uint64_t d = ps2_stats::nowUs() - t0;
+                n5stat::us[tid] += d - (n5stat::nestedUs - n0);
+                ++n5stat::runs[tid];
+                n5stat::nestedUs = n0 + d;
+            }
+            else
+                function(m_rdram, &context, &m_runtime);
         }
         catch (const EeDispatcherTransfer &)
         {
