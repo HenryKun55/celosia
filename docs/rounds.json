@@ -1131,7 +1131,7 @@
   {
    "round": "S23",
    "date": "2026-11-19",
-   "commit": "5f3e747",
+   "commit": "4439b5a",
    "focus": "Subsystem redesign",
    "summary": "Round S23 profiled the light pass riding (~3.2% of the game thread over its functions; lightPass 0.72% the biggest) and redesigned the pass's second and third walks of the sort list: they run over the nodes the first walk found that are not passed over at once (layout objects, ~72 of ~130 riding) as a host list instead of the whole list again (SOTC_S23LIGHT, A/B s23light).",
    "result": "Exact: SOTC_S23LIGHT_CHECK=1 compared the old walks' nodes and the index word they leave on 23 310 walks riding, 16 180 at the lake, 31 436 in the attract demo: 0 differences. A/B (Vita3K 222 MHz, off - on): ride7 +0.144 +- 0.322, -0.041 +- 0.163, -0.167 +- 0.432 ms, lake6 +0.605 +- 1.005; pooled -0.008 +- 0.068 ms, z -0.1: off by default (SOTC_S23LIGHT=1 on); the work it saves is ~0.02-0.04 ms a frame. Boot with 89 MB taken rode normally; pictures normal; no sp-based NEON accesses."
