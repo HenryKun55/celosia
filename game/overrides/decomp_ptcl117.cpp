@@ -42,6 +42,8 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -306,13 +308,13 @@ namespace decomp_ptcl117
     }
     struct Spy
     {
-        uint32_t at[12];
-        PS2Runtime::RecompiledFunction was[12];
+        uint32_t at[16];
+        PS2Runtime::RecompiledFunction was[16];
         int n = 0;
         void on(uint32_t target)
         {
             const uint32_t slot = (target - g_ps2RecompiledFunctionTableBase) >> 2;
-            if ((target & 3u) || slot >= g_ps2RecompiledFunctionTableSlotCount || n >= 12)
+            if ((target & 3u) || slot >= g_ps2RecompiledFunctionTableSlotCount || n >= 16)
                 return;
             at[n] = slot;
             was[n] = g_ps2RecompiledFunctionTable[slot];
@@ -583,6 +585,7 @@ namespace decomp_ptcl117
         dispEmitterImpl(rdram, ctx, runtime);
     }
 
+    void nodeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n, uint32_t a1, uint32_t a2, uint32_t sp0);
     // ---- 01140ED0 (a0 the node, a1 / a2 the class's +0x80 / +0x40) -------
     void node(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -590,9 +593,17 @@ namespace decomp_ptcl117
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x20u;
         if (!on() || (sp & 0xFu) != 0u || !ram(sp - 0x10u, 0x30u) || !ram(n, 0x200u) || !ram(rd(rdram, n), 0x50u))
             return sotc_decomp::recompiled(kNode)(rdram, ctx, runtime);
-        const uint32_t rec = rd(rdram, n), Mr = rd(rdram, rec + 0x48u), E = n + 0x10u;
+        const uint32_t Mr = rd(rdram, rd(rdram, n) + 0x48u);
         if (!ram(Mr, 0x130u) || !ram(rd(rdram, Mr + 0xD4u), 0x170u) || !ram(a1, 0x40u) || !ram(a2, 0x30u))
             return sotc_decomp::recompiled(kNode)(rdram, ctx, runtime);
+        nodeBody(rdram, ctx, runtime, n, a1, a2, sp0);
+    }
+
+    // node's body past its checks (round S22's list calls it straight for nodes its pass checked the same way).
+    void nodeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n, uint32_t a1, uint32_t a2, uint32_t sp0)
+    {
+        const uint32_t sp = sp0 - 0x20u;
+        const uint32_t rec = rd(rdram, n), Mr = rd(rdram, rec + 0x48u), E = n + 0x10u;
         // The frame (s0, s1, ra), 0113B408's own below it (it writes sp - 0x10 .. sp).
         wr64(rdram, sp, GPR_U64(ctx, 16));
         wr64(rdram, sp + 8u, GPR_U64(ctx, 17));
@@ -807,8 +818,418 @@ namespace decomp_ptcl117
         finish();
     }
 
+    // ---- Round S22 (SOTC_S22PTCL, A/B s22ptcl) ---------------------------
+    // The list without a guest call per node. listImpl above is the
+    // original's shape: each node through callGuest (the table, the run-to-
+    // return check), a run of more than one node sorted by the guest qsort
+    // (the lifted libc one, 0116A310) with 01140EA8 as its comparator, a
+    // guest call per comparison. listHost: one pass over the nodes (node's
+    // checks made once for each), each run's order from a host copy of that
+    // qsort (the BSD one the game links: insertion sort below 7, med3 / the
+    // ninther, the swap_cnt fallback) over the nodes' depths (node +0x144,
+    // the comparator's c.lt.s as the runtime's compare key; it never answers
+    // 0), then each node's body (0113B408, the tail into
+    // disp_particle_emitter) called straight with the registers and sp the
+    // original call had. The drawers, the layer push / pop and
+    // modelResetSurface stay calls of the table (once a list, or the
+    // emitter's own). Not as the original: the list's and qsort's save
+    // slots and the sorted pointer array on the stack (dead below the
+    // caller's sp), the scratch registers qsort / the comparator leave
+    // (f0 / f1, fcr31's C, a0-t3).
+    // SOTC_S22PTCL_CHECK=<n>: every n-th list (1 with any value below 1) run
+    // both ways from the same state with the drawers / layer calls recorded,
+    // not run (the calls with their registers and sp, the nodes' 0x200 bytes,
+    // the saved registers, VU0, f20-f31 compared); SOTC_S22PTCL_LOG=<frames>
+    // [s22ptcl] counts (default 600 with the check).
+    namespace s22
+    {
+        struct Item
+        {
+            uint32_t node, key;
+        };
+        struct Stats
+        {
+            uint64_t lists = 0, host = 0, nodes = 0, runs = 0, sorted = 0, sortedNodes = 0, old = 0, checks = 0, differ = 0, skipped = 0;
+        };
+        Stats g_st;
+        int g_check = -1;
+        uint64_t g_log = 0, g_logFrame = 0, g_checkN = 0;
+        std::vector<Item> g_items;
+        std::vector<uint32_t> g_runEnd;
+
+        void init()
+        {
+            const char *c = ps2_diag::env("SOTC_S22PTCL_CHECK");
+            g_check = (c && c[0] != '0') ? std::max(1, std::atoi(c)) : 0;
+            const char *l = ps2_diag::env("SOTC_S22PTCL_LOG");
+            g_log = l ? static_cast<uint64_t>(std::atoll(l)) : (g_check > 0 ? 600u : 0u);
+        }
+        void log()
+        {
+            const uint64_t frame = sotc_decomp::g_gameFrame;
+            if (g_log == 0u || frame < g_logFrame + g_log)
+                return;
+            g_logFrame = frame;
+            const Stats &t = g_st;
+            std::fprintf(stderr, "[s22ptcl] frame %llu: lists %llu host %llu old %llu nodes %llu runs %llu sorted %llu (%llu nodes); check %llu differ %llu skipped %llu\n",
+                         (unsigned long long)frame, (unsigned long long)t.lists, (unsigned long long)t.host, (unsigned long long)t.old, (unsigned long long)t.nodes,
+                         (unsigned long long)t.runs, (unsigned long long)t.sorted, (unsigned long long)t.sortedNodes, (unsigned long long)t.checks,
+                         (unsigned long long)t.differ, (unsigned long long)t.skipped);
+        }
+
+        // 01140EA8: (*a)->+0x144 < (*b)->+0x144 ? 1 : -1 (c.lt.s on the runtime's compare keys).
+        inline int cmp(const Item *a, const Item *b) { return a->key < b->key ? 1 : -1; }
+        inline void swap(Item *a, Item *b)
+        {
+            const Item t = *a;
+            *a = *b;
+            *b = t;
+        }
+        inline void vecswap(Item *a, Item *b, ptrdiff_t n)
+        {
+            for (ptrdiff_t i = 0; i < n; ++i)
+                swap(a + i, b + i);
+        }
+        inline Item *med3(Item *a, Item *b, Item *c)
+        {
+            return cmp(a, b) < 0 ? (cmp(b, c) < 0 ? b : (cmp(a, c) < 0 ? c : a)) : (cmp(b, c) > 0 ? b : (cmp(a, c) < 0 ? a : c));
+        }
+        inline void insertion(Item *a, size_t n)
+        {
+            for (Item *pm = a + 1; pm < a + n; ++pm)
+                for (Item *pl = pm; pl > a && cmp(pl - 1, pl) > 0; --pl)
+                    swap(pl, pl - 1);
+        }
+        // The game's qsort (BSD 4.4 / newlib), its element the 4-byte node pointer.
+        void qsortBsd(Item *a, size_t n)
+        {
+        loop:
+            int swapCnt = 0;
+            if (n < 7u)
+            {
+                insertion(a, n);
+                return;
+            }
+            Item *pm = a + n / 2u;
+            if (n > 7u)
+            {
+                Item *pl = a, *pn = a + (n - 1u);
+                if (n > 40u)
+                {
+                    const size_t d = n / 8u;
+                    pl = med3(pl, pl + d, pl + 2u * d);
+                    pm = med3(pm - d, pm, pm + d);
+                    pn = med3(pn - 2u * d, pn - d, pn);
+                }
+                pm = med3(pl, pm, pn);
+            }
+            swap(a, pm);
+            Item *pa = a + 1, *pb = a + 1, *pc = a + (n - 1u), *pd = a + (n - 1u);
+            for (;;)
+            {
+                int r;
+                while (pb <= pc && (r = cmp(pb, a)) <= 0)
+                {
+                    if (r == 0)
+                    {
+                        swapCnt = 1;
+                        swap(pa, pb);
+                        ++pa;
+                    }
+                    ++pb;
+                }
+                while (pb <= pc && (r = cmp(pc, a)) >= 0)
+                {
+                    if (r == 0)
+                    {
+                        swapCnt = 1;
+                        swap(pc, pd);
+                        --pd;
+                    }
+                    --pc;
+                }
+                if (pb > pc)
+                    break;
+                swap(pb, pc);
+                swapCnt = 1;
+                ++pb;
+                --pc;
+            }
+            if (swapCnt == 0)
+            {
+                insertion(a, n);
+                return;
+            }
+            Item *const pn = a + n;
+            ptrdiff_t r = std::min(pa - a, pb - pa);
+            vecswap(a, pb - r, r);
+            r = std::min(pd - pc, pn - pd - 1);
+            vecswap(pb, pn - r, r);
+            if ((r = pb - pa) > 1)
+                qsortBsd(a, static_cast<size_t>(r));
+            if ((r = pd - pc) > 1)
+            {
+                a = pn - r;
+                n = static_cast<size_t>(r);
+                goto loop;
+            }
+        }
+    }
+
+    // The list the S22 way. Returns false (nothing done) when a node or the list's state is outside what it handles:
+    // the caller runs listImpl.
+    bool listHost(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t first = GPR_U32(ctx, 4), s6 = GPR_U32(ctx, 5), s5 = GPR_U32(ctx, 6);
+        const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x70u;
+        if (first == 0u || (sp & 0xFu) != 0u || !ram(sp, 0x70u) || !ram(s6, 0x40u) || !ram(s5, 0x30u) || sotc_decomp::onWorkerLane(runtime) ||
+            sotc_decomp::guestFunction(runtime, kNode) != &node || sotc_decomp::guestFunction(runtime, kEmitter) != &dispEmitter)
+            return false;
+        // The nodes, node's checks made here once each; the runs (draw key, record +0x34) marked by their ends.
+        std::vector<s22::Item> &items = s22::g_items;
+        std::vector<uint32_t> &ends = s22::g_runEnd;
+        items.clear();
+        ends.clear();
+        uint32_t lastKey = 0u;
+        for (uint32_t n = first; n != 0u; n = rd(rdram, n + 0x1B0u))
+        {
+            if (!ram(n, 0x200u) || items.size() >= 4096u)
+                return false;
+            const uint32_t rec = rd(rdram, n);
+            if (!ram(rec, 0x50u))
+                return false;
+            const uint32_t Mr = rd(rdram, rec + 0x48u);
+            if (!ram(Mr, 0x130u) || !ram(rd(rdram, Mr + 0xD4u), 0x170u))
+                return false;
+            const uint32_t key = rd(rdram, rec + 0x34u);
+            if (!items.empty() && key != lastKey)
+                ends.push_back(static_cast<uint32_t>(items.size()));
+            lastKey = key;
+            items.push_back({n, 0u});
+        }
+        ends.push_back(static_cast<uint32_t>(items.size()));
+        // The layer, as listImpl picks it.
+        const uint32_t Mr0 = rd(rdram, rd(rdram, first) + 0x48u);
+        const uint32_t R = rd(rdram, Mr0 + 0xD4u) + x1bc(rd(rdram, first + 0x128u));
+        if (!ram(R, 0x10u))
+            return false;
+        const uint64_t e[10] = {GPR_U64(ctx, 16), GPR_U64(ctx, 17), GPR_U64(ctx, 18), GPR_U64(ctx, 19), GPR_U64(ctx, 20),
+                                GPR_U64(ctx, 21), GPR_U64(ctx, 22), GPR_U64(ctx, 23), GPR_U64(ctx, 30), GPR_U64(ctx, 31)};
+        auto finish = [&]
+        {
+            for (int i = 0; i < 8; ++i)
+                SET_GPR_U64(ctx, 16 + i, e[i]);
+            SET_GPR_U64(ctx, 30, e[8]);
+            SET_GPR_U64(ctx, 31, e[9]);
+            SET_GPR_U32(ctx, 29, sp0);
+            ctx->pc = static_cast<uint32_t>(e[9]);
+        };
+        const uint32_t kind = rd(rdram, Mr0 + 0xC0u), global = rd(rdram, kGlobal);
+        ++s22::g_st.host;
+        if ((kind == 1u && global == 0u) || (kind == 2u && global == 1u))
+        {
+            finish(); // skipped: no layer pushed or popped
+            return true;
+        }
+        uint32_t layer = 0xBu;
+        if (rd(rdram, R + 0xCu) == 4u)
+            layer = 0x13u;
+        else
+        {
+            const uint32_t c4 = rd(rdram, Mr0 + 0xC4u);
+            if (global == 0u)
+                layer = c4 == 0u ? 0x12u : 0xBu;
+            else
+                layer = c4 == 1u ? 0x12u : c4 == 2u ? 0x16u : 0xBu;
+        }
+        uint64_t s[8] = {layer, e[1], e[2], first, e[4], s5, s6, e[7]}; // s0 .. s7 as listImpl keeps them
+        const Frame g{rdram, ctx, runtime};
+        auto regs = [&](uint32_t curSp)
+        {
+            for (int i = 0; i < 8; ++i)
+                SET_GPR_U64(ctx, 16 + i, s[i]);
+            SET_GPR_U32(ctx, 30, sp);
+            SET_GPR_U32(ctx, 29, curSp);
+        };
+        if (layer == 0x12u)
+        {
+            regs(sp);
+            SET_GPR_U32(ctx, 4, 0x12u);
+            g.call(kResetSurface, 0x0113ADBCu, sp);
+        }
+        regs(sp);
+        SET_GPR_U32(ctx, 4, layer);
+        g.callRel(0x0113ADC4u, sp); // iosDlPushLayer
+        s[7] = 0x01140000u;
+        // A node: what callGuest(kNode) did, node's body straight (its checks made above).
+        auto drawNode = [&](uint32_t n, uint32_t curSp, uint32_t site)
+        {
+            regs(curSp);
+            SET_GPR_U32(ctx, 4, n);
+            SET_GPR_U32(ctx, 5, s6);
+            SET_GPR_U32(ctx, 6, s5);
+            const uint32_t ra = site + 8u;
+            SET_GPR_U32(ctx, 31, ra);
+            ctx->pc = kNode;
+            nodeBody(rdram, ctx, runtime, n, s6, s5, curSp);
+            runtime->checkTransfer();
+            if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != curSp, 0))
+                sotc_decomp::finishGuestCall(rdram, ctx, runtime, ra, curSp);
+        };
+        uint32_t begin = 0u;
+        for (const uint32_t end : ends)
+        {
+            const uint32_t count = end - begin;
+            s[3] = end < items.size() ? items[end].node : 0u;
+            s[2] = count;
+            ++s22::g_st.runs;
+            if (count < 2u)
+                drawNode(items[begin].node, sp, 0x0113AE18u);
+            else
+            {
+                ++s22::g_st.sorted;
+                s22::g_st.sortedNodes += count;
+                s[4] = sp;
+                const uint32_t lowered = sp - (((count << 2) + 0xFu) >> 4 << 4);
+                s22::Item *const a = items.data() + begin;
+                for (uint32_t i = 0; i < count; ++i)
+                    a[i].key = ps2FpuCompareKey(fb(rd(rdram, a[i].node + 0x144u)));
+                s22::qsortBsd(a, count);
+                for (uint32_t i = 0; i < count; ++i)
+                {
+                    s[1] = lowered + (i + 1u) * 4u;
+                    s[0] = count - i - 1u;
+                    drawNode(a[i].node, lowered, 0x0113AE9Cu);
+                }
+            }
+            begin = end;
+        }
+        s22::g_st.nodes += items.size();
+        regs(sp);
+        g.callRel(0x0113AEB8u, sp); // iosDlPopLayer
+        finish();
+        return true;
+    }
+
+    // SOTC_S22PTCL_CHECK: the old list and the host one from the same state, the leaf calls recorded, not run.
+    void s22Check(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t first = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29);
+        std::vector<uint32_t> nodes;
+        for (uint32_t n = first; n != 0u; n = rd(rdram, n + 0x1B0u))
+        {
+            if (!ram(n, 0x200u) || nodes.size() >= 1024u)
+            {
+                ++s22::g_st.skipped;
+                return;
+            }
+            nodes.push_back(n);
+        }
+        const uint32_t window = 0x70u + static_cast<uint32_t>(nodes.size()) * 4u + 0x1000u;
+        if (nodes.empty() || sp0 < window || !ram(sp0 - window, window))
+        {
+            ++s22::g_st.skipped;
+            return;
+        }
+        const uint32_t lo = sp0 - window;
+        static std::vector<uint8_t> nodes0, nodesA, stack0;
+        nodes0.resize(nodes.size() * 0x200u);
+        nodesA.resize(nodes.size() * 0x200u);
+        for (size_t i = 0; i < nodes.size(); ++i)
+            std::memcpy(nodes0.data() + i * 0x200u, rdram + nodes[i], 0x200u);
+        stack0.assign(rdram + lo, rdram + sp0);
+        static R5900Context c0, cA;
+        c0 = *ctx;
+        std::vector<Rec> a, b;
+        bool hostRan = false;
+        {
+            Spy spy;
+            const uint32_t targets[] = {kTexTransRequest, kWorldMatrix, kBlendDisp, kParticleDraw, kDrawAnimated, kDrawSinCos, kQuads, kDrawEC40,
+                                        kDrawSpan, kDrawLit, kResetSurface, sotc_decomp::jalTarget(rdram, 0x0113ADC4u), sotc_decomp::jalTarget(rdram, 0x0113AEB8u)};
+            for (const uint32_t t : targets)
+                spy.on(t);
+            g_recs = &a;
+            listImpl(rdram, ctx, runtime);
+            cA = *ctx;
+            for (size_t i = 0; i < nodes.size(); ++i)
+                std::memcpy(nodesA.data() + i * 0x200u, rdram + nodes[i], 0x200u);
+            *ctx = c0;
+            for (size_t i = 0; i < nodes.size(); ++i)
+                std::memcpy(rdram + nodes[i], nodes0.data() + i * 0x200u, 0x200u);
+            std::memcpy(rdram + lo, stack0.data(), window);
+            g_recs = &b;
+            hostRan = listHost(rdram, ctx, runtime);
+            g_recs = nullptr;
+        }
+        if (!hostRan || cA.pc != GPR_U32(&c0, 31))
+            ++s22::g_st.skipped; // the host path declined, or the old one stopped at a checkpoint
+        else
+        {
+            ++s22::g_st.checks;
+            char what[512];
+            int wn = 0;
+            what[0] = 0;
+            size_t i = 0;
+            while (i < a.size() && i < b.size() && a[i] == b[i])
+                ++i;
+            bool same = a.size() == b.size() && i == a.size();
+            if (!same)
+            {
+                wn += std::snprintf(what + wn, sizeof what - wn, "calls %u / %u, first differing #%u", static_cast<unsigned>(a.size()), static_cast<unsigned>(b.size()),
+                                    static_cast<unsigned>(i));
+                auto dump = [&](const char *tag, const std::vector<Rec> &v)
+                {
+                    if (i >= v.size() || wn >= static_cast<int>(sizeof what) - 8)
+                        return;
+                    const Rec &r = v[i];
+                    wn += std::snprintf(what + wn, sizeof what - wn, " %s{t %08x a %08x %08x %08x %08x t0 %08x ra %08x sp %08x s0 %08x s1 %08x s2 %08x s3 %08x}", tag, r.target,
+                                        r.a[0], r.a[1], r.a[2], r.a[3], r.a[4], r.ra, r.sp, (unsigned)r.sreg[0], (unsigned)r.sreg[1], (unsigned)r.sreg[2], (unsigned)r.sreg[3]);
+                };
+                dump("old", a);
+                dump("new", b);
+            }
+            bool regs = cA.pc == ctx->pc && GPR_U64(&cA, 29) == GPR_U64(ctx, 29) && GPR_U64(&cA, 31) == GPR_U64(ctx, 31) && GPR_U64(&cA, 30) == GPR_U64(ctx, 30);
+            for (int r = 16; r < 24; ++r)
+                regs = regs && GPR_U64(&cA, r) == GPR_U64(ctx, r);
+            regs = regs && std::memcmp(&cA.f[20], &ctx->f[20], 12 * sizeof(float)) == 0;
+            bool vu = A9_MEMEQ(&cA.vu0_acc, &ctx->vu0_acc, 16) && A9_MEMEQ(&cA.vu0_q, &ctx->vu0_q, 4);
+            for (int r = 0; r < 32; ++r)
+                vu = vu && A9_MEMEQ(&cA.vu0_vf[r], &ctx->vu0_vf[r], 16);
+            size_t badNode = nodes.size();
+            for (size_t k = 0; k < nodes.size() && badNode == nodes.size(); ++k)
+                if (std::memcmp(nodesA.data() + k * 0x200u, rdram + nodes[k], 0x200u) != 0)
+                    badNode = k;
+            if (!regs || !vu || badNode != nodes.size())
+            {
+                same = false;
+                wn += std::snprintf(what + wn, sizeof what - wn, " regs %d vu0 %d node %d/%u", regs ? 1 : 0, vu ? 1 : 0, static_cast<int>(badNode),
+                                    static_cast<unsigned>(nodes.size()));
+            }
+            if (!same && s22::g_st.differ++ < 20u)
+                std::fprintf(stderr, "[s22ptcl] differ: frame %llu list %08x nodes %u: %s\n", (unsigned long long)sotc_decomp::g_gameFrame, first,
+                             static_cast<unsigned>(nodes.size()), what);
+        }
+        *ctx = c0;
+        for (size_t i = 0; i < nodes.size(); ++i)
+            std::memcpy(rdram + nodes[i], nodes0.data() + i * 0x200u, 0x200u);
+        std::memcpy(rdram + lo, stack0.data(), window);
+    }
+
     void list(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        if (sotc_decomp::switchOn(sotc_decomp::kS22Ptcl) && on())
+        {
+            if (__builtin_expect(s22::g_check < 0, 0))
+                s22::init();
+            ++s22::g_st.lists;
+            if (__builtin_expect(s22::g_check > 0, 0) && ++s22::g_checkN % static_cast<uint64_t>(s22::g_check) == 0u)
+                s22Check(rdram, ctx, runtime);
+            if (__builtin_expect(s22::g_log != 0u, 0))
+                s22::log();
+            if (listHost(rdram, ctx, runtime))
+                return;
+            ++s22::g_st.old;
+        }
         if (on() && checkDue(1))
         {
             const uint32_t sp0 = GPR_U32(ctx, 29);
