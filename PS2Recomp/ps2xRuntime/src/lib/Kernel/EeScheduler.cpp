@@ -336,6 +336,11 @@ void EeScheduler::run()
             m_pendingInvocations.pop_front();
             if (needsStack)
                 SET_GPR_U32(&invocation.context, 29, stackTop);
+            if (__builtin_expect(m_s17Open, 0))
+            {
+                s17Note(6, invocation.context.pc);
+                s17NotePc(127u << 25 | (invocation.context.pc & 0x1FFFFFFu));
+            }
             continue;
         }
 
@@ -409,6 +414,13 @@ void EeScheduler::run()
                 m_vu0Owner = key;
                 m_vu0OwnerValid = true;
             }
+        }
+        if (__builtin_expect(g_ps2xS17Log != 0u, 0) && running->invocations.empty() && running->id == m_s17Home)
+        {
+            // Round S17: the home thread dispatched again at its own context (an unwound episode's end; the rebuild's hops)
+            ++g_eeS17.homeDispatch;
+            if (m_s17Open)
+                s17End();
         }
         try
         {
@@ -579,6 +591,13 @@ bool EeScheduler::checkpointSlow() noexcept
     if (m_checkpointPending.load(std::memory_order_relaxed) ||
         m_stopRequested.load(std::memory_order_relaxed))
     {
+        // Round S17: the dispatch nested here instead of the unwind (s17Checkpoint).
+        if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
+        {
+            const int r = s17Checkpoint();
+            if (r == 0)
+                return false;
+        }
         ++g_eeS11.pending;
         m_unwinding = true;
         return true;
@@ -589,6 +608,12 @@ bool EeScheduler::checkpointSlow() noexcept
     {
         ++g_eeS11.deadline;
         flagCheckpoint(3);
+        if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
+        {
+            const int r = s17Checkpoint();
+            if (r == 0)
+                return false;
+        }
         m_unwinding = true;
         return true;
     }
@@ -606,6 +631,12 @@ bool EeScheduler::checkpointSlow() noexcept
         ++g_eeS11.preempt;
         m_rescheduleRequested = true;
         m_timeSliceExpired = true;
+        if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
+        {
+            const int r = s17Checkpoint();
+            if (r == 0)
+                return false;
+        }
         m_unwinding = true;
         return true;
     }
@@ -986,6 +1017,7 @@ void EeScheduler::sleepCurrent()
 int EeScheduler::wakeupThread(int id, bool interruptSafe)
 {
     assertExecutor();
+    s17Note(3, static_cast<uint32_t>(id));
     // iWakeupThread of the thread an interrupt stopped counts a wakeup, as
     // on the console (only WakeupThread of oneself is illegal). SotC's
     // VBlank thread (0x1c80a0: SleepThread, then the sound tick, the pads
@@ -1255,6 +1287,7 @@ int EeScheduler::deleteSemaphore(int id, bool interruptSafe)
 int EeScheduler::signalSemaphore(int id, bool interruptSafe)
 {
     assertExecutor();
+    s17Note(2, static_cast<uint32_t>(id));
     EeSemaphore *object = semaphore(id);
     if (!object)
     {
@@ -1699,6 +1732,7 @@ void EeScheduler::dispatchIrq(bool dmac, uint32_t cause)
         SET_GPR_U32(&invocation.context, 28, handler.gp);
         SET_GPR_U32(&invocation.context, 29, 0u);
         SET_GPR_U32(&invocation.context, 31, 0u);
+        s17Note(5, handler.handler);
         flagCheckpoint(6);
     }
 }
@@ -2145,11 +2179,18 @@ void EeScheduler::makeRunning(GuestThread &item)
     item.status = EeThreadStatus::Running;
     m_currentThreadId = item.id;
     ++g_eeS11.runs[item.id < 15 ? item.id : 15];
+    if (__builtin_expect(m_s17Open, 0))
+    {
+        s17Note(0, static_cast<uint32_t>(item.id));
+        ++g_eeS17.runs[m_s17Path][item.id < 15 ? item.id : 15];
+        s17NotePc(static_cast<uint32_t>(item.id & 127) << 25 | (item.activeContext().pc & 0x1FFFFFFu));
+    }
     renewTimeSlice();
 }
 
 void EeScheduler::makeDormant(GuestThread &item)
 {
+    s17Note(7, static_cast<uint32_t>(item.id));
     if (m_vu0OwnerValid && m_vu0Owner.threadId == item.id)
         flushVu0Owner();
     removeReady(item);
@@ -2281,6 +2322,7 @@ void EeScheduler::parkCurrent(EeWaitState wait)
         ++stat139::leaves;
         stat139::noteLeave(GPR_U32(&self->activeContext(), 31) | (static_cast<uint32_t>(wait.reason) << 28));
     }
+    s17Note(1, static_cast<uint32_t>(wait.reason) << 16 | static_cast<uint32_t>(self->id));
     self->wait = std::move(wait);
     self->status = self->suspendCount == 0 ? EeThreadStatus::Waiting : EeThreadStatus::WaitingSuspended;
     m_currentThreadId = 0;
@@ -2300,6 +2342,7 @@ void EeScheduler::makeReady(GuestThread &item, int result, bool interruptSafe)
         }
         std::cerr << std::endl;
     }
+    s17Note(4, static_cast<uint32_t>(item.id));
     auto completion = std::move(item.wait.completion);
     item.wait = {};
     setReturnS32(&item.activeContext(), result);
@@ -2903,4 +2946,373 @@ void EeScheduler::publishIdleDebugContext()
     {
         publishDebugContext(selected->activeContext());
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Round S17 (g_ps2xS17Parts; the game's switch s17iop): the dispatch nested at the checkpoint (docs/runtime_s17.md).
+//
+// Before: a checkpoint that finds work for the scheduler (an IOP reply's SIF interrupt, a semaphore signal that readies
+// a higher-priority streaming / loader thread, the VBlank or GS handlers, a deadline) sets `unwinding`; every host frame
+// of the running thread returns, run() takes the events, runs the handlers and the woken threads, and when the running
+// thread is picked again it is dispatched at the checkpoint's pc and climbs back up its guest call chain one dispatcher
+// hop per frame (each a table lookup, a checkpoint and a resumed function).
+//
+// S17: the same dispatch loop runs right at the checkpoint, on top of the running ("home") thread's host frames, until
+// it would pick the home thread at its own context again; then the checkpoint returns false and the home thread's frames
+// go on. The order of everything the guest sees is run()'s: the events taken where run() takes them (after the function
+// returns, then at the loop's top), the interrupt handlers queued on the home thread as run() queues them, the woken
+// threads picked by priority, the home thread put back at the front of its queue (behind at a slice end) and picked as
+// run() picks it, the shared VU0 registers handed over as run() hands them. A nested thread's own checkpoints and parks
+// unwind to this loop as they unwind to run(). Not nested (the old unwind): inside an interrupt handler or invocation,
+// a posted external wake whose waiter has not parked yet (S15's boot hang: a request's reply taken before its waiter
+// parks), host stack below 192 KB of room, the check's old turn. When the home thread stops being ready (suspended,
+// terminated) or the emulator stops, the nested loop hands over to run() by unwinding the home thread then.
+// What differs from the old path: the dispatcher's hops on the way back up (8 cycles each) are not charged.
+uint32_t g_ps2xS17Parts = 0u, g_ps2xS17Check = 0u, g_ps2xS17Log = 0u;
+int g_ps2xS17Home = 0;
+EeS17Stats g_eeS17;
+
+void EeScheduler::s17NotePc(uint32_t key) noexcept
+{
+    EeS17Stats::Pc *free = nullptr;
+    for (EeS17Stats::Pc &e : g_eeS17.pcs)
+    {
+        if (e.key == key && e.n != 0u)
+        {
+            ++e.n;
+            return;
+        }
+        if (!free && e.n == 0u)
+            free = &e;
+    }
+    if (free)
+    {
+        free->key = key;
+        free->n = 1u;
+    }
+}
+
+void EeScheduler::s17Begin(int home, int path) noexcept
+{
+    m_s17Open = true;
+    m_s17Path = path & 1;
+    m_s17Home = home;
+    m_s17Hash = 0xcbf29ce484222325ull;
+    m_s17T0 = ps2_stats::nowUs();
+    ++g_eeS17.episodes[m_s17Path];
+    g_eeS17.homeId = static_cast<uint32_t>(home);
+}
+
+void EeScheduler::s17End() noexcept
+{
+    m_s17Open = false;
+    g_eeS17.us[m_s17Path] += ps2_stats::nowUs() - m_s17T0;
+    const uint64_t h = m_s17Hash;
+    EeS17Stats::Sig *free = nullptr;
+    for (EeS17Stats::Sig &e : g_eeS17.sigs)
+    {
+        if ((e.n[0] | e.n[1]) != 0u && e.h == h)
+        {
+            ++e.n[m_s17Path];
+            return;
+        }
+        if (!free && (e.n[0] | e.n[1]) == 0u)
+            free = &e;
+    }
+    if (free)
+    {
+        free->h = h;
+        free->n[m_s17Path] = 1u;
+    }
+    else
+        ++g_eeS17.sigOther[m_s17Path];
+}
+
+int EeScheduler::s17Checkpoint() noexcept
+{
+    ++g_eeS17.hooks;
+    // Not nested: counted by why; the comparable ones (off, the check's old turn) recorded as old-path episodes.
+    auto no = [this](int why, const GuestThread *home)
+    {
+        ++g_eeS17.notNested[why < 10 ? why : 9];
+        if (g_ps2xS17Log != 0u && home && !m_s17Open && (why == 5 || why == 6))
+            s17Begin(home->id, 0);
+        return -1;
+    };
+    if (m_s17Depth != 0)
+        return no(7, nullptr);
+    GuestThread *home = currentThread();
+    if (!home || std::this_thread::get_id() != m_executorThread)
+        return no(2, nullptr);
+    if (m_stopRequested.load(std::memory_order_relaxed))
+        return no(0, nullptr);
+    if (m_insideInterrupt || !home->invocations.empty() || home->resumeCompletion)
+        return no(1, nullptr);
+    if (g_ps2xS17Home == 0 || home->id != g_ps2xS17Home)
+        return no(8, nullptr); // (a thread nested on another one's frames would run with less host stack; the game thread
+                               // nested there could not nest its own checkpoints for the rest of its run)
+    if ((g_ps2xS17Parts & 1u) == 0u)
+        return no(6, home);
+    if (reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) < m_runtime.m_hostStackFloor + 192u * 1024u)
+        return no(3, nullptr);
+    {
+        // A posted external wake (a host request's reply) whose waiter has not parked yet: the old path (the request's
+        // code may poll again after the unwind; S15's p1 lost such a reply).
+        std::lock_guard lock(m_eventMutex);
+        for (const EeEvent &event : m_events)
+        {
+            if (event.type != EeEventType::ExternalWake)
+                continue;
+            bool parked = false;
+            for (const auto &[id, candidate] : m_threads)
+            {
+                (void)id;
+                if ((candidate.status == EeThreadStatus::Waiting || candidate.status == EeThreadStatus::WaitingSuspended) &&
+                    (candidate.wait.reason == EeWaitReason::External || candidate.wait.reason == EeWaitReason::Mpeg))
+                {
+                    const auto &external = std::get<EeExternalWait>(candidate.wait.payload);
+                    if (external.type == event.id && external.token == event.value)
+                    {
+                        parked = true;
+                        break;
+                    }
+                }
+            }
+            if (!parked)
+                return no(4, nullptr);
+        }
+    }
+    if (g_ps2xS17Check != 0u)
+    {
+        // The old way or nested at random (xorshift), not alternately: an alternation aliases with the events' own
+        // periodic order (a handler-only episode, then a thread's, ...) and fills each path with different kinds.
+        static uint32_t x = 2463534242u;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        if ((x & 0x100u) != 0u)
+            return no(5, home);
+    }
+    return s17Nest(*home);
+}
+
+int EeScheduler::s17Nest(GuestThread &home) noexcept
+{
+    if (g_ps2xS17Log != 0u && !m_s17Open)
+        s17Begin(home.id, 1);
+    ++g_eeS17.nested;
+    const int homeId = home.id;
+    const int saveThrow = m_xferThrowDepth;
+    const uint32_t saveSerial = m_runtime.m_guestJumpSerial;
+    m_xferThrowDepth = 0; // (the home thread's frames that cannot return are below: the nested threads' are their own)
+    ++m_s17Depth;
+    bool switched = false;
+    int bail = -1;
+    auto pushInvocation = [this](GuestThread &owner)
+    {
+        const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
+        const uint32_t stackTop = needsStack ? invocationStackTop() : 0u;
+        GuestInvocation &invocation = owner.invocations.emplace_back(std::move(m_pendingInvocations.front()));
+        m_pendingInvocations.pop_front();
+        if (needsStack)
+            SET_GPR_U32(&invocation.context, 29, stackTop);
+        if (m_s17Open)
+        {
+            s17Note(6, invocation.context.pc);
+            s17NotePc(127u << 25 | (invocation.context.pc & 0x1FFFFFFu));
+        }
+    };
+    auto handOverVu0 = [this](GuestThread &running, R5900Context &context)
+    {
+        static const bool sharedVu0 = std::getenv("PS2X_VU0_PER_THREAD") == nullptr;
+        if (!sharedVu0)
+            return;
+        const Vu0OwnerKey key{m_currentThreadId, running.invocations.size(), running.invocations.empty() ? 0u : running.invocations.back().sequence};
+        if (!m_vu0OwnerValid || !(key == m_vu0Owner))
+        {
+            flushVu0Owner();
+            loadGlobalVu0(context);
+            m_vu0Owner = key;
+            m_vu0OwnerValid = true;
+        }
+    };
+    // As run() after the function returned (where the unwind would have ended).
+    processPendingEvents();
+    if (m_rescheduleRequested && m_currentThreadId != 0)
+    {
+        enqueueReady(*currentThread(), !m_timeSliceExpired);
+        m_currentThreadId = 0;
+        m_rescheduleRequested = false;
+        m_timeSliceExpired = false;
+    }
+    for (;;)
+    {
+        if (m_stopRequested.load(std::memory_order_relaxed))
+        {
+            bail = 1;
+            break;
+        }
+        processPendingEvents();
+        if (m_stopRequested.load(std::memory_order_relaxed))
+        {
+            bail = 1;
+            break;
+        }
+        if (m_currentThreadId == 0)
+        {
+            const GuestThread *h = thread(homeId); // (looked up: a nested thread may terminate and delete it)
+            if (!h || h->status != EeThreadStatus::Ready)
+            {
+                bail = 0;
+                break;
+            }
+            GuestThread *next = selectReady();
+            if (!next)
+            {
+                bail = 2;
+                break;
+            }
+            if (next->id != homeId && (g_ps2xS17Parts & (4u | 8u)) != 0u)
+            {
+                // (parts 4 / 8: no thread run nested: put back where it was, run() takes it)
+                enqueueReady(*next, true);
+                bail = 3;
+                break;
+            }
+            makeRunning(*next);
+            if (next->id != homeId)
+                switched = true;
+        }
+        GuestThread *running = currentThread();
+        if (running->resumeCompletion)
+        {
+            auto completion = std::move(running->resumeCompletion);
+            running->resumeCompletion = {};
+            try
+            {
+                const ThrowScope noReturn(*this);
+                completion(running->activeContext());
+            }
+            catch (const EeDispatcherTransfer &)
+            {
+            }
+            m_clock.transferred = false;
+            if (m_currentThreadId == 0)
+                continue;
+            running = currentThread();
+        }
+        if (running->id == homeId && running->invocations.empty())
+        {
+            // run() would dispatch the home thread at its checkpoint's pc now (after the handlers queued for it).
+            if (!m_pendingInvocations.empty())
+            {
+                if ((g_ps2xS17Parts & 4u) != 0u)
+                {
+                    bail = 3; // (part 4: no handler run nested either)
+                    break;
+                }
+                pushInvocation(*running);
+                continue;
+            }
+            if (checkpointDue(kGuestDispatchCycles))
+                continue;
+            handOverVu0(*running, running->context);
+            m_profileContext.store(&running->context, std::memory_order_relaxed);
+            break;
+        }
+        R5900Context &context = running->activeContext();
+        m_profileContext.store(&context, std::memory_order_relaxed);
+        if (context.pc == 0u)
+        {
+            if (!running->invocations.empty())
+            {
+                if (m_vu0OwnerValid && m_vu0Owner.threadId == running->id && m_vu0Owner.depth == running->invocations.size())
+                    flushVu0Owner();
+                GuestInvocation completed = std::move(running->invocations.back());
+                running->invocations.pop_back();
+                if (completed.onComplete)
+                {
+                    try
+                    {
+                        const ThrowScope noReturn(*this);
+                        completed.onComplete(completed.context, running->activeContext());
+                    }
+                    catch (const EeDispatcherTransfer &)
+                    {
+                    }
+                    m_clock.transferred = false;
+                }
+                continue;
+            }
+            makeDormant(*running);
+            m_currentThreadId = 0;
+            continue;
+        }
+        if (!m_pendingInvocations.empty() && running->invocations.empty())
+        {
+            pushInvocation(*running);
+            continue;
+        }
+        if (!m_runtime.hasFunction(context.pc))
+        {
+            if (!running->invocations.empty())
+                context.pc = 0u;
+            else
+            {
+                m_runtime.reportMissingFunction(m_rdram, &context, context.pc, context.pc, PS2Runtime::GuestBranchKind::DirectJump, "EE scheduler (S17)");
+                makeDormant(*running);
+                m_currentThreadId = 0;
+            }
+            continue;
+        }
+        PS2Runtime::RecompiledFunction function = m_runtime.lookupFunction(context.pc);
+        if (checkpointDue(kGuestDispatchCycles))
+            continue;
+        handOverVu0(*running, context);
+        try
+        {
+            m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
+            m_unwinding = false;
+            m_clock.transferred = false;
+            updateGate();
+            function(m_rdram, &context, &m_runtime);
+        }
+        catch (const EeDispatcherTransfer &)
+        {
+        }
+        m_insideInterrupt = false;
+        m_clock.transferred = false;
+        processPendingEvents();
+        if (m_rescheduleRequested && m_currentThreadId != 0)
+        {
+            enqueueReady(*currentThread(), !m_timeSliceExpired);
+            m_currentThreadId = 0;
+            m_rescheduleRequested = false;
+            m_timeSliceExpired = false;
+        }
+    }
+    --m_s17Depth;
+    m_xferThrowDepth = saveThrow;
+    m_runtime.m_guestJumpSerial = saveSerial;
+    if (bail >= 0)
+    {
+        // run() takes over: the home thread's frames unwind now (its pc is the checkpoint's, set before the call).
+        ++g_eeS17.bailed[bail];
+        if (m_currentThreadId != 0 && m_currentThreadId != homeId)
+        {
+            enqueueReady(*currentThread(), true);
+            m_currentThreadId = 0;
+        }
+        m_unwinding = true;
+        return 1;
+    }
+    if (!switched)
+        ++g_eeS17.goOn;
+    if (m_s17Open && m_s17Home == homeId)
+        s17End();
+    m_unwinding = false;
+    m_clock.transferred = false;
+    m_insideInterrupt = false;
+    updateGate();
+    return 0;
 }

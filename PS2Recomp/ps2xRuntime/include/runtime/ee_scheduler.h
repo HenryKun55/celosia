@@ -277,6 +277,41 @@ extern uint64_t g_ps2xIopBatchEeCycles;
 // cuts it back to the next plain slice boundary (EeScheduler::sliceStretchCut), so the round robin among equal priorities
 // keeps its turns. Read on the executor only; the game sets it per frame.
 extern uint32_t g_ps2xSliceStretch;
+// Round S17 (game: s17iop): a checkpoint that would unwind the running thread's host stack to the scheduler (the IOP's
+// replies waking a higher-priority thread, the interrupt handlers, the deadlines) runs the scheduler's dispatch loop
+// right there, nested on top of the running thread's frames: the events, the handlers, the woken threads until they
+// park again; when the dispatch would pick the interrupted thread again, its frames simply go on (no unwind, no rebuild
+// of its guest call chain through the dispatcher). g_ps2xS17Parts bit 1: on. g_ps2xS17Check: every other episode the
+// old way. g_ps2xS17Log: record episodes (threads run, resume pcs, the kernel calls) for the log. Executor only.
+extern uint32_t g_ps2xS17Parts, g_ps2xS17Check, g_ps2xS17Log;
+extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
+struct EeS17Stats
+{
+    uint64_t hooks = 0;                 // checkpoints that came to the hook (would have unwound)
+    uint64_t nested = 0, goOn = 0;      // nested dispatches; of them, nothing switched (events / handlers only)
+    uint64_t notNested[10] = {};        // 0 stop, 1 interrupt / invocation / completion, 2 not the executor, 3 host stack,
+                                        // 4 a posted wake whose waiter has not parked, 5 the check's old turn, 6 off, 7 inside a nested run,
+                                        // 8 not the game thread
+    uint64_t bailed[4] = {};            // nested dispatches that ended unwinding: 0 home not ready, 1 stop, 2 nothing ready, 3 a part left out
+    uint64_t episodes[2] = {};          // recorded episodes by path (0 the unwind, 1 nested): from the hook to the home thread's resume
+    uint64_t us[2] = {};                // their host time
+    uint64_t runs[2][16] = {};          // threads made running inside episodes, by path and id (15: >= 15)
+    uint64_t ops[2][8] = {};            // by path: 0 runs, 1 parks, 2 signals, 3 wakes, 4 readies, 5 irq handlers queued, 6 invocations run, 7 dormant
+    uint64_t homeDispatch = 0;          // the home thread's dispatches from run() (the rebuild after an unwind)
+    struct Pc
+    {
+        uint32_t key = 0; // thread id << 25 | the pc it resumed at (or the handler's pc, thread 127)
+        uint64_t n = 0;
+    } pcs[48];
+    struct Sig
+    {
+        uint64_t h = 0; // an episode's kernel calls in order (hashed)
+        uint64_t n[2] = {};
+    } sigs[96];
+    uint64_t sigOther[2] = {};
+    uint32_t homeId = 0;
+};
+extern EeS17Stats g_eeS17;
 
 class EeScheduler
 {
@@ -533,6 +568,24 @@ private:
     [[nodiscard]] bool hasReadyAtOrAbovePriority(int priority) const;
     void renewTimeSlice();
     void sliceStretchCut(const GuestThread &readied);
+    // Round S17 (g_ps2xS17Parts): -1 not nested (the caller unwinds as before), 0 go on, 1 unwind (state set).
+    int s17Checkpoint() noexcept;
+    int s17Nest(GuestThread &home) noexcept;
+    void s17Begin(int home, int path) noexcept;
+    void s17End() noexcept;
+    void s17Note(int op, uint32_t value) noexcept
+    {
+        if (__builtin_expect(m_s17Open, 0))
+        {
+            ++g_eeS17.ops[m_s17Path][op & 7];
+            m_s17Hash = (m_s17Hash ^ (static_cast<uint64_t>(op) << 32 | value)) * 0x100000001b3ull;
+        }
+    }
+    void s17NotePc(uint32_t key) noexcept;
+    int m_s17Depth = 0;       // inside a nested dispatch
+    bool m_s17Open = false;   // an episode is being recorded
+    int m_s17Path = 0, m_s17Home = 0;
+    uint64_t m_s17Hash = 0, m_s17T0 = 0;
     void updateGate() noexcept;
     void copyMainContextToRuntime();
     void publishDebugContext(const R5900Context &context);
