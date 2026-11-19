@@ -63,18 +63,27 @@ the round was cut (see 6).
 
 ## 4. Speed
 
-Not measured: the interleaved A/Bs (ride7 800 s seeds 7 / 13, attract 400 s) were running when the round was cut.
+Finished by the coordinator after the round was cut (p3, SOTC_S22PTCL=1, interleaved, Vita3K 222 MHz, off - on, 2 SE):
+
+| run | result |
+|---|---|
+| ride7 800 s seed 7 (32 blocks) | -0.295 +- 0.288 ms |
+| ride7 800 s seed 13 (45 blocks) | +0.022 +- 0.233 ms |
+| attract 400 s seed 7 (47 blocks) | -0.070 +- 0.159 ms |
+
+Pooled: about -0.08 +- 0.12 ms (2 SE), even to slightly slower: **off by default** (SOTC_S22PTCL=1 on).
+Checks (all lists): ride7 189 316 lists, lake6 423 207, attract 182 659, **0 differences**; no list had a run of 2+ nodes
+(sorted 0 everywhere), so the host qsort copy is still not exercised.
 Expected saving: ~90 callGuest + gate dispatches a frame riding, i.e. well below 0.5% of the game thread.
 
 ## 5. Boot and pictures
 
-chkRp3's shots (S22 on): riding, Agro's dust normal. The 600 s boot with 89 MB taken was not run. spalign: 0 sp-based
+chkRp3's shots (S22 on): riding, Agro's dust normal. bootRp3 (600 s, 89 MB taken, S22 on): booted on the first try, no fault. spalign: 0 sp-based
 NEON accesses (p3).
 
 ## 6. What it leaves
 
-- The A/Bs, the lake6 / attract checks (the only places a run of 2+ nodes, so the qsort copy, can be checked) and the
-  boot. Off by default until then.
+- A place with a run of 2+ nodes to exercise the qsort copy (none on ride7, lake6, attract).
 - The drawers (particleDraw, the quads, ...) are still table calls from disp_particle_emitter; with one node per list,
   the bigger cost is per list (85-90 lists a frame, one per geodisp), not per node: the geodisp draw callback ->
   list -> node -> emitter chain could become one host walk from the display walk.

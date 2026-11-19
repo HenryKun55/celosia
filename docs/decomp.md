@@ -23122,3 +23122,11 @@ pictures normal. spalign 0 sp-based.
 The query's own ~0.5% (a per-object light record only pays for static objects, which round 83 already keeps), the work
 records after it (SetWorkFromGlobalLight, ExecGameLight, the light matrices), getAmbientColorC (S19, off), the light
 pass's three sort-list walks (0.70%): docs/lights_s21.md section 6.
+
+## Redesign S22: the particle draw list without a guest call per node (off by default) (2026-11-19)
+
+decomp_ptcl117's listHost (SOTC_S22PTCL, A/B s22ptcl): one pass over the nodes with their checks made once, each run's order
+from a host copy of the game's BSD qsort over the nodes' depths, each node's body called straight (through round 95's gates via
+sotc_worker::behindGate). Exact: 0 differences over 795 182 lists checked on ride7, lake6, attract (every list one node: the
+qsort copy not exercised). A/B even to slightly slower (pooled about -0.08 +- 0.12 ms, 2 SE): off by default. Riding the cost is
+per list (85-90 a frame, one per geodisp), not per node. Details: docs/ptcl_s22.md.
