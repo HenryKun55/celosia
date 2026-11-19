@@ -992,25 +992,61 @@ namespace ps2x::iop::detail
 #if defined(PS2X_MIX_NEON)
         if (m_n2)
         {
-            // Round N2: four outputs at a time: each one's four samples one vector load, the 4 x 4 transposed
-            // into h0..h3 (the same values as the loop below).
+            // Round N2: four outputs at a time, gathered and mixed in registers: each output's four samples one
+            // vector load, the 4 x 4 transposed into the four history vectors, then mixSamples' arithmetic as it
+            // is written there (the same bits); the last outputs (fewer than four) through mixSamples.
             const uint32x4_t frac = vdupq_n_u32(0xFFFu);
+            const float32x4_t half = vdupq_n_f32(0.5f), two = vdupq_n_f32(2.0f), three = vdupq_n_f32(3.0f), four = vdupq_n_f32(4.0f), five = vdupq_n_f32(5.0f);
+            const float32x4_t inv4096 = vdupq_n_f32(1.0f / 4096.0f);
+            const int32x4_t lo16 = vdupq_n_s32(-32768), hi16 = vdupq_n_s32(32767);
+            const int32_t volL = voice.volL, volR = voice.volR;
             for (; i + 4u <= outputs; i += 4u)
             {
-                const uint32_t p0 = position + pitch, p1 = p0 + pitch, p2 = p1 + pitch, p3 = p2 + pitch;
-                position = p3;
-                const int16x4_t a = vld1_s16(run + (p0 >> 12u)), b = vld1_s16(run + (p1 >> 12u));
-                const int16x4_t c = vld1_s16(run + (p2 >> 12u)), d = vld1_s16(run + (p3 >> 12u));
+                const uint32_t q0 = position + pitch, q1 = q0 + pitch, q2 = q1 + pitch, q3 = q2 + pitch;
+                position = q3;
+                const int16x4_t a = vld1_s16(run + (q0 >> 12u)), b = vld1_s16(run + (q1 >> 12u));
+                const int16x4_t c = vld1_s16(run + (q2 >> 12u)), d = vld1_s16(run + (q3 >> 12u));
                 const int16x4x2_t ab = vtrn_s16(a, b), cd = vtrn_s16(c, d);
                 const int32x2x2_t even = vtrn_s32(vreinterpret_s32_s16(ab.val[0]), vreinterpret_s32_s16(cd.val[0]));
                 const int32x2x2_t odd = vtrn_s32(vreinterpret_s32_s16(ab.val[1]), vreinterpret_s32_s16(cd.val[1]));
-                vst1_s16(h0 + i, vreinterpret_s16_s32(even.val[0]));
-                vst1_s16(h1 + i, vreinterpret_s16_s32(odd.val[0]));
-                vst1_s16(h2 + i, vreinterpret_s16_s32(even.val[1]));
-                vst1_s16(h3 + i, vreinterpret_s16_s32(odd.val[1]));
-                const uint32_t ps[4] = {p0, p1, p2, p3};
-                vst1q_u32(count + i, vandq_u32(vld1q_u32(ps), frac));
+                const float32x4_t p0 = vcvtq_f32_s32(vmovl_s16(vreinterpret_s16_s32(even.val[0])));
+                const float32x4_t p1 = vcvtq_f32_s32(vmovl_s16(vreinterpret_s16_s32(odd.val[0])));
+                const float32x4_t p2 = vcvtq_f32_s32(vmovl_s16(vreinterpret_s16_s32(even.val[1])));
+                const float32x4_t p3 = vcvtq_f32_s32(vmovl_s16(vreinterpret_s16_s32(odd.val[1])));
+                const uint32_t qs[4] = {q0, q1, q2, q3};
+                const float32x4_t t = vmulq_f32(vcvtq_f32_u32(vandq_u32(vld1q_u32(qs), frac)), inv4096);
+                float32x4_t A = vsubq_f32(vaddq_f32(vmulq_f32(three, vsubq_f32(p1, p2)), p3), p0);
+                float32x4_t B = vsubq_f32(vaddq_f32(vsubq_f32(vmulq_f32(two, p0), vmulq_f32(five, p1)), vmulq_f32(four, p2)), p3);
+                B = vaddq_f32(B, vmulq_f32(t, A));
+                const float32x4_t C = vaddq_f32(vsubq_f32(p2, p0), vmulq_f32(t, B));
+                const float32x4_t r = vaddq_f32(p1, vmulq_f32(vmulq_f32(half, t), C));
+                const int32x4_t clamped = vminq_s32(vmaxq_s32(vcvtq_s32_f32(r), lo16), hi16);
+                const int32x4_t sample = vshrq_n_s32(vmulq_s32(clamped, vld1q_s32(level + i)), 15);
+                const int32x4_t left = vshrq_n_s32(vmulq_n_s32(sample, volL), 15), right = vshrq_n_s32(vmulq_n_s32(sample, volR), 15);
+                if (dryL)
+                    vst1q_s32(dryL + i, vaddq_s32(vld1q_s32(dryL + i), left));
+                if (dryR)
+                    vst1q_s32(dryR + i, vaddq_s32(vld1q_s32(dryR + i), right));
+                if (wetL)
+                    vst1q_s32(wetL + i, vaddq_s32(vld1q_s32(wetL + i), left));
+                if (wetR)
+                    vst1q_s32(wetR + i, vaddq_s32(vld1q_s32(wetR + i), right));
             }
+            const uint32_t first = i;
+            for (uint32_t r = 0; i < outputs; ++i, ++r)
+            {
+                position += pitch;
+                const uint32_t k = position >> 12u;
+                h0[r] = run[k];
+                h1[r] = run[k + 1u];
+                h2[r] = run[k + 2u];
+                h3[r] = run[k + 3u];
+                count[r] = position & 0xFFFu;
+            }
+            if (outputs > first)
+                mixSamples(h0, h1, h2, h3, count, level + first, outputs - first, volL, volR, dryL ? dryL + first : nullptr, dryR ? dryR + first : nullptr,
+                           wetL ? wetL + first : nullptr, wetR ? wetR + first : nullptr);
+            return;
         }
 #endif
         for (; i < outputs; ++i)
