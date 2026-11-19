@@ -1503,11 +1503,12 @@ namespace decomp_light
     // grass, the particles, ...), though the second and third walks act only on layout objects (GetLayoutClass != 0)
     // and skip every other node without touching memory or a register. S23 keeps, from the first walk, the nodes
     // whose layout class is nonzero (in the list's order) as a host list, and runs the second and third walks over
-    // it, re-reading each node's id, class and fields live as before. The sort list's index word (+16), which the
-    // walks leave at its end value, is stored as the full walk leaves it. Not used for a pass where a node's class
-    // needs the guest GetLayoutClass (a register side effect per node), or where a node round 95's join adds (after
-    // the first walk) is a layout object. SOTC_S23LIGHT_CHECK=1: the walks run the old way and their layout nodes
-    // and the index word they leave are compared with the host list's; SOTC_S23LIGHT_LOG=<frames>: [s23light] counts.
+    // it, re-reading each node's id, class and fields live as before. A node whose class takes the guest
+    // GetLayoutClass (the script / camera / light objects' cases) is kept too and makes the call again, as the
+    // original does. The sort list's index word (+16), which the walks leave at its end value, is stored as the full
+    // walk leaves it. Not used for a pass where a node round 95's join adds (after the first walk) is not a plain
+    // class-0 node. SOTC_S23LIGHT_CHECK=1: the walks run the old way and the nodes they do not pass over at once and
+    // the index word they leave are compared with the host list's; SOTC_S23LIGHT_LOG=<frames>: [s23light] counts.
     struct S23Stats
     {
         uint64_t passes = 0, host = 0, nodes = 0, kept = 0, guestClass = 0, midLayout = 0, checks = 0, differ = 0;
@@ -1532,7 +1533,7 @@ namespace decomp_light
             return;
         g_s23LogFrame = frame;
         const S23Stats &t = g_s23;
-        std::fprintf(stderr, "[s23light] frame %llu: passes %llu host %llu nodes %llu layout %llu; fallback guest class %llu join layout %llu; check %llu differ %llu\n",
+        std::fprintf(stderr, "[s23light] frame %llu: passes %llu host %llu nodes %llu kept %llu (guest class %llu); fallback join %llu; check %llu differ %llu\n",
                      (unsigned long long)frame, (unsigned long long)t.passes, (unsigned long long)t.host, (unsigned long long)t.nodes,
                      (unsigned long long)t.kept, (unsigned long long)t.guestClass, (unsigned long long)t.midLayout, (unsigned long long)t.checks,
                      (unsigned long long)t.differ);
@@ -1607,19 +1608,17 @@ namespace decomp_light
             const uint32_t id = m.u32(obj);
             if (s23)
             {
+                // Every node the later walks do not pass over at once: a layout class inline, or the guest call's.
                 ++g_s23.nodes;
-                if (s23Use && inlineClass(id) == 1u)
-                {
-                    s23Use = false;
-                    ++g_s23.guestClass;
-                }
+                const uint32_t k = inlineClass(id);
+                if (k != 0u)
+                    s23Nodes.push_back(obj);
+                g_s23.guestClass += k == 1u;
             }
             const uint32_t lc = layoutClass(id, 0x010F5008u);
             uint32_t callback = 0u;
             if (lc != 0u)
             {
-                if (s23)
-                    s23Nodes.push_back(obj);
                 const uint32_t geo = m.u32(lc + 320u);
                 if ((flags64(m.u32(lc + 324u) + 608u) & 2u) != 0u && geo != 0u)
                     callback = m.u32(geo + 224u);
@@ -1737,11 +1736,11 @@ namespace decomp_light
         auto walk2 = [&](uint32_t obj) __attribute__((always_inline))
         {
             const uint32_t id = m.u32(obj);
+            if (s23Check && inlineClass(id) != 0u)
+                s23See(obj);
             const uint32_t lc = layoutClass(id, 0x010F50B8u);
             if (lc == 0u)
                 return;
-            if (s23Check)
-                s23See(obj);
             uint32_t r = m.u32(lc + 324u);
             if ((flags64(r + 608u) & 2u) != 0u)
             {
@@ -1789,11 +1788,12 @@ namespace decomp_light
         // The objects with a light parent (+0x198): its lights taken over.
         auto walk3 = [&](uint32_t obj) __attribute__((always_inline))
         {
-            const uint32_t lc = layoutClass(m.u32(obj), 0x010F5170u);
+            const uint32_t id = m.u32(obj);
+            if (s23Check && inlineClass(id) != 0u)
+                s23See(obj);
+            const uint32_t lc = layoutClass(id, 0x010F5170u);
             if (lc == 0u)
                 return;
-            if (s23Check)
-                s23See(obj);
             if ((flags64(m.u32(lc + 324u) + 608u) & 2u) == 0u)
                 return;
             const uint32_t geo = m.u32(lc + 320u);
