@@ -840,6 +840,71 @@ namespace sotc_replay
             if (g_probeRet)
                 probeSee(rdram, GPR_U32(ctx, 2));
         }
+        // Decomp D18: SOTC_TELEPORT_FORCE=<hex>[@<from>[-<until>]][,...]: up to 4 guest functions (script conditions) hooked;
+        // between those game frames their v0 is 1 (a test aid: the condition a colossus' script waits on taken as met, e.g.
+        // Cenobia's SCRConditionSendDamageToCollisionObject*, the pillar hits that break her armour).
+        struct ForceHook
+        {
+            uint32_t addr = 0;
+            uint64_t from = 0, until = ~0ull, hits = 0;
+            PS2Runtime::RecompiledFunction orig = nullptr;
+        };
+        ForceHook g_force[4];
+        template <int K>
+        void forceHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            ForceHook &h = g_force[K];
+            h.orig(rdram, ctx, runtime);
+            const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+            if (f >= h.from && f < h.until)
+            {
+                if (GPR_U32(ctx, 2) != 1u && (h.hits++ % 300u) == 0u)
+                    std::fprintf(stderr, "[teleport] frame %llu: %08x forced true (%llu)\n", (unsigned long long)f, h.addr, (unsigned long long)h.hits);
+                SET_GPR_U64(ctx, 2, 1u);
+            }
+        }
+        constexpr PS2Runtime::RecompiledFunction kForceHooks[4] = {forceHook<0>, forceHook<1>, forceHook<2>, forceHook<3>};
+        // Decomp D18: SOTC_TELEPORT_WEAKHIT=<from>: from that game frame a hit on the active colossus counts on its first weak
+        // point still standing (a part whose +0x28 has bit 31 or the bits 0xC000 << 40 and whose damage is below its life): the part id
+        // (bits 0x3F0) of the hit's surface attribute is that point's, where SCRExecBossPreProcess reads it
+        // (GetGeometryPointerSurfaceAttribute, its calls at 0x1377880 / 0x13778A8: the damage goes to that part) and where the
+        // stab's death test reads it (GetGeometryPointerCharColAttr from 0x13B0934: IsBossDeathNextAttack on that part).
+        // The weak point's id is found once a frame in the horse hook (g_weakId); 0 = none.
+        uint64_t g_weakHitFrom = ~0ull, g_weakHits = 0;
+        uint32_t g_weakId = 0;
+        PS2Runtime::RecompiledFunction g_surfAttrOriginal = nullptr, g_charColOriginal = nullptr;
+        void surfAttrHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            const uint32_t ra = GPR_U32(ctx, 31), out = GPR_U32(ctx, 4);
+            g_surfAttrOriginal(rdram, ctx, runtime);
+            if (g_weakId && (ra == 0x01377884u || ra == 0x013778ACu) && out + 8u < 0x2000000u)
+            {
+                uint32_t lo;
+                std::memcpy(&lo, rdram + out, 4);
+                static uint64_t seen = 0;
+                if ((seen++ % 50u) == 0u)
+                    std::fprintf(stderr, "[teleport] frame %llu: boss hit's surface %08x (ra %08x, %llu)\n",
+                                 (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), lo, ra, (unsigned long long)seen);
+                if (lo & 8u)
+                {
+                    const uint32_t nl = (lo & ~0x3F0u) | (g_weakId & 0x3F0u);
+                    if (nl != lo && (g_weakHits++ % 20u) == 0u)
+                        std::fprintf(stderr, "[teleport] frame %llu: hit on part %03x counted on weak point %03x\n",
+                                     (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), lo & 0x3F0u, g_weakId & 0x3F0u);
+                    std::memcpy(rdram + out, &nl, 4);
+                }
+            }
+        }
+        void charColHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            const uint32_t ra = GPR_U32(ctx, 31);
+            g_charColOriginal(rdram, ctx, runtime);
+            if (g_weakId && ra == 0x013B093Cu)
+            {
+                const uint64_t v = GPR_U64(ctx, 2);
+                SET_GPR_U64(ctx, 2, (v & ~0x3F0ull) | (g_weakId & 0x3F0u));
+            }
+        }
         constexpr uint32_t kSetPos = 0x013522A0u;
         // Decomp D16: one guest call (a0 = arg) from the horse hook, as activeBossCall; returns v0.
         uint32_t guestCall1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t fn, uint32_t arg)
@@ -1079,6 +1144,22 @@ namespace sotc_replay
                 const uint64_t frame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
                 const uint32_t index = rd(0x01465900u) & 0xFFFFu;
                 const uint32_t player = index ? rd(0x0021B900u + index * 24u) : 0u;
+                if (frame >= g_weakHitFrom)
+                {
+                    // Decomp D18: SOTC_TELEPORT_WEAKHIT: the first weak point still standing (see surfAttrHook).
+                    uint32_t id = 0;
+                    if (g_probeObj)
+                    {
+                        const uint32_t w = rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj));
+                        const uint32_t n = rd(w + 0x54u), parts = rd(w + 0x10u), dmg = rd(w + 0xE8u);
+                        for (uint32_t i = 0; i < n && i < 64u && parts && dmg && !id; ++i)
+                            if (((rd(parts + i * 0x58u + 0x2Cu) & 0xC000u) || (rd(parts + i * 0x58u + 0x28u) & 0x80000000u)) && rf(dmg + 0x24u + i * 8u) < rf(parts + i * 0x58u + 0x1Cu))
+                                id = (rd(parts + i * 0x58u) & 0x3F0u) | 0x10000u;
+                    }
+                    if (id != g_weakId)
+                        std::fprintf(stderr, "[teleport] frame %llu: weak point for hits %03x (was %03x)\n", (unsigned long long)frame, id & 0x3F0u, g_weakId & 0x3F0u);
+                    g_weakId = id;
+                }
                 if (g_probeBoss)
                 {
                     // Decomp D15: SOTC_TELEPORT_PROBE_BOSS=1: the probed object is the active colossus, through the game's boss
@@ -1201,6 +1282,52 @@ namespace sotc_replay
                             {
                                 g_teleportList = true; // D16: "list": the boss table again from this frame
                                 g_teleportListAt = frame;
+                                continue;
+                            }
+                            if (t.call == 7)
+                            {
+                                // Decomp D18: "pstab": the player's final-blow routine (0x13B7730: the absolute death and the
+                                // attack message onto what Wander grips, as pkill) only while Wander grips the active colossus
+                                // (the grip's geometry pointer, his AI work +0xA0, names the boss object): a stab's hit where he
+                                // holds on, which SOTC_TELEPORT_WEAKHIT then counts on the first standing weak point.
+                                const uint32_t gp = player ? guestCall1(rdram, ctx, runtime, 0x013CFAE8u, player) + 0xA0u : 0u;
+                                const uint32_t held = gp ? guestCall1(rdram, ctx, runtime, 0x011329C0u, gp) : 0u;
+                                static uint64_t stabs = 0;
+                                if (g_probeObj && held == g_probeObj)
+                                {
+                                    guestCall1(rdram, ctx, runtime, kPlayerFinalBlow, player);
+                                    const uint32_t dc = guestCall1(rdram, ctx, runtime, 0x01166C10u, g_probeObj); // GetDamageClass
+                                    if ((stabs++ % 10u) == 0u)
+                                        std::fprintf(stderr, "[teleport] frame %llu: pstab on %08x (%llu; damage class %08x state %u type %u)\n", (unsigned long long)frame, held,
+                                                     (unsigned long long)stabs, dc, dc ? rd(dc) : 0u, dc ? rd(dc + 0x60u) : 0u);
+                                }
+                                continue;
+                            }
+                            if (t.call == 6)
+                            {
+                                // Decomp D18: "bweak<pct>": only the weak points (part +0x28's bit 31, the vital points' flag
+                                // the colossi's tables set, or its bits 0xC000 << 40, as IsBossDeathNextAttack /
+                                // SCRCharaInitBossWork test them): damage (+0x24 + 8 i) set to
+                                // (100 - pct)% of the life and the hit's damage (+0x28 + 8 i, getBossWeakCurDamage, what
+                                // SCRConditionMyselfWeakDamaged tests) to the same: a stab's hit on every point at once.
+                                if (g_probeObj)
+                                {
+                                    const uint32_t w = rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj));
+                                    const uint32_t n = rd(w + 0x54u), parts = rd(w + 0x10u), dmg = rd(w + 0xE8u);
+                                    for (uint32_t i = 0; i < n && i < 64u && parts && dmg; ++i)
+                                    {
+                                        const uint32_t hiBits = rd(parts + i * 0x58u + 0x2Cu);
+                                        if (!(hiBits & 0xC000u) && !(rd(parts + i * 0x58u + 0x28u) & 0x80000000u) && t.d[1] == 0.0f)
+                                            continue; // "bweakall<pct>": every part (armour plates too)
+                                        const float life = rf(parts + i * 0x58u + 0x1Cu), d = life * (1.0f - t.d[0] / 100.0f);
+                                        std::memcpy(rdram + ((dmg + 0x24u + i * 8u) & 0x1FFFFFCu), &d, 4);
+                                        std::memcpy(rdram + ((dmg + 0x28u + i * 8u) & 0x1FFFFFCu), &d, 4);
+                                        std::fprintf(stderr, "[teleport] frame %llu: weak point %u attr %08x weak %08x%08x life %.2f damage set %.2f\n", (unsigned long long)frame, i,
+                                                     rd(parts + i * 0x58u), hiBits, rd(parts + i * 0x58u + 0x28u), life, d);
+                                    }
+                                }
+                                else
+                                    std::fprintf(stderr, "[teleport] frame %llu: bweak: no boss\n", (unsigned long long)frame);
                                 continue;
                             }
                             if (t.call == 5)
@@ -1555,7 +1682,8 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what == "ride")
                         t.ride = true;
-                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "list" || what.rfind("blife", 0) == 0)
+                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "pstab" || what == "list" || what.rfind("blife", 0) == 0 ||
+                             what.rfind("bweak", 0) == 0)
                     {
                         // Decomp D16: the arena aids (no place, no hold).
                         if (what[0] == 'g')
@@ -1567,8 +1695,15 @@ namespace sotc_replay
                             t.call = 5; // D16: "blife<pct>": every boss part's damage set to (100 - pct)% of its life
                             t.d[0] = static_cast<float>(std::atof(what.c_str() + 5));
                         }
+                        else if (what.rfind("bweak", 0) == 0)
+                        {
+                            t.call = 6; // D18: "bweak<pct>": the weak points' damage and the hit's damage (see call 6)
+                            const bool all = what.rfind("bweakall", 0) == 0;
+                            t.d[0] = static_cast<float>(std::atof(what.c_str() + (all ? 8 : 5)));
+                            t.d[1] = all ? 1.0f : 0.0f;
+                        }
                         else
-                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : 3;
+                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : what == "pstab" ? 7 : 3;
                         t.hold = 0;
                         g_teleports.push_back(t);
                         continue;
@@ -1665,6 +1800,52 @@ namespace sotc_replay
                     g_probeOriginal = runtime.lookupFunction(g_probeAddr);
                     runtime.registerFunction(g_probeAddr, probeHook);
                 }
+            }
+            if (const char *e = std::getenv("SOTC_TELEPORT_FORCE"))
+            {
+                // Decomp D18: <hex>[@<from>[-<until>]],... (see ForceHook).
+                int k = 0;
+                for (const char *p = e; *p && k < 4;)
+                {
+                    char *q = nullptr;
+                    ForceHook &h = g_force[k];
+                    h.addr = static_cast<uint32_t>(std::strtoul(p, &q, 16));
+                    p = q;
+                    if (*p == '@')
+                    {
+                        h.from = std::strtoull(p + 1, &q, 10);
+                        p = q;
+                        if (*p == '-')
+                        {
+                            h.until = std::strtoull(p + 1, &q, 10);
+                            p = q;
+                        }
+                    }
+                    if (h.addr && runtime.hasFunction(h.addr))
+                    {
+                        h.orig = runtime.lookupFunction(h.addr);
+                        runtime.registerFunction(h.addr, kForceHooks[k]);
+                        std::fprintf(stderr, "[teleport] force %08x true from frame %llu to %llu\n", h.addr, (unsigned long long)h.from, (unsigned long long)h.until);
+                        ++k;
+                    }
+                    while (*p && *p != ',')
+                        ++p;
+                    if (*p == ',')
+                        ++p;
+                }
+            }
+            if (const char *e = std::getenv("SOTC_TELEPORT_WEAKHIT"))
+            {
+                g_weakHitFrom = std::strtoull(e, nullptr, 10);
+                if (runtime.hasFunction(0x01132AF0u) && runtime.hasFunction(0x010C1F68u))
+                {
+                    g_surfAttrOriginal = runtime.lookupFunction(0x01132AF0u);
+                    runtime.registerFunction(0x01132AF0u, surfAttrHook);
+                    g_charColOriginal = runtime.lookupFunction(0x010C1F68u);
+                    runtime.registerFunction(0x010C1F68u, charColHook);
+                }
+                else
+                    g_weakHitFrom = ~0ull;
             }
             if (const char *st = std::getenv("SOTC_RIDE_STEER"))
                 g_steerFrom = std::strtoull(st, nullptr, 10);
