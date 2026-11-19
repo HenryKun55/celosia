@@ -24,6 +24,8 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace decomp_light
@@ -721,7 +723,103 @@ namespace decomp_light
     constexpr uint32_t kGlobalLights = 0x010F8728u, kAmbientColorC = 0x01091E30u, kBrightness = 0x001BEB88u;
     constexpr uint32_t kRateElliptical = 0x01136D88u;
 
-    void execGlobalLightMan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // ---- Round S21 (SOTC_S21LIGHT, A/B s21light): the global lights as host records --------------------------------
+    // The query's loop over the global lights read each light through Mem::p (a scratchpad test per word) and built
+    // every in-range light's inverse matrix (GetInverseMatrixFromQuaternionPos) again for every object, though the
+    // matrix depends only on the light's quaternion and position: the same for every object of the frame (the lights
+    // are set up once a frame). S21 keeps one host record per light slot of the list: the light's address, its
+    // quaternion / position bytes (and vf0) the record was made from, the matrix and every register
+    // GetInverseMatrixFromQuaternionPos leaves (the w lanes of vf10 / vf12 / vf13 / vf17 / ACC pass through from the
+    // caller's: taken from the live registers, as the original leaves them). A record is used when its light and its
+    // 32 input bytes are the ones the slot holds now (exact by construction), else made again by the native routine.
+    // The range test reads the light through one host pointer. Everything else (the ambient colour, the volumes'
+    // rates, the blend) as before. SOTC_S21LIGHT_CHECK=1: each call the old way first, then the S21 way from the same
+    // state, compared (the work area, the light records, the frame, every GPR / FPR / VU0 register, fcr31, pc);
+    // SOTC_S21LIGHT_LOG=<frames>: [s21light] counts.
+    struct S21Inv
+    {
+        __m128 key[3]; // quaternion, position, vf0
+        __m128 out[4];
+        __m128 vf[18]; // vf1..vf17 as the routine left them (index = register)
+        __m128 acc;
+        __m128i r[8]; // r8..r15
+        uint32_t light;
+        bool valid;
+    };
+    static S21Inv g_s21Inv[32];
+    struct S21Stats
+    {
+        uint64_t calls = 0, host = 0, lights = 0, inRange = 0, invHit = 0, invMade = 0, checks = 0, differ = 0;
+    };
+    static S21Stats g_s21;
+    static int g_s21Check = -1;
+    static uint32_t g_s21Log = 0;
+    static uint64_t g_s21LogFrame = 0;
+    static void s21Init()
+    {
+        if (g_s21Check >= 0)
+            return;
+        const char *v = std::getenv("SOTC_S21LIGHT_CHECK");
+        g_s21Check = v && std::atoi(v) != 0 ? 1 : 0;
+        v = std::getenv("SOTC_S21LIGHT_LOG");
+        g_s21Log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_s21Check ? 600u : 0u);
+    }
+    static void s21Report()
+    {
+        const uint64_t frame = sotc_decomp::g_gameFrame;
+        if (g_s21Log == 0u || frame < g_s21LogFrame + g_s21Log)
+            return;
+        g_s21LogFrame = frame;
+        const S21Stats &t = g_s21;
+        std::fprintf(stderr, "[s21light] frame %llu: calls %llu host %llu lights %llu in range %llu matrices kept %llu made %llu; check %llu differ %llu\n",
+                     (unsigned long long)frame, (unsigned long long)t.calls, (unsigned long long)t.host, (unsigned long long)t.lights,
+                     (unsigned long long)t.inRange, (unsigned long long)t.invHit, (unsigned long long)t.invMade, (unsigned long long)t.checks,
+                     (unsigned long long)t.differ);
+    }
+    // GetInverseMatrixFromQuaternionPos(out, light + 0xd0, light + 0xc0) with sp, through slot i's record.
+    static void s21InvQuatPos(const Mem &m, R5900Context *ctx, uint32_t out, uint32_t light, const uint8_t *L, uint32_t sp, int32_t i)
+    {
+        __m128 quat, pos;
+        std::memcpy(&quat, L + 208u, 16);
+        std::memcpy(&pos, L + 192u, 16);
+        const __m128 vf0 = ctx->vu0_vf[0];
+        S21Inv *e = i >= 0 && i < 32 ? &g_s21Inv[i] : nullptr;
+        if (e && e->valid && e->light == light && std::memcmp(&e->key[0], &quat, 16) == 0 && std::memcmp(&e->key[1], &pos, 16) == 0 &&
+            std::memcmp(&e->key[2], &vf0, 16) == 0)
+        {
+            ++g_s21.invHit;
+            for (uint32_t k = 0; k < 4u; ++k)
+                m.putq(out + k * 16u, e->out[k]);
+            for (int v : {1, 2, 3, 4, 8, 9, 11, 14, 15, 16})
+                ctx->vu0_vf[v] = e->vf[v];
+            for (int v : {10, 12, 13, 17})
+                ctx->vu0_vf[v] = sel(ctx->vu0_vf[v], e->vf[v], kXyz);
+            ctx->vu0_acc = sel(ctx->vu0_acc, e->acc, kXyz);
+            for (int k = 0; k < 8; ++k)
+                ctx->r[8 + k] = e->r[k];
+            SET_GPR_U32(ctx, 2, sp - 0x50u);
+            SET_GPR_U32(ctx, 5, sp - 0x50u);
+            return;
+        }
+        ++g_s21.invMade;
+        invQuatPos(m, ctx, out, light + 208u, light + 192u, sp);
+        if (!e)
+            return;
+        e->key[0] = quat;
+        e->key[1] = pos;
+        e->key[2] = vf0;
+        for (uint32_t k = 0; k < 4u; ++k)
+            e->out[k] = m.q(out + k * 16u);
+        for (int v = 1; v < 18; ++v)
+            e->vf[v] = ctx->vu0_vf[v];
+        e->acc = ctx->vu0_acc;
+        for (int k = 0; k < 8; ++k)
+            e->r[k] = ctx->r[8 + k];
+        e->light = light;
+        e->valid = true;
+    }
+
+    static void execImpl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, bool s21)
     {
         const Mem m(rdram, runtime);
         const uint32_t query = GPR_U32(ctx, 4), work = GPR_U32(ctx, 5);
@@ -814,9 +912,42 @@ namespace decomp_light
             for (int32_t i = 0; i < total; ++i)
             {
                 const uint32_t light = m.u32(work + 0x5C4u + static_cast<uint32_t>(i) * 4u);
-                if (m.u32(light + 324u) == 0u)
+                // S21: the light through one host pointer (16-aligned, all of it readable: the same bytes Mem::p gives).
+                uint8_t *const L = s21 && (light & 0xFu) == 0u && Mem::ok(light, 0x148u) ? m.p(light) : nullptr;
+                auto lu32 = [&](uint32_t o) -> uint32_t
+                {
+                    if (!L)
+                        return m.u32(light + o);
+                    uint32_t v;
+                    std::memcpy(&v, L + o, 4);
+                    return v;
+                };
+                auto lf32 = [&](uint32_t o) -> float
+                {
+                    if (!L)
+                        return m.f32(light + o);
+                    float v;
+                    std::memcpy(&v, L + o, 4);
+                    return v;
+                };
+                auto lq = [&](uint32_t o) -> __m128
+                {
+                    if (!L)
+                        return m.q(light + o);
+                    __m128 v;
+                    std::memcpy(&v, L + o, 16);
+                    return v;
+                };
+                auto lputf = [&](uint32_t o, float v)
+                {
+                    if (!L)
+                        return m.putf(light + o, v);
+                    std::memcpy(L + o, &v, 4);
+                };
+                if (lu32(324u) == 0u)
                     continue;
-                vf5 = m.q(light + 192u);
+                g_s21.lights += s21;
+                vf5 = lq(192u);
                 vf6 = m.q(frame);
                 vf7 = PS2_VSUB(vf5, vf6);
                 vf7 = sel(vf7, PS2_VMUL(vf7, vf7), kXyz);
@@ -824,23 +955,27 @@ namespace decomp_light
                 vf7 = sel(vf7, PS2_VADD(vf7, lane<2>(vf7)), kX);
                 ctx->r[2] = _mm_castps_si128(vf7);
                 f0 = _mm_cvtss_f32(vf7);
-                f1 = m.f32(light + 280u);
+                f1 = lf32(280u);
                 c = FPU_C_OLT_S(f0, f1);
-                m.putf(light + 296u, f0);
+                lputf(296u, f0);
                 if (!c)
                 {
                     total = static_cast<int32_t>(m.u32(work + 1296u));
                     continue;
                 }
-                const __m128 inner = m.q(light + 224u), outer = m.q(light + 240u);
+                g_s21.inRange += s21;
+                const __m128 inner = lq(224u), outer = lq(240u);
                 m.putq(frame + 32u, inner);
                 m.putq(frame + 48u, outer);
                 bool hit = false;
                 ctx->vu0_vf[5] = vf5;
                 ctx->vu0_vf[6] = vf6;
                 ctx->vu0_vf[7] = vf7;
-                invQuatPos(m, ctx, work + 176u, light + 208u, light + 192u, frame);
-                const uint32_t kind = m.u32(light + 272u);
+                if (L)
+                    s21InvQuatPos(m, ctx, work + 176u, light, L, frame, i);
+                else
+                    invQuatPos(m, ctx, work + 176u, light + 208u, light + 192u, frame);
+                const uint32_t kind = lu32(272u);
                 bool tested = false;
                 if (kind & 1u)
                 {
@@ -860,13 +995,13 @@ namespace decomp_light
                 if (tested)
                 {
                     c = FPU_C_OLE_S(f20, f0);
-                    m.putf(light + 284u, f0);
+                    lputf(284u, f0);
                     hit = c;
                 }
-                f0 = m.f32(light + 284u);
-                f1 = m.f32(light + 316u);
+                f0 = lf32(284u);
+                f1 = lf32(316u);
                 f0 = FPU_MUL_S(f0, f1);
-                m.putf(light + 284u, f0);
+                lputf(284u, f0);
                 if (hit && count < 32)
                 {
                     m.put32(work + 1344u + static_cast<uint32_t>(count) * 4u, light);
@@ -941,6 +1076,101 @@ namespace decomp_light
         SET_GPR_U32(ctx, 29, sp0);
         SET_GPR_U32(ctx, 31, ra0);
         returnTo(ctx);
+    }
+
+    void execGlobalLightMan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kS21Light))
+            return execImpl(rdram, ctx, runtime, false);
+        s21Init();
+        ++g_s21.calls;
+        s21Report();
+        const Mem m(rdram, runtime);
+        const uint32_t work = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29), frame = sp0 - 0xA0u;
+        constexpr uint32_t kWorkBytes = 0x5C4u + 0x80u, kStack = 0x400u, kLightBytes = 0x148u;
+        // The check's snapshots need the work area, the frame and the stack below it, and every light of the list in reach.
+        bool checkable = g_s21Check > 0 && Mem::ok(work, kWorkBytes) && sp0 <= PS2_RAM_SIZE && sp0 >= kStack + 0xA0u;
+        uint32_t lights[32];
+        int32_t n = checkable ? static_cast<int32_t>(m.u32(work + 0x510u)) : 0;
+        if (n < 0 || n > 32)
+            checkable = false;
+        for (int32_t i = 0; checkable && i < n; ++i)
+        {
+            lights[i] = m.u32(work + 0x5C4u + static_cast<uint32_t>(i) * 4u);
+            checkable = Mem::ok(lights[i], kLightBytes);
+        }
+        ++g_s21.host;
+        if (!checkable)
+            return execImpl(rdram, ctx, runtime, true);
+        // The check: the old way first, then the S21 way from the same state; compared.
+        static R5900Context before, after;
+        static uint8_t work0[kWorkBytes], workA[kWorkBytes], stack0[kStack + 0xA0u], stackA[kStack + 0xA0u];
+        static uint8_t light0[32][kLightBytes], lightA[32][kLightBytes];
+        const uint32_t lo = frame - kStack, stackBytes = kStack + 0xA0u;
+        auto save = [&](uint8_t *w, uint8_t *s, uint8_t (*l)[kLightBytes])
+        {
+            std::memcpy(w, m.p(work), kWorkBytes);
+            std::memcpy(s, rdram + lo, stackBytes);
+            for (int32_t i = 0; i < n; ++i)
+                std::memcpy(l[i], m.p(lights[i]), kLightBytes);
+        };
+        auto load = [&](const uint8_t *w, const uint8_t *s, const uint8_t (*l)[kLightBytes])
+        {
+            // The lights first, then the work area and the stack (a light inside them gets their bytes).
+            for (int32_t i = 0; i < n; ++i)
+                std::memcpy(m.p(lights[i]), l[i], kLightBytes);
+            std::memcpy(m.p(work), w, kWorkBytes);
+            std::memcpy(rdram + lo, s, stackBytes);
+        };
+        std::memcpy(&before, ctx, sizeof(R5900Context));
+        save(work0, stack0, light0);
+        execImpl(rdram, ctx, runtime, false);
+        std::memcpy(&after, ctx, sizeof(R5900Context));
+        save(workA, stackA, lightA);
+        std::memcpy(ctx, &before, sizeof(R5900Context));
+        load(work0, stack0, light0);
+        execImpl(rdram, ctx, runtime, true);
+        ++g_s21.checks;
+        // Memory: the work area, the frame (not the dead stack below it), the lights.
+        int where = 0;
+        if (std::memcmp(workA, m.p(work), kWorkBytes) != 0)
+            where = 1;
+        else if (std::memcmp(stackA + kStack, rdram + frame, 0xA0u) != 0)
+            where = 2;
+        for (int32_t i = 0; where == 0 && i < n; ++i)
+            if (std::memcmp(lightA[i], m.p(lights[i]), kLightBytes) != 0)
+                where = 3;
+        // Registers: every GPR (but $zero), FPR, VU0 vf1..vf31, ACC, Q, fcr31, hi / lo, pc.
+        if (where == 0 && (std::memcmp(&after.r[1], &ctx->r[1], sizeof(ctx->r) - sizeof(ctx->r[0])) != 0 || after.hi != ctx->hi || after.lo != ctx->lo))
+            where = 4;
+        if (where == 0 && (std::memcmp(after.f, ctx->f, sizeof(ctx->f)) != 0 || after.fcr31 != ctx->fcr31))
+            where = 5;
+        if (where == 0 && (std::memcmp(&after.vu0_vf[1], &ctx->vu0_vf[1], sizeof(ctx->vu0_vf) - sizeof(ctx->vu0_vf[0])) != 0 ||
+                           std::memcmp(&after.vu0_acc, &ctx->vu0_acc, 16) != 0 || std::memcmp(&after.vu0_q, &ctx->vu0_q, 4) != 0))
+            where = 6;
+        if (where == 0 && after.pc != ctx->pc)
+            where = 7;
+        if (where != 0)
+        {
+            if (++g_s21.differ <= 8u)
+            {
+                int reg = -1;
+                if (where == 4)
+                    for (int r = 1; r < 32 && reg < 0; ++r)
+                        if (std::memcmp(&after.r[r], &ctx->r[r], 16) != 0)
+                            reg = r;
+                if (where == 6)
+                    for (int r = 1; r < 32 && reg < 0; ++r)
+                        if (std::memcmp(&after.vu0_vf[r], &ctx->vu0_vf[r], 16) != 0)
+                            reg = r;
+                std::fprintf(stderr, "[s21light] differ: frame %llu where %d (1 work 2 frame 3 light 4 gpr 5 fpr 6 vu0 7 pc) reg %d lights %d v0 %llx / %llx\n",
+                             (unsigned long long)sotc_decomp::g_gameFrame, where, reg, static_cast<int>(n), (unsigned long long)GPR_U64(&after, 2),
+                             (unsigned long long)GPR_U64(ctx, 2));
+            }
+            // The old way's results stand.
+            std::memcpy(ctx, &after, sizeof(R5900Context));
+            load(workA, stackA, lightA);
+        }
     }
 
     // ---- manager_sub_010F5F60 (a0 the work area, a1 the object's geodisp class, a2 the work area)
