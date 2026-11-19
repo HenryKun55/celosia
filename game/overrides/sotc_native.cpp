@@ -2901,7 +2901,7 @@ namespace sotc_native
             s16Drain();
         const uint32_t serial = s16plan::serialAt(g_frame);
         return p.vSerial == serial && p.vInited && p.vEpoch == s16plan::g_epoch.load(std::memory_order_relaxed) &&
-               p.vFrame >= s16plan::g_lastMoveFrame + 2u;
+               (!s16plan::g_moves || p.vFrame >= s16plan::g_lastMoveFrame + 2u);
     }
     uint64_t packetListHash(uint32_t packets, uint32_t &count)
     {
@@ -3033,7 +3033,10 @@ namespace sotc_native
             ok = p.packets == word(header + 0x60u) && p.surfaces == word(header + 0x50u);
             for (uint32_t i = 0; ok && i < 5u; ++i)
                 ok = p.first[i] == word(p.packets + i * 4u);
-            const bool full = s16 || ((g_frame + (header >> 5)) & 15u) == 0u;
+            // Round S16: a plan not taken is checked in full (and stamped) only when it can be vouched for (its header
+            // seen set up; with SOTC_S16PLAN_MOVES=1 also two frames past the last move); otherwise round 8's cadence.
+            const bool vouchable = s16 && !taken && s16plan::inited(header) && (!s16plan::g_moves || g_frame >= s16plan::g_lastMoveFrame + 2u);
+            const bool full = taken || vouchable || ((g_frame + (header >> 5)) & 15u) == 0u;
             if (!s16)
             {
                 ++s16plan::g_st.offChecks;
@@ -3054,14 +3057,15 @@ namespace sotc_native
             }
             else if (s16)
             {
-                if (ok)
+                if (!ok)
+                    ++s16plan::g_st.failed;
+                else if (vouchable)
                 {
                     s16Vouch(p, header);
                     ++s16plan::g_st.vouched;
-                    s16plan::g_st.uninited += !p.vInited;
                 }
                 else
-                    ++s16plan::g_st.failed;
+                    ++s16plan::g_st.uninited;
             }
         }
         if (!ok)
@@ -4102,10 +4106,10 @@ namespace sotc_native
         {
             const s16plan::Stats &st = s16plan::g_st;
             std::fprintf(stderr,
-                         "[s16plan] frame %llu: plans %llu; on: uses %llu taken %llu vouched %llu failed %llu (vouched, header not seen initialised %llu); "
+                         "[s16plan] frame %llu: plans %llu; on: uses %llu taken %llu vouched %llu failed %llu (round 8's way: header not seen set up%s %llu); "
                          "inits %llu (initialize %llu reinitialize %llu disp class %llu) lane %llu (no plan %llu; epoch %llu) plans marked %llu; move serial %llu last move frame %llu; check %llu differ %llu; off: checks %llu full hashes %llu\n",
                          (unsigned long long)g_frame, (unsigned long long)g_plans.size(), (unsigned long long)st.uses, (unsigned long long)st.taken, (unsigned long long)st.vouched,
-                         (unsigned long long)st.failed, (unsigned long long)st.uninited, (unsigned long long)st.inits, (unsigned long long)st.initsBy[0], (unsigned long long)st.initsBy[1],
+                         (unsigned long long)st.failed, s16plan::g_moves ? " or after a move" : "", (unsigned long long)st.uninited, (unsigned long long)st.inits, (unsigned long long)st.initsBy[0], (unsigned long long)st.initsBy[1],
                          (unsigned long long)st.initsBy[2], (unsigned long long)st.initsLane,
                          (unsigned long long)st.initsUnused, (unsigned long long)s16plan::g_epoch.load(std::memory_order_relaxed),
                          (unsigned long long)st.plansMarked, (unsigned long long)sotc_decomp::g_guestMoveSerial, (unsigned long long)s16plan::g_lastMoveFrame, (unsigned long long)st.checks,

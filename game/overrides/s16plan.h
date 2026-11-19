@@ -30,12 +30,15 @@ namespace s16plan
 {
     inline bool g_check = false;
     inline uint32_t g_log = 0;
+    inline bool g_moves = false; // SOTC_S16PLAN_MOVES=1: the garbage moves also withdraw every stamp (p1-p3's rule)
     inline void init()
     {
         const char *v = std::getenv("SOTC_S16PLAN_CHECK");
         g_check = v && std::atoi(v) != 0;
         v = std::getenv("SOTC_S16PLAN_LOG");
         g_log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_check ? 600u : 0u);
+        v = std::getenv("SOTC_S16PLAN_MOVES");
+        g_moves = v && std::atoi(v) != 0;
     }
     inline bool on() { return sotc_decomp::switchOn(sotc_decomp::kS16Plan); }
 
@@ -69,6 +72,9 @@ namespace s16plan
     // The move serial last seen and the frame it was first seen at (the last garbage move's frame, or later).
     inline uint32_t g_lastSerial = 0;
     inline uint64_t g_lastMoveFrame = 0;
+    // The serial a stamp carries: the move serial with SOTC_S16PLAN_MOVES=1, else 0 (a stamp is then withdrawn only by
+    // the setup calls' marks: a model file moved by the garbage pass is relocated and set up again by
+    // garbageNmoCallBack -> modelReInitialize at its new address).
     inline uint32_t serialAt(uint64_t frame)
     {
         const uint32_t s = sotc_decomp::g_guestMoveSerial;
@@ -77,7 +83,7 @@ namespace s16plan
             g_lastSerial = s;
             g_lastMoveFrame = frame;
         }
-        return s;
+        return g_moves ? s : 0u;
     }
 
     struct Stats
@@ -86,7 +92,7 @@ namespace s16plan
         uint64_t taken = 0;     // taken unchecked
         uint64_t vouched = 0;   // checked in full and held (stamped again)
         uint64_t failed = 0;    // checked in full and did not hold (rebuilt / deferred)
-        uint64_t uninited = 0;  // vouched for, but the header never seen initialised (not taken unchecked)
+        uint64_t uninited = 0;  // not taken and not vouchable (header never seen set up): round 8's checks at their cadence
         uint64_t initsBy[3] = {}; // modelInitialize, modelReInitialize, modelInitDispModelClass calls
         uint64_t inits = 0, initsLane = 0, plansMarked = 0, initsUnused = 0; // game-thread inits, lane inits drained, plans marked, inits whose header had no plan
         uint64_t checks = 0, differ = 0; // SOTC_S16PLAN_CHECK: plans taken unchecked checked anyway, differences
