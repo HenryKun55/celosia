@@ -1344,6 +1344,53 @@ namespace sotc_replay
                                 }
                                 continue;
                             }
+                            if (t.call == 11)
+                            {
+                                // Decomp D20: "bdie": the killing hit's own ending, as gamecore_sub_01377480 (the damage a hit applies)
+                                // does it when the total life reaches 0: the boss work's life (+0x44) 0, the boss' object record
+                                // (0x10F1A20)'s +0x1AC set, 0x1465E48 cleared and scriptIntrSignal on the boss record (*0x1B7B60):
+                                // the signal st_boss_status waits on to jump to st_boss_dead (the death demo, the tentacles, the
+                                // save). D19's bzero left the signal out (the death motions played, st_boss_dead never ran);
+                                // bdeath (SCRBossDebugDeath) sets the death flag +0xEC too, so the pre-process skips the death
+                                // motion's load. +0xEC stays 0 here: the pre-process' own death path (the motion load, SCRCharaDead).
+                                const uint32_t w = g_probeObj ? rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj)) : 0u;
+                                if (w)
+                                {
+                                    std::memset(rdram + ((w + 0x44u) & 0x1FFFFFCu), 0, 4);
+                                    const uint32_t o = guestCall1(rdram, ctx, runtime, 0x010F1A20u, g_probeObj);
+                                    if (o)
+                                    {
+                                        const uint32_t one = 1u;
+                                        std::memcpy(rdram + ((o + 0x1ACu) & 0x1FFFFFCu), &one, 4);
+                                    }
+                                    std::memset(rdram + 0x1465E48u, 0, 4);
+                                    guestCall1(rdram, ctx, runtime, 0x01102C88u, rd(0x001B7B60u)); // scriptIntrSignal
+                                }
+                                std::fprintf(stderr, "[teleport] frame %llu: bdie (boss obj %08x, work %08x, record %08x)\n", (unsigned long long)frame, g_probeObj, w,
+                                             rd(0x001B7B60u));
+                                continue;
+                            }
+                            if (t.call == 10)
+                            {
+                                // Decomp D20: "bdbg": the boss' death state, for the stalls after SCRCharaDead: the chara class'
+                                // motion request (+0x750, what SCRConditionBossDeathStartMotion compares with the script data's
+                                // death start motion +0x4170) and dead flag word (+0x858, bit 0x200), the animation class' current
+                                // motion ([0], against the death loop motion +0x4160), the boss work's life / absolute death /
+                                // death flag (+0x44 / +0x48 / +0xEC), and the active record's death motions (+0x30 / +0x34).
+                                if (g_probeObj)
+                                {
+                                    const uint32_t w = rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj));
+                                    const uint32_t cc = guestCall1(rdram, ctx, runtime, 0x010C0A70u, g_probeObj);
+                                    const uint32_t sd = guestCall1(rdram, ctx, runtime, 0x01455F80u, g_probeObj);
+                                    const uint32_t an = guestCall1(rdram, ctx, runtime, 0x010BA7A8u, g_probeObj);
+                                    std::fprintf(stderr, "[teleport] frame %llu: bdbg obj %08x req %08x start %08x loop %08x cur %08x flags %08x life %.2f abs %u dead %u\n",
+                                                 (unsigned long long)frame, g_probeObj, cc ? rd(cc + 0x750u) : 0u, sd ? rd(sd + 0x4170u) : 0u, sd ? rd(sd + 0x4160u) : 0u,
+                                                 an ? rd(an) : 0u, cc ? rd(cc + 0x858u) : 0u, w ? rf(w + 0x44u) : 0.0f, w ? rd(w + 0x48u) : 0u, w ? rd(w + 0xECu) : 0u);
+                                }
+                                else
+                                    std::fprintf(stderr, "[teleport] frame %llu: bdbg: no boss\n", (unsigned long long)frame);
+                                continue;
+                            }
                             if (t.call == 9)
                             {
                                 // Decomp D19: "bzero": the boss work's total life (+0x44, what bosslifebar_sethp shows and
@@ -1704,7 +1751,7 @@ namespace sotc_replay
                     const std::string what = item.substr(colon + 1);
                     if (what == "ride")
                         t.ride = true;
-                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "pstab" || what == "bdeath" || what == "bzero" || what == "list" || what.rfind("blife", 0) == 0 ||
+                    else if (what.rfind("gflag", 0) == 0 || what.rfind("bootflag", 0) == 0 || what == "bdemo" || what == "bkill" || what == "pkill" || what == "pstab" || what == "bdeath" || what == "bzero" || what == "bdbg" || what == "bdie" || what == "list" || what.rfind("blife", 0) == 0 ||
                              what.rfind("bweak", 0) == 0)
                     {
                         // Decomp D16: the arena aids (no place, no hold).
@@ -1725,7 +1772,7 @@ namespace sotc_replay
                             t.d[1] = all ? 1.0f : 0.0f;
                         }
                         else
-                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : what == "pstab" ? 7 : what == "bdeath" ? 8 : what == "bzero" ? 9 : 3;
+                            t.call = what == "bdemo" ? 1 : what == "bkill" ? 2 : what == "list" ? 4 : what == "pstab" ? 7 : what == "bdeath" ? 8 : what == "bzero" ? 9 : what == "bdbg" ? 10 : what == "bdie" ? 11 : 3;
                         t.hold = 0;
                         g_teleports.push_back(t);
                         continue;
