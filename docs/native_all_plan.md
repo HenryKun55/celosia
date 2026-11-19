@@ -167,3 +167,32 @@ Static counts: over the 52 lifted files and the 9 076 recompiled files (N1's cou
 How each is measured: the in-run A/B (SOTC_AB_FLAG, mixframes.py, ride7 800 s two seeds, Vita3K 222 MHz; for a build-
 time switch, two copies of the same functions in one test build, as D4's liftalt), the difftest / trace difftest for
 exactness, a 600 s boot with SOTC_VITA_EAT_USER_MB=89 and its pictures.
+
+## N1 done: guest loads / stores in base form (results, 2026-11-19)
+
+What changed: every generated guest access `READ32(ADD32(base, off))` became `READ32_B(base, off)`
+(`ps2_runtime_macros.h`). The fast path tests the base register once (in [0x10000, 0x1FF0000), so base plus any
+16-bit MIPS immediate stays inside main RAM) and reads `rdram + base + off`, so the compiler can share one test
+between the accesses off one base and use `ldr / str [rb, #off]`; any other base takes the out-of-line slow path
+with the full address, as before (exact). `PS2X_N1_BASEMEM` (default on; off expands the `_B` forms to the old
+macros). Generators: `tools/n1_basemem.py` (the rewrite, idempotent: 95 331 accesses in the 52 lifted files,
+168 094 in a copy of the recompiled runner), `tools/lift_d1.py` writes the base form, ps2xRecomp's function
+emitter the same rewrite (`PS2X_RECOMP_BASEMEM=0` off).
+
+Checks and measurements (scripts, runs and logs: `build/agent-scratch/n1/`):
+
+- **Text rewrite exact**: all 52 lifted files, old text vs N1 text built with `PS2X_N1_BASEMEM=0`: identical
+  machine code (`ident/result.txt`, 52 "same").
+- **A/B** (`liftalt`: the lifted functions vs alternative copies of them in the old form, flipped at random each
+  frame, `SOTC_AB_MIX`; Vita3K 222 MHz, off - on): ride7 seed 7 +0.061 +- 0.169 ms, seed 13 -0.036 +- 0.119,
+  lake6 -0.037 +- 0.105; pooled -0.02 +- 0.07 ms: even. The first A/B read N1 22 ms slower: liftalt's flip matched
+  every alternative against every lift table (~550 x ~3 000 a flip, most frames) and took 64% of the game thread;
+  fixed (27dd041), measured again.
+- **Boot** (p1, lifted and recompiled code in base form, 89 MB taken, ride7 600 s): booted, mounted Agro, no
+  fault. spalign: 0 sp-based NEON accesses.
+
+What it means: the base form alone saves nothing measurable. The code still keeps every value in the guest
+register file (`ctx->r[]`), stores and reloads it around each access and call, so the shared base test has little
+to share. N1 is the ground the next step stands on (registers as locals and direct calls, N2-N3 in the order
+above); the shipped build keeps the shared recompiled runner (`build/runner`) in the old form until the recompiler
+runs again with the next generator step.

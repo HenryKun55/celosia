@@ -1143,6 +1143,14 @@
    "focus": "Native layers",
    "summary": "Round N2 made the sound engine's game side native: the SG2 remote layer (command queue and driver call) on the host with no guest ring or SIF RPC, Sg2SlotTickProc (the 48 voice slots' per-tick update) as host code, and the mixer's N2 paths (ADPCM blocks decoded once, NEON gather and mix, the reverb a block at a time, 64-frame pieces) (SOTC_N2SND, default on).",
    "result": "Exact: in-run checks 0 differ (512 slot ticks, 12 288 mixer pieces against round 90, 36 000 remote ticks); recordings sample for sample the same until the attract demo's timing drifts. Mixer 1.61 vs 1.94 ms (attract), 2.94 vs 3.19 ms (ride7). Boot with 89 MB taken rode normally; pictures normal; no sp-based NEON accesses."
+  },
+  {
+   "round": "N1",
+   "date": "2026-11-19",
+   "commit": "",
+   "focus": "Native layers",
+   "summary": "Round N1 priced every PS2-shaped layer left in how the game code runs (docs/native_all_plan.md) and did the first generator step: guest loads / stores in base form (READ32_B(base, off): the base register tested once, ldr / str [rb, #off]) for the lifted code and the recompiler's output (PS2X_N1_BASEMEM, default on).",
+   "result": "Exact: the rewritten text gives identical machine code with the switch off (52 of 52 lifted files). A/B (Vita3K 222 MHz, off - on): ride7 +0.061 +- 0.169, -0.036 +- 0.119 ms, lake6 -0.037 +- 0.105; pooled -0.02 +- 0.07 ms: even (the first A/B's 22 ms was liftalt's own flip, fixed). Boot with 89 MB taken rode normally; no sp-based NEON accesses."
   }
  ]
 }

@@ -23251,3 +23251,15 @@ Switch `SOTC_N2SND` (A/B `n2snd`, `kN2Snd`, default on).
 - **Results**: in-run checks 0 differ (512 slot ticks, 12 288 mixer pieces, 36 000 remote ticks); recordings the same
   sample for sample until the attract demo's own timing drifts; mixer 1.61 vs 1.94 ms (attract), 2.94 vs 3.19 ms
   (ride7); boot with 89 MB taken rode normally, pictures normal, 0 sp-based NEON accesses.
+## Native N1: guest loads / stores in base form for the generated code (PS2X_N1_BASEMEM, default on) (2026-11-19)
+
+The plan for removing every PS2-shaped layer left in how the game code runs is docs/native_all_plan.md (the
+profile by kind of code, the layers, their order); its last section has N1's results. Scripts, runs and logs:
+`build/agent-scratch/n1/`.
+
+- **Base form**: `READ32_B(base, off)` / `WRITE32_B(base, off, v)` test the base register, not the address; the 52
+  lifted files rewritten (95 331 accesses, `tools/n1_basemem.py`), `tools/lift_d1.py` and ps2xRecomp's function
+  emitter write the same form.
+- **Results**: the rewrite gives identical machine code with the switch off (52 of 52 files); A/B even (pooled
+  -0.02 +- 0.07 ms over ride7 seeds 7 / 13 and lake6, after fixing liftalt's flip, which had swamped the first A/B);
+  boot with 89 MB taken rode normally. Groundwork for registers as locals and direct calls.
