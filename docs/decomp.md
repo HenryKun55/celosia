@@ -23280,3 +23280,23 @@ can unwind; strict and natives-ABI modes, weighted by S21's riding profile).
   register passing can still remove exactly is what D4 (summaries: 5-6% slower) and D5 (leaf inlining: break-even)
   measured. No generated code changed this round; N4 moves after N5 (layer 6: no resume through ctx at a call, or the
   dispatch checkpoint off the call path), with the proof's per-function list as its input.
+
+## Native N5: the EE threads profiled, the blocking-function set, n5sched (off by default) (2026-11-19)
+
+docs/native_n5.md. Riding (ride7, Vita3K 222 MHz, N1's build), the scheduler's counters: 13.5-16 dispatches a frame
+(0.33-0.94 ms of dispatcher time on the EE host thread), guest thread runs t4 2.0 / t5 1.0 / t8 2.1 / t9 (game) 1.1-1.3 /
+t10 2.1 / t11 0.05-0.4 a frame, 14-17 slow checkpoints with **0.00 preemptions at a slice end**, ~1 S17 episode (all
+nested), 247-274 isys lock signals (all fast). Every thread switch is already the threads' own (parks, wakes,
+handlers); the game thread no longer unwinds at checkpoints (S17), only at real blocking calls.
+
+- `tools/n5_blocking.py` -> `docs/n5_blocking.txt`: the functions a call into which can reach a thread switch
+  (blocking / rescheduling syscalls, waiting natives, host stubs, indirect calls, unparsed; then the callers'
+  closure): BLOCK 4 305, NOBLOCK 4 719 (4 067 loop-free) of 9 024; riding weight 10.64% / 8.58% of the game thread.
+  The input N4's calling convention needs.
+- `n5sched` (SOTC_N5SCHED=1; A/B name n5sched): the PS2 kernel's equal-priority rule (no time slice; a checkpoint
+  preempts only for a strictly higher-priority ready thread). `SOTC_N5_LOG=<frames>`: `[n5]` host time per guest
+  thread. Off by default: its build and A/Bs (ride7 800 s seeds 7 / 13, lake6 400 s, sound recordings, the 89 MB boot)
+  were queued (build/agent-scratch/n5/chainN5.sh) but not run when the round was cut.
+- Not done: the dispatch checkpoint out of the inline call path (a rebuild of every recompiled file; N3 was in those
+  macros), host threads for the service threads (their shared kernel objects must become host-locked first).
+

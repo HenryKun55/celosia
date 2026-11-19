@@ -1158,6 +1158,14 @@
    "commit": "4af1bf0",
    "summary": "Round N4 built the ABI proof the native calling convention needs (tools/n4_abi.py: whole program, inputs / callee-saved / outputs per function from the MIPS) and counted the call-boundary traffic of the lifted code (20 041 calls, 5.2 write-backs and 15.1 read-backs each).",
    "result": "ABI: 2 817 functions proven strictly (3.08% of the game thread riding), 6 583 with natives taken to follow the ABI (11.68%). The convention itself is blocked by layer 6: every guest call can resume through ctx (the dispatch checkpoint, callee unwinding), so what register passing could remove exactly is what D4 (5-6% slower) and D5 (break-even) measured. No generated code changed, nothing to A/B; N4 moved after N5 in the plan (docs/native_n4.md)."
+  },
+  {
+   "round": "N5",
+   "date": "2026-11-19",
+   "commit": "",
+   "focus": "Native layers",
+   "summary": "Round N5 profiled the game's EE threads and the scheduler riding (every thread switch is the threads' own: 0.00 slice preemptions a frame, the game thread's checkpoints all nested by S17), wrote the set of functions that can block or switch threads (tools/n5_blocking.py, docs/n5_blocking.txt: 4 305 of 9 024, the input N4 needs) and added n5sched, the PS2 kernel's equal-priority rule (no time slice), off by default.",
+   "result": "Profile: 13.5-16 dispatches a frame (0.33-0.94 ms of dispatcher time), 14-17 slow checkpoints, no preemption at a slice end, ~1 nested S17 episode, 247-274 isys lock signals all fast. Blocking set: BLOCK 4 305 / NOBLOCK 4 719 (10.64% / 8.58% of the game thread riding). n5sched: built into the code, its A/Bs and boot queued but not run when the round was cut; off by default."
   }
  ]
 }
