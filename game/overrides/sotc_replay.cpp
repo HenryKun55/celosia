@@ -1160,8 +1160,20 @@ namespace sotc_replay
                 {
                     // Decomp D15: SOTC_TELEPORT_PROBE_BOSS=1: the probed object is the active colossus, through the game's boss
                     // handle (0x1465908, as the player's 0x1465900 and Agro's 0x1465904): its +0x170 is the colossus' root.
-                    const uint32_t bi = rd(0x01465908u) & 0xFFFFu;
+                    // Decomp D21: SOTC_TELEPORT_BOSS_GROUP=<hex>: another isys group word than the boss handle (Celosia's
+                    // colossus never joins 0x1465908); SOTC_TELEPORT_GROUPS=1: the group words near it with a member, every 300 frames.
+                    static const uint32_t bossGroup = std::getenv("SOTC_TELEPORT_BOSS_GROUP") ? (uint32_t)std::strtoul(std::getenv("SOTC_TELEPORT_BOSS_GROUP"), nullptr, 16) : 0x01465908u;
+                    static const bool groupsDump = std::getenv("SOTC_TELEPORT_GROUPS") != nullptr;
+                    const uint32_t bi = rd(bossGroup) & 0xFFFFu;
                     const uint32_t bo = bi ? rd(0x0021B900u + bi * 24u) : 0u;
+                    if (groupsDump && frame >= g_probeNext)
+                        for (uint32_t ga = 0x01465800u; ga < 0x01465A00u; ga += 4u)
+                        {
+                            const uint32_t gi = rd(ga) & 0xFFFFu, go = (gi && gi < 0x2000u) ? rd(0x0021B900u + gi * 24u) : 0u;
+                            if (go >= 0x100000u && go < 0x1FFFF00u && !(go & 3u))
+                                std::fprintf(stderr, "[tgroup] frame %llu: %08x handle %u obj %08x type %u at %.2f %.2f %.2f home %.2f %.2f %.2f\n", (unsigned long long)frame, ga, gi,
+                                             go, rdram[go + 8u], rf(go + 0x170u), rf(go + 0x174u), rf(go + 0x178u), rf(go + 0xA0u), rf(go + 0xA4u), rf(go + 0xA8u));
+                        }
                     g_probeObj = (bo >= 0x100000u && bo < 0x1FFFF00u && !(bo & 3u) && bo != player && bo != g_horse) ? bo : 0u;
                     if (frame >= g_probeNext)
                     {
