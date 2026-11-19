@@ -932,7 +932,7 @@ void gamecore_sub_0141B480(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 4u, 0u);
+        WRITE32_B(a0, 4, 0u);
         
         ctx->pc = target;
         return;
@@ -980,14 +980,14 @@ L_141b6d0:
         }
     }
 L_141b730:
-    (v1 = (uint64_t)(READ64(ADD32((uint32_t)a3, 0))));
-    (a1 = (uint64_t)(READ64(ADD32((uint32_t)a3, 8))));
-    (a2 = (uint64_t)(READ64(ADD32((uint32_t)a3, 16))));
-    (t0 = (uint64_t)(READ64(ADD32((uint32_t)a3, 24))));
-    WRITE64(ADD32((uint32_t)a0, 0), v1);
-    WRITE64(ADD32((uint32_t)a0, 8), a1);
-    WRITE64(ADD32((uint32_t)a0, 16), a2);
-    WRITE64(ADD32((uint32_t)a0, 24), t0);
+    (v1 = (uint64_t)(READ64_B((uint32_t)a3, 0)));
+    (a1 = (uint64_t)(READ64_B((uint32_t)a3, 8)));
+    (a2 = (uint64_t)(READ64_B((uint32_t)a3, 16)));
+    (t0 = (uint64_t)(READ64_B((uint32_t)a3, 24)));
+    WRITE64_B((uint32_t)a0, 0, v1);
+    WRITE64_B((uint32_t)a0, 8, a1);
+    WRITE64_B((uint32_t)a0, 16, a2);
+    WRITE64_B((uint32_t)a0, 24, t0);
     (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a3, 32))));
     {
         const bool c = (int64_t)a3 != (int64_t)v0;
@@ -1004,7 +1004,7 @@ L_141b764:
     { uint32_t addr = ADD32((uint32_t)a3, 8); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint64_t mem = READ64(aligned_addr); uint32_t shift = offset << 3; uint64_t keepMask = (offset == 0) ? 0ull : (0xFFFFFFFFFFFFFFFFull << ((8u - offset) << 3)); (v1 = (uint64_t)((v1 & keepMask) | (mem >> shift))); }
     { uint32_t addr = ADD32((uint32_t)a3, 23); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint64_t mem = READ64(aligned_addr); uint32_t shift = (7u - offset) << 3; uint64_t keepMask = (shift == 0) ? 0ull : ((1ull << shift) - 1ull); (a1 = (uint64_t)((a1 & keepMask) | (mem << shift))); }
     { uint32_t addr = ADD32((uint32_t)a3, 16); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint64_t mem = READ64(aligned_addr); uint32_t shift = offset << 3; uint64_t keepMask = (offset == 0) ? 0ull : (0xFFFFFFFFFFFFFFFFull << ((8u - offset) << 3)); (a1 = (uint64_t)((a1 & keepMask) | (mem >> shift))); }
-    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a3, 24)))));
+    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a3, 24))));
     { uint32_t addr = ADD32((uint32_t)a0, 7); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint32_t shift = (7u - offset) << 3; uint64_t mask = 0xFFFFFFFFFFFFFFFFull >> shift; uint64_t old_data = READ64(aligned_addr); uint64_t val = v0; uint64_t new_data = (old_data & ~mask) | ((val >> shift) & mask); WRITE64(aligned_addr, new_data); }
     { uint32_t addr = ADD32((uint32_t)a0, 0); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint32_t shift = offset << 3; uint64_t mask = 0xFFFFFFFFFFFFFFFFull << shift; uint64_t old_data = READ64(aligned_addr); uint64_t val = v0; uint64_t new_data = (old_data & ~mask) | ((val << shift) & mask); WRITE64(aligned_addr, new_data); }
     { uint32_t addr = ADD32((uint32_t)a0, 15); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint32_t shift = (7u - offset) << 3; uint64_t mask = 0xFFFFFFFFFFFFFFFFull >> shift; uint64_t old_data = READ64(aligned_addr); uint64_t val = v1; uint64_t new_data = (old_data & ~mask) | ((val >> shift) & mask); WRITE64(aligned_addr, new_data); }
@@ -1013,7 +1013,7 @@ L_141b764:
     { uint32_t addr = ADD32((uint32_t)a0, 16); uint32_t aligned_addr = addr & ~7u; uint32_t offset = addr & 7u; uint32_t shift = offset << 3; uint64_t mask = 0xFFFFFFFFFFFFFFFFull << shift; uint64_t old_data = READ64(aligned_addr); uint64_t val = a1; uint64_t new_data = (old_data & ~mask) | ((val << shift) & mask); WRITE64(aligned_addr, new_data); }
     {
         const uint32_t target = (uint32_t)ra;
-        WRITE32(ADD32((uint32_t)a0, 24), (uint32_t)a2);
+        WRITE32_B((uint32_t)a0, 24, (uint32_t)a2);
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0);
         ctx->pc = target;
         return;
@@ -1029,18 +1029,18 @@ void gamecore_sub_0141B900(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t fcr31 = ctx->fcr31;
     v0 = READ32(a1);
     a1 = 2u;
-    v1 = READ32(v0 + 4u);
+    v1 = READ32_B(v0, 4);
     if (v1 == a1) {
         v0 = 0u;
     } else {
-        f0 = lift_d1::flt(READ32(a0 + 8u));
+        f0 = lift_d1::flt(READ32_B(a0, 8));
         f1 = lift_d1::flt(0u);
         fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         }
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a0 + 0x10u));
+            f0 = lift_d1::flt(READ32_B(a0, 16));
             f1 = lift_d1::flt(0u);
             fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
@@ -1085,12 +1085,12 @@ void gamecore_sub_0141BA40(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f12 = ctx->f[12];
     uint32_t fcr31 = ctx->fcr31;
-    v0 = READ32(a0 + 0x564u);
+    v0 = READ32_B(a0, 1380);
     {
         const bool c = v0 != 0;
         v0 = 0u;
         if (!c) {
-            f0 = lift_d1::flt(READ32(a0 + 0xD8u));
+            f0 = lift_d1::flt(READ32_B(a0, 216));
             fcr31 = (FPU_C_OLE_S(f12, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             {
                 const bool c = (fcr31 & 0x800000u) != 0u;
@@ -1122,30 +1122,30 @@ void gamecore_sub_0141BB20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         const bool c = v0 == 0;
         v0 = 1u;
         if (!c) {
-            v1 = READ32(a1 + 0x1834u); df_v1 = true;
+            v1 = READ32_B(a1, 6196); df_v1 = true;
             if (v1 != v0) {
-                f0 = lift_d1::flt(READ32(a0 + 8u));
+                f0 = lift_d1::flt(READ32_B(a0, 8));
                 goto L_141bb68;
             }
         }
     }
     at = 0x3F000000u;
     f0 = lift_d1::flt(at);
-    f1 = lift_d1::flt(READ32(a0 + 8u));
+    f1 = lift_d1::flt(READ32_B(a0, 8));
     f0 = FPU_MUL_S(f12, f0);
     f2 = lift_d1::flt(0u);
     f1 = FPU_SUB_S(f1, f0);
     fcr31 = (FPU_C_OLT_S(f1, f2)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     {
         const bool c = (fcr31 & 0x800000u) == 0u;
-        WRITE32(a0 + 8u, lift_d1::bits(f1));
+        WRITE32_B(a0, 8, lift_d1::bits(f1));
         if (c) {
             goto L_141bb7c;
         }
     }
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 8u, lift_d1::bits(f2));
+        WRITE32_B(a0, 8, lift_d1::bits(f2));
         ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -1154,8 +1154,8 @@ L_141bb68:
     at = 0x3F800000u;
     f1 = lift_d1::flt(at);
     f0 = FPU_ADD_S(f0, f12);
-    WRITE32(a0 + 4u, lift_d1::bits(f1));
-    WRITE32(a0 + 8u, lift_d1::bits(f0));
+    WRITE32_B(a0, 4, lift_d1::bits(f1));
+    WRITE32_B(a0, 8, lift_d1::bits(f0));
 L_141bb7c:
     {
         const uint32_t target = ra;
@@ -1173,28 +1173,28 @@ void gamecore_sub_0141BC78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13];
     uint32_t fcr31 = ctx->fcr31;
     bool df_v1 = false;
-    v0 = READ32(a0 + 0x1Cu);
+    v0 = READ32_B(a0, 28);
     (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
         const bool c = v0 == 0;
-        WRITE32(a0 + 0x24u, 0u);
+        WRITE32_B(a0, 36, 0u);
         if (!c) {
             f0 = lift_d1::flt(0u);
             fcr31 = (FPU_C_OLT_S(f0, f12)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
-                f0 = lift_d1::flt(READ32(a1 + 0x118u));
+                f0 = lift_d1::flt(READ32_B(a1, 280));
                 fcr31 = (FPU_C_OLE_S(f12, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
                 {
                     const bool c = (fcr31 & 0x800000u) == 0u;
                     v0 = 1u;
                     if (!c) {
-                        WRITE32(a0 + 0x24u, v0);
-                        v1 = READ32(a1 + 0x1834u); df_v1 = true;
+                        WRITE32_B(a0, 36, v0);
+                        v1 = READ32_B(a1, 6196); df_v1 = true;
                         if (v1 == 0) {
-                            f0 = lift_d1::flt(READ32(a0 + 0x20u));
+                            f0 = lift_d1::flt(READ32_B(a0, 32));
                             (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
                             f0 = FPU_ADD_S(f0, f13);
-                            WRITE32(a0 + 0x20u, lift_d1::bits(f0));
+                            WRITE32_B(a0, 32, lift_d1::bits(f0));
                         }
                     }
                 }
@@ -1202,15 +1202,15 @@ void gamecore_sub_0141BC78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         }
     }
     if ((int64_t)a2 == 0) {
-        f0 = lift_d1::flt(READ32(a0 + 0x20u));
+        f0 = lift_d1::flt(READ32_B(a0, 32));
         f1 = lift_d1::flt(0u);
         f0 = FPU_SUB_S(f0, f13);
         fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         {
             const bool c = (fcr31 & 0x800000u) == 0u;
-            WRITE32(a0 + 0x20u, lift_d1::bits(f0));
+            WRITE32_B(a0, 32, lift_d1::bits(f0));
             if (!c) {
-                WRITE32(a0 + 0x20u, lift_d1::bits(f1));
+                WRITE32_B(a0, 32, lift_d1::bits(f1));
             }
         }
     }
@@ -1258,7 +1258,7 @@ void get_view_angle_camera_view_angle_cntrl(uint8_t *rdram, R5900Context *ctx, P
     float f0 = ctx->f[0];
     {
         const uint32_t target = ra;
-        f0 = lift_d1::flt(READ32(a0 + 0x1Cu));
+        f0 = lift_d1::flt(READ32_B(a0, 28));
         ctx->f[0] = f0;
         ctx->pc = target;
         return;
@@ -1284,7 +1284,7 @@ void get_player_collision_group_cameraman(uint8_t *rdram, R5900Context *ctx, PS2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        v0 = READ32(a0 + 0x14u);
+        v0 = READ32_B(a0, 20);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -1310,7 +1310,7 @@ void get_cur_camera_target(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        v0 = READ32(a0 + 0x1Cu);
+        v0 = READ32_B(a0, 28);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -1328,7 +1328,7 @@ void get_main_cameraman(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     v1 = v1 + v0;
     {
         const uint32_t target = ra;
-        v0 = READ32(v1 + 8u);
+        v0 = READ32_B(v1, 8);
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, sx64(v1));
         ctx->pc = target;
         return;
@@ -1347,14 +1347,14 @@ void copy_mode_common_camera_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
     WRITE128(ADD32(a0, 16), Ps2GprVecWithLow(ctx->r[3], v1));
     do { const __m128i _v = (READ128(ADD32(a1, 32))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 32), Ps2GprVecWithLow(ctx->r[2], v0));
-    f0 = lift_d1::flt(READ32(a1 + 0x30u));
-    WRITE32(a0 + 0x30u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x34u));
-    WRITE32(a0 + 0x34u, lift_d1::bits(f1));
-    f0 = lift_d1::flt(READ32(a1 + 0x38u));
+    f0 = lift_d1::flt(READ32_B(a1, 48));
+    WRITE32_B(a0, 48, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 52));
+    WRITE32_B(a0, 52, lift_d1::bits(f1));
+    f0 = lift_d1::flt(READ32_B(a1, 56));
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x38u, lift_d1::bits(f0));
+        WRITE32_B(a0, 56, lift_d1::bits(f0));
         ctx->f[0] = f0; ctx->f[1] = f1; Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1);
         ctx->pc = target;
         return;
@@ -1367,7 +1367,7 @@ void get_game_camera_cur_mode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        v0 = READ32(a0 + 0x1360u);
+        v0 = READ32_B(a0, 4960);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -1379,7 +1379,7 @@ void is_reset_or_lws_movie_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Run
 {
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
-    (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32(a0, 4960)))));
+    (a0 = (uint32_t)((int32_t)((int32_t)READ32_B(a0, 4960))));
     {
         const bool c = a0 == 0;
         v1 = 8u;
@@ -1410,7 +1410,7 @@ void get_cur_using_lws_anime_mode_base_class(uint8_t *rdram, R5900Context *ctx, 
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 7))));
-    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 4960)))));
+    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 4960))));
     (a1 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)v0, 13536))));
     {
         const bool c = (int64_t)a0 == (int64_t)v1;
@@ -1438,9 +1438,9 @@ void gamecore_sub_01425700(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     bool df_v1 = false, df_a0 = false;
     {
         const bool c = (int64_t)a1 != 0;
-        WRITE32(ADD32(a0, 144), (uint32_t)a1);
+        WRITE32_B(a0, 144, (uint32_t)a1);
         if (!c) {
-            a0 = READ32(a0 + 0x8Cu); df_a0 = true;
+            a0 = READ32_B(a0, 140); df_a0 = true;
             v1 = 4u; df_v1 = true;
             {
                 const bool c = a0 == v1;
@@ -1467,7 +1467,7 @@ void gamecore_sub_01425788(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
-    f1 = lift_d1::flt(READ32(a0 + 0x1828u));
+    f1 = lift_d1::flt(READ32_B(a0, 6184));
     f0 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     {
@@ -1491,7 +1491,7 @@ void gamecore_sub_01425D20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     if (__builtin_expect(ctx->pc != 0x1425D20u, 0)) { gamecore_sub_01425D20_0x1425d20(rdram, ctx, runtime); return; }
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 4960)))));
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 4960))));
     v0 = 7u;
     (a2 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, 13536))));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 12912))));
@@ -1507,11 +1507,11 @@ void gamecore_sub_01425D20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         if ((int64_t)a0 == 0) {
             goto L_1425d80;
         }
-        (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 140)))));
+        (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 140))));
         if (v1 != 0) {
             v0 = 2u;
             if (v1 != v0) {
-                (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 152)))));
+                (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 152))));
                 if (v0 == 0) {
                     goto L_1425d80;
                 }
@@ -1542,778 +1542,778 @@ void gamecore_sub_01428CD0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f12 = ctx->f[12], f13 = ctx->f[13];
     uint32_t fcr31 = ctx->fcr31;
     f2 = lift_d1::flt(0u);
-    f0 = lift_d1::flt(READ32(a1 + 0x1Cu));
+    f0 = lift_d1::flt(READ32_B(a1, 28));
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x20u));
+        f0 = lift_d1::flt(READ32_B(a1, 32));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x1Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 28));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x20u));
+            f0 = lift_d1::flt(READ32_B(a1, 32));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x1Cu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x20u));
+            WRITE32_B(a0, 28, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 32));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x24u));
+        f0 = lift_d1::flt(READ32_B(a1, 36));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x20u));
+        f1 = lift_d1::flt(READ32_B(a2, 32));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x24u));
+            f0 = lift_d1::flt(READ32_B(a1, 36));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x20u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x24u));
+            WRITE32_B(a0, 32, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 36));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x28u));
+        f0 = lift_d1::flt(READ32_B(a1, 40));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x24u));
+        f1 = lift_d1::flt(READ32_B(a2, 36));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x28u));
+            f0 = lift_d1::flt(READ32_B(a1, 40));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x24u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x28u));
+            WRITE32_B(a0, 36, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 40));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x28u));
+    f1 = lift_d1::flt(READ32_B(a2, 40));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x28u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x34u));
-    f0 = lift_d1::flt(READ32(a2 + 0x34u));
+    WRITE32_B(a0, 40, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 52));
+    f0 = lift_d1::flt(READ32_B(a2, 52));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x34u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x38u));
-    f0 = lift_d1::flt(READ32(a2 + 0x38u));
+    WRITE32_B(a0, 52, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 56));
+    f0 = lift_d1::flt(READ32_B(a2, 56));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x38u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x3Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x3Cu));
+    WRITE32_B(a0, 56, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 60));
+    f0 = lift_d1::flt(READ32_B(a2, 60));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x3Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x40u));
-    f0 = lift_d1::flt(READ32(a2 + 0x40u));
+    WRITE32_B(a0, 60, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 64));
+    f0 = lift_d1::flt(READ32_B(a2, 64));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x40u, lift_d1::bits(f2));
-    f0 = lift_d1::flt(READ32(a1 + 0x44u));
+    WRITE32_B(a0, 64, lift_d1::bits(f2));
+    f0 = lift_d1::flt(READ32_B(a1, 68));
     fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x48u));
+        f0 = lift_d1::flt(READ32_B(a1, 72));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x44u));
+        f1 = lift_d1::flt(READ32_B(a2, 68));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x48u));
+            f0 = lift_d1::flt(READ32_B(a1, 72));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x44u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x48u));
+            WRITE32_B(a0, 68, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 72));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x4Cu));
+        f0 = lift_d1::flt(READ32_B(a1, 76));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x48u));
+        f1 = lift_d1::flt(READ32_B(a2, 72));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x4Cu));
+            f0 = lift_d1::flt(READ32_B(a1, 76));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x48u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x4Cu));
+            WRITE32_B(a0, 72, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 76));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x4Cu));
+    f1 = lift_d1::flt(READ32_B(a2, 76));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x4Cu, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x50u));
-    f0 = lift_d1::flt(READ32(a2 + 0x50u));
+    WRITE32_B(a0, 76, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 80));
+    f0 = lift_d1::flt(READ32_B(a2, 80));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x50u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x54u));
-    f0 = lift_d1::flt(READ32(a2 + 0x54u));
+    WRITE32_B(a0, 80, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 84));
+    f0 = lift_d1::flt(READ32_B(a2, 84));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x54u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x58u));
-    f0 = lift_d1::flt(READ32(a2 + 0x58u));
+    WRITE32_B(a0, 84, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 88));
+    f0 = lift_d1::flt(READ32_B(a2, 88));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x58u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x5Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x5Cu));
+    WRITE32_B(a0, 88, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 92));
+    f0 = lift_d1::flt(READ32_B(a2, 92));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x5Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x60u));
-    f0 = lift_d1::flt(READ32(a2 + 0x60u));
+    WRITE32_B(a0, 92, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 96));
+    f0 = lift_d1::flt(READ32_B(a2, 96));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x60u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x64u));
-    f0 = lift_d1::flt(READ32(a2 + 0x64u));
+    WRITE32_B(a0, 96, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 100));
+    f0 = lift_d1::flt(READ32_B(a2, 100));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x64u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x68u));
-    f0 = lift_d1::flt(READ32(a2 + 0x68u));
+    WRITE32_B(a0, 100, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 104));
+    f0 = lift_d1::flt(READ32_B(a2, 104));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x68u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x6Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x6Cu));
+    WRITE32_B(a0, 104, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 108));
+    f0 = lift_d1::flt(READ32_B(a2, 108));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x6Cu, lift_d1::bits(f2));
-    f0 = lift_d1::flt(READ32(a1 + 0x70u));
+    WRITE32_B(a0, 108, lift_d1::bits(f2));
+    f0 = lift_d1::flt(READ32_B(a1, 112));
     fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x74u));
+        f0 = lift_d1::flt(READ32_B(a1, 116));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x70u));
+        f1 = lift_d1::flt(READ32_B(a2, 112));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x74u));
+            f0 = lift_d1::flt(READ32_B(a1, 116));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x70u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x74u));
+            WRITE32_B(a0, 112, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 116));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x78u));
+        f0 = lift_d1::flt(READ32_B(a1, 120));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x74u));
+        f1 = lift_d1::flt(READ32_B(a2, 116));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x78u));
+            f0 = lift_d1::flt(READ32_B(a1, 120));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x74u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x78u));
+            WRITE32_B(a0, 116, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 120));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x78u));
+    f1 = lift_d1::flt(READ32_B(a2, 120));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f2 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x78u, lift_d1::bits(f0));
-    f0 = lift_d1::flt(READ32(a1 + 0x7Cu));
+    WRITE32_B(a0, 120, lift_d1::bits(f0));
+    f0 = lift_d1::flt(READ32_B(a1, 124));
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x80u));
+        f0 = lift_d1::flt(READ32_B(a1, 128));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x7Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 124));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x80u));
+            f0 = lift_d1::flt(READ32_B(a1, 128));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x7Cu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x80u));
+            WRITE32_B(a0, 124, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 128));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x80u));
-    f0 = FPU_MUL_S(f12, f0);
-    f1 = FPU_MUL_S(f13, f1);
-    f3 = lift_d1::flt(0u);
-    f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x80u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x84u));
-    f0 = lift_d1::flt(READ32(a2 + 0x84u));
-    f1 = FPU_MUL_S(f12, f1);
-    f0 = FPU_MUL_S(f13, f0);
-    f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x84u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x88u));
-    f0 = lift_d1::flt(READ32(a2 + 0x88u));
-    f2 = FPU_MUL_S(f12, f2);
-    f0 = FPU_MUL_S(f13, f0);
-    f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x88u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0xACu));
-    f0 = lift_d1::flt(READ32(a2 + 0xACu));
-    f1 = FPU_MUL_S(f12, f1);
-    f0 = FPU_MUL_S(f13, f0);
-    f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0xACu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0xB0u));
-    f0 = lift_d1::flt(READ32(a2 + 0xB0u));
-    f2 = FPU_MUL_S(f12, f2);
-    f0 = FPU_MUL_S(f13, f0);
-    f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0xB0u, lift_d1::bits(f2));
-    f0 = lift_d1::flt(READ32(a1 + 0xB8u));
-    fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xBCu));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xB8u));
-        fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xBCu));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xB8u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xBCu));
-        }
-    }
-    f2 = lift_d1::flt(0u);
-    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xC0u));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xBCu));
-        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xC0u));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xBCu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xC0u));
-            f2 = lift_d1::flt(0u);
-        }
-    }
-    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xC4u));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xC0u));
-        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xC4u));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xC0u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xC4u));
-        }
-    }
-    f2 = lift_d1::flt(0u);
-    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xD4u));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xC4u));
-        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xD4u));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xC4u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xD4u));
-            f2 = lift_d1::flt(0u);
-        }
-    }
-    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xD8u));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xD4u));
-        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xD8u));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xD4u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xD8u));
-        }
-    }
-    f2 = lift_d1::flt(0u);
-    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xDCu));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xD8u));
-        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xDCu));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xD8u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xDCu));
-            f2 = lift_d1::flt(0u);
-        }
-    }
-    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-    if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0xE0u));
-    } else {
-        f1 = lift_d1::flt(READ32(a2 + 0xDCu));
-        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
-        if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0xE0u));
-        } else {
-            f0 = FPU_MUL_S(f12, f0);
-            f1 = FPU_MUL_S(f13, f1);
-            f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0xDCu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0xE0u));
-        }
-    }
-    f1 = lift_d1::flt(READ32(a2 + 0xE0u));
+    f1 = lift_d1::flt(READ32_B(a2, 128));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0xE0u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0xE4u));
-    f0 = lift_d1::flt(READ32(a2 + 0xE4u));
+    WRITE32_B(a0, 128, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 132));
+    f0 = lift_d1::flt(READ32_B(a2, 132));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0xE4u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0xECu));
-    f0 = lift_d1::flt(READ32(a2 + 0xECu));
+    WRITE32_B(a0, 132, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 136));
+    f0 = lift_d1::flt(READ32_B(a2, 136));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0xECu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0xF0u));
-    f0 = lift_d1::flt(READ32(a2 + 0xF0u));
+    WRITE32_B(a0, 136, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 172));
+    f0 = lift_d1::flt(READ32_B(a2, 172));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0xF0u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0xF4u));
-    f0 = lift_d1::flt(READ32(a2 + 0xF4u));
+    WRITE32_B(a0, 172, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 176));
+    f0 = lift_d1::flt(READ32_B(a2, 176));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0xF4u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0xF8u));
-    f0 = lift_d1::flt(READ32(a2 + 0xF8u));
-    f1 = FPU_MUL_S(f12, f1);
-    f0 = FPU_MUL_S(f13, f0);
-    f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0xF8u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x100u));
-    f0 = lift_d1::flt(READ32(a2 + 0x100u));
-    f2 = FPU_MUL_S(f12, f2);
-    f0 = FPU_MUL_S(f13, f0);
-    f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x100u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x104u));
-    f0 = lift_d1::flt(READ32(a2 + 0x104u));
-    f1 = FPU_MUL_S(f12, f1);
-    f0 = FPU_MUL_S(f13, f0);
-    f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x104u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x108u));
-    f0 = lift_d1::flt(READ32(a2 + 0x108u));
-    f2 = FPU_MUL_S(f12, f2);
-    f0 = FPU_MUL_S(f13, f0);
-    f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x108u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x10Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x10Cu));
-    f1 = FPU_MUL_S(f12, f1);
-    f0 = FPU_MUL_S(f13, f0);
-    f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x10Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x110u));
-    f0 = lift_d1::flt(READ32(a2 + 0x110u));
-    f2 = FPU_MUL_S(f12, f2);
-    f0 = FPU_MUL_S(f13, f0);
-    f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x110u, lift_d1::bits(f2));
-    f0 = lift_d1::flt(READ32(a1 + 0x11Cu));
+    WRITE32_B(a0, 176, lift_d1::bits(f2));
+    f0 = lift_d1::flt(READ32_B(a1, 184));
     fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x120u));
+        f0 = lift_d1::flt(READ32_B(a1, 188));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x11Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 184));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x120u));
+            f0 = lift_d1::flt(READ32_B(a1, 188));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x11Cu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x120u));
+            WRITE32_B(a0, 184, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 188));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x124u));
+        f0 = lift_d1::flt(READ32_B(a1, 192));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x120u));
+        f1 = lift_d1::flt(READ32_B(a2, 188));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x124u));
+            f0 = lift_d1::flt(READ32_B(a1, 192));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x120u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x124u));
+            WRITE32_B(a0, 188, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 192));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x128u));
+        f0 = lift_d1::flt(READ32_B(a1, 196));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x124u));
+        f1 = lift_d1::flt(READ32_B(a2, 192));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x128u));
+            f0 = lift_d1::flt(READ32_B(a1, 196));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x124u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x128u));
+            WRITE32_B(a0, 192, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 196));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x128u));
+    f2 = lift_d1::flt(0u);
+    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        f0 = lift_d1::flt(READ32_B(a1, 212));
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 196));
+        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            f0 = lift_d1::flt(READ32_B(a1, 212));
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 196, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 212));
+            f2 = lift_d1::flt(0u);
+        }
+    }
+    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        f0 = lift_d1::flt(READ32_B(a1, 216));
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 212));
+        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            f0 = lift_d1::flt(READ32_B(a1, 216));
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 212, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 216));
+        }
+    }
+    f2 = lift_d1::flt(0u);
+    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        f0 = lift_d1::flt(READ32_B(a1, 220));
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 216));
+        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            f0 = lift_d1::flt(READ32_B(a1, 220));
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 216, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 220));
+            f2 = lift_d1::flt(0u);
+        }
+    }
+    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        f0 = lift_d1::flt(READ32_B(a1, 224));
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 220));
+        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            f0 = lift_d1::flt(READ32_B(a1, 224));
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 220, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 224));
+        }
+    }
+    f1 = lift_d1::flt(READ32_B(a2, 224));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x128u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x12Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x12Cu));
+    WRITE32_B(a0, 224, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 228));
+    f0 = lift_d1::flt(READ32_B(a2, 228));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x12Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x130u));
-    f0 = lift_d1::flt(READ32(a2 + 0x130u));
+    WRITE32_B(a0, 228, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 236));
+    f0 = lift_d1::flt(READ32_B(a2, 236));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x130u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x134u));
-    f0 = lift_d1::flt(READ32(a2 + 0x134u));
+    WRITE32_B(a0, 236, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 240));
+    f0 = lift_d1::flt(READ32_B(a2, 240));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x134u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x138u));
-    f0 = lift_d1::flt(READ32(a2 + 0x138u));
+    WRITE32_B(a0, 240, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 244));
+    f0 = lift_d1::flt(READ32_B(a2, 244));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x138u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x13Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x13Cu));
+    WRITE32_B(a0, 244, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 248));
+    f0 = lift_d1::flt(READ32_B(a2, 248));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x13Cu, lift_d1::bits(f1));
-    f0 = lift_d1::flt(READ32(a1 + 0x144u));
+    WRITE32_B(a0, 248, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 256));
+    f0 = lift_d1::flt(READ32_B(a2, 256));
+    f2 = FPU_MUL_S(f12, f2);
+    f0 = FPU_MUL_S(f13, f0);
+    f2 = FPU_ADD_SF(f2, f0);
+    WRITE32_B(a0, 256, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 260));
+    f0 = lift_d1::flt(READ32_B(a2, 260));
+    f1 = FPU_MUL_S(f12, f1);
+    f0 = FPU_MUL_S(f13, f0);
+    f1 = FPU_ADD_SF(f1, f0);
+    WRITE32_B(a0, 260, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 264));
+    f0 = lift_d1::flt(READ32_B(a2, 264));
+    f2 = FPU_MUL_S(f12, f2);
+    f0 = FPU_MUL_S(f13, f0);
+    f2 = FPU_ADD_SF(f2, f0);
+    WRITE32_B(a0, 264, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 268));
+    f0 = lift_d1::flt(READ32_B(a2, 268));
+    f1 = FPU_MUL_S(f12, f1);
+    f0 = FPU_MUL_S(f13, f0);
+    f1 = FPU_ADD_SF(f1, f0);
+    WRITE32_B(a0, 268, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 272));
+    f0 = lift_d1::flt(READ32_B(a2, 272));
+    f2 = FPU_MUL_S(f12, f2);
+    f0 = FPU_MUL_S(f13, f0);
+    f2 = FPU_ADD_SF(f2, f0);
+    WRITE32_B(a0, 272, lift_d1::bits(f2));
+    f0 = lift_d1::flt(READ32_B(a1, 284));
     fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x148u));
+        f0 = lift_d1::flt(READ32_B(a1, 288));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x144u));
+        f1 = lift_d1::flt(READ32_B(a2, 284));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x148u));
+            f0 = lift_d1::flt(READ32_B(a1, 288));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x144u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x148u));
+            WRITE32_B(a0, 284, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 288));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x14Cu));
+        f0 = lift_d1::flt(READ32_B(a1, 292));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x148u));
+        f1 = lift_d1::flt(READ32_B(a2, 288));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x14Cu));
+            f0 = lift_d1::flt(READ32_B(a1, 292));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x148u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x14Cu));
+            WRITE32_B(a0, 288, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 292));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        v1 = READ32(a2 + 0x140u);
+        f0 = lift_d1::flt(READ32_B(a1, 296));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x14Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 292));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            v1 = READ32(a2 + 0x140u);
+            f0 = lift_d1::flt(READ32_B(a1, 296));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x14Cu, lift_d1::bits(f0));
-            v1 = READ32(a2 + 0x140u);
+            WRITE32_B(a0, 292, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 296));
+        }
+    }
+    f1 = lift_d1::flt(READ32_B(a2, 296));
+    f0 = FPU_MUL_S(f12, f0);
+    f1 = FPU_MUL_S(f13, f1);
+    f3 = lift_d1::flt(0u);
+    f0 = FPU_ADD_SF(f0, f1);
+    WRITE32_B(a0, 296, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 300));
+    f0 = lift_d1::flt(READ32_B(a2, 300));
+    f1 = FPU_MUL_S(f12, f1);
+    f0 = FPU_MUL_S(f13, f0);
+    f1 = FPU_ADD_SF(f1, f0);
+    WRITE32_B(a0, 300, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 304));
+    f0 = lift_d1::flt(READ32_B(a2, 304));
+    f2 = FPU_MUL_S(f12, f2);
+    f0 = FPU_MUL_S(f13, f0);
+    f2 = FPU_ADD_SF(f2, f0);
+    WRITE32_B(a0, 304, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 308));
+    f0 = lift_d1::flt(READ32_B(a2, 308));
+    f1 = FPU_MUL_S(f12, f1);
+    f0 = FPU_MUL_S(f13, f0);
+    f1 = FPU_ADD_SF(f1, f0);
+    WRITE32_B(a0, 308, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 312));
+    f0 = lift_d1::flt(READ32_B(a2, 312));
+    f2 = FPU_MUL_S(f12, f2);
+    f0 = FPU_MUL_S(f13, f0);
+    f2 = FPU_ADD_SF(f2, f0);
+    WRITE32_B(a0, 312, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 316));
+    f0 = lift_d1::flt(READ32_B(a2, 316));
+    f1 = FPU_MUL_S(f12, f1);
+    f0 = FPU_MUL_S(f13, f0);
+    f1 = FPU_ADD_SF(f1, f0);
+    WRITE32_B(a0, 316, lift_d1::bits(f1));
+    f0 = lift_d1::flt(READ32_B(a1, 324));
+    fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        f0 = lift_d1::flt(READ32_B(a1, 328));
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 324));
+        fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            f0 = lift_d1::flt(READ32_B(a1, 328));
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 324, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 328));
+        }
+    }
+    f2 = lift_d1::flt(0u);
+    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        f0 = lift_d1::flt(READ32_B(a1, 332));
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 328));
+        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            f0 = lift_d1::flt(READ32_B(a1, 332));
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 328, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 332));
+            f2 = lift_d1::flt(0u);
+        }
+    }
+    fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+    if ((fcr31 & 0x800000u) == 0u) {
+        v1 = READ32_B(a2, 320);
+    } else {
+        f1 = lift_d1::flt(READ32_B(a2, 332));
+        fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
+        if ((fcr31 & 0x800000u) == 0u) {
+            v1 = READ32_B(a2, 320);
+        } else {
+            f0 = FPU_MUL_S(f12, f0);
+            f1 = FPU_MUL_S(f13, f1);
+            f0 = FPU_ADD_SF(f0, f1);
+            WRITE32_B(a0, 332, lift_d1::bits(f0));
+            v1 = READ32_B(a2, 320);
         }
     }
     v0 = 1u;
     if (v1 != v0) {
-        f1 = lift_d1::flt(READ32(a1 + 0x150u));
+        f1 = lift_d1::flt(READ32_B(a1, 336));
     } else {
-        f0 = lift_d1::flt(READ32(a1 + 0x150u));
-        WRITE32(a0 + 0x150u, lift_d1::bits(f0));
+        f0 = lift_d1::flt(READ32_B(a1, 336));
+        WRITE32_B(a0, 336, lift_d1::bits(f0));
         goto L_14294bc;
     }
-    f0 = lift_d1::flt(READ32(a2 + 0x150u));
+    f0 = lift_d1::flt(READ32_B(a2, 336));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x150u, lift_d1::bits(f1));
+    WRITE32_B(a0, 336, lift_d1::bits(f1));
 L_14294bc:
-    f0 = lift_d1::flt(READ32(a1 + 0x154u));
+    f0 = lift_d1::flt(READ32_B(a1, 340));
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x158u));
+        f0 = lift_d1::flt(READ32_B(a1, 344));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x154u));
+        f1 = lift_d1::flt(READ32_B(a2, 340));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x158u));
+            f0 = lift_d1::flt(READ32_B(a1, 344));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x154u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x158u));
+            WRITE32_B(a0, 340, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 344));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x15Cu));
+        f0 = lift_d1::flt(READ32_B(a1, 348));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x158u));
+        f1 = lift_d1::flt(READ32_B(a2, 344));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x15Cu));
+            f0 = lift_d1::flt(READ32_B(a1, 348));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x158u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x15Cu));
+            WRITE32_B(a0, 344, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 348));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x160u));
+        f0 = lift_d1::flt(READ32_B(a1, 352));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x15Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 348));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x160u));
+            f0 = lift_d1::flt(READ32_B(a1, 352));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x15Cu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x160u));
+            WRITE32_B(a0, 348, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 352));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x160u));
+    f1 = lift_d1::flt(READ32_B(a2, 352));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x160u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x164u));
-    f0 = lift_d1::flt(READ32(a2 + 0x164u));
+    WRITE32_B(a0, 352, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 356));
+    f0 = lift_d1::flt(READ32_B(a2, 356));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x164u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x170u));
-    f0 = lift_d1::flt(READ32(a2 + 0x170u));
+    WRITE32_B(a0, 356, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 368));
+    f0 = lift_d1::flt(READ32_B(a2, 368));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x170u, lift_d1::bits(f2));
-    f0 = lift_d1::flt(READ32(a1 + 0x174u));
+    WRITE32_B(a0, 368, lift_d1::bits(f2));
+    f0 = lift_d1::flt(READ32_B(a1, 372));
     fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x178u));
+        f0 = lift_d1::flt(READ32_B(a1, 376));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x174u));
+        f1 = lift_d1::flt(READ32_B(a2, 372));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x178u));
+            f0 = lift_d1::flt(READ32_B(a1, 376));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x174u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x178u));
+            WRITE32_B(a0, 372, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 376));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x17Cu));
+        f0 = lift_d1::flt(READ32_B(a1, 380));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x178u));
+        f1 = lift_d1::flt(READ32_B(a2, 376));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x17Cu));
+            f0 = lift_d1::flt(READ32_B(a1, 380));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x178u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x17Cu));
+            WRITE32_B(a0, 376, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 380));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x180u));
+        f0 = lift_d1::flt(READ32_B(a1, 384));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x17Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 380));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x180u));
+            f0 = lift_d1::flt(READ32_B(a1, 384));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x17Cu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x180u));
+            WRITE32_B(a0, 380, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 384));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x184u));
+        f0 = lift_d1::flt(READ32_B(a1, 388));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x180u));
+        f1 = lift_d1::flt(READ32_B(a2, 384));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x184u));
+            f0 = lift_d1::flt(READ32_B(a1, 388));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x180u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x184u));
+            WRITE32_B(a0, 384, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 388));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x188u));
+        f0 = lift_d1::flt(READ32_B(a1, 392));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x184u));
+        f1 = lift_d1::flt(READ32_B(a2, 388));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x188u));
+            f0 = lift_d1::flt(READ32_B(a1, 392));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x184u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x188u));
+            WRITE32_B(a0, 388, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 392));
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f1 = lift_d1::flt(READ32(a1 + 0x18Cu));
+        f1 = lift_d1::flt(READ32_B(a1, 396));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x188u));
+        f1 = lift_d1::flt(READ32_B(a2, 392));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f1 = lift_d1::flt(READ32(a1 + 0x18Cu));
+            f1 = lift_d1::flt(READ32_B(a1, 396));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x188u, lift_d1::bits(f0));
-            f1 = lift_d1::flt(READ32(a1 + 0x18Cu));
+            WRITE32_B(a0, 392, lift_d1::bits(f0));
+            f1 = lift_d1::flt(READ32_B(a1, 396));
         }
     }
-    f0 = lift_d1::flt(READ32(a2 + 0x18Cu));
+    f0 = lift_d1::flt(READ32_B(a2, 396));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x18Cu, lift_d1::bits(f1));
+        WRITE32_B(a0, 396, lift_d1::bits(f1));
         ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; ctx->f[3] = f3; Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, sx64(v1)); ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -2327,332 +2327,332 @@ void gamecore_sub_014296F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f12 = ctx->f[12], f13 = ctx->f[13];
     uint32_t fcr31 = ctx->fcr31;
     bool df_at = false;
-    f0 = lift_d1::flt(READ32(a1 + 0xCu));
-    f1 = lift_d1::flt(READ32(a2 + 0xCu));
+    f0 = lift_d1::flt(READ32_B(a1, 12));
+    f1 = lift_d1::flt(READ32_B(a2, 12));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0xCu, lift_d1::bits(f0));
-    f2 = lift_d1::flt(READ32(a1 + 0x14u));
+    WRITE32_B(a0, 12, lift_d1::bits(f0));
+    f2 = lift_d1::flt(READ32_B(a1, 20));
     fcr31 = (FPU_C_OLT_S(f3, f2)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f2 = lift_d1::flt(READ32(a1 + 0x18u));
+        f2 = lift_d1::flt(READ32_B(a1, 24));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x14u));
+        f1 = lift_d1::flt(READ32_B(a2, 20));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f2 = lift_d1::flt(READ32(a1 + 0x18u));
+            f2 = lift_d1::flt(READ32_B(a1, 24));
         } else {
             at = 0x3A830000u; df_at = true;
             at = at | 0x126Eu; df_at = true;
             f0 = lift_d1::flt(at);
             fcr31 = (FPU_C_EQ_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
-                f2 = lift_d1::flt(READ32(a1 + 0x18u));
+                f2 = lift_d1::flt(READ32_B(a1, 24));
             } else {
                 f0 = FPU_MUL_S(f12, f2);
                 f1 = FPU_MUL_S(f13, f1);
                 f0 = FPU_ADD_SF(f0, f1);
-                WRITE32(a0 + 0x14u, lift_d1::bits(f0));
-                f2 = lift_d1::flt(READ32(a1 + 0x18u));
+                WRITE32_B(a0, 20, lift_d1::bits(f0));
+                f2 = lift_d1::flt(READ32_B(a1, 24));
             }
         }
     }
     f0 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f0, f2)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x1Cu));
+        f0 = lift_d1::flt(READ32_B(a1, 28));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x18u));
+        f1 = lift_d1::flt(READ32_B(a2, 24));
         fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x1Cu));
+            f0 = lift_d1::flt(READ32_B(a1, 28));
         } else {
             at = 0x3A830000u; df_at = true;
             at = at | 0x126Eu; df_at = true;
             f0 = lift_d1::flt(at);
             fcr31 = (FPU_C_EQ_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
-                f0 = lift_d1::flt(READ32(a1 + 0x1Cu));
+                f0 = lift_d1::flt(READ32_B(a1, 28));
             } else {
                 f0 = FPU_MUL_S(f12, f2);
                 f1 = FPU_MUL_S(f13, f1);
                 f0 = FPU_ADD_SF(f0, f1);
-                WRITE32(a0 + 0x18u, lift_d1::bits(f0));
-                f0 = lift_d1::flt(READ32(a1 + 0x1Cu));
+                WRITE32_B(a0, 24, lift_d1::bits(f0));
+                f0 = lift_d1::flt(READ32_B(a1, 28));
             }
         }
     }
     f2 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x28u));
+        f0 = lift_d1::flt(READ32_B(a1, 40));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x1Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 28));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x28u));
+            f0 = lift_d1::flt(READ32_B(a1, 40));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x1Cu, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x28u));
+            WRITE32_B(a0, 28, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 40));
             f2 = lift_d1::flt(0u);
         }
     }
     fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f0 = lift_d1::flt(READ32(a1 + 0x2Cu));
+        f0 = lift_d1::flt(READ32_B(a1, 44));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x28u));
+        f1 = lift_d1::flt(READ32_B(a2, 40));
         fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f0 = lift_d1::flt(READ32(a1 + 0x2Cu));
+            f0 = lift_d1::flt(READ32_B(a1, 44));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x28u, lift_d1::bits(f0));
-            f0 = lift_d1::flt(READ32(a1 + 0x2Cu));
+            WRITE32_B(a0, 40, lift_d1::bits(f0));
+            f0 = lift_d1::flt(READ32_B(a1, 44));
         }
     }
-    f1 = lift_d1::flt(READ32(a2 + 0x2Cu));
+    f1 = lift_d1::flt(READ32_B(a2, 44));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 0x2Cu, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 0x30u));
-    f0 = lift_d1::flt(READ32(a2 + 0x30u));
+    WRITE32_B(a0, 44, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 48));
+    f0 = lift_d1::flt(READ32_B(a2, 48));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x30u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x34u));
-    f0 = lift_d1::flt(READ32(a2 + 0x34u));
+    WRITE32_B(a0, 48, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 52));
+    f0 = lift_d1::flt(READ32_B(a2, 52));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x34u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x38u));
-    f0 = lift_d1::flt(READ32(a2 + 0x38u));
+    WRITE32_B(a0, 52, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 56));
+    f0 = lift_d1::flt(READ32_B(a2, 56));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x38u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x3Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x3Cu));
+    WRITE32_B(a0, 56, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 60));
+    f0 = lift_d1::flt(READ32_B(a2, 60));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x3Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x40u));
-    f0 = lift_d1::flt(READ32(a2 + 0x40u));
+    WRITE32_B(a0, 60, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 64));
+    f0 = lift_d1::flt(READ32_B(a2, 64));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x40u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x44u));
-    f0 = lift_d1::flt(READ32(a2 + 0x44u));
+    WRITE32_B(a0, 64, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 68));
+    f0 = lift_d1::flt(READ32_B(a2, 68));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x44u, lift_d1::bits(f2));
-    f0 = lift_d1::flt(READ32(a1 + 0x4Cu));
+    WRITE32_B(a0, 68, lift_d1::bits(f2));
+    f0 = lift_d1::flt(READ32_B(a1, 76));
     fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f2 = lift_d1::flt(READ32(a1 + 0x50u));
+        f2 = lift_d1::flt(READ32_B(a1, 80));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x4Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 76));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f2 = lift_d1::flt(READ32(a1 + 0x50u));
+            f2 = lift_d1::flt(READ32_B(a1, 80));
         } else {
             f0 = FPU_MUL_S(f12, f0);
             f1 = FPU_MUL_S(f13, f1);
             f0 = FPU_ADD_SF(f0, f1);
-            WRITE32(a0 + 0x4Cu, lift_d1::bits(f0));
-            f2 = lift_d1::flt(READ32(a1 + 0x50u));
+            WRITE32_B(a0, 76, lift_d1::bits(f0));
+            f2 = lift_d1::flt(READ32_B(a1, 80));
         }
     }
     v1 = 1u;
-    f0 = lift_d1::flt(READ32(a2 + 0x50u));
+    f0 = lift_d1::flt(READ32_B(a2, 80));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x50u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x54u));
-    f0 = lift_d1::flt(READ32(a2 + 0x54u));
+    WRITE32_B(a0, 80, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 84));
+    f0 = lift_d1::flt(READ32_B(a2, 84));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x54u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x58u));
-    f0 = lift_d1::flt(READ32(a2 + 0x58u));
+    WRITE32_B(a0, 84, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 88));
+    f0 = lift_d1::flt(READ32_B(a2, 88));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x58u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x5Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x5Cu));
+    WRITE32_B(a0, 88, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 92));
+    f0 = lift_d1::flt(READ32_B(a2, 92));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x5Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x60u));
-    f0 = lift_d1::flt(READ32(a2 + 0x60u));
+    WRITE32_B(a0, 92, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 96));
+    f0 = lift_d1::flt(READ32_B(a2, 96));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x60u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x64u));
-    f0 = lift_d1::flt(READ32(a2 + 0x64u));
+    WRITE32_B(a0, 96, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 100));
+    f0 = lift_d1::flt(READ32_B(a2, 100));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x64u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x68u));
-    f0 = lift_d1::flt(READ32(a2 + 0x68u));
+    WRITE32_B(a0, 100, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 104));
+    f0 = lift_d1::flt(READ32_B(a2, 104));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x68u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x70u));
-    f0 = lift_d1::flt(READ32(a2 + 0x70u));
+    WRITE32_B(a0, 104, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 112));
+    f0 = lift_d1::flt(READ32_B(a2, 112));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x70u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x74u));
-    f0 = lift_d1::flt(READ32(a2 + 0x74u));
+    WRITE32_B(a0, 112, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 116));
+    f0 = lift_d1::flt(READ32_B(a2, 116));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x74u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x78u));
-    f0 = lift_d1::flt(READ32(a2 + 0x78u));
+    WRITE32_B(a0, 116, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 120));
+    f0 = lift_d1::flt(READ32_B(a2, 120));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x78u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x7Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x7Cu));
+    WRITE32_B(a0, 120, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 124));
+    f0 = lift_d1::flt(READ32_B(a2, 124));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x7Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x80u));
-    f0 = lift_d1::flt(READ32(a2 + 0x80u));
+    WRITE32_B(a0, 124, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 128));
+    f0 = lift_d1::flt(READ32_B(a2, 128));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x80u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x84u));
-    f0 = lift_d1::flt(READ32(a2 + 0x84u));
+    WRITE32_B(a0, 128, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 132));
+    f0 = lift_d1::flt(READ32_B(a2, 132));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x84u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x88u));
-    f0 = lift_d1::flt(READ32(a2 + 0x88u));
+    WRITE32_B(a0, 132, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 136));
+    f0 = lift_d1::flt(READ32_B(a2, 136));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x88u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x8Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x8Cu));
+    WRITE32_B(a0, 136, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 140));
+    f0 = lift_d1::flt(READ32_B(a2, 140));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x8Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x90u));
-    f0 = lift_d1::flt(READ32(a2 + 0x90u));
+    WRITE32_B(a0, 140, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 144));
+    f0 = lift_d1::flt(READ32_B(a2, 144));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x90u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x94u));
-    f0 = lift_d1::flt(READ32(a2 + 0x94u));
+    WRITE32_B(a0, 144, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 148));
+    f0 = lift_d1::flt(READ32_B(a2, 148));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x94u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x98u));
-    f0 = lift_d1::flt(READ32(a2 + 0x98u));
+    WRITE32_B(a0, 148, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 152));
+    f0 = lift_d1::flt(READ32_B(a2, 152));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x98u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x9Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x9Cu));
+    WRITE32_B(a0, 152, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 156));
+    f0 = lift_d1::flt(READ32_B(a2, 156));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x9Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0xA0u));
-    f0 = lift_d1::flt(READ32(a2 + 0xA0u));
+    WRITE32_B(a0, 156, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 160));
+    f0 = lift_d1::flt(READ32_B(a2, 160));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0xA0u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0xA4u));
-    f0 = lift_d1::flt(READ32(a2 + 0xA4u));
+    WRITE32_B(a0, 160, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 164));
+    f0 = lift_d1::flt(READ32_B(a2, 164));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0xA4u, lift_d1::bits(f2));
-    v0 = READ32(a1 + 0xA8u);
+    WRITE32_B(a0, 164, lift_d1::bits(f2));
+    v0 = READ32_B(a1, 168);
     if (v0 == v1) {
-        f1 = lift_d1::flt(READ32(a1 + 0xACu));
-        f0 = lift_d1::flt(READ32(a2 + 0xACu));
+        f1 = lift_d1::flt(READ32_B(a1, 172));
+        f0 = lift_d1::flt(READ32_B(a2, 172));
         f1 = FPU_MUL_S(f12, f1);
         f0 = FPU_MUL_S(f13, f0);
         f1 = FPU_ADD_SF(f1, f0);
-        WRITE32(a0 + 0xACu, lift_d1::bits(f1));
-        f2 = lift_d1::flt(READ32(a1 + 0xB0u));
-        f0 = lift_d1::flt(READ32(a2 + 0xB0u));
+        WRITE32_B(a0, 172, lift_d1::bits(f1));
+        f2 = lift_d1::flt(READ32_B(a1, 176));
+        f0 = lift_d1::flt(READ32_B(a2, 176));
         f2 = FPU_MUL_S(f12, f2);
         f0 = FPU_MUL_S(f13, f0);
         f2 = FPU_ADD_SF(f2, f0);
-        WRITE32(a0 + 0xB0u, lift_d1::bits(f2));
-        f1 = lift_d1::flt(READ32(a1 + 0xB4u));
-        f0 = lift_d1::flt(READ32(a2 + 0xB4u));
+        WRITE32_B(a0, 176, lift_d1::bits(f2));
+        f1 = lift_d1::flt(READ32_B(a1, 180));
+        f0 = lift_d1::flt(READ32_B(a2, 180));
         f1 = FPU_MUL_S(f12, f1);
         f0 = FPU_MUL_S(f13, f0);
         f1 = FPU_ADD_SF(f1, f0);
-        WRITE32(a0 + 0xB4u, lift_d1::bits(f1));
-        f2 = lift_d1::flt(READ32(a1 + 0xB8u));
-        f0 = lift_d1::flt(READ32(a2 + 0xB8u));
+        WRITE32_B(a0, 180, lift_d1::bits(f1));
+        f2 = lift_d1::flt(READ32_B(a1, 184));
+        f0 = lift_d1::flt(READ32_B(a2, 184));
         f2 = FPU_MUL_S(f12, f2);
         f0 = FPU_MUL_S(f13, f0);
         f2 = FPU_ADD_SF(f2, f0);
-        WRITE32(a0 + 0xB8u, lift_d1::bits(f2));
-        f1 = lift_d1::flt(READ32(a1 + 0xBCu));
-        f0 = lift_d1::flt(READ32(a2 + 0xBCu));
+        WRITE32_B(a0, 184, lift_d1::bits(f2));
+        f1 = lift_d1::flt(READ32_B(a1, 188));
+        f0 = lift_d1::flt(READ32_B(a2, 188));
         f1 = FPU_MUL_S(f12, f1);
         f0 = FPU_MUL_S(f13, f0);
         f1 = FPU_ADD_SF(f1, f0);
-        WRITE32(a0 + 0xBCu, lift_d1::bits(f1));
-        f2 = lift_d1::flt(READ32(a1 + 0xC0u));
-        f0 = lift_d1::flt(READ32(a2 + 0xC0u));
+        WRITE32_B(a0, 188, lift_d1::bits(f1));
+        f2 = lift_d1::flt(READ32_B(a1, 192));
+        f0 = lift_d1::flt(READ32_B(a2, 192));
         f2 = FPU_MUL_S(f12, f2);
         f0 = FPU_MUL_S(f13, f0);
         f2 = FPU_ADD_SF(f2, f0);
-        WRITE32(a0 + 0xC0u, lift_d1::bits(f2));
-        f1 = lift_d1::flt(READ32(a1 + 0xC4u));
-        f0 = lift_d1::flt(READ32(a2 + 0xC4u));
+        WRITE32_B(a0, 192, lift_d1::bits(f2));
+        f1 = lift_d1::flt(READ32_B(a1, 196));
+        f0 = lift_d1::flt(READ32_B(a2, 196));
         f1 = FPU_MUL_S(f12, f1);
         f0 = FPU_MUL_S(f13, f0);
         f1 = FPU_ADD_SF(f1, f0);
-        WRITE32(a0 + 0xC4u, lift_d1::bits(f1));
-        f2 = lift_d1::flt(READ32(a1 + 0xC8u));
-        f0 = lift_d1::flt(READ32(a2 + 0xC8u));
+        WRITE32_B(a0, 196, lift_d1::bits(f1));
+        f2 = lift_d1::flt(READ32_B(a1, 200));
+        f0 = lift_d1::flt(READ32_B(a2, 200));
         f2 = FPU_MUL_S(f12, f2);
         f0 = FPU_MUL_S(f13, f0);
         f2 = FPU_ADD_SF(f2, f0);
-        WRITE32(a0 + 0xC8u, lift_d1::bits(f2));
+        WRITE32_B(a0, 200, lift_d1::bits(f2));
     }
     {
         const uint32_t target = ra;
@@ -2669,99 +2669,99 @@ void gamecore_sub_01429BC0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5], f6 = ctx->f[6], f12 = ctx->f[12], f13 = ctx->f[13];
     uint32_t fcr31 = ctx->fcr31;
-    f0 = lift_d1::flt(READ32(a1 + 4u));
-    f1 = lift_d1::flt(READ32(a2 + 4u));
+    f0 = lift_d1::flt(READ32_B(a1, 4));
+    f1 = lift_d1::flt(READ32_B(a2, 4));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 4u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 8u));
-    f0 = lift_d1::flt(READ32(a2 + 8u));
+    WRITE32_B(a0, 4, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 8));
+    f0 = lift_d1::flt(READ32_B(a2, 8));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 8u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0xCu));
-    f0 = lift_d1::flt(READ32(a2 + 0xCu));
+    WRITE32_B(a0, 8, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 12));
+    f0 = lift_d1::flt(READ32_B(a2, 12));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0xCu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x10u));
-    f0 = lift_d1::flt(READ32(a2 + 0x10u));
+    WRITE32_B(a0, 12, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 16));
+    f0 = lift_d1::flt(READ32_B(a2, 16));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x10u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x14u));
-    f0 = lift_d1::flt(READ32(a2 + 0x14u));
+    WRITE32_B(a0, 16, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 20));
+    f0 = lift_d1::flt(READ32_B(a2, 20));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x14u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x18u));
-    f0 = lift_d1::flt(READ32(a2 + 0x18u));
+    WRITE32_B(a0, 20, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 24));
+    f0 = lift_d1::flt(READ32_B(a2, 24));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x18u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x1Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x1Cu));
+    WRITE32_B(a0, 24, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 28));
+    f0 = lift_d1::flt(READ32_B(a2, 28));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x1Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x20u));
-    f0 = lift_d1::flt(READ32(a2 + 0x20u));
+    WRITE32_B(a0, 28, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 32));
+    f0 = lift_d1::flt(READ32_B(a2, 32));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x20u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x24u));
-    f0 = lift_d1::flt(READ32(a2 + 0x24u));
+    WRITE32_B(a0, 32, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 36));
+    f0 = lift_d1::flt(READ32_B(a2, 36));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x24u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x28u));
-    f0 = lift_d1::flt(READ32(a2 + 0x28u));
+    WRITE32_B(a0, 36, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 40));
+    f0 = lift_d1::flt(READ32_B(a2, 40));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x28u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x2Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x2Cu));
+    WRITE32_B(a0, 40, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 44));
+    f0 = lift_d1::flt(READ32_B(a2, 44));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x2Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x30u));
-    f0 = lift_d1::flt(READ32(a2 + 0x30u));
+    WRITE32_B(a0, 44, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 48));
+    f0 = lift_d1::flt(READ32_B(a2, 48));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x30u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x34u));
-    f0 = lift_d1::flt(READ32(a2 + 0x34u));
+    WRITE32_B(a0, 48, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 52));
+    f0 = lift_d1::flt(READ32_B(a2, 52));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x34u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x38u));
-    f0 = lift_d1::flt(READ32(a2 + 0x38u));
+    WRITE32_B(a0, 52, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 56));
+    f0 = lift_d1::flt(READ32_B(a2, 56));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x38u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x3Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x3Cu));
+    WRITE32_B(a0, 56, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 60));
+    f0 = lift_d1::flt(READ32_B(a2, 60));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x3Cu, lift_d1::bits(f2));
-    f5 = lift_d1::flt(READ32(a2 + 0x40u));
-    f4 = lift_d1::flt(READ32(a1 + 0x40u));
+    WRITE32_B(a0, 60, lift_d1::bits(f2));
+    f5 = lift_d1::flt(READ32_B(a2, 64));
+    f4 = lift_d1::flt(READ32_B(a1, 64));
     f1 = FPU_MOV_S(f5);
     f6 = FPU_MOV_S(f4);
     f2 = FPU_SUB_S(f1, f6);
@@ -2813,129 +2813,129 @@ L_1429dcc:
     f1 = FPU_ADD_S(f0, f1);
     fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        WRITE32(a0 + 0x40u, lift_d1::bits(f1));
+        WRITE32_B(a0, 64, lift_d1::bits(f1));
         goto L_1429df8;
     }
     at = 0x43B40000u;
     f0 = lift_d1::flt(at);
     f1 = FPU_SUB_SF(f1, f0);
 L_1429df4:
-    WRITE32(a0 + 0x40u, lift_d1::bits(f1));
+    WRITE32_B(a0, 64, lift_d1::bits(f1));
 L_1429df8:
     f3 = lift_d1::flt(0u);
-    f1 = lift_d1::flt(READ32(a1 + 0x44u));
-    f0 = lift_d1::flt(READ32(a2 + 0x44u));
+    f1 = lift_d1::flt(READ32_B(a1, 68));
+    f0 = lift_d1::flt(READ32_B(a2, 68));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x44u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x48u));
-    f0 = lift_d1::flt(READ32(a2 + 0x48u));
+    WRITE32_B(a0, 68, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 72));
+    f0 = lift_d1::flt(READ32_B(a2, 72));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x48u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x4Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x4Cu));
+    WRITE32_B(a0, 72, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 76));
+    f0 = lift_d1::flt(READ32_B(a2, 76));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x4Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x50u));
-    f0 = lift_d1::flt(READ32(a2 + 0x50u));
+    WRITE32_B(a0, 76, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 80));
+    f0 = lift_d1::flt(READ32_B(a2, 80));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x50u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x54u));
-    f0 = lift_d1::flt(READ32(a2 + 0x54u));
+    WRITE32_B(a0, 80, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 84));
+    f0 = lift_d1::flt(READ32_B(a2, 84));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x54u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x58u));
-    f0 = lift_d1::flt(READ32(a2 + 0x58u));
+    WRITE32_B(a0, 84, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 88));
+    f0 = lift_d1::flt(READ32_B(a2, 88));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x58u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x5Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x5Cu));
+    WRITE32_B(a0, 88, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 92));
+    f0 = lift_d1::flt(READ32_B(a2, 92));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x5Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x60u));
-    f0 = lift_d1::flt(READ32(a2 + 0x60u));
+    WRITE32_B(a0, 92, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 96));
+    f0 = lift_d1::flt(READ32_B(a2, 96));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x60u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x64u));
-    f0 = lift_d1::flt(READ32(a2 + 0x64u));
+    WRITE32_B(a0, 96, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 100));
+    f0 = lift_d1::flt(READ32_B(a2, 100));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x64u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x68u));
-    f0 = lift_d1::flt(READ32(a2 + 0x68u));
+    WRITE32_B(a0, 100, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 104));
+    f0 = lift_d1::flt(READ32_B(a2, 104));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x68u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x6Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x6Cu));
+    WRITE32_B(a0, 104, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 108));
+    f0 = lift_d1::flt(READ32_B(a2, 108));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x6Cu, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x70u));
-    f0 = lift_d1::flt(READ32(a2 + 0x70u));
+    WRITE32_B(a0, 108, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 112));
+    f0 = lift_d1::flt(READ32_B(a2, 112));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x70u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x74u));
-    f0 = lift_d1::flt(READ32(a2 + 0x74u));
+    WRITE32_B(a0, 112, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 116));
+    f0 = lift_d1::flt(READ32_B(a2, 116));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x74u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x78u));
-    f0 = lift_d1::flt(READ32(a2 + 0x78u));
+    WRITE32_B(a0, 116, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 120));
+    f0 = lift_d1::flt(READ32_B(a2, 120));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x78u, lift_d1::bits(f2));
-    f2 = lift_d1::flt(READ32(a1 + 0x7Cu));
+    WRITE32_B(a0, 120, lift_d1::bits(f2));
+    f2 = lift_d1::flt(READ32_B(a1, 124));
     fcr31 = (FPU_C_OLT_S(f3, f2)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        f2 = lift_d1::flt(READ32(a1 + 0x80u));
+        f2 = lift_d1::flt(READ32_B(a1, 128));
     } else {
-        f1 = lift_d1::flt(READ32(a2 + 0x7Cu));
+        f1 = lift_d1::flt(READ32_B(a2, 124));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            f2 = lift_d1::flt(READ32(a1 + 0x80u));
+            f2 = lift_d1::flt(READ32_B(a1, 128));
         } else {
             at = 0x3A830000u;
             at = at | 0x126Eu;
             f0 = lift_d1::flt(at);
             fcr31 = (FPU_C_EQ_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
-                f2 = lift_d1::flt(READ32(a1 + 0x80u));
+                f2 = lift_d1::flt(READ32_B(a1, 128));
             } else {
                 f0 = FPU_MUL_S(f12, f2);
                 f1 = FPU_MUL_S(f13, f1);
                 f0 = FPU_ADD_SF(f0, f1);
-                WRITE32(a0 + 0x7Cu, lift_d1::bits(f0));
-                f2 = lift_d1::flt(READ32(a1 + 0x80u));
+                WRITE32_B(a0, 124, lift_d1::bits(f0));
+                f2 = lift_d1::flt(READ32_B(a1, 128));
             }
         }
     }
     f0 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f0, f2)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) != 0u) {
-        f1 = lift_d1::flt(READ32(a2 + 0x80u));
+        f1 = lift_d1::flt(READ32_B(a2, 128));
         fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) != 0u) {
             at = 0x3A830000u;
@@ -2946,7 +2946,7 @@ L_1429df8:
                 f0 = FPU_MUL_S(f12, f2);
                 f1 = FPU_MUL_S(f13, f1);
                 f0 = FPU_ADD_SF(f0, f1);
-                WRITE32(a0 + 0x80u, lift_d1::bits(f0));
+                WRITE32_B(a0, 128, lift_d1::bits(f0));
             }
         }
     }
@@ -2965,209 +2965,209 @@ void gamecore_sub_0142B968(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f12 = ctx->f[12], f13 = ctx->f[13];
     uint32_t fcr31 = ctx->fcr31;
     bool df_at = false;
-    f0 = lift_d1::flt(READ32(a1 + 4u));
-    f1 = lift_d1::flt(READ32(a2 + 4u));
+    f0 = lift_d1::flt(READ32_B(a1, 4));
+    f1 = lift_d1::flt(READ32_B(a2, 4));
     f0 = FPU_MUL_S(f12, f0);
     f1 = FPU_MUL_S(f13, f1);
     f3 = lift_d1::flt(0u);
     f0 = FPU_ADD_SF(f0, f1);
-    WRITE32(a0 + 4u, lift_d1::bits(f0));
-    f1 = lift_d1::flt(READ32(a1 + 8u));
-    f0 = lift_d1::flt(READ32(a2 + 8u));
+    WRITE32_B(a0, 4, lift_d1::bits(f0));
+    f1 = lift_d1::flt(READ32_B(a1, 8));
+    f0 = lift_d1::flt(READ32_B(a2, 8));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 8u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0xCu));
-    f0 = lift_d1::flt(READ32(a2 + 0xCu));
+    WRITE32_B(a0, 8, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 12));
+    f0 = lift_d1::flt(READ32_B(a2, 12));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0xCu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x10u));
-    f0 = lift_d1::flt(READ32(a2 + 0x10u));
+    WRITE32_B(a0, 12, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 16));
+    f0 = lift_d1::flt(READ32_B(a2, 16));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x10u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x14u));
-    f0 = lift_d1::flt(READ32(a2 + 0x14u));
+    WRITE32_B(a0, 16, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 20));
+    f0 = lift_d1::flt(READ32_B(a2, 20));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x14u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x18u));
-    f0 = lift_d1::flt(READ32(a2 + 0x18u));
+    WRITE32_B(a0, 20, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 24));
+    f0 = lift_d1::flt(READ32_B(a2, 24));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x18u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x1Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x1Cu));
+    WRITE32_B(a0, 24, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 28));
+    f0 = lift_d1::flt(READ32_B(a2, 28));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x1Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x20u));
-    f0 = lift_d1::flt(READ32(a2 + 0x20u));
+    WRITE32_B(a0, 28, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 32));
+    f0 = lift_d1::flt(READ32_B(a2, 32));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x20u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x24u));
-    f0 = lift_d1::flt(READ32(a2 + 0x24u));
+    WRITE32_B(a0, 32, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 36));
+    f0 = lift_d1::flt(READ32_B(a2, 36));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x24u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x28u));
-    f0 = lift_d1::flt(READ32(a2 + 0x28u));
+    WRITE32_B(a0, 36, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 40));
+    f0 = lift_d1::flt(READ32_B(a2, 40));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x28u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x2Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x2Cu));
+    WRITE32_B(a0, 40, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 44));
+    f0 = lift_d1::flt(READ32_B(a2, 44));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x2Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x30u));
-    f0 = lift_d1::flt(READ32(a2 + 0x30u));
+    WRITE32_B(a0, 44, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 48));
+    f0 = lift_d1::flt(READ32_B(a2, 48));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x30u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x34u));
-    f0 = lift_d1::flt(READ32(a2 + 0x34u));
+    WRITE32_B(a0, 48, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 52));
+    f0 = lift_d1::flt(READ32_B(a2, 52));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x34u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x38u));
-    f0 = lift_d1::flt(READ32(a2 + 0x38u));
+    WRITE32_B(a0, 52, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 56));
+    f0 = lift_d1::flt(READ32_B(a2, 56));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x38u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x3Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x3Cu));
+    WRITE32_B(a0, 56, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 60));
+    f0 = lift_d1::flt(READ32_B(a2, 60));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x3Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x40u));
-    f0 = lift_d1::flt(READ32(a2 + 0x40u));
+    WRITE32_B(a0, 60, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 64));
+    f0 = lift_d1::flt(READ32_B(a2, 64));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x40u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x44u));
-    f0 = lift_d1::flt(READ32(a2 + 0x44u));
+    WRITE32_B(a0, 64, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 68));
+    f0 = lift_d1::flt(READ32_B(a2, 68));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x44u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x48u));
-    f0 = lift_d1::flt(READ32(a2 + 0x48u));
+    WRITE32_B(a0, 68, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 72));
+    f0 = lift_d1::flt(READ32_B(a2, 72));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x48u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x4Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x4Cu));
+    WRITE32_B(a0, 72, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 76));
+    f0 = lift_d1::flt(READ32_B(a2, 76));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x4Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x50u));
-    f0 = lift_d1::flt(READ32(a2 + 0x50u));
+    WRITE32_B(a0, 76, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 80));
+    f0 = lift_d1::flt(READ32_B(a2, 80));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x50u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x54u));
-    f0 = lift_d1::flt(READ32(a2 + 0x54u));
+    WRITE32_B(a0, 80, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 84));
+    f0 = lift_d1::flt(READ32_B(a2, 84));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x54u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x58u));
-    f0 = lift_d1::flt(READ32(a2 + 0x58u));
+    WRITE32_B(a0, 84, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 88));
+    f0 = lift_d1::flt(READ32_B(a2, 88));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x58u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x5Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x5Cu));
+    WRITE32_B(a0, 88, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 92));
+    f0 = lift_d1::flt(READ32_B(a2, 92));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x5Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x60u));
-    f0 = lift_d1::flt(READ32(a2 + 0x60u));
+    WRITE32_B(a0, 92, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 96));
+    f0 = lift_d1::flt(READ32_B(a2, 96));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x60u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x64u));
-    f0 = lift_d1::flt(READ32(a2 + 0x64u));
+    WRITE32_B(a0, 96, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 100));
+    f0 = lift_d1::flt(READ32_B(a2, 100));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x64u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x68u));
-    f0 = lift_d1::flt(READ32(a2 + 0x68u));
+    WRITE32_B(a0, 100, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 104));
+    f0 = lift_d1::flt(READ32_B(a2, 104));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x68u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x6Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x6Cu));
+    WRITE32_B(a0, 104, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 108));
+    f0 = lift_d1::flt(READ32_B(a2, 108));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x6Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x70u));
-    f0 = lift_d1::flt(READ32(a2 + 0x70u));
+    WRITE32_B(a0, 108, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 112));
+    f0 = lift_d1::flt(READ32_B(a2, 112));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x70u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x74u));
-    f0 = lift_d1::flt(READ32(a2 + 0x74u));
+    WRITE32_B(a0, 112, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 116));
+    f0 = lift_d1::flt(READ32_B(a2, 116));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x74u, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x78u));
-    f0 = lift_d1::flt(READ32(a2 + 0x78u));
+    WRITE32_B(a0, 116, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 120));
+    f0 = lift_d1::flt(READ32_B(a2, 120));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x78u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x7Cu));
-    f0 = lift_d1::flt(READ32(a2 + 0x7Cu));
+    WRITE32_B(a0, 120, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 124));
+    f0 = lift_d1::flt(READ32_B(a2, 124));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x7Cu, lift_d1::bits(f2));
-    f1 = lift_d1::flt(READ32(a1 + 0x80u));
-    f0 = lift_d1::flt(READ32(a2 + 0x80u));
+    WRITE32_B(a0, 124, lift_d1::bits(f2));
+    f1 = lift_d1::flt(READ32_B(a1, 128));
+    f0 = lift_d1::flt(READ32_B(a2, 128));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
-    WRITE32(a0 + 0x80u, lift_d1::bits(f1));
-    f2 = lift_d1::flt(READ32(a1 + 0x84u));
-    f0 = lift_d1::flt(READ32(a2 + 0x84u));
+    WRITE32_B(a0, 128, lift_d1::bits(f1));
+    f2 = lift_d1::flt(READ32_B(a1, 132));
+    f0 = lift_d1::flt(READ32_B(a2, 132));
     f2 = FPU_MUL_S(f12, f2);
     f0 = FPU_MUL_S(f13, f0);
     f2 = FPU_ADD_SF(f2, f0);
-    WRITE32(a0 + 0x84u, lift_d1::bits(f2));
-    f2 = lift_d1::flt(READ32(a1 + 0x88u));
+    WRITE32_B(a0, 132, lift_d1::bits(f2));
+    f2 = lift_d1::flt(READ32_B(a1, 136));
     fcr31 = (FPU_C_OLT_S(f3, f2)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) != 0u) {
-        f1 = lift_d1::flt(READ32(a2 + 0x88u));
+        f1 = lift_d1::flt(READ32_B(a2, 136));
         fcr31 = (FPU_C_OLT_S(f3, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) != 0u) {
             at = 0x3A830000u; df_at = true;
@@ -3178,7 +3178,7 @@ void gamecore_sub_0142B968(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                 f0 = FPU_MUL_S(f12, f2);
                 f1 = FPU_MUL_S(f13, f1);
                 f0 = FPU_ADD_SF(f0, f1);
-                WRITE32(a0 + 0x88u, lift_d1::bits(f0));
+                WRITE32_B(a0, 136, lift_d1::bits(f0));
             }
         }
     }
@@ -3195,12 +3195,12 @@ void act_camera_cutout_game_camera_param_manager(uint8_t *rdram, R5900Context *c
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     bool df_v1 = false;
-    a0 = READ32(a0 + 8u);
+    a0 = READ32_B(a0, 8);
     v0 = 1u;
     if (a0 != v0) {
         v0 = 0u;
     } else {
-        v1 = READ32(a1 + 0x1360u); df_v1 = true;
+        v1 = READ32_B(a1, 4960); df_v1 = true;
         if (v1 != a0) {
             v0 = 0u;
         } else {
@@ -3221,7 +3221,7 @@ void get_mode_common_data_filter_base_dist_to_look_at(uint8_t *rdram, R5900Conte
     float f0 = ctx->f[0];
     v0 = READ32(a0);
     sp = sp - 0x40u;
-    f0 = lift_d1::flt(READ32(v0 + 0x150u));
+    f0 = lift_d1::flt(READ32_B(v0, 336));
     {
         const uint32_t target = ra;
         sp = sp + 0x40u;
@@ -3238,8 +3238,8 @@ void gamecore_sub_0142C440(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5], f12 = ctx->f[12], f13 = ctx->f[13];
     uint32_t fcr31 = ctx->fcr31;
-    f5 = lift_d1::flt(READ32(a2 + 0xC8u));
-    f3 = lift_d1::flt(READ32(a1 + 0xC8u));
+    f5 = lift_d1::flt(READ32_B(a2, 200));
+    f3 = lift_d1::flt(READ32_B(a1, 200));
     f1 = FPU_MOV_S(f5);
     f0 = lift_d1::flt(0u);
     f4 = FPU_MOV_S(f3);
@@ -3292,23 +3292,23 @@ L_142c4e4:
     f1 = FPU_ADD_S(f0, f1);
     fcr31 = (FPU_C_OLT_S(f2, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
-        WRITE32(a0 + 0xC8u, lift_d1::bits(f1));
+        WRITE32_B(a0, 200, lift_d1::bits(f1));
         goto L_142c510;
     }
     at = 0x43B40000u;
     f0 = lift_d1::flt(at);
     f1 = FPU_SUB_SF(f1, f0);
 L_142c50c:
-    WRITE32(a0 + 0xC8u, lift_d1::bits(f1));
+    WRITE32_B(a0, 200, lift_d1::bits(f1));
 L_142c510:
-    f1 = lift_d1::flt(READ32(a1 + 0xCCu));
-    f0 = lift_d1::flt(READ32(a2 + 0xCCu));
+    f1 = lift_d1::flt(READ32_B(a1, 204));
+    f0 = lift_d1::flt(READ32_B(a2, 204));
     f1 = FPU_MUL_S(f12, f1);
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_ADD_SF(f1, f0);
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0xCCu, lift_d1::bits(f1));
+        WRITE32_B(a0, 204, lift_d1::bits(f1));
         ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; ctx->f[3] = f3; ctx->f[4] = f4; ctx->f[5] = f5; Ps2SetGpr64(ctx, 1, sx64(at)); ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -3327,8 +3327,8 @@ void gamecore_sub_0142C530(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         a0 = a0 + 0x4Cu;
         if (!c) {
             (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 76))));
-            a2 = READ32(a0 + 0x8Cu); df_a2 = true;
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 140)))));
+            a2 = READ32_B(a0, 140); df_a2 = true;
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 140))));
             {
                 const bool c = (int64_t)(int32_t)a2 != (int64_t)v0;
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -3336,8 +3336,8 @@ void gamecore_sub_0142C530(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                     goto L_142c5c4;
                 }
             }
-            v1 = READ32(a0 + 0xA8u); df_v1 = true;
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 168)))));
+            v1 = READ32_B(a0, 168); df_v1 = true;
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 168))));
             {
                 const bool c = (int64_t)(int32_t)v1 != (int64_t)v0;
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -3353,8 +3353,8 @@ void gamecore_sub_0142C530(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                     goto L_142c5c4;
                 }
             }
-            a0 = READ32(a0 + 0x90u);
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 144)))));
+            a0 = READ32_B(a0, 144);
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 144))));
             {
                 const bool c = (int64_t)(int32_t)a0 != (int64_t)v0;
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -3420,7 +3420,7 @@ void gamecore_sub_0142C7A0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         const bool c = (int32_t)v0 <= 0;
         (v1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            a2 = READ32(a2 + 4u); df_a2 = true;
+            a2 = READ32_B(a2, 4); df_a2 = true;
 L_142c7c0:
             f0 = lift_d1::flt(READ32(a2));
             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3428,9 +3428,9 @@ L_142c7c0:
                 const bool c = (fcr31 & 0x800000u) == 0u;
                 v0 = v0 - 1u;
                 if (!c) {
-                    (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a2, 4)))));
+                    (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a2, 4))));
                     f1 = FPU_MOV_S(f0);
-                    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a2, 8)))));
+                    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a2, 8))));
                 }
             }
             {
@@ -3443,10 +3443,10 @@ L_142c7c0:
             }
         }
     }
-    WRITE32(ADD32(a0, 0), (uint32_t)a3);
+    WRITE32_B(a0, 0, (uint32_t)a3);
     {
         const uint32_t target = ra;
-        WRITE32(ADD32(a1, 0), (uint32_t)v1);
+        WRITE32_B(a1, 0, (uint32_t)v1);
         ctx->f[0] = f0; ctx->f[1] = f1; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, v1); if (df_a2) Ps2SetGpr64(ctx, 6, sx64(a2)); Ps2SetGpr64(ctx, 7, a3); ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -3460,7 +3460,7 @@ void gamecore_sub_01430058(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t at = Ps2GprU32(ctx, 1), t1 = Ps2GprU32(ctx, 9), t5 = Ps2GprU32(ctx, 13), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t2 = Ps2GprU64(ctx, 10), t3 = Ps2GprU64(ctx, 11), t4 = Ps2GprU64(ctx, 12);
     bool df_at = false, df_t1 = false, df_t5 = false;
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 896)))));
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 896))));
     (t2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
         const bool c = (int64_t)v1 == 0;
@@ -3489,19 +3489,19 @@ L_1430098:
             (v0 = (uint64_t)((uint64_t)a2 + (uint64_t)0ULL));
             goto L_1430108;
 L_14300a0:
-            (t1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 28))))); df_t1 = true;
+            (t1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)v0, 28)))); df_t1 = true;
             if ((int32_t)t1 < 0) {
                 (t2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)t2, 1))));
                 goto L_1430114;
             }
-            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 15440)))));
+            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 15440))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v1, 2))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)v1))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 2))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)v0, (uint32_t)v1))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 3))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, t5))));
-            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
+            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 144))));
             {
                 const bool c = (int32_t)v1 <= 0;
                 (t0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -3510,8 +3510,8 @@ L_14300a0:
                     (a3 = (uint64_t)((uint64_t)RC_U64X(v1) + (uint64_t)0ULL));
                     (a1 = (uint64_t)((uint64_t)RC_U64X(a2) + (uint64_t)0ULL));
 L_14300e0:
-                    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
-                    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v1, 28)))));
+                    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
+                    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v1, 28))));
                     {
                         const bool c = (int64_t)(int32_t)t1 == (int64_t)v0;
                         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 36))));
@@ -3551,12 +3551,12 @@ L_1430114:
             }
         }
     }
-    (t0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 1056)))));
+    (t0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 1056))));
     if ((int32_t)t0 < 0) {
-        (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 132)))));
+        (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 132))));
         goto L_14301c8;
     }
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 15440)))));
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 15440))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v1, 2))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)v1))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 2))));
@@ -3565,7 +3565,7 @@ L_1430114:
     at = 0x1200000u; df_at = true;
     (at = (uint32_t)((int32_t)((int32_t)ADD32(at, 4296)))); df_at = true;
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(at, (uint32_t)v0))));
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 144))));
     {
         const bool c = (int32_t)v1 <= 0;
         t1 = 0u; df_t1 = true;
@@ -3574,9 +3574,9 @@ L_1430114:
             (t2 = (uint64_t)((uint64_t)RC_U64X(v1) + (uint64_t)0ULL));
             (a2 = (uint64_t)((uint64_t)RC_U64X(a3) + (uint64_t)0ULL));
 L_1430170:
-            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 0)))));
+            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a2, 0))));
             (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 36))));
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v1, 28)))));
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v1, 28))));
             {
                 const bool c = (int64_t)t0 == (int64_t)v0;
                 (a1 = (uint64_t)((uint64_t)a3 + (uint64_t)0ULL));
@@ -3599,7 +3599,7 @@ L_1430170:
     (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
 L_1430198:
     if ((int64_t)v0 != 0) {
-        (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 132)))));
+        (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 132))));
         goto L_14301c8;
     }
 L_14301a0:
@@ -3621,7 +3621,7 @@ L_14301c8:
     if ((int32_t)a2 < 0) {
         goto L_1430240;
     }
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 15440)))));
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 15440))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v1, 2))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)v1))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 2))));
@@ -3630,7 +3630,7 @@ L_14301c8:
     at = 0x1200000u; df_at = true;
     (at = (uint32_t)((int32_t)((int32_t)ADD32(at, 4296)))); df_at = true;
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(at, (uint32_t)v0))));
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 144))));
     {
         const bool c = (int32_t)v1 <= 0;
         (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -3639,8 +3639,8 @@ L_14301c8:
             (t0 = (uint64_t)((uint64_t)RC_U64X(v1) + (uint64_t)0ULL));
             (a1 = (uint64_t)((uint64_t)RC_U64X(a0) + (uint64_t)0ULL));
 L_1430210:
-            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v1, 28)))));
+            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v1, 28))));
             {
                 const bool c = (int64_t)a2 == (int64_t)v0;
                 (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 36))));
@@ -3725,7 +3725,7 @@ void getPassageWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5);
     (v0 = (uint64_t)(((int64_t)(int64_t)a1 < (int64_t)(int32_t)20) ? 1 : 0));
     if ((int64_t)v0 != 0) {
-        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a0, 896)))));
+        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a0, 896))));
         (v0 = (uint64_t)(((uint64_t)a1 < (uint64_t)RC_U64X(v0)) ? 1 : 0));
         if ((int64_t)v0 != 0) {
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 5))));
@@ -3754,7 +3754,7 @@ void getRealColJudgeFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        v0 = READ32(a0 + 0x3C54u);
+        v0 = READ32_B(a0, 15444);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -3768,7 +3768,7 @@ void getPathDataAddr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint32_t at = Ps2GprU32(ctx, 1), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8);
     bool df_a0 = false;
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32(a0, 15440)))));
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B(a0, 15440))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32(v1, 2))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, v1))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 2))));
@@ -3777,17 +3777,17 @@ void getPathDataAddr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     at = 0x1200000u;
     (at = (uint32_t)((int32_t)((int32_t)ADD32(at, 4296))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(at, (uint32_t)v0))));
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 144)))));
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)v0, 144))));
     {
         const bool c = (int32_t)v1 <= 0;
         (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
             (t0 = (uint64_t)((uint64_t)sx64(v1) + (uint64_t)0ULL));
             (a2 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
-            (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 0))))); df_a0 = true;
+            (a0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a2, 0)))); df_a0 = true;
 L_1433380:
             (v0 = (uint64_t)((uint64_t)a2 + (uint64_t)0ULL));
-            v1 = READ32(a0 + 0x1Cu);
+            v1 = READ32_B(a0, 28);
             {
                 const bool c = (int64_t)a1 == (int64_t)(int32_t)v1;
                 (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 36))));
@@ -3798,7 +3798,7 @@ L_1433380:
             (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a3, 1))));
             (v0 = (uint64_t)(((int64_t)(int64_t)RC_U64X(a3) < (int64_t)(int64_t)t0) ? 1 : 0));
             if ((int64_t)v0 != 0) {
-                (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 0))))); df_a0 = true;
+                (a0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a2, 0)))); df_a0 = true;
                 if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, sx64(v1)); if (df_a0) Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); ctx->pc = 0x1433380u; if (runtime->eeCheckpointSlow()) return; at = Ps2GprU32(ctx, 1); v0 = Ps2GprU64(ctx, 2); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_a0 = false; }
                 goto L_1433380;
             }
@@ -3819,7 +3819,7 @@ void getColiGroupByUserPathWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 {
     if (__builtin_expect(ctx->pc != 0x1433F60u, 0)) { getColiGroupByUserPathWork_0x1433f60(rdram, ctx, runtime); return; }
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
-    v1 = READ32(a0 + 0x3C50u);
+    v1 = READ32_B(a0, 15440);
     if (v1 != 0) {
         v0 = 1u;
     } else {
@@ -3858,7 +3858,7 @@ void gamecore_sub_01434610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10);
     bool df_a0 = false;
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32(a0, 15440)))));
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B(a0, 15440))));
     v0 = v1 << 2;
     v0 = v0 + v1;
     v0 = v0 << 2;
@@ -3875,16 +3875,16 @@ void gamecore_sub_01434610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                 v0 = 0xFFFFFFFFu;
                 goto L_1434694;
             }
-            v1 = READ32(v0 + 0x90u);
+            v1 = READ32_B(v0, 144);
             {
                 const bool c = (int32_t)v1 <= 0;
                 (t0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (!c) {
                     (t2 = (uint64_t)((uint64_t)sx64(v1) + (uint64_t)0ULL));
                     (a3 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
-                    (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a3, 0))))); df_a0 = true;
+                    (a0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a3, 0)))); df_a0 = true;
 L_1434660:
-                    v1 = READ32(a0 + 0x1Cu);
+                    v1 = READ32_B(a0, 28);
                     {
                         const bool c = (int64_t)a2 == (int64_t)(int32_t)v1;
                         (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)t1, (uint32_t)a1))));
@@ -3892,7 +3892,7 @@ L_1434660:
                             goto L_1434694;
                         }
                     }
-                    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a3, 4)))));
+                    (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a3, 4))));
                     {
                         const bool c = v0 == 0;
                         (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a3, 36))));
@@ -3904,7 +3904,7 @@ L_1434660:
                     (t0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)t0, 1))));
                     (v0 = (uint32_t)(((int64_t)(int64_t)RC_U64X(t0) < (int64_t)(int64_t)t2) ? 1 : 0));
                     if (v0 != 0) {
-                        (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a3, 0))))); df_a0 = true;
+                        (a0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a3, 0)))); df_a0 = true;
                         if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 10, t2); Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, sx64(v1)); if (df_a0) Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); Ps2SetGpr64(ctx, 9, t1); ctx->pc = 0x1434660u; if (runtime->eeCheckpointSlow()) return; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU64(ctx, 10); v0 = Ps2GprU32(ctx, 2); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); df_a0 = false; }
                         goto L_1434660;
                     }
@@ -3929,22 +3929,22 @@ void gamecore_sub_01434CF8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     (a1 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 15440)))));
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 15440))));
     {
         const bool c = (int64_t)(int32_t)v1 != (int64_t)a0;
         (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 920)))));
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 920))));
             {
                 const bool c = (int64_t)v0 == 0;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)323 << 16))));
                 if (!c) {
                     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)288 << 16))));
-                    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 4908)))));
+                    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 4908))));
                     if ((int64_t)v0 == 0) {
                         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)323 << 16))));
                     } else {
-                        (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 1456)))));
+                        (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)v0, 1456))));
                         {
                             const bool c = v1 != 0;
                             (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -3976,17 +3976,17 @@ void gamecore_sub_01444568(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = ctx->f[0], f1 = ctx->f[1];
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)327 << 16))));
     v1 = 0x1470000u;
-    { uint32_t bits = READ32(ADD32((uint32_t)v0, 4294953404)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+    { uint32_t bits = READ32_B((uint32_t)v0, -13892); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
     a1 = 0x1470000u;
     do { const __m128i _v = (READ128(ADD32(a0, 16))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     a1 = a1 - 0x3830u;
     f0 = lift_d1::flt(READ32(v1 - 0x3640u));
     WRITE128(ADD32(a0, 80), Ps2GprVecWithLow(ctx->r[2], v0));
-    WRITE32(a0 + 0xA4u, lift_d1::bits(f0));
-    WRITE32(a0 + 0xA8u, lift_d1::bits(f1));
-    WRITE32(a0 + 0x60u, lift_d1::bits(f1));
-    WRITE32(a0 + 0xA0u, 0u);
-    WRITE32(a0 + 0xD4u, 0u);
+    WRITE32_B(a0, 164, lift_d1::bits(f0));
+    WRITE32_B(a0, 168, lift_d1::bits(f1));
+    WRITE32_B(a0, 96, lift_d1::bits(f1));
+    WRITE32_B(a0, 160, 0u);
+    WRITE32_B(a0, 212, 0u);
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     {
         const uint32_t target = ra;
@@ -4083,9 +4083,9 @@ L_1447010:
 void setExecGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
-    v0 = READ32(a0 + 0x110Cu);
+    v0 = READ32_B(a0, 4364);
     if (v0 != 0) {
-        WRITE32(v0 + 0x30u, a1);
+        WRITE32_B(v0, 48, a1);
     } else {
     }
     {
@@ -4107,7 +4107,7 @@ void gamecore_sub_01461878(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
         const bool c = (int64_t)a3 == (int64_t)a2;
-        v1 = READ32(a1 + 0x14u);
+        v1 = READ32_B(a1, 20);
         if (!c) {
             t0 = 0xFFFE0000u; df_t0 = true;
             t1 = 0x10000u; df_t1 = true;
@@ -4121,26 +4121,26 @@ L_1461898:
                 }
             }
             if ((int32_t)v1 <= 0) {
-                v0 = READ32(a1 + 0x10u); df_v0 = true;
+                v0 = READ32_B(a1, 16); df_v0 = true;
             } else {
                 v0 = v1 & t1; df_v0 = true;
                 {
                     const bool c = v0 == 0;
-                    v0 = READ32(a1 + 0x10u); df_v0 = true;
+                    v0 = READ32_B(a1, 16); df_v0 = true;
                     if (!c) {
                         v1 = v1 & t0;
                         v1 = v1 << 6;
-                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v0, 36)))));
+                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v0, 36))));
                         (v1 = (uint32_t)((int32_t)((int32_t)ADD32(v1, (uint32_t)a0))));
-                        v1 = READ32(v1 + 0x30u);
+                        v1 = READ32_B(v1, 48);
                         goto L_14618e0;
                     }
                 }
             }
             v1 = v1 << 6;
-            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v0, 8)))));
+            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v0, 8))));
             (v1 = (uint32_t)((int32_t)((int32_t)ADD32(v1, (uint32_t)a0))));
-            v1 = READ32(v1 + 0x38u);
+            v1 = READ32_B(v1, 56);
 L_14618e0:
             (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 1))));
             if ((int64_t)a2 != (int64_t)a3) {
@@ -4166,7 +4166,7 @@ void getEventScriptClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 32))));
-    (v1 = (uint64_t)(uint32_t)((uint8_t)READ8(ADD32((uint32_t)v0, 8))));
+    (v1 = (uint64_t)(uint32_t)((uint8_t)READ8_B((uint32_t)v0, 8)));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, 32))));
     (v1 = (uint64_t)(RC_U64X(v1) ^ RC_U64X(a0)));
     {

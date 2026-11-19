@@ -932,7 +932,7 @@ void GetPlaneFittingDiffVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     WRITE128(ADD32(a0, 0), _mm_castps_si128(vf5));
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0xCu, 0u);
+        WRITE32_B(a0, 12, 0u);
         ctx->f[0] = f0; Ps2SetGpr64(ctx, 2, v0); ctx->vu0_vf[5] = vf5; ctx->vu0_vf[6] = vf6; ctx->vu0_vf[7] = vf7; ctx->vu0_acc = vacc;
         ctx->pc = target;
         return;
@@ -965,7 +965,7 @@ void GetPlaneFittingPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     vf6 = _mm_castsi128_ps(Ps2GprVecWithLow(ctx->r[2], v0));
     { __m128 res = PS2_VMUL(vf5, _mm_shuffle_ps(vf6, vf6, _MM_SHUFFLE(0,0,0,0))); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf5 = _mm_blendv_ps(vf5, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32((uint32_t)v1, 0), _mm_castps_si128(vf5));
-    WRITE32(sp + 0xCu, 0u);
+    WRITE32_B(sp, 12, 0u);
     vf5 = _mm_castsi128_ps(READ128(ADD32(a2, 0)));
     vf6 = _mm_castsi128_ps(READ128(ADD32(sp, 0)));
     { __m128 res = PS2_VADD(vf5, vf6); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf5 = PS2_VBLEND(vf5, res, _mm_castsi128_ps(mask)); }
@@ -1035,7 +1035,7 @@ void GetOffsetPositionAxis(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     vf6 = _mm_castsi128_ps(READ128(ADD32((uint32_t)v0, 0)));
     { __m128 res = PS2_VADD(vf5, vf6); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf5 = PS2_VBLEND(vf5, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32(a0, 0), _mm_castps_si128(vf5));
-    f0 = lift_d1::flt(READ32(sp + 4u));
+    f0 = lift_d1::flt(READ32_B(sp, 4));
     v1 = lift_d1::bits(f0);
     vf5 = _mm_castsi128_ps(READ128(ADD32(t0, 0)));
     vf6 = _mm_castsi128_ps(Ps2GprVecWithLow(ctx->r[3], sx64(v1)));
@@ -1045,7 +1045,7 @@ void GetOffsetPositionAxis(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     vf6 = _mm_castsi128_ps(READ128(ADD32((uint32_t)v0, 0)));
     { __m128 res = PS2_VADD(vf5, vf6); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf5 = PS2_VBLEND(vf5, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32(a0, 0), _mm_castps_si128(vf5));
-    f0 = lift_d1::flt(READ32(sp + 8u));
+    f0 = lift_d1::flt(READ32_B(sp, 8));
     v1 = lift_d1::bits(f0);
     vf5 = _mm_castsi128_ps(READ128(ADD32(t1, 0)));
     vf6 = _mm_castsi128_ps(Ps2GprVecWithLow(ctx->r[3], sx64(v1)));
@@ -1074,23 +1074,23 @@ void GetRateInOutEllipticalSphereVolumeWithInverseMatrix(uint8_t *rdram, R5900Co
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7], vf8 = ctx->vu0_vf[8], vf10 = ctx->vu0_vf[10], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     uint32_t fcr31 = ctx->fcr31;
     __m128 vacc = ctx->vu0_acc;
-    f1 = lift_d1::flt(READ32(a3 + 4u));
+    f1 = lift_d1::flt(READ32_B(a3, 4));
     sp = sp - 0x30u;
     at = 0x3F800000u;
     f3 = lift_d1::flt(at);
     f0 = lift_d1::flt(READ32(a3));
-    { uint32_t bits = READ32(ADD32(a3, 8)); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
+    { uint32_t bits = READ32_B(a3, 8); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
     f1 = ps2FpuDivide(fcr31, f3, f1);
-    WRITE32(sp + 0x2Cu, 0u);
+    WRITE32_B(sp, 44, 0u);
     f0 = ps2FpuDivide(fcr31, f3, f0);
-    WRITE32(sp + 0x24u, lift_d1::bits(f1));
+    WRITE32_B(sp, 36, lift_d1::bits(f1));
     f2 = ps2FpuDivide(fcr31, f3, f2);
-    WRITE32(sp + 0x20u, lift_d1::bits(f0));
-    (v0 = (uint64_t)(READ64(ADD32(sp, 32))));
-    WRITE64(ADD32(sp, 16), v0);
-    { float f = f2; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32(sp, 40), bits); }
-    (v0 = (uint64_t)(READ64(ADD32(sp, 40))));
-    WRITE64(ADD32(sp, 24), v0);
+    WRITE32_B(sp, 32, lift_d1::bits(f0));
+    (v0 = (uint64_t)(READ64_B(sp, 32)));
+    WRITE64_B(sp, 16, v0);
+    { float f = f2; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B(sp, 40, bits); }
+    (v0 = (uint64_t)(READ64_B(sp, 40)));
+    WRITE64_B(sp, 24, v0);
     vf8 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
     vf14 = _mm_castsi128_ps(READ128(ADD32(a0, 0)));
     vf15 = _mm_castsi128_ps(READ128(ADD32(a0, 16)));
@@ -1183,12 +1183,12 @@ L_114797c:
     if ((int64_t)a1 != 0) {
         { int64_t result = (int64_t)(int32_t)v1 * (int64_t)(int32_t)a1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
         (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967280))));
-        WRITE32(ADD32((uint32_t)t0, 16), a2);
+        WRITE32_B((uint32_t)t0, 16, a2);
         (a0 = (uint64_t)(sx64(t1) & RC_U64X(v1)));
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, 15))));
         (v0 = (uint64_t)(RC_U64X(v0) & RC_U64X(v1)));
         (a2 = (uint32_t)((int32_t)((int32_t)ADD32(a2, (uint32_t)v0)))); df_a2 = true;
-        WRITE32(ADD32((uint32_t)t0, 8), a2);
+        WRITE32_B((uint32_t)t0, 8, a2);
         (a2 = (uint32_t)((int32_t)((int32_t)ADD32(a2, (uint32_t)a0)))); df_a2 = true;
     }
     {
@@ -1209,7 +1209,7 @@ void InitModifiedManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     WRITE32(a0, 0u);
     {
         const bool c = (int64_t)a1 == 0;
-        WRITE32(a0 + 4u, 0u);
+        WRITE32_B(a0, 4, 0u);
         if (!c) {
             (v0 = (uint64_t)(0ULL | (uint64_t)(uint16_t)65535));
             (v0 = (uint64_t)(((int64_t)(int64_t)RC_U64X(v0) < (int64_t)(int64_t)a1) ? 1 : 0));
@@ -1221,19 +1221,19 @@ void InitModifiedManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
                 (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 2))));
                 if (RC_U64X(v1) != 0) do { const __m128i _v = (Ps2GprVecWithLow(ctx->r[2], v0)); ctx->r[6] = _v; std::memcpy(&a2, &_v, 8); } while (0);
             }
-            WRITE32(ADD32(a0, 12), (uint32_t)a2);
+            WRITE32_B(a0, 12, (uint32_t)a2);
             {
                 const bool c = (int32_t)a1 <= 0;
                 (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (!c) {
 L_11479e8:
-                    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a0, 8)))));
+                    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a0, 8))));
                     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a2))));
                     (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 1))));
                     (v1 = (uint64_t)(((int64_t)(int64_t)RC_U64X(a2) < (int64_t)(int64_t)a1) ? 1 : 0));
                     {
                         const bool c = (int64_t)v1 != 0;
-                        WRITE8(ADD32((uint32_t)v0, 0), (uint8_t)0u);
+                        WRITE8_B((uint32_t)v0, 0, (uint8_t)0u);
                         if (c) {
                             if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 6, a2); ctx->pc = 0x11479E8u; if (runtime->eeCheckpointSlow()) return; v0 = Ps2GprU64(ctx, 2); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); }
                             goto L_11479e8;
@@ -1249,8 +1249,8 @@ L_11479e8:
             }
         }
     }
-    WRITE32(a0 + 0x10u, 0u);
-    WRITE32(a0 + 8u, 0u);
+    WRITE32_B(a0, 16, 0u);
+    WRITE32_B(a0, 8, 0u);
     {
         const uint32_t target = ra;
         
@@ -1323,32 +1323,32 @@ void manager_sub_01159008(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)290 << 16))));
-    a1 = READ32(a0 + 0x48u);
-    (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 4294956832)))));
+    a1 = READ32_B(a0, 72);
+    (a0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)v0, -10464))));
     a2 = 0x1220000u;
     a3 = 0x1220000u;
-    (v0 = (uint64_t)(READ64(ADD32(a0, 0))));
-    WRITE64(ADD32(a1, 0), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a0, 8))));
-    WRITE64(ADD32(a1, 8), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a0, 16))));
-    WRITE64(ADD32(a1, 16), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a0, 24))));
-    WRITE64(ADD32(a1, 24), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a0, 32))));
-    WRITE64(ADD32(a1, 32), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a0, 40))));
-    WRITE64(ADD32(a1, 40), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a0, 48))));
-    WRITE64(ADD32(a1, 48), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a0, 56))));
-    WRITE64(ADD32(a1, 56), v1);
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a2, 4294956840)))));
-    WRITE32(ADD32(a1, 64), (uint32_t)v0);
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a3, 4294956836)))));
+    (v0 = (uint64_t)(READ64_B(a0, 0)));
+    WRITE64_B(a1, 0, v0);
+    (v1 = (uint64_t)(READ64_B(a0, 8)));
+    WRITE64_B(a1, 8, v1);
+    (v0 = (uint64_t)(READ64_B(a0, 16)));
+    WRITE64_B(a1, 16, v0);
+    (v1 = (uint64_t)(READ64_B(a0, 24)));
+    WRITE64_B(a1, 24, v1);
+    (v0 = (uint64_t)(READ64_B(a0, 32)));
+    WRITE64_B(a1, 32, v0);
+    (v1 = (uint64_t)(READ64_B(a0, 40)));
+    WRITE64_B(a1, 40, v1);
+    (v0 = (uint64_t)(READ64_B(a0, 48)));
+    WRITE64_B(a1, 48, v0);
+    (v1 = (uint64_t)(READ64_B(a0, 56)));
+    WRITE64_B(a1, 56, v1);
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a2, -10456))));
+    WRITE32_B(a1, 64, (uint32_t)v0);
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a3, -10460))));
     {
         const uint32_t target = ra;
-        WRITE32(ADD32(a1, 68), (uint32_t)v1);
+        WRITE32_B(a1, 68, (uint32_t)v1);
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 5, sx64(a1)); Ps2SetGpr64(ctx, 6, sx64(a2)); Ps2SetGpr64(ctx, 7, sx64(a3));
         ctx->pc = target;
         return;
@@ -1377,7 +1377,7 @@ void GetScreenRadius(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     { __m128 mul_res = PS2_VMUL(vf16, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
     { __m128 mul_res = PS2_VMUL(vf17, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf10 = _mm_blendv_ps(vf10, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32(v0, 0), _mm_castps_si128(vf10));
-    f1 = lift_d1::flt(READ32(sp + 0x18u));
+    f1 = lift_d1::flt(READ32_B(sp, 24));
     a2 = sp + 0x30u;
     f0 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -1395,7 +1395,7 @@ void GetScreenRadius(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
             { __m128 mul_res = PS2_VMUL(vf16, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
             { __m128 mul_res = PS2_VMUL(vf17, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf10 = _mm_blendv_ps(vf10, res, _mm_castsi128_ps(mask)); }
             WRITE128(ADD32(a2, 0), _mm_castps_si128(vf10));
-            f0 = lift_d1::flt(READ32(sp + 0x38u));
+            f0 = lift_d1::flt(READ32_B(sp, 56));
             f1 = FPU_NEG_S(f0);
             goto L_1160bac;
         }
@@ -1410,17 +1410,17 @@ void GetScreenRadius(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     { __m128 mul_res = PS2_VMUL(vf16, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
     { __m128 mul_res = PS2_VMUL(vf17, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf10 = _mm_blendv_ps(vf10, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32(v0, 0), _mm_castps_si128(vf10));
-    f1 = lift_d1::flt(READ32(sp + 0x58u));
+    f1 = lift_d1::flt(READ32_B(sp, 88));
 L_1160bac:
     at = 0x3F800000u;
     f0 = lift_d1::flt(at);
     a0 = a0 + 0xC0u;
     v1 = sp + 0x60u;
     v0 = sp + 0x70u;
-    WRITE32(sp + 0x70u, lift_d1::bits(f12));
-    WRITE32(sp + 0x7Cu, lift_d1::bits(f0));
-    WRITE32(sp + 0x74u, 0u);
-    WRITE32(sp + 0x78u, lift_d1::bits(f1));
+    WRITE32_B(sp, 112, lift_d1::bits(f12));
+    WRITE32_B(sp, 124, lift_d1::bits(f0));
+    WRITE32_B(sp, 116, 0u);
+    WRITE32_B(sp, 120, lift_d1::bits(f1));
     vf8 = _mm_castsi128_ps(READ128(ADD32(v0, 0)));
     vf14 = _mm_castsi128_ps(READ128(ADD32(a0, 0)));
     vf15 = _mm_castsi128_ps(READ128(ADD32(a0, 16)));
@@ -1431,8 +1431,8 @@ L_1160bac:
     { __m128 mul_res = PS2_VMUL(vf16, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, -1, -1, -1))); }
     { __m128 mul_res = PS2_VMUL(vf17, _mm_shuffle_ps(vf8, vf8, _MM_SHUFFLE(3,3,3,3))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf10 = _mm_blendv_ps(vf10, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32(v1, 0), _mm_castps_si128(vf10));
-    f0 = lift_d1::flt(READ32(sp + 0x60u));
-    f1 = lift_d1::flt(READ32(sp + 0x6Cu));
+    f0 = lift_d1::flt(READ32_B(sp, 96));
+    f1 = lift_d1::flt(READ32_B(sp, 108));
     at = 0x45000000u;
     f2 = lift_d1::flt(at);
     f0 = ps2FpuDivide(fcr31, f0, f1);
@@ -1461,7 +1461,7 @@ L_11629f8:
     if (v0 == 0) {
         (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 1))));
     } else {
-        v1 = READ32(v0 + 0x10u); df_v1 = true;
+        v1 = READ32_B(v0, 16); df_v1 = true;
         v1 = v1 >> 3; df_v1 = true;
         v1 = v1 & 7u; df_v1 = true;
         {
@@ -1563,7 +1563,7 @@ void get_clip_screen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        v0 = READ32(a0 + 0x250u);
+        v0 = READ32_B(a0, 592);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -1580,7 +1580,7 @@ void is_parent_obj_boss_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runt
         const bool c = (int64_t)a0 == 0;
         (v1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         if (!c) {
-            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 20))))); df_v0 = true;
+            (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 20)))); df_v0 = true;
             {
                 const bool c = v0 != 0;
                 (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
@@ -1594,8 +1594,8 @@ void is_parent_obj_boss_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runt
     if ((int64_t)v1 != (int64_t)(int32_t)v0) {
         v0 = 0u; df_v0 = true;
     } else {
-        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 20)))));
-        (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 20))));
+        (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
         (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v1, 4294967295))));
         (v1 = (uint64_t)(((uint64_t)RC_U64X(v1) < (uint64_t)(int64_t)(int32_t)2) ? 1 : 0));
         if ((int64_t)v1 == 0) {
@@ -1621,7 +1621,7 @@ void manager_sub_01164260(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         const bool c = (int64_t)a0 == 0;
         (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
         if (!c) {
-            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 20))))); df_v1 = true;
+            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 20)))); df_v1 = true;
             if (v1 != 0) {
                 goto L_1164278;
             }
@@ -1646,10 +1646,10 @@ void set_scissor_screen_size(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     a1 = a1 + 0x1D0u;
     (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, a1))));
     (a0 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
-    WRITE32(ADD32((uint32_t)a0, 0), a2);
+    WRITE32_B((uint32_t)a0, 0, a2);
     {
         const uint32_t target = ra;
-        WRITE32(v0 + 8u, a3);
+        WRITE32_B(v0, 8, a3);
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = target;
         return;
@@ -1663,7 +1663,7 @@ void get_aspect_ratio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
     uint32_t fcr31 = ctx->fcr31;
     v1 = 0x1190000u;
-    f0 = lift_d1::flt(READ32(a0 + 8u));
+    f0 = lift_d1::flt(READ32_B(a0, 8));
     f2 = lift_d1::flt(READ32(v1 - 0x19Cu));
     v0 = 0x1190000u;
     f1 = lift_d1::flt(READ32(v0 - 0x198u));
@@ -1682,15 +1682,15 @@ void ResetDamageClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     v0 = 0xFFFFFFFFu;
-    WRITE32(a0 + 0x68u, 0u);
-    WRITE32(a0 + 0x60u, v0);
-    WRITE32(a0 + 0x54u, v0);
-    WRITE32(a0 + 0x58u, 0u);
+    WRITE32_B(a0, 104, 0u);
+    WRITE32_B(a0, 96, v0);
+    WRITE32_B(a0, 84, v0);
+    WRITE32_B(a0, 88, 0u);
     WRITE32(a0, 0u);
-    WRITE32(a0 + 0x5Cu, 0u);
+    WRITE32_B(a0, 92, 0u);
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x64u, 0u);
+        WRITE32_B(a0, 100, 0u);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -1703,26 +1703,26 @@ void DecreaseDamageLockTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
     uint32_t fcr31 = ctx->fcr31;
-    v0 = READ32(a0 + 0x54u);
-    WRITE32(a0 + 0x64u, 0u);
+    v0 = READ32_B(a0, 84);
+    WRITE32_B(a0, 100, 0u);
     {
         const bool c = (int32_t)v0 < 0;
         WRITE32(a0, 0u);
         if (!c) {
-            f0 = lift_d1::flt(READ32(a0 + 0x58u));
-            f1 = lift_d1::flt(READ32(a0 + 0x64u));
+            f0 = lift_d1::flt(READ32_B(a0, 88));
+            f1 = lift_d1::flt(READ32_B(a0, 100));
             f0 = FPU_SUB_S(f0, f12);
             fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             {
                 const bool c = (fcr31 & 0x800000u) == 0u;
-                WRITE32(a0 + 0x58u, lift_d1::bits(f0));
+                WRITE32_B(a0, 88, lift_d1::bits(f0));
                 if (!c) {
                     v0 = 0xFFFFFFFFu;
-                    WRITE32(a0 + 0x68u, lift_d1::bits(f1));
-                    WRITE32(a0 + 0x58u, lift_d1::bits(f1));
-                    WRITE32(a0 + 0x5Cu, lift_d1::bits(f1));
-                    WRITE32(a0 + 0x60u, v0);
-                    WRITE32(a0 + 0x54u, v0);
+                    WRITE32_B(a0, 104, lift_d1::bits(f1));
+                    WRITE32_B(a0, 88, lift_d1::bits(f1));
+                    WRITE32_B(a0, 92, lift_d1::bits(f1));
+                    WRITE32_B(a0, 96, v0);
+                    WRITE32_B(a0, 84, v0);
                 }
             }
         }
@@ -1747,9 +1747,9 @@ void ResetAnimeFrameTableInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     (t0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     {
         const bool c = (int64_t)a1 == 0;
-        WRITE32(ADD32((uint32_t)t0, 0), (uint32_t)a1);
+        WRITE32_B((uint32_t)t0, 0, (uint32_t)a1);
         if (!c) {
-            (a3 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0))))); df_a3 = true;
+            (a3 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 0)))); df_a3 = true;
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)3 << 16))));
             (v0 = (uint64_t)(RC_U64X(v0) | (uint64_t)(uint16_t)65535));
             (v0 = (uint64_t)(sx64(a3) & RC_U64X(v0)));
@@ -1757,7 +1757,7 @@ void ResetAnimeFrameTableInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
                 const bool c = (int64_t)v0 == 0;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a1, (uint32_t)v0))));
                 if (!c) {
-                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
                     goto L_11692dc;
                 }
             }
@@ -1772,10 +1772,10 @@ L_11692dc:
                         const bool c = (int64_t)a0 == (int64_t)(int32_t)v1;
                         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SRL32(a3, 18))));
                         if (!c) {
-                            (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+                            (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
                             (v0 = (uint64_t)(RC_U64X(v0) & (uint64_t)(uint16_t)4095));
-                            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
-                            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 12))))); df_v1 = true;
+                            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
+                            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 12)))); df_v1 = true;
                             { int64_t result = (int64_t)(int32_t)v0 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
                             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, (uint32_t)v0))));
                             goto L_1169314;
@@ -1787,12 +1787,12 @@ L_11692dc:
     }
     (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
 L_1169314:
-    WRITE32(ADD32((uint32_t)t0, 4), (uint32_t)v0);
+    WRITE32_B((uint32_t)t0, 4, (uint32_t)v0);
     {
         const bool c = (int64_t)a2 == 0;
-        WRITE32(ADD32((uint32_t)t0, 8), (uint32_t)a2);
+        WRITE32_B((uint32_t)t0, 8, (uint32_t)a2);
         if (!c) {
-            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 0)))));
+            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a2, 0))));
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)3 << 16))));
             (v0 = (uint64_t)(RC_U64X(v0) | (uint64_t)(uint16_t)65535));
             (v0 = (uint64_t)(RC_U64X(a0) & RC_U64X(v0)));
@@ -1800,7 +1800,7 @@ L_1169314:
                 const bool c = (int64_t)v0 == 0;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a2, (uint32_t)v0))));
                 if (!c) {
-                    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+                    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
                     goto L_1169344;
                 }
             }
@@ -1815,10 +1815,10 @@ L_1169344:
                         const bool c = (int64_t)a2 == (int64_t)(int32_t)v1;
                         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SRL32((uint32_t)a0, 18))));
                         if (!c) {
-                            (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 8)))));
+                            (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a2, 8))));
                             (v0 = (uint64_t)(RC_U64X(v0) & (uint64_t)(uint16_t)4095));
-                            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 16)))));
-                            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 12))))); df_v1 = true;
+                            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a2, 16))));
+                            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 12)))); df_v1 = true;
                             { int64_t result = (int64_t)(int32_t)v0 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
                             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, (uint32_t)v0))));
                             goto L_116937c;
@@ -1832,7 +1832,7 @@ L_1169344:
 L_116937c:
     {
         const uint32_t target = ra;
-        WRITE32(ADD32((uint32_t)t0, 12), (uint32_t)v0);
+        WRITE32_B((uint32_t)t0, 12, (uint32_t)v0);
         Ps2SetGpr64(ctx, 2, v0); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); if (df_a3) Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, t0); ctx->hi = hi; ctx->lo = lo;
         ctx->pc = target;
         return;
@@ -1846,7 +1846,7 @@ void getEditWorkInitData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     if ((int64_t)a0 != 0) {
-        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
         {
             const uint32_t target = ra;
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, (uint32_t)v0))));
@@ -1876,7 +1876,7 @@ void getPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         if (!c) {
             if ((int32_t)a1 >= 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
-                (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+                (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 0)))); df_v1 = true;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a1))));
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 4))));
                 (v1 = (uint32_t)(((uint64_t)a1 < (uint64_t)sx64(v1)) ? 1 : 0)); df_v1 = true;
@@ -1913,7 +1913,7 @@ void getConnectLineArray(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
                 const bool c = (int32_t)a1 < 0;
                 (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a1, 1)))); df_v0 = true;
                 if (!c) {
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 0)))); df_v1 = true;
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a1)))); df_v0 = true;
                     v0 = v0 << 4; df_v0 = true;
                     (v1 = (uint32_t)(((uint64_t)a1 < (uint64_t)sx64(v1)) ? 1 : 0)); df_v1 = true;
@@ -1930,9 +1930,9 @@ void getConnectLineArray(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         }
     }
     if ((int64_t)a2 != 0) {
-        (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 16))))); df_v0 = true;
+        (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a2, 16)))); df_v0 = true;
         if (v0 != 0) {
-            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 20))))); df_v0 = true;
+            (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a2, 20)))); df_v0 = true;
             {
                 const uint32_t target = ra;
                 (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, v0)))); df_v0 = true;
@@ -1963,7 +1963,7 @@ void getLineData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         if (!c) {
             if ((int32_t)a1 >= 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
-                (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+                (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 0)))); df_v1 = true;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a1))));
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 4))));
                 (v1 = (uint32_t)(((uint64_t)a1 < (uint64_t)sx64(v1)) ? 1 : 0)); df_v1 = true;
@@ -1998,7 +1998,7 @@ void getLayoutPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         if (!c) {
             if ((int32_t)a1 >= 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 1))));
-                (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0))))); df_v1 = true;
+                (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 0)))); df_v1 = true;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)a1))));
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 4))));
                 (v1 = (uint32_t)(((uint64_t)a1 < (uint64_t)sx64(v1)) ? 1 : 0)); df_v1 = true;
@@ -2103,16 +2103,16 @@ void GAMEUTIL_set_parameter_look_at_vs_offset(uint8_t *rdram, R5900Context *ctx,
     at = 0x3C8E0000u;
     at = at | 0xFA35u;
     f0 = lift_d1::flt(at);
-    WRITE32(a0 + 0x4Cu, lift_d1::bits(f16));
+    WRITE32_B(a0, 76, lift_d1::bits(f16));
     f14 = FPU_MUL_S(f14, f0);
-    WRITE32(a0 + 0x48u, lift_d1::bits(f15));
+    WRITE32_B(a0, 72, lift_d1::bits(f15));
     f12 = FPU_MUL_S(f12, f0);
     f13 = FPU_MUL_S(f13, f0);
-    WRITE32(a0 + 0x44u, lift_d1::bits(f14));
-    WRITE32(a0 + 0x3Cu, lift_d1::bits(f12));
+    WRITE32_B(a0, 68, lift_d1::bits(f14));
+    WRITE32_B(a0, 60, lift_d1::bits(f12));
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x40u, lift_d1::bits(f13));
+        WRITE32_B(a0, 64, lift_d1::bits(f13));
         ctx->f[0] = f0; ctx->f[12] = f12; ctx->f[13] = f13; ctx->f[14] = f14; Ps2SetGpr64(ctx, 1, sx64(at));
         ctx->pc = target;
         return;
@@ -2126,7 +2126,7 @@ void GAMEUTIL_set_enable_side_change_angle_look_at_vs_offset(uint8_t *rdram, R59
     float f12 = ctx->f[12];
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x50u, lift_d1::bits(f12));
+        WRITE32_B(a0, 80, lift_d1::bits(f12));
         
         ctx->pc = target;
         return;
@@ -2138,10 +2138,10 @@ void GAMEUTIL_set_parameter_col_plane_info_filter(uint8_t *rdram, R5900Context *
 {
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12], f13 = ctx->f[13];
-    WRITE32(a0 + 0x74u, lift_d1::bits(f13));
+    WRITE32_B(a0, 116, lift_d1::bits(f13));
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x70u, lift_d1::bits(f12));
+        WRITE32_B(a0, 112, lift_d1::bits(f12));
         
         ctx->pc = target;
         return;
@@ -2157,7 +2157,7 @@ void GAMEUTIL_reset_position_filter(uint8_t *rdram, R5900Context *ctx, PS2Runtim
     a2 = 1u;
     WRITE128(ADD32(a0, 0), Ps2GprVecWithLow(ctx->r[2], v0));
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[3] = _v; std::memcpy(&v1, &_v, 8); } while (0);
-    WRITE32(a0 + 0x20u, a2);
+    WRITE32_B(a0, 32, a2);
     {
         const uint32_t target = ra;
         WRITE128(ADD32(a0, 16), Ps2GprVecWithLow(ctx->r[3], v1));
@@ -2187,23 +2187,23 @@ void GAMEUTIL_doit_position_filter(uint8_t *rdram, R5900Context *ctx, PS2Runtime
         { __m128 res = PS2_VADD_K(1, 1, vf7, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(2,2,2,2))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); vf7 = _mm_blendv_ps(vf7, res, _mm_castsi128_ps(mask)); }
         do { const __m128i _v = (_mm_castps_si128(vf7)); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
         { uint32_t bits = (uint32_t)v0; std::memcpy(&f1, &bits, sizeof(bits)); }
-        f0 = lift_d1::flt(READ32(a0 + 0x24u));
+        f0 = lift_d1::flt(READ32_B(a0, 36));
         f0 = FPU_MUL_S(f0, f0);
         fcr31 = (FPU_C_OLE_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) == 0u) {
-            WRITE32(a0 + 0x20u, 0u);
+            WRITE32_B(a0, 32, 0u);
             goto L_1344264;
         }
         do { const __m128i _v = (READ128(ADD32(a0, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     }
     WRITE128(ADD32(a0, 16), Ps2GprVecWithLow(ctx->r[2], v0));
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[3] = _v; std::memcpy(&v1, &_v, 8); } while (0);
-    WRITE32(a0 + 0x20u, a3);
+    WRITE32_B(a0, 32, a3);
     WRITE128(ADD32(a0, 0), Ps2GprVecWithLow(ctx->r[3], v1));
 L_1344264:
     {
         const uint32_t target = ra;
-        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a0, 32)))));
+        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a0, 32))));
         ctx->f[0] = f0; ctx->f[1] = f1; Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 7, sx64(a3)); ctx->vu0_vf[5] = vf5; ctx->vu0_vf[6] = vf6; ctx->vu0_vf[7] = vf7; ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -2220,11 +2220,11 @@ void GAMEUTIL_get_data_record_info(uint8_t *rdram, R5900Context *ctx, PS2Runtime
     uint64_t lo = ctx->lo;
     bool df_v0 = false;
     if ((int32_t)a1 >= 0) {
-        v0 = READ32(a0 + 0xCu); df_v0 = true;
+        v0 = READ32_B(a0, 12); df_v0 = true;
         (v0 = (uint32_t)(((int64_t)(int64_t)a1 < (int64_t)(int64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
         if (v0 != 0) {
             v0 = READ32(a0); df_v0 = true;
-            v1 = READ32(a0 + 8u);
+            v1 = READ32_B(a0, 8);
             { int64_t result = (int64_t)(int32_t)a1 * (int64_t)(int32_t)v0; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint32_t)((int32_t)((int32_t)result))); } df_v0 = true;
             {
                 const uint32_t target = ra;
@@ -2254,31 +2254,31 @@ void GAMEUTIL_doit_status_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
     if ((int64_t)a2 != (int64_t)(int32_t)v0) {
         v0 = READ32(a0);
     } else {
-        WRITE32(ADD32(a0, 0), (uint32_t)a1);
-        WRITE32(a0 + 0xCu, 0u);
-        WRITE32(ADD32(a0, 8), (uint32_t)a1);
+        WRITE32_B(a0, 0, (uint32_t)a1);
+        WRITE32_B(a0, 12, 0u);
+        WRITE32_B(a0, 8, (uint32_t)a1);
         {
             const uint32_t target = ra;
-            WRITE32(ADD32(a0, 4), (uint32_t)a1);
+            WRITE32_B(a0, 4, (uint32_t)a1);
             Ps2SetGpr64(ctx, 2, sx64(v0));
             ctx->pc = target;
             return;
         }
     }
     if ((int64_t)(int32_t)v0 != (int64_t)a1) {
-        WRITE32(a0 + 0xCu, 0u);
+        WRITE32_B(a0, 12, 0u);
     } else {
-        f0 = lift_d1::flt(READ32(a0 + 0xCu));
+        f0 = lift_d1::flt(READ32_B(a0, 12));
         f0 = FPU_ADD_S(f0, f12);
-        WRITE32(a0 + 0xCu, lift_d1::bits(f0));
+        WRITE32_B(a0, 12, lift_d1::bits(f0));
         goto L_1344614;
     }
-    WRITE32(a0 + 8u, v0);
+    WRITE32_B(a0, 8, v0);
 L_1344614:
-    WRITE32(ADD32(a0, 0), (uint32_t)a1);
+    WRITE32_B(a0, 0, (uint32_t)a1);
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 4u, v0);
+        WRITE32_B(a0, 4, v0);
         ctx->f[0] = f0; Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -2306,7 +2306,7 @@ void getDemoBarFade(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     v0 = 0x1460000u;
     at = 0x3F800000u;
     f1 = lift_d1::flt(at);
-    f0 = lift_d1::flt(READ32(v0 + 0x5A68u));
+    f0 = lift_d1::flt(READ32_B(v0, 23144));
     {
         const uint32_t target = ra;
         f0 = FPU_SUB_S(f1, f0);
@@ -2324,15 +2324,15 @@ void calcFadeParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4];
     uint32_t fcr31 = ctx->fcr31;
     v0 = 0x1460000u;
-    f4 = lift_d1::flt(READ32(a0 + 4u));
-    f3 = lift_d1::flt(READ32(v0 + 0x57B8u));
+    f4 = lift_d1::flt(READ32_B(a0, 4));
+    f3 = lift_d1::flt(READ32_B(v0, 22456));
     fcr31 = (FPU_C_OLE_S(f3, f4)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     {
         const bool c = (fcr31 & 0x800000u) == 0u;
-        f0 = lift_d1::flt(READ32(a0 + 0xCu));
+        f0 = lift_d1::flt(READ32_B(a0, 12));
         if (!c) {
             f1 = lift_d1::flt(READ32(a0));
-            f2 = lift_d1::flt(READ32(a0 + 8u));
+            f2 = lift_d1::flt(READ32_B(a0, 8));
             f3 = FPU_SUB_S(f3, f1);
             f1 = FPU_SUB_S(f4, f1);
             f0 = FPU_SUB_S(f0, f2);
@@ -2341,7 +2341,7 @@ void calcFadeParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
             f2 = FPU_ADD_S(f2, f0);
             {
                 const uint32_t target = ra;
-                WRITE32(a0 + 0x10u, lift_d1::bits(f2));
+                WRITE32_B(a0, 16, lift_d1::bits(f2));
                 ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; ctx->f[3] = f3; ctx->f[4] = f4; Ps2SetGpr64(ctx, 2, sx64(v0)); ctx->fcr31 = fcr31;
                 ctx->pc = target;
                 return;
@@ -2350,7 +2350,7 @@ void calcFadeParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     }
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x10u, lift_d1::bits(f0));
+        WRITE32_B(a0, 16, lift_d1::bits(f0));
         ctx->f[0] = f0; ctx->f[3] = f3; ctx->f[4] = f4; Ps2SetGpr64(ctx, 2, sx64(v0)); ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -2370,7 +2370,7 @@ void _gameFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (v1 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)v1, 3))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)286 << 16))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)v1))));
-    (v0 = (uint64_t)(uint32_t)((uint8_t)READ8(ADD32((uint32_t)v0, 4294965200))));
+    (v0 = (uint64_t)(uint32_t)((uint8_t)READ8_B((uint32_t)v0, -2096)));
     (v0 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)v0, (uint32_t)a0 & 0x1F))));
     {
         const uint32_t target = ra;
@@ -2404,7 +2404,7 @@ void _gameFWorkChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = ctx->f[0];
     v0 = 0x1460000u;
     a0 = a0 << 2;
-    v1 = READ32(v0 + 0x5B70u);
+    v1 = READ32_B(v0, 23408);
     a0 = a0 + v1;
     {
         const uint32_t target = ra;
@@ -2422,7 +2422,7 @@ void getGameClearCnt(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     v1 = 0x11E0000u;
     {
         const uint32_t target = ra;
-        v0 = READ32(v1 + 0x74u);
+        v0 = READ32_B(v1, 116);
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, sx64(v1));
         ctx->pc = target;
         return;
@@ -2434,7 +2434,7 @@ void getGameHardMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     v1 = 0x11E0000u;
-    v0 = READ32(v1 + 0x7Cu);
+    v0 = READ32_B(v1, 124);
     {
         const uint32_t target = ra;
         v0 = 0u < v0 ? 1u : 0u;
@@ -2475,7 +2475,7 @@ L_134f970:
     if (v0 == 0) {
         v0 = 0u;
     } else {
-        (v1 = (uint64_t)(uint32_t)((uint8_t)READ8(ADD32(v0, 0))));
+        (v1 = (uint64_t)(uint32_t)((uint8_t)READ8_B(v0, 0)));
         (v1 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)v1, a3 & 0x1F))));
         (v1 = (uint64_t)(RC_U64X(v1) & (uint64_t)(uint16_t)1));
         {
@@ -2507,7 +2507,7 @@ void _omakeSelectFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (v1 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)v1, 3))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)286 << 16))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)v1))));
-    (v0 = (uint64_t)(uint32_t)((uint8_t)READ8(ADD32((uint32_t)v0, 98))));
+    (v0 = (uint64_t)(uint32_t)((uint8_t)READ8_B((uint32_t)v0, 98)));
     (v0 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)v0, (uint32_t)a0 & 0x1F))));
     {
         const uint32_t target = ra;
@@ -2527,12 +2527,12 @@ void chkMotionList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
     bool df_v0 = false, df_v1 = false, df_a1 = false, df_t1 = false, df_t3 = false;
-    a3 = READ32(a1 + 0xCu);
+    a3 = READ32_B(a1, 12);
     (t2 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     (t0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
         const bool c = (int32_t)a3 <= 0;
-        a2 = READ32(a1 + 0x10u);
+        a2 = READ32_B(a1, 16);
         if (!c) {
             t1 = 0x30000u; df_t1 = true;
             { const uint32_t _dynInsn = READ32(0x13581C0u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); } df_v0 = true;
@@ -2546,7 +2546,7 @@ L_13581d0:
                 const bool c = v0 == 0;
                 a2 = a2 + 4u;
                 if (!c) {
-                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0)))));
+                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 0))));
                     goto L_13581ec;
                 }
             }
@@ -2560,10 +2560,10 @@ L_13581ec:
                     const bool c = (int64_t)a0 == (int64_t)(int32_t)v0;
                     v1 = v1 >> 18; df_v1 = true;
                     if (!c) {
-                        (a1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8))))); df_a1 = true;
+                        (a1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 8)))); df_a1 = true;
                         v1 = v1 & 0xFFFu; df_v1 = true;
-                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
-                        v0 = READ32(a1 + 0xCu); df_v0 = true;
+                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
+                        v0 = READ32_B(a1, 12); df_v0 = true;
                         { int64_t result = (int64_t)(int32_t)v1 * (int64_t)(int32_t)v0; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v1 = (uint32_t)((int32_t)((int32_t)result))); } df_v1 = true;
                         (v1 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, v1)))); df_v1 = true;
                         goto L_1358224;
@@ -2606,7 +2606,7 @@ void getPlayerHp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     v0 = 0x11E0000u;
     {
         const uint32_t target = ra;
-        f0 = lift_d1::flt(READ32(v0 + 0x3EE4u));
+        f0 = lift_d1::flt(READ32_B(v0, 16100));
         ctx->f[0] = f0; Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -2627,8 +2627,8 @@ void getStageChipID(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     { uint32_t bits = at; std::memcpy(&f3, &bits, sizeof(bits)); }
     f0 = FPU_NEG_S(f0);
     v0 = a3;
-    f1 = lift_d1::flt(READ32(v0 + 0x50u));
-    f2 = lift_d1::flt(READ32(v0 + 0x40u));
+    f1 = lift_d1::flt(READ32_B(v0, 80));
+    f2 = lift_d1::flt(READ32_B(v0, 64));
     f0 = FPU_SUB_S(f0, f1);
     f1 = ps2FpuDivide(fcr31, f0, f2);
     { int32_t tmp = FPU_CVT_W_S(f1); std::memcpy(&f0, &tmp, sizeof(tmp)); }
@@ -2652,13 +2652,13 @@ void getStageChipID(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
             }
         }
     }
-    WRITE32(ADD32(a1, 0), (uint32_t)v1);
+    WRITE32_B(a1, 0, (uint32_t)v1);
     at = 0x3F000000u;
     { uint32_t bits = at; std::memcpy(&f3, &bits, sizeof(bits)); }
-    f0 = lift_d1::flt(READ32(a0 + 8u));
-    f2 = lift_d1::flt(READ32(a3 + 0x54u));
+    f0 = lift_d1::flt(READ32_B(a0, 8));
+    f2 = lift_d1::flt(READ32_B(a3, 84));
     f0 = FPU_NEG_S(f0);
-    f1 = lift_d1::flt(READ32(a3 + 0x44u));
+    f1 = lift_d1::flt(READ32_B(a3, 68));
     f0 = FPU_SUB_S(f0, f2);
     f1 = ps2FpuDivide(fcr31, f0, f1);
     { int32_t tmp = FPU_CVT_W_S(f1); std::memcpy(&f0, &tmp, sizeof(tmp)); }
@@ -2684,7 +2684,7 @@ void getStageChipID(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     }
     {
         const uint32_t target = ra;
-        WRITE32(ADD32(a2, 0), (uint32_t)v1);
+        WRITE32_B(a2, 0, (uint32_t)v1);
         ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; ctx->f[3] = f3; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 7, sx64(a3)); ctx->fcr31 = fcr31;
         ctx->pc = target;
         return;
@@ -2709,7 +2709,7 @@ void gamecore_sub_01358D88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         if (!c) {
             v0 = 0x1460000u; df_v0 = true;
             (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(v0, 24192))));
-            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 72))))); df_v1 = true;
+            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 72)))); df_v1 = true;
             (v0 = (uint32_t)(((int64_t)(int64_t)t5 < (int64_t)(int64_t)sx64(v1)) ? 1 : 0)); df_v0 = true;
             {
                 const bool c = v0 == 0;
@@ -2721,7 +2721,7 @@ void gamecore_sub_01358D88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
             if ((int32_t)t6 < 0) {
                 goto L_1358dcc;
             }
-            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 76))))); df_v0 = true;
+            (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 76)))); df_v0 = true;
             { int64_t result = (int64_t)(int32_t)t6 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
             (v0 = (uint32_t)(((int64_t)(int64_t)t6 < (int64_t)(int64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
             {
@@ -2745,13 +2745,13 @@ L_1358dcc:
                 v1 = 0x1460000u; df_v1 = true;
                 if (!c) {
                     v0 = t3 << 1; df_v0 = true;
-                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v1, 24200)))));
+                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v1, 24200))));
                     v0 = v0 + t3; df_v0 = true;
                     v0 = v0 << 3; df_v0 = true;
                     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a2, 2))));
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a1)))); df_v0 = true;
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a0)))); df_v0 = true;
-                    v1 = READ32(v0 + 8u); df_v1 = true;
+                    v1 = READ32_B(v0, 8); df_v1 = true;
                     v1 = v1 & 0xFu; df_v1 = true;
                     goto L_1358e0c;
                 }
@@ -2767,13 +2767,13 @@ L_1358e0c:
                         v1 = 0x1460000u; df_v1 = true;
                         if (!c) {
                             v0 = t3 << 1; df_v0 = true;
-                            (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v1, 24200)))));
+                            (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v1, 24200))));
                             v0 = v0 + t3; df_v0 = true;
                             v0 = v0 << 3; df_v0 = true;
                             (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a2, 2))));
                             (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a1)))); df_v0 = true;
                             (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a0)))); df_v0 = true;
-                            v1 = READ32(v0 + 8u); df_v1 = true;
+                            v1 = READ32_B(v0, 8); df_v1 = true;
                             v1 = v1 & 0xFu; df_v1 = true;
                             goto L_1358e4c;
                         }
@@ -2794,15 +2794,15 @@ L_1358e4c:
             t4 = t3 << 1; df_t4 = true;
             v0 = t7 + 0x5E80u; df_v0 = true;
             v1 = t4 + t3; df_v1 = true;
-            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v0, 8)))));
+            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v0, 8))));
             v1 = v1 << 3; df_v1 = true;
             (v1 = (uint32_t)((int32_t)((int32_t)ADD32(v1, (uint32_t)a0)))); df_v1 = true;
-            v0 = READ32(v1 + 0x10u); df_v0 = true;
+            v0 = READ32_B(v1, 16); df_v0 = true;
             {
                 const bool c = v0 == 0;
                 (a1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (!c) {
-                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v0, 0)))));
+                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v0, 0))));
                 }
             }
             (v0 = (uint32_t)(((uint64_t)RC_U64X(a1) < (uint64_t)(int64_t)(int32_t)6) ? 1 : 0)); df_v0 = true;
@@ -2825,13 +2825,13 @@ L_1358e4c:
 L_1358ea8:
                     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(t7, 24192))));
                     v0 = t4 + t3; df_v0 = true;
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 8)))); df_v1 = true;
                     v0 = v0 << 3; df_v0 = true;
                     {
                         const bool c = (int32_t)t1 < 0;
                         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(v0, v1))));
                         if (!c) {
-                            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 72))))); df_v1 = true;
+                            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 72)))); df_v1 = true;
                             (v0 = (uint32_t)(((int64_t)(int64_t)t1 < (int64_t)(int64_t)sx64(v1)) ? 1 : 0)); df_v0 = true;
                             if (v0 == 0) {
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
@@ -2841,7 +2841,7 @@ L_1358ea8:
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
                                 goto L_1358ef0;
                             }
-                            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 76))))); df_v0 = true;
+                            (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 76)))); df_v0 = true;
                             { int64_t result = (int64_t)(int32_t)t2 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
                             (v0 = (uint32_t)(((int64_t)(int64_t)t2 < (int64_t)(int64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
                             {
@@ -2857,12 +2857,12 @@ L_1358ea8:
 L_1358ef0:
                     v1 = t7 + 0x5E80u; df_v1 = true;
                     (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)t1, 1)))); df_v0 = true;
-                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v1, 8)))));
+                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v1, 8))));
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)t1)))); df_v0 = true;
                     v0 = v0 << 3; df_v0 = true;
-                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 16)))));
+                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 16))));
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a0)))); df_v0 = true;
-                    v1 = READ32(v0 + 0x10u); df_v1 = true;
+                    v1 = READ32_B(v0, 16); df_v1 = true;
                     if ((int64_t)a1 != (int64_t)(int32_t)v1) {
                         v0 = 0u; df_v0 = true;
                         goto L_1359388;
@@ -2878,13 +2878,13 @@ L_1358f18:
 L_1358f20:
                     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(t7, 24192))));
                     v0 = t4 + t3; df_v0 = true;
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 8)))); df_v1 = true;
                     v0 = v0 << 3; df_v0 = true;
                     {
                         const bool c = (int32_t)t1 < 0;
                         t8 = v0 + v1; df_t8 = true;
                         if (!c) {
-                            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 72))))); df_v1 = true;
+                            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 72)))); df_v1 = true;
                             (v0 = (uint32_t)(((int64_t)(int64_t)t1 < (int64_t)(int64_t)sx64(v1)) ? 1 : 0)); df_v0 = true;
                             if (v0 == 0) {
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
@@ -2894,7 +2894,7 @@ L_1358f20:
                                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
                                 goto L_1358f68;
                             }
-                            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 76))))); df_v0 = true;
+                            (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 76)))); df_v0 = true;
                             { int64_t result = (int64_t)(int32_t)t2 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
                             (v0 = (uint32_t)(((int64_t)(int64_t)t2 < (int64_t)(int64_t)sx64(v0)) ? 1 : 0)); df_v0 = true;
                             {
@@ -2910,19 +2910,19 @@ L_1358f20:
 L_1358f68:
                     v1 = t7 + 0x5E80u; df_v1 = true;
                     (v0 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)t1, 1)))); df_v0 = true;
-                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v1, 8)))));
+                    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(v1, 8))));
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)t1)))); df_v0 = true;
                     v0 = v0 << 3; df_v0 = true;
-                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(t8, 16)))));
+                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(t8, 16))));
                     (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a1)))); df_v0 = true;
-                    v1 = READ32(v0 + 0x10u); df_v1 = true;
+                    v1 = READ32_B(v0, 16); df_v1 = true;
                     {
                         const bool c = (int64_t)a0 == (int64_t)(int32_t)v1;
                         v0 = t4 + t3; df_v0 = true;
                         if (!c) {
                             v0 = v0 << 3; df_v0 = true;
                             (v0 = (uint32_t)((int32_t)((int32_t)ADD32(v0, (uint32_t)a1)))); df_v0 = true;
-                            v1 = READ32(v0 + 0x14u); df_v1 = true;
+                            v1 = READ32_B(v0, 20); df_v1 = true;
                             {
                                 const bool c = v1 == 0;
                                 v0 = 0u; df_v0 = true;
@@ -2946,7 +2946,7 @@ L_1358f68:
                     { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
                     v1 = 0x1460000u; df_v1 = true;
                     { uint32_t bits = 0u; std::memcpy(&f0, &bits, sizeof(bits)); }
-                    f3 = lift_d1::flt(READ32(v1 + 0x5E54u));
+                    f3 = lift_d1::flt(READ32_B(v1, 24148));
                     { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                     f1 = FPU_ADD_S(f1, f2);
                     fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -2980,7 +2980,7 @@ L_1359010:
                     { uint32_t bits = v0; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f0, sizeof(tmp)); f0 = FPU_CVT_S_W(tmp); }
                     { uint32_t bits = 0u; std::memcpy(&f1, &bits, sizeof(bits)); }
-                    f3 = lift_d1::flt(READ32(v1 + 0x5E54u));
+                    f3 = lift_d1::flt(READ32_B(v1, 24148));
                     { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                     f0 = FPU_ADD_S(f0, f2);
                     fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3006,7 +3006,7 @@ L_1359060:
                     { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
                     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)326 << 16))));
                     { uint32_t bits = 0u; std::memcpy(&f0, &bits, sizeof(bits)); }
-                    { uint32_t bits = READ32(ADD32((uint32_t)a1, 24148)); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
+                    { uint32_t bits = READ32_B((uint32_t)a1, 24148); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
                     { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                     f1 = FPU_ADD_S(f1, f2);
                     fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3036,7 +3036,7 @@ L_13590bc:
                     { uint32_t bits = v0; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f0, sizeof(tmp)); f0 = FPU_CVT_S_W(tmp); }
                     { uint32_t bits = 0u; std::memcpy(&f1, &bits, sizeof(bits)); }
-                    { uint32_t bits = READ32(ADD32((uint32_t)a1, 24148)); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
+                    { uint32_t bits = READ32_B((uint32_t)a1, 24148); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
                     { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                     f0 = FPU_ADD_S(f0, f2);
                     fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3059,9 +3059,9 @@ L_13590ec:
                     at = 0x3F000000u; df_at = true;
                     { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { uint32_t bits = 0u; std::memcpy(&f2, &bits, sizeof(bits)); }
-                    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 24148))))); df_v0 = true;
+                    (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 24148)))); df_v0 = true;
                     f0 = FPU_ADD_S(f1, f0);
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 24152))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 24152)))); df_v1 = true;
                     v0 = v0 + v1; df_v0 = true;
                     { uint32_t bits = v0; std::memcpy(&f1, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
@@ -3098,9 +3098,9 @@ L_1359150:
                     { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
                     { uint32_t bits = v1; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f0, sizeof(tmp)); f0 = FPU_CVT_S_W(tmp); }
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 24152))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 24152)))); df_v1 = true;
                     { uint32_t bits = 0u; std::memcpy(&f2, &bits, sizeof(bits)); }
-                    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 24148))))); df_v0 = true;
+                    (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 24148)))); df_v0 = true;
                     f0 = FPU_ADD_S(f0, f1);
                     v0 = v0 + v1; df_v0 = true;
                     { uint32_t bits = v0; std::memcpy(&f1, &bits, sizeof(bits)); }
@@ -3129,7 +3129,7 @@ L_13591a8:
                             { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
                             v1 = 0x1460000u; df_v1 = true;
                             { uint32_t bits = 0u; std::memcpy(&f0, &bits, sizeof(bits)); }
-                            f3 = lift_d1::flt(READ32(v1 + 0x5E54u));
+                            f3 = lift_d1::flt(READ32_B(v1, 24148));
                             { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                             f1 = FPU_ADD_S(f1, f2);
                             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3163,7 +3163,7 @@ L_1359218:
                             { uint32_t bits = v0; std::memcpy(&f0, &bits, sizeof(bits)); }
                             { int32_t tmp; std::memcpy(&tmp, &f0, sizeof(tmp)); f0 = FPU_CVT_S_W(tmp); }
                             { uint32_t bits = 0u; std::memcpy(&f1, &bits, sizeof(bits)); }
-                            f3 = lift_d1::flt(READ32(v1 + 0x5E54u));
+                            f3 = lift_d1::flt(READ32_B(v1, 24148));
                             { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                             f0 = FPU_ADD_S(f0, f2);
                             fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3187,7 +3187,7 @@ L_1359218:
                     { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
                     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)326 << 16))));
                     { uint32_t bits = 0u; std::memcpy(&f0, &bits, sizeof(bits)); }
-                    { uint32_t bits = READ32(ADD32((uint32_t)a1, 24148)); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
+                    { uint32_t bits = READ32_B((uint32_t)a1, 24148); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
                     { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                     f1 = FPU_ADD_S(f1, f2);
                     fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3217,7 +3217,7 @@ L_13592ac:
                     { uint32_t bits = v0; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f0, sizeof(tmp)); f0 = FPU_CVT_S_W(tmp); }
                     { uint32_t bits = 0u; std::memcpy(&f1, &bits, sizeof(bits)); }
-                    { uint32_t bits = READ32(ADD32((uint32_t)a1, 24148)); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
+                    { uint32_t bits = READ32_B((uint32_t)a1, 24148); float f; std::memcpy(&f, &bits, sizeof(f)); f3 = f; }
                     { int32_t tmp; std::memcpy(&tmp, &f3, sizeof(tmp)); f3 = FPU_CVT_S_W(tmp); }
                     f0 = FPU_ADD_S(f0, f2);
                     fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -3240,9 +3240,9 @@ L_13592dc:
                     at = 0x3F000000u; df_at = true;
                     { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { uint32_t bits = 0u; std::memcpy(&f2, &bits, sizeof(bits)); }
-                    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 24148))))); df_v0 = true;
+                    (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 24148)))); df_v0 = true;
                     f0 = FPU_ADD_S(f1, f0);
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 24152))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 24152)))); df_v1 = true;
                     v0 = v0 + v1; df_v0 = true;
                     { uint32_t bits = v0; std::memcpy(&f1, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
@@ -3279,9 +3279,9 @@ L_1359340:
                     { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
                     { uint32_t bits = v1; std::memcpy(&f0, &bits, sizeof(bits)); }
                     { int32_t tmp; std::memcpy(&tmp, &f0, sizeof(tmp)); f0 = FPU_CVT_S_W(tmp); }
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 24152))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 24152)))); df_v1 = true;
                     { uint32_t bits = 0u; std::memcpy(&f2, &bits, sizeof(bits)); }
-                    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 24148))))); df_v0 = true;
+                    (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 24148)))); df_v0 = true;
                     f0 = FPU_ADD_S(f0, f1);
                     v0 = v0 + v1; df_v0 = true;
                     { uint32_t bits = v0; std::memcpy(&f1, &bits, sizeof(bits)); }
@@ -3323,21 +3323,21 @@ void SeamlessStageLoadComplete(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     bool df_a1 = false, df_a2 = false, df_a3 = false, df_t0 = false, df_t1 = false, df_t2 = false, df_t4 = false, df_t5 = false, df_t6 = false, df_t7 = false, df_s1 = false, df_t8 = false, df_t9 = false;
     sp = sp - 0x20u;
     a0 = 0x1460000u;
-    WRITE64(ADD32(sp, 0), s0);
+    WRITE64_B(sp, 0, s0);
     (a0 = (uint32_t)((int32_t)((int32_t)ADD32(a0, 24192))));
-    WRITE64(sp + 8u, Ps2GprU64(ctx, 17));
-    WRITE64(ADD32(sp, 16), s2);
-    v1 = READ32(a0 + 8u);
+    WRITE64_B(sp, 8, Ps2GprU64(ctx, 17));
+    WRITE64_B(sp, 16, s2);
+    v1 = READ32_B(a0, 8);
     {
         const bool c = v1 == 0;
         v0 = 1u;
         if (!c) {
-            v0 = READ32(a0 + 0x4Cu);
+            v0 = READ32_B(a0, 76);
             {
                 const bool c = (int32_t)v0 <= 0;
                 (t3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 if (!c) {
-                    s1 = READ32(a0 + 0x48u); df_s1 = true;
+                    s1 = READ32_B(a0, 72); df_s1 = true;
                     (s0 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
                     (s2 = (uint64_t)((uint64_t)sx64(a0) + (uint64_t)0ULL));
 L_135b5b8:
@@ -3346,7 +3346,7 @@ L_135b5b8:
                         t0 = 0u; df_t0 = true;
                         if (!c) {
                             t8 = 0x1460000u; df_t8 = true;
-                            (t7 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)s2, 72))))); df_t7 = true;
+                            (t7 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)s2, 72)))); df_t7 = true;
                             t9 = t8; df_t9 = true;
 L_135b5d0:
                             {
@@ -3354,7 +3354,7 @@ L_135b5d0:
                                 a1 = 0xFFFFFFFFu; df_a1 = true;
                                 if (!c) {
                                     (a0 = (uint32_t)((int32_t)((int32_t)ADD32(t8, 24192))));
-                                    v1 = READ32(a0 + 0x48u);
+                                    v1 = READ32_B(a0, 72);
                                     v0 = (int32_t)t0 < (int32_t)v1 ? 1u : 0u;
                                     {
                                         const bool c = v0 == 0;
@@ -3370,7 +3370,7 @@ L_135b5d0:
                                             goto L_135b614;
                                         }
                                     }
-                                    v0 = READ32(a0 + 0x4Cu);
+                                    v0 = READ32_B(a0, 76);
                                     { int64_t result = (int64_t)(int32_t)t3 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (a0 = (uint32_t)((int32_t)((int32_t)result))); }
                                     (v0 = (uint32_t)(((int64_t)(int64_t)t3 < (int64_t)(int64_t)sx64(v0)) ? 1 : 0));
                                     {
@@ -3398,10 +3398,10 @@ L_135b630:
                                 const bool c = a1 == t2;
                                 a0 = a2 << 2;
                                 if (!c) {
-                                    v0 = READ32(t1 + 8u);
+                                    v0 = READ32_B(t1, 8);
                                     v0 = a3 + v0;
                                     v0 = v0 + a0;
-                                    v1 = READ32(v0 + 8u);
+                                    v1 = READ32_B(v0, 8);
                                     v1 = v1 & 0xFu;
                                     goto L_135b654;
                                 }
@@ -3419,10 +3419,10 @@ L_135b654:
                                 const bool c = a1 == t2;
                                 a0 = a2 << 2;
                                 if (!c) {
-                                    v0 = READ32(t1 + 8u);
+                                    v0 = READ32_B(t1, 8);
                                     v0 = a3 + v0;
                                     v0 = v0 + a0;
-                                    v1 = READ32(v0 + 8u);
+                                    v1 = READ32_B(v0, 8);
                                     v1 = v1 & 0xFu;
                                     goto L_135b684;
                                 }
@@ -3440,10 +3440,10 @@ L_135b684:
                                 const bool c = a1 == t2;
                                 a0 = a2 << 2;
                                 if (!c) {
-                                    v0 = READ32(t1 + 8u);
+                                    v0 = READ32_B(t1, 8);
                                     v0 = a3 + v0;
                                     v0 = v0 + a0;
-                                    v1 = READ32(v0 + 8u);
+                                    v1 = READ32_B(v0, 8);
                                     v1 = v1 & 0xFu;
                                     goto L_135b6b4;
                                 }
@@ -3481,9 +3481,9 @@ L_135b6b4:
         }
     }
 L_135b6f8:
-    { const uint64_t v = READ64(sp + 0u); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
-    { const uint64_t v = READ64(sp + 8u); Ps2SetGpr64(ctx, 17, v); s1 = (uint32_t)v; } df_s1 = false; // restore s1
-    { const uint64_t v = READ64(sp + 16u); Ps2SetGpr64(ctx, 18, v); s2 = (uint64_t)v; } // restore s2
+    { const uint64_t v = READ64_B(sp, 0); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
+    { const uint64_t v = READ64_B(sp, 8); Ps2SetGpr64(ctx, 17, v); s1 = (uint32_t)v; } df_s1 = false; // restore s1
+    { const uint64_t v = READ64_B(sp, 16); Ps2SetGpr64(ctx, 18, v); s2 = (uint64_t)v; } // restore s2
     {
         const uint32_t target = ra;
         sp = sp + 0x20u;
@@ -3500,9 +3500,9 @@ void getAreaSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = ctx->f[0], f1 = ctx->f[1];
     v0 = 0x1460000u;
     v0 = v0 + 0x5E80u;
-    f1 = lift_d1::flt(READ32(v0 + 0x38u));
+    f1 = lift_d1::flt(READ32_B(v0, 56));
     { int32_t tmp; std::memcpy(&tmp, &f1, sizeof(tmp)); f1 = FPU_CVT_S_W(tmp); }
-    f0 = lift_d1::flt(READ32(v0 + 0x40u));
+    f0 = lift_d1::flt(READ32_B(v0, 64));
     {
         const uint32_t target = ra;
         f0 = FPU_MUL_S(f0, f1);
@@ -3521,16 +3521,16 @@ void getStageIDWithOffset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     f1 = lift_d1::flt(READ32(a0));
     v0 = 0x1460000u;
     v0 = v0 + 0x5E80u;
-    f2 = lift_d1::flt(READ32(a0 + 8u));
-    f7 = lift_d1::flt(READ32(v0 + 0x38u));
+    f2 = lift_d1::flt(READ32_B(a0, 8));
+    f7 = lift_d1::flt(READ32_B(v0, 56));
     { int32_t tmp; std::memcpy(&tmp, &f7, sizeof(tmp)); f7 = FPU_CVT_S_W(tmp); }
-    f3 = lift_d1::flt(READ32(v0 + 0x44u));
-    f6 = lift_d1::flt(READ32(v0 + 0x3Cu));
+    f3 = lift_d1::flt(READ32_B(v0, 68));
+    f6 = lift_d1::flt(READ32_B(v0, 60));
     { int32_t tmp; std::memcpy(&tmp, &f6, sizeof(tmp)); f6 = FPU_CVT_S_W(tmp); }
-    f5 = lift_d1::flt(READ32(v0 + 0x50u));
+    f5 = lift_d1::flt(READ32_B(v0, 80));
     f1 = FPU_NEG_S(f1);
-    f0 = lift_d1::flt(READ32(v0 + 0x40u));
-    f4 = lift_d1::flt(READ32(v0 + 0x54u));
+    f0 = lift_d1::flt(READ32_B(v0, 64));
+    f4 = lift_d1::flt(READ32_B(v0, 84));
     f0 = FPU_MUL_S(f0, f7);
     f2 = FPU_SUB_S(f2, f4);
     f1 = FPU_SUB_S(f1, f5);
@@ -3570,9 +3570,9 @@ void getstagenumber(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (v1 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)t0, 5))));
     a3 = 0x1460000u;
     (v1 = (uint64_t)(RC_U64X(v1) & (uint64_t)(uint16_t)1023));
-    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a1, 25524)))));
+    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a1, 25524))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v1, 2))));
-    a2 = READ32(a3 + 0x63ACu);
+    a2 = READ32_B(a3, 25516);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, (uint32_t)v1))));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 3))));
@@ -3583,13 +3583,13 @@ void getstagenumber(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (a2 = (uint32_t)((int32_t)((int32_t)ADD32(a2, (uint32_t)v0))));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, a2))));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 8))));
-    (a2 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0)))));
+    (a2 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 0))));
     (v0 = (uint64_t)(sx64(a2) & sx64(a1)));
     {
         const bool c = (int64_t)v0 == 0;
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a0, (uint32_t)v0))));
         if (!c) {
-            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
             goto L_135ff6c;
         }
     }
@@ -3604,10 +3604,10 @@ L_135ff6c:
                 const bool c = (int64_t)a0 == (int64_t)v1;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SRL32(a2, 18))));
                 if (!c) {
-                    (a1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+                    (a1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
                     (v0 = (uint64_t)(RC_U64X(v0) & (uint64_t)(uint16_t)4095));
-                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
-                    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a1, 12)))));
+                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
+                    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a1, 12))));
                     { int64_t result = (int64_t)(int32_t)v0 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
                     (a1 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, (uint32_t)v0))));
                     goto L_135ffa4;
@@ -3628,13 +3628,13 @@ L_135ffa4:
             (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)v1, (uint32_t)v0))));
             (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v1, 2))));
             (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v1, a1))));
-            (a2 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v1, 0)))));
+            (a2 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)v1, 0))));
             (v0 = (uint64_t)(sx64(a2) & RC_U64X(a0)));
             {
                 const bool c = (int64_t)v0 == 0;
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)v1, (uint32_t)v0))));
                 if (!c) {
-                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+                    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
                     goto L_135ffe4;
                 }
             }
@@ -3649,10 +3649,10 @@ L_135ffe4:
                         const bool c = (int64_t)a0 == (int64_t)v1;
                         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SRL32(a2, 18))));
                         if (!c) {
-                            (a1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+                            (a1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
                             (v0 = (uint64_t)(RC_U64X(v0) & (uint64_t)(uint16_t)4095));
-                            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
-                            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a1, 12)))));
+                            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
+                            (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a1, 12))));
                             { int64_t result = (int64_t)(int32_t)v0 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
                             (a1 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, (uint32_t)v0))));
                             goto L_136001c;
@@ -3675,7 +3675,7 @@ L_136001c:
                         const bool c = (int64_t)v1 == 0;
                         (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                         if (!c) {
-                            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v1, 16)))));
+                            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v1, 16))));
                         }
                     }
                     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32(a1, (uint32_t)v0))));
@@ -3712,7 +3712,7 @@ void gamecore_sub_01362020(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint64_t lo = ctx->lo;
     bool df_v1 = false, df_a3 = false, df_t3 = false;
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)3 << 16))));
-    (a2 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
+    (a2 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
     (v0 = (uint64_t)(RC_U64X(v0) | (uint64_t)(uint16_t)65535));
     (v0 = (uint64_t)(sx64(a2) & RC_U64X(v0)));
     {
@@ -3720,7 +3720,7 @@ void gamecore_sub_01362020(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         (t2 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
         if (!c) {
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a1, (uint32_t)v0))));
-            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+            (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
             goto L_136204c;
         }
     }
@@ -3735,7 +3735,7 @@ L_136204c:
                 (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                 goto L_136206c;
             }
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
             goto L_136206c;
         }
     }
@@ -3750,7 +3750,7 @@ L_136206c:
             const bool c = (int64_t)v0 == 0;
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a1, (uint32_t)v0))));
             if (!c) {
-                (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+                (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
                 goto L_136209c;
             }
         }
@@ -3765,7 +3765,7 @@ L_136209c:
                     (t1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                     goto L_13620bc;
                 }
-                (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 12)))));
+                (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 12))));
                 goto L_13620bc;
             }
         }
@@ -3776,9 +3776,9 @@ L_13620bc:
         v1 = v1 & 0x3FFu; df_v1 = true;
         a3 = 0x1460000u; df_a3 = true;
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32(v1, 2))));
-        (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 25524)))));
+        (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 25524))));
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, v1))));
-        a2 = READ32(a3 + 0x63ACu);
+        a2 = READ32_B(a3, 25516);
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)v0, 3))));
         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a1, 2))));
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)v0, v1))));
@@ -3788,13 +3788,13 @@ L_13620bc:
         (a2 = (uint32_t)((int32_t)((int32_t)ADD32(a2, (uint32_t)v0))));
         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, a2))));
         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 8))));
-        (a2 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
+        (a2 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
         (v0 = (uint64_t)(sx64(a2) & RC_U64X(a0)));
         {
             const bool c = (int64_t)v0 == 0;
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)a1, (uint32_t)v0))));
             if (!c) {
-                (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0)))));
+                (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 0))));
                 goto L_136211c;
             }
         }
@@ -3815,10 +3815,10 @@ L_136211c:
                 goto L_1362158;
             }
         }
-        (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+        (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
         (v0 = (uint64_t)(RC_U64X(v0) & (uint64_t)(uint16_t)4095));
-        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
-        (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 12))))); df_v1 = true;
+        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
+        (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 12)))); df_v1 = true;
         { int64_t result = (int64_t)(int32_t)v0 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)result))); }
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, (uint32_t)v0))));
         goto L_136215c;
@@ -3848,7 +3848,7 @@ L_136215c:
                 { const uint32_t _dynInsn = READ32(0x1362184u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (t3 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)v0, _dynSimm)))); } df_t3 = true;
                 a3 = a3 | 0xFFFFu; df_a3 = true;
                 (t1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
-                (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)t0, 0))))); df_v1 = true;
+                (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)t0, 0)))); df_v1 = true;
 L_1362198:
                 (v0 = (uint64_t)(sx64(v1) & sx64(a3)));
                 (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SUB32((uint32_t)t0, (uint32_t)v0))));
@@ -3856,7 +3856,7 @@ L_1362198:
                     const bool c = (int64_t)v0 == 0;
                     (t0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)t0, 4))));
                     if (!c) {
-                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 0)))));
+                        (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 0))));
                         goto L_13621b4;
                     }
                 }
@@ -3866,15 +3866,15 @@ L_13621b4:
                     const bool c = (int64_t)a0 == 0;
                     (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
                     if (!c) {
-                        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(t3, 0)))));
+                        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(t3, 0))));
                         {
                             const bool c = (int64_t)a0 == (int64_t)v0;
                             v1 = v1 >> 18; df_v1 = true;
                             if (!c) {
-                                (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+                                (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
                                 v1 = v1 & 0xFFFu; df_v1 = true;
-                                (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
-                                (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 12)))));
+                                (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
+                                (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 12))));
                                 { int64_t result = (int64_t)(int32_t)v1 * (int64_t)(int32_t)v0; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v1 = (uint32_t)((int32_t)((int32_t)result))); } df_v1 = true;
                                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, v1))));
                                 goto L_13621ec;
@@ -3893,7 +3893,7 @@ L_13621ec:
                     }
                 }
                 if ((int64_t)(int32_t)a2 != (int64_t)t1) {
-                    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)t0, 0))))); df_v1 = true;
+                    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)t0, 0)))); df_v1 = true;
                     if (__builtin_expect(!runtime->m_eeClock.charge(32u), 0)) { Ps2SetGpr64(ctx, 10, t2); if (df_t3) Ps2SetGpr64(ctx, 11, sx64(t3)); Ps2SetGpr64(ctx, 2, v0); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, sx64(a2)); if (df_a3) Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, t0); Ps2SetGpr64(ctx, 9, t1); ctx->hi = hi; ctx->lo = lo; ctx->pc = 0x1362198u; if (runtime->eeCheckpointSlow()) return; t2 = Ps2GprU64(ctx, 10); t3 = Ps2GprU32(ctx, 11); v0 = Ps2GprU64(ctx, 2); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); hi = ctx->hi; lo = ctx->lo; df_v1 = false; df_a3 = false; df_t3 = false; }
                     goto L_1362198;
                 }
@@ -3919,7 +3919,7 @@ void initBgmScript(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     (a0 = (uint64_t)(RC_U64X(a0) << (32 + 13)));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)v0, 16552))));
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    WRITE32(ADD32((uint32_t)v0, 0), 0u);
+    WRITE32_B((uint32_t)v0, 0, 0u);
     (a2 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
     (v1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
 L_136a300:
@@ -3935,7 +3935,7 @@ L_136a300:
     }
     {
         const uint32_t target = (uint32_t)ra;
-        WRITE32(ADD32((uint32_t)a2, 0), (uint32_t)v1);
+        WRITE32_B((uint32_t)a2, 0, (uint32_t)v1);
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2);
         ctx->pc = target;
         return;
@@ -3946,14 +3946,14 @@ L_136a300:
 void nico_IK_idDetect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
-    v0 = READ32(a0 + 0x14u);
+    v0 = READ32_B(a0, 20);
     a0 = 0x11E0000u;
     v1 = 0xFFFE0000u;
     v1 = v1 | 0xFFFFu;
     v0 = v0 & v1;
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x5E40u, v0);
+        WRITE32_B(a0, 24128, v0);
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0));
         ctx->pc = target;
         return;
@@ -3969,7 +3969,7 @@ void getexpressiondatapoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     a1 = a1 + a0;
     {
         const uint32_t target = ra;
-        f0 = lift_d1::flt(READ32(a1 + 4u));
+        f0 = lift_d1::flt(READ32_B(a1, 4));
         ctx->f[0] = f0; Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = target;
         return;
@@ -3987,11 +3987,11 @@ void constructor_expression_change(uint8_t *rdram, R5900Context *ctx, PS2Runtime
 L_138bed8:
     v0 = v0 - 1u;
     WRITE32(a0, 0u);
-    WRITE32(a0 + 4u, 0u);
-    WRITE32(a0 + 0x10u, 0u);
-    WRITE32(a0 + 8u, 0u);
-    WRITE32(a0 + 0x14u, 0u);
-    WRITE32(a0 + 0xCu, 0u);
+    WRITE32_B(a0, 4, 0u);
+    WRITE32_B(a0, 16, 0u);
+    WRITE32_B(a0, 8, 0u);
+    WRITE32_B(a0, 20, 0u);
+    WRITE32_B(a0, 12, 0u);
     {
         const bool c = (int32_t)v0 >= 0;
         a0 = a0 + 0x18u;
@@ -4016,10 +4016,10 @@ void ColCont2_IsColStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
     if ((int64_t)a2 != (int64_t)v0) {
-        (v0 = (uint64_t)(READ64(ADD32(a0, 0))));
+        (v0 = (uint64_t)(READ64_B(a0, 0)));
     } else {
         if ((int64_t)a1 != (int64_t)a2) {
-            (v1 = (uint64_t)(READ64(ADD32(a0, 0))));
+            (v1 = (uint64_t)(READ64_B(a0, 0)));
             goto L_139aa38;
         }
         {
@@ -4068,10 +4068,10 @@ void ColCont2_IsEventColStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 4294967295))));
     if ((int64_t)a2 != (int64_t)v0) {
-        (v0 = (uint64_t)(READ64(ADD32(a0, 8))));
+        (v0 = (uint64_t)(READ64_B(a0, 8)));
     } else {
         if ((int64_t)a1 != (int64_t)a2) {
-            (v1 = (uint64_t)(READ64(ADD32(a0, 8))));
+            (v1 = (uint64_t)(READ64_B(a0, 8)));
             goto L_139aa88;
         }
         {
@@ -4198,18 +4198,18 @@ void gamecore_sub_013BBE20(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
     (a2 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     (v0 = (uint64_t)(((uint64_t)sx64(v1) < (uint64_t)(int64_t)(int32_t)26) ? 1 : 0));
-    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 24), bits); }
-    { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 0), bits); }
-    WRITE32(ADD32((uint32_t)a2, 4), 0u);
-    WRITE32(ADD32((uint32_t)a2, 8), 0u);
-    WRITE32(ADD32((uint32_t)a2, 12), 0u);
-    WRITE32(ADD32((uint32_t)a2, 16), 0u);
-    WRITE32(ADD32((uint32_t)a2, 20), 0u);
-    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 36), bits); }
-    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 32), bits); }
+    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 24, bits); }
+    { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 0, bits); }
+    WRITE32_B((uint32_t)a2, 4, 0u);
+    WRITE32_B((uint32_t)a2, 8, 0u);
+    WRITE32_B((uint32_t)a2, 12, 0u);
+    WRITE32_B((uint32_t)a2, 16, 0u);
+    WRITE32_B((uint32_t)a2, 20, 0u);
+    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 36, bits); }
+    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 32, bits); }
     {
         const bool c = (int64_t)v0 == 0;
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 28), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 28, bits); }
         if (!c) {
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32(v1, 2))));
             v1 = 0x1470000u; df_v1 = true;
@@ -4227,24 +4227,24 @@ L_13bbe88:
             at = 0x3E990000u;
             at = at | 0x9999u;
             { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-            { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 0), bits); }
+            { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 0, bits); }
             goto L_13bbebc;
 L_13bbea0:
             at = 0x3F800000u;
             { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-            { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 0), bits); }
+            { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 0, bits); }
             goto L_13bbebc;
 L_13bbeb0:
             at = 0x3F000000u;
             { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-            { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 0), bits); }
+            { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 0, bits); }
         }
     }
 L_13bbebc:
     a1 = a1 - 2u; df_a1 = true;
     (v0 = (uint64_t)(((uint64_t)sx64(a1) < (uint64_t)(int64_t)(int32_t)25) ? 1 : 0));
     if ((int64_t)v0 == 0) {
-        { uint32_t bits = READ32(ADD32((uint32_t)a2, 8)); float f; std::memcpy(&f, &bits, sizeof(f)); f4 = f; }
+        { uint32_t bits = READ32_B((uint32_t)a2, 8); float f; std::memcpy(&f, &bits, sizeof(f)); f4 = f; }
     } else {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32(a1, 2))));
         v1 = 0x1470000u; df_v1 = true;
@@ -4262,11 +4262,11 @@ L_13bbee8:
         at = 0x42A00000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BBEF0u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v1 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); } df_v1 = true;
-        WRITE32(ADD32((uint32_t)a2, 4), 0u);
+        WRITE32_B((uint32_t)a2, 4, 0u);
         { const uint32_t _dynInsn = READ32(0x13BBEF8u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
         at = 0xC28C0000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
         goto L_13bc000;
 L_13bbf10:
         at = 0x43100000u;
@@ -4279,11 +4279,11 @@ L_13bbf28:
         at = 0x42C80000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BBF30u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-        WRITE32(ADD32((uint32_t)a2, 4), 0u);
+        WRITE32_B((uint32_t)a2, 4, 0u);
         { const uint32_t _dynInsn = READ32(0x13BBF38u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
         at = 0xC2C80000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
         goto L_13bc070;
 L_13bbf50:
         at = 0x43340000u;
@@ -4292,26 +4292,26 @@ L_13bbf50:
         at = 0x42C80000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BBF64u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 4), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 4, bits); }
         at = 0xC2C80000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
         goto L_13bc070;
 L_13bbf80:
         at = 0x3F220000u;
         at = at | 0xF983u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 24), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 24, bits); }
         goto L_13bc098;
 L_13bbf98:
         at = 0x42A00000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BBFA0u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v1 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); } df_v1 = true;
-        WRITE32(ADD32((uint32_t)a2, 4), 0u);
+        WRITE32_B((uint32_t)a2, 4, 0u);
         { const uint32_t _dynInsn = READ32(0x13BBFA8u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
         at = 0xC28C0000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
         goto L_13bc000;
 L_13bbfc0:
         at = 0x43100000u;
@@ -4328,27 +4328,27 @@ L_13bbfd8:
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
 L_13bbfec:
         { const uint32_t _dynInsn = READ32(0x13BBFECu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 4), bits); }
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 4, bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
         at = 0xC2A00000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
 L_13bc000:
         { const uint32_t _dynInsn = READ32(0x13BC000u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(v1, _dynSimm))))); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 16), bits); }
-        WRITE32(ADD32((uint32_t)a2, 12), (uint32_t)v0);
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 16, bits); }
+        WRITE32_B((uint32_t)a2, 12, (uint32_t)v0);
         at = 0x3F4B0000u;
         at = at | 0xB7E5u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BC018u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, _dynSimm))))); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 24), bits); }
-        WRITE32(ADD32((uint32_t)a2, 20), (uint32_t)v0);
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 28), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 24, bits); }
+        WRITE32_B((uint32_t)a2, 20, (uint32_t)v0);
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 28, bits); }
         goto L_13bc0b8;
 L_13bc030:
         at = 0x42820000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BC038u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-        WRITE32(ADD32((uint32_t)a2, 4), 0u);
+        WRITE32_B((uint32_t)a2, 4, 0u);
         { const uint32_t _dynInsn = READ32(0x13BC044u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
         goto L_13bc064;
 L_13bc048:
@@ -4358,54 +4358,54 @@ L_13bc048:
         at = 0x42820000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
         { const uint32_t _dynInsn = READ32(0x13BC05Cu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 4), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 4, bits); }
 L_13bc064:
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
         at = 0xC2FA0000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
 L_13bc070:
         { const uint32_t _dynInsn = READ32(0x13BC070u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v0, _dynSimm))))); } df_v1 = true;
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 16), bits); }
-        WRITE32(ADD32((uint32_t)a2, 12), v1);
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 16, bits); }
+        WRITE32_B((uint32_t)a2, 12, v1);
         { const uint32_t _dynInsn = READ32(0x13BC07Cu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, _dynSimm))))); }
-        WRITE32(ADD32((uint32_t)a2, 20), (uint32_t)v0);
+        WRITE32_B((uint32_t)a2, 20, (uint32_t)v0);
         goto L_13bc0b8;
 L_13bc088:
         at = 0x3FF40000u;
         at = at | 0x7646u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 24), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 24, bits); }
 L_13bc098:
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 28), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 28, bits); }
         goto L_13bc0b8;
 L_13bc0a0:
         at = 0x42AA0000u;
         { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
         at = 0xC2AA0000u;
         { uint32_t bits = at; std::memcpy(&f1, &bits, sizeof(bits)); }
-        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
-        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 16), bits); }
+        { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
+        { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 16, bits); }
 L_13bc0b8:
-        { uint32_t bits = READ32(ADD32((uint32_t)a2, 8)); float f; std::memcpy(&f, &bits, sizeof(f)); f4 = f; }
+        { uint32_t bits = READ32_B((uint32_t)a2, 8); float f; std::memcpy(&f, &bits, sizeof(f)); f4 = f; }
     }
-    { uint32_t bits = READ32(ADD32((uint32_t)a2, 4)); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
-    { uint32_t bits = READ32(ADD32((uint32_t)a2, 16)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+    { uint32_t bits = READ32_B((uint32_t)a2, 4); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
+    { uint32_t bits = READ32_B((uint32_t)a2, 16); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
     f3 = FPU_NEG_S(f4);
     f0 = FPU_NEG_S(f0);
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 12))))); df_v1 = true;
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a2, 12)))); df_v1 = true;
     f1 = FPU_NEG_S(f1);
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 20)))));
-    { uint32_t bits = READ32(ADD32((uint32_t)a2, 24)); float f; std::memcpy(&f, &bits, sizeof(f)); f4 = f; }
-    { uint32_t bits = READ32(ADD32((uint32_t)a2, 28)); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
-    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 4), bits); }
-    { float f = f4; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 28), bits); }
-    { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 8), bits); }
-    { float f = f3; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 16), bits); }
-    WRITE32(ADD32((uint32_t)a2, 12), (uint32_t)v0);
-    WRITE32(ADD32((uint32_t)a2, 20), v1);
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a2, 20))));
+    { uint32_t bits = READ32_B((uint32_t)a2, 24); float f; std::memcpy(&f, &bits, sizeof(f)); f4 = f; }
+    { uint32_t bits = READ32_B((uint32_t)a2, 28); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
+    { float f = f0; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 4, bits); }
+    { float f = f4; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 28, bits); }
+    { float f = f1; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 8, bits); }
+    { float f = f3; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 16, bits); }
+    WRITE32_B((uint32_t)a2, 12, (uint32_t)v0);
+    WRITE32_B((uint32_t)a2, 20, v1);
     {
         const uint32_t target = ra;
-        { float f = f2; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32(ADD32((uint32_t)a2, 24), bits); }
+        { float f = f2; uint32_t bits; std::memcpy(&bits, &f, sizeof(bits)); WRITE32_B((uint32_t)a2, 24, bits); }
         ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; ctx->f[3] = f3; ctx->f[4] = f4; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 2, v0); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); if (df_a1) Ps2SetGpr64(ctx, 5, sx64(a1)); Ps2SetGpr64(ctx, 6, a2);
         ctx->pc = target;
         return;
@@ -4458,11 +4458,11 @@ void AI_SetAnimalLayout(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f12 = ctx->f[12], f13 = ctx->f[13];
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
-    WRITE32(a0 + 0x14u, lift_d1::bits(f13));
+    WRITE32_B(a0, 20, lift_d1::bits(f13));
     WRITE128(ADD32(a0, 0), Ps2GprVecWithLow(ctx->r[2], v0));
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 0x10u, lift_d1::bits(f12));
+        WRITE32_B(a0, 16, lift_d1::bits(f12));
         Ps2SetGpr64(ctx, 2, v0);
         ctx->pc = target;
         return;
@@ -4483,7 +4483,7 @@ void AI_UpdateVelocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         v1 = 1u;
         if (!c) {
             v0 = 0x1460000u;
-            f0 = lift_d1::flt(READ32(v0 + 0x57E0u));
+            f0 = lift_d1::flt(READ32_B(v0, 22496));
             f0 = FPU_MUL_S(f13, f0);
             f1 = FPU_ADD_S(f1, f0);
             fcr31 = (FPU_C_OLT_S(f12, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -4491,7 +4491,7 @@ void AI_UpdateVelocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         }
     }
     v0 = 0x1460000u;
-    f0 = lift_d1::flt(READ32(v0 + 0x57E0u));
+    f0 = lift_d1::flt(READ32_B(v0, 22496));
     f0 = FPU_MUL_S(f13, f0);
     f1 = FPU_SUB_S(f1, f0);
     fcr31 = (FPU_C_OLT_S(f1, f12)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -4723,7 +4723,7 @@ void AI_CheckNormZero(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         f0 = lift_d1::flt(at);
         fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) != 0u) {
-            f1 = lift_d1::flt(READ32(a0 + 4u));
+            f1 = lift_d1::flt(READ32_B(a0, 4));
             goto L_13d4e4c;
         }
         {
@@ -4745,7 +4745,7 @@ void AI_CheckNormZero(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
             goto L_13d4ef0;
         }
     }
-    f1 = lift_d1::flt(READ32(a0 + 4u));
+    f1 = lift_d1::flt(READ32_B(a0, 4));
 L_13d4e4c:
     f0 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -4755,7 +4755,7 @@ L_13d4e4c:
         f0 = lift_d1::flt(at);
         fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
         if ((fcr31 & 0x800000u) != 0u) {
-            f1 = lift_d1::flt(READ32(a0 + 8u));
+            f1 = lift_d1::flt(READ32_B(a0, 8));
             goto L_13d4e9c;
         }
         {
@@ -4777,7 +4777,7 @@ L_13d4e4c:
             goto L_13d4ef0;
         }
     }
-    f1 = lift_d1::flt(READ32(a0 + 8u));
+    f1 = lift_d1::flt(READ32_B(a0, 8));
 L_13d4e9c:
     f0 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -4837,7 +4837,7 @@ void AI_GetSideSignalFromDirLev(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
     { __m128 fs_yzx = _mm_shuffle_ps(vf6, vf6, _MM_SHUFFLE(3,0,2,1)); __m128 ft_zxy = _mm_shuffle_ps(vf5, vf5, _MM_SHUFFLE(3,1,0,2)); __m128 mul_res = PS2_VMUL(fs_yzx, ft_zxy); __m128 res = PS2_VSUB_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf7 = _mm_blendv_ps(vf7, res, _mm_castsi128_ps(mask)); }
     { __m128 res = PS2_VSUB(vf7, vf7); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); vf7 = PS2_VBLEND(vf7, res, _mm_castsi128_ps(mask)); }
     WRITE128(ADD32(sp, 0), _mm_castps_si128(vf7));
-    f0 = lift_d1::flt(READ32(sp + 4u));
+    f0 = lift_d1::flt(READ32_B(sp, 4));
     f1 = lift_d1::flt(0u);
     fcr31 = (FPU_C_OLE_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     {
@@ -4871,12 +4871,12 @@ void gamecore_sub_013D8FA0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     bool df_at = false;
     (a1 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
     v0 = 8u;
-    (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
+    (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
     {
         const bool c = v1 != v0;
         v0 = 6u;
         if (!c) {
-            (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 628)))));
+            (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 628))));
             v1 = v1 - 0xCu;
             v1 = v1 < 2u ? 1u : 0u;
             {
@@ -4886,21 +4886,21 @@ void gamecore_sub_013D8FA0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
                     goto L_13d9130;
                 }
             }
-            (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 32)))));
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 344)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+            (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 32))));
+            { uint32_t bits = READ32_B((uint32_t)a1, 344); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
             goto L_13d8ff0;
         }
     }
     if (v1 != v0) {
-        (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 1408)))));
+        (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 1408))));
         goto L_13d9008;
     }
-    { uint32_t bits = READ32(ADD32((uint32_t)a1, 536)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
-    { uint32_t bits = READ32(ADD32((uint32_t)a1, 1416)); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
-    (v0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 32)))));
+    { uint32_t bits = READ32_B((uint32_t)a1, 536); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+    { uint32_t bits = READ32_B((uint32_t)a1, 1416); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
+    (v0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 32))));
     f1 = FPU_MUL_S(f1, f2);
 L_13d8ff0:
-    f0 = lift_d1::flt(READ32(v0 + 4u));
+    f0 = lift_d1::flt(READ32_B(v0, 4));
     fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     if ((fcr31 & 0x800000u) == 0u) {
         v0 = 0u;
@@ -4917,10 +4917,10 @@ L_13d9000:
 L_13d9008:
     {
         const bool c = v0 == 0;
-        (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 32)))));
+        (v1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a1, 32))));
         if (!c) {
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 536)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
-            f0 = lift_d1::flt(READ32(v1 + 4u));
+            { uint32_t bits = READ32_B((uint32_t)a1, 536); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+            f0 = lift_d1::flt(READ32_B(v1, 4));
             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             {
                 const bool c = (fcr31 & 0x800000u) != 0u;
@@ -4929,34 +4929,34 @@ L_13d9008:
                     goto L_13d9130;
                 }
             }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 440)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 440); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
             { uint32_t bits = 0u; std::memcpy(&f0, &bits, sizeof(bits)); }
             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
                 goto L_13d9130;
             }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 432)); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 432); float f; std::memcpy(&f, &bits, sizeof(f)); f2 = f; }
             at = 0x41700000u; df_at = true;
             { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
             fcr31 = (FPU_C_OLT_S(f2, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
                 goto L_13d9130;
             }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 664)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 664); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
             at = 0x40400000u; df_at = true;
             { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
                 goto L_13d9130;
             }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 752)); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 752); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
             at = 0x3F000000u; df_at = true;
             { uint32_t bits = at; std::memcpy(&f3, &bits, sizeof(bits)); }
             fcr31 = (FPU_C_OLT_S(f0, f3)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
             if ((fcr31 & 0x800000u) != 0u) {
                 goto L_13d9130;
             }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 744)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 744); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
             at = 0x40A00000u; df_at = true;
             { uint32_t bits = at; std::memcpy(&f0, &bits, sizeof(bits)); }
             fcr31 = (FPU_C_OLT_S(f1, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -4985,8 +4985,8 @@ L_13d9008:
             { float ft = _mm_cvtss_f32(_mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(0,0,0,3))); vq = ps2VuSqrt(vstat, ft); }
             { uint32_t bits; std::memcpy(&bits, &vq, sizeof(bits)); (v0 = (uint32_t)((int32_t)(bits))); }
             { uint32_t bits = v0; std::memcpy(&f2, &bits, sizeof(bits)); }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 1428)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
-            { uint32_t bits = READ32(ADD32((uint32_t)a1, 1460)); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 1428); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+            { uint32_t bits = READ32_B((uint32_t)a1, 1460); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
             f0 = FPU_SUB_S(f0, f1);
             f0 = ps2FpuDivide(fcr31, f0, f2);
             fcr31 = (FPU_C_OLT_S(f3, f0)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
@@ -5008,8 +5008,8 @@ L_13d9008:
             goto L_13d9000;
         }
     }
-    { uint32_t bits = READ32(ADD32((uint32_t)a1, 344)); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
-    f0 = lift_d1::flt(READ32(v1 + 4u));
+    { uint32_t bits = READ32_B((uint32_t)a1, 344); float f; std::memcpy(&f, &bits, sizeof(f)); f1 = f; }
+    f0 = lift_d1::flt(READ32_B(v1, 4));
     fcr31 = (FPU_C_OLT_S(f0, f1)) ? (fcr31 | 0x800000) : (fcr31 & ~0x800000);
     {
         const bool c = (fcr31 & 0x800000u) != 0u;
@@ -5032,14 +5032,14 @@ void Kite_CmpPathPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     bool df_a0 = false;
-    v1 = READ32(a0 + 0x18u);
-    v0 = READ32(a1 + 0x18u);
+    v1 = READ32_B(a0, 24);
+    v0 = READ32_B(a1, 24);
     {
         const bool c = v1 != v0;
         v0 = 0u;
         if (!c) {
-            a0 = READ32(a0 + 0x10u); df_a0 = true;
-            v1 = READ32(a1 + 0x10u);
+            a0 = READ32_B(a0, 16); df_a0 = true;
+            v1 = READ32_B(a1, 16);
             {
                 const bool c = a0 == v1;
                 v0 = 1u;
@@ -5061,10 +5061,10 @@ void Kite_CmpPathPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void Kite_ResetEventFrameCheck(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
-    WRITE32(a0 + 0xCu, 0u);
+    WRITE32_B(a0, 12, 0u);
     {
         const uint32_t target = ra;
-        WRITE32(a0 + 8u, 0u);
+        WRITE32_B(a0, 8, 0u);
         
         ctx->pc = target;
         return;
@@ -5093,56 +5093,56 @@ void Kite_SucceedKitePathWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 {
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 16))));
-    WRITE64(ADD32(a0, 16), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 24))));
-    WRITE64(ADD32(a0, 24), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 32))));
-    WRITE64(ADD32(a0, 32), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 40))));
-    WRITE64(ADD32(a0, 40), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 48))));
-    WRITE64(ADD32(a0, 48), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 56))));
-    WRITE64(ADD32(a0, 56), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 64))));
-    WRITE64(ADD32(a0, 64), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 72))));
-    WRITE64(ADD32(a0, 72), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 80))));
-    WRITE64(ADD32(a0, 80), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 88))));
-    WRITE64(ADD32(a0, 88), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 96))));
-    WRITE64(ADD32(a0, 96), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 104))));
-    WRITE64(ADD32(a0, 104), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 112))));
-    WRITE64(ADD32(a0, 112), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 120))));
-    WRITE64(ADD32(a0, 120), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 128))));
-    WRITE64(ADD32(a0, 128), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 136))));
-    WRITE64(ADD32(a0, 136), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 144))));
-    WRITE64(ADD32(a0, 144), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 152))));
-    WRITE64(ADD32(a0, 152), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 160))));
-    WRITE64(ADD32(a0, 160), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 168))));
-    WRITE64(ADD32(a0, 168), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 176))));
-    WRITE64(ADD32(a0, 176), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 184))));
-    WRITE64(ADD32(a0, 184), v1);
-    (v0 = (uint64_t)(READ64(ADD32(a1, 192))));
-    WRITE64(ADD32(a0, 192), v0);
-    (v1 = (uint64_t)(READ64(ADD32(a1, 200))));
+    (v0 = (uint64_t)(READ64_B(a1, 16)));
+    WRITE64_B(a0, 16, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 24)));
+    WRITE64_B(a0, 24, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 32)));
+    WRITE64_B(a0, 32, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 40)));
+    WRITE64_B(a0, 40, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 48)));
+    WRITE64_B(a0, 48, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 56)));
+    WRITE64_B(a0, 56, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 64)));
+    WRITE64_B(a0, 64, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 72)));
+    WRITE64_B(a0, 72, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 80)));
+    WRITE64_B(a0, 80, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 88)));
+    WRITE64_B(a0, 88, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 96)));
+    WRITE64_B(a0, 96, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 104)));
+    WRITE64_B(a0, 104, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 112)));
+    WRITE64_B(a0, 112, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 120)));
+    WRITE64_B(a0, 120, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 128)));
+    WRITE64_B(a0, 128, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 136)));
+    WRITE64_B(a0, 136, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 144)));
+    WRITE64_B(a0, 144, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 152)));
+    WRITE64_B(a0, 152, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 160)));
+    WRITE64_B(a0, 160, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 168)));
+    WRITE64_B(a0, 168, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 176)));
+    WRITE64_B(a0, 176, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 184)));
+    WRITE64_B(a0, 184, v1);
+    (v0 = (uint64_t)(READ64_B(a1, 192)));
+    WRITE64_B(a0, 192, v0);
+    (v1 = (uint64_t)(READ64_B(a1, 200)));
     {
         const uint32_t target = ra;
-        WRITE64(ADD32(a0, 200), v1);
+        WRITE64_B(a0, 200, v1);
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1);
         ctx->pc = target;
         return;
@@ -5156,18 +5156,18 @@ void gamecore_sub_013F1330(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6);
     bool df_v1 = false;
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 16)))));
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
     (a2 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
     {
         const bool c = (int32_t)v0 <= 0;
-        (a1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 20)))));
+        (a1 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)a0, 20))));
         if (!c) {
             (a0 = (uint64_t)((uint64_t)RC_U64X(v0) + (uint64_t)0ULL));
 L_13f1348:
-            v1 = READ32(a1 + 0x54u); df_v1 = true;
+            v1 = READ32_B(a1, 84); df_v1 = true;
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, 1))));
             (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 4294967295))));
-            a1 = READ32(a1 + 0x58u);
+            a1 = READ32_B(a1, 88);
             {
                 const bool c = (int64_t)a0 != 0;
                 if (sx64(v1) != 0) do { const __m128i _v = (Ps2GprVecWithLow(ctx->r[2], v0)); ctx->r[6] = _v; std::memcpy(&a2, &_v, 8); } while (0);
@@ -5194,7 +5194,7 @@ void gamecore_sub_013F1370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), t0 = Ps2GprU32(ctx, 8), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a3 = Ps2GprU64(ctx, 7), t1 = Ps2GprU64(ctx, 9);
     bool df_v1 = false, df_a0 = false, df_a1 = false, df_a2 = false, df_t0 = false, df_t2 = false, df_t3 = false;
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a0, 0)))));
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a0, 0))));
     {
         const bool c = (int32_t)v0 <= 0;
         (t1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -5207,17 +5207,17 @@ void gamecore_sub_013F1370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 L_13f1390:
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(t2, a2))));
             v1 = t3 + a2; df_v1 = true;
-            (a0 = (uint32_t)((int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 0))))); df_a0 = true;
+            (a0 = (uint32_t)((int32_t)((int32_t)READ32_B((uint32_t)v0, 0)))); df_a0 = true;
             {
                 const bool c = (int32_t)a0 <= 0;
                 a1 = READ32(v1); df_a1 = true;
                 if (!c) {
                     a0 = READ32(t0); df_a0 = true;
 L_13f13a8:
-                    v1 = READ32(a1 + 0x54u); df_v1 = true;
+                    v1 = READ32_B(a1, 84); df_v1 = true;
                     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)t1, 1))));
                     a0 = a0 - 1u; df_a0 = true;
-                    a1 = READ32(a1 + 0x58u); df_a1 = true;
+                    a1 = READ32_B(a1, 88); df_a1 = true;
                     {
                         const bool c = a0 != 0;
                         if (sx64(v1) != 0) do { const __m128i _v = (Ps2GprVecWithLow(ctx->r[2], v0)); ctx->r[9] = _v; std::memcpy(&t1, &_v, 8); } while (0);
@@ -5277,7 +5277,7 @@ void sprWeaponSetMarker(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     }
     {
         const uint32_t target = ra;
-        WRITE32(ADD32((uint32_t)v0, 28320), (uint32_t)a2);
+        WRITE32_B((uint32_t)v0, 28320, (uint32_t)a2);
         Ps2SetGpr64(ctx, 2, v0); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = target;
         return;
@@ -5317,7 +5317,7 @@ void get_camera_collision_data_base_filter_radius(uint8_t *rdram, R5900Context *
 void is_acting_rewind_camera_dist_to_look_at(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
-    v0 = READ32(a0 + 0x30u);
+    v0 = READ32_B(a0, 48);
     v0 = v0 ^ 2u;
     {
         const uint32_t target = ra;
@@ -5333,13 +5333,13 @@ void get_rewind_begin_dist_to_target_camera_dist_to_look_at(uint8_t *rdram, R590
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f12 = ctx->f[12];
-    v0 = READ32(a0 + 0x30u);
+    v0 = READ32_B(a0, 48);
     v0 = v0 ^ 2u;
     {
         const bool c = v0 != 0;
         f0 = FPU_MOV_S(f12);
         if (!c) {
-            f0 = lift_d1::flt(READ32(a0 + 0x38u));
+            f0 = lift_d1::flt(READ32_B(a0, 56));
         }
     }
     {
@@ -5355,7 +5355,7 @@ void is_leave_camera_dist_to_look_at(uint8_t *rdram, R5900Context *ctx, PS2Runti
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     v1 = READ32(a0);
-    v0 = READ32(v1 + 0x140u);
+    v0 = READ32_B(v1, 320);
     v0 = v0 ^ 2u;
     {
         const uint32_t target = ra;
@@ -5385,11 +5385,11 @@ void get_on_boss_camera_col_attr_camera_place_status(uint8_t *rdram, R5900Contex
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     a1 = a1 + 0x150u;
-    (v0 = (uint64_t)(READ64(ADD32(a1, 16))));
-    WRITE64(ADD32(a0, 0), v0);
+    (v0 = (uint64_t)(READ64_B(a1, 16)));
+    WRITE64_B(a0, 0, v0);
     {
         const uint32_t target = ra;
-        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a1, 8)))));
+        (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a1, 8))));
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = target;
         return;
@@ -5403,10 +5403,10 @@ void is_approach_rise_ok_camera_place_status(uint8_t *rdram, R5900Context *ctx, 
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), ra = Ps2GprU64(ctx, 31);
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 208))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
     {
         const bool c = (int64_t)v0 != (int64_t)v1;
-        (a0 = (uint64_t)(READ64(ADD32((uint32_t)a0, 16))));
+        (a0 = (uint64_t)(READ64_B((uint32_t)a0, 16)));
         if (!c) {
             (v0 = (uint64_t)(0ULL | (uint64_t)(uint16_t)61440));
             (v0 = (uint64_t)(RC_U64X(v0) << 30));
@@ -5449,15 +5449,15 @@ L_1413530:
 void is_cliff_rise_ok_camera_place_status(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), ra = Ps2GprU64(ctx, 31);
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 252)))));
+    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 252))));
     if ((int64_t)a1 == (int64_t)v1) {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 208))));
-        (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, 8)))));
+        (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)v0, 8))));
         {
             const bool c = (int64_t)v1 != (int64_t)a1;
-            (a0 = (uint64_t)(READ64(ADD32((uint32_t)v0, 16))));
+            (a0 = (uint64_t)(READ64_B((uint32_t)v0, 16)));
             if (!c) {
                 (v0 = (uint64_t)(0ULL | (uint64_t)(uint16_t)61440));
                 (v0 = (uint64_t)(RC_U64X(v0) << 30));
@@ -5509,18 +5509,18 @@ L_14135a8:
 void act_local_vs_ofst_camera_place_status(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), ra = Ps2GprU64(ctx, 31);
-    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a1, 0)))));
+    (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a1, 0))));
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a2, 48)))));
+    (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a2, 48))));
     {
         const bool c = (int64_t)v1 == (int64_t)a1;
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 208))));
         if (!c) {
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
             {
                 const bool c = (int64_t)v0 != (int64_t)a1;
-                (a0 = (uint64_t)(READ64(ADD32((uint32_t)a0, 16))));
+                (a0 = (uint64_t)(READ64_B((uint32_t)a0, 16)));
                 if (!c) {
                     (v0 = (uint64_t)(0ULL | (uint64_t)(uint16_t)61440));
                     (v0 = (uint64_t)(RC_U64X(v0) << 30));
@@ -5559,10 +5559,10 @@ void act_horse_look_at_ofst_decrease_camera_place_status(uint8_t *rdram, R5900Co
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), ra = Ps2GprU64(ctx, 31);
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 208))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
     {
         const bool c = (int64_t)v0 != (int64_t)v1;
-        (a0 = (uint64_t)(READ64(ADD32((uint32_t)a0, 16))));
+        (a0 = (uint64_t)(READ64_B((uint32_t)a0, 16)));
         if (!c) {
             (v0 = (uint64_t)(0ULL | (uint64_t)(uint16_t)61440));
             (v0 = (uint64_t)(RC_U64X(v0) << 30));
@@ -5598,10 +5598,10 @@ void act_look_at_ofst_cut_camera_place_status(uint8_t *rdram, R5900Context *ctx,
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), ra = Ps2GprU64(ctx, 31);
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 208))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)a0, 8)))));
+    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 8))));
     {
         const bool c = (int64_t)v0 != (int64_t)v1;
-        (a0 = (uint64_t)(READ64(ADD32((uint32_t)a0, 16))));
+        (a0 = (uint64_t)(READ64_B((uint32_t)a0, 16)));
         if (!c) {
             (v0 = (uint64_t)(0ULL | (uint64_t)(uint16_t)61440));
             (v0 = (uint64_t)(RC_U64X(v0) << 30));
@@ -5637,21 +5637,21 @@ void gamecore_sub_01413720(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a1 = Ps2GprU64(ctx, 5);
     float f0 = ctx->f[0];
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)327 << 16))));
-    WRITE32(a0 + 0x140u, 0u);
-    { uint32_t bits = READ32(ADD32((uint32_t)v0, 4294952032)); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
+    WRITE32_B(a0, 320, 0u);
+    { uint32_t bits = READ32_B((uint32_t)v0, -15264); float f; std::memcpy(&f, &bits, sizeof(f)); f0 = f; }
     { const uint32_t _dynInsn = READ32(0x141372Cu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a2 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-    WRITE32(a0 + 0x144u, 0u);
+    WRITE32_B(a0, 324, 0u);
     { const uint32_t _dynInsn = READ32(0x1413734u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a2 = (uint32_t)((int32_t)((int32_t)ADD32(a2, _dynSimm)))); }
-    WRITE32(a0 + 0x148u, lift_d1::bits(f0));
+    WRITE32_B(a0, 328, lift_d1::bits(f0));
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 5))));
-    WRITE32(a0 + 0x14Cu, 0u);
-    WRITE32(a0 + 0x150u, 0u);
+    WRITE32_B(a0, 332, 0u);
+    WRITE32_B(a0, 336, 0u);
     at = 0x3F800000u;
     f0 = lift_d1::flt(at);
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
-    WRITE32(a0 + 0x170u, 0u);
+    WRITE32_B(a0, 368, 0u);
     WRITE128(ADD32(a0, 352), Ps2GprVecWithLow(ctx->r[2], v0));
-    WRITE32(a0 + 0x174u, 0u);
+    WRITE32_B(a0, 372, 0u);
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 384), Ps2GprVecWithLow(ctx->r[2], v0));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[3] = _v; std::memcpy(&v1, &_v, 8); } while (0);
@@ -5659,29 +5659,29 @@ void gamecore_sub_01413720(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 416), Ps2GprVecWithLow(ctx->r[2], v0));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[3] = _v; std::memcpy(&v1, &_v, 8); } while (0);
-    WRITE32(a0 + 0x1C0u, 0u);
+    WRITE32_B(a0, 448, 0u);
     WRITE128(ADD32(a0, 432), Ps2GprVecWithLow(ctx->r[3], v1));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
-    WRITE32(ADD32(a0, 508), (uint32_t)a1);
-    WRITE32(a0 + 0x1F4u, lift_d1::bits(f0));
+    WRITE32_B(a0, 508, (uint32_t)a1);
+    WRITE32_B(a0, 500, lift_d1::bits(f0));
     WRITE128(ADD32(a0, 464), Ps2GprVecWithLow(ctx->r[2], v0));
-    WRITE32(a0 + 0x1E0u, 0u);
-    WRITE32(a0 + 0x1E4u, 0u);
-    WRITE32(a0 + 0x1E8u, 0u);
-    WRITE32(a0 + 0x1ECu, lift_d1::bits(f0));
-    WRITE32(a0 + 0x1F0u, 0u);
-    WRITE32(a0 + 0x1F8u, lift_d1::bits(f0));
+    WRITE32_B(a0, 480, 0u);
+    WRITE32_B(a0, 484, 0u);
+    WRITE32_B(a0, 488, 0u);
+    WRITE32_B(a0, 492, lift_d1::bits(f0));
+    WRITE32_B(a0, 496, 0u);
+    WRITE32_B(a0, 504, lift_d1::bits(f0));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 512), Ps2GprVecWithLow(ctx->r[2], v0));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[3] = _v; std::memcpy(&v1, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 528), Ps2GprVecWithLow(ctx->r[3], v1));
-    WRITE32(a0 + 0x220u, 0u);
+    WRITE32_B(a0, 544, 0u);
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 560), Ps2GprVecWithLow(ctx->r[2], v0));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[3] = _v; std::memcpy(&v1, &_v, 8); } while (0);
     WRITE128(ADD32(a0, 576), Ps2GprVecWithLow(ctx->r[3], v1));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[5] = _v; std::memcpy(&a1, &_v, 8); } while (0);
-    WRITE32(a0 + 0x260u, 0u);
+    WRITE32_B(a0, 608, 0u);
     WRITE128(ADD32(a0, 592), Ps2GprVecWithLow(ctx->r[5], a1));
     do { const __m128i _v = (READ128(ADD32(a2, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     {
@@ -5813,7 +5813,7 @@ void CAM_get_target_riding_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
-        v0 = READ32(a0 + 0x2C8u);
+        v0 = READ32_B(a0, 712);
         Ps2SetGpr64(ctx, 2, sx64(v0));
         ctx->pc = target;
         return;
@@ -5825,12 +5825,12 @@ void CAM_get_ground_contact_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 {
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
-    v1 = READ32(a0 + 0x2C8u);
+    v1 = READ32_B(a0, 712);
     {
         const bool c = v1 != 0;
         (v0 = (uint64_t)((uint64_t)sx64(v1) + (uint64_t)0ULL));
         if (!c) {
-            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32(a0, 0)))));
+            (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a0, 0))));
         }
     }
     {
@@ -5845,7 +5845,7 @@ void CAM_get_ground_contact_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void CAM_is_visible_now_target_visibility(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
-    v0 = READ32(a0 + 0x44u);
+    v0 = READ32_B(a0, 68);
     {
         const uint32_t target = ra;
         v0 = v0 < 1u ? 1u : 0u;
