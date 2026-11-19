@@ -1095,6 +1095,14 @@
    "focus": "Measurement",
    "summary": "Round S20 audited the A/Bs of every default-off switch after S18 found S17's were A/A, re-measured with the env on, and fixed the A/B so a listed switch that starts off is turned on in its on windows (with a warning).",
    "result": "Only S17 was A/A. Re-measured: pose136 -0.04 +- 0.33 ms, s14hook -0.06 +- 0.21 (even); s7wind +0.22 +- 0.39 (ride7 seed 13), pooled with S7's runs +0.12 +- 0.06 ms, z about 4: s7wind (exact) on by default. The fix checked on the Vita build (warning printed, s12draw active in its on windows)."
+  },
+  {
+   "round": "D20",
+   "date": "2026-11-19",
+   "commit": "1359a26",
+   "focus": "Decomp",
+   "summary": "Decomp D20 found why D19's forced deaths stalled (the death demo thread st_boss_dead only starts on scriptIntrSignal from the killing hit, which the life-zero aid skipped) and added the bdie aid that ends a colossus the way the killing hit does: Malus, Cenobia and Phalanx now die through the collapse, the tentacles and the save screen.",
+   "result": "8 functions of the deaths' routes trace-checked exact (9 checks, 0 mismatch lines) and shipped behind SOTC_LIFTD20 (default on). Interleaved A/B (Vita3K 222 MHz, off - on): lake6 +0.142 ± 0.376 ms, attract -0.163 ± 0.134 ms; none of the 8 sampled (not hot). Honest count 5 840 of 9 024 functions (64.72%), 69.32% of the code. Boots with 89 MB taken; pictures normal; no sp-based NEON accesses."
   }
  ]
 }

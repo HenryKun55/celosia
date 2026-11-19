@@ -23008,3 +23008,84 @@ off switch: only S17 was A/A; the others were measured on but with little power.
 s14hook -0.06 +- 0.21 (even, unchanged), s7wind ride7 seed 13 +0.22 +- 0.39, pooled with S7's runs +0.12 +- 0.06 ms (z about 4):
 s7wind (exact) is now on by default (SOTC_S7WIND=0 off). abSwitches now turns a listed switch that starts off ON in its on
 windows and prints an [ab] WARNING (SOTC_AB_FORCE_ON=0: old rule). Details: docs/ab_s20.md.
+## Decomp D20: the colossi's deaths completed (bdie: the killing hit's own ending); Malus, Cenobia and Hydrus die; D20's batch (SOTC_LIFTD20) (2026-11-19)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d20/` (copied from D19's scratch: the kill routes in_* / tp_*,
+macrun.sh / v3k.sh with D17's frame watchdog, the call-count runs runs/cc_*.txt, the mac/ and vita/ build dirs; clone20.py: the
+same-length path rewrite, mtimes20.py: D19's sources' mtimes; cmpcc.py: call / block counts of runs side by side over address
+ranges; drun.sh / lane.sh: diagnostic runs; dtk20.sh / tlane.sh: trace passes; survey20.py, gen20.sh, pass20.py, patch_rt20.py).
+Own Vita3K tree ../vita3k-celosia-d20 (from d17's, 222 MHz, 3 cores, muted).
+
+### What the death waited for
+
+Diffing D17's Argus kill (k14, completed) against D19's stalled ones (z15, z12, x15) block by block:
+
+- The boss' own death motions were never the problem. A diagnostic aid `bdbg` (below) on Malus after D19's bzero: the control
+  mode (chara class +0x750) takes the script data's death start motion (+0x4170) within ~150 frames, the animation then sits on
+  the death loop motion (+0x4160) for good (SCRConditionBossDeathStartMotion / LoopMotion are what the boss script polls).
+- The death demo is a separate script thread: `st_boss_status` (root script) registers `st_boss_dead` as the jump target of a
+  script interrupt on the boss record (scriptIntrEntryJump(record, thread, 0x1466AC0)); only `scriptIntrSignal(record)` starts it.
+- The game sends that signal in one place for a real kill: gamecore_sub_01377480 (the damage a hit applies), when the total
+  life (work +0x44) reaches 0: +0x44 = 0, the boss' object record (0x10F1A20) +0x1AC = 1, a global flag (0x1465E48) = 0,
+  scriptIntrSignal(*boss record). D19's `bzero` zeroed +0x44 behind its back: the pre-process' death path ran (the death motion
+  load, SCRCharaDead) but nobody signalled, so st_boss_dead never started (z15) or Phalanx's started from another signal and
+  waited forever for the death motion (z12). D19's `bdeath` (SCRBossDebugDeath) signals, but sets the death flag +0xEC first,
+  so the pre-process skips checkDeadMotionLoadByScriptDataSystem and st_boss_dead's first wait (the boss' current motion ==
+  the record's death motion +0x30) never ends.
+- GAMECORE's globals are relocated: the recompiled code reads its lui / lo16 immediates back from memory, so a host aid must
+  do the same (the first `bdie` read the unrelocated 0x1B7B60 and got an instruction word).
+
+### The aids (sotc_replay.cpp, SOTC_TELEPORT entries)
+
+- `bdie`: the killing hit's ending as gamecore_sub_01377480 does it: +0x44 = 0, the object record's +0x1AC = 1, the flag cleared,
+  scriptIntrSignal on the boss record (pointer and flag addresses from gamecore_sub_0136FFC0's / 01377480's relocated lui /
+  lo16 pairs). +0xEC stays 0 so the pre-process runs its own death path (the motion load, SCRCharaDead).
+- `bdbg`: one line of the boss' death state: control mode against the death start motion, current motion against the death loop,
+  the dead flag word (+0x858, bit 0x200), life / absolute death (+0x48) / death flag (+0xEC).
+
+### Kills (Mac, `bdie` at frame 5000 on D19's z routes, Wander left alone from the kill)
+
+| route | colossus | result |
+|---|---|---|
+| w15 | Malus (15) | **killed**: the collapse on the tower (letterboxed), the tentacles, the shrine's save screen; st_boss_dead, CheckDeathTentacle 172, bossDemoPlayerBreakDown*, memoryCardSaveScript |
+| w13 | Cenobia (13) | **killed**: the black tentacles on Wander, the save screen; the same chain |
+| w12 | Phalanx (12) | **killed** (trace pass): st_boss_dead, CheckDeathTentacle 151, bossDemoPlayerBreakDown*, memoryCardSaveScript |
+| w6 | Hydrus (6) | dying (trace pass, slower): bossStatSetDeadBoss, st_boss_dead reached; the demo still running when the 420 s ran out |
+
+The same deaths repeat in the trace passes (dt20_w15: Malus to the save screen again). With D16's Valus and D17's Argus, six of
+the sixteen colossi now have a death route.
+
+### The batch
+
+Candidates (survey20.py over the w / y runs and D19's z / x runs): functions reached, still recompiled on the honest count,
+not natives or stubs, not shipped by D16-D18 and not reached before D19 (D18's 34 unchecked counted again): **14**. The deaths
+themselves reach almost nothing new: Valus' (D16) and Argus' (D17) deaths already lifted the death code; the new ones are the
+other colossi's own death and arena code. All 14 lifted (`lift_d1.py --d20`, 0 refused) into a test batch (runner-t1); trace
+passes (SOTC_DIFFTEST_TRACE=all, FIRST=20, EVERY=200, MAX=200; pass20.py: any mismatch line keeps a function out) on w6, w15
+and w12: **8 checked, 9 checks, 0 mismatch lines**: coliJudgeNotWater, gamecore_sub_01380D78, nico_eelAllTexEnd,
+nico_eelHigeTexEnd (Hydrus), motrootdyn_startpendulum_with_VCOL, nico_snakeAllTexEnd, SCRFuncHorseEscapeFromBoss,
+SetPlayerDangerEdgeOtherSidePlanePoint (Phalanx). Not checked: InitTableSinCos and setLoadingCheckFunc (boot / load code past
+the trace's window), SCRFuncSetGameWork (Malus, once, after the save screen's start), player_setDangerEdgeOtherSidePlanePoint,
+and SCRBossDebugDeath / gamecore_sub_0136FFC0 (D19's bdeath aid only; x15's pass was dropped for time). The 8 are
+`game/overrides/decomp_liftd20_00.cpp` behind SOTC_LIFTD20 (default on, A/B `liftd20`, kLiftD20 right after kLiftD18).
+
+### Checks and numbers
+
+- A/B (Vita3K 222 MHz, interleaved `SOTC_AB_FLAG=liftd20`, p2, 400 s, tools/mixframes.py from frame 3 000, 300-frame
+  blocks, off - on +- 2 SE): lgL7 (lake6, seed 7, 6 652 frames) frame +0.142 +- 0.376, busy +0.172 +- 0.394 ms; lgA11 (attract, seed 11, 12 493 frames) frame -0.163 +- 0.134, busy -0.107 +- 0.161 ms.
+  None of the 8 was ever sampled (0 of 8, 0 slower, 0 cut): the attract demo never calls them, so the attract difference is
+  the A/B's own noise, not the batch. The first lake A/B was lost: it started while the killed p1 attempt's Vita3K still held
+  the d20 tree (two instances on one err.txt; the watchdog killed it at frame 1 613).
+- Boot walk with the console's free memory (SOTC_VITA_EAT_USER_MB=89, 600 s): booted on the first try, `D20 8 ... d20 on`,
+  15 623 frames, no fault; pictures (Wander on the plain, Agro) normal, deleted.
+- spalign (p2.elf): 0 sp-based :128/:256 NEON accesses (of 888 with an alignment hint).
+- Honest count (runner-f, replaced dump, SOTC_WORKER91=0): **5 840 of 9 024 (64.72%; D17 + D18 5 832)**, 69.32% of the code,
+  97.72% of calls, game code 71.99%; gates on 5 883 (65.19%). Characters 791 of 1 205, display 534 of 975, collision 222,
+  particles 104, other game code 1 992 of 2 907.
+
+### Next
+
+- bdie on the rest (Avion 4, Barba 5, Dirge 9, Pelagia 11; Hydrus 6 to its end without the trace): their deaths should now complete, with new routes for the 6 unchecked; Celosia (10) still has
+  no boss handle.
+- The death code itself is already lifted (Valus D16, Argus D17); what is left recompiled near the deaths is aid-only
+  (SCRBossDebugDeath) or boot / load code (InitTableSinCos, setLoadingCheckFunc) the trace's event window misses.
