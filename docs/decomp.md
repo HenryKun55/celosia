@@ -22730,3 +22730,81 @@ seeds riding: **off by default** (SOTC_S14HOOK=1 turns it on; exact, kept for th
 
 The plans from a host model cache built at model load (no per-frame packetListHash); the guest palette write itself once
 the kick takes the host record too; the lights as a host record; the rest of S12's list: docs/display_s14.md section 6.
+
+## Decomp D18: weak-point and armour aids (no new kill: the stab's hit never reaches the boss' damage class); D18's batch (SOTC_LIFTD18) (2026-11-19)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d18/` (mkkill18.py, dtk18.sh, survey18.py, left18.py, gen18.sh,
+pass18.py, fin18.sh, patch_rt18.py, qrun.sh / jobsA-E.txt, macrun.sh / v3k.sh with D17's frame watchdog). Build dirs cloned
+from D17's (same-length path sed over text and binary files, .ninja_log rehashed, mtimes kept). Own Vita3K tree
+../vita3k-celosia-d18 (222 MHz, 3 cores, muted). D18's switch kLiftD18 sits right after kLiftD16 (D17's kLiftD17 was not
+in this round's base).
+
+### How a colossus' weak points work (read from the code)
+
+- The boss work's parts (+0x54 count, +0x10 records of 0x58: +0 the collision attribute id, bits 0x3F0; +0x1C the life;
+  +0x28 a 64-bit word) and the damage array (+0xE8: +0x24 + 8 i the damage taken, +0x28 + 8 i the current hit's damage,
+  zeroed each frame by SCRExecBossPreProcess).
+- Two kinds of "weak" mark in +0x28: bits 0xC000 << 40 (0x00C00000 in the high word; SCRCharaInitBossWork sums their
+  lives into the boss' total, SCRExecBossPreProcess runs the vanish effect gamecore_sub_013761E8 as soon as such a part's
+  damage reaches its life, IsBossDeathNextAttack only kills through such a part) and bit 31 of the low word (Malus' three
+  points 0x1B0 / 0x040 / 0x050 have only that one, with 0xD / 0xE / 0xF in the high word; Argus' point too).
+- A stab is gamecore_sub_013B08B0: SendCharaAttackMsg (-> SendDirectDamageLetter, a letter) onto what Wander grips; the
+  boss' pre-process takes the hit from its damage class when the class' state is 3, the part from the surface attribute's
+  bits 0x3F0 (GetGeometryPointerSurfaceAttribute), and gamecore_sub_01377480 applies the damage.
+- The script conditions on weak points (SCRConditionLess/OverMyselfWeakLife, MyselfWeakDamaged) are not called by Malus'
+  script at all; Cenobia's armour script waits on SCRConditionSendDamageToCollisionObject3 (the pillar hits; 0x137ACF8).
+
+### The test aids (sotc_replay.cpp)
+
+- `bweak<pct>` (SOTC_TELEPORT entry): the weak points' damage (either mark) to (100 - pct)% of their life and the current
+  hit's damage to the same; `bweakall<pct>` every part.
+- `pstab` (entry): the player's final-blow routine (0x13B7730: the absolute death and the attack message onto the grip),
+  only while Wander's grip names the active colossus.
+- SOTC_TELEPORT_WEAKHIT=<frame>: from then a hit on the colossus counts on its first standing weak point (hooks on
+  GetGeometryPointerSurfaceAttribute from the pre-process' two calls and GetGeometryPointerCharColAttr from the stab's death
+  test rewrite the part id).
+- SOTC_TELEPORT_FORCE=<hex>@<from>[-<until>],...: up to four guest functions (script conditions) answer 1 between those
+  frames.
+
+### Routes (Mac, call count + trace check in one run, `dtk18.sh`, SOTC_WORKER91=0, 600 s each)
+
+| route | colossus | aids | what happened |
+|---|---|---|---|
+| m15 | Malus (15) | bweak5 + bkill every 1 500, pstab every 100, WEAKHIT | Wander hangs on / climbs Malus' hand; the three points found (bit 31), their damage set; 21+ pstabs while gripping Malus, but the boss' damage class never reached state 3 (no hit taken), so no point broke: **not killed** |
+| m13 | Cenobia (13) | as m15 + FORCE on the three SendDamageToCollisionObject conditions | Wander on her armoured back; the forced condition did not lead the script to SCRCerberusArmorBroken (0 calls): **not killed** |
+| m10 | Celosia (10) | as m15 + FORCE SCRConditionLeoCheckArmorBroken | the arena streams in, Wander climbs; no boss handle (as D16's c10), the condition never called: **not killed** |
+| m6 | Hydrus (6) | as m15 | stopped at frame ~5 200 to free a slot for m15 (handle present) |
+
+Avion, Barba, Dirge, Pelagia and Phalanx were queued but not run: with no hit reaching the damage class the aids could not
+break anything, and the machine's three heavy slots were shared with two other rounds.
+
+### The batch
+
+D16's 36 still unchecked (left18.py: D16's 68 minus D17's 32) plus the routes' 2 new functions (survey18.py:
+gamecore_sub_013B7730, reached through `pstab`, and SCRFuncChangedColDamageOn, Cenobia's script): 38 lifted, 0 refused.
+Trace check (SOTC_DIFFTEST_TRACE=all, FIRST=20, EVERY=200, MAX=200): **4 checked, 4 checks, 0 mismatch lines** (pass18.py,
+strict: any mismatch line keeps a function out): SCRFuncChangedColDamageOn, gamecore_sub_013B7730, torchObjRelease,
+end_rewind_camera_dist_to_look_at. 34 not reached (InitTableSinCos reached once, past the trace's event limit). The 4 are
+`game/overrides/decomp_liftd18_00.cpp` behind SOTC_LIFTD18 (default on, A/B `liftd18`).
+
+### Checks and numbers
+
+- A/B (Vita3K 222 MHz, interleaved `SOTC_AB_FLAG=liftd18`, p2, 400 s, tools/mixframes.py from frame 3 000, 300-frame
+  blocks, off - on +- 2 SE): lgL7 (lake6, seed 7, 4 577 frames) frame -0.061 +- 0.194, busy -0.089 +- 0.186 ms; lgA11
+  (attract, seed 11, 9 643 frames) frame +0.135 +- 0.160, busy +0.063 +- 0.106 ms. 0 of 4 sampled, 0 slower, 0 cut.
+- Boot walk with the console's free memory (SOTC_VITA_EAT_USER_MB=89, 600 s): booted on the first try, `D18 4 ... d18 on`,
+  11 843 frames, no fault; pictures (the lake swim, the attract canyon, Wander on the plain) normal, deleted.
+- spalign (p2.elf): 0 sp-based :128/:256 NEON accesses (of 884 with an alignment hint).
+- Honest count (runner-f, replaced dump, SOTC_WORKER91=0; this base has D16, not D17's 32): **5 800 of 9 024 (64.27%;
+  D16 5 795)**, 68.89% of the code, 97.72% of calls, game code 71.48%; gates on 5 843 (64.75%). Script 313 of 633,
+  other game code 1 981 of 2 907, camera 210. With D17's batch after the rebase: about 5 833.
+
+### Next
+
+- The hit: find what turns the attack letter into the damage class' state 3 (CheckDamageLetter / the boss' letter handler)
+  so an aid can land a real stab on a chosen weak point; or teleport Wander onto the point itself (the sword light's
+  collision query, gamecore_sub_013FBBB0 / 013FC148, finds the weak surfaces' geometry).
+- Cenobia's armour and Celosia's: the scripts' state after the pillar hits / the fall, not one condition.
+- The 34 unreached leftovers stay recompiled until a route reaches them.
+
+**After the rebase onto D17 (main):** kLiftD18 sits after kLiftD17, D18's functions get their own list (g_lift18), and docs/decomp_status.json keeps D17's count (5 828 of 9 024) until the next recount; D18's 4 functions come on top of it.
