@@ -2188,6 +2188,26 @@ namespace sotc_native
         return true;
     }
 
+    // Round S14's check (SOTC_S14HOOK_CHECK=1): the chain read the old way; the record's results compared, the old way's used.
+    void s14Check(uint32_t own, uint32_t &lo, uint32_t &hi, uint32_t &ret, uint32_t &bytes, std::vector<float> &palette)
+    {
+        static std::vector<float> old;
+        uint32_t olo = lo, ohi = hi, oret = 0, obytes = 0;
+        const bool had = readChainPaletteLean(own, olo, ohi, old, oret, obytes);
+        ++s14hook::g_st.checks;
+        const bool same = had && olo == lo && ohi == hi && oret == ret && obytes == bytes && old.size() == palette.size() &&
+                          (old.empty() || std::memcmp(old.data(), palette.data(), old.size() * sizeof(float)) == 0);
+        if (!same)
+        {
+            ++s14hook::g_st.differ;
+            static uint32_t shown = 0;
+            if (shown++ < 8u)
+                std::fprintf(stderr, "[s14hook] differ: own %08x had %d lo %u/%u hi %u/%u ret %08x/%08x bytes %u/%u floats %zu/%zu\n", own, had ? 1 : 0, olo, lo,
+                             ohi, hi, oret, ret, obytes, bytes, old.size(), palette.size());
+        }
+        lo = olo, hi = ohi, ret = oret, bytes = obytes;
+        palette = old;
+    }
 
     // A skinned packet's strip vertices as the posing reads them: bind pose,
     // each bone as its matrix's offset in the palette (floats), the weights,
@@ -3336,7 +3356,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -7546,7 +7566,16 @@ namespace sotc_native
                 // values as the picture's rows lo..hi below), no 16 KB picture and no second copy (sceClibMemmove).
                 ++s9rt::g_st.shadows;
                 uint32_t lo = 0, hi = 0, retAt = 0, bytes = 0;
-                if (!readChainPaletteLean(chain, lo, hi, job.palette, retAt, bytes))
+                // Round S14 (s14hook.h kPalette): dispSkinned's host record when it wrote it this frame.
+                if (const s14hook::Chain *host = s14hook::on(s14hook::kPalette) ? s14hook::take(chain) : nullptr)
+                {
+                    ++s14hook::g_st.shadowTaken;
+                    lo = host->lo, hi = host->hi, retAt = host->ret, bytes = host->bytes;
+                    job.palette.assign(host->rows.begin(), host->rows.end());
+                    if (__builtin_expect(s14hook::g_check, 0))
+                        s14Check(chain, lo, hi, retAt, bytes, job.palette);
+                }
+                else if (!readChainPaletteLean(chain, lo, hi, job.palette, retAt, bytes))
                     return;
                 job.paletteLo = lo;
                 job.paletteHi = hi;
@@ -11558,7 +11587,28 @@ namespace sotc_native
                 // in the jobs' order: a job the lane finds out of view keeps it.)
                 uint32_t &lastLo = g_palLastLo, &lastHi = g_palLastHi;
                 uint32_t lo = lastLo, hi = lastHi, ret = 0, bytes = 0;
-                job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+                // Round S14 (s14hook.h kPalette): dispSkinned's host record of this chain's palette when it wrote it this frame.
+                const bool s14 = s14hook::on(s14hook::kPalette);
+                if (const s14hook::Chain *host = s14 ? s14hook::take(own) : nullptr)
+                {
+                    ++s14hook::g_st.taken;
+                    job.hasPalette = true;
+                    lo = host->lo, hi = host->hi, ret = host->ret, bytes = host->bytes;
+                    job.palette.assign(host->rows.begin(), host->rows.end());
+                    if (__builtin_expect(s14hook::g_check, 0))
+                        s14Check(own, lo, hi, ret, bytes, job.palette);
+                }
+                else
+                {
+                    job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+                    if (s14 && job.hasPalette)
+                    {
+                        ++s14hook::g_st.missed; // a palette read the old way (not skinned by dispSkinned's loop, or no layout yet)
+                        s14hook::learn(g_ram, own);
+                    }
+                }
+                if (s14hook::g_log)
+                    s14hook::noteFrame();
                 if (job.hasPalette)
                     s4disp::paletteRead(own); // round S4: the serial this read saw
                 job.paletteDeferred = mdslane::g_frameOn;

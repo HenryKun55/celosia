@@ -16,6 +16,7 @@
 // the recompiled code from the start.
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
+#include "s14hook.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -69,7 +70,10 @@ namespace decomp_skinpal
         {
             const uint32_t d = ram.u32(object + 0x144u);
             if (inRam(d, 0x10u))
+            {
                 s4disp::paletteWritten(ram.u32(d + 0xCu));
+                s14hook::invalidate(ram.u32(d + 0xCu)); // round S14: valid again only once the loop below writes it
+            }
         }
         if (!inRam(object, 0x1B8u) || ram.u32(object + 0x194u) != 0u)
             return sotc_decomp::recompiled(kSkinned)(rdram, ctx, runtime);
@@ -77,10 +81,10 @@ namespace decomp_skinpal
         const uint32_t bonesAt = ram.u32(object + 0x160u), disp = ram.u32(object + 0x144u);
         if (bones < 0 || bones > 1024 || (bones && (!inRam(bonesAt, static_cast<uint32_t>(bones) * 0x40u) || !inRam(disp, 0x10u))))
             return sotc_decomp::recompiled(kSkinned)(rdram, ctx, runtime);
-        uint32_t palette = 0u;
+        uint32_t palette = 0u, model = 0u;
         if (bones)
         {
-            const uint32_t model = ram.u32(disp + 0xCu);
+            model = ram.u32(disp + 0xCu);
             if (!inRam(model, 0x108u))
                 return sotc_decomp::recompiled(kSkinned)(rdram, ctx, runtime);
             palette = ram.u32(model + 0x104u);
@@ -115,6 +119,10 @@ namespace decomp_skinpal
         uint32_t i = 0u;
         if (bones)
         {
+            // Round S14 (s14hook.h kPalette): the rows into the chain's host record too, where the hook takes them.
+            s14hook::Chain *const host = s14hook::on(s14hook::kPalette) ? s14hook::begin(rdram, model, palette, static_cast<uint32_t>(bones)) : nullptr;
+            float *const hostRows = host ? host->rows.data() : nullptr;
+            const int32_t *const boneRow = host ? host->boneRow.data() : nullptr;
             const __m128 raw[4] = {ram.q(camera), ram.q(camera + 0x10u), ram.q(camera + 0x20u), ram.q(camera + 0x30u)};
             const vu::Rows rows = vu::clampRows(raw);
             __m128 r[4], acc = ctx->vu0_acc;
@@ -126,7 +134,15 @@ namespace decomp_skinpal
                 const uint32_t out = palette + ((i * 4u + ((i + 1u) >> 6)) << 4);
                 for (int k = 0; k < 4; ++k)
                     ram.putq(out + k * 0x10u, r[k]);
+                if (hostRows && boneRow[i] >= 0)
+                {
+                    float *const to = hostRows + boneRow[i] * 4;
+                    for (int k = 0; k < 4; ++k)
+                        _mm_storeu_ps(to + k * 4, r[k]);
+                }
             }
+            if (host)
+                s14hook::finish(rdram, host);
             for (int k = 0; k < 4; ++k)
             {
                 ctx->vu0_vf[14 + k] = raw[k];
