@@ -1,51 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" font-family="Helvetica, Arial, sans-serif">
 <rect width="100%" height="100%" fill="#1d1f24"/>
-<text x="12" y="28" font-size="20" fill="#f2f2f2">Decompiled: 69.2% of the code (71.9% of the game code), 5828 of 9024 functions</text>
-<text x="12" y="50" font-size="13" fill="#b9bcc4">Tile area: MIPS code size. Green: native C++; red: still recompiled. 2026-11-19, cc01461</text>
+<text x="12" y="28" font-size="20" fill="#f2f2f2">Decompiled: 69.3% of the code (72.0% of the game code), 5840 of 9024 functions</text>
+<text x="12" y="50" font-size="13" fill="#b9bcc4">Tile area: MIPS code size. Green: native C++; red: still recompiled. 2026-11-19, d0cf5c1</text>
 <rect x="0.0" y="64.0" width="473.7" height="456.0" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="1.0" y="189.1" width="471.7" height="329.9" fill="#2f9e5b"/>
+<rect x="1.0" y="188.8" width="471.7" height="330.2" fill="#2f9e5b"/>
 <text x="5.0" y="80.0" font-size="13" fill="#ffffff">Other game code</text>
-<text x="5.0" y="96.0" font-size="13" fill="#ffffff">72.7%  1989/2907</text>
+<text x="5.0" y="96.0" font-size="13" fill="#ffffff">72.7%  1992/2907</text>
 <rect x="473.7" y="64.0" width="249.8" height="275.1" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="474.7" y="189.0" width="247.8" height="149.1" fill="#2f9e5b"/>
 <text x="478.7" y="80.0" font-size="13" fill="#ffffff">Boot ELF, SDK and libc</text>
 <text x="478.7" y="96.0" font-size="13" fill="#ffffff">54.6%  1314/2136</text>
 <rect x="473.7" y="339.1" width="249.8" height="180.9" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="474.7" y="379.3" width="247.8" height="139.7" fill="#2f9e5b"/>
+<rect x="474.7" y="379.1" width="247.8" height="139.9" fill="#2f9e5b"/>
 <text x="478.7" y="355.1" font-size="13" fill="#ffffff">Characters and motion</text>
-<text x="478.7" y="371.1" font-size="13" fill="#ffffff">78.1%  789/1205</text>
+<text x="478.7" y="371.1" font-size="13" fill="#ffffff">78.2%  791/1205</text>
 <rect x="723.5" y="64.0" width="236.5" height="179.9" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="724.5" y="127.8" width="234.5" height="115.1" fill="#2f9e5b"/>
+<rect x="724.5" y="127.5" width="234.5" height="115.4" fill="#2f9e5b"/>
 <text x="728.5" y="80.0" font-size="13" fill="#ffffff">Display and models</text>
-<text x="728.5" y="96.0" font-size="13" fill="#ffffff">64.7%  531/975</text>
+<text x="728.5" y="96.0" font-size="13" fill="#ffffff">64.9%  534/975</text>
 <rect x="723.5" y="243.9" width="138.1" height="161.1" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="724.5" y="317.9" width="136.1" height="86.1" fill="#2f9e5b"/>
+<rect x="724.5" y="317.7" width="136.1" height="86.3" fill="#2f9e5b"/>
 <text x="728.5" y="259.9" font-size="13" fill="#ffffff">Script and events</text>
-<text x="728.5" y="275.9" font-size="13" fill="#ffffff">54.1%  320/633</text>
+<text x="728.5" y="275.9" font-size="13" fill="#ffffff">54.2%  321/633</text>
 <rect x="861.6" y="243.9" width="98.4" height="161.1" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="862.6" y="289.0" width="96.4" height="115.0" fill="#2f9e5b"/>
+<rect x="862.6" y="288.8" width="96.4" height="115.2" fill="#2f9e5b"/>
 <text x="866.6" y="259.9" font-size="10" fill="#ffffff">Collision and</text>
 <text x="866.6" y="272.9" font-size="10" fill="#ffffff">physics</text>
-<text x="866.6" y="285.9" font-size="10" fill="#ffffff">72.3%  221/317</text>
+<text x="866.6" y="285.9" font-size="10" fill="#ffffff">72.4%  222/317</text>
 <rect x="723.5" y="405.1" width="88.8" height="114.9" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="724.5" y="438.3" width="86.8" height="80.7" fill="#2f9e5b"/>
 <text x="728.5" y="421.1" font-size="10" fill="#ffffff">System and</text>
 <text x="728.5" y="434.1" font-size="10" fill="#ffffff">memory</text>
 <text x="728.5" y="447.1" font-size="10" fill="#ffffff">71.5%  157/230</text>
 <rect x="812.3" y="405.1" width="60.3" height="114.9" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="813.3" y="427.9" width="58.3" height="91.1" fill="#2f9e5b"/>
+<rect x="813.3" y="427.8" width="58.3" height="91.2" fill="#2f9e5b"/>
 <text x="817.3" y="421.1" font-size="10" fill="#ffffff">Camera</text>
-<text x="817.3" y="434.1" font-size="10" fill="#ffffff">80.7%  209/282</text>
+<text x="817.3" y="434.1" font-size="10" fill="#ffffff">80.7%  210/282</text>
 <rect x="872.6" y="405.1" width="87.4" height="46.0" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="873.6" y="406.1" width="85.4" height="44.0" fill="#2f9e5b"/>
 <text x="877.6" y="421.1" font-size="10" fill="#ffffff">Math</text>
 <text x="877.6" y="434.1" font-size="10" fill="#ffffff">100.0%  122/122</text>
 <rect x="872.6" y="451.1" width="55.6" height="68.9" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
-<rect x="873.6" y="455.0" width="53.6" height="64.0" fill="#2f9e5b"/>
+<rect x="873.6" y="454.9" width="53.6" height="64.1" fill="#2f9e5b"/>
 <text x="877.6" y="467.1" font-size="10" fill="#ffffff">Particle</text>
 <text x="877.6" y="480.1" font-size="10" fill="#ffffff">and</text>
 <text x="877.6" y="493.1" font-size="10" fill="#ffffff">effects</text>
-<text x="877.6" y="506.1" font-size="10" fill="#ffffff">95.6%  103/115</text>
+<text x="877.6" y="506.1" font-size="10" fill="#ffffff">95.8%  104/115</text>
 <rect x="928.2" y="451.1" width="31.8" height="68.9" fill="#c8553d" stroke="#1d1f24" stroke-width="2"/>
 <rect x="929.2" y="466.0" width="29.8" height="53.0" fill="#2f9e5b"/>
 <text x="933.2" y="467.1" font-size="10" fill="#ffffff">Soun</text>
