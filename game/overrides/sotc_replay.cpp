@@ -1348,12 +1348,18 @@ namespace sotc_replay
                             {
                                 // Decomp D20: "bdie": the killing hit's own ending, as gamecore_sub_01377480 (the damage a hit applies)
                                 // does it when the total life reaches 0: the boss work's life (+0x44) 0, the boss' object record
-                                // (0x10F1A20)'s +0x1AC set, 0x1465E48 cleared and scriptIntrSignal on the boss record (*0x1B7B60):
+                                // (0x10F1A20)'s +0x1AC set, a flag cleared and scriptIntrSignal on the boss record:
                                 // the signal st_boss_status waits on to jump to st_boss_dead (the death demo, the tentacles, the
                                 // save). D19's bzero left the signal out (the death motions played, st_boss_dead never ran);
                                 // bdeath (SCRBossDebugDeath) sets the death flag +0xEC too, so the pre-process skips the death
                                 // motion's load. +0xEC stays 0 here: the pre-process' own death path (the motion load, SCRCharaDead).
-                                const uint32_t w = g_probeObj ? rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj)) : 0u;
+                                // Both globals sit behind GAMECORE's relocated lui / lo16 pairs (the recompiled code reads the
+                                // immediates back from memory): the boss record pointer from gamecore_sub_0136FFC0's lui at
+                                // 0x136FFE8 / lw at 0x136FFF0, the flag from gamecore_sub_01377480's lui 0x13776B4 / sw 0x13776C0.
+                                auto hilo = [&](uint32_t hi, uint32_t lo)
+                                { return ((rd(hi) & 0xFFFFu) << 16) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(rd(lo) & 0xFFFFu))); };
+                                const uint32_t recPtr = hilo(0x0136FFE8u, 0x0136FFF0u), flag = hilo(0x013776B4u, 0x013776C0u);
+                                const uint32_t w =g_probeObj ? rd(guestCall1(rdram, ctx, runtime, 0x013CFAE8u, g_probeObj)) : 0u;
                                 if (w)
                                 {
                                     std::memset(rdram + ((w + 0x44u) & 0x1FFFFFCu), 0, 4);
@@ -1363,11 +1369,12 @@ namespace sotc_replay
                                         const uint32_t one = 1u;
                                         std::memcpy(rdram + ((o + 0x1ACu) & 0x1FFFFFCu), &one, 4);
                                     }
-                                    std::memset(rdram + 0x1465E48u, 0, 4);
-                                    guestCall1(rdram, ctx, runtime, 0x01102C88u, rd(0x001B7B60u)); // scriptIntrSignal
+                                    std::memset(rdram + (flag & 0x1FFFFFCu), 0, 4);
+                                    if (rd(recPtr))
+                                        guestCall1(rdram, ctx, runtime, 0x01102C88u, rd(recPtr)); // scriptIntrSignal
                                 }
-                                std::fprintf(stderr, "[teleport] frame %llu: bdie (boss obj %08x, work %08x, record %08x)\n", (unsigned long long)frame, g_probeObj, w,
-                                             rd(0x001B7B60u));
+                                std::fprintf(stderr, "[teleport] frame %llu: bdie (boss obj %08x, work %08x, record %08x at %08x, flag at %08x)\n", (unsigned long long)frame, g_probeObj, w,
+                                             rd(recPtr), recPtr, flag);
                                 continue;
                             }
                             if (t.call == 10)
