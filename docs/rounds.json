@@ -1027,7 +1027,7 @@
   {
     "round": "D17",
     "date": "2026-11-19",
-    "commit": "PENDING",
+    "commit": "b6d43c5",
     "focus": "Decomp",
     "summary": "Decomp D17: Argus, the fortress colossus, is killed (collapse, black tentacles, the shrine's save screen); Wander climbs Malus and rides Cenobia's back, but they need a new test aid that breaks weak points and armour before they can die. A frame watchdog now ends test runs that stall in an area that never loaded. Of D16's 68 converted-but-unchecked functions, 32 are checked exact with not a single difference and none slower: they ship behind SOTC_LIFTD17 (on), among them Argus' start and cloth, Malus' start and missiles, the aim IK and Pelagia's shot.",
     "result": "Whole game (honest count): 5 828 of 9 024 functions (64.6%, 64.2% after D16), 69.2% of the code, 97.7% of calls. Script 320 of 633 (312), characters 789 of 1 205 (778), other game code 1 989 of 2 907 (1 979). Exact: 32 functions, 1 037 checks, 0 differences. Speed (Vita3K 222 MHz, interleaved A/B, two seeds): neutral. Boots and runs with the console's free memory (Vita3K, 89 MB taken)."
