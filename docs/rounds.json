@@ -1119,6 +1119,14 @@
    "focus": "Subsystem redesign",
    "summary": "Round S22 took the particle draw list (0113ACB8): one host pass over the nodes, a host copy of the game's qsort for each run's order, each node's body called straight instead of through the function table.",
    "result": "Exact: 0 differences over 795 182 lists checked (ride7, lake6, attract); every list held one node, so the qsort copy was not exercised. A/B ride7 seeds 7 / 13 and attract: -0.295 +- 0.288, +0.022 +- 0.233, -0.070 +- 0.159 ms: even to slightly slower, off by default (SOTC_S22PTCL=1)."
+  },
+  {
+   "round": "D21",
+   "date": "2026-11-19",
+   "commit": "1882ae8",
+   "focus": "Decomp",
+   "summary": "Decomp D21 ran D20's bdie (the killing hit's own ending) on the colossi not done yet and found Celosia's colossus (the a0 of SCRConditionLeoCheckArmorBroken; it never joins the boss handle group; new aids SOTC_TELEPORT_GROUPS / SOTC_TELEPORT_BOSS_GROUP). No death reached the save screen: Avion, Barba and Dirge stop at st_boss_dead's first wait (their death motion is not resident, the load checkDeadMotionLoadByScriptDataSystem starts never finishes, every EE thread idle, the picture frozen); Hydrus and Pelagia (water arenas) get past it but wait forever on game mode bit 0 (0x1465D30) after the camera's demo call, black picture; Celosia takes bdie but its pre-process never enters the death path.",
+   "result": "No batch (the user stopped exact MIPS-shaped lifting mid-round): of 13 candidates traced, 5 checked exact (11 checks, 0 mismatch lines: InitTableSinCos, setLoadingCheckFunc, SCRBossDebugDeath, gamecore_sub_0136FFC0, SCRFuncPoseidonToothMiLTexAnimStrat), recorded for a later rewrite, not shipped."
   }
  ]
 }

@@ -23130,3 +23130,63 @@ from a host copy of the game's BSD qsort over the nodes' depths, each node's bod
 sotc_worker::behindGate). Exact: 0 differences over 795 182 lists checked on ride7, lake6, attract (every list one node: the
 qsort copy not exercised). A/B even to slightly slower (pooled about -0.08 +- 0.12 ms, 2 SE): off by default. Riding the cost is
 per list (85-90 a frame, one per geodisp), not per node. Details: docs/ptcl_s22.md.
+
+## Decomp D21: bdie on the rest: no death reaches the save screen (two stalls inside st_boss_dead); Celosia's colossus found; no batch (2026-11-19)
+
+Scripts, runs and logs: the worktree's `build/agent-scratch/d21/` (copied from D20's scratch with clone21.py, the same-length
+path rewrite, and mtimes21.py; the kill routes w* / x* / z*, drun.sh / lane.sh, dtk21.sh / tlane21*.sh (trace passes),
+survey21.py, gen21.sh, pass21.py, fin21.sh, cmpcc.py, samp.sh (host stacks of a run after its bdie), the mac/ and vita/ build
+dirs). Own Vita3K tree ../vita3k-celosia-d21 (from d17's, 222 MHz, 3 cores, muted). macrun.sh's frame watchdog now waits
+300 s (it killed D20-style runs at frame 16 190, where the input script ends and the death demo shows no [tpos]).
+
+### The deaths (Mac, `bdie` at frame 5000 on D20's w routes, 600 s each)
+
+| route | colossus | result |
+|---|---|---|
+| w4 | Avion (4) | st_boss_dead 1, then stuck at its **first wait** (0x13D0660: the boss' current motion == the record's death motion, 29 588 polls); the picture frozen on the letterboxed death shot |
+| w5 | Barba (5) | the same first wait (13 760 polls); picture frozen in the pit |
+| w9 / w9b | Dirge (9) | w9: game over at ~3 800 (ptrack dropped Wander onto Dirge), bdie hit the reloaded boss; w9b (bdie at 3 060, no ptrack): the same first-wait freeze |
+| w6 | Hydrus (6) | past the first wait, CreateDeathTentacle 1, then stuck at the **second wait** (0x13D07E8: while game mode 0x1465D30 bit 0, 26 618 polls) |
+| w11 | Pelagia (11) | the same second wait (22 730 polls); SCRCharaDead 24 049 calls; black picture |
+| w10b | Celosia (10) | colossus found (below); bdie took (life 190 -> 0), st_boss_dead 1, stuck at the first wait; the boss pre-process never took its death path (checkDeadMotionLoadByScriptDataSystem 0 calls); Wander walks the arena |
+
+None reaches setBossDeathEffect, CheckDeathTentacle, bossDemoPlayerBreakDown* or memoryCardSaveScript.
+
+- **First wait (Avion, Barba, Dirge)**: in these routes checkDeadMotionLoadByScriptDataSystem finds the death motion not
+  resident and calls setLoadingCheckFunc + the load (Malus' / Cenobia's / Phalanx' were resident: no such call in w15). The
+  load never completes: host samples 90 s and 150 s after bdie (samp.sh, w9b and dt21_w5) show every EE thread blocked (the
+  game thread in EeScheduler::idleWait from the kernel's idle loop), the frame counter and the picture stop, SCRCharaDead is
+  never called. A low life first (`blife5` at 4 300, bdie at 6 500: w5c) changes nothing.
+- **Second wait (Hydrus, Pelagia: both water arenas)**: st_boss_dead sets 0x1466AB4 = 4, calls func_1411AA8(main camera, 1)
+  and waits while game mode bit 0 (0x1465D30, gameModeSet / Cls) is set; nobody clears it.
+- **Celosia's colossus**: never in the boss handle group (0x1465908). The new aid `SOTC_TELEPORT_GROUPS=1` lists the isys
+  group words 0x1465800-0x14659FC with a member: 0x146590C holds small creatures (its object changes, no AI work), not
+  Celosia. SCRConditionLeoCheckArmorBroken (0x139E0D8) calls CheckSCRCharaAIWorkPtr on its a0: that a0 is the colossus.
+  `SOTC_TELEPORT_PROBE=0139E0D8 SOTC_TELEPORT_PROBE_BOSS=0` (the D10 probe hook) gives the aids its object (w10b.sh).
+  `SOTC_TELEPORT_BOSS_GROUP=<hex>` reads another group word than 0x1465908 for the boss handle (kept as a knob).
+
+### The trace passes (findings only: no batch)
+
+The user changed direction mid-round (no more exact MIPS-shaped lifting: no new lift_d1 batches), so D21 ships no batch and no
+kLiftD21 switch; what the trace passes found is kept here for whoever picks the functions up in a C++ rewrite.
+
+- Candidates: D20's 6 unchecked, plus survey21.py over the D21 runs (reached, still recompiled, not natives / stubs, not shipped
+  by D16-D20, not reached before): 7 new: nico_playerRootReverseByZRot (Dirge's game over, w9 / w10b),
+  SCRFuncPoseidonToothMiLTexAnimStrat (Pelagia, w11), and five of Celosia's arena (gamecore_sub_013D9138,
+  gamecore_sub_01435758, getPPointPasasgeNum, gamecore_sub_01435EA0, SCRConditionPPPassageNum: its passage points).
+- Test batches (`lift_d1.py`, 0 refused; runner-u1 / u3 in the scratch), trace passes (TRACE=all, FIRST=20, EVERY=200, MAX=200,
+  SOTC_DIFFTEST_TRACE_MAX=200000: InitTableSinCos' 2 715 events overflowed D20's default 1 500) on z12, w5, w15, x15, w11, w10b:
+  5 checked, 11 checks, 0 mismatch lines: InitTableSinCos (6), setLoadingCheckFunc (2), SCRBossDebugDeath and
+  gamecore_sub_0136FFC0 (x15, D19's bdeath route), SCRFuncPoseidonToothMiLTexAnimStrat (w11).
+- Not checked: player_setDangerEdgeOtherSidePlanePoint (this z12 pass missed it; y12 / c12 reach it), SCRFuncSetGameWork (w15
+  under the trace did not reach the save screen in 600 s), nico_playerRootReverseByZRot (w9 pass dropped for time), Celosia's
+  five (in the w10b pass the probe's last a0 was another object when bdie fired: it wrote work 0x7F's +0x44 and the run hung).
+
+### Next
+
+- The death motion load that never finishes (Avion, Barba, Dirge): which load the loading check waits on (the IOP / CD side
+  of a load issued from checkDeadMotionLoadByScriptDataSystem while the area streams), on the Vita too.
+- The water bosses' wait on game mode bit 0 after func_1411AA8(camera, 1): who clears it in the real game (the camera's demo
+  mode end?), and whether Wander in / on the water keeps it set.
+- Celosia: a steadier handle than the probe's last a0 (keep only an a0 whose CheckSCRCharaAIWorkPtr gives a boss work), then
+  why its pre-process never takes the death path after bdie.
