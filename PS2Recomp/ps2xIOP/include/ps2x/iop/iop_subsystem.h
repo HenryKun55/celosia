@@ -29,6 +29,9 @@ namespace ps2x::iop
         void runEeCycles(uint64_t eeCycles) noexcept;
         // Interleaved stereo 48 kHz frames produced by the SPU2 (any thread).
         size_t readAudio(int16_t *destination, size_t frames) noexcept;
+        // Round N2 (n2snd): the native sound driver's status request called straight from the EE side's native
+        // remote tick (commands of 4 words, the 400-byte reply); false when the native driver is not loaded.
+        bool sg2Serve(const uint32_t *command, size_t words, uint8_t *reply);
 
         [[nodiscard]] RpcAbi selectRpcAbi(const RpcAbiRequest &request) const;
         [[nodiscard]] bool canBindRpc(uint32_t sid) const noexcept;

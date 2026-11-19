@@ -34,6 +34,9 @@ namespace ps2x::iop::detail
 
         void reset();
         [[nodiscard]] RpcResult handleRpc(const RpcRequest &request);
+        // Round N2 (n2snd): the status request without SIF / RPC: the commands (4 words each) from the EE side's
+        // host queue applied, the 400-byte reply put in replyOut (the game's status block).
+        void serve(const uint32_t *command, size_t words, uint8_t *replyOut);
         [[nodiscard]] SoundMixer &mixer() { return m_mixer; }
 
     private:
@@ -86,6 +89,7 @@ namespace ps2x::iop::detail
         void pendUnlock() { m_pendLock.clear(std::memory_order_release); }
         std::atomic_flag m_pendLock = ATOMIC_FLAG_INIT;
         std::vector<uint32_t> m_pending, m_draining;
+        std::vector<uint32_t> m_send; // handleRpc's commands read from the EE
         bool m_pendingReply = false;
         std::atomic<uint32_t> m_deferredRun{0u}; // requests left in a row since the last one drained (m_pendLock / the game thread)
         bool m_hookSet = false;

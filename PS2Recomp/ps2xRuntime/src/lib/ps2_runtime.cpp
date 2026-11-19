@@ -30,6 +30,8 @@
 #include "Kernel/Stubs/MPEG.h"
 #include "ps2_host_backend.h"
 #include "ps2_iop_host.h"
+#include "ps2_iop_transport.h"
+#include "ps2_sg2_direct.h"
 #include "ps2x/iop/iop_subsystem.h"
 #if defined(__vita__)
 #include <psp2/kernel/sysmem.h>
@@ -757,6 +759,23 @@ ps2x::iop::RpcResult PS2Runtime::handleIopRpc(uint8_t *rdram, R5900Context *ctx,
     auto scope = m_iopHost->enterCall(ctx, rdram);
     request.callToken = scope.token();
     return m_iopSubsystem->handleRpc(request);
+}
+
+bool PS2IopTransport::sg2Serve(PS2Runtime *runtime, uint8_t *rdram, R5900Context *context, const uint32_t *command, size_t words, uint8_t *reply)
+{
+    if (!runtime || !runtime->m_iopSubsystem || !runtime->m_iopHost)
+        return false;
+    if (!reply)
+        return runtime->m_iopSubsystem->sg2Serve(nullptr, 0u, nullptr); // (asked whether the driver is loaded)
+    runtime->catchUpIopNow();
+    auto scope = runtime->m_iopHost->enterCall(context, rdram);
+    return runtime->m_iopSubsystem->sg2Serve(command, words, reply);
+}
+
+// ps2_sg2_direct.h
+bool ps2xSg2Serve(PS2Runtime *runtime, uint8_t *rdram, R5900Context *ctx, const uint32_t *command, size_t words, uint8_t *reply)
+{
+    return PS2IopTransport::sg2Serve(runtime, rdram, ctx, command, words, reply);
 }
 
 void PS2Runtime::notifyIopSifTransfer(uint8_t *rdram, const ps2x::iop::SifTransfer &transfer)

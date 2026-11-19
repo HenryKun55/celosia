@@ -28,6 +28,8 @@ namespace ps2x::iop::detail
         // Interleaved stereo 48 kHz frames produced by the SPU2 (any thread).
         size_t readAudio(int16_t *destination, size_t frames) noexcept;
         [[nodiscard]] RpcResult handleRpc(const RpcRequest &request);
+        // Round N2: the native sound driver's status request called straight (no RPC); false when it is not loaded.
+        bool sg2Serve(const uint32_t *command, size_t words, uint8_t *reply);
         // From now on no IOP code runs (threads, interrupts, RPC servers);
         // the clock goes on for the native mixer.
         void haltCpu() noexcept;

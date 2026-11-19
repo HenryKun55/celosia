@@ -884,6 +884,17 @@ namespace ps2x::iop::detail
         return m_impl->rpc.handleRpc(request, *m_impl);
     }
 
+    bool IopEmulator::sg2Serve(const uint32_t *command, size_t words, uint8_t *reply)
+    {
+        if (!m_impl->sg2Loaded.load(std::memory_order_acquire))
+            return false;
+        if (!reply)
+            return true; // (asked whether it is loaded)
+        m_impl->idleUntil = 0;
+        m_impl->sg2.serve(command, words, reply);
+        return true;
+    }
+
     bool IopEmulator::hasRpcServer(uint32_t sid) const noexcept
     {
         return (m_impl->sg2Loaded && sid == Sg2Driver::Sid) || m_impl->rpc.hasServer(sid);

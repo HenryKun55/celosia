@@ -130,96 +130,14 @@ namespace ps2x::iop::detail
         RpcResult result;
         if (request.function == 0u)
         {
-            {
-                const uint64_t now = audio_stats::nowUs();
-                audio_stats::status.fetch_add(1, std::memory_order_relaxed);
-                if (m_lastStatusUs)
-                {
-                    audio_stats::raiseMax(audio_stats::statusGapMaxUs, now - m_lastStatusUs);
-                    if (now - m_lastStatusUs > 50000u)
-                        audio_stats::statusGapsOver50.fetch_add(1, std::memory_order_relaxed);
-                }
-                m_lastStatusUs = now;
-            }
-            if (audio_stats::sg2q139())
-            {
-                // Round 139: no wait for the audio thread's piece.
-                audio_stats::sg2Requests.fetch_add(1, std::memory_order_relaxed);
-                auto lock = m_mixer.tryHold();
-                const size_t words = request.send.size / 4u;
-                // SOTC_SG2Q139_ALWAYS=1 (measuring): every request left for the audio thread, not only those that
-                // find the lock taken; either way at most 3 in a row before one runs here (no audio thread drained).
-                static const bool always = [] { const char *e = std::getenv("SOTC_SG2Q139_ALWAYS"); return e && std::atoi(e) != 0; }();
-                if ((!lock.owns_lock() || always) && m_hookSet && m_deferredRun < 3u)
-                {
-                    ++m_deferredRun;
-                    std::array<uint8_t, 400> reply;
-                    pendLock();
-                    const size_t at = m_pending.size();
-                    m_pending.resize(at + words);
-                    if (words && !m_host.readGuest(request.send.address, m_pending.data() + at, words * 4u))
-                        m_pending.resize(at);
-                    m_pendingReply = true;
-                    reply = m_replyOut;
-                    pendUnlock();
-                    m_mixer.askPieceHook();
-                    audio_stats::sg2Deferred.fetch_add(1, std::memory_order_relaxed);
-                    if (request.receive.address != 0u && request.receive.size != 0u)
-                        (void)m_host.writeGuest(request.receive.address, reply.data(), std::min<size_t>(request.receive.size, reply.size()));
-                }
-                else
-                {
-                    if (!lock.owns_lock())
-                        lock.lock();
-                    if (!m_hookSet)
-                    {
-                        m_pending.reserve(8192);
-                        m_draining.reserve(8192);
-                        m_mixer.setPieceHook(&Sg2Driver::drainHook, this);
-                        m_hookSet = true;
-                    }
-                    m_deferredRun = 0u;
-                    drainPending(); // what an earlier request left, first
-                    pendLock();
-                    m_draining.resize(words);
-                    pendUnlock();
-                    if (words && m_host.readGuest(request.send.address, m_draining.data(), words * 4u))
-                        for (size_t i = 0; i + 4u <= words; i += 4u)
-                            runCommand(&m_draining[i]);
-                    fillReply();
-                    pendLock();
-                    m_replyOut = m_reply;
-                    pendUnlock();
-                    if (request.receive.address != 0u && request.receive.size != 0u)
-                        (void)m_host.writeGuest(request.receive.address, m_reply.data(), std::min<size_t>(request.receive.size, m_reply.size()));
-                }
-                result.handled = true;
-                result.resultAddress = request.receive.address;
-                result.serverDispatchPolicy = ServerDispatchPolicy::Suppress;
-                result.signalNowaitCompletion = true;
-                result.signalCompletion = true;
-                return result;
-            }
-            const uint64_t asked = audio_stats::nowUs();
-            auto lock = m_mixer.holdSpinning();
-            const uint64_t got = audio_stats::nowUs();
-            audio_stats::rpcLockUs.fetch_add(got - asked, std::memory_order_relaxed);
-            struct Done
-            {
-                uint64_t from;
-                ~Done() { audio_stats::rpcUs.fetch_add(audio_stats::nowUs() - from, std::memory_order_relaxed); }
-            } done{asked};
-            std::vector<uint32_t> commands(request.send.size / 4u);
-            if (!commands.empty() &&
-                m_host.readGuest(request.send.address, commands.data(), commands.size() * 4u))
-            {
-                for (size_t i = 0; i + 4u <= commands.size(); i += 4u)
-                    runCommand(&commands[i]);
-            }
-            fillReply();
+            const size_t words = request.send.size / 4u;
+            m_send.resize(words);
+            if (words && !m_host.readGuest(request.send.address, m_send.data(), words * 4u))
+                m_send.clear();
+            std::array<uint8_t, 400> reply;
+            serve(m_send.data(), m_send.size(), reply.data());
             if (request.receive.address != 0u && request.receive.size != 0u)
-                (void)m_host.writeGuest(request.receive.address, m_reply.data(),
-                                        std::min<size_t>(request.receive.size, m_reply.size()));
+                (void)m_host.writeGuest(request.receive.address, reply.data(), std::min<size_t>(request.receive.size, reply.size()));
         }
         result.handled = true;
         result.resultAddress = request.receive.address;
@@ -227,6 +145,74 @@ namespace ps2x::iop::detail
         result.signalNowaitCompletion = true;
         result.signalCompletion = true;
         return result;
+    }
+
+    // The status request's work (RPC function 0, or round N2's direct call from the EE side's native remote
+    // tick): the commands applied in order, the 400-byte reply put in replyOut.
+    void Sg2Driver::serve(const uint32_t *command, size_t words, uint8_t *replyOut)
+    {
+        {
+            const uint64_t now = audio_stats::nowUs();
+            audio_stats::status.fetch_add(1, std::memory_order_relaxed);
+            if (m_lastStatusUs)
+            {
+                audio_stats::raiseMax(audio_stats::statusGapMaxUs, now - m_lastStatusUs);
+                if (now - m_lastStatusUs > 50000u)
+                    audio_stats::statusGapsOver50.fetch_add(1, std::memory_order_relaxed);
+            }
+            m_lastStatusUs = now;
+        }
+        if (audio_stats::sg2q139())
+        {
+            // Round 139: no wait for the audio thread's piece.
+            audio_stats::sg2Requests.fetch_add(1, std::memory_order_relaxed);
+            auto lock = m_mixer.tryHold();
+            // SOTC_SG2Q139_ALWAYS=1 (measuring): every request left for the audio thread, not only those that
+            // find the lock taken; either way at most 3 in a row before one runs here (no audio thread drained).
+            static const bool always = [] { const char *e = std::getenv("SOTC_SG2Q139_ALWAYS"); return e && std::atoi(e) != 0; }();
+            if ((!lock.owns_lock() || always) && m_hookSet && m_deferredRun < 3u)
+            {
+                ++m_deferredRun;
+                pendLock();
+                m_pending.insert(m_pending.end(), command, command + words);
+                m_pendingReply = true;
+                std::memcpy(replyOut, m_replyOut.data(), m_replyOut.size());
+                pendUnlock();
+                m_mixer.askPieceHook();
+                audio_stats::sg2Deferred.fetch_add(1, std::memory_order_relaxed);
+            }
+            else
+            {
+                if (!lock.owns_lock())
+                    lock.lock();
+                if (!m_hookSet)
+                {
+                    m_pending.reserve(8192);
+                    m_draining.reserve(8192);
+                    m_mixer.setPieceHook(&Sg2Driver::drainHook, this);
+                    m_hookSet = true;
+                }
+                m_deferredRun = 0u;
+                drainPending(); // what an earlier request left, first
+                for (size_t i = 0; i + 4u <= words; i += 4u)
+                    runCommand(&command[i]);
+                fillReply();
+                pendLock();
+                m_replyOut = m_reply;
+                pendUnlock();
+                std::memcpy(replyOut, m_reply.data(), m_reply.size());
+            }
+            return;
+        }
+        const uint64_t asked = audio_stats::nowUs();
+        auto lock = m_mixer.holdSpinning();
+        const uint64_t got = audio_stats::nowUs();
+        audio_stats::rpcLockUs.fetch_add(got - asked, std::memory_order_relaxed);
+        for (size_t i = 0; i + 4u <= words; i += 4u)
+            runCommand(&command[i]);
+        fillReply();
+        std::memcpy(replyOut, m_reply.data(), m_reply.size());
+        audio_stats::rpcUs.fetch_add(audio_stats::nowUs() - asked, std::memory_order_relaxed);
     }
 
     // Round 139 (sg2q139): the requests the status call left for the audio thread, in order, and the

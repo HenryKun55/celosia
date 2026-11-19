@@ -209,6 +209,11 @@ namespace ps2x::iop
         return m_impl->emulator.readAudio(destination, frames);
     }
 
+    bool IopSubsystem::sg2Serve(const uint32_t *command, size_t words, uint8_t *reply)
+    {
+        return m_impl->native && m_impl->emulator.sg2Serve(command, words, reply);
+    }
+
     RpcAbi IopSubsystem::selectRpcAbi(const RpcAbiRequest &request) const
     {
         for (const auto &service : m_impl->coreServices)

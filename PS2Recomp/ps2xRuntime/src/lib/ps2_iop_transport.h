@@ -28,6 +28,10 @@ public:
                    : ps2x::iop::RpcResult{};
     }
 
+    // Round N2 (n2snd): the native sound driver's status request called straight, as handleRpc would run it (the
+    // IOP's clock caught up, the call scope entered), without SIF / RPC (ps2_runtime.cpp).
+    static bool sg2Serve(PS2Runtime *runtime, uint8_t *rdram, R5900Context *context, const uint32_t *command, size_t words, uint8_t *reply);
+
     [[nodiscard]] static bool canBindRpc(const PS2Runtime *runtime, uint32_t sid)
     {
         return !runtime || runtime->canBindIopRpc(sid);
