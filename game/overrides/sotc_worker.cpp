@@ -1020,6 +1020,22 @@ namespace sotc_worker
     void skipEntryOnce(uint32_t entry) { g_skipEntry = entry; }
     bool gated() { return g_gated; }
     bool skipPending() { return g_skipEntry != 0u; }
+    namespace
+    {
+        template <int... I>
+        PS2Runtime::RecompiledFunction gateOf(int i, std::integer_sequence<int, I...>)
+        {
+            static const PS2Runtime::RecompiledFunction gates[] = {gate<I>...};
+            return gates[i];
+        }
+    }
+    EntryFn behindGate(uint32_t entry, EntryFn fn)
+    {
+        for (int i = 0; i < kModuleCount; ++i)
+            if (kModuleEntries[i] == entry)
+                return (g_orig[i] && fn == gateOf(i, std::make_integer_sequence<int, kModuleCount>{})) ? g_orig[i] : fn;
+        return fn;
+    }
     void noteWalk() { g_walked = true; }
     bool walked() { return g_walked; }
     bool busy() { return g_busy.load(std::memory_order_relaxed); }

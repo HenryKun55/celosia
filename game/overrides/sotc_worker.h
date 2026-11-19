@@ -43,6 +43,11 @@ namespace sotc_worker
     bool gated();
     // Round 95: a skipEntryOnce not reached yet.
     bool skipPending();
+    // Round S22: the native behind a module entry's gate (fn the table's entry for `entry`): the gate's own original
+    // when fn is that entry's gate, else fn. A caller may run it straight while !busy() && !skipPending() (the gate then
+    // only joins round S5's batch, which the caller does itself).
+    using EntryFn = void (*)(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // PS2Runtime::RecompiledFunction
+    EntryFn behindGate(uint32_t entry, EntryFn fn);
     // Round 95: the display walk ran this frame (it calls noteWalk; cleared at the frame's end).
     void noteWalk();
     bool walked();

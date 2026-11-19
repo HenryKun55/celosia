@@ -37,6 +37,7 @@
 // before anything is written.
 #include "sotc_decomp.h"
 #include "s5_particles.h"
+#include "sotc_worker.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -585,7 +586,7 @@ namespace decomp_ptcl117
         dispEmitterImpl(rdram, ctx, runtime);
     }
 
-    void nodeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n, uint32_t a1, uint32_t a2, uint32_t sp0);
+    void nodeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n, uint32_t a1, uint32_t a2, uint32_t sp0, bool emitterDirect = false);
     // ---- 01140ED0 (a0 the node, a1 / a2 the class's +0x80 / +0x40) -------
     void node(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -600,7 +601,7 @@ namespace decomp_ptcl117
     }
 
     // node's body past its checks (round S22's list calls it straight for nodes its pass checked the same way).
-    void nodeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n, uint32_t a1, uint32_t a2, uint32_t sp0)
+    void nodeBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n, uint32_t a1, uint32_t a2, uint32_t sp0, bool emitterDirect)
     {
         const uint32_t sp = sp0 - 0x20u;
         const uint32_t rec = rd(rdram, n), Mr = rd(rdram, rec + 0x48u), E = n + 0x10u;
@@ -677,7 +678,7 @@ namespace decomp_ptcl117
         SET_GPR_U32(ctx, 5, Mr);
         SET_GPR_U32(ctx, 6, rd(rdram, rec + 0x4Cu));
         ctx->pc = kEmitter;
-        if (runtime->guestFunctionAt(kEmitter) == &dispEmitter)
+        if (emitterDirect || runtime->guestFunctionAt(kEmitter) == &dispEmitter)
             dispEmitter(rdram, ctx, runtime);
         else
             runtime->guestFunctionAt(kEmitter)(rdram, ctx, runtime);
@@ -849,7 +850,9 @@ namespace decomp_ptcl117
         };
         struct Stats
         {
-            uint64_t lists = 0, host = 0, nodes = 0, runs = 0, sorted = 0, sortedNodes = 0, old = 0, checks = 0, differ = 0, skipped = 0;
+            uint64_t lists = 0, host = 0, nodes = 0, runs = 0, sorted = 0, sortedNodes = 0, old = 0, checks = 0, differ = 0, skipped = 0, gateCalls = 0;
+            uint64_t why[8] = {}; // listHost's declines: empty, frame / view, worker, table, node, record, model, R
+            uint32_t lastFirst = 0;
         };
         Stats g_st;
         int g_check = -1;
@@ -871,10 +874,13 @@ namespace decomp_ptcl117
                 return;
             g_logFrame = frame;
             const Stats &t = g_st;
-            std::fprintf(stderr, "[s22ptcl] frame %llu: lists %llu host %llu old %llu nodes %llu runs %llu sorted %llu (%llu nodes); check %llu differ %llu skipped %llu\n",
+            std::fprintf(stderr, "[s22ptcl] frame %llu: lists %llu host %llu old %llu nodes %llu runs %llu sorted %llu (%llu nodes); check %llu differ %llu skipped %llu gate calls %llu\n",
                          (unsigned long long)frame, (unsigned long long)t.lists, (unsigned long long)t.host, (unsigned long long)t.old, (unsigned long long)t.nodes,
                          (unsigned long long)t.runs, (unsigned long long)t.sorted, (unsigned long long)t.sortedNodes, (unsigned long long)t.checks,
-                         (unsigned long long)t.differ, (unsigned long long)t.skipped);
+                         (unsigned long long)t.differ, (unsigned long long)t.skipped, (unsigned long long)t.gateCalls);
+            std::fprintf(stderr, "[s22ptcl] declined: empty %llu frame %llu worker %llu table %llu node %llu record %llu model %llu R %llu (last first %08x)\n",
+                         (unsigned long long)t.why[0], (unsigned long long)t.why[1], (unsigned long long)t.why[2], (unsigned long long)t.why[3],
+                         (unsigned long long)t.why[4], (unsigned long long)t.why[5], (unsigned long long)t.why[6], (unsigned long long)t.why[7], t.lastFirst);
         }
 
         // 01140EA8: (*a)->+0x144 < (*b)->+0x144 ? 1 : -1 (c.lt.s on the runtime's compare keys).
@@ -982,9 +988,21 @@ namespace decomp_ptcl117
     {
         const uint32_t first = GPR_U32(ctx, 4), s6 = GPR_U32(ctx, 5), s5 = GPR_U32(ctx, 6);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x70u;
-        if (first == 0u || (sp & 0xFu) != 0u || !ram(sp, 0x70u) || !ram(s6, 0x40u) || !ram(s5, 0x30u) || sotc_decomp::onWorkerLane(runtime) ||
-            sotc_decomp::guestFunction(runtime, kNode) != &node || sotc_decomp::guestFunction(runtime, kEmitter) != &dispEmitter)
-            return false;
+        s22::Stats &st = s22::g_st;
+        st.lastFirst = first;
+        if (first == 0u)
+            return ++st.why[0], false;
+        if ((sp & 0xFu) != 0u || !ram(sp, 0x70u) || !ram(s6, 0x40u) || !ram(s5, 0x30u))
+            return ++st.why[1], false;
+        if (sotc_decomp::onWorkerLane(runtime))
+            return ++st.why[2], false;
+        // The table holds round 117's natives, or round 95's gates around them (sotc_worker.cpp: the S5 batch's join, the
+        // guest worker's join while a job runs, early95's skip); a gated node is called straight only while the gate
+        // would just join S5's batch and call it (else through the table, as before).
+        const PS2Runtime::RecompiledFunction nodeFn = sotc_decomp::guestFunction(runtime, kNode), emFn = sotc_decomp::guestFunction(runtime, kEmitter);
+        if (sotc_worker::behindGate(kNode, nodeFn) != &node || sotc_worker::behindGate(kEmitter, emFn) != &dispEmitter)
+            return ++st.why[3], false;
+        const bool gated = nodeFn != &node || emFn != &dispEmitter;
         // The nodes, node's checks made here once each; the runs (draw key, record +0x34) marked by their ends.
         std::vector<s22::Item> &items = s22::g_items;
         std::vector<uint32_t> &ends = s22::g_runEnd;
@@ -994,13 +1012,13 @@ namespace decomp_ptcl117
         for (uint32_t n = first; n != 0u; n = rd(rdram, n + 0x1B0u))
         {
             if (!ram(n, 0x200u) || items.size() >= 4096u)
-                return false;
+                return ++st.why[4], false;
             const uint32_t rec = rd(rdram, n);
             if (!ram(rec, 0x50u))
-                return false;
+                return ++st.why[5], false;
             const uint32_t Mr = rd(rdram, rec + 0x48u);
             if (!ram(Mr, 0x130u) || !ram(rd(rdram, Mr + 0xD4u), 0x170u))
-                return false;
+                return ++st.why[6], false;
             const uint32_t key = rd(rdram, rec + 0x34u);
             if (!items.empty() && key != lastKey)
                 ends.push_back(static_cast<uint32_t>(items.size()));
@@ -1012,7 +1030,7 @@ namespace decomp_ptcl117
         const uint32_t Mr0 = rd(rdram, rd(rdram, first) + 0x48u);
         const uint32_t R = rd(rdram, Mr0 + 0xD4u) + x1bc(rd(rdram, first + 0x128u));
         if (!ram(R, 0x10u))
-            return false;
+            return ++st.why[7], false;
         const uint64_t e[10] = {GPR_U64(ctx, 16), GPR_U64(ctx, 17), GPR_U64(ctx, 18), GPR_U64(ctx, 19), GPR_U64(ctx, 20),
                                 GPR_U64(ctx, 21), GPR_U64(ctx, 22), GPR_U64(ctx, 23), GPR_U64(ctx, 30), GPR_U64(ctx, 31)};
         auto finish = [&]
@@ -1068,10 +1086,18 @@ namespace decomp_ptcl117
             SET_GPR_U32(ctx, 4, n);
             SET_GPR_U32(ctx, 5, s6);
             SET_GPR_U32(ctx, 6, s5);
+            if (gated && (sotc_worker::busy() || sotc_worker::skipPending()))
+            {
+                ++s22::g_st.gateCalls;
+                g.call(kNode, site, curSp); // the gate would join the worker or skip: through the table
+                return;
+            }
+            if (gated)
+                s5ptcl::joinIfPending(kNode); // the gate's first step (0113D988's own join is in dispEmitter)
             const uint32_t ra = site + 8u;
             SET_GPR_U32(ctx, 31, ra);
             ctx->pc = kNode;
-            nodeBody(rdram, ctx, runtime, n, s6, s5, curSp);
+            nodeBody(rdram, ctx, runtime, n, s6, s5, curSp, true);
             runtime->checkTransfer();
             if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != curSp, 0))
                 sotc_decomp::finishGuestCall(rdram, ctx, runtime, ra, curSp);
