@@ -22601,3 +22601,46 @@ game code 1 979 of 2 907 (1 936), collision and physics 221 of 317 (219), displa
 - Trace passes need a frame watchdog: a route that drops Wander into an unloaded area stalls the game frame (dt16_ch2).
 - Per the redesign directive: the small lifted getters of this batch (path data by area, DP group, torch info) are the
   first candidates for plain C++ over named struct views.
+
+## Redesign S13: kMotion's packed keys exact, the root getters as host code, the FPU's zero divides, the time slice (SOTC_S13MOT, off by default) (2026-11-18)
+
+The full write-up is docs/motion_s13.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s13/`
+(prof.sh the sampler, chk13.sh the in-run check, abs13.sh / chain_ab.sh the s13mot interleaved A/B, waitslot.sh now an
+atomic slot: a mkdir lock held 20 s after the slot is granted). Own Vita3K tree ../vita3k-celosia-s13 (222 MHz, 3 cores,
+muted). Closed early at the coordinator's request; the motion-curve evaluators were not started.
+
+### What S11's packed-key mismatch was
+
+S13's check computes the host answer, runs the recompiled leg, then computes the host answer again from the same inputs:
+the second host answer always equalled the leg, the FPSCR read round-toward-zero throughout, and the first answer was the
+same arithmetic with the products rounded to nearest (worked out with exact rationals). The trigger: the FPU divide / root
+by a non-normal operand (0 / x at a whole frame, in GetMotionRootDirInfo just before the differing call) switches the
+rounding mode with two FPSCR writes; Vita3K's A32 recompiler then keeps running translated code rounding to nearest until
+its next exit to the host. An emulator artifact, not the arithmetic: on the console the same instructions see the same
+FPSCR.
+
+### What changed (`SOTC_S13MOT`, A/B `s13mot`; `_PARTS`, `_CHECK`, `_LOG`, `_STRETCH`)
+
+- kPacked (1): kMotion's packed (int16) root keys as host arithmetic (S11 sent them to the recompiled function).
+- kRoot (2): GetMotionRootIntFrame and GetMotionRootInfo (non-looping path) as host routines over S11's views
+  (s13_motion.cpp; s11_motion.h now holds the views), the root key's table entry on the views for every caller, the
+  option-node getters' recompiled functions kept in pointers (no hash lookup a call).
+- kSlice (4): the EE time slice renewed 8 slices long when nothing at or above the running priority is ready, cut back to
+  the plain boundary when one becomes ready (riding: no equal-priority cut; ~1 slow checkpoint a frame saved).
+- kZeroDiv (8): 0 / x and sqrt(0) as the signed zero without the rounding-mode switch (`g_ps2xFpuZeroFast`).
+- Always (with S11's kMotion): v0's upper half and the `c.eq.s` condition bit as the original leaves them.
+- ctl126's root key (S11's finding) now reads the constant / packed data through *(track + 0xC) via S11's views, checked.
+
+### Checks, A/B, decision
+
+`SOTC_S13MOT_CHECK=1` with the check's guard (a kernel call before each compared call, p3): ride7 1 056 633 calls, lake6
+609 759, attract 656 901: **0 differences** (out, v0 incl. its upper half, f0, the condition bit, VU0). Without the guard
+(p2) ride7 0 in 1 173 652, lake6 1 in 611 399 (the emulator's rounding mode), attract 0 in 621 609. A/B (Vita3K 222 MHz,
+off - on): ride7 +0.123 ± 0.192 ms (seed 7, 800 s), -0.099 ± 0.228 ms (seed 11, 400 s): even. **Off by default**
+(`SOTC_S13MOT=1` on); exact, so the console's A/B can try it. Boot with 89 MB taken: bootRp3 (S13 on) mounted at 6 897 and rode to 10 952, bootRp4b (the shipped p4, off) mounted at 4 337 and rode to 18 438, no fault (bootRp4, the first p4 try, never mounted: the route script's timing; it ran clean on foot). spalign 0 sp-based.
+
+### What it leaves
+
+The curve evaluators 0x010B00A8 / 0x010AEE18 (0.10 / 0.08%, ~1 500 MIPS instructions with their callees), GetMotionRootInfo's
+looping path and GetMotionRootDirInfo, the slow checkpoints' unwinds (~85-130 a frame: S11 §5), the divides by other
+non-normal operands that still switch the rounding mode.
