@@ -1031,6 +1031,14 @@
     "focus": "Decomp",
     "summary": "Decomp D17: Argus, the fortress colossus, is killed (collapse, black tentacles, the shrine's save screen); Wander climbs Malus and rides Cenobia's back, but they need a new test aid that breaks weak points and armour before they can die. A frame watchdog now ends test runs that stall in an area that never loaded. Of D16's 68 converted-but-unchecked functions, 32 are checked exact with not a single difference and none slower: they ship behind SOTC_LIFTD17 (on), among them Argus' start and cloth, Malus' start and missiles, the aim IK and Pelagia's shot.",
     "result": "Whole game (honest count): 5 828 of 9 024 functions (64.6%, 64.2% after D16), 69.2% of the code, 97.7% of calls. Script 320 of 633 (312), characters 789 of 1 205 (778), other game code 1 989 of 2 907 (1 979). Exact: 32 functions, 1 037 checks, 0 differences. Speed (Vita3K 222 MHz, interleaved A/B, two seeds): neutral. Boots and runs with the console's free memory (Vita3K, 89 MB taken)."
+  },
+  {
+   "round": "S14",
+   "date": "2026-11-19",
+   "commit": "90cfabf",
+   "focus": "Subsystem redesign",
+   "summary": "Round S14, a small round on S12's list: the model hook's VIF / VU1 reads. The hook and the skinned shadow read each skinned bone palette back out of the instance chain's second packet (readChainPaletteLean 0.42-0.57% of the game thread riding: the VIF codes walked twice, every qword copied with a bounds check, read note and prefetch); the lights are a 128-byte copy (left). SOTC_S14HOOK (A/B s14hook, part palette, s14hook.h): each instance chain has a host record (VU range, packet, its VIF code words, per bone the row its four qwords land at, the other qwords, the rows); dispSkinned's native loop checks it against the chain and writes each bone's rows into it as well as the guest block; the hook and the shadow take the record when written this frame, else read as before and learn the layout.",
+   "result": "Exact: the in-run check read every take the old way too and compared lo / hi / packet / size / floats, 306 575 takes over ride7, lake6 and attract, 0 differences, no unusable layout. Even in the interleaved A/B (off - on, a loaded machine): ride7 400 s -0.21 +- 0.29 / +0.12 +- 0.32 ms, 800 s +0.06 +- 0.20 / +0.14 +- 0.21; lake6 +0.09 / +0.02; attract -0.06 / +0.06; the sampler: readChainPaletteLean 0.57% -> 0.28-0.33% in the mixed runs (~0.17 ms a frame on the on-frames), below what the frame time resolves. Not z > 2 in both seeds: off by default (SOTC_S14HOOK=1). Pictures normal, the 89 MB-taken boot clean. Next: the plans from a host model cache built at model load, the guest palette write once the kick takes the record, the lights as a host record."
   }
  ]
 }

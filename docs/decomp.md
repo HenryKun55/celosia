@@ -22694,3 +22694,39 @@ playerlifebar_effect, startGaugeMaxAddEffect). Of the other 36, 19 were never re
 
 An aid that breaks weak points / armour (Malus' three points, Cenobia's armour) for their deaths; new routes for the 19
 never reached.
+## Redesign S14: the model hook's bone palette as a host record dispSkinned writes, not read back out of the VIF chain (SOTC_S14HOOK, off by default) (2026-11-19)
+
+A small round on S12's list, "the model hook's VIF / VU1 reads". The full write-up is docs/display_s14.md; this is the
+summary. Scripts, runs and logs: `build/agent-scratch/s14/` (q1-q4.sh the queues, abs14.sh the interleaved A/B,
+chk14.sh the in-run check, waitslot.sh, vq.out). Own Vita3K trees ../vita3k-celosia-s14 / -s14b (222 MHz, 3 cores,
+muted); builds `-j4`, nice'd.
+
+### The map (ride7, Vita3K 222 MHz)
+
+The hook and the skinned shadow read each skinned palette back from the instance chain's second packet
+(readChainPaletteLean 0.42-0.57% of the game thread riding: the VIF codes walked twice, every qword copied with a bounds
+check, a read note and a prefetch); dispSkinned, the palette's writer, 0.29%. The lights are a 128-byte block copy: left
+as they are. The plans' per-frame checks (planChecked 0.17%) are the next item, not done here.
+
+### What changed
+
+Part `palette`: each instance chain has a host record (s14hook.h: the VU range, the packet, its VIF code words, per bone
+the record row its four qwords land at, the packet's other qwords, the rows). dispSkinned's native loop checks the
+record against the chain (tag, packet, size, every code word, palette block, bone count) and writes each bone's rows into
+it as well as into the guest block; the hook and the shadow take the record (one copy of host floats) when it was written
+this frame, else read the chain as before and learn its layout from that read. Every dispSkinned call invalidates the
+record first, so the recompiled fallback paths never leave a stale one.
+
+### Checks, A/Bs, decision
+
+SOTC_S14HOOK_CHECK=1 (every take also read the old way; lo / hi / packet / size / floats compared): 306 575 takes over
+ride7 (170 041), lake6 (43 713) and attract (92 821), **0 differences**, no unusable layout. Frame time off - on (Vita3K
+222 MHz, interleaved, seeds 7 / 11; a loaded machine): ride7 400 s -0.21 +- 0.29 / +0.12 +- 0.32 ms, 800 s +0.06 +- 0.20 /
++0.14 +- 0.21; lake6 +0.09 / +0.02; attract -0.06 / +0.06. The sampler: readChainPaletteLean 0.57% -> 0.28-0.33% in the
+mixed runs (the on-frames' skinned reads gone, ~0.17 ms a frame), below what the frame time resolves. Not z > 2 in both
+seeds riding: **off by default** (SOTC_S14HOOK=1 turns it on; exact, kept for the console's A/B).
+
+### Next
+
+The plans from a host model cache built at model load (no per-frame packetListHash); the guest palette write itself once
+the kick takes the host record too; the lights as a host record; the rest of S12's list: docs/display_s14.md section 6.
