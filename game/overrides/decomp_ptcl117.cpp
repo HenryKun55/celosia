@@ -317,6 +317,8 @@ namespace decomp_ptcl117
             const uint32_t slot = (target - g_ps2RecompiledFunctionTableBase) >> 2;
             if ((target & 3u) || slot >= g_ps2RecompiledFunctionTableSlotCount || n >= 16)
                 return;
+            if (n == 0)
+                ps2DirectSuspend(true); // round N3: the recorder in the slots while the spy lives
             at[n] = slot;
             was[n] = g_ps2RecompiledFunctionTable[slot];
             g_ps2RecompiledFunctionTable[slot] = &recorder;
@@ -326,6 +328,8 @@ namespace decomp_ptcl117
         {
             for (int i = n - 1; i >= 0; --i)
                 g_ps2RecompiledFunctionTable[at[i]] = was[i];
+            if (n > 0)
+                ps2DirectSuspend(false);
         }
     };
     struct Check117

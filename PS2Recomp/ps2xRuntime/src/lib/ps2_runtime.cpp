@@ -1577,6 +1577,93 @@ void ps2DumpReplacedFunctions()
     replacedLog().dump();
 }
 
+// Round N3: direct calls from generated code (PS2_CALL_GUEST_DIRECT / PS2_TAIL_GUEST_DIRECT, ps2_runtime_macros.h).
+// g_ps2DirectCalls is set only while every registered direct target's slot holds its direct function: armed once the
+// overrides are in (ps2DirectArm), then every slot write through replaceFunction keeps the count of targets whose slot
+// holds something else; code that writes the table itself rechecks (ps2DirectRecheck) or suspends the calls
+// (ps2DirectSuspend: the call counter's thunks, a spy). Single writer: the game thread.
+bool g_ps2DirectCalls = false;
+uint32_t g_ps2TrustHits[2] = {0u, 0u};
+namespace
+{
+    struct DirectState
+    {
+        std::unordered_map<uint32_t, PS2Runtime::RecompiledFunction> targets; // address -> its direct function
+        uint32_t mismatched = 0u; // targets whose slot holds another function
+        int suspended = 0;
+        bool armed = false;
+        bool enabled = true; // the switch (SOTC_N3DIRECT, its A/B)
+    };
+    DirectState &directState()
+    {
+        static DirectState s;
+        return s;
+    }
+    std::vector<std::pair<uint32_t, PS2Runtime::RecompiledFunction>> &directPending()
+    {
+        static std::vector<std::pair<uint32_t, PS2Runtime::RecompiledFunction>> v;
+        return v;
+    }
+    void directUpdateFlag()
+    {
+        DirectState &d = directState();
+        g_ps2DirectCalls = d.armed && d.enabled && d.suspended == 0 && d.mismatched == 0u;
+    }
+}
+
+void ps2DirectTarget(uint32_t address, PS2Runtime::RecompiledFunction fn)
+{
+    directPending().push_back({address, fn});
+}
+
+uint32_t ps2DirectRecheck(bool log)
+{
+    DirectState &d = directState();
+    uint32_t bad = 0u;
+    for (const auto &[address, fn] : d.targets)
+    {
+        uint32_t slot = 0u;
+        const bool ok = generatedFunctionTableSlot(address, slot) && g_ps2RecompiledFunctionTable[slot] == fn;
+        if (!ok)
+        {
+            if (log && bad < 64u)
+                std::fprintf(stderr, "[n3] direct target %08x: its slot holds another function\n", address);
+            ++bad;
+        }
+    }
+    d.mismatched = bad;
+    directUpdateFlag();
+    return bad;
+}
+
+void ps2DirectArm()
+{
+    DirectState &d = directState();
+    if (!d.armed)
+    {
+        for (const auto &[address, fn] : directPending())
+            d.targets.emplace(address, fn);
+        directPending().clear();
+        directPending().shrink_to_fit();
+        d.armed = true;
+    }
+    const uint32_t bad = ps2DirectRecheck(true);
+    std::fprintf(stderr, "[n3] %u direct call targets, %u held by another function: direct calls %s\n", static_cast<unsigned>(d.targets.size()),
+                 static_cast<unsigned>(bad), g_ps2DirectCalls ? "on" : (d.enabled ? "off until they are back" : "off (switch)"));
+}
+
+void ps2DirectEnable(bool on)
+{
+    directState().enabled = on;
+    directUpdateFlag();
+}
+
+void ps2DirectSuspend(bool suspend)
+{
+    directState().suspended += suspend ? 1 : -1;
+    directUpdateFlag();
+}
+
 bool PS2Runtime::replaceFunction(uint32_t address, RecompiledFunction func)
 {
     uint32_t slot = 0u;
@@ -1591,6 +1678,20 @@ bool PS2Runtime::replaceFunction(uint32_t address, RecompiledFunction func)
 
     if (ReplacedLog &log = replacedLog(); log.path)
         log.originals.emplace(address, g_ps2RecompiledFunctionTable[slot]);
+    if (DirectState &d = directState(); d.armed)
+    {
+        if (const auto it = d.targets.find(address); it != d.targets.end())
+        {
+            const bool was = g_ps2RecompiledFunctionTable[slot] == it->second, now = func == it->second;
+            if (was != now)
+            {
+                d.mismatched += now ? -1 : 1;
+                g_ps2RecompiledFunctionTable[slot] = func;
+                directUpdateFlag();
+                return true;
+            }
+        }
+    }
     g_ps2RecompiledFunctionTable[slot] = func;
     return true;
 }

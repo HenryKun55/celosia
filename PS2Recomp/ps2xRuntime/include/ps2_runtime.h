@@ -703,6 +703,19 @@ extern const uint32_t g_ps2RecompiledFunctionTableBase;
 extern const uint32_t g_ps2RecompiledFunctionTableEnd;
 extern const uint32_t g_ps2RecompiledFunctionTableSlotCount;
 extern PS2Runtime::RecompiledFunction g_ps2RecompiledFunctionTable[];
+// Round N3: direct calls from generated code (ps2_runtime_macros.h PS2_CALL_GUEST_DIRECT; ps2_runtime.cpp).
+// ps2DirectTarget: a direct call's target (static registrars in the lifted files); ps2DirectArm: once the overrides
+// are in (sotc_decomp::install); ps2DirectRecheck: after writing table slots without replaceFunction (returns how many
+// targets' slots hold another function); ps2DirectEnable: the switch; ps2DirectSuspend(true / false): nested, around
+// code that puts its own functions in the table (thunks, spies).
+void ps2DirectTarget(uint32_t address, PS2Runtime::RecompiledFunction fn);
+void ps2DirectArm();
+uint32_t ps2DirectRecheck(bool log = false);
+void ps2DirectEnable(bool on);
+void ps2DirectSuspend(bool suspend);
+// Round N3: what a PS2X_EE_TRUST_CHECK build counted (ps2_runtime_macros.h): [0] VU0 operand lanes, [1] FPU results of
+// exponent 255 where level 1 leaves the clamp out.
+extern uint32_t g_ps2TrustHits[2];
 
 __attribute__((always_inline)) inline bool PS2Runtime::eeCheckpointDue(uint32_t cycles) noexcept
 {

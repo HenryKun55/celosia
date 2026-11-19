@@ -142,6 +142,7 @@ Usage: lift_d1.py -o out_{n}.cpp [--chunk 160] [--leaf] [--d2 | --d3 | --d4] [--
        [--summary-log f.txt]] [--resume-delegate] [--extern @file] [--refused refused.txt] addr|@file ...
 """
 import argparse
+import subprocess
 import os
 import re
 import sys
@@ -2151,6 +2152,8 @@ def main():
     ap.add_argument('--d17', action='store_true', help="decomp D17's batch: SOTC_DECOMP_LIFT_FUNCTION_D17 (SOTC_LIFTD17), as --d7 otherwise")
     ap.add_argument('--d18', action='store_true', help="decomp D18's batch: SOTC_DECOMP_LIFT_FUNCTION_D18 (SOTC_LIFTD18), as --d7 otherwise")
     ap.add_argument('--d20', action='store_true', help="decomp D20's batch: SOTC_DECOMP_LIFT_FUNCTION_D20 (SOTC_LIFTD20), as --d7 otherwise")
+    ap.add_argument('--no-direct', action='store_true', help="N3: leave the calls between lifted functions as table calls "
+                    "(otherwise tools/n3_direct.py runs over every lifted batch next to the output after writing)")
     ap.add_argument('--no-basemem', action='store_true', help="N1: keep guest accesses as READ32(ADD32(base, off)) (the old "
                     "text) instead of the base form READ32_B(base, off) (tools/n1_basemem.py)")
     ap.add_argument('addrs', nargs='+')
@@ -2285,6 +2288,12 @@ def main():
         if not args.no_basemem:  # N1: base + immediate accesses in the base form (one range test per base value)
             text = n1_basemem.rewrite(text)
         open(args.out.replace('{n}', f'{n:02d}'), 'w').write(text)
+    if not args.no_direct and not args.alt:  # N3: direct calls between lifted functions, over all batches at once
+        import glob
+        outdir = os.path.dirname(os.path.abspath(args.out))
+        batches = [f for f in glob.glob(os.path.join(outdir, 'decomp_liftd*_*.cpp')) if re.search(r'decomp_liftd\d+_\d+\.cpp$', f)]
+        if batches:
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n3_direct.py')] + sorted(batches), check=True)
     if args.inline_log:
         open(args.inline_log, 'w').write(''.join(x + '\n' for x in ilog))
     if args.inline:

@@ -329,7 +329,36 @@ static PS2_FORCE_INLINE __m128 ps2VuOperand(__m128 v)
 #ifndef PS2X_EE_TRUST_FINITE
 #define PS2X_EE_TRUST_FINITE 0
 #endif
-#if PS2X_EE_TRUST_FINITE && !PS2X_VU_MACROS_OLD
+// Round N3: PS2X_EE_TRUST_CHECK (with PS2X_EE_TRUST_FINITE >= 1; CMake PS2X_GEN_TRUST_CHECK, a check build):
+// every place where level 1 leaves a clamp out counts the cases where the clamp would have changed something (a VU0
+// operand lane of exponent 255; an FPU result of exponent 255) in g_ps2TrustHits[0] / [1]. Both counts 0 over a run:
+// that run's level-1 code computed the same bits as the clamped code (game/overrides/sotc_decomp.cpp logs them).
+#ifndef PS2X_EE_TRUST_CHECK
+#define PS2X_EE_TRUST_CHECK 0
+#endif
+#if PS2X_EE_TRUST_FINITE && PS2X_EE_TRUST_CHECK
+extern uint32_t g_ps2TrustHits[2];
+static PS2_FORCE_INLINE __m128 ps2TrustNoteVu(__m128 v)
+{
+    alignas(16) uint32_t w[4];
+    _mm_store_ps(reinterpret_cast<float *>(w), v);
+    for (int i = 0; i < 4; ++i)
+        if ((w[i] & 0x7F800000u) == 0x7F800000u)
+            ++g_ps2TrustHits[0];
+    return v;
+}
+static PS2_FORCE_INLINE float ps2TrustNoteFpu(float v)
+{
+    uint32_t b;
+    std::memcpy(&b, &v, sizeof(b));
+    if ((b & 0x7F800000u) == 0x7F800000u)
+        ++g_ps2TrustHits[1];
+    return v;
+}
+#endif
+#if PS2X_EE_TRUST_FINITE && !PS2X_VU_MACROS_OLD && PS2X_EE_TRUST_CHECK
+#define PS2X_VU_IN(v) ps2TrustNoteVu(v)
+#elif PS2X_EE_TRUST_FINITE && !PS2X_VU_MACROS_OLD
 #define PS2X_VU_IN(v) (v)
 #else
 #define PS2X_VU_IN(v) ps2VuOperand(v)
@@ -812,6 +841,27 @@ namespace ps2_guest_mem
 #define PS2_CALL_GUEST_KNOWN(target, function, returnPc, sourcePc, kind, name) \
     runtime->callGuestKnown(PS2_GUEST_FN(target), &function, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
 
+// Round N3: a JAL / J from generated code to a lifted function (tools/n3_direct.py, what tools/lift_d1.py writes):
+// PS2_CALL_GUEST_DIRECT(target, direct, ...) / PS2_TAIL_GUEST_DIRECT(target, direct) call `direct` (lift_d1::<name>)
+// without reading the function table while g_ps2DirectCalls is set, else exactly as PS2_CALL_GUEST_KNOWN /
+// PS2_TAIL_GUEST_KNOWN with `direct` as the known function. The runtime (ps2_runtime.cpp, ps2DirectArm) sets the flag
+// only while every direct target's table slot holds its direct function (every slot write is counted: a hook, an
+// A/B swap, a difftest checker or a switch turned off clears it until the slots hold them again), so the call runs
+// what the slot holds either way: exact. PS2X_N3_DIRECT=0: the flag is never read (the KNOWN forms).
+#ifndef PS2X_N3_DIRECT
+#define PS2X_N3_DIRECT 1
+#endif
+extern bool g_ps2DirectCalls;
+#if PS2X_N3_DIRECT
+#define PS2_N3_FN(target, direct) (PS2_EXPECT(g_ps2DirectCalls, 1) ? &direct : PS2_GUEST_FN(target))
+#else
+#define PS2_N3_FN(target, direct) PS2_GUEST_FN(target)
+#endif
+#define PS2_CALL_GUEST_DIRECT(target, direct, returnPc, sourcePc, kind, name) \
+    runtime->callGuestKnown(PS2_N3_FN(target, direct), &direct, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
+#define PS2_TAIL_GUEST_DIRECT(target, direct) \
+    PS2Runtime::tailGuestKnown(PS2_N3_FN(target, direct), &direct, rdram, ctx, runtime, (target))
+
 // A J to a generated function's entry, a tail jump (round 43): whatever the
 // table's slot holds runs (a native, a hook, a difftest checker), called
 // directly while it holds that function. ctx->pc is the target already (the
@@ -1204,7 +1254,9 @@ static PS2_FORCE_INLINE void ps2FpuAlignOperands(float &a, float &b)
 // With PS2X_EE_TRUST_FINITE the result's clamp goes: the game thread rounds
 // toward zero, so a sum / product of finite floats overflows to FLT_MAX,
 // never to Inf; the clamp only acts on an Inf / NaN operand.
-#if defined(PS2X_EE_TRUST_FINITE) && PS2X_EE_TRUST_FINITE
+#if defined(PS2X_EE_TRUST_FINITE) && PS2X_EE_TRUST_FINITE && PS2X_EE_TRUST_CHECK
+#define PS2X_FPU_OUT(v) ps2TrustNoteFpu(v)
+#elif defined(PS2X_EE_TRUST_FINITE) && PS2X_EE_TRUST_FINITE
 #define PS2X_FPU_OUT(v) (v)
 #else
 #define PS2X_FPU_OUT(v) ps2FpuClamp(v)

@@ -704,6 +704,35 @@ if(NOT PS2X_N1_BASEMEM)
     target_compile_definitions(ps2EntryRunner PRIVATE PS2X_N1_BASEMEM=0)
 endif()
 
+# Round N3: native float for the generated code (PS2X_EE_TRUST_FINITE, ps2_runtime_macros.h). Level 1 leaves out the
+# clamps that only act on an Inf / NaN pattern (the VU0 macro ops' operand clamps, the FPU results' clamp): the same
+# bits for finite operands (docs/native_n3.md: a check build counted 0 such cases on the routes). Level 2 also drops the
+# PS2 adder's operand alignment (plain host adds, one unit in the last place apart at times: not exact; a test switch).
+# PS2X_GEN_TRUST applies to the lifted batches (decomp_liftd*_NN.cpp, tools/lift_d1.py); PS2X_GEN_TRUST_RECOMPILED to
+# the recompiled functions in the runner dirs (*_0x<addr>.cpp; off until a build of them is checked: the whole runner
+# recompiles). PS2X_GEN_TRUST_CHECK: the check build (counts where a clamp would have acted; SOTC_N3_TRUST_LOG=1 logs).
+# Not through the precompiled header (it has PS2X_EE_TRUST_FINITE at 0).
+set(PS2X_GEN_TRUST "1" CACHE STRING "Generated code's float level: 0 the PS2 clamps, 1 finite trusted (exact), 2 plain host adds (round N3)")
+option(PS2X_GEN_TRUST_RECOMPILED "PS2X_GEN_TRUST for the recompiled functions too (round N3)" OFF)
+option(PS2X_GEN_TRUST_CHECK "Check build: count where PS2X_GEN_TRUST's dropped clamps would act (round N3)" OFF)
+if(NOT PS2X_GEN_TRUST STREQUAL "0")
+    foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
+        set(PS2X_TRUST_THIS OFF)
+        if(PS2X_SOURCE MATCHES "/overrides/decomp_liftd[0-9]+_[0-9]+\\.cpp$")
+            set(PS2X_TRUST_THIS ON)
+        elseif(PS2X_GEN_TRUST_RECOMPILED AND PS2X_SOURCE MATCHES "_0x[0-9a-f]+\\.cpp$" AND NOT PS2X_SOURCE MATCHES "/overrides/")
+            set(PS2X_TRUST_THIS ON)
+        endif()
+        if(PS2X_TRUST_THIS)
+            set_property(SOURCE ${PS2X_SOURCE} APPEND PROPERTY COMPILE_DEFINITIONS PS2X_EE_TRUST_FINITE=${PS2X_GEN_TRUST})
+            if(PS2X_GEN_TRUST_CHECK)
+                set_property(SOURCE ${PS2X_SOURCE} APPEND PROPERTY COMPILE_DEFINITIONS PS2X_EE_TRUST_CHECK=1)
+            endif()
+            set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        endif()
+    endforeach()
+endif()
+
 # float in software (see vu1rec::norm).
 option(PS2X_VU1_TRUST_FPU "VU1 native/generated code: no software float normalisation" ON)
 if(PS2X_VU1_TRUST_FPU)

@@ -867,6 +867,7 @@ namespace sotc_prof
                 g_ps2RecompiledFunctionTable[slot] = &thunk;
                 ++n;
             }
+            ps2DirectSuspend(true); // round N3: every slot holds the counting thunk from here on
             g_innerProbe = g_eeDispatchProbe;
             g_eeDispatchProbe = dispatchProbe;
             g_dump = ps2_diag::env("SOTC_CALL_COUNT_DUMP");

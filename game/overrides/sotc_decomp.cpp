@@ -1625,6 +1625,8 @@ namespace sotc_decomp
         }
         void liftSwitchChanged(int which, bool on)
         {
+            if (which == kN3Direct)
+                return ps2DirectEnable(on);
             if (which == kLiftAlt && g_liftRuntime)
                 return liftAltChanged(on);
             applyLiftFallbacks(which);
@@ -1655,6 +1657,11 @@ namespace sotc_decomp
 
     void abTick(uint64_t frame)
     {
+        // Round N3: a PS2X_EE_TRUST_CHECK build's counts (0 and 0: level 1 gave the clamped code's bits so far).
+        static const bool trustLog = ps2_diag::env("SOTC_N3_TRUST_LOG") != nullptr;
+        if (trustLog && frame % 600u == 0u)
+            std::fprintf(stderr, "[n3trust] frame %llu: vu %u fpu %u\n", static_cast<unsigned long long>(frame), static_cast<unsigned>(g_ps2TrustHits[0]),
+                         static_cast<unsigned>(g_ps2TrustHits[1]));
         if (!g_abPeriod)
             return;
         const bool on = (frame / g_abPeriod) % 2u == 0u;
@@ -2144,6 +2151,10 @@ namespace sotc_decomp
 #if !defined(__vita__)
         installProbe(runtime);
 #endif
+        // Round N3: the direct calls (PS2_CALL_GUEST_DIRECT) on while every target's slot holds its lifted function.
+        g_switchChanged = liftSwitchChanged;
+        ps2DirectEnable(switchOn(kN3Direct));
+        ps2DirectArm();
         std::cerr << "[sotc:decomp] " << replaced << " decompiled functions in place" << (checked ? ", " : "")
                   << (checked ? std::to_string(checked) + " checked against the recompiled code" : std::string()) << std::endl;
     }

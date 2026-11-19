@@ -236,6 +236,7 @@ namespace ps2_lean
         }
         g_leanNow = lean;
         g_trustNow = trust;
+        ps2DirectRecheck(); // round N3: the slots written here directly
         sotc_prof::noteLean(lean);
         std::fprintf(stderr, "[lean] frame %llu: %s\n", static_cast<unsigned long long>(frame),
                      !lean ? "originals" : (trust ? "lean copies, trusted floats (SOTC_EE_TRUST)" : "lean copies"));
