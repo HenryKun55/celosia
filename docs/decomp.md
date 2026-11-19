@@ -22808,3 +22808,46 @@ end_rewind_camera_dist_to_look_at. 34 not reached (InitTableSinCos reached once,
 - The 34 unreached leftovers stay recompiled until a route reaches them.
 
 **After the rebase onto D17 (main):** kLiftD18 sits after kLiftD17, D18's functions get their own list (g_lift18), and docs/decomp_status.json keeps D17's count (5 828 of 9 024) until the next recount; D18's 4 functions come on top of it.
+## Redesign S17: the EE scheduler's dispatch nested at the game thread's checkpoint, not the unwind (SOTC_S17IOP, off by default) (2026-11-19)
+
+The full write-up is docs/runtime_s17.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s17/`
+(clone.sh / b2.sh the builds, chk17.sh the check and the profile, abs17.sh the s17iop interleaved A/B, qc.sh short sanity
+runs, tools/pcname.py). Own Vita3K trees ../vita3k-celosia-s17 / -s17b (222 MHz, 3 cores, muted), deleted at the end.
+
+### Counted first
+
+`SOTC_S17IOP_LOG` records each episode in which the game thread (thread 9) is taken off by a checkpoint, up to its next
+dispatch at its own context. Riding, S17 off: **~1 episode a frame**, 90-94% of them the GS FINISH handler
+(kernel_sub_001C37F0) arriving while the game thread polls iosWaitGPFinish; the rest add one woken thread (11 the CD
+streaming loop, 8 the VBlank / sound loop, 4, 10). The IOP replies and the streaming / loader threads they wake run while
+the game thread waits for the render thread: they do not reach its checkpoints. But each old-path episode lasted
+0.4-2.2 ms of host time and the pending flag was met by **72-131 checkpoints a frame** (the game thread re-entered through
+the dispatcher in the middle of its sub-thread coroutines and execScript).
+
+### What changed (`SOTC_S17IOP`, A/B `s17iop`; `_CHECK`, `_LOG`, `_PARTS`)
+
+EeScheduler::s17Checkpoint / s17Nest: a game-thread checkpoint that would unwind (pending flag, due deadline, slice end)
+runs run()'s dispatch loop there, on top of the game thread's frames, in run()'s order (events, the handlers queued on the
+game thread, woken threads by priority until they park, the game thread back at the front of its queue, VU0 handed over),
+and returns false when the loop would pick the game thread again. Not nested: other threads, inside a handler /
+invocation, a posted external wake whose waiter has not parked (S15's boot hang), < 192 KB of host stack. With S17 on:
+pending checkpoints 0.2-0.6 a frame, slow checkpoints 15-18 (85-146 off), an episode 46-76 µs, the game thread's
+dispatches at its own context 2.3 a frame (4.2 off).
+
+### Checks, A/B, decision
+
+The check (p3: each episode the old way or nested at random, each path's kernel calls in order hashed): ride7 11 451
+episodes, 99.6% in orders both paths produce, the common orders in the same proportions (5 265 / 5 152, 169 / 174, ...),
+the rest seen 1-3 times on one side; lake6 8 997 (99.4%), attract 10 204 (99.7%); no bail-out, no unparked wake, no
+short stack. A/B (Vita3K 222 MHz, off - on): ride7 +0.156 ± 0.168 ms (seed 7, 800 s), -0.005 ± 0.250 (seed 11, 800 s),
+lake6 -0.142 ± 0.191, attract -0.008 ± 0.313; a 150-frame block A/B +0.41 ± 1.06 (the scenery dominated). **Off by
+default** (`SOTC_S17IOP=1` on): the per-frame A/B may hide the old path's expensive state (it needs several old episodes
+in a row: in the check runs the old turn's episodes take 52-67 µs), so the console's A/B decides. Boot with 89 MB taken
+(p2, S17 on): mounted at 5 119, rode to 11 178, no fault; pictures normal; spalign 0 sp-based. A first build (p1) never
+left the title, on or off: the clone of S16's build dir kept S16's objects of every includer of sotc_decomp.h /
+ee_scheduler.h (compiled after this worktree's edits); p2 after touching the changed files.
+
+### What it leaves
+
+A longer block A/B or the console's to price the old path's state; why the old path re-enters ~90 times (not traced);
+the woken threads as host code only matters for the console's core time, not the game thread's unwinds.
