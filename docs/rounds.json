@@ -1151,6 +1151,13 @@
    "focus": "Native layers",
    "summary": "Round N1 priced every PS2-shaped layer left in how the game code runs (docs/native_all_plan.md) and did the first generator step: guest loads / stores in base form (READ32_B(base, off): the base register tested once, ldr / str [rb, #off]) for the lifted code and the recompiler's output (PS2X_N1_BASEMEM, default on).",
    "result": "Exact: the rewritten text gives identical machine code with the switch off (52 of 52 lifted files). A/B (Vita3K 222 MHz, off - on): ride7 +0.061 +- 0.169, -0.036 +- 0.119 ms, lake6 -0.037 +- 0.105; pooled -0.02 +- 0.07 ms: even (the first A/B's 22 ms was liftalt's own flip, fixed). Boot with 89 MB taken rode normally; no sp-based NEON accesses."
+  },
+  {
+   "round": "N4",
+   "focus": "Native layers",
+   "commit": "",
+   "summary": "Round N4 built the ABI proof the native calling convention needs (tools/n4_abi.py: whole program, inputs / callee-saved / outputs per function from the MIPS) and counted the call-boundary traffic of the lifted code (20 041 calls, 5.2 write-backs and 15.1 read-backs each).",
+   "result": "ABI: 2 817 functions proven strictly (3.08% of the game thread riding), 6 583 with natives taken to follow the ABI (11.68%). The convention itself is blocked by layer 6: every guest call can resume through ctx (the dispatch checkpoint, callee unwinding), so what register passing could remove exactly is what D4 (5-6% slower) and D5 (break-even) measured. No generated code changed, nothing to A/B; N4 moved after N5 in the plan (docs/native_n4.md)."
   }
  ]
 }

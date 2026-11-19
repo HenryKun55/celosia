@@ -23263,3 +23263,20 @@ profile by kind of code, the layers, their order); its last section has N1's res
 - **Results**: the rewrite gives identical machine code with the switch off (52 of 52 files); A/B even (pooled
   -0.02 +- 0.07 ms over ride7 seeds 7 / 13 and lake6, after fixing liftalt's flip, which had swamped the first A/B);
   boot with 89 MB taken rode normally. Groundwork for registers as locals and direct calls.
+
+## Native N4: the ABI proof; the native calling convention moved after N5 (2026-11-19)
+
+The full write-up is docs/native_n4.md. Tool: `tools/n4_abi.py` (whole program, through lift_d1's Lifter: inputs read
+before written from the instruction words, callee-saved s0-s7 / gp / fp / sp preserved at every return, outputs, what
+can unwind; strict and natives-ABI modes, weighted by S21's riding profile).
+
+- **Proof**: strict, 2 817 of 8 728 parsed table functions follow the ABI (3.08% of the game thread riding, mostly
+  leaves: anything reaching one of the 1 051 slots that may hold a native is unknown); with natives taken to follow
+  the ABI, 6 583 (11.68% of the 14.23% the generated code's table functions take).
+- **Traffic** (static, 52 lifted files): 20 041 guest calls, 5.2 context write-backs before each (2.0 arguments, 1.2
+  sp / ra, 1.1 callee-saved, 0.9 other temporaries) and 15.1 read-backs after (6.6 callee-saved / sp) before folding.
+- **Blocker**: every guest call can resume through the context (callGuestKnownBody's dispatch checkpoint, and callee
+  unwinding), so the state must be whole in `ctx` at every call and the callee's frame saves s0-s7 from it. What
+  register passing can still remove exactly is what D4 (summaries: 5-6% slower) and D5 (leaf inlining: break-even)
+  measured. No generated code changed this round; N4 moves after N5 (layer 6: no resume through ctx at a call, or the
+  dispatch checkpoint off the call path), with the proof's per-function list as its input.

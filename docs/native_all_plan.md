@@ -160,7 +160,7 @@ Static counts: over the 52 lifted files and the 9 076 recompiled files (N1's cou
 | **N1** | 1 | base-form guest accesses in both generators (PS2X_N1_BASEMEM) | yes | a few % of the generated code's 6.3 ms |
 | N2 | 4, 5 | PS2X_EE_TRUST_FINITE 1 / 2 for the generated translation units (build flag), position check | 1: yes, 2: no | ~1% of the frame |
 | N3 | 3 | release builds: direct calls, no slot read | yes | ~0.3-0.5 ms (callGuest + slot reads) |
-| N4 | 2, 10 | native calling convention between generated functions (ABI proof per function) | yes | the call traffic of 54 000 call sites |
+| N4 | 2, 10 | native calling convention between generated functions (ABI proof per function) | yes | the call traffic of 54 000 call sites; **N4 round: ABI proof done (tools/n4_abi.py), convention blocked by layer 6 (every call can resume through ctx): moved after N5, docs/native_n4.md** |
 | N5 | 6, 7 | host threads for sound / streaming / loader; checkpoints out | gameplay-equal | ~1.5 ms (isys lock, scheduler, switches) |
 | N6 | 8, 9 | FINISH / SIGNAL from the packet builders; draw state direct | yes | off the game thread |
 
