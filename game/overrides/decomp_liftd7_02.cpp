@@ -41,6 +41,21 @@ namespace lift_d1
 
 
 
+// N3 direct-call declarations (tools/n3_direct.py)
+namespace lift_d1
+{
+    void CallMotShiftCallBackElemEntryFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ChangeCharacterObjControlledTarget(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ClipCollisionFinderWithKeep4DSlopeLimit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void CopyGeometryPointer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void FlushJudgeVolumeObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void FlushJudgeVolumeObjImmediate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void ResetCharacterClassAnimeFrameTableInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SendDirectDamageLetter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void SetLayoutObjCollisionEnableFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010C5888(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+// N3 direct-call declarations end
 namespace lift_d1
 {
     void sub_00100010(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -15987,7 +16002,7 @@ void manager_sub_010B84B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         sp = sp + 0x50u; df_sp = true;
         ctx->f[12] = f12; ctx->f[20] = f20; if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0);
         ctx->pc = 0x10ADBD0u;
-        PS2_TAIL_GUEST_KNOWN(0x10ADBD0u, manager_sub_010ADBD0_0x10adbd0); return;
+        PS2_TAIL_GUEST_DIRECT(0x10ADBD0u, lift_d1::manager_sub_010ADBD0); return;
     }
 }
 
@@ -16556,7 +16571,7 @@ L_10b97b4:
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 6, sx64(a2)); if (df_a3) Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, sx64(t0)); ctx->hi = hi; ctx->lo = lo;
         ctx->pc = 0x10B97C8u;
-        PS2_TAIL_GUEST_KNOWN(0x10B97C8u, convert_from_quater_to_rotXYZ_direct_motion_ik_base_0x10b97c8); return;
+        PS2_TAIL_GUEST_DIRECT(0x10B97C8u, lift_d1::convert_from_quater_to_rotXYZ_direct_motion_ik_base); return;
     }
 }
 
@@ -16664,7 +16679,7 @@ L_10b9874:
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 6, sx64(a2)); if (df_a3) Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, sx64(t0)); ctx->hi = hi; ctx->lo = lo;
         ctx->pc = 0x10B9888u;
-        PS2_TAIL_GUEST_KNOWN(0x10B9888u, convert_from_rotXYZ_to_quater_direct_motion_ik_base_0x10b9888); return;
+        PS2_TAIL_GUEST_DIRECT(0x10B9888u, lift_d1::convert_from_rotXYZ_to_quater_direct_motion_ik_base); return;
     }
 }
 
@@ -17526,7 +17541,7 @@ void constructor_motion_ik_interest(uint8_t *rdram, R5900Context *ctx, PS2Runtim
         sp = sp + 0x20u;
         ctx->f[20] = f20; Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = 0x10BA140u;
-        PS2_TAIL_GUEST_KNOWN(0x10BA140u, manager_sub_010BA140_0x10ba140); return;
+        PS2_TAIL_GUEST_DIRECT(0x10BA140u, lift_d1::manager_sub_010BA140); return;
     }
 }
 
@@ -18467,7 +18482,7 @@ L_10bf848:
         sp = sp + 0x40u; df_sp = true;
         if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x10EE628u;
-        PS2_TAIL_GUEST_KNOWN(0x10EE628u, FlushJudgeVolumeObjImmediate_0x10ee628); return;
+        PS2_TAIL_GUEST_DIRECT(0x10EE628u, lift_d1::FlushJudgeVolumeObjImmediate); return;
     }
 }
 
@@ -18567,7 +18582,7 @@ void FlushCharacterObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         sp = sp + 0x20u;
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x10EE700u;
-        PS2_TAIL_GUEST_KNOWN(0x10EE700u, FlushJudgeVolumeObj_0x10ee700); return;
+        PS2_TAIL_GUEST_DIRECT(0x10EE700u, lift_d1::FlushJudgeVolumeObj); return;
     }
 }
 
@@ -18999,7 +19014,7 @@ void DebugResetCharacterObjControlTarget(uint8_t *rdram, R5900Context *ctx, PS2R
                 sp = sp + 0x30u;
                 Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
                 ctx->pc = 0x11327B0u;
-                PS2_TAIL_GUEST_KNOWN(0x11327B0u, CopyGeometryPointer_0x11327b0); return;
+                PS2_TAIL_GUEST_DIRECT(0x11327B0u, lift_d1::CopyGeometryPointer); return;
             }
         }
     }
@@ -19405,7 +19420,7 @@ L_10c1db8:
         sp = sp + 0x30u; df_sp = true;
         Ps2SetGpr64(ctx, 2, v0); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x10F3080u;
-        PS2_TAIL_GUEST_KNOWN(0x10F3080u, SetLayoutObjCollisionEnableFlag_0x10f3080); return;
+        PS2_TAIL_GUEST_DIRECT(0x10F3080u, lift_d1::SetLayoutObjCollisionEnableFlag); return;
     }
 }
 
@@ -20026,7 +20041,7 @@ L_10c6bcc:
                                 WRITE32_B(sp, 16, t4);
                                 ctx->f[0] = f0; ctx->f[12] = f12; ctx->f[13] = f13; ctx->f[14] = f14; ctx->f[20] = f20; ctx->f[21] = f21; if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 10, t2); Ps2SetGpr64(ctx, 11, sx64(t3)); Ps2SetGpr64(ctx, 12, sx64(t4)); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); if (df_s3) Ps2SetGpr64(ctx, 19, sx64(s3)); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 20, s4); if (df_s5) Ps2SetGpr64(ctx, 21, sx64(s5)); Ps2SetGpr64(ctx, 22, s6); Ps2SetGpr64(ctx, 23, s7); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 30, fp); Ps2SetGpr64(ctx, 31, sx64(ra)); if (df_a0) Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); Ps2SetGpr64(ctx, 9, t1); ctx->fcr31 = fcr31; ctx->hi = hi; ctx->lo = lo;
                                 ctx->pc = 0x10C5888u;
-                                if (!PS2_CALL_GUEST_KNOWN(0x10C5888u, manager_sub_010C5888_0x10c5888, 0x10C6C34u, 0x10C6C2Cu, DirectCall, "JAL")) { return; }
+                                if (!PS2_CALL_GUEST_DIRECT(0x10C5888u, lift_d1::manager_sub_010C5888, 0x10C6C34u, 0x10C6C2Cu, DirectCall, "JAL")) { return; }
                             }
                             f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU64(ctx, 10); t3 = Ps2GprU32(ctx, 11); t4 = Ps2GprU32(ctx, 12); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU32(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); fcr31 = ctx->fcr31; hi = ctx->hi; lo = ctx->lo; df_at = false; df_v1 = false; df_a0 = false; df_s3 = false; df_s5 = false; df_sp = false;
                         }
@@ -20739,7 +20754,7 @@ L_10cc808:
         (a2 = (uint64_t)((uint64_t)sp + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, sx64(a3));
         ctx->pc = 0x10CBBE0u;
-        if (!PS2_CALL_GUEST_KNOWN(0x10CBBE0u, ChangeCharacterObjControlledTarget_0x10cbbe0, 0x10CC81Cu, 0x10CC814u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT(0x10CBBE0u, lift_d1::ChangeCharacterObjControlledTarget, 0x10CC81Cu, 0x10CC814u, DirectCall, "JAL")) { return; }
     }
     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7);
     (a0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
@@ -20879,7 +20894,7 @@ L_10cc8f4:
                 (a3 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
                 ctx->f[12] = f12; Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
                 ctx->pc = 0x11668C0u;
-                if (!PS2_CALL_GUEST_KNOWN(0x11668C0u, SendDirectDamageLetter_0x11668c0, 0x10CC924u, 0x10CC91Cu, DirectCall, "JAL")) { return; }
+                if (!PS2_CALL_GUEST_DIRECT(0x11668C0u, lift_d1::SendDirectDamageLetter, 0x10CC924u, 0x10CC91Cu, DirectCall, "JAL")) { return; }
             }
             f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); df_sp = false;
         }
@@ -23816,7 +23831,7 @@ void ResetCharacterClassMotionShiftInfo(uint8_t *rdram, R5900Context *ctx, PS2Ru
         sp = sp + 0x20u;
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x10CD308u;
-        PS2_TAIL_GUEST_KNOWN(0x10CD308u, ResetCharacterClassAnimeFrameTableInfo_0x10cd308); return;
+        PS2_TAIL_GUEST_DIRECT(0x10CD308u, lift_d1::ResetCharacterClassAnimeFrameTableInfo); return;
     }
 }
 
@@ -24012,7 +24027,7 @@ L_10d3020:
         sp = sp + 0x30u; df_sp = true;
         if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2);
         ctx->pc = 0x10C2B48u;
-        PS2_TAIL_GUEST_KNOWN(0x10C2B48u, CallMotShiftCallBackElemEntryFunc_0x10c2b48); return;
+        PS2_TAIL_GUEST_DIRECT(0x10C2B48u, lift_d1::CallMotShiftCallBackElemEntryFunc); return;
     }
 }
 
@@ -25907,7 +25922,7 @@ void charrootdyn_HslidecollisionCB(uint8_t *rdram, R5900Context *ctx, PS2Runtime
         (t0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         ctx->f[0] = f0; ctx->f[22] = f22; ctx->f[23] = f23; Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 21, s5); Ps2SetGpr64(ctx, 29, sp); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); ctx->vu0_vf[5] = vf5; ctx->vu0_vf[6] = vf6; ctx->vu0_vf[7] = vf7;
         ctx->pc = 0x111ECF0u;
-        if (!PS2_CALL_GUEST_KNOWN(0x111ECF0u, ClipCollisionFinderWithKeep4DSlopeLimit_0x111ecf0, 0x10D63ECu, 0x10D63E4u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT(0x111ECF0u, lift_d1::ClipCollisionFinderWithKeep4DSlopeLimit, 0x10D63ECu, 0x10D63E4u, DirectCall, "JAL")) { return; }
     }
     f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f2 = ctx->f[2]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; f3 = ctx->f[3]; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU32(ctx, 10); t3 = Ps2GprU32(ctx, 11); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); vf0 = ctx->vu0_vf[0]; vf5 = ctx->vu0_vf[5]; vf6 = ctx->vu0_vf[6]; vf7 = ctx->vu0_vf[7]; fcr31 = ctx->fcr31; vacc = ctx->vu0_acc; vq = ctx->vu0_q; vstat = ctx->vu0_status; df_at = false;
     WRITE32_B((uint32_t)sp, 320, (uint32_t)v0);
@@ -28758,3 +28773,36 @@ SOTC_DECOMP_LIFT_FUNCTION_D7(0x010DDD28u, SetCharacterClassWindDynamics, lift_d1
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x010DDED8u, charrootdyn_resetHColFindFlag, lift_d1::charrootdyn_resetHColFindFlag, charrootdyn_resetHColFindFlag_0x10dded8);
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x010DDEF0u, charrootdyn_resetVColFindFlag, lift_d1::charrootdyn_resetVColFindFlag, charrootdyn_resetVColFindFlag_0x10ddef0);
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x010DE258u, charrootdyn_getCollisionAttribute, lift_d1::charrootdyn_getCollisionAttribute, charrootdyn_getCollisionAttribute_0x10de258);
+// N3 direct-call targets (tools/n3_direct.py)
+namespace
+{
+    const struct N3DirectTargets
+    {
+        N3DirectTargets()
+        {
+            static const struct
+            {
+                uint32_t address;
+                PS2Runtime::RecompiledFunction fn;
+            } kTargets[] = {
+                {0x010ADBD0u, &lift_d1::manager_sub_010ADBD0},
+                {0x010B97C8u, &lift_d1::convert_from_quater_to_rotXYZ_direct_motion_ik_base},
+                {0x010B9888u, &lift_d1::convert_from_rotXYZ_to_quater_direct_motion_ik_base},
+                {0x010BA140u, &lift_d1::manager_sub_010BA140},
+                {0x010C2B48u, &lift_d1::CallMotShiftCallBackElemEntryFunc},
+                {0x010C5888u, &lift_d1::manager_sub_010C5888},
+                {0x010CBBE0u, &lift_d1::ChangeCharacterObjControlledTarget},
+                {0x010CD308u, &lift_d1::ResetCharacterClassAnimeFrameTableInfo},
+                {0x010EE628u, &lift_d1::FlushJudgeVolumeObjImmediate},
+                {0x010EE700u, &lift_d1::FlushJudgeVolumeObj},
+                {0x010F3080u, &lift_d1::SetLayoutObjCollisionEnableFlag},
+                {0x0111ECF0u, &lift_d1::ClipCollisionFinderWithKeep4DSlopeLimit},
+                {0x011327B0u, &lift_d1::CopyGeometryPointer},
+                {0x011668C0u, &lift_d1::SendDirectDamageLetter},
+            };
+            for (const auto &e : kTargets)
+                ps2DirectTarget(e.address, e.fn);
+        }
+    } n3DirectTargets;
+}
+// N3 direct-call targets end

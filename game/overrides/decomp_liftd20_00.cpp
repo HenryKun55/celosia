@@ -41,6 +41,13 @@ namespace lift_d1
 
 
 
+// N3 direct-call declarations (tools/n3_direct.py)
+namespace lift_d1
+{
+    void bootTexAlphaAnim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010E4E00(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+// N3 direct-call declarations end
 namespace lift_d1
 {
     void sub_00100010(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -5200,7 +5207,7 @@ void motrootdyn_startpendulum_with_VCOL(uint8_t *rdram, R5900Context *ctx, PS2Ru
         sp = sp + 0x20u;
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2);
         ctx->pc = 0x10E4E00u;
-        PS2_TAIL_GUEST_KNOWN(0x10E4E00u, manager_sub_010E4E00_0x10e4e00); return;
+        PS2_TAIL_GUEST_DIRECT(0x10E4E00u, lift_d1::manager_sub_010E4E00); return;
     }
 }
 
@@ -5663,7 +5670,7 @@ void nico_snakeAllTexEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         sp = sp + 0x20u;
         ctx->f[12] = f12; ctx->f[13] = f13; ctx->f[20] = f20; ctx->f[21] = f21; Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = 0x137E138u;
-        PS2_TAIL_GUEST_KNOWN(0x137E138u, bootTexAlphaAnim_0x137e138); return;
+        PS2_TAIL_GUEST_DIRECT(0x137E138u, lift_d1::bootTexAlphaAnim); return;
     }
 }
 
@@ -5765,7 +5772,7 @@ void nico_eelAllTexEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         sp = sp + 0x20u;
         ctx->f[12] = f12; ctx->f[13] = f13; ctx->f[20] = f20; ctx->f[21] = f21; Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = 0x137E138u;
-        PS2_TAIL_GUEST_KNOWN(0x137E138u, bootTexAlphaAnim_0x137e138); return;
+        PS2_TAIL_GUEST_DIRECT(0x137E138u, lift_d1::bootTexAlphaAnim); return;
     }
 }
 
@@ -5798,7 +5805,7 @@ void nico_eelHigeTexEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         sp = sp + 0x10u;
         ctx->f[12] = f12; ctx->f[13] = f13; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1));
         ctx->pc = 0x137E138u;
-        PS2_TAIL_GUEST_KNOWN(0x137E138u, bootTexAlphaAnim_0x137e138); return;
+        PS2_TAIL_GUEST_DIRECT(0x137E138u, lift_d1::bootTexAlphaAnim); return;
     }
 }
 
@@ -5843,3 +5850,24 @@ SOTC_DECOMP_LIFT_FUNCTION_D20(0x013F5FF8u, nico_snakeAllTexEnd, lift_d1::nico_sn
 SOTC_DECOMP_LIFT_FUNCTION_D20(0x01406520u, nico_eelAllTexEnd, lift_d1::nico_eelAllTexEnd, nico_eelAllTexEnd_0x1406520);
 SOTC_DECOMP_LIFT_FUNCTION_D20(0x01406B70u, nico_eelHigeTexEnd, lift_d1::nico_eelHigeTexEnd, nico_eelHigeTexEnd_0x1406b70);
 SOTC_DECOMP_LIFT_FUNCTION_D20(0x01464840u, coliJudgeNotWater, lift_d1::coliJudgeNotWater, coliJudgeNotWater_0x1464840);
+// N3 direct-call targets (tools/n3_direct.py)
+namespace
+{
+    const struct N3DirectTargets
+    {
+        N3DirectTargets()
+        {
+            static const struct
+            {
+                uint32_t address;
+                PS2Runtime::RecompiledFunction fn;
+            } kTargets[] = {
+                {0x010E4E00u, &lift_d1::manager_sub_010E4E00},
+                {0x0137E138u, &lift_d1::bootTexAlphaAnim},
+            };
+            for (const auto &e : kTargets)
+                ps2DirectTarget(e.address, e.fn);
+        }
+    } n3DirectTargets;
+}
+// N3 direct-call targets end

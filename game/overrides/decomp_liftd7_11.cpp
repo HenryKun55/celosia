@@ -41,6 +41,12 @@ namespace lift_d1
 
 
 
+// N3 direct-call declarations (tools/n3_direct.py)
+namespace lift_d1
+{
+    void _omakeGetFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+// N3 direct-call declarations end
 namespace lift_d1
 {
     void sub_00100010(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -3805,7 +3811,7 @@ void SCRConditionGetOmakeFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x134FA18u;
-        PS2_TAIL_GUEST_KNOWN(0x134FA18u, _omakeGetFlagChk_0x134fa18); return;
+        PS2_TAIL_GUEST_DIRECT(0x134FA18u, lift_d1::_omakeGetFlagChk); return;
     }
 }
 
@@ -5342,3 +5348,23 @@ SOTC_DECOMP_LIFT_FUNCTION_D7(0x01464C70u, gamecore_sub_01464C70, lift_d1::gameco
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x014651F0u, SCREventConditionVolumeCheckByGameObj, lift_d1::SCREventConditionVolumeCheckByGameObj, SCREventConditionVolumeCheckByGameObj_0x14651f0);
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x01465318u, initSScriptSystem, lift_d1::initSScriptSystem, initSScriptSystem_0x1465318);
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x014653A0u, difftime, lift_d1::difftime, difftime_0x14653a0);
+// N3 direct-call targets (tools/n3_direct.py)
+namespace
+{
+    const struct N3DirectTargets
+    {
+        N3DirectTargets()
+        {
+            static const struct
+            {
+                uint32_t address;
+                PS2Runtime::RecompiledFunction fn;
+            } kTargets[] = {
+                {0x0134FA18u, &lift_d1::_omakeGetFlagChk},
+            };
+            for (const auto &e : kTargets)
+                ps2DirectTarget(e.address, e.fn);
+        }
+    } n3DirectTargets;
+}
+// N3 direct-call targets end

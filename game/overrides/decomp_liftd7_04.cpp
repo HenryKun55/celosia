@@ -41,6 +41,15 @@ namespace lift_d1
 
 
 
+// N3 direct-call declarations (tools/n3_direct.py)
+namespace lift_d1
+{
+    void dsysFileInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void flushScriptObjImmediate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01156A08(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void nicosysdInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+// N3 direct-call declarations end
 namespace lift_d1
 {
     void sub_00100010(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -7995,7 +8004,7 @@ void manager_sub_01113D00(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 29, sx64(sp));
         ctx->pc = 0x1102978u;
-        PS2_TAIL_GUEST_KNOWN(0x1102978u, flushScriptObjImmediate_0x1102978); return;
+        PS2_TAIL_GUEST_DIRECT(0x1102978u, lift_d1::flushScriptObjImmediate); return;
     }
 }
 
@@ -8183,7 +8192,7 @@ void manager_sub_01114478(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 29, sx64(sp));
         ctx->pc = 0x1102978u;
-        PS2_TAIL_GUEST_KNOWN(0x1102978u, flushScriptObjImmediate_0x1102978); return;
+        PS2_TAIL_GUEST_DIRECT(0x1102978u, lift_d1::flushScriptObjImmediate); return;
     }
 }
 
@@ -15527,7 +15536,7 @@ L_1147f40:
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 2, sx64(v0)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0)); Ps2SetGpr64(ctx, 5, sx64(a1)); Ps2SetGpr64(ctx, 6, sx64(a2)); Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, sx64(t0));
         ctx->pc = 0x114B730u;
-        PS2_TAIL_GUEST_KNOWN(0x114B730u, usbdevAddCallbackFunc_0x114b730); return;
+        PS2_TAIL_GUEST_DIRECT(0x114B730u, lift_d1::usbdevAddCallbackFunc); return;
     }
 }
 
@@ -20039,7 +20048,7 @@ L_1157bd8:
                 (a1 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)s1, 11))));
                 Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2);
                 ctx->pc = 0x1156A08u;
-                if (!PS2_CALL_GUEST_KNOWN(0x1156A08u, manager_sub_01156A08_0x1156a08, 0x1157BF0u, 0x1157BE8u, DirectCall, "JAL")) { return; }
+                if (!PS2_CALL_GUEST_DIRECT(0x1156A08u, lift_d1::manager_sub_01156A08, 0x1157BF0u, 0x1157BE8u, DirectCall, "JAL")) { return; }
             }
             s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
             (a1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -20824,7 +20833,7 @@ L_1158b44:
         sp = sp + 0x20u;
         if (df_t2) Ps2SetGpr64(ctx, 10, sx64(t2)); Ps2SetGpr64(ctx, 11, sx64(t3)); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1)); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); Ps2SetGpr64(ctx, 9, t1); ctx->hi = hi; ctx->lo = lo;
         ctx->pc = 0x1158180u;
-        PS2_TAIL_GUEST_KNOWN(0x1158180u, manager_sub_01158180_0x1158180); return;
+        PS2_TAIL_GUEST_DIRECT(0x1158180u, lift_d1::manager_sub_01158180); return;
     }
 }
 
@@ -20839,7 +20848,7 @@ void dsysInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         ra = 0x11590C8u;
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x115A060u;
-        if (!PS2_CALL_GUEST_KNOWN(0x115A060u, dsysFileInit_0x115a060, 0x11590C8u, 0x11590C0u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT(0x115A060u, lift_d1::dsysFileInit, 0x11590C8u, 0x11590C0u, DirectCall, "JAL")) { return; }
     }
     sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31);
     { const uint64_t v = READ64_B(sp, 0); Ps2SetGpr64(ctx, 31, v); ra = (uint32_t)v; } // restore ra
@@ -20847,7 +20856,7 @@ void dsysInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 29, sx64(sp));
         ctx->pc = 0x115AC68u;
-        PS2_TAIL_GUEST_KNOWN(0x115AC68u, nicosysdInit_0x115ac68); return;
+        PS2_TAIL_GUEST_DIRECT(0x115AC68u, lift_d1::nicosysdInit); return;
     }
 }
 
@@ -22349,3 +22358,28 @@ SOTC_DECOMP_LIFT_FUNCTION_D7(0x0115BC58u, sheetFsLoadRootSegment, lift_d1::sheet
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x0115C1A8u, sheetFsLoadAdpcmInt, lift_d1::sheetFsLoadAdpcmInt, sheetFsLoadAdpcmInt_0x115c1a8);
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x0115C1E0u, sheetFsGetDirectFileSize, lift_d1::sheetFsGetDirectFileSize, sheetFsGetDirectFileSize_0x115c1e0);
 SOTC_DECOMP_LIFT_FUNCTION_D7(0x0115C1F8u, sheetFsSrhSpecialFs, lift_d1::sheetFsSrhSpecialFs, sheetFsSrhSpecialFs_0x115c1f8);
+// N3 direct-call targets (tools/n3_direct.py)
+namespace
+{
+    const struct N3DirectTargets
+    {
+        N3DirectTargets()
+        {
+            static const struct
+            {
+                uint32_t address;
+                PS2Runtime::RecompiledFunction fn;
+            } kTargets[] = {
+                {0x01102978u, &lift_d1::flushScriptObjImmediate},
+                {0x0114B730u, &lift_d1::usbdevAddCallbackFunc},
+                {0x01156A08u, &lift_d1::manager_sub_01156A08},
+                {0x01158180u, &lift_d1::manager_sub_01158180},
+                {0x0115A060u, &lift_d1::dsysFileInit},
+                {0x0115AC68u, &lift_d1::nicosysdInit},
+            };
+            for (const auto &e : kTargets)
+                ps2DirectTarget(e.address, e.fn);
+        }
+    } n3DirectTargets;
+}
+// N3 direct-call targets end

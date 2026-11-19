@@ -43,6 +43,14 @@ namespace lift_d1
 
 
 
+// N3 direct-call declarations (tools/n3_direct.py)
+namespace lift_d1
+{
+    void get_main_particle_effect_lod_from_sheet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void get_particle_emitter_from_emitter_id(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01141080(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+// N3 direct-call declarations end
 namespace lift_d1
 {
     void DecodeSection(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -5206,7 +5214,7 @@ void manager_sub_0113AEF8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
                 (a0 = (uint64_t)((uint64_t)s3 + (uint64_t)0ULL));
                 Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
                 ctx->pc = 0x1141080u;
-                if (!PS2_CALL_GUEST_KNOWN(0x1141080u, manager_sub_01141080_0x1141080, 0x113AF5Cu, 0x113AF54u, DirectCall, "JAL")) { return; }
+                if (!PS2_CALL_GUEST_DIRECT(0x1141080u, lift_d1::manager_sub_01141080, 0x113AF5Cu, 0x113AF54u, DirectCall, "JAL")) { return; }
             }
             f0 = ctx->f[0]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); vf0 = ctx->vu0_vf[0]; vf4 = ctx->vu0_vf[4]; vf5 = ctx->vu0_vf[5]; vf6 = ctx->vu0_vf[6]; vf7 = ctx->vu0_vf[7]; vf8 = ctx->vu0_vf[8]; df_at = false; df_a3 = false; df_sp = false;
             {
@@ -5743,7 +5751,7 @@ void stop_particle_emitter_geometry_pointer_reference(uint8_t *rdram, R5900Conte
         (a0 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x113FA70u;
-        if (!PS2_CALL_GUEST_KNOWN(0x113FA70u, get_particle_emitter_from_emitter_id_0x113fa70, 0x113F7E8u, 0x113F7E0u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT(0x113FA70u, lift_d1::get_particle_emitter_from_emitter_id, 0x113F7E8u, 0x113F7E0u, DirectCall, "JAL")) { return; }
     }
     v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5);
     (v1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
@@ -5777,7 +5785,7 @@ void stop_particle_emitter_callback(uint8_t *rdram, R5900Context *ctx, PS2Runtim
         (a0 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x113FA70u;
-        if (!PS2_CALL_GUEST_KNOWN(0x113FA70u, get_particle_emitter_from_emitter_id_0x113fa70, 0x113F818u, 0x113F810u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT(0x113FA70u, lift_d1::get_particle_emitter_from_emitter_id, 0x113F818u, 0x113F810u, DirectCall, "JAL")) { return; }
     }
     v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5);
     (v1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
@@ -5813,7 +5821,7 @@ void end_particle_emitter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         (s0 = (uint64_t)((uint64_t)a2 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x113FA70u;
-        if (!PS2_CALL_GUEST_KNOWN(0x113FA70u, get_particle_emitter_from_emitter_id_0x113fa70, 0x113F8C8u, 0x113F8C0u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT(0x113FA70u, lift_d1::get_particle_emitter_from_emitter_id, 0x113F8C8u, 0x113F8C0u, DirectCall, "JAL")) { return; }
     }
     s0 = Ps2GprU64(ctx, 16); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6);
     (v1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
@@ -5858,7 +5866,7 @@ void get_particle_camera_follow_attr_from_effect_id(uint8_t *rdram, R5900Context
                 ra = 0x113FA54u;
                 if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra));
                 ctx->pc = 0x113FA88u;
-                if (!PS2_CALL_GUEST_KNOWN(0x113FA88u, get_main_particle_effect_lod_from_sheet_0x113fa88, 0x113FA54u, 0x113FA4Cu, DirectCall, "JAL")) { return; }
+                if (!PS2_CALL_GUEST_DIRECT(0x113FA88u, lift_d1::get_main_particle_effect_lod_from_sheet, 0x113FA54u, 0x113FA4Cu, DirectCall, "JAL")) { return; }
             }
             v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); df_sp = false;
             v0 = READ32_B(v0, 188);
@@ -7133,3 +7141,25 @@ SOTC_DECOMP_LIFT_FALLBACK(0x01147A78u, InitTwoWayLink, lift_d1::InitTwoWayLink, 
 SOTC_DECOMP_LIFT_FALLBACK(0x01147A88u, AddTwoWayLinkNext, lift_d1::AddTwoWayLinkNext, AddTwoWayLinkNext_0x1147a88);
 SOTC_DECOMP_LIFT_FALLBACK(0x01147AB0u, DeleteTwoWayLink, lift_d1::DeleteTwoWayLink, DeleteTwoWayLink_0x1147ab0);
 SOTC_DECOMP_LIFT_FALLBACK(0x013A74E8u, MVHIST_Update, lift_d1::MVHIST_Update, MVHIST_Update_0x13a74e8);
+// N3 direct-call targets (tools/n3_direct.py)
+namespace
+{
+    const struct N3DirectTargets
+    {
+        N3DirectTargets()
+        {
+            static const struct
+            {
+                uint32_t address;
+                PS2Runtime::RecompiledFunction fn;
+            } kTargets[] = {
+                {0x0113FA70u, &lift_d1::get_particle_emitter_from_emitter_id},
+                {0x0113FA88u, &lift_d1::get_main_particle_effect_lod_from_sheet},
+                {0x01141080u, &lift_d1::manager_sub_01141080},
+            };
+            for (const auto &e : kTargets)
+                ps2DirectTarget(e.address, e.fn);
+        }
+    } n3DirectTargets;
+}
+// N3 direct-call targets end
