@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -26,6 +27,145 @@ namespace ps2recomp
             inst.opcode = OPCODE_SPECIAL;
             inst.function = SPECIAL_SLL;
             return inst;
+        }
+    }
+
+    namespace
+    {
+        // Round N1: guest accesses of a base plus a MIPS immediate in the base form of ps2_runtime_macros.h
+        // (READ32(ADD32(base, K)) -> READ32_B(base, k), WRITE32(ADD32(base, K), v) -> WRITE32_B(base, k, v); 8 to 64
+        // bits). The macro tests the base alone, so every access off one base value shares the test (docs/decomp.md
+        // "N1"; tools/n1_basemem.py is the same rewrite for tools/lift_d1.py). Exact: the off build
+        // (PS2X_N1_BASEMEM=0) expands the _B forms back to the old text. PS2X_RECOMP_BASEMEM=0: not rewritten.
+        bool parseImmediate(const std::string &k, int32_t &out)
+        {
+            if (k.empty())
+                return false;
+            std::string s = k;
+            bool neg = false;
+            if (s[0] == '-')
+            {
+                neg = true;
+                s = s.substr(1);
+            }
+            if (!s.empty() && (s.back() == 'u' || s.back() == 'U'))
+                s.pop_back();
+            if (s.empty())
+                return false;
+            uint64_t v = 0;
+            if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+            {
+                for (size_t i = 2; i < s.size(); ++i)
+                {
+                    if (!std::isxdigit(static_cast<unsigned char>(s[i])))
+                        return false;
+                    v = v * 16u + static_cast<uint64_t>(std::isdigit(static_cast<unsigned char>(s[i])) ? s[i] - '0' : (std::tolower(s[i]) - 'a' + 10));
+                    if (v > 0xFFFFFFFFull)
+                        return false;
+                }
+            }
+            else
+            {
+                for (char c : s)
+                {
+                    if (!std::isdigit(static_cast<unsigned char>(c)))
+                        return false;
+                    v = v * 10u + static_cast<uint64_t>(c - '0');
+                    if (v > 0xFFFFFFFFull)
+                        return false;
+                }
+            }
+            int64_t sv = neg ? -static_cast<int64_t>(v) : static_cast<int64_t>(static_cast<int32_t>(static_cast<uint32_t>(v)));
+            if (sv < -0x8000 || sv > 0x7FFF)
+                return false;
+            out = static_cast<int32_t>(sv);
+            return true;
+        }
+
+        // The end of a balanced expression starting at i: the first ',' or ')' at depth 0 (npos if none).
+        size_t expressionEnd(const std::string &t, size_t i)
+        {
+            int depth = 0;
+            for (; i < t.size(); ++i)
+            {
+                const char c = t[i];
+                if (c == '(')
+                    ++depth;
+                else if (c == ')')
+                {
+                    if (depth == 0)
+                        return i;
+                    --depth;
+                }
+                else if (c == ',' && depth == 0)
+                    return i;
+                else if (c == '\n' || c == ';' || c == '"')
+                    return std::string::npos;
+            }
+            return std::string::npos;
+        }
+
+        std::string applyBaseMem(const std::string &t)
+        {
+            std::string out;
+            out.reserve(t.size());
+            size_t i = 0;
+            while (i < t.size())
+            {
+                const bool isRead = t.compare(i, 4, "READ") == 0;
+                const bool isWrite = !isRead && t.compare(i, 5, "WRITE") == 0;
+                if ((!isRead && !isWrite) || (i > 0 && (std::isalnum(static_cast<unsigned char>(t[i - 1])) || t[i - 1] == '_')))
+                {
+                    out += t[i++];
+                    continue;
+                }
+                size_t j = i + (isRead ? 4 : 5);
+                size_t d = j;
+                while (d < t.size() && std::isdigit(static_cast<unsigned char>(t[d])))
+                    ++d;
+                const std::string size = t.substr(j, d - j);
+                const std::string open = "(ADD32(";
+                if ((size != "8" && size != "16" && size != "32" && size != "64") || t.compare(d, open.size(), open) != 0)
+                {
+                    out += t[i++];
+                    continue;
+                }
+                const size_t baseStart = d + open.size();
+                const size_t baseEnd = expressionEnd(t, baseStart);
+                if (baseEnd == std::string::npos || t[baseEnd] != ',' || t.compare(baseEnd, 2, ", ") != 0)
+                {
+                    out += t[i++];
+                    continue;
+                }
+                const size_t kStart = baseEnd + 2;
+                const size_t kEnd = expressionEnd(t, kStart);
+                int32_t off = 0;
+                if (kEnd == std::string::npos || t[kEnd] != ')' || !parseImmediate(t.substr(kStart, kEnd - kStart), off))
+                {
+                    out += t[i++];
+                    continue;
+                }
+                const std::string base = t.substr(baseStart, baseEnd - baseStart);
+                if (isRead && kEnd + 1 < t.size() && t[kEnd + 1] == ')')
+                {
+                    out += "READ" + size + "_B(" + base + ", " + std::to_string(off) + ")";
+                    i = kEnd + 2;
+                }
+                else if (isWrite && t.compare(kEnd + 1, 2, ", ") == 0)
+                {
+                    out += "WRITE" + size + "_B(" + base + ", " + std::to_string(off) + ", ";
+                    i = kEnd + 3;
+                }
+                else
+                    out += t[i++];
+            }
+            return out;
+        }
+
+        bool baseMemOn()
+        {
+            static const bool on = !(std::getenv("PS2X_RECOMP_BASEMEM") && std::getenv("PS2X_RECOMP_BASEMEM")[0] == '0');
+            return on;
         }
     }
 
@@ -481,9 +621,10 @@ namespace ps2recomp
             options.deadStores = cg.m_registerCacheDeadStores;
             options.joinForward = cg.m_registerCacheJoin;
             options.joinMem = cg.m_registerCacheJoinMem;
-            return all.substr(0, bodyStart) + applyRegisterCache(all.substr(bodyStart), options) + "}\n";
+            const std::string body = applyRegisterCache(all.substr(bodyStart), options);
+            return all.substr(0, bodyStart) + (baseMemOn() ? applyBaseMem(body) : body) + "}\n";
         }
         ss << "}\n";
-        return ss.str();
+        return firstPass || !baseMemOn() ? ss.str() : applyBaseMem(ss.str());
     }
 }

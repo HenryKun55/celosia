@@ -697,6 +697,13 @@ if(MSVC)
 endif()
 
 # Generated/native VU1 code trusts the FPU mode instead of normalising every
+# Round N1: the generated code's guest accesses in base form (READ32_B(base, off): one range test per base value,
+# ps2_runtime_macros.h). OFF: the _B forms expand to the old per-access test (the same code as before N1).
+option(PS2X_N1_BASEMEM "Generated code: guest loads / stores tested on the base register (round N1)" ON)
+if(NOT PS2X_N1_BASEMEM)
+    target_compile_definitions(ps2EntryRunner PRIVATE PS2X_N1_BASEMEM=0)
+endif()
+
 # float in software (see vu1rec::norm).
 option(PS2X_VU1_TRUST_FPU "VU1 native/generated code: no software float normalisation" ON)
 if(PS2X_VU1_TRUST_FPU)

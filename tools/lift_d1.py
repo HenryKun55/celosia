@@ -112,6 +112,10 @@ test knob SOTC_LIFTD11_RANGE; `--d11 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D11)
 Decomp D12 (docs/decomp.md "Decomp D12"): `--d12` writes D12's batch (SOTC_DECOMP_LIFT_FUNCTION_D12, switch SOTC_LIFTD12,
 test knob SOTC_LIFTD12_RANGE; `--d12 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D12), as --d7 otherwise.
 
+N1 (docs/decomp.md "N1", docs/native_all_plan.md): the output's guest loads / stores of a register plus an immediate are
+written in the base form READ32_B(base, off) / WRITE32_B(base, off, v) (tools/n1_basemem.py; ps2_runtime_macros.h tests
+the base once per value, PS2X_N1_BASEMEM); --no-basemem keeps the old text.
+
 Decomp D13 (docs/decomp.md "Decomp D13"): `--d13` writes D13's batch (SOTC_DECOMP_LIFT_FUNCTION_D13, switch SOTC_LIFTD13,
 test knob SOTC_LIFTD13_RANGE; `--d13 --fallback`: SOTC_DECOMP_LIFT_FALLBACK_D13), as --d7 otherwise. Two refusals lifted:
 a conditional branch out of the function goes to an exit stub of its own (EXIT_BASE: the generated code's
@@ -141,6 +145,9 @@ import argparse
 import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import n1_basemem  # noqa: E402  (N1: the base form of guest accesses)
 
 RUNNER = '/Users/flaviohenrique/Documents/workspace/games/sotc/build/runner'
 GPR = ['zero', 'at', 'v0', 'v1', 'a0', 'a1', 'a2', 'a3', 't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7',
@@ -2144,6 +2151,8 @@ def main():
     ap.add_argument('--d17', action='store_true', help="decomp D17's batch: SOTC_DECOMP_LIFT_FUNCTION_D17 (SOTC_LIFTD17), as --d7 otherwise")
     ap.add_argument('--d18', action='store_true', help="decomp D18's batch: SOTC_DECOMP_LIFT_FUNCTION_D18 (SOTC_LIFTD18), as --d7 otherwise")
     ap.add_argument('--d20', action='store_true', help="decomp D20's batch: SOTC_DECOMP_LIFT_FUNCTION_D20 (SOTC_LIFTD20), as --d7 otherwise")
+    ap.add_argument('--no-basemem', action='store_true', help="N1: keep guest accesses as READ32(ADD32(base, off)) (the old "
+                    "text) instead of the base form READ32_B(base, off) (tools/n1_basemem.py)")
     ap.add_argument('addrs', nargs='+')
     args = ap.parse_args()
     if args.inline:
@@ -2273,6 +2282,8 @@ def main():
         if args.alt:  # the bodies in their own namespace; calls between lifted functions still reach lift_d1's
             text += '}\n\nnamespace lift_alt\n{\nusing namespace lift_d1;\n\n'
         text += '\n\n'.join(bodies[i] for i in grp) + '\n' + FOOTER + '\n' + '\n'.join(regs[i] for i in grp) + '\n'
+        if not args.no_basemem:  # N1: base + immediate accesses in the base form (one range test per base value)
+            text = n1_basemem.rewrite(text)
         open(args.out.replace('{n}', f'{n:02d}'), 'w').write(text)
     if args.inline_log:
         open(args.inline_log, 'w').write(''.join(x + '\n' for x in ilog))

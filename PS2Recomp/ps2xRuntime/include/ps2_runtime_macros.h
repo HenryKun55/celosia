@@ -836,6 +836,73 @@ namespace ps2_guest_mem
 #define WRITE64(addr, val) PS2_GUEST_WRITE(uint64_t, write64, "WRITE64", addr, val)
 #define WRITE128(addr, val) PS2_GUEST_WRITE(__m128i, write128, "WRITE128", (uint32_t)(addr) & ~0xFu, val)
 
+// Round N1: guest loads / stores as base register + immediate (READ32_B(base, off), the generators' form of a MIPS
+// `lw rt, off(base)`: tools/lift_d1.py, ps2xRecomp's PS2X_RECOMP_BASEMEM, tools/n1_basemem.py). With
+// PS2X_N1_BASEMEM (default on) the fast path tests the base alone: a base in [0x10000, 0x1FF0000) with an offset of
+// a MIPS immediate (-0x8000..0x7FFF; the generators rewrite nothing else) is an address in [0x8000, 0x1FF8000), main
+// RAM, so the access is a plain host load / store at (rdram + base) + off. The test no longer depends on the offset:
+// every access off the same base value shares it (the compiler computes rdram + base and the compare once, and the
+// access is one `ldr r, [rb, #off]`), where the old form added, compared and indexed per access. Any other base takes
+// the old path with the full address (I/O, scratchpad, mirrors, wrap: the same slow calls, the same results): exact.
+// PS2X_N1_BASEMEM=0: the _B forms are the old macros on ADD32(base, off) (the A/B build).
+#ifndef PS2X_N1_BASEMEM
+#define PS2X_N1_BASEMEM 1
+#endif
+#define PS2_N1_BASE_OK(b) (PS2_EXPECT((uint32_t)((b) - 0x10000u) < 0x1FE0000u, 1))
+#if PS2X_N1_BASEMEM
+// A base outside the range: the out-of-line slow path with the full address (it handles every address, main RAM
+// too, as the old fast path does: ps2_memory.cpp). Where the Mac's read watch / store trace is compiled in, the
+// old macro (its fast path runs them for main RAM).
+#if PS2X_GUEST_WRITE_TRACE || PS2X_GUEST_READ_WATCH
+#define PS2_N1_SLOW_READ(T, fn, a) PS2_GUEST_READ(T, fn, a)
+#define PS2_N1_SLOW_WRITE(T, fn, op, a, v) PS2_GUEST_WRITE(T, fn, op, a, v)
+#else
+#define PS2_N1_SLOW_READ(T, fn, a) ps2_guest_mem::fn##_slow(rdram, ctx, runtime, (a))
+#define PS2_N1_SLOW_WRITE(T, fn, op, a, v) ps2_guest_mem::fn##_slow(rdram, ctx, runtime, (a), (v))
+#endif
+#define PS2_GUEST_READ_B(T, fn, base, off) ([&]() -> T {                                                  \
+    const uint32_t _b = (uint32_t)(base);                                                                \
+    if (PS2_N1_BASE_OK(_b))                                                                              \
+    {                                                                                                    \
+        ps2_guest_mem::readWatch<T>(_b + (uint32_t)(int32_t)(off));                                      \
+        T _v;                                                                                            \
+        std::memcpy(&_v, (rdram + _b) + (int32_t)(off), sizeof(T));                                      \
+        return _v;                                                                                       \
+    }                                                                                                    \
+    return PS2_N1_SLOW_READ(T, fn, _b + (uint32_t)(int32_t)(off)); }())
+#define PS2_GUEST_WRITE_B(T, fn, op, base, off, val)                                                     \
+    do                                                                                                   \
+    {                                                                                                    \
+        const uint32_t _b = (uint32_t)(base);                                                            \
+        const T _vb = (T)(val);                                                                          \
+        if (PS2_N1_BASE_OK(_b))                                                                          \
+        {                                                                                                \
+            ps2_guest_mem::trace<T>(rdram, _b + (uint32_t)(int32_t)(off), _vb, op, ctx);                 \
+            std::memcpy((rdram + _b) + (int32_t)(off), &_vb, sizeof(T));                                 \
+        }                                                                                                \
+        else                                                                                             \
+            PS2_N1_SLOW_WRITE(T, fn, op, _b + (uint32_t)(int32_t)(off), _vb);                            \
+    } while (0)
+#define READ8_B(base, off) PS2_GUEST_READ_B(uint8_t, read8, base, off)
+#define READ16_B(base, off) PS2_GUEST_READ_B(uint16_t, read16, base, off)
+#define READ32_B(base, off) PS2_GUEST_READ_B(uint32_t, read32, base, off)
+#define READ64_B(base, off) PS2_GUEST_READ_B(uint64_t, read64, base, off)
+#define WRITE8_B(base, off, val) PS2_GUEST_WRITE_B(uint8_t, write8, "WRITE8", base, off, val)
+#define WRITE16_B(base, off, val) PS2_GUEST_WRITE_B(uint16_t, write16, "WRITE16", base, off, val)
+#define WRITE32_B(base, off, val) PS2_GUEST_WRITE_B(uint32_t, write32, "WRITE32", base, off, val)
+#define WRITE64_B(base, off, val) PS2_GUEST_WRITE_B(uint64_t, write64, "WRITE64", base, off, val)
+#else
+#define READ8_B(base, off) READ8(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)))
+#define READ16_B(base, off) READ16(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)))
+#define READ32_B(base, off) READ32(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)))
+#define READ64_B(base, off) READ64(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)))
+#define WRITE8_B(base, off, val) WRITE8(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)), val)
+#define WRITE16_B(base, off, val) WRITE16(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)), val)
+#define WRITE32_B(base, off, val) WRITE32(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)), val)
+#define WRITE64_B(base, off, val) WRITE64(ADD32((uint32_t)(base), (uint32_t)(int32_t)(off)), val)
+#endif
+// 128-bit accesses keep the old form (the address is masked to 16 bytes after the add): READ128 / WRITE128.
+
 // Packed Compare Greater Than (PCGT)
 #define PS2_PCGTW(a, b) _mm_cmpgt_epi32((__m128i)(a), (__m128i)(b))
 #define PS2_PCGTH(a, b) _mm_cmpgt_epi16((__m128i)(a), (__m128i)(b))
