@@ -1011,7 +1011,7 @@
   {
    "round": "D16",
    "date": "2026-11-18",
-   "commit": "0e434ee",
+   "commit": "0496ae3",
    "focus": "Decomp",
    "summary": "Decomp D16: the colossi that never appeared are woken in their own arenas, and the first colossus is killed. The ten 'missing' colossi turned out to be asleep (the test aid looked for them in the wrong place) or behind arenas that only stream in from their checkpoint: with the game's own boot flag and a teleport to each checkpoint, Wander rides Argus' back, stands on Malus' hand, faces Cenobia's eye, walks Celosia's torch-lit arena, and Hydrus' thunder knocks him down. Valus is killed for the first time (his parts' life set almost empty, then a stab): the collapse cutscene, the black tentacles and the shrine's save screen all run. 156 functions converted, 88 checked exact with not a single difference, none of them slower: 88 ship behind SOTC_LIFTD16 (on), among them Valus' death, Celosia's, Argus' and Malus' start scripts and Hydrus' fight script.",
    "result": "Whole game (honest count): 5 795 of 9 024 functions (64.2%, 63.2% after D15), 68.9% of the code, 97.6% of calls. Script 312 of 633 (294), characters 778 of 1 205 (760), other game code 1 979 of 2 907 (1 936). Exact: 88 functions, 2 198 checks, 0 differences. Speed (Vita3K 222 MHz, interleaved A/B, two seeds): neutral (the converted code is never hot). Boots and runs with the console's free memory (Vita3K, 89 MB taken)."
