@@ -988,7 +988,32 @@ namespace ps2x::iop::detail
         alignas(16) int16_t h0[kBlock], h1[kBlock], h2[kBlock], h3[kBlock];
         alignas(16) uint32_t count[kBlock];
         uint32_t position = c0;
-        for (uint32_t i = 0; i < outputs; ++i)
+        uint32_t i = 0;
+#if defined(PS2X_MIX_NEON)
+        if (m_n2)
+        {
+            // Round N2: four outputs at a time: each one's four samples one vector load, the 4 x 4 transposed
+            // into h0..h3 (the same values as the loop below).
+            const uint32x4_t frac = vdupq_n_u32(0xFFFu);
+            for (; i + 4u <= outputs; i += 4u)
+            {
+                const uint32_t p0 = position + pitch, p1 = p0 + pitch, p2 = p1 + pitch, p3 = p2 + pitch;
+                position = p3;
+                const int16x4_t a = vld1_s16(run + (p0 >> 12u)), b = vld1_s16(run + (p1 >> 12u));
+                const int16x4_t c = vld1_s16(run + (p2 >> 12u)), d = vld1_s16(run + (p3 >> 12u));
+                const int16x4x2_t ab = vtrn_s16(a, b), cd = vtrn_s16(c, d);
+                const int32x2x2_t even = vtrn_s32(vreinterpret_s32_s16(ab.val[0]), vreinterpret_s32_s16(cd.val[0]));
+                const int32x2x2_t odd = vtrn_s32(vreinterpret_s32_s16(ab.val[1]), vreinterpret_s32_s16(cd.val[1]));
+                vst1_s16(h0 + i, vreinterpret_s16_s32(even.val[0]));
+                vst1_s16(h1 + i, vreinterpret_s16_s32(odd.val[0]));
+                vst1_s16(h2 + i, vreinterpret_s16_s32(even.val[1]));
+                vst1_s16(h3 + i, vreinterpret_s16_s32(odd.val[1]));
+                const uint32_t ps[4] = {p0, p1, p2, p3};
+                vst1q_u32(count + i, vandq_u32(vld1q_u32(ps), frac));
+            }
+        }
+#endif
+        for (; i < outputs; ++i)
         {
             position += pitch;
             const uint32_t k = position >> 12u;
