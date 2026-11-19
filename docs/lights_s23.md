@@ -77,7 +77,7 @@ passed over touch nothing).
 | chkLp2, lake6, 420 s (to frame 9 159) | 8 091 | 16 180 | 90 | 38 (42%) | 3.9 | **0** |
 | chkAp2, attract, 420 s (to frame 16 200) | 15 719 | 31 436 | 44 | 30 (68%) | 2.3 | **0** |
 
-71 926 walks in all, 0 differences; round 95's join never added a node that is not class 0 (0 fallbacks). The first
+70 926 walks in all, 0 differences; round 95's join never added a node that is not class 0 (0 fallbacks). The first
 build (p1) fell back to the full walks whenever a node's class took the guest call, which is every frame (a script /
 camera / light object is always in the list): p2 keeps those nodes. So walks 2 and 3 now visit 55% of the nodes riding
 (42% at the lake, 68% in the attract demo): ~116 node visits a frame saved riding, and two scans of the bucket array.

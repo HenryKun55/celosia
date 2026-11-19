@@ -779,7 +779,7 @@ namespace sotc_decomp
             // Round S21: s21light on (SOTC_S21LIGHT=0 off): exact (checks: 0 differences in 355 850 calls), its A/Bs pooled
             // +0.13 +- 0.05 ms (z about 2.4; docs/lights_s21.md).
             // Round S22: s22ptcl off unless SOTC_S22PTCL=1 (docs/ptcl_s22.md).
-            // Round S23: s23light off unless SOTC_S23LIGHT=1: exact (checks: 0 differences in 71 926 walks) but even in the
+            // Round S23: s23light off unless SOTC_S23LIGHT=1: exact (checks: 0 differences in 70 926 walks) but even in the
             // frame time's A/B (the walks it shortens are ~0.05 ms a frame riding; docs/lights_s23.md).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
