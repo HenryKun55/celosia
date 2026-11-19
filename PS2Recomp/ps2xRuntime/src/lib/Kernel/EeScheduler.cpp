@@ -27,6 +27,36 @@
 
 void (*g_eeDispatchProbe)(R5900Context *, int) = nullptr;
 
+// Round N5 (sotc switch n5sched, SOTC_N5SCHED; set per frame by the game): the EE kernel's own rule for threads of
+// equal priority. The PS2 kernel never time-slices: a thread runs until it blocks, yields (RotateThreadReadyQueue) or a
+// higher-priority thread becomes ready (that preempts at once: requestPreemptionIfHigher). The runtime's 65 536-cycle
+// slice ending with an equal-priority thread ready was a switch the game never asked for (the service threads taking
+// turns with the game thread at its checkpoints). On: the slice never ends (a slice end only renews it) and only a
+// strictly higher-priority ready thread preempts there; so only explicit blocking / yielding / waking points switch
+// threads. g_ps2xN5Log (SOTC_N5_LOG=<frames>, read by the game): "[n5]" lines, each guest thread's host time a frame.
+uint32_t g_ps2xN5Sched = 0u;
+uint32_t g_ps2xN5Log = 0u;
+namespace n5stat
+{
+    static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
+    static void line(uint64_t frame)
+    {
+        if (frame / g_ps2xN5Log == lastFrame / g_ps2xN5Log || frame <= lastFrame)
+            return;
+        const double f = static_cast<double>(frame - lastFrame);
+        lastFrame = frame;
+        char buf[1200];
+        int n = std::snprintf(buf, sizeof(buf), "[n5] frame %llu (sched %u): a frame, host us by guest thread (exclusive of nested runs) / runs:",
+                              (unsigned long long)frame, g_ps2xN5Sched);
+        for (uint32_t t = 0; t < 32u && n > 0 && n < 1100; ++t)
+            if (runs[t])
+                n += std::snprintf(buf + n, sizeof(buf) - n, " t%u %.0f/%.2f", t, us[t] / f, runs[t] / f);
+        std::fprintf(stderr, "%s\n", buf);
+        for (uint32_t t = 0; t < 32u; ++t)
+            us[t] = runs[t] = 0;
+    }
+}
+
 namespace
 {
     constexpr int KE_OK = 0;
@@ -681,35 +711,6 @@ bool EeScheduler::checkpointSlow() noexcept
 
 uint32_t g_ps2xSliceStretch = 1u;
 
-// Round N5 (sotc switch n5sched, SOTC_N5SCHED; set per frame by the game): the EE kernel's own rule for threads of
-// equal priority. The PS2 kernel never time-slices: a thread runs until it blocks, yields (RotateThreadReadyQueue) or a
-// higher-priority thread becomes ready (that preempts at once: requestPreemptionIfHigher). The runtime's 20 000-cycle
-// slice ending with an equal-priority thread ready was a switch the game never asked for (the service threads taking
-// turns with the game thread at its checkpoints). On: the slice never ends (a slice end only renews it) and only a
-// strictly higher-priority ready thread preempts there; so only explicit blocking / yielding / waking points switch
-// threads. g_ps2xN5Log (SOTC_N5_LOG=<frames>, read by the game): "[n5]" lines, each guest thread's host time a frame.
-uint32_t g_ps2xN5Sched = 0u;
-uint32_t g_ps2xN5Log = 0u;
-namespace n5stat
-{
-    static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
-    static void line(uint64_t frame)
-    {
-        if (frame / g_ps2xN5Log == lastFrame / g_ps2xN5Log || frame <= lastFrame)
-            return;
-        const double f = static_cast<double>(frame - lastFrame);
-        lastFrame = frame;
-        char buf[1200];
-        int n = std::snprintf(buf, sizeof(buf), "[n5] frame %llu (sched %u): a frame, host us by guest thread (exclusive of nested runs) / runs:",
-                              (unsigned long long)frame, g_ps2xN5Sched);
-        for (uint32_t t = 0; t < 32u && n > 0 && n < 1100; ++t)
-            if (runs[t])
-                n += std::snprintf(buf + n, sizeof(buf) - n, " t%u %.0f/%.2f", t, us[t] / f, runs[t] / f);
-        std::fprintf(stderr, "%s\n", buf);
-        for (uint32_t t = 0; t < 32u; ++t)
-            us[t] = runs[t] = 0;
-    }
-}
 
 // Round S13: a thread became ready (or the running one's priority changed) while the slice is stretched. If a ready
 // thread could take the running one's place at a slice end (at or above its priority), the slice ends where the plain
