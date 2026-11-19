@@ -1580,27 +1580,48 @@ namespace sotc_decomp
         PS2Runtime *g_liftRuntime = nullptr;
         void liftAltChanged(bool on)
         {
-            int swapped = 0, remapped = 0;
-            for (const auto &[address, alt] : liftAlts())
+            // Round N1: the (address, lifted, alternative) pairs found once. The old loop matched every alternative
+            // against every lift table (~3 000 x ~3 000 compares a flip); under SOTC_AB_MIX it flips most frames and
+            // took ~64% of the game thread, which swamped the A/B.
+            struct AltPair
+            {
+                uint32_t address;
+                PS2Runtime::RecompiledFunction native, alt;
+            };
+            static std::vector<AltPair> pairs;
+            static bool built = false;
+            if (!built)
+            {
+                built = true;
+                std::unordered_map<uint32_t, PS2Runtime::RecompiledFunction> alts;
+                for (const auto &[address, alt] : liftAlts())
+                    alts.emplace(address, alt);
                 for (const std::vector<AbEntry> *v : {&g_lift, &g_lift2, &g_lift3, &g_lift4, &g_lift5, &g_lift6, &g_lift7, &g_lift8, &g_lift9, &g_lift10, &g_lift11, &g_lift12, &g_lift13, &g_lift14, &g_lift15, &g_lift16, &g_lift17, &g_lift18, &g_lift19})
                     for (const AbEntry &e : *v)
-                    {
-                        if (e.address != address || !e.native)
-                            continue;
-                        const PS2Runtime::RecompiledFunction from = on ? alt : e.native, to = on ? e.native : alt;
-                        if (g_liftRuntime->lookupFunction(address) == from)
-                        {
-                            g_liftRuntime->registerFunction(address, to);
-                            ++swapped;
-                        }
-                        else
-                        {
-                            sotc_prof::remapWrapped(from, to);
-                            ++remapped;
-                        }
-                    }
-            std::fprintf(stderr, "[liftalt] frame %llu: %s (%d swapped, %d of %zu elsewhere)\n", static_cast<unsigned long long>(g_gameFrame),
-                         on ? "on (the lifted functions)" : "off (their alternative copies)", swapped, remapped, liftAlts().size());
+                        if (e.native)
+                            if (auto it = alts.find(e.address); it != alts.end())
+                                pairs.push_back({e.address, e.native, it->second});
+            }
+            int swapped = 0, remapped = 0;
+            for (const AltPair &p : pairs)
+            {
+                const PS2Runtime::RecompiledFunction from = on ? p.alt : p.native, to = on ? p.native : p.alt;
+                if (g_liftRuntime->lookupFunction(p.address) == from)
+                {
+                    g_liftRuntime->registerFunction(p.address, to);
+                    ++swapped;
+                }
+                else
+                {
+                    sotc_prof::remapWrapped(from, to);
+                    ++remapped;
+                }
+            }
+            static const bool mixQuiet = ps2_diag::env("SOTC_AB_MIX") != nullptr;
+            static uint64_t changes = 0;
+            if (!mixQuiet || (changes++ % 1000u) == 0u)
+            std::fprintf(stderr, "[liftalt] frame %llu: %s (%d swapped, %d of %u elsewhere)\n", static_cast<unsigned long long>(g_gameFrame),
+                         on ? "on (the lifted functions)" : "off (their alternative copies)", swapped, remapped, static_cast<unsigned>(liftAlts().size()));
         }
         void liftSwitchChanged(int which, bool on)
         {
