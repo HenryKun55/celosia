@@ -1166,6 +1166,14 @@
    "focus": "Native layers",
    "summary": "Round N5 profiled the game's EE threads and the scheduler riding (every thread switch is the threads' own: 0.00 slice preemptions a frame, the game thread's checkpoints all nested by S17), wrote the set of functions that can block or switch threads (tools/n5_blocking.py, docs/n5_blocking.txt: 4 305 of 9 024, the input N4 needs) and added n5sched, the PS2 kernel's equal-priority rule (no time slice), off by default.",
    "result": "The profile riding: 13.5-16 dispatches a frame (0.33-0.94 ms of dispatcher), 0 time-slice preemptions, every switch from the threads themselves. docs/n5_blocking.txt: 4 305 functions can block, 4 719 cannot (8.58% of the game thread riding), what N4 needs. n5sched (no time slice between same-priority threads) does not boot: with it on the game stays in the boot at ~4 fps, so the boot relies on the time slice; off by default, the build with it off rides normally; no sp-based NEON accesses."
+  },
+  {
+   "round": "N3",
+   "date": "2026-11-19",
+   "commit": "",
+   "focus": "Native layers",
+   "summary": "Round N3 did the plan's float and call steps for the lifted code: PS2X_EE_TRUST_FINITE level 1 for the lifted batches (CMake PS2X_GEN_TRUST, default 1; the clamps that only act on Inf / NaN out) and direct calls between lifted functions (tools/n3_direct.py: 1 669 sites; one runtime flag, kept only while every target's slot holds its lifted function, so a direct call is exact).",
+   "result": "Pending at the time of writing: see docs/native_n3.md (in-run A/Bs n3direct and liftalt, the check build counts on ride7 / lake6, the boot with 89 MB taken)."
   }
  ]
 }

@@ -23302,3 +23302,19 @@ handlers); the game thread no longer unwinds at checkpoints (S17), only at real 
 - Not done: the dispatch checkpoint out of the inline call path (a rebuild of every recompiled file; N3 was in those
   macros), host threads for the service threads (their shared kernel objects must become host-locked first).
 
+## Native N3: native float (level 1) and direct calls for the lifted code (2026-11-19)
+
+The plan's steps N2 (PS2 FPU / VU0 clamps) and N3 (function-table calls), both in this round (the sound round took
+the name N2). The full write-up is docs/native_n3.md. Scripts, runs and logs: `build/agent-scratch/n3/`.
+
+- **Native float**: CMake `PS2X_GEN_TRUST` (default 1) compiles the lifted batches with `PS2X_EE_TRUST_FINITE=1`: the
+  VU0 operand clamps and the FPU result clamp out (they only act on an Inf / NaN pattern: the same bits for finite
+  operands). `PS2X_GEN_TRUST_RECOMPILED` (off) does the same for the recompiled functions (a whole runner rebuild);
+  `PS2X_GEN_TRUST_CHECK` is the check build (counts where a dropped clamp would have acted, `SOTC_N3_TRUST_LOG=1`).
+  Level 2 (plain host adds, not exact) only as `-DPS2X_GEN_TRUST=2`.
+- **Direct calls**: `tools/n3_direct.py` (run by `tools/lift_d1.py`) turns the 1 669 calls / tail jumps between
+  lifted functions into `PS2_CALL_GUEST_DIRECT` / `PS2_TAIL_GUEST_DIRECT`: the lifted function called without the
+  table read while `g_ps2DirectCalls` is set, which the runtime keeps only while every target's slot holds its lifted
+  function (every slot write counted; switch `n3direct`, `SOTC_N3DIRECT`). Exact by construction: a direct call runs
+  only when the slot it skips holds the function it calls.
+- **Results**: see docs/native_n3.md (A/Bs, the check build's counts, the boot).
