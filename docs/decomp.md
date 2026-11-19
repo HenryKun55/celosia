@@ -23089,3 +23089,36 @@ and SCRBossDebugDeath / gamecore_sub_0136FFC0 (D19's bdeath aid only; x15's pass
   no boss handle.
 - The death code itself is already lifted (Valus D16, Argus D17); what is left recompiled near the deaths is aid-only
   (SCRBossDebugDeath) or boot / load code (InitTableSinCos, setLoadingCheckFunc) the trace's event window misses.
+## Redesign S21: the global light query's lights as host records (SOTC_S21LIGHT, on by default) (2026-11-19)
+
+The full write-up is docs/lights_s21.md; this is the summary. Scripts, runs and logs: `build/agent-scratch/s21/`
+(clone.sh the build dir cloned from S18's, b.sh the build, chk21.sh the check, abs21.sh / q.sh the interleaved A/B,
+chainA..E.sh started with nohup, vq.out). Own Vita3K trees ../vita3k-celosia-s21 / -s21b (222 MHz, 3 cores, muted),
+deleted at the end.
+
+### What changed (`SOTC_S21LIGHT`, A/B `s21light`; `_CHECK`, `_LOG`)
+
+ExecGlobalLightMan (once per lit object the walk83 cache misses, ~10-14 a frame riding) built every in-range global
+light's volume matrix (GetInverseMatrixFromQuaternionPos) again per object, though it depends only on the light's
+quaternion / position, set once a frame. S21 keeps one host record per light slot: the light's address, the 32 input
+bytes and vf0 it was made from, the matrix and every register the routine leaves (the w lanes it passes through
+taken from the live registers); used while the slot's light and bytes are the same (exact by construction), else made
+again. The light's words are read through one host pointer. The ambient colour, the rates, the sort and the blend as
+before. The query's body moved to execImpl (added to vita_hot_order.ld in p2).
+
+### Checks, A/B, decision
+
+`SOTC_S21LIGHT_CHECK=1` (each call the old way first, then S21's from the same state: the work area, the frame, every
+light record, every GPR / FPR / VU0 register, ACC, Q, fcr31, pc compared): ride7 146 643, lake6 111 618, attract
+97 589 calls, **0 differences**; the matrices kept 99.9% of the time. A/B (Vita3K 222 MHz, interleaved, off - on,
+SOTC_S21LIGHT=1): ride7 +0.265 +- 0.227 ms (seed 7), +0.043 +- 0.339 (seed 11), +0.117 +- 0.178 (seed 13); lake6 +0.070
++- 0.189; pooled +0.127 +- 0.053 ms, z 2.4: **on by default** (SOTC_S21LIGHT=0 off), with a caveat: the sampler accounts
+for only ~0.01 ms (the inverse-matrix routines ~0.03% of the game thread; the query's own ~0.5% is flat and cannot be
+split by state). Boot with 89 MB taken: mounted and rode (bootRp1b; bootRp1 missed the mount on the route's timing);
+pictures normal. spalign 0 sp-based.
+
+### What it leaves
+
+The query's own ~0.5% (a per-object light record only pays for static objects, which round 83 already keeps), the work
+records after it (SetWorkFromGlobalLight, ExecGameLight, the light matrices), getAmbientColorC (S19, off), the light
+pass's three sort-list walks (0.70%): docs/lights_s21.md section 6.

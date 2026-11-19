@@ -1103,6 +1103,14 @@
    "focus": "Decomp",
    "summary": "Decomp D20 found why D19's forced deaths stalled (the death demo thread st_boss_dead only starts on scriptIntrSignal from the killing hit, which the life-zero aid skipped) and added the bdie aid that ends a colossus the way the killing hit does: Malus, Cenobia and Phalanx now die through the collapse, the tentacles and the save screen.",
    "result": "8 functions of the deaths' routes trace-checked exact (9 checks, 0 mismatch lines) and shipped behind SOTC_LIFTD20 (default on). Interleaved A/B (Vita3K 222 MHz, off - on): lake6 +0.142 ± 0.376 ms, attract -0.163 ± 0.134 ms; none of the 8 sampled (not hot). Honest count 5 840 of 9 024 functions (64.72%), 69.32% of the code. Boots with 89 MB taken; pictures normal; no sp-based NEON accesses."
+  },
+  {
+   "round": "S21",
+   "date": "2026-11-19",
+   "commit": "92d7bd3",
+   "focus": "Subsystem redesign",
+   "summary": "Round S21 redesigned the global light query's light side: one host record per light slot keeps the light's volume matrix (GetInverseMatrixFromQuaternionPos) and the registers it leaves while the light's quaternion / position bytes stay, instead of building it again for every lit object; the lights read through one host pointer (SOTC_S21LIGHT, A/B s21light).",
+   "result": "Exact: SOTC_S21LIGHT_CHECK=1 compared memory and every register on 146 643 calls riding, 111 618 at the lake, 97 589 in the attract demo: 0 differences; matrices kept 99.9%. A/B (Vita3K 222 MHz, off - on): ride7 +0.265 +- 0.227, +0.043 +- 0.339, +0.117 +- 0.178 ms, lake6 +0.070 +- 0.189; pooled +0.13 +- 0.05 ms, z 2.4: on by default (SOTC_S21LIGHT=0 off), though the sampler accounts for only ~0.01 ms. Boot with 89 MB taken rode normally; pictures normal."
   }
  ]
 }

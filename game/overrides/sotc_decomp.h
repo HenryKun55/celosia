@@ -711,7 +711,7 @@ namespace sotc_decomp
         kS19Amb,   // round S19 (off unless SOTC_S19AMB=1): getAmbientColorC's light-grid lookups without guest calls: the ambient light group's links
                    // walked as host reads (no isysGroupForFirst / Next / Exit, GetAmbientLightClass calls), floorf called
                    // as the native it is (decomp_ambient.cpp; exact: SOTC_S19AMB_CHECK)
-        kS21Light, // round S21 (off unless SOTC_S21LIGHT=1): the global light query's lights as host records: each light slot's inverse
+        kS21Light, // round S21 (SOTC_S21LIGHT=0 off): the global light query's lights as host records: each light slot's inverse
                    // matrix and registers kept while its quaternion / position bytes stay, the range test through one host
                    // pointer (decomp_light.cpp; exact: SOTC_S21LIGHT_CHECK)
         kSwitchCount
@@ -771,10 +771,11 @@ namespace sotc_decomp
             // Round S16: s16plan off unless SOTC_S16PLAN=1 (docs/display_s16.md).
             // Round S19: s19amb off unless SOTC_S19AMB=1: exact (checks: 0 differences in 373 514 calls) but ~15 calls a frame
             // riding, below what the frame time's A/B resolves (docs/lights_s19.md).
-            // Round S21: s21light off unless SOTC_S21LIGHT=1 (docs/lights_s21.md).
+            // Round S21: s21light on (SOTC_S21LIGHT=0 off): exact (checks: 0 differences in 355 850 calls), its A/Bs pooled
+            // +0.13 +- 0.05 ms (z about 2.4; docs/lights_s21.md).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS21Light)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;

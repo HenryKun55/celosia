@@ -105,6 +105,7 @@
   *(.text._ZN11sotc_native14decodedTextureEj .text.hot._ZN11sotc_native14decodedTextureEj)
   *(.text._ZN11decomp_isys7lockObjEPhP12R5900ContextP10PS2Runtime .text.hot._ZN11decomp_isys7lockObjEPhP12R5900ContextP10PS2Runtime)
   *(.text._ZN12decomp_light18execGlobalLightManEPhP12R5900ContextP10PS2Runtime .text.hot._ZN12decomp_light18execGlobalLightManEPhP12R5900ContextP10PS2Runtime)
+  *(.text._ZN12decomp_lightL8execImplEPhP12R5900ContextP10PS2Runtimeb .text.hot._ZN12decomp_lightL8execImplEPhP12R5900ContextP10PS2Runtimeb)
   *(.text._ZN14decomp_skinpal7skinnedEPhP12R5900ContextP10PS2Runtime .text.hot._ZN14decomp_skinpal7skinnedEPhP12R5900ContextP10PS2Runtime)
   *(.text._ZN14decomp_ptcl11715dispEmitterImplEPhP12R5900ContextP10PS2Runtime .text.hot._ZN14decomp_ptcl11715dispEmitterImplEPhP12R5900ContextP10PS2Runtime)
   *(.text._ZN6pose829clothMeshEPhP12R5900Contextjjji .text.hot._ZN6pose829clothMeshEPhP12R5900Contextjjji)
