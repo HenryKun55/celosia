@@ -56,7 +56,6 @@ namespace lift_d1
     void Sg2SlotSetOutputMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void Sg2StPcmInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void changeFogParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void glEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void init_particle_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void init_wind_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void iosAllocIopHeap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -14898,7 +14897,7 @@ L_108c08c:
             ra = 0x108C154u;
             ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[2] = f2; Ps2SetGpr64(ctx, 1, at); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 20, s4); Ps2SetGpr64(ctx, 21, s5); Ps2SetGpr64(ctx, 22, s6); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 30, fp); Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); ctx->vu0_vf[11] = vf11; ctx->vu0_vf[12] = vf12; ctx->vu0_vf[13] = vf13; ctx->vu0_vf[14] = vf14; ctx->vu0_vf[15] = vf15; ctx->vu0_vf[16] = vf16; ctx->vu0_vf[17] = vf17; ctx->vu0_vf[18] = vf18; ctx->vu0_vf[19] = vf19; ctx->vu0_vf[20] = vf20; ctx->vu0_vf[21] = vf21; ctx->vu0_vf[22] = vf22; ctx->vu0_vf[27] = vf27; ctx->vu0_vf[28] = vf28; ctx->vu0_vf[29] = vf29; ctx->fcr31 = fcr31; ctx->vu0_acc = vacc; ctx->vu0_q = vq; ctx->vu0_status = vstat;
             ctx->pc = 0x108D060u;
-            if (!PS2_CALL_GUEST_DIRECT(0x108D060u, lift_d1::glEnd, 0x108C154u, 0x108C14Cu, DirectCall, "JAL")) { return; }
+            if (!PS2_CALL_GUEST_KNOWN(0x108D060u, glEnd_0x108d060, 0x108C154u, 0x108C14Cu, DirectCall, "JAL")) { return; }
         }
         f0 = ctx->f[0]; f1 = ctx->f[1]; f2 = ctx->f[2]; at = Ps2GprU64(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); vf0 = ctx->vu0_vf[0]; vf11 = ctx->vu0_vf[11]; vf12 = ctx->vu0_vf[12]; vf13 = ctx->vu0_vf[13]; vf14 = ctx->vu0_vf[14]; vf15 = ctx->vu0_vf[15]; vf16 = ctx->vu0_vf[16]; vf17 = ctx->vu0_vf[17]; vf18 = ctx->vu0_vf[18]; vf19 = ctx->vu0_vf[19]; vf20 = ctx->vu0_vf[20]; vf21 = ctx->vu0_vf[21]; vf22 = ctx->vu0_vf[22]; vf27 = ctx->vu0_vf[27]; vf28 = ctx->vu0_vf[28]; vf29 = ctx->vu0_vf[29]; fcr31 = ctx->fcr31; vacc = ctx->vu0_acc; vq = ctx->vu0_q; vstat = ctx->vu0_status;
         { const uint64_t v = READ64_B(sp, 64); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
@@ -15086,7 +15085,7 @@ void gluSetWrapMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         (sp = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 32))));
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 29, sp); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x108D060u;
-        PS2_TAIL_GUEST_DIRECT(0x108D060u, lift_d1::glEnd); return;
+        PS2_TAIL_GUEST_KNOWN(0x108D060u, glEnd_0x108d060); return;
     }
 }
 
@@ -17293,7 +17292,6 @@ namespace
                 {0x01080B98u, &lift_d1::GAMEUTIL_is_between_yaw_and_yaw},
                 {0x01080D58u, &lift_d1::GAMEUTIL_is_between_pitch_and_pitch},
                 {0x010899A8u, &lift_d1::changeFogParam},
-                {0x0108D060u, &lift_d1::glEnd},
                 {0x010919A0u, &lift_d1::manager_sub_010919A0},
                 {0x010C2760u, &lift_d1::SetCharacterClassRootQuaternionWithInterpolationGeometry},
                 {0x010F2258u, &lift_d1::SetLayoutClassRootQuaternion},

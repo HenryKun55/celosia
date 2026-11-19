@@ -1,0 +1,1 @@
+0x0108d060  # its slot holds another function at run time (N3 boot log)

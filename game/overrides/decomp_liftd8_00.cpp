@@ -48,7 +48,6 @@ namespace lift_d1
     void SendDamageLetter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void Sg2VabClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void atof_lift(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void glEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void manager_sub_0110C420(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void manager_sub_011409A8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void manager_sub_01141840(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -21971,7 +21970,7 @@ void manager_sub_01142080(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         ra = 0x1142118u;
         Ps2SetGpr64(ctx, 31, ra);
         ctx->pc = 0x108D060u;
-        if (!PS2_CALL_GUEST_DIRECT(0x108D060u, lift_d1::glEnd, 0x1142118u, 0x1142110u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_KNOWN(0x108D060u, glEnd_0x108d060, 0x1142118u, 0x1142110u, DirectCall, "JAL")) { return; }
     }
     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6);
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
@@ -22061,7 +22060,7 @@ void manager_sub_01142148(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         sp = sp + 0x10u;
         Ps2SetGpr64(ctx, 29, sx64(sp));
         ctx->pc = 0x108D060u;
-        PS2_TAIL_GUEST_DIRECT(0x108D060u, lift_d1::glEnd); return;
+        PS2_TAIL_GUEST_KNOWN(0x108D060u, glEnd_0x108d060); return;
     }
 }
 
@@ -27999,7 +27998,6 @@ namespace
                 {0x0012C208u, &lift_d1::atof_lift},
                 {0x00130B18u, &lift_d1::_strtoul_r},
                 {0x001DA598u, &lift_d1::Sg2VabClose},
-                {0x0108D060u, &lift_d1::glEnd},
                 {0x0110C420u, &lift_d1::manager_sub_0110C420},
                 {0x01139F10u, &lift_d1::manager_sub_01139F10},
                 {0x0113F760u, &lift_d1::boot_particle_emitter_extend},

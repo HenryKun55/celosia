@@ -712,7 +712,7 @@ endif()
 # the recompiled functions in the runner dirs (*_0x<addr>.cpp; off until a build of them is checked: the whole runner
 # recompiles). PS2X_GEN_TRUST_CHECK: the check build (counts where a clamp would have acted; SOTC_N3_TRUST_LOG=1 logs).
 # Not through the precompiled header (it has PS2X_EE_TRUST_FINITE at 0).
-set(PS2X_GEN_TRUST "1" CACHE STRING "Generated code's float level: 0 the PS2 clamps, 1 finite trusted (exact), 2 plain host adds (round N3)")
+set(PS2X_GEN_TRUST "0" CACHE STRING "Generated code's float level: 0 the PS2 clamps, 1 finite trusted (exact), 2 plain host adds (round N3)")
 option(PS2X_GEN_TRUST_RECOMPILED "PS2X_GEN_TRUST for the recompiled functions too (round N3)" OFF)
 option(PS2X_GEN_TRUST_CHECK "Check build: count where PS2X_GEN_TRUST's dropped clamps would act (round N3)" OFF)
 if(NOT PS2X_GEN_TRUST STREQUAL "0")

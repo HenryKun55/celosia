@@ -73,7 +73,6 @@ namespace lift_d1
     void glColor4fv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void glDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void glEnable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void glEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void glVertex2f(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void graphSetFogParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void kernel_sub_001C1538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -9424,7 +9423,7 @@ L_1085b18:
                     ra = 0x1085BBCu;
                     Ps2SetGpr64(ctx, 31, ra);
                     ctx->pc = 0x108D060u;
-                    if (!PS2_CALL_GUEST_DIRECT(0x108D060u, lift_d1::glEnd, 0x1085BBCu, 0x1085BB4u, DirectCall, "JAL")) { return; }
+                    if (!PS2_CALL_GUEST_KNOWN(0x108D060u, glEnd_0x108d060, 0x1085BBCu, 0x1085BB4u, DirectCall, "JAL")) { return; }
                 }
                 f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f2 = ctx->f[2]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; f24 = ctx->f[24]; f25 = ctx->f[25]; f26 = ctx->f[26]; at = Ps2GprU64(ctx, 1); t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); fcr31 = ctx->fcr31; hi = ctx->hi; lo = ctx->lo;
                 {
@@ -15424,7 +15423,6 @@ namespace
                 {0x010899A8u, &lift_d1::changeFogParam},
                 {0x01089E50u, &lift_d1::feedbackBlur2},
                 {0x0108B9C8u, &lift_d1::cameraBlurClearIntensityArray},
-                {0x0108D060u, &lift_d1::glEnd},
                 {0x0108E358u, &lift_d1::glEnable},
                 {0x0108E448u, &lift_d1::glDisable},
                 {0x0108E938u, &lift_d1::glColor4fv},
