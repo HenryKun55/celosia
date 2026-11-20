@@ -1194,7 +1194,7 @@
   {
    "round": "N6",
    "date": "2026-11-20",
-   "commit": "",
+   "commit": "a385280",
    "focus": "Native layers",
    "summary": "Round N6 took the dispatch checkpoint off the generated calls into functions that cannot block and have no loop anywhere below them: tools/n5_blocking.py --noloop lists 2 813 such functions, tools/n6_nochk.py (and the recompiler, and lift_d1.py) write 8 710 call sites as PS2_CALL_GUEST_NOCHK, which charges the checkpoint's cycles without testing them while the slot holds the known function and n5sched is in effect.",
    "result": "A/B (Vita3K 222 MHz, off - on): ride7 +0.156 +- 0.129 and -0.003 +- 0.141 ms, lake6 -0.064 +- 0.105 ms; pooled +0.030 +- 0.073 ms: even. No guest memory changes; a due deadline is seen at most ~500 EE cycles later than the worst case without it, 0 unwinds after a skipped test. Boot with 89 MB taken rode normally, pictures normal; no sp-based NEON accesses. On by default. Next for N4: register-argument entries for the functions both loop-free and ABI-proven."
