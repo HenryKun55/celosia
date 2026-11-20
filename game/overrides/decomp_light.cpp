@@ -20,6 +20,7 @@
 // the callee's own frame on the stack below sp is dead after the return and
 // is not written; v0, f0 and the VU0 registers as the original leaves them.
 #include "sotc_decomp.h"
+#include "c2scene.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1601,10 +1602,16 @@ namespace decomp_light
         SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2) + 320u);
         call(kReverb, 0x010F4FE4u);
         sotc_decomp::walk83LightBegin(rdram, runtime); // round 83: the lights' signature for this pass
+        // Round C2 (c2scene): the list's nodes and their scene records, for the three walks' prefetches (nothing else).
+        const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene);
+        if (c2)
+            c2scene::lightBegin(rdram, list);
 
         // The objects' light callbacks.
         for (uint32_t obj = sorted.first(); obj != 0u; obj = sorted.next(obj))
         {
+            if (c2)
+                c2scene::lightAhead(rdram, 1, obj);
             const uint32_t id = m.u32(obj);
             if (s23)
             {
@@ -1735,6 +1742,8 @@ namespace decomp_light
         bool c = (ctx->fcr31 & 0x800000u) != 0u;
         auto walk2 = [&](uint32_t obj) __attribute__((always_inline))
         {
+            if (c2)
+                c2scene::lightAhead(rdram, 2, obj);
             const uint32_t id = m.u32(obj);
             if (s23Check && inlineClass(id) != 0u)
                 s23See(obj);
@@ -1788,6 +1797,8 @@ namespace decomp_light
         // The objects with a light parent (+0x198): its lights taken over.
         auto walk3 = [&](uint32_t obj) __attribute__((always_inline))
         {
+            if (c2)
+                c2scene::lightAhead(rdram, 3, obj);
             const uint32_t id = m.u32(obj);
             if (s23Check && inlineClass(id) != 0u)
                 s23See(obj);
@@ -1827,6 +1838,8 @@ namespace decomp_light
             m.putf(m.u32(m.u32(lc + 324u) + 12u) + 216u, f0);
         };
         s23Walk(walk3, 3);
+        if (c2)
+            c2scene::lightEnd();
         ctx->f[0] = f0;
         cond(ctx, c);
         // The tail jump: LoopExecAfterLightColMan, returning to our caller.

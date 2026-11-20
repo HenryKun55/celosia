@@ -23,6 +23,7 @@
 // its loop head with the registers it has there).
 #include "sotc_decomp.h"
 #include "decomp_group.h"
+#include "c2scene.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -173,6 +174,10 @@ namespace decomp_group
         call(kGetGroup, 0x010F5834u);
         SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2));
         SET_GPR_U64(ctx, 5, 0u);
+        // Round C2 (c2scene): the last display walk's scene of this group asks for the next objects' lines.
+        const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene) && !sotc_decomp::onWorkerLane(runtime) &&
+                        GPR_U32(ctx, 4) == c2scene::lastGroup() && !c2scene::last().empty();
+        c2scene::Ahead ahead;
         call(kForFirst, 0x010F5840u);
         uint32_t s0 = GPR_U32(ctx, 2), s1 = 0u;
         while (s0 != 0u)
@@ -188,6 +193,8 @@ namespace decomp_group
                 return sotc_decomp::recompiled(kInit)(rdram, ctx, runtime);
             }
             s1 = m.u32(s0);
+            if (c2)
+                c2scene::initAhead(rdram, ahead, s1);
             // GetLayoutClass (its plain cases; the others as a guest call).
             uint32_t lc;
             const uint32_t index = static_cast<uint32_t>(m.u8(s1 + 8u)) - 9u;
