@@ -23317,4 +23317,6 @@ the name N2). The full write-up is docs/native_n3.md. Scripts, runs and logs: `b
   table read while `g_ps2DirectCalls` is set, which the runtime keeps only while every target's slot holds its lifted
   function (every slot write counted; switch `n3direct`, `SOTC_N3DIRECT`). Exact by construction: a direct call runs
   only when the slot it skips holds the function it calls.
-- **Results**: see docs/native_n3.md (A/Bs, the check build's counts, the boot).
+- **Results**: level 1 is not exact here (the check build counted 9 173 FPU clamps acting riding), so it defaults to
+  off; direct calls (glEnd left out, its slot is taken at run time) are even: pooled -0.02 +- 0.06 ms over ride7 seeds
+  7 / 13 and lake6, on by default; boot with 89 MB taken rode normally. docs/native_n3.md.

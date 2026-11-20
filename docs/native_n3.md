@@ -65,15 +65,23 @@ runtime's check of it) is the next step with the next runner rebuild.
 
 ## Checks and measurements
 
-Pending (the test build and its runs were still going when this was written; build/agent-scratch/n3/NOTES.md
-has the commands and where the results land):
+Scripts, runs and logs: `build/agent-scratch/n3/` (`vq.out`, `mix*.frames.txt`, `runs/`). Vita3K 222 MHz, A/Bs flipped
+at random per frame (`SOTC_AB_MIX`), off - on (> 0: on faster).
 
-- A/B build `pa`: the lifted batches at level 1 with direct calls, plus level-0 copies of the 561 hottest lifted
-  functions (`n3_altcopy.py`, `SOTC_DECOMP_LIFT_ALT`). In-run A/Bs (Vita3K 222 MHz, flipped at random per frame,
-  `SOTC_AB_MIX`): `n3direct` (direct calls on / off) and `liftalt` with `SOTC_N3DIRECT=0` (level 1 / level 0), ride7
-  800 s seeds 7 and 13, lake6 400 s.
-- Check build `pc` (`PS2X_GEN_TRUST_CHECK`): ride7 and lake6 400 s with `SOTC_N3_TRUST_LOG=1`.
-- Boot of `pa` with 89 MB taken, ride7 600 s, pictures.
-- Compile check: a lifted batch (decomp_liftd14_00) at level 1 has 253 direct `bl` to lifted functions, each behind
-  the flag's test.
+- **Native float level 1 is not exact for this game.** The check build `pc` (`PS2X_GEN_TRUST_CHECK`) counted the
+  clamps level 1 drops acting: ride7 9 173 FPU / 6 VU by frame 10 800, lake6 2 069 / 16 by frame 12 000. The level 1
+  vs level 0 A/B (`liftalt`, 561 hottest lifted functions) read ride7 +0.039 +- 0.172 / +0.107 +- 0.215 ms, lake6
+  +0.321 +- 0.102 ms, but the results would differ, so `PS2X_GEN_TRUST` defaults to 0 (48edcff); the switch stays for
+  a later look at which operations hit the clamps.
+- **Direct calls, first runs void.** In `pa` one target, glEnd (0x0108D060), had another function in its slot at run
+  time, so the guard kept every direct call off (`[n3] ... 1 held by another function: direct calls off`): the
+  first n3direct A/Bs compared old against old. glEnd is left out (`tools/n3_direct_exclude.txt`, 48edcff): 1 664
+  direct sites to 1 073 targets.
+- **Direct calls, build `pd`** (level 0, direct calls on: `[n3] 1073 direct call targets, 0 held by another
+  function: direct calls on`): ride7 seed 7 -0.051 +- 0.169 ms, seed 13 -0.154 +- 0.129, lake6 +0.044 +- 0.082;
+  pooled -0.02 +- 0.06 ms: even. The calls skipped are only the lifted-to-lifted ones (1 664 sites); the 18 587 other
+  known calls (natives, lean, recompiled code) still go through the table.
+- **Boot** (`pd`, 89 MB taken, ride7 600 s): booted on the first try, mounted Agro at frame 5 713, direct calls on,
+  pictures normal. spalign on pd.elf: 0 sp-based :128 / :256 NEON accesses (of 1 014).
 
+What it means: neither half moves the frame. Direct calls stay on (exact by the guard, even); level 1 stays off.
