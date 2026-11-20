@@ -71,6 +71,7 @@
 #include "sotc_worker.h"
 #include "lines67.h"
 #include "sotc_prof.h"
+#include "r1sort.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -304,6 +305,91 @@ namespace decomp_walk
         if (target == 0x010F1AA0u)
             return 0u;
         return layoutClassCall(g, object, site, sp);
+    }
+    // Round R1 (r1sort, SOTC_R1SORT; docs/native_r1.md): AddSortObj from the display walk as host code
+    // (decomp_dl::addSortHost: the typed sort list / nodes, no context, no table call). `guest` is the old call
+    // (the arguments into a0 / a1 and callGuest at the site), used when the switch is off, when the host version
+    // declines an address, and under SOTC_R1SORT_CHECK=1: there the host version records its stores without
+    // applying them, the guest call runs, and every word the host version wrote or read a link of is compared
+    // with what the guest call left ([r1sort] lines; the picture is the guest's).
+    namespace r1sort
+    {
+        uint64_t g_checked = 0, g_differ = 0, g_declined = 0, g_host = 0;
+        signed char g_check = -1;
+        inline bool checkOn()
+        {
+            if (__builtin_expect(g_check < 0, 0))
+            {
+                const char *e = std::getenv("SOTC_R1SORT_CHECK");
+                g_check = (e && e[0] == '1') ? 1 : 0;
+            }
+            return g_check != 0;
+        }
+        __attribute__((noinline)) void report()
+        {
+            std::fprintf(stderr, "[r1sort] checked %llu, differ %llu, host declined %llu\n", (unsigned long long)g_checked,
+                         (unsigned long long)g_differ, (unsigned long long)g_declined);
+        }
+        template <class Guest>
+        __attribute__((noinline)) void checked(uint8_t *rdram, uint32_t list, uint32_t obj, Guest &&guest)
+        {
+            decomp_dl::SortWrites w;
+            const bool ok = decomp_dl::addSortRecord(rdram, list, obj, w);
+            uint32_t before[decomp_dl::SortWrites::kWatch];
+            for (int i = 0; i < w.nw; ++i)
+                std::memcpy(&before[i], rdram + w.watch[i], 4);
+            guest();
+            if (!ok)
+            {
+                ++g_declined;
+                return;
+            }
+            bool differ = false;
+            for (int i = 0; i < w.nw; ++i)
+            {
+                uint32_t want = before[i], got;
+                for (int k = 0; k < w.n; ++k)
+                    if (w.addr[k] == w.watch[i])
+                        want = w.val[k];
+                std::memcpy(&got, rdram + w.watch[i], 4);
+                if (got != want)
+                {
+                    if (g_differ < 20u)
+                        std::fprintf(stderr, "[r1sort] differ: list %08x obj %08x word %08x guest %08x host %08x\n", list, obj, w.watch[i], got, want);
+                    differ = true;
+                }
+            }
+            // A store of the host version outside the watched words (cannot happen: every store's word is watched).
+            for (int k = 0; k < w.n; ++k)
+            {
+                uint32_t got;
+                std::memcpy(&got, rdram + w.addr[k], 4);
+                bool seen = false;
+                for (int i = 0; i < w.nw && !seen; ++i)
+                    seen = w.watch[i] == w.addr[k];
+                if (!seen && got != w.val[k])
+                    differ = true;
+            }
+            g_differ += differ ? 1u : 0u;
+            if (++g_checked % 20000u == 0u)
+                report();
+        }
+        template <class Guest>
+        inline void add(uint8_t *rdram, uint32_t list, uint32_t obj, Guest &&guest)
+        {
+            if (sotc_decomp::switchOn(sotc_decomp::kR1Sort))
+            {
+                if (__builtin_expect(checkOn(), 0))
+                    return checked(rdram, list, obj, guest);
+                if (__builtin_expect(decomp_dl::addSortHost(rdram, list, obj), 1))
+                {
+                    ++g_host;
+                    return;
+                }
+                ++g_declined;
+            }
+            guest();
+        }
     }
     // GetCharacterClass (0x10c0a70): types 9 and 0x16.
     inline uint32_t characterClass(const Ram m, uint32_t object)
@@ -4589,9 +4675,12 @@ namespace decomp_walk
                 // relinked into the second by its copy loop (adding to it now
                 // would walk the second list's links and could link the node
                 // twice: a cycle, the hang p1 met).
-                SET_GPR_S32(ctx, 5, static_cast<int32_t>(gdc));
-                SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(kSortList2)));
-                sotc_decomp::callGuest(rdram, ctx, runtime, kAddSortObj, 0x010F56B0u, sp);
+                r1sort::add(rdram, m.u32(kSortList2), gdc, [&]()
+                            {
+                                SET_GPR_S32(ctx, 5, static_cast<int32_t>(gdc));
+                                SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(kSortList2)));
+                                sotc_decomp::callGuest(rdram, ctx, runtime, kAddSortObj, 0x010F56B0u, sp);
+                            });
                 nodes.push_back(gdc);
                 if (g_lastKey.size() > 4096u)
                     g_lastKey.clear();
@@ -4749,9 +4838,12 @@ namespace decomp_walk
                 if (FPU_C_OLE_S(0.0f, f0) && draw79)
                 {
                     m.putf(gdc + 4u, f1);
-                    g.a(5, gdc);
-                    g.a(4, m.u32(kSortList));
-                    g.call(kAddSortObj, 0x010F5614u, sp);
+                    r1sort::add(rdram, m.u32(kSortList), gdc, [&]()
+                                {
+                                    g.a(5, gdc);
+                                    g.a(4, m.u32(kSortList));
+                                    g.call(kAddSortObj, 0x010F5614u, sp);
+                                });
                     if (wp) ++wprof::g_cnt[3];
                 }
             }
@@ -5008,9 +5100,12 @@ namespace decomp_walk
                     const float key = m.f32(s2 + 0x20u);
                     ctx->f[0] = key;
                     m.putf(s2 + 4u, key);
-                    g.a(5, s2);
-                    g.a(4, m.u32(kSortList));
-                    g.call(kAddSortObj, 0x010F559Cu, sp);
+                    r1sort::add(rdram, m.u32(kSortList), s2, [&]()
+                                {
+                                    g.a(5, s2);
+                                    g.a(4, m.u32(kSortList));
+                                    g.call(kAddSortObj, 0x010F559Cu, sp);
+                                });
                     if (wp) ++wprof::g_cnt[3];
                 }
                 const uint32_t geo = m.u32(s0 + 0x144u);
@@ -5091,15 +5186,21 @@ namespace decomp_walk
             const uint32_t lc = layoutClass(g, m.u32(s0), 0x010F567Cu, sp);
             if (lc == 0u)
             {
-                g.a(4, m.u32(kSortList2));
-                g.a(5, s0);
-                g.call(kAddSortObj, 0x010F56B0u, sp);
+                r1sort::add(rdram, m.u32(kSortList2), s0, [&]()
+                            {
+                                g.a(4, m.u32(kSortList2));
+                                g.a(5, s0);
+                                g.call(kAddSortObj, 0x010F56B0u, sp);
+                            });
             }
             else if ((m.u64(m.u32(lc + 0x144u) + 0x260u) & 0x10u) == 0u)
             {
-                g.a(4, m.u32(kSortList2));
-                g.a(5, s0);
-                g.call(kAddSortObj, 0x010F56A0u, sp);
+                r1sort::add(rdram, m.u32(kSortList2), s0, [&]()
+                            {
+                                g.a(4, m.u32(kSortList2));
+                                g.a(5, s0);
+                                g.call(kAddSortObj, 0x010F56A0u, sp);
+                            });
             }
             s0 = s1;
         }

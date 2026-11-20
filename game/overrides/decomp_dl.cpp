@@ -22,6 +22,7 @@
 // replaces the hook (the first try did, round 6). They need the hook to call
 // the native one instead.
 #include "sotc_decomp.h"
+#include "r1sort.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -228,6 +229,126 @@ namespace decomp_dl
         SET_GPR_U64(ctx, 9, 0x80000000FFFFFFFFull);
         returnTo(ctx);
     }
+}
+
+// ---- Round R1: AddSortObj as host code (r1sort.h; docs/native_r1.md) ------------------------------------------
+// The same reads, the same order of compares (the EE FPU's compare / multiply / convert helpers), the same stores as
+// addSortObj above; the list and nodes through typed host pointers, nothing in the context. Rec: the stores recorded
+// for SOTC_R1SORT_CHECK instead of applied.
+namespace decomp_dl
+{
+    namespace
+    {
+        inline bool okNode(uint32_t a) { return Ram::ok(a, 0x10u) && (a & 3u) == 0u; }
+        template <bool Rec>
+        struct Out
+        {
+            uint8_t *rdram;
+            SortWrites *w;
+            inline void put(uint32_t a, uint32_t v) const
+            {
+                if (Rec)
+                {
+                    if (w->n < SortWrites::kMax)
+                    {
+                        w->addr[w->n] = a;
+                        w->val[w->n] = v;
+                        ++w->n;
+                    }
+                }
+                else
+                    *reinterpret_cast<uint32_t *>(rdram + a) = v;
+            }
+            inline void watch(uint32_t a) const
+            {
+                if (Rec && w->nw < SortWrites::kWatch)
+                    w->watch[w->nw++] = a;
+            }
+        };
+
+        template <bool Rec>
+        inline bool addSortT(uint8_t *rdram, uint32_t list, uint32_t obj, SortWrites *w)
+        {
+            if (!okNode(list) || !okNode(obj))
+                return false;
+            const Out<Rec> out{rdram, w};
+            const SortList &L = *reinterpret_cast<const SortList *>(rdram + list);
+            const float key = reinterpret_cast<const SortNode *>(rdram + obj)->key;
+            const int32_t count = L.count;
+            const float product = FPU_MUL_S(key, L.scale);
+            const int32_t word = FPU_CVT_W_S(product);
+            int32_t index = word < count ? (word < 0 ? 0 : word) : count - 1;
+            const int32_t mode = L.mode;
+            if (mode == 1)
+                index = count - index - 1;
+            const uint32_t slot = L.buckets + (static_cast<uint32_t>(index) << 2);
+            if (!Ram::ok(slot, 4u) || (slot & 3u))
+                return false;
+            const uint32_t head = *reinterpret_cast<const uint32_t *>(rdram + slot);
+            out.watch(slot);
+            out.watch(obj + 8u);
+            out.watch(obj + 0xCu);
+            if (head == 0u)
+            {
+                out.put(slot, obj);
+                out.put(obj + 8u, 0u);
+                out.put(obj + 0xCu, 0u);
+                return true;
+            }
+            uint32_t node = head, next = 0u;
+            bool toPrev = false;
+            for (uint32_t steps = 0;; ++steps)
+            {
+                if (!okNode(node) || steps > (1u << 20))
+                    return false;
+                const SortNode &N = *reinterpret_cast<const SortNode *>(rdram + node);
+                out.watch(node + 8u);
+                out.watch(node + 0xCu);
+                const bool goPrev = mode == 0 ? FPU_C_OLT_S(N.key, key) : mode == 1 ? FPU_C_OLT_S(key, N.key) : false;
+                if (goPrev)
+                {
+                    next = N.toward;
+                    if (next != 0u)
+                    {
+                        node = next;
+                        continue;
+                    }
+                    toPrev = true;
+                }
+                else
+                    next = N.back;
+                break;
+            }
+            if (toPrev)
+            {
+                out.put(obj + 8u, 0u);
+                out.put(obj + 0xCu, node);
+                out.put(node + 8u, obj);
+                return true;
+            }
+            if (next == 0u)
+            {
+                out.put(slot, obj);
+                out.put(obj + 0xCu, 0u);
+                out.put(obj + 8u, node);
+                out.put(node + 0xCu, obj);
+                return true;
+            }
+            if (!Ram::ok(next, 0x10u))
+                return false;
+            out.watch(next + 8u);
+            out.put(next + 8u, obj);
+            // The original reads node+0xc after that store (the same word only if next + 8 == node + 0xc).
+            const uint32_t v0 = (next + 8u == node + 0xCu) ? obj : reinterpret_cast<const SortNode *>(rdram + node)->back;
+            out.put(obj + 8u, node);
+            out.put(obj + 0xCu, v0);
+            out.put(node + 0xCu, obj);
+            return true;
+        }
+    }
+
+    bool addSortHost(uint8_t *rdram, uint32_t list, uint32_t obj) { return addSortT<false>(rdram, list, obj, nullptr); }
+    bool addSortRecord(uint8_t *rdram, uint32_t list, uint32_t obj, SortWrites &w) { return addSortT<true>(rdram, list, obj, &w); }
 }
 
 // Round 42 (SOTC_LEAVES=0: recompiled).
