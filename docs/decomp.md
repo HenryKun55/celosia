@@ -23379,3 +23379,32 @@ docs/native_n6.md. Scripts, runs and logs: `build/agent-scratch/n6/`. Switch `SO
   rode at 31-32 fps, pictures normal. 0 sp-based NEON accesses. **On by default** (`SOTC_N6NOCHK=0` off).
 - **Next for N4**: native entries with register arguments for the functions both in n5_noloop.txt and proven by
   tools/n4_abi.py, leaves first (docs/native_n6.md section 6).
+
+## Native N4b: native entries with register inputs for loop-free, ABI-proven leaves (n4native) (2026-11-20)
+
+docs/native_n4b.md. Scripts, runs and logs: `build/agent-scratch/n4b/`. Switch `SOTC_N4NATIVE` (A/B `n4native`,
+`kN4Native`).
+
+- **The set**: docs/n4b_native.txt (`tools/n4_native.py --make-list`): the depth-0 functions of docs/n5_noloop.txt
+  that tools/n4_abi.py proves (strict): 2 052 leaves. 1 199 are lifted with a text that qualifies (context touched only
+  as slot loads / stores; 215 with 128-bit `ctx->r[n]` stores left out); 684 are called from lifted code.
+- **Native entry**: each batch that calls such a leaf F gets `static inline F_n4(rdram, ctx, runtime, <GPR / FPR inputs
+  as values>)`: F's text with its input loads taken from the parameters, no resume check, v0 returned when every return
+  stores it (479 of 684). Its stores, guest stack frame and ctx->pc are F's.
+- **Call**: the 1 937 NOCHK sites into them call `F_n4` when `PS2_N4_FAST` holds (exactly the NOCHK fast form's
+  condition: the slot holds F, NOCHK on, host stack above the floor; plus the switch), with the dispatch charge and the
+  call's own post-test; arguments from the write-back's values or clean locals; afterwards only the slots F's text
+  stores are read back (6 416 of 47 153 read-back statements). Otherwise the call as it was. The ctx wrapper stays in
+  the table.
+- **Generators**: tools/n4_native.py (idempotent, `--undo` back to N6's text byte for byte, `--check`), run by
+  tools/lift_d1.py after n6_nochk.py (and `--undo` before n3_direct.py). ps2xRecomp not changed (its calls name the
+  recompiled function as the known one, so they never take the fast form into a lifted leaf).
+- **Exact**: check build (`PS2X_N4_CHECK=1`, ride7 500 s): 5 438 666 native calls, 0 arguments and 0 kept locals that
+  differ from the context.
+- **Measured** (p1, Vita3K 222 MHz, off - on): ride7 +0.096 ± 0.122 (seed 7), +0.070 ± 0.142 (seed 13), lake6 +0.048 ±
+  0.101 ms; pooled +0.071 ± 0.071 ms (z +2.0): on slightly faster. ~390 native calls a frame; the leaves are ~0.5% of
+  the game thread. Boot with 89 MB taken (600 s): rode, pictures normal. 0 sp-based NEON accesses. **On by default**
+  (`SOTC_N4NATIVE=0` off).
+- **Next**: the write-back before a native call and the output stores after it (needs lift_d1's dirty analysis to
+  treat the native call as a non-sync point: a regeneration, not a text pass); depth-1 functions; the 128-bit-store
+  leaves; the recompiled code's calls (ps2xRecomp needs the lifted target list).

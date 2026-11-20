@@ -1198,6 +1198,14 @@
    "focus": "Native layers",
    "summary": "Round N6 took the dispatch checkpoint off the generated calls into functions that cannot block and have no loop anywhere below them: tools/n5_blocking.py --noloop lists 2 813 such functions, tools/n6_nochk.py (and the recompiler, and lift_d1.py) write 8 710 call sites as PS2_CALL_GUEST_NOCHK, which charges the checkpoint's cycles without testing them while the slot holds the known function and n5sched is in effect.",
    "result": "A/B (Vita3K 222 MHz, off - on): ride7 +0.156 +- 0.129 and -0.003 +- 0.141 ms, lake6 -0.064 +- 0.105 ms; pooled +0.030 +- 0.073 ms: even. No guest memory changes; a due deadline is seen at most ~500 EE cycles later than the worst case without it, 0 unwinds after a skipped test. Boot with 89 MB taken rode normally, pictures normal; no sp-based NEON accesses. On by default. Next for N4: register-argument entries for the functions both loop-free and ABI-proven."
+  },
+  {
+   "round": "N4b",
+   "date": "2026-11-20",
+   "commit": "",
+   "focus": "Native layers",
+   "summary": "Round N4b gave the loop-free, ABI-proven leaves native entries: tools/n4_native.py writes, for each of 684 such lifted leaves, a copy of the leaf that takes its register inputs as C++ values and returns v0, and turns the 1 937 lifted NOCHK calls into them into direct calls of that entry (arguments from the caller's locals, only the slots the leaf stores read back), behind the NOCHK fast form's own slot and stack guard.",
+   "result": "Exact: the check build compared every argument and every kept local with the context in 5.4 M native calls, 0 differences. A/B (Vita3K 222 MHz, off - on): ride7 +0.096 +- 0.122 and +0.070 +- 0.142 ms, lake6 +0.048 +- 0.101 ms; pooled +0.071 +- 0.071 ms (z +2.0), on slightly faster. Boot with 89 MB taken rode normally, pictures normal; no sp-based NEON accesses. On by default. Next: the write-back before a native call (needs the lifter's dirty analysis), depth-1 functions, the recompiled code's calls."
   }
  ]
 }
