@@ -59,8 +59,18 @@ Agro, ground, sky, buildings normal.
 
 ## 4. A/B
 
-In-run A/B (SOTC_AB_FLAG=r1sort, SOTC_AB_MIX per-frame random flip, mixframes), Vita3K 222 MHz: PENDING
-(mixR7p1 ride7 800 s seed 7, mixR13p1 seed 13, mixL7p1 lake6 400 s).
+In-run A/B (SOTC_AB_FLAG=r1sort, SOTC_AB_MIX per-frame random flip, mixframes), Vita3K 222 MHz, off - on (> 0: on
+faster), ± 2 SE:
+
+| run | off - on | z |
+|---|---|---|
+| mixR7p1, ride7 800 s, seed 7 | -0.167 ± 0.207 ms (on 32.92, off 32.74) | -1.6 |
+| mixR13p1, ride7 800 s, seed 13 | +0.138 ± 0.136 ms (on 31.86, off 32.02) | +2.0 |
+| mixL7p1, lake6 400 s, seed 7 | PENDING_L | |
+
+Riding pooled (two seeds): -0.01 ± 0.12 ms (2 SE): even. The five sites are a few hundred calls a frame; what the
+host path removes (the table call, ~10 context words a call) is ~0.1 ms at most, under this A/B's resolution. It is
+on by default: exact by the check and not slower; it is also the shape the rest of the walk moves to.
 
 ## 5. Boot
 
