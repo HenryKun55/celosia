@@ -23320,3 +23320,16 @@ the name N2). The full write-up is docs/native_n3.md. Scripts, runs and logs: `b
 - **Results**: level 1 is not exact here (the check build counted 9 173 FPU clamps acting riding), so it defaults to
   off; direct calls (glEnd left out, its slot is taken at run time) are even: pooled -0.02 +- 0.06 ms over ride7 seeds
   7 / 13 and lake6, on by default; boot with 89 MB taken rode normally. docs/native_n3.md.
+## Native R1: the display walk's sort-list inserts as host code (r1sort) (2026-11-19)
+
+docs/native_r1.md. Scripts, runs and logs: `build/agent-scratch/r1/`. Switch `SOTC_R1SORT` (A/B `r1sort`, `kR1Sort`).
+
+- **The cluster** the profile calls "Display and models" (23.3% of the game thread riding) is several paths, not one:
+  the model hook, the immediate-mode quads, the prefetch planner, the point sort and the display walk
+  (DispDispObjGroupModel) are separate callers; the walk is where GetLayoutClass (inlined since round 49), the sort
+  lists (host words since round 140) and AddSortObj meet.
+- **r1sort**: AddSortObj (0x110dc20) for the walk's five call sites as host code (decomp_dl.cpp `addSortHost`): the
+  sort list and its nodes as typed structs on guest RAM (game/overrides/r1sort.h), the same reads / compares /
+  stores, no context, no table call. The guest entry point stays for the other callers.
+- **Check** `SOTC_R1SORT_CHECK=1`: the host version's stores recorded, the guest call run, every written / link word
+  compared. Results: PENDING_R1
