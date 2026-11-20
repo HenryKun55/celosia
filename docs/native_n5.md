@@ -98,4 +98,14 @@ Queued (`build/agent-scratch/n5/chainN5.sh`, detached): clone N3's build dir onc
 `recR0` (ride7 360 s with `PS2X_SPU2_WAV`, on / off, for `n2/tools/wavcmp`); `bootRp1` (ride7 600 s, n5sched on, 89 MB
 taken, shots every 60 s); spalign. Results: `vq.out`, `mix*.frames.txt` (off - on > 0: on faster).
 
-**Results: pending** (the round was cut before the build ran). n5sched stays off by default until they pass.
+**Results (p1, 2026-11-19 20:36-21:17).** n5sched on does not boot: every run with `SOTC_N5SCHED=1` from the start
+stays in the boot sequence at 2.8-4.4 game fps with no draws and never reaches the ride (bootRp1: 610 s, 2 614 frames,
+no mount; recR1: 360 s, 1 015 frames, 3.3 MB of sound against 69 MB with it off; the three A/B runs `mixR7p1`,
+`mixR13p1`, `mixL7p1` give "no frames" past frame 3 000 for the same reason). So the game does rely on the time-slice
+switch between same-priority threads during the boot / loads (a thread polling for another one's work), although
+riding shows 0 preemptions a frame. With n5sched off (the default) the same build boots and rides normally (offR);
+spalign on p1: 0 sp-based :128 / :256 NEON accesses (of 1 013).
+
+What it means for the next step: the time slice cannot simply go. A version that keeps it only for a thread that has
+run a long time without blocking (the poller), or that turns the boot's polling loop into a wait, is the next try;
+the blocking set (section 2) stands on its own and is what N4 needs. n5sched stays off by default.

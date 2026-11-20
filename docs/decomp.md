@@ -23296,7 +23296,9 @@ handlers); the game thread no longer unwinds at checkpoints (S17), only at real 
 - `n5sched` (SOTC_N5SCHED=1; A/B name n5sched): the PS2 kernel's equal-priority rule (no time slice; a checkpoint
   preempts only for a strictly higher-priority ready thread). `SOTC_N5_LOG=<frames>`: `[n5]` host time per guest
   thread. Off by default: its build and A/Bs (ride7 800 s seeds 7 / 13, lake6 400 s, sound recordings, the 89 MB boot)
-  were queued (build/agent-scratch/n5/chainN5.sh) but not run when the round was cut.
+  were queued (build/agent-scratch/n5/chainN5.sh). Result: with it on the game never leaves the boot (~4 game fps,
+  no draws, no mount: the boot relies on the time slice between same-priority threads); with it off the build rides
+  normally. Off by default; docs/native_n5.md section 4.
 - Not done: the dispatch checkpoint out of the inline call path (a rebuild of every recompiled file; N3 was in those
   macros), host threads for the service threads (their shared kernel objects must become host-locked first).
 
