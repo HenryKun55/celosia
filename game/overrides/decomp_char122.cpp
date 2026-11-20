@@ -1190,6 +1190,16 @@ namespace char122
                 return 0;
             }
 
+            // Records compared a frame: the first, the last and every rot-th from the frame's phase (SOTC_C1KEYS_ROT, default 8:
+            // every record compared at least once in 8 frames; 1: all of them every frame). The header word, the formats and
+            // the channel pointers (contiguous) every frame.
+            uint32_t rot()
+            {
+                static const uint32_t v = static_cast<uint32_t>(envInt("SOTC_C1KEYS_ROT", 8) < 1 ? 1 : (envInt("SOTC_C1KEYS_ROT", 8) > 64 ? 64 : envInt("SOTC_C1KEYS_ROT", 8)));
+                return v;
+            }
+            inline bool recDue(uint32_t i, uint32_t width, uint64_t fr) { return i == 0u || i + 1u == width || (i % rot()) == static_cast<uint32_t>(fr % rot()); }
+
             // The guest's words still the mirror's (once a frame per motion).
             bool same(const Motion &m, const uint8_t *ram, uint32_t formats, uint32_t chans)
             {
@@ -1198,8 +1208,11 @@ namespace char122
                 if (std::memcmp(m.fmt, at(ram, formats), m.width) != 0 || std::memcmp(m.chan, at(ram, chans), m.width * 4u) != 0)
                     return false;
                 uint32_t diff = 0;
+                const uint64_t fr = sotc_decomp::g_gameFrame;
                 for (uint32_t i = 0; i < m.width; ++i)
                 {
+                    if (!recDue(i, m.width, fr))
+                        continue;
                     const uint32_t *g = reinterpret_cast<const uint32_t *>(at(ram, m.chan[i] & ~0xFu));
                     const uint32_t *h = m.rec + i * kRecWords;
                     for (uint32_t w = 0; w < kRecWords; ++w)
@@ -1357,9 +1370,13 @@ namespace char122
                 {
                     L.add(formats, static_cast<uint32_t>(n));
                     L.add(chans, static_cast<uint32_t>(n) * 4u);
+                    newBytes += static_cast<uint32_t>(n) * 5u;
                     for (int32_t i = 0; i < n; ++i)
-                        L.add(reinterpret_cast<uintptr_t>(at(ram, rd32(ram, chans + static_cast<uint32_t>(i) * 4u) & ~0xFu)), kRecWords * 4u);
-                    newBytes += static_cast<uint32_t>(n) * (5u + kRecWords * 4u);
+                        if (recDue(static_cast<uint32_t>(i), static_cast<uint32_t>(n), sotc_decomp::g_gameFrame))
+                        {
+                            L.add(reinterpret_cast<uintptr_t>(at(ram, rd32(ram, chans + static_cast<uint32_t>(i) * 4u) & ~0xFu)), kRecWords * 4u);
+                            newBytes += kRecWords * 4u;
+                        }
                 }
                 newL += L.count() - 1u;
                 if (decodedRows)
