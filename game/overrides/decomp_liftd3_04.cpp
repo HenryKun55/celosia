@@ -1446,7 +1446,7 @@ void _initBaseMoveTmpWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         WRITE32_B((uint32_t)s2, 4, (uint32_t)s0);
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x1431CE0u;
-        if (!PS2_CALL_GUEST_KNOWN(0x1431CE0u, lift_d1::getPassageWork, 0x1437BD0u, 0x1437BC8u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_NOCHK(0x1431CE0u, lift_d1::getPassageWork, 0x1437BD0u, 0x1437BC8u, DirectCall, "JAL")) { return; }
     }
     f0 = ctx->f[0]; f1 = ctx->f[1]; f2 = ctx->f[2]; f3 = ctx->f[3]; f4 = ctx->f[4]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); fcr31 = ctx->fcr31;
     (a0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
@@ -1456,7 +1456,7 @@ void _initBaseMoveTmpWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x1431CE0u;
-        if (!PS2_CALL_GUEST_KNOWN(0x1431CE0u, lift_d1::getPassageWork, 0x1437BE0u, 0x1437BD8u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_NOCHK(0x1431CE0u, lift_d1::getPassageWork, 0x1437BE0u, 0x1437BD8u, DirectCall, "JAL")) { return; }
     }
     f0 = ctx->f[0]; f1 = ctx->f[1]; f2 = ctx->f[2]; f3 = ctx->f[3]; f4 = ctx->f[4]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); fcr31 = ctx->fcr31;
     (a0 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
@@ -1753,7 +1753,7 @@ void gamecore_sub_01444760(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         (a1 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x1444370u;
-        if (!PS2_CALL_GUEST_DIRECT(0x1444370u, lift_d1::gamecore_sub_01444370, 0x14447A0u, 0x1444798u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_DIRECT_NOCHK(0x1444370u, lift_d1::gamecore_sub_01444370, 0x14447A0u, 0x1444798u, DirectCall, "JAL")) { return; }
     }
     f0 = ctx->f[0]; f1 = ctx->f[1]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); fcr31 = ctx->fcr31;
     {

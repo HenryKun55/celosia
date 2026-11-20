@@ -5202,7 +5202,7 @@ void gamecore_sub_013B7730(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         (s1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x1407310u;
-        if (!PS2_CALL_GUEST_KNOWN(0x1407310u, lift_d1::getSelectWeapon, 0x13B778Cu, 0x13B7784u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_NOCHK(0x1407310u, lift_d1::getSelectWeapon, 0x13B778Cu, 0x13B7784u, DirectCall, "JAL")) { return; }
     }
     f12 = ctx->f[12]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
     { uint32_t bits = (uint32_t)v0; std::memcpy(&f12, &bits, sizeof(bits)); }
