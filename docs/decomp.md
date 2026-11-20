@@ -23353,7 +23353,7 @@ docs/native_n5b.md. Scripts, runs and logs: `build/agent-scratch/n5b/`. Switch `
   run: the idle thread yields to a ready thread of its priority (`EeScheduler::n5IdleYield`), `SOTC_N5_SPIN=<slices>`
   (off). `[n5]` idle-wait reasons and `[n5t]` thread states with `SOTC_N5_LOG`.
 - **Measured** (Vita3K 222 MHz, off - on): ride7 -0.081 ± 0.139 (seed 7), +0.101 ± 0.122 (seed 13), lake6
-  -0.076 ± 0.073 ms; pooled -0.019 ± 0.066 ms (z -0.56): even. 6 of 6 boots with it on from the start rode (GAMECORE
+  -0.076 ± 0.073 ms; pooled -0.019 ± 0.066 ms (z -0.56): even. 8 of 8 boots with it on from the start rode (one 600 s with 89 MB taken) (GAMECORE
   3.24-3.51 s, as off); sound the same (-25.2 vs -25.1 dBFS); 0 sp-based NEON accesses. **On by default**
   (`SOTC_N5SCHED=0` off).
 - **Next for N4**: the dispatch checkpoint off calls into functions that cannot block and have no loop below them

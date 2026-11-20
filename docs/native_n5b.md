@@ -53,9 +53,10 @@ s0 / entry (with `SOTC_N5_LOG`).
   **-0.081 ± 0.139 ms**, seed 13 **+0.101 ± 0.122 ms**; lake6 400 s **-0.076 ± 0.073 ms** (z -2.1 alone: on slightly slower at the lake). Pooled (mean of the
   three, SE = sqrt(sum SE^2) / 3): **-0.019 ± 0.066 ms, z -0.56: even**.
 - Boot: d4on (n5sched on from the start, ride7 300 s): GAMECORE at 3.45 s (off: 3.48 s), mounted (frame 2 848), rode at
-  ~33 fps, pictures normal; spin preempts 0, idle yields 0. 600 s boot with 89 MB taken (bootR): BOOT_PENDING.
-- Boots with n5sched on from the start: d4on, boot2 (300 s), recR1 and the three A/B runs: all entered GAMECORE
-  (3.24-3.51 s), mounted and rode.
+  ~33 fps, pictures normal; spin preempts 0, idle yields 0. 600 s boot with 89 MB taken (bootR): mounted (frame 3 339), rode the
+  whole 600 s at 32-33 game fps, no fault or missing target, pictures normal (Wander, Agro, ground, sky, cliffs).
+- Boots with n5sched on from the start: d4on, boot2 (300 s), recR1, bootR and the three A/B runs, and d5def (p5, the
+  default on, no env: `[n5] ... sched 1`): all entered GAMECORE (3.24-3.51 s), mounted and rode.
 - Load: the boot to GAMECORE is the same code path as off (3.45 vs 3.48 s); the mount time on ride7 depends on how many
   teleport tries the route needs, in both modes (mounted at t 75 s and 190 s off; 85, 95 and 185 s on), so it is not a
   load-time measure.
@@ -66,7 +67,7 @@ s0 / entry (with `SOTC_N5_LOG`).
 
 ## Default
 
-**On** (`SOTC_N5SCHED=0` turns it off; sotc_native.cpp init): it boots every time (6 of 6 runs), rides normally, the
+**On** (`SOTC_N5SCHED=0` turns it off; sotc_native.cpp init): it boots every time (8 of 8 runs), rides normally, the
 A/B is even (pooled -0.019 ± 0.066 ms; the lake alone -0.076 ± 0.073, a watch item), the sound is the same, and the
 boot before GAMECORE is unchanged by construction. What it buys: from GAMECORE's entry on, a thread is switched only at
 explicit points (blocking, yielding, waking, a higher-priority thread, interrupts), the property section 4 needs.
