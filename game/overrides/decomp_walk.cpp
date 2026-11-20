@@ -1535,15 +1535,16 @@ namespace decomp_walk
             lines67::pref(a);
             __builtin_prefetch(rdram + (a & PS2_RAM_MASK));
         }
-        // SOTC_C2SCENE_PF: 0 the helper list only, 1 (default) + the group pass's prefetch, 2 + InitLayoutObjMatrix's and
-        // the light pass's first walk's (p1 had all three: their bookkeeping cost ~0.4 ms a frame in Vita3K).
+        // SOTC_C2SCENE_PF: 0 (default) the helper list only, 1 + the group pass's prefetch, 2 + InitLayoutObjMatrix's and
+        // the light pass's first walk's (p1 had all three: ~0.4 ms a frame slower in Vita3K, the PLDs' bookkeeping; p2 with
+        // level 1: -0.09 +- 0.09 ms pooled. Vita3K models no cache, so 1 / 2 are left for a console A/B of their own).
         signed char g_pf = -1;
         int pfLevel()
         {
             if (__builtin_expect(g_pf < 0, 0))
             {
                 const char *e = std::getenv("SOTC_C2SCENE_PF");
-                const int v = e ? std::atoi(e) : 1;
+                const int v = e ? std::atoi(e) : 0;
                 g_pf = static_cast<signed char>(v < 0 ? 0 : v > 2 ? 2 : v);
             }
             return g_pf;
