@@ -1182,6 +1182,14 @@
    "focus": "Native rewrite",
    "summary": "Round R1 took the display / model cluster of the riding profile: AddSortObj, called by the display walk (DispDispObjGroupModel) at five sites through the guest function table, now runs there as plain host code (the sort list and its nodes as typed structs on guest RAM, no context registers, no table call), behind SOTC_R1SORT (on) with an in-run check (SOTC_R1SORT_CHECK).",
    "result": "Exact: 0 differences in 2.48 M calls riding, 1.52 M at the lake, 1.24 M in the attract demo. A/B (Vita3K 222 MHz, off - on): ride7 -0.17 +- 0.21 and +0.14 +- 0.14 ms, lake6 +0.08 +- 0.09 ms; pooled +0.02 +- 0.09 ms: even, on by default. Boot with 89 MB taken rode normally, pictures normal; 0 sp-based NEON accesses. The rest of the walk (its guest frame, the class callbacks) and modelDispHook are left."
+  },
+  {
+   "round": "N5b",
+   "date": "2026-11-20",
+   "commit": "",
+   "focus": "Native layers",
+   "summary": "Round N5b found why n5sched (no time slice between same-priority threads) never left the boot and made it boot: without the slice the loader and the main thread (both priority 45) made the boot's heap allocations in another order, GAMECORE's image and every code module moved, and the loader died at a module entry with no code. n5sched now takes effect once GAMECORE runs, so the boot keeps the layout the recompiled modules were captured with.",
+   "result": "RESULTS_PENDING"
   }
  ]
 }

@@ -23338,3 +23338,20 @@ docs/native_r1.md. Scripts, runs and logs: `build/agent-scratch/r1/`. Switch `SO
   Boot with 89 MB taken rode normally, pictures normal.
 - **Left**: the walk's guest frame and its class callbacks (still `callGuest`), modelDispHook, GetLayoutClass's ~40
   other callers (docs/native_r1.md section 6).
+## Native N5b: n5sched boots (it takes effect once GAMECORE runs) (2026-11-20)
+
+docs/native_n5b.md. Scripts, runs and logs: `build/agent-scratch/n5b/`. Switch `SOTC_N5SCHED` (A/B `n5sched`, `kN5Sched`).
+
+- **What stalled the boot** with n5sched (no time slice between equal priorities): not a polling loop. The loader
+  thread t6 (IosCdvdManagerSimulation, priority 45) jumped to a module entry with no code (`missing-target ...
+  source=0x1b5bcc target=0x124a448`) and died, because without the slice's turns the main thread t9 (also priority 45)
+  made its boot allocations after GAMECORE's image instead of before (SOTC_LOG_MALLOC on / off): GAMECORE's image moved
+  from 0x1333500 to 0x12391c0 and every module with it. Then only the idle thread (0x1ad270) ran, with EE time moving
+  by executed cycles only (no host clock sync before GAMECORE): one VBlank per ~240-440 ms.
+- **Fix** (exact): n5sched applies from the first frame after GAMECORE's entry; the boot before it keeps the slice and
+  is the same as with n5sched off (same heap calls, GAMECORE at 3.45 s vs 3.48 s). Guards kept, counted, 0 in every
+  run: the idle thread yields to a ready thread of its priority (`EeScheduler::n5IdleYield`), `SOTC_N5_SPIN=<slices>`
+  (off). `[n5]` idle-wait reasons and `[n5t]` thread states with `SOTC_N5_LOG`.
+- **Measured**: RESULTS_PENDING
+- **Next for N4**: the dispatch checkpoint off calls into functions that cannot block and have no loop below them
+  (docs/native_n5b.md section 4: needs a full runner rebuild, not done).
