@@ -23408,3 +23408,35 @@ docs/native_n4b.md. Scripts, runs and logs: `build/agent-scratch/n4b/`. Switch `
 - **Next**: the write-back before a native call and the output stores after it (needs lift_d1's dirty analysis to
   treat the native call as a non-sync point: a regeneration, not a text pass); depth-1 functions; the 128-bit-store
   leaves; the recompiled code's calls (ps2xRecomp needs the lifted target list).
+
+## Console C2: the display group as a host scene list; round 140's clip helper list without the guest chain walk (c2scene, off by default) (2026-11-20)
+
+The full write-up is docs/console_c2.md; this is the summary. Scripts, runs, logs: `build/agent-scratch/c2/` (NOTES.md,
+walkpcs.py: the console profile by pc inside the walk; chk.sh the checks, q.sh / abn1.sh the A/Bs, qboot.sh the boot).
+
+**Where it came from.** The console profile by pc inside DispDispObjGroupModel (prof129 sets pc at every call and
+return, so a native that keeps the guest frame splits into the stretches between its calls) had 0.25 ms a frame
+riding right after isysGroupForFirst: round 140's clip helper list, a full walk of the group chain on the game thread,
+~1 030 dependent 32-byte misses (each entry, each object, a layout object's class and record lines).
+
+**What changed (`SOTC_C2SCENE`, A/B `c2scene`; `_CHECK`, `_LOG`, `_PF`).** The group pass records what it read anyway
+(entry, object, layout class, geometry record, geometry, whether the helper may clip it) as a host scene; the next
+walk's helper list comes from it instead of the chain. A wrong guess changes no result: the helper still computes each
+clip from live memory during the walk, and the walk takes a result only for its own object where round 140 takes one
+(plus: no clip callback at that moment); the rest it clips itself. No scene for this group (first walk after the switch
+turns on, a new group): the chain as before. `SOTC_C2SCENE_PF=1 / 2`: PLDs from the scene for the group pass /
+InitLayoutObjMatrix and the light pass's first walk (default 0).
+
+**Checks, A/B, decision.** `SOTC_C2SCENE_CHECK=1` (every clip taken from the scene's list run the old way and
+compared; p1, all prefetch levels on): ride7 1 520 000, lake6 345 148, attract 660 000 clips, **0 differences**; the
+scene followed the group to <1 object a walk. A/B (Vita3K 222 MHz, off - on): p1 (every prefetch) -0.37 +- 0.07 ms,
+p2 (group-pass prefetch) -0.09 +- 0.09: the PLDs' bookkeeping costs instructions Vita3K charges and its missing cache
+never repays; **p3 (level 0)**: ride7 +0.042 +- 0.123 (seed 7), +0.017 +- 0.130 (seed 13), lake6 +0.024 +- 0.160;
+pooled +0.03 +- 0.08 ms, z +0.7: even. Off by default (in sotc_decomp.h's off list); the console's A/B decides
+(`SOTC_C2SCENE=1 SOTC_AB_FLAG=c2scene SOTC_AB_PERIOD=300`, c2.vpk). Memory: ~33 KB of serial guest reads a walk riding
+not made (17 KB lake, 21 KB attract). Boot with 89 MB taken (bootR3, p3): mounted at 3 356, rode, pictures normal; a p3 check ride: 1 260 000 clips, 0 differences. spalign 0 sp-based.
+
+**What it leaves.** The prefetch levels as their own console A/B; the group pass's ~7 live lines per layout object;
+the draw loop's dependent-stage prefetch; the model hook, solidDisp and the light callbacks (docs/console_c2.md
+section 8).
+
