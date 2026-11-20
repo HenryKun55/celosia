@@ -39,6 +39,8 @@ namespace char122::keys
 {
     bool floatFrame(uint8_t *, R5900Context *, PS2Runtime *, void (*)(uint8_t *, R5900Context *, PS2Runtime *));
     bool intKeys(const uint8_t *rdram, uint32_t formats, uint32_t chans, int32_t n, uint32_t frame, float *tmp, uint64_t &v0);
+    bool intKeysC1(const uint8_t *rdram, const PS2Runtime *runtime, uint32_t header, uint32_t formats, uint32_t chans, int32_t n, uint32_t frame, float *tmp,
+                   uint64_t &v0);
     void intKeysCheck(const uint8_t *rdram, uint32_t out, const float *tmp, int32_t n);
 }
 
@@ -296,7 +298,8 @@ namespace decomp_motionframe
         if (s2 <= 256 && (out & 0xFu) == 0u && out >= 0x1000u && out + static_cast<uint32_t>(s2) * 16u <= PS2_RAM_SIZE && sotc_decomp::switchOn(sotc_decomp::kKey136))
         {
             uint64_t v0 = 0;
-            if (char122::keys::intKeys(rdram, formats, r.u32(header + 0x10u), static_cast<int32_t>(s2), static_cast<uint32_t>(frame), tmp136, v0))
+            // Round C1 (SOTC_C1KEYS): through the motion's host rows when on (intKeysC1 falls back to intKeys itself).
+            if (char122::keys::intKeysC1(rdram, runtime, header, formats, r.u32(header + 0x10u), static_cast<int32_t>(s2), static_cast<uint32_t>(frame), tmp136, v0))
             {
                 static const bool chk = [] { const char *e = std::getenv("SOTC_KEY136_CHECK"); return e && std::atoi(e) != 0; }();
                 static uint64_t n136 = 0;

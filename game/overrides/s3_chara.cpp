@@ -297,6 +297,7 @@ namespace s3chara
         uint32_t link[kMaxBones][2];     // visit -> the bone's (first child, next sibling) words as read
         uint32_t off[kMaxBones][4];      // visit -> the bone's offset (+0x10) as read (the kept bones rest on it)
         uint32_t gen = 0;                // made again: the kept bones made from the old shape are void
+        uint64_t checked = ~0ull;        // round C1 (c1rig): the game frame the links / offsets were last compared in
     };
     constexpr int kRigs = 24;
     struct RigCache
@@ -416,6 +417,19 @@ namespace s3chara
         return diff == 0u;
     }
 
+    // Round C1 (c1rig): counts for the [c1rig] line (game thread; the rig caches are per thread).
+    struct C1RigStats
+    {
+        uint64_t trusted = 0, compared = 0, checked = 0, stale = 0;
+    };
+    C1RigStats g_c1rig;
+    inline bool c1rigOn() { return sotc_decomp::switchOn(sotc_decomp::kC1Rig); }
+    bool c1rigCheck()
+    {
+        static const bool v = envInt("SOTC_C1RIG_CHECK", 0) != 0;
+        return v;
+    }
+
     Rig *rigFor(const uint8_t *ram, uint32_t skel, uint32_t bones)
     {
         RigCache *c = t_rigs;
@@ -434,13 +448,35 @@ namespace s3chara
             }
             if (g->skel == skel && g->bones == bones)
             {
+                // Round C1 (SOTC_C1RIG, A/B c1rig): a rig compared in this game frame is trusted for the frame's later poses
+                // (a skeleton is resource data: its links and offsets are not written while it lives). SOTC_C1RIG_CHECK=1:
+                // the trusted rigs are compared anyway and a difference counted ([c1rig] stale must be 0).
+                const uint64_t fr = sotc_decomp::g_gameFrame;
+                if (g->checked == fr && c1rigOn())
+                {
+                    ++g_c1rig.trusted;
+                    if (c1rigCheck())
+                    {
+                        ++g_c1rig.checked;
+                        if (!inRam(bones, g->count * 0x40u) || !same(ram, *g))
+                        {
+                            ++g_c1rig.stale;
+                            g->checked = ~0ull;
+                            return rigFor(ram, skel, bones); // the plain path (compares, makes it again)
+                        }
+                    }
+                    g->used = c->tick;
+                    return g;
+                }
+                ++g_c1rig.compared;
                 if (!inRam(bones, g->count * 0x40u) || !same(ram, *g))
                 {
                     ++g_st.rigMiss;
                     if (!build(ram, skel, bones, *g))
-                        return g->skel = 0, nullptr;
+                        return g->skel = 0, g->checked = ~0ull, nullptr;
                     ++g_st.rigsMade;
                 }
+                g->checked = fr;
                 g->used = c->tick;
                 return g;
             }
@@ -457,6 +493,7 @@ namespace s3chara
             return nullptr;
         }
         ++g_st.rigsMade;
+        g->checked = sotc_decomp::g_gameFrame;
         g->used = c->tick;
         return g;
     }
@@ -822,6 +859,9 @@ namespace s3chara
         std::fprintf(stderr, "[s3chk] frame %llu: poses %llu (%llu bones) differ %llu; split keys %llu (%llu channels) differ %llu; key jobs %llu\n", (unsigned long long)fr,
                      (unsigned long long)s.checks, (unsigned long long)s.checkBones, (unsigned long long)s.checkBad, (unsigned long long)s.keyChecks,
                      (unsigned long long)s.keyChannels, (unsigned long long)s.keyBad, (unsigned long long)s.keyJobs);
+        std::fprintf(stderr, "[c1rig] frame %llu: rigs trusted %llu compared %llu; checked %llu stale %llu\n", (unsigned long long)fr,
+                     (unsigned long long)g_c1rig.trusted, (unsigned long long)g_c1rig.compared, (unsigned long long)g_c1rig.checked,
+                     (unsigned long long)g_c1rig.stale);
         const Stats keep = s;
         s = Stats{};
         s.checks = keep.checks, s.checkBones = keep.checkBones, s.checkBad = keep.checkBad, s.rigsMade = keep.rigsMade, s.rigMiss = keep.rigMiss;

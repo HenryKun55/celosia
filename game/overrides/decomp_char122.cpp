@@ -53,6 +53,7 @@ namespace s3chara
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <unordered_map>
 #include <vector>
 #if defined(__vita__)
@@ -967,6 +968,15 @@ namespace char122
     namespace keys
     {
         constexpr uint32_t kSelf = 0x010AD1B0u;
+        // Two keys blended the short way round (the second negated on a negative dot; below 0.5 A (1 - frac) + B' frac,
+        // else B frac + A' (1 - frac)): keys122's blend, shared by the decode and round C1's rows (the same operations).
+        inline __attribute__((always_inline)) float32x4_t blend(float32x4_t va, float32x4_t vb, float32x4_t vf, float32x4_t vf1, bool below)
+        {
+            const bool flip = dot4(va, vb) < 0.0f;
+            if (below)
+                return vmlaq_f32(vmulq_f32(va, vf1), flip ? vnegq_f32(vb) : vb, vf);
+            return vmlaq_f32(vmulq_f32(vb, vf), flip ? vnegq_f32(va) : va, vf1);
+        }
         // Channels [lo, hi) of frame k (+ frac) into tmp: keys122's loops as they were (round S3 runs two ranges at once).
         template <bool Note>
         bool decodeRange(const uint8_t *rdram, uint32_t formats, uint32_t chans, int32_t k, float frac, int32_t lo, int32_t hi, float *tmp)
@@ -986,17 +996,481 @@ namespace char122
                 float a[4], b[4];
                 if (!decodeKey<Note>(rdram, fmt, ch, static_cast<uint32_t>(k), a) || !decodeKey<Note>(rdram, fmt, ch, static_cast<uint32_t>(k) + 1u, b))
                     return false;
-                float32x4_t va = vld1q_f32(a), vb = vld1q_f32(b);
-                const bool flip = dot4(va, vb) < 0.0f;
-                float32x4_t r;
-                if (below)
-                    r = vmlaq_f32(vmulq_f32(va, vf1), flip ? vnegq_f32(vb) : vb, vf);
-                else
-                    r = vmlaq_f32(vmulq_f32(vb, vf), flip ? vnegq_f32(va) : va, vf1);
-                vst1q_f32(tmp + i * 4, r);
+                vst1q_f32(tmp + i * 4, blend(vld1q_f32(a), vld1q_f32(b), vf, vf1, below));
             }
             return true;
         }
+
+        // =====================================================================
+        // Round C1 (SOTC_C1KEYS, A/B c1keys; off by default): the decoded keys
+        // kept per motion in host memory, for the Vita's memory system.
+        // =====================================================================
+        // Per call the decode above reads, for every channel, its format byte,
+        // its channel pointer, its 0x24-byte curve record and the key words of
+        // frame k (and k + 1): the records sit 0x24 apart and each channel's
+        // keys are a separate array, so a 40-channel motion touches ~80-120
+        // cache lines a call, and the characters call it 10-30 times a frame,
+        // many times on the same motion and frame (the blend, the IK, the root
+        // fitting), and the gallop / walk cycles come back to the same frames
+        // every second. C1 keeps, per motion resource, a mirror:
+        //   - a copy of what the decode reads besides the keys (the formats,
+        //     the channel pointers, each channel's 0x30 bytes from its record's
+        //     qword, the header words, the curve table), compared with the
+        //     guest's once a game frame (the first call of a frame on that
+        //     motion; a difference drops the mirror's rows: a motion freed
+        //     and another loaded at the same address with the same channel
+        //     pointers differs in its records' scales / offsets / key arrays);
+        //   - rows by frame: frame f's keys as decodeKey makes them (the
+        //     same function on the same words: the same bits), decoded the
+        //     first time a call needs that frame, then read from the row
+        //     (n x 16 contiguous bytes) by every later call.
+        // A call then reads one or two host rows and blends them with the
+        // decode's own blend (the same NEON operations): the same bits as the
+        // decode. The motion data are never written by the game after load
+        // (a resource), so a row stays the decode's answer while its records
+        // are the same bits. Game thread only (lane 0); the S3 split (jobs)
+        // and the worker lane keep the decode.
+        //
+        // Memory: one arena (SOTC_C1KEYS_KB, default 1024 KB) allocated at the
+        // first use; full -> everything dropped and rebuilt (counted: flush).
+        // Runtime switching (abSwitches): while off nothing is read or kept
+        // current; on again, every mirror is validated before its first use
+        // of the frame, so stale rows cannot be served.
+        // SOTC_C1KEYS_CHECK=<n>: every n-th served call the decode runs too
+        // and the two results are compared bit for bit ([c1chk], differ must
+        // be 0). SOTC_C1KEYS_LOG=<frames>: a [c1keys] line (calls, rows hit /
+        // decoded, validations, the sampled cache lines a call touches old vs
+        // new: the memory-traffic estimate).
+        namespace c1
+        {
+            constexpr uint32_t kRecWords = 12u; // 0x30 bytes from the record's qword (covers chan .. chan + 0x24 for a word-aligned chan)
+            constexpr uint32_t kMaxWidth = 512u, kMaxRows = 4096u;
+            struct Motion
+            {
+                uint32_t res = 0, formats = 0, chans = 0, width = 0, rowCap = 0, hdr4 = 0;
+                uint64_t checked = ~0ull; // the game frame validated in
+                bool live = false, bad = false;
+                uint8_t *fmt = nullptr;   // width
+                uint32_t *chan = nullptr; // width
+                uint32_t *rec = nullptr;  // width x kRecWords
+                float **rows = nullptr;   // rowCap
+            };
+            constexpr int kSlots = 128; // open addressing; flushed when half full
+            struct Stats
+            {
+                uint64_t calls = 0, intCalls = 0, rowHit = 0, rowMiss = 0, valid = 0, reinit = 0, flush = 0, fallback = 0, channels = 0;
+                uint64_t sampled = 0, oldLines = 0, newLines = 0, oldBytes = 0, newBytes = 0;
+                uint64_t checks = 0, differ = 0, checkChannels = 0;
+            };
+            struct Cache
+            {
+                Motion m[kSlots];
+                int live = 0;
+                uint8_t *arena = nullptr;
+                size_t cap = 0, used = 0;
+                uint32_t curve[15] = {};
+                uint64_t curveChecked = ~0ull;
+                bool failed = false, wantFlush = false;
+                Stats st, total;
+                uint64_t logFrame = 0, logStart = 0;
+            };
+            Cache *g_c = nullptr;
+            int arenaKb()
+            {
+                static const int v = envInt("SOTC_C1KEYS_KB", 1024);
+                return v;
+            }
+            int checkN()
+            {
+                static const int v = envInt("SOTC_C1KEYS_CHECK", 0);
+                return v;
+            }
+            int logN()
+            {
+                static const int v = envInt("SOTC_C1KEYS_LOG", 0);
+                return v;
+            }
+
+            inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kC1Keys) && sotc_decomp::lane(runtime) == 0; }
+
+            Cache *cache()
+            {
+                if (g_c)
+                    return g_c->failed ? nullptr : g_c;
+                g_c = new (std::nothrow) Cache();
+                if (!g_c)
+                    return nullptr;
+                const int kb = arenaKb() < 64 ? 64 : (arenaKb() > 16384 ? 16384 : arenaKb());
+                g_c->cap = static_cast<size_t>(kb) * 1024u;
+                g_c->arena = static_cast<uint8_t *>(std::malloc(g_c->cap + 16u));
+                if (!g_c->arena)
+                {
+                    g_c->failed = true;
+                    std::fprintf(stderr, "[c1keys] arena of %d KB not allocated: off\n", kb);
+                    return nullptr;
+                }
+                std::fprintf(stderr, "[c1keys] arena %d KB\n", kb);
+                return g_c;
+            }
+            void flushAll(Cache &c)
+            {
+                for (int i = 0; i < kSlots; ++i)
+                    c.m[i] = Motion{};
+                c.live = 0;
+                c.used = 0;
+                c.wantFlush = false;
+                ++c.st.flush;
+            }
+            // 16-byte aligned bytes from the arena (nullptr: full).
+            void *take(Cache &c, size_t bytes)
+            {
+                const size_t base = (reinterpret_cast<uintptr_t>(c.arena) + 15u) & ~static_cast<uintptr_t>(15u);
+                const size_t off = (c.used + 15u) & ~static_cast<size_t>(15u);
+                if (off + bytes > c.cap)
+                    return nullptr;
+                c.used = off + bytes;
+                return reinterpret_cast<void *>(base + off);
+            }
+            inline uint32_t slotOf(uint32_t res) { return ((res >> 4) * 2654435761u) >> 25; } // 7 bits
+            static_assert(kSlots == 128, "slotOf gives 7 bits");
+
+            // The curve table (format -> evaluator), checked once a frame (boot data: never changes in practice).
+            bool curveSame(Cache &c, const uint8_t *ram)
+            {
+                const uint64_t fr = sotc_decomp::g_gameFrame;
+                if (c.curveChecked == fr)
+                    return true;
+                if (std::memcmp(c.curve, at(ram, kCurveTable), sizeof(c.curve)) != 0)
+                {
+                    std::memcpy(c.curve, at(ram, kCurveTable), sizeof(c.curve));
+                    if (c.curveChecked != ~0ull)
+                        flushAll(c); // a curve table change: every row void
+                }
+                c.curveChecked = fr;
+                return true;
+            }
+
+            // Make m the mirror of res (width channels): copies of what the decode reads besides the keys; no rows yet.
+            // 0: done; 1: the motion's words do not suit (a dead entry until the next frame); 2: the arena is full.
+            int fill(Cache &c, Motion &m, const uint8_t *ram, uint32_t res, uint32_t formats, uint32_t chans, uint32_t width)
+            {
+                for (uint32_t i = 0; i < width; ++i)
+                {
+                    const uint32_t ch = rd32(ram, chans + i * 4u);
+                    if ((ch & 3u) != 0u || !inRam(ch & ~0xFu, kRecWords * 4u))
+                        return 1;
+                }
+                const int32_t frames = static_cast<int16_t>(rd32(ram, res + 4u) & 0xFFFFu);
+                uint32_t rowCap = frames > 0 ? static_cast<uint32_t>(frames) + 2u : 2u;
+                rowCap = rowCap > kMaxRows ? kMaxRows : rowCap;
+                const size_t need = width + 16u + width * 4u + width * kRecWords * 4u + rowCap * sizeof(float *) + 64u;
+                if (c.used + need > c.cap)
+                    return 2;
+                Motion t;
+                t.fmt = static_cast<uint8_t *>(take(c, width));
+                t.chan = static_cast<uint32_t *>(take(c, width * 4u));
+                t.rec = static_cast<uint32_t *>(take(c, width * kRecWords * 4u));
+                t.rows = static_cast<float **>(take(c, rowCap * sizeof(float *)));
+                if (!t.fmt || !t.chan || !t.rec || !t.rows)
+                    return 2;
+                std::memcpy(t.fmt, at(ram, formats), width);
+                std::memcpy(t.chan, at(ram, chans), width * 4u);
+                for (uint32_t i = 0; i < width; ++i)
+                    std::memcpy(t.rec + i * kRecWords, at(ram, t.chan[i] & ~0xFu), kRecWords * 4u);
+                std::memset(t.rows, 0, rowCap * sizeof(float *));
+                t.res = res;
+                t.formats = formats;
+                t.chans = chans;
+                t.width = width;
+                t.rowCap = rowCap;
+                t.hdr4 = rd32(ram, res + 4u);
+                t.live = true;
+                t.checked = sotc_decomp::g_gameFrame;
+                m = t;
+                return 0;
+            }
+
+            // The guest's words still the mirror's (once a frame per motion).
+            bool same(const Motion &m, const uint8_t *ram, uint32_t formats, uint32_t chans)
+            {
+                if (m.formats != formats || m.chans != chans || m.hdr4 != rd32(ram, m.res + 4u))
+                    return false;
+                if (std::memcmp(m.fmt, at(ram, formats), m.width) != 0 || std::memcmp(m.chan, at(ram, chans), m.width * 4u) != 0)
+                    return false;
+                uint32_t diff = 0;
+                for (uint32_t i = 0; i < m.width; ++i)
+                {
+                    const uint32_t *g = reinterpret_cast<const uint32_t *>(at(ram, m.chan[i] & ~0xFu));
+                    const uint32_t *h = m.rec + i * kRecWords;
+                    for (uint32_t w = 0; w < kRecWords; ++w)
+                        diff |= g[w] ^ h[w];
+                }
+                return diff == 0u;
+            }
+
+            // The motion's mirror, validated for this frame (nullptr: the decode).
+            Motion *motionFor(Cache &c, const uint8_t *ram, uint32_t res, uint32_t formats, uint32_t chans, uint32_t n)
+            {
+                if (n == 0u || n > kMaxWidth || !curveSame(c, ram))
+                    return nullptr;
+                const uint64_t fr = sotc_decomp::g_gameFrame;
+                for (int attempt = 0; attempt < 2; ++attempt)
+                {
+                    if (c.wantFlush || c.live * 2 >= kSlots)
+                        flushAll(c);
+                    uint32_t s = slotOf(res);
+                    Motion *m = nullptr;
+                    for (int probe = 0; probe < kSlots; ++probe, s = (s + 1u) & (kSlots - 1u))
+                    {
+                        Motion &e = c.m[s];
+                        if (!e.live)
+                        {
+                            // a new entry (dead until filled)
+                            e = Motion{};
+                            e.live = true;
+                            e.res = res;
+                            ++c.live;
+                            m = &e;
+                            break;
+                        }
+                        if (e.res == res)
+                        {
+                            m = &e;
+                            break;
+                        }
+                    }
+                    if (!m)
+                        return nullptr;
+                    if (m->fmt && m->width >= n)
+                    {
+                        if (m->checked != fr)
+                        {
+                            ++c.st.valid;
+                            m->checked = fr;
+                            m->bad = false;
+                            if (same(*m, ram, formats, chans))
+                                return m;
+                            ++c.st.reinit;
+                            n = m->width; // made again at its width below
+                        }
+                        else
+                            return m->bad ? nullptr : m;
+                    }
+                    else if (!m->fmt && m->checked == fr)
+                        return nullptr; // could not be made this frame
+                    else if (m->fmt)
+                        ++c.st.reinit; // a wider call: made again at this width (the old rows stay in the arena until a flush)
+                    const int r = fill(c, *m, ram, res, formats, chans, n);
+                    if (r == 0)
+                        return m;
+                    // dead until the next frame (the slot keeps the probe chain)
+                    *m = Motion{};
+                    m->live = true;
+                    m->res = res;
+                    m->checked = fr;
+                    if (r == 1)
+                        return nullptr;
+                    c.wantFlush = true; // the arena is full: everything dropped, then one more try
+                }
+                return nullptr;
+            }
+
+            // Frame f's row (decoded on first use with decodeKey on the guest's words: the decode's bits).
+            const float *row(Cache &c, Motion &m, const uint8_t *ram, uint32_t f)
+            {
+                if (f >= m.rowCap)
+                    return nullptr;
+                if (const float *r = m.rows[f])
+                    return ++c.st.rowHit, r;
+                float *r = static_cast<float *>(take(c, m.width * 16u));
+                if (!r)
+                    return c.wantFlush = true, nullptr; // full: the decode this time; the next call drops everything first
+                for (uint32_t i = 0; i < m.width; ++i)
+                    if (!decodeKey<false>(ram, m.fmt[i], m.chan[i], f, r + i * 4u))
+                    {
+                        m.bad = true; // a format the decode refuses: the old path until the next frame's validation
+                        return nullptr;
+                    }
+                ++c.st.rowMiss;
+                m.rows[f] = r;
+                return r;
+            }
+
+            // The memory-traffic estimate (sampled calls): distinct 32-byte lines and bytes the decode reads for this call,
+            // and what C1 read for it (host rows, plus the validation's guest words when this call validated).
+            struct Lines
+            {
+                uint32_t v[2048];
+                uint32_t n = 0;
+                void add(uintptr_t a, uint32_t bytes)
+                {
+                    for (uintptr_t l = a >> 5; l <= (a + bytes - 1u) >> 5 && n < 2048u; ++l)
+                        v[n++] = static_cast<uint32_t>(l);
+                }
+                uint32_t count()
+                {
+                    std::sort(v, v + n);
+                    return static_cast<uint32_t>(std::unique(v, v + n) - v);
+                }
+            };
+            Lines g_lines;
+            void sample(Cache &c, const uint8_t *ram, uint32_t res, uint32_t formats, uint32_t chans, int32_t n, int32_t k, bool two, bool validated,
+                        uint32_t newRowBytes, uint32_t decodedRows)
+            {
+                Lines &L = g_lines;
+                uint32_t oldBytes = 0, newBytes = 0, oldL, newL;
+                // the decode: formats, channel pointers, each record, each key read (k, and k + 1 with a fraction)
+                L.n = 0;
+                L.add(formats, static_cast<uint32_t>(n));
+                L.add(chans, static_cast<uint32_t>(n) * 4u);
+                oldBytes += static_cast<uint32_t>(n) * 5u;
+                for (int32_t i = 0; i < n; ++i)
+                {
+                    const uint32_t ch = rd32(ram, chans + static_cast<uint32_t>(i) * 4u);
+                    const uint32_t fmt = *at(ram, formats + static_cast<uint32_t>(i));
+                    const uint32_t target = fmt < 15u ? rd32(ram, kCurveTable + fmt * 4u) : 0x010AC700u;
+                    uint32_t keyAt = 0, keyBytes = 0, recBytes = 0x24u;
+                    if (target == 0x010AC978u || target == 0x010ACAB0u || target == 0x010ACBE8u || target == 0x010ACD20u)
+                        keyAt = rd32(ram, ch + 0x20u) + static_cast<uint32_t>(k) * 4u, keyBytes = 4u;
+                    else if (target == 0x010AC8A8u)
+                        keyAt = rd32(ram, ch + 0x18u) + static_cast<uint32_t>(k) * 6u, keyBytes = 6u;
+                    else if (target == 0x010ACFA0u)
+                        keyAt = rd32(ram, ch + 0x14u) + static_cast<uint32_t>(k) * 2u, keyBytes = 2u;
+                    else if (target == 0x010AC700u)
+                        recBytes = 0u;
+                    if (recBytes)
+                        L.add(reinterpret_cast<uintptr_t>(at(ram, ch)), recBytes), oldBytes += recBytes;
+                    if (keyBytes)
+                    {
+                        L.add(reinterpret_cast<uintptr_t>(at(ram, keyAt)), keyBytes * (two ? 2u : 1u));
+                        oldBytes += keyBytes * (two ? 2u : 1u);
+                    }
+                }
+                L.add(reinterpret_cast<uintptr_t>(at(ram, kCurveTable)), 60u);
+                oldL = L.count();
+                // C1: the header line, the rows read; the guest words when validated; the decode's reads for rows made now
+                L.n = 0;
+                L.add(reinterpret_cast<uintptr_t>(at(ram, res)), 0x18u);
+                newBytes += 12u + newRowBytes;
+                newL = 1u + (newRowBytes + 31u) / 32u;
+                if (validated)
+                {
+                    L.add(formats, static_cast<uint32_t>(n));
+                    L.add(chans, static_cast<uint32_t>(n) * 4u);
+                    for (int32_t i = 0; i < n; ++i)
+                        L.add(reinterpret_cast<uintptr_t>(at(ram, rd32(ram, chans + static_cast<uint32_t>(i) * 4u) & ~0xFu)), kRecWords * 4u);
+                    newBytes += static_cast<uint32_t>(n) * (5u + kRecWords * 4u);
+                }
+                newL += L.count() - 1u;
+                if (decodedRows)
+                    newL += (oldL - 0u) * decodedRows / (two ? 2u : 1u), newBytes += oldBytes * decodedRows / (two ? 2u : 1u);
+                ++c.st.sampled;
+                c.st.oldLines += oldL;
+                c.st.newLines += newL;
+                c.st.oldBytes += oldBytes;
+                c.st.newBytes += newBytes;
+            }
+
+            void maybeLog(Cache &c)
+            {
+                const int every = logN();
+                if (every <= 0)
+                    return;
+                const uint64_t fr = sotc_decomp::g_gameFrame;
+                if (c.logStart == 0)
+                    c.logStart = c.logFrame = fr;
+                if (fr - c.logFrame < static_cast<uint64_t>(every))
+                    return;
+                const double nf = static_cast<double>(fr - c.logFrame);
+                const Stats &s = c.st;
+                const double calls = static_cast<double>(s.calls + s.intCalls);
+                const double perOld = s.sampled ? static_cast<double>(s.oldLines) / s.sampled : 0.0, perNew = s.sampled ? static_cast<double>(s.newLines) / s.sampled : 0.0;
+                const double bOld = s.sampled ? static_cast<double>(s.oldBytes) / s.sampled : 0.0, bNew = s.sampled ? static_cast<double>(s.newBytes) / s.sampled : 0.0;
+                std::fprintf(stderr,
+                             "[c1keys] frame %llu: a frame %.1f float + %.1f int calls (%.0f channels), rows hit %.1f decoded %.1f, valid %.1f, made again %llu, "
+                             "flush %llu, fallback %.2f, arena %u KB of %u, live %d; lines a call old %.1f new %.1f (bytes %.0f / %.0f), a frame old %.0f new %.0f lines; "
+                             "check %llu compared %llu differ\n",
+                             (unsigned long long)fr, s.calls / nf, s.intCalls / nf, s.channels / nf, s.rowHit / nf, s.rowMiss / nf, s.valid / nf,
+                             (unsigned long long)s.reinit, (unsigned long long)s.flush, s.fallback / nf, static_cast<unsigned>(c.used / 1024u),
+                             static_cast<unsigned>(c.cap / 1024u), c.live, perOld, perNew, bOld, bNew, perOld * calls / nf, perNew * calls / nf,
+                             (unsigned long long)(c.total.checks + s.checks), (unsigned long long)(c.total.differ + s.differ));
+                c.total.checks += s.checks;
+                c.total.differ += s.differ;
+                c.st = Stats{};
+                c.logFrame = fr;
+            }
+
+            // Channels [0, n) of frame k (+ frac) into tmp from the mirror. False: the decode (nothing promised in tmp).
+            bool keys(const uint8_t *ram, uint32_t res, uint32_t formats, uint32_t chans, int32_t n, int32_t k, float frac, float *tmp, bool isInt)
+            {
+                Cache *cp = cache();
+                if (!cp)
+                    return false;
+                Cache &c = *cp;
+                maybeLog(c);
+                const uint64_t valid0 = c.st.valid, reinit0 = c.st.reinit, miss0 = c.st.rowMiss, flush0 = c.st.flush;
+                const int live0 = c.live;
+                Motion *m = motionFor(c, ram, res, formats, chans, static_cast<uint32_t>(n));
+                // this call read the guest's words: a validation, a mirror made again, or a new mirror
+                const bool validated = c.st.valid != valid0 || c.st.reinit != reinit0 || c.st.flush != flush0 || c.live != live0;
+                const float *ra = m ? row(c, *m, ram, static_cast<uint32_t>(k)) : nullptr;
+                const bool two = frac != 0.0f;
+                const float *rb = (ra && two) ? row(c, *m, ram, static_cast<uint32_t>(k) + 1u) : nullptr;
+                if (!ra || (two && !rb))
+                {
+                    ++c.st.fallback;
+                    return false;
+                }
+                if (two)
+                {
+                    const float32x4_t vf = vdupq_n_f32(frac), vf1 = vdupq_n_f32(1.0f - frac);
+                    const bool below = frac < 0.5f;
+                    for (int32_t i = 0; i < n; ++i)
+                        vst1q_f32(tmp + i * 4, blend(vld1q_f32(ra + i * 4), vld1q_f32(rb + i * 4), vf, vf1, below));
+                }
+                else
+                    std::memcpy(tmp, ra, static_cast<size_t>(n) * 16u);
+                if (isInt)
+                    ++c.st.intCalls;
+                else
+                    ++c.st.calls;
+                c.st.channels += static_cast<uint64_t>(n);
+                if (logN() > 0 && ((c.st.calls + c.st.intCalls) & 31u) == 1u)
+                    sample(c, ram, res, formats, chans, n, k, two, validated, static_cast<uint32_t>(n) * 16u * (two ? 2u : 1u), static_cast<uint32_t>(c.st.rowMiss - miss0));
+                const int chk = checkN();
+                if (chk > 0)
+                {
+                    static uint64_t served = 0;
+                    if ((++served % static_cast<uint64_t>(chk)) == 0u)
+                    {
+                        // The decode from the guest's words now, compared bit for bit.
+                        static float ref[kMaxWidth * 4];
+                        const bool ok = decodeRange<false>(ram, formats, chans, k, frac, 0, n, ref);
+                        ++c.st.checks;
+                        c.st.checkChannels += static_cast<uint64_t>(n);
+                        if (!ok || std::memcmp(ref, tmp, static_cast<size_t>(n) * 16u) != 0)
+                        {
+                            ++c.st.differ;
+                            static int shown = 0;
+                            if (shown++ < 20)
+                            {
+                                int first = -1;
+                                for (int32_t i = 0; i < n * 4 && ok; ++i)
+                                    if (std::memcmp(ref + i, tmp + i, 4) != 0)
+                                    {
+                                        first = i;
+                                        break;
+                                    }
+                                std::fprintf(stderr, "[c1chk] frame %llu DIFFER res %08x n %d k %d frac %.4f int %d ok %d first float %d\n",
+                                             (unsigned long long)sotc_decomp::g_gameFrame, res, n, k, frac, isInt ? 1 : 0, ok ? 1 : 0, first);
+                            }
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+
         Account g_acc;
         bool floatFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, void (*old)(uint8_t *, R5900Context *, PS2Runtime *))
         {
@@ -1029,9 +1503,13 @@ namespace char122
             // Round S3 (SOTC_S3CHARA with SOTC_S3CHARA_JOBS): a large motion's channels split, the upper part decoded on
             // S3's worker while this thread decodes the lower (the same per-channel code: the same bits).
             const uint64_t kt0 = s3chara::timing() ? s3chara::nowUs() : 0u;
-            const int32_t split = s3chara::keysSplitAt(runtime, n);
+            // Round C1 (SOTC_C1KEYS): the motion's host rows first (the same bits); the decode below otherwise.
+            const bool c1served = c1::on(runtime) && c1::keys(rdram, res, formats, chans, n, k, frac, tmp, false);
+            const int32_t split = c1served ? 0 : s3chara::keysSplitAt(runtime, n);
             bool ok;
-            if (split > 0)
+            if (c1served)
+                ok = true;
+            else if (split > 0)
             {
                 struct Job
                 {
@@ -1118,6 +1596,21 @@ namespace char122
             const uint32_t target = fmt < 15u ? rd32(rdram, kCurveTable + fmt * 4u) : 0x010AC700u;
             v0 = target == 0x010AC700u ? 1u : 0u;
             return true;
+        }
+        // Round C1: intKeys through the motion's host rows (header = the resource: +8 formats, +0x10 channels) when the
+        // switch is on and this is the game thread; else (or when the rows cannot serve it) intKeys itself.
+        bool intKeysC1(const uint8_t *rdram, const PS2Runtime *runtime, uint32_t header, uint32_t formats, uint32_t chans, int32_t n, uint32_t frame, float *tmp,
+                       uint64_t &v0)
+        {
+            if (n > 0 && frame < c1::kMaxRows && c1::on(runtime) && inRam(formats, static_cast<uint32_t>(n)) && inRam(chans, static_cast<uint32_t>(n) * 4u) &&
+                inRam(header, 0x18u) && c1::keys(rdram, header, formats, chans, n, static_cast<int32_t>(frame), 0.0f, tmp, true))
+            {
+                const uint32_t fmt = *at(rdram, formats + static_cast<uint32_t>(n - 1));
+                const uint32_t target = fmt < 15u ? rd32(rdram, kCurveTable + fmt * 4u) : 0x010AC700u;
+                v0 = target == 0x010AC700u ? 1u : 0u;
+                return true;
+            }
+            return intKeys(rdram, formats, chans, n, frame, tmp, v0);
         }
         // SOTC_KEY136_CHECK=1: the old loop's keys (in RAM) against tmp.
         void intKeysCheck(const uint8_t *rdram, uint32_t out, const float *tmp, int32_t n)
