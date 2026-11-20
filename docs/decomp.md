@@ -23440,3 +23440,27 @@ not made (17 KB lake, 21 KB attract). Boot with 89 MB taken (bootR3, p3): mounte
 the draw loop's dependent-stage prefetch; the model hook, solidDisp and the light callbacks (docs/console_c2.md
 section 8).
 
+## Console C1: the character chain's memory traffic: motion key rows and the rig checked once a frame (c1keys, c1rig; off by default) (2026-11-20)
+
+docs/console_c1.md. Scripts, runs and logs: `build/agent-scratch/c1/`. Switches `SOTC_C1KEYS` (A/B `c1keys`, `kC1Keys`) and
+`SOTC_C1RIG` (A/B `c1rig`, `kC1Rig`), both **off by default**. The console A/B decides.
+
+- **Why**: the console profile of 2026-11-20 found the game thread CPU-bound at ~40 ms riding. The profile is flat, and
+  the slowdown against Vita3K points at memory latency. The characters are 8.4-9.1 ms of it.
+- **c1keys** (decomp_char122.cpp `char122::keys::c1`, hooked into keys122's floatFrame and GetMotionIntFrame): a host
+  mirror per motion resource. It copies the formats, channel pointers, records and header, and compares them once a
+  frame: the header, formats and pointers in full, the records in turns of 8 (`SOTC_C1KEYS_ROT`). Rows of decoded keys
+  are kept by frame (decodeKey's bits) and blended with keys122's own blend. 99% of the rows needed were already
+  decoded (the gallop / walk cycles). Arena `SOTC_C1KEYS_KB` (1 024 KB; 300-580 KB used).
+- **c1rig** (s3_chara.cpp `rigFor`): S3's rig, compared with the bone records on a skeleton's first pose of the frame,
+  is trusted for that frame's later poses (~24 of ~28 rig lookups a frame riding).
+- **Exact**: every served key call compared with the decode, every trusted rig compared anyway, every pose compared
+  with round 82's (`SOTC_C1KEYS_CHECK=1`, `SOTC_C1RIG_CHECK=1`, `SOTC_S3CHARA_CHECK=1`). ride7 (chkR2): 372 299 key
+  calls, 660 474 rigs, 384 058 poses (9.2 M bones), **0 differences**. lake6 (chkL2): 72 058 / 187 271 / 115 828,
+  **0**.
+- **Vita3K A/B** (222 MHz, both switches, off - on): ride7 +0.149 ± 0.143 (seed 7), -0.012 ± 0.146 (seed 13), lake6
+  +0.054 ± 0.115 ms; pooled **+0.064 ± 0.078 ms** (z +1.6): not slower.
+- **Memory traffic** (sampled, distinct 32-byte lines a key call): ride 40-43 -> ~30 (-25..-29%), lake 70 -> 43.5 (-38%).
+  c1rig skips ~1 200 line reads (~14 KB of loads) a frame riding, mostly warm lines.
+- Boot with 89 MB taken (600 s, both on): rode to frame 18 575, pictures normal. spalign: 0 sp-based. Tip:
+  `build/agent-scratch/c1/c1.vpk` / `c1.elf`. Console A/B: `SOTC_C1KEYS=1 SOTC_C1RIG=1 SOTC_AB_FLAG=c1keys,c1rig SOTC_AB_PERIOD=300`.
