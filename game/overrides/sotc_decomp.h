@@ -730,7 +730,7 @@ namespace sotc_decomp
                    // docs/native_n3.md)
         kR1Sort,   // round R1 (SOTC_R1SORT=0 off): the display walk's AddSortObj calls as host code (typed sort list / nodes,
                    // no context, no table call; decomp_dl.cpp addSortHost, r1sort.h; exact: SOTC_R1SORT_CHECK; docs/native_r1.md)
-        kN6NoChk,  // round N6 (off unless SOTC_N6NOCHK=1; only while n5sched is in effect): generated calls into functions with no loop and no
+        kN6NoChk,  // round N6 (SOTC_N6NOCHK=0 off; only while n5sched is in effect): generated calls into functions with no loop and no
                    // thread switch below them (docs/n5_noloop.txt) charge the dispatch checkpoint without testing it
                    // (ps2_runtime_macros.h PS2_CALL_GUEST_NOCHK, tools/n6_nochk.py; SOTC_N6_LOG; docs/native_n6.md)
         kSwitchCount
@@ -793,12 +793,12 @@ namespace sotc_decomp
             // Round S21: s21light on (SOTC_S21LIGHT=0 off): exact (checks: 0 differences in 355 850 calls), its A/Bs pooled
             // +0.13 +- 0.05 ms (z about 2.4; docs/lights_s21.md).
             // Round S22: s22ptcl off unless SOTC_S22PTCL=1 (docs/ptcl_s22.md).
-            // Round N6: n6nochk off unless SOTC_N6NOCHK=1 (docs/native_n6.md).
+            // Round N6: n6nochk on (SOTC_N6NOCHK=0 off): the pooled A/B +0.030 +- 0.073 ms, the rides / boot normal (docs/native_n6.md).
             // Round S23: s23light off unless SOTC_S23LIGHT=1: exact (checks: 0 differences in 70 926 walks) but even in the
             // frame time's A/B (the walks it shortens are ~0.05 ms a frame riding; docs/lights_s23.md).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kN6NoChk)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
