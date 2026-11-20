@@ -23332,4 +23332,5 @@ docs/native_r1.md. Scripts, runs and logs: `build/agent-scratch/r1/`. Switch `SO
   sort list and its nodes as typed structs on guest RAM (game/overrides/r1sort.h), the same reads / compares /
   stores, no context, no table call. The guest entry point stays for the other callers.
 - **Check** `SOTC_R1SORT_CHECK=1`: the host version's stores recorded, the guest call run, every written / link word
-  compared. Results: PENDING_R1
+  compared: 0 differences in 2.48 M calls riding (ride7), 1.52 M at the lake (lake6), 1.24 M in the attract demo;
+  0 sp-based NEON accesses. A/B and the 89 MB boot: PENDING_R1

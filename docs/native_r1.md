@@ -53,7 +53,9 @@ together with every link word it read), the guest call runs, and every one of th
 guest call left (`[r1sort] checked N, differ D, host declined F` every 20 000 calls; the first 20 differences printed
 with addresses). The picture under the check is the guest's.
 
-Results: PENDING (chkR ride7 400 s, chkL lake6 300 s, chkA attract 300 s).
+Results (build p1, Vita3K 222 MHz): **0 differences, 0 declined** in 2 480 000 calls riding (chkR, ride7 400 s),
+1 520 000 at the lake (chkL, lake6 300 s) and 1 240 000 in the attract demo (chkA, 300 s). chkR's shots: Wander on
+Agro, ground, sky, buildings normal.
 
 ## 4. A/B
 
@@ -62,7 +64,7 @@ In-run A/B (SOTC_AB_FLAG=r1sort, SOTC_AB_MIX per-frame random flip, mixframes), 
 
 ## 5. Boot
 
-600 s ride7 with SOTC_VITA_EAT_USER_MB=89 (bootRp1): PENDING. spalign: PENDING.
+600 s ride7 with SOTC_VITA_EAT_USER_MB=89 (bootRp1): PENDING. spalign (p1.elf): 0 sp-based :128/:256 NEON accesses (of 1 013 with an alignment hint).
 
 ## 6. What is left of the cluster
 
