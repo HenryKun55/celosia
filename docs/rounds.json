@@ -1202,7 +1202,7 @@
   {
    "round": "N4b",
    "date": "2026-11-20",
-   "commit": "",
+   "commit": "5135223",
    "focus": "Native layers",
    "summary": "Round N4b gave the loop-free, ABI-proven leaves native entries: tools/n4_native.py writes, for each of 684 such lifted leaves, a copy of the leaf that takes its register inputs as C++ values and returns v0, and turns the 1 937 lifted NOCHK calls into them into direct calls of that entry (arguments from the caller's locals, only the slots the leaf stores read back), behind the NOCHK fast form's own slot and stack guard.",
    "result": "Exact: the check build compared every argument and every kept local with the context in 5.4 M native calls, 0 differences. A/B (Vita3K 222 MHz, off - on): ride7 +0.096 +- 0.122 and +0.070 +- 0.142 ms, lake6 +0.048 +- 0.101 ms; pooled +0.071 +- 0.071 ms (z +2.0), on slightly faster. Boot with 89 MB taken rode normally, pictures normal; no sp-based NEON accesses. On by default. Next: the write-back before a native call (needs the lifter's dirty analysis), depth-1 functions, the recompiled code's calls."
