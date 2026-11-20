@@ -492,6 +492,18 @@ public:
                                    uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     static inline void tailGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
                                       uint32_t target);
+    // Round N6: a JAL into a function with no loop and no thread switch anywhere below it (docs/n5_noloop.txt;
+    // PS2_CALL_GUEST_NOCHK): while NOCHK is on (setNoCheck: the switch n6nochk, only while n5sched is in effect) and
+    // the slot holds the known function, the dispatch checkpoint's cycles are charged but not tested; else exactly
+    // callGuestKnownBody.
+    inline bool callGuestKnownNoCheck(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, uint32_t target,
+                                      uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
+    bool noCheckFinish(R5900Context *ctx, uint32_t entryPc, uint32_t returnPc, uint32_t jumpSerial);
+    // On: m_noCheckFloor = the host stack floor (NOCHK calls take their fast form above it); off: the top of the
+    // address space (every NOCHK call takes the plain form: one compare, no flag load on either path).
+    void setNoCheck(bool on) noexcept { m_noCheckFloor = on ? m_hostStackFloor : UINTPTR_MAX; }
+    bool noCheckOn() const noexcept { return m_noCheckFloor != UINTPTR_MAX; }
+    uintptr_t m_noCheckFloor = UINTPTR_MAX;
     inline bool callGuestKnown(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram, R5900Context *ctx, uint32_t target,
                                uint32_t returnPc, uint32_t sourcePc, GuestBranchKind kind, const char *debugName);
     void jumpGuestSlow(RecompiledFunction fn, uint8_t *rdram, R5900Context *ctx);
@@ -713,6 +725,17 @@ void ps2DirectArm();
 uint32_t ps2DirectRecheck(bool log = false);
 void ps2DirectEnable(bool on);
 void ps2DirectSuspend(bool suspend);
+// Round N6: what NOCHK did (ps2_runtime.cpp; the [n6] line, sotc_native.cpp). The slow checkpoints that found the
+// gate passed (not closed by an event) by how many cycles, split by NOCHK on / off: with NOCHK on, a gate passed
+// inside a NOCHK call is seen at the next checkpoint, so `over` grows by at most the cycles of one loop-free call tree.
+struct Ps2NoCheckStats
+{
+    uint64_t unwound = 0;            // a NOCHK call (test skipped) whose callee came back unwinding (finishGuestCall)
+    uint64_t gateHits[2] = {0, 0};   // slow checkpoints past an open gate, NOCHK off / on
+    uint64_t overSum[2] = {0, 0};    // ... the cycles past the gate, summed
+    uint32_t overMax[2] = {0u, 0u};  // ... the most
+};
+extern Ps2NoCheckStats g_ps2NoCheckStats;
 // Round N3: what a PS2X_EE_TRUST_CHECK build counted (ps2_runtime_macros.h): [0] VU0 operand lanes, [1] FPU results of
 // exponent 255 where level 1 leaves the clamp out.
 extern uint32_t g_ps2TrustHits[2];
@@ -822,6 +845,39 @@ __attribute__((always_inline)) inline bool PS2Runtime::callGuestKnownBody(Recomp
     if (__builtin_expect(ctx->pc == returnPc && !m_eeClock.unwinding, 1))
         return true;
     return finishGuestCall(ctx, target, returnPc, jumpSerial);
+}
+
+// Round N6 (docs/native_n6.md): callGuestKnown for a callee with no loop and no thread switch below it. While NOCHK
+// is on (m_noCheckFloor: the switch n6nochk, only while n5sched is in effect) and the slot holds the known function
+// (for PS2_CALL_GUEST_DIRECT_NOCHK: N3's guard g_ps2DirectCalls, or the slot itself), the dispatch checkpoint's cycles
+// are charged and not tested: the EE clock reads the same, and whatever was due (an event, a strictly higher-priority
+// thread; with n5sched never a slice's end) is taken at the next checkpoint, after the loop-free callee. An unwind
+// coming back from the callee (a slot below it holding a native that waits) is finished as before. Otherwise the
+// plain call, callGuestKnownBody, as it was.
+__attribute__((always_inline)) inline bool PS2Runtime::callGuestKnownNoCheck(RecompiledFunction fn, RecompiledFunction known, uint8_t *rdram,
+                                                                             R5900Context *ctx, uint32_t target, uint32_t returnPc, uint32_t sourcePc,
+                                                                             GuestBranchKind kind, const char *debugName)
+{
+#if PS2X_DIFFTRACE
+    if (__builtin_expect(ps2_difftrace::g_top, 0))
+        return ps2_difftrace::event(this, ps2_difftrace::kCall, rdram, ctx, target, returnPc, 0, 0, [&]() -> uint64_t
+                                    { return callGuestKnownBody(fn, known, rdram, ctx, target, returnPc, sourcePc, kind, debugName) ? 1u : 0u; }) != 0u;
+#endif
+    if (__builtin_expect(fn != known ||
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+                             reinterpret_cast<uintptr_t>(__builtin_stack_address()) < m_noCheckFloor,
+#else
+                             reinterpret_cast<uintptr_t>(__builtin_frame_address(0)) < m_noCheckFloor,
+#endif
+                         0))
+        return callGuestKnownBody(fn, known, rdram, ctx, target, returnPc, sourcePc, kind, debugName);
+    ctx->pc = target;
+    (void)m_eeClock.charge(kEeDispatchCycles);
+    const uint32_t jumpSerial = m_guestJumpSerial;
+    known(rdram, ctx, this);
+    if (__builtin_expect(ctx->pc == returnPc && !m_eeClock.unwinding, 1))
+        return true;
+    return noCheckFinish(ctx, target, returnPc, jumpSerial);
 }
 
 __attribute__((always_inline)) inline bool PS2Runtime::callGuest(uint8_t *rdram, R5900Context *ctx, uint32_t target, uint32_t returnPc,

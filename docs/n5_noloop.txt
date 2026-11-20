@@ -1,0 +1,2815 @@
+# n5_noloop.txt: NOBLOCK functions with no loop anywhere below them (tools/n5_blocking.py --noloop; docs/native_n6.md)
+# 2813 of 4719 NOBLOCK (3930 without a loop of their own; leaves 2262); profile share 3.00% of the game thread
+00101a30 SetHeapStartPoint NOLOOP depth=0
+00101a48 GetHeapCurrentPoint NOLOOP depth=0
+00101ac0 sub_00101AC0 NOLOOP depth=0
+00101af0 sub_00101AF0 NOLOOP depth=0
+001021d0 setCop0Epc NOLOOP depth=0
+00102fe0 LoaderSysCheckCDBootMode NOLOOP depth=0
+001032f0 LoaderSysSendAbort NOLOOP depth=0
+001032f8 LoaderSysFlushPrint NOLOOP depth=0
+00103ca8 LoaderSysGetBootArg NOLOOP depth=0
+00103e90 LoaderSysHookPoint NOLOOP depth=0
+00103ff8 memprintf NOLOOP depth=0
+00104040 imemprintf NOLOOP depth=0
+00104088 initmemprintf NOLOOP depth=0
+00104e78 padSysGet NOLOOP depth=0 share=0.000
+00104f58 LoaderSysSetPowerOffCallBackFunc NOLOOP depth=0
+00105948 PutString NOLOOP depth=0
+00105990 PutStringS NOLOOP depth=0
+00106380 SetLocate NOLOOP depth=0
+00106b58 PutChar NOLOOP depth=0
+00106c00 ps2__Exit NOLOOP depth=0
+00106c10 RFU005 NOLOOP depth=0
+00106c20 ps2__LoadExecPS2 NOLOOP depth=0
+00106c30 ps2__ExecPS2 NOLOOP depth=0
+00106d20 ps2__EnableIntc NOLOOP depth=0
+00106d30 ps2__DisableIntc NOLOOP depth=0
+00106d40 ps2__EnableDmac NOLOOP depth=0
+00106d50 ps2__DisableDmac NOLOOP depth=0
+00106d80 _iEnableIntc NOLOOP depth=0
+00106d90 _iDisableIntc NOLOOP depth=0
+00106da0 _iEnableDmac NOLOOP depth=0
+00106db0 _iDisableDmac NOLOOP depth=0
+00106e40 iTerminateThread NOLOOP depth=0
+00106ea0 _iRotateThreadReadyQueue NOLOOP depth=0
+00106f20 _iWakeupThread NOLOOP depth=0
+00106f60 _iSuspendThread NOLOOP depth=0
+00106f80 iResumeThread NOLOOP depth=0
+00106fa0 RFU060 NOLOOP depth=0
+00106fb0 RFU061 NOLOOP depth=0
+00107110 RFU083_iSetEventFlag NOLOOP depth=0
+00107130 RFU085_iClearEventFlag NOLOOP depth=0
+00107160 RFU088_iPollEvnetFlag NOLOOP depth=0
+00107180 RFU090_iReferEventFlagStatus NOLOOP depth=0
+001071b0 iEnableIntcHandler NOLOOP depth=0
+001071d0 iDisableIntcHandler NOLOOP depth=0
+001071f0 iEnableDmacHandler NOLOOP depth=0
+00107210 iDisableDmacHandler NOLOOP depth=0
+00107280 iGetCop0 NOLOOP depth=0
+001072a0 iCpuConfig NOLOOP depth=0
+00107360 RFU116 NOLOOP depth=0
+00107370 _print NOLOOP depth=0
+00107390 isceSifDmaStat NOLOOP depth=0
+00107420 PSMode NOLOOP depth=0
+00107430 MachineType NOLOOP depth=0
+00107460 QueryIntrContext NOLOOP depth=0
+00107d90 sub_00107D90 NOLOOP depth=0
+00108d10 sub_00108D10 NOLOOP depth=0
+00109268 sub_00109268 NOLOOP depth=0
+00109288 sub_00109288 NOLOOP depth=0
+001092b8 sub_001092B8 NOLOOP depth=1
+0010f3b8 sub_0010F3B8 NOLOOP depth=0
+0010f4a0 iPutTLBEntry NOLOOP depth=0
+0010f4f0 iSetTLBEntry NOLOOP depth=0
+0010f510 iGetTLBEntry NOLOOP depth=0
+0010f530 iProbeTLBEntry NOLOOP depth=0
+0010fb70 EIntr NOLOOP depth=0 share=0.001
+0010fbe8 ps2___sceKernlGetEhSemaId NOLOOP depth=0
+0010fdc8 sub_0010FDC8 NOLOOP depth=0
+0010fe30 sub_0010FE30 NOLOOP depth=0
+0010fff0 sub_0010FFF0 NOLOOP depth=0
+00110250 sub_00110250 NOLOOP depth=0
+00110640 GetTimerPreScaleFactor NOLOOP depth=0
+00110998 sub_00110998 NOLOOP depth=0
+00110c78 iGetTimerSystemTime NOLOOP depth=0
+00110d48 iAllocTimerCounter NOLOOP depth=0
+00110e00 iFreeTimerCounter NOLOOP depth=1
+00110ef0 iGetTimerUsedUnusedCounters NOLOOP depth=0
+00111288 iGetTimerBaseTime NOLOOP depth=0
+00111320 iGetTimerCount NOLOOP depth=1
+00111558 TimerBusClock2USec NOLOOP depth=1
+00111600 TimerUSec2BusClock NOLOOP depth=1
+00111a78 iReleaseTimerAlarm NOLOOP depth=2
+00111c50 sceSifRemoveRebootNotifyHandler NOLOOP depth=0
+00111fc0 ioctl NOLOOP depth=0
+00112080 isatty NOLOOP depth=0
+001120f8 unlink NOLOOP depth=1
+00112358 sub_00112358 NOLOOP depth=0
+00112380 sub_00112380 NOLOOP depth=0
+001123c0 sub_001123C0 NOLOOP depth=0
+001128a0 sub_001128A0 NOLOOP depth=0
+001128c0 sub_001128C0 NOLOOP depth=0
+00113368 sceVif1PkAddGsData NOLOOP depth=0
+00113f10 sceGsSetDefTexEnv NOLOOP depth=0
+00114020 sceGsSetDefAlphaEnv NOLOOP depth=0
+00114080 sceGsSetHalfOffset NOLOOP depth=0
+001148b8 sub_001148B8 NOLOOP depth=0
+001154f8 scePad2GetButtonInfo NOLOOP depth=0
+00116c58 sub_00116C58 NOLOOP depth=0
+00117a00 _sceCdSC NOLOOP depth=0
+00119aa0 sub_00119AA0 NOLOOP depth=0
+0011c198 _sceMcFatInit2 NOLOOP depth=0
+00120f18 ps2__SceMcComGetSysInfo NOLOOP depth=0
+00122448 sceNetcnfifSetFNoDecode NOLOOP depth=0
+00123a18 ps2___moddi3 NOLOOP depth=0
+001240a8 ps2___udivdi3 NOLOOP depth=0 share=0.020
+00124628 ps2___umoddi3 NOLOOP depth=0
+00125870 ps2___make_dp NOLOOP depth=1
+001258f8 dptoul NOLOOP depth=1 share=0.005
+00126f28 ps2___muldi3 NOLOOP depth=0 share=0.000
+00127048 ps2___unpack_f NOLOOP depth=0
+001270a8 ps2___make_fp NOLOOP depth=1
+001270d8 ps2___pack_d NOLOOP depth=0
+001271b0 ps2___unpack_d NOLOOP depth=0 share=0.002
+00127270 ps2___fpcmp_parts_d NOLOOP depth=0
+00127390 ps2___pack_f NOLOOP depth=0
+00127528 ps2___errno NOLOOP depth=0
+00128b00 sub_00128B00 NOLOOP depth=0
+0012d7f0 sub_0012D7F0 NOLOOP depth=0
+0012da00 ps2___sinit NOLOOP depth=1
+0012e520 _localeconv_r NOLOOP depth=0
+0012e558 localeconv NOLOOP depth=1
+0012e890 ps2__Bfree NOLOOP depth=0
+0012eaf8 _hi0bits NOLOOP depth=0
+0012eb78 _lo0bits NOLOOP depth=0
+0012f2d0 _ulp NOLOOP depth=0
+0012f3a0 _b2d NOLOOP depth=1
+0012f9b8 isinf NOLOOP depth=0
+0012fa00 isnan NOLOOP depth=0
+001acdf8 iosCdStStart NOLOOP depth=0
+001ace28 iosCdStStop NOLOOP depth=0
+001acf40 iosCdStSkip NOLOOP depth=0
+001acf60 iosCdStSectorAlignSkip NOLOOP depth=0
+001acfb8 iosCdSetErrorCallback NOLOOP depth=0
+001acfd0 iosCdSetMode NOLOOP depth=0
+001ad140 iosInitDebPc NOLOOP depth=0
+001ad148 iosStopPc NOLOOP depth=0
+001ad150 iosDebPcVsyncCounterCheck NOLOOP depth=0 share=0.000
+001ad158 iosGetCnt0Pc NOLOOP depth=0
+001ad160 iosGetCnt1Pc NOLOOP depth=0
+001ad168 InitDebPc NOLOOP depth=0
+001ad1f0 iosGetClock NOLOOP depth=0 share=0.000
+001ad510 iosGetTCount NOLOOP depth=0
+001ad528 iosGetTCountExtension NOLOOP depth=0
+001ad628 iosResetCpuRapCounter NOLOOP depth=0
+001ad658 iosGetCpuRapCountPar1Int NOLOOP depth=0
+001ad850 kernel_sub_001AD850 NOLOOP depth=0
+001ad948 iosEE2IopEndChk NOLOOP depth=0
+001ad950 iosCreateIopMgr NOLOOP depth=0
+001b0530 iosGetMallocPtn NOLOOP depth=0
+001b0558 iosGetMallocRootPtnRemainSize NOLOOP depth=0
+001b06a8 addMemoryDebugCallback NOLOOP depth=0
+001b06b8 getMemorySafetyLockFlag NOLOOP depth=0
+001b06c8 kernel_sub_001B06C8 NOLOOP depth=0
+001b12b0 iosInitMessageSystem NOLOOP depth=0
+001b2438 iosPadGetXZInputLwithThresholdIndepAxis NOLOOP depth=0
+001b27a0 iosPadEntryTickFunc NOLOOP depth=0
+001b28a0 iosPadChkConnect NOLOOP depth=1 share=0.001
+001b29e8 iosCreatePrintMgr NOLOOP depth=0
+001b29f0 iosGetPrintfMode NOLOOP depth=0
+001b2a00 iosSrpWaitDMA NOLOOP depth=1 share=0.001
+001b2a18 iosMemToSprDmaAdrCopy NOLOOP depth=0
+001b2a80 iosSprToMemDmaAdrCopy NOLOOP depth=0
+001b34f0 endSCEDemo NOLOOP depth=0
+001b3c18 Init_ShockVoiceSet NOLOOP depth=0
+001b3d10 Shock_SetShockVoiceSet NOLOOP depth=0
+001b3d48 Init_Player NOLOOP depth=0
+001b3d88 Init_Controler NOLOOP depth=0
+001b3f68 Shock_SetMotor NOLOOP depth=0 share=0.003
+001b40c8 kernel_sub_001B40C8 NOLOOP depth=0
+001b4118 kernel_sub_001B4118 NOLOOP depth=0
+001b4120 kernel_sub_001B4120 NOLOOP depth=0 share=0.003
+001b5f18 IosGetMergeDataFileName NOLOOP depth=0
+001b6798 GetSymbolByIndex NOLOOP depth=0
+001b6828 isysGetXffWorkSize NOLOOP depth=0
+001b6880 isysGetModuleObjMallocSize NOLOOP depth=0 share=0.000
+001b69b8 GetExecModuleSize NOLOOP depth=0
+001b69c8 getModuleSize NOLOOP depth=0
+001b7b58 isysCreateExceptionThread NOLOOP depth=0
+001b7b78 iosCubicBezier NOLOOP depth=0
+001b7bb8 iosCubicInterVectorXYZ NOLOOP depth=0
+001b7c20 iosFourthBezier NOLOOP depth=0
+001b7c88 iosCubicBezierVectorXYZ NOLOOP depth=0
+001b85d0 CompareString16 NOLOOP depth=0
+001b8600 iosInitCurrentMatrix NOLOOP depth=0
+001b8620 iosUnitCurrentMatrix NOLOOP depth=0
+001b8638 iosPushCurrentMatrix NOLOOP depth=0
+001b8650 iosPopCurrentMatrix NOLOOP depth=0
+001b8668 iosPushVu0RegistersToWork NOLOOP depth=0
+001b8770 iosPopVu0RegistersFromWork NOLOOP depth=0
+001b8878 iosTransCurrentMatrix NOLOOP depth=0
+001b8898 iosSetTransCurrentMatrix NOLOOP depth=0
+001b88a8 iosClearTransCurrentMatrix NOLOOP depth=0
+001b8c00 iosScaleCurrentMatrix NOLOOP depth=0
+001b8c90 iosGetCurrentMatrix NOLOOP depth=0
+001b8ca8 iosGetCurrentMatrixTrans NOLOOP depth=0
+001b8cb8 iosSetCurrentMatrix NOLOOP depth=0
+001b8cd0 iosMulCurrentMatrixR NOLOOP depth=0
+001b8d38 iosMulCurrentMatrixL NOLOOP depth=0
+001b8d90 iosApplyCurrentMatrix NOLOOP depth=0 share=0.000
+001b8db0 iosApplyRotCurrentMatrix NOLOOP depth=0
+001b8dd0 iosRotTransPersCurrentMatrix NOLOOP depth=0
+001b8e00 iosTransposeCurrentMatrix NOLOOP depth=0
+001b8e50 iosTransposeRotationCurrentMatrix NOLOOP depth=0
+001b8e80 iosInverseCurrentMatrix NOLOOP depth=0
+001b9170 iosApplyRotMatrix NOLOOP depth=0 share=0.036
+001b91a0 iosUnitMatrix NOLOOP depth=0 share=0.011
+001b91c8 iosUnitRotation NOLOOP depth=0
+001b91f0 iosTransposeMatrix NOLOOP depth=0 share=0.009
+001b9238 iosInverseMatrix NOLOOP depth=0 share=0.050
+001b92d0 iosScaleMatrixV NOLOOP depth=0 share=0.002
+001b9308 iosFloatModulo NOLOOP depth=0
+001b9348 iosSetCameraMatrix NOLOOP depth=0 share=0.020
+001b9468 iosMakeNormalLightMatrix NOLOOP depth=0 share=0.007
+001b9560 iosScaleNormalLightMatrix NOLOOP depth=0 share=0.026
+001b9598 iosMakeLightColorMatrix NOLOOP depth=0 share=0.001
+001b95d0 iosTransMatrix NOLOOP depth=0
+001b9628 iosTransMatrixF NOLOOP depth=0 share=0.024
+001b96a0 iosScaleMatrix NOLOOP depth=0
+001b96d0 iosMulRotMatrixXInt16 NOLOOP depth=1 share=0.073
+001b97d8 iosMulRotMatrixYInt16 NOLOOP depth=1
+001b98e0 iosMulRotMatrixZInt16 NOLOOP depth=1
+001b9cd0 iosGetYDirXYZFromMatrix NOLOOP depth=0
+001b9ce8 iosGetXDirXYZFromMatrix NOLOOP depth=0
+001b9d18 iosRotTransCurrentMatrix NOLOOP depth=0
+001b9d78 iosMvecZero NOLOOP depth=0
+001b9d88 iosMvecAllOnes NOLOOP depth=0
+001b9d98 iosMvecAllOne NOLOOP depth=0
+001b9da8 iosAddMvec NOLOOP depth=0
+001b9de8 iosClampSW_AddMvec NOLOOP depth=0
+001b9e28 iosClampUW_AddMvec NOLOOP depth=0
+001b9e68 iosSubMvec NOLOOP depth=0
+001b9ea8 iosMulMvec NOLOOP depth=0
+001b9f70 iosCalcIcolorToBrightness NOLOOP depth=1
+001b9ff8 iosIColScale NOLOOP depth=1
+001ba0a8 iosIColAddVec NOLOOP depth=0
+001ba0d8 iosSwClip255Mvec NOLOOP depth=0
+001ba108 iosIColAddVecXYZ NOLOOP depth=0
+001ba180 iosUcharColClampAdd NOLOOP depth=0
+001ba240 iosSWToMmColMvec NOLOOP depth=0
+001ba268 iosMmColToSWMvec NOLOOP depth=0
+001ba290 iosITOF15ToMmColMvec NOLOOP depth=0
+001ba2b8 iosMmColToITOF15Mvec NOLOOP depth=0
+001ba2e0 iosFvecToMmColMvec NOLOOP depth=1
+001ba320 iosMmColToFvecMvec NOLOOP depth=1
+001ba360 iosSwClipMvec NOLOOP depth=0
+001ba3e0 iosFvecToICol NOLOOP depth=1
+001ba428 iosIColToMvecSl NOLOOP depth=0
+001ba458 iosIColToFvec NOLOOP depth=1
+001ba690 kernel_sub_001BA690 NOLOOP depth=0 share=0.011
+001bb868 GetCurrentQuaternion NOLOOP depth=0
+001bb888 GetLastQuaternion NOLOOP depth=0
+001bb8a8 MultiCurrentQuaternion NOLOOP depth=0
+001bb900 MultiCurrentQuaternionL NOLOOP depth=0
+001bb958 InvertCurrentQuaternion NOLOOP depth=0
+001bb988 SetCurrentQuaternion NOLOOP depth=0
+001bbb48 PushQuaternion NOLOOP depth=1
+001bbbb8 PushQuaternionWithNoCopy NOLOOP depth=1
+001bbc08 PopQuaternion NOLOOP depth=0
+001bbc28 InitQuaternionDrive NOLOOP depth=0
+001bbca8 SetQuaternionByAxisRotateWithNoRegularize NOLOOP depth=1
+001bbe10 DivQuaternion NOLOOP depth=0 share=0.013
+001bbef8 MultiMatrixByQuaternion NOLOOP depth=1
+001bbf90 GetMirrorQuaternion NOLOOP depth=0
+001bc298 GetQuaternionFromMatrix NOLOOP depth=1 share=0.006
+001bc850 SetQuaternionByCosineAxisRotateVWithNoRegularize NOLOOP depth=0 share=0.029
+001bc8f8 GetYRotQuaternionFromDir NOLOOP depth=0
+001bd9d0 GetZDirFromQuaternion NOLOOP depth=0 share=0.004
+001bdd00 SetQuaternionByCosineAxisRotateV NOLOOP depth=0
+001be260 iosGetACosf NOLOOP depth=0 share=0.036
+001be2e8 iosGetACos NOLOOP depth=0
+001be4d8 iosGetASin NOLOOP depth=0
+001be4e8 iosGetATan2 NOLOOP depth=0
+001be4f8 resetArcFuncCall NOLOOP depth=0
+001be520 iosGetTableSin NOLOOP depth=0 share=0.003
+001be570 iosGetTableCos NOLOOP depth=0 share=0.001
+001be6d0 iosFTOI15Vector NOLOOP depth=0
+001be6e8 iosFTOI12Vector NOLOOP depth=0
+001be718 iosFTOI0Vector NOLOOP depth=0
+001be730 iosITOF15Vector NOLOOP depth=0
+001be748 iosITOF12Vector NOLOOP depth=0
+001be760 iosITOF4Vector NOLOOP depth=0
+001be778 iosITOF0Vector NOLOOP depth=0
+001be790 iosGetStabXZVector NOLOOP depth=0 share=0.010
+001be8b0 iosGetReflectVector NOLOOP depth=0
+001be8e0 iosDumpFVector NOLOOP depth=0
+001be8e8 iosDumpIVector NOLOOP depth=0
+001be980 iosGetScaleInverseVector NOLOOP depth=0 share=0.136
+001be9e0 iosGetStabXYVector NOLOOP depth=0
+001bea18 iosGetStabYZVector NOLOOP depth=0 share=0.001
+001bea50 iosGetLengthPointToLine NOLOOP depth=0
+001beb08 iosGetInverseVectorXYZ NOLOOP depth=0
+001beb30 iosGetExceptAxisVector NOLOOP depth=0 share=0.006
+001beb88 iosCalcFColorToBrightness NOLOOP depth=0
+001bebc0 iosITOF15VectorXYZ NOLOOP depth=0
+001bebd8 iosScaleColorTo255 NOLOOP depth=0
+001bebf8 iosScaleColorToONE NOLOOP depth=0
+001bec18 kernel_sub_001BEC18 NOLOOP depth=0
+001bf048 iosSetDCParam NOLOOP depth=1
+001bf070 iosSetDCClearParam NOLOOP depth=1
+001bf0b0 iosSetDCViewPort NOLOOP depth=0
+001bf160 iosSetDCViewPortCenter NOLOOP depth=0
+001bf2d8 iosGetRootDC NOLOOP depth=0
+001bf308 iosGetCurrentDC NOLOOP depth=0
+001bf400 iosInitDC NOLOOP depth=1
+001bf420 iosGetDCGroup NOLOOP depth=0
+001bf430 kernel_sub_001BF430 NOLOOP depth=0
+001bf438 kernel_sub_001BF438 NOLOOP depth=0
+001bfad8 iosUsedPacketBufferSize NOLOOP depth=0 share=0.001
+001bfb80 iosDlGetTransAdrs NOLOOP depth=0
+001bfba8 iosGetPacketPtrPath1 NOLOOP depth=0 share=0.009
+001bfbf0 iosSetPacketPtrPath1 NOLOOP depth=0 share=0.001
+001bfc08 iosAllocPacketPtrPath1 NOLOOP depth=0 share=0.001
+001bfc30 iosDlChainHead NOLOOP depth=0
+001bfcf8 iosDlChainTail NOLOOP depth=0 share=0.015
+001bfdc0 iosDlChainHeadCurrent NOLOOP depth=0
+001c0138 iosDlGetWorkBufId NOLOOP depth=0 share=0.002
+001c0150 iosDlGetTransBufId NOLOOP depth=0
+001c0168 iosDlGetEndAdrs NOLOOP depth=0 share=0.014
+001c02c8 iosDlGetLayerNum NOLOOP depth=0 share=0.002
+001c03b8 iosDlCheckAdrs NOLOOP depth=0
+001c03f0 iosDlCheckSize NOLOOP depth=0
+001c0458 iosDlGetCreateAdrs NOLOOP depth=0
+001c0480 iosAllocPacketPtrPath1UnCachedA NOLOOP depth=0
+001c12a8 kernel_sub_001C12A8 NOLOOP depth=1
+001c1538 kernel_sub_001C1538 NOLOOP depth=0 share=0.000
+001c15f8 iosGsSetMode NOLOOP depth=0
+001c2018 getDispScreenWidth NOLOOP depth=0
+001c2028 getDispScreenHeight NOLOOP depth=0
+001c2038 getDrawScreenWidth NOLOOP depth=0 share=0.003
+001c2048 getDrawScreenHeight NOLOOP depth=0 share=0.007
+001c2058 getFrameBufferSize NOLOOP depth=0 share=0.001
+001c2088 getFrameBufferSizeFBP NOLOOP depth=0 share=0.000
+001c20b8 getFrameBufferSizeTBP NOLOOP depth=0 share=0.000
+001c20e8 getDispBufferAddressTBP NOLOOP depth=0
+001c20f0 getDispBufferAddressFBP NOLOOP depth=0
+001c20f8 getDrawBufferAddressTBP NOLOOP depth=0 share=0.000
+001c2128 getDrawBufferAddressFBP NOLOOP depth=0 share=0.000
+001c2158 getZBufferAddressTBP NOLOOP depth=0
+001c2178 getZBufferAddressFBP NOLOOP depth=0
+001c2198 getTextureAreaAddressTBP NOLOOP depth=0
+001c21d0 getTextureAreaAddressFBP NOLOOP depth=0
+001c2208 getScreenOffsetX NOLOOP depth=0
+001c2218 getScreenOffsetY NOLOOP depth=0
+001c2228 getAntiAlias NOLOOP depth=0
+001c2238 getProgressiveMode NOLOOP depth=0
+001c27f8 iosResetPath NOLOOP depth=0
+001c28b0 iosGetField NOLOOP depth=0
+001c2928 iosSetBGColor NOLOOP depth=1 share=0.003
+001c2a68 iosSetSyncNoReturnFunc NOLOOP depth=0
+001c2a78 iosCheckDrawFinish NOLOOP depth=0
+001c2b98 iosWaitDMA NOLOOP depth=0 share=0.000
+001c2be8 getCRTCoffsetU NOLOOP depth=0
+001c2bf8 getCRTCoffsetV NOLOOP depth=0
+001c2cc8 iosGsChangeScreenOffset NOLOOP depth=2
+001c35e8 iosChkGpDlTransExec NOLOOP depth=0
+001c3720 iosSetIStartFunc NOLOOP depth=0
+001c3730 iosSetGpFinishFunc NOLOOP depth=0
+001c3740 iosSetIFinishFunc NOLOOP depth=0
+001c3750 getIntrGpCount NOLOOP depth=0
+001c3768 iosSetDlTransFunc NOLOOP depth=0
+001c3778 iosSetVSchedulerFunc NOLOOP depth=0
+001c39e8 gsRegBegin NOLOOP depth=1 share=0.033
+001c3ec0 gsReglistBegin NOLOOP depth=1
+001c5b48 getSpriteDrawFirst NOLOOP depth=0
+001c5b58 gsReglist NOLOOP depth=0
+001c6408 kernel_sub_001C6408 NOLOOP depth=0
+001c7540 isysSetObjImmediateDeleteFunc NOLOOP depth=0 share=0.000
+001c7658 isysInitGroup NOLOOP depth=0
+001c7680 isysObjDeleteLock NOLOOP depth=0
+001c79a8 isysGetLinkMax NOLOOP depth=0
+001c79b0 isysGetObjIdentifierByObj NOLOOP depth=0
+001c7d98 getVIntrCnt NOLOOP depth=0
+001c7db0 setVIntrBaseTime NOLOOP depth=0
+001c7dc8 getVIntrDiffTime NOLOOP depth=0
+001c7e30 addVIntrTime NOLOOP depth=0
+001c7fa0 iosGetISchedulerExecCnt NOLOOP depth=0
+001c7fb0 ischedStop NOLOOP depth=0
+001c7ff0 ischedRestart NOLOOP depth=0
+001c8028 iosSetISchedulerSubthreadTask NOLOOP depth=0
+001c8038 iosSetIVSyncMode NOLOOP depth=0
+001c8048 iosGetIVSyncMode NOLOOP depth=0
+001c8058 vschedSetNextFrameForceGarbage NOLOOP depth=0
+001c8068 GetGarbageTime NOLOOP depth=0
+001c8298 isysGetLetterObj NOLOOP depth=0 share=0.007
+001c84c0 init_letter NOLOOP depth=0 share=0.000
+001c84d8 is_hope_letter_type NOLOOP depth=0
+001c84e8 get_letter_contents_data NOLOOP depth=0
+001c84f0 kernel_sub_001C84F0 NOLOOP depth=0 share=0.000
+001c8500 increment_letter_refcount NOLOOP depth=0 share=0.000
+001c8570 is_letter_reach_time NOLOOP depth=0
+001c8598 is_init_letter_called NOLOOP depth=0
+001c85a0 get_reference_letter_type NOLOOP depth=0 share=0.000
+001c85a8 get_letter_receiver_obj_group NOLOOP depth=0 share=0.000
+001c85b0 get_letter_receiver_data NOLOOP depth=0 share=0.002
+001c88f8 get_total_letter_in_post NOLOOP depth=0
+001c8910 get_next_letter_in_post NOLOOP depth=0 share=0.007
+001c8948 kernel_sub_001C8948 NOLOOP depth=0
+001c8ad0 constructor_letter_type NOLOOP depth=0
+001c8b68 get_letter_type NOLOOP depth=0 share=0.001
+001c90d0 iosGetDataSizeOfFont NOLOOP depth=0
+001c90e8 iosGetFontDataWithID NOLOOP depth=0
+001c9160 iosGetFontDataWithJIS NOLOOP depth=0
+001c91f8 iosGetFontDataWithSJIS NOLOOP depth=0
+001c9470 iosGetFontIDWithJIS NOLOOP depth=0
+001c9498 iosGetFontIDWithSJIS NOLOOP depth=0
+001c9620 iosEntryLocaleFontNoLoad NOLOOP depth=0
+001c9678 iosGetFontInfo NOLOOP depth=0
+001c9708 iosGet2ByteCharCode NOLOOP depth=0
+001c9720 _isysCreateSubMsgQueue NOLOOP depth=0
+001c9828 InitSubThread NOLOOP depth=1
+001c9848 isysInitSubThreadExecEnv NOLOOP depth=0
+001ca4a0 isysGetSubThreadWorkSize NOLOOP depth=0
+001ca558 isysGetSubThreadStackSize NOLOOP depth=0
+001ca5a0 isysDumpSubThreadPC NOLOOP depth=0
+001ca5a8 isysDebugSetSubThreadSleepProtection NOLOOP depth=0
+001cad30 sndSepSetDefaultParam NOLOOP depth=0 share=0.000
+001cad90 sndSepPauseAll NOLOOP depth=0
+001cadb8 sndSepPause NOLOOP depth=0
+001cadd0 sndSepCont NOLOOP depth=0
+001caf88 sndVabDelete NOLOOP depth=0
+001cb168 sndBDClose NOLOOP depth=0
+001cb3a0 addAdpcmTickProcFunc NOLOOP depth=0
+001cb3b0 setPcmTickProcFunc NOLOOP depth=0
+001cb3c0 soundGetTickProcCnt NOLOOP depth=0
+001cb3d0 soundSetRevMode NOLOOP depth=0 share=0.000
+001cb408 soundGetRevMode NOLOOP depth=0 share=0.000
+001cb430 setSoundMode NOLOOP depth=1
+001cb460 getSoundMode NOLOOP depth=0 share=0.000
+001cb630 iosGetIopTotalMemSize NOLOOP depth=1
+001cb920 iosKeybdSetCallBackFunc NOLOOP depth=0
+001cbc70 iosMouseSetCallBackFunc NOLOOP depth=0
+001cbcb8 GetStrHashWorkBuffer NOLOOP depth=0
+001cbd70 AddStrHashKey NOLOOP depth=0 share=0.000
+001cc028 kernel_sub_001CC028 NOLOOP depth=0 share=0.002
+001cc0c8 Sg2CtrlEntryTickProcById NOLOOP depth=0
+001cc228 Sg2CtrlSetTickMode NOLOOP depth=0
+001cc240 Sg2CtrlGetTickMode NOLOOP depth=0
+001cc250 Sg2CtrlSetTickTime NOLOOP depth=0
+001cc268 Sg2CtrlGetTickTime NOLOOP depth=0
+001cc300 Sg2DmaTransStatus NOLOOP depth=1
+001cc318 Sg2DmaInit NOLOOP depth=0
+001cc7d8 Sg2DspGetMasterVolume NOLOOP depth=0
+001cc898 Sg2ExStAdpcmStopMode NOLOOP depth=0
+001cced0 Sg2ExStAdpcmSetFd NOLOOP depth=0
+001ccee0 Sg2ExStAdpcmGetFd NOLOOP depth=0
+001ccee8 Sg2ExStAdpcmSetLsn NOLOOP depth=0
+001ccef8 Sg2ExStAdpcmGetLsn NOLOOP depth=0
+001ccf00 Sg2ExStAdpcmGetTargetLsn NOLOOP depth=0
+001ccf18 Sg2ExStAdpcmSetUserParam NOLOOP depth=0
+001ccf28 Sg2ExStAdpcmGetUserParam NOLOOP depth=0
+001cd6f8 Sg2ExStAdpcmLoopSecNum NOLOOP depth=0
+001cd710 Sg2ExStAdpcmGetBuffer NOLOOP depth=0
+001cd738 Sg2ExStAdpcmSetSignal NOLOOP depth=0
+001cec38 Sg2ModCheckSndOn NOLOOP depth=0 share=0.000
+001cec70 Sg2ModClose NOLOOP depth=0 share=0.000
+001cf6e8 Sg2ModGetParam NOLOOP depth=0
+001cf7b0 Sg2ModSetOutputMode NOLOOP depth=1
+001d0d78 kernel_sub_001D0D78 NOLOOP depth=0
+001d12a8 kernel_sub_001D12A8 NOLOOP depth=0
+001d12e0 kernel_sub_001D12E0 NOLOOP depth=0
+001d1318 kernel_sub_001D1318 NOLOOP depth=0
+001d1350 kernel_sub_001D1350 NOLOOP depth=0
+001d1358 kernel_sub_001D1358 NOLOOP depth=0
+001d13e8 kernel_sub_001D13E8 NOLOOP depth=0
+001d1420 kernel_sub_001D1420 NOLOOP depth=0
+001d1470 kernel_sub_001D1470 NOLOOP depth=0
+001d14c8 kernel_sub_001D14C8 NOLOOP depth=0
+001d1520 kernel_sub_001D1520 NOLOOP depth=0
+001d1578 kernel_sub_001D1578 NOLOOP depth=0
+001d1580 kernel_sub_001D1580 NOLOOP depth=0
+001d15b8 kernel_sub_001D15B8 NOLOOP depth=0
+001d1658 kernel_sub_001D1658 NOLOOP depth=0
+001d1660 kernel_sub_001D1660 NOLOOP depth=0
+001d1698 kernel_sub_001D1698 NOLOOP depth=0
+001d1810 kernel_sub_001D1810 NOLOOP depth=0
+001d1850 kernel_sub_001D1850 NOLOOP depth=2
+001d18d8 kernel_sub_001D18D8 NOLOOP depth=0
+001d1f08 kernel_sub_001D1F08 NOLOOP depth=0
+001d1f10 kernel_sub_001D1F10 NOLOOP depth=0
+001d1f18 kernel_sub_001D1F18 NOLOOP depth=0
+001d1f20 kernel_sub_001D1F20 NOLOOP depth=0
+001d2008 kernel_sub_001D2008 NOLOOP depth=0
+001d2150 Sg2RemoteDmaTransStatus NOLOOP depth=0
+001d2170 Sg2RemoteGetAdpStmAdr NOLOOP depth=0 share=0.000
+001d2188 Sg2RemoteGetPcmStmTransOffset NOLOOP depth=0
+001d2198 Sg2RemoteGetSlotReleaseLv NOLOOP depth=0 share=0.000
+001d21b0 Sg2RemoteGetDspChangeStatus NOLOOP depth=0
+001d2b98 Sg2SepStatus NOLOOP depth=0 share=0.000
+001d2bc8 Sg2SepCheckSndOn NOLOOP depth=1
+001d3428 kernel_sub_001D3428 NOLOOP depth=0
+001d3430 kernel_sub_001D3430 NOLOOP depth=0 share=0.001
+001d3a48 kernel_sub_001D3A48 NOLOOP depth=0 share=0.001
+001d3b08 Sg2SlotGetSlotClassIdx NOLOOP depth=0
+001d5cb8 Sg2SlotBlock NOLOOP depth=0
+001d5d28 Sg2SlotFree NOLOOP depth=0
+001d6250 Sg2SlotSetGroup NOLOOP depth=0 share=0.000
+001d6270 Sg2SlotSetMute NOLOOP depth=0
+001d62f0 Sg2SlotSetMasVol NOLOOP depth=0 share=0.000
+001d6360 Sg2SlotSetSeMasVol NOLOOP depth=0 share=0.000
+001d63b8 Sg2SlotSetBaseVol NOLOOP depth=0 share=0.000
+001d6410 Sg2SlotSetVol NOLOOP depth=0 share=0.000
+001d6440 Sg2SlotSetMasPan NOLOOP depth=0 share=0.000
+001d64a0 Sg2SlotSetBasePan NOLOOP depth=0 share=0.000
+001d64f8 Sg2SlotSetPan NOLOOP depth=0 share=0.000
+001d6528 Sg2SlotSetBendRange NOLOOP depth=0 share=0.000
+001d6548 Sg2SlotSetBendValue NOLOOP depth=0 share=0.000
+001d6578 Sg2SlotSetPitch NOLOOP depth=0 share=0.001
+001d65f0 Sg2SlotSetPause NOLOOP depth=0
+001d6670 Sg2SlotSetDirectPitch NOLOOP depth=0
+001d66a0 Sg2SlotSetMasTune NOLOOP depth=0 share=0.000
+001d6720 Sg2SlotSetVolPhase NOLOOP depth=0 share=0.000
+001d6758 Sg2SlotSetLoop NOLOOP depth=0
+001d6780 Sg2SlotSetDumperOn NOLOOP depth=0
+001d67a8 Sg2SlotSetLfoPitchTbl NOLOOP depth=0
+001d67f0 Sg2SlotSetLfoPitchSpeed NOLOOP depth=0
+001d68a8 Sg2SlotSetLfoPitchDepth NOLOOP depth=0
+001d6950 Sg2SlotSetLfoVolTbl NOLOOP depth=0
+001d6c30 Sg2SlotSetTimeVolParam NOLOOP depth=0
+001d6c70 Sg2SlotSetTimePitchParam NOLOOP depth=0
+001d6cb0 Sg2SlotSetTimePanParam NOLOOP depth=0
+001d6cf0 Sg2SlotSetPoltamentParam NOLOOP depth=0
+001d6d50 Sg2SlotGetVol NOLOOP depth=0
+001d6d70 Sg2SlotGetPan NOLOOP depth=0
+001d7458 Sg2SlotSetOutputMode NOLOOP depth=0
+001d7470 Sg2SlotSetVolShiftDownParam NOLOOP depth=0
+001d7488 Sg2SlotGetVolShiftDownParam NOLOOP depth=0
+001d8250 kernel_sub_001D8250 NOLOOP depth=0
+001d88f8 Sg2SmfpStatus NOLOOP depth=0
+001d8920 Sg2SmfpCheckSndOn NOLOOP depth=1
+001d8e78 Sg2SmfpSetSignal NOLOOP depth=0
+001d95c8 kernel_sub_001D95C8 NOLOOP depth=0
+001d95d0 kernel_sub_001D95D0 NOLOOP depth=0
+001d97f0 kernel_sub_001D97F0 NOLOOP depth=0
+001d9e50 Sg2StAdpcmIopReadAdr NOLOOP depth=1 share=0.001
+001d9f08 kernel_sub_001D9F08 NOLOOP depth=0
+001da0a0 vab_check_alive NOLOOP depth=0 share=0.001
+001da0e0 vab_get_info NOLOOP depth=0 share=0.000
+001da120 vab_get_seseq NOLOOP depth=1 share=0.001
+001da1e8 vab_get_seprogchunk NOLOOP depth=1 share=0.002
+001da280 vab_get_progchunk NOLOOP depth=1
+001da330 vab_get_splitchunk NOLOOP depth=0
+001da348 vab_get_veltbl NOLOOP depth=0 share=0.000
+001da380 vab_get_lfotbl_param NOLOOP depth=0 share=0.000
+001da3c8 vab_set_semastervol NOLOOP depth=0
+001da3f8 vab_get_semastervol NOLOOP depth=0 share=0.000
+001da4a8 Sg2VabGetBdSize NOLOOP depth=1
+001da530 Sg2VabBdOpen NOLOOP depth=1
+001da5f0 Sg2VabHdClose NOLOOP depth=1
+001db3c8 kernel_sub_001DB3C8 NOLOOP depth=0
+001db418 kernel_sub_001DB418 NOLOOP depth=0
+001db9e8 Sg2ExPcmInputGetLipFrame NOLOOP depth=0
+001dba10 Sg2ExPcmInputGetRealPlayFrameCount NOLOOP depth=0
+001dbba0 Sg2ExPcmInputSetOutputMode NOLOOP depth=0
+001dbd90 Sg2ExPcmInputAutoFilterCtrl NOLOOP depth=0
+001dbfb8 Sg2ExPcmOutputSetOutputMode NOLOOP depth=0
+001dc068 Sg2ExPcmOutputGetLipFrame NOLOOP depth=0
+001dc1d0 Sg2ExPcmOutputAutoFilterCtrl NOLOOP depth=0
+001dc1f8 Sg2ExPcmCheckAutoFilterSeq NOLOOP depth=1
+001dc2d0 Sg2ExPcmSetSignal NOLOOP depth=0
+001dca28 IirInit NOLOOP depth=0
+001dcd48 Sg2StPcmIopTransOffset NOLOOP depth=1
+001dd4b0 div NOLOOP depth=0
+001dd8a0 fabsf NOLOOP depth=0 share=0.000
+001e00e8 scalbnf NOLOOP depth=1
+001e01b0 copysignf NOLOOP depth=0
+0107c6c0 doit_debug_utility NOLOOP depth=0
+0107c750 DEBUG_set_update_position_method_pointer NOLOOP depth=0
+0107c760 DEBUG_is_locking_debug_camera NOLOOP depth=0
+0107c7c8 DEBUG_get_2d_font_disp_position NOLOOP depth=1
+0107c888 DEBUG_get_2d_font_default_height_offset NOLOOP depth=1
+0107cf60 GAMEUTIL_increase_yaw_limit_extend NOLOOP depth=2
+0107d1b8 GAMEUTIL_get_limit_clip_yaw_rel NOLOOP depth=2
+0107d2c8 GAMEUTIL_get_move_radi_from_yaw1_to_yaw2_extend NOLOOP depth=1 share=0.010
+0107d4c8 GAMEUTIL_is_between_yaw_and_yaw_extend_rel NOLOOP depth=1
+0107d5c8 GAMEUTIL_is_inside_of_region_pitch NOLOOP depth=0 share=0.011
+0107d848 GAMEUTIL_inc_or_dec_for_near_to_aim_yaw NOLOOP depth=1 share=0.015
+0107da28 GAMEUTIL_inc_or_dec_for_near_to_aim_pitch NOLOOP depth=0 share=0.018
+0107dd80 GAMEUTIL_get_interp_pitch NOLOOP depth=0 share=0.000
+0107ec28 GAMEUTIL_is_nearly_equal_zero NOLOOP depth=0 share=0.018
+0107ec70 GAMEUTIL_is_nearly_equal_zero3D NOLOOP depth=0 share=0.005
+0107ed30 GAMEUTIL_is_diff_nearly_equal_zero NOLOOP depth=0 share=0.001
+0107ed80 GAMEUTIL_is_diff_nearly_equal_zero3D NOLOOP depth=0 share=0.001
+0107ee48 GAMEUTIL_get_answer_of_2jihouteishiki NOLOOP depth=0
+0107efb8 GAMEUTIL_get_xyz_axis_from_quaternion NOLOOP depth=0
+0107f078 GAMEUTIL_get_segment_num_and_data NOLOOP depth=0 share=0.001
+0107f448 GAMEUTIL_get_offset_position_by_option_space NOLOOP depth=1 share=0.017
+0107fa60 GAMEUTIL_get_new_velocity NOLOOP depth=0
+0107fae0 GAMEUTIL_get_new_velocity_by_brake NOLOOP depth=1
+0107fb30 GAMEUTIL_get_new_velocity_by_brake_abs NOLOOP depth=0
+0107fb60 GAMEUTIL_get_velocity_by_diff_move NOLOOP depth=0
+0107fba0 GAMEUTIL_get_velocity_by_diff_move3D NOLOOP depth=0
+0107fbf0 GAMEUTIL_get_vector_velocity_by_diff_move3D NOLOOP depth=0 share=0.002
+0107fc50 GAMEUTIL_get_move_limit_position NOLOOP depth=0
+0107fcf0 GAMEUTIL_get_move_limit_position3D NOLOOP depth=0
+0107fdf0 GAMEUTIL_get_vel_limit_position NOLOOP depth=0
+0107fe68 GAMEUTIL_is_inverse_move_direction NOLOOP depth=0
+0107fed0 GAMEUTIL_mul_ratio NOLOOP depth=0 share=0.001
+0107ff08 GAMEUTIL_check_and_get_normalize_vector NOLOOP depth=0 share=0.015
+0107ffe0 GAMEUTIL_get_divide_vector_value NOLOOP depth=0 share=0.004
+01080078 GAMEUTIL_get_except_axis_vector NOLOOP depth=1
+01080220 GAMEUTIL_get_difference_value NOLOOP depth=1 share=0.047
+01080258 GAMEUTIL_get_increase_value NOLOOP depth=2 share=0.030
+01080290 GAMEUTIL_is_between_value NOLOOP depth=1
+010802c0 GAMEUTIL_is_max_input NOLOOP depth=0
+010802f0 GAMEUTIL_convert_from_lw_to_game_coord NOLOOP depth=0
+01080310 GAMEUTIL_increase_yaw NOLOOP depth=1 share=0.009
+010803a0 GAMEUTIL_increase_yaw_limit NOLOOP depth=3
+010803c0 GAMEUTIL_increase_yaw_region NOLOOP depth=3
+01080508 GAMEUTIL_increase_yaw_limit_clip NOLOOP depth=4
+01080528 GAMEUTIL_increase_yaw_limit_clip_extend NOLOOP depth=3
+01080610 GAMEUTIL_get_limit_clip_yaw_abs NOLOOP depth=1
+010806a8 GAMEUTIL_increase_pitch NOLOOP depth=0 share=0.001
+010807e0 GAMEUTIL_increase_pitch_limit_clip NOLOOP depth=0 share=0.003
+01080968 GAMEUTIL_get_difference_yaw_and_yaw NOLOOP depth=0 share=0.006
+010809b0 GAMEUTIL_get_difference_yaw_and_yaw_extend NOLOOP depth=1
+01080b08 GAMEUTIL_get_difference_pitch_and_pitch NOLOOP depth=0 share=0.005
+01080b28 GAMEUTIL_get_move_radi_from_yaw1_to_yaw2 NOLOOP depth=0 share=0.001
+01080b90 GAMEUTIL_get_move_radi_from_pitch1_to_pitch2 NOLOOP depth=0 share=0.001
+01080b98 GAMEUTIL_is_between_yaw_and_yaw NOLOOP depth=0
+01080c28 GAMEUTIL_is_between_yaw_and_yaw_extend_abs NOLOOP depth=0
+01080d58 GAMEUTIL_is_between_pitch_and_pitch NOLOOP depth=0
+01080d98 GAMEUTIL_is_inside_of_region_yaw NOLOOP depth=1 share=0.018
+01080f50 GAMEUTIL_is_reach_aim_yaw_angle NOLOOP depth=0 share=0.008
+01081090 GAMEUTIL_is_reach_aim_pitch_angle NOLOOP depth=0 share=0.001
+01081158 GAMEUTIL_near_to_aim_yaw_angle NOLOOP depth=2
+010812d8 GAMEUTIL_near_to_aim_pitch_angle NOLOOP depth=1 share=0.007
+010817c8 GAMEUTIL_is_yaw_pitch_get_direction NOLOOP depth=0 share=0.001
+01081828 GAMEUTIL_get_interp_yaw NOLOOP depth=1 share=0.001
+01081a78 GAMEUTIL_divide_yaw_pitch_dir NOLOOP depth=0 share=0.003
+01081dc8 GAMEUTIL_is_yaw_dir_sandwich NOLOOP depth=0
+01081e58 GAMEUTIL_is_pitch_dir_sandwich NOLOOP depth=0
+010826c0 GAMEUTIL_is_reach_aim_yaw_dir NOLOOP depth=0
+01082790 GAMEUTIL_is_reach_aim_pitch_dir NOLOOP depth=0
+010829f8 GAMEUTIL_is_nearly_equal_yaw NOLOOP depth=0
+01082a50 GAMEUTIL_is_nearly_equal_pitch NOLOOP depth=0
+01082a80 GAMEUTIL_set_inside_check_method NOLOOP depth=0
+01082a90 GAMEUTIL_is_inside NOLOOP depth=1
+01082bd8 manager_sub_01082BD8 NOLOOP depth=0 share=0.003
+01082c78 manager_sub_01082C78 NOLOOP depth=0 share=0.000
+01082cd8 manager_sub_01082CD8 NOLOOP depth=0 share=0.000
+01082da0 get_fast_get_malloc_partition NOLOOP depth=0
+01082ed0 entrymanager NOLOOP depth=0
+010832a8 GAMEUTIL_doit_interp_ratio_cntrl NOLOOP depth=0 share=0.052
+010833a0 doit_double_spring_interp_cntrl NOLOOP depth=3 share=0.080
+010836c0 GAMEUTIL_get_dist_ratio NOLOOP depth=0 share=0.005
+01083700 GAMEUTIL_get_dist_ratio_by_dist_squ NOLOOP depth=0
+01083828 GAMEUTIL_get_interp_value NOLOOP depth=0 share=0.002
+01083870 GAMEUTIL_get_interp_value3D NOLOOP depth=0
+01083998 GAMEUTIL_get_spring_damp_offset NOLOOP depth=1 share=0.017
+01083b38 GAMEUTIL_get_spring_interpolate_offset NOLOOP depth=1
+01083ca0 GAMEUTIL_get_spring_interpolate_value_extend NOLOOP depth=3
+01083e38 GAMEUTIL_get_spring_interpolate_offset3D NOLOOP depth=1
+01084030 GAMEUTIL_get_spring_interpolate_value3D NOLOOP depth=1
+010842a0 GAMEUTIL_reset_interp_ratio_cntrl NOLOOP depth=0 share=0.004
+010842d0 GAMEUTIL_forward_timer_still_one_ratio_time_interp_ratio_cntrl NOLOOP depth=0
+010842e8 GAMEUTIL_get_interp_ratio_interp_ratio_cntrl NOLOOP depth=0 share=0.002
+010842f0 GAMEUTIL_get_interp_timer_interp_ratio_cntrl NOLOOP depth=0
+010842f8 GAMEUTIL_set_act_interp_flag_interp_ratio_cntrl NOLOOP depth=0 share=0.000
+01084300 GAMEUTIL_set_act_max_zero_clip_flag_interp_ratio_cntrl NOLOOP depth=0 share=0.000
+01084428 GAMEUTIL_reset_interp_value_cntrl NOLOOP depth=1
+01084500 GAMEUTIL_get_interp_value_interp_value_cntrl NOLOOP depth=0 share=0.010
+01084508 GAMEUTIL_get_hope_value_interp_value_cntrl NOLOOP depth=0 share=0.001
+01084510 set_param_double_spring_interp_common NOLOOP depth=0 share=0.003
+01084528 constructor_double_spring_interp_cntrl NOLOOP depth=1
+01084588 set_rot_radi_value_flag_double_spring_interp_cntrl NOLOOP depth=0
+01084590 reset_double_spring_interp_cntrl NOLOOP depth=0 share=0.001
+010845b0 is_reach_src_value_double_spring_interp_cntrl NOLOOP depth=2
+01084698 set_rot_radi_value_flag_double_spring_interp_cntrl3D NOLOOP depth=0
+01084880 constructor_aim_angle_interp_cntrl NOLOOP depth=0
+010848a8 reset_aim_angle_interp_cntrl NOLOOP depth=0 share=0.000
+010848b8 doit_aim_angle_interp_cntrl NOLOOP depth=3 share=0.015
+01084968 set_interp_param_aim_angle_interp_cntrl NOLOOP depth=0 share=0.001
+01084978 manager_sub_01084978 NOLOOP depth=0 share=0.009
+01084a70 manager_sub_01084A70 NOLOOP depth=2 share=0.017
+01084c30 manager_sub_01084C30 NOLOOP depth=2 share=0.015
+010853e8 getBgAntiLevel NOLOOP depth=0
+01087108 getNowBossEffect NOLOOP depth=0
+01087118 setBossDeathEffect NOLOOP depth=0
+010871c8 setShadowEffect NOLOOP depth=0
+010871d8 endBossDeathEffect NOLOOP depth=0
+01087200 getBossEffectBlurLevel NOLOOP depth=0
+01087210 getBossEffectColorR NOLOOP depth=0
+01087220 getBossEffectColorG NOLOOP depth=0
+01087230 getBossEffectColorB NOLOOP depth=0
+01087240 getBossEffectBlendRatio NOLOOP depth=0
+01087250 getBossEffectOutLine NOLOOP depth=0
+01087300 clipByMinMaxCube NOLOOP depth=0
+01087498 getZ NOLOOP depth=0 share=0.083
+01088190 getDepthOfFieldSw NOLOOP depth=0
+010881a0 getDepthOfFieldLevel NOLOOP depth=0
+010881b0 getDepthOfFieldPlanes NOLOOP depth=0
+010881c0 getDepthOfFieldNearZ NOLOOP depth=0
+01088a38 fsEffectSetParam NOLOOP depth=0
+01088a78 fsEffectSetParamSheetSeg NOLOOP depth=0 share=0.000
+01088b10 fogEffectSetParam NOLOOP depth=0
+01088b20 effectReset NOLOOP depth=1 share=0.001
+01088d60 fsEffectManagerSetDemoParam NOLOOP depth=0
+01088e58 fsEffectDefault NOLOOP depth=0 share=0.001
+01089118 deleteFsEffect NOLOOP depth=0
+01089120 initFogEffect NOLOOP depth=4
+01089270 deleteFogEffect NOLOOP depth=0
+01089278 getCurrentFsEffect NOLOOP depth=0
+01089288 manager_sub_01089288 NOLOOP depth=0
+010893c0 foginterp NOLOOP depth=2 share=0.007
+010896f0 setFogImmediate NOLOOP depth=2
+010898c8 GetNowFogColorR NOLOOP depth=0
+010898d8 GetNowFogColorG NOLOOP depth=0
+010898e8 GetNowFogColorB NOLOOP depth=0
+010898f8 getFogMode NOLOOP depth=0 share=0.000
+01089908 getFogNearDist NOLOOP depth=0 share=0.000
+01089918 getFogFarDist NOLOOP depth=0
+01089928 getFogNearRate NOLOOP depth=0
+01089938 getFogFarRate NOLOOP depth=0 share=0.000
+01089948 getFogRate NOLOOP depth=0
+01089958 getFogOffset NOLOOP depth=0
+01089968 getFogUnderWater NOLOOP depth=0 share=0.000
+01089978 getFogColorR NOLOOP depth=0
+01089988 getFogColorG NOLOOP depth=0
+01089998 getFogColorB NOLOOP depth=0
+010899a8 changeFogParam NOLOOP depth=3
+010899c0 SetAndLockBgColor NOLOOP depth=2
+01089a28 UnlockBgColor NOLOOP depth=0
+01089a38 SeemlessInitFogTargetParamWorldLayout NOLOOP depth=0
+01089aa0 setFogParamDefault NOLOOP depth=0
+01089b60 fogSetFogColorMulRatio NOLOOP depth=0
+01089b70 getFogFactor0 NOLOOP depth=0 share=0.005
+01089bb0 getFogFactor1 NOLOOP depth=0 share=0.007
+0108b108 GetBlurRadius NOLOOP depth=0 share=0.005
+0108b960 skipBlur NOLOOP depth=0
+0108b970 setFadeColor NOLOOP depth=0
+0108b9b8 setFadeLayer NOLOOP depth=0 share=0.000
+0108ba28 getCameraBlurSw NOLOOP depth=0
+0108ba38 getBlurAlsoChara NOLOOP depth=0
+0108ba48 getBlurWorkSize NOLOOP depth=0
+0108ba58 getNBlurPlanes NOLOOP depth=0
+0108ba68 getBlurIntensity NOLOOP depth=0
+0108ba78 getBlurZBase NOLOOP depth=0
+0108ba88 getBlurMinThreshold NOLOOP depth=0
+0108ba98 getBlurMaxThreshold NOLOOP depth=0
+0108baa8 getBlurShutterSpeed NOLOOP depth=0
+0108bab8 getBlurXYZRatio NOLOOP depth=0
+0108bac8 getBlurCamMoveThreshold NOLOOP depth=0
+0108d150 glBlendFunc NOLOOP depth=0
+0108d290 glBlendFuncParticle NOLOOP depth=0
+0108d358 manager_sub_0108D358 NOLOOP depth=0
+0108e358 glEnable NOLOOP depth=0 share=0.009
+0108e448 glDisable NOLOOP depth=0 share=0.013
+0108e560 glNormal3f NOLOOP depth=1
+0108e5f0 glNormal3fv NOLOOP depth=1
+0108e6a0 glNormal4f NOLOOP depth=1
+0108e730 glNormal4fv NOLOOP depth=1
+0108e9c8 glTexCoord2f NOLOOP depth=0 share=0.002
+0108e9f0 glTexCoord2fv NOLOOP depth=0
+0108ece8 glGetColor NOLOOP depth=0
+0108ed40 glGetZTest NOLOOP depth=0
+0108ed50 glLoadIdentity NOLOOP depth=1
+0108ee38 glPopMatrix NOLOOP depth=0
+0108ee58 glTranslatef NOLOOP depth=0
+0108f3b0 glZOffset NOLOOP depth=0 share=0.000
+0108f3c0 glSetReg NOLOOP depth=0
+0108f420 glLightVector NOLOOP depth=0
+0108f530 glSetFogFactor NOLOOP depth=1
+0108f608 glSetFogFactorDirect NOLOOP depth=0
+0108f678 iosgluGetViewCoordPosition NOLOOP depth=0 share=0.007
+0108f7e0 gluGetBrightness NOLOOP depth=0 share=0.028
+0108f838 glGetZWrite NOLOOP depth=0
+0108f848 glGetLineSmooth NOLOOP depth=0
+0108f858 manager_sub_0108F858 NOLOOP depth=0
+0108faf8 LockFullScreenEffect NOLOOP depth=0
+0108fb08 UnlockFullScreenEffect NOLOOP depth=0
+0108fb18 graphSetFogParam NOLOOP depth=1 share=0.003
+0108fba8 getMBlur NOLOOP depth=0
+0108fbb8 setMBlur NOLOOP depth=0
+0108fbc8 getBrightness NOLOOP depth=0
+0108fbd8 graphFrameBufferReInitializeRequest NOLOOP depth=0
+0108fe40 getFullScreenEffect NOLOOP depth=0
+0108fe50 getFBOfsU NOLOOP depth=0
+0108fe60 getFBOfsV NOLOOP depth=0
+0108fe70 getFBOfsX NOLOOP depth=0
+0108fe80 getFBOfsY NOLOOP depth=0
+010916f8 kSetTex NOLOOP depth=0
+01091708 kColor NOLOOP depth=0
+01091910 iosSetKPrintfColorContext NOLOOP depth=0
+01091928 iosSetKPrintfLocateContext NOLOOP depth=0
+01091940 iosSetKPrintfLocateContextRelativePosition NOLOOP depth=0
+01091978 iosSetKPrintfDynamicsContext NOLOOP depth=0
+01091980 iosSetKPrintfDlContext NOLOOP depth=0
+01091988 iosSetKPrintfScaleContext NOLOOP depth=0
+01091990 getFontBoard NOLOOP depth=0
+01091ca8 setLight NOLOOP depth=1 share=0.009
+01092470 getSpecularity NOLOOP depth=0
+01092480 setSpecularity NOLOOP depth=0
+010924d8 lightsw0 NOLOOP depth=0
+010924e8 getlc0_r NOLOOP depth=0
+010924f8 getlc0_g NOLOOP depth=0
+01092508 getlc0_b NOLOOP depth=0
+01092518 getlv0_h NOLOOP depth=0
+01092528 getlv0_p NOLOOP depth=0
+01092538 getlv0_b NOLOOP depth=0
+01092548 lightsw1 NOLOOP depth=0
+01092558 getlc1_r NOLOOP depth=0
+01092568 getlc1_g NOLOOP depth=0
+01092578 getlc1_b NOLOOP depth=0
+01092588 getlv1_h NOLOOP depth=0
+01092598 getlv1_p NOLOOP depth=0
+010925a8 getlv1_b NOLOOP depth=0
+010925b8 lightsw2 NOLOOP depth=0
+010925c8 getlc2_r NOLOOP depth=0
+010925d8 getlc2_g NOLOOP depth=0
+010925e8 getlc2_b NOLOOP depth=0
+010925f8 getlv2_h NOLOOP depth=0
+01092608 getlv2_p NOLOOP depth=0
+01092618 getlv2_b NOLOOP depth=0
+01092628 lightsw3 NOLOOP depth=0
+01092638 getamb_r NOLOOP depth=0
+01092648 getamb_g NOLOOP depth=0
+01092658 getamb_b NOLOOP depth=0
+01092790 CopyAmbFromAmbdef NOLOOP depth=0
+010927b0 getLightVector NOLOOP depth=0
+01095998 debugLineObjectCreateAttributre NOLOOP depth=1
+010965d0 manager_sub_010965D0 NOLOOP depth=0 share=0.021
+01096a80 modelGetDlLayer NOLOOP depth=0 share=0.018
+010993c8 modelResetSurface NOLOOP depth=0 share=0.013
+010993e0 modelResetLayer NOLOOP depth=1
+01099420 modelNameByObj NOLOOP depth=0
+01099430 modelNameByHeader NOLOOP depth=0
+01099560 modelGetTextureObjByIndex NOLOOP depth=0
+01099578 modelGetTextureResourceByIndex NOLOOP depth=0
+01099590 modelDeleteDispModelClass NOLOOP depth=0
+010995d0 modelGetLinkCount NOLOOP depth=0
+010995e8 modelIncLinkCount NOLOOP depth=0
+01099620 modelDecLinkCount NOLOOP depth=0
+01099658 modelGetWorkSize NOLOOP depth=0
+01099750 modelGetName NOLOOP depth=0
+01099758 SetDisplayModelNearClippingSwitch NOLOOP depth=0
+01099890 modelGetDlLayerIndex NOLOOP depth=1 share=0.009
+01099a00 ModelDispGetWorkSize NOLOOP depth=0
+01099e00 ptclmanBuildMatPacket NOLOOP depth=0
+0109a170 ptclDisplayListPut NOLOOP depth=1
+0109a1a8 ptclDisplayListGet NOLOOP depth=1 share=0.132
+0109a1f8 ptclmanBegin NOLOOP depth=1
+0109a3d8 ptclmanGet NOLOOP depth=0
+0109a3f8 ptclmanPut NOLOOP depth=0
+0109a4c8 ptclCounterInit NOLOOP depth=0 share=0.000
+0109a4d0 ptclCounterGet NOLOOP depth=0 share=0.000
+0109aa48 GetMeshClass NOLOOP depth=0 share=0.004
+0109abc8 meshFlip NOLOOP depth=0 share=0.003
+0109acc8 meshGetWorkSize NOLOOP depth=0
+0109acf8 manager_sub_0109ACF8 NOLOOP depth=0
+0109ad00 manager_sub_0109AD00 NOLOOP depth=0
+0109be88 getRefBlurLevel NOLOOP depth=0
+0109d0d8 getIsInWater NOLOOP depth=0
+0109d0e8 getRefractBlurSpeed NOLOOP depth=0
+0109d0f8 getRefractBlurSpeedRand NOLOOP depth=0
+0109d108 getRefractBlurLevel NOLOOP depth=0
+0109d118 getRefractBlurLevelRand NOLOOP depth=0
+0109d128 getRefractLengthRatio NOLOOP depth=0
+0109d138 getRefractBlendRatio NOLOOP depth=0
+0109d148 getRefractBrightness NOLOOP depth=0
+0109de78 getShadowIntensity NOLOOP depth=0
+0109de88 getShadowDebug NOLOOP depth=0
+0109de98 setShadowIntensity NOLOOP depth=0
+0109dea8 GetShadowLength NOLOOP depth=0
+0109deb0 shadowGetWorkSize NOLOOP depth=0
+0109df30 shadowModelReInit NOLOOP depth=0
+0109e290 getShadowDispFlag NOLOOP depth=0
+010a1728 getSolarFlareSw NOLOOP depth=0
+010a1738 getSolarFlareBlur NOLOOP depth=0
+010a1748 getSolarFlareColorR NOLOOP depth=0
+010a1758 getSolarFlareColorG NOLOOP depth=0
+010a1768 getSolarFlareColorB NOLOOP depth=0
+010a1778 getSolarFlareSolarLevel NOLOOP depth=0
+010a1788 getSolarGlowLevel NOLOOP depth=0
+010a1798 getSolarFlareSamplePix NOLOOP depth=0
+010a17a8 getSolarFlarePanelZ NOLOOP depth=0
+010a17b8 getSolarFlareReduceOfsU NOLOOP depth=0
+010a17c8 getSolarFlareReduceOfsV NOLOOP depth=0
+010a17d8 getSolarFlareZoomOfsU NOLOOP depth=0
+010a17e8 getSolarFlareZoomOfsV NOLOOP depth=0
+010a1d50 spriteInitObject NOLOOP depth=0 share=0.028
+010a1f10 manager_sub_010A1F10 NOLOOP depth=0
+010a2040 manager_sub_010A2040 NOLOOP depth=0
+010a21f8 manager_sub_010A21F8 NOLOOP depth=1
+010a43c8 setVertexPos NOLOOP depth=1
+010a52d0 spriteSetPosition NOLOOP depth=0 share=0.003
+010a52e0 spriteSetTextureCoordinateST NOLOOP depth=0
+010a5310 spriteSetTextureCoordinateSTFromUV NOLOOP depth=0 share=0.009
+010a53b8 spriteSetTextureCoordinateUV NOLOOP depth=0 share=0.021
+010a5410 spriteSetColor NOLOOP depth=0 share=0.004
+010a5428 spriteSetScale NOLOOP depth=0 share=0.003
+010a5438 spriteSetRotation NOLOOP depth=0 share=0.002
+010a5440 spriteSetBlendMode NOLOOP depth=0 share=0.002
+010a54d0 spriteSetFade NOLOOP depth=0 share=0.003
+010a54d8 spriteSetPriority NOLOOP depth=0 share=0.002
+010a54e0 getSpriteDispFlag NOLOOP depth=0
+010aabd0 texName NOLOOP depth=0
+010aac28 texNameRes NOLOOP depth=0
+010aac78 texGetCSM1Idx NOLOOP depth=0
+010aac90 texGetTexByteSize NOLOOP depth=0
+010aacb8 texGetTexTBPSize NOLOOP depth=0
+010aacf0 texGetSize NOLOOP depth=0
+010ab088 texGetTextureModuleGroup NOLOOP depth=0
+010ab098 texGetWorkSize NOLOOP depth=0
+010ab660 texNameResErrorCheck NOLOOP depth=0
+010ab6b0 getTexTransEnableFlag NOLOOP depth=0
+010ab6c0 texSetModelName NOLOOP depth=0
+010abc48 manager_sub_010ABC48 NOLOOP depth=0
+010ac400 getZFogDivide NOLOOP depth=0
+010ac410 getZFogWidth NOLOOP depth=0
+010ac420 getZFogFarMargin NOLOOP depth=0
+010ac430 getZFogFar NOLOOP depth=0
+010ac440 getZFogScissorMargin NOLOOP depth=0
+010ac450 getBgFogOffset NOLOOP depth=0
+010ac460 setZFogFar NOLOOP depth=0
+010ac470 zFogInit NOLOOP depth=0
+010ac478 getZFogNear NOLOOP depth=0 share=0.001
+010b53f8 manager_sub_010B53F8 NOLOOP depth=0 share=0.003
+010b5738 manager_sub_010B5738 NOLOOP depth=1 share=0.001
+010b59c0 GetTRS_Onake_From_ObjectAnimation NOLOOP depth=0 share=0.006
+010b5f10 InterPOrObjectAnimation NOLOOP depth=1
+010b61b0 SetTRS_Onake_From_ObjectAnimation NOLOOP depth=0
+010b6788 GetObjectAnimationParentNodeId NOLOOP depth=0 share=0.000
+010b7240 GetMotionNS_RootInfo NOLOOP depth=2 share=0.001
+010b72f8 GetMotionNS_RootShiftInfo NOLOOP depth=2 share=0.000
+010b74c0 IsFullFixFormat NOLOOP depth=0
+010b74d8 getPosPQSAnimIntFrame NOLOOP depth=0
+010b7618 InitMotionBoolInfo NOLOOP depth=0
+010b7640 SetMotionDynamicCallFunc NOLOOP depth=0
+010b7650 GetMotionResourceRotAngle NOLOOP depth=0 share=0.002
+010b7aa0 GetMotionMatrixOfTargetFromParent NOLOOP depth=0
+010b8488 GetBlendedMotionRoot NOLOOP depth=0
+010b8f58 getBlendFirstMotion NOLOOP depth=0
+010b9070 get_temp_parameter_motion_ik_base NOLOOP depth=1
+010b92a8 constructor_motion_ik_base NOLOOP depth=0
+010b92b0 init_motion_ik_base NOLOOP depth=0
+010b92b8 doit_motion_ik_base NOLOOP depth=0
+010b92c0 get_type_parameter_segment_motion_ik_base NOLOOP depth=0
+010b9328 update_node_by_quater_motion_ik_base NOLOOP depth=0
+010b9590 get_animation_designer_node_quater_motion_ik_base NOLOOP depth=1
+010ba120 request_end_motion_ik_interest NOLOOP depth=0 share=0.001
+010ba138 is_doing_motion_ik_interest NOLOOP depth=0
+010ba140 manager_sub_010BA140 NOLOOP depth=0
+010ba550 constructor_neck_turn NOLOOP depth=0
+010ba578 begin_neck_turn NOLOOP depth=0
+010ba5b0 request_end_neck_turn NOLOOP depth=0
+010ba5d0 is_doit_neck_turn_need NOLOOP depth=0
+010ba688 manager_sub_010BA688 NOLOOP depth=0
+010ba718 initGazeIKWork NOLOOP depth=0
+010ba7a0 getSizeGazeIKWork NOLOOP depth=0
+010ba9d8 UpdateAnimationClassPastSimpleInfo NOLOOP depth=0 share=0.000
+010baa80 SetAnimationClassLastInfoDirectResource NOLOOP depth=1
+010bb050 GetAnimationDefObjLeaveType NOLOOP depth=0
+010bb060 GetAnimationDefClass NOLOOP depth=0
+010bb208 manager_sub_010BB208 NOLOOP depth=0
+010bb238 GetAnimationDefObjWorkSize NOLOOP depth=0
+010c0c58 GetCharacterClassInitParamNbNodes NOLOOP depth=0
+010c0c78 GetCharacterClassInitParamNbOptionNodes NOLOOP depth=0
+010c0e48 GetCharacterClassControlFrontDirection NOLOOP depth=0 share=0.001
+010c0f90 GetCharacterClassControlDirection NOLOOP depth=0
+010c1138 ResetCharacterClassFallDownInfo NOLOOP depth=0
+010c11b8 ResetCharacterClassWaterStatus NOLOOP depth=0 share=0.002
+010c1530 RequestCharacterMotionShiftFunc NOLOOP depth=0
+010c17b0 ResetCharacterClassMotInterpInfo NOLOOP depth=0
+010c17e0 ResetCharacterClassSlideStatus NOLOOP depth=0
+010c17f8 ResetCharacterClassMotionInterpRootOfs NOLOOP depth=0
+010c1a08 GetCharacterClassCurAnimationFrameRate NOLOOP depth=0
+010c1a80 GetCharacterClassCurAnimationCurFrame NOLOOP depth=0
+010c1b90 GetCalcNumObjWorkSize NOLOOP depth=1
+010c1c30 GetCharSuspension1D NOLOOP depth=0 share=0.004
+010c1d08 SetCharacterObjControlCallBackFunc NOLOOP depth=0
+010c1d38 SetCharacterObjControlBypassFunc NOLOOP depth=0
+010c2910 SetCharacterObjParentPlaneDiscontinuousJudgeFunc NOLOOP depth=0
+010c2940 SetCharacterObjParentPointXZFitGpChangeJudgeFunc NOLOOP depth=0
+010c2970 SetCharacterObjColSphereOverrideFunc NOLOOP depth=0
+010c29a0 SetInertiaRotInterpMode NOLOOP depth=0
+010c2bb8 SetCharacterObjScriptKeyEnableFlagOnDemoOrient NOLOOP depth=0
+010c2e60 getMotionDebugPrintMode NOLOOP depth=0
+010c2e70 getAddMotionEnableFlag NOLOOP depth=0
+010c2e80 getIkControlEnableFlag NOLOOP depth=0
+010c2e90 getRootMoveDisableFlag NOLOOP depth=0
+010c2ea0 dispCollisionFinderFlag NOLOOP depth=0
+010c2eb0 dispCollisionKeepAreaFlag NOLOOP depth=0
+010c2ec0 getCollisionDisableAtDirectPlayFlag NOLOOP depth=0
+010c3448 EnableCharacterObjAdditionMotion NOLOOP depth=0
+010c3478 DisableCharacterObjAdditionMotion NOLOOP depth=0
+010c34a8 DisableCharacterObjAddParentVelocity NOLOOP depth=0
+010c34d8 EnableCharacterObjAddParentVelocity NOLOOP depth=0
+010c66f0 SetCharacterClassGazeAdditionChannelInfo NOLOOP depth=0 share=0.001
+010c6d30 manager_sub_010C6D30 NOLOOP depth=0 share=0.049
+010c9888 manager_sub_010C9888 NOLOOP depth=0
+010cc4f0 InitScriptControlButtonCallBack NOLOOP depth=0
+010cc6c8 ForceAcceptMotionControlChange NOLOOP depth=0 share=0.000
+010cc6e8 getMotionPrintTarget NOLOOP depth=0
+010cc6f8 getLocalAccelDispFlag NOLOOP depth=0
+010cc708 getScriptSwitchDispSw NOLOOP depth=0
+010cc718 resetOutsideScriptCtrlStatus NOLOOP depth=0
+010cc720 GetPadControlFlag NOLOOP depth=0
+010cc778 YattsukeSetPlayerR1ON NOLOOP depth=0
+010cc788 ResetCharacterClassMailRelationalTriggerFlags NOLOOP depth=1 share=0.006
+010cd308 ResetCharacterClassAnimeFrameTableInfo NOLOOP depth=1 share=0.001
+010cd400 manager_sub_010CD400 NOLOOP depth=0 share=0.005
+010d2a88 RequestCharacterClassSlip NOLOOP depth=0
+010d2aa0 RequestCharacterClassNoClimbableSlip NOLOOP depth=0
+010d2ab0 RequestCharacterClassMotionChange NOLOOP depth=0
+010d2ae0 RequestCharacterClassAdditionMotionChange NOLOOP depth=0 share=0.002
+010d2b18 RequestCharacterClassMotionChangeWithParam NOLOOP depth=0 share=0.002
+010d2b48 RequestCharacterClassMotionDirection NOLOOP depth=0
+010d2b60 RequestCharacterClassMotionDirectionByGPTop NOLOOP depth=0
+010d2b70 RequestCharacterClassMotionDirectionByGPTail NOLOOP depth=0
+010d2b80 RequestCharacterClassMotionDirectionByGPAirBalanceDir NOLOOP depth=0
+010d2b90 RequestCharacterClassMotionTurnLevel NOLOOP depth=0
+010d2ba0 RequestCharacterClassRootOffset NOLOOP depth=0
+010d2bb0 RequestCharacterClassMotionPlaySpeedUp NOLOOP depth=0
+010d2bc0 RequestCharacterClassMotionPlaySpeedDown NOLOOP depth=0
+010d2bd0 RequestCharacterClassMotionPlaySpeedDown2 NOLOOP depth=0
+010d2be0 RequestCharacterClassWindForceMove NOLOOP depth=0
+010d2cd8 CancelCharacterClassMotionChange NOLOOP depth=0
+010d2ce8 getTurnLimitInterp NOLOOP depth=0
+010d2d48 getRatioFromInterp NOLOOP depth=0 share=0.001
+010d2fc8 getMotionInterpMode NOLOOP depth=0
+010d2fd8 getJumpSpeedLimitEnableFlag NOLOOP depth=0
+010d37a8 SetCharacterObjMotionJumpSpeedLimit NOLOOP depth=0
+010dc1d8 charrootdyn_getInterpVector NOLOOP depth=0 share=0.002
+010dc220 charrootdyn_getInterpPoint NOLOOP depth=0 share=0.006
+010dc3f0 charrootdyn_getUpperEdgeEffectiveHeight NOLOOP depth=0
+010dc898 charrootdyn_getSlideCollisionJudgeCBArg NOLOOP depth=0
+010dcdc0 charrootdyn_getvelocity NOLOOP depth=0 share=0.001
+010dde08 charrootdyn_setEdgeUpperPlaneInfoFlag NOLOOP depth=0
+010dde18 charrootdyn_resetEdgeUpperPlaneInfoFlag NOLOOP depth=0
+010de1a0 charrootdyn_getRegularColFinderPosition NOLOOP depth=0 share=0.015
+010de280 charrootdyn_getOffsetGlobalPos NOLOOP depth=0
+010de340 charrootdyn_getForceLimitMode NOLOOP depth=0
+010de368 charrootdyn_getNoLimitMode NOLOOP depth=0
+010de380 charrootdyn_getForceNoLimitMode NOLOOP depth=0
+010de398 charrootdyn_getLimitMode NOLOOP depth=0
+010df130 charrootdyn_isParentToEdge NOLOOP depth=0
+010df448 charrootdyn_getEdgeEffectivityCheckRayPosition NOLOOP depth=0
+010df560 getEdgeHangDebugFlag NOLOOP depth=0
+010df570 getAirResistEnableFlag NOLOOP depth=0
+010df580 getDisableExtendWallFlag NOLOOP depth=0
+010dfd18 manager_sub_010DFD18 NOLOOP depth=0
+010e0010 manager_sub_010E0010 NOLOOP depth=0 share=0.005
+010e1eb8 getIkExpressionSwBool NOLOOP depth=0
+010e1ec8 getRootFittingEnableFlag NOLOOP depth=0
+010e1ed8 getRootFittingMode NOLOOP depth=0
+010e1ee8 getIkExpressionSw NOLOOP depth=0
+010e3f60 GetPleneFittingPointWithNormal NOLOOP depth=1
+010eb918 GetChildGroupManagerClass NOLOOP depth=1
+010eb968 InitChildGroupManagerObj NOLOOP depth=1 share=0.000
+010ebb90 GetDemoOrientNext NOLOOP depth=0
+010ebc80 SetDemoMotionOrientInfo NOLOOP depth=0
+010ec9c8 manager_sub_010EC9C8 NOLOOP depth=1
+010ed358 SetInitFogColClassFromStageData NOLOOP depth=0
+010ed3a8 UpdateFogAnim NOLOOP depth=0
+010ed440 UpdateFogCol NOLOOP depth=0
+010ed520 SetFogColAvailableFlag NOLOOP depth=0
+010ed528 IsEnvelopeFogType NOLOOP depth=0
+010ed538 GetFogColMan NOLOOP depth=0
+010ed548 GetFogColClass NOLOOP depth=0
+010ed568 ForceFogColFlagEnvelope NOLOOP depth=0
+010ed580 getOutSideVectorXYZSquare NOLOOP depth=0
+010ed778 manager_sub_010ED778 NOLOOP depth=0
+010ee6f8 FlushJudgeVolumeClass NOLOOP depth=0
+010ee768 GetJudgeVolumeClassWorkSize NOLOOP depth=0
+010ee808 GetJudgeVolumeClassObjectGroup NOLOOP depth=0
+010ee830 GetJudgeVolumeClassObjectGroupById NOLOOP depth=0
+010eead0 GetCenterPositionOfJudgeVolumeInfo NOLOOP depth=0
+010eec00 SetJudgeVolumeInfo NOLOOP depth=0 share=0.006
+010ef500 manager_sub_010EF500 NOLOOP depth=1 share=0.001
+010f2490 GetLayoutClassObjectName NOLOOP depth=1
+010f2db0 SetLayoutClassScaleElem NOLOOP depth=1 share=0.103
+010f3030 GetLayoutClassCollisionBoundaryInfo NOLOOP depth=0
+010f31b8 SetLayoutClassCollisionWorkAdr NOLOOP depth=0
+010f3398 GetLayoutRootMatrix NOLOOP depth=0
+010f3450 getSeqNo NOLOOP depth=0
+010f3470 manager_sub_010F3470 NOLOOP depth=0 share=0.000
+010f3668 manager_sub_010F3668 NOLOOP depth=0
+010f57f0 SetVIF1MarkCallbackFunc NOLOOP depth=1
+010f5810 SetCameraResetSw NOLOOP depth=0
+010f5af8 GetResetCameraFlagForDisplay NOLOOP depth=0 share=0.000
+010f5b08 getSubObjDispSw NOLOOP depth=0
+010f5b18 getMotionBlurSw NOLOOP depth=0
+010f5b28 motionBlurTestType NOLOOP depth=0
+010f6358 GetLightColMan NOLOOP depth=0
+010f63c8 LoopExecAfterLightColMan NOLOOP depth=1 share=0.002
+010f6408 TaskExecLightColMan NOLOOP depth=0
+010f6570 getColLightDebugSts NOLOOP depth=0
+010f6580 GetColLightDebugSts NOLOOP depth=0
+010f6b60 manager_sub_010F6B60 NOLOOP depth=2
+010f74e8 GetGameLightClass NOLOOP depth=0
+010f7508 SetGameLightAvailable NOLOOP depth=0
+010f7658 ForceGameLightFlagEnvelope NOLOOP depth=0
+010f7678 IsEnvelopeGameLightType NOLOOP depth=0
+010f77d8 CalcColorParamGameLight NOLOOP depth=2
+010f7830 GameLightCalcOutSideParam NOLOOP depth=0
+010f78a8 SetGameLightUserParam NOLOOP depth=0
+010f78b0 SetGameLightUserFunc NOLOOP depth=0
+010f78c0 GameLightCalcImpact NOLOOP depth=0
+010f7900 manager_sub_010F7900 NOLOOP depth=1 share=0.000
+010f8b20 GetGlobalLightClass NOLOOP depth=0
+010f8b40 SetGlobalLightAvailable NOLOOP depth=0
+010f8be0 GlobalLightCalcOutSideParam NOLOOP depth=0
+010f8c90 ForceGlobalLightFlagEnvelope NOLOOP depth=0
+010f8cb0 IsEnvelopeGlobalLightType NOLOOP depth=0 share=0.002
+010f8cc8 SetColorParamAmbientLight NOLOOP depth=1
+010f8d30 UpdateGlobalLightInRange NOLOOP depth=0
+010f8d60 UpdateGlobalLightOutRange NOLOOP depth=0
+010f8e40 UpdateGlobalLightAmbient NOLOOP depth=1
+010f8ff0 globalLightCalcLightNum NOLOOP depth=0
+010f90c8 CalcColorParamDistantLight NOLOOP depth=1
+010f9110 CalcColorParamAmbientLight NOLOOP depth=1
+010f9270 GetNextWorkLightClass NOLOOP depth=0
+010f9300 GetDirColorFromWorkLight NOLOOP depth=0
+010f9508 GetAmbientLightClass NOLOOP depth=0 share=0.003
+010f9528 manager_sub_010F9528 NOLOOP depth=0
+010f9530 InitAmbientLightObj NOLOOP depth=0
+010f9b58 SetLwoDemoOrientManagerObjCutFinishFlag NOLOOP depth=0
+010f9c30 GetLwsDemoOrientManagerObjWorkSize NOLOOP depth=2
+010fac78 manager_sub_010FAC78 NOLOOP depth=0
+011008a0 GetLayoutObjGroup NOLOOP depth=0
+011008b0 GetLayoutDispObjGroup NOLOOP depth=0
+011008c0 InitObjectManagerResourceInfo NOLOOP depth=1
+01100938 initSkelObjResource NOLOOP depth=0
+011009a8 initDispObjResource NOLOOP depth=0
+01100a18 initShadowObjResource NOLOOP depth=0
+01100a88 initColObjResource NOLOOP depth=0
+01100af8 initAnimationObjResource NOLOOP depth=0 share=0.000
+01100b68 initClothObjResource NOLOOP depth=0
+01100c48 GetSkeletonFocusNodeDirect NOLOOP depth=0
+01101688 createBinaryMemoryInfoWindow NOLOOP depth=0
+01101690 AddObjectManagerCollisionWorkSizeBoss NOLOOP depth=0
+011016a8 AddObjectManagerCollisionWorkSizeStage NOLOOP depth=0
+011016c0 AddObjectManagerSheetWorkSize NOLOOP depth=0
+011016d8 AddObjectManagerGameObjectSize NOLOOP depth=0
+011016f0 AddObjectManagerSeamlessWorkSize NOLOOP depth=0
+01101708 getObjInitMessageDebugSw NOLOOP depth=0
+01101718 GetAmbientLightObjGroup NOLOOP depth=0 share=0.000
+01101728 GetModelObjGroup NOLOOP depth=0
+011017e0 skelSegDel NOLOOP depth=0
+011017e8 debugCreateAnimObjSegmentDisp NOLOOP depth=0
+011017f0 debugDeleteAnimObjSegmentDisp NOLOOP depth=0
+011017f8 debugCreateAnimObjSegmentDefDisp NOLOOP depth=0
+01101800 debugDeleteAnimObjSegmentDefDisp NOLOOP depth=0
+011023d0 getMemoryInfoMode NOLOOP depth=0
+011023e0 getMemoryInfoLightSw NOLOOP depth=0
+01102a40 GetScriptObjWorkSize NOLOOP depth=1 share=0.000
+01102b00 GetScriptPriorityGroup NOLOOP depth=0
+01102c78 getStackViewFlag NOLOOP depth=0
+01102fd8 scriptIntrSegInit NOLOOP depth=0
+01103080 manager_sub_01103080 NOLOOP depth=0
+011030a8 manager_sub_011030A8 NOLOOP depth=0
+0110a670 SetScriptAnimationGlobalBaseInfo NOLOOP depth=0
+0110a6d8 GetScriptAnimationGlobalBaseInfo NOLOOP depth=0
+0110a790 CopyScriptAnimationWindParam NOLOOP depth=0
+0110a828 getLWSDebugMode NOLOOP depth=0
+0110a838 GetScriptAnimationClass NOLOOP depth=0 share=0.007
+0110a8a8 SetScriptAnimationObjGeometryOverrideCallBackFunc NOLOOP depth=0
+0110a8e0 SetScriptAnimationObjChildEntryGroup NOLOOP depth=0
+0110b530 particleOnOff NOLOOP depth=2
+0110b818 IsNonISysObjTypeRes NOLOOP depth=0 share=0.001
+0110bb30 SetScariptAnimationObjMotSyncSlotId NOLOOP depth=0
+0110be10 GetScriptAnimationObjResourcePlayTime NOLOOP depth=0
+0110c130 getLWSDebugMode2 NOLOOP depth=0
+0110c140 getExternalLWSFlag NOLOOP depth=0
+0110c7d0 manager_sub_0110C7D0 NOLOOP depth=2
+0110c7e8 GetMotionResourceTime NOLOOP depth=0
+0110c878 UpdateOutRangeLightGeo NOLOOP depth=1
+0110cc68 SetScriptCharDefaultScriptFunc NOLOOP depth=0
+0110cc78 SetScriptCharacterObjReleaseCallBackFunc NOLOOP depth=0
+0110d0a0 SetScriptLayoutObjLetterProcMode NOLOOP depth=1
+0110d868 GetScrLwsOriClass NOLOOP depth=0 share=0.002
+0110d918 SetScrLwsOriObjReleaseCallBackFunc NOLOOP depth=0
+0110d9f0 SetScriptLwsOrientObjDefaultScriptFunc NOLOOP depth=0
+0110da90 GetScriptLwsOrientDefinfo NOLOOP depth=0
+0110dc18 manager_sub_0110DC18 NOLOOP depth=0
+0110de28 InitSortObj NOLOOP depth=0 share=0.000
+0110eb10 manager_sub_0110EB10 NOLOOP depth=1
+0110ecd0 SpriteMenuIsFadeCheckSelectLayer NOLOOP depth=0
+0110edc8 manager_sub_0110EDC8 NOLOOP depth=1
+01111998 GetSpriteMenuClass NOLOOP depth=0
+011119b8 GetScriptSpriteMenuClass NOLOOP depth=0 share=0.001
+011119d8 SpriteMenuSetPadEventCallback NOLOOP depth=0
+01111a08 SpriteSubMenuSetPadEventCallback NOLOOP depth=0
+01111a38 SpriteMenuSetDispFlag NOLOOP depth=0 share=0.001
+01111ac8 SpriteMenuSetDispFlagNoFade NOLOOP depth=3
+01111e08 SpriteMenuGetSpriteMenuClassParam NOLOOP depth=0
+01111e20 SpriteMenuSetLayer NOLOOP depth=0
+01111e98 SpriteMenuSetLayerPriority NOLOOP depth=0
+01111f60 SpriteMenuGetLayerStatus NOLOOP depth=0
+01112ba0 SpriteMenuGetSelectLayer NOLOOP depth=0
+01112bb8 SpriteMenuGetPadEvent NOLOOP depth=0
+01112bd0 SpriteMenuGetProgressiveOffset NOLOOP depth=1
+01112c10 SpriteMenuGetMenuIdByPartsId NOLOOP depth=0
+01112e68 SpriteMenuGetSelectMenuIdBySpriteMenuClass NOLOOP depth=0
+01112ea0 SpriteMenuGetSelectMenuId NOLOOP depth=0
+01112ef0 SpriteMenuSetSelectMenuId NOLOOP depth=0
+01112f50 SpriteMenuGetSelectSubMenuId NOLOOP depth=0
+01113088 SpriteMenuGetSelectMenuMode NOLOOP depth=0
+011130d8 SpriteMenuSetSelectMenuMode NOLOOP depth=0
+01113130 SpriteMenuSetDefaultSelectMenu NOLOOP depth=0
+01113448 SpriteMenuSetCheckBoxByPartsId NOLOOP depth=0
+011137b8 SpriteMenuSetNumPartsFormatByPartsParam NOLOOP depth=0
+011137e0 SpriteMenuSetAnimParam NOLOOP depth=0
+011138c8 SpriteMenuIsFadeCheckLayer NOLOOP depth=0 share=0.001
+01113950 SpriteMenuGetFadeByLayer NOLOOP depth=0
+01113ae8 setDefaultMenuControlButton NOLOOP depth=0
+01113b00 spriteMenuCheckSelectPushPad NOLOOP depth=0
+01113b48 spriteMenuObjPadChangeHorse NOLOOP depth=1
+01113bd8 manager_sub_01113BD8 NOLOOP depth=2
+01114170 GetSpriteClass NOLOOP depth=0
+01114190 FlushSpriteObj NOLOOP depth=0
+01114238 GetScriptSpriteClass NOLOOP depth=0 share=0.000
+01114258 GetSpriteObjWorkSize NOLOOP depth=0
+01114278 GetScriptSpriteObjWorkSize NOLOOP depth=2
+01114490 GetSubLinkClass NOLOOP depth=0 share=0.000
+01114af0 InitViewIntervalClip NOLOOP depth=0
+01114b38 getMicroCodeAddress NOLOOP depth=0
+01123f68 CopyCollisionPoint NOLOOP depth=1 share=0.003
+01123fa0 CopyCollisionDynamics NOLOOP depth=0
+01123fd0 FilterCopyCollisionDynamics NOLOOP depth=0
+011240a0 ResetCollisionDebug NOLOOP depth=0
+01125280 GetCollisionDBRegion NOLOOP depth=1 share=0.002
+011280c0 CopyCollisionEdgePointer NOLOOP depth=0
+011280e0 CopyCollisionEdge NOLOOP depth=0
+01128270 MakeCollisionEdgePointer NOLOOP depth=0
+011282f0 IsClusterCollision NOLOOP depth=0
+011283d0 MakeGeometryPointerCollisionEdgeInfo NOLOOP depth=0
+01128400 GetGeometryPointerCollisionSurfSTPosition NOLOOP depth=1
+011287d0 GetCollisionResource NOLOOP depth=0
+01128818 CollisionObjectJudgeCallbackExceptOneObj NOLOOP depth=0
+01128cb0 getVolumeCollisionDebugMode NOLOOP depth=0
+01128cc0 getCollisionDebugGraphMode NOLOOP depth=0
+01128cd0 getCollisionVirtualWallDispFlag NOLOOP depth=0
+01129068 GetColMultiDepVtxInfoVertexNormal NOLOOP depth=0
+011290b8 GetColMultiDepVtxInfoVertexNormalWork NOLOOP depth=0
+01129108 iasmCalcCollisionMultiDepSurfBoundarySub NOLOOP depth=0
+01129248 SetColDebug NOLOOP depth=0
+01129258 manager_sub_01129258 NOLOOP depth=0 share=0.011
+011293e0 manager_sub_011293E0 NOLOOP depth=0
+01129400 manager_sub_01129400 NOLOOP depth=0
+01129628 MakeGeometryPointerGlobalInfo NOLOOP depth=0
+01129898 MakeCollisionPointGlobalInfo NOLOOP depth=0
+01129a38 GetCollisionDynamicsProjectionFloatPosition NOLOOP depth=1
+01129ae8 manager_sub_01129AE8 NOLOOP depth=0
+01129af0 objfilter NOLOOP depth=0
+01129b00 FlushCollisionEdgeLinkDBVWallFinder NOLOOP depth=0 share=0.000
+01129b08 GetCollisionEdgeLinkDBWorkSize NOLOOP depth=0
+01129ea8 SetCollisionEdgeLinkDBFinderVWallDirectionStatus NOLOOP depth=0
+01129eb8 SetCollisionEdgeLinkDBFinderCollectStatus NOLOOP depth=0
+0112a330 GetCollisionFinderWorkSize NOLOOP depth=0
+0112a450 CheckCollisionFinderAlive NOLOOP depth=0 share=0.000
+0112a4e0 DebugSetCollisionWideAreaSearchGroup NOLOOP depth=0
+0112a5d8 RequestCollisionWideAreaSearch NOLOOP depth=1
+01131d70 manager_sub_01131D70 NOLOOP depth=0
+011327b0 CopyGeometryPointer NOLOOP depth=0 share=0.008
+011328a8 InitGeometryPointer NOLOOP depth=0 share=0.000
+011328f8 SetGeometryPointerGlobalState NOLOOP depth=0 share=0.001
+01132970 SetGeometryPointerGlobalStatePointer NOLOOP depth=0 share=0.001
+01132998 SetGeometryPointerGlobalStatePosPointer NOLOOP depth=0
+01132a00 GetGeometryPointerObjectParentNodeId NOLOOP depth=0 share=0.001
+01132c60 SetGeometryPointerNodePosState NOLOOP depth=0 share=0.002
+01132c88 SetGeometryPointerNodePosStateGlobalRot NOLOOP depth=0 share=0.000
+01132cb0 SetGeometryPointerChainPos NOLOOP depth=0
+01132cc8 GetGeometryPointerCollisionDB NOLOOP depth=0 share=0.000
+01132d58 CheckLegalCollisionGP NOLOOP depth=0 share=0.002
+011333b8 ClipPoint NOLOOP depth=0
+01133df8 GetVirtualVerticalPlane NOLOOP depth=0
+011340f8 GetPlaneGlobalYFittingPoint NOLOOP depth=0
+01134140 GetPointDistanceSquareFromUnnormalizedPlane NOLOOP depth=0
+01134198 GetPointDistanceFromPlane NOLOOP depth=0 share=0.002
+011341c8 MultiMatrixByPlane NOLOOP depth=0
+01134228 CompletePlaneD NOLOOP depth=0 share=0.003
+01134250 GetSTPositionOfVectorPlane NOLOOP depth=0
+01134308 GetYHeightOfPlaneXZProjection NOLOOP depth=0
+01134348 GetYDifferenceOfPlaneXZProjection NOLOOP depth=0
+01134390 GetPlaneFittingDiffVector NOLOOP depth=0
+011343d8 GetPlaneFittingPoint NOLOOP depth=0 share=0.009
+01134440 GetPlaneFittingPointForUnnormalizedPlane NOLOOP depth=0 share=0.000
+01134628 GetPlaneFittingVector NOLOOP depth=0 share=0.019
+011346c8 GetPlaneReflectionVector NOLOOP depth=0
+01134730 GetNormalPlane NOLOOP depth=0
+01134788 GetPlaneCrossPos NOLOOP depth=0
+011348e0 GetCrossPositionPlaneLine NOLOOP depth=0
+011349e8 IsOppositePlaneLine NOLOOP depth=0
+01134a40 GetPlaneFrom3Position NOLOOP depth=0
+01134ab8 GetCrossPositionOf3Plane NOLOOP depth=0
+011359f8 GetTargetLocalDir NOLOOP depth=0
+01135b20 CopyQuatPos NOLOOP depth=0
+01135b50 GetPlaneDistance NOLOOP depth=0
+01135b78 GetDistanceSquare NOLOOP depth=0
+01135ba0 GetDistanceSquareXZ NOLOOP depth=0
+01135bc8 ExchangeLWVector NOLOOP depth=0
+01135bf8 GetOffsetPositionAxis NOLOOP depth=0 share=0.012
+01135c88 GetOffsetPositionQuaternion NOLOOP depth=0
+01136380 CheckEllipticalSphereVolumeWithInverseMatrix NOLOOP depth=0
+01136450 CheckEllipticalSphereVolume NOLOOP depth=1
+01136be0 CheckCylinderVolumeWithInverseMatrix NOLOOP depth=0
+01136c68 CheckCylinderVolume NOLOOP depth=1
+01136d28 GetRateInOutEllipticalSphereVolume NOLOOP depth=1
+01136d88 GetRateInOutEllipticalSphereVolumeWithInverseMatrix NOLOOP depth=0 share=0.001
+011398f0 CheckClothChainExist NOLOOP depth=0
+011399a0 SetClothSingleFixedChainLeafFixGeometryPointer NOLOOP depth=1
+011399d8 SetClothSingleFixedChainLeafFixNodeOffset NOLOOP depth=0
+0113f370 free_all_emitter_and_particle_particle_manager NOLOOP depth=0
+0113f700 is_loop_particle NOLOOP depth=1
+0113f838 set_generate_particle_flag NOLOOP depth=1
+0113f878 set_npe_blend_ratio_particle_emitter NOLOOP depth=1
+0113fa20 get_particle_effect_id_from_sheet NOLOOP depth=0
+0113fa70 get_particle_emitter_from_emitter_id NOLOOP depth=0 share=0.000
+0113fa88 get_main_particle_effect_lod_from_sheet NOLOOP depth=0
+0113fa90 get_sub_particle_effect_lod_from_sheet NOLOOP depth=0
+0113fa98 get_top_particle_effect_from_lod NOLOOP depth=0
+011401d8 get_radiate_range_coefficient NOLOOP depth=0
+011401f8 constructor_particle_effect_lod_except_npe NOLOOP depth=1
+01140730 unload_npe_file_main NOLOOP depth=0
+01140738 unload_npe_file_sub NOLOOP depth=0
+01140740 manager_sub_01140740 NOLOOP depth=0
+01140898 manager_sub_01140898 NOLOOP depth=1
+01141080 manager_sub_01141080 NOLOOP depth=0 share=0.000
+01141b70 manager_sub_01141B70 NOLOOP depth=1
+01142030 manager_sub_01142030 NOLOOP depth=0
+011425f0 manager_sub_011425F0 NOLOOP depth=2
+01144e00 manager_sub_01144E00 NOLOOP depth=0
+01144e38 manager_sub_01144E38 NOLOOP depth=0
+01144e50 manager_sub_01144E50 NOLOOP depth=0
+01144e58 manager_sub_01144E58 NOLOOP depth=0
+01144e70 manager_sub_01144E70 NOLOOP depth=0
+01144e88 manager_sub_01144E88 NOLOOP depth=0
+01145ba8 get_particle_parameter_blend_disp NOLOOP depth=0
+011464c0 is_eternal_wind NOLOOP depth=0
+01146980 stop_wind_emitter_geometry_pointer_reference NOLOOP depth=0
+011469d0 stop_wind_emitter_callback NOLOOP depth=0
+01146a10 end_wind_emitter NOLOOP depth=0
+01147430 add_wind_segment NOLOOP depth=0
+01147950 RelocateModifiedManager NOLOOP depth=0
+01147a28 GetSizeOfModifiedManagerWork NOLOOP depth=0 share=0.000
+01147ba8 GetTwoWayLinkNext NOLOOP depth=0
+01147bb0 RelocateTwoWayLinkHeader NOLOOP depth=0
+01147bc8 GetTwoWayLinkData NOLOOP depth=0
+01149460 mcReqSetWaitFunc NOLOOP depth=0
+01149cf8 mcGetProcessPer NOLOOP depth=0
+0114a300 mcGetGameClearFlag NOLOOP depth=0
+0114a310 mcSetGameClearFlag NOLOOP depth=0
+0114a320 mcGetCompleteTimeAttack NOLOOP depth=0
+0114a340 mcSetCompleteTimeAttack NOLOOP depth=0
+0114a5d8 mcReqSync NOLOOP depth=0
+0114ad38 mouseSetCursorPosition NOLOOP depth=0 share=0.000
+0114ad50 mouseClearStatus NOLOOP depth=0
+0114ae78 mouseMoveCursorPosition NOLOOP depth=0
+0114b580 setVibrationEnableWorkAdrs NOLOOP depth=0
+0114b6e0 usbdevMouseGetStatus NOLOOP depth=0
+0114b6f0 usbdevKeybdGetStatus NOLOOP depth=0
+0114f298 cursorLockParamMenu NOLOOP depth=0
+0114f998 manager_sub_0114F998 NOLOOP depth=1
+0114fb10 manager_sub_0114FB10 NOLOOP depth=0
+01152d80 manager_sub_01152D80 NOLOOP depth=0
+01153610 manager_sub_01153610 NOLOOP depth=1
+01154080 manager_sub_01154080 NOLOOP depth=0
+01155b50 windowSemiTransRate NOLOOP depth=0
+01155b60 windowDisplayMode NOLOOP depth=0
+01155b70 windowFontColor NOLOOP depth=0
+01155fa0 windowGetCursorPos NOLOOP depth=0
+01155fb8 windowSetCursorPos NOLOOP depth=1
+01156018 windowGetCursorPosOnWindow NOLOOP depth=0
+011560e8 windowGetMouseStatus NOLOOP depth=0
+011560f8 windowGetCurrentWindowHandle NOLOOP depth=0
+011561b0 windowCloseRequest NOLOOP depth=0
+01156338 windowSetTex NOLOOP depth=0
+01156628 GetWindowClass NOLOOP depth=0
+01157870 adpcmOpenChkComplete NOLOOP depth=0
+01157940 adpcmCloseReq NOLOOP depth=0
+01157978 adpcmCloseFadeReq NOLOOP depth=0
+011579d0 adpcmCloseFadeSetVol NOLOOP depth=0
+01157a00 adpcmCloseChkComplete NOLOOP depth=0 share=0.000
+01157a10 adpcmDeleteAdpcmSeq NOLOOP depth=0
+01157a40 adpcmSetVol NOLOOP depth=0
+01157a78 adpcmSetPitch NOLOOP depth=0
+01157a98 adpcmSetPan NOLOOP depth=0 share=0.000
+01157b78 adpcmGamePause NOLOOP depth=0
+01157cc0 manager_sub_01157CC0 NOLOOP depth=0
+01157cd0 manager_sub_01157CD0 NOLOOP depth=0
+01157ce0 manager_sub_01157CE0 NOLOOP depth=0
+01157cf0 manager_sub_01157CF0 NOLOOP depth=0
+01157e90 manager_sub_01157E90 NOLOOP depth=0
+01157f38 manager_sub_01157F38 NOLOOP depth=0
+011587a8 seSetVol NOLOOP depth=0
+01158848 seSetDebugTrigFunc NOLOOP depth=0
+01158bc8 manager_sub_01158BC8 NOLOOP depth=1 share=0.002
+01159008 manager_sub_01159008 NOLOOP depth=0 share=0.001
+011590b0 seDelayPlay3DTest NOLOOP depth=0
+0115ba60 sheetFsGetStageTexSegIndex NOLOOP depth=0
+0115bab8 sheetFsAddStageTexSegIndex NOLOOP depth=0
+0115bad8 sheetFsDecStageTexSegIndex NOLOOP depth=0
+0115bb98 sheetFsSetStageTexSegTexSegDef NOLOOP depth=0
+0115bbb0 sheetFsGetStageTexSegTexSegDef NOLOOP depth=0
+0115bbe8 sheetFsSkipRead NOLOOP depth=1 share=0.000
+0115bc00 sheetFsSectorAlignSkip NOLOOP depth=1
+0115c1e0 sheetFsGetDirectFileSize NOLOOP depth=0
+0115c298 sheetFsSetSpecialFs NOLOOP depth=1
+0115cf90 sheetFileGetDataAdrs NOLOOP depth=0 share=0.000
+0115cfc0 sheetFileGetSize NOLOOP depth=0
+0115ec28 sheetIdToName NOLOOP depth=0
+0115ec48 sheetHeaderObjSearchSheetId NOLOOP depth=0
+0115ed10 sheetMgrAddSegLoadList NOLOOP depth=0
+0115ed28 sheetMgrGetSegLoadHeader NOLOOP depth=0
+0115ed38 sheetMgrAddSegInitList NOLOOP depth=0
+0115edb0 sheetMgrGetSegInitHeader NOLOOP depth=0
+0115ee68 sheetMgrChkStageIndexResolve NOLOOP depth=0
+0115fa20 sheetMgrSetNoWaitMode NOLOOP depth=0
+0115fe30 getSheetDebugNoLoadMode NOLOOP depth=0
+01160160 getDebPcWinSw NOLOOP depth=0
+01160170 GetDebPcWinSw NOLOOP depth=0
+01160180 getDebPcWinType NOLOOP depth=0
+01160190 GetDebPcWinType NOLOOP depth=0
+011601a0 getDebPcWinCategory NOLOOP depth=0
+011601b0 GetDebPcWinCategory NOLOOP depth=0
+011601c8 manager_sub_011601C8 NOLOOP depth=1
+01160b00 GetScreenRadius NOLOOP depth=0 share=0.009
+01160c20 SetVSMatrix NOLOOP depth=2
+01160c58 SetDefaultViewContext NOLOOP depth=0
+01160cc8 SetViewContext NOLOOP depth=0
+01160d70 constructor_camera_context NOLOOP depth=1
+01160e80 init_camera_context_manager NOLOOP depth=2
+01160ec0 push_camera_context NOLOOP depth=3
+01160f18 pop_camera_context NOLOOP depth=3
+01161c08 constructor_camera_lws_anime_data NOLOOP depth=0
+01161c80 get_camera_lws_animation_param NOLOOP depth=0
+01161c88 is_camera_lws_animation_using NOLOOP depth=0
+01161f50 get_motion_data_camera_lws_animation NOLOOP depth=0
+01161f70 get_boot_obj_camera_lws_animation NOLOOP depth=0
+01161f78 is_loop_camera_lws_animation NOLOOP depth=0
+01161f88 is_main_type_camera_lws_animation NOLOOP depth=0
+01161fa0 is_sub_type_camera_lws_animation NOLOOP depth=0 share=0.000
+01161fb8 is_interest_type_camera_lws_animation NOLOOP depth=0
+01161fd0 is_fixed_point_type_camera_lws_animation NOLOOP depth=0
+01162018 reset_main_type_camera_lws_animation_update_flag NOLOOP depth=0
+01162150 is_same_camera_lws_animation NOLOOP depth=0
+01162208 stop_camera_lws_animation_geometry_pointer_reference NOLOOP depth=0
+01162238 stop_camera_lws_animation_callback NOLOOP depth=0
+01162510 add_camera_lws_animation_segment NOLOOP depth=0
+011629b8 manager_sub_011629B8 NOLOOP depth=0 share=0.000
+01162df0 set_camera_obj_screen_size NOLOOP depth=2
+01162e08 dynamic_cast_to_camera_obj NOLOOP depth=0
+01162e80 set_camera_position NOLOOP depth=0 share=0.000
+01162e90 set_camera_direction NOLOOP depth=0 share=0.002
+01162ec0 set_camera_up_direction NOLOOP depth=0 share=0.001
+01162ef0 get_camera_position NOLOOP depth=0 share=0.000
+01162ef8 get_camera_direction NOLOOP depth=0 share=0.000
+01162f00 get_camera_up_direction NOLOOP depth=0 share=0.000
+01162f08 get_camera_obj_layout_class NOLOOP depth=0
+01162f10 get_clip_screen NOLOOP depth=0 share=0.000
+01162f18 get_transform_matrix_set NOLOOP depth=0 share=0.001
+01162f20 create_original_view_matrix NOLOOP depth=1 share=0.001
+01162fd0 get_view_matrix NOLOOP depth=0
+01163448 constructor_camera_region NOLOOP depth=0
+01163750 get_manage_object_id_camera_region NOLOOP depth=0
+01163788 is_parent_obj_boss_camera_region NOLOOP depth=0 share=0.004
+011637d0 get_priority_camera_region NOLOOP depth=0
+01163808 get_change_grace_time_camera_region NOLOOP depth=0
+01163848 get_hit_region_ofst_camera_region NOLOOP depth=0
+01163888 get_region_type_camera_region NOLOOP depth=0 share=0.000
+01163958 manager_sub_01163958 NOLOOP depth=0
+011641c0 get_col_attr_cam_region_select_flag NOLOOP depth=0
+011641d0 get_col_attr_cam_region_select_index NOLOOP depth=0
+01164260 manager_sub_01164260 NOLOOP depth=0 share=0.000
+01164368 set_screen_size NOLOOP depth=1
+01164468 set_screen_wide_and_progressive NOLOOP depth=0
+011644c8 set_view_angle NOLOOP depth=0 share=0.000
+011644d0 set_scissor_screen_size NOLOOP depth=0 share=0.001
+011644f0 get_screen_width NOLOOP depth=0 share=0.000
+011644f8 get_screen_height NOLOOP depth=0 share=0.000
+01164500 get_aspect_ratio NOLOOP depth=0 share=0.001
+01164530 get_view_angle NOLOOP depth=0 share=0.000
+01164558 get_near_clip_z_clip_screen NOLOOP depth=0
+01164570 get_far_clip_z_clip_screen NOLOOP depth=0
+01164588 get_z_buf_min_clip_screen NOLOOP depth=0 share=0.000
+01164598 get_z_buf_max_clip_screen NOLOOP depth=0
+01164848 get_screen_size_scale_screen_matrix NOLOOP depth=0
+011648d0 manager_sub_011648D0 NOLOOP depth=2 share=0.011
+011649c0 manager_sub_011649C0 NOLOOP depth=2 share=0.006
+01164ac0 manager_sub_01164AC0 NOLOOP depth=1 share=0.106
+01164bc0 manager_sub_01164BC0 NOLOOP depth=1 share=0.016
+01164c70 get_clip_matrix NOLOOP depth=0 share=0.000
+01164c78 get_clip_matrix128 NOLOOP depth=0
+01164c80 get_clip_matrix256 NOLOOP depth=0
+01164c88 get_clip_matrix_fovignore NOLOOP depth=0 share=0.000
+01164c90 get_screen_matrix NOLOOP depth=0 share=0.000
+01164c98 get_screen_matrix128 NOLOOP depth=0
+01164ca0 get_screen_matrix256 NOLOOP depth=0
+01164ca8 get_scissor_clip_matrix NOLOOP depth=0 share=0.000
+01164cb8 get_WV_matrix NOLOOP depth=0
+01164cc0 get_VC_matrix NOLOOP depth=0
+01164cc8 get_CS_matrix NOLOOP depth=0
+01164cd0 get_WVC_matrix NOLOOP depth=0 share=0.001
+01164cd8 get_VCS_matrix NOLOOP depth=0
+01164ce0 get_WVCS_matrix NOLOOP depth=0
+01164ce8 get_scissor_VC_matrix NOLOOP depth=0
+01164cf0 get_scissor_WVC_matrix NOLOOP depth=0
+01166da0 InitDamageClass NOLOOP depth=0
+01166de8 ResetDamageClass NOLOOP depth=0 share=0.010
+01166e10 SetDamageOffsetStatus NOLOOP depth=0
+01166e40 SetDamageClassJudgeExternalFunc NOLOOP depth=0
+01166e50 DecreaseDamageLockTime NOLOOP depth=0 share=0.005
+01166e98 GetDamagerClassDamageSheetType NOLOOP depth=0
+01166eb8 SetDamageClassDamageTableType NOLOOP depth=0
+01167098 GetLetterKindVariableData NOLOOP depth=0
+011692a8 ResetAnimeFrameTableInfo NOLOOP depth=0 share=0.006
+011694d8 getSETriggerTestMode NOLOOP depth=0
+011694e8 AnimeTableInfoDebugMode NOLOOP depth=0
+01169778 KickParticleGetResourceId NOLOOP depth=1
+01169898 seSetKeyOnOff NOLOOP depth=1
+01169b20 manager_sub_01169B20 NOLOOP depth=1
+01169c30 getEditWorkInitData NOLOOP depth=0 share=0.001
+01169c50 getEditWorkDebugHeader NOLOOP depth=0
+01169c70 getEditWorkDebugData NOLOOP depth=0
+01169d18 getPointDataHeader NOLOOP depth=0
+01169d30 getLineDataHeader NOLOOP depth=0
+01169d48 getPointData NOLOOP depth=0 share=0.001
+01169d88 getConnectLineArray NOLOOP depth=0 share=0.001
+01169de0 getLineData NOLOOP depth=0 share=0.001
+01169e20 getRootDataHeader NOLOOP depth=0
+01169e38 getGoalDataHeader NOLOOP depth=0
+01169e50 getSubDataHeader NOLOOP depth=0
+01169e68 getRootPointData NOLOOP depth=0
+01169ea8 getGoalPointData NOLOOP depth=0
+01169ee8 getSubPointData NOLOOP depth=0
+01169f28 getChildGoalPointIdxArray NOLOOP depth=0
+01169f80 getChildSubPointIdxArray NOLOOP depth=0
+01169fd8 getInterestDataHeader NOLOOP depth=0
+01169ff0 getInterestPointData NOLOOP depth=0 share=0.000
+0116a028 getDeadDataHeader NOLOOP depth=0
+0116a040 getDeadPointData NOLOOP depth=0
+0116a080 getLayoutDataHeader NOLOOP depth=0
+0116a098 getLayoutPointData NOLOOP depth=0 share=0.010
+0116ad80 rintf NOLOOP depth=0
+01341310 DebugGetMutekiMode NOLOOP depth=0
+01341650 getForceMemoryAllocSize NOLOOP depth=0
+013416f8 getStatusMode NOLOOP depth=0
+01341708 getDispCollisionPerfFlag NOLOOP depth=0
+01341718 getPrintfPerfWarning NOLOOP depth=0
+01341758 is_disp_debug_object_info NOLOOP depth=0
+01341768 getCollisionDispMode NOLOOP depth=0
+01341778 getGetMutekiMode NOLOOP depth=0
+01341788 getPlayerPowerDisp NOLOOP depth=0
+01341798 getPlayerPowerMax NOLOOP depth=0
+013417a8 getGripCalcCancelMode NOLOOP depth=0
+01341910 getSnapShotSize NOLOOP depth=0
+01341920 getSnapShotFormat NOLOOP depth=0
+01341930 getSnapShotNum NOLOOP depth=0
+01341940 getSnapShotRotation NOLOOP depth=0
+01341950 getSnapShotAspect NOLOOP depth=0
+01341960 getDebugSnapShotSizeX NOLOOP depth=0
+01341a48 getFreezeBossFlag NOLOOP depth=0
+01341c08 getDispGpsMarker NOLOOP depth=0
+01341c18 getGpsGridWidth NOLOOP depth=0
+01342a40 convert_from_button_value_to_bool NOLOOP depth=0
+01342a48 convert_from_slide_bar_value_to_ratio NOLOOP depth=1
+01342b20 GAMEUTIL_set_sight_on_reverse_cntrlLR NOLOOP depth=0
+01342b30 GAMEUTIL_get_sight_on_reverse_cntrlLR_int NOLOOP depth=0
+01342b40 GAMEUTIL_get_sight_on_reverse_cntrlLR_bool NOLOOP depth=0
+01342b50 GAMEUTIL_set_sight_on_reverse_cntrlUD NOLOOP depth=0
+01342b60 GAMEUTIL_get_sight_on_reverse_cntrlUD_int NOLOOP depth=0
+01342b70 GAMEUTIL_get_sight_on_reverse_cntrlUD_bool NOLOOP depth=0
+01342b80 GAMEUTIL_set_sight_on_angle_vel_ratio NOLOOP depth=0
+01342b90 GAMEUTIL_get_sight_on_angle_vel_ratio_int NOLOOP depth=0
+01342ba0 GAMEUTIL_get_sight_on_angle_vel_ratio_float NOLOOP depth=1
+01342c50 GAMEUTIL_set_game_camera_free_mode_reverse_cntrlLR NOLOOP depth=0
+01342c60 GAMEUTIL_get_game_camera_free_mode_reverse_cntrlLR_int NOLOOP depth=0
+01342c70 GAMEUTIL_get_game_camera_free_mode_reverse_cntrlLR_bool NOLOOP depth=0
+01342c80 GAMEUTIL_set_game_camera_free_mode_reverse_cntrlUD NOLOOP depth=0
+01342c90 GAMEUTIL_get_game_camera_free_mode_reverse_cntrlUD_int NOLOOP depth=0
+01342ca0 GAMEUTIL_get_game_camera_free_mode_reverse_cntrlUD_bool NOLOOP depth=0
+01342cb0 GAMEUTIL_set_game_camera_free_mode_angle_vel_ratio NOLOOP depth=0
+01342cc0 GAMEUTIL_get_game_camera_free_mode_angle_vel_ratio_int NOLOOP depth=0
+01342cd0 GAMEUTIL_get_game_camera_free_mode_angle_vel_ratio_float NOLOOP depth=1
+01342e40 GAMEUTIL_get_obj_from_stagelayout_sheet NOLOOP depth=0
+01342ef8 GAMEUTIL_is_push_or_down_1p_button NOLOOP depth=0 share=0.002
+01343060 GAMEUTIL_is_overtake_aim_position NOLOOP depth=0
+013430e0 GAMEUTIL_is_advance_near_dir_to_aim_position NOLOOP depth=0
+01343388 GAMEUTIL_is_sign_change NOLOOP depth=0
+01343b08 GAMEUTIL_is_boss_booting NOLOOP depth=3 share=0.002
+01343b28 GAMEUTIL_set_auto_get_flag_boss_interest_position NOLOOP depth=0 share=0.000
+01343b38 GAMEUTIL_set_custom_boss_interest_position NOLOOP depth=0
+01343c58 GAMEUTIL_constructor_move_angle NOLOOP depth=1
+01343cd0 GAMEUTIL_reset_move_angle NOLOOP depth=0
+01343cd8 GAMEUTIL_set_parameter_move_angle NOLOOP depth=0
+01343d18 GAMEUTIL_begin_move_angle NOLOOP depth=0
+01343e10 GAMEUTIL_get_cur_velocity_move_angle NOLOOP depth=0
+01343eb8 GAMEUTIL_set_parameter_look_at_vs_offset NOLOOP depth=0 share=0.001
+01343ee8 GAMEUTIL_set_need_dir_ratio_flag_look_at_vs_offset NOLOOP depth=0 share=0.000
+01343ef0 GAMEUTIL_set_enable_side_change_angle_look_at_vs_offset NOLOOP depth=0 share=0.000
+01343fe0 GAMEUTIL_constructor_col_plane_info NOLOOP depth=0
+01344020 GAMEUTIL_constructor_col_plane_info_filter NOLOOP depth=2
+01344040 GAMEUTIL_init_col_plane_info_filter NOLOOP depth=1
+013440a8 GAMEUTIL_set_parameter_col_plane_info_filter NOLOOP depth=0 share=0.001
+013441b0 GAMEUTIL_constructor_position_filter NOLOOP depth=1 share=0.001
+013441e8 GAMEUTIL_reset_position_filter NOLOOP depth=0 share=0.000
+01344208 GAMEUTIL_set_parameter_position_filter NOLOOP depth=0 share=0.000
+01344210 GAMEUTIL_doit_position_filter NOLOOP depth=0 share=0.001
+013443b0 GAMEUTIL_constructor_record_info NOLOOP depth=0
+013444a8 GAMEUTIL_reset_record_info NOLOOP depth=0
+01344588 GAMEUTIL_get_data_record_info NOLOOP depth=0 share=0.001
+013445c0 GAMEUTIL_reset_status_manager NOLOOP depth=0 share=0.000
+013445d8 GAMEUTIL_doit_status_manager NOLOOP depth=0 share=0.004
+01344620 GAMEUTIL_reset_status_continue_time_status_manager NOLOOP depth=0
+01344628 GAMEUTIL_is_status_change_status_manager NOLOOP depth=0 share=0.000
+01344648 GAMEUTIL_get_status_continue_time_status_manager NOLOOP depth=0 share=0.000
+01344650 GAMEUTIL_get_cur_status_status_manager NOLOOP depth=0 share=0.001
+01344658 GAMEUTIL_get_pre_status_status_manager NOLOOP depth=0 share=0.000
+01344660 GAMEUTIL_get_pre_changed_status_status_manager NOLOOP depth=0
+01344668 getSightOnRevCntrlLR NOLOOP depth=0
+01344678 getSightOnRevCntrlUD NOLOOP depth=0
+01344688 getSightOnAngleVelRatio NOLOOP depth=0
+01344698 getFreeModeRevControlLR NOLOOP depth=0
+013446a8 getFreeModeRevControlUD NOLOOP depth=0
+013446b8 getFreeModeRevAngleVelRatio NOLOOP depth=0
+01345190 getCullingScreenSize NOLOOP depth=0
+013451a0 getScissoringScreenSize NOLOOP depth=0
+013451b0 getPlayerAliveInPauseFlag NOLOOP depth=0
+013452c8 nico_deleteMyself NOLOOP depth=1
+013458a0 gamecore_sub_013458A0 NOLOOP depth=1 share=0.001
+01345980 gamecore_sub_01345980 NOLOOP depth=1 share=0.003
+01345cb8 PauseGame NOLOOP depth=2
+01345ce0 ReleaseGame NOLOOP depth=0
+01345d00 ChangeGameTimeScale NOLOOP depth=2
+01345d20 ChangeGameTimeScaleRatio NOLOOP depth=2 share=0.001
+01345d40 GetGameTimeScaleRatio NOLOOP depth=0
+01345d50 PauseAI NOLOOP depth=0
+01345d60 ReleaseAI NOLOOP depth=0
+01345db8 ChangeGameAnimeTimeScaleRatio NOLOOP depth=1 share=0.000
+01345e38 GetCurrentGameAnimeTimeScaleRatio NOLOOP depth=0
+01345e48 GetGameAnimeTimeScaleRatio NOLOOP depth=0
+01345e58 GetPlayerControlButtonContext NOLOOP depth=0
+01345e68 getGameAnimeTimeScaleRatio NOLOOP depth=0
+01345e78 RestoreDefaultGameAnimeTimeScaleRatio NOLOOP depth=0
+01345e90 SetDefaultGameAnimeTimeScaleRatio NOLOOP depth=0
+01345ea0 setGameAnimeTimeScaleRatio NOLOOP depth=2
+01345ec0 getDummyCount NOLOOP depth=0
+01345ed0 getFrameRateMode NOLOOP depth=0
+01345ee0 setFrameRateMode NOLOOP depth=2
+01345fb0 gamecore_sub_01345FB0 NOLOOP depth=1 share=0.002
+01346000 gamecore_sub_01346000 NOLOOP depth=1 share=0.001
+01346028 setDefaultPlayerControlButton NOLOOP depth=0
+01346090 gamecore_sub_01346090 NOLOOP depth=1
+013461c0 setLayerFade NOLOOP depth=0
+013461d0 setFade NOLOOP depth=1
+013461f0 getFade NOLOOP depth=1
+01346210 getFadeValue NOLOOP depth=0 share=0.000
+01346220 setFadeValue NOLOOP depth=0
+01346230 getDemoBarSw NOLOOP depth=0
+01346240 setDemoBar NOLOOP depth=2
+013462e0 getDemoBar NOLOOP depth=1
+01346300 getDemoBarFade NOLOOP depth=0 share=0.001
+01346b20 is_predict_to_acting_base_yaw_rot_nico_yaw_pitch_cntrl NOLOOP depth=1
+01346df0 set_yaw_pitch_input_border_parameter_nico_yaw_pitch_cntrl NOLOOP depth=0
+01346e08 set_offset_yaw_parameter_nico_yaw_pitch_cntrl NOLOOP depth=2
+01346ed8 set_offset_pitch_parameter_nico_yaw_pitch_cntrl NOLOOP depth=1
+01346fe8 set_base_yaw_parameter_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347028 set_base_pitch_parameter_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347068 set_max_min_yaw_parameter_nico_yaw_pitch_cntrl NOLOOP depth=2
+01347110 set_max_min_yaw_parameter_extend_nico_yaw_pitch_cntrl NOLOOP depth=2
+01347208 set_max_min_pitch_parameter_nico_yaw_pitch_cntrl NOLOOP depth=1
+01347358 set_yaw_parameter_effective_ratio_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347360 set_pitch_parameter_effective_ratio_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347368 set_base_vel_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347590 is_doing_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347598 set_temp_stop_base_rot_flag_nico_yaw_pitch_cntrl NOLOOP depth=0
+013475a0 update_offset_yaw_pitch_another_factor_nico_yaw_pitch_cntrl NOLOOP depth=1
+013475f0 update_base_yaw_nico_yaw_pitch_cntrl NOLOOP depth=7
+01347668 update_base_pitch_nico_yaw_pitch_cntrl NOLOOP depth=3
+013476e0 get_max_min_clip_base_yaw_nico_yaw_pitch_cntrl NOLOOP depth=6
+013477c0 get_max_min_clip_base_pitch_nico_yaw_pitch_cntrl NOLOOP depth=2
+01347828 get_offset_yaw_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347830 get_offset_pitch_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347838 is_enable_base_yaw_rot_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347840 is_enable_base_pitch_rot_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347848 get_base_yaw_move_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347850 get_base_pitch_move_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347858 set_base_yaw_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347860 set_base_pitch_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347868 get_base_yaw_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347870 get_base_pitch_nico_yaw_pitch_cntrl NOLOOP depth=0
+01347878 get_merge_yaw_nico_yaw_pitch_cntrl NOLOOP depth=4
+013478f0 get_merge_pitch_nico_yaw_pitch_cntrl NOLOOP depth=1
+01347948 gamecore_sub_01347948 NOLOOP depth=1
+01347e40 gamecore_sub_01347E40 NOLOOP depth=5
+01347ee8 gamecore_sub_01347EE8 NOLOOP depth=5
+01347f88 gamecore_sub_01347F88 NOLOOP depth=1
+01347fc8 gamecore_sub_01347FC8 NOLOOP depth=1
+01348008 gamecore_sub_01348008 NOLOOP depth=2
+013481a0 gamecore_sub_013481A0 NOLOOP depth=1
+01348218 gamecore_sub_01348218 NOLOOP depth=2
+01348298 gamecore_sub_01348298 NOLOOP depth=6
+013487b0 activedemoflowDemoEnd NOLOOP depth=0
+013487c8 getActivedemoStage NOLOOP depth=0
+013487d8 chkActiveDemoStart NOLOOP depth=0
+013488c0 activeDemoAbort NOLOOP depth=1
+01348958 activeDemoCancel NOLOOP depth=0
+01348c30 backStageGobjSaveWithPos NOLOOP depth=2
+01348de8 backStageGobjCheckEntry NOLOOP depth=2 share=0.000
+01349288 backStageCheckLoadSeg NOLOOP depth=1
+013494a8 backStageGetBossSaveArea NOLOOP depth=0
+013494b8 backStageInit NOLOOP depth=0
+0134a2b0 bossStatLayoutChk NOLOOP depth=1
+0134a338 bossStatSetDeadBoss NOLOOP depth=1
+0134a358 bossStatGetDeadBoss NOLOOP depth=0
+0134a368 bossStatChkDeadBoss NOLOOP depth=1
+0134a418 bossStatBootChk NOLOOP depth=2 share=0.004
+0134a480 bossStatGetActiveBoss NOLOOP depth=1 share=0.005
+0134a658 bossStatGetBossCloudPos NOLOOP depth=1
+0134a778 CheckCamFinalizerReady NOLOOP depth=0
+0134a788 SetCamFinalizerReady NOLOOP depth=0
+0134a798 ResetCamFinalizer NOLOOP depth=1
+0134a7c0 PauseCamFinalizer NOLOOP depth=0
+0134a7d0 SetCamFinalizerGeometry NOLOOP depth=0
+0134b250 SkipCutDemoCameraOrient NOLOOP depth=0
+0134b260 CheckDemoCameraOrientFinished NOLOOP depth=0
+0134b268 getDemoEnableFlag NOLOOP depth=0
+0134baf0 SetCaptionPauseFlag NOLOOP depth=0
+0134c6d8 SetDefaultStageLoad NOLOOP depth=0
+0134c838 demoscrCheckDemoFinish NOLOOP depth=0
+0134c850 demoscrCheckDemoCutSkip NOLOOP depth=0
+0134d728 endingflowTickAdpcmSeq NOLOOP depth=0
+0134d850 endingflowDemoEnd NOLOOP depth=0
+0134d8d0 endingflowSetTimePlayerHpMax NOLOOP depth=2
+0134d920 gamecore_sub_0134D920 NOLOOP depth=0
+0134da30 fadeTickProc NOLOOP depth=2 share=0.001
+0134db40 initFadeParam NOLOOP depth=0
+0134db68 setFadeParam NOLOOP depth=0
+0134db98 calcFadeParam NOLOOP depth=0 share=0.001
+0134dbe8 checkFadeParam NOLOOP depth=0
+0134dc10 fadeCheck NOLOOP depth=0
+0134dc20 fadeChkStat NOLOOP depth=0
+0134df50 scrSetFadeColorBlack NOLOOP depth=1
+0134df68 scrSetFadeColorWhite NOLOOP depth=1
+0134e390 setTreeId NOLOOP depth=0
+0134e418 nico_setFruitsFlag NOLOOP depth=1
+0134ef50 _optionWorkSet NOLOOP depth=0
+0134ef68 _optionWorkCls NOLOOP depth=0
+0134ef80 _optionWorkChk NOLOOP depth=0
+0134ef98 _optionWorkPtr NOLOOP depth=0
+0134efb0 _gameFlagSet NOLOOP depth=0
+0134eff0 _gameFlagCls NOLOOP depth=0
+0134f030 _gameFlagChk NOLOOP depth=0 share=0.006
+0134f060 _gameFlagXor NOLOOP depth=0
+0134f0a8 _gameWorkSet NOLOOP depth=0
+0134f0c0 _gameFWorkSet NOLOOP depth=0
+0134f0d8 _gameIWorkSet NOLOOP depth=0
+0134f0f0 _gameWorkCls NOLOOP depth=0
+0134f108 _gameWorkChk NOLOOP depth=0 share=0.001
+0134f120 _gameFWorkChk NOLOOP depth=0 share=0.003
+0134f138 _gameIWorkChk NOLOOP depth=0
+0134f150 fruitsFlagSet NOLOOP depth=0
+0134f1b0 fruitsFlagChk NOLOOP depth=0
+0134f218 getGameDataExistIcoData NOLOOP depth=0
+0134f228 getGameDataExistIcoDataAdrs NOLOOP depth=0
+0134f238 setBossClearCnt NOLOOP depth=0
+0134f248 getBossIndexTimeAttackBestTime NOLOOP depth=0
+0134f260 setBossIndexTimeAttackBestTime NOLOOP depth=0
+0134f278 getGameClearCnt NOLOOP depth=0 share=0.000
+0134f288 getGameClearCntAdrs NOLOOP depth=0
+0134f298 setGmaeClearCnt NOLOOP depth=0
+0134f2a8 getGameHardMode NOLOOP depth=0 share=0.002
+0134f2b8 getGameHardModeAdrs NOLOOP depth=0
+0134f2c8 setGameHardMode NOLOOP depth=1
+0134f2f0 getSavedGameTime NOLOOP depth=0
+0134f300 setSavedGameTime NOLOOP depth=0
+0134f310 getSavedClock NOLOOP depth=0
+0134f320 setSavedClock NOLOOP depth=0
+0134f330 getSavedPlaceId NOLOOP depth=0
+0134f340 setSavedPlaceId NOLOOP depth=0
+0134f740 tailsFlagSet NOLOOP depth=0
+0134f798 tailsFlagClr NOLOOP depth=0
+0134f820 tailsFlagChk NOLOOP depth=0
+0134f880 gexsFlagSet NOLOOP depth=0
+0134f8d8 gexsFlagClr NOLOOP depth=0
+0134f938 gexsFlagChk NOLOOP depth=0 share=0.000
+0134f998 _omakeGetFlagSet NOLOOP depth=0
+0134f9d8 _omakeGetFlagCls NOLOOP depth=0
+0134fa18 _omakeGetFlagChk NOLOOP depth=0
+0134fb28 _omakeSelectFlagChk NOLOOP depth=0 share=0.003
+0134fba8 setClearGameHotStartFlag NOLOOP depth=0
+0134fbd0 getClearGameHotStartFlag NOLOOP depth=0
+0134fe00 getOptionDataAdrsAndSize NOLOOP depth=0
+01352030 gameflowBossEyeCameraDisable NOLOOP depth=0
+01352070 gameflowMpegCancelChk NOLOOP depth=0
+013521e0 gameflowSelectGameoverMenu NOLOOP depth=0
+01352418 gameflowSetPauseEnable NOLOOP depth=0
+01352440 gameflowSetCaptionPause NOLOOP depth=1
+013524a8 gameflowGameOver NOLOOP depth=0
+013524b8 gameflowGetJumpSekiban NOLOOP depth=0
+013524c8 gameflowSetJumpSekiban NOLOOP depth=0
+01352760 gamecore_sub_01352760 NOLOOP depth=0
+01352770 gamecore_sub_01352770 NOLOOP depth=0
+01352780 gamecore_sub_01352780 NOLOOP depth=0
+01352790 gamecore_sub_01352790 NOLOOP depth=0
+013527d8 gamecore_sub_013527D8 NOLOOP depth=1
+01352878 gamecore_sub_01352878 NOLOOP depth=0
+01353570 gStatGetOmakeStatAdrs NOLOOP depth=0
+01353580 gStatSaveDataGameFlagChk NOLOOP depth=0
+013535b0 gStatGObjDispOn NOLOOP depth=0
+013535c0 gStatGObjDispOff NOLOOP depth=0
+013535d8 gStatGObjDispChk NOLOOP depth=0
+013535e8 gStatGobjDispGflagChk NOLOOP depth=1
+01353638 gStatGobjDispGflagSet NOLOOP depth=1
+01353680 gStatGobjDispGflagCls NOLOOP depth=1
+013536d0 gStatSetGObjAdrs NOLOOP depth=0
+013536d8 gStatGetGObjAdrs NOLOOP depth=0 share=0.000
+013536e0 gStatStartTimeAttack NOLOOP depth=1
+01353708 gStatStopTimeAttack NOLOOP depth=1
+01353730 gStatGetPlayerAccessoriesDamgeRaitoToPlayer NOLOOP depth=0
+01353768 gStatGetPlayerAccessoriesDamgeRaitoToBoss NOLOOP depth=0
+01353dd8 gstatBootMcChkExistNicoData NOLOOP depth=0
+01353e00 gstatBootMcSetExistNicoData NOLOOP depth=0
+01353ef8 gstatBootMcSetExistIcoData NOLOOP depth=0
+01353f08 gstatBootMcChkExistIcoData NOLOOP depth=0
+013549a0 jumphokoraflowDemoStart NOLOOP depth=0
+013549b0 jumphokoraflowDemoEnd NOLOOP depth=0
+013549d0 jumphokoraGetDemoInfo NOLOOP depth=0
+01356570 gcCheckStageLoadFinish NOLOOP depth=0
+01356678 checkBoot NOLOOP depth=0
+01356688 reloadStage NOLOOP depth=0
+013566e8 reloadStageWithPlayerPos NOLOOP depth=0
+01357648 opflowOp1End NOLOOP depth=0
+01357660 opflowOp2Start NOLOOP depth=0
+01357678 opflowOp2End NOLOOP depth=0
+013576a8 opflowChkTitleDemoStart NOLOOP depth=0
+013576c0 opflowTitleDmoeEnd NOLOOP depth=0
+013576d8 opflowSetDemoFrame NOLOOP depth=0
+013576f8 opflowChkAbort NOLOOP depth=0
+01357708 opflowChkLoadStart NOLOOP depth=0
+01357758 gamecore_sub_01357758 NOLOOP depth=1
+01358248 getPlayerHp NOLOOP depth=0 share=0.000
+01358380 _getPlayerHpRatio NOLOOP depth=2 share=0.003
+013583b8 getPlayerHpRatio NOLOOP depth=2 share=0.006
+013583f8 getPlayerMaxHp NOLOOP depth=1 share=0.002
+01358410 setPlayerMaxHp NOLOOP depth=1
+013584e8 getPlayerGrip NOLOOP depth=0 share=0.000
+01358600 getPlayerMaxGrip NOLOOP depth=1 share=0.001
+01358618 setPlayerMaxGrip NOLOOP depth=1
+013586d0 getPlayerMaxGripRatio NOLOOP depth=1 share=0.002
+01358700 getPlayerO2 NOLOOP depth=0
+01358710 setPlayerO2 NOLOOP depth=0
+01358740 addPlayerO2 NOLOOP depth=0
+01358778 initPowerWork NOLOOP depth=0
+01358788 resetAttackPower NOLOOP depth=0
+01358798 getAttackPowerRatio NOLOOP depth=0
+013587b8 getNowPower NOLOOP depth=1
+013587f8 getNowPowerRatio NOLOOP depth=1 share=0.003
+01358840 setFullPower NOLOOP depth=0
+01358858 SCRPowerReset NOLOOP depth=1
+01358878 gamecore_sub_01358878 NOLOOP depth=0
+01358888 getStageChipID NOLOOP depth=0 share=0.003
+01358958 getStageAreaIndexByPos NOLOOP depth=0
+01358a68 gamecore_sub_01358A68 NOLOOP depth=0
+0135bdf0 gamecore_sub_0135BDF0 NOLOOP depth=1 share=0.001
+0135d740 getAreaSize NOLOOP depth=0 share=0.000
+0135d760 getStageAreaID NOLOOP depth=0
+0135d840 getStageAreaName NOLOOP depth=0
+0135d930 getStageAreaNameUV NOLOOP depth=0
+0135d9c0 getPosOnMap NOLOOP depth=0
+0135da20 SetSeamlessZFogDist NOLOOP depth=0
+0135dac8 getSeamlessStageHighModelDispDist NOLOOP depth=0
+0135dad8 getSeamlessStageMiddleModelDispDist NOLOOP depth=0
+0135dae8 getSeamlessStageHighModelDispDistDefault NOLOOP depth=0
+0135daf8 getSeamlessStageMiddleModelDispDistDefault NOLOOP depth=0
+0135db08 getStageChipIDReal NOLOOP depth=0
+0135db68 getStageChipIDWithOffset NOLOOP depth=0
+0135dbe8 getStageNormalizePosition NOLOOP depth=0
+0135dc40 getCameraPosOnMap NOLOOP depth=0
+0135dca8 getSeamlessStageCenter NOLOOP depth=0
+0135dd58 getSeamlessStageEnv NOLOOP depth=0
+0135dd68 getStageLayout NOLOOP depth=0
+0135de38 getStageStat NOLOOP depth=0
+0135deb0 GetLoadAreaGroupData NOLOOP depth=0
+0135df88 forceLoadSeamlessStage NOLOOP depth=0
+0135df98 SetSeamlessStageControlObject NOLOOP depth=0 share=0.000
+0135dfa8 UpdateSeamlessStageLoad NOLOOP depth=0
+0135e068 GetStageChipNum NOLOOP depth=0
+0135e088 DeleteSeamlessStageObject NOLOOP depth=0
+0135e128 GetSeamlessStageObjectGroup NOLOOP depth=0
+0135e138 PauseSeamlessStageManager NOLOOP depth=0
+0135e238 getChipNo NOLOOP depth=0
+0135e280 getStageIDWithOffset NOLOOP depth=0 share=0.074
+0135e310 getStageStatByChipNo NOLOOP depth=0
+0135e410 getStageChipIDFloat NOLOOP depth=0
+0135e608 isSeamlessStage NOLOOP depth=0 share=0.000
+0135e940 RestartSeamlessStage NOLOOP depth=0
+0135eda8 initSlowManager NOLOOP depth=1
+0135efb0 getSpecialEffectObjWork NOLOOP depth=0
+0135ff08 getstagenumber NOLOOP depth=0 share=0.017
+01361e88 gamecore_sub_01361E88 NOLOOP depth=1 share=0.060
+01365ab0 stagemanager_checkstageAlreadyLoadRequestedByStrptr NOLOOP depth=0
+01365d08 GetWorldLayoutSheetSegHeader NOLOOP depth=0
+01365d18 gcGetStageData NOLOOP depth=0
+01365d58 gcGetNbStages NOLOOP depth=0
+01365eb8 CheckStageManagerLoadArea NOLOOP depth=0
+01366120 SetStageManagerAreaPreload NOLOOP depth=1
+013661f0 SetStageManagerAreaPreloadWithAreaOffset NOLOOP depth=1
+013663d0 stagemanager_getStageNumberWithStageDataStrptr NOLOOP depth=0
+01366660 stagemanager_GetStageAlignParam NOLOOP depth=0
+013667b8 stagemanager_getCenterFromAreaId NOLOOP depth=0
+01366858 stagemanager_getNbWorldLayoutDatas NOLOOP depth=0
+01366890 stagemanager_checkstageAlreadyLoadRequested NOLOOP depth=0
+013668d8 stagemanager_checkstageAlreadyLoaded NOLOOP depth=1
+013668f0 stagemanager_checkstageAlreadyLoadedByStrptr NOLOOP depth=1 share=0.000
+013669b0 stagemanager_checkstageAlreadyLoadedByStageData NOLOOP depth=1
+01366b60 stagemanager_getSegmentVariation NOLOOP depth=0
+01366ce0 getWorldLayoutHead NOLOOP depth=0
+01366cf0 initStageLayout NOLOOP depth=0
+01366cf8 deleteStageLayout NOLOOP depth=0
+01366d00 initWorldLayout NOLOOP depth=0
+01366d10 deleteWorldLayout NOLOOP depth=0
+013678e8 PauseStageBoundaryManager NOLOOP depth=0
+01367b78 getBossExtControl NOLOOP depth=0
+01367b88 getTargetAIControlMode NOLOOP depth=0
+01367e30 time_attack_get_best_time NOLOOP depth=0
+01367e40 time_attack_set_best_time NOLOOP depth=1
+01367e68 time_attack_get_boss_status NOLOOP depth=0
+01367e78 time_attack_end NOLOOP depth=0
+0136a198 bgmScriptSendSoundSignal NOLOOP depth=0
+0136a1b8 bgmScriptRecvSoundSignal NOLOOP depth=0
+0136a2d0 bgmEnvTickProckMask NOLOOP depth=0
+0136a378 bossNormalHook NOLOOP depth=0
+0136a388 gamecore_sub_0136A388 NOLOOP depth=0
+0136a3f8 scriptNormalHook NOLOOP depth=0
+0136a410 demoNormalHook NOLOOP depth=0
+0136a420 initAdpcmOrient NOLOOP depth=0
+0136a9f8 bgmChkStandbyComplete NOLOOP depth=1
+0136aa38 bgmPlay NOLOOP depth=0
+0136aa50 bgmStop NOLOOP depth=0
+0136aa70 bgmStopChk NOLOOP depth=0
+0136aad0 bgmChangeVol NOLOOP depth=0
+0136aae8 bgmStartGameOver NOLOOP depth=0
+0136aaf8 bgmStageInit NOLOOP depth=0
+0136e4f8 gamecore_sub_0136E4F8 NOLOOP depth=0
+0136e7a0 gamecore_sub_0136E7A0 NOLOOP depth=0
+0136ef58 SCRBirdStartBreath NOLOOP depth=1
+0136ef78 SCRBirdStopBreath NOLOOP depth=1
+0136ef98 SCRBirdStartFlap NOLOOP depth=1
+0136fd68 bootmccheckscriptNoBoot NOLOOP depth=0
+0136ffa0 SCRMammothBreaksWall NOLOOP depth=1
+01375000 getPinAttackIKWorkSize NOLOOP depth=1
+013757f8 nico_IK_idDetect NOLOOP depth=0 share=0.001
+013790a0 SCRExecBossPostProcess NOLOOP depth=0
+01379220 GetBossPartsDamage NOLOOP depth=0
+01379270 GetBossPartsDamagePerParts NOLOOP depth=0
+01379578 SCRBuddhaShoot NOLOOP depth=1
+0137b558 SCRCerberusPollFalldown NOLOOP depth=1
+0137b738 gamecore_sub_0137B738 NOLOOP depth=0
+0137b800 menuSelected NOLOOP depth=0
+0137c2c0 getDebugDispType NOLOOP depth=0
+0137c2c8 getDebugMotionStop NOLOOP depth=0
+0137c2d0 getDebugScrDataPrintf NOLOOP depth=0
+0137c2d8 getDebugHorseRoute NOLOOP depth=0
+0137c2e0 getDebugHorseBikko NOLOOP depth=0
+0137c2e8 getDebugParentAttrReset NOLOOP depth=0
+0137c2f0 getDebugTrigerPrintf NOLOOP depth=0
+0137c2f8 getDebugHorseInsurance NOLOOP depth=0
+0137c300 getDebugHorsePathVirtual NOLOOP depth=0
+0137c308 getDebugViewDisp NOLOOP depth=0
+0137c310 GetDebugDispType NOLOOP depth=0
+0137c318 GetDebugMotionStop NOLOOP depth=0
+0137c320 GetDebugScrDataPrintf NOLOOP depth=0
+0137c328 GetDebugViewDisp NOLOOP depth=0
+0137def8 getexpressiondatapoint NOLOOP depth=0 share=0.000
+0137e238 getBosstatusDispMode NOLOOP depth=0
+0137e2a8 getBoneCollisionDebugMode NOLOOP depth=0
+0137e5e0 SCRResetCharacterObj4DDynamicsInfo NOLOOP depth=1
+0137e828 controllerAlertDisable NOLOOP depth=0
+0137e9f0 is_LwsOrientObj NOLOOP depth=0
+0137ea00 gamecore_sub_0137EA00 NOLOOP depth=0
+01381aa8 gamecore_sub_01381AA8 NOLOOP depth=1
+01384de0 CheckDeathTentacle NOLOOP depth=0
+01384e98 AI_GetDeathTentWorkSize NOLOOP depth=0
+01384ee0 gamecore_sub_01384EE0 NOLOOP depth=1
+01384f30 AI_GetBaseWorkSize NOLOOP depth=0
+01385578 setDischargeParam NOLOOP depth=1
+013855d0 getDischargeSize NOLOOP depth=1
+013862c0 getDynamicsTestType NOLOOP depth=0
+013862d0 getPendulumGravityRatio NOLOOP depth=0
+013862e0 getPendulumAirResistRatio NOLOOP depth=0
+013862f0 getPendulumSideFriction NOLOOP depth=0
+01388048 getEffectBloodWorkSize NOLOOP depth=0
+01388060 getWeakPointEffectIntensity NOLOOP depth=0
+01388080 getTriggerPointEffectIntensity NOLOOP depth=0
+013885f0 effectClearDamageWork NOLOOP depth=0
+01388600 effectGetDamageWork NOLOOP depth=0
+01388618 getBloodEffectEnableFlag NOLOOP depth=0
+01388628 gamecore_sub_01388628 NOLOOP depth=0
+01388638 gamecore_sub_01388638 NOLOOP depth=0
+01388648 gamecore_sub_01388648 NOLOOP depth=0
+01388658 gamecore_sub_01388658 NOLOOP depth=0
+01388668 gamecore_sub_01388668 NOLOOP depth=0
+01388678 gamecore_sub_01388678 NOLOOP depth=0
+01388688 getWeakGlowSpeed NOLOOP depth=0
+01388698 getWeakGlowTime NOLOOP depth=0
+013886a8 getTrigGlowTime NOLOOP depth=0
+013886b8 gamecore_sub_013886B8 NOLOOP depth=0
+013888e0 gamecore_sub_013888E0 NOLOOP depth=0
+01389a48 demo_PlayerDeathEffectStart NOLOOP depth=1
+01389a70 demo_PlayerDeathEffectEnd NOLOOP depth=1
+0138b8e8 gamecore_sub_0138B8E8 NOLOOP depth=0
+0138bd40 add_node_expression NOLOOP depth=2
+0138bde8 update_type_expression NOLOOP depth=1 share=0.000
+0138be08 set_root_node_data_expression NOLOOP depth=0
+0138be80 get_cur_type_expression NOLOOP depth=1
+0138be98 get_pre_type_expression NOLOOP depth=1
+0138beb0 GAMEUTIL_get_cur_interp_ratio_expression NOLOOP depth=1 share=0.001
+0138bf08 add_element_expression_change NOLOOP depth=0
+0138c188 SCRRockFall NOLOOP depth=1
+0138c1a8 SCRRockReset NOLOOP depth=1
+0138c1c8 gamecore_sub_0138C1C8 NOLOOP depth=1
+0138c1f0 gamecore_sub_0138C1F0 NOLOOP depth=1
+0138cb48 gamecore_sub_0138CB48 NOLOOP depth=1 share=0.044
+0138ea10 getFallenLeafSize NOLOOP depth=0
+0138eb48 getArrowWaterSize NOLOOP depth=0
+0138f138 gamecore_sub_0138F138 NOLOOP depth=0
+0138f180 gamecore_sub_0138F180 NOLOOP depth=0
+0138f8d0 SCRGuardSwordPickup NOLOOP depth=1
+0138f8f0 SCRGuardSwordPickupEnd NOLOOP depth=1
+0138f978 gamecore_sub_0138F978 NOLOOP depth=0
+01390550 SCRGuardArrowShoot NOLOOP depth=1
+01393e58 gamecore_sub_01393E58 NOLOOP depth=0 share=0.000
+01394f18 gamecore_sub_01394F18 NOLOOP depth=0 share=0.007
+01395e00 setHorseAIStopFlag NOLOOP depth=0
+01395e10 getHorseStandByMode NOLOOP depth=0
+01396328 SCRFuncHorseStandByFlag NOLOOP depth=0
+01396dc8 SCRConditionHorseForceStandby NOLOOP depth=1 share=0.000
+01396e00 SCRHorseUnLoad NOLOOP depth=1
+0139a090 initbar NOLOOP depth=0
+0139a0f0 setbar NOLOOP depth=0
+0139a198 SpriteSetStatus NOLOOP depth=0
+0139a218 Init_TimeFloatInter NOLOOP depth=0
+0139a230 Update_TimeFloatInter NOLOOP depth=0
+0139a2a0 Init_TimeFVECTORInter NOLOOP depth=0
+0139a2c8 Update_TimeFVECTORInter NOLOOP depth=0
+0139a348 Init_TimeFloatSpeed NOLOOP depth=0
+0139a360 Update_TimeFloatSpeed NOLOOP depth=0
+0139a878 ColCont_Reset NOLOOP depth=0
+0139a928 ColCont_IsColStatus NOLOOP depth=0
+0139a9f8 ColCont2_EventAttrReset NOLOOP depth=0
+0139aa00 ColCont2_IsColStatus NOLOOP depth=0 share=0.002
+0139aa50 ColCont2_IsEventColStatus NOLOOP depth=0 share=0.003
+0139aaf8 MotSpdCtrl_Init NOLOOP depth=1
+0139ac08 MotSpdCtrl_Reset NOLOOP depth=0
+0139ac60 MotSpdCtrl_SetParam NOLOOP depth=0
+0139cbf0 SCRKirinFallRockEnd NOLOOP depth=1
+0139d6b0 SCRKnightBossPartsBroken NOLOOP depth=1
+0139d6d0 SCRKnightBossPartsDelete NOLOOP depth=1
+0139e058 SCRLeoTorch0_Disp NOLOOP depth=1
+0139e078 SCRLeoTorch1_Disp NOLOOP depth=1
+0139e098 SCRLeoTorch2_Disp NOLOOP depth=1
+0139e0b8 SCRLeoTorch3_Disp NOLOOP depth=1
+0139e100 SCRLeoArmorBroken NOLOOP depth=1
+0139e120 SCRLeoFall NOLOOP depth=1
+0139e140 SCRLeoDamage NOLOOP depth=1
+0139e160 SCRLeoDashAttackEnd NOLOOP depth=1
+0139e180 SCRLeoDashAttack NOLOOP depth=1
+0139e988 inInNowLoadingEffect NOLOOP depth=0
+013a1e50 gamecore_sub_013A1E50 NOLOOP depth=1
+013a4830 SCRCanossaWallBreakEnd NOLOOP depth=1
+013a4850 SCRCanossaWallDelete NOLOOP depth=1
+013a5a48 SCRMinotourCFallWeapon NOLOOP depth=1
+013a5a68 SCRMinotourCSetFallWeaponFlag NOLOOP depth=1
+013a5b80 SCRMinoCSetAddFlag NOLOOP depth=1
+013a5ba0 SCRMinoCResetAddFlag NOLOOP depth=1
+013a5c68 SCRMinotourCResetWeaponCameraFlag NOLOOP depth=1
+013a5cc8 gamecore_sub_013A5CC8 NOLOOP depth=1
+013a6fb0 gamecore_sub_013A6FB0 NOLOOP depth=0
+013a7218 CalcFootVec NOLOOP depth=0
+013a7298 CalcFootPos NOLOOP depth=0
+013a7318 CalcDistancePointAnd2Point NOLOOP depth=0
+013a7408 CalcDistancePointAndLine NOLOOP depth=0
+013a75f8 DirectTurn_Reset NOLOOP depth=0
+013a93a8 gamecore_sub_013A93A8 NOLOOP depth=4
+013a9e98 set_parameter_nico_sight_on NOLOOP depth=3
+013aa380 is_doing_nico_sight_on NOLOOP depth=0 share=0.001
+013aa390 get_ofst_yaw_nico_sight_on NOLOOP depth=0
+013aa398 get_ofst_pitch_nico_sight_on NOLOOP depth=0
+013aa3a8 get_base_yaw_nico_sight_on NOLOOP depth=0
+013aa408 get_base_pitch_nico_sight_on NOLOOP depth=0
+013aa410 get_merge_yaw_nico_sight_on NOLOOP depth=2
+013aa438 get_merge_pitch_nico_sight_on NOLOOP depth=1
+013aa478 get_hope_yaw_nico_sight_on NOLOOP depth=0
+013aa480 get_hope_pitch_nico_sight_on NOLOOP depth=0
+013aa488 get_snipe_position_nico_sight_on NOLOOP depth=0
+013aa498 get_predict_hit_position_nico_sight_on NOLOOP depth=0
+013ae538 gamecore_sub_013AE538 NOLOOP depth=1
+013ae550 gamecore_sub_013AE550 NOLOOP depth=1
+013ae568 gamecore_sub_013AE568 NOLOOP depth=1
+013ae580 gamecore_sub_013AE580 NOLOOP depth=1
+013ae598 gamecore_sub_013AE598 NOLOOP depth=1
+013ae5b0 gamecore_sub_013AE5B0 NOLOOP depth=1
+013ae5c8 gamecore_sub_013AE5C8 NOLOOP depth=1
+013ae5e0 gamecore_sub_013AE5E0 NOLOOP depth=1
+013ae5f8 gamecore_sub_013AE5F8 NOLOOP depth=1
+013ae610 gamecore_sub_013AE610 NOLOOP depth=1
+013ae628 gamecore_sub_013AE628 NOLOOP depth=1
+013ae640 gamecore_sub_013AE640 NOLOOP depth=1
+013ae678 gamecore_sub_013AE678 NOLOOP depth=1
+013ae6b0 gamecore_sub_013AE6B0 NOLOOP depth=1
+013ae748 gamecore_sub_013AE748 NOLOOP depth=1
+013ae768 gamecore_sub_013AE768 NOLOOP depth=1
+013ae7a0 gamecore_sub_013AE7A0 NOLOOP depth=1
+013ae7d8 gamecore_sub_013AE7D8 NOLOOP depth=1
+013ae810 gamecore_sub_013AE810 NOLOOP depth=1
+013ae848 gamecore_sub_013AE848 NOLOOP depth=1
+013ae880 gamecore_sub_013AE880 NOLOOP depth=1
+013ae898 gamecore_sub_013AE898 NOLOOP depth=2
+013b5360 player_AutoHorseCtrlOff NOLOOP depth=0
+013b53b0 getPlayerLastAttrStatus NOLOOP depth=0
+013b53c0 getPlayerLastParentObj NOLOOP depth=0 share=0.000
+013b5a78 player_IsHorseCtrlOff NOLOOP depth=0
+013b6198 SCRPlayerReset NOLOOP depth=0
+013b61a0 SCRWeaponReload NOLOOP depth=1
+013b61c0 SCRFoodTakeBegin NOLOOP depth=1
+013b61e0 SCRFoodTakeEnd NOLOOP depth=1
+013b6200 SCRItemTakeBegin NOLOOP depth=1
+013b6220 SCRItemTakeEnd NOLOOP depth=1
+013b6240 SCRItemTakeDelete NOLOOP depth=1
+013b6290 SCRArrowStart NOLOOP depth=1
+013b62b0 SCRArrowContinue NOLOOP depth=1
+013b62d0 SCRArrowLoopStart NOLOOP depth=1
+013b62f0 SCRArrowLoopEnd NOLOOP depth=1
+013b6310 SCRHarpoonStart NOLOOP depth=1
+013b6330 SCRHarpoonContinue NOLOOP depth=1
+013b6350 SCRHarpoonLoopStart NOLOOP depth=1
+013b6370 SCRHarpoonLoopEnd NOLOOP depth=1
+013b6390 SCRPlayerSendDamageStart NOLOOP depth=1
+013b63b0 SCRPlayerSendDamageEnd NOLOOP depth=1
+013b63d0 SCRPlayerSendDamage NOLOOP depth=1
+013b63f0 SCRPlayerSendDamageLater NOLOOP depth=1
+013b6410 SCRPlayerSendDeathDamageLater NOLOOP depth=1
+013b6430 SCRPlayerSendDiveDamageLater NOLOOP depth=1
+013b6450 SCRPlayerSowrdDeathHitSound NOLOOP depth=1
+013b6470 SCRPlayerSowrdHitSound NOLOOP depth=1
+013b6490 SCRPlayerSowrdHitSoundMiddle NOLOOP depth=1
+013b64b0 SCRPlayerSowrdHitSoundLarge NOLOOP depth=1
+013b64d0 SCRPlayerSowrdDiveHitSound NOLOOP depth=1
+013b64f0 SCRPlayerFullPower NOLOOP depth=1
+013b6510 SCRPlayerFullPowerAndHp NOLOOP depth=1
+013b6530 gamecore_sub_013B6530 NOLOOP depth=0 share=0.000
+013b67b8 SCRPlayerCombatMode NOLOOP depth=1
+013b67d8 SCRPlayerNonCombatMode NOLOOP depth=1
+013b67f8 SCRPlayerPauseDisable NOLOOP depth=1
+013b6818 SCRPlayerPauseEnable NOLOOP depth=1
+013b6838 SCRPlayerTorchThrow NOLOOP depth=1
+013b6858 SCRWeaponSword NOLOOP depth=1
+013b6878 SCRWeaponHand NOLOOP depth=1
+013b6898 SCRHorseKick NOLOOP depth=1
+013b6a40 nico_playeGripDamage NOLOOP depth=1
+013b77c8 gamecore_sub_013B77C8 NOLOOP depth=1
+013b7990 gamecore_sub_013B7990 NOLOOP depth=2
+013b79b0 gamecore_sub_013B79B0 NOLOOP depth=2
+013ba418 nico_setPlayerDemoAdditionClothCollisionFloorTable1 NOLOOP depth=0
+013ba458 nico_setPlayerDemoAdditionClothCollisionRightArm NOLOOP depth=0
+013ba4b0 nico_setPlayerDemoAdditionClothCollisionRightHandAndSwordDeep NOLOOP depth=0
+013ba508 nico_setPlayerDemoAdditionClothCollisionRightHandAndSword NOLOOP depth=0
+013ba560 nico_setPlayerDemoAdditionClothCollisionFloorTable NOLOOP depth=0
+013ba5a0 nico_setPlayerDemoAdditionClothCollisionHomeBaseFloor NOLOOP depth=0
+013ba5e0 nico_setPlayerDemoAdditionClothCollisionRightFootAndHomeBaseFloor NOLOOP depth=0
+013ba628 nico_setPlayerDemoAdditionClothCollisionEvisFloor NOLOOP depth=0
+013ba668 nico_setPlayerDemoAdditionClothCollisionRightHand NOLOOP depth=0
+013ba6a8 nico_setPlayerDemoAdditionClothCollisionRightHandY NOLOOP depth=0
+013ba6e8 nico_setPlayerDemoAdditionClothCollisionHand NOLOOP depth=0
+013ba728 nico_setPlayerDemoAdditionClothCollisionLeftHandY NOLOOP depth=0
+013ba768 nico_resetPlayerDemoAdditionClothCollision NOLOOP depth=0
+013ba928 gamecore_sub_013BA928 NOLOOP depth=2
+013bb078 gamecore_sub_013BB078 NOLOOP depth=2
+013bb470 gamecore_sub_013BB470 NOLOOP depth=0
+013bbe20 gamecore_sub_013BBE20 NOLOOP depth=0 share=0.002
+013c9158 gamecore_sub_013C9158 NOLOOP depth=0 share=0.000
+013cd5f8 player_initSlipEffect NOLOOP depth=0
+013ce278 SCRPoseidonShoot NOLOOP depth=1
+013cfb60 scrInit NOLOOP depth=0
+013d0aa8 getBossCloudObj NOLOOP depth=0
+013d0ab8 bossCloudStart NOLOOP depth=0
+013d0ac8 YattsukeGetSeamlessAreaCenter NOLOOP depth=0
+013d0bc0 bossDemoPlayerBreakDownAccept NOLOOP depth=0
+013d0bd0 bossDemoPlayerBreakDownEnd NOLOOP depth=0
+013d2580 AI_UpdateVelocityXYZ NOLOOP depth=0
+013d2de8 AI_CheckNoAngleVec NOLOOP depth=0
+013d38a0 AI_InitAnimalOptimize NOLOOP depth=0
+013d3980 AI_InitAnimalLayout NOLOOP depth=0
+013d39a0 AI_SetAnimalLayout NOLOOP depth=0 share=0.001
+013d39b8 AI_CheckInAnimalLayout NOLOOP depth=0 share=0.002
+013d3a48 AI_InitAnimalWork NOLOOP depth=0
+013d3a68 AI_SetAnimalWorkParam NOLOOP depth=0
+013d3a70 AI_InitGexCommonWork NOLOOP depth=0
+013d3a88 AI_InitSurpriseArrow NOLOOP depth=0
+013d3a98 AI_SetSurprisedArea NOLOOP depth=0
+013d3da0 AI_UpdateVelocity NOLOOP depth=0 share=0.022
+013d3e00 AI_UpdateVelocity2 NOLOOP depth=0
+013d3fa0 AI_GetMotionBasicVelocity NOLOOP depth=0
+013d4008 AI_GetAccelB NOLOOP depth=0
+013d4060 AI_GetAccelA NOLOOP depth=0
+013d40a8 AI_GetAccelA_at0 NOLOOP depth=0
+013d40f0 AI_GetAccelB_at0 NOLOOP depth=0
+013d4128 AI_GetAccelA3 NOLOOP depth=0
+013d41a0 AI_GetAccelA3XYZ NOLOOP depth=0
+013d4298 AI_GetAccelB3 NOLOOP depth=0
+013d4308 AI_GetAccelB3XYZ NOLOOP depth=0
+013d43f0 AI_GetAccelC3 NOLOOP depth=0
+013d4458 AI_GetAccelC3XYZ NOLOOP depth=0
+013d4540 AI_GetTimeFromAccelC3 NOLOOP depth=0 share=0.000
+013d45c8 AI_GetVelocity2 NOLOOP depth=0
+013d45f0 AI_GetVelocity3 NOLOOP depth=0 share=0.000
+013d4638 AI_GetVelocity3XYZ NOLOOP depth=0 share=0.000
+013d46d8 AI_GetPosition3 NOLOOP depth=0 share=0.000
+013d4740 AI_GetPosition3XYZ NOLOOP depth=0 share=0.000
+013d4a28 AI_GetInterRatio NOLOOP depth=0 share=0.039
+013d4a60 AI_GetInterRatioOutCut NOLOOP depth=0 share=0.001
+013d4ab8 AI_GetHitPosPerpendicular NOLOOP depth=0 share=0.051
+013d4c48 AI_GetLengthSquarePerpendicular NOLOOP depth=0
+013d4ce0 AI_GetAreaDistScale NOLOOP depth=0 share=0.007
+013d4d08 AI_GetAreaDistScale2 NOLOOP depth=0 share=0.000
+013d4d30 AI_GetTrgDir NOLOOP depth=0 share=0.000
+013d4df8 AI_CheckNormZero NOLOOP depth=0 share=0.001
+013d4ef8 AI_GetSideSignalFromDirLev NOLOOP depth=0 share=0.004
+013d5300 AI_GetNegaVector NOLOOP depth=0
+013d5600 AI_CheckViewInCameraClipVolume NOLOOP depth=2 share=0.034
+013d5958 AIDebug_GetFirstObjOfMyGroup NOLOOP depth=0
+013d5960 AIDebug_GetAnimalMode NOLOOP depth=0
+013d5968 AIDebug_CheckPlayerParent NOLOOP depth=0
+013d5970 AIDebug_SetID NOLOOP depth=0
+013d5978 AIDebug_GetAnimalDispType NOLOOP depth=0
+013d5980 AIDebug_GetAnimalDispID NOLOOP depth=0
+013d5988 AIDebug_GetAdvertiseLoopFlag NOLOOP depth=0
+013d5990 AIDebug_GetAdvertisePauseFlag NOLOOP depth=0
+013d59a0 getDebugAdvertiseLoopFlag NOLOOP depth=0
+013d59a8 getDebugAnimalMode NOLOOP depth=0
+013d59b0 getDebugAnimalDispType NOLOOP depth=0
+013d59b8 getDebugAnimalDispID NOLOOP depth=0
+013d59c8 AI_GetYRotQuaternionFromVector NOLOOP depth=1
+013d7870 gamecore_sub_013D7870 NOLOOP depth=0
+013d9518 gamecore_sub_013D9518 NOLOOP depth=0 share=0.002
+013dc4a8 gamecore_sub_013DC4A8 NOLOOP depth=1
+013e7900 Kite_InitSpecialPathWork NOLOOP depth=1
+013e79c8 Kite_CmpPathPoint NOLOOP depth=0 share=0.008
+013e79f8 Kite_InitKitePathPoint NOLOOP depth=0
+013e7c00 Kite_SetAnimalID_KitePathWork NOLOOP depth=0
+013e7c08 Kite_SetEventIDList NOLOOP depth=0
+013e7c28 Kite_InitEventCheck NOLOOP depth=0
+013e7c40 Kite_ResetEventFrameCheck NOLOOP depth=0 share=0.002
+013e7c50 Kite_StartEventCheck NOLOOP depth=0
+013e7c68 Kite_EndEventCheck NOLOOP depth=0
+013e7c78 Kite_SetAnimalLayout NOLOOP depth=0
+013e7cb8 Kite_SetKiteObj NOLOOP depth=0
+013e7cc8 Kite_SetPathOfs NOLOOP depth=0 share=0.003
+013e7ce0 Kite_SetSpecialPathLayout NOLOOP depth=1 share=0.001
+013e7cf8 Kite_SucceedKitePathWork NOLOOP depth=0 share=0.004
+013f0e50 setSObjNodeLock NOLOOP depth=0
+013f0f90 setSmallManagerSystemLock NOLOOP depth=0
+013f1190 gamecore_sub_013F1190 NOLOOP depth=0
+013f1290 gamecore_sub_013F1290 NOLOOP depth=0
+013f1938 gamecore_sub_013F1938 NOLOOP depth=0
+013f2558 gamecore_sub_013F2558 NOLOOP depth=0
+013f3220 gamecore_sub_013F3220 NOLOOP depth=1
+013f3378 gamecore_sub_013F3378 NOLOOP depth=1
+013f3778 gamecore_sub_013F3778 NOLOOP depth=1
+013f3868 gamecore_sub_013F3868 NOLOOP depth=1
+013f3ec8 gamecore_sub_013F3EC8 NOLOOP depth=1
+013f62c8 getNowExecEventScriptObj NOLOOP depth=0
+013f62d8 setLoadingCheckFunc NOLOOP depth=0
+013f62f0 setEventScriptEnable NOLOOP depth=0
+013fa530 setPlayerStatusSwitch NOLOOP depth=0
+013fa540 setPlayerStatusDisableFadeCompareSwitch NOLOOP depth=0
+013fa628 startAttackEffect NOLOOP depth=0
+013fa930 bosslifebar_display NOLOOP depth=0
+013fa968 bosslifebar_resethp NOLOOP depth=0
+013faa18 boss_life_anim NOLOOP depth=1
+013fab00 PlayerSprStatusEnd NOLOOP depth=0
+013fab68 BossSprStatusEnd NOLOOP depth=0
+013ff148 GetSwordFlareHitPlaneAttribute NOLOOP depth=0
+013ff158 getMinAmbient NOLOOP depth=0
+013ff168 getMaxAmbient NOLOOP depth=0
+013ff178 getMinAmbientLine NOLOOP depth=0
+013ff188 getMaxAmbientLine NOLOOP depth=0
+013ff198 getMinAngle NOLOOP depth=0
+013ff1a8 getMaxAngle NOLOOP depth=0
+013ff1b8 getMaxLineAngle NOLOOP depth=0
+013ff1c8 getMinAmbientWeak NOLOOP depth=0
+013ff1d8 getMaxAmbientWeak NOLOOP depth=0
+013ff1e8 getMinAmbientLineWeak NOLOOP depth=0
+013ff1f8 getMaxAmbientLineWeak NOLOOP depth=0
+013ff208 getMinAngleWeak NOLOOP depth=0
+013ff218 getMaxAngleWeak NOLOOP depth=0
+013ff228 getMaxLineAngleWeak NOLOOP depth=0
+013ff238 getMaxFogMulVal NOLOOP depth=0
+013ff248 getFogChangeSpeed NOLOOP depth=0
+013ff258 getSwordLineWidthMax NOLOOP depth=0
+013ff268 getSwordLineChangeSpeed NOLOOP depth=0
+013ff278 getSwordLlineChangeThreshold NOLOOP depth=0
+013ff288 getBossHPRatioBase NOLOOP depth=0
+013ff348 getSwordGlowDistMin NOLOOP depth=0
+013ff358 getSwordGlowDistMax NOLOOP depth=0
+013ff368 getCollisionGlowSpeed NOLOOP depth=0
+013ff378 getCollisionGlowTime NOLOOP depth=0
+013ff388 getCollisionPosOffset NOLOOP depth=0
+013ff398 gamecore_sub_013FF398 NOLOOP depth=0
+013ff3a0 gamecore_sub_013FF3A0 NOLOOP depth=0
+013ff508 SCRDirectionalArrowBegin NOLOOP depth=1
+013ff528 SCRDirectionalArrowEnd NOLOOP depth=1
+013ff560 timeAttackTimeScriptEnd NOLOOP depth=0
+01402078 GetTimeAttackNextPhase NOLOOP depth=0
+014020c8 GetTimeAttackTimer NOLOOP depth=0
+014020d8 SetTimeAttackTimeFlag NOLOOP depth=0
+014020e8 GetTimeAttackTimeLimit NOLOOP depth=0
+01402178 GetReplayNextPhase NOLOOP depth=0
+01402420 CloseTimeAttackMenu NOLOOP depth=0
+01404910 SCRTortoiseShoot NOLOOP depth=1
+01404930 SCRTortoisePulseCharge NOLOOP depth=1
+01404950 SCRTortoisePulseChargeStop NOLOOP depth=1
+01404c58 SCRFallRockDelete NOLOOP depth=1
+01404c78 SCRFallRockSub NOLOOP depth=1
+01407310 getSelectWeapon NOLOOP depth=0
+01407320 getWeaponName NOLOOP depth=0
+01407520 chkPossessWeapon NOLOOP depth=1 share=0.001
+01407568 sprWeaponSetMarker NOLOOP depth=0 share=0.000
+014075a0 sprWeaponGetMarkerPos NOLOOP depth=0
+014075b8 GetWeaponRange NOLOOP depth=2
+01407ce0 gamecore_sub_01407CE0 NOLOOP depth=1 share=0.006
+0140ae18 initSavePoint NOLOOP depth=0
+0140ae28 SetMapLogDispMode NOLOOP depth=0
+0140ae38 getSprLogWorkSize NOLOOP depth=0
+0140ae40 getSprLogWorkAddress NOLOOP depth=0
+0140ae50 getSprLogStatusSize NOLOOP depth=0
+0140ae58 getSprLogStatusAddress NOLOOP depth=0
+0140ae68 getLogLineColorR NOLOOP depth=0
+0140ae78 getLogLineColorG NOLOOP depth=0
+0140ae88 getLogLineColorB NOLOOP depth=0
+0140ae98 getLogLineColorA NOLOOP depth=0
+0140af68 initPauseMenuMap NOLOOP depth=0
+0140afb0 setLoadMapOffset NOLOOP depth=0
+0140b0c0 isInLoadWait NOLOOP depth=0
+0140b0d0 LoadWaitCancel NOLOOP depth=0
+0140c820 SCRYamori2BeginStand NOLOOP depth=1
+0140c840 SCRYamoriBReadyToBreeze NOLOOP depth=1
+0140c860 SCRYamoriBReadyToBreeze2 NOLOOP depth=1
+0140ebd0 gamecore_sub_0140EBD0 NOLOOP depth=1
+0140ee50 acted_camera_warp NOLOOP depth=0
+0140f418 get_camera_collision_data_base_filter_radius NOLOOP depth=0 share=0.002
+0140fcb0 gamecore_sub_0140FCB0 NOLOOP depth=1
+0140fe00 gamecore_sub_0140FE00 NOLOOP depth=0
+0140fe20 gamecore_sub_0140FE20 NOLOOP depth=0
+0140fe50 gamecore_sub_0140FE50 NOLOOP depth=0
+0140fe70 gamecore_sub_0140FE70 NOLOOP depth=0
+014109f8 get_cur_attr_camera_default_angle NOLOOP depth=1
+01410a10 is_safety_camera_default_angle NOLOOP depth=1 share=0.001
+01410a90 gamecore_sub_01410A90 NOLOOP depth=1
+01410ab8 gamecore_sub_01410AB8 NOLOOP depth=2 share=0.004
+01410c78 gamecore_sub_01410C78 NOLOOP depth=2 share=0.005
+01410ee8 gamecore_sub_01410EE8 NOLOOP depth=4 share=0.004
+01411250 constructor_camera_dist_to_look_at NOLOOP depth=2
+01411448 reset_time_interp_param_camera_dist_to_look_at NOLOOP depth=0
+01411460 begin_time_interp_camera_dist_to_look_at NOLOOP depth=0
+01411470 set_stretch_phase_ratio_camera_dist_to_look_at NOLOOP depth=0
+01411478 get_stretch_phase_ratio_camera_dist_to_look_at NOLOOP depth=0
+01411480 is_acting_rewind_camera_dist_to_look_at NOLOOP depth=0 share=0.000
+01411490 get_rewind_begin_dist_to_target_camera_dist_to_look_at NOLOOP depth=0 share=0.000
+014114b0 end_rewind_camera_dist_to_look_at NOLOOP depth=0
+014114b8 is_leave_camera_dist_to_look_at NOLOOP depth=0 share=0.000
+01411708 gamecore_sub_01411708 NOLOOP depth=0
+01411728 gamecore_sub_01411728 NOLOOP depth=2 share=0.006
+014119c0 constructor_camera_etc_condition NOLOOP depth=2
+014119e8 is_pass_camera_etc_condition NOLOOP depth=4 share=0.007
+01411aa8 set_post_boss_dead_playable_flag_camera_etc_condition NOLOOP depth=1
+01411ad0 gamecore_sub_01411AD0 NOLOOP depth=1
+01411af8 gamecore_sub_01411AF8 NOLOOP depth=0
+01412970 constructor_camera_pause_rise NOLOOP depth=0
+014129c0 init_camera_pause_rise NOLOOP depth=1
+01412a60 request_end_camera_pause_rise NOLOOP depth=0
+01412a70 is_end_camera_pause_rise NOLOOP depth=0
+01412a80 get_begin_interp_finish_time_camera_pause_rise NOLOOP depth=0
+01412a90 get_end_interp_finish_time_camera_pause_rise NOLOOP depth=0
+01412b90 gamecore_sub_01412B90 NOLOOP depth=1
+01413230 init_camera_place_status NOLOOP depth=3
+01413340 get_place_status_camera_place_status NOLOOP depth=0 share=0.000
+01413348 get_manage_obj_camera_place_status NOLOOP depth=0 share=0.000
+01413408 get_hit_camera_region_camera_place_status NOLOOP depth=0 share=0.000
+014134a0 get_cam_region_col_attr_camera_place_status NOLOOP depth=0
+014134b8 get_on_boss_camera_col_attr_camera_place_status NOLOOP depth=0 share=0.000
+014134d0 is_approach_rise_ok_camera_place_status NOLOOP depth=0 share=0.000
+01413538 is_cliff_rise_ok_camera_place_status NOLOOP depth=0 share=0.001
+014135b8 is_cliff_rise_delay_camera_place_status NOLOOP depth=0 share=0.000
+01413608 act_local_vs_ofst_camera_place_status NOLOOP depth=0 share=0.000
+01413668 act_horse_look_at_ofst_decrease_camera_place_status NOLOOP depth=0 share=0.001
+014136b8 act_look_at_ofst_cut_camera_place_status NOLOOP depth=0 share=0.000
+01413708 gamecore_sub_01413708 NOLOOP depth=0
+01413720 gamecore_sub_01413720 NOLOOP depth=0 share=0.001
+014140b8 gamecore_sub_014140B8 NOLOOP depth=1 share=0.007
+014141a0 CAM_reset_slope_cntrl NOLOOP depth=3
+01414200 CAM_get_interp_slope_pitch_ofst NOLOOP depth=0 share=0.000
+014144d0 gamecore_sub_014144D0 NOLOOP depth=0 share=0.002
+014144f0 gamecore_sub_014144F0 NOLOOP depth=0 share=0.007
+01414748 get_upper_limit_clip_default_pitch_camera_target_approach NOLOOP depth=1 share=0.001
+01414798 is_cut_default_pitch_interp_camera_target_approach NOLOOP depth=1 share=0.001
+014147e8 reset_pitch_rot_cntrl_camera_target_approach NOLOOP depth=2
+01414a48 get_status_camera_target_approach NOLOOP depth=1 share=0.001
+01414db0 constructor_camera_target_lost_angle NOLOOP depth=0
+01414e60 get_attr_camera_target_lost_angle NOLOOP depth=0
+01414e68 is_exist_camera_target_lost_angle NOLOOP depth=0
+01414e78 gamecore_sub_01414E78 NOLOOP depth=0
+01414eb0 gamecore_sub_01414EB0 NOLOOP depth=1
+014158b8 is_exist_camera_target_visible_angle NOLOOP depth=0
+01415900 set_parameter_camera_target_visible_angle_manager NOLOOP depth=0
+01415a40 end_get_yaw_pitch_camera_target_visible_angle_manager NOLOOP depth=0 share=0.000
+01415bb8 gamecore_sub_01415BB8 NOLOOP depth=1
+01415ca0 gamecore_sub_01415CA0 NOLOOP depth=0
+01416ac8 gamecore_sub_01416AC8 NOLOOP depth=2 share=0.009
+01419898 CAM_is_reach_aim_yaw NOLOOP depth=0
+01419938 CAM_is_reach_aim_pitch NOLOOP depth=0
+01419998 CAM_near_to_aim_yaw NOLOOP depth=2
+01419a98 CAM_near_to_aim_pitch NOLOOP depth=1
+01419b48 CAM_get_camera_position_by_look_at NOLOOP depth=0 share=0.003
+01419f68 CAM_add_plane_offset_in_position NOLOOP depth=0
+01419f98 CAM_get_mul_ratio_offset_per_axis NOLOOP depth=1
+0141a108 CAM_copy_camera_base_data NOLOOP depth=0
+0141a140 CAM_set_all_camera_base_data NOLOOP depth=0
+0141a160 CAM_interp_reset_aim_rot_common NOLOOP depth=0
+0141a170 CAM_set_clip_max_rot_vel_aim_rot_common NOLOOP depth=0
+0141a188 CAM_set_yaw_shortest_rot_flag_aim_rot_common NOLOOP depth=0
+0141a1f0 CAM_is_inside_of_stop_region_aim_rot_common NOLOOP depth=0
+0141a298 CAM_reset_aim_angle_rot NOLOOP depth=1
+0141a2c8 CAM_is_inside_of_region_aim_angle_rot NOLOOP depth=2 share=0.007
+0141a620 CAM_is_motion_kind_change_target NOLOOP depth=0
+0141a628 CAM_get_motion_kind_interp_timer_target NOLOOP depth=1
+0141a640 CAM_get_motion_kind_interp_ratio_target NOLOOP depth=1 share=0.001
+0141a658 CAM_motion_kind_is_look_around_motion_target NOLOOP depth=0 share=0.000
+0141a668 CAM_motion_kind_act_auto_yaw_rot_target NOLOOP depth=0
+0141a678 CAM_motion_kind_is_accept_auto_rot_motion_target NOLOOP depth=0
+0141a688 CAM_motion_kind_is_accept_follow_rot_motion_target NOLOOP depth=0
+0141a6e0 CAM_motion_kind_is_mode_lock_target NOLOOP depth=0
+0141a7b8 CAM_get_target_obj NOLOOP depth=0 share=0.001
+0141a7c0 CAM_get_target_riding_obj NOLOOP depth=0 share=0.001
+0141a7c8 CAM_get_ground_contact_obj NOLOOP depth=0 share=0.001
+0141aa80 CAM_is_visible_now_target_visibility NOLOOP depth=0 share=0.000
+0141aa90 CAM_is_return_cam_posi_target_visibility NOLOOP depth=0
+0141aa98 CAM_init_camera_warp_cntrl NOLOOP depth=1
+0141aad0 CAM_reset_camera_warp_cntrl NOLOOP depth=0
+0141aba8 CAM_act_warp_camera_warp_cntrl NOLOOP depth=1 share=0.004
+0141aca8 CAM_set_invisible_warp_apply_range_camera_warp_cntrl NOLOOP depth=0
+0141acb8 CAM_act_warp_order_camera_warp_cntrl NOLOOP depth=0
+0141b010 CAM_is_acting_view_cut_avoid_cntrl NOLOOP depth=0
+0141b020 CAM_set_param_view_cut_avoid_cntrl NOLOOP depth=0 share=0.000
+0141b030 CAM_reset_obstacle_avoid_cntrl NOLOOP depth=0
+0141b048 CAM_is_need_obstacle_avoid_ofst NOLOOP depth=1 share=0.002
+0141b0a0 CAM_act_avoid_rot_obstacle_avoid_cntrl NOLOOP depth=1 share=0.001
+0141b0f8 CAM_is_use_obstacle_target_ofst_interp_coe NOLOOP depth=0
+0141b110 CAM_constructor_base_look_at NOLOOP depth=0
+0141b428 gamecore_sub_0141B428 NOLOOP depth=0 share=0.001
+0141b450 gamecore_sub_0141B450 NOLOOP depth=1 share=0.001
+0141b480 gamecore_sub_0141B480 NOLOOP depth=0 share=0.001
+0141b488 gamecore_sub_0141B488 NOLOOP depth=3 share=0.020
+0141b520 gamecore_sub_0141B520 NOLOOP depth=1 share=0.007
+0141b5b8 gamecore_sub_0141B5B8 NOLOOP depth=2 share=0.002
+0141b7a0 gamecore_sub_0141B7A0 NOLOOP depth=1
+0141b810 gamecore_sub_0141B810 NOLOOP depth=4 share=0.006
+0141b900 gamecore_sub_0141B900 NOLOOP depth=0 share=0.001
+0141b978 gamecore_sub_0141B978 NOLOOP depth=0 share=0.000
+0141b988 gamecore_sub_0141B988 NOLOOP depth=0
+0141ba40 gamecore_sub_0141BA40 NOLOOP depth=0 share=0.001
+0141bb20 gamecore_sub_0141BB20 NOLOOP depth=0 share=0.001
+0141bb88 gamecore_sub_0141BB88 NOLOOP depth=1 share=0.004
+0141bc78 gamecore_sub_0141BC78 NOLOOP depth=0 share=0.001
+0141bcf8 gamecore_sub_0141BCF8 NOLOOP depth=0
+0141c0a8 gamecore_sub_0141C0A8 NOLOOP depth=0 share=0.004
+0141c0f0 gamecore_sub_0141C0F0 NOLOOP depth=1 share=0.001
+0141c110 gamecore_sub_0141C110 NOLOOP depth=1 share=0.001
+0141c138 gamecore_sub_0141C138 NOLOOP depth=1 share=0.001
+0141c160 gamecore_sub_0141C160 NOLOOP depth=1 share=0.001
+0141c4a0 gamecore_sub_0141C4A0 NOLOOP depth=1 share=0.006
+0141c518 gamecore_sub_0141C518 NOLOOP depth=1 share=0.002
+0141c718 doit_camera_view_angle_cntrl NOLOOP depth=4 share=0.009
+0141c940 constructor_camera_view_angle_cntrl NOLOOP depth=2
+0141c9b0 get_view_angle_camera_view_angle_cntrl NOLOOP depth=0 share=0.000
+0141c9b8 gamecore_sub_0141C9B8 NOLOOP depth=1 share=0.000
+0141c9e8 gamecore_sub_0141C9E8 NOLOOP depth=2 share=0.002
+0141cd68 get_camera_obj NOLOOP depth=0 share=0.006
+0141cd70 set_camera_mode NOLOOP depth=0
+0141cd78 get_cur_camera_mode NOLOOP depth=0
+0141cd80 get_camera_mode_name NOLOOP depth=0
+0141ce30 get_camera_target_group NOLOOP depth=0
+0141ce38 get_camera_move_collision_group NOLOOP depth=0
+0141ce48 get_player_collision_group_cameraman NOLOOP depth=0 share=0.001
+0141ce50 get_lws_animation_collision_group_cameraman NOLOOP depth=0
+0141ce58 get_game_camera NOLOOP depth=0 share=0.000
+0141ce60 get_cur_camera_target NOLOOP depth=0 share=0.002
+0141ce70 is_game_camera_mode_now NOLOOP depth=0
+0141ce80 is_camera_target_change NOLOOP depth=0 share=0.000
+0141ce98 is_camera_target_debug_move NOLOOP depth=0
+0141cea0 change_camera_target NOLOOP depth=0
+0141cf00 set_camera_parameter_cameraman NOLOOP depth=1 share=0.006
+0141cff8 get_camera_parameter_cameraman NOLOOP depth=1
+0141d178 gamecore_sub_0141D178 NOLOOP depth=0
+0141d180 gamecore_sub_0141D180 NOLOOP depth=0
+0141d370 get_main_cameraman NOLOOP depth=0 share=0.002
+0141d390 get_main_cameraman_camera_obj NOLOOP depth=1 share=0.033
+0141d3c0 get_cameraman NOLOOP depth=1
+0141d3f8 get_cameraman_camera_obj NOLOOP depth=1
+0141d480 change_main_cameraman NOLOOP depth=1
+0141d4b0 get_main_cameraman_id NOLOOP depth=0
+0141d4c0 is_main_cameraman_exist NOLOOP depth=0
+0141d4d8 get_total_cameraman NOLOOP depth=0
+0141d4f0 gamecore_sub_0141D4F0 NOLOOP depth=0
+0141e630 get_debug_camera_view_angle NOLOOP depth=0
+0141e640 get_debug_camera_view_angle_pointer NOLOOP depth=0
+0141e650 is_disp_game_camera_model_ok NOLOOP depth=0
+0141e660 is_disp_game_camera_model_ok_pointer NOLOOP depth=0
+0141e670 get_debug_camera_dist_to_look_at_pointer NOLOOP depth=0
+0141e680 set_debug_camera_move_diff NOLOOP depth=0
+01420ad0 gamecore_sub_01420AD0 NOLOOP depth=2 share=0.013
+01423410 gamecore_sub_01423410 NOLOOP depth=1
+01424be8 constructor_mode_common_camera_data NOLOOP depth=0
+01424c30 copy_mode_common_camera_data NOLOOP depth=0 share=0.001
+01424e18 reset_game_camera NOLOOP depth=0
+01424e28 get_game_camera_cur_mode NOLOOP depth=0 share=0.000
+01424e30 is_reset_or_lws_movie_game_camera NOLOOP depth=0 share=0.000
+01424e50 is_reset_or_lws_movie_or_cutout_game_camera NOLOOP depth=1 share=0.016
+01424eb0 is_reset_or_lws_fixed_point_or_lws_movie_or_cutout_game_camera NOLOOP depth=1
+01424f38 get_cur_using_lws_anime_mode_base_class NOLOOP depth=0 share=0.001
+01424f68 get_look_at_position_game_camera NOLOOP depth=0
+01424f78 jack_game_camera NOLOOP depth=0
+01424f88 end_jack_game_camera NOLOOP depth=1
+01424fa0 begin_pause_rise_game_camera NOLOOP depth=2
+01424fe8 request_end_pause_rise_game_camera NOLOOP depth=1
+01425008 is_end_pause_rise_game_camera NOLOOP depth=1
+01425020 is_game_camera_standby_ok NOLOOP depth=0
+01425028 reset_game_camera_standby_flag NOLOOP depth=0
+01425030 set_object_interest_mode_target_game_camera NOLOOP depth=0
+01425038 get_object_interest_mode_target_game_camera NOLOOP depth=0 share=0.000
+01425040 begin_object_interest_game_camera NOLOOP depth=0
+01425050 end_object_interest_game_camera NOLOOP depth=0
+01425090 is_hit_leave_plane_game_camera NOLOOP depth=5 share=0.001
+014250f0 get_look_lws_anime_camera_flag NOLOOP depth=0
+01425100 get_cur_using_camera_mode_condition_param_game_camera NOLOOP depth=1
+01425118 get_cur_using_camera_mode_manager_param_game_camera NOLOOP depth=1
+014252d8 begin_stream_lws_movie_playing_game_camera NOLOOP depth=0
+014252e8 end_stream_lws_movie_playing_game_camera NOLOOP depth=0
+01425378 get_boss_interest_position_game_camera NOLOOP depth=0 share=0.000
+014253b0 get_object_interest_position_game_camera NOLOOP depth=0
+014254e8 is_mode_change_game_camera NOLOOP depth=1
+01425518 is_view_angle_zoom_game_camera NOLOOP depth=1 share=0.001
+01425548 is_view_angle_exist_lws_anime_mode_base NOLOOP depth=0
+01425568 get_view_angle_lws_anime_mode_base NOLOOP depth=0
+01425660 free_camera_mode_manager_segment NOLOOP depth=0
+014256a0 getBossInterestKey NOLOOP depth=0
+014256b0 getInterestKey NOLOOP depth=0
+014256c0 getZoomKey NOLOOP depth=0
+014256d0 setBossInterestKey NOLOOP depth=0
+014256e0 setInterestKey NOLOOP depth=0
+014256f0 setZoomKey NOLOOP depth=0
+01425700 gamecore_sub_01425700 NOLOOP depth=0 share=0.000
+01425788 gamecore_sub_01425788 NOLOOP depth=0 share=0.001
+014257a8 gamecore_sub_014257A8 NOLOOP depth=0
+01425a90 gamecore_sub_01425A90 NOLOOP depth=2
+01425aa8 gamecore_sub_01425AA8 NOLOOP depth=2
+01425ac0 gamecore_sub_01425AC0 NOLOOP depth=0
+01425b78 gamecore_sub_01425B78 NOLOOP depth=1 share=0.001
+01425d20 gamecore_sub_01425D20 NOLOOP depth=0 share=0.001
+01425e70 gamecore_sub_01425E70 NOLOOP depth=4 share=0.005
+01426250 gamecore_sub_01426250 NOLOOP depth=0
+014262a0 gamecore_sub_014262A0 NOLOOP depth=0
+014262b0 gamecore_sub_014262B0 NOLOOP depth=0
+014262b8 gamecore_sub_014262B8 NOLOOP depth=0
+01426368 gamecore_sub_01426368 NOLOOP depth=0
+014269d0 gamecore_sub_014269D0 NOLOOP depth=2
+01426a30 gamecore_sub_01426A30 NOLOOP depth=1 share=0.002
+01426b18 gamecore_sub_01426B18 NOLOOP depth=0
+01426b20 gamecore_sub_01426B20 NOLOOP depth=0
+01426b28 gamecore_sub_01426B28 NOLOOP depth=1 share=0.002
+01426e88 gamecore_sub_01426E88 NOLOOP depth=2
+01427028 gamecore_sub_01427028 NOLOOP depth=1
+01427230 gamecore_sub_01427230 NOLOOP depth=0
+01428cd0 gamecore_sub_01428CD0 NOLOOP depth=0 share=0.036
+014296f8 gamecore_sub_014296F8 NOLOOP depth=0 share=0.022
+01429bc0 gamecore_sub_01429BC0 NOLOOP depth=0 share=0.016
+0142b968 gamecore_sub_0142B968 NOLOOP depth=0 share=0.018
+0142c108 get_cur_base_mode_condition_game_camera_param_manager NOLOOP depth=0
+0142c110 get_cur_base_mode_manager_game_camera_param_manager NOLOOP depth=0
+0142c118 is_base_mode_manager_update_game_camera_param_manager NOLOOP depth=0
+0142c120 get_interp_game_camera_param_game_camera_param_manager NOLOOP depth=0
+0142c128 get_interp_time_game_camera_param_manager NOLOOP depth=0
+0142c1a0 is_base_default_dir_attr_change_game_camera_param_manager NOLOOP depth=0 share=0.000
+0142c248 act_camera_cutout_game_camera_param_manager NOLOOP depth=0 share=0.001
+0142c270 drop_camera_cutout_flag_game_camera_param_manager NOLOOP depth=0 share=0.000
+0142c278 constructor_game_camera_param_update_data_manager NOLOOP depth=0 share=0.000
+0142c398 is_already_set_game_camera_param_update_data_manager NOLOOP depth=0
+0142c3b8 constructor_game_camera_mode_local_parameter NOLOOP depth=0
+0142c428 get_mode_common_data_filter_base_dist_to_look_at NOLOOP depth=0 share=0.000
+0142c440 gamecore_sub_0142C440 NOLOOP depth=0 share=0.002
+0142c530 gamecore_sub_0142C530 NOLOOP depth=0 share=0.001
+0142c7f0 gamecore_sub_0142C7F0 NOLOOP depth=1 share=0.002
+0142c8b0 gamecore_sub_0142C8B0 NOLOOP depth=0
+01431c30 delISysPathObj NOLOOP depth=0
+01431c38 setBossPathColiGroup NOLOOP depth=0
+01431c48 setHorsePathColiGroup NOLOOP depth=0
+01431c58 getPathColiGroup NOLOOP depth=1
+01431c70 getPathColiGroupByType NOLOOP depth=0 share=0.001
+01431ca0 getAimPosFromPathManager NOLOOP depth=1
+01431ce0 getPassageWork NOLOOP depth=0 share=0.003
+01431d18 getPassageNum NOLOOP depth=0
+01431da0 setDataHeaderFromAreaIdx NOLOOP depth=0 share=0.000
+01431ed0 setRealColJudgeFunc NOLOOP depth=0
+01431ed8 getRealColJudgeFunc NOLOOP depth=0
+01431ee0 setSelfColAndNearMinDist NOLOOP depth=0
+01431ef0 setLockPassageWork NOLOOP depth=1 share=0.000
+01431f38 setStabilizeYPathWork NOLOOP depth=0
+01431f40 setAngleStabilizeYPathWork NOLOOP depth=0
+01431f48 setRayByRealColPathWork NOLOOP depth=0
+01431f50 setPassageWideRayPathWork NOLOOP depth=0
+01431f58 setExecRayChkPathWork NOLOOP depth=0 share=0.000
+01431f60 setRayCutPassageWork NOLOOP depth=1
+01431fa8 setForceRouteAttrPathWork NOLOOP depth=0
+01431fb0 setRouteColCheckPathWork NOLOOP depth=0
+01431fb8 setRouteLockPathWork NOLOOP depth=0
+01431fc0 setPlayerWayColCheckPathWork NOLOOP depth=0
+01431fc8 setFollowModePathWork NOLOOP depth=0
+01431fd0 setPassageCallBack NOLOOP depth=0
+01432018 setUserPathMode NOLOOP depth=0
+01432020 setPassageRangeData NOLOOP depth=0
+01432030 setAttainRangeData NOLOOP depth=0
+01432050 setAttainRangeStruct NOLOOP depth=0
+014320b0 setCreateTempAttain NOLOOP depth=0
+01432700 setAttainModePathWork NOLOOP depth=0
+01432708 setAttainRadPathWork NOLOOP depth=0
+01432710 getPathInfo NOLOOP depth=0
+01432740 getWayFinish NOLOOP depth=0
+01432760 getPathStatus NOLOOP depth=0
+014327d0 useTempAttain NOLOOP depth=0
+014327f8 getWayForRoute NOLOOP depth=0
+01432800 getLastAttainUpdate NOLOOP depth=0
+01432808 getLastPassagePointIdx NOLOOP depth=0
+01432810 getLastPassageAreaIdx NOLOOP depth=0
+01432818 getNowPassagePointIdx NOLOOP depth=0
+01432820 getNowPassageAreaIdx NOLOOP depth=0
+014328a8 setSearchRadius NOLOOP depth=0
+014328d0 setSearchPointMax NOLOOP depth=0
+014328e8 setPathRayWideParam NOLOOP depth=0
+01433120 resetPassageWork NOLOOP depth=0
+01433848 forceSetWayFinish NOLOOP depth=1
+014338a0 forceAddPassageWork NOLOOP depth=0
+01433f60 getColiGroupByUserPathWork NOLOOP depth=0
+01433f98 gamecore_sub_01433F98 NOLOOP depth=0
+014340f0 gamecore_sub_014340F0 NOLOOP depth=0
+01434440 gamecore_sub_01434440 NOLOOP depth=1
+01434cf8 gamecore_sub_01434CF8 NOLOOP depth=0 share=0.001
+01434f90 gamecore_sub_01434F90 NOLOOP depth=0
+014359c8 setUserPathExMode NOLOOP depth=0
+014359d0 setUserPathGroupID NOLOOP depth=0
+014359e0 getUserPathExMode NOLOOP depth=0
+014359e8 getPathExFinish NOLOOP depth=0
+01435a30 getPPointPasasgeNum NOLOOP depth=0
+01435a50 setGPSelectMode NOLOOP depth=0
+01435a58 setForceInitPathEx NOLOOP depth=0
+01435a60 setGpReferencePathEx NOLOOP depth=0
+01435b28 changedDPGroupID NOLOOP depth=0
+01435b50 setGpCalcDist NOLOOP depth=0
+01435ef0 gamecore_sub_01435EF0 NOLOOP depth=0
+01437a60 _setExecBaseMoveWork NOLOOP depth=0
+01437a68 _setStopCtrlModeBaseMoveWork NOLOOP depth=0
+01437a70 _getStopCtrlModeBaseMoveWork NOLOOP depth=0
+01437a78 _setBackVolumeBaseMoveWork NOLOOP depth=0
+01437a80 _setSlideVolumeBaseMoveWork NOLOOP depth=0
+01437a88 _resetBaseMoveWork NOLOOP depth=1
+01437b80 _getExecBaseMoveWork NOLOOP depth=0
+01437b88 _setAttainFlagBaseMoveWork NOLOOP depth=0
+01437f28 calcDownSpeedRatio NOLOOP depth=0
+01438448 gamecore_sub_01438448 NOLOOP depth=0
+0143d558 getLandMotionOffset NOLOOP depth=0
+0143d568 setParamBirdCtrlWork NOLOOP depth=0
+0143d5b8 setRouteAttackBirdCtrlWork NOLOOP depth=0
+0143d5c8 resetRouteAttackBirdCtrlWork NOLOOP depth=0
+0143d5d8 setFlapWingBirdCtrlWork NOLOOP depth=0
+0143d5e0 setHoveringBirdCtrlWork NOLOOP depth=0
+0143d5e8 setHoverAttackBirdCtrlWork NOLOOP depth=0
+0143d660 gamecore_sub_0143D660 NOLOOP depth=0
+0143d690 gamecore_sub_0143D690 NOLOOP depth=0
+0143d6f8 gamecore_sub_0143D6F8 NOLOOP depth=0
+0143d718 gamecore_sub_0143D718 NOLOOP depth=0
+01440ef0 setDashFastLegCtrlWork NOLOOP depth=0
+01440ef8 setFinalAttainWalkFastLegCtrlWork NOLOOP depth=0
+01440f00 setAllowMaxSpeedFastLegCtrlWork NOLOOP depth=0
+01440f18 setBackFastLegCtrlWork NOLOOP depth=0
+01440f20 setNotFastTurnFastLegCtrlWork NOLOOP depth=0
+01440f28 setRunStopTurnFastLegCtrlWork NOLOOP depth=0
+01440f30 setWalkStopTurnFastLegCtrlWork NOLOOP depth=0
+01440f38 setCurveCollisionFastLegCtrlWork NOLOOP depth=0
+01440f40 getChkColWidth NOLOOP depth=0
+01440f48 setRunStopTurnAngleFastLegCtrlWork NOLOOP depth=0
+01440f60 gamecore_sub_01440F60 NOLOOP depth=2
+01440fe0 gamecore_sub_01440FE0 NOLOOP depth=0
+01441020 gamecore_sub_01441020 NOLOOP depth=0
+01441210 gamecore_sub_01441210 NOLOOP depth=0
+014418d0 setExecGazeCtrlWork NOLOOP depth=0
+014418d8 setViewJudgeGazeCtrlWork NOLOOP depth=0
+014418e0 setNextDistGazeCtrlWork NOLOOP depth=0
+014418e8 setValidPosGazeCtrlWork NOLOOP depth=0
+014418f0 setPosGazeCtrlWork NOLOOP depth=0
+01441968 setBirdModeGazeCtrlWork NOLOOP depth=0
+01441970 setGazeCoffGazeCtrlWork NOLOOP depth=0
+01441a68 chkGazeTool NOLOOP depth=0
+01441a78 getGazeToolPos NOLOOP depth=0
+01444370 gamecore_sub_01444370 NOLOOP depth=0
+014444d0 setDashHorseCtrlWork NOLOOP depth=0
+014444d8 setWallStopHorseCtrlWork NOLOOP depth=0
+014444e0 setLimitModeHorseCtrlWork NOLOOP depth=0
+014444e8 setFinalAttainWalkHorseCtrlWork NOLOOP depth=0
+014444f0 setAllowMaxSpeedHorseCtrlWork NOLOOP depth=0
+01444510 setFreezeHorseCtrlWork NOLOOP depth=0 share=0.000
+01444518 gamecore_sub_01444518 NOLOOP depth=2
+01444568 gamecore_sub_01444568 NOLOOP depth=0 share=0.001
+014454a8 setDashHumanCtrlWork NOLOOP depth=0
+014460a8 chkMoveAngle NOLOOP depth=0
+01446120 chkMoveAngle2 NOLOOP depth=0
+014466d8 chkLeftPointForLineXZ NOLOOP depth=0
+014467a0 chkUpPointForLineYZ NOLOOP depth=0
+01446868 adjustAngleForLimit NOLOOP depth=0 share=0.001
+01446f80 adjustAnglePI NOLOOP depth=0 share=0.001
+01447178 getValueInterp NOLOOP depth=1 share=0.001
+01449810 setDashSlowLegCtrlWork NOLOOP depth=0
+01449818 setStabilizeYSlowLegCtrlWork NOLOOP depth=0
+01449820 setMoveModeSlowLegCtrlWork NOLOOP depth=0
+01449828 setMotScaleMaxSlowLegCtrlWork NOLOOP depth=0
+01449830 setAttainMotScaleSlowLegCtrlWork NOLOOP depth=0
+01449838 setGuardModeSlowLegCtrlWork NOLOOP depth=0
+014498b8 gamecore_sub_014498B8 NOLOOP depth=0
+0144ac08 gamecore_sub_0144AC08 NOLOOP depth=2
+0144cc60 setAttainSpeedWormCtrlWork NOLOOP depth=0
+0144cc98 setAttackParamWormCtrlWork NOLOOP depth=0
+0144cd18 setRotParamWormCtrlWork NOLOOP depth=0
+0144cd38 setChkKeepHitWormCtrlWork NOLOOP depth=0
+0144cd40 setRotColCheckWormCtrlWork NOLOOP depth=0
+0144cd48 setMiddleTargetWormCtrlWork NOLOOP depth=0
+0144cd50 setObstacleWormCtrlWork NOLOOP depth=0
+0144cd58 setSelfEvasionUpWormCtrlWork NOLOOP depth=0
+0144cd60 setTypeWormCtrlWork NOLOOP depth=0
+0144cd68 setFallGravCoffWormCtrlWork NOLOOP depth=0
+0144cd70 setMaxFallSpeedWormCtrlWork NOLOOP depth=0
+0144cd78 setGroundFrictionCoffWormCtrlWork NOLOOP depth=0
+0144cd80 setUnderFrictionCoffWormCtrlWork NOLOOP depth=0
+0144cd88 setWorldPitchLimitWormCtrlWork NOLOOP depth=0
+0144cdb8 resetVelocityWormCtrlWork NOLOOP depth=0
+0144cdd8 setAcceleParamWormCtrlWork NOLOOP depth=0
+0144cde8 setColOffsetJudgeFunc NOLOOP depth=0
+0144cdf0 getBuryingWormCtrlWork NOLOOP depth=0
+0144cdf8 gamecore_sub_0144CDF8 NOLOOP depth=2
+0144cea8 gamecore_sub_0144CEA8 NOLOOP depth=0
+0144d3a0 createArrowThrustWork NOLOOP depth=0
+01451658 SCRFuncSetGameFlagByGameObj NOLOOP depth=2
+01451790 SCRFuncSetGameFlag NOLOOP depth=1
+014517a8 SCRFuncClsGameFlag NOLOOP depth=1
+01452340 SCRFuncSetAutoBossGazePos NOLOOP depth=1
+01452d70 SCRFuncSegmentLoadWait NOLOOP depth=1
+01452f40 SCRFuncSetGameWork NOLOOP depth=1
+01456098 setSCRAttainRange NOLOOP depth=1
+01456378 setConditionResultBoss NOLOOP depth=0
+01456388 setConditionResultHorse NOLOOP depth=0
+01456398 SCRConditionResultBoss NOLOOP depth=0
+014563a8 SCRConditionResultHorse NOLOOP depth=0
+014563b8 SCRConditionTrue NOLOOP depth=0
+01458b00 SCRConditionGameFlagCheckByGameObj NOLOOP depth=2
+01458c40 SCRConditionGameFlagCheck NOLOOP depth=1 share=0.003
+01458f58 SCRConditionOverPlayerLife NOLOOP depth=3 share=0.002
+01458f98 SCRConditionLessPlayerLife NOLOOP depth=3
+01458fd8 SCRConditionOverPlayerGrip NOLOOP depth=1
+01459010 SCRConditionLessPlayerGrip NOLOOP depth=1
+014591a0 SCRConditionCheckGameObjLwsPlayMode NOLOOP depth=1
+01459360 SCRConditionSwordFlareHitColAttr NOLOOP depth=1
+01459638 SCRConditionSegmentLoad NOLOOP depth=2
+01459a20 SCRConditionInvisibilityCloak NOLOOP depth=1
+01459a38 SCRConditionGetOmakeFlag NOLOOP depth=1
+01459a50 SCRConditionChkDisplayOmakeCompleteAlert NOLOOP depth=0
+01459ab8 SCRConditionCheckGameClearCnt NOLOOP depth=1
+01459ae8 SCRConditionHardMode NOLOOP depth=1
+01459b00 SCRConditionOverGameWork NOLOOP depth=1
+0145ae68 setScrDemoMangerFinishCallback NOLOOP depth=0
+0145ae80 pauseEventDemoManger NOLOOP depth=0
+0145b1c0 gamecore_sub_0145B1C0 NOLOOP depth=1
+0145bab0 startHintWork NOLOOP depth=1
+0145c100 initInterestWork NOLOOP depth=0
+0145c118 getInterestExec NOLOOP depth=0
+0145c990 setPerceptionParam NOLOOP depth=0
+0145ca68 forceSetPerceptionWork NOLOOP depth=0
+0145cab0 forceRenewLastPosPerceptionWork NOLOOP depth=0
+0145cad0 equipmentInvisibilityCloak NOLOOP depth=1 share=0.001
+0145d688 getSizeAimIKWork NOLOOP depth=0
+0145d690 initAimIKWork NOLOOP depth=0
+0145dfc8 getSizeAttackIKWork NOLOOP depth=0
+0145dfd0 initAttackWaistIKWork NOLOOP depth=0
+0145ef58 gamecore_sub_0145EF58 NOLOOP depth=0
+0145f0e0 getSizeBeardIKWork NOLOOP depth=0
+0145fcd8 gamecore_sub_0145FCD8 NOLOOP depth=1 share=0.007
+01461758 setRatioGazeIKWork NOLOOP depth=0
+014617b8 setGoingAngleGazeIKWork NOLOOP depth=0
+014617d0 setGazeDirGazeIKWork NOLOOP depth=0
+014617f0 setSubParamGazeIKWork NOLOOP depth=0
+01461808 setGazeModeGazeIKWork NOLOOP depth=0 share=0.000
+01461820 setExecRootQuatGazeIKWork NOLOOP depth=0
+01461838 setExecGazeIKWork NOLOOP depth=0 share=0.000
+01461850 updateGazeIKWork NOLOOP depth=0
+014621b0 getSizeTailIKWork NOLOOP depth=0
+014621b8 initTailIKWork NOLOOP depth=0
+01462310 ReflectIK_initWormDynamics NOLOOP depth=0
+014647e0 setWormIKBoundDynamics NOLOOP depth=0
+01464820 setWormIKBankInterpSec NOLOOP depth=0
+01464828 setWormIKAttainXVector NOLOOP depth=0
+01464aa0 getEventScriptClass NOLOOP depth=0 share=0.001
+01464b58 getEventScriptObjWorkSize NOLOOP depth=2
+01464d28 SCRFuncActiveDemoCancel NOLOOP depth=1
+01464e90 gamecore_sub_01464E90 NOLOOP depth=1
+01464eb8 SCRConditionSoundSignal NOLOOP depth=1
+01465308 getSScriptWork NOLOOP depth=0 share=0.000

@@ -862,6 +862,24 @@ extern bool g_ps2DirectCalls;
 #define PS2_TAIL_GUEST_DIRECT(target, direct) \
     PS2Runtime::tailGuestKnown(PS2_N3_FN(target, direct), &direct, rdram, ctx, runtime, (target))
 
+// Round N6: a JAL into a function with no loop and no thread switch anywhere below it (docs/n5_noloop.txt, written by
+// tools/n5_blocking.py --noloop; tools/n6_nochk.py and ps2xRecomp's PS2X_RECOMP_NOCHK_LIST write these forms): as
+// PS2_CALL_GUEST_KNOWN / PS2_CALL_GUEST_DIRECT, but while NOCHK is on (PS2Runtime::setNoCheck: switch n6nochk, only with n5sched in effect)
+// and the slot holds the known function, the dispatch checkpoint is charged and not tested
+// (PS2Runtime::callGuestKnownNoCheck). PS2X_N6_NOCHK=0 (define): the plain forms.
+#ifndef PS2X_N6_NOCHK
+#define PS2X_N6_NOCHK 1
+#endif
+#if PS2X_N6_NOCHK
+#define PS2_CALL_GUEST_NOCHK(target, function, returnPc, sourcePc, kind, name) \
+    runtime->callGuestKnownNoCheck(PS2_GUEST_FN(target), &function, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
+#define PS2_CALL_GUEST_DIRECT_NOCHK(target, direct, returnPc, sourcePc, kind, name) \
+    runtime->callGuestKnownNoCheck(PS2_N3_FN(target, direct), &direct, rdram, ctx, (target), (returnPc), (sourcePc), PS2Runtime::GuestBranchKind::kind, name)
+#else
+#define PS2_CALL_GUEST_NOCHK PS2_CALL_GUEST_KNOWN
+#define PS2_CALL_GUEST_DIRECT_NOCHK PS2_CALL_GUEST_DIRECT
+#endif
+
 // A J to a generated function's entry, a tail jump (round 43): whatever the
 // table's slot holds runs (a native, a hook, a difftest checker), called
 // directly while it holds that function. ctx->pc is the target already (the

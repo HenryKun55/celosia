@@ -23,9 +23,10 @@ import sys
 
 REG = re.compile(r'^SOTC_DECOMP_LIFT_FUNCTION(?:_D\d+)?\((0x[0-9A-Fa-f]+)u, (\w+), lift_d1::(\w+), (\w+)\);$', re.M)
 BODY = re.compile(r'^void (\w+)\(uint8_t \*rdram, R5900Context \*ctx, PS2Runtime \*runtime\)$', re.M)
-CALL = re.compile(r'PS2_CALL_GUEST_KNOWN\((0x[0-9A-Fa-f]+)u, (\w+), ')
+# Round N6: the NOCHK forms (tools/n6_nochk.py) keep their suffix: PS2_CALL_GUEST_NOCHK <-> PS2_CALL_GUEST_DIRECT_NOCHK.
+CALL = re.compile(r'PS2_CALL_GUEST_(?:KNOWN|(NOCHK))\((0x[0-9A-Fa-f]+)u, (\w+), ')
 TAIL = re.compile(r'PS2_TAIL_GUEST_KNOWN\((0x[0-9A-Fa-f]+)u, (\w+)\)')
-DCALL = re.compile(r'PS2_CALL_GUEST_DIRECT\((0x[0-9A-Fa-f]+)u, lift_d1::(\w+), ')
+DCALL = re.compile(r'PS2_CALL_GUEST_DIRECT(_NOCHK)?\((0x[0-9A-Fa-f]+)u, lift_d1::(\w+), ')
 DTAIL = re.compile(r'PS2_TAIL_GUEST_DIRECT\((0x[0-9A-Fa-f]+)u, lift_d1::(\w+)\)')
 DECL_BEGIN = '// N3 direct-call declarations (tools/n3_direct.py)\n'
 DECL_END = '// N3 direct-call declarations end\n'
@@ -91,7 +92,7 @@ def main():
         t = texts[f]
         t = strip_block(strip_block(t, DECL_BEGIN, DECL_END), REG_BEGIN, REG_END)
         # back to the KNOWN forms first (idempotent; the exclusions may have changed)
-        t = DCALL.sub(lambda m: f'PS2_CALL_GUEST_KNOWN({m.group(1)}u, {lifted[int(m.group(1), 16)][1]}, ', t)
+        t = DCALL.sub(lambda m: f'PS2_CALL_GUEST_{"NOCHK" if m.group(1) else "KNOWN"}({m.group(2)}u, {lifted[int(m.group(2), 16)][1]}, ', t)
         t = DTAIL.sub(lambda m: f'PS2_TAIL_GUEST_KNOWN({m.group(1)}u, {lifted[int(m.group(1), 16)][1]})', t)
         if args.undo:
             texts[f] = t
@@ -99,12 +100,15 @@ def main():
         used = {}
 
         def direct(m, tail):
-            a = int(m.group(1), 16)
+            g = 1 if tail else 2  # the address's group (CALL has the NOCHK suffix first)
+            a = int(m.group(g), 16)
             if a not in lifted or a in excluded:
                 return m.group(0)
             name = lifted[a][0]
             used[a] = name
-            return f'PS2_TAIL_GUEST_DIRECT({m.group(1)}u, lift_d1::{name})' if tail else f'PS2_CALL_GUEST_DIRECT({m.group(1)}u, lift_d1::{name}, '
+            if tail:
+                return f'PS2_TAIL_GUEST_DIRECT({m.group(1)}u, lift_d1::{name})'
+            return f'PS2_CALL_GUEST_DIRECT{"_NOCHK" if m.group(1) else ""}({m.group(2)}u, lift_d1::{name}, '
 
         t, n1 = CALL.subn(lambda m: direct(m, False), t)
         t, n2 = TAIL.subn(lambda m: direct(m, True), t)

@@ -1577,6 +1577,16 @@ void ps2DumpReplacedFunctions()
     replacedLog().dump();
 }
 
+// Round N6: PS2_CALL_GUEST_NOCHK (ps2_runtime.h callGuestKnownNoCheck): its counters, and the counted unwind after a
+// call whose test was skipped (the cold path).
+Ps2NoCheckStats g_ps2NoCheckStats;
+
+bool PS2Runtime::noCheckFinish(R5900Context *ctx, uint32_t entryPc, uint32_t returnPc, uint32_t jumpSerial)
+{
+    ++g_ps2NoCheckStats.unwound;
+    return finishGuestCall(ctx, entryPc, returnPc, jumpSerial);
+}
+
 // Round N3: direct calls from generated code (PS2_CALL_GUEST_DIRECT / PS2_TAIL_GUEST_DIRECT, ps2_runtime_macros.h).
 // g_ps2DirectCalls is set only while every registered direct target's slot holds its direct function: armed once the
 // overrides are in (ps2DirectArm), then every slot write through replaceFunction keeps the count of targets whose slot
@@ -3002,6 +3012,18 @@ bool PS2Runtime::eeCheckpointSlowBody() noexcept
         m_eeClock.run = 0;
         return false;
     }
+#if !PS2X_EE_CLOCK64
+    // Round N6: how far past an open gate the clock was when a checkpoint saw it (NOCHK off / on).
+    if (m_eeClock.limit != 0u && m_eeClock.run >= m_eeClock.limit)
+    {
+        const int on = noCheckOn() ? 1 : 0;
+        const uint32_t over = m_eeClock.run - m_eeClock.limit;
+        ++g_ps2NoCheckStats.gateHits[on];
+        g_ps2NoCheckStats.overSum[on] += over;
+        if (over > g_ps2NoCheckStats.overMax[on])
+            g_ps2NoCheckStats.overMax[on] = over;
+    }
+#endif
     return m_eeScheduler->checkpointSlow();
 }
 

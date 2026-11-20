@@ -6,12 +6,43 @@
 #include "ps2_runtime_calls.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <fmt/format.h>
+#include <fstream>
 #include <sstream>
+#include <unordered_set>
 #include <utility>
 
 namespace ps2recomp
 {
+    namespace
+    {
+        // Round N6 (docs/native_n6.md): PS2X_RECOMP_NOCHK_LIST=<docs/n5_noloop.txt> at recompile time: a JAL to a listed
+        // function (no loop and no thread switch anywhere below it: tools/n5_blocking.py --noloop) is written as
+        // PS2_CALL_GUEST_NOCHK (the dispatch checkpoint charged, not tested, while the runtime's switch allows it).
+        // tools/n6_nochk.py is the same rewrite for files already generated. Unset: the plain form.
+        bool noCheckTarget(uint32_t address)
+        {
+            static const std::unordered_set<uint32_t> targets = []
+            {
+                std::unordered_set<uint32_t> out;
+                const char *path = std::getenv("PS2X_RECOMP_NOCHK_LIST");
+                if (!path || !*path)
+                    return out;
+                std::ifstream in(path);
+                std::string line;
+                while (std::getline(in, line))
+                {
+                    if (line.empty() || line[0] == '#')
+                        continue;
+                    out.insert(static_cast<uint32_t>(std::strtoul(line.c_str(), nullptr, 16)));
+                }
+                return out;
+            }();
+            return targets.count(address) != 0;
+        }
+    }
+
     ControlFlowEmitter::ControlFlowEmitter(CodeGenerator &generator,
                                            const Instruction &branchInst,
                                            const Instruction &delaySlot,
@@ -297,8 +328,8 @@ namespace ps2recomp
             const std::string functionName = m_gen.getFunctionName(target);
             if (!functionName.empty())
             {
-                m_ss << fmt::format("{}if (!PS2_CALL_GUEST_KNOWN(0x{:X}u, {}, 0x{:X}u, 0x{:X}u, DirectCall, \"JAL\")) {{\n",
-                                    indent, target, functionName, fallthroughPc(), branchPc());
+                m_ss << fmt::format("{}if (!PS2_CALL_GUEST_{}(0x{:X}u, {}, 0x{:X}u, 0x{:X}u, DirectCall, \"JAL\")) {{\n",
+                                    indent, noCheckTarget(target) ? "NOCHK" : "KNOWN", target, functionName, fallthroughPc(), branchPc());
                 m_ss << fmt::format("{}    return;\n", indent);
                 m_ss << fmt::format("{}}}\n", indent);
                 return;

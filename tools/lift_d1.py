@@ -2154,6 +2154,8 @@ def main():
     ap.add_argument('--d20', action='store_true', help="decomp D20's batch: SOTC_DECOMP_LIFT_FUNCTION_D20 (SOTC_LIFTD20), as --d7 otherwise")
     ap.add_argument('--no-direct', action='store_true', help="N3: leave the calls between lifted functions as table calls "
                     "(otherwise tools/n3_direct.py runs over every lifted batch next to the output after writing)")
+    ap.add_argument('--no-nochk', action='store_true', help="N6: leave the calls into docs/n5_noloop.txt's functions in the plain "
+                    "form (otherwise tools/n6_nochk.py runs over every lifted batch after n3_direct.py: PS2_CALL_GUEST_NOCHK)")
     ap.add_argument('--no-basemem', action='store_true', help="N1: keep guest accesses as READ32(ADD32(base, off)) (the old "
                     "text) instead of the base form READ32_B(base, off) (tools/n1_basemem.py)")
     ap.add_argument('addrs', nargs='+')
@@ -2293,7 +2295,9 @@ def main():
         outdir = os.path.dirname(os.path.abspath(args.out))
         batches = [f for f in glob.glob(os.path.join(outdir, 'decomp_liftd*_*.cpp')) if re.search(r'decomp_liftd\d+_\d+\.cpp$', f)]
         if batches:
-            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n3_direct.py')] + sorted(batches), check=True)
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n3_direct.py'), '--exclude', os.path.join(REPO, 'tools/n3_direct_exclude.txt')] + sorted(batches), check=True)
+            if not args.no_nochk:  # N6: calls into functions with no loop / thread switch below them charge, not test, the checkpoint
+                subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n6_nochk.py')] + sorted(batches), check=True)
     if args.inline_log:
         open(args.inline_log, 'w').write(''.join(x + '\n' for x in ilog))
     if args.inline:

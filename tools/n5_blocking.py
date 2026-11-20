@@ -28,7 +28,14 @@ reason: the seed kind for a seed, `calls` for a transitive member, `-` for NOBLO
 back edge (a checkpoint: it can still be preempted there on a thread other than the game thread, or when S17 does not
 nest). The header counts the set and, with --profile, its share of the riding profile.
 
-Usage: n5_blocking.py [--out docs/n5_blocking.txt] [--profile syms.txt] [--jobs 2]
+--noloop FILE (round N6, docs/native_n6.md): also write the NOBLOCK functions with no loop anywhere below them: the
+least fixpoint over the call edges (a function qualifies when it has no loop back edge, is not a hand-written native
+or other host slot, and every callee already qualifies; leaves first, so a recursive cycle never qualifies). A call
+into one of them cannot reach a checkpoint of its own nor a thread switch: tools/n6_nochk.py turns the generated
+calls into them into PS2_CALL_GUEST_NOCHK (the dispatch checkpoint charged, not tested).
+  <addr> <name> NOLOOP depth=<longest call chain below it> [share=<% riding>]
+
+Usage: n5_blocking.py [--out docs/n5_blocking.txt] [--noloop docs/n5_noloop.txt] [--profile syms.txt] [--jobs 2]
 """
 import argparse
 import os
@@ -158,6 +165,7 @@ def main():
     ap.add_argument('--out', default=os.path.join(REPO, 'docs/n5_blocking.txt'))
     ap.add_argument('--profile', default=None)
     ap.add_argument('--jobs', type=int, default=2)
+    ap.add_argument('--noloop', default=None, help='also write the NOBLOCK functions with no loop below them (round N6)')
     args = ap.parse_args()
     tab = L.table()
     funcs = sorted(a for a, c in tab.items() if re.search(r'_0x([0-9a-f]+)$', c) and int(re.search(r'_0x([0-9a-f]+)$', c).group(1), 16) == a)
@@ -255,6 +263,26 @@ def main():
             else:
                 fo.write(f'{a:08x} {names[a]} NOBLOCK - loops={lp}\n')
     print(open(args.out).read().split('\n')[1:4])
+    if args.noloop:
+        # Round N6: least fixpoint (leaves first): no loop, not a native / host slot, every callee already in the set.
+        cand = {a for a in funcs if a not in blocked and a in F and not F[a]['loops'] and a not in nat and a not in slots}
+        noloop, depth = set(), {}
+        changed = True
+        while changed:
+            changed = False
+            for a in sorted(cand - noloop):
+                if all(c in noloop for c in callees[a]):
+                    noloop.add(a)
+                    depth[a] = 1 + max((depth[c] for c in callees[a]), default=-1)
+                    changed = True
+        wl = sum(share(a) for a in noloop) if prof else 0.0
+        with open(args.noloop, 'w') as fo:
+            fo.write('# n5_noloop.txt: NOBLOCK functions with no loop anywhere below them (tools/n5_blocking.py --noloop; docs/native_n6.md)\n')
+            fo.write(f'# {len(noloop)} of {len(funcs) - len(blocked)} NOBLOCK ({len(cand)} without a loop of their own; '
+                     f'leaves {sum(1 for a in noloop if depth[a] == 0)})' + (f'; profile share {wl:.2f}% of the game thread' if prof else '') + '\n')
+            for a in sorted(noloop):
+                fo.write(f'{a:08x} {names[a]} NOLOOP depth={depth[a]}' + (f' share={share(a):.3f}' if prof and share(a) else '') + '\n')
+        print(open(args.noloop).read().split('\n')[1])
 
 
 if __name__ == '__main__':
