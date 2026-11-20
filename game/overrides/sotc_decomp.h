@@ -32,6 +32,63 @@
 #include <cstring>
 #include <vector>
 
+// Round N4b (docs/native_n4b.md, tools/n4_native.py): a NOCHK call into a loop-free, ABI-proven leaf calls the leaf's
+// native entry (`lift_d1::<name>_n4`: register inputs as C++ values, v0 returned) when PS2_N4_FAST holds: exactly when
+// the NOCHK call's fast form would run (the slot holds the known function, the host stack is above m_noCheckFloor,
+// which is the top of the address space unless NOCHK is on; the worker's shell runtime never sets it) and the switch
+// n4native is on (g_ps2N4Mask 0; UINTPTR_MAX off, set once a frame in sotc_native.cpp's endFrame). Then the call's
+// dispatch cycles are charged (PS2_N4_ENTER), the native entry runs, and the call's own post-test (PS2_N4_DONE) is
+// made; otherwise the call as it was. PS2X_N4_NATIVE=0 (define): never. Difftrace builds: never (the trace events).
+// PS2X_N4_CHECK=1 (define, a check build): every native call compares the values it passes with the context
+// (PS2_N4_ARG) and, after it, every local it did not read back with the context (PS2_N4_KEEP); SOTC_N4_LOG prints them.
+#ifndef PS2X_N4_NATIVE
+#define PS2X_N4_NATIVE 1
+#endif
+#ifndef PS2X_N4_CHECK
+#define PS2X_N4_CHECK 0
+#endif
+extern uintptr_t g_ps2N4Mask;
+#if PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#define PS2_N4_SP() reinterpret_cast<uintptr_t>(__builtin_stack_address())
+#else
+#define PS2_N4_SP() reinterpret_cast<uintptr_t>(__builtin_frame_address(0))
+#endif
+#define PS2_N4_FAST(fnexpr, known) PS2_EXPECT((fnexpr) == &known && PS2_N4_SP() >= (runtime->m_noCheckFloor | g_ps2N4Mask), 1)
+#else
+#define PS2_N4_FAST(fnexpr, known) false
+#endif
+#define PS2_N4_ENTER() ((void)runtime->m_eeClock.charge(PS2Runtime::kEeDispatchCycles), runtime->m_guestJumpSerial)
+#define PS2_N4_DONE(ret) (ctx->pc == (ret) && !runtime->m_eeClock.unwinding)
+struct Ps2N4Stats
+{
+    uint64_t calls = 0;     // native calls made (check builds)
+    uint64_t argDiff = 0;   // a value passed that differed from the context
+    uint64_t keepDiff = 0;  // a local kept (not read back) that differed from the context
+    uint32_t firstSite = 0; // the return address of the first difference
+};
+extern Ps2N4Stats g_ps2N4Stats;
+template <typename T, typename U>
+inline void ps2N4Keep(const T &local, U ctxValue, uint32_t site, bool arg)
+{
+    const T v = static_cast<T>(ctxValue);
+    if (std::memcmp(&local, &v, sizeof(T)) != 0)
+    {
+        (arg ? g_ps2N4Stats.argDiff : g_ps2N4Stats.keepDiff)++;
+        if (!g_ps2N4Stats.firstSite)
+            g_ps2N4Stats.firstSite = site;
+    }
+}
+#if PS2X_N4_CHECK
+#define PS2_N4_COUNT() (++g_ps2N4Stats.calls)
+#define PS2_N4_ARG(T, value, ctxValue, site) ps2N4Keep<T>(static_cast<T>(value), (ctxValue), (site), true)
+#define PS2_N4_KEEP(local, ctxValue, site) ps2N4Keep((local), (ctxValue), (site), false)
+#else
+#define PS2_N4_COUNT() ((void)0)
+#define PS2_N4_ARG(T, value, ctxValue, site) ((void)0)
+#define PS2_N4_KEEP(local, ctxValue, site) ((void)0)
+#endif
+
 namespace sotc_decomp
 {
     struct Function
@@ -733,11 +790,14 @@ namespace sotc_decomp
         kN6NoChk,  // round N6 (SOTC_N6NOCHK=0 off; only while n5sched is in effect): generated calls into functions with no loop and no
                    // thread switch below them (docs/n5_noloop.txt) charge the dispatch checkpoint without testing it
                    // (ps2_runtime_macros.h PS2_CALL_GUEST_NOCHK, tools/n6_nochk.py; SOTC_N6_LOG; docs/native_n6.md)
+        kN4Native, // round N4b (off unless SOTC_N4NATIVE=1; only while NOCHK is on): NOCHK calls into loop-free ABI-proven leaves
+                   // call their native entries (register inputs as values, v0 returned; sotc_decomp.h PS2_N4_FAST,
+                   // tools/n4_native.py, docs/n4b_native.txt; SOTC_N4_LOG; docs/native_n4b.md)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTD13", "SOTC_LIFTD14", "SOTC_LIFTD15", "SOTC_LIFTD16", "SOTC_LIFTD17", "SOTC_LIFTD18", "SOTC_LIFTD20", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP", "SOTC_S5PTCL", "SOTC_S6COLL", "SOTC_S9RT", "SOTC_S10DRAW", "SOTC_S11RT", "SOTC_S12DRAW", "SOTC_S13MOT", "SOTC_S14HOOK", "SOTC_S17IOP", "SOTC_S16PLAN", "SOTC_S19AMB", "SOTC_S21LIGHT", "SOTC_S22PTCL", "SOTC_S23LIGHT", "SOTC_N2SND", "SOTC_N5SCHED", "SOTC_N3DIRECT", "SOTC_R1SORT", "SOTC_N6NOCHK"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it; kN5Sched: 0 until sotc_native's init reads SOTC_N5SCHED)
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTD13", "SOTC_LIFTD14", "SOTC_LIFTD15", "SOTC_LIFTD16", "SOTC_LIFTD17", "SOTC_LIFTD18", "SOTC_LIFTD20", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP", "SOTC_S5PTCL", "SOTC_S6COLL", "SOTC_S9RT", "SOTC_S10DRAW", "SOTC_S11RT", "SOTC_S12DRAW", "SOTC_S13MOT", "SOTC_S14HOOK", "SOTC_S17IOP", "SOTC_S16PLAN", "SOTC_S19AMB", "SOTC_S21LIGHT", "SOTC_S22PTCL", "SOTC_S23LIGHT", "SOTC_N2SND", "SOTC_N5SCHED", "SOTC_N3DIRECT", "SOTC_R1SORT", "SOTC_N6NOCHK", "SOTC_N4NATIVE"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it; kN5Sched: 0 until sotc_native's init reads SOTC_N5SCHED)
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -798,7 +858,7 @@ namespace sotc_decomp
             // frame time's A/B (the walks it shortens are ~0.05 ms a frame riding; docs/lights_s23.md).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kN4Native)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;

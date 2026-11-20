@@ -111,6 +111,11 @@ extern uint32_t g_ps2xN5Sched;
 extern uint32_t g_ps2xN5Log;
 extern uint32_t g_ps2xN5Spin; // round N5b: n5sched's spin limit (slices; 0 none)
 static uint32_t g_n6Log = 0u;   // round N6: SOTC_N6_LOG=<frames>: the [n6] line
+// Round N4b (sotc_decomp.h PS2_N4_FAST): 0 while n4native is on (with NOCHK), UINTPTR_MAX off; set in endFrame.
+uintptr_t g_ps2N4Mask = UINTPTR_MAX;
+Ps2N4Stats g_ps2N4Stats;
+static uint32_t g_n4Log = 0u;   // round N4b: SOTC_N4_LOG=<frames>: the [n4] line
+static uint64_t g_n4Frames[2] = {0, 0}; // frames with n4native off / on (while NOCHK is on)
 
 namespace decomp_wind
 {
@@ -3492,7 +3497,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4141,6 +4146,20 @@ namespace sotc_native
         // time slice a slice's end could be due at the call).
         if (g_runtimeForLog)
             g_runtimeForLog->setNoCheck(g_ps2xN5Sched != 0u && sotc_decomp::switchOn(sotc_decomp::kN6NoChk));
+        // Round N4b (n4native): the native entries of the loop-free ABI-proven leaves, only while NOCHK is on (the NOCHK
+        // calls' fast form, which PS2_N4_FAST also tests through m_noCheckFloor).
+        {
+            const bool nochk = g_runtimeForLog && g_runtimeForLog->noCheckOn();
+            const bool n4 = nochk && sotc_decomp::switchOn(sotc_decomp::kN4Native);
+            g_ps2N4Mask = n4 ? 0u : UINTPTR_MAX;
+            if (nochk)
+                ++g_n4Frames[n4 ? 1 : 0];
+        }
+        if (g_n4Log && g_frame % g_n4Log == 0u)
+            std::fprintf(stderr, "[n4] frame %llu: native %d; frames off %llu on %llu; check build %d: native calls %llu, values passed that differ %llu, locals kept that differ %llu (first at return 0x%x)\n",
+                         (unsigned long long)g_frame, g_ps2N4Mask == 0u ? 1 : 0, (unsigned long long)g_n4Frames[0], (unsigned long long)g_n4Frames[1],
+                         PS2X_N4_CHECK, (unsigned long long)g_ps2N4Stats.calls, (unsigned long long)g_ps2N4Stats.argDiff,
+                         (unsigned long long)g_ps2N4Stats.keepDiff, g_ps2N4Stats.firstSite);
         if (g_n6Log && g_frame % g_n6Log == 0u)
         {
             const Ps2NoCheckStats &st = g_ps2NoCheckStats;
@@ -13269,6 +13288,9 @@ void installSotcNativeLate(PS2Runtime &runtime)
         // Round N6: n6nochk's log (SOTC_N6_LOG=<frames>); NOCHK from the frame after n5sched takes effect (endFrame).
         e = std::getenv("SOTC_N6_LOG");
         g_n6Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
+        // Round N4b: n4native's log (SOTC_N4_LOG=<frames>).
+        e = std::getenv("SOTC_N4_LOG");
+        g_n4Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }
     s16plan::init();                     // round S16: the draw plans' check and log (SOTC_S16PLAN_*)
     g_ps2xIopBatchEeCycles = s11rt::on(s11rt::kIop) ? s11rt::g_iopBatch : 2048u;
