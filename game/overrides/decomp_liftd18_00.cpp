@@ -5092,6 +5092,22 @@ namespace lift_d1
     void updateSScriptSystem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void difftime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 
+// N4 native entries (tools/n4_native.py; docs/native_n4b.md)
+// getSelectWeapon: native entry (0x1407310)
+static inline uint64_t getSelectWeapon_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, ra = n4_r31;
+    v1 = 0x1460000u;
+    {
+        const uint32_t target = ra;
+        v0 = READ32_B(v1, 28272);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// N4 native entries end
 // torchObjRelease (0x13b55f8-0x13b5638)
 void torchObjRelease(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
@@ -5202,9 +5218,9 @@ void gamecore_sub_013B7730(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         (s1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x1407310u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1407310u, lift_d1::getSelectWeapon, 0x13B778Cu, 0x13B7784u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1407310u), lift_d1::getSelectWeapon)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x13B778Cu); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x13B778Cu); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::getSelectWeapon_n4(rdram, ctx, runtime, v0, Ps2GprU32(ctx, 3), sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x13B778Cu), 0)) { if (!runtime->noCheckFinish(ctx, 0x1407310u, 0x13B778Cu, n4_s)) { return; } f12 = ctx->f[12]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); } else { PS2_N4_COUNT(); v0 = n4_r; PS2_N4_KEEP(f12, ctx->f[12], 0x13B778Cu); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x13B778Cu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x13B778Cu); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x13B778Cu); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x13B778Cu); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x13B778Cu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x13B778Cu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x13B778Cu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x13B778Cu); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x13B778Cu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1407310u, lift_d1::getSelectWeapon, 0x13B778Cu, 0x13B7784u, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); } // n4
     }
-    f12 = ctx->f[12]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
+    // n4: read back in the call's block above
     { uint32_t bits = (uint32_t)v0; std::memcpy(&f12, &bits, sizeof(bits)); }
     { int32_t tmp; std::memcpy(&tmp, &f12, sizeof(tmp)); f12 = FPU_CVT_S_W(tmp); }
     (a0 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));

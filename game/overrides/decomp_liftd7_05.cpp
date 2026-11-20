@@ -3810,6 +3810,444 @@ namespace lift_d1
     void updateSScriptSystem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void difftime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 
+// N4 native entries (tools/n4_native.py; docs/native_n4b.md)
+// UpdateAnimationClassPastSimpleInfo: native entry (0x10ba9d8)
+static inline void UpdateAnimationClassPastSimpleInfo_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r31, float n4_f0)
+{
+    uint32_t a0 = n4_r4, ra = n4_r31;
+    float f0 = n4_f0;
+    f0 = lift_d1::flt(READ32_B(a0, 8));
+    {
+        const uint32_t target = ra;
+        WRITE32_B(a0, 12, lift_d1::bits(f0));
+        ctx->f[0] = f0;
+        ctx->pc = target;
+        return;
+    }
+}
+// initAnimationObjResource: native entry (0x1100af8)
+static inline uint64_t initAnimationObjResource_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r5, uint32_t n4_r6, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, a1 = n4_r5, a2 = n4_r6, ra = n4_r31;
+    uint64_t hi = ctx->hi;
+    uint64_t lo = ctx->lo;
+    bool df_v1 = false, df_a1 = false;
+    a2 = READ32(a0);
+    v0 = 0x30000u;
+    v0 = v0 | 0xFFFFu;
+    v0 = a2 & v0;
+    {
+        const bool c = v0 == 0;
+        a0 = a0 - v0;
+        if (!c) {
+            a0 = READ32(a0);
+            goto L_1100b1c;
+        }
+    }
+    a0 = 0u;
+L_1100b1c:
+    {
+        const bool c = a0 == 0;
+        { const uint32_t _dynInsn = READ32(0x1100B20u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
+        if (!c) {
+            { const uint32_t _dynInsn = READ32(0x1100B24u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v1 = (uint32_t)((int32_t)((int32_t)READ32(ADD32(v0, _dynSimm))))); } df_v1 = true;
+            {
+                const bool c = a0 == v1;
+                v0 = a2 >> 18;
+                if (!c) {
+                    a1 = READ32_B(a0, 8); df_a1 = true;
+                    v0 = v0 & 0xFFFu;
+                    a0 = READ32_B(a0, 16);
+                    v1 = READ32_B(a1, 12); df_v1 = true;
+                    { int64_t result = (int64_t)(int32_t)v0 * (int64_t)(int32_t)v1; lo = (uint64_t)(int64_t)(int32_t)result; hi = (uint64_t)(int64_t)(int32_t)(result >> 32); (v0 = (uint32_t)((int32_t)((int32_t)result))); }
+                    a0 = a0 + v0;
+                    goto L_1100b54;
+                }
+            }
+        }
+    }
+    a0 = 0u;
+L_1100b54:
+    {
+        const bool c = a0 == 0;
+        v0 = 0u;
+        if (!c) {
+            v0 = READ32_B(a0, 8);
+        }
+    }
+    {
+        const uint32_t target = ra;
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); if (df_v1) Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0)); if (df_a1) Ps2SetGpr64(ctx, 5, sx64(a1)); Ps2SetGpr64(ctx, 6, sx64(a2)); ctx->hi = hi; ctx->lo = lo;
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// AddObjectManagerSheetWorkSize: native entry (0x11016c0)
+static inline uint64_t AddObjectManagerSheetWorkSize_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, ra = n4_r31;
+    v1 = 0x1210000u;
+    v1 = v1 + 0x6D00u;
+    v0 = READ32_B(v1, 36);
+    v0 = v0 + a0;
+    {
+        const uint32_t target = ra;
+        WRITE32_B(v1, 36, v0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetFsSetStageTexSegTexSegDef: native entry (0x115bb98)
+static inline uint64_t sheetFsSetStageTexSegTexSegDef_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r5, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, a1 = n4_r5, ra = n4_r31;
+    v0 = 0x1220000u;
+    a0 = a0 << 3;
+    v1 = READ32(v0 - 0x1408u);
+    a0 = a0 + v1;
+    {
+        const uint32_t target = ra;
+        WRITE32_B(a0, 4, a1);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetFsGetStageTexSegTexSegDef: native entry (0x115bbb0)
+static inline uint64_t sheetFsGetStageTexSegTexSegDef_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, ra = n4_r31;
+    v0 = 0x1220000u;
+    a0 = a0 << 3;
+    v1 = READ32(v0 - 0x1408u);
+    a0 = a0 + v1;
+    {
+        const uint32_t target = ra;
+        v0 = READ32_B(a0, 4);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetHeaderObjSearchSheetId: native entry (0x115ec48)
+static inline uint64_t sheetHeaderObjSearchSheetId_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, ra = n4_r31;
+    v0 = 0x1190000u;
+    a0 = a0 << 2;
+    v1 = READ32(v0 - 0x1E0u);
+    a0 = a0 + v1;
+    {
+        const uint32_t target = ra;
+        v0 = READ32(a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 4, sx64(a0));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetMgrAddSegLoadList: native entry (0x115ed10)
+static inline uint64_t sheetMgrAddSegLoadList_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, ra = n4_r31;
+    v0 = 0x1220000u;
+    v0 = v0 - 0x1378u;
+    v1 = READ32(v0);
+    WRITE32_B(a0, 76, v1);
+    {
+        const uint32_t target = ra;
+        WRITE32(v0, a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetMgrGetSegLoadHeader: native entry (0x115ed28)
+static inline uint64_t sheetMgrGetSegLoadHeader_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, ra = n4_r31;
+    v1 = 0x1220000u;
+    {
+        const uint32_t target = ra;
+        v0 = READ32(v1 - 0x1378u);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetMgrAddSegInitList: native entry (0x115ed38)
+static inline uint64_t sheetMgrAddSegInitList_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, a0 = n4_r4, ra = n4_r31;
+    v1 = 0x1220000u;
+    WRITE32_B(a0, 80, 0u);
+    v1 = v1 - 0x1370u;
+    v0 = READ32(v1);
+    if (v0 == 0) {
+        WRITE32(v1, a0);
+    } else {
+        v1 = 0x1220000u;
+        v0 = READ32(v1 - 0x136Cu);
+        WRITE32_B(v0, 80, a0);
+        goto L_115ed64;
+    }
+    v1 = 0x1220000u;
+L_115ed64:
+    {
+        const uint32_t target = ra;
+        WRITE32(v1 - 0x136Cu, a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// sheetMgrGetSegInitHeader: native entry (0x115edb0)
+static inline uint64_t sheetMgrGetSegInitHeader_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r3, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, v1 = n4_r3, ra = n4_r31;
+    v1 = 0x1220000u;
+    {
+        const uint32_t target = ra;
+        v0 = READ32(v1 - 0x1370u);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 3, sx64(v1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// set_camera_direction: native entry (0x1162e90)
+static inline void set_camera_direction_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r5, uint32_t n4_r31)
+{
+    uint32_t a0 = n4_r4, a1 = n4_r5, ra = n4_r31;
+    __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf7 = ctx->vu0_vf[7];
+    __m128 vacc = ctx->vu0_acc;
+    float vq = ctx->vu0_q;
+    uint16_t vstat = ctx->vu0_status;
+    a0 = a0 + 0x1F0u;
+    vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
+    { __m128 res = PS2_VMUL(vf5, vf5); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf7 = PS2_VBLEND(vf7, res, _mm_castsi128_ps(mask)); }
+    { __m128 res = PS2_VMUL_K(1, 1, vf0, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(0,0,0,0))); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
+    { __m128 mul_res = PS2_VMUL_K(1, 1, vf0, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
+    { __m128 mul_res = PS2_VMUL_K(1, 1, vf0, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); vf7 = _mm_blendv_ps(vf7, res, _mm_castsi128_ps(mask)); }
+    { float fs = _mm_cvtss_f32(_mm_shuffle_ps(vf0, vf0, _MM_SHUFFLE(0,0,0,3))); float ft = _mm_cvtss_f32(_mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(0,0,0,3))); vq = ps2VuRsqrt(vstat, fs, ft); }
+    { __m128 res = PS2_VMUL(vf5, _mm_set1_ps(vq)); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf5 = _mm_blendv_ps(vf5, res, _mm_castsi128_ps(mask)); }
+    WRITE128(ADD32(a0, 0), _mm_castps_si128(vf5));
+    {
+        const uint32_t target = ra;
+        Ps2SetGpr64(ctx, 4, sx64(a0)); ctx->vu0_vf[5] = vf5; ctx->vu0_vf[7] = vf7; ctx->vu0_acc = vacc; ctx->vu0_q = vq; ctx->vu0_status = vstat;
+        ctx->pc = target;
+        return;
+    }
+}
+// set_camera_up_direction: native entry (0x1162ec0)
+static inline void set_camera_up_direction_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r5, uint32_t n4_r31)
+{
+    uint32_t a0 = n4_r4, a1 = n4_r5, ra = n4_r31;
+    __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf7 = ctx->vu0_vf[7];
+    __m128 vacc = ctx->vu0_acc;
+    float vq = ctx->vu0_q;
+    uint16_t vstat = ctx->vu0_status;
+    a0 = a0 + 0x200u;
+    vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
+    { __m128 res = PS2_VMUL(vf5, vf5); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf7 = PS2_VBLEND(vf7, res, _mm_castsi128_ps(mask)); }
+    { __m128 res = PS2_VMUL_K(1, 1, vf0, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(0,0,0,0))); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
+    { __m128 mul_res = PS2_VMUL_K(1, 1, vf0, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(1,1,1,1))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); vacc = _mm_blendv_ps(vacc, res, _mm_castsi128_ps(_mm_set_epi32(-1, 0, 0, 0))); }
+    { __m128 mul_res = PS2_VMUL_K(1, 1, vf0, _mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(2,2,2,2))); __m128 res = PS2_VADD_K(1, 1, vacc, mul_res); __m128i mask = _mm_set_epi32(-1, 0, 0, 0); vf7 = _mm_blendv_ps(vf7, res, _mm_castsi128_ps(mask)); }
+    { float fs = _mm_cvtss_f32(_mm_shuffle_ps(vf0, vf0, _MM_SHUFFLE(0,0,0,3))); float ft = _mm_cvtss_f32(_mm_shuffle_ps(vf7, vf7, _MM_SHUFFLE(0,0,0,3))); vq = ps2VuRsqrt(vstat, fs, ft); }
+    { __m128 res = PS2_VMUL(vf5, _mm_set1_ps(vq)); __m128i mask = _mm_set_epi32(0, -1, -1, -1); vf5 = _mm_blendv_ps(vf5, res, _mm_castsi128_ps(mask)); }
+    WRITE128(ADD32(a0, 0), _mm_castps_si128(vf5));
+    {
+        const uint32_t target = ra;
+        Ps2SetGpr64(ctx, 4, sx64(a0)); ctx->vu0_vf[5] = vf5; ctx->vu0_vf[7] = vf7; ctx->vu0_acc = vacc; ctx->vu0_q = vq; ctx->vu0_status = vstat;
+        ctx->pc = target;
+        return;
+    }
+}
+// manager_sub_01163958: native entry (0x1163958)
+static inline void manager_sub_01163958_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r5, uint32_t n4_r6, uint32_t n4_r7, uint32_t n4_r8, uint32_t n4_r9, uint32_t n4_r31)
+{
+    uint32_t a0 = n4_r4, a1 = n4_r5, a2 = n4_r6, a3 = n4_r7, t0 = n4_r8, t1 = n4_r9, ra = n4_r31;
+    WRITE32_B(a0, 20, t1);
+    WRITE32(a0, a1);
+    WRITE32_B(a0, 4, a2);
+    WRITE64_B(a0, 8, Ps2GprU64(ctx, 7));
+    {
+        const uint32_t target = ra;
+        WRITE32_B(a0, 16, t0);
+        
+        ctx->pc = target;
+        return;
+    }
+}
+// set_view_angle: native entry (0x11644c8)
+static inline void set_view_angle_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r31, float n4_f12)
+{
+    uint32_t a0 = n4_r4, ra = n4_r31;
+    float f12 = n4_f12;
+    {
+        const uint32_t target = ra;
+        WRITE32_B(a0, 12, lift_d1::bits(f12));
+        
+        ctx->pc = target;
+        return;
+    }
+}
+// set_scissor_screen_size: native entry (0x11644d0)
+static inline uint64_t set_scissor_screen_size_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r5, uint32_t n4_r6, uint32_t n4_r7, uint32_t n4_r31, uint64_t n4_r4)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, a1 = n4_r5, a2 = n4_r6, a3 = n4_r7, ra = n4_r31;
+    uint64_t a0 = n4_r4;
+    a1 = a1 << 2;
+    a1 = a1 + 0x1D0u;
+    (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, a1))));
+    (a0 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
+    WRITE32_B((uint32_t)a0, 0, a2);
+    {
+        const uint32_t target = ra;
+        WRITE32_B(v0, 8, a3);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0)))); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, sx64(a1));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// GAMEUTIL_set_auto_get_flag_boss_interest_position: native entry (0x1343b28)
+static inline uint64_t GAMEUTIL_set_auto_get_flag_boss_interest_position_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, a0 = n4_r4, ra = n4_r31;
+    v0 = 0x1460000u;
+    {
+        const uint32_t target = ra;
+        WRITE32_B(v0, 22056, a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// GAMEUTIL_reset_move_angle: native entry (0x1343cd0)
+static inline void GAMEUTIL_reset_move_angle_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint32_t a0 = n4_r4, ra = n4_r31;
+    {
+        const uint32_t target = ra;
+        WRITE32(a0, 0u);
+        
+        ctx->pc = target;
+        return;
+    }
+}
+// GAMEUTIL_get_cur_velocity_move_angle: native entry (0x1343e10)
+static inline void GAMEUTIL_get_cur_velocity_move_angle_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r4, uint32_t n4_r31, float n4_f0)
+{
+    uint32_t a0 = n4_r4, ra = n4_r31;
+    float f0 = n4_f0;
+    {
+        const uint32_t target = ra;
+        f0 = lift_d1::flt(READ32(a0));
+        ctx->f[0] = f0;
+        ctx->pc = target;
+        return;
+    }
+}
+// GetGameAnimeTimeScaleRatio: native entry (0x1345e48)
+static inline uint64_t GetGameAnimeTimeScaleRatio_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r31, float n4_f0)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, ra = n4_r31;
+    float f0 = n4_f0;
+    v0 = 0x1460000u;
+    {
+        const uint32_t target = ra;
+        f0 = lift_d1::flt(READ32_B(v0, 23012));
+        ctx->f[0] = f0; Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// RestoreDefaultGameAnimeTimeScaleRatio: native entry (0x1345e78)
+static inline uint64_t RestoreDefaultGameAnimeTimeScaleRatio_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r1, uint32_t n4_r2, uint32_t n4_r31, float n4_f0)
+{
+    uint64_t n4_v0;
+    uint32_t at = n4_r1, v0 = n4_r2, ra = n4_r31;
+    float f0 = n4_f0;
+    at = 0x3F660000u;
+    at = at | 0x6666u;
+    f0 = lift_d1::flt(at);
+    v0 = 0x1460000u;
+    {
+        const uint32_t target = ra;
+        WRITE32_B(v0, 23012, lift_d1::bits(f0));
+        ctx->f[0] = f0; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// SetDefaultGameAnimeTimeScaleRatio: native entry (0x1345e90)
+static inline uint64_t SetDefaultGameAnimeTimeScaleRatio_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r31, float n4_f12)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, ra = n4_r31;
+    float f12 = n4_f12;
+    v0 = 0x1460000u;
+    {
+        const uint32_t target = ra;
+        WRITE32_B(v0, 23012, lift_d1::bits(f12));
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// get_camera_obj: native entry (0x141cd68)
+static inline uint64_t get_camera_obj_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, a0 = n4_r4, ra = n4_r31;
+    {
+        const uint32_t target = ra;
+        v0 = READ32(a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// setBossPathColiGroup: native entry (0x1431c38)
+static inline uint64_t setBossPathColiGroup_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, a0 = n4_r4, ra = n4_r31;
+    v0 = 0x1200000u;
+    {
+        const uint32_t target = ra;
+        WRITE32(v0 - 0x4340u, a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// setHorsePathColiGroup: native entry (0x1431c48)
+static inline uint64_t setHorsePathColiGroup_n4(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t n4_r2, uint32_t n4_r4, uint32_t n4_r31)
+{
+    uint64_t n4_v0;
+    uint32_t v0 = n4_r2, a0 = n4_r4, ra = n4_r31;
+    v0 = 0x1200000u;
+    {
+        const uint32_t target = ra;
+        WRITE32(v0 - 0x433Cu, a0);
+        Ps2SetGpr64(ctx, 2, (n4_v0 = (sx64(v0))));
+        ctx->pc = target;
+        return n4_v0;
+    }
+}
+// N4 native entries end
 // sheetFsSetSpecialFs (0x115c298-0x115c2c0)
 void sheetFsSetSpecialFs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
@@ -4123,9 +4561,9 @@ L_115c5b0:
             (a0 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
             Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0);
             ctx->pc = 0x115EC48u;
-            if (!PS2_CALL_GUEST_NOCHK(0x115EC48u, lift_d1::sheetHeaderObjSearchSheetId, 0x115C674u, 0x115C66Cu, DirectCall, "JAL")) { return; }
+            if (PS2_N4_FAST(PS2_GUEST_FN(0x115EC48u), lift_d1::sheetHeaderObjSearchSheetId)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115C674u); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115C674u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115C674u); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x115C674u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetHeaderObjSearchSheetId_n4(rdram, ctx, runtime, v0, v1, a0, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x115C674u), 0)) { if (!runtime->noCheckFinish(ctx, 0x115EC48u, 0x115C674u, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); a0 = Ps2GprU64(ctx, 4); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115C674u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115C674u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115C674u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115C674u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115C674u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x115C674u); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x115C674u); PS2_N4_KEEP(s7, Ps2GprU64(ctx, 23), 0x115C674u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115C674u); PS2_N4_KEEP(fp, Ps2GprU64(ctx, 30), 0x115C674u); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x115C674u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115C674u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115C674u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115C674u); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x115C674u); PS2_N4_KEEP(hi, ctx->hi, 0x115C674u); PS2_N4_KEEP(lo, ctx->lo, 0x115C674u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115EC48u, lift_d1::sheetHeaderObjSearchSheetId, 0x115C674u, 0x115C66Cu, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } // n4
         }
-        s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo;
+        // n4: read back in the call's block above
         (s0 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
         {
             const bool c = (int64_t)s0 != 0;
@@ -4169,9 +4607,9 @@ L_115c5b0:
             (a0 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
             Ps2SetGpr64(ctx, 17, s1); Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0);
             ctx->pc = 0x115ED38u;
-            if (!PS2_CALL_GUEST_NOCHK(0x115ED38u, lift_d1::sheetMgrAddSegInitList, 0x115C6B8u, 0x115C6B0u, DirectCall, "JAL")) { return; }
+            if (PS2_N4_FAST(PS2_GUEST_FN(0x115ED38u), lift_d1::sheetMgrAddSegInitList)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115C6B8u); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115C6B8u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115C6B8u); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x115C6B8u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetMgrAddSegInitList_n4(rdram, ctx, runtime, v0, v1, a0, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x115C6B8u), 0)) { if (!runtime->noCheckFinish(ctx, 0x115ED38u, 0x115C6B8u, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115C6B8u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115C6B8u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115C6B8u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115C6B8u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115C6B8u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x115C6B8u); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x115C6B8u); PS2_N4_KEEP(s7, Ps2GprU64(ctx, 23), 0x115C6B8u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115C6B8u); PS2_N4_KEEP(fp, Ps2GprU64(ctx, 30), 0x115C6B8u); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x115C6B8u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115C6B8u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115C6B8u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115C6B8u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115C6B8u); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x115C6B8u); PS2_N4_KEEP(hi, ctx->hi, 0x115C6B8u); PS2_N4_KEEP(lo, ctx->lo, 0x115C6B8u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115ED38u, lift_d1::sheetMgrAddSegInitList, 0x115C6B8u, 0x115C6B0u, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } // n4
         }
-        s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo;
+        // n4: read back in the call's block above
         (sp = (uint64_t)((uint64_t)s5 + (uint64_t)0ULL));
 L_115c6bc:
         (a0 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
@@ -4180,9 +4618,9 @@ L_115c6bc:
             (s4 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s4, 4))));
             Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 20, s4); Ps2SetGpr64(ctx, 29, sp); Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0);
             ctx->pc = 0x115ED10u;
-            if (!PS2_CALL_GUEST_NOCHK(0x115ED10u, lift_d1::sheetMgrAddSegLoadList, 0x115C6C8u, 0x115C6C0u, DirectCall, "JAL")) { return; }
+            if (PS2_N4_FAST(PS2_GUEST_FN(0x115ED10u), lift_d1::sheetMgrAddSegLoadList)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115C6C8u); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115C6C8u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115C6C8u); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x115C6C8u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetMgrAddSegLoadList_n4(rdram, ctx, runtime, v0, v1, a0, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x115C6C8u), 0)) { if (!runtime->noCheckFinish(ctx, 0x115ED10u, 0x115C6C8u, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115C6C8u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115C6C8u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115C6C8u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115C6C8u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115C6C8u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x115C6C8u); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x115C6C8u); PS2_N4_KEEP(s7, Ps2GprU64(ctx, 23), 0x115C6C8u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115C6C8u); PS2_N4_KEEP(fp, Ps2GprU64(ctx, 30), 0x115C6C8u); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x115C6C8u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115C6C8u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115C6C8u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115C6C8u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115C6C8u); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x115C6C8u); PS2_N4_KEEP(hi, ctx->hi, 0x115C6C8u); PS2_N4_KEEP(lo, ctx->lo, 0x115C6C8u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115ED10u, lift_d1::sheetMgrAddSegLoadList, 0x115C6C8u, 0x115C6C0u, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } // n4
         }
-        s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo;
+        // n4: read back in the call's block above
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)fp, 48))));
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)fp, 88))));
         (v0 = (uint64_t)(((int64_t)(int64_t)RC_U64X(a0) < (int64_t)(int64_t)RC_U64X(v0)) ? 1 : 0));
@@ -4485,9 +4923,9 @@ L_115c91c:
         (sp = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)fp, 96))));
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 20, s4); Ps2SetGpr64(ctx, 21, s5); Ps2SetGpr64(ctx, 22, s6); Ps2SetGpr64(ctx, 29, sp); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x115EDB0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x115EDB0u, lift_d1::sheetMgrGetSegInitHeader, 0x115C93Cu, 0x115C934u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x115EDB0u), lift_d1::sheetMgrGetSegInitHeader)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115C93Cu); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115C93Cu); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x115C93Cu); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetMgrGetSegInitHeader_n4(rdram, ctx, runtime, v0, v1, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x115C93Cu), 0)) { if (!runtime->noCheckFinish(ctx, 0x115EDB0u, 0x115C93Cu, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115C93Cu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115C93Cu); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115C93Cu); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115C93Cu); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115C93Cu); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x115C93Cu); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x115C93Cu); PS2_N4_KEEP(s7, Ps2GprU64(ctx, 23), 0x115C93Cu); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115C93Cu); PS2_N4_KEEP(fp, Ps2GprU64(ctx, 30), 0x115C93Cu); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x115C93Cu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115C93Cu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115C93Cu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115C93Cu); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115C93Cu); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x115C93Cu); PS2_N4_KEEP(hi, ctx->hi, 0x115C93Cu); PS2_N4_KEEP(lo, ctx->lo, 0x115C93Cu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115EDB0u, lift_d1::sheetMgrGetSegInitHeader, 0x115C93Cu, 0x115C934u, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } // n4
     }
-    s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo;
+    // n4: read back in the call's block above
     (s0 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
     if ((int64_t)s0 != 0) {
         (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)s0, 60))));
@@ -4518,9 +4956,9 @@ L_115c950:
         ra = 0x115C97Cu;
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 31, ra);
         ctx->pc = 0x115ED28u;
-        if (!PS2_CALL_GUEST_NOCHK(0x115ED28u, lift_d1::sheetMgrGetSegLoadHeader, 0x115C97Cu, 0x115C974u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x115ED28u), lift_d1::sheetMgrGetSegLoadHeader)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115C97Cu); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115C97Cu); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x115C97Cu); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetMgrGetSegLoadHeader_n4(rdram, ctx, runtime, v0, v1, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x115C97Cu), 0)) { if (!runtime->noCheckFinish(ctx, 0x115ED28u, 0x115C97Cu, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115C97Cu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115C97Cu); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115C97Cu); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115C97Cu); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115C97Cu); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x115C97Cu); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x115C97Cu); PS2_N4_KEEP(s7, Ps2GprU64(ctx, 23), 0x115C97Cu); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115C97Cu); PS2_N4_KEEP(fp, Ps2GprU64(ctx, 30), 0x115C97Cu); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x115C97Cu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115C97Cu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115C97Cu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115C97Cu); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115C97Cu); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x115C97Cu); PS2_N4_KEEP(hi, ctx->hi, 0x115C97Cu); PS2_N4_KEEP(lo, ctx->lo, 0x115C97Cu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115ED28u, lift_d1::sheetMgrGetSegLoadHeader, 0x115C97Cu, 0x115C974u, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo; } // n4
     }
-    s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); hi = ctx->hi; lo = ctx->lo;
+    // n4: read back in the call's block above
     (s1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
     if ((int64_t)s1 != 0) {
         (s4 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)49167 << 16))));
@@ -5272,9 +5710,9 @@ L_115d550:
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
         Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 3, sx64(v1)); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x11016C0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x11016C0u, lift_d1::AddObjectManagerSheetWorkSize, 0x115D5B0u, 0x115D5A8u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x11016C0u), lift_d1::AddObjectManagerSheetWorkSize)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115D5B0u); PS2_N4_ARG(uint32_t, sx64(v1), Ps2GprU32(ctx, 3), 0x115D5B0u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115D5B0u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x115D5B0u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::AddObjectManagerSheetWorkSize_n4(rdram, ctx, runtime, v0, sx64(v1), a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x115D5B0u), 0)) { if (!runtime->noCheckFinish(ctx, 0x11016C0u, 0x115D5B0u, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU32(ctx, 3); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115D5B0u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115D5B0u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115D5B0u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115D5B0u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115D5B0u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x115D5B0u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x115D5B0u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115D5B0u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115D5B0u); PS2_N4_KEEP(a2, Ps2GprU32(ctx, 6), 0x115D5B0u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115D5B0u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x115D5B0u); PS2_N4_KEEP(t1, Ps2GprU64(ctx, 9), 0x115D5B0u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x11016C0u, lift_d1::AddObjectManagerSheetWorkSize, 0x115D5B0u, 0x115D5A8u, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } // n4
     }
-    s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9);
+    // n4: read back in the call's block above
     {
         const uint32_t jumpTarget = 0x0u | ((READ32(0x115D5B0u) & 0x3FFFFFFu) << 2);
         ra = 0x115D5B8u;
@@ -5289,9 +5727,9 @@ L_115d550:
         (a0 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x11016C0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x11016C0u, lift_d1::AddObjectManagerSheetWorkSize, 0x115D5C0u, 0x115D5B8u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x11016C0u), lift_d1::AddObjectManagerSheetWorkSize)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115D5C0u); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115D5C0u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115D5C0u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x115D5C0u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::AddObjectManagerSheetWorkSize_n4(rdram, ctx, runtime, v0, v1, a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x115D5C0u), 0)) { if (!runtime->noCheckFinish(ctx, 0x11016C0u, 0x115D5C0u, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU32(ctx, 3); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x115D5C0u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115D5C0u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115D5C0u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115D5C0u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115D5C0u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x115D5C0u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x115D5C0u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115D5C0u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115D5C0u); PS2_N4_KEEP(a2, Ps2GprU32(ctx, 6), 0x115D5C0u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x115D5C0u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x115D5C0u); PS2_N4_KEEP(t1, Ps2GprU64(ctx, 9), 0x115D5C0u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x11016C0u, lift_d1::AddObjectManagerSheetWorkSize, 0x115D5C0u, 0x115D5B8u, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } // n4
     }
-    s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9);
+    // n4: read back in the call's block above
     (v0 = (uint64_t)((uint64_t)s3 + (uint64_t)0ULL));
     { const uint64_t v = READ64_B(sp, 0); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
     { const uint64_t v = READ64_B(sp, 8); Ps2SetGpr64(ctx, 17, v); s1 = (uint64_t)v; } // restore s1
@@ -5544,9 +5982,9 @@ L_115dc28:
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
         Ps2SetGpr64(ctx, 16, sx64(s0)); Ps2SetGpr64(ctx, 19, s3); Ps2SetGpr64(ctx, 2, v0); if (df_s4) Ps2SetGpr64(ctx, 20, sx64(s4)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, sx64(a3)); Ps2SetGpr64(ctx, 8, t0); Ps2SetGpr64(ctx, 9, sx64(t1));
         ctx->pc = 0x11016C0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x11016C0u, lift_d1::AddObjectManagerSheetWorkSize, 0x115DC9Cu, 0x115DC94u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x11016C0u), lift_d1::AddObjectManagerSheetWorkSize)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115DC9Cu); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115DC9Cu); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115DC9Cu); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x115DC9Cu); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::AddObjectManagerSheetWorkSize_n4(rdram, ctx, runtime, v0, v1, a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x115DC9Cu), 0)) { if (!runtime->noCheckFinish(ctx, 0x11016C0u, 0x115DC9Cu, n4_s)) { return; } s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU32(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU32(ctx, 21); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU32(ctx, 9); df_s4 = false; df_s5 = false; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); df_s4 = false; df_s5 = false; PS2_N4_KEEP(s0, Ps2GprU32(ctx, 16), 0x115DC9Cu); PS2_N4_KEEP(s1, Ps2GprU32(ctx, 17), 0x115DC9Cu); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x115DC9Cu); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x115DC9Cu); PS2_N4_KEEP(s4, Ps2GprU32(ctx, 20), 0x115DC9Cu); PS2_N4_KEEP(s5, Ps2GprU32(ctx, 21), 0x115DC9Cu); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x115DC9Cu); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x115DC9Cu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x115DC9Cu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115DC9Cu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115DC9Cu); PS2_N4_KEEP(a3, Ps2GprU32(ctx, 7), 0x115DC9Cu); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x115DC9Cu); PS2_N4_KEEP(t1, Ps2GprU32(ctx, 9), 0x115DC9Cu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x11016C0u, lift_d1::AddObjectManagerSheetWorkSize, 0x115DC9Cu, 0x115DC94u, DirectCall, "JAL")) { return; } s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU32(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU32(ctx, 21); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU32(ctx, 9); df_s4 = false; df_s5 = false; } // n4
     }
-    s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU32(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU32(ctx, 21); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU32(ctx, 9); df_s4 = false; df_s5 = false;
+    // n4: read back in the call's block above
     {
         const uint32_t jumpTarget = 0x0u | ((READ32(0x115DC9Cu) & 0x3FFFFFFu) << 2);
         ra = 0x115DCA4u;
@@ -5860,9 +6298,9 @@ void manager_sub_0115E268(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
         (s4 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 16, sx64(s0)); Ps2SetGpr64(ctx, 18, sx64(s2)); Ps2SetGpr64(ctx, 19, sx64(s3)); Ps2SetGpr64(ctx, 20, s4); Ps2SetGpr64(ctx, 29, sp); Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x115BBB0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x115BBB0u, lift_d1::sheetFsGetStageTexSegTexSegDef, 0x115E298u, 0x115E290u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x115BBB0u), lift_d1::sheetFsGetStageTexSegTexSegDef)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115E298u); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115E298u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115E298u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x115E298u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetFsGetStageTexSegTexSegDef_n4(rdram, ctx, runtime, v0, v1, a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x115E298u), 0)) { if (!runtime->noCheckFinish(ctx, 0x115BBB0u, 0x115E298u, n4_s)) { return; } s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_v1 = false; df_a3 = false; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU32(ctx, 3); a0 = Ps2GprU64(ctx, 4); df_v1 = false; df_a3 = false; PS2_N4_KEEP(s0, Ps2GprU32(ctx, 16), 0x115E298u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115E298u); PS2_N4_KEEP(s2, Ps2GprU32(ctx, 18), 0x115E298u); PS2_N4_KEEP(s3, Ps2GprU32(ctx, 19), 0x115E298u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115E298u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115E298u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x115E298u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115E298u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115E298u); PS2_N4_KEEP(a3, Ps2GprU32(ctx, 7), 0x115E298u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x115E298u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115BBB0u, lift_d1::sheetFsGetStageTexSegTexSegDef, 0x115E298u, 0x115E290u, DirectCall, "JAL")) { return; } s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_v1 = false; df_a3 = false; } // n4
     }
-    s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_v1 = false; df_a3 = false;
+    // n4: read back in the call's block above
     (s1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)290 << 16))));
     (a0 = (uint64_t)((uint64_t)sp + (uint64_t)0ULL));
@@ -5994,9 +6432,9 @@ L_115e38c:
         (a1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x115BB98u;
-        if (!PS2_CALL_GUEST_NOCHK(0x115BB98u, lift_d1::sheetFsSetStageTexSegTexSegDef, 0x115E3BCu, 0x115E3B4u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x115BB98u), lift_d1::sheetFsSetStageTexSegTexSegDef)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x115E3BCu); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x115E3BCu); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x115E3BCu); PS2_N4_ARG(uint32_t, a1, Ps2GprU32(ctx, 5), 0x115E3BCu); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x115E3BCu); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::sheetFsSetStageTexSegTexSegDef_n4(rdram, ctx, runtime, v0, v1, a0, a1, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x115E3BCu), 0)) { if (!runtime->noCheckFinish(ctx, 0x115BB98u, 0x115E3BCu, n4_s)) { return; } s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_v1 = false; df_a3 = false; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU32(ctx, 3); a0 = Ps2GprU64(ctx, 4); df_v1 = false; df_a3 = false; PS2_N4_KEEP(s0, Ps2GprU32(ctx, 16), 0x115E3BCu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x115E3BCu); PS2_N4_KEEP(s2, Ps2GprU32(ctx, 18), 0x115E3BCu); PS2_N4_KEEP(s3, Ps2GprU32(ctx, 19), 0x115E3BCu); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x115E3BCu); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x115E3BCu); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x115E3BCu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x115E3BCu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x115E3BCu); PS2_N4_KEEP(a3, Ps2GprU32(ctx, 7), 0x115E3BCu); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x115E3BCu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x115BB98u, lift_d1::sheetFsSetStageTexSegTexSegDef, 0x115E3BCu, 0x115E3B4u, DirectCall, "JAL")) { return; } s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_v1 = false; df_a3 = false; } // n4
     }
-    s0 = Ps2GprU32(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU32(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_v1 = false; df_a3 = false;
+    // n4: read back in the call's block above
     { const uint64_t v = READ64_B(sp, 4112); Ps2SetGpr64(ctx, 16, v); s0 = (uint32_t)v; } // restore s0
     { const uint64_t v = READ64_B(sp, 4120); Ps2SetGpr64(ctx, 17, v); s1 = (uint64_t)v; } // restore s1
     { const uint64_t v = READ64_B(sp, 4128); Ps2SetGpr64(ctx, 18, v); s2 = (uint32_t)v; } // restore s2
@@ -7367,9 +7805,9 @@ void manager_sub_01160F88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
                 f20 = FPU_MOV_S(f0);
                 ctx->f[20] = f20; Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
                 ctx->pc = 0x10BA9D8u;
-                if (!PS2_CALL_GUEST_NOCHK(0x10BA9D8u, lift_d1::UpdateAnimationClassPastSimpleInfo, 0x1160FDCu, 0x1160FD4u, DirectCall, "JAL")) { return; }
+                if (PS2_N4_FAST(PS2_GUEST_FN(0x10BA9D8u), lift_d1::UpdateAnimationClassPastSimpleInfo)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1160FDCu); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1160FDCu); PS2_N4_ARG(float, f0, ctx->f[0], 0x1160FDCu); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::UpdateAnimationClassPastSimpleInfo_n4(rdram, ctx, runtime, a0, sx64(ra), f0); if (PS2_EXPECT(!PS2_N4_DONE(0x1160FDCu), 0)) { if (!runtime->noCheckFinish(ctx, 0x10BA9D8u, 0x1160FDCu, n4_s)) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); df_sp = false; } else { PS2_N4_COUNT(); f0 = ctx->f[0]; df_sp = false; PS2_N4_KEEP(f12, ctx->f[12], 0x1160FDCu); PS2_N4_KEEP(f13, ctx->f[13], 0x1160FDCu); PS2_N4_KEEP(f20, ctx->f[20], 0x1160FDCu); PS2_N4_KEEP(f21, ctx->f[21], 0x1160FDCu); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1160FDCu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1160FDCu); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x1160FDCu); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x1160FDCu); PS2_N4_KEEP(v0, Ps2GprU64(ctx, 2), 0x1160FDCu); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x1160FDCu); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1160FDCu); PS2_N4_KEEP(v1, Ps2GprU64(ctx, 3), 0x1160FDCu); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1160FDCu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1160FDCu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1160FDCu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x1160FDCu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x10BA9D8u, lift_d1::UpdateAnimationClassPastSimpleInfo, 0x1160FDCu, 0x1160FD4u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); df_sp = false; } // n4
             }
-            f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); df_sp = false;
+            // n4: read back in the call's block above
             (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)s0, 176))));
             if ((int64_t)v0 != 0) {
                 (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)s1, 16))));
@@ -7658,9 +8096,9 @@ L_1161930:
                     WRITE32_B((uint32_t)a1, -432, (uint32_t)v0);
                     ctx->f[20] = f20; Ps2SetGpr64(ctx, 16, s0); if (df_s1) Ps2SetGpr64(ctx, 17, sx64(s1)); Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 19, s3); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 20, sx64(s4)); Ps2SetGpr64(ctx, 21, s5); Ps2SetGpr64(ctx, 22, s6); Ps2SetGpr64(ctx, 23, s7); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 30, fp); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
                     ctx->pc = 0x1100AF8u;
-                    if (!PS2_CALL_GUEST_NOCHK(0x1100AF8u, lift_d1::initAnimationObjResource, 0x1161958u, 0x1161950u, DirectCall, "JAL")) { return; }
+                    if (PS2_N4_FAST(PS2_GUEST_FN(0x1100AF8u), lift_d1::initAnimationObjResource)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x1161958u); PS2_N4_ARG(uint32_t, v1, Ps2GprU32(ctx, 3), 0x1161958u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1161958u); PS2_N4_ARG(uint32_t, a1, Ps2GprU32(ctx, 5), 0x1161958u); PS2_N4_ARG(uint32_t, a2, Ps2GprU32(ctx, 6), 0x1161958u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1161958u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::initAnimationObjResource_n4(rdram, ctx, runtime, v0, v1, a0, a1, a2, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x1161958u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1100AF8u, 0x1161958u, n4_s)) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU32(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_s1 = false; df_sp = false; } else { PS2_N4_COUNT(); v0 = n4_r; v1 = Ps2GprU64(ctx, 3); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); df_s1 = false; df_sp = false; PS2_N4_KEEP(f12, ctx->f[12], 0x1161958u); PS2_N4_KEEP(f20, ctx->f[20], 0x1161958u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1161958u); PS2_N4_KEEP(s1, Ps2GprU32(ctx, 17), 0x1161958u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x1161958u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x1161958u); PS2_N4_KEEP(s4, Ps2GprU32(ctx, 20), 0x1161958u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x1161958u); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x1161958u); PS2_N4_KEEP(s7, Ps2GprU64(ctx, 23), 0x1161958u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1161958u); PS2_N4_KEEP(fp, Ps2GprU64(ctx, 30), 0x1161958u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1161958u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x1161958u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x1161958u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1100AF8u, lift_d1::initAnimationObjResource, 0x1161958u, 0x1161950u, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU32(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_s1 = false; df_sp = false; } // n4
                 }
-                f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU32(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); s7 = Ps2GprU64(ctx, 23); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU64(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); df_s1 = false; df_sp = false;
+                // n4: read back in the call's block above
                 (s0 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
                 {
                     const bool c = (int64_t)s0 == 0;
@@ -8507,18 +8945,18 @@ void create_camera_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         (a1 = (uint64_t)((uint64_t)s4 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x1162E90u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1162E90u, lift_d1::set_camera_direction, 0x1162B54u, 0x1162B4Cu, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1162E90u), lift_d1::set_camera_direction)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1162B54u); PS2_N4_ARG(uint32_t, a1, Ps2GprU32(ctx, 5), 0x1162B54u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1162B54u); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::set_camera_direction_n4(rdram, ctx, runtime, a0, a1, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x1162B54u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1162E90u, 0x1162B54u, n4_s)) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); } else { PS2_N4_COUNT(); a0 = Ps2GprU64(ctx, 4); PS2_N4_KEEP(f12, ctx->f[12], 0x1162B54u); PS2_N4_KEEP(f20, ctx->f[20], 0x1162B54u); PS2_N4_KEEP(f21, ctx->f[21], 0x1162B54u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1162B54u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1162B54u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1162B54u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x1162B54u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x1162B54u); PS2_N4_KEEP(v0, Ps2GprU64(ctx, 2), 0x1162B54u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x1162B54u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x1162B54u); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x1162B54u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x1162B54u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1162B54u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1162B54u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x1162B54u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x1162B54u); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x1162B54u); PS2_N4_KEEP(t1, Ps2GprU32(ctx, 9), 0x1162B54u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1162E90u, lift_d1::set_camera_direction, 0x1162B54u, 0x1162B4Cu, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); } // n4
     }
-    f12 = ctx->f[12]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9);
+    // n4: read back in the call's block above
     (a0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
     {
         ra = 0x1162B60u;
         (a1 = (uint64_t)((uint64_t)s3 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
         ctx->pc = 0x1162EC0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1162EC0u, lift_d1::set_camera_up_direction, 0x1162B60u, 0x1162B58u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1162EC0u), lift_d1::set_camera_up_direction)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1162B60u); PS2_N4_ARG(uint32_t, a1, Ps2GprU32(ctx, 5), 0x1162B60u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1162B60u); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::set_camera_up_direction_n4(rdram, ctx, runtime, a0, a1, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x1162B60u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1162EC0u, 0x1162B60u, n4_s)) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); } else { PS2_N4_COUNT(); a0 = Ps2GprU64(ctx, 4); PS2_N4_KEEP(f12, ctx->f[12], 0x1162B60u); PS2_N4_KEEP(f20, ctx->f[20], 0x1162B60u); PS2_N4_KEEP(f21, ctx->f[21], 0x1162B60u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1162B60u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1162B60u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1162B60u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x1162B60u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x1162B60u); PS2_N4_KEEP(v0, Ps2GprU64(ctx, 2), 0x1162B60u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x1162B60u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x1162B60u); PS2_N4_KEEP(s6, Ps2GprU64(ctx, 22), 0x1162B60u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x1162B60u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1162B60u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1162B60u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x1162B60u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x1162B60u); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x1162B60u); PS2_N4_KEEP(t1, Ps2GprU32(ctx, 9), 0x1162B60u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1162EC0u, lift_d1::set_camera_up_direction, 0x1162B60u, 0x1162B58u, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); } // n4
     }
-    f12 = ctx->f[12]; f20 = ctx->f[20]; f21 = ctx->f[21]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU64(ctx, 22); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9);
+    // n4: read back in the call's block above
     (a0 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
     (a1 = (uint64_t)((uint64_t)s6 + (uint64_t)0ULL));
     (a2 = (uint64_t)((uint64_t)s5 + (uint64_t)0ULL));
@@ -8735,9 +9173,9 @@ void create_and_init_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime
         (t1 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3); Ps2SetGpr64(ctx, 8, t0); Ps2SetGpr64(ctx, 9, t1);
         ctx->pc = 0x1163958u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1163958u, lift_d1::manager_sub_01163958, 0x11634D4u, 0x11634CCu, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1163958u), lift_d1::manager_sub_01163958)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x11634D4u); PS2_N4_ARG(uint32_t, a1, Ps2GprU32(ctx, 5), 0x11634D4u); PS2_N4_ARG(uint32_t, a2, Ps2GprU32(ctx, 6), 0x11634D4u); PS2_N4_ARG(uint32_t, a3, Ps2GprU32(ctx, 7), 0x11634D4u); PS2_N4_ARG(uint32_t, t0, Ps2GprU32(ctx, 8), 0x11634D4u); PS2_N4_ARG(uint32_t, t1, Ps2GprU32(ctx, 9), 0x11634D4u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x11634D4u); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::manager_sub_01163958_n4(rdram, ctx, runtime, a0, a1, a2, a3, t0, t1, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x11634D4u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1163958u, 0x11634D4u, n4_s)) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } else { PS2_N4_COUNT(); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x11634D4u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x11634D4u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x11634D4u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x11634D4u); PS2_N4_KEEP(v0, Ps2GprU64(ctx, 2), 0x11634D4u); PS2_N4_KEEP(s4, Ps2GprU64(ctx, 20), 0x11634D4u); PS2_N4_KEEP(s5, Ps2GprU64(ctx, 21), 0x11634D4u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x11634D4u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x11634D4u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x11634D4u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x11634D4u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x11634D4u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x11634D4u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x11634D4u); PS2_N4_KEEP(t1, Ps2GprU64(ctx, 9), 0x11634D4u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1163958u, lift_d1::manager_sub_01163958, 0x11634D4u, 0x11634CCu, DirectCall, "JAL")) { return; } s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } // n4
     }
-    s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9);
+    // n4: read back in the call's block above
     (v0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
     { const uint64_t v = READ64_B(sp, 8); Ps2SetGpr64(ctx, 17, v); s1 = (uint64_t)v; } // restore s1
     { const uint64_t v = READ64_B(sp, 0); Ps2SetGpr64(ctx, 16, v); s0 = (uint64_t)v; } // restore s0
@@ -9106,9 +9544,9 @@ void create_clip_screen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         f12 = FPU_MOV_S(f20);
         ctx->f[12] = f12; Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x11644C8u;
-        if (!PS2_CALL_GUEST_NOCHK(0x11644C8u, lift_d1::set_view_angle, 0x11642D8u, 0x11642D0u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x11644C8u), lift_d1::set_view_angle)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x11642D8u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x11642D8u); PS2_N4_ARG(float, f12, ctx->f[12], 0x11642D8u); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::set_view_angle_n4(rdram, ctx, runtime, a0, sx64(ra), f12); if (PS2_EXPECT(!PS2_N4_DONE(0x11642D8u), 0)) { if (!runtime->noCheckFinish(ctx, 0x11644C8u, 0x11642D8u, n4_s)) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); } else { PS2_N4_COUNT(); PS2_N4_KEEP(f12, ctx->f[12], 0x11642D8u); PS2_N4_KEEP(f20, ctx->f[20], 0x11642D8u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x11642D8u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x11642D8u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x11642D8u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x11642D8u); PS2_N4_KEEP(v0, Ps2GprU64(ctx, 2), 0x11642D8u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x11642D8u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x11642D8u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x11642D8u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x11642D8u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x11642D8u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x11642D8u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x11644C8u, lift_d1::set_view_angle, 0x11642D8u, 0x11642D0u, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); } // n4
     }
-    f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
+    // n4: read back in the call's block above
     (a1 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
 L_11642e0:
     (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s0, 1))));
@@ -9119,9 +9557,9 @@ L_11642e0:
         (a3 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 2, v0); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
         ctx->pc = 0x11644D0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x11644D0u, lift_d1::set_scissor_screen_size, 0x11642F4u, 0x11642ECu, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x11644D0u), lift_d1::set_scissor_screen_size)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x11642F4u); PS2_N4_ARG(uint32_t, a1, Ps2GprU32(ctx, 5), 0x11642F4u); PS2_N4_ARG(uint32_t, a2, Ps2GprU32(ctx, 6), 0x11642F4u); PS2_N4_ARG(uint32_t, a3, Ps2GprU32(ctx, 7), 0x11642F4u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x11642F4u); PS2_N4_ARG(uint64_t, a0, Ps2GprU64(ctx, 4), 0x11642F4u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::set_scissor_screen_size_n4(rdram, ctx, runtime, v0, a1, a2, a3, sx64(ra), a0); if (PS2_EXPECT(!PS2_N4_DONE(0x11642F4u), 0)) { if (!runtime->noCheckFinish(ctx, 0x11644D0u, 0x11642F4u, n4_s)) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); } else { PS2_N4_COUNT(); v0 = n4_r; a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); PS2_N4_KEEP(f12, ctx->f[12], 0x11642F4u); PS2_N4_KEEP(f20, ctx->f[20], 0x11642F4u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x11642F4u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x11642F4u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x11642F4u); PS2_N4_KEEP(s3, Ps2GprU64(ctx, 19), 0x11642F4u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x11642F4u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x11642F4u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x11642F4u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x11642F4u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x11644D0u, lift_d1::set_scissor_screen_size, 0x11642F4u, 0x11642ECu, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); } // n4
     }
-    f12 = ctx->f[12]; f20 = ctx->f[20]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
+    // n4: read back in the call's block above
     (v0 = (uint64_t)(((int64_t)(int64_t)s0 < (int64_t)(int32_t)2) ? 1 : 0));
     {
         const bool c = (int64_t)v0 != 0;
@@ -12603,9 +13041,9 @@ void GAMEUTIL_constructor_move_angle(uint8_t *rdram, R5900Context *ctx, PS2Runti
         (s0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x1343CD0u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1343CD0u, lift_d1::GAMEUTIL_reset_move_angle, 0x1343C6Cu, 0x1343C64u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1343CD0u), lift_d1::GAMEUTIL_reset_move_angle)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1343C6Cu); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1343C6Cu); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::GAMEUTIL_reset_move_angle_n4(rdram, ctx, runtime, a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x1343C6Cu), 0)) { if (!runtime->noCheckFinish(ctx, 0x1343CD0u, 0x1343C6Cu, n4_s)) { return; } f0 = ctx->f[0]; f1 = ctx->f[1]; f2 = ctx->f[2]; f3 = ctx->f[3]; f4 = ctx->f[4]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); } else { PS2_N4_COUNT(); PS2_N4_KEEP(f0, ctx->f[0], 0x1343C6Cu); PS2_N4_KEEP(f1, ctx->f[1], 0x1343C6Cu); PS2_N4_KEEP(f2, ctx->f[2], 0x1343C6Cu); PS2_N4_KEEP(f3, ctx->f[3], 0x1343C6Cu); PS2_N4_KEEP(f4, ctx->f[4], 0x1343C6Cu); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1343C6Cu); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1343C6Cu); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1343C6Cu); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1343C6Cu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1343C6Cu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1343CD0u, lift_d1::GAMEUTIL_reset_move_angle, 0x1343C6Cu, 0x1343C64u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f1 = ctx->f[1]; f2 = ctx->f[2]; f3 = ctx->f[3]; f4 = ctx->f[4]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); } // n4
     }
-    f0 = ctx->f[0]; f1 = ctx->f[1]; f2 = ctx->f[2]; f3 = ctx->f[3]; f4 = ctx->f[4]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4);
+    // n4: read back in the call's block above
     at = 0x3F5F0000u;
     at = at | 0x66F2u;
     { uint32_t bits = at; std::memcpy(&f4, &bits, sizeof(bits)); }
@@ -13085,9 +13523,9 @@ void gamecore_sub_013447C0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         (a0 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x141CD68u;
-        if (!PS2_CALL_GUEST_NOCHK(0x141CD68u, lift_d1::get_camera_obj, 0x1344854u, 0x134484Cu, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x141CD68u), lift_d1::get_camera_obj)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x1344854u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1344854u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1344854u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::get_camera_obj_n4(rdram, ctx, runtime, v0, a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x1344854u), 0)) { if (!runtime->noCheckFinish(ctx, 0x141CD68u, 0x1344854u, n4_s)) { return; } f12 = ctx->f[12]; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } else { PS2_N4_COUNT(); v0 = n4_r; PS2_N4_KEEP(f12, ctx->f[12], 0x1344854u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1344854u); PS2_N4_KEEP(t2, Ps2GprU64(ctx, 10), 0x1344854u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1344854u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1344854u); PS2_N4_KEEP(s2, Ps2GprU64(ctx, 18), 0x1344854u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1344854u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1344854u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1344854u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1344854u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x1344854u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x1344854u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x1344854u); PS2_N4_KEEP(t1, Ps2GprU64(ctx, 9), 0x1344854u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x141CD68u, lift_d1::get_camera_obj, 0x1344854u, 0x134484Cu, DirectCall, "JAL")) { return; } f12 = ctx->f[12]; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } // n4
     }
-    f12 = ctx->f[12]; at = Ps2GprU32(ctx, 1); t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9);
+    // n4: read back in the call's block above
     {
         const uint32_t jumpTarget = 0x0u | ((READ32(0x1344854u) & 0x3FFFFFFu) << 2);
         ra = 0x134485Cu;
@@ -13453,17 +13891,17 @@ void gamecore_sub_01344B28(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         (a0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x1431C38u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1431C38u, lift_d1::setBossPathColiGroup, 0x1344DBCu, 0x1344DB4u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1431C38u), lift_d1::setBossPathColiGroup)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x1344DBCu); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1344DBCu); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x1344DBCu); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::setBossPathColiGroup_n4(rdram, ctx, runtime, v0, a0, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x1344DBCu), 0)) { if (!runtime->noCheckFinish(ctx, 0x1431C38u, 0x1344DBCu, n4_s)) { return; } t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } else { PS2_N4_COUNT(); v0 = n4_r; PS2_N4_KEEP(t2, Ps2GprU64(ctx, 10), 0x1344DBCu); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1344DBCu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1344DBCu); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x1344DBCu); PS2_N4_KEEP(v1, Ps2GprU64(ctx, 3), 0x1344DBCu); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x1344DBCu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1344DBCu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1344DBCu); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x1344DBCu); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x1344DBCu); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x1344DBCu); PS2_N4_KEEP(t1, Ps2GprU64(ctx, 9), 0x1344DBCu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1431C38u, lift_d1::setBossPathColiGroup, 0x1344DBCu, 0x1344DB4u, DirectCall, "JAL")) { return; } t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } // n4
     }
-    t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9);
+    // n4: read back in the call's block above
     {
         ra = 0x1344DC4u;
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s0, 24))));
         Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x1431C48u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1431C48u, lift_d1::setHorsePathColiGroup, 0x1344DC4u, 0x1344DBCu, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1431C48u), lift_d1::setHorsePathColiGroup)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x1344DC4u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1344DC4u); PS2_N4_ARG(uint32_t, ra, Ps2GprU32(ctx, 31), 0x1344DC4u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::setHorsePathColiGroup_n4(rdram, ctx, runtime, v0, a0, ra); if (PS2_EXPECT(!PS2_N4_DONE(0x1344DC4u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1431C48u, 0x1344DC4u, n4_s)) { return; } t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } else { PS2_N4_COUNT(); v0 = n4_r; PS2_N4_KEEP(t2, Ps2GprU64(ctx, 10), 0x1344DC4u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1344DC4u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1344DC4u); PS2_N4_KEEP(sp, Ps2GprU64(ctx, 29), 0x1344DC4u); PS2_N4_KEEP(v1, Ps2GprU64(ctx, 3), 0x1344DC4u); PS2_N4_KEEP(ra, Ps2GprU64(ctx, 31), 0x1344DC4u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1344DC4u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1344DC4u); PS2_N4_KEEP(a2, Ps2GprU64(ctx, 6), 0x1344DC4u); PS2_N4_KEEP(a3, Ps2GprU64(ctx, 7), 0x1344DC4u); PS2_N4_KEEP(t0, Ps2GprU64(ctx, 8), 0x1344DC4u); PS2_N4_KEEP(t1, Ps2GprU64(ctx, 9), 0x1344DC4u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1431C48u, lift_d1::setHorsePathColiGroup, 0x1344DC4u, 0x1344DBCu, DirectCall, "JAL")) { return; } t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9); } // n4
     }
-    t2 = Ps2GprU64(ctx, 10); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); t1 = Ps2GprU64(ctx, 9);
+    // n4: read back in the call's block above
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)309 << 16))));
     (t2 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)326 << 16))));
     (a2 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
@@ -13517,9 +13955,9 @@ L_1345270:
                 ra = 0x1345288u;
                 Ps2SetGpr64(ctx, 31, sx64(ra)); if (df_a0) Ps2SetGpr64(ctx, 4, sx64(a0));
                 ctx->pc = 0x1343B28u;
-                if (!PS2_CALL_GUEST_NOCHK(0x1343B28u, lift_d1::GAMEUTIL_set_auto_get_flag_boss_interest_position, 0x1345288u, 0x1345280u, DirectCall, "JAL")) { return; }
+                if (PS2_N4_FAST(PS2_GUEST_FN(0x1343B28u), lift_d1::GAMEUTIL_set_auto_get_flag_boss_interest_position)) { PS2_N4_ARG(uint32_t, v0, Ps2GprU32(ctx, 2), 0x1345288u); PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1345288u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1345288u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::GAMEUTIL_set_auto_get_flag_boss_interest_position_n4(rdram, ctx, runtime, v0, a0, sx64(ra)); if (PS2_EXPECT(!PS2_N4_DONE(0x1345288u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1343B28u, 0x1345288u, n4_s)) { return; } v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); df_a0 = false; df_sp = false; } else { PS2_N4_COUNT(); v0 = n4_r; df_a0 = false; df_sp = false; PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1345288u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1345288u); PS2_N4_KEEP(a0, Ps2GprU32(ctx, 4), 0x1345288u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1343B28u, lift_d1::GAMEUTIL_set_auto_get_flag_boss_interest_position, 0x1345288u, 0x1345280u, DirectCall, "JAL")) { return; } v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); df_a0 = false; df_sp = false; } // n4
             }
-            v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); df_a0 = false; df_sp = false;
+            // n4: read back in the call's block above
         }
     }
     {
@@ -14425,16 +14863,16 @@ void setDemoBar(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
                 ra = 0x1346278u;
                 ctx->f[12] = f12; ctx->f[20] = f20; ctx->f[21] = f21; ctx->f[22] = f22; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra)); ctx->fcr31 = fcr31;
                 ctx->pc = 0x1345E90u;
-                if (!PS2_CALL_GUEST_NOCHK(0x1345E90u, lift_d1::SetDefaultGameAnimeTimeScaleRatio, 0x1346278u, 0x1346270u, DirectCall, "JAL")) { return; }
+                if (PS2_N4_FAST(PS2_GUEST_FN(0x1345E90u), lift_d1::SetDefaultGameAnimeTimeScaleRatio)) { PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1346278u); PS2_N4_ARG(float, f12, ctx->f[12], 0x1346278u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::SetDefaultGameAnimeTimeScaleRatio_n4(rdram, ctx, runtime, Ps2GprU32(ctx, 2), sx64(ra), f12); if (PS2_EXPECT(!PS2_N4_DONE(0x1346278u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1345E90u, 0x1346278u, n4_s)) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } else { PS2_N4_COUNT(); PS2_N4_KEEP(f0, ctx->f[0], 0x1346278u); PS2_N4_KEEP(f12, ctx->f[12], 0x1346278u); PS2_N4_KEEP(f13, ctx->f[13], 0x1346278u); PS2_N4_KEEP(f20, ctx->f[20], 0x1346278u); PS2_N4_KEEP(f21, ctx->f[21], 0x1346278u); PS2_N4_KEEP(f22, ctx->f[22], 0x1346278u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1346278u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1346278u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1346278u); PS2_N4_KEEP(a0, Ps2GprU32(ctx, 4), 0x1346278u); PS2_N4_KEEP(a1, Ps2GprU32(ctx, 5), 0x1346278u); PS2_N4_KEEP(fcr31, ctx->fcr31, 0x1346278u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1345E90u, lift_d1::SetDefaultGameAnimeTimeScaleRatio, 0x1346278u, 0x1346270u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } // n4
             }
-            f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31;
+            // n4: read back in the call's block above
             {
                 ra = 0x1346280u;
                 Ps2SetGpr64(ctx, 31, sx64(ra));
                 ctx->pc = 0x1345E48u;
-                if (!PS2_CALL_GUEST_NOCHK(0x1345E48u, lift_d1::GetGameAnimeTimeScaleRatio, 0x1346280u, 0x1346278u, DirectCall, "JAL")) { return; }
+                if (PS2_N4_FAST(PS2_GUEST_FN(0x1345E48u), lift_d1::GetGameAnimeTimeScaleRatio)) { PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1346280u); PS2_N4_ARG(float, f0, ctx->f[0], 0x1346280u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::GetGameAnimeTimeScaleRatio_n4(rdram, ctx, runtime, Ps2GprU32(ctx, 2), sx64(ra), f0); if (PS2_EXPECT(!PS2_N4_DONE(0x1346280u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1345E48u, 0x1346280u, n4_s)) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } else { PS2_N4_COUNT(); f0 = ctx->f[0]; PS2_N4_KEEP(f12, ctx->f[12], 0x1346280u); PS2_N4_KEEP(f13, ctx->f[13], 0x1346280u); PS2_N4_KEEP(f20, ctx->f[20], 0x1346280u); PS2_N4_KEEP(f21, ctx->f[21], 0x1346280u); PS2_N4_KEEP(f22, ctx->f[22], 0x1346280u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1346280u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1346280u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1346280u); PS2_N4_KEEP(a0, Ps2GprU32(ctx, 4), 0x1346280u); PS2_N4_KEEP(a1, Ps2GprU32(ctx, 5), 0x1346280u); PS2_N4_KEEP(fcr31, ctx->fcr31, 0x1346280u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1345E48u, lift_d1::GetGameAnimeTimeScaleRatio, 0x1346280u, 0x1346278u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } // n4
             }
-            f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31;
+            // n4: read back in the call's block above
             f12 = FPU_MOV_S(f0);
             {
                 ra = 0x134628Cu;
@@ -14452,16 +14890,16 @@ void setDemoBar(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         ra = 0x13462A0u;
         ctx->f[12] = f12; ctx->f[20] = f20; ctx->f[21] = f21; ctx->f[22] = f22; Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 31, sx64(ra)); ctx->fcr31 = fcr31;
         ctx->pc = 0x1345E78u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1345E78u, lift_d1::RestoreDefaultGameAnimeTimeScaleRatio, 0x13462A0u, 0x1346298u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1345E78u), lift_d1::RestoreDefaultGameAnimeTimeScaleRatio)) { PS2_N4_ARG(uint32_t, sx64(at), Ps2GprU32(ctx, 1), 0x13462A0u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x13462A0u); PS2_N4_ARG(float, f0, ctx->f[0], 0x13462A0u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::RestoreDefaultGameAnimeTimeScaleRatio_n4(rdram, ctx, runtime, sx64(at), Ps2GprU32(ctx, 2), sx64(ra), f0); if (PS2_EXPECT(!PS2_N4_DONE(0x13462A0u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1345E78u, 0x13462A0u, n4_s)) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } else { PS2_N4_COUNT(); f0 = ctx->f[0]; at = Ps2GprU32(ctx, 1); PS2_N4_KEEP(f12, ctx->f[12], 0x13462A0u); PS2_N4_KEEP(f13, ctx->f[13], 0x13462A0u); PS2_N4_KEEP(f20, ctx->f[20], 0x13462A0u); PS2_N4_KEEP(f21, ctx->f[21], 0x13462A0u); PS2_N4_KEEP(f22, ctx->f[22], 0x13462A0u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x13462A0u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x13462A0u); PS2_N4_KEEP(a0, Ps2GprU32(ctx, 4), 0x13462A0u); PS2_N4_KEEP(a1, Ps2GprU32(ctx, 5), 0x13462A0u); PS2_N4_KEEP(fcr31, ctx->fcr31, 0x13462A0u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1345E78u, lift_d1::RestoreDefaultGameAnimeTimeScaleRatio, 0x13462A0u, 0x1346298u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } // n4
     }
-    f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31;
+    // n4: read back in the call's block above
     {
         ra = 0x13462A8u;
         Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x1345E48u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1345E48u, lift_d1::GetGameAnimeTimeScaleRatio, 0x13462A8u, 0x13462A0u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1345E48u), lift_d1::GetGameAnimeTimeScaleRatio)) { PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x13462A8u); PS2_N4_ARG(float, f0, ctx->f[0], 0x13462A8u); const uint32_t n4_s = PS2_N4_ENTER(); const uint64_t n4_r = lift_d1::GetGameAnimeTimeScaleRatio_n4(rdram, ctx, runtime, Ps2GprU32(ctx, 2), sx64(ra), f0); if (PS2_EXPECT(!PS2_N4_DONE(0x13462A8u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1345E48u, 0x13462A8u, n4_s)) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } else { PS2_N4_COUNT(); f0 = ctx->f[0]; PS2_N4_KEEP(f12, ctx->f[12], 0x13462A8u); PS2_N4_KEEP(f13, ctx->f[13], 0x13462A8u); PS2_N4_KEEP(f20, ctx->f[20], 0x13462A8u); PS2_N4_KEEP(f21, ctx->f[21], 0x13462A8u); PS2_N4_KEEP(f22, ctx->f[22], 0x13462A8u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x13462A8u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x13462A8u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x13462A8u); PS2_N4_KEEP(a0, Ps2GprU32(ctx, 4), 0x13462A8u); PS2_N4_KEEP(a1, Ps2GprU32(ctx, 5), 0x13462A8u); PS2_N4_KEEP(fcr31, ctx->fcr31, 0x13462A8u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1345E48u, lift_d1::GetGameAnimeTimeScaleRatio, 0x13462A8u, 0x13462A0u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31; } // n4
     }
-    f0 = ctx->f[0]; f12 = ctx->f[12]; f13 = ctx->f[13]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; at = Ps2GprU32(ctx, 1); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5); fcr31 = ctx->fcr31;
+    // n4: read back in the call's block above
     f12 = FPU_MOV_S(f0);
     {
         ra = 0x13462B4u;
@@ -15039,9 +15477,9 @@ L_1346910:
         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s0, 136))));
         ctx->f[0] = f0; ctx->f[1] = f1; ctx->f[13] = f13; ctx->f[20] = f20; ctx->f[21] = f21; ctx->f[22] = f22; ctx->f[23] = f23; if (df_at) Ps2SetGpr64(ctx, 1, sx64(at)); Ps2SetGpr64(ctx, 16, s0); Ps2SetGpr64(ctx, 17, s1); if (df_v0) Ps2SetGpr64(ctx, 2, sx64(v0)); if (df_sp) Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 3, v1); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); ctx->fcr31 = fcr31;
         ctx->pc = 0x1343E10u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1343E10u, lift_d1::GAMEUTIL_get_cur_velocity_move_angle, 0x1346950u, 0x1346948u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1343E10u), lift_d1::GAMEUTIL_get_cur_velocity_move_angle)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1346950u); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1346950u); PS2_N4_ARG(float, f0, ctx->f[0], 0x1346950u); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::GAMEUTIL_get_cur_velocity_move_angle_n4(rdram, ctx, runtime, a0, sx64(ra), f0); if (PS2_EXPECT(!PS2_N4_DONE(0x1346950u), 0)) { if (!runtime->noCheckFinish(ctx, 0x1343E10u, 0x1346950u, n4_s)) { return; } f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f15 = ctx->f[15]; f16 = ctx->f[16]; f17 = ctx->f[17]; f18 = ctx->f[18]; f19 = ctx->f[19]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); fcr31 = ctx->fcr31; df_at = false; df_v0 = false; df_sp = false; } else { PS2_N4_COUNT(); f0 = ctx->f[0]; df_at = false; df_v0 = false; df_sp = false; PS2_N4_KEEP(f1, ctx->f[1], 0x1346950u); PS2_N4_KEEP(f12, ctx->f[12], 0x1346950u); PS2_N4_KEEP(f13, ctx->f[13], 0x1346950u); PS2_N4_KEEP(f14, ctx->f[14], 0x1346950u); PS2_N4_KEEP(f15, ctx->f[15], 0x1346950u); PS2_N4_KEEP(f16, ctx->f[16], 0x1346950u); PS2_N4_KEEP(f17, ctx->f[17], 0x1346950u); PS2_N4_KEEP(f18, ctx->f[18], 0x1346950u); PS2_N4_KEEP(f19, ctx->f[19], 0x1346950u); PS2_N4_KEEP(f20, ctx->f[20], 0x1346950u); PS2_N4_KEEP(f21, ctx->f[21], 0x1346950u); PS2_N4_KEEP(f22, ctx->f[22], 0x1346950u); PS2_N4_KEEP(f23, ctx->f[23], 0x1346950u); PS2_N4_KEEP(at, Ps2GprU32(ctx, 1), 0x1346950u); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1346950u); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1346950u); PS2_N4_KEEP(v0, Ps2GprU32(ctx, 2), 0x1346950u); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1346950u); PS2_N4_KEEP(v1, Ps2GprU64(ctx, 3), 0x1346950u); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1346950u); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1346950u); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1346950u); PS2_N4_KEEP(a2, Ps2GprU32(ctx, 6), 0x1346950u); PS2_N4_KEEP(a3, Ps2GprU32(ctx, 7), 0x1346950u); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x1346950u); PS2_N4_KEEP(t1, Ps2GprU32(ctx, 9), 0x1346950u); PS2_N4_KEEP(fcr31, ctx->fcr31, 0x1346950u); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1343E10u, lift_d1::GAMEUTIL_get_cur_velocity_move_angle, 0x1346950u, 0x1346948u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f15 = ctx->f[15]; f16 = ctx->f[16]; f17 = ctx->f[17]; f18 = ctx->f[18]; f19 = ctx->f[19]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); fcr31 = ctx->fcr31; df_at = false; df_v0 = false; df_sp = false; } // n4
     }
-    f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f15 = ctx->f[15]; f16 = ctx->f[16]; f17 = ctx->f[17]; f18 = ctx->f[18]; f19 = ctx->f[19]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; at = Ps2GprU32(ctx, 1); s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU64(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); fcr31 = ctx->fcr31; df_at = false; df_v0 = false; df_sp = false;
+    // n4: read back in the call's block above
     (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)s0, 84)))); df_v0 = true;
     { uint32_t bits = READ32_B((uint32_t)s1, 12); float f; std::memcpy(&f, &bits, sizeof(f)); f18 = f; }
     (a0 = (uint64_t)((uint64_t)sx64(v0) + (uint64_t)0ULL));
@@ -15207,9 +15645,9 @@ void gamecore_sub_013469D0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
         f20 = FPU_MOV_S(f0);
         ctx->f[20] = f20; Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
         ctx->pc = 0x1343E10u;
-        if (!PS2_CALL_GUEST_NOCHK(0x1343E10u, lift_d1::GAMEUTIL_get_cur_velocity_move_angle, 0x1346A9Cu, 0x1346A94u, DirectCall, "JAL")) { return; }
+        if (PS2_N4_FAST(PS2_GUEST_FN(0x1343E10u), lift_d1::GAMEUTIL_get_cur_velocity_move_angle)) { PS2_N4_ARG(uint32_t, a0, Ps2GprU32(ctx, 4), 0x1346A9Cu); PS2_N4_ARG(uint32_t, sx64(ra), Ps2GprU32(ctx, 31), 0x1346A9Cu); PS2_N4_ARG(float, f0, ctx->f[0], 0x1346A9Cu); const uint32_t n4_s = PS2_N4_ENTER(); lift_d1::GAMEUTIL_get_cur_velocity_move_angle_n4(rdram, ctx, runtime, a0, sx64(ra), f0); if (PS2_EXPECT(!PS2_N4_DONE(0x1346A9Cu), 0)) { if (!runtime->noCheckFinish(ctx, 0x1343E10u, 0x1346A9Cu, n4_s)) { return; } f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f15 = ctx->f[15]; f16 = ctx->f[16]; f17 = ctx->f[17]; f18 = ctx->f[18]; f19 = ctx->f[19]; f2 = ctx->f[2]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); fcr31 = ctx->fcr31; } else { PS2_N4_COUNT(); f0 = ctx->f[0]; PS2_N4_KEEP(f1, ctx->f[1], 0x1346A9Cu); PS2_N4_KEEP(f12, ctx->f[12], 0x1346A9Cu); PS2_N4_KEEP(f13, ctx->f[13], 0x1346A9Cu); PS2_N4_KEEP(f14, ctx->f[14], 0x1346A9Cu); PS2_N4_KEEP(f15, ctx->f[15], 0x1346A9Cu); PS2_N4_KEEP(f16, ctx->f[16], 0x1346A9Cu); PS2_N4_KEEP(f17, ctx->f[17], 0x1346A9Cu); PS2_N4_KEEP(f18, ctx->f[18], 0x1346A9Cu); PS2_N4_KEEP(f19, ctx->f[19], 0x1346A9Cu); PS2_N4_KEEP(f2, ctx->f[2], 0x1346A9Cu); PS2_N4_KEEP(f20, ctx->f[20], 0x1346A9Cu); PS2_N4_KEEP(f21, ctx->f[21], 0x1346A9Cu); PS2_N4_KEEP(f22, ctx->f[22], 0x1346A9Cu); PS2_N4_KEEP(f23, ctx->f[23], 0x1346A9Cu); PS2_N4_KEEP(s0, Ps2GprU64(ctx, 16), 0x1346A9Cu); PS2_N4_KEEP(s1, Ps2GprU64(ctx, 17), 0x1346A9Cu); PS2_N4_KEEP(v0, Ps2GprU32(ctx, 2), 0x1346A9Cu); PS2_N4_KEEP(sp, Ps2GprU32(ctx, 29), 0x1346A9Cu); PS2_N4_KEEP(ra, Ps2GprU32(ctx, 31), 0x1346A9Cu); PS2_N4_KEEP(a0, Ps2GprU64(ctx, 4), 0x1346A9Cu); PS2_N4_KEEP(a1, Ps2GprU64(ctx, 5), 0x1346A9Cu); PS2_N4_KEEP(a2, Ps2GprU32(ctx, 6), 0x1346A9Cu); PS2_N4_KEEP(a3, Ps2GprU32(ctx, 7), 0x1346A9Cu); PS2_N4_KEEP(t0, Ps2GprU32(ctx, 8), 0x1346A9Cu); PS2_N4_KEEP(t1, Ps2GprU32(ctx, 9), 0x1346A9Cu); PS2_N4_KEEP(fcr31, ctx->fcr31, 0x1346A9Cu); } } else { if (!PS2_CALL_GUEST_NOCHK(0x1343E10u, lift_d1::GAMEUTIL_get_cur_velocity_move_angle, 0x1346A9Cu, 0x1346A94u, DirectCall, "JAL")) { return; } f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f15 = ctx->f[15]; f16 = ctx->f[16]; f17 = ctx->f[17]; f18 = ctx->f[18]; f19 = ctx->f[19]; f2 = ctx->f[2]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); fcr31 = ctx->fcr31; } // n4
     }
-    f0 = ctx->f[0]; f1 = ctx->f[1]; f12 = ctx->f[12]; f13 = ctx->f[13]; f14 = ctx->f[14]; f15 = ctx->f[15]; f16 = ctx->f[16]; f17 = ctx->f[17]; f18 = ctx->f[18]; f19 = ctx->f[19]; f2 = ctx->f[2]; f20 = ctx->f[20]; f21 = ctx->f[21]; f22 = ctx->f[22]; f23 = ctx->f[23]; s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU32(ctx, 6); a3 = Ps2GprU32(ctx, 7); t0 = Ps2GprU32(ctx, 8); t1 = Ps2GprU32(ctx, 9); fcr31 = ctx->fcr31;
+    // n4: read back in the call's block above
     (v0 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)s0, 96))));
     { uint32_t bits = READ32_B((uint32_t)s1, 28); float f; std::memcpy(&f, &bits, sizeof(f)); f18 = f; }
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)s0, 232))));
