@@ -66,15 +66,16 @@ faster), ± 2 SE:
 |---|---|---|
 | mixR7p1, ride7 800 s, seed 7 | -0.167 ± 0.207 ms (on 32.92, off 32.74) | -1.6 |
 | mixR13p1, ride7 800 s, seed 13 | +0.138 ± 0.136 ms (on 31.86, off 32.02) | +2.0 |
-| mixL7p1, lake6 400 s, seed 7 | PENDING_L | |
+| mixL7p1, lake6 400 s, seed 7 | +0.075 ± 0.092 ms (on 33.96, off 34.01) | +1.6 |
 
-Riding pooled (two seeds): -0.01 ± 0.12 ms (2 SE): even. The five sites are a few hundred calls a frame; what the
+Pooled (the three): +0.02 ± 0.09 ms (2 SE), z 0.3: even. The five sites are a few hundred calls a frame; what the
 host path removes (the table call, ~10 context words a call) is ~0.1 ms at most, under this A/B's resolution. It is
 on by default: exact by the check and not slower; it is also the shape the rest of the walk moves to.
 
 ## 5. Boot
 
-600 s ride7 with SOTC_VITA_EAT_USER_MB=89 (bootRp1): PENDING. spalign (p1.elf): 0 sp-based :128/:256 NEON accesses (of 1 013 with an alignment hint).
+600 s ride7 with SOTC_VITA_EAT_USER_MB=89 (bootRp1): booted first try, mounted Agro at frame 3 776 and rode to the end; shots (t0060-t0600) normal: Wander,
+Agro, ground, sky, cliffs and ruins. spalign (p1.elf): 0 sp-based :128/:256 NEON accesses (of 1 013 with an alignment hint).
 
 ## 6. What is left of the cluster
 

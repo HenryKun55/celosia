@@ -1180,8 +1180,8 @@
    "date": "2026-11-19",
    "commit": "",
    "focus": "Native rewrite",
-   "summary": "Round R1 took the display / model cluster of the riding profile: AddSortObj, called by the display walk (DispDispObjGroupModel) at five sites through the guest function table, now runs there as plain host code (the sort list and its nodes as typed structs on guest RAM, no context registers, no table call), behind SOTC_R1SORT with an in-run check (SOTC_R1SORT_CHECK).",
-   "result": "Pending: checks (ride7, lake6, attract), A/B (ride7 seeds 7 / 13, lake6), the 89 MB boot."
+   "summary": "Round R1 took the display / model cluster of the riding profile: AddSortObj, called by the display walk (DispDispObjGroupModel) at five sites through the guest function table, now runs there as plain host code (the sort list and its nodes as typed structs on guest RAM, no context registers, no table call), behind SOTC_R1SORT (on) with an in-run check (SOTC_R1SORT_CHECK).",
+   "result": "Exact: 0 differences in 2.48 M calls riding, 1.52 M at the lake, 1.24 M in the attract demo. A/B (Vita3K 222 MHz, off - on): ride7 -0.17 +- 0.21 and +0.14 +- 0.14 ms, lake6 +0.08 +- 0.09 ms; pooled +0.02 +- 0.09 ms: even, on by default. Boot with 89 MB taken rode normally, pictures normal; 0 sp-based NEON accesses. The rest of the walk (its guest frame, the class callbacks) and modelDispHook are left."
   }
  ]
 }

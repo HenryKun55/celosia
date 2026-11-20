@@ -23333,4 +23333,8 @@ docs/native_r1.md. Scripts, runs and logs: `build/agent-scratch/r1/`. Switch `SO
   stores, no context, no table call. The guest entry point stays for the other callers.
 - **Check** `SOTC_R1SORT_CHECK=1`: the host version's stores recorded, the guest call run, every written / link word
   compared: 0 differences in 2.48 M calls riding (ride7), 1.52 M at the lake (lake6), 1.24 M in the attract demo;
-  0 sp-based NEON accesses. A/B and the 89 MB boot: PENDING_R1
+  0 sp-based NEON accesses. A/B (Vita3K 222 MHz, off - on): ride7 -0.17 ± 0.21 (seed 7),
+  +0.14 ± 0.14 (seed 13), lake6 +0.08 ± 0.09 ms; pooled +0.02 ± 0.09 ms: even. On by default (exact, not slower).
+  Boot with 89 MB taken rode normally, pictures normal.
+- **Left**: the walk's guest frame and its class callbacks (still `callGuest`), modelDispHook, GetLayoutClass's ~40
+  other callers (docs/native_r1.md section 6).
