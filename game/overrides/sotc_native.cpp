@@ -13243,9 +13243,9 @@ void installSotcNativeLate(PS2Runtime &runtime)
     s17iop::init();                      // round S17: the dispatch nested at the checkpoint (SOTC_S17IOP_*)
     s17iop::apply(0);
     {
-        // Round N5: n5sched off unless SOTC_N5SCHED=1 (an A/B of it needs the env: S18's lesson); SOTC_N5_LOG=<frames>.
+        // Round N5: n5sched (round N5b: on unless SOTC_N5SCHED=0; it takes effect once GAMECORE runs); SOTC_N5_LOG=<frames>.
         const char *e = std::getenv("SOTC_N5SCHED");
-        sotc_decomp::g_switch[sotc_decomp::kN5Sched] = (e && e[0] == '1') ? 1 : 0;
+        sotc_decomp::g_switch[sotc_decomp::kN5Sched] = (e && e[0] == '0') ? 0 : 1; // round N5b: on by default (SOTC_N5SCHED=0 off)
         g_ps2xN5Sched = 0u; // round N5b: from the first frame after GAMECORE's entry (above)
         e = std::getenv("SOTC_N5_LOG");
         g_ps2xN5Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;

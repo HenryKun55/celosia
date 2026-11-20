@@ -722,7 +722,7 @@ namespace sotc_decomp
         kN2Snd,    // round N2 (SOTC_N2SND=0 off): the sound engine's remote layer on the host: Sg2RemoteSend / Sg2RemoteTickProc
                    // hand their commands to the native driver straight (no guest ring, no SIF RPC), the reply written into the
                    // game's status block; the mixer's N2 paths (sound_n2.cpp, sound_mixer.cpp; docs/sound_n2.md; SOTC_N2SND_CHECK)
-        kN5Sched,  // round N5 (off unless SOTC_N5SCHED=1): the EE kernel's own rule for equal priorities: no time slice, only a
+        kN5Sched,  // round N5 (N5b: on unless SOTC_N5SCHED=0, from GAMECORE's entry): the EE kernel's own rule for equal priorities: no time slice, only a
                    // strictly higher-priority ready thread preempts at a checkpoint; threads switch at blocking / yielding /
                    // waking points only (EeScheduler.cpp g_ps2xN5Sched; docs/native_n5.md)
         kN3Direct, // round N3 (SOTC_N3DIRECT=0 off): generated code's calls to lifted functions without the table read while every

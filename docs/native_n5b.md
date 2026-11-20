@@ -53,10 +53,23 @@ s0 / entry (with `SOTC_N5_LOG`).
   **-0.081 ± 0.139 ms**, seed 13 **+0.101 ± 0.122 ms**; lake6 400 s **-0.076 ± 0.073 ms** (z -2.1 alone: on slightly slower at the lake). Pooled (mean of the
   three, SE = sqrt(sum SE^2) / 3): **-0.019 ± 0.066 ms, z -0.56: even**.
 - Boot: d4on (n5sched on from the start, ride7 300 s): GAMECORE at 3.45 s (off: 3.48 s), mounted (frame 2 848), rode at
-  ~33 fps, pictures normal; spin preempts 0, idle yields 0. 600 s boot with 89 MB taken: BOOT_PENDING.
+  ~33 fps, pictures normal; spin preempts 0, idle yields 0. 600 s boot with 89 MB taken (bootR): BOOT_PENDING.
+- Boots with n5sched on from the start: d4on, boot2 (300 s), recR1 and the three A/B runs: all entered GAMECORE
+  (3.24-3.51 s), mounted and rode.
 - Load: the boot to GAMECORE is the same code path as off (3.45 vs 3.48 s); the mount time on ride7 depends on how many
-  teleport tries the route needs (off1 needed 4, d4on 1), so it is not a load-time measure. SOUND_PENDING
+  teleport tries the route needs, in both modes (mounted at t 75 s and 190 s off; 85, 95 and 185 s on), so it is not a
+  load-time measure.
+- Sound (ride7 360 s, `PS2X_SPU2_WAV`, n2/tools/wavcmp, recR1 on vs recR0 off): 69.2 MB each, loudness -25.2 vs
+  -25.1 dBFS, the 9-band spectra within 0.7 dB up to 3 kHz (the samples differ as any two runs do: they mount at
+  different times). No gap or level change.
 - spalign (p4.elf): 0 sp-based :128 / :256 NEON accesses (of 951).
+
+## Default
+
+**On** (`SOTC_N5SCHED=0` turns it off; sotc_native.cpp init): it boots every time (6 of 6 runs), rides normally, the
+A/B is even (pooled -0.019 ± 0.066 ms; the lake alone -0.076 ± 0.073, a watch item), the sound is the same, and the
+boot before GAMECORE is unchanged by construction. What it buys: from GAMECORE's entry on, a thread is switched only at
+explicit points (blocking, yielding, waking, a higher-priority thread, interrupts), the property section 4 needs.
 
 ## 4. The next step for N4: the dispatch checkpoint off the call path (not done: needs a full runner rebuild)
 
