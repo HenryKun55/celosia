@@ -1170,7 +1170,7 @@
   {
    "round": "N3",
    "date": "2026-11-19",
-   "commit": "",
+   "commit": "4c22532",
    "focus": "Native layers",
    "summary": "Round N3 did the plan's float and call steps for the lifted code: PS2X_EE_TRUST_FINITE level 1 for the lifted batches (CMake PS2X_GEN_TRUST, default 1; the clamps that only act on Inf / NaN out) and direct calls between lifted functions (tools/n3_direct.py: 1 669 sites; one runtime flag, kept only while every target's slot holds its lifted function, so a direct call is exact).",
    "result": "Native float level 1 not exact here (the check build counted 9 173 FPU / 6 VU clamps acting riding, 2 069 / 16 at the lake): off by default. Direct calls (1 664 sites, glEnd left out because its slot is taken at run time): A/B ride7 -0.051 +- 0.169, -0.154 +- 0.129 ms, lake6 +0.044 +- 0.082; pooled -0.02 +- 0.06 ms, even; on by default (exact by the guard). Boot with 89 MB taken rode normally; no sp-based NEON accesses."
