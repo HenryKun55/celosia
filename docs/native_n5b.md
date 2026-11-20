@@ -49,7 +49,13 @@ s0 / entry (with `SOTC_N5_LOG`).
 
 ## 3. Measurements (p4 = N5b's build; Vita3K 222 MHz; off - on, ms a frame, ± 2 SE)
 
-RESULTS_PENDING
+- In-run A/B (`SOTC_AB_FLAG=n5sched SOTC_N5SCHED=1`, `SOTC_AB_MIX`, mixframes; on = n5sched): ride7 800 s seed 7
+  **-0.081 ± 0.139 ms**, seed 13 **+0.101 ± 0.122 ms**; lake6 400 s LAKE_PENDING.
+- Boot: d4on (n5sched on from the start, ride7 300 s): GAMECORE at 3.45 s (off: 3.48 s), mounted (frame 2 848), rode at
+  ~33 fps, pictures normal; spin preempts 0, idle yields 0. 600 s boot with 89 MB taken: BOOT_PENDING.
+- Load: the boot to GAMECORE is the same code path as off (3.45 vs 3.48 s); the mount time on ride7 depends on how many
+  teleport tries the route needs (off1 needed 4, d4on 1), so it is not a load-time measure. SOUND_PENDING
+- spalign (p4.elf): 0 sp-based :128 / :256 NEON accesses (of 951).
 
 ## 4. The next step for N4: the dispatch checkpoint off the call path (not done: needs a full runner rebuild)
 
