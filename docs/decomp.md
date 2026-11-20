@@ -23358,3 +23358,24 @@ docs/native_n5b.md. Scripts, runs and logs: `build/agent-scratch/n5b/`. Switch `
   (`SOTC_N5SCHED=0` off).
 - **Next for N4**: the dispatch checkpoint off calls into functions that cannot block and have no loop below them
   (docs/native_n5b.md section 4: needs a full runner rebuild, not done).
+
+## Native N6: the dispatch checkpoint off calls into loop-free, non-blocking functions (n6nochk) (2026-11-20)
+
+docs/native_n6.md. Scripts, runs and logs: `build/agent-scratch/n6/`. Switch `SOTC_N6NOCHK` (A/B `n6nochk`, `kN6NoChk`).
+
+- **The set**: `tools/n5_blocking.py --noloop` writes docs/n5_noloop.txt: the NOBLOCK functions with no loop anywhere
+  below them (least fixpoint over the call edges, natives / host slots left out, recursion never qualifies): 2 813
+  functions, 3.00% of the game thread riding.
+- **The call form**: `PS2_CALL_GUEST_NOCHK` / `PS2_CALL_GUEST_DIRECT_NOCHK` -> `PS2Runtime::callGuestKnownNoCheck`:
+  while the slot holds the known function (N3's guard for the DIRECT form) and NOCHK is on, the dispatch checkpoint's
+  cycles are charged and not tested; otherwise exactly `callGuestKnownBody`. NOCHK on / off is the host stack floor the
+  fast form compares against (`m_noCheckFloor`, `setNoCheck`): no flag load. On only while n5sched is in effect.
+- **Generators**: `tools/n6_nochk.py` (idempotent, `--undo`), run by `tools/lift_d1.py` after n3_direct.py (which keeps
+  the NOCHK suffix, and now gets `tools/n3_direct_exclude.txt` from lift_d1.py); ps2xRecomp `PS2X_RECOMP_NOCHK_LIST`.
+  3 556 sites in the lifted batches, 5 154 in the runner (copy rewritten for the build).
+- **Measured** (p1, Vita3K 222 MHz, off - on): ride7 +0.156 ± 0.129 (seed 7), -0.003 ± 0.141 (seed 13), lake6
+  -0.064 ± 0.105 ms; pooled +0.030 ± 0.073 ms (z +0.8): even. Deadlines seen past the gate: mean 16-23 cycles on vs
+  20-21 off, max 3 270-3 744 on vs 3 224-3 464 off; 0 unwinds after a skipped test. Boot with 89 MB taken (600 s):
+  rode at 31-32 fps, pictures normal. 0 sp-based NEON accesses. **On by default** (`SOTC_N6NOCHK=0` off).
+- **Next for N4**: native entries with register arguments for the functions both in n5_noloop.txt and proven by
+  tools/n4_abi.py, leaves first (docs/native_n6.md section 6).
