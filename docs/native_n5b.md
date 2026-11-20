@@ -50,7 +50,8 @@ s0 / entry (with `SOTC_N5_LOG`).
 ## 3. Measurements (p4 = N5b's build; Vita3K 222 MHz; off - on, ms a frame, ± 2 SE)
 
 - In-run A/B (`SOTC_AB_FLAG=n5sched SOTC_N5SCHED=1`, `SOTC_AB_MIX`, mixframes; on = n5sched): ride7 800 s seed 7
-  **-0.081 ± 0.139 ms**, seed 13 **+0.101 ± 0.122 ms**; lake6 400 s LAKE_PENDING.
+  **-0.081 ± 0.139 ms**, seed 13 **+0.101 ± 0.122 ms**; lake6 400 s **-0.076 ± 0.073 ms** (z -2.1 alone: on slightly slower at the lake). Pooled (mean of the
+  three, SE = sqrt(sum SE^2) / 3): **-0.019 ± 0.066 ms, z -0.56: even**.
 - Boot: d4on (n5sched on from the start, ride7 300 s): GAMECORE at 3.45 s (off: 3.48 s), mounted (frame 2 848), rode at
   ~33 fps, pictures normal; spin preempts 0, idle yields 0. 600 s boot with 89 MB taken: BOOT_PENDING.
 - Load: the boot to GAMECORE is the same code path as off (3.45 vs 3.48 s); the mount time on ride7 depends on how many
