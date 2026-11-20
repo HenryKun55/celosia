@@ -4130,8 +4130,12 @@ namespace sotc_native
         g_ps2xFpuZeroFast = s13mot::on(s13mot::kZeroDiv);
         // Round S17 (s17iop): the dispatch nested at the checkpoint for the next frame, likewise.
         s17iop::apply(g_runtimeForLog ? g_runtimeForLog->eeScheduler().currentThreadId() : 0);
-        // Round N5 (n5sched): the EE kernel's equal-priority rule for the next frame, likewise.
-        g_ps2xN5Sched = sotc_decomp::switchOn(sotc_decomp::kN5Sched) ? 1u : 0u;
+        // Round N5 (n5sched): the EE kernel's equal-priority rule for the next frame, likewise. Round N5b: only once
+        // GAMECORE runs: the boot before it keeps the time slice, since the order of its heap allocations (which the
+        // slice's turns between the loader t6 and the main thread, both priority 45, decide) places the XFF modules,
+        // and the recompiled modules were captured with that order (with n5sched from the start a module landed
+        // elsewhere and its entry, 0x124a448, had no code: the loader thread died and the boot never ended).
+        g_ps2xN5Sched = sotc_decomp::switchOn(sotc_decomp::kN5Sched) && sotc_decomp::gamecoreEntered() ? 1u : 0u;
         if (s17iop::g_log && g_frame % s17iop::g_log == 0u)
             s17iop::logLine(g_frame);
         if (s16plan::g_log && g_frame % s16plan::g_log == 0u)
@@ -13242,7 +13246,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
         // Round N5: n5sched off unless SOTC_N5SCHED=1 (an A/B of it needs the env: S18's lesson); SOTC_N5_LOG=<frames>.
         const char *e = std::getenv("SOTC_N5SCHED");
         sotc_decomp::g_switch[sotc_decomp::kN5Sched] = (e && e[0] == '1') ? 1 : 0;
-        g_ps2xN5Sched = sotc_decomp::switchOn(sotc_decomp::kN5Sched) ? 1u : 0u;
+        g_ps2xN5Sched = 0u; // round N5b: from the first frame after GAMECORE's entry (above)
         e = std::getenv("SOTC_N5_LOG");
         g_ps2xN5Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
         // Round N5b: n5sched's spin limit in time slices (0, the default: none, the kernel's rule only).

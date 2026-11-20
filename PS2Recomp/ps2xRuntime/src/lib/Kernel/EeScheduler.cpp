@@ -44,6 +44,8 @@ namespace n5stat
 {
     static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
     static uint64_t idleYields = 0, idleNone = 0, spinPreempts = 0, spinRenews = 0; // counts since the start
+    static uint64_t idleRet[6] = {}; // idleWait returned at once: no host sync, invocation, timer IRQ, ready thread, event, deadline due
+    static uint32_t lateTag = 0;     // the type of the last deadline found due there
     static bool line(uint64_t frame)
     {
         if (frame / g_ps2xN5Log == lastFrame / g_ps2xN5Log || frame <= lastFrame)
@@ -57,6 +59,10 @@ namespace n5stat
         for (uint32_t t = 0; t < 32u && n > 0 && n < 1100; ++t)
             if (runs[t])
                 n += std::snprintf(buf + n, sizeof(buf) - n, " t%u %.0f/%.2f", t, us[t] / f, runs[t] / f);
+        if (n > 0 && n < 1100)
+            n += std::snprintf(buf + n, sizeof(buf) - n, " | idle wait at once: sync %llu inv %llu timer %llu ready %llu event %llu deadline %llu (type %u)",
+                               (unsigned long long)idleRet[0], (unsigned long long)idleRet[1], (unsigned long long)idleRet[2], (unsigned long long)idleRet[3],
+                               (unsigned long long)idleRet[4], (unsigned long long)idleRet[5], lateTag);
         std::fprintf(stderr, "%s\n", buf);
         for (uint32_t t = 0; t < 32u; ++t)
             us[t] = runs[t] = 0;
@@ -548,8 +554,9 @@ void EeScheduler::run()
                         if (n <= 0 || n > 1500)
                             break;
                         const unsigned s = static_cast<unsigned>(t.status);
-                        n += std::snprintf(buf + n, sizeof(buf) - n, " t%d p%d %c%u %x/%x", id, t.currentPriority, s < 6u ? st[s] : '?',
-                                           static_cast<unsigned>(t.wait.reason), t.activeContext().pc, getRegU32(&t.activeContext(), 31));
+                        n += std::snprintf(buf + n, sizeof(buf) - n, " t%d(e%x) p%d %c%u %x/%x a0 %x s0 %x", id, t.entry, t.currentPriority, s < 6u ? st[s] : '?',
+                                           static_cast<unsigned>(t.wait.reason), t.activeContext().pc, getRegU32(&t.activeContext(), 31),
+                                           getRegU32(&t.activeContext(), 4), getRegU32(&t.activeContext(), 16));
                     }
                     std::fprintf(stderr, "%s\n", buf);
                 }
@@ -2941,14 +2948,23 @@ void EeScheduler::idleWait()
 {
     assertExecutor();
     if (!m_hostClockSync || !m_pendingInvocations.empty() || m_pendingEeTimerInterrupts != 0u)
+    {
+        ++n5stat::idleRet[!m_hostClockSync ? 0 : !m_pendingInvocations.empty() ? 1 : 2];
         return;
+    }
     for (const auto &queue : m_readyQueues)
         if (!queue.empty())
+        {
+            ++n5stat::idleRet[3];
             return;
+        }
     {
         std::unique_lock lock(m_eventMutex);
         if (!m_events.empty() || m_stopRequested.load(std::memory_order_acquire))
+        {
+            ++n5stat::idleRet[4];
             return;
+        }
         // A deadline due by cycles is processed first. Host deadlines can lag
         // real time after a slow stretch (each VBlank is scheduled from the
         // previous one): those only pace, so they do not shorten the wait.
@@ -2957,7 +2973,11 @@ void EeScheduler::idleWait()
         for (const ScheduledEvent &item : m_deadlines)
         {
             if (item.deadlineCycle <= eeNow())
+            {
+                ++n5stat::idleRet[5];
+                n5stat::lateTag = static_cast<uint32_t>(item.event.type);
                 return;
+            }
             if (item.hostDeadline > now)
                 until = std::min(until, item.hostDeadline);
         }
@@ -2982,9 +3002,10 @@ void EeScheduler::enableHostClockSync()
 }
 
 // Round N5b (n5sched): the idle thread (SotC's KERNEL 0x1ad270, priority 125, a poll loop that never blocks) gives its
-// turn to a ready thread of its priority after each poll, as the time slice's end did (without the slice it kept the
-// CPU, and its polls' idle wait never ran while that thread was ready: the boot crawled at one VBlank per ~240 ms).
-// A higher-priority thread preempts it anyway; with none ready the caller does its idle wait.
+// turn to a ready thread of its priority after each poll, as the time slice's end did. A guard, not the boot's fix: no
+// other thread has priority 125 in the runs (the [n5] line counts 0 yields); the boot's stall was the module layout
+// (sotc_native.cpp: n5sched only after GAMECORE's entry). A higher-priority thread preempts it anyway; with none
+// ready the caller does its idle wait.
 bool EeScheduler::n5IdleYield()
 {
     assertExecutor();
