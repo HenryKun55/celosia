@@ -109,6 +109,7 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 // so the recompiled code that includes the runtime headers is not rebuilt for them).
 extern uint32_t g_ps2xN5Sched;
 extern uint32_t g_ps2xN5Log;
+extern uint32_t g_ps2xN5Spin; // round N5b: n5sched's spin limit (slices; 0 none)
 
 namespace decomp_wind
 {
@@ -13244,6 +13245,9 @@ void installSotcNativeLate(PS2Runtime &runtime)
         g_ps2xN5Sched = sotc_decomp::switchOn(sotc_decomp::kN5Sched) ? 1u : 0u;
         e = std::getenv("SOTC_N5_LOG");
         g_ps2xN5Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
+        // Round N5b: n5sched's spin limit in time slices (0, the default: none, the kernel's rule only).
+        e = std::getenv("SOTC_N5_SPIN");
+        g_ps2xN5Spin = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }
     s16plan::init();                     // round S16: the draw plans' check and log (SOTC_S16PLAN_*)
     g_ps2xIopBatchEeCycles = s11rt::on(s11rt::kIop) ? s11rt::g_iopBatch : 2048u;

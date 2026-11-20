@@ -527,7 +527,12 @@ namespace
         if (runtime->transferPending())
             return; // a thread switch below (round 52): nothing more here
         if (idlePoll)
+        {
+            // Round N5b (n5sched): a ready thread of the idle thread's priority gets its turn first.
+            if (runtime->eeScheduler().n5IdleYield())
+                return;
             runtime->eeScheduler().idleWait();
+        }
     }
 
     // SotC's frame loop: the main thread blocks sending to queue 0x26d9a8;

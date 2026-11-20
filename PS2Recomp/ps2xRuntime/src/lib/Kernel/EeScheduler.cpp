@@ -36,24 +36,31 @@ void (*g_eeDispatchProbe)(R5900Context *, int) = nullptr;
 // threads. g_ps2xN5Log (SOTC_N5_LOG=<frames>, read by the game): "[n5]" lines, each guest thread's host time a frame.
 uint32_t g_ps2xN5Sched = 0u;
 uint32_t g_ps2xN5Log = 0u;
+// Round N5b: n5sched's fallback for a thread that runs long without blocking: after g_ps2xN5Spin slices (65 536 EE
+// cycles each) since its dispatch, an equal-priority ready thread takes over at the next checkpoint (the time slice's
+// rule, at 1 / g_ps2xN5Spin of its rate); 0: never (the kernel's rule only). Set by the game (SOTC_N5_SPIN).
+uint32_t g_ps2xN5Spin = 0u;
 namespace n5stat
 {
     static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
-    static void line(uint64_t frame)
+    static uint64_t idleYields = 0, idleNone = 0, spinPreempts = 0, spinRenews = 0; // counts since the start
+    static bool line(uint64_t frame)
     {
         if (frame / g_ps2xN5Log == lastFrame / g_ps2xN5Log || frame <= lastFrame)
-            return;
+            return false;
         const double f = static_cast<double>(frame - lastFrame);
         lastFrame = frame;
         char buf[1200];
-        int n = std::snprintf(buf, sizeof(buf), "[n5] frame %llu (sched %u): a frame, host us by guest thread (exclusive of nested runs) / runs:",
-                              (unsigned long long)frame, g_ps2xN5Sched);
+        int n = std::snprintf(buf, sizeof(buf), "[n5] frame %llu (sched %u spin %u; idle yields %llu none %llu, spin preempts %llu renews %llu): a frame, host us by guest thread (exclusive of nested runs) / runs:",
+                              (unsigned long long)frame, g_ps2xN5Sched, g_ps2xN5Spin, (unsigned long long)idleYields, (unsigned long long)idleNone,
+                              (unsigned long long)spinPreempts, (unsigned long long)spinRenews);
         for (uint32_t t = 0; t < 32u && n > 0 && n < 1100; ++t)
             if (runs[t])
                 n += std::snprintf(buf + n, sizeof(buf) - n, " t%u %.0f/%.2f", t, us[t] / f, runs[t] / f);
         std::fprintf(stderr, "%s\n", buf);
         for (uint32_t t = 0; t < 32u; ++t)
             us[t] = runs[t] = 0;
+        return true;
     }
 }
 
@@ -529,7 +536,23 @@ void EeScheduler::run()
                 function(m_rdram, &context, &m_runtime);
                 n5stat::us[tid] += (ps2_stats::nowUs() - t0) - (n5stat::nestedUs - n0);
                 ++n5stat::runs[tid];
-                n5stat::line(ps2_stats::vif1Chains.load(std::memory_order_relaxed));
+                if (n5stat::line(ps2_stats::vif1Chains.load(std::memory_order_relaxed)))
+                {
+                    // Round N5b: each guest thread's priority, state (R running, r ready, W waiting + reason, w waiting
+                    // suspended, S suspended, D dormant) and pc / ra with the [n5] line.
+                    char buf[1600];
+                    int n = std::snprintf(buf, sizeof(buf), "[n5t] running %d:", m_currentThreadId);
+                    static const char st[] = "RrWwSD";
+                    for (const auto &[id, t] : m_threads)
+                    {
+                        if (n <= 0 || n > 1500)
+                            break;
+                        const unsigned s = static_cast<unsigned>(t.status);
+                        n += std::snprintf(buf + n, sizeof(buf) - n, " t%d p%d %c%u %x/%x", id, t.currentPriority, s < 6u ? st[s] : '?',
+                                           static_cast<unsigned>(t.wait.reason), t.activeContext().pc, getRegU32(&t.activeContext(), 31));
+                    }
+                    std::fprintf(stderr, "%s\n", buf);
+                }
             }
             else
                 function(m_rdram, &context, &m_runtime);
@@ -678,10 +701,13 @@ bool EeScheduler::checkpointSlow() noexcept
     }
 
     const GuestThread *running = currentThread();
-    // (n5sched: an equal-priority ready thread waits until the running one blocks or yields, as on the PS2)
-    if (running != nullptr && hasReadyAtOrAbovePriority(running->currentPriority - (g_ps2xN5Sched != 0u ? 1 : 0)))
+    // (n5sched: an equal-priority ready thread waits until the running one blocks or yields, as on the PS2; round N5b:
+    // with g_ps2xN5Spin, this slice end is the spin limit, and an equal-priority thread takes over here)
+    if (running != nullptr && hasReadyAtOrAbovePriority(running->currentPriority - (g_ps2xN5Sched != 0u && g_ps2xN5Spin == 0u ? 1 : 0)))
     {
         ++g_eeS11.preempt;
+        if (g_ps2xN5Sched != 0u)
+            ++n5stat::spinPreempts;
         m_rescheduleRequested = true;
         m_timeSliceExpired = true;
         if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
@@ -695,6 +721,8 @@ bool EeScheduler::checkpointSlow() noexcept
     }
 
     ++g_eeS11.renew;
+    if (g_ps2xN5Sched != 0u)
+        ++n5stat::spinRenews;
     renewTimeSlice();
     // Round S13 (g_ps2xSliceStretch): no thread at or above this one's priority is ready, so the next slice ends would
     // only renew the slice again: one stretched slice instead (cut back if a thread becomes ready: sliceStretchCut).
@@ -2953,11 +2981,37 @@ void EeScheduler::enableHostClockSync()
     m_hostClockSync = true;
 }
 
+// Round N5b (n5sched): the idle thread (SotC's KERNEL 0x1ad270, priority 125, a poll loop that never blocks) gives its
+// turn to a ready thread of its priority after each poll, as the time slice's end did (without the slice it kept the
+// CPU, and its polls' idle wait never ran while that thread was ready: the boot crawled at one VBlank per ~240 ms).
+// A higher-priority thread preempts it anyway; with none ready the caller does its idle wait.
+bool EeScheduler::n5IdleYield()
+{
+    assertExecutor();
+    if (g_ps2xN5Sched == 0u || m_insideInterrupt)
+        return false;
+    GuestThread *self = currentThread();
+    if (self == nullptr || !self->invocations.empty() || !hasReadyAtOrAbovePriority(self->currentPriority))
+    {
+        ++n5stat::idleNone;
+        return false;
+    }
+    ++n5stat::idleYields;
+    enqueueReady(*self);
+    m_currentThreadId = 0;
+    m_rescheduleRequested = true;
+    transferIfRequested(false);
+    return true;
+}
+
 void EeScheduler::renewTimeSlice()
 {
     m_sliceStretched = false;
     // Round N5 (n5sched): a slice that does not end (2^40 cycles: ~37 minutes of EE time; renewed at every dispatch).
-    m_sliceEndCycle = eeNow() + (g_ps2xN5Sched != 0u ? (uint64_t{1} << 40) : uint64_t{kDefaultTimeSliceCycles});
+    // Round N5b: or the spin limit, g_ps2xN5Spin slices.
+    m_sliceEndCycle = eeNow() + (g_ps2xN5Sched == 0u ? uint64_t{kDefaultTimeSliceCycles}
+                                 : g_ps2xN5Spin != 0u ? uint64_t{kDefaultTimeSliceCycles} * g_ps2xN5Spin
+                                                      : (uint64_t{1} << 40));
     m_timeSliceExpired = false;
     updateGate();
 }

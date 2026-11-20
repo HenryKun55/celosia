@@ -391,6 +391,9 @@ public:
     int rotateReadyQueue(int priority, bool interruptSafe);
     int releaseWait(int id, bool interruptSafe);
     void transferIfRequested(bool interruptSafe);
+    // Round N5b (n5sched): the game's idle thread after one of its polls: when a thread of its priority is ready, its
+    // turn goes to it (RotateThreadReadyQueue's effect; returns true, a transfer is pending). Nothing under the time slice.
+    bool n5IdleYield();
 
     int createSemaphore(int initCount, int maxCount, uint32_t attr, uint32_t option);
     int deleteSemaphore(int id, bool interruptSafe);
