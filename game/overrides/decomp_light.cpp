@@ -1602,8 +1602,8 @@ namespace decomp_light
         SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2) + 320u);
         call(kReverb, 0x010F4FE4u);
         sotc_decomp::walk83LightBegin(rdram, runtime); // round 83: the lights' signature for this pass
-        // Round C2 (c2scene): the list's nodes and their scene records, for the three walks' prefetches (nothing else).
-        const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene);
+        // Round C2 (c2scene, SOTC_C2SCENE_PF=2): the list's nodes and their scene records, for the first walk's prefetches (nothing else).
+        const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene) && c2scene::prefetchLevel() >= 2;
         if (c2)
             c2scene::lightBegin(rdram, list);
 
@@ -1742,8 +1742,6 @@ namespace decomp_light
         bool c = (ctx->fcr31 & 0x800000u) != 0u;
         auto walk2 = [&](uint32_t obj) __attribute__((always_inline))
         {
-            if (c2)
-                c2scene::lightAhead(rdram, 2, obj);
             const uint32_t id = m.u32(obj);
             if (s23Check && inlineClass(id) != 0u)
                 s23See(obj);
@@ -1797,8 +1795,6 @@ namespace decomp_light
         // The objects with a light parent (+0x198): its lights taken over.
         auto walk3 = [&](uint32_t obj) __attribute__((always_inline))
         {
-            if (c2)
-                c2scene::lightAhead(rdram, 3, obj);
             const uint32_t id = m.u32(obj);
             if (s23Check && inlineClass(id) != 0u)
                 s23See(obj);

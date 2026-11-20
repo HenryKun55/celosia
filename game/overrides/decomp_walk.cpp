@@ -1534,7 +1534,19 @@ namespace decomp_walk
         {
             lines67::pref(a);
             __builtin_prefetch(rdram + (a & PS2_RAM_MASK));
-            ++g_st.asks;
+        }
+        // SOTC_C2SCENE_PF: 0 the helper list only, 1 (default) + the group pass's prefetch, 2 + InitLayoutObjMatrix's and
+        // the light pass's first walk's (p1 had all three: their bookkeeping cost ~0.4 ms a frame in Vita3K).
+        signed char g_pf = -1;
+        int pfLevel()
+        {
+            if (__builtin_expect(g_pf < 0, 0))
+            {
+                const char *e = std::getenv("SOTC_C2SCENE_PF");
+                const int v = e ? std::atoi(e) : 1;
+                g_pf = static_cast<signed char>(v < 0 ? 0 : v > 2 ? 2 : v);
+            }
+            return g_pf;
         }
         void begin(uint32_t group)
         {
@@ -1601,11 +1613,17 @@ namespace decomp_walk
             g_lastGroup = g_buildGroup;
             g_build.clear();
             ++g_st.complete;
-            g_st.objects += g_last.size();
-            for (const Obj &o : g_last)
-                g_st.layout += (o.flags & c2scene::kLayout) ? 1u : 0u;
-            hashBuild();
-            g_hashOk = true;
+            if (logEvery() > 0)
+            {
+                g_st.objects += g_last.size();
+                for (const Obj &o : g_last)
+                    g_st.layout += (o.flags & c2scene::kLayout) ? 1u : 0u;
+            }
+            if (pfLevel() >= 2)
+            {
+                hashBuild();
+                g_hashOk = true;
+            }
         }
         void end()
         {
@@ -1657,22 +1675,17 @@ namespace decomp_walk
             const bool ok = ahead(a, object, [&](const Obj &o)
                                   {
                                       askLine(rdram, o.entry);
-                                      askLine(rdram, o.entry + 0x17u);
                                       askLine(rdram, o.object + 8u);
+                                      askLine(rdram, o.rec + 0xD8u);
                                       if (o.lc)
                                       {
                                           askLine(rdram, o.lc + 0x140u);
                                           askLine(rdram, o.lc + 0x1B6u);
-                                          if (o.geo)
-                                              askLine(rdram, o.geo + 0x260u);
-                                      }
-                                      if (o.rec)
-                                      {
-                                          askLine(rdram, o.rec + 0x20u);
-                                          askLine(rdram, o.rec + 0xD8u);
+                                          askLine(rdram, o.geo + 0x260u);
                                       }
                                   });
-            ++(ok ? g_st.grpSync : g_st.grpMiss);
+            if (logEvery() > 0)
+                ++(ok ? g_st.grpSync : g_st.grpMiss);
             return ok;
         }
         // InitLayoutObjMatrix: the entry, the object's type line, the class's +0x144 line, the geometry's +0xc and
@@ -1682,19 +1695,15 @@ namespace decomp_walk
             const bool ok = ahead(a, object, [&](const Obj &o)
                                   {
                                       askLine(rdram, o.entry);
-                                      askLine(rdram, o.entry + 0x17u);
                                       askLine(rdram, o.object + 8u);
                                       if (o.lc)
                                       {
                                           askLine(rdram, o.lc + 0x144u);
-                                          if (o.geo)
-                                          {
-                                              askLine(rdram, o.geo + 0xCu);
-                                              askLine(rdram, o.geo + 0x260u);
-                                          }
+                                          askLine(rdram, o.geo + 0x260u);
                                       }
                                   });
-            ++(ok ? g_st.initSync : g_st.initMiss);
+            if (logEvery() > 0)
+                ++(ok ? g_st.initSync : g_st.initMiss);
         }
         // The light pass: the sort list's nodes in order (read without the list's index writes) with their scene
         // records; each walk's turn asks for the nodes 4 on (node, object type, class +0x140 and +0x198 lines,
@@ -1705,29 +1714,22 @@ namespace decomp_walk
         bool g_lSynced[4] = {}, g_lightOn = false;
         void lightLines(const uint8_t *rdram, size_t k)
         {
-            const uint32_t node = g_order[k];
-            askLine(rdram, node);
             const int r = g_orderRec[k];
             if (r < 0)
                 return;
             const Obj &o = g_last[static_cast<size_t>(r)];
             askLine(rdram, o.object + 8u);
+            askLine(rdram, g_order[k] + 0xE0u);
             if (o.lc)
             {
                 askLine(rdram, o.lc + 0x140u);
-                askLine(rdram, o.lc + 0x198u);
-                if (o.geo)
-                {
-                    askLine(rdram, o.geo);
-                    askLine(rdram, o.geo + 0x260u);
-                }
+                askLine(rdram, o.geo + 0x260u);
             }
-            askLine(rdram, node + 0xE0u);
         }
         void lightBegin(const uint8_t *rdram, uint32_t list)
         {
             g_lightOn = false;
-            if (!g_walkOn || !g_hashOk || !Ram::ok(list, 0x14u))
+            if (!g_walkOn || !g_hashOk || pfLevel() < 2 || !Ram::ok(list, 0x14u))
                 return;
             const Ram m{const_cast<uint8_t *>(rdram)};
             g_order.clear();
@@ -1777,11 +1779,11 @@ namespace decomp_walk
                 if (at == ~size_t(0))
                 {
                     g_lSynced[walk & 3] = false;
-                    ++g_st.lightMiss;
+                    g_st.lightMiss += logEvery() > 0;
                     return;
                 }
             }
-            ++g_st.lightSync;
+            g_st.lightSync += logEvery() > 0;
             cur = at + 1u;
             size_t &asked = g_lAsked[walk & 3];
             const size_t from = g_lSynced[walk & 3] ? std::max(asked, at + 1u) : at + 1u;
@@ -2268,10 +2270,10 @@ namespace decomp_walk
             std::fprintf(stderr,
                          "[c2scene] walks %llu: complete %.2f, scene %.1f objects (%.1f layout), helper list from the scene %.2f (%.1f objects) / chain %.2f, "
                          "chain lines not read %.0f (%.0f bytes), group pass synced %.1f missed %.1f, init synced %.1f missed %.1f, light synced %.1f missed %.1f, "
-                         "lines asked %.0f a walk; clip140 checks %llu differ %llu\n",
+                         "prefetch level %d; clip140 checks %llu differ %llu\n",
                          (unsigned long long)t.walks, t.complete / w, t.objects / w, t.layout / w, t.scenePosts / w, t.listed / w, t.chainPosts / w,
                          t.linesAvoided / w, t.linesAvoided * 32.0 / w, t.grpSync / w, t.grpMiss / w, t.initSync / w, t.initMiss / w, t.lightSync / w,
-                         t.lightMiss / w, t.asks / w, (unsigned long long)clip140::g_checks, (unsigned long long)clip140::g_differ);
+                         t.lightMiss / w, pfLevel(), (unsigned long long)clip140::g_checks, (unsigned long long)clip140::g_differ);
             const uint64_t walks = t.walks;
             g_st = Stats{};
             g_st.walks = walks;
@@ -5156,6 +5158,7 @@ namespace decomp_walk
         if (c2on)
             c2::begin(m.u32(sp + 0x20u));
         c2scene::Ahead c2ahead;
+        const bool c2pf = c2on && c2::pfLevel() >= 1;
         // Round 140 (clip140): the group's layout objects' clips handed to the helper thread, ahead of the pass.
         const bool c140 = clip140::post(m, s4, runtime, c2on ? m.u32(sp + 0x20u) : 0u);
         int cursor140 = 0;
@@ -5257,9 +5260,9 @@ namespace decomp_walk
             {
                 // Round C2: the scene's next objects asked for (independent addresses) in place of the chain runner's
                 // entries while the scene follows the walk; the runner when it does not.
-                if (c2on && c2::groupAhead(rdram, c2ahead, s3))
+                if (c2pf && c2::groupAhead(rdram, c2ahead, s3))
                     runner.entry = 0u; // (re-seeded below if the scene stops following)
-                else if (runner.entry != 0u || !c2on)
+                else if (runner.entry != 0u || !c2pf)
                     runner.step(m);
                 else if (Ram::ok(s4, 0x18u))
                 {
@@ -5269,7 +5272,7 @@ namespace decomp_walk
                 }
                 decomp_prefetch::aheadWalkClip(rdram, s3);
             }
-            else if (c2on)
+            else if (c2pf)
                 c2::groupAhead(rdram, c2ahead, s3);
             set(19, s3);
             const uint32_t s0 = layoutClass(g, s3, 0x010F5348u, sp);
@@ -5843,6 +5846,7 @@ namespace c2scene
 {
     bool on() { return sotc_decomp::switchOn(sotc_decomp::kC2Scene); }
     bool checkOn() { return decomp_walk::c2::checkOn(); }
+    int prefetchLevel() { return decomp_walk::c2::pfLevel(); }
     const std::vector<Obj> &last() { return decomp_walk::c2::g_last; }
     uint32_t lastGroup() { return decomp_walk::c2::g_lastGroup; }
     void initAhead(const uint8_t *rdram, Ahead &a, uint32_t object) { decomp_walk::c2::initAhead(rdram, a, object); }

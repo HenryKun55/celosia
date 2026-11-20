@@ -176,7 +176,7 @@ namespace decomp_group
         SET_GPR_U64(ctx, 5, 0u);
         // Round C2 (c2scene): the last display walk's scene of this group asks for the next objects' lines.
         const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene) && !sotc_decomp::onWorkerLane(runtime) &&
-                        GPR_U32(ctx, 4) == c2scene::lastGroup() && !c2scene::last().empty();
+                        GPR_U32(ctx, 4) == c2scene::lastGroup() && !c2scene::last().empty() && c2scene::prefetchLevel() >= 2;
         c2scene::Ahead ahead;
         call(kForFirst, 0x010F5840u);
         uint32_t s0 = GPR_U32(ctx, 2), s1 = 0u;

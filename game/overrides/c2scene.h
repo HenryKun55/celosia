@@ -33,6 +33,7 @@ namespace c2scene
 
     bool on();      // the switch (latched per walk by the display walk)
     bool checkOn(); // SOTC_C2SCENE_CHECK=1
+    int prefetchLevel(); // SOTC_C2SCENE_PF: 0 the helper list only, 1 (default) + the group pass, 2 + InitLayoutObjMatrix, the light pass
 
     // The last complete walk's scene (empty: none) and the group it was read from.
     const std::vector<Obj> &last();
