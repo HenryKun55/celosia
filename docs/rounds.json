@@ -1210,7 +1210,7 @@
   {
    "round": "C2",
    "date": "2026-11-20",
-   "commit": "",
+   "commit": "c0a900e",
    "focus": "Console memory",
    "summary": "Round C2 kept the display group as a host scene list (what the walk's group pass read anyway, in its order) and built round 140's clip helper list from the last walk's scene instead of walking the guest group chain at every walk's start (the console profile: 0.25 ms a frame of ~1 030 serial misses); prefetches from the scene for the group pass, InitLayoutObjMatrix and the light pass are optional levels (SOTC_C2SCENE_PF).",
    "result": "Exact: every clip taken from the scene's list checked against the old clip, 0 differences in 2.5 M (ride7, lake6, attract). Vita3K A/B (off - on) with the default level 0: ride7 +0.042 +- 0.123 and +0.017 +- 0.130 ms, lake6 +0.024 +- 0.160 ms; pooled +0.03 +- 0.08 ms: even (the prefetch levels were 0.09-0.37 ms slower in Vita3K, which has no cache to repay them). ~33 KB of serial guest reads a walk riding not made. Boot with 89 MB taken normal; no sp-based NEON accesses. Off by default: the console's A/B (SOTC_C2SCENE=1 SOTC_AB_FLAG=c2scene) decides."
@@ -1218,7 +1218,7 @@
   {
    "round": "C1",
    "date": "2026-11-20",
-   "commit": "",
+   "commit": "41f00a2",
    "focus": "Console memory traffic",
    "summary": "Round C1 cut what the character chain reads from guest memory on each call, for the Vita's memory system, with the same bits. c1keys keeps, per motion resource, a host mirror: the records, formats and channel pointers, compared once a frame (the records in turns of 8), and rows of decoded keys by frame. keys122's float frames and GetMotionIntFrame then read one or two contiguous host rows instead of every channel's record and key words (99% of the rows were already decoded). c1rig trusts S3's skeleton rig for a frame's later poses once the frame's first pose has compared it.",
    "result": "Exact: 0 differences in 372 299 key calls, 660 474 trusted rigs and 384 058 poses riding, and 0 at the lake. Vita3K A/B (222 MHz, off - on): ride7 +0.149 +- 0.143 and -0.012 +- 0.146 ms, lake6 +0.054 +- 0.115 ms; pooled +0.064 +- 0.078 ms: not slower. Sampled cache lines a key call: riding 40-43 -> ~30, lake 70 -> 43.5. Boot with 89 MB taken rode normally, pictures normal; no sp-based NEON accesses. Both off by default: the console A/B (SOTC_AB_FLAG=c1keys,c1rig) decides."
