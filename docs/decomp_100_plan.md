@@ -194,6 +194,11 @@ VU0 leaves (vec4), frames (sp), the 626 recompiled-only leaves (not lifted), the
 with the 130 proven depth-1 functions whose callees are all typed (they need frames). The REPLACED_DUMP and T3
 (Ghidra) are still open.
 
+**Status (2026-11-21, round A2, docs/decomp_a2.md)**: tools/typed_lift2.py types frames (host arrays) and calls to
+typed callees (depth 1-2): 225 more functions, (d) = 1 204 (13.3%), 1.8% of the bytes, 2.2% of the console game thread;
+exact (9.83 M in-run checks, 0 differ), A/B even. The wall now: loops (the back edge's checkpoint test), VU0 / 128-bit,
+the natives' real inputs. Found: N3's direct-call flag is 0 in game (29 held targets).
+
 **Phase A: the tools (4 rounds)**
 
 | round | what | functions | done when |

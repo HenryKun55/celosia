@@ -1231,6 +1231,14 @@
    "summary": "Round A1 built the typed lifter's first stage (tools/typed_lift.py): 979 loop-free, ABI-proven leaves lift_d1 had lifted are now real C++ functions (typed_a1.inc): parameters and return values, MIPS registers as locals, guest memory through a base pointer, the PS2 FPU's rounding kept as named helpers only where it differs from plain C, no R5900 context. The lifted leaves start with a guest adapter (for the table, recompiled callers and natives) and 1 481 of N4b's sites in lifted callers call the typed functions directly. A whole-program caller check proves no caller reads the scratch registers they no longer return.",
    "result": "Exact: 32.8 M in-run checks against the lifted text on ride7, the attract demo and lake6, 0 differences; 9.99 M offline random-state checks over all 979 functions (tools/a1_harness.cpp), 0 differences. Vita3K A/B (222 MHz, off - on, p2): pooled +0.068 +- 0.115 ms (three runs), +0.087 +- 0.094 (five): even. Boot with 89 MB taken rode, pictures normal; no sp-based NEON accesses. On by default. The count: 979 functions (10.8%) in class (d), 1.5% of the MIPS bytes, 1.8% of the console game thread."
   },
+  {
+    "round": "A2",
+    "date": "2026-11-21",
+    "commit": "17b3900",
+    "focus": "Decomp 100%: typed lifter, frames and calls",
+    "summary": "Round A2 built the typed lifter's second stage (tools/typed_lift2.py), generating typed C++ straight from lift_d1's IR: stack frames become host arrays (no guest stack pointer), calls to already-typed functions become plain C++ calls, iterated by depth. 225 more functions are real C++ (depth 1-2 with frames, frame leaves, leaves A1 refused). It also found that N3's direct-call flag is off in game (29 direct targets held by natives after GAMECORE's hooks), so the adapters test each callee's slot instead.",
+    "result": "Exact: 9.83 M in-run checks on ride7, the attract demo and lake6 (145-158 of 225 functions reached), 0 differences; 2.7 M offline checks, 0 differences. Vita3K A/B (222 MHz, off - on): pooled -0.028 +- 0.080 ms: even. Boot with 89 MB taken rode, pictures normal; no sp-based NEON accesses. On by default. The count: 1 204 functions (13.3%) in class (d), 1.8% of the MIPS bytes, 2.2% of the console game thread."
+  },
   {"round": "DC1", "date": "2026-11-21", "title": "The character chain counted by class; the motion accessors and option nodes as real C++ (dc1mot)", "commit": "8942b25"}
 ]
 }

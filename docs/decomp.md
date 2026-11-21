@@ -23502,3 +23502,22 @@ docs/decomp_a1.md. Scripts, runs and logs: `build/agent-scratch/a1/`. Switch `SO
   console game thread; lifted 5 099 -> 4 120.
 - **Next**: frames (sp) and the depth-1 functions (130 proven NOBLOCK loop-free ones have only typed callees), the VU0
   leaves as vec4, the runtime stubs' real inputs for the 134 refused, struct inference (T2).
+
+## Decomp A2: the typed lifter's second stage: frames and calls, 225 more functions (a2typed) (2026-11-21)
+
+docs/decomp_a2.md. Scripts, runs and logs: `build/agent-scratch/a2/`. Switch `SOTC_A2TYPED` (A/B `a2typed`, `kA2Typed`).
+
+- **Tool** `tools/typed_lift2.py`: typed C++ straight from lift_d1's IR (CFG, delay slots, widths): frames as host
+  arrays (no guest sp, saves / restores dropped; refused when the frame's address escapes), calls to typed functions as
+  C++ calls (the EE clock charged as the NOCHK call does), the caller check refined for typed callers, iterated by depth.
+- **225 more functions**: depth 1 with frames 41, depth 2 2, frame leaves 7, leaves without a frame 175 (A1's refused,
+  slots that may hold a native, liveness). Total class (d): **1 204 (13.3%)**.
+- **Adapters** test the switch and, for functions with calls, each typed callee's slot (A2_HOLDS, transitively), not
+  N3's direct-call flag: that flag is 0 in game (29 direct targets held by GAMECORE's hooks / natives), so the first
+  build ran none of them, and **N3's direct calls are off in game** (follow-up round).
+- **Exact**: in-run check (pc2) ride7 / attract / lake6 9.83 M checks, 145-158 of 225 functions reached, 0 differences;
+  offline harness 2.7 M, 0 differences.
+- **Measured** (p2, off - on): ride7 -0.100 +- 0.145 / -0.049 +- 0.102, lake6 +0.064 +- 0.163; pooled -0.028 +- 0.080:
+  even. 89 MB boot normal; 0 sp-based NEON accesses. **On by default** (`SOTC_A2TYPED=0` off).
+- **Next**: loops (the back edge's checkpoint test), VU0 / 128-bit as vec4, natives' real inputs, direct typed calls
+  from lifted callers into A2's functions; and N3's 29 held targets.
