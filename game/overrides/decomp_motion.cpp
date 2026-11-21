@@ -572,12 +572,5 @@ namespace decomp_motion
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010B28E0u, getBlendLastMotion, decomp_motion::getBlendLastMotion);
-SOTC_DECOMP_FUNCTION(0x010B3810u, GetMotionOptionNodePhysicalId, decomp_motion::getMotionOptionNodePhysicalId);
-SOTC_DECOMP_FUNCTION(0x010B39B0u, GetMotionVersion, decomp_motion::getMotionVersion);
-SOTC_DECOMP_FUNCTION(0x010B6E80u, GetMotionNodeBasePos, decomp_motion::getMotionNodeBasePos);
-SOTC_DECOMP_FUNCTION(0x010B6F60u, GetMotionNodeBaseQuaternion, decomp_motion::getMotionNodeBaseQuaternion);
-SOTC_DECOMP_FUNCTION(0x010B36C8u, GetMotionNbOptionNodes, decomp_motion::getMotionNbOptionNodes);
-SOTC_DECOMP_FUNCTION(0x010C6710u, GetOptionNodePhysicalNodeId, decomp_motion::getOptionNodePhysicalNodeId);
-SOTC_DECOMP_FUNCTION(0x010C6798u, AddCharacterClassOptionNodeSubGeometries, decomp_motion::addSubGeometries);
-SOTC_DECOMP_FUNCTION(0x010BC4F0u, manager_sub_010BC4F0, decomp_motion::optionNodes);
+// Round DC1: these functions are registered by dc1_motion.cpp (dc1mot::entry*: the real C++ functions while
+// SOTC_DC1MOT is on, the natives above while it is off and as the check's reference).

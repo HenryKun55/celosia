@@ -99,6 +99,12 @@
 #define H46_LQ(n, addr) (ctx->vu0_vf[n] = _mm_castsi128_ps(READ128(addr)))
 #define H46_SQ(n, addr) WRITE128((addr), _mm_castps_si128(ctx->vu0_vf[n]))
 
+namespace dc1mot
+{
+    // Round DC1 (dc1_motion.cpp): GetMotionNodeBasePos (pos) / GetMotionNodeBaseQuaternion as C++ calls; false: off.
+    bool baseCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, bool pos, uint32_t out, uint32_t skel, uint32_t quats, uint64_t node, uint32_t site, uint32_t sp);
+}
+
 namespace decomp_hot46e
 {
     using sotc_decomp::jalTarget;
@@ -572,6 +578,9 @@ namespace decomp_hot46e
         // GetMotionNodeBaseQuaternion / Pos(out, *(s5 + 0x358), s7, node).
         auto baseOf = [&](uint32_t target, uint32_t out, uint64_t nodeId, uint32_t site)
         {
+            // Round DC1: GetMotionNodeBasePos / BaseQuaternion as C++ calls (dc1_motion.cpp) while dc1mot is on.
+            if (dc1mot::baseCall(rdram, ctx, runtime, target == kNodeBasePos, out, READ32(chara + 0x358u), locals, nodeId, site, sp))
+                return;
             SET_GPR_U64(ctx, 5, sx(READ32(chara + 0x358u)));
             SET_GPR_U32(ctx, 4, out);
             SET_GPR_U32(ctx, 6, locals);
@@ -629,11 +638,14 @@ namespace decomp_hot46e
             at(kFocusNode, 0x010E1148u);
             WRITE32(sp + 0x124u, static_cast<uint32_t>(GPR_U64(ctx, 2) & 0xFFFFFFFFFFFEFFFFull));
             // The joint's base position, scaled and moved by the character (sp+0).
-            SET_GPR_U32(ctx, 4, sp + 0x20u);
-            SET_GPR_U64(ctx, 5, sx(READ32(sp + 0x120u)));
-            SET_GPR_U32(ctx, 6, locals);
-            SET_GPR_U64(ctx, 7, focus);
-            at(kNodeBasePos, 0x010E1170u);
+            if (!dc1mot::baseCall(rdram, ctx, runtime, true, sp + 0x20u, READ32(sp + 0x120u), locals, focus, 0x010E1170u, sp))
+            {
+                SET_GPR_U32(ctx, 4, sp + 0x20u);
+                SET_GPR_U64(ctx, 5, sx(READ32(sp + 0x120u)));
+                SET_GPR_U32(ctx, 6, locals);
+                SET_GPR_U64(ctx, 7, focus);
+                at(kNodeBasePos, 0x010E1170u);
+            }
             H46_LQ(5, sp + 0x20u);
             H46_LQ(6, READ32(sp + 0x130u));
             mul3(ctx);
@@ -654,11 +666,14 @@ namespace decomp_hot46e
             throughParents(parent, sp + 0x30u, sp + 0x40u, sp + 0x10u, chara + 0x90u, pos1, root1, sp + 0x50u, sp + 0x60u, 0x010E1288u, 0x010E129Cu);
             H46_SQ(10, sp + 0x10u);
             // The joint's base quaternion (sp+0x70).
-            SET_GPR_U32(ctx, 6, locals);
-            SET_GPR_U32(ctx, 4, sp + 0x70u);
-            SET_GPR_U64(ctx, 5, sx(READ32(sp + 0x120u)));
-            SET_GPR_U64(ctx, 7, focus);
-            at(kNodeBaseQuat, 0x010E13D0u);
+            if (!dc1mot::baseCall(rdram, ctx, runtime, false, sp + 0x70u, READ32(sp + 0x120u), locals, focus, 0x010E13D0u, sp))
+            {
+                SET_GPR_U32(ctx, 6, locals);
+                SET_GPR_U32(ctx, 4, sp + 0x70u);
+                SET_GPR_U64(ctx, 5, sx(READ32(sp + 0x120u)));
+                SET_GPR_U64(ctx, 7, focus);
+                at(kNodeBaseQuat, 0x010E13D0u);
+            }
             // The directions to the target (fp) and to the option node (sp+0xa0).
             H46_LQ(5, READ32(sp + 0x110u));
             H46_LQ(6, sp);
@@ -688,12 +703,16 @@ namespace decomp_hot46e
             // the local quaternion into s7 [s6].
             {
                 const uint32_t motionNow = READ32(sp + 0x120u);
-                SET_GPR_U32(ctx, 4, sp + 0xC0u);
-                SET_GPR_U64(ctx, 5, sx(READ32(sp + 0x120u)));
                 const uint32_t nodes = READ32(motionNow + 8u);
-                SET_GPR_U32(ctx, 6, locals);
-                SET_GPR_U64(ctx, 7, sx(READ32((static_cast<uint32_t>(focus) << 6) + nodes + 0x38u)));
-                at(kNodeBaseQuat, 0x010E14CCu);
+                const uint64_t parentNode = sx(READ32((static_cast<uint32_t>(focus) << 6) + nodes + 0x38u));
+                if (!dc1mot::baseCall(rdram, ctx, runtime, false, sp + 0xC0u, READ32(sp + 0x120u), locals, parentNode, 0x010E14CCu, sp))
+                {
+                    SET_GPR_U32(ctx, 4, sp + 0xC0u);
+                    SET_GPR_U64(ctx, 5, sx(READ32(sp + 0x120u)));
+                    SET_GPR_U32(ctx, 6, locals);
+                    SET_GPR_U64(ctx, 7, parentNode);
+                    at(kNodeBaseQuat, 0x010E14CCu);
+                }
             }
             H46_LQ(11, sp + 0xC0u);
             conjugate(ctx);

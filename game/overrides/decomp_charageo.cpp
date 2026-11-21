@@ -75,6 +75,12 @@ namespace pose82
     bool boneProducts(uint8_t *ram, uint32_t out, uint32_t a, uint32_t b, int count);
 }
 
+namespace dc1mot
+{
+    // Round DC1 (dc1_motion.cpp): manager_sub_010BC4F0 (the option nodes) called from here as C++.
+    void optionNodesCall(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t chara, uint32_t sp);
+}
+
 namespace s8cloth
 {
     // Round S8 (s8_cloth.cpp): ExecCharaGeometry's last GetClothDynamics on the guest worker (true: done there).
@@ -779,8 +785,14 @@ namespace decomp_charageo
             }
 
             // ---- 3 ----
-            SET_GPR_U32(ctx, 4, s0);
-            call(0x010BFC60u, 0x010BC4F0u);
+            // Round DC1: the option nodes as a C++ call (dc1_motion.cpp), the guest call while dc1mot is off.
+            if (__builtin_expect(geo80::g_cur == 0u, 1))
+                dc1mot::optionNodesCall(rdram, ctx, runtime, s0, sp);
+            else
+            {
+                SET_GPR_U32(ctx, 4, s0);
+                call(0x010BFC60u, 0x010BC4F0u);
+            }
             if (r.u32(s0 + 0x438u) == 0u)
             {
                 setF(0, 1.0f);
