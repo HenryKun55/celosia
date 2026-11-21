@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D17".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -9424,6 +9425,7 @@ void updateAimIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getSizeAimIKWork (0x145d688-0x145d690)
 void getSizeAimIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSizeAimIKWork); const uint32_t a2_r = typed::getSizeAimIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

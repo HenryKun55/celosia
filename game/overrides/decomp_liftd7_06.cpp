@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D7".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -16862,6 +16863,7 @@ void gStatGetOmakeStatAdrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gStatSaveDataGameFlagChk (0x1353580-0x13535b0)
 void gStatSaveDataGameFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(gStatSaveDataGameFlagChk, a2_4); const uint64_t a2_r = typed::gStatSaveDataGameFlagChk(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)(((int64_t)(int64_t)a0 < (int64_t)(int32_t)0) ? 1 : 0));
@@ -16965,6 +16967,7 @@ void gStatSetGObjAdrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // gStatGetGObjAdrs (0x13536d8-0x13536e0)
 void gStatGetGObjAdrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(gStatGetGObjAdrs, a2_4); const uint32_t a2_r = typed::gStatGetGObjAdrs(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

@@ -1,0 +1,227 @@
+# a2_typed.txt: round A2's typed functions (tools/typed_lift2.py; docs/decomp_a2.md). 225 converted; tiers {'frame depth 1': 41, 'frame depth 2': 2, 'frame leaf': 7, 'leaf': 175}; returns {'void': 55, 'uint64_t': 44, 'a1::RetVF': 19, 'uint32_t': 100, 'float': 7}
+# address name | C signature | dropped scratch slots | tier | PS2 float helpers
+00103ff8 memprintf | void memprintf(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19) |  | frame88 depth0 | 
+00104040 imemprintf | void imemprintf(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19) |  | frame88 depth0 | 
+00105948 PutString | void PutString(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19) |  | frame80 depth0 | 
+00105990 PutStringS | void PutStringS(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19) |  | frame80 depth0 | 
+00108d10 sub_00108D10 | uint64_t sub_00108D10(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t a2) | g3,g4,g6,g7 | depth0 | 
+00116c58 sub_00116C58 | void sub_00116C58(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | frame56 depth0 | 
+00127270 ps2___fpcmp_parts_d | uint64_t ps2___fpcmp_parts_d(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1) | g3,g4,g6,g7 | depth0 | 
+001acf60 iosCdStSectorAlignSkip | uint64_t iosCdStSectorAlignSkip(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5,g6 | depth0 | 
+001ad510 iosGetTCount | uint64_t iosGetTCount(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | depth0 | 
+001ad658 iosGetCpuRapCountPar1Int | a1::RetVF iosGetCpuRapCountPar1Int(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | f1,g1,g3,g4,xfcr31 | depth0 | a1f::add,a1f::div,a1f::mul
+001b2a80 iosSprToMemDmaAdrCopy | uint32_t iosSprToMemDmaAdrCopy(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g10,g11,g3,g7,g8,g9 | depth0 | 
+001b4120 kernel_sub_001B4120 | uint64_t kernel_sub_001B4120(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19) |  | frame88 depth0 | 
+001bbc08 PopQuaternion | uint32_t PopQuaternion(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | depth0 | 
+001be260 iosGetACosf | float iosGetACosf(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12) | f1,f2,f3,f4,f5,f6,g1 | depth0 | a1f::mul,a1f::sub,a1f::subFinite
+001c0458 iosDlGetCreateAdrs | uint32_t iosDlGetCreateAdrs(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | depth0 | 
+001c7d98 getVIntrCnt | uint32_t getVIntrCnt(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | depth0 | 
+001c7db0 setVIntrBaseTime | uint32_t setVIntrBaseTime(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
+001c91f8 iosGetFontDataWithSJIS | uint64_t iosGetFontDataWithSJIS(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2) | g10,g11,g12,g3,g4,g5,g6,g7,g8,g9,xhi,xlo | depth0 | 
+001c9498 iosGetFontIDWithSJIS | uint64_t iosGetFontIDWithSJIS(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7,g8,g9 | depth0 | 
+001d1420 kernel_sub_001D1420 | uint32_t kernel_sub_001D1420(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5,g6,g7 | depth0 | 
+001d15b8 kernel_sub_001D15B8 | uint64_t kernel_sub_001D15B8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5,g6 | frame16 depth0 | 
+001da330 vab_get_splitchunk | uint64_t vab_get_splitchunk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+001db418 kernel_sub_001DB418 | uint64_t kernel_sub_001DB418(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g3,g5 | depth0 | 
+010817c8 GAMEUTIL_is_yaw_pitch_get_direction | a1::RetVF GAMEUTIL_is_yaw_pitch_get_direction(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f1,g1,xfcr31 | depth0 | a1f::le,a1f::lt
+01082ed0 entrymanager | void entrymanager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01084590 reset_double_spring_interp_cntrl | a1::RetVF reset_double_spring_interp_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12) |  | depth0 | 
+010871c8 setShadowEffect | uint32_t setShadowEffect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | depth0 | 
+01088e58 fsEffectDefault | uint32_t fsEffectDefault(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | depth0 | 
+01089118 deleteFsEffect | void deleteFsEffect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01089270 deleteFogEffect | void deleteFogEffect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01089288 manager_sub_01089288 | uint32_t manager_sub_01089288(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | depth0 | 
+01089b70 getFogFactor0 | a1::RetVF getFogFactor0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | f1,f2,f3,f4,xfcr31 | depth0 | a1f::div,a1f::mul,a1f::sub
+01099a00 ModelDispGetWorkSize | uint32_t ModelDispGetWorkSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0109a4c8 ptclCounterInit | void ptclCounterInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0109acf8 manager_sub_0109ACF8 | void manager_sub_0109ACF8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0109ad00 manager_sub_0109AD00 | void manager_sub_0109AD00(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0109deb0 shadowGetWorkSize | uint32_t shadowGetWorkSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+010ac470 zFogInit | void zFogInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+010b92c0 get_type_parameter_segment_motion_ik_base | uint32_t get_type_parameter_segment_motion_ik_base(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g4,g5,g6,xhi,xlo | depth0 | 
+010ba120 request_end_motion_ik_interest | uint64_t request_end_motion_ik_interest(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
+010ba7a0 getSizeGazeIKWork | uint32_t getSizeGazeIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+010bb060 GetAnimationDefClass | uint64_t GetAnimationDefClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+010bb208 manager_sub_010BB208 | void manager_sub_010BB208(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+010c1530 RequestCharacterMotionShiftFunc | uint32_t RequestCharacterMotionShiftFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1) | g3,g4,g6 | depth0 | 
+010c1d08 SetCharacterObjControlCallBackFunc | uint32_t SetCharacterObjControlCallBackFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1) | g3,g4,g6 | depth0 | 
+010c29a0 SetInertiaRotInterpMode | uint64_t SetInertiaRotInterpMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7 | depth0 | 
+010dc898 charrootdyn_getSlideCollisionJudgeCBArg | uint64_t charrootdyn_getSlideCollisionJudgeCBArg(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t a2) | g3,g6 | depth0 | 
+010ed778 manager_sub_010ED778 | void manager_sub_010ED778(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+010ee6f8 FlushJudgeVolumeClass | void FlushJudgeVolumeClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+010f74e8 GetGameLightClass | uint64_t GetGameLightClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+010f8b20 GetGlobalLightClass | uint64_t GetGlobalLightClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+010f9508 GetAmbientLightClass | uint64_t GetAmbientLightClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+010f9528 manager_sub_010F9528 | void manager_sub_010F9528(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01101688 createBinaryMemoryInfoWindow | void createBinaryMemoryInfoWindow(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+011017e0 skelSegDel | void skelSegDel(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+011017e8 debugCreateAnimObjSegmentDisp | void debugCreateAnimObjSegmentDisp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+011017f0 debugDeleteAnimObjSegmentDisp | void debugDeleteAnimObjSegmentDisp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+011017f8 debugCreateAnimObjSegmentDefDisp | void debugCreateAnimObjSegmentDefDisp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01101800 debugDeleteAnimObjSegmentDefDisp | void debugDeleteAnimObjSegmentDefDisp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01102fd8 scriptIntrSegInit | void scriptIntrSegInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0110a838 GetScriptAnimationClass | uint64_t GetScriptAnimationClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+0110a8e0 SetScriptAnimationObjChildEntryGroup | uint32_t SetScriptAnimationObjChildEntryGroup(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g4 | depth0 | 
+0110bb30 SetScariptAnimationObjMotSyncSlotId | uint32_t SetScariptAnimationObjMotSyncSlotId(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g4 | depth0 | 
+0110cc78 SetScriptCharacterObjReleaseCallBackFunc | uint32_t SetScriptCharacterObjReleaseCallBackFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g4 | depth0 | 
+0110d868 GetScrLwsOriClass | uint64_t GetScrLwsOriClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+0110da90 GetScriptLwsOrientDefinfo | uint64_t GetScriptLwsOrientDefinfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+0110dc18 manager_sub_0110DC18 | void manager_sub_0110DC18(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0110ecd0 SpriteMenuIsFadeCheckSelectLayer | a1::RetVF SpriteMenuIsFadeCheckSelectLayer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f1,g3,g4,g5,g6,xfcr31 | depth0 | a1f::eq
+011119b8 GetScriptSpriteMenuClass | uint64_t GetScriptSpriteMenuClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+01111e98 SpriteMenuSetLayerPriority | uint32_t SpriteMenuSetLayerPriority(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g3,g4,g5,g6,g7 | depth0 | 
+01112ba0 SpriteMenuGetSelectLayer | uint32_t SpriteMenuGetSelectLayer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g4 | depth0 | 
+01112bb8 SpriteMenuGetPadEvent | uint32_t SpriteMenuGetPadEvent(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g4 | depth0 | 
+01112f50 SpriteMenuGetSelectSubMenuId | uint32_t SpriteMenuGetSelectSubMenuId(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g4,g5 | depth0 | 
+011138c8 SpriteMenuIsFadeCheckLayer | a1::RetVF SpriteMenuIsFadeCheckLayer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | f1,g3,g4,g5,g6,xfcr31 | depth0 | a1f::eq
+01113950 SpriteMenuGetFadeByLayer | a1::RetVF SpriteMenuGetFadeByLayer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g3,g4,g5,g6 | depth0 | 
+01114238 GetScriptSpriteClass | uint64_t GetScriptSpriteClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+01114490 GetSubLinkClass | uint64_t GetSubLinkClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+0112a450 CheckCollisionFinderAlive | uint32_t CheckCollisionFinderAlive(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
+011327b0 CopyGeometryPointer | uint64_t CopyGeometryPointer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g3 | depth0 | 
+0113f370 free_all_emitter_and_particle_particle_manager | void free_all_emitter_and_particle_particle_manager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0113fa20 get_particle_effect_id_from_sheet | uint64_t get_particle_effect_id_from_sheet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) |  | depth0 | 
+0113fa70 get_particle_emitter_from_emitter_id | uint64_t get_particle_emitter_from_emitter_id(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+0113fa88 get_main_particle_effect_lod_from_sheet | uint32_t get_main_particle_effect_lod_from_sheet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0113fa90 get_sub_particle_effect_lod_from_sheet | uint32_t get_sub_particle_effect_lod_from_sheet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0113fa98 get_top_particle_effect_from_lod | uint32_t get_top_particle_effect_from_lod(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+011401d8 get_radiate_range_coefficient | float get_radiate_range_coefficient(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12) | f1,g1 | depth0 | a1f::mul,a1f::sub
+01140730 unload_npe_file_main | void unload_npe_file_main(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01140738 unload_npe_file_sub | void unload_npe_file_sub(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01140740 manager_sub_01140740 | uint64_t manager_sub_01140740(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) |  | depth0 | 
+01141080 manager_sub_01141080 | uint32_t manager_sub_01141080(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01142030 manager_sub_01142030 | float manager_sub_01142030(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f1,f2,g1,xfcr31 | depth0 | a1f::lt,a1f::mul,a1f::sub
+01144e00 manager_sub_01144E00 | float manager_sub_01144E00(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f1,g1 | depth0 | 
+01144e38 manager_sub_01144E38 | float manager_sub_01144E38(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g1 | depth0 | 
+01144e50 manager_sub_01144E50 | void manager_sub_01144E50(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01144e58 manager_sub_01144E58 | float manager_sub_01144E58(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g1 | depth0 | 
+01144e70 manager_sub_01144E70 | uint32_t manager_sub_01144E70(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01144e88 manager_sub_01144E88 | void manager_sub_01144E88(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+011464c0 is_eternal_wind | a1::RetVF is_eternal_wind(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f1,xfcr31 | depth0 | a1f::lt
+01146980 stop_wind_emitter_geometry_pointer_reference | uint32_t stop_wind_emitter_geometry_pointer_reference(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+011469d0 stop_wind_emitter_callback | uint32_t stop_wind_emitter_callback(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+01146a10 end_wind_emitter | uint32_t end_wind_emitter(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+01147430 add_wind_segment | void add_wind_segment(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01147950 RelocateModifiedManager | uint64_t RelocateModifiedManager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a2) | g3,g4,g6,g7,g8,g9,xhi,xlo | depth0 | 
+01147a28 GetSizeOfModifiedManagerWork | uint64_t GetSizeOfModifiedManagerWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,xhi,xlo | depth0 | 
+0115ee68 sheetMgrChkStageIndexResolve | uint64_t sheetMgrChkStageIndexResolve(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7 | depth0 | 
+01162510 add_camera_lws_animation_segment | void add_camera_lws_animation_segment(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01162ef0 get_camera_position | uint32_t get_camera_position(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01162ef8 get_camera_direction | uint32_t get_camera_direction(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01162f00 get_camera_up_direction | uint32_t get_camera_up_direction(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01162f08 get_camera_obj_layout_class | uint32_t get_camera_obj_layout_class(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01162fd0 get_view_matrix | uint32_t get_view_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01163750 get_manage_object_id_camera_region | uint32_t get_manage_object_id_camera_region(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01163788 is_parent_obj_boss_camera_region | uint32_t is_parent_obj_boss_camera_region(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+011637d0 get_priority_camera_region | uint32_t get_priority_camera_region(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01163888 get_region_type_camera_region | uint32_t get_region_type_camera_region(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01164c70 get_clip_matrix | uint32_t get_clip_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164c78 get_clip_matrix128 | uint32_t get_clip_matrix128(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164c80 get_clip_matrix256 | uint32_t get_clip_matrix256(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164c88 get_clip_matrix_fovignore | uint32_t get_clip_matrix_fovignore(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164c90 get_screen_matrix | uint32_t get_screen_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164c98 get_screen_matrix128 | uint32_t get_screen_matrix128(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164ca0 get_screen_matrix256 | uint32_t get_screen_matrix256(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164cc0 get_VC_matrix | uint32_t get_VC_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164cc8 get_CS_matrix | uint32_t get_CS_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164cd0 get_WVC_matrix | uint32_t get_WVC_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164cd8 get_VCS_matrix | uint32_t get_VCS_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164ce0 get_WVCS_matrix | uint32_t get_WVCS_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164ce8 get_scissor_VC_matrix | uint32_t get_scissor_VC_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01164cf0 get_scissor_WVC_matrix | uint32_t get_scissor_WVC_matrix(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01169d18 getPointDataHeader | uint64_t getPointDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01169d30 getLineDataHeader | uint64_t getLineDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01169d88 getConnectLineArray | uint32_t getConnectLineArray(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3,g6 | depth0 | 
+01169e20 getRootDataHeader | uint64_t getRootDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01169e38 getGoalDataHeader | uint64_t getGoalDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01169e50 getSubDataHeader | uint64_t getSubDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01169f28 getChildGoalPointIdxArray | uint32_t getChildGoalPointIdxArray(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3,g6 | depth0 | 
+01169f80 getChildSubPointIdxArray | uint32_t getChildSubPointIdxArray(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3,g6 | depth0 | 
+01169fd8 getInterestDataHeader | uint64_t getInterestDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+0116a028 getDeadDataHeader | uint64_t getDeadDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+0116a080 getLayoutDataHeader | uint64_t getLayoutDataHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | depth0 | 
+01342ef8 GAMEUTIL_is_push_or_down_1p_button | uint32_t GAMEUTIL_is_push_or_down_1p_button(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1) | g3,g4 | depth0 | 
+01344588 GAMEUTIL_get_data_record_info | uint32_t GAMEUTIL_get_data_record_info(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,xhi,xlo | depth0 | 
+01353580 gStatSaveDataGameFlagChk | uint64_t gStatSaveDataGameFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5 | depth0 | 
+013536d8 gStatGetGObjAdrs | uint32_t gStatGetGObjAdrs(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0135ff08 getstagenumber | uint64_t getstagenumber(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7,g8,xhi,xlo | depth0 | 
+01366cf0 initStageLayout | void initStageLayout(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01366cf8 deleteStageLayout | void deleteStageLayout(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0136a420 initAdpcmOrient | void initAdpcmOrient(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0136aae8 bgmStartGameOver | void bgmStartGameOver(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0136aaf8 bgmStageInit | void bgmStageInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+013790a0 SCRExecBossPostProcess | void SCRExecBossPostProcess(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+013b6198 SCRPlayerReset | void SCRPlayerReset(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+013b6530 gamecore_sub_013B6530 | void gamecore_sub_013B6530(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+013cfb60 scrInit | void scrInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+013d4df8 AI_CheckNormZero | a1::RetVF AI_CheckNormZero(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f1,g1,xfcr31 | depth0 | a1f::lt
+0140ae18 initSavePoint | void initSavePoint(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0140ae38 getSprLogWorkSize | uint32_t getSprLogWorkSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0140ae50 getSprLogStatusSize | uint32_t getSprLogStatusSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0141ce38 get_camera_move_collision_group | uint32_t get_camera_move_collision_group(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0141ce58 get_game_camera | uint32_t get_game_camera(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0141ce60 get_cur_camera_target | uint32_t get_cur_camera_target(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0141d178 gamecore_sub_0141D178 | void gamecore_sub_0141D178(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0141d180 gamecore_sub_0141D180 | void gamecore_sub_0141D180(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0141d4f0 gamecore_sub_0141D4F0 | void gamecore_sub_0141D4F0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01424f38 get_cur_using_lws_anime_mode_base_class | uint64_t get_cur_using_lws_anime_mode_base_class(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5 | depth0 | 
+01425050 end_object_interest_game_camera | void end_object_interest_game_camera(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01425660 free_camera_mode_manager_segment | void free_camera_mode_manager_segment(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01425d20 gamecore_sub_01425D20 | uint32_t gamecore_sub_01425D20(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6 | depth0 | 
+01426250 gamecore_sub_01426250 | void gamecore_sub_01426250(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+014262b0 gamecore_sub_014262B0 | void gamecore_sub_014262B0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+014262b8 gamecore_sub_014262B8 | void gamecore_sub_014262B8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01426368 gamecore_sub_01426368 | void gamecore_sub_01426368(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0142c120 get_interp_game_camera_param_game_camera_param_manager | uint32_t get_interp_game_camera_param_game_camera_param_manager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+0142c428 get_mode_common_data_filter_base_dist_to_look_at | a1::RetVF get_mode_common_data_filter_base_dist_to_look_at(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | depth0 | 
+01431c30 delISysPathObj | void delISysPathObj(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01431da0 setDataHeaderFromAreaIdx | uint32_t setDataHeaderFromAreaIdx(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+014563b8 SCRConditionTrue | uint32_t SCRConditionTrue(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0145d688 getSizeAimIKWork | uint32_t getSizeAimIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0145dfc8 getSizeAttackIKWork | uint32_t getSizeAttackIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+0145f0e0 getSizeBeardIKWork | uint32_t getSizeBeardIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+014621b0 getSizeTailIKWork | uint32_t getSizeTailIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) |  | depth0 | 
+01464aa0 getEventScriptClass | uint64_t getEventScriptClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4 | depth0 | 
+001bf400 iosInitDC | void iosInitDC(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+001c9828 InitSubThread | void InitSubThread(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+001cb430 setSoundMode | uint32_t setSoundMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5 | frame16 depth1 | 
+001cc300 Sg2DmaTransStatus | uint32_t Sg2DmaTransStatus(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | frame16 depth1 | 
+001da530 Sg2VabBdOpen | uint64_t Sg2VabBdOpen(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3 | frame32 depth1 | 
+01080220 GAMEUTIL_get_difference_value | a1::RetVF GAMEUTIL_get_difference_value(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, float f13) | f1,g1,xfcr31 | frame16 depth1 | a1f::sub
+010c1b90 GetCalcNumObjWorkSize | uint32_t GetCalcNumObjWorkSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0) | g3,g4,g9,xhi,xlo | frame16 depth1 | 
+01343c58 GAMEUTIL_constructor_move_angle | float GAMEUTIL_constructor_move_angle(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | f1,f2,f3,f4,g1 | frame16 depth1 | 
+013461d0 setFade | a1::RetVF setFade(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13) | f1,f2,g4,g5 | frame16 depth1 | 
+013461f0 getFade | a1::RetVF getFade(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | f1,g4,xfcr31 | frame16 depth1 | 
+013527d8 gamecore_sub_013527D8 | uint32_t gamecore_sub_013527D8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f12,g1,g5 | frame16 depth1 | 
+01357758 gamecore_sub_01357758 | uint32_t gamecore_sub_01357758(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | f12,g1,g4,g5 | frame16 depth1 | 
+01384ee0 gamecore_sub_01384EE0 | uint32_t gamecore_sub_01384EE0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+0138be98 get_pre_type_expression | uint32_t get_pre_type_expression(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g4 | frame16 depth1 | 
+0139aaf8 MotSpdCtrl_Init | void MotSpdCtrl_Init(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) |  | frame32 depth1 | 
+013ae538 gamecore_sub_013AE538 | uint32_t gamecore_sub_013AE538(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae550 gamecore_sub_013AE550 | uint32_t gamecore_sub_013AE550(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae568 gamecore_sub_013AE568 | uint32_t gamecore_sub_013AE568(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae580 gamecore_sub_013AE580 | uint32_t gamecore_sub_013AE580(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae598 gamecore_sub_013AE598 | uint32_t gamecore_sub_013AE598(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae5b0 gamecore_sub_013AE5B0 | uint32_t gamecore_sub_013AE5B0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae5c8 gamecore_sub_013AE5C8 | uint32_t gamecore_sub_013AE5C8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae5e0 gamecore_sub_013AE5E0 | uint32_t gamecore_sub_013AE5E0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae5f8 gamecore_sub_013AE5F8 | uint32_t gamecore_sub_013AE5F8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae610 gamecore_sub_013AE610 | uint32_t gamecore_sub_013AE610(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae628 gamecore_sub_013AE628 | uint32_t gamecore_sub_013AE628(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013ae880 gamecore_sub_013AE880 | uint32_t gamecore_sub_013AE880(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g4 | frame16 depth1 | 
+013b77c8 gamecore_sub_013B77C8 | a1::RetVF gamecore_sub_013B77C8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g1 | frame16 depth1 | 
+014109f8 get_cur_attr_camera_default_angle | uint32_t get_cur_attr_camera_default_angle(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | frame16 depth1 | 
+01410a90 gamecore_sub_01410A90 | void gamecore_sub_01410A90(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g2,g4,g5 | frame16 depth1 | 
+01414a48 get_status_camera_target_approach | uint32_t get_status_camera_target_approach(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) |  | frame16 depth1 | 
+0141aa98 CAM_init_camera_warp_cntrl | a1::RetVF CAM_init_camera_warp_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint32_t a2, uint32_t a3) | f1,g1 | frame16 depth1 | 
+0141c9b8 gamecore_sub_0141C9B8 | a1::RetVF gamecore_sub_0141C9B8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t a2) | f1,g1,g3,g4,xfcr31 | frame16 depth1 | 
+0141d390 get_main_cameraman_camera_obj | uint32_t get_main_cameraman_camera_obj(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | frame16 depth1 | 
+01424fe8 request_end_pause_rise_game_camera | uint32_t request_end_pause_rise_game_camera(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g4,g5,g6 | frame16 depth1 | 
+01425008 is_end_pause_rise_game_camera | uint32_t is_end_pause_rise_game_camera(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g4 | frame16 depth1 | 
+01431c58 getPathColiGroup | uint32_t getPathColiGroup(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g4 | frame16 depth1 | 
+01437a88 _resetBaseMoveWork | a1::RetVF _resetBaseMoveWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a1) | f1,g1,g4 | frame16 depth1 | 
+01459360 SCRConditionSwordFlareHitColAttr | uint64_t SCRConditionSwordFlareHitColAttr(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t t0, uint64_t t1) | g3 | frame32 depth1 | 
+01459ae8 SCRConditionHardMode | uint32_t SCRConditionHardMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | frame16 depth1 | 
+0145b1c0 gamecore_sub_0145B1C0 | uint32_t gamecore_sub_0145B1C0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a1, uint64_t t0) | f12,g1,g4,g5 | frame16 depth1 | 
+010845b0 is_reach_src_value_double_spring_interp_cntrl | a1::RetVF is_reach_src_value_double_spring_interp_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f0, float f12) | f1,f12,f13,g1,g4,xfcr31 | frame16 depth2 | a1f::mul
+014269d0 gamecore_sub_014269D0 | a1::RetVF gamecore_sub_014269D0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | f1,g1,g4,g5,g6,g7 | frame16 depth2 | 

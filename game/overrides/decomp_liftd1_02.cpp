@@ -4,6 +4,7 @@
 // Regenerate with the tool; see docs/decomp.md "Decomp D1".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -1460,6 +1461,7 @@ void iosGetFontDataWithJIS(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // iosGetFontDataWithSJIS (0x1c91f8-0x1c9320)
 void iosGetFontDataWithSJIS(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); A2_CHK(iosGetFontDataWithSJIS, a2_4, a2_5, a2_6); const uint64_t a2_r = typed::iosGetFontDataWithSJIS(rdram, runtime, a2_4, a2_5, a2_6); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10), t3 = Ps2GprU64(ctx, 11), t4 = Ps2GprU64(ctx, 12), ra = Ps2GprU64(ctx, 31);
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
@@ -1584,6 +1586,7 @@ void iosGetFontIDWithJIS(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void iosGetFontIDWithSJIS(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1C9498u, 0)) { iosGetFontIDWithSJIS_0x1c9498(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(iosGetFontIDWithSJIS, a2_4); const uint64_t a2_r = typed::iosGetFontIDWithSJIS(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)((int64_t)(int32_t)(SRA32((int32_t)a0, 8))));
     (t0 = (uint64_t)(a0 & (uint64_t)(uint16_t)255));
@@ -3556,6 +3559,7 @@ void kernel_sub_001D13E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // kernel_sub_001D1420 (0x1d1420-0x1d1470)
 void kernel_sub_001D1420(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(kernel_sub_001D1420); const uint32_t a2_r = typed::kernel_sub_001D1420(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a2 = Ps2GprU64(ctx, 6);
     v0 = 0x270000u;
@@ -3740,6 +3744,7 @@ void kernel_sub_001D1580(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void kernel_sub_001D15B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1D15B8u, 0)) { kernel_sub_001D15B8_0x1d15b8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(kernel_sub_001D15B8); const uint64_t a2_r = typed::kernel_sub_001D15B8(rdram, runtime); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)39 << 16))));

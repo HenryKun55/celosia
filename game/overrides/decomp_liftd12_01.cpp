@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D12".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -19161,6 +19162,7 @@ L_14591f4:
 void SCRConditionSwordFlareHitColAttr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1459360u, 0)) { SCRConditionSwordFlareHitColAttr_0x1459360(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO() && A2_SLOT(0x13FF148u, lift_d1::GetSwordFlareHitPlaneAttribute), 1)) { const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); A2_CHK(SCRConditionSwordFlareHitColAttr, a2_8, a2_9); const uint64_t a2_r = typed::SCRConditionSwordFlareHitColAttr(rdram, runtime, a2_8, a2_9); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     sp = sp - 0x20u;
@@ -20610,6 +20612,7 @@ L_145ef2c:
 // getSizeBeardIKWork (0x145f0e0-0x145f0e8)
 void getSizeBeardIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSizeBeardIKWork); const uint32_t a2_r = typed::getSizeBeardIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

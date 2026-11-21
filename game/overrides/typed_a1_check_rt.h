@@ -54,7 +54,7 @@ namespace a1ck
         uint32_t a, n;
         uint64_t v;
     };
-    constexpr int kMaxStores = 512;
+    constexpr int kMaxStores = 2048; // A2: a non-leaf's reference logs its callees' stores and frames too
     constexpr uint32_t kMaxFunctions = 4096;
     struct CkState
     {
@@ -167,7 +167,9 @@ namespace a1ck
         return b;
     }
     // kind: 0 void, 1 uint32_t (v0 sign-extended), 2 uint64_t, 3 float, 4 both; dg / df: the scratch GPRs / FPRs
-    inline void ckEnd(int id, const R5900Context *in, const R5900Context &ref, int kind, uint64_t v0, float f0, uint32_t dg, uint32_t df)
+    // A2: the comparison on a given stats block and entry table (a2ck's); ckEnd: A1's
+    inline void ckEndOn(CkStats &g_stats, const CkEntry *kEntries, uint32_t kEntryCount, int id, const R5900Context *in, const R5900Context &ref,
+                        int kind, uint64_t v0, float f0, uint32_t dg, uint32_t df)
     {
         CkState &s = ckState();
         bool ret = false, mem = false, pc = false, sp = false, other = false, dropped = false;
@@ -235,6 +237,11 @@ namespace a1ck
             }
         }
         s.active = false;
+    }
+
+    inline void ckEnd(int id, const R5900Context *in, const R5900Context &ref, int kind, uint64_t v0, float f0, uint32_t dg, uint32_t df)
+    {
+        ckEndOn(g_stats, kEntries, kEntryCount, id, in, ref, kind, v0, f0, dg, df);
     }
 
     inline void ckReport(unsigned long long frame)

@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D8".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -8205,6 +8206,7 @@ void opflowOp2End(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // gamecore_sub_01357758 (0x1357758-0x1357780)
 void gamecore_sub_01357758(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_01357758); const uint32_t a2_r = typed::gamecore_sub_01357758(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     float f12 = ctx->f[12];
@@ -15351,6 +15353,7 @@ L_1378800:
 // SCRExecBossPostProcess (0x13790a0-0x13790a8)
 void SCRExecBossPostProcess(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(SCRExecBossPostProcess); typed::SCRExecBossPostProcess(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -18715,6 +18718,7 @@ L_139a6ec:
 void MotSpdCtrl_Init(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x139AAF8u, 0)) { MotSpdCtrl_Init_0x139aaf8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO() && A2_SLOT(0x139AC08u, lift_d1::MotSpdCtrl_Reset), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A2_CHK(MotSpdCtrl_Init, a2_4, a2_5); typed::MotSpdCtrl_Init(rdram, runtime, a2_4, a2_5); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     sp = sp - 0x20u;

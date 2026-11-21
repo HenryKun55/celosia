@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D8".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -20515,6 +20516,7 @@ L_113f1ec:
 // free_all_emitter_and_particle_particle_manager (0x113f370-0x113f378)
 void free_all_emitter_and_particle_particle_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(free_all_emitter_and_particle_particle_manager); typed::free_all_emitter_and_particle_particle_manager(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -21003,6 +21005,7 @@ L_113f9f4:
 // get_particle_emitter_from_emitter_id (0x113fa70-0x113fa88)
 void get_particle_emitter_from_emitter_id(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_particle_emitter_from_emitter_id, a2_4); const uint64_t a2_r = typed::get_particle_emitter_from_emitter_id(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -21020,6 +21023,7 @@ void get_particle_emitter_from_emitter_id(uint8_t *rdram, R5900Context *ctx, PS2
 // get_main_particle_effect_lod_from_sheet (0x113fa88-0x113fa90)
 void get_main_particle_effect_lod_from_sheet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_main_particle_effect_lod_from_sheet, a2_4); const uint32_t a2_r = typed::get_main_particle_effect_lod_from_sheet(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -21033,6 +21037,7 @@ void get_main_particle_effect_lod_from_sheet(uint8_t *rdram, R5900Context *ctx, 
 // get_top_particle_effect_from_lod (0x113fa98-0x113faa0)
 void get_top_particle_effect_from_lod(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_top_particle_effect_from_lod, a2_4); const uint32_t a2_r = typed::get_top_particle_effect_from_lod(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -21454,6 +21459,7 @@ L_11401c4:
 // get_radiate_range_coefficient (0x11401d8-0x11401f8)
 void get_radiate_range_coefficient(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const float a2_f12 = ctx->f[12]; A2_CHK(get_radiate_range_coefficient, a2_f12); const float a2_r = typed::get_radiate_range_coefficient(rdram, runtime, a2_f12); ctx->f[0] = a2_r; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
     at = 0x40000000u;
@@ -21888,6 +21894,7 @@ void load_npe_file_sub(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // unload_npe_file_main (0x1140730-0x1140738)
 void unload_npe_file_main(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(unload_npe_file_main); typed::unload_npe_file_main(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -21900,6 +21907,7 @@ void unload_npe_file_main(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // unload_npe_file_sub (0x1140738-0x1140740)
 void unload_npe_file_sub(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(unload_npe_file_sub); typed::unload_npe_file_sub(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -21912,6 +21920,7 @@ void unload_npe_file_sub(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // manager_sub_01140740 (0x1140740-0x1140748)
 void manager_sub_01140740(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(manager_sub_01140740, a2_4); const uint64_t a2_r = typed::manager_sub_01140740(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     {
@@ -22434,6 +22443,7 @@ L_1140fc8:
 // manager_sub_01141080 (0x1141080-0x1141090)
 void manager_sub_01141080(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01141080, a2_4); const uint32_t a2_r = typed::manager_sub_01141080(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     v0 = READ32_B(a0, 200);
     v0 = v0 ^ 2u;
@@ -22749,6 +22759,7 @@ L_1141da0:
 void manager_sub_01142030(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1142030u, 0)) { manager_sub_01142030_0x1142030(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01142030, a2_4); const float a2_r = typed::manager_sub_01142030(rdram, runtime, a2_4); ctx->f[0] = a2_r; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
     uint32_t fcr31 = ctx->fcr31;
@@ -26940,6 +26951,7 @@ L_1144de4:
 // manager_sub_01144E00 (0x1144e00-0x1144e38)
 void manager_sub_01144E00(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01144E00, a2_4); const float a2_r = typed::manager_sub_01144E00(rdram, runtime, a2_4); ctx->f[0] = a2_r; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     at = 0xBF800000u;
@@ -26966,6 +26978,7 @@ void manager_sub_01144E00(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_01144E38 (0x1144e38-0x1144e50)
 void manager_sub_01144E38(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01144E38, a2_4); const float a2_r = typed::manager_sub_01144E38(rdram, runtime, a2_4); ctx->f[0] = a2_r; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     at = 0x3F800000u;
@@ -26984,6 +26997,7 @@ void manager_sub_01144E38(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_01144E50 (0x1144e50-0x1144e58)
 void manager_sub_01144E50(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01144E50, a2_4); typed::manager_sub_01144E50(rdram, runtime, a2_4); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -26997,6 +27011,7 @@ void manager_sub_01144E50(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_01144E58 (0x1144e58-0x1144e70)
 void manager_sub_01144E58(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01144E58, a2_4); const float a2_r = typed::manager_sub_01144E58(rdram, runtime, a2_4); ctx->f[0] = a2_r; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     at = 0x3F800000u;
@@ -27015,6 +27030,7 @@ void manager_sub_01144E58(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_01144E70 (0x1144e70-0x1144e88)
 void manager_sub_01144E70(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01144E70, a2_4); const uint32_t a2_r = typed::manager_sub_01144E70(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     v0 = 3u;
     WRITE32_B(a0, 200, 0u);
@@ -27032,6 +27048,7 @@ void manager_sub_01144E70(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_01144E88 (0x1144e88-0x1144e90)
 void manager_sub_01144E88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(manager_sub_01144E88, a2_4); typed::manager_sub_01144E88(rdram, runtime, a2_4); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -27714,6 +27731,7 @@ L_11464a0:
 // is_eternal_wind (0x11464c0-0x11464e0)
 void is_eternal_wind(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(is_eternal_wind, a2_4); const a1::RetVF a2_r = typed::is_eternal_wind(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
@@ -28091,6 +28109,7 @@ L_11467ec:
 void stop_wind_emitter_geometry_pointer_reference(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1146980u, 0)) { stop_wind_emitter_geometry_pointer_reference_0x1146980(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(stop_wind_emitter_geometry_pointer_reference, a2_4); const uint32_t a2_r = typed::stop_wind_emitter_geometry_pointer_reference(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     (v1 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
@@ -28134,6 +28153,7 @@ void stop_wind_emitter_geometry_pointer_reference(uint8_t *rdram, R5900Context *
 void stop_wind_emitter_callback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x11469D0u, 0)) { stop_wind_emitter_callback_0x11469d0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(stop_wind_emitter_callback, a2_4); const uint32_t a2_r = typed::stop_wind_emitter_callback(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     (v1 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
@@ -28169,6 +28189,7 @@ void stop_wind_emitter_callback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void end_wind_emitter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1146A10u, 0)) { end_wind_emitter_0x1146a10(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(end_wind_emitter, a2_4); const uint32_t a2_r = typed::end_wind_emitter(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     (v1 = (uint32_t)((int32_t)((int32_t)SLL32((uint32_t)a0, 2))));
@@ -28391,6 +28412,7 @@ void manager_sub_01146FB8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // add_wind_segment (0x1147430-0x1147438)
 void add_wind_segment(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(add_wind_segment); typed::add_wind_segment(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

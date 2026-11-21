@@ -179,6 +179,8 @@ def main():
     ap.add_argument('--natives-abi', action='store_true',
                     help='a native / hook / unparsed callee is taken to follow the ABI (inputs a0-t3, sp, ra, gp; '
                          'outputs the temporaries, v0 / v1, ra) instead of reading / writing everything')
+    ap.add_argument('--all', action='store_true',
+                    help='A2: also write the functions whose slot may hold a native (their own proof; marked native=1)')
     args = ap.parse_args()
     NATIVES_ABI[0] = args.natives_abi
     tab = L.table()
@@ -208,6 +210,10 @@ def main():
             if r != inp[a]:
                 inp[a] = r
                 changed = True
+    if args.all:  # A2: the natives' own inputs, from their callees' (they stay unknown to their callers)
+        for a in natives:
+            if a in F:
+                inp[a] = inputs_of(F[a], inp) - F[a]['saves']
     wmap = {}
     for a in F:
         wmap[a] = set(ALL)
@@ -250,7 +256,7 @@ def main():
     wsum = {k: 0.0 for k in cnt}
     total_w = 0.0
     for a, f in F.items():
-        if a in natives:
+        if a in natives and not args.all:
             continue
         i = inp[a]
         ins_ok = i <= (ARGS | {28, 29, 31} | f['saves'] | (SAVED & set()))
@@ -270,9 +276,9 @@ def main():
             if v:
                 cnt[k] += 1
                 wsum[k] += w
-        rows.append((a, f['name'], proven, sorted(i), sorted(o), sorted(f['why']), len(f['calls']), f['loops'], w))
+        rows.append((a, f['name'], proven, sorted(i), sorted(o), sorted(f['why']), len(f['calls']), f['loops'], w, a in natives))
     os.makedirs(args.out, exist_ok=True)
-    tag = 'abi_nat' if args.natives_abi else 'abi'
+    tag = ('abi_nat' if args.natives_abi else 'abi') + ('_all' if args.all else '')
     with open(os.path.join(args.out, tag + '.txt'), 'w') as fo:
         fo.write(f'# {len(funcs)} table functions: {len(F)} analysed, {len(bad)} not parsed, {len(natives)} may hold a native; '
                  f'inputs {passes} passes, outputs {passes2} passes\n')
@@ -280,7 +286,8 @@ def main():
                  ', '.join(f'{k} {v:.2f}' for k, v in wsum.items()) + f', all analysed {total_w:.2f}\n')
         for r in sorted(rows):
             fo.write(f'{r[0]:08x} {r[1]} {"PROVEN" if r[2] else "no"} in={",".join(L.GPR[x] for x in r[3])} '
-                     f'out={",".join(L.GPR[x] for x in r[4])} why={",".join(r[5])} calls={r[6]} loops={int(r[7])} w={r[8]:.4f}\n')
+                     f'out={",".join(L.GPR[x] for x in r[4])} why={",".join(r[5])} calls={r[6]} loops={int(r[7])} w={r[8]:.4f}'
+                     + (f' native={int(r[9])}' if args.all else '') + '\n')
         for a, e in sorted(bad.items()):
             fo.write(f'{a:08x} NOTPARSED {e}\n')
     # call-boundary traffic in the lifted files

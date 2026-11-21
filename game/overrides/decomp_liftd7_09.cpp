@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D7".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7447,6 +7448,7 @@ L_140ade8:
 // initSavePoint (0x140ae18-0x140ae20)
 void initSavePoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(initSavePoint); typed::initSavePoint(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7459,6 +7461,7 @@ void initSavePoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getSprLogWorkSize (0x140ae38-0x140ae40)
 void getSprLogWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSprLogWorkSize); const uint32_t a2_r = typed::getSprLogWorkSize(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7487,6 +7490,7 @@ void getSprLogWorkAddress(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // getSprLogStatusSize (0x140ae50-0x140ae58)
 void getSprLogStatusSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSprLogStatusSize); const uint32_t a2_r = typed::getSprLogStatusSize(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -11827,6 +11831,7 @@ L_1410890:
 // get_cur_attr_camera_default_angle (0x14109f8-0x1410a10)
 void get_cur_attr_camera_default_angle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_cur_attr_camera_default_angle, a2_4); const uint32_t a2_r = typed::get_cur_attr_camera_default_angle(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
@@ -11842,6 +11847,7 @@ void get_cur_attr_camera_default_angle(uint8_t *rdram, R5900Context *ctx, PS2Run
 // gamecore_sub_01410A90 (0x1410a90-0x1410ab8)
 void gamecore_sub_01410A90(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(gamecore_sub_01410A90, a2_4); typed::gamecore_sub_01410A90(rdram, runtime, a2_4); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     v0 = 1u;
@@ -17353,6 +17359,7 @@ void CAM_is_return_cam_posi_target_visibility(uint8_t *rdram, R5900Context *ctx,
 // CAM_init_camera_warp_cntrl (0x141aa98-0x141aad0)
 void CAM_init_camera_warp_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const uint32_t a2_7 = Ps2GprU32(ctx, 7); A2_CHK(CAM_init_camera_warp_cntrl, a2_4, a2_5, a2_6, a2_7); const a1::RetVF a2_r = typed::CAM_init_camera_warp_cntrl(rdram, runtime, a2_4, a2_5, a2_6, a2_7); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     float f0 = ctx->f[0];
@@ -17793,6 +17800,7 @@ void create_cameraman(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_camera_move_collision_group (0x141ce38-0x141ce40)
 void get_camera_move_collision_group(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_move_collision_group, a2_4); const uint32_t a2_r = typed::get_camera_move_collision_group(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -17821,6 +17829,7 @@ void is_camera_target_debug_move(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
 // gamecore_sub_0141D178 (0x141d178-0x141d180)
 void gamecore_sub_0141D178(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_0141D178); typed::gamecore_sub_0141D178(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -17833,6 +17842,7 @@ void gamecore_sub_0141D178(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_0141D180 (0x141d180-0x141d188)
 void gamecore_sub_0141D180(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_0141D180); typed::gamecore_sub_0141D180(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -17996,6 +18006,7 @@ void change_main_cameraman(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_0141D4F0 (0x141d4f0-0x141d4f8)
 void gamecore_sub_0141D4F0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_0141D4F0); typed::gamecore_sub_0141D4F0(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -22741,6 +22752,7 @@ void begin_object_interest_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Run
 // end_object_interest_game_camera (0x1425050-0x1425058)
 void end_object_interest_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(end_object_interest_game_camera); typed::end_object_interest_game_camera(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

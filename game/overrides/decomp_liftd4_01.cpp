@@ -6,6 +6,7 @@
 // that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -3394,6 +3395,7 @@ void UpdateAnimationClassPastSimpleInfo(uint8_t *rdram, R5900Context *ctx, PS2Ru
 // GetAnimationDefClass (0x10bb060-0x10bb080)
 void GetAnimationDefClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetAnimationDefClass, a2_4); const uint64_t a2_r = typed::GetAnimationDefClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -3940,6 +3942,7 @@ void UpdateCharacterClassPastGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runt
 // RequestCharacterMotionShiftFunc (0x10c1530-0x10c1580)
 void RequestCharacterMotionShiftFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(RequestCharacterMotionShiftFunc, a2_4, a2_5); const uint32_t a2_r = typed::RequestCharacterMotionShiftFunc(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     (v1 = (uint32_t)((uint8_t)READ8_B((uint32_t)a0, 8)));
@@ -12155,6 +12158,7 @@ void SetScriptObjDeleteCallBackFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 // SetScriptAnimationObjChildEntryGroup (0x110a8e0-0x110a8f8)
 void SetScriptAnimationObjChildEntryGroup(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(SetScriptAnimationObjChildEntryGroup, a2_4, a2_5); const uint32_t a2_r = typed::SetScriptAnimationObjChildEntryGroup(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     v0 = READ8_B(a0, 8);
     a0 = a0 + 0x20u;
@@ -12587,6 +12591,7 @@ L_110b448:
 // SetScariptAnimationObjMotSyncSlotId (0x110bb30-0x110bb48)
 void SetScariptAnimationObjMotSyncSlotId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(SetScariptAnimationObjMotSyncSlotId, a2_4, a2_5); const uint32_t a2_r = typed::SetScariptAnimationObjMotSyncSlotId(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     v0 = READ8_B(a0, 8);
     a0 = a0 + 0x20u;

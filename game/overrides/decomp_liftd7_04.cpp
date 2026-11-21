@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D7".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7826,6 +7827,7 @@ L_1113840:
 void SpriteMenuGetFadeByLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1113950u, 0)) { SpriteMenuGetFadeByLayer_0x1113950(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(SpriteMenuGetFadeByLayer, a2_4, a2_5); const a1::RetVF a2_r = typed::SpriteMenuGetFadeByLayer(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     a2 = READ8_B(a0, 8);
@@ -12914,6 +12916,7 @@ L_112a3e8:
 // CheckCollisionFinderAlive (0x112a450-0x112a478)
 void CheckCollisionFinderAlive(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(CheckCollisionFinderAlive, a2_4); const uint32_t a2_r = typed::CheckCollisionFinderAlive(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     bool df_v1 = false;
     v0 = READ32_B(a0, 12);

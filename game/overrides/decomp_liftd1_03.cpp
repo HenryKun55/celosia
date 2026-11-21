@@ -4,6 +4,7 @@
 // Regenerate with the tool; see docs/decomp.md "Decomp D1".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -1541,6 +1542,7 @@ void vab_get_info(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // vab_get_splitchunk (0x1da330-0x1da348)
 void vab_get_splitchunk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(vab_get_splitchunk, a2_4); const uint64_t a2_r = typed::vab_get_splitchunk(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -1781,6 +1783,7 @@ L_1db410:
 // kernel_sub_001DB418 (0x1db418-0x1db440)
 void kernel_sub_001DB418(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(kernel_sub_001DB418, a2_4, a2_5); const uint64_t a2_r = typed::kernel_sub_001DB418(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     a1 = a1 << 2;
@@ -4659,6 +4662,7 @@ void set_rot_radi_value_flag_double_spring_interp_cntrl(uint8_t *rdram, R5900Con
 // reset_double_spring_interp_cntrl (0x1084590-0x10845b0)
 void reset_double_spring_interp_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; A2_CHK(reset_double_spring_interp_cntrl, a2_4, a2_f12); const a1::RetVF a2_r = typed::reset_double_spring_interp_cntrl(rdram, runtime, a2_4, a2_f12); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f12 = ctx->f[12];
     v0 = a0 + 0x1Cu;
@@ -4679,6 +4683,7 @@ void reset_double_spring_interp_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runt
 void is_reach_src_value_double_spring_interp_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10845B0u, 0)) { is_reach_src_value_double_spring_interp_cntrl_0x10845b0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f0 = ctx->f[0]; const float a2_f12 = ctx->f[12]; A2_CHK(is_reach_src_value_double_spring_interp_cntrl, a2_4, a2_f0, a2_f12); const a1::RetVF a2_r = typed::is_reach_src_value_double_spring_interp_cntrl(rdram, runtime, a2_4, a2_f0, a2_f12); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13];
@@ -5258,6 +5263,7 @@ void IsFullFixFormat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // SetInertiaRotInterpMode (0x10c29a0-0x10c2a00)
 void SetInertiaRotInterpMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(SetInertiaRotInterpMode, a2_4); const uint64_t a2_r = typed::SetInertiaRotInterpMode(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7);
     (v1 = (uint32_t)((uint8_t)READ8_B((uint32_t)a0, 8)));
@@ -7132,6 +7138,7 @@ void create_original_view_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
 // get_view_matrix (0x1162fd0-0x1162fd8)
 void get_view_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_view_matrix, a2_4); const uint32_t a2_r = typed::get_view_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7245,6 +7252,7 @@ void get_WV_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_VC_matrix (0x1164cc0-0x1164cc8)
 void get_VC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_VC_matrix, a2_4); const uint32_t a2_r = typed::get_VC_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7258,6 +7266,7 @@ void get_VC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_CS_matrix (0x1164cc8-0x1164cd0)
 void get_CS_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_CS_matrix, a2_4); const uint32_t a2_r = typed::get_CS_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7271,6 +7280,7 @@ void get_CS_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_WVC_matrix (0x1164cd0-0x1164cd8)
 void get_WVC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_WVC_matrix, a2_4); const uint32_t a2_r = typed::get_WVC_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7284,6 +7294,7 @@ void get_WVC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_VCS_matrix (0x1164cd8-0x1164ce0)
 void get_VCS_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_VCS_matrix, a2_4); const uint32_t a2_r = typed::get_VCS_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7297,6 +7308,7 @@ void get_VCS_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_WVCS_matrix (0x1164ce0-0x1164ce8)
 void get_WVCS_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_WVCS_matrix, a2_4); const uint32_t a2_r = typed::get_WVCS_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7310,6 +7322,7 @@ void get_WVCS_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_scissor_VC_matrix (0x1164ce8-0x1164cf0)
 void get_scissor_VC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_scissor_VC_matrix, a2_4); const uint32_t a2_r = typed::get_scissor_VC_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -7323,6 +7336,7 @@ void get_scissor_VC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // get_scissor_WVC_matrix (0x1164cf0-0x1164cf8)
 void get_scissor_WVC_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_scissor_WVC_matrix, a2_4); const uint32_t a2_r = typed::get_scissor_WVC_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

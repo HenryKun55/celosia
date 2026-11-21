@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D7".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7974,6 +7975,7 @@ void modelInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // ModelDispGetWorkSize (0x1099a00-0x1099a08)
 void ModelDispGetWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(ModelDispGetWorkSize); const uint32_t a2_r = typed::ModelDispGetWorkSize(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -8797,6 +8799,7 @@ void ptclmanPut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // ptclCounterInit (0x109a4c8-0x109a4d0)
 void ptclCounterInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(ptclCounterInit); typed::ptclCounterInit(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -8825,6 +8828,7 @@ void meshObjectFree(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // manager_sub_0109ACF8 (0x109acf8-0x109ad00)
 void manager_sub_0109ACF8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(manager_sub_0109ACF8); typed::manager_sub_0109ACF8(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -8837,6 +8841,7 @@ void manager_sub_0109ACF8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_0109AD00 (0x109ad00-0x109ad08)
 void manager_sub_0109AD00(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(manager_sub_0109AD00); typed::manager_sub_0109AD00(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9172,6 +9177,7 @@ void GetShadowLength(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // shadowGetWorkSize (0x109deb0-0x109deb8)
 void shadowGetWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(shadowGetWorkSize); const uint32_t a2_r = typed::shadowGetWorkSize(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -15263,6 +15269,7 @@ void setZFogFar(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // zFogInit (0x10ac470-0x10ac478)
 void zFogInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(zFogInit); typed::zFogInit(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -17134,6 +17141,7 @@ void doit_motion_ik_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_type_parameter_segment_motion_ik_base (0x10b92c0-0x10b9328)
 void get_type_parameter_segment_motion_ik_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_type_parameter_segment_motion_ik_base, a2_4); const uint32_t a2_r = typed::get_type_parameter_segment_motion_ik_base(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
@@ -18655,6 +18663,7 @@ void initGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getSizeGazeIKWork (0x10ba7a0-0x10ba7a8)
 void getSizeGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSizeGazeIKWork); const uint32_t a2_r = typed::getSizeGazeIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -18668,6 +18677,7 @@ void getSizeGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // manager_sub_010BB208 (0x10bb208-0x10bb210)
 void manager_sub_010BB208(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(manager_sub_010BB208); typed::manager_sub_010BB208(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -20129,6 +20139,7 @@ void ResetCharacterClassMotionInterpRootOfs(uint8_t *rdram, R5900Context *ctx, P
 void GetCalcNumObjWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10C1B90u, 0)) { GetCalcNumObjWorkSize_0x10c1b90(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); A2_CHK(GetCalcNumObjWorkSize, a2_4, a2_5, a2_6, a2_7, a2_8); const uint32_t a2_r = typed::GetCalcNumObjWorkSize(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), t1 = Ps2GprU32(ctx, 9), s0 = Ps2GprU32(ctx, 16), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8);
     uint64_t hi = ctx->hi;
@@ -20197,6 +20208,7 @@ L_10c1c0c:
 // SetCharacterObjControlCallBackFunc (0x10c1d08-0x10c1d38)
 void SetCharacterObjControlCallBackFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(SetCharacterObjControlCallBackFunc, a2_4, a2_5); const uint32_t a2_r = typed::SetCharacterObjControlCallBackFunc(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     (v1 = (uint32_t)((uint8_t)READ8_B((uint32_t)a0, 8)));

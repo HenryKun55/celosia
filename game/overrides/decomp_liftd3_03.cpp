@@ -8,6 +8,7 @@
 // that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a2.h" // a2
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -4187,6 +4188,7 @@ void act_pitch_rot_camera_target_approach(uint8_t *rdram, R5900Context *ctx, PS2
 // get_status_camera_target_approach (0x1414a48-0x1414a60)
 void get_status_camera_target_approach(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_status_camera_target_approach, a2_4); const uint32_t a2_r = typed::get_status_camera_target_approach(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
@@ -9060,6 +9062,7 @@ L_141c87c:
 // gamecore_sub_0141C9B8 (0x141c9b8-0x141c9e8)
 void gamecore_sub_0141C9B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); A2_CHK(gamecore_sub_0141C9B8, a2_4, a2_5, a2_6); const a1::RetVF a2_r = typed::gamecore_sub_0141C9B8(rdram, runtime, a2_4, a2_5, a2_6); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6);
     float f0 = ctx->f[0];
@@ -9213,6 +9216,7 @@ void set_camera_parameter_cameraman(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 // get_main_cameraman_camera_obj (0x141d390-0x141d3c0)
 void get_main_cameraman_camera_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(get_main_cameraman_camera_obj); const uint32_t a2_r = typed::get_main_cameraman_camera_obj(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     v1 = 0x1200000u;
