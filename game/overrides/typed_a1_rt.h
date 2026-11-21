@@ -68,29 +68,33 @@ namespace a1m
     [[gnu::noinline, gnu::cold]] void slowWrite32(uint8_t *ram, PS2Runtime *rt, uint32_t a, uint32_t v);
     [[gnu::noinline, gnu::cold]] void slowWrite64(uint8_t *ram, PS2Runtime *rt, uint32_t a, uint64_t v);
 
+    // The inline slow path: the same call the lifted code makes (ps2_guest_mem::*_slow: on the Vita the register-saving
+    // trampoline, so an inlined typed body keeps its values in registers across it; elsewhere the plain slow path with
+    // the given runtime). The context argument is a static one (g_a1SlowCtx).
+    extern R5900Context g_a1SlowCtx;
     template <typename T>
     PS2_FORCE_INLINE T slowRead(uint8_t *ram, PS2Runtime *rt, uint32_t a)
     {
         if constexpr (sizeof(T) == 1)
-            return slowRead8(ram, rt, a);
+            return ps2_guest_mem::read8_slow(ram, &g_a1SlowCtx, rt, a);
         else if constexpr (sizeof(T) == 2)
-            return slowRead16(ram, rt, a);
+            return ps2_guest_mem::read16_slow(ram, &g_a1SlowCtx, rt, a);
         else if constexpr (sizeof(T) == 4)
-            return slowRead32(ram, rt, a);
+            return ps2_guest_mem::read32_slow(ram, &g_a1SlowCtx, rt, a);
         else
-            return slowRead64(ram, rt, a);
+            return ps2_guest_mem::read64_slow(ram, &g_a1SlowCtx, rt, a);
     }
     template <typename T>
     PS2_FORCE_INLINE void slowWrite(uint8_t *ram, PS2Runtime *rt, uint32_t a, T v)
     {
         if constexpr (sizeof(T) == 1)
-            slowWrite8(ram, rt, a, v);
+            ps2_guest_mem::write8_slow(ram, &g_a1SlowCtx, rt, a, v);
         else if constexpr (sizeof(T) == 2)
-            slowWrite16(ram, rt, a, v);
+            ps2_guest_mem::write16_slow(ram, &g_a1SlowCtx, rt, a, v);
         else if constexpr (sizeof(T) == 4)
-            slowWrite32(ram, rt, a, v);
+            ps2_guest_mem::write32_slow(ram, &g_a1SlowCtx, rt, a, v);
         else
-            slowWrite64(ram, rt, a, v);
+            ps2_guest_mem::write64_slow(ram, &g_a1SlowCtx, rt, a, v);
     }
     // lw rt, off(base): N1's base test
     template <typename T>
@@ -110,7 +114,7 @@ namespace a1m
     {
         if (PS2_N1_BASE_OK(b))
         {
-            ps2_guest_mem::trace<T>(ram, b + static_cast<uint32_t>(off), v, "WRITE", noCtx());
+            ps2_guest_mem::trace<T>(ram, b + static_cast<uint32_t>(off), v, "WRITE", &g_a1SlowCtx);
             std::memcpy((ram + b) + off, &v, sizeof(T));
         }
         else
@@ -134,7 +138,7 @@ namespace a1m
     {
         if (PS2_EXPECT(a < PS2_RAM_SIZE, 1))
         {
-            ps2_guest_mem::trace<T>(ram, a, v, "WRITE", noCtx());
+            ps2_guest_mem::trace<T>(ram, a, v, "WRITE", &g_a1SlowCtx);
             std::memcpy(ram + a, &v, sizeof(T));
         }
         else

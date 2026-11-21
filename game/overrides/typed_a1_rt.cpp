@@ -12,11 +12,8 @@ namespace a1m
 {
     // The slow path's context: ps2_guest_mem's functions take one to signal an address error (never taken by this
     // game) and for the Mac's store trace. A static one, so the typed functions need none.
-    R5900Context *noCtx()
-    {
-        static R5900Context c{};
-        return &c;
-    }
+    R5900Context g_a1SlowCtx{};
+    R5900Context *noCtx() { return &g_a1SlowCtx; }
     // The lifted code's slow path on the Vita is the trampoline (PS2X_GUEST_MEM_TRAMP), which takes RAM and the runtime
     // from these globals, not from its caller: the typed code does the same there, so both reach the same memory. Elsewhere
     // (the Mac) the plain slow path with the caller's runtime, as the lifted code's.
