@@ -185,6 +185,15 @@ EE-thread to host-thread move, and every visible difference a check finds.
 Rough sizes; "round" = one worktree round as the D / S / N rounds run (build, checks, A/B, Vita3K boot, docs). The
 dates assume ~2 rounds a day; they are a guide, not a promise.
 
+**Status (2026-11-21, round A1, docs/decomp_a1.md)**: A1 did T1's first stage, T4, T5 and T6 on the A2 set instead of
+the Mac dump / Ghidra (Ghidra is not installed): tools/typed_lift.py converted **979** of the 2 052 leaves (the 1 426
+lifted once, less 284 VU0 / 128-bit, 17 with a frame, 12 others and 134 refused by the caller check of the scratch
+registers); in-run check 32.8 M calls and offline harness 9.99 M random states, 0 differences; even in the A/B; on by
+default. Recount: (d) 979 functions (10.8%), 1.5% of the MIPS bytes, 1.8% of the console game thread. Left of A2: the
+VU0 leaves (vec4), frames (sp), the 626 recompiled-only leaves (not lifted), the runtime stubs' real inputs. A4 starts
+with the 130 proven depth-1 functions whose callees are all typed (they need frames). The REPLACED_DUMP and T3
+(Ghidra) are still open.
+
 **Phase A: the tools (4 rounds)**
 
 | round | what | functions | done when |

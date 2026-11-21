@@ -1223,6 +1223,14 @@
    "summary": "Round C1 cut what the character chain reads from guest memory on each call, for the Vita's memory system, with the same bits. c1keys keeps, per motion resource, a host mirror: the records, formats and channel pointers, compared once a frame (the records in turns of 8), and rows of decoded keys by frame. keys122's float frames and GetMotionIntFrame then read one or two contiguous host rows instead of every channel's record and key words (99% of the rows were already decoded). c1rig trusts S3's skeleton rig for a frame's later poses once the frame's first pose has compared it.",
    "result": "Exact: 0 differences in 372 299 key calls, 660 474 trusted rigs and 384 058 poses riding, and 0 at the lake. Vita3K A/B (222 MHz, off - on): ride7 +0.149 +- 0.143 and -0.012 +- 0.146 ms, lake6 +0.054 +- 0.115 ms; pooled +0.064 +- 0.078 ms: not slower. Sampled cache lines a key call: riding 40-43 -> ~30, lake 70 -> 43.5. Boot with 89 MB taken rode normally, pictures normal; no sp-based NEON accesses. Both off by default: the console A/B (SOTC_AB_FLAG=c1keys,c1rig) decides."
   },
+  {
+   "round": "A1",
+   "date": "2026-11-21",
+   "commit": "",
+   "focus": "Decomp 100%: typed lifter",
+   "summary": "Round A1 built the typed lifter's first stage (tools/typed_lift.py): 979 loop-free, ABI-proven leaves lift_d1 had lifted are now real C++ functions (typed_a1.inc): parameters and return values, MIPS registers as locals, guest memory through a base pointer, the PS2 FPU's rounding kept as named helpers only where it differs from plain C, no R5900 context. The lifted leaves start with a guest adapter (for the table, recompiled callers and natives) and 1 481 of N4b's sites in lifted callers call the typed functions directly. A whole-program caller check proves no caller reads the scratch registers they no longer return.",
+   "result": "Exact: 32.8 M in-run checks against the lifted text on ride7, the attract demo and lake6, 0 differences; 9.99 M offline random-state checks over all 979 functions (tools/a1_harness.cpp), 0 differences. Vita3K A/B (222 MHz, off - on, p2): pooled +0.068 +- 0.115 ms (three runs), +0.087 +- 0.094 (five): even. Boot with 89 MB taken rode, pictures normal; no sp-based NEON accesses. On by default. The count: 979 functions (10.8%) in class (d), 1.5% of the MIPS bytes, 1.8% of the console game thread."
+  },
   {"round": "DC1", "date": "2026-11-21", "title": "The character chain counted by class; the motion accessors and option nodes as real C++ (dc1mot)", "commit": "8942b25"}
 ]
 }

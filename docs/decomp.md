@@ -23477,3 +23477,28 @@ aim IK now call them directly. The VU0 operations keep the recompiled code's cla
 runs): 129 962 / 35 659 / 8 381 calls compared on ride7 / lake6 / attract, 0 differences. The A/B and the boot run
 are still to do. On by default for now.
 
+## Decomp A1: the typed lifter's first stage: 979 leaves as real C++ functions (a1typed) (2026-11-21)
+
+docs/decomp_a1.md. Scripts, runs and logs: `build/agent-scratch/a1/`. Switch `SOTC_A1TYPED` (A/B `a1typed`, `kA1Typed`).
+
+- **Tool** `tools/typed_lift.py` (the plan's T1, first stage): a loop-free, ABI-proven leaf lift_d1 lifted becomes an
+  `inline` C++ function in game/overrides/typed_a1.inc (namespace `typed`): its proven inputs as parameters (GPRs from
+  n4_abi, FPRs from lift_d1's IR), v0 / f0 as the return value when every path writes it, every other register a local,
+  guest memory through `ram` with N1's base test (`rt` only for the slow path), the PS2 FPU's rounding / clamps kept as
+  named helpers (a1f::) where they differ from plain C, plain C where lift_d1's macro is plain C. No R5900 context.
+- **Set**: docs/n4b_native.txt's 2 052 leaves, 1 426 lifted once: **979 converted** (docs/a1_typed.txt); left out 284
+  VU0 / 128-bit, 17 that use sp, 10 with a call in the text, 2 with an unknown context access, 134 where a dropped
+  scratch register is live after some call to them (whole-program backward liveness at the 4 142 call sites).
+- **Reached** through an adapter at the top of each lifted leaf (table, recompiled callers, natives) and through typed
+  calls at 1 481 of N4b's sites (lifted callers).
+- **Exact**: in-run check build (PS2X_A1_CHECK: each typed call against a copy of the lifted text on logged memory)
+  ride7 / attract / lake6: 32.8 M checks, 0 differences; offline harness (tools/a1_harness.cpp, every function, random
+  states) 9.99 M checks, 0 differences (its first run found 6 functions returning 0.0 for a passed-through f0: fixed).
+- **Measured** (p2, Vita3K 222 MHz, off - on): ride7 +0.250 +- 0.299 / +0.073 +- 0.170 (seed 7), -0.069 +- 0.140 (seed
+  13), lake6 +0.024 +- 0.101 / +0.158 +- 0.267 ms; pooled +0.068 +- 0.115 (three) / +0.087 +- 0.094 (five): even. (p1, a
+  plain-call slow path, was -0.12 +- 0.08 slower; p2 uses the lifted code's register-saving slow path.) Boots with 89 MB
+  taken rode, pictures normal; 0 sp-based NEON accesses. **On by default** (`SOTC_A1TYPED=0` off).
+- **Count** (tools/decomp100_count.py, typed = class d): (d) 979 functions (10.8%), 39 KB of MIPS (1.5%), 1.8% of the
+  console game thread; lifted 5 099 -> 4 120.
+- **Next**: frames (sp) and the depth-1 functions (130 proven NOBLOCK loop-free ones have only typed callees), the VU0
+  leaves as vec4, the runtime stubs' real inputs for the 134 refused, struct inference (T2).

@@ -14,7 +14,11 @@ MANAGER and GAMECORE XFF modules linked by tools/build_elf.py) is put in one cla
                            arguments) or calls guest code (callGuest, recompiled(), PS2_CALL_GUEST)
               native-host  host code behind a guest adapter (arguments from ctx, result to v0; no PS2 math macros, no
                            guest calls): what becomes real native C++ once layer 10 (the signature) goes
-  real      no ctx at all: zero by construction while the function table exists (counted as 0 and reported)
+  typed     (d) real C++ (round A1, tools/typed_lift.py): the slot's lifted function is a guest adapter in front of a
+            typed function (game/overrides/typed_a1.inc: parameters and return values, no ctx, no guest calls, no PS2
+            FPU / VU0 macros, no READ / WRITE macros), and typed callers call it directly. Counted when the function is
+            listed in docs/a1_typed.txt, its lifted function holds the slot and its typed body has none of those markers.
+            (The table entry itself, the adapter, goes when every caller calls the typed function: the plan's E1.)
 
 Which slots are held by overrides comes from a PS2X_REPLACED_DUMP run (decomp_status.py's input). Without --replaced,
 the native list docs/decomp_status.json keeps from the last dump is used, plus the natives registered statically since.
@@ -93,6 +97,36 @@ def native_files():
             continue
         out.append(f)
     return out
+
+
+TYPED_BAD = re.compile(r'\bctx\b|\bFPU_[A-Z_]+\(|\bPS2_V[A-Z0-9_]+\(|\bREAD(8|16|32|64|128)\w*\(|\bWRITE(8|16|32|64|128)\w*\(|'
+                       r'callGuest|PS2_CALL_GUEST|PS2_TAIL|PS2_JUMP|PS2_CHECKPOINT|runtime->|\brdram\b')
+
+
+def typed_functions():
+    """Round A1: address -> name of the functions docs/a1_typed.txt lists whose typed body (typed_a1.inc) has no ctx,
+    no guest call / checkpoint, no PS2 FPU / VU0 macro and no guest READ / WRITE macro."""
+    lst = os.path.join(ROOT, 'docs/a1_typed.txt')
+    inc = os.path.join(OVR, 'typed_a1.inc')
+    if not (os.path.exists(lst) and os.path.exists(inc)):
+        return {}, 0
+    bodies = {}
+    for m in re.finditer(r'^// (\w+) \(0x([0-9a-f]+)\): typed by tools/typed_lift.py.*?\n(.*?)(?=^// \w+ \(0x[0-9a-f]+\): typed|\Z)',
+                         open(inc).read(), re.M | re.S):
+        bodies[int(m.group(2), 16)] = (m.group(1), m.group(3))
+    out, bad = {}, 0
+    for line in open(lst):
+        if line.startswith('#') or not line.strip():
+            continue
+        a = int(line.split()[0], 16)
+        if a not in bodies:
+            continue
+        name, body = bodies[a]
+        if TYPED_BAD.search(body):
+            bad += 1
+            continue
+        out[a] = name
+    return out, bad
 
 
 def lifted_addresses():
@@ -240,6 +274,7 @@ def main():
     size = sizes()
     stubs = stub_functions()
     lifted = lifted_addresses()
+    typed, typed_bad = typed_functions()
     nreg = native_registrations()
     if args.replaced:
         replaced = {int(l.split()[0], 16) for l in open(args.replaced) if l.strip()}
@@ -263,7 +298,7 @@ def main():
             cls[a] = k
             why[a] = dict(marks, file=f, fn=fn)
         elif a in replaced and a in lifted:
-            cls[a] = 'lifted'
+            cls[a] = 'typed' if a in typed else 'lifted'
         elif a in replaced:
             # held by a table-driven wrapper (join gate, census / heap hook) in front of the generated body
             cls[a] = 'recomp'
@@ -272,9 +307,10 @@ def main():
             cls[a] = 'recomp'
     unresolved = [a for a in why if not why[a]['found']]
 
-    order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime']
+    order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime', 'typed']
     label = {'recomp': '(a) recompiled only', 'lifted': '(b) lifted (lift_d1)', 'native-ps2': '(c1) native, PS2-shaped body',
-             'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)'}
+             'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)',
+             'typed': '(d) real C++, no ctx (typed, round A1)'}
     game = lambda a: a >= 0x1000000
     tot_n = len(funcs)
     tot_b = sum(size.get(a, 4) for a in funcs)
@@ -283,13 +319,14 @@ def main():
     print('native registrars whose body could not be read statically (counted c1): %d %s' % (
         len(unresolved), ' '.join('%s:%s' % (why[a]['file'], why[a]['fn']) for a in unresolved[:12])))
     print('slots held by a wrapper in front of the generated body (counted recomp, or lifted when lift tables hold it): %d' % len(wrapped))
+    print('typed functions (docs/a1_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
+        len(typed), typed_bad, sum(1 for a in funcs if cls[a] == 'typed')))
     print()
     print('%-46s %6s %7s %10s %7s' % ('class', 'funcs', '%', 'bytes', '%'))
     for k in order:
         n = sum(1 for a in funcs if cls[a] == k)
         b = sum(size.get(a, 4) for a in funcs if cls[a] == k)
         print('%-46s %6d %6.2f%% %10d %6.2f%%' % (label[k], n, 100.0 * n / tot_n, b, 100.0 * b / tot_b))
-    print('%-46s %6d %6.2f%% %10d %6.2f%%' % ('(d) real native C++ (no ctx)', 0, 0.0, 0, 0.0))
 
     area_of = areas()
     ar = {a: area_of(a, funcs[a], why.get(a, {}).get('file', '')) for a in funcs}
@@ -350,12 +387,12 @@ def main():
         r['b_' + cls[a]] += size.get(a, 4)
     for name, r in sorted(rows.items(), key=lambda t: -t[1]['b']):
         t = 100.0 * tarea[name] / tot_running if tot_running else 0
-        print('  %-26s %5d %8d  recomp %4d lifted %4d c1 %4d c2 %4d rt %4d  todo-bytes %8d  time %5.2f%%' % (
-            name, r['n'], r['b'], r['recomp'], r['lifted'], r['native-ps2'], r['native-host'], r['runtime'],
+        print('  %-26s %5d %8d  recomp %4d lifted %4d c1 %4d c2 %4d rt %4d typed %4d  todo-bytes %8d  time %5.2f%%' % (
+            name, r['n'], r['b'], r['recomp'], r['lifted'], r['native-ps2'], r['native-host'], r['runtime'], r['typed'],
             r['b_recomp'] + r['b_lifted'], t))
 
     if tot_running:
-        for k in ('recomp', 'lifted', 'native-ps2', 'native-host'):
+        for k in ('recomp', 'lifted', 'native-ps2', 'native-host', 'typed'):
             print()
             print('top %s by console time:' % label[k])
             for a, n in [(a, n) for a, n in tfun.most_common() if cls[a] == k][:args.top]:
