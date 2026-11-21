@@ -162,3 +162,12 @@ sotc_decomp.h's switchOn.
   converted, the option nodes make no guest call at all.
 - The 272 lifted functions of the chain: mostly getters and the control code. The lifter's output gives each one's
   inputs and outputs, a start for typed signatures.
+
+## Results (full runs, measured after the hand-back, p1 = 8942b25's code)
+
+- Checks (SOTC_DC1MOT_CHECK=1, every call compared bit for bit with round 41's native): ride7 600 s 1 790 805 checks,
+  lake6 400 s 268 528, attract 400 s 60 392: 0 differences.
+- A/B (Vita3K 222 MHz, off - on, +- 2 SE): ride7 seed 7 +0.150 +- 0.151, seed 13 +0.027 +- 0.156, lake6 -0.040 +- 0.118;
+  pooled +0.046 +- 0.082 ms (z 1.1): even. dc1mot stays on by default.
+- Boot ride7 600 s with 89 MB taken: booted first try, rode; pictures normal (Wander on Agro, plain, cliffs, sky, shadow).
+  No faults or missing targets. spalign p1.elf: 0 sp-based.
