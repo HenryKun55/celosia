@@ -1799,7 +1799,8 @@ def native_addresses(funcs):
             if '/pgo' in dp:
                 continue
             for f in fn:
-                if f in skip or f.startswith('decomp_liftd') or not f.endswith(('.cpp', '.h', '.inc', '.toml', '.txt', '.hpp', '.c')):
+                # A1's generated typed functions / check name their addresses in comments and tables: not slots
+                if f in skip or f.startswith(('decomp_liftd', 'typed_a1', 'a1_typed')) or not f.endswith(('.cpp', '.h', '.inc', '.toml', '.txt', '.hpp', '.c')):
                     continue
                 try:
                     s = open(os.path.join(dp, f), errors='replace').read()
@@ -2156,6 +2157,7 @@ def main():
                     "(otherwise tools/n3_direct.py runs over every lifted batch next to the output after writing)")
     ap.add_argument('--no-nochk', action='store_true', help="N6: leave the calls into docs/n5_noloop.txt's functions in the plain "
                     "form (otherwise tools/n6_nochk.py runs over every lifted batch after n3_direct.py: PS2_CALL_GUEST_NOCHK)")
+    ap.add_argument('--no-typed', action='store_true', help="A1: leave out tools/typed_lift.py's typed functions (adapters, typed calls)")
     ap.add_argument('--no-n4native', action='store_true', help="N4b: leave the NOCHK calls into docs/n4b_native.txt's leaves "
                     "as they are (otherwise tools/n4_native.py runs after n6_nochk.py: native entries with register inputs)")
     ap.add_argument('--no-basemem', action='store_true', help="N1: keep guest accesses as READ32(ADD32(base, off)) (the old "
@@ -2297,6 +2299,8 @@ def main():
         outdir = os.path.dirname(os.path.abspath(args.out))
         batches = [f for f in glob.glob(os.path.join(outdir, 'decomp_liftd*_*.cpp')) if re.search(r'decomp_liftd\d+_\d+\.cpp$', f)]
         if batches:
+            # A1: the typed functions' adapters and sites out first (they wrap N4b's sites), then N4b's
+            subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'typed_lift.py'), '--undo'] + sorted(batches), check=True)
             # N4b: the native-entry sites and blocks out first (they hold the NOCHK calls the next two passes rewrite)
             subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n4_native.py'), '--undo'] + sorted(batches), check=True)
             subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n3_direct.py'), '--exclude', os.path.join(REPO, 'tools/n3_direct_exclude.txt')] + sorted(batches), check=True)
@@ -2304,6 +2308,9 @@ def main():
                 subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n6_nochk.py')] + sorted(batches), check=True)
                 if not args.no_n4native:  # N4b: NOCHK calls into loop-free ABI-proven leaves call their native entries
                     subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'n4_native.py')] + sorted(batches), check=True)
+                    if not args.no_typed:  # A1: the typed functions (adapters in the leaves, typed calls at N4b's sites)
+                        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'typed_lift.py'), '--check-tu']
+                                       + sorted(batches), check=True)
     if args.inline_log:
         open(args.inline_log, 'w').write(''.join(x + '\n' for x in ilog))
     if args.inline:
