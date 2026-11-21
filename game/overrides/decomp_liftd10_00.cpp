@@ -6749,7 +6749,7 @@ void CheckCylinderVolume(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_particle_effect_id_from_sheet (0x113fa20-0x113fa28)
 void get_particle_effect_id_from_sheet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_particle_effect_id_from_sheet, a2_4); const uint64_t a2_r = typed::get_particle_effect_id_from_sheet(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_particle_effect_id_from_sheet, a2_4); const uint64_t a2_r = typed::get_particle_effect_id_from_sheet(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     {
@@ -6764,7 +6764,7 @@ void get_particle_effect_id_from_sheet(uint8_t *rdram, R5900Context *ctx, PS2Run
 // get_sub_particle_effect_lod_from_sheet (0x113fa90-0x113fa98)
 void get_sub_particle_effect_lod_from_sheet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_sub_particle_effect_lod_from_sheet, a2_4); const uint32_t a2_r = typed::get_sub_particle_effect_lod_from_sheet(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_sub_particle_effect_lod_from_sheet, a2_4); const uint32_t a2_r = typed::get_sub_particle_effect_lod_from_sheet(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -8943,7 +8943,7 @@ L_1369f48:
 // bgmStartGameOver (0x136aae8-0x136aaf0)
 void bgmStartGameOver(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(bgmStartGameOver); typed::bgmStartGameOver(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(bgmStartGameOver); typed::bgmStartGameOver(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

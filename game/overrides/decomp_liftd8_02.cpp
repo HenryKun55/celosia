@@ -12388,7 +12388,7 @@ L_1456364:
 // SCRConditionTrue (0x14563b8-0x14563c0)
 void SCRConditionTrue(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(SCRConditionTrue); const uint32_t a2_r = typed::SCRConditionTrue(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(SCRConditionTrue); const uint32_t a2_r = typed::SCRConditionTrue(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -14302,7 +14302,7 @@ L_145b1b0:
 void gamecore_sub_0145B1C0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145B1C0u, 0)) { gamecore_sub_0145B1C0_0x145b1c0(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_8 = Ps2GprU64(ctx, 8); A2_CHK(gamecore_sub_0145B1C0, a2_5, a2_8); const uint32_t a2_r = typed::gamecore_sub_0145B1C0(rdram, runtime, a2_5, a2_8); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x136AA50u, lift_d1::bgmStop), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_8 = Ps2GprU64(ctx, 8); A2_CHK(gamecore_sub_0145B1C0, a2_5, a2_8); const uint32_t a2_r = typed::gamecore_sub_0145B1C0(rdram, runtime, a2_5, a2_8); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), t0 = Ps2GprU64(ctx, 8), s0 = Ps2GprU64(ctx, 16);
     float f12 = ctx->f[12];
@@ -14474,7 +14474,7 @@ L_145bb64:
 // getSizeTailIKWork (0x14621b0-0x14621b8)
 void getSizeTailIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSizeTailIKWork); const uint32_t a2_r = typed::getSizeTailIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(getSizeTailIKWork); const uint32_t a2_r = typed::getSizeTailIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

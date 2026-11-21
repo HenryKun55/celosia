@@ -19664,7 +19664,7 @@ void startHintWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getSizeAttackIKWork (0x145dfc8-0x145dfd0)
 void getSizeAttackIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getSizeAttackIKWork); const uint32_t a2_r = typed::getSizeAttackIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(getSizeAttackIKWork); const uint32_t a2_r = typed::getSizeAttackIKWork(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

@@ -13030,7 +13030,7 @@ void SCRPlayerCallHorseEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // SCRPlayerReset (0x13b6198-0x13b61a0)
 void SCRPlayerReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(SCRPlayerReset); typed::SCRPlayerReset(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(SCRPlayerReset); typed::SCRPlayerReset(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -13043,7 +13043,7 @@ void SCRPlayerReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // gamecore_sub_013B6530 (0x13b6530-0x13b6538)
 void gamecore_sub_013B6530(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013B6530); typed::gamecore_sub_013B6530(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(gamecore_sub_013B6530); typed::gamecore_sub_013B6530(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -18580,7 +18580,7 @@ void SCRSimpleExecCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // scrInit (0x13cfb60-0x13cfb68)
 void scrInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(scrInit); typed::scrInit(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(scrInit); typed::scrInit(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

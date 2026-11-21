@@ -8736,7 +8736,7 @@ L_11624d0:
 // add_camera_lws_animation_segment (0x1162510-0x1162518)
 void add_camera_lws_animation_segment(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(add_camera_lws_animation_segment); typed::add_camera_lws_animation_segment(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(add_camera_lws_animation_segment); typed::add_camera_lws_animation_segment(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9057,7 +9057,7 @@ void dynamic_cast_to_camera_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // get_camera_position (0x1162ef0-0x1162ef8)
 void get_camera_position(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_position, a2_4); const uint32_t a2_r = typed::get_camera_position(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_position, a2_4); const uint32_t a2_r = typed::get_camera_position(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9071,7 +9071,7 @@ void get_camera_position(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_camera_direction (0x1162ef8-0x1162f00)
 void get_camera_direction(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_direction, a2_4); const uint32_t a2_r = typed::get_camera_direction(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_direction, a2_4); const uint32_t a2_r = typed::get_camera_direction(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9085,7 +9085,7 @@ void get_camera_direction(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // get_camera_up_direction (0x1162f00-0x1162f08)
 void get_camera_up_direction(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_up_direction, a2_4); const uint32_t a2_r = typed::get_camera_up_direction(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_up_direction, a2_4); const uint32_t a2_r = typed::get_camera_up_direction(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9099,7 +9099,7 @@ void get_camera_up_direction(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // get_camera_obj_layout_class (0x1162f08-0x1162f10)
 void get_camera_obj_layout_class(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_obj_layout_class, a2_4); const uint32_t a2_r = typed::get_camera_obj_layout_class(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_camera_obj_layout_class, a2_4); const uint32_t a2_r = typed::get_camera_obj_layout_class(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9812,7 +9812,7 @@ void manager_sub_01164AC0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // get_clip_matrix (0x1164c70-0x1164c78)
 void get_clip_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix, a2_4); const uint32_t a2_r = typed::get_clip_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix, a2_4); const uint32_t a2_r = typed::get_clip_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9826,7 +9826,7 @@ void get_clip_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_clip_matrix128 (0x1164c78-0x1164c80)
 void get_clip_matrix128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix128, a2_4); const uint32_t a2_r = typed::get_clip_matrix128(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix128, a2_4); const uint32_t a2_r = typed::get_clip_matrix128(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9840,7 +9840,7 @@ void get_clip_matrix128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_clip_matrix256 (0x1164c80-0x1164c88)
 void get_clip_matrix256(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix256, a2_4); const uint32_t a2_r = typed::get_clip_matrix256(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix256, a2_4); const uint32_t a2_r = typed::get_clip_matrix256(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9854,7 +9854,7 @@ void get_clip_matrix256(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_clip_matrix_fovignore (0x1164c88-0x1164c90)
 void get_clip_matrix_fovignore(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix_fovignore, a2_4); const uint32_t a2_r = typed::get_clip_matrix_fovignore(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_clip_matrix_fovignore, a2_4); const uint32_t a2_r = typed::get_clip_matrix_fovignore(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9868,7 +9868,7 @@ void get_clip_matrix_fovignore(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // get_screen_matrix (0x1164c90-0x1164c98)
 void get_screen_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_screen_matrix, a2_4); const uint32_t a2_r = typed::get_screen_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_screen_matrix, a2_4); const uint32_t a2_r = typed::get_screen_matrix(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9882,7 +9882,7 @@ void get_screen_matrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // get_screen_matrix128 (0x1164c98-0x1164ca0)
 void get_screen_matrix128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_screen_matrix128, a2_4); const uint32_t a2_r = typed::get_screen_matrix128(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_screen_matrix128, a2_4); const uint32_t a2_r = typed::get_screen_matrix128(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -9896,7 +9896,7 @@ void get_screen_matrix128(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // get_screen_matrix256 (0x1164ca0-0x1164ca8)
 void get_screen_matrix256(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_screen_matrix256, a2_4); const uint32_t a2_r = typed::get_screen_matrix256(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_screen_matrix256, a2_4); const uint32_t a2_r = typed::get_screen_matrix256(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -11650,7 +11650,7 @@ void delPathData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getPointDataHeader (0x1169d18-0x1169d30)
 void getPointDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getPointDataHeader, a2_4); const uint64_t a2_r = typed::getPointDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getPointDataHeader, a2_4); const uint64_t a2_r = typed::getPointDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11669,7 +11669,7 @@ void getPointDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getLineDataHeader (0x1169d30-0x1169d48)
 void getLineDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getLineDataHeader, a2_4); const uint64_t a2_r = typed::getLineDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getLineDataHeader, a2_4); const uint64_t a2_r = typed::getLineDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11688,7 +11688,7 @@ void getLineDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getRootDataHeader (0x1169e20-0x1169e38)
 void getRootDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getRootDataHeader, a2_4); const uint64_t a2_r = typed::getRootDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getRootDataHeader, a2_4); const uint64_t a2_r = typed::getRootDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11707,7 +11707,7 @@ void getRootDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getGoalDataHeader (0x1169e38-0x1169e50)
 void getGoalDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getGoalDataHeader, a2_4); const uint64_t a2_r = typed::getGoalDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getGoalDataHeader, a2_4); const uint64_t a2_r = typed::getGoalDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11726,7 +11726,7 @@ void getGoalDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getSubDataHeader (0x1169e50-0x1169e68)
 void getSubDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getSubDataHeader, a2_4); const uint64_t a2_r = typed::getSubDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getSubDataHeader, a2_4); const uint64_t a2_r = typed::getSubDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11745,7 +11745,7 @@ void getSubDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getInterestDataHeader (0x1169fd8-0x1169ff0)
 void getInterestDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getInterestDataHeader, a2_4); const uint64_t a2_r = typed::getInterestDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getInterestDataHeader, a2_4); const uint64_t a2_r = typed::getInterestDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11764,7 +11764,7 @@ void getInterestDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // getDeadDataHeader (0x116a028-0x116a040)
 void getDeadDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getDeadDataHeader, a2_4); const uint64_t a2_r = typed::getDeadDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getDeadDataHeader, a2_4); const uint64_t a2_r = typed::getDeadDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -11783,7 +11783,7 @@ void getDeadDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getLayoutDataHeader (0x116a080-0x116a098)
 void getLayoutDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getLayoutDataHeader, a2_4); const uint64_t a2_r = typed::getLayoutDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(getLayoutDataHeader, a2_4); const uint64_t a2_r = typed::getLayoutDataHeader(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -14854,7 +14854,7 @@ void initgcmaingp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // setFade (0x13461d0-0x13461f0)
 void setFade(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; A2_CHK(setFade, a2_f12, a2_f13); const a1::RetVF a2_r = typed::setFade(rdram, runtime, a2_f12, a2_f13); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134DB68u, lift_d1::setFadeParam), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; A2_CHK(setFade, a2_f12, a2_f13); const a1::RetVF a2_r = typed::setFade(rdram, runtime, a2_f12, a2_f13); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x1460000u;
@@ -14873,7 +14873,7 @@ void setFade(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getFade (0x13461f0-0x1346210)
 void getFade(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getFade); const a1::RetVF a2_r = typed::getFade(rdram, runtime); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134DBE8u, lift_d1::checkFadeParam), 1)) { A2_CHK(getFade); const a1::RetVF a2_r = typed::getFade(rdram, runtime); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x1460000u;

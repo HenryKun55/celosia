@@ -5567,7 +5567,7 @@ L_115ed64:
 // sheetMgrChkStageIndexResolve (0x115ee68-0x115eea0)
 void sheetMgrChkStageIndexResolve(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(sheetMgrChkStageIndexResolve, a2_4); const uint64_t a2_r = typed::sheetMgrChkStageIndexResolve(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(sheetMgrChkStageIndexResolve, a2_4); const uint64_t a2_r = typed::sheetMgrChkStageIndexResolve(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     (a3 = (uint32_t)((int32_t)((int32_t)ADD32((uint32_t)a0, 7))));
@@ -6175,7 +6175,7 @@ L_1162710:
 void get_manage_object_id_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1163750u, 0)) { get_manage_object_id_camera_region_0x1163750(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_manage_object_id_camera_region, a2_4); const uint32_t a2_r = typed::get_manage_object_id_camera_region(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_manage_object_id_camera_region, a2_4); const uint32_t a2_r = typed::get_manage_object_id_camera_region(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     bool df_v0 = false;
@@ -6298,7 +6298,7 @@ void get_hit_region_ofst_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Run
 // get_region_type_camera_region (0x1163888-0x11638b8)
 void get_region_type_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_region_type_camera_region, a2_4); const uint32_t a2_r = typed::get_region_type_camera_region(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(get_region_type_camera_region, a2_4); const uint32_t a2_r = typed::get_region_type_camera_region(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     bool df_v0 = false;

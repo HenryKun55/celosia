@@ -8206,7 +8206,7 @@ void opflowOp2End(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // gamecore_sub_01357758 (0x1357758-0x1357780)
 void gamecore_sub_01357758(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_01357758); const uint32_t a2_r = typed::gamecore_sub_01357758(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x136AA50u, lift_d1::bgmStop), 1)) { A2_CHK(gamecore_sub_01357758); const uint32_t a2_r = typed::gamecore_sub_01357758(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     float f12 = ctx->f[12];
@@ -15353,7 +15353,7 @@ L_1378800:
 // SCRExecBossPostProcess (0x13790a0-0x13790a8)
 void SCRExecBossPostProcess(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(SCRExecBossPostProcess); typed::SCRExecBossPostProcess(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(SCRExecBossPostProcess); typed::SCRExecBossPostProcess(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;

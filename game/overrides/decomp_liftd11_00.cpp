@@ -6415,7 +6415,7 @@ void vramFree(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void SpriteMenuIsFadeCheckSelectLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x110ECD0u, 0)) { SpriteMenuIsFadeCheckSelectLayer_0x110ecd0(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuIsFadeCheckSelectLayer, a2_4); const a1::RetVF a2_r = typed::SpriteMenuIsFadeCheckSelectLayer(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuIsFadeCheckSelectLayer, a2_4); const a1::RetVF a2_r = typed::SpriteMenuIsFadeCheckSelectLayer(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
@@ -7071,7 +7071,7 @@ void SpriteSubMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runt
 // SpriteMenuSetLayerPriority (0x1111e98-0x1111ee0)
 void SpriteMenuSetLayerPriority(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A2_CHK(SpriteMenuSetLayerPriority, a2_4, a2_5, a2_6); const uint32_t a2_r = typed::SpriteMenuSetLayerPriority(rdram, runtime, a2_4, a2_5, a2_6); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A2_CHK(SpriteMenuSetLayerPriority, a2_4, a2_5, a2_6); const uint32_t a2_r = typed::SpriteMenuSetLayerPriority(rdram, runtime, a2_4, a2_5, a2_6); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     v0 = READ8_B(a0, 8);
     a0 = a0 + 0x90u;
@@ -7101,7 +7101,7 @@ void SpriteMenuSetLayerPriority(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // SpriteMenuGetSelectLayer (0x1112ba0-0x1112bb8)
 void SpriteMenuGetSelectLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuGetSelectLayer, a2_4); const uint32_t a2_r = typed::SpriteMenuGetSelectLayer(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuGetSelectLayer, a2_4); const uint32_t a2_r = typed::SpriteMenuGetSelectLayer(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     v0 = READ8_B(a0, 8);
     a0 = a0 + 0x90u;
@@ -7119,7 +7119,7 @@ void SpriteMenuGetSelectLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // SpriteMenuGetPadEvent (0x1112bb8-0x1112bd0)
 void SpriteMenuGetPadEvent(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuGetPadEvent, a2_4); const uint32_t a2_r = typed::SpriteMenuGetPadEvent(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuGetPadEvent, a2_4); const uint32_t a2_r = typed::SpriteMenuGetPadEvent(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     v0 = READ8_B(a0, 8);
     a0 = a0 + 0x90u;
@@ -7176,7 +7176,7 @@ void SpriteMenuSetSelectMenuId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 void SpriteMenuGetSelectSubMenuId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1112F50u, 0)) { SpriteMenuGetSelectSubMenuId_0x1112f50(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuGetSelectSubMenuId, a2_4); const uint32_t a2_r = typed::SpriteMenuGetSelectSubMenuId(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(SpriteMenuGetSelectSubMenuId, a2_4); const uint32_t a2_r = typed::SpriteMenuGetSelectSubMenuId(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     v0 = READ8_B(a0, 8);
@@ -11170,7 +11170,7 @@ L_13ae4c0:
 // gamecore_sub_013AE538 (0x13ae538-0x13ae550)
 void gamecore_sub_013AE538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE538); const uint32_t a2_r = typed::gamecore_sub_013AE538(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE538); const uint32_t a2_r = typed::gamecore_sub_013AE538(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 1u;
@@ -11187,7 +11187,7 @@ void gamecore_sub_013AE538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE550 (0x13ae550-0x13ae568)
 void gamecore_sub_013AE550(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE550); const uint32_t a2_r = typed::gamecore_sub_013AE550(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE550); const uint32_t a2_r = typed::gamecore_sub_013AE550(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 4u;
@@ -11204,7 +11204,7 @@ void gamecore_sub_013AE550(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE568 (0x13ae568-0x13ae580)
 void gamecore_sub_013AE568(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE568); const uint32_t a2_r = typed::gamecore_sub_013AE568(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE568); const uint32_t a2_r = typed::gamecore_sub_013AE568(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 5u;
@@ -11221,7 +11221,7 @@ void gamecore_sub_013AE568(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE580 (0x13ae580-0x13ae598)
 void gamecore_sub_013AE580(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE580); const uint32_t a2_r = typed::gamecore_sub_013AE580(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE580); const uint32_t a2_r = typed::gamecore_sub_013AE580(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 2u;
@@ -11238,7 +11238,7 @@ void gamecore_sub_013AE580(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE598 (0x13ae598-0x13ae5b0)
 void gamecore_sub_013AE598(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE598); const uint32_t a2_r = typed::gamecore_sub_013AE598(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE598); const uint32_t a2_r = typed::gamecore_sub_013AE598(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 6u;
@@ -11255,7 +11255,7 @@ void gamecore_sub_013AE598(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE5B0 (0x13ae5b0-0x13ae5c8)
 void gamecore_sub_013AE5B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE5B0); const uint32_t a2_r = typed::gamecore_sub_013AE5B0(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE5B0); const uint32_t a2_r = typed::gamecore_sub_013AE5B0(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x11u;
@@ -11272,7 +11272,7 @@ void gamecore_sub_013AE5B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE5C8 (0x13ae5c8-0x13ae5e0)
 void gamecore_sub_013AE5C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE5C8); const uint32_t a2_r = typed::gamecore_sub_013AE5C8(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE5C8); const uint32_t a2_r = typed::gamecore_sub_013AE5C8(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x16u;
@@ -11289,7 +11289,7 @@ void gamecore_sub_013AE5C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE5E0 (0x13ae5e0-0x13ae5f8)
 void gamecore_sub_013AE5E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE5E0); const uint32_t a2_r = typed::gamecore_sub_013AE5E0(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE5E0); const uint32_t a2_r = typed::gamecore_sub_013AE5E0(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x15u;
@@ -11306,7 +11306,7 @@ void gamecore_sub_013AE5E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE5F8 (0x13ae5f8-0x13ae610)
 void gamecore_sub_013AE5F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE5F8); const uint32_t a2_r = typed::gamecore_sub_013AE5F8(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE5F8); const uint32_t a2_r = typed::gamecore_sub_013AE5F8(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x13u;
@@ -11323,7 +11323,7 @@ void gamecore_sub_013AE5F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE610 (0x13ae610-0x13ae628)
 void gamecore_sub_013AE610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE610); const uint32_t a2_r = typed::gamecore_sub_013AE610(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE610); const uint32_t a2_r = typed::gamecore_sub_013AE610(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x12u;
@@ -11340,7 +11340,7 @@ void gamecore_sub_013AE610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE628 (0x13ae628-0x13ae640)
 void gamecore_sub_013AE628(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE628); const uint32_t a2_r = typed::gamecore_sub_013AE628(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE628); const uint32_t a2_r = typed::gamecore_sub_013AE628(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 0x14u;
@@ -11742,7 +11742,7 @@ void gamecore_sub_013AE848(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_013AE880 (0x13ae880-0x13ae898)
 void gamecore_sub_013AE880(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(gamecore_sub_013AE880); const uint32_t a2_r = typed::gamecore_sub_013AE880(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x134EF80u, lift_d1::_optionWorkChk), 1)) { A2_CHK(gamecore_sub_013AE880); const uint32_t a2_r = typed::gamecore_sub_013AE880(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 3u;
@@ -18340,7 +18340,7 @@ void begin_pause_rise_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 // request_end_pause_rise_game_camera (0x1424fe8-0x1425008)
 void request_end_pause_rise_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A2_CHK(request_end_pause_rise_game_camera, a2_4, a2_5); const uint32_t a2_r = typed::request_end_pause_rise_game_camera(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x1412A60u, lift_d1::request_end_camera_pause_rise), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A2_CHK(request_end_pause_rise_game_camera, a2_4, a2_5); const uint32_t a2_r = typed::request_end_pause_rise_game_camera(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6);
     sp = sp - 0x10u;
@@ -18360,7 +18360,7 @@ void request_end_pause_rise_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Ru
 // is_end_pause_rise_game_camera (0x1425008-0x1425020)
 void is_end_pause_rise_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(is_end_pause_rise_game_camera, a2_4); const uint32_t a2_r = typed::is_end_pause_rise_game_camera(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x1412A70u, lift_d1::is_end_camera_pause_rise), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(is_end_pause_rise_game_camera, a2_4); const uint32_t a2_r = typed::is_end_pause_rise_game_camera(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = a0 + 0x3750u;

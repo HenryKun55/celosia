@@ -4173,6 +4173,20 @@ namespace sotc_native
         ++g_a1Frames[g_a1Typed ? 1 : 0];
         // Round A2 (a2typed): the typed functions with frames and calls behind the lifted functions' adapters (typed_a2.h).
         g_a2Typed = sotc_decomp::switchOn(sotc_decomp::kA2Typed);
+        {
+            // N3's direct calls (A2_GO needs them): the first frame they are found off, the targets held by another function
+            static bool directWasOn = false, directReported = false;
+            if (g_ps2DirectCalls)
+                directWasOn = true;
+            else if (!directReported)
+            {
+                directReported = true;
+                std::fprintf(stderr, "[a2] frame %llu: N3's direct calls off (on before: %d)\n", (unsigned long long)g_frame, directWasOn ? 1 : 0);
+                const uint32_t bad = ps2DirectRecheck(true);
+                std::fprintf(stderr, "[a2] frame %llu: recheck: %u direct targets held by another function; direct calls %d\n", (unsigned long long)g_frame,
+                             static_cast<unsigned>(bad), g_ps2DirectCalls ? 1 : 0);
+            }
+        }
         ++g_a2Frames[g_a2Typed ? 1 : 0];
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {
@@ -4181,10 +4195,15 @@ namespace sotc_native
 #if PS2X_A1_CHECK
             a1ckReport((unsigned long long)g_frame);
 #endif
-            std::fprintf(stderr, "[a2] frame %llu: typed %d; frames off %llu on %llu; check build %d\n", (unsigned long long)g_frame, g_a2Typed ? 1 : 0,
-                         (unsigned long long)g_a2Frames[0], (unsigned long long)g_a2Frames[1], PS2X_A2_CHECK);
+            std::fprintf(stderr, "[a2] frame %llu: typed %d; frames off %llu on %llu; check build %d; nochk %d direct %d floor %p\n", (unsigned long long)g_frame, g_a2Typed ? 1 : 0,
+                         (unsigned long long)g_a2Frames[0], (unsigned long long)g_a2Frames[1], PS2X_A2_CHECK,
+                         (g_runtimeForLog && g_runtimeForLog->noCheckOn()) ? 1 : 0, g_ps2DirectCalls ? 1 : 0,
+                         g_runtimeForLog ? reinterpret_cast<void *>(g_runtimeForLog->m_noCheckFloor) : nullptr);
 #if PS2X_A2_CHECK
             a2ckReport((unsigned long long)g_frame);
+            std::fprintf(stderr, "[a2] frame %llu: adapters entered %llu: typed off %llu, below the NOCHK floor %llu, a callee slot held by another function %llu, leaves go %llu\n",
+                         (unsigned long long)g_frame, (unsigned long long)g_a2Go.entered, (unsigned long long)g_a2Go.off,
+                         (unsigned long long)g_a2Go.floor, (unsigned long long)g_a2Go.slot, (unsigned long long)g_a2Go.go);
 #endif
         }
         if (g_n4Log && g_frame % g_n4Log == 0u)

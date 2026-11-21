@@ -3147,7 +3147,7 @@ L_1081148:
 void GAMEUTIL_is_yaw_pitch_get_direction(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10817C8u, 0)) { GAMEUTIL_is_yaw_pitch_get_direction_0x10817c8(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(GAMEUTIL_is_yaw_pitch_get_direction, a2_4); const a1::RetVF a2_r = typed::GAMEUTIL_is_yaw_pitch_get_direction(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(GAMEUTIL_is_yaw_pitch_get_direction, a2_4); const a1::RetVF a2_r = typed::GAMEUTIL_is_yaw_pitch_get_direction(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f0 = ctx->f[0], f1 = ctx->f[1];
@@ -3666,7 +3666,7 @@ L_1088ad4:
 // fsEffectDefault (0x1088e58-0x1088eb8)
 void fsEffectDefault(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(fsEffectDefault); const uint32_t a2_r = typed::fsEffectDefault(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(fsEffectDefault); const uint32_t a2_r = typed::fsEffectDefault(rdram, runtime); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     bool df_a1 = false;
     { const uint32_t _dynInsn = READ32(0x1088E58u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
@@ -3714,7 +3714,7 @@ void fsEffectDefault(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getFogFactor0 (0x1089b70-0x1089bb0)
 void getFogFactor0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(getFogFactor0); const a1::RetVF a2_r = typed::getFogFactor0(rdram, runtime); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(getFogFactor0); const a1::RetVF a2_r = typed::getFogFactor0(rdram, runtime); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4];
     uint32_t fcr31 = ctx->fcr31;
@@ -6000,7 +6000,7 @@ L_10b7684:
 // request_end_motion_ik_interest (0x10ba120-0x10ba138)
 void request_end_motion_ik_interest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(request_end_motion_ik_interest, a2_4); const uint64_t a2_r = typed::request_end_motion_ik_interest(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(request_end_motion_ik_interest, a2_4); const uint64_t a2_r = typed::request_end_motion_ik_interest(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B(a0, 4))));
@@ -6953,7 +6953,7 @@ L_10f8fdc:
 // GetAmbientLightClass (0x10f9508-0x10f9528)
 void GetAmbientLightClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetAmbientLightClass, a2_4); const uint64_t a2_r = typed::GetAmbientLightClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetAmbientLightClass, a2_4); const uint64_t a2_r = typed::GetAmbientLightClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -7411,7 +7411,7 @@ void GetAmbientLightObjGroup(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // GetScriptAnimationClass (0x110a838-0x110a858)
 void GetScriptAnimationClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScriptAnimationClass, a2_4); const uint64_t a2_r = typed::GetScriptAnimationClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScriptAnimationClass, a2_4); const uint64_t a2_r = typed::GetScriptAnimationClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -7472,7 +7472,7 @@ L_110b850:
 // GetScrLwsOriClass (0x110d868-0x110d888)
 void GetScrLwsOriClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScrLwsOriClass, a2_4); const uint64_t a2_r = typed::GetScrLwsOriClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScrLwsOriClass, a2_4); const uint64_t a2_r = typed::GetScrLwsOriClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -7687,7 +7687,7 @@ L_110ead0:
 // GetScriptSpriteMenuClass (0x11119b8-0x11119d8)
 void GetScriptSpriteMenuClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScriptSpriteMenuClass, a2_4); const uint64_t a2_r = typed::GetScriptSpriteMenuClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScriptSpriteMenuClass, a2_4); const uint64_t a2_r = typed::GetScriptSpriteMenuClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -7786,7 +7786,7 @@ L_1111ac0:
 void SpriteMenuIsFadeCheckLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x11138C8u, 0)) { SpriteMenuIsFadeCheckLayer_0x11138c8(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(SpriteMenuIsFadeCheckLayer, a2_4, a2_5); const a1::RetVF a2_r = typed::SpriteMenuIsFadeCheckLayer(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(SpriteMenuIsFadeCheckLayer, a2_4, a2_5); const a1::RetVF a2_r = typed::SpriteMenuIsFadeCheckLayer(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
@@ -7853,7 +7853,7 @@ L_1113930:
 // GetScriptSpriteClass (0x1114238-0x1114258)
 void GetScriptSpriteClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScriptSpriteClass, a2_4); const uint64_t a2_r = typed::GetScriptSpriteClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetScriptSpriteClass, a2_4); const uint64_t a2_r = typed::GetScriptSpriteClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -7873,7 +7873,7 @@ void GetScriptSpriteClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // GetSubLinkClass (0x1114490-0x11144b0)
 void GetSubLinkClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetSubLinkClass, a2_4); const uint64_t a2_r = typed::GetSubLinkClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A2_CHK(GetSubLinkClass, a2_4); const uint64_t a2_r = typed::GetSubLinkClass(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -7958,7 +7958,7 @@ void manager_sub_01129258(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // CopyGeometryPointer (0x11327b0-0x11327f8)
 void CopyGeometryPointer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(CopyGeometryPointer, a2_4, a2_5); const uint64_t a2_r = typed::CopyGeometryPointer(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A2_CHK(CopyGeometryPointer, a2_4, a2_5); const uint64_t a2_r = typed::CopyGeometryPointer(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     (v0 = (uint64_t)(READ64_B(a1, 0)));

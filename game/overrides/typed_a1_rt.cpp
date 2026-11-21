@@ -8,6 +8,10 @@ extern "C" PS2Runtime *g_ps2gmRuntime;
 
 bool g_a1Typed = true; // sotc_native.cpp sets it from the switch a1typed at install and once a frame
 bool g_a2Typed = true; // round A2 (typed_a2_rt.h): the switch a2typed, likewise
+#include "typed_a2_rt.h"
+#if PS2X_A2_CHECK
+A2GoStats g_a2Go; // round A2's check build: the adapters' test, counted
+#endif
 
 namespace a1m
 {

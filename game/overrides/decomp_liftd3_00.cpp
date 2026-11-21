@@ -7938,7 +7938,7 @@ void GAMEUTIL_get_motion_kind(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 void GAMEUTIL_get_difference_value(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1080220u, 0)) { GAMEUTIL_get_difference_value_0x1080220(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; A2_CHK(GAMEUTIL_get_difference_value, a2_4, a2_f12, a2_f13); const a1::RetVF a2_r = typed::GAMEUTIL_get_difference_value(rdram, runtime, a2_4, a2_f12, a2_f13); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x1080B28u, lift_d1::GAMEUTIL_get_move_radi_from_yaw1_to_yaw2), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; A2_CHK(GAMEUTIL_get_difference_value, a2_4, a2_f12, a2_f13); const a1::RetVF a2_r = typed::GAMEUTIL_get_difference_value(rdram, runtime, a2_4, a2_f12, a2_f13); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13];

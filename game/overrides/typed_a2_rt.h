@@ -10,9 +10,9 @@
 // Calls. A call into a typed function is a C++ call; the lifted call charged the EE clock its dispatch cycles (the NOCHK
 // fast form: charged, not tested), so the typed call charges them too (A2_CHARGE): the clock reads as before.
 //
-// The adapter's test (A2_GO): the switch a2typed, N3's direct-call flag (every direct target's table slot holds its
-// lifted function: the typed callees are what the lifted calls would run) and the NOCHK fast path's condition (the
-// lifted calls would charge, not test, the checkpoint). Otherwise the lifted text runs as before.
+// The adapter's test (A2_GO): the switch a2typed, every typed callee's table slot holding its lifted function (A2_HOLDS:
+// the typed callees are what the lifted calls would run) and the NOCHK fast path's condition (the lifted calls would
+// charge, not test, the checkpoint). Otherwise the lifted text runs as before.
 #pragma once
 
 #include "typed_a1_rt.h"
@@ -49,14 +49,57 @@ namespace a2
 #define A2_CHARGE() ((void)rt->m_eeClock.charge(PS2Runtime::kEeDispatchCycles))
 #endif
 
-#if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
-#define A2_GO() (g_a2Typed && g_ps2DirectCalls && PS2_N4_SP() >= runtime->m_noCheckFloor)
+#if PS2X_A2_CHECK
+// a check build: why an adapter did not take the typed call (the [a2] line's "adapters" counts)
+struct A2GoStats
+{
+    uint64_t entered = 0, off = 0, floor = 0, slot = 0, go = 0;
+};
+extern A2GoStats g_a2Go;
+inline bool a2GoCount(PS2Runtime *runtime, uintptr_t sp)
+{
+    ++g_a2Go.entered;
+    if (!g_a2Typed)
+        return ++g_a2Go.off, false;
+    if (sp < runtime->m_noCheckFloor)
+        return ++g_a2Go.floor, false;
+    return true;
+}
+inline bool a2GoLeaf()
+{
+    ++g_a2Go.entered;
+    if (!g_a2Typed)
+        return ++g_a2Go.off, false;
+    ++g_a2Go.go;
+    return true;
+}
+inline bool a2Holds(bool held)
+{
+    if (!held)
+        ++g_a2Go.slot;
+    return held;
+}
+#endif
+// A2_GO: a function with calls (the lifted calls' NOCHK fast path: host stack above the floor; each typed callee's
+// slot holding its lifted function, A2_HOLDS); A2_GO_LEAF: a leaf (no call: only the switch).
+// (N3's g_ps2DirectCalls is not used: since GAMECORE's hooks it is off in game, 29 direct targets held by natives.)
+#if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A2_CHECK
+#define A2_GO() a2GoCount(runtime, PS2_N4_SP())
+#define A2_GO_LEAF() a2GoLeaf()
+#define A2_HOLDS(addr, known) a2Holds(PS2_GUEST_FN(addr) == &known)
+#elif defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
+#define A2_GO() (g_a2Typed && PS2_N4_SP() >= runtime->m_noCheckFloor)
+#define A2_GO_LEAF() g_a2Typed
+#define A2_HOLDS(addr, known) (PS2_GUEST_FN(addr) == &known)
 #else
 #define A2_GO() false
+#define A2_GO_LEAF() false
+#define A2_HOLDS(addr, known) false
 #endif
 // A callee that is not an N3 direct target (a native or a hook may hold its slot), an A1 leaf whose calls in the lifted
 // text are all N4 sites: the typed call is what the N4 site runs while its slot holds the lifted leaf and n4native is on.
 #define A2_SLOT(addr, known) (g_ps2N4Mask == 0u && PS2_GUEST_FN(addr) == &known)
+
 
 // The in-run check (a check build, PS2X_A2_CHECK=1): each adapter call is first compared with the lifted text on the
 // same state (a2_typed_check.cpp); the call itself then runs as usual.

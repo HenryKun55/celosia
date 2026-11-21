@@ -8651,7 +8651,7 @@ L_1366cc8:
 // initStageLayout (0x1366cf0-0x1366cf8)
 void initStageLayout(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(initStageLayout); typed::initStageLayout(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(initStageLayout); typed::initStageLayout(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -8664,7 +8664,7 @@ void initStageLayout(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // deleteStageLayout (0x1366cf8-0x1366d00)
 void deleteStageLayout(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(deleteStageLayout); typed::deleteStageLayout(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(deleteStageLayout); typed::deleteStageLayout(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -10421,7 +10421,7 @@ void gamecore_sub_0136A388(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // initAdpcmOrient (0x136a420-0x136a428)
 void initAdpcmOrient(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(initAdpcmOrient); typed::initAdpcmOrient(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(initAdpcmOrient); typed::initAdpcmOrient(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -10826,7 +10826,7 @@ void bgmChangeVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // bgmStageInit (0x136aaf8-0x136ab00)
 void bgmStageInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { A2_CHK(bgmStageInit); typed::bgmStageInit(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO_LEAF(), 1)) { A2_CHK(bgmStageInit); typed::bgmStageInit(rdram, runtime); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t ra = Ps2GprU32(ctx, 31);
     {
         const uint32_t target = ra;
@@ -14665,7 +14665,7 @@ L_138be48:
 // get_pre_type_expression (0x138be98-0x138beb0)
 void get_pre_type_expression(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A2_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_pre_type_expression, a2_4); const uint32_t a2_r = typed::get_pre_type_expression(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
+    if (PS2_EXPECT(A2_GO() && A2_HOLDS(0x1344660u, lift_d1::GAMEUTIL_get_pre_changed_status_status_manager), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A2_CHK(get_pre_type_expression, a2_4); const uint32_t a2_r = typed::get_pre_type_expression(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a2
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = a0 + 4u;

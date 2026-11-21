@@ -68,6 +68,8 @@ class Sig:
     def __init__(self, name, addr, rtype, params, dropped, v0w=32, tier='a1'):
         self.name, self.addr, self.rtype, self.params, self.dropped, self.v0w, self.tier = name, addr, rtype, params, dropped, v0w, tier
         self.guards = []  # A2: (address, lifted name) of callees whose slot the adapter tests (not N3 direct targets)
+        self.holds = set()  # A2: (address, lifted name) of every typed function it reaches through calls (transitively):
+        #                     the adapter tests that each slot holds its lifted function (what the lifted calls would run)
 
     def inputs(self):
         return {('g', p[1]) for p in self.params if p[0] == 'g'} | {('f', p[1]) for p in self.params if p[0] == 'f'}
@@ -717,7 +719,11 @@ class Emit:
         elif rt == 'uint64_t':
             st = 'Ps2SetGpr64(ctx, 2, a2_r); '
         r = '' if rt == 'void' else f'const {rt} a2_r = '
-        go = 'A2_GO()' + ''.join(f' && A2_SLOT(0x{c:X}u, lift_d1::{nm})' for c, nm in getattr(self, 'guards', []))
+        if not self.callees:
+            go = 'A2_GO_LEAF()'
+        else:
+            go = 'A2_GO()' + ''.join(f' && A2_HOLDS(0x{c:X}u, lift_d1::{nm})' for c, nm in sorted(self.holds)) + \
+                ''.join(f' && A2_SLOT(0x{c:X}u, lift_d1::{nm})' for c, nm in getattr(self, 'guards', []))
         return (f'    if (PS2_EXPECT({go}, 1)) {{ {" ".join(ld)}{" " if ld else ""}A2_CHK({self.name}{args}); {r}{call}; {st}'
                 f'ctx->pc = Ps2GprU32(ctx, 31); return; }}{ADAPT_MARK}')
 
@@ -1041,6 +1047,15 @@ def main():
                 if E.ok:
                     E.guards = guards
                     E.sig.guards = guards
+                    gset = {c for c, _ in guards}
+                    holds = set()
+                    for c in set(calls):
+                        if c not in gset:
+                            holds.add((c, sigs[c].name))
+                        holds |= sigs[c].holds
+                    if any(nm in N3.LIBC for _, nm in holds):
+                        E.ok, E.why = False, 'callee named like a libc function'
+                    E.holds = E.sig.holds = holds
                 if E.ok:
                     E.ref = ref_body(E.name, a, refdefs[E.name])
                     if E.ref is None:
@@ -1145,6 +1160,10 @@ def main():
                 fo.write('\n'.join(E.text for E in emits))
             with open(os.path.join(OV, 'typed_a2.h'), 'w') as fo:
                 fo.write(HDR)
+                names = sorted({nm for E in emits for _, nm in (set(E.holds) | set(E.guards))})
+                fo.write('\n// the lifted functions whose slots the adapters test (A2_HOLDS / A2_SLOT)\nnamespace lift_d1\n{\n')
+                fo.write(''.join(f'void {nm}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for nm in names))
+                fo.write('}\n')
             rk = collections.Counter(E.rtype for E in emits)
             with open(args.out_list, 'w') as fo:
                 fo.write(f"# a2_typed.txt: round A2's typed functions (tools/typed_lift2.py; docs/decomp_a2.md). {len(emits)} converted; "
