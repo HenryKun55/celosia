@@ -23464,3 +23464,16 @@ docs/console_c1.md. Scripts, runs and logs: `build/agent-scratch/c1/`. Switches 
   c1rig skips ~1 200 line reads (~14 KB of loads) a frame riding, mostly warm lines.
 - Boot with 89 MB taken (600 s, both on): rode to frame 18 575, pictures normal. spalign: 0 sp-based. Tip:
   `build/agent-scratch/c1/c1.vpk` / `c1.elf`. Console A/B: `SOTC_C1KEYS=1 SOTC_C1RIG=1 SOTC_AB_FLAG=c1keys,c1rig SOTC_AB_PERIOD=300`.
+
+## Decomp DC1: the character chain mapped and counted by class; the motion accessors and option nodes as real C++ (SOTC_DC1MOT) (2026-11-21)
+
+The full write-up is docs/decomp_dc1.md. `tools/dc1_chain.py` walks the character chain from the per-frame entries by
+direct jal and classes every function. Before DC1 the chain held 407 functions: real C++ 2, ctx-native 93, lifted 272,
+recompiled 40. After DC1: real 10, ctx-native 85, lifted 272, recompiled 40. dc1_motion.cpp makes nine functions real
+C++ on typed views: getBlendLastMotion, GetMotionVersion, GetMotionNbOptionNodes, GetMotionOptionNodePhysicalId,
+GetOptionNodePhysicalNodeId, GetMotionNodeBasePos, GetMotionNodeBaseQuaternion, AddCharacterClassOptionNodeSubGeometries
+and manager_sub_010BC4F0 (the option nodes). Its relocated words are decoded once a frame. ExecCharaGeometry and the
+aim IK now call them directly. The VU0 operations keep the recompiled code's clamps. Check (SOTC_DC1MOT_CHECK, partial
+runs): 129 962 / 35 659 / 8 381 calls compared on ride7 / lake6 / attract, 0 differences. The A/B and the boot run
+are still to do. On by default for now.
+
