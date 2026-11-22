@@ -23641,3 +23641,26 @@ docs/perf_p2.md. Scripts, runs and logs: `build/agent-scratch/p2/`. Switch `SOTC
   spalign 0.
 - **Honest size**: Vita3K ~0.1-0.16 ms; console estimate 0.2-1 ms (0.2 from the layers, the rest only if the prefetch
   turns the step side's misses into L2 hits), not 2 ms. The 2 ms needs the per-geodisp chain rewritten as plain C++.
+## Decomp A6: typed interfaces for the blockers: never-lifted functions, MIPS-step natives, libc / thread-id stubs, break (a6typed) (2026-11-22)
+
+docs/decomp_a6.md. Scripts, runs and logs: `build/agent-scratch/a6/`. Switch `SOTC_A6TYPED` (A/B `a6typed`, `kA6Typed`);
+`SOTC_A6AD=0` leaves the never-lifted functions' adapters out of the table.
+
+- **The walls, split by what holds the slot**: of A5's "natives", 524 are registered hand natives and 3 024 never-lifted
+  functions (GetLightClass is one); dynamic_cast_to_camera_obj was a lifted function refused for its `break 0`.
+- **Four interfaces** (tools/typed_lift2.py stage 6): I1 never-lifted functions typed from their MIPS, each with an adapter
+  that takes the recompiled function's slot at install (the recompiled function its fallback); I2 ten MIPS-step hand natives
+  (docs/a6_natives.txt) typed from their MIPS, called by typed callers while the slot holds the native, each checked against
+  its typed function at its own entry in a check build (A6_NCHK); I3 `break` recorded by the typed function and applied to the
+  context by the adapter (handleBreak at the first and last site); I4 memset / memcpy / strcpy / memcmp / strlen / strcmp /
+  GetThreadId as typed calls to the stubs' own cores (LibC.cpp split into core + register wrapper; strcmp's and GetThreadId's
+  natives followed). WaitSema / SignalSema cannot be typed while EE threads unwind through guest frames (section 3 of the doc:
+  the shim needs guest-shaped caller frames or host threads, phase B).
+- **1 058 more functions**: 970 never-lifted, 84 lifted, 4 natives. Of A5's 2 907 waiting functions only 77 came in: the
+  rest still have other roots (hand natives 2 134, WaitSema / SignalSema / printf-family stubs 1 406, a lifted caller reading a
+  scratch register 1 026 ...). (d) = **2 987 (33.1%)**, 8.8% of the bytes, 6.9% of the console game thread.
+- **Exact**: in-run checks 11.31 M (A6) + 3.85 M (A5) + 2.56 M (A4) + 6.36 M (A3) on ride7 / attract / lake6, 0 differences; the natives against their typed functions 8.11 M, 0; offline harness 4.77 M per mode, 0 in finite / host, default-NaN only the NaN-sign case on Inf inputs (as A3).
+- **Measured**: A/B pooled +0.306 +- 0.334 ms on p3 (+0.089 +- 0.276 on the first generation): not slower; 89 MB boot rode, pictures normal; spalign 0. **On by default**.
+- **Next**: the next natives by unlock (GetScriptCharacterClass, the isys group walkers, kernel_sub_001ADBC0 / ADDC0, the
+  quaternion natives), the printf-family stubs (iosJumpRecoverPoint, vsprintf, printf, sceWrite: a core over the argument
+  registers and sp), GetLayoutClass's lifted callers that read a1 after it; WaitSema / SignalSema with phase B.
