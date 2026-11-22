@@ -23665,7 +23665,6 @@ docs/decomp_a6.md. Scripts, runs and logs: `build/agent-scratch/a6/`. Switch `SO
   quaternion natives), the printf-family stubs (iosJumpRecoverPoint, vsprintf, printf, sceWrite: a core over the argument
   registers and sp), GetLayoutClass's lifted callers that read a1 after it; WaitSema / SignalSema with phase B.
 
-<<<<<<< HEAD
 ## Decomp DC2: the hottest character-chain functions by console time as real C++ (dc2chara, off by default) (2026-11-22)
 
 The full write-up is docs/decomp_dc2.md. The console's prof129 rides rank the chain: of the functions not yet real, DC2
@@ -23736,7 +23735,7 @@ default**; check `SOTC_P4MOVE_CHECK=1` in a `-DPS2X_P4_CHECK=1` build; console p
 - **Boot**: 89 MB taken, rode the 600 s (mounted at 5 279), pictures normal. spalign 0.
 - **Honest size**: small in Vita3K (its worker keeps up); on the console up to most of the ~1 ms wait, minus the walk
   (0.045 ms a frame riding in Vita3K). Next: a per-walk memo of each texture's answer (half the jobs asked are particles).
-=======
+
 ## Decomp A7: callers take their callees' scratch registers back, the printf family as cores, eight more natives (a7typed) (2026-11-22)
 
 docs/decomp_a7.md. Scripts, runs and logs: `build/agent-scratch/a7/`. Switch `SOTC_A7TYPED` (A/B `a7typed`, `kA7Typed`);
@@ -23770,4 +23769,3 @@ docs/decomp_a7.md. Scripts, runs and logs: `build/agent-scratch/a7/`. Switch `SO
   WaitSema); the quaternion natives need a bit-exact quat122 or a typed path that follows the switch; the spin rule for
   manager_sub_01114C70 (800 behind it); EIntr / DIntr; WaitSema / SignalSema with phase B.
 
->>>>>>> 6641422 (A7 docs: docs/decomp_a7.md, decomp.md Decomp A7, rounds.json A7 row, plan status; checks 5.31 M A7 + 8.89 M A6 + 2.08 M A5 + 2.20 M A4 + 4.44 M A3 0 differ, natives 2.90 M 0 differ, harness HI0 3 differ (GetMotionNS_RootShiftInfo, open) + the A2 upper-half class, A/B pooled +0.109 +- 0.070 ms (on faster), 89 MB boot normal, spalign 0)

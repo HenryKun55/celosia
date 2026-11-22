@@ -1294,7 +1294,6 @@
    "result": "Exact: 11.3 M in-run checks for A6 (plus 3.85 M A5, 2.56 M A4, 6.36 M A3 rechecked) and 8.1 M native checks on ride7, the attract demo and lake6, 0 differences; offline harness 0 in finite / host modes. A/B pooled +0.31 +- 0.33 ms (not slower). 89 MB boot rode, pictures normal No sp-based NEON accesses. On by default. The count: 2 987 functions (33.1%) in class (d), 8.8% of the MIPS bytes, 6.9% of the console game thread."
   },
   {
-<<<<<<< HEAD
    "round": "DC2",
    "date": "2026-11-22",
    "commit": "694fc08",
@@ -1317,14 +1316,14 @@
    "focus": "The heap's garbage moves without the whole hook-queue join (console 30 fps)",
    "summary": "Round P4 (switch p4move, off by default): every heap garbage move used to join the whole hook-worker queue (P3's measured wait, console 0.86 / 1.03 ms a frame riding). Now the game thread walks the queued jobs from the newest back and waits only up to the newest one whose guest reads may meet the move's destination or source span (read spans per job kind: a model's plan spans and its per-frame texture / row / object pointers with a read log, textured 2D / cloth / particle textures, the shadow batch; a planless model and the kick pass read everything); every job sees the garbage moves as at its hand-over.",
    "result": "Exact: SOTC_P4MOVE_CHECK on ride7 900 s / attract 400 s / lake6 400 s: 271 moves went on past 20 254 queued jobs, 2.26 M guest reads checked, 0 inside a moved span, 0 bytes different from the full join's memory, 271 whole-RAM compares 0 different. 95-97% of the moves that joined the whole queue go on at once, 1.5-4% wait for part of it, 0 whole joins. Vita3K A/B (222 MHz, off - on, 2 SE): ride7 +0.074 +- 0.141, +0.100 +- 0.159, lake6 +0.067 +- 0.108; pooled +0.080 +- 0.040 ms (z 2.0), busy +0.108 +- 0.039; move joins 0.189 -> 0.064 ms a frame. 89 MB boot rode, pictures normal; 0 sp-based NEON accesses. Console A/B package celosia-p4.vpk + env-ab.txt."
-=======
+  },
+  {
    "round": "A7",
    "date": "2026-11-22",
    "commit": "",
    "focus": "Decomp 100%: callee extra outputs for typed callers, printf-family cores, more natives",
    "summary": "Round A7 (typed_lift2 stage 7) lets a typed caller take a callee's scratch registers back (the callee's extra outputs, requested round by round; functions typed in earlier rounds get variants with them), which typed GetLayoutClass and the other \"live scratch\" walls; splits printf (also iosJumpRecoverPoint's stub), vsprintf and sceWrite's fioWrite into cores that the stubs and typed callers share; and types eight more MIPS-step natives (GetScriptCharacterClass, the heap allocator, isysGroupForNext ...). 791 more functions are real C++.",
    "result": "Exact: 5.31 M in-run A7 checks (plus 8.89 M A6, 2.08 M A5, 2.20 M A4, 4.44 M A3 rechecked) and 2.90 M native checks on ride7, the attract demo and lake6, 0 differences. A/B pooled +0.109 +- 0.070 ms (on faster). 89 MB boot rode 600 s, pictures normal. No sp-based NEON accesses. On by default. The count: 3 756 functions (41.6%) in class (d), 13.4% of the MIPS bytes, 8.7% of the console game thread."
->>>>>>> 6641422 (A7 docs: docs/decomp_a7.md, decomp.md Decomp A7, rounds.json A7 row, plan status; checks 5.31 M A7 + 8.89 M A6 + 2.08 M A5 + 2.20 M A4 + 4.44 M A3 0 differ, natives 2.90 M 0 differ, harness HI0 3 differ (GetMotionNS_RootShiftInfo, open) + the A2 upper-half class, A/B pooled +0.109 +- 0.070 ms (on faster), 89 MB boot normal, spalign 0)
   }
  ]
 }
