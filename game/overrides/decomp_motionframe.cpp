@@ -525,4 +525,5 @@ SOTC_DECOMP_FUNCTION(0x010AD1B0u, GetMotionFloatFrameNoCaribration, decomp_motio
 SOTC_DECOMP_FUNCTION(0x010B4FD8u, GetMotionFloatFrame, decomp_motionframe::motionFloatFrame);
 SOTC_DECOMP_FUNCTION(0x010B7198u, getMotionFloatFrame, decomp_motionframe::wrapFrame);
 SOTC_DECOMP_FUNCTION(0x010B7158u, getMotionFloatFrameWithLimitCaribration, decomp_motionframe::limitFrame);
-SOTC_DECOMP_FUNCTION(0x010B3E98u, GetMotionIntFrame, decomp_motionframe::intFrame);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x010B3E98u, GetMotionIntFrame, decomp_motionframe::intFrame);

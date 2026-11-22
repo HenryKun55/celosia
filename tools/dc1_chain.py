@@ -14,7 +14,7 @@ Classes:
   real        hand native whose work is a ctx-free C++ function on typed views and host pointers (the guest-signature
               wrapper only unpacks the arguments and returns), listed in REAL below with the round that made it
 
-Usage: tools/dc1_chain.py [--build DIR] [--list] [--json out.json]
+Usage: tools/dc1_chain.py [--build DIR] [--list] [--json out.json] [--no-dc1] [--no-dc2]
 """
 import argparse
 import glob
@@ -41,6 +41,10 @@ REAL = {
     # DC1
     0x010B28E0: 'DC1', 0x010B3810: 'DC1', 0x010B39B0: 'DC1', 0x010B36C8: 'DC1', 0x010C6710: 'DC1',
     0x010B6E80: 'DC1', 0x010B6F60: 'DC1', 0x010C6798: 'DC1', 0x010BC4F0: 'DC1',
+    # DC2 (dc2_chara.cpp): the cloth step / constraint / velocity / tension, the class getters,
+    # findRecord (not in the walked set), GetMotionIntFrame
+    0x011370E8: 'DC2', 0x01137858: 'DC2', 0x01137640: 'DC2', 0x01139B30: 'DC2',
+    0x010C0A70: 'DC2', 0x010BA7A8: 'DC2', 0x010CDD10: 'DC2', 0x010B3E98: 'DC2',
 }
 DC1_BEFORE = {}  # filled from --before if given
 
@@ -100,6 +104,7 @@ def main():
     ap.add_argument('--list', action='store_true')
     ap.add_argument('--json')
     ap.add_argument('--no-dc1', action='store_true', help='count as before DC1 (DC1 rows as ctx-native)')
+    ap.add_argument('--no-dc2', action='store_true', help='count as before DC2 (DC2 rows as ctx-native)')
     a = ap.parse_args()
     fns = functions(a.build)
     g = jal_graph(a.build)
@@ -123,7 +128,7 @@ def main():
     rows = []
     for f in sorted(seen):
         name, size = fns[f]
-        if f in REAL and not (a.no_dc1 and REAL[f] == 'DC1'):
+        if f in REAL and not (a.no_dc1 and REAL[f] in ('DC1', 'DC2')) and not (a.no_dc2 and REAL[f] == 'DC2'):
             cls = 'real'
         elif f in hand:
             cls = 'ctx-native'

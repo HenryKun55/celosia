@@ -1790,7 +1790,8 @@ namespace decomp_hot47j
 
 SOTC_DECOMP_FUNCTION(0x01365450u, StageManagerCheckAreaExist, decomp_hot47j::areaExist);
 SOTC_DECOMP_FUNCTION(0x01118340u, manager_sub_01118340, decomp_hot47j::groundProbe);
-SOTC_DECOMP_FUNCTION(0x011399E0u, getClothDynamics, decomp_hot47j::clothStep);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x011399E0u, getClothDynamics, decomp_hot47j::clothStep);
 SOTC_DECOMP_FUNCTION(0x01124C88u, GetCollisionDBCallBack, decomp_hot47j::collisionDB);
 SOTC_DECOMP_FLOAT_FUNCTION(0x01084450u, GAMEUTIL_doit_interp_value_cntrl, decomp_hot47j::interpValue);
 SOTC_DECOMP_FUNCTION(0x01100BD8u, GetSkeletonFocusNode, decomp_hot47j::skeletonFocusNode);

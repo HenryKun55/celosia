@@ -381,7 +381,8 @@ namespace decomp_chara
 }
 
 SOTC_DECOMP_FUNCTION(0x010CE558u, charaLinks, decomp_chara::charaLinks);
-SOTC_DECOMP_FUNCTION(0x010CDD10u, findRecord, decomp_chara::findRecord);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x010CDD10u, findRecord, decomp_chara::findRecord);
 
 // GetCharacterClass (0x10c0a70, round 11): a layout object's character
 // class, the object + 0x90 for types 9 and 0x16, else 0 (v0 only; ~0.2% of
@@ -400,7 +401,8 @@ namespace decomp_characlass
         sotc_decomp::returnTo(ctx);
     }
 }
-SOTC_DECOMP_FUNCTION(0x010C0A70u, GetCharacterClass, decomp_characlass::getCharacterClass);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x010C0A70u, GetCharacterClass, decomp_characlass::getCharacterClass);
 
 // GetAnimationClass (0x10ba7a8), round 11: an object's animation class by
 // its type byte (+8): 9 and 22 the object + 0x250 (9 through
@@ -423,4 +425,5 @@ namespace decomp_classes
         sotc_decomp::returnTo(ctx);
     }
 }
-SOTC_DECOMP_FUNCTION(0x010BA7A8u, GetAnimationClass, decomp_classes::animationClass);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x010BA7A8u, GetAnimationClass, decomp_classes::animationClass);

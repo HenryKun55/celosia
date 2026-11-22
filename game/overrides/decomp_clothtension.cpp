@@ -162,4 +162,5 @@ namespace decomp_clothtension
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01139B30u, clothmath_doubleTensionMove, decomp_clothtension::tensionMove);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x01139B30u, clothmath_doubleTensionMove, decomp_clothtension::tensionMove);

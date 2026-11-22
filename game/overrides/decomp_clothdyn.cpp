@@ -354,5 +354,7 @@ namespace decomp_clothdyn
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01137858u, clothConstrain, decomp_clothdyn::constrain);
-SOTC_DECOMP_FUNCTION(0x01137640u, clothVelocity, decomp_clothdyn::velocity);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x01137858u, clothConstrain, decomp_clothdyn::constrain);
+// Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
+// SOTC_DECOMP_FUNCTION(0x01137640u, clothVelocity, decomp_clothdyn::velocity);
