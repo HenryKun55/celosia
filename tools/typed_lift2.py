@@ -2646,7 +2646,7 @@ def main():
                 if not m or int(m.group(2), 16) != a:
                     continue
                 nm = L.cxx(m.group(1))
-                if nm in N3.LIBC:
+                if nm in N3.LIBC or nm in skip3:  # docs/a3_skip.txt: the long loops stay as they are
                     continue
                 if nm in used:
                     nm = f'{nm}_{a:x}'

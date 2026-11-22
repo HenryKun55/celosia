@@ -838,7 +838,6 @@ void GetLayoutClassObjectName(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 void GetAliasLayoutObjWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
 void SetVIF1MarkCallbackFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void SetColorParamAmbientLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint32_t);
-void manager_sub_010FC428(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void SearchLayoutObjDefByName(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void SearchScriptLayoutObjDefByName(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void SearchLwsOrientObjDefByName(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
