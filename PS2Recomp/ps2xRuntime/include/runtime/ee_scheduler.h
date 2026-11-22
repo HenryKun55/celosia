@@ -303,6 +303,12 @@ extern uint32_t g_ps2xB1Carry;  // 0: no new take-overs; a carried thread is han
 extern uint32_t g_ps2xB1Check;  // check mode: the executor audit (guest code on the wrong host thread) and the counts
 extern uint32_t g_ps2xB1BatonUs; // round B1b: the baton wait's re-check period (us; 0: untimed, B1's form; SOTC_B1_BATON_US)
 extern uint32_t g_ps2xB1BatonSema; // round B1b: the Vita's baton is a kernel semaphore per side (default; SOTC_B1_BATON=cv: the cv)
+// Round B2 (docs/decomp_b2.md): the carried threads are a table (EeScheduler::addHostCarry: entry, take-over pc, body, its own
+// switch flag and counts); B1's t8 is entry 0 (g_ps2xB1Carry, g_eeB1), B2's loader thread another (g_ps2xB2Carry, g_eeB2).
+// A wait that used to leave only by the exception (waitExternal / waitVSync / delayCurrent: the CD reads, the stream's
+// VBlank waits, DelayThread) parks in place on a carrier as well: the call returns once the thread runs again, its
+// completion already run by the dispatcher, and the stub returns to its caller (as the generated code resumes at ra).
+extern uint32_t g_ps2xB2Carry; // 0: no new take-overs of B2's threads; a carried one is handed back at its next yield
 struct EeB1Stats
 {
     uint64_t claims = 0, resumes = 0, yieldCheckpoint = 0, yieldLeave = 0, handBackSwitch = 0, handBackUnwind = 0,
@@ -312,6 +318,14 @@ struct EeB1Stats
     uint64_t rescuesExec = 0, rescuesCarrier = 0, batonTimeouts = 0;
 };
 extern EeB1Stats g_eeB1;
+extern EeB1Stats g_eeB2; // round B2: the loader thread's carrier (claims, resumes, yields, hand-backs, carrier time)
+// Round B2: the waits parked in place on a carrier (waitExternal / waitVSync / delayCurrent), every carrier together, and
+// those of them handed back at the yield (the exception after the wait, as the generated code would have unwound).
+struct EeB2Waits
+{
+    uint64_t inPlace = 0, handedBack = 0;
+};
+extern EeB2Waits g_eeB2Waits;
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
 {
@@ -520,13 +534,16 @@ public:
     [[nodiscard]] uint64_t currentVSyncTick() const noexcept;
     uint32_t setGsVSyncCallback(uint32_t callback, uint32_t gp, uint32_t sp);
 
-    [[noreturn]] void waitVSync(uint64_t afterTick, int fixedResult = -1, std::function<void(R5900Context &)> completion = {});
+    void waitVSync(uint64_t afterTick, int fixedResult = -1, std::function<void(R5900Context &)> completion = {}, bool inPlace = true);
     void completeVSync(uint64_t tick);
     void completeExternalWait(uint32_t type, uint64_t token, int result);
-    [[noreturn]] void waitExternal(EeWaitReason reason, uint32_t type, uint64_t token, std::function<void(R5900Context &)> completion = {});
+    void waitExternal(EeWaitReason reason, uint32_t type, uint64_t token, std::function<void(R5900Context &)> completion = {});
     // Block the current thread for a span of time (libkernel's DelayThread on
     // the host): woken by a deadline on the EE clock / host clock.
-    [[noreturn]] void delayCurrent(uint32_t microseconds, std::function<void(R5900Context &)> completion = {});
+    // Round B2: waitVSync / waitExternal / delayCurrent never return off a carrier (the exception); on a carrier they
+    // return once the thread runs again (its completion run): the caller must return at once (to the generated code,
+    // which goes on at ctx->pc). inPlace false: the exception always (a completion that sets a pc other than the caller's).
+    void delayCurrent(uint32_t microseconds, std::function<void(R5900Context &)> completion = {});
 
     [[nodiscard]] GuestThread *thread(int id);
     [[nodiscard]] const GuestThread *thread(int id) const;
@@ -544,14 +561,32 @@ public:
     // a sampling profiler on another thread: its pc / ra are read racily).
     [[nodiscard]] const R5900Context *profileContext() const noexcept { return m_profileContext.load(std::memory_order_relaxed); }
 
-    // Round B1: the host-carried thread (one): its entry, the pc at which the body takes it over, the body.
+    // Round B1: the host-carried thread: its entry, the pc at which the body takes it over, the body. Round B2: a table
+    // of them (kMaxCarry), each with its own switch flag (nonzero: take-overs allowed; zero: the carried thread is handed
+    // back at its next yield) and its counts; setHostCarry is B1's entry (g_ps2xB1Carry, g_eeB1).
     using HostBody = void (*)(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void setHostCarry(uint32_t entry, uint32_t claimPc, HostBody body) noexcept
+    static constexpr int kMaxCarry = 4;
+    struct CarrySpec
     {
-        m_carryEntry = entry;
-        m_carryPc = claimPc;
-        m_carryBody = body;
+        uint32_t entry = 0, claimPc = 0;
+        HostBody body = nullptr;
+        const uint32_t *gate = nullptr;
+        EeB1Stats *stats = nullptr;
+    };
+    bool addHostCarry(uint32_t entry, uint32_t claimPc, HostBody body, const uint32_t *gate, EeB1Stats *stats) noexcept
+    {
+        for (int i = 0; i < m_carryCount; ++i)
+            if (m_carry[i].entry == entry)
+            {
+                m_carry[i] = CarrySpec{entry, claimPc, body, gate, stats};
+                return true;
+            }
+        if (m_carryCount >= kMaxCarry)
+            return false;
+        m_carry[m_carryCount++] = CarrySpec{entry, claimPc, body, gate, stats};
+        return true;
     }
+    void setHostCarry(uint32_t entry, uint32_t claimPc, HostBody body) noexcept { addHostCarry(entry, claimPc, body, &g_ps2xB1Carry, &g_eeB1); }
     // On the carrier thread while it holds the baton (B1 code asks: a guest call that came back false there has
     // unwound, and the thread goes on as generated code).
     [[nodiscard]] bool onCarrier() const noexcept { return m_activeCarrier != nullptr; }
@@ -597,9 +632,14 @@ private:
     void b1Audit(int site) const noexcept;
     void b1WatchdogDump(int n);
     EeHostCarrier *m_activeCarrier = nullptr;
-    EeHostCarrier *m_spareCarrier = nullptr; // the host thread of a carrier that ended, kept for the next take-over
-    uint32_t m_carryEntry = 0, m_carryPc = 0;
-    HostBody m_carryBody = nullptr;
+    // The host threads of carriers that ended, kept for the next take-overs (round B2: one per table entry at most).
+    EeHostCarrier *m_spareCarrier[kMaxCarry] = {};
+    CarrySpec m_carry[kMaxCarry];
+    int m_carryCount = 0;
+    bool m_watchdogStarted = false;
+    // Round B2: on a carrier, park the current thread in place (the wait's completion is run by the dispatcher before the
+    // carrier gets the baton back); throws (a hand-back) when the dispatcher answers "unwind". Off a carrier: false.
+    bool parkInPlace(EeWaitState &wait);
     [[nodiscard]] int allocateThreadId();
     GuestThread &acquireInvocationThread();
     void enqueueReady(GuestThread &thread, bool front = false);

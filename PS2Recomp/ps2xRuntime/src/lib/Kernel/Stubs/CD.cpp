@@ -945,6 +945,8 @@ namespace ps2_stubs
                                                             if (ps2_stats::cdSyncDone)
                                                                 ps2_stats::cdSyncDone();
                                                         });
+                if (runtime)
+                    return; // round B2: parked in place on a carrier, the completion already run (ee_scheduler.h)
             }
             cd_async::finish();
         }
@@ -1460,6 +1462,7 @@ namespace ps2_stubs
                             }
                             continueCdStRead(rdram, &resumeContext, runtime, state);
                         });
+                    return; // round B2: parked in place on a carrier, the completion already run (ee_scheduler.h)
                 }
 
                 uint32_t sectors = std::min(remaining, available);

@@ -3036,7 +3036,9 @@ bool PS2Runtime::eeCheckpointSlowBody() noexcept
                              [resumePc](R5900Context &context)
                              {
                                  context.pc = resumePc;
-                             });
+                             },
+                             false); // round B2: the exception always (the thread goes on at resumePc, not at its caller)
+    __builtin_unreachable();
 }
 
 void PS2Runtime::addEeExitHandler(int threadId, uint32_t function, uint32_t argument)

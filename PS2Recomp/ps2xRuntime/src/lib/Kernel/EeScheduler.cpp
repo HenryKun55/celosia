@@ -54,6 +54,9 @@ uint32_t g_ps2xB1Check = 0u;
 uint32_t g_ps2xB1BatonUs = 1000u;
 uint32_t g_ps2xB1BatonSema = 1u;
 EeB1Stats g_eeB1;
+uint32_t g_ps2xB2Carry = 0u; // round B2 (b2_load.cpp)
+EeB1Stats g_eeB2;
+EeB2Waits g_eeB2Waits;
 
 // One host thread that runs a guest thread's own code (the body the game registered) while it holds the baton. The
 // dispatcher's host thread (the executor) and the carrier pass the baton through `carrierTurn`: the one that hands it
@@ -76,6 +79,9 @@ struct EeHostCarrier
     int throwDepth = 0;
     uint32_t jumpSerial = 0;
     EeScheduler::HostBody body = nullptr;
+    const uint32_t *gate = nullptr; // round B2: the table entry's switch flag (zero: hand the thread back at its next yield)
+    EeB1Stats *stats = nullptr;     // round B2: the table entry's counts
+    int slot = 0;                   // round B2: the table entry
     uint8_t *rdram = nullptr;
     R5900Context *ctx = nullptr;
     PS2Runtime *runtime = nullptr;
@@ -148,7 +154,7 @@ namespace
     }
     void carrierMain(EeHostCarrier *c)
     {
-        ThreadNaming::SetCurrentThreadName("B1Carrier");
+        ThreadNaming::SetCurrentThreadName("EeCarrier");
 #if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
         native_renderer::threads::place(native_renderer::threads::kGame); // the game thread's core: the two never run at once
 #endif
@@ -224,11 +230,22 @@ void EeScheduler::b1Audit(int) const noexcept
 // pc and B1 is on (the body then starts at the next resumeCarrier).
 bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
 {
-    if (__builtin_expect(g_ps2xB1Carry == 0u || m_carryBody == nullptr, 1) || thread.entry != m_carryEntry || context.pc != m_carryPc ||
-        m_activeCarrier != nullptr || m_stopRequested.load(std::memory_order_relaxed))
+    // Round B2: the table (B1's t8 and B2's loader thread), each entry behind its own switch flag.
+    int slot = -1;
+    for (int i = 0; i < m_carryCount; ++i)
+    {
+        const CarrySpec &spec = m_carry[i];
+        if (*spec.gate != 0u && thread.entry == spec.entry && context.pc == spec.claimPc)
+        {
+            slot = i;
+            break;
+        }
+    }
+    if (__builtin_expect(slot < 0, 1) || m_activeCarrier != nullptr || m_stopRequested.load(std::memory_order_relaxed))
         return false;
-    EeHostCarrier *c = m_spareCarrier;
-    m_spareCarrier = nullptr;
+    const CarrySpec &spec = m_carry[slot];
+    EeHostCarrier *c = m_spareCarrier[slot];
+    m_spareCarrier[slot] = nullptr;
     if (!c)
     {
         c = new EeHostCarrier;
@@ -252,7 +269,10 @@ bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
         std::unique_lock<std::mutex> lock(c->m);
         c->cv.wait(lock, [c] { return c->ready; });
     }
-    c->body = m_carryBody;
+    c->body = spec.body;
+    c->gate = spec.gate;
+    c->stats = spec.stats;
+    c->slot = slot;
     c->rdram = m_rdram;
     c->ctx = &thread.context;
     c->runtime = &m_runtime;
@@ -261,7 +281,7 @@ bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
     c->throwDepth = 0;
     c->jumpSerial = m_runtime.m_guestJumpSerial;
     thread.carrier = c;
-    ++g_eeB1.claims;
+    ++c->stats->claims;
     return true;
 }
 
@@ -284,14 +304,15 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
     if (noCheckFloor != UINTPTR_MAX)
         m_runtime.m_noCheckFloor = c.floor;
     m_activeCarrier = &c;
-    ++g_eeB1.resumes;
+    EeB1Stats &st = *c.stats;
+    ++st.resumes;
     g_b1ExecSite.store(1, std::memory_order_relaxed);
     g_b1ExecPasses.fetch_add(1, std::memory_order_relaxed);
     passBaton(c, true);
-    if (!c.ended && (g_ps2xB1Carry == 0u || m_stopRequested.load(std::memory_order_relaxed)))
+    if (!c.ended && (*c.gate == 0u || m_stopRequested.load(std::memory_order_relaxed)))
     {
         c.unwind = true;
-        ++(m_stopRequested.load(std::memory_order_relaxed) ? g_eeB1.handBackStop : g_eeB1.handBackSwitch);
+        ++(m_stopRequested.load(std::memory_order_relaxed) ? st.handBackStop : st.handBackSwitch);
         g_b1ExecSite.store(2, std::memory_order_relaxed);
         passBaton(c, true);
     }
@@ -305,15 +326,15 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
     m_runtime.m_hostStackFloor = floor;
     m_runtime.m_noCheckFloor = noCheckFloor;
     if (t0)
-        g_eeB1.carrierUs += ps2_stats::nowUs() - t0;
+        st.carrierUs += ps2_stats::nowUs() - t0;
     if (c.ended)
     {
         if (c.threw)
-            ++g_eeB1.handBackThrow;
+            ++st.handBackThrow;
         else if (!c.unwind)
-            ++g_eeB1.handBackUnwind;
+            ++st.handBackUnwind;
         thread.carrier = nullptr;
-        m_spareCarrier = &c;
+        m_spareCarrier[c.slot] = &c; // (one guest thread per entry in SotC: the slot's spare is free)
     }
 }
 
@@ -323,7 +344,7 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
 bool EeScheduler::carrierYield(int why)
 {
     EeHostCarrier &c = *m_activeCarrier;
-    ++(why == 0 ? g_eeB1.yieldCheckpoint : g_eeB1.yieldLeave);
+    ++(why == 0 ? c.stats->yieldCheckpoint : c.stats->yieldLeave);
     c.site.store(why == 0 ? 2 : 3, std::memory_order_relaxed);
     c.passes.fetch_add(1, std::memory_order_relaxed);
     passBaton(c, false);
@@ -335,8 +356,9 @@ bool EeScheduler::carrierYield(int why)
 // racy by design: it looks only once nothing has moved for seconds.
 void EeScheduler::startB1Watchdog(unsigned seconds)
 {
-    if (seconds == 0u)
+    if (seconds == 0u || m_watchdogStarted)
         return;
+    m_watchdogStarted = true; // round B2: one watchdog for every carrier (b1sound's and b2load's checks may both ask)
     std::thread([this, seconds] {
         ThreadNaming::SetCurrentThreadName("B1Watchdog");
         uint64_t lastFrame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
@@ -369,13 +391,15 @@ void EeScheduler::b1WatchdogDump(int n)
     const int es = g_b1ExecSite.load(std::memory_order_relaxed);
     std::fprintf(stderr, "[b1dog] %d: no frame for a while (frame %llu, ee cycle %llu, next deadline %llu) | executor: %s, passes %llu, "
                  "guest executing %d, current thread %d, reschedule %d, checkpoint pending %d, s17 depth %d, inside interrupt %d | b1 carry %u, "
-                 "claims %llu resumes %llu yields cp %llu park %llu, active carrier %p spare %p\n",
+                 "claims %llu resumes %llu yields cp %llu park %llu, active carrier %p spare %p | b2 carry %u, claims %llu resumes %llu yields cp %llu park %llu, in-place waits %llu\n",
                  n, (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)eeNow(),
                  (unsigned long long)m_nextDeadlineCycle.load(std::memory_order_relaxed), es >= 0 && es < 5 ? execSites[es] : "?",
                  (unsigned long long)g_b1ExecPasses.load(std::memory_order_relaxed), m_guestExecuting.load(std::memory_order_relaxed) ? 1 : 0,
                  m_currentThreadId, m_rescheduleRequested ? 1 : 0, m_checkpointPending.load(std::memory_order_relaxed) ? 1 : 0, m_s17Depth,
                  m_insideInterrupt ? 1 : 0, g_ps2xB1Carry, (unsigned long long)g_eeB1.claims, (unsigned long long)g_eeB1.resumes,
-                 (unsigned long long)g_eeB1.yieldCheckpoint, (unsigned long long)g_eeB1.yieldLeave, (void *)m_activeCarrier, (void *)m_spareCarrier);
+                 (unsigned long long)g_eeB1.yieldCheckpoint, (unsigned long long)g_eeB1.yieldLeave, (void *)m_activeCarrier, (void *)m_spareCarrier[0],
+                 g_ps2xB2Carry, (unsigned long long)g_eeB2.claims, (unsigned long long)g_eeB2.resumes, (unsigned long long)g_eeB2.yieldCheckpoint,
+                 (unsigned long long)g_eeB2.yieldLeave, (unsigned long long)g_eeB2Waits.inPlace);
     for (const auto &[id, t] : m_threads)
     {
         if (id < 0 && t.status == EeThreadStatus::Dormant && t.invocations.empty())
@@ -2278,12 +2302,31 @@ uint32_t EeScheduler::setGsVSyncCallback(uint32_t callback, uint32_t gp, uint32_
     return previous;
 }
 
-[[noreturn]] void EeScheduler::waitVSync(uint64_t afterTick, int fixedResult, std::function<void(R5900Context &)> completion)
+// Round B2: on a carrier the thread parks in place: the baton goes back to the dispatcher, which readies the thread when
+// the wait ends and runs its completion as it would before re-dispatching it; the carrier then gets the baton back and
+// this returns true (the caller returns at once: the generated code goes on at ctx->pc, where the completion left it, as
+// it would after the unwind). At the yield with the switch off (or the stop) the dispatcher answers "unwind": the
+// exception, after the wait, which leaves ctx->pc where the generated code goes on.
+bool EeScheduler::parkInPlace(EeWaitState &wait)
 {
-    blockCurrent(EeWaitState{
-        EeWaitReason::VSync,
-        EeVSyncWait{afterTick, fixedResult},
-        std::move(completion)});
+    if (__builtin_expect(m_activeCarrier == nullptr, 1))
+        return false;
+    if (g_ps2xB1Check)
+        b1Audit(3);
+    parkCurrent(std::move(wait));
+    ++g_eeB2Waits.inPlace;
+    if (!carrierYield(1))
+        return true;
+    ++g_eeB2Waits.handedBack;
+    throw EeDispatcherTransfer{};
+}
+
+void EeScheduler::waitVSync(uint64_t afterTick, int fixedResult, std::function<void(R5900Context &)> completion, bool inPlace)
+{
+    EeWaitState wait{EeWaitReason::VSync, EeVSyncWait{afterTick, fixedResult}, std::move(completion)};
+    if (inPlace && parkInPlace(wait))
+        return;
+    blockCurrent(std::move(wait));
 }
 
 void EeScheduler::completeVSync(uint64_t tick)
@@ -2341,16 +2384,18 @@ void EeScheduler::completeExternalWait(uint32_t type, uint64_t token, int result
     publishSnapshot();
 }
 
-[[noreturn]] void EeScheduler::waitExternal(EeWaitReason reason,
-                                            uint32_t type,
-                                            uint64_t token,
-                                            std::function<void(R5900Context &)> completion)
+void EeScheduler::waitExternal(EeWaitReason reason,
+                               uint32_t type,
+                               uint64_t token,
+                               std::function<void(R5900Context &)> completion)
 {
     EeWaitState wait{reason, EeExternalWait{type, token}, std::move(completion)};
+    if (parkInPlace(wait))
+        return;
     blockCurrent(std::move(wait));
 }
 
-[[noreturn]] void EeScheduler::delayCurrent(uint32_t microseconds, std::function<void(R5900Context &)> completion)
+void EeScheduler::delayCurrent(uint32_t microseconds, std::function<void(R5900Context &)> completion)
 {
     constexpr uint32_t kDelayWaitType = 0x44454C59u; // 'DELY'
     const uint64_t token = m_nextDelayToken++;

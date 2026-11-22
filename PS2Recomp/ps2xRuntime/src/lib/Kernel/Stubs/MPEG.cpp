@@ -2320,6 +2320,7 @@ namespace ps2_stubs
                         }
                         sceMpegGetPicture(rdram, &resumeContext, runtime);
                     });
+                return; // round B2: parked in place on a carrier, the completion already run (ee_scheduler.h)
             }
 
             if (!playback.decodedFrames.empty())
@@ -2356,6 +2357,7 @@ namespace ps2_stubs
                             }
                             sceMpegGetPicture(rdram, &resumeContext, runtime);
                         });
+                    return; // round B2: parked in place on a carrier, the completion already run (ee_scheduler.h)
                 }
 
                 frame = std::move(playback.decodedFrames.front());
