@@ -240,6 +240,8 @@ unproven (177), relocated calls (63), the 2 973 waiting on an untyped callee.
 | B2 | the loader / streaming threads as host threads (CD reads, iosSendMsg / iosRecvMsg as host queues) | load / transition routes clean, no hitch regression on the console |
 | B3 | the game's main thread as a host thread; EE semaphores, thread ids, alarms as host primitives; scheduler checkpoints out of the generators | `PS2_CHECKPOINT*` gone from generated code; n5sched / dispatcher removed |
 
+**Status (2026-11-22, round B1 + B1b, docs/decomp_b1.md)**: the VBlank / sound thread (0x1c80a0, t8) runs as host C++ on a host carrier thread that passes one baton with the EE dispatcher (parks and checkpoints yield in place; tickProcSound / Sg2CtrlTickProc host functions); switch b1sound, off by default. B1b fixed its Vita3K freeze (a lost condition-variable wake in the baton: now a kernel semaphore per side). Exact (82 of 82 windows carrier ticks = VBlanks, audit 0 bad, VBlank count = sound ticks), A/B pooled +0.155 +- 0.037 ms (on faster), audio counters alike muted; still a guest thread record, the VBlank handler's wake and guest callees (B2 / B3). Waits for the user's ears and a console A/B.
+
 **Phase C: the generator over everything (6-8 rounds, by area, by console time first)** — T1 + T2 on BLOCK regions
 and on whatever A4 did not cover, the area's hand naming pass for its main structs:
 

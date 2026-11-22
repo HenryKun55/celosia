@@ -23769,3 +23769,28 @@ docs/decomp_a7.md. Scripts, runs and logs: `build/agent-scratch/a7/`. Switch `SO
   WaitSema); the quaternion natives need a bit-exact quat122 or a typed path that follows the switch; the spin rule for
   manager_sub_01114C70 (800 behind it); EIntr / DIntr; WaitSema / SignalSema with phase B.
 
+## Decomp B1: the VBlank / sound thread on a host thread (b1sound, off by default) (2026-11-22)
+
+docs/decomp_b1.md. Scripts, runs and logs: `build/agent-scratch/b1/`. Switch `SOTC_B1SOUND` (A/B `b1sound`, `kB1Sound`), **off
+by default**; check `SOTC_B1SOUND_CHECK=1`; console package `build/agent-scratch/b1/celosia-b1.vpk` + `env-ab.txt`.
+
+- **What**: phase B's first step. The game's VBlank / sound thread (KERNEL 0x1c80a0, priority 40, the scheduler's t8:
+  SleepThread, the VBlank count, tickProcSound, the pads, a poll of the GP thread's box) runs as host C++ on a host
+  thread of its own (the "carrier"), with tickProcSound / Sg2CtrlTickProc as host functions in guest-frame form. The
+  carrier and the EE dispatcher pass one baton: only one runs guest-visible code at a time, every scheduling decision is
+  still the dispatcher's, and where the generated code would unwind (a checkpoint for the scheduler, a park, a thread
+  switch) the carrier hands the baton back and goes on in place: no unwinding, no resume entries for the loop.
+- **Round B1b, the freeze**: B1's build froze in Vita3K with the switch on (frames 3-1 259, every A/B). A watchdog
+  (`SOTC_B1_WATCHDOG`, `[b1dog]` lines) showed the carrier had handed the baton back (turn = dispatcher, both hand-over
+  counts equal) while the executor still slept inside its condition-variable wait with its predicate true, for 48 s:
+  the hand-over's notify was lost below the C++ (vitasdk's pthread cv over Vita3K's kernel primitives). B1's untimed
+  cv reproduces it (`SOTC_B1_BATON=cv SOTC_B1_BATON_US=0`: frozen at frame 462); the cv re-checked every 1 ms runs;
+  **fix**: on the Vita the baton is one kernel semaphore per side (a count: a hand-over cannot be missed).
+- **Exact**: ride7 600 s / attract 400 s / lake6 400 s with the check: carrier ticks = VBlanks in every 600-frame window
+  (82 of 82), executor audit 0 bad of 941 218, kept registers 0 bad, the game's VBlank count = sound ticks = ctrl ticks
+  (35 259 / 23 588 / 23 201), watchdog silent. A/Bs toggling every frame: 15 223 take-overs and hand-backs, no freeze.
+- **Audio counters** (muted runs): on and off alike (status replies = VBlanks, PCM underruns / stale halves / ADPCM waits
+  0 both ways, stream starts / refills / key-ons in the route's range). The user must listen on the console.
+- **Measured** (Vita3K 222, off - on, 2 SE): ride7 +0.030 +- 0.147 / +0.126 +- 0.130, lake6 +0.310 +- 0.099; pooled
+  **+0.155 +- 0.037 ms (1 SE), z 4.2** (on faster), busy +0.179 +- 0.033.
+- **Boot**: 89 MB taken, rode the 600 s (mounted at 3 326), pictures normal. spalign 0.
