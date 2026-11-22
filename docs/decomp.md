@@ -23665,6 +23665,7 @@ docs/decomp_a6.md. Scripts, runs and logs: `build/agent-scratch/a6/`. Switch `SO
   quaternion natives), the printf-family stubs (iosJumpRecoverPoint, vsprintf, printf, sceWrite: a core over the argument
   registers and sp), GetLayoutClass's lifted callers that read a1 after it; WaitSema / SignalSema with phase B.
 
+<<<<<<< HEAD
 ## Decomp DC2: the hottest character-chain functions by console time as real C++ (dc2chara, off by default) (2026-11-22)
 
 The full write-up is docs/decomp_dc2.md. The console's prof129 rides rank the chain: of the functions not yet real, DC2
@@ -23735,3 +23736,38 @@ default**; check `SOTC_P4MOVE_CHECK=1` in a `-DPS2X_P4_CHECK=1` build; console p
 - **Boot**: 89 MB taken, rode the 600 s (mounted at 5 279), pictures normal. spalign 0.
 - **Honest size**: small in Vita3K (its worker keeps up); on the console up to most of the ~1 ms wait, minus the walk
   (0.045 ms a frame riding in Vita3K). Next: a per-walk memo of each texture's answer (half the jobs asked are particles).
+=======
+## Decomp A7: callers take their callees' scratch registers back, the printf family as cores, eight more natives (a7typed) (2026-11-22)
+
+docs/decomp_a7.md. Scripts, runs and logs: `build/agent-scratch/a7/`. Switch `SOTC_A7TYPED` (A/B `a7typed`, `kA7Typed`);
+`SOTC_A7AD=0` leaves stage 7's never-lifted adapters out of the table.
+
+- **S1, extra outputs consumed** (tools/typed_lift2.py stage 7, `a7_consume`): a typed caller that reads a callee's scratch
+  register after the call takes it back from the callee's extra outputs (A3's xo, now also passed by typed callers: `a7c[n]`
+  in, the changed slots out); a callee asked for one is emitted with it (a stage-7 function) or gets a variant `<name>_x7` (a
+  function an earlier round typed; 125 variants), round by round to a fixpoint. GetLayoutClass (A6's "live scratch" wall, 1 244
+  waiting behind it) and its 160-odd companions came in this way; with it a callee's 64-bit return makes v0 wide.
+- **S2, the printf family**: ps2_stubs::printf (iosJumpRecoverPoint's stub too), vsprintf and fioWrite (sceWrite) split into a
+  register wrapper and a core over the argument values (printf: the eight argument registers and sp, its varargs past them from
+  the guest stack as the stub reads them); typed callers call the cores. A typed caller of printf keeps its frame in guest RAM,
+  and so does the caller of any guest-frame callee that reads its caller's frame.
+- **S3, eight more MIPS-step natives** (docs/a7_natives.txt, A6's rule and check): GetScriptCharacterClass, isysGroupForNext,
+  kernel_sub_001ADBC0 / ADDC0, EntryModifiedManager, manager_sub_01114C70, MakeStrHashValue, iosAbsVector (and four of A6's ten
+  came in now that their callees are typed). The quaternion natives stay out: their quat122 path is not bit-exact.
+- **Two exactness fixes the harness found** (stage 7): a guest frame keeps the argument registers' spills (a varargs function's
+  va area) instead of dropping them as saves; a float constant reaches float code through `a7_opq` (no compile-time folding in
+  round-to-nearest while the game rounds toward zero), and the check TU is built with rounding-math.
+- **791 more functions** (483 lifted, 297 never lifted, 11 natives; 125 variants not counted). Per step: S1 439, + S2 471,
+  + S3 792 (before sheetMgrSearchSheetDataObj went into docs/a3_skip.txt); of A6's 4 532 waiting functions 405 came in, 4 079
+  still wait (WaitSema / SignalSema, the non-exact quaternion natives, LoaderSysPrintf's spills, spin loops). (d) = **3 756
+  (41.6%)**, 13.4% of the bytes, 8.7% of the console game thread.
+- **Exact**: in-run checks 5.31 M (A7, 916 entries with the variants) + 8.89 M (A6) + 2.08 M (A5) + 2.20 M (A4) + 4.44 M (A3) on
+  ride7 / attract / lake6, 0 differences; the 11 natives against their typed functions 2.90 M, 0. Offline harness 12.4 M checks:
+  with the upper halves 0, 3 differences (GetMotionNS_RootShiftInfo's vf5 at lanes near FLT_MAX, open); with random upper halves
+  also the A2 movn-$zero upper-half class through two functions' interfaces (A6's known class).
+- **Measured**: A/B pooled +0.109 +- 0.070 ms on p2 (+0.109 +- 0.086 on the first generation): on is faster; 89 MB boot rode 600 s, pictures normal; spalign 0. **On by default**.
+- **Next**: LoaderSysPrintf / iosSPrintf's spills (patch ready: +12 functions, 993 waiting behind LoaderSysPrintf also wait on
+  WaitSema); the quaternion natives need a bit-exact quat122 or a typed path that follows the switch; the spin rule for
+  manager_sub_01114C70 (800 behind it); EIntr / DIntr; WaitSema / SignalSema with phase B.
+
+>>>>>>> 6641422 (A7 docs: docs/decomp_a7.md, decomp.md Decomp A7, rounds.json A7 row, plan status; checks 5.31 M A7 + 8.89 M A6 + 2.08 M A5 + 2.20 M A4 + 4.44 M A3 0 differ, natives 2.90 M 0 differ, harness HI0 3 differ (GetMotionNS_RootShiftInfo, open) + the A2 upper-half class, A/B pooled +0.109 +- 0.070 ms (on faster), 89 MB boot normal, spalign 0)
