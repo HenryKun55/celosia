@@ -9,6 +9,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7968,6 +7969,7 @@ void charrootdyn_getGPRelativePositionWithQ(uint8_t *rdram, R5900Context *ctx, P
 // charrootdyn_resetVColEdgeFindFlag (0x10ddf28-0x10ddf60)
 void charrootdyn_resetVColEdgeFindFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1147AB0u, lift_d1::DeleteTwoWayLink), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(charrootdyn_resetVColEdgeFindFlag, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_IN(73); const uint32_t a2_r = typed::charrootdyn_resetVColEdgeFindFlag(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     sp = sp - 0x10u;
@@ -8001,6 +8003,7 @@ void charrootdyn_resetVColEdgeFindFlag(uint8_t *rdram, R5900Context *ctx, PS2Run
 // charrootdyn_resetChainFindStatus (0x10ddf60-0x10ddf78)
 void charrootdyn_resetChainFindStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10C2BE8u, lift_d1::UnlinkSecureParentInfo) && A5_HOLDS(0x1147AB0u, lift_d1::DeleteTwoWayLink), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(charrootdyn_resetChainFindStatus, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_IN(223); const uint32_t a2_r = typed::charrootdyn_resetChainFindStatus(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = a0 + 0xDA0u;
@@ -8018,6 +8021,7 @@ void charrootdyn_resetChainFindStatus(uint8_t *rdram, R5900Context *ctx, PS2Runt
 void charrootdyn_resetkeepcolhitstatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10DDF78u, 0)) { charrootdyn_resetkeepcolhitstatus_0x10ddf78(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1147AB0u, lift_d1::DeleteTwoWayLink), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(charrootdyn_resetkeepcolhitstatus, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_IN(74); const uint32_t a2_r = typed::charrootdyn_resetkeepcolhitstatus(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     bool df_v0 = false, df_sp = false;
@@ -9912,6 +9916,7 @@ L_10eb9b0:
 void manager_sub_010EC9C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10EC9C8u, 0)) { manager_sub_010EC9C8_0x10ec9c8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10B74C0u, lift_d1::IsFullFixFormat), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A5_CHK(manager_sub_010EC9C8, a2_4, a2_5, a2_6); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a3_xo[4] = {(uint64_t)a1_bits(ctx->f[0]), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; A5_IN(75); const uint64_t a2_r = typed::manager_sub_010EC9C8(rdram, runtime, a2_4, a2_5, a2_6, a4_vf5, a4_vf6, a4_h2, a4_h3, a4_h5, a3_xo); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); Ps2SetGpr64(ctx, 8, a3_xo[3]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), t0 = Ps2GprU64(ctx, 8), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -11113,6 +11118,7 @@ L_10f72e4:
 void manager_sub_010F7900(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10F7900u, 0)) { manager_sub_010F7900_0x10f7900(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1BEB88u, lift_d1::iosCalcFColorToBrightness) && A5_HOLDS(0x10B74C0u, lift_d1::IsFullFixFormat) && A5_JAL(0x10F7A64u, 0x1BEB88u) && A5_JAL(0x10F7BB4u, 0x1BEB88u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const uint32_t a2_29 = Ps2GprU32(ctx, 29); A5_CHK(manager_sub_010F7900, a2_4, a2_5, a2_6, a2_29); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[3] = {(uint64_t)a1_bits(ctx->f[0]), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)}; A5_IN(78); const uint64_t a2_r = typed::manager_sub_010F7900(rdram, runtime, a2_4, a2_5, a2_6, a2_29, a4_vf5, a4_vf6, a4_vf7, a4_h2, a4_h3, a3_xo); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), s1 = Ps2GprU32(ctx, 17), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16), s2 = Ps2GprU64(ctx, 18);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -12115,6 +12121,7 @@ L_1101788:
 // GetScriptObjWorkSize (0x1102a40-0x1102a58)
 void GetScriptObjWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1CA4A0u, lift_d1::isysGetSubThreadWorkSize) && A5_JAL(0x1102A50u, 0x1CA4A0u), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A5_CHK(GetScriptObjWorkSize, a2_4); A5_IN(84); const uint32_t a2_r = typed::GetScriptObjWorkSize(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));

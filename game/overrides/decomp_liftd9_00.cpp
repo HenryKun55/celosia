@@ -7,6 +7,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -18825,6 +18826,7 @@ void SCRFuncBootBoss(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // SCRFuncSetGameFlag (0x1451790-0x14517a8)
 void SCRFuncSetGameFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x134EFB0u, lift_d1::_gameFlagSet), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(SCRFuncSetGameFlag, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_IN(208); const uint64_t a2_r = typed::SCRFuncSetGameFlag(rdram, runtime, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     sp = sp - 0x10u;
@@ -19628,6 +19630,7 @@ void createScrDemoManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void startHintWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145BAB0u, 0)) { startHintWork_0x145bab0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x134F0D8u, lift_d1::_gameIWorkSet) && A5_HOLDS(0x134F138u, lift_d1::_gameIWorkChk), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint32_t a2_4 = Ps2GprU32(ctx, 4); A5_CHK(startHintWork, a2_2, a2_4); A5_IN(215); const uint64_t a2_r = typed::startHintWork(rdram, runtime, a2_2, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5);
     bool df_v1 = false, df_a0 = false;

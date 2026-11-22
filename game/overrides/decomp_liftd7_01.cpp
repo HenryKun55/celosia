@@ -7,6 +7,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -13623,6 +13624,7 @@ L_1da584:
 void Sg2VabHdClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1DA5F0u, 0)) { Sg2VabHdClose_0x1da5f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1DA0A0u, lift_d1::vab_check_alive), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(Sg2VabHdClose, a2_2, a2_4); A5_IN(59); const uint64_t a2_r = typed::Sg2VabHdClose(rdram, runtime, a2_2, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), t4 = Ps2GprU32(ctx, 12), t5 = Ps2GprU32(ctx, 13), t6 = Ps2GprU32(ctx, 14), t7 = Ps2GprU32(ctx, 15), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     sp = sp - 0x10u;
@@ -15905,6 +15907,7 @@ void gluSetWrapMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void glSetFogFactor(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x108F530u, 0)) { glSetFogFactor_0x108f530(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1089B70u, lift_d1::getFogFactor0) && A5_HOLDS(0x1089BB0u, lift_d1::getFogFactor1), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f0 = ctx->f[0]; const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(glSetFogFactor, a2_4, a2_29, a2_f0, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf23 = ctx->vu0_vf[23]; a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vf28 = ctx->vu0_vf[28]; a4::vec4 a4_vf29 = ctx->vu0_vf[29]; a4::vec4 a4_vf30 = ctx->vu0_vf[30]; a4::vec4 a4_vf31 = ctx->vu0_vf[31]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h8 = a4::hi64(ctx->r[8]); A5_IN(66); const a1::RetVF a2_r = typed::glSetFogFactor(rdram, runtime, a2_4, a2_29, a2_f0, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_vf0, a4_vf23, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vf28, a4_vf29, a4_vf30, a4_vf31, a4_vacc, a4_vq, a4_vstat, a4_h8); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[23] = a4_vf23; ctx->vu0_vf[24] = a4_vf24; ctx->vu0_vf[25] = a4_vf25; ctx->vu0_vf[26] = a4_vf26; ctx->vu0_vf[27] = a4_vf27; ctx->vu0_vf[28] = a4_vf28; ctx->vu0_vf[29] = a4_vf29; ctx->vu0_vf[30] = a4_vf30; ctx->vu0_vf[31] = a4_vf31; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[8] = a4::mk128(a4_h8, Ps2GprU64(ctx, 8)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), t0 = Ps2GprU64(ctx, 8), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3];

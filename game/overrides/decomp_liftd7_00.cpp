@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a3.h" // a3
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -21421,6 +21422,7 @@ void iosCalcIcolorToBrightness(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 void iosIColToFvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1BA458u, 0)) { iosIColToFvec_0x1ba458(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1BE778u, lift_d1::iosITOF0Vector), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_29 = Ps2GprU32(ctx, 29); A5_CHK(iosIColToFvec, a2_4, a2_5, a2_29); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; A5_IN(57); const uint64_t a2_r = typed::iosIColToFvec(rdram, runtime, a2_4, a2_5, a2_29, a4_vf5, a4_vf6); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5);
     (v0 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));

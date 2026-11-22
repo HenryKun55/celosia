@@ -58,6 +58,8 @@ namespace A3CK_NS
         uint32_t gen = 0, used[2] = {0, 0}, sp = 0;
         uint64_t h[2] = {0, 0}, n[2] = {0, 0}, legBacks = 0;
         int cur = 0;
+        // A5: a guest frame's prologue save slots (entry-sp-relative), and the reference leg's stores into each (its save is one)
+        uint32_t svLo[16] = {}, svHi[16] = {}, svHits[16] = {}, svN = 0;
         bool ovf = false, io = false, active = false;
         uint8_t *ram = nullptr;
         PS2Runtime *rt = nullptr;
@@ -150,6 +152,10 @@ namespace A3CK_NS
         std::memcpy(&x, &v, sizeof(T));
         for (uint32_t k = 0; k < sizeof(T); ++k)
             ovPut(s, c, a + k, static_cast<uint8_t>(x >> (8u * k)));
+        if (s.svN && c == 0)
+            for (uint32_t k = 0; k < s.svN; ++k)
+                if (a < s.svHi[k] && a + sizeof(T) > s.svLo[k])
+                    ++s.svHits[k];
         if (s.sp - a - 1u < kDeadStack) // the dead stack: the reference's frames
         {
             g_frameStores += c == 0;
@@ -201,6 +207,58 @@ namespace A3CK_NS
         return d;
     }
 
+    // A5: as vuDiffer, the upper halves only of the GPRs in the typed function's interface (mask); an upper half outside it
+    // that differs is counted apart (g_hOut), not as a difference: the A1-A3 typed callees leave a GPR's upper half
+    // alone where lift_d1's text zeroes it (`movz rd, $zero, rt`: _mm_setzero_si128 into ctx->r[rd]), docs/decomp_a5.md
+    inline uint64_t g_hOut = 0;
+    inline bool vuDifferMask(const R5900Context &t, const R5900Context &ref, uint32_t mask)
+    {
+        bool d = std::memcmp(&t.vu0_vf[0], &ref.vu0_vf[0], sizeof(t.vu0_vf)) != 0 || std::memcmp(&t.vu0_acc, &ref.vu0_acc, 16) != 0 ||
+                 a1ck::ckBits(t.vu0_q) != a1ck::ckBits(ref.vu0_q) || t.vu0_status != ref.vu0_status;
+        bool out = false;
+        for (int r = 1; r < 32; ++r)
+        {
+            if (std::memcmp(reinterpret_cast<const uint8_t *>(&t.r[r]) + 8, reinterpret_cast<const uint8_t *>(&ref.r[r]) + 8, 8) == 0)
+                continue;
+            if (mask & (1u << r))
+                d = true;
+            else
+                out = true;
+        }
+        g_hOut += out;
+        return d;
+    }
+
+    // A5: a guest frame's save slots. The typed function keeps the caller's callee-saved registers in its own registers (the
+    // prologue's saves and their restores go), so it equals the lifted text only while nothing else stores into those
+    // slots between the save and the restore: in the game a store there would be a stack overflow; with random inputs a
+    // runaway loop (a count drawn at random) can sweep up the stack. A check whose reference leg stored into a save slot
+    // other than by its save is given up and counted (g_saveClob), never compared as equal.
+    inline uint64_t g_saveClob = 0;
+    inline void ckSaves(const int32_t (*sv)[2], uint32_t n)
+    {
+        State &s = st();
+        s.svN = n < 16u ? n : 16u;
+        for (uint32_t k = 0; k < s.svN; ++k)
+        {
+            s.svLo[k] = s.sp + static_cast<uint32_t>(sv[k][0]);
+            s.svHi[k] = s.svLo[k] + static_cast<uint32_t>(sv[k][1]);
+            s.svHits[k] = 0;
+        }
+    }
+    inline bool ckSavesClobbered()
+    {
+        State &s = st();
+        for (uint32_t k = 0; k < s.svN; ++k)
+            if (s.svHits[k] > 1u)
+            {
+                ++g_saveClob;
+                s.active = false;
+                return true;
+            }
+        return false;
+    }
+
     inline void ckUnknownCall(uint32_t) { ++g_unknownCalls; }
     inline void legBack()
     {
@@ -228,6 +286,7 @@ namespace A3CK_NS
         s.h[0] = s.h[1] = s.n[0] = s.n[1] = 0;
         s.legBacks = 0;
         s.cur = 0;
+        s.svN = 0;
         s.ovf = s.io = false;
         s.ram = ram;
         s.rt = rt;
@@ -377,6 +436,11 @@ namespace A3CK_NS
                      (unsigned long long)g_xo, (unsigned long long)g_vu, (unsigned long long)g_unverified, (unsigned long long)g.io, (unsigned long long)g.nested,
                      (unsigned long long)g_unknownCalls, (unsigned long long)g_frameStores, (unsigned long long)g_backs[0],
                      (unsigned long long)g_backs[1], (unsigned long long)g.droppedChanged, g.firstId >= 0 ? "; first: " : "", g.first);
+#if defined(A5_CHECK_TU)
+        std::fprintf(stderr, A3CK_LABEL " frame %llu: upper halves outside the interface that differ (an A1-A3 callee's movz $zero) %llu; "
+                             "guest-frame save slots stored into by the reference (checks given up) %llu\n", frame,
+                     (unsigned long long)g_hOut, (unsigned long long)g_saveClob);
+#endif
     }
 }
 

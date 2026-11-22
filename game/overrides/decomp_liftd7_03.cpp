@@ -7,6 +7,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -4755,6 +4756,7 @@ void charrootdyn_getLocalOffsetFromParentGPwithGPCoordinate(uint8_t *rdram, R590
 // charrootdyn_getEdgeEffectivityCheckRayPosition (0x10df448-0x10df560)
 void charrootdyn_getEdgeEffectivityCheckRayPosition(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const uint32_t a2_7 = Ps2GprU32(ctx, 7); const uint32_t a2_8 = Ps2GprU32(ctx, 8); const uint32_t a2_9 = Ps2GprU32(ctx, 9); const uint32_t a2_10 = Ps2GprU32(ctx, 10); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; A5_CHK(charrootdyn_getEdgeEffectivityCheckRayPosition, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_10, a2_29, a2_f12); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h3 = a4::hi64(ctx->r[3]); const uint32_t a2_r = typed::charrootdyn_getEdgeEffectivityCheckRayPosition(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_10, a2_29, a2_f12, a4_vf0, a4_vf5, a4_vf6, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h3); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12];
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7];
@@ -12539,6 +12541,7 @@ void UpdateGlobalLightInRange(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // UpdateGlobalLightOutRange (0x10f8d60-0x10f8e40)
 void UpdateGlobalLightOutRange(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_29 = Ps2GprU32(ctx, 29); A5_CHK(UpdateGlobalLightOutRange, a2_4, a2_5, a2_29); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); const a1::RetVF a2_r = typed::UpdateGlobalLightOutRange(rdram, runtime, a2_4, a2_5, a2_29, a4_vf5, a4_vf6, a4_vf7, a4_h2, a4_h3); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     float f0 = ctx->f[0], f1 = ctx->f[1];
@@ -12615,6 +12618,7 @@ void UpdateGlobalLightOutRange(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 void UpdateGlobalLightAmbient(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10F8E40u, 0)) { UpdateGlobalLightAmbient_0x10f8e40(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1BEB88u, lift_d1::iosCalcFColorToBrightness) && A5_JAL(0x10F8E64u, 0x1BEB88u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A5_CHK(UpdateGlobalLightAmbient, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); A5_IN(79); const a1::RetVF a2_r = typed::UpdateGlobalLightAmbient(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6, a4_h2); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -12857,6 +12861,7 @@ L_10f90c0:
 void CalcColorParamDistantLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10F90C8u, 0)) { CalcColorParamDistantLight_0x10f90c8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1BEB88u, lift_d1::iosCalcFColorToBrightness) && A5_JAL(0x10F90D8u, 0x1BEB88u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f0 = ctx->f[0]; A5_CHK(CalcColorParamDistantLight, a2_4, a2_f0); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; A5_IN(80); const a1::RetVF a2_r = typed::CalcColorParamDistantLight(rdram, runtime, a2_4, a2_f0, a4_vf5, a4_vf6); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -12901,6 +12906,7 @@ void CalcColorParamDistantLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void CalcColorParamAmbientLight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10F9110u, 0)) { CalcColorParamAmbientLight_0x10f9110(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1BEB88u, lift_d1::iosCalcFColorToBrightness) && A5_JAL(0x10F9120u, 0x1BEB88u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f0 = ctx->f[0]; A5_CHK(CalcColorParamAmbientLight, a2_4, a2_f0); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; A5_IN(81); const a1::RetVF a2_r = typed::CalcColorParamAmbientLight(rdram, runtime, a2_4, a2_f0, a4_vf5, a4_vf6); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -17022,6 +17028,7 @@ L_10fe534:
 void InitObjectManagerResourceInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x11008C0u, 0)) { InitObjectManagerResourceInfo_0x11008c0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1C7658u, lift_d1::isysInitGroup) && A5_JAL(0x11008DCu, 0x1C7658u) && A5_JAL(0x11008E4u, 0x1C7658u) && A5_JAL(0x11008F0u, 0x1C7658u) && A5_JAL(0x11008FCu, 0x1C7658u) && A5_JAL(0x1100908u, 0x1C7658u) && A5_JAL(0x1100914u, 0x1C7658u) && A5_JAL(0x110092Cu, 0x1C7658u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(InitObjectManagerResourceInfo, a2_4); A5_IN(82); typed::InitObjectManagerResourceInfo(rdram, runtime, a2_4); A5_OUT(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t s0 = Ps2GprU32(ctx, 16), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     sp = sp - 0x10u;
@@ -18346,6 +18353,7 @@ L_1102148:
 void initScriptSystem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1102788u, 0)) { initScriptSystem_0x1102788(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1C7658u, lift_d1::isysInitGroup) && A5_JAL(0x11027ACu, 0x1C7658u), 1)) { A5_CHK(initScriptSystem); A5_IN(83); const uint32_t a2_r = typed::initScriptSystem(rdram, runtime); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     bool df_v0 = false, df_sp = false;

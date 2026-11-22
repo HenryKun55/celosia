@@ -9,6 +9,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -2041,6 +2042,7 @@ L_1164a50:
 void manager_sub_01164BC0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1164BC0u, 0)) { manager_sub_01164BC0_0x1164bc0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1B91A0u, lift_d1::iosUnitMatrix) && A5_JAL(0x1164C04u, 0x1B91A0u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const float a2_f20 = ctx->f[20]; const float a2_f21 = ctx->f[21]; A5_CHK(manager_sub_01164BC0, a2_4, a2_5, a2_6, a2_f20, a2_f21); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[20]), (uint64_t)a1_bits(ctx->f[21])}; A5_IN(108); const a1::RetVF a2_r = typed::manager_sub_01164BC0(rdram, runtime, a2_4, a2_5, a2_6, a2_f20, a2_f21, a4_vf0, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a3_xo); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[20] = a1_flt((uint32_t)a3_xo[0]); ctx->f[21] = a1_flt((uint32_t)a3_xo[1]); ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f20 = ctx->f[20], f21 = ctx->f[21];
@@ -3987,6 +3989,7 @@ void ChangeGameAnimeTimeScaleRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime
 void gamecore_sub_01345FB0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1345FB0u, 0)) { gamecore_sub_01345FB0_0x1345fb0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1AD528u, lift_d1::iosGetTCountExtension) && A5_JAL(0x1345FCCu, 0x1AD528u), 1)) { const uint64_t a2_29 = Ps2GprU64(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(gamecore_sub_01345FB0, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_IN(112); const uint64_t a2_r = typed::gamecore_sub_01345FB0(rdram, runtime, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), s0 = Ps2GprU64(ctx, 16), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     (sp = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 4294967280))));
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)326 << 16))));
@@ -4089,6 +4092,7 @@ L_134a46c:
 void bossStatGetActiveBoss(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x134A480u, 0)) { bossStatGetActiveBoss_0x134a480(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x134F108u, lift_d1::_gameWorkChk), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(bossStatGetActiveBoss, a2_2, a2_4); uint64_t a4_h4 = a4::hi64(ctx->r[4]); uint64_t a3_xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)}; A5_IN(117); const uint64_t a2_r = typed::bossStatGetActiveBoss(rdram, runtime, a2_2, a2_4, a4_h4, a3_xo); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); ctx->r[4] = a4::mk128(a4_h4, Ps2GprU64(ctx, 4)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a3 = Ps2GprU64(ctx, 7);
     bool df_a1 = false, df_a2 = false;
@@ -4694,6 +4698,7 @@ void getNowPowerRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void gamecore_sub_0135BDF0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x135BDF0u, 0)) { gamecore_sub_0135BDF0_0x135bdf0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10AC460u, lift_d1::setZFogFar) && A5_JAL(0x135BE2Cu, 0x10AC460u), 1)) { A5_CHK(gamecore_sub_0135BDF0); uint64_t a3_xo[4] = {(uint64_t)a1_bits(ctx->f[0]), (uint64_t)a1_bits(ctx->f[12]), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)}; A5_IN(123); const uint32_t a2_r = typed::gamecore_sub_0135BDF0(rdram, runtime, a3_xo); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->f[12] = a1_flt((uint32_t)a3_xo[1]); Ps2SetGpr64(ctx, 4, a3_xo[2]); Ps2SetGpr64(ctx, 5, a3_xo[3]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), s0 = Ps2GprU32(ctx, 16), s1 = Ps2GprU32(ctx, 17), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
     bool df_a1 = false, df_s1 = false, df_sp = false;

@@ -74,6 +74,11 @@ def facts(a):
         nodes = lf.node_effects()
     except Exception as e:  # Refuse / parse limits: unproven
         return a, None, f'{type(e).__name__}: {str(e)[:60]}'
+    return facts_from(a, lf, nodes)
+
+
+def facts_from(a, lf, nodes):
+    """facts() on a Lifter already built (A5: tools/typed_lift2.py's typed ABI proof reuses the Emit's own Lifter)."""
     order, succ = lf.order, lf.succ
     calls, why = [], set()
     cfg = {}

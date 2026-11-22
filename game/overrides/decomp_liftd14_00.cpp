@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -17371,6 +17372,7 @@ void SCRPlayerBeginAccumulateAttack(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 // SCRPlayerSendDamageLater (0x13b63f0-0x13b6410)
 void SCRPlayerSendDamageLater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10C1530u, lift_d1::RequestCharacterMotionShiftFunc) && A5_JAL(0x13B6404u, 0x10C1530u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(SCRPlayerSendDamageLater, a2_4); A5_IN(145); const uint32_t a2_r = typed::SCRPlayerSendDamageLater(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a1 = 0x13B0000u;
@@ -17389,6 +17391,7 @@ void SCRPlayerSendDamageLater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // SCRPlayerSendDiveDamageLater (0x13b6430-0x13b6450)
 void SCRPlayerSendDiveDamageLater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10C1530u, lift_d1::RequestCharacterMotionShiftFunc) && A5_JAL(0x13B6444u, 0x10C1530u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(SCRPlayerSendDiveDamageLater, a2_4); A5_IN(146); const uint32_t a2_r = typed::SCRPlayerSendDiveDamageLater(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a1 = 0x13B0000u;
@@ -17407,6 +17410,7 @@ void SCRPlayerSendDiveDamageLater(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 // SCRPlayerSowrdHitSoundLarge (0x13b64b0-0x13b64d0)
 void SCRPlayerSowrdHitSoundLarge(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10C1530u, lift_d1::RequestCharacterMotionShiftFunc) && A5_JAL(0x13B64C4u, 0x10C1530u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(SCRPlayerSowrdHitSoundLarge, a2_4); A5_IN(148); const uint32_t a2_r = typed::SCRPlayerSowrdHitSoundLarge(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a1 = 0x13B0000u;
@@ -17425,6 +17429,7 @@ void SCRPlayerSowrdHitSoundLarge(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
 // SCRPlayerSowrdDiveHitSound (0x13b64d0-0x13b64f0)
 void SCRPlayerSowrdDiveHitSound(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10C1530u, lift_d1::RequestCharacterMotionShiftFunc) && A5_JAL(0x13B64E4u, 0x10C1530u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(SCRPlayerSowrdDiveHitSound, a2_4); A5_IN(149); const uint32_t a2_r = typed::SCRPlayerSowrdDiveHitSound(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a1 = 0x13B0000u;
@@ -17443,6 +17448,7 @@ void SCRPlayerSowrdDiveHitSound(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // SCRPlayerFullPower (0x13b64f0-0x13b6510)
 void SCRPlayerFullPower(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x10C1530u, lift_d1::RequestCharacterMotionShiftFunc) && A5_JAL(0x13B6504u, 0x10C1530u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(SCRPlayerFullPower, a2_4); A5_IN(150); const uint32_t a2_r = typed::SCRPlayerFullPower(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a1 = 0x13B0000u;

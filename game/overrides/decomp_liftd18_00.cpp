@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D18".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5268,6 +5269,7 @@ void end_rewind_camera_dist_to_look_at(uint8_t *rdram, R5900Context *ctx, PS2Run
 void SCRFuncChangedColDamageOn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1452F90u, 0)) { SCRFuncChangedColDamageOn_0x1452f90(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1128778u, lift_d1::ChangeCollisionResourceAttribute) && A5_HOLDS(0x11287D0u, lift_d1::GetCollisionResource) && A5_JAL(0x1453004u, 0x11287D0u) && A5_JAL(0x1453034u, 0x1128778u), 1)) { const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint32_t a2_10 = Ps2GprU32(ctx, 10); A5_CHK(SCRFuncChangedColDamageOn, a2_7, a2_8, a2_10); A5_IN(209); const uint64_t a2_r = typed::SCRFuncChangedColDamageOn(rdram, runtime, a2_7, a2_8, a2_10); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     uint64_t hi = ctx->hi;

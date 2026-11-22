@@ -7,6 +7,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6529,6 +6530,7 @@ void bosslifebar_sethp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void boss_life_anim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13FAA18u, 0)) { boss_life_anim_0x13faa18(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x11137E0u, lift_d1::SpriteMenuSetAnimParam) && A5_JAL(0x13FAA44u, 0x11137E0u), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A5_CHK(boss_life_anim, a2_4); A5_IN(161); typed::boss_life_anim(rdram, runtime, a2_4); A5_OUT(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a2 = Ps2GprU64(ctx, 6);
     float f12 = ctx->f[12];
@@ -11127,6 +11129,7 @@ L_143ce14:
 // setParamBirdCtrlWork (0x143d568-0x143d5b8)
 void setParamBirdCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A5_CHK(setParamBirdCtrlWork, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[18]), (uint64_t)a1_bits(ctx->f[19])}; const float a2_r = typed::setParamBirdCtrlWork(rdram, runtime, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a3_xo); ctx->f[0] = a2_r; ctx->f[18] = a1_flt((uint32_t)a3_xo[0]); ctx->f[19] = a1_flt((uint32_t)a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14], f15 = ctx->f[15], f16 = ctx->f[16], f17 = ctx->f[17], f18 = ctx->f[18], f19 = ctx->f[19];
     at = 0x3C8E0000u;

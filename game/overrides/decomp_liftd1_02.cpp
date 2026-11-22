@@ -7,6 +7,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -809,6 +810,7 @@ void GetGarbageTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void isysGetLetterObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1C8298u, 0)) { isysGetLetterObj_0x1c8298(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(isysGetLetterObj, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 3)}; const uint64_t a2_r = typed::isysGetLetterObj(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 3, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)(uint32_t)((uint8_t)READ8_B((uint32_t)a0, 8)));
@@ -1775,6 +1777,7 @@ void _isysCreateSubMsgQueue(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 void isysInitSubThreadExecEnv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1C9848u, 0)) { isysInitSubThreadExecEnv_0x1c9848(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A5_CHK(isysInitSubThreadExecEnv, a2_4, a2_5); const uint32_t a2_r = typed::isysInitSubThreadExecEnv(rdram, runtime, a2_4, a2_5); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     bool df_v0 = false;
@@ -1835,6 +1838,7 @@ void isysGetSubThreadWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 void isysGetSubThreadStackUse(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1CA4A8u, 0)) { isysGetSubThreadStackUse_0x1ca4a8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A5_CHK(isysGetSubThreadStackUse, a2_4); A5_IN(8); const a1::RetVF a2_r = typed::isysGetSubThreadStackUse(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), a2 = Ps2GprU32(ctx, 6), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a1 = Ps2GprU64(ctx, 5), a3 = Ps2GprU64(ctx, 7);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -1917,6 +1921,7 @@ L_1ca528:
 void isysGetSubThreadStackSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1CA558u, 0)) { isysGetSubThreadStackSize_0x1ca558(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(isysGetSubThreadStackSize, a2_4); const uint32_t a2_r = typed::isysGetSubThreadStackSize(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     bool df_v0 = false;

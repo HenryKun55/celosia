@@ -23,6 +23,23 @@ bool g_a4Typed = true; // round A4 (typed_a4_rt.h): the switch a4typed, likewise
 #if PS2X_A4_CHECK
 A3Stats g_a4s; // round A4's check build: its adapters' test and deferred checkpoints (A3's counters)
 #endif
+bool g_a5Typed = true; // round A5 (typed_a5_rt.h): the switch a5typed, likewise
+#include "typed_a5_rt.h"
+#if PS2X_A5_CHECK
+A3Stats g_a5s; // round A5's check build: its adapters' test and deferred checkpoints (A3's counters)
+uint64_t g_a5Reloc = 0; // adapters stopped by a relocated site's word (A5_JAL)
+#endif
+#include <cstdio>
+#include <cstdlib>
+namespace a5
+{
+    // a jump table's value outside the recompiler's case list (lift_d1's text would jump out to it; never in this game)
+    void badJump(uint32_t site, uint32_t target)
+    {
+        std::fprintf(stderr, "[a5] jump table at 0x%08x: target 0x%08x outside its case list\n", site, target);
+        std::abort();
+    }
+}
 
 namespace a1m
 {

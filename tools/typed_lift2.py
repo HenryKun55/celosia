@@ -55,6 +55,8 @@ INC_LINE3 = '#include "typed_a3.h" // a3\n'
 ADAPT_MARK3 = ' // a3'
 INC_LINE4 = '#include "typed_a4.h" // a4\n'
 ADAPT_MARK4 = ' // a4'
+INC_LINE5 = '#include "typed_a5.h" // a5\n'
+ADAPT_MARK5 = ' // a5'
 SAVED = {16, 17, 18, 19, 20, 21, 22, 23, 28, 29, 30, 31}
 LOADS = {0x20: 1, 0x24: 1, 0x21: 2, 0x25: 2, 0x23: 4, 0x27: 4, 0x31: 4, 0x37: 8}
 STORES = {0x28: 1, 0x29: 2, 0x2B: 4, 0x39: 4, 0x3F: 8}
@@ -64,6 +66,10 @@ RET_SLOTS = {'void': set(), 'uint32_t': {('g', 2)}, 'uint64_t': {('g', 2)}, 'flo
 
 class Refuse(Exception):
     pass
+
+
+# A5: the host frame's refusals the guest frame takes (the frame in guest RAM below the guest sp, as the lifted text has it)
+GF_REASONS = {'frame address escapes', 'frame access form', "caller's frame", 'frame read before write', 'frame quadword alignment'}
 
 
 class Sig:
@@ -276,9 +282,18 @@ def vu_text(text):
 class Emit:
     """One function written as typed C++ from lift_d1's IR."""
 
-    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False):
+    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False, a5=False):
         self.addr, self.name = addr, name
         self.ok, self.why = False, ''
+        # A5: the typed ABI proof (callees' own typed interfaces), relocated calls with a slot test, the guest frame
+        # (a frame whose address escapes lives in guest RAM below the guest sp), 64-bit input pass-through, jump tables
+        self.a5 = a5
+        self.gf = False  # A5: the frame in guest RAM (sp a local guest address)
+        self.needs_sp = False  # A5: sp is a parameter (the guest frame here or in a callee)
+        self.relocs = set()  # A5: (site, static target) of relocated jal / j: the adapter tests the word in RAM
+        self.wide_in = set()  # A5: 32-bit inputs passed whole (64-bit) to a callee: a uint64_t parameter w64_<r>
+        self.jtabs = {}  # A5: jump tables: node -> case targets
+        self.spcall = {}  # A5: entry-relative sp offset at each call (after its delay slot)
         self.loops = loops  # A3: back edges allowed (A3_BACK: the clock charged, the checkpoint deferred)
         self.vu = vu  # A4: VU0 registers, ACC, Q, status, GPR upper halves and quadword accesses allowed (the VU0 ABI)
         self.vio, self.vin, self.vout, self.vmust = (), frozenset(), frozenset(), frozenset()
@@ -296,13 +311,16 @@ class Emit:
             self.why = 'lifter: ' + str(e)[:50]
 
     def run(self, abi, sigs, fin, ffacts):
-        if abi is None or not abi[0]:
+        if not self.a5 and (abi is None or not abi[0]):
             raise Refuse('not proven')
         lf = L.Lifter(self.addr, {})
         lf.build()
         nodes = lf.node_effects()
         lf.nodes = nodes
         self.lf = lf
+        if self.a5:
+            abi = self.typed_abi(lf, nodes, sigs)
+            self.abi5 = abi
         W = lf.g.words
         reach, work = {lf.order[0]}, [lf.order[0]]
         while work:
@@ -318,13 +336,23 @@ class Emit:
         callees = []
         for x in order:
             k = lf.kind[x]
-            if k[0] in ('jalr', 'jr', 'ijal', 'iret'):
+            if self.a5 and k[0] == 'jr' and k[2]:
+                # A5: a jump table (the recompiler's case list): a switch over the same targets
+                self.jtabs[x] = list(k[2])
+            elif k[0] in ('jalr', 'jr', 'ijal', 'iret'):
                 raise Refuse('indirect call / jump')
             if k[0] == 'op' and nodes[x]['opaque']:
                 raise Refuse('runtime call')
             if k[0] in ('jal', 'tail'):
-                if x in lf.dyncall:
-                    raise Refuse('relocated call')
+                dyn = x < L.EXIT_BASE and ('READ32(0x%Xu)' % x).lower() in lf.g.block_text(x).split('// 0x')[0].lower()
+                if x in lf.dyncall or dyn:
+                    if not self.a5:
+                        if x in lf.dyncall:
+                            raise Refuse('relocated call')
+                    else:
+                        # A5: the relocated jal / j's word as the build links it gives the static target; the adapter tests
+                        # that the word in RAM still encodes it (A5_JAL), so the typed call is the one the lifted text makes
+                        self.relocs.add((x, k[1]))
                 if k[1] not in sigs:
                     raise Refuse('untyped callee')
                 callees.append(k[1])
@@ -359,6 +387,7 @@ class Emit:
                 if y == x:
                     omid = o
             k = lf.kind[x]
+            self.spcall[x] = o
             for s in lf.succ[x]:
                 e = omid if (k[0] == 'br' and k[5] and s != k[4]) else o
                 if s in spoff and spoff[s] != e:
@@ -369,91 +398,109 @@ class Emit:
             if k[0] in ('ret', 'tail') and o != 0:
                 raise Refuse('sp not back at an exit')
         self.spoff = spoff
-        acc = {}  # instruction address -> (kind, entry-relative offset, size)
-        for x in order:
-            for y in ((x, x + 4) if x + 4 in lf.delay else (x,)):
-                w = W[y]
-                if w == 0:
-                    continue
-                uses = A.word_uses(w)
-                if 29 not in uses:
-                    continue
-                op, rs, rt = w >> 26, (w >> 21) & 31, (w >> 16) & 31
-                if op == 9 and rs == 29 and rt == 29:
-                    continue
-                mk = word_mem(w, self.vu)
-                if mk is None or rs != 29 or (mk[0] == 'st' and rt == 29 and op not in (0x3E,)):
-                    raise Refuse('frame address escapes')
-                if mk[0] == 'bad':
-                    raise Refuse('frame access form')
-                off = spoff[x] + L.sx16(w & 0xFFFF)
-                if off + mk[1] > 0:
-                    raise Refuse("caller's frame")
-                if mk[1] == 16:
-                    # A4: a quadword frame slot; lq / sq clear the address's low 4 bits, so with sp 16-aligned (the EE ABI; the
-                    # adapter tests it) the slot is at this offset only when the offset is a multiple of 16
-                    if off % 16:
-                        raise Refuse('frame quadword alignment')
-                    self.has128 = True
-                acc[y] = (mk[0], off, mk[1])
-        saves = lf.find_saves() if acc else {}
-        save_at = {sx: (r, off, size) for r, (off, size, sx) in saves.items()}
-        restores = dict(lf.restores)
-        self.frame = -min([o for _, o, _ in acc.values()] + [0])
-        # the save slots: read only by their restores
-        for y, (kd, off, size) in acc.items():
-            if kd == 'ld' and y not in restores:
-                for sy, (r, so, ss) in save_at.items():
-                    if off < so + ss and so < off + size:
-                        raise Refuse('save slot read')
-            if y in restores and y not in acc:
-                raise Refuse('restore form')
-        # frame bytes written on every path before each load (saves dropped: not written). A must-analysis to a
-        # fixpoint (A3: loops; the sets only shrink), then one pass that checks each load against its final set
-        def frame_pass(wr, check):
-            changed = False
+        def host_frame():
+            acc = {}  # instruction address -> (kind, entry-relative offset, size)
             for x in order:
-                if x not in wr:
-                    continue
-                cur = set(wr[x])
+                for y in ((x, x + 4) if x + 4 in lf.delay else (x,)):
+                    w = W[y]
+                    if w == 0:
+                        continue
+                    uses = A.word_uses(w)
+                    if 29 not in uses:
+                        continue
+                    op, rs, rt = w >> 26, (w >> 21) & 31, (w >> 16) & 31
+                    if op == 9 and rs == 29 and rt == 29:
+                        continue
+                    mk = word_mem(w, self.vu)
+                    if mk is None or rs != 29 or (mk[0] == 'st' and rt == 29 and op not in (0x3E,)):
+                        raise Refuse('frame address escapes')
+                    if mk[0] == 'bad':
+                        raise Refuse('frame access form')
+                    off = spoff[x] + L.sx16(w & 0xFFFF)
+                    if off + mk[1] > 0:
+                        raise Refuse("caller's frame")
+                    if mk[1] == 16:
+                        # A4: a quadword frame slot; lq / sq clear the address's low 4 bits, so with sp 16-aligned (the EE ABI; the
+                        # adapter tests it) the slot is at this offset only when the offset is a multiple of 16
+                        if off % 16:
+                            raise Refuse('frame quadword alignment')
+                        self.has128 = True
+                    acc[y] = (mk[0], off, mk[1])
+            saves = lf.find_saves() if acc else {}
+            save_at = {sx: (r, off, size) for r, (off, size, sx) in saves.items()}
+            restores = dict(lf.restores)
+            self.frame = -min([o for _, o, _ in acc.values()] + [0])
+            # the save slots: read only by their restores
+            for y, (kd, off, size) in acc.items():
+                if kd == 'ld' and y not in restores:
+                    for sy, (r, so, ss) in save_at.items():
+                        if off < so + ss and so < off + size:
+                            raise Refuse('save slot read')
+                if y in restores and y not in acc:
+                    raise Refuse('restore form')
+            # frame bytes written on every path before each load (saves dropped: not written). A must-analysis to a
+            # fixpoint (A3: loops; the sets only shrink), then one pass that checks each load against its final set
+            def frame_pass(wr, check):
+                changed = False
+                for x in order:
+                    if x not in wr:
+                        continue
+                    cur = set(wr[x])
 
-                def visit(y, cur):
-                    if y not in acc:
-                        return
-                    kd, off, size = acc[y]
-                    if kd == 'ld':
-                        if y in restores:
+                    def visit(y, cur):
+                        if y not in acc:
                             return
-                        if check and not set(range(off, off + size)) <= cur:
-                            raise Refuse('frame read before write')
-                    elif y not in save_at:
-                        cur |= set(range(off, off + size))
-                k = lf.kind[x]
-                visit(x, cur)
-                mid = frozenset(cur)
-                if x + 4 in lf.delay:
-                    visit(x + 4, cur)
-                after = frozenset(cur)
-                for s in lf.succ[x]:
-                    e = mid if (k[0] == 'br' and k[5] and s != k[4]) else after
-                    ne = e if s not in wr else (wr[s] & e)
-                    if wr.get(s) != ne:
-                        wr[s] = ne
-                        changed = True
-            return changed
-        wr = {order[0]: frozenset()}
-        while frame_pass(wr, False):
-            pass
-        frame_pass(wr, True)
+                        kd, off, size = acc[y]
+                        if kd == 'ld':
+                            if y in restores:
+                                return
+                            if check and not set(range(off, off + size)) <= cur:
+                                raise Refuse('frame read before write')
+                        elif y not in save_at:
+                            cur |= set(range(off, off + size))
+                    k = lf.kind[x]
+                    visit(x, cur)
+                    mid = frozenset(cur)
+                    if x + 4 in lf.delay:
+                        visit(x + 4, cur)
+                    after = frozenset(cur)
+                    for s in lf.succ[x]:
+                        e = mid if (k[0] == 'br' and k[5] and s != k[4]) else after
+                        ne = e if s not in wr else (wr[s] & e)
+                        if wr.get(s) != ne:
+                            wr[s] = ne
+                            changed = True
+                return changed
+            wr = {order[0]: frozenset()}
+            while frame_pass(wr, False):
+                pass
+            frame_pass(wr, True)
+            return acc, save_at, restores
+        try:
+            acc, save_at, restores = host_frame()
+        except Refuse as e:
+            if not self.a5 or str(e) not in GF_REASONS:
+                raise
+            acc, save_at, restores = self.guest_frame(order, W)
         self.acc, self.save_at, self.restores = acc, save_at, restores
         # ---------------------------------------------------------------- statements
-        code = {}
-        for x in order:
-            n = nodes[x]
-            if lf.kind[x][0] == 'op':
-                code[x] = self.stmt(x, n['code'])
-            else:
-                code[x + 4] = self.stmt(x + 4, n['dcode'])
+        def statements():
+            code = {}
+            for x in order:
+                n = nodes[x]
+                if lf.kind[x][0] == 'op':
+                    code[x] = self.stmt(x, n['code'])
+                else:
+                    code[x + 4] = self.stmt(x + 4, n['dcode'])
+            return code
+        try:
+            code = statements()
+        except Refuse as e:
+            # A5: a 64-bit sp (its step sign-extends) has no host-frame form: the guest frame keeps the lifted step
+            if not self.a5 or self.gf or str(e) != 'sp step form':
+                raise
+            self.acc, self.save_at, self.restores = self.guest_frame(order, W)
+            code = statements()
         self.code = code
         # restored registers must be dead after their restores (the typed function never had their caller's values)
         self.check_restored_dead(ffacts, sigs)
@@ -461,6 +508,10 @@ class Emit:
             self.vu_scan(sigs)
         # ---------------------------------------------------------------- parameters, locals
         gin = set(abi[1]) - {0, 29, 31}
+        if self.a5 and any(p[0] == 'g' and p[1] == 29 for c in callees for p in sigs[c].params):
+            self.needs_sp = True  # A5: a callee keeps its frame in guest RAM: it gets the guest sp at the call
+        if self.needs_sp:
+            gin.add(29)
         fx = T1.fpr_x_inputs(ffacts, fin)
         if self.vu:  # A4: the VU0 state is the VU0 interface's (vu_scan), not a plain input
             fx = {s for s in fx if s[0] != 'v' and not (s[0] == 'x' and s[1] in VU_FIELDS)}
@@ -479,6 +530,8 @@ class Emit:
                     slots |= RET_SLOTS[sigs[k[1]].rtype]
         slots |= {('g', r) for r in gin} | {('f', r) for r in fins}
         slots -= {('g', 29), ('g', 31)}
+        if self.needs_sp:
+            slots.add(('g', 29))
         self.gty = {}
         for k, r in slots:
             if k == 'g':
@@ -487,6 +540,25 @@ class Emit:
         self.gin, self.fins = gin, fins
         # ---------------------------------------------------------------- must-written (v0 / f0 at the exits, 64-bit args)
         self.mw_in = self.must_written(sigs)
+        if self.a5:
+            # A5: a 32-bit input passed to a callee's 64-bit parameter while still the input on every path (never written
+            # before the call): the lifted caller leaves it in the context untouched, so the callee reads the whole 64-bit
+            # value; the typed function takes that value too (w64_<r>, the 32-bit local its low half)
+            may = self.may_written(sigs)
+            for x in order:
+                k = lf.kind[x]
+                if k[0] not in ('jal', 'tail'):
+                    continue
+                dd = set(lf.nodes[x].get('ddefs', set()))
+                before = self.mw_in.get(x, frozenset()) | dd
+                mbefore = may.get(x, frozenset()) | dd
+                for p in sigs[k[1]].params:
+                    if p[0] != 'g' or p[2] != 'uint64_t' or p[1] == 29 or self.gty[p[1]] == 'uint64_t' or ('g', p[1]) in before:
+                        continue
+                    if p[1] in gin and ('g', p[1]) not in mbefore:
+                        self.wide_in.add(p[1])
+                    else:
+                        raise Refuse('64-bit pass-through argument')
         # ---------------------------------------------------------------- return value
         prov = []
         for x in order:
@@ -535,6 +607,102 @@ class Emit:
         # ---------------------------------------------------------------- the text
         self.text = self.body(sigs)
 
+    def guest_frame(self, order, W):
+        """A5: the frame in guest RAM. When the frame's address escapes (a pointer to a vector or a struct on the stack passed
+        to a callee or kept in a register), it is read before a write, it reaches into the caller's frame or has an lwl /
+        lwr form, the function keeps `sp` as a local guest address (a parameter: the guest sp at entry, as the adapter
+        reads it from the context or the typed caller passes its own), moves it by the same steps and reads / writes the
+        frame in guest RAM at the same addresses as the lifted text. Only the prologue's saves of callee-saved registers
+        and ra go (and their restores, as for a host frame): their values are the caller's, which a typed function keeps
+        in its own registers; a load from a save slot other than its restore refuses the function."""
+        lf = self.lf
+        self.gf, self.needs_sp, self.has128, self.frame = True, True, False, 0
+        acc = {}
+        for x in order:
+            for y in ((x, x + 4) if x + 4 in lf.delay else (x,)):
+                w = W[y]
+                if w == 0 or 29 not in A.word_uses(w):
+                    continue
+                op, rs, rt = w >> 26, (w >> 21) & 31, (w >> 16) & 31
+                if op == 9 and rs == 29 and rt == 29:
+                    continue
+                mk = word_mem(w, self.vu)
+                if mk is None or rs != 29 or mk[0] == 'bad' or (mk[0] == 'st' and rt == 29 and op not in (0x3E,)):
+                    continue
+                acc[y] = (mk[0], self.spoff[x] + L.sx16(w & 0xFFFF), mk[1])
+        saves = lf.find_saves()
+        save_at = {sx: (r, off, size) for r, (off, size, sx) in saves.items()}
+        restores = dict(lf.restores)
+        for y, (kd, off, size) in acc.items():
+            if kd == 'ld' and y not in restores:
+                for sy, (r, so, ss) in save_at.items():
+                    if off < so + ss and so < off + size:
+                        raise Refuse('save slot read')
+        for y in restores:
+            if y not in acc:
+                raise Refuse('restore form')
+        return {}, save_at, restores
+
+    def typed_abi(self, lf, nodes, sigs):
+        """A5: tools/n4_abi.py's proof over this function with its callees' typed interfaces (every callee is typed when a
+        function is tried: its inputs are its parameters, its changes its scratch set and return slots). N4's proof takes a
+        callee whose slot may hold a native as reading and writing every register; a typed caller calls the typed callee
+        directly (the adapter tests every reached slot, A5_HOLDS), so the callee's own interface is the one that holds.
+        Inputs need not be within the argument registers: each becomes a parameter (the adapter reads it from the context,
+        a typed caller passes its own value, which N4's input analysis makes one of its inputs or a register written on
+        every path before the call). Still required: callee-saved registers and sp back at every exit, no runtime call,
+        break, jalr or jump through a register without a case list."""
+        fa = A.facts_from(self.addr, lf, nodes)[1]
+        bad = set(fa['why'])
+        if bad:
+            raise Refuse('not proven: ' + ','.join(sorted(bad)))
+        for c in fa['calls']:
+            if c not in sigs:
+                raise Refuse('untyped callee')
+        inp = {c: {p[1] for p in sigs[c].params if p[0] == 'g'} for c in fa['calls']}
+        ins = A.inputs_of(fa, inp) - fa['saves']
+        wm = {c: {r for k, r in sigs[c].dropped if k == 'g'} | {r for k, r in RET_SLOTS[sigs[c].rtype] if k == 'g'} for c in fa['calls']}
+        ff = {'order': fa['order'], 'restores': fa['restores'],
+              'cfg': {x: (c[0], c[1], c[6], c[7], c[5], tuple(sorted(c[3])), tuple(sorted(c[4]))) for x, c in fa['cfg'].items()}}
+        outs = L.function_gpr_writes(ff, wm)
+        if outs & A.SAVED:
+            raise Refuse('not proven: callee-saved register changed')
+        if not fa['sp_ok']:
+            raise Refuse('not proven: sp')
+        return (True, ins, outs)
+
+    def may_written(self, sigs):
+        """A5: slots written on some path before each node (a typed callee's return slots and scratch set count)."""
+        lf = self.lf
+        nodes = lf.nodes
+        order = self.order
+        mw = {order[0]: frozenset()}
+        changed = True
+        while changed:
+            changed = False
+            for x in order:
+                if x not in mw:
+                    continue
+                n = nodes[x]
+                k = lf.kind[x]
+                cur = set(mw[x])
+                if k[0] == 'op':
+                    cur |= set(n['defs'])
+                    mid = after = frozenset(cur)
+                else:
+                    mid = frozenset(cur)
+                    cur |= set(n.get('ddefs', set()))
+                    if k[0] == 'jal':
+                        cur |= RET_SLOTS[sigs[k[1]].rtype] | set(sigs[k[1]].dropped)
+                    after = frozenset(cur)
+                for s_ in lf.succ[x]:
+                    e = mid if (k[0] == 'br' and k[5] and s_ != k[4]) else after
+                    ne = e if s_ not in mw else (mw[s_] | e)
+                    if mw.get(s_) != ne:
+                        mw[s_] = ne
+                        changed = True
+        return mw
+
     # ------------------------------------------------------------------------------------------------ helpers
     def word_defs(self, w):
         op, rs, rt, rd, fn = w >> 26, (w >> 21) & 31, (w >> 16) & 31, (w >> 11) & 31, w & 63
@@ -561,14 +729,18 @@ class Emit:
         if y in self.restores or y in self.save_at:
             return ''
         if w != 0 and (w >> 26) == 9 and ((w >> 21) & 31) == 29 and ((w >> 16) & 31) == 29:
+            if self.gf and re.fullmatch(r'\(?sp = [^;]*;', c.strip()):
+                return c.strip()  # A5: the guest frame keeps the lifted step (sp a local guest address)
             if not SP_STEP.match(c.strip()):
                 raise Refuse('sp step form')
-            return ''
+            return c.strip() if self.gf else ''
         if self.vu:
             c = self.stmt_vu(y, c)
         c = VEC_W.sub(lambda m: f'{m.group(3)} = {vec_low(m.group(1))};', c)
         c = VEC_N.sub(lambda m: f'{m.group(3)} = (uint32_t)({vec_low(m.group(1))});', c)
         c = n1_basemem.rewrite(c)
+        if self.gf:
+            return c  # A5: the guest frame: sp a local guest address, the frame's loads / stores guest memory as lifted
         node = y - 4 if y in lf.delay else y
         nfr = [0]
 
@@ -967,6 +1139,19 @@ class Emit:
             r, ty = p[1], p[2]
             n = L.GPR[r]
             mine = self.gty[r]
+            if r == 29:
+                # A5: the guest sp at the call (after its delay slot): the local in a guest frame, else the entry sp moved by
+                # the host frame's offset there (the callee's guest frame at the lifted text's addresses)
+                e = 'sp' if self.gf else f'(uint32_t)(sp + 0x{self.spcall[x] & 0xFFFFFFFF:X}u)'
+                if self.gf and mine == 'uint64_t':
+                    e = 'sp' if ty == 'uint64_t' else '(uint32_t)sp'
+                elif ty == 'uint64_t':
+                    e = f'a1_sx64({e})'
+                args.append(e)
+                continue
+            if r in self.wide_in and ty == 'uint64_t' and ('g', r) not in before:
+                args.append(f'w64_{n}')
+                continue
             if ty == 'uint32_t':
                 args.append(n if mine == 'uint32_t' else f'(uint32_t){n}')
             elif mine == 'uint64_t':
@@ -990,6 +1175,7 @@ class Emit:
             for s in lf.succ[x]:
                 if s != nxt.get(x) or k[0] in ('j',) or (k[0] == 'br' and s == k[4]):
                     targets.add(s)
+            targets.update(self.jtabs.get(x, ()))
         L_ = []
         I = '    '
 
@@ -1095,6 +1281,14 @@ class Emit:
                     L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{tb} }}')
                 else:
                     L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{tail_expr(s, self.call_expr(x, s))} }}')
+            elif k[0] == 'jr' and x in self.jtabs:
+                # A5: a jump table: the register read before the delay slot runs (MIPS), then a switch over the recompiler's
+                # case list, as lift_d1's text (`switch (jumpTarget) { case ...: goto ...; }`, no checkpoint charged); a
+                # value outside the list (lift_d1 jumps out to it: never in this game) stops in A5_BADJUMP
+                rs = k[1]
+                jt = L.GPR[rs] if self.gty.get(rs) == 'uint32_t' else f'(uint32_t){L.GPR[rs]}'
+                cases = ' '.join(f'case 0x{t:X}u: goto L_{t:x};' for t in self.jtabs[x])
+                L_.append(f'{I}{{ const uint32_t a5_jt = {jt}; {d}{" " if d else ""}switch (a5_jt) {{ {cases} default: A5_BADJUMP(0x{x:X}u, a5_jt); }} }}')
             else:
                 raise Refuse(f'kind {k[0]}')
         text = '\n'.join(L_)
@@ -1123,7 +1317,7 @@ class Emit:
         if 'LIFT_SET_FACC' in text:
             text = text.replace('LIFT_SET_FACC(', 'A2_SET_FACC(')
         self.fpu_ps2 = sorted({h for h in T1.FPU_PS2.values() if h + '(' in text})
-        ok = T1.OK_CALLS | {s.name for s in sigs.values()} | {'A2_CHARGE', 'a2::frLd', 'a2::frSt', 'A2_SET_FACC', 'A3_BACK', 'A3_CHARGE'}
+        ok = T1.OK_CALLS | {s.name for s in sigs.values()} | {'A2_CHARGE', 'a2::frLd', 'a2::frSt', 'A2_SET_FACC', 'A3_BACK', 'A3_CHARGE', 'A5_BADJUMP'}
         if self.vu:
             ok = ok | A4_KNOWN
         bad = set()
@@ -1141,7 +1335,12 @@ class Emit:
         for k, r in sorted(self.slots, key=lambda s: (s[0], str(s[1]).zfill(3))):
             if k == 'g':
                 ty, n = self.gty[r], L.GPR[r]
-                if r in self.gin:
+                if r in self.gin and r in self.wide_in:
+                    # A5: the whole 64-bit input (passed on to a callee's 64-bit parameter), its low half the local
+                    params.append(f'uint64_t w64_{n}')
+                    self.gparams.append((r, 'uint64_t', f'w64_{n}'))
+                    locs.append(f'{ty} {n} = (uint32_t)w64_{n};')
+                elif r in self.gin:
                     params.append(f'{ty} {n}')
                     self.gparams.append((r, ty, n))
                 else:
@@ -1180,10 +1379,16 @@ class Emit:
         sig = ', '.join(['uint8_t *ram', '[[maybe_unused]] PS2Runtime *rt'] + params)
         self.decl = f'{self.rtype} {self.name}({sig})'
         self.sig = Sig(self.name, self.addr, self.rtype, [('g', r, ty) for r, ty, _ in self.gparams] + [('f', r) for r, _ in self.fparams],
-                       self.dropped, self.v0w, 'a4' if self.vu else 'a2')
+                       self.dropped, self.v0w, 'a5' if self.a5 else 'a4' if self.vu else 'a2')
+        # A5: the relocated sites this function reaches (its own and its typed callees'): the adapter tests each word
+        rel = set(self.relocs)
+        for c in self.callees:
+            rel |= getattr(sigs[c], 'relocs', set())
+        self.sig.relocs = self.relocs_all = rel
+        self.reloc_words = {site: self.lf.g.words[site] for site, _ in self.relocs}
         self.sig.vin, self.sig.vout, self.sig.vmust, self.sig.vio = self.vin, self.vout, self.vmust, self.vio
         nfr = sum(1 for y in self.acc if y not in self.save_at and y not in self.restores)
-        self.kind = ('frame ' if self.acc else '') + ('calls' if self.callees else 'leaf')
+        self.kind = ('guest frame ' if self.gf else 'frame ' if self.acc else '') + ('calls' if self.callees else 'leaf')
         if self.loops:
             self.kind = ('loop ' if self.backs else '') + self.kind
         xo = ''
@@ -1193,10 +1398,48 @@ class Emit:
             def vn(ss):
                 return ' '.join(vu_local(q)[0] for q in sorted(ss, key=vu_sortkey)) or '-'
             xo += f'; VU0 in {vn(self.vin)}, out {vn(self.vout)}'
-        out = (f'// {self.name} (0x{self.addr:x}): typed by tools/typed_lift2.py (round {"A4" if self.vu else "A3" if self.loops else "A2"}; {self.kind}{xo}'
+        if self.a5:
+            xo += ''.join([', jump tables %d' % len(self.jtabs) if self.jtabs else '', ', relocated calls %d' % len(self.relocs) if self.relocs else '',
+                           ', 64-bit inputs ' + ' '.join(L.GPR[r] for r in sorted(self.wide_in)) if self.wide_in else '',
+                           ', guest sp' if self.needs_sp and not self.gf else ''])
+        out = (f'// {self.name} (0x{self.addr:x}): typed by tools/typed_lift2.py (round {"A5" if self.a5 else "A4" if self.vu else "A3" if self.loops else "A2"}; {self.kind}{xo}'
                f'{", frame %d bytes, %d slot accesses" % (self.frame, nfr) if self.acc else ""})\n'
                f'inline {self.decl}\n{{\n' + ''.join(f'    {x}\n' for x in locs) + text + '\n    __builtin_unreachable();\n}\n')
         return out
+
+    def adapter5(self, ld, args, st, r):
+        """A5: A4's adapter with the switch a5typed (A5_GO / A5_GO_LEAF / A5_HOLDS / A5_SP16) and, for every relocated site
+        the typed function reaches, the test that the jal / j word in RAM still encodes the static target (A5_JAL)."""
+        if not self.callees and not self.backs:
+            go = 'A5_GO_LEAF()'
+        else:
+            go = 'A5_GO()' + ''.join(f' && A5_HOLDS(0x{c:X}u, lift_d1::{nm})' for c, nm in sorted(self.holds)) + \
+                ''.join(f' && A2_SLOT(0x{c:X}u, lift_d1::{nm})' for c, nm in getattr(self, 'guards', []))
+        go += ''.join(f' && A5_JAL(0x{site:X}u, 0x{t:X}u)' for site, t in sorted(self.relocs_all))
+        if self.has128:
+            go += ' && A5_SP16()'
+        vl, vw, va = [], [], ''
+        for q, isout in self.vio:
+            nm, ty, cx = vu_local(q)
+            if q[0] == 'h':
+                vl.append(f'uint64_t a4_{nm} = a4::hi64(ctx->r[{q[1]}]);')
+                if isout:
+                    vw.append(f'ctx->r[{q[1]}] = a4::mk128(a4_{nm}, Ps2GprU64(ctx, {q[1]}));')
+            else:
+                vl.append(f'{ty} a4_{nm} = {cx};')
+                if isout:
+                    vw.append(f'{cx} = a4_{nm};')
+            va += f', a4_{nm}'
+        call = f'typed::{self.name}(rdram, runtime{args}{va}{", a3_xo" if self.xout else ""})'
+        xd, xw = '', ''
+        if self.xout:
+            xd = f'uint64_t a3_xo[{len(self.xout)}] = {{{", ".join(f"Ps2GprU64(ctx, {q})" if k == "g" else f"(uint64_t)a1_bits(ctx->f[{q}])" for k, q in self.xout)}}}; '
+            for i, (k, q) in enumerate(self.xout):
+                xw += f'Ps2SetGpr64(ctx, {q}, a3_xo[{i}]); ' if k == 'g' else f'ctx->f[{q}] = a1_flt((uint32_t)a3_xo[{i}]); '
+        leaf = go.startswith('A5_GO_LEAF()')
+        return (f'    if (PS2_EXPECT({go}, 1)) {{ {" ".join(ld)}{" " if ld else ""}A5_CHK({self.name}{args}); {" ".join(vl)}{" " if vl else ""}{xd}'
+                f'{"" if leaf else f"A5_IN({self.idx}); "}{r}{call}; {"" if leaf else "A5_OUT(); "}{st}{xw}{" ".join(vw)}{" " if vw else ""}'
+                f'ctx->pc = Ps2GprU32(ctx, 31); return; }}{ADAPT_MARK5}')
 
     # the guest-signature adapter, one line at the top of the lifted function's body
     def adapter(self):
@@ -1220,6 +1463,8 @@ class Emit:
         elif rt == 'uint64_t':
             st = 'Ps2SetGpr64(ctx, 2, a2_r); '
         r = '' if rt == 'void' else f'const {rt} a2_r = '
+        if self.vu and self.a5:
+            return self.adapter5(ld, args, st, r)
         if self.vu:
             # A4: as A3's adapter, with the VU0 interface: each slot loaded from the context into a local the typed function
             # gets by reference, the outputs stored back (a GPR's upper half beside the low half the context keeps)
@@ -1348,10 +1593,11 @@ def direct_targets(texts):
 
 # ----------------------------------------------------------------------------------------------- text / undo
 def undo_text(t):
-    t = t.replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
+    t = t.replace(INC_LINE5, '').replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
     return '\n'.join(line for line in t.split('\n') if not ((line.endswith(ADAPT_MARK) and 'A2_GO' in line) or
                                                            (line.endswith(ADAPT_MARK3) and 'A3_GO' in line) or
-                                                           (line.endswith(ADAPT_MARK4) and 'A4_GO' in line)))
+                                                           (line.endswith(ADAPT_MARK4) and 'A4_GO' in line) or
+                                                           (line.endswith(ADAPT_MARK5) and 'A5_GO' in line)))
 
 
 HDR = '''// typed_a2.h: round A2's typed functions (tools/typed_lift2.py; docs/decomp_a2.md). Generated: do not edit.
@@ -1381,6 +1627,11 @@ REF_MACROS = '''// the reference legs' calls: dispatched to the callees' lifted 
 #define PS2_TAIL_GUEST_DIRECT(t, f) (void)a2ck::refCall((t), 0u, rdram, ctx, runtime)
 #define PS2_TAIL_GUEST_KNOWN(t, f) (void)a2ck::refCall((t), 0u, rdram, ctx, runtime)
 '''
+REF_JUMP = '''// A5: a relocated tail jump (PS2_JUMP_GUEST(jumpTarget)) dispatched as a tail call; a jump table's out-of-list value
+// reaches refCall as an unknown target (counted), the typed leg's A5_BADJUMP gives the check up
+#undef PS2_JUMP_GUEST
+#define PS2_JUMP_GUEST(t) (void)a5ck::refCall((t), 0u, rdram, ctx, runtime)
+'''
 CALL_FORMS = re.compile(r'PS2_(?:CALL_GUEST_DIRECT_NOCHK|CALL_GUEST_NOCHK|CALL_GUEST_DIRECT|CALL_GUEST_KNOWN|TAIL_GUEST_DIRECT|TAIL_GUEST_KNOWN)\(')
 
 
@@ -1388,7 +1639,7 @@ REEMIT_WHY = {}
 BACK_RE = re.compile(r'^(\s*)if \(__builtin_expect\(!runtime->m_eeClock\.charge\(32u\), 0\)\) \{.*\}$')
 
 
-def ref_body(name, addr, body):
+def ref_body(name, addr, body, a5=False):
     """The lifted text (NOCHK forms, the resume guard out) for the reference; None when it holds something the check TU
     cannot compile or run without the game (a recompiled function's name, the runtime)."""
     lines = body.rstrip('\n').split('\n')
@@ -1405,7 +1656,9 @@ def ref_body(name, addr, body):
             break
         args, j = L.split_args(probe, m.end())
         probe = probe[:m.start()] + 'CALL' + probe[j:]
-    if re.search(r'\bruntime->|lift_d1::(?!flt\b|bits\b|sx64\b)\w+|\b\w+_0x[0-9a-f]+\b|PS2_GUEST_FN|PS2_JUMP_GUEST|PS2_CHECKPOINT', probe):
+    if re.search(r'\bruntime->|lift_d1::(?!flt\b|bits\b|sx64\b)\w+|\b\w+_0x[0-9a-f]+\b|PS2_GUEST_FN|PS2_CHECKPOINT', probe):
+        return None
+    if not a5 and 'PS2_JUMP_GUEST' in probe:
         return None
     return (f'// {name} (0x{addr:x}): lift_d1\'s text (the reference)\n'
             f'void {name}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)\n{{\n' + text + '\n}\n')
@@ -1436,7 +1689,7 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
                   '{',
                   'bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);',
                   '}',
-                  REF_MACROS.replace('a2ck::', ns + '::'),
+                  REF_MACROS.replace('a2ck::', ns + '::') + (REF_JUMP.replace('a5ck::', ns + '::') if tag == 'a5' else ''),
                   f'namespace {ns}',
                   '{',
                   'namespace ref',
@@ -1480,7 +1733,13 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             out.append('    a1ck::ckMid();')
         else:  # A3: a leg that runs past the iteration cap (offline, random states) or the log is given up (ckLeg false)
             out.append('    R5900Context &c = ckCtx(ctx);')
+            sv = sorted((off, size) for (r, off, size) in getattr(E, 'save_at', {}).values()) if getattr(E, 'gf', False) else []
+            if sv:  # A5: a guest frame's save slots (a reference store into one other than its save gives the check up)
+                out.append('    static const int32_t kSv[][2] = {' + ', '.join(f'{{{o}, {z}}}' for o, z in sv) + '};')
+                out.append(f'    ckSaves(kSv, {len(sv)}u);')
             out.append(f'    if (!ckLeg([&] {{ ref::{E.name}(rdram, &c, runtime); }})) return;')
+            if sv:
+                out.append('    if (ckSavesClobbered()) return;')
             out.append('    ckMid();')
         if tag == 'a2':
             if E.rtype == 'void':
@@ -1520,7 +1779,7 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             for j, (k, q) in enumerate(E.xout):
                 xc.append(f'Ps2GprU64(&c, {q}) != xo[{j}]' if k == 'g' else f'a1ck::ckBits(c.f[{q}]) != (uint32_t)xo[{j}]')
             vb = ''
-            if tag == 'a4':
+            if tag in ('a4', 'a5'):
                 # the typed leg's VU0 state: the input context with the VU0 outputs written in, against the reference's
                 out.append('    R5900Context &t = ckTyCtx(ctx);')
                 for q, isout in vio:
@@ -1528,7 +1787,7 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
                         continue
                     nm, ty, cx = vu_local(q)
                     out.append(f'    t.r[{q[1]}] = a4::mk128(v_{nm}, Ps2GprU64(&t, {q[1]}));' if q[0] == 'h' else f'    {cx.replace("ctx->", "t.")} = v_{nm};')
-                vb = ', vuDiffer(t, c)'
+                vb = ', vuDiffer(t, c)' if tag == 'a4' else f', vuDifferMask(t, c, 0x{sum(1 << q[1] for q, _ in vio if q[0] == "h"):X}u)'
             out.append(f'    ckEnd({i}, ctx, c, {kind}, v0, f0, 0x{dg:x}u, 0x{df:x}u, {" || ".join(xc) if xc else "false"}{vb});')
         out.append('}')
     out.append(f'const a1ck::CkEntry kEntries[{max(1, len(emits))}] = {{')
@@ -1540,6 +1799,11 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         out.append('    {"none", 0u, nullptr},')
     out.append('};')
     out.append(f'const uint32_t kEntryCount = {len(emits)}u;')
+    if tag == 'a5':
+        # the relocated sites' words (the static target each A5_JAL tests): the offline harness writes them into its RAM
+        rw = sorted({(site, w) for E in emits for site, w in getattr(E, 'reloc_words', {}).items()})
+        out.append(f'const uint32_t kRelocs[{max(1, len(rw))}][2] = {{' + ', '.join(f'{{0x{a:X}u, 0x{w:08X}u}}' for a, w in rw) + ('{0u, 0u}' if not rw else '') + '};')
+        out.append(f'const uint32_t kRelocCount = {len(rw)}u;')
     out.append('}')
     out.append(f'#if !defined({TAG}_OFFLINE)')
     out.append(f'void {ns}Report(unsigned long long frame) {{ {ns}::ckReport(frame); }}')
@@ -1584,7 +1848,29 @@ namespace typed
 '''
 
 
-def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, max_depth, vu=False):
+HDR5 = '''// typed_a5.h: round A5's typed functions (tools/typed_lift2.py, stage 5; docs/decomp_a5.md). Generated: do not edit.
+// What A1-A4 refused for their form and A5 types: functions proven against their callees' typed interfaces (the typed
+// ABI proof), relocated calls (the adapter tests the jal word in RAM, A5_JAL), frames whose address escapes kept in
+// guest RAM below the guest sp (sp a local guest address, no context), 32-bit inputs passed whole to a 64-bit
+// parameter, jump tables as switch statements; and every caller that then had all its callees typed.
+#pragma once
+#include "typed_a4.h"
+#include "typed_a5_rt.h"
+
+namespace typed
+{
+#include "typed_a5.inc"
+}
+'''
+
+
+def tier5(E):
+    t = ('loop ' if E.backs else '') + ('gframe ' if E.gf else 'frame ' if E.acc else '')
+    t += 'vu0 ' if any(q[0] != 'h' for q, _ in E.vio) else '128 ' if (E.vio or E.has128) else ''
+    return t + ('depth %d' % E.depth if E.callees else 'leaf')
+
+
+def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, max_depth, vu=False, a5=False):
     """One stage of the typed lifter: depth by depth while functions convert (a function is tried once all its callees
     are typed). sigs / depth are extended in place. Returns emitted {addr: Emit}, tried_fail {addr: why}."""
     emitted = {}
@@ -1632,7 +1918,7 @@ def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1
             if gbad:
                 tried_fail[a] = gbad
                 continue
-            E = Emit(a, byaddr[a], abi.get(a), sigs, cfin, f, loops=loops, vu=vu)
+            E = Emit(a, byaddr[a], abi.get(a), sigs, cfin, f, loops=loops, vu=vu, a5=a5)
             if E.ok:
                 E.guards = guards
                 E.sig.guards = guards
@@ -1646,7 +1932,7 @@ def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1
                     E.ok, E.why = False, 'callee named like a libc function'
                 E.holds = E.sig.holds = holds
             if E.ok:
-                E.ref = ref_body(E.name, a, refdefs[E.name])
+                E.ref = ref_body(E.name, a, refdefs[E.name], a5=a5)
                 if E.ref is None:
                     E.ok, E.why = False, 'reference text form'
             if not E.ok:
@@ -1656,6 +1942,8 @@ def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1
             depth[a] = E.depth
             emitted[a] = E
             sigs[a] = E.sig
+            if a5:  # A5: its proven interface for the caller checks (the lifted callers' liveness at other sites)
+                abi[a] = (True, set(E.abi5[1]) | ({29} if E.needs_sp else set()), set(E.abi5[2]))
             added += 1
         if not added:
             break
@@ -1743,6 +2031,89 @@ def why_counts(tried_fail, live_refused):
     return why
 
 
+def norm_why(w):
+    """A refusal reason without its per-site details (for the unlock table)."""
+    for pre, k in (('unknown call', 'unknown call'), ('a callee scratch', 'a callee scratch / extra output read after the call'),
+                   ('live scratch', 'live scratch at a caller'), ('field input', 'field input'), ('lifter:', 'lifter'),
+                   ('vu0 field', 'vu0 field'), ('tail return', 'tail return form'), ('kind ', 'node kind')):
+        if w.startswith(pre):
+            return k
+    return w
+
+
+def unlock_table(path, F, byaddr, sigs, why_of, skipped):
+    """A5: for each refusal reason, how many waiting functions (untyped only because some callee is untyped) it blocks
+    transitively. roots(w) = the untyped, non-waiting functions reachable from w through untyped callees. Columns: refused
+    with that reason; waiting with at least one root of that reason ('blocks'); waiting whose every root has that reason
+    ('sole': all of them would be tried if the reason went away)."""
+    calls = {a: sorted({n[1] for n in f['nodes'].values() if n[0] in ('jal', 'tail')}) for a, f in F.items()}
+    reason = {}
+    for a in F:
+        if a in sigs:
+            continue
+        if a in why_of:
+            reason[a] = norm_why(why_of[a])
+        elif a not in byaddr:
+            reason[a] = 'not lifted once (recompiled only / native / lifted twice)'
+        elif a in skipped:
+            reason[a] = skipped[a]
+        elif all(c in sigs for c in calls[a]):
+            reason[a] = 'not tried (?)'
+    waiting = [a for a in F if a not in sigs and a not in reason]
+    for a in waiting:
+        for c in calls[a]:
+            if c not in F and c not in sigs:
+                reason.setdefault(c, 'callee outside the IR')
+    roots = {a: set() for a in waiting}
+    wset = set(waiting)
+    changed = True
+    while changed:
+        changed = False
+        for a in waiting:
+            r = set(roots[a])
+            for c in calls[a]:
+                if c in sigs:
+                    continue
+                if c in wset:
+                    r |= roots[c]
+                else:
+                    r.add(c)
+            if r != roots[a]:
+                roots[a] = r
+                changed = True
+    direct, blocks, sole = collections.Counter(), collections.Counter(), collections.Counter()
+    for a, w in reason.items():
+        if a in F or w == 'callee outside the IR':
+            direct[w] += 1
+    cyc = 0
+    for a in waiting:
+        rs = {reason.get(c, '?') for c in roots[a]}
+        if not rs:
+            cyc += 1
+            continue
+        for w in rs:
+            blocks[w] += 1
+        if len(rs) == 1:
+            sole[next(iter(rs))] += 1
+    # per refused function: how many waiting functions it blocks (the biggest single unlocks)
+    per = collections.Counter()
+    for a in waiting:
+        for c in roots[a]:
+            per[c] += 1
+    with open(path, 'w') as fo:
+        fo.write(f'# unlock table: {len(waiting)} waiting functions ({cyc} only on a recursion cycle); '
+                 f'{sum(1 for a in F if a in sigs)} typed in the IR\n')
+        fo.write('# reason | refused | waiting it blocks (some root) | waiting it alone blocks (every root)\n')
+        for w in sorted(set(direct) | set(blocks), key=lambda w: (-blocks[w], -direct[w])):
+            fo.write(f'{w} | {direct[w]} | {blocks[w]} | {sole[w]}\n')
+        fo.write('# top single blockers: address name reason | waiting functions behind it\n')
+        for c, n in per.most_common(60):
+            fo.write(f'{c:08x} {byaddr.get(c, F[c]["name"] if c in F and "name" in F[c] else "?")} {reason.get(c, "?")} | {n}\n')
+    import pickle
+    pickle.dump({'roots': roots, 'reason': reason, 'calls': calls}, open(path + '.pkl', 'wb'))
+    return roots, reason
+
+
 def insert_adapters(base, tset, inc_line, after_lines):
     """Each listed function's adapter at the top of its lifted body (after the resume guard); inc_line once a file,
     after the first of after_lines found."""
@@ -1796,12 +2167,16 @@ def main():
                     help='A3: names left out of stage 3 (first word of a line; # comments): docs/a3_skip.txt, the long deferrals')
     ap.add_argument('--out-list4', default=os.path.join(REPO, 'docs/a4_typed.txt'))
     ap.add_argument('--no-a4', action='store_true', help='no VU0 stage (A4)')
+    ap.add_argument('--out-list5', default=os.path.join(REPO, 'docs/a5_typed.txt'))
+    ap.add_argument('--no-a5', action='store_true', help='no A5 stage (typed ABI proof, relocated calls, guest frames, jump tables)')
+    ap.add_argument('--log5', default=None)
     ap.add_argument('--ov', default=None, help='write the generated typed files here instead of game/overrides (development)')
     ap.add_argument('--n3-exclude', default=os.path.join(REPO, 'tools/n3_direct_exclude.txt'),
                     help="A4: N3's excluded targets count as direct targets here (their adapters test every typed callee's slot)")
     ap.add_argument('--log', default=None)
     ap.add_argument('--log3', default=None)
     ap.add_argument('--log4', default=None)
+    ap.add_argument('--unlock', default=None, help='A5: write the unlock table (refusal reason -> waiting functions it blocks)')
     args = ap.parse_args()
     global OV
     if args.ov:
@@ -1829,6 +2204,7 @@ def main():
                 where[m.group(1)] = f
         byaddr = {a: n for n, (a, b) in defs.items() if count[n] == 1}
         abi = T1.load_abi(args.abi)
+        abi5_n4 = dict(abi)
         facts = T1.load_facts(args.cache, args.jobs)
         F = facts['facts']
         natives = L.native_addresses(set(facts['funcs']))
@@ -1942,6 +2318,63 @@ def main():
                        + ('depth %d' % E.depth if E.callees else 'leaf')] += 1
             stats += (f'\ntyped_lift2 stage 4 (A4): {len(cand4)} candidates, {len(emits4)} converted {dict(sorted(tiers4.items()))} '
                       f'(refused: {dict(why4.most_common())}); {nadapt4} adapters')
+        # ---- stage 5 (round A5): the typed ABI proof, relocated calls (A5_JAL), guest frames, 64-bit inputs, jump tables
+        emits5, why5, tiers5, cand5 = [], collections.Counter(), collections.Counter(), []
+        emitted5, tried5, live5 = {}, {}, {}
+        do5 = not args.no_a3 and not args.no_a4 and not args.no_a5
+        if do5:
+            cand5 = [a for a in cand4 if a not in emitted4]
+            emitted5, tried5 = run_stage(cand5, sigs, depth, True, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, args.max_depth,
+                                         vu=True, a5=True)
+            changed5 = True
+            while changed5:
+                changed5 = False
+                for a in sorted(emitted5):
+                    E = emitted5[a]
+                    if any(c not in sigs for c in E.callees):
+                        why = 'a typed callee refused'
+                    else:
+                        res = live_typed_caller(F[a], E.sig, sigs, set(E.callees))
+                        bad = [(x, t, sorted(sigs[t].dropped & after)) for x, (t, after) in res.items() if sigs[t].dropped & after]
+                        why = ('a callee scratch / extra output read after the call: ' + '; '.join(f'{x:x} {t:x} {b}' for x, t, b in bad[:2])) if bad else None
+                    if why:
+                        tried5[a] = why
+                        del emitted5[a]
+                        del sigs[a]
+                        changed5 = True
+
+            def reemit5(E, want):
+                E2 = Emit(E.addr, E.name, abi.get(E.addr), sigs, cfin, F[E.addr], loops=True, xout=want, vu=True, a5=True)
+                if not E2.ok:
+                    REEMIT_WHY[E.addr] = E2.why
+                    return None
+                E2.guards, E2.sig.guards = E.guards, E.guards
+                E2.holds = E2.sig.holds = E.holds
+                E2.ref, E2.depth = E.ref, E.depth
+                return E2
+            live5 = caller_check(emitted5, sigs, F, args.abi, abi, cfin, reemit=reemit5)
+            why5 = why_counts(tried5, live5)
+            emits5 = [emitted5[a] for a in sorted(emitted5, key=lambda a: (emitted5[a].depth, a))]
+            for i, E in enumerate(emits5):
+                E.idx = i
+            new, nadapt5 = insert_adapters(new, {E.name: E for E in emits5}, INC_LINE5, (INC_LINE4, INC_LINE3, INC_LINE, T1.INC_LINE, T1.INC_AFTER))
+            for E in emits5:
+                tiers5[tier5(E)] += 1
+            stats += (f'\ntyped_lift2 stage 5 (A5): {len(cand5)} candidates, {len(emits5)} converted {dict(sorted(tiers5.items()))} '
+                      f'(refused: {dict(why5.most_common())}); {nadapt5} adapters')
+        if args.unlock and not args.no_a3:
+            why_of = {}
+            for d in (tried_fail, live_refused, tried3, live3, tried4, live4, tried5, live5):
+                for a, w in d.items():
+                    if a not in sigs:
+                        why_of[a] = w
+            skipped = {}
+            for a, n in byaddr.items():
+                if n in N3.LIBC:
+                    skipped[a] = 'named like a libc function'
+                elif n in skip3:
+                    skipped[a] = 'docs/a3_skip.txt'
+            unlock_table(args.unlock, F, byaddr, sigs, why_of, skipped)
         if not args.check:
             with open(os.path.join(OV, 'typed_a2.inc'), 'w') as fo:
                 fo.write("// typed_a2.inc: round A2's typed functions (tools/typed_lift2.py). Generated: do not edit. "
@@ -2012,6 +2445,36 @@ def main():
                 if args.check_tu:
                     write_check(emits4, a1sigs, None, os.path.join(OV, 'a4_typed_check.cpp'), os.path.join(OV, 'typed_a4_ref.inc'),
                                 tag='a4', prev=emits + emits3, prev_incs=('a2', 'a3'))
+            if do5:
+                with open(os.path.join(OV, 'typed_a5.inc'), 'w') as fo:
+                    fo.write("// typed_a5.inc: round A5's typed functions (tools/typed_lift2.py, stage 5: the typed ABI proof, relocated calls, "
+                             "guest frames, 64-bit inputs, jump tables). Generated: do not edit. Included inside a namespace (typed_a5.h: "
+                             "namespace typed), after typed_a4.inc.\n")
+                    fo.write('\n'.join(E.text for E in emits5))
+                with open(os.path.join(OV, 'typed_a5.h'), 'w') as fo:
+                    fo.write(HDR5)
+                    names = sorted({nm for E in emits5 for _, nm in (set(E.holds) | set(E.guards))})
+                    fo.write('\n// the lifted functions whose slots the adapters test (A5_HOLDS / A2_SLOT)\nnamespace lift_d1\n{\n')
+                    fo.write(''.join(f'void {nm}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for nm in names))
+                    fo.write('}\n')
+                rk = collections.Counter(E.rtype for E in emits5)
+
+                def vn5(ss):
+                    return ','.join(vu_local(q)[0] for q in sorted(ss, key=vu_sortkey))
+                with open(args.out_list5, 'w') as fo:
+                    fo.write(f"# a5_typed.txt: round A5's typed functions (tools/typed_lift2.py stage 5; docs/decomp_a5.md). {len(emits5)} converted; "
+                             f"tiers {dict(sorted(tiers5.items()))}; returns {dict(rk)}\n")
+                    fo.write('# address name | C signature | dropped scratch slots | tier | PS2 float helpers | VU0 in | VU0 out | A5 forms\n')
+                    for E in emits5:
+                        forms = ' '.join(x for x in ('gframe' if E.gf else '', 'gsp' if E.needs_sp and not E.gf else '',
+                                                     'jtab%d' % len(E.jtabs) if E.jtabs else '', 'reloc%d' % len(E.relocs) if E.relocs else '',
+                                                     'w64' if E.wide_in else '', 'abi5' if not (abi5_n4.get(E.addr) or (False,))[0] else '') if x)
+                        fo.write(f'{E.addr:08x} {E.name} | {E.decl} | {",".join(k + str(r) for k, r in sorted(E.dropped, key=str))} | '
+                                 f'{"loop%d " % len(E.backs) if E.backs else ""}{("frame%d " % E.frame) if E.acc else ""}'
+                                 f'depth{E.depth if E.callees else 0} | {",".join(E.fpu_ps2)} | {vn5(E.vin)} | {vn5(E.vout)} | {forms}\n')
+                if args.check_tu:
+                    write_check(emits5, a1sigs, None, os.path.join(OV, 'a5_typed_check.cpp'), os.path.join(OV, 'typed_a5_ref.inc'),
+                                tag='a5', prev=emits + emits3 + emits4, prev_incs=('a2', 'a3', 'a4'))
 
         def wlog(path, tf, lr, em):
             with open(path, 'w') as fo:
@@ -2028,6 +2491,8 @@ def main():
             wlog(args.log3, tried3, live3, emitted3)
         if args.log4 and not args.no_a3 and not args.no_a4:
             wlog(args.log4, tried4, live4, emitted4)
+        if args.log5 and do5:
+            wlog(args.log5, tried5, live5, emitted5)
     changed = 0
     for f in files:
         if new[f] != texts[f]:

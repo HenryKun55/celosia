@@ -9,6 +9,7 @@
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
+#include "typed_a5.h" // a5
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -2492,6 +2493,7 @@ void InitGeometryPointer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void GetGeometryPointerCollisionDB(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1132CC8u, 0)) { GetGeometryPointerCollisionDB_0x1132cc8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(GetGeometryPointerCollisionDB, a2_4); const uint64_t a2_r = typed::GetGeometryPointerCollisionDB(rdram, runtime, a2_4); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     bool df_v1 = false;
@@ -4067,6 +4069,7 @@ L_1156eec:
 void manager_sub_01158BC8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1158BC8u, 0)) { manager_sub_01158BC8_0x1158bc8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1CAD30u, lift_d1::sndSepSetDefaultParam) && A5_JAL(0x1158C78u, 0x1CAD30u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A5_CHK(manager_sub_01158BC8, a2_4); A5_IN(101); const uint64_t a2_r = typed::manager_sub_01158BC8(rdram, runtime, a2_4); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6);
     float f0 = ctx->f[0];
@@ -4259,6 +4262,7 @@ void sheetFsDecStageTexSegIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // sheetFsSkipRead (0x115bbe8-0x115bc00)
 void sheetFsSkipRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1ACF40u, lift_d1::iosCdStSkip) && A5_JAL(0x115BBF8u, 0x1ACF40u), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A5_CHK(sheetFsSkipRead, a2_5); A5_IN(102); const uint64_t a2_r = typed::sheetFsSkipRead(rdram, runtime, a2_5); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     sp = sp - 0x10u;
@@ -4277,6 +4281,7 @@ void sheetFsSkipRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // sheetFsSectorAlignSkip (0x115bc00-0x115bc18)
 void sheetFsSectorAlignSkip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A5_GO() && A5_HOLDS(0x1ACF60u, lift_d1::iosCdStSectorAlignSkip) && A5_JAL(0x115BC0Cu, 0x1ACF60u), 1)) { A5_CHK(sheetFsSectorAlignSkip); A5_IN(103); const uint64_t a2_r = typed::sheetFsSectorAlignSkip(rdram, runtime); A5_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a5
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
