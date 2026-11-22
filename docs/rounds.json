@@ -1320,7 +1320,7 @@
   {
    "round": "A7",
    "date": "2026-11-22",
-   "commit": "",
+   "commit": "1669576",
    "focus": "Decomp 100%: callee extra outputs for typed callers, printf-family cores, more natives",
    "summary": "Round A7 (typed_lift2 stage 7) lets a typed caller take a callee's scratch registers back (the callee's extra outputs, requested round by round; functions typed in earlier rounds get variants with them), which typed GetLayoutClass and the other \"live scratch\" walls; splits printf (also iosJumpRecoverPoint's stub), vsprintf and sceWrite's fioWrite into cores that the stubs and typed callers share; and types eight more MIPS-step natives (GetScriptCharacterClass, the heap allocator, isysGroupForNext ...). 791 more functions are real C++.",
    "result": "Exact: 5.31 M in-run A7 checks (plus 8.89 M A6, 2.08 M A5, 2.20 M A4, 4.44 M A3 rechecked) and 2.90 M native checks on ride7, the attract demo and lake6, 0 differences. A/B pooled +0.109 +- 0.070 ms (on faster). 89 MB boot rode 600 s, pictures normal. No sp-based NEON accesses. On by default. The count: 3 756 functions (41.6%) in class (d), 13.4% of the MIPS bytes, 8.7% of the console game thread."
