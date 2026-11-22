@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -2277,6 +2278,7 @@ void iosIColToMvecSl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void kernel_sub_001BA690(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1BA690u, 0)) { kernel_sub_001BA690_0x1ba690(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(kernel_sub_001BA690, a2_4, a2_5); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 2)}; const float a2_r = typed::kernel_sub_001BA690(rdram, runtime, a2_4, a2_5, a3_xo); ctx->f[0] = a2_r; Ps2SetGpr64(ctx, 2, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t1 = Ps2GprU32(ctx, 9), t3 = Ps2GprU32(ctx, 11), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), t0 = Ps2GprU64(ctx, 8), t2 = Ps2GprU64(ctx, 10), t4 = Ps2GprU64(ctx, 12);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5];
@@ -3133,6 +3135,7 @@ void iosGetTableSin(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetTableCos (0x1be570-0x1be5b8)
 void iosGetTableCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(iosGetTableCos, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 4)}; const a1::RetVF a2_r = typed::iosGetTableCos(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 4, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     float f0 = ctx->f[0];
@@ -3908,6 +3911,7 @@ void iosSetDCViewPort(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosSetDCViewPortCenter (0x1bf160-0x1bf1e8)
 void iosSetDCViewPortCenter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const uint64_t a2_10 = Ps2GprU64(ctx, 10); A3_CHK(iosSetDCViewPortCenter, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_10); uint64_t a3_xo[3] = {Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; const uint64_t a2_r = typed::iosSetDCViewPortCenter(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_10, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 9, a3_xo[0]); Ps2SetGpr64(ctx, 10, a3_xo[1]); Ps2SetGpr64(ctx, 11, a3_xo[2]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10), t3 = Ps2GprU64(ctx, 11), t4 = Ps2GprU64(ctx, 12), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, (uint32_t)a3))));
     (t3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, (uint32_t)t0))));
@@ -4023,6 +4027,7 @@ void kernel_sub_001BF438(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosUsedPacketBufferSize (0x1bfad8-0x1bfb50)
 void iosUsedPacketBufferSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { A3_CHK(iosUsedPacketBufferSize); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)}; const a1::RetVF a2_r = typed::iosUsedPacketBufferSize(rdram, runtime, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
@@ -4133,6 +4138,7 @@ void iosSetPacketPtrPath1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // iosAllocPacketPtrPath1 (0x1bfc08-0x1bfc30)
 void iosAllocPacketPtrPath1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(iosAllocPacketPtrPath1, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; const uint32_t a2_r = typed::iosAllocPacketPtrPath1(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     v1 = 0x210000u;
     v1 = v1 + 0x32D8u;
@@ -4213,6 +4219,7 @@ void iosDlChainHead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosDlChainTail (0x1bfcf8-0x1bfdc0)
 void iosDlChainTail(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(iosDlChainTail, a2_4, a2_5); uint64_t a3_xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)}; const uint64_t a2_r = typed::iosDlChainTail(rdram, runtime, a2_4, a2_5, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 6, a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); Ps2SetGpr64(ctx, 8, a3_xo[2]); Ps2SetGpr64(ctx, 9, a3_xo[3]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), ra = Ps2GprU64(ctx, 31);
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)33 << 16))));
     (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)SLL32((uint32_t)a0, 1))));
@@ -4518,6 +4525,7 @@ void iosAllocPacketPtrPath1UnCachedA(uint8_t *rdram, R5900Context *ctx, PS2Runti
 // kernel_sub_001C1538 (0x1c1538-0x1c15f8)
 void kernel_sub_001C1538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { A3_CHK(kernel_sub_001C1538); uint64_t a3_xo[6] = {Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11), Ps2GprU64(ctx, 12), Ps2GprU64(ctx, 13), Ps2GprU64(ctx, 14), Ps2GprU64(ctx, 15)}; const uint64_t a2_r = typed::kernel_sub_001C1538(rdram, runtime, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 10, a3_xo[0]); Ps2SetGpr64(ctx, 11, a3_xo[1]); Ps2SetGpr64(ctx, 12, a3_xo[2]); Ps2SetGpr64(ctx, 13, a3_xo[3]); Ps2SetGpr64(ctx, 14, a3_xo[4]); Ps2SetGpr64(ctx, 15, a3_xo[5]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), t4 = Ps2GprU32(ctx, 12), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6), t5 = Ps2GprU64(ctx, 13), t6 = Ps2GprU64(ctx, 14), t7 = Ps2GprU64(ctx, 15), s0 = Ps2GprU64(ctx, 16);
     sp = sp - 0x10u;
@@ -4577,6 +4585,7 @@ void kernel_sub_001C1538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGsSetMode (0x1c15f8-0x1c1690)
 void iosGsSetMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { A3_CHK(iosGsSetMode); uint64_t a3_xo[4] = {Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; const uint32_t a2_r = typed::iosGsSetMode(rdram, runtime, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 8, a3_xo[0]); Ps2SetGpr64(ctx, 9, a3_xo[1]); Ps2SetGpr64(ctx, 10, a3_xo[2]); Ps2SetGpr64(ctx, 11, a3_xo[3]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), ra = Ps2GprU32(ctx, 31);
     v0 = 0x210000u;
     t3 = v0 + 0x3810u;
@@ -4893,6 +4902,7 @@ void getCRTCoffsetV(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosChkGpDlTransExec (0x1c35e8-0x1c3628)
 void iosChkGpDlTransExec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { A3_CHK(iosChkGpDlTransExec); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 4)}; const uint64_t a2_r = typed::iosChkGpDlTransExec(rdram, runtime, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v1 = (uint32_t)((int32_t)((int32_t)((uint32_t)4096 << 16))));
@@ -5050,6 +5060,7 @@ void gsReglist(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void getTWH(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1C5E00u, 0)) { getTWH_0x1c5e00(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(getTWH, a2_4); A3_IN(70); const uint64_t a2_r = typed::getTWH(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
@@ -5149,6 +5160,7 @@ void isysObjDeleteLock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void isysGetLinkNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1C7948u, 0)) { isysGetLinkNum_0x1c7948(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(isysGetLinkNum); A3_IN(71); const uint32_t a2_r = typed::isysGetLinkNum(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4);
     bool df_a1 = false;
@@ -5275,6 +5287,7 @@ void setVIntrBaseTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // getVIntrDiffTime (0x1c7dc8-0x1c7e30)
 void getVIntrDiffTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(getVIntrDiffTime, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; const a1::RetVF a2_r = typed::getVIntrDiffTime(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5];
     v0 = 0x1E0000u;
@@ -5312,6 +5325,7 @@ void getVIntrDiffTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // addVIntrTime (0x1c7e30-0x1c7e98)
 void addVIntrTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; A3_CHK(addVIntrTime, a2_4, a2_f12); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[12]), Ps2GprU64(ctx, 5)}; const a1::RetVF a2_r = typed::addVIntrTime(rdram, runtime, a2_4, a2_f12, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f12 = ctx->f[12];
     v0 = 0x1E0000u;

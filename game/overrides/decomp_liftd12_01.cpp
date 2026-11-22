@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -19213,6 +19214,7 @@ L_14593a8:
 // SCRConditionInvisibilityCloak (0x1459a20-0x1459a38)
 void SCRConditionInvisibilityCloak(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x134FB28u, lift_d1::_omakeSelectFlagChk), 1)) { A3_CHK(SCRConditionInvisibilityCloak); A3_IN(337); const uint64_t a2_r = typed::SCRConditionInvisibilityCloak(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = 7u;
@@ -20627,6 +20629,7 @@ void getSizeBeardIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void initBeardIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145F0E8u, 0)) { initBeardIKWork_0x145f0e8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_6 = Ps2GprU32(ctx, 6); A3_CHK(initBeardIKWork, a2_6); A3_IN(316); const uint32_t a2_r = typed::initBeardIKWork(rdram, runtime, a2_6); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     a2 = a2 + 0x3B0u;
     v0 = 9u;
@@ -23703,6 +23706,7 @@ void setWormIKBoundDynamics(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 void setWormIKNodeLimit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x14647F0u, 0)) { setWormIKNodeLimit_0x14647f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; A3_CHK(setWormIKNodeLimit, a2_4, a2_f12); A3_IN(318); const uint32_t a2_r = typed::setWormIKNodeLimit(rdram, runtime, a2_4, a2_f12); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12];
     a0 = a0 + 0x9F0u;

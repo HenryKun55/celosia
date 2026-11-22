@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -8628,6 +8629,7 @@ void nico_timeSlow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // gameflowBossEyeCameraDisable (0x1352030-0x1352070)
 void gameflowBossEyeCameraDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(gameflowBossEyeCameraDisable, a2_4); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)}; const uint32_t a2_r = typed::gameflowBossEyeCameraDisable(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     v0 = 0x1460000u;
@@ -9482,6 +9484,7 @@ L_1378d78:
 // GetBossPartsDamagePerParts (0x1379270-0x13792b8)
 void GetBossPartsDamagePerParts(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A3_CHK(GetBossPartsDamagePerParts, a2_4, a2_5); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)}; const a1::RetVF a2_r = typed::GetBossPartsDamagePerParts(rdram, runtime, a2_4, a2_5, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 6, a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
@@ -14889,6 +14892,7 @@ L_13fc7b8:
 // gamecore_sub_01414E78 (0x1414e78-0x1414eb0)
 void gamecore_sub_01414E78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(gamecore_sub_01414E78, a2_4); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[0])}; const uint32_t a2_r = typed::gamecore_sub_01414E78(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;

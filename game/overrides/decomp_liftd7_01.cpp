@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -10544,6 +10545,7 @@ void Sg2ChipInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void Sg2CtrlInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1CC278u, 0)) { Sg2CtrlInit_0x1cc278(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x1CC250u, lift_d1::Sg2CtrlSetTickTime), 1)) { A3_CHK(Sg2CtrlInit); A3_IN(320); const uint64_t a2_r = typed::Sg2CtrlInit(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     sp = sp - 0x10u;
@@ -14100,6 +14102,7 @@ void GAMEUTIL_get_answer_of_2jihouteishiki(uint8_t *rdram, R5900Context *ctx, PS
 void GAMEUTIL_get_new_velocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x107FA60u, 0)) { GAMEUTIL_get_new_velocity_0x107fa60(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; A3_CHK(GAMEUTIL_get_new_velocity, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 2)}; const float a2_r = typed::GAMEUTIL_get_new_velocity(rdram, runtime, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a3_xo); ctx->f[0] = a2_r; Ps2SetGpr64(ctx, 2, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14], f15 = ctx->f[15], f16 = ctx->f[16];
@@ -14688,6 +14691,7 @@ void fsEffectCreateSetScript(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 void fsEffectManagerInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1088EB8u, 0)) { fsEffectManagerInit_0x1088eb8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(fsEffectManagerInit); A3_IN(141); const uint64_t a2_r = typed::fsEffectManagerInit(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), ra = Ps2GprU64(ctx, 31);
     { const uint32_t _dynInsn = READ32(0x1088EB8u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
     { const uint32_t _dynInsn = READ32(0x1088EBCu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32(ADD32((uint32_t)v0, _dynSimm))))); }
@@ -14766,6 +14770,7 @@ L_1088f40:
 void initFsEffect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1088F80u, 0)) { initFsEffect_0x1088f80(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(initFsEffect, a2_4); A3_IN(142); const uint64_t a2_r = typed::initFsEffect(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), ra = Ps2GprU64(ctx, 31);
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)READ32_B((uint32_t)a0, 16))));
     (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)61440 << 16))));
@@ -15236,6 +15241,7 @@ void SeemlessInitFogTargetParamWorldLayout(uint8_t *rdram, R5900Context *ctx, PS
 // setFogParamDefault (0x1089aa0-0x1089b60)
 void setFogParamDefault(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { A3_CHK(setFogParamDefault); uint64_t a3_xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; const uint64_t a2_r = typed::setFogParamDefault(rdram, runtime, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); Ps2SetGpr64(ctx, 8, a3_xo[3]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)289 << 16))));
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)280 << 16))));
@@ -15730,6 +15736,7 @@ L_108c08c:
 void glBlendFuncParticle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x108D290u, 0)) { glBlendFuncParticle_0x108d290(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(glBlendFuncParticle, a2_4); uint64_t a3_xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)}; const uint64_t a2_r = typed::glBlendFuncParticle(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 1))));
     (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));

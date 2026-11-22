@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5585,6 +5586,7 @@ L_10c0a44:
 // GetCharacterClassCurAnimationCurFrame (0x10c1a80-0x10c1a98)
 void GetCharacterClassCurAnimationCurFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(GetCharacterClassCurAnimationCurFrame, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 4)}; const float a2_r = typed::GetCharacterClassCurAnimationCurFrame(rdram, runtime, a2_4, a3_xo); ctx->f[0] = a2_r; Ps2SetGpr64(ctx, 4, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     a0 = a0 + 0x1C0u;
@@ -6633,6 +6635,7 @@ void ScriptAnimationObjOfJudgeVolumeObject(uint8_t *rdram, R5900Context *ctx, PS
 // SpriteMenuSetPadEventCallback (0x11119d8-0x1111a08)
 void SpriteMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A3_CHK(SpriteMenuSetPadEventCallback, a2_4, a2_5, a2_6); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 7)}; const uint32_t a2_r = typed::SpriteMenuSetPadEventCallback(rdram, runtime, a2_4, a2_5, a2_6, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 7, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     v1 = READ8_B(a0, 8);
     a0 = a0 + 0x90u;
@@ -18362,6 +18365,7 @@ void setScrDemoMangerFinishCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 void eventBgmAllClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145AEB0u, 0)) { eventBgmAllClose_0x145aeb0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x136AA50u, lift_d1::bgmStop), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(eventBgmAllClose, a2_5); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[12]), Ps2GprU64(ctx, 5)}; A3_IN(339); const uint32_t a2_r = typed::eventBgmAllClose(rdram, runtime, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), s0 = Ps2GprU32(ctx, 16), s1 = Ps2GprU32(ctx, 17), s2 = Ps2GprU32(ctx, 18), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     float f12 = ctx->f[12];

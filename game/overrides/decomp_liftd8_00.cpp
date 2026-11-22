@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -11546,6 +11547,7 @@ L_108a0b4:
 void glBlendFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x108D150u, 0)) { glBlendFunc_0x108d150(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(glBlendFunc, a2_4, a2_5); uint64_t a3_xo[5] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; const uint64_t a2_r = typed::glBlendFunc(rdram, runtime, a2_4, a2_5, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(0u, 5))));
     (t0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -13690,6 +13692,7 @@ void UpdateFogAnim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // UpdateFogCol (0x10ed440-0x10ed520)
 void UpdateFogCol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A3_CHK(UpdateFogCol, a2_4, a2_5); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 2)}; const float a2_r = typed::UpdateFogCol(rdram, runtime, a2_4, a2_5, a3_xo); ctx->f[0] = a2_r; Ps2SetGpr64(ctx, 2, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
     uint32_t fcr31 = ctx->fcr31;
@@ -13929,6 +13932,7 @@ L_10f1334:
 void GetLwsOrientNodeNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10FC1F0u, 0)) { GetLwsOrientNodeNum_0x10fc1f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(GetLwsOrientNodeNum, a2_4); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; A3_IN(179); const uint32_t a2_r = typed::GetLwsOrientNodeNum(rdram, runtime, a2_4, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 7, a3_xo[0]); Ps2SetGpr64(ctx, 8, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5), t0 = Ps2GprU64(ctx, 8);
     bool df_v0 = false, df_v1 = false, df_a0 = false, df_a2 = false;
@@ -21755,6 +21759,7 @@ void manager_sub_011405B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void manager_sub_01140630(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1140630u, 0)) { manager_sub_01140630_0x1140630(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(manager_sub_01140630); uint64_t a3_xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; A3_IN(208); const uint32_t a2_r = typed::manager_sub_01140630(rdram, runtime, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); Ps2SetGpr64(ctx, 8, a3_xo[2]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t a2 = Ps2GprU64(ctx, 6);
     bool df_v1 = false, df_a0 = false, df_a1 = false;
@@ -28642,6 +28647,7 @@ void seUnloadBDFile(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void dsysFileInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x115A060u, 0)) { dsysFileInit_0x115a060(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(dsysFileInit); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)}; A3_IN(220); const uint32_t a2_r = typed::dsysFileInit(rdram, runtime, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 8, a3_xo[0]); Ps2SetGpr64(ctx, 9, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), t1 = Ps2GprU64(ctx, 9);
     v0 = 0x1220000u;

@@ -14,10 +14,10 @@ MANAGER and GAMECORE XFF modules linked by tools/build_elf.py) is put in one cla
                            arguments) or calls guest code (callGuest, recompiled(), PS2_CALL_GUEST)
               native-host  host code behind a guest adapter (arguments from ctx, result to v0; no PS2 math macros, no
                            guest calls): what becomes real native C++ once layer 10 (the signature) goes
-  typed     (d) real C++ (rounds A1 / A2, tools/typed_lift.py / typed_lift2.py): the slot's lifted function is a guest adapter in front of a
+  typed     (d) real C++ (rounds A1 / A2 / A3, tools/typed_lift.py / typed_lift2.py): the slot's lifted function is a guest adapter in front of a
             typed function (game/overrides/typed_a1.inc: parameters and return values, no ctx, no guest calls, no PS2
             FPU / VU0 macros, no READ / WRITE macros), and typed callers call it directly. Counted when the function is
-            listed in docs/a1_typed.txt or docs/a2_typed.txt, its lifted function holds the slot and its typed body has none of those markers.
+            listed in docs/a1_typed.txt, docs/a2_typed.txt or docs/a3_typed.txt, its lifted function holds the slot and its typed body has none of those markers.
             (The table entry itself, the adapter, goes when every caller calls the typed function: the plan's E1.)
 
 Which slots are held by overrides comes from a PS2X_REPLACED_DUMP run (decomp_status.py's input). Without --replaced,
@@ -104,11 +104,12 @@ TYPED_BAD = re.compile(r'\bctx\b|\bFPU_[A-Z_]+\(|\bPS2_V[A-Z0-9_]+\(|\bREAD(8|16
 
 
 def typed_functions():
-    """Rounds A1 / A2: address -> name of the functions docs/a1_typed.txt / docs/a2_typed.txt list whose typed body
-    (typed_a1.inc / typed_a2.inc) has no ctx, no guest call / checkpoint, no PS2 FPU / VU0 macro and no guest READ /
+    """Rounds A1 / A2 / A3: address -> name of the functions docs/a1_typed.txt / a2_typed.txt / a3_typed.txt list whose
+    typed body (typed_a1.inc / typed_a2.inc / typed_a3.inc) has no ctx, no guest call / checkpoint, no PS2 FPU / VU0 macro and no guest READ /
     WRITE macro (A2's frames are host arrays, its calls C++ calls to typed functions)."""
     out, bad = {}, 0
-    for lst, inc, tool in (('docs/a1_typed.txt', 'typed_a1.inc', 'typed_lift.py'), ('docs/a2_typed.txt', 'typed_a2.inc', 'typed_lift2.py')):
+    for lst, inc, tool in (('docs/a1_typed.txt', 'typed_a1.inc', 'typed_lift.py'), ('docs/a2_typed.txt', 'typed_a2.inc', 'typed_lift2.py'),
+                           ('docs/a3_typed.txt', 'typed_a3.inc', 'typed_lift2.py')):
         lst = os.path.join(ROOT, lst)
         inc = os.path.join(OVR, inc)
         if not (os.path.exists(lst) and os.path.exists(inc)):
@@ -312,7 +313,7 @@ def main():
     order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime', 'typed']
     label = {'recomp': '(a) recompiled only', 'lifted': '(b) lifted (lift_d1)', 'native-ps2': '(c1) native, PS2-shaped body',
              'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)',
-             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2)'}
+             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3)'}
     game = lambda a: a >= 0x1000000
     tot_n = len(funcs)
     tot_b = sum(size.get(a, 4) for a in funcs)
@@ -321,7 +322,7 @@ def main():
     print('native registrars whose body could not be read statically (counted c1): %d %s' % (
         len(unresolved), ' '.join('%s:%s' % (why[a]['file'], why[a]['fn']) for a in unresolved[:12])))
     print('slots held by a wrapper in front of the generated body (counted recomp, or lifted when lift tables hold it): %d' % len(wrapped))
-    print('typed functions (docs/a1_typed.txt, docs/a2_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
+    print('typed functions (docs/a1_typed.txt, docs/a2_typed.txt, docs/a3_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
         len(typed), typed_bad, sum(1 for a in funcs if cls[a] == 'typed')))
     print()
     print('%-46s %6s %7s %10s %7s' % ('class', 'funcs', '%', 'bytes', '%'))

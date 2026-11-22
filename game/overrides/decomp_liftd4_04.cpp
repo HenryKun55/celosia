@@ -6,6 +6,7 @@
 // that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -3844,6 +3845,7 @@ L_1437d44:
 // calcDownSpeedRatio (0x1437f28-0x1437f90)
 void calcDownSpeedRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; A3_CHK(calcDownSpeedRatio, a2_f12, a2_f13, a2_f14); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[12]), (uint64_t)a1_bits(ctx->f[13])}; const float a2_r = typed::calcDownSpeedRatio(rdram, runtime, a2_f12, a2_f13, a2_f14, a3_xo); ctx->f[0] = a2_r; ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); ctx->f[13] = a1_flt((uint32_t)a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14];
     uint32_t fcr31 = ctx->fcr31;
@@ -3887,6 +3889,7 @@ void calcDownSpeedRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void gamecore_sub_01444370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1444370u, 0)) { gamecore_sub_01444370_0x1444370(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(gamecore_sub_01444370, a2_4, a2_5); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[0]), Ps2GprU64(ctx, 6)}; const uint32_t a2_r = typed::gamecore_sub_01444370(rdram, runtime, a2_4, a2_5, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];

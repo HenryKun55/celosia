@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -10530,6 +10531,7 @@ L_1166d8c:
 // GetDamagerClassDamageSheetType (0x1166e98-0x1166eb8)
 void GetDamagerClassDamageSheetType(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(GetDamagerClassDamageSheetType, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; const uint32_t a2_r = typed::GetDamagerClassDamageSheetType(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     v0 = 0x1190000u;
     a1 = READ32_B(a0, 80);
@@ -11802,6 +11804,7 @@ void getLayoutDataHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // rintf (0x116ad80-0x116ae80)
 void rintf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const float a2_f12 = ctx->f[12]; A3_CHK(rintf, a2_f12); uint64_t a3_xo[7] = {(uint64_t)a1_bits(ctx->f[12]), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)}; const a1::RetVF a2_r = typed::rintf(rdram, runtime, a2_f12, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 4, a3_xo[1]); Ps2SetGpr64(ctx, 5, a3_xo[2]); Ps2SetGpr64(ctx, 6, a3_xo[3]); Ps2SetGpr64(ctx, 7, a3_xo[4]); Ps2SetGpr64(ctx, 8, a3_xo[5]); Ps2SetGpr64(ctx, 9, a3_xo[6]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), a1 = Ps2GprU32(ctx, 5), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
@@ -14590,6 +14593,7 @@ void PauseGame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // ReleaseGame (0x1345ce0-0x1345d00)
 void ReleaseGame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(ReleaseGame, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 4)}; const uint32_t a2_r = typed::ReleaseGame(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 4, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     v0 = 0x1460000u;

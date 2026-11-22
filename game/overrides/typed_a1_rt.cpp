@@ -12,6 +12,11 @@ bool g_a2Typed = true; // round A2 (typed_a2_rt.h): the switch a2typed, likewise
 #if PS2X_A2_CHECK
 A2GoStats g_a2Go; // round A2's check build: the adapters' test, counted
 #endif
+bool g_a3Typed = true; // round A3 (typed_a3_rt.h): the switch a3typed, likewise
+#include "typed_a3_rt.h"
+#if PS2X_A3_CHECK
+A3Stats g_a3; // round A3's check build: the adapters' test and the deferred checkpoints, counted
+#endif
 
 namespace a1m
 {

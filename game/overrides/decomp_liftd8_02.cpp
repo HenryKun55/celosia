@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -4611,6 +4612,7 @@ void AI_InitSurpriseArrow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void AI_GetInterRatioOutCut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13D4A60u, 0)) { AI_GetInterRatioOutCut_0x13d4a60(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; A3_CHK(AI_GetInterRatioOutCut, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[14])}; const float a2_r = typed::AI_GetInterRatioOutCut(rdram, runtime, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a3_xo); ctx->f[0] = a2_r; ctx->f[14] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14], f15 = ctx->f[15], f16 = ctx->f[16];
     uint32_t fcr31 = ctx->fcr31;
@@ -5683,6 +5685,7 @@ L_13eecec:
 void gamecore_sub_013F13E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13F13E0u, 0)) { gamecore_sub_013F13E0_0x13f13e0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(gamecore_sub_013F13E0, a2_4, a2_5); A3_IN(289); const uint32_t a2_r = typed::gamecore_sub_013F13E0(rdram, runtime, a2_4, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     bool df_v1 = false, df_a0 = false;
@@ -11295,6 +11298,7 @@ void gamecore_sub_0143D660(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_0143D6F8 (0x143d6f8-0x143d718)
 void gamecore_sub_0143D6F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(gamecore_sub_0143D6F8, a2_4); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)}; const uint32_t a2_r = typed::gamecore_sub_0143D6F8(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     a1 = READ32_B(a0, 28);
     a2 = READ32_B(a0, 204);

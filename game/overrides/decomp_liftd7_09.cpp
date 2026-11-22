@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5360,6 +5361,7 @@ L_1407204:
 // initWeapon (0x14072f8-0x1407310)
 void initWeapon(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x13F95A0u, lift_d1::initWeaponSpriteStatus), 1)) { A3_CHK(initWeapon); A3_IN(334); const a1::RetVF a2_r = typed::initWeapon(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
@@ -23103,6 +23105,7 @@ void get_boss_interest_position_game_camera(uint8_t *rdram, R5900Context *ctx, P
 void add_camera_mode_common_param_segment(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x14255A0u, 0)) { add_camera_mode_common_param_segment_0x14255a0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(add_camera_mode_common_param_segment, a2_4); A3_IN(302); typed::add_camera_mode_common_param_segment(rdram, runtime, a2_4); A3_OUT(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6);
     bool df_v0 = false, df_v1 = false;
@@ -23145,6 +23148,7 @@ L_14255c0:
 void add_camera_mode_manager_segment(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x14255F0u, 0)) { add_camera_mode_manager_segment_0x14255f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(add_camera_mode_manager_segment, a2_4); A3_IN(303); typed::add_camera_mode_manager_segment(rdram, runtime, a2_4); A3_OUT(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10);
     bool df_v0 = false, df_v1 = false, df_a1 = false, df_a2 = false, df_a3 = false, df_t0 = false;

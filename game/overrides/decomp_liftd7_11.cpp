@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D7".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -3874,6 +3875,7 @@ static inline uint64_t getSScriptWork_n4(uint8_t *rdram, R5900Context *ctx, PS2R
 // SCRConditionGetOmakeFlag (0x1459a38-0x1459a50)
 void SCRConditionGetOmakeFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x134FA18u, lift_d1::_omakeGetFlagChk), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(SCRConditionGetOmakeFlag, a2_5); A3_IN(338); const uint64_t a2_r = typed::SCRConditionGetOmakeFlag(rdram, runtime, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     sp = sp - 0x10u;
@@ -4939,6 +4941,7 @@ void setPerceptionParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // setRatioGazeIKWork (0x1461758-0x14617b8)
 void setRatioGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; A3_CHK(setRatioGazeIKWork, a2_4, a2_f12, a2_f13, a2_f14); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[0])}; const uint32_t a2_r = typed::setRatioGazeIKWork(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14];
     uint32_t fcr31 = ctx->fcr31;

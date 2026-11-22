@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6014,6 +6015,7 @@ void sheetWait(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // _gameFWorkSet (0x134f0c0-0x134f0d8)
 void _gameFWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; A3_CHK(_gameFWorkSet, a2_4, a2_f12); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 4)}; const uint32_t a2_r = typed::_gameFWorkSet(rdram, runtime, a2_4, a2_f12, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 4, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12];
     v0 = 0x1460000u;

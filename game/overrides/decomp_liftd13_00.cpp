@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D13".
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a3.h" // a3
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6602,6 +6603,7 @@ L_10b3354:
 void ChangeCollisionResourceAttribute(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1128778u, 0)) { ChangeCollisionResourceAttribute_0x1128778(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const uint64_t a2_10 = Ps2GprU64(ctx, 10); A3_CHK(ChangeCollisionResourceAttribute, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_10); A3_IN(203); const uint64_t a2_r = typed::ChangeCollisionResourceAttribute(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_10); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t t3 = Ps2GprU32(ctx, 11), t4 = Ps2GprU32(ctx, 12), t5 = Ps2GprU32(ctx, 13), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10);
     bool df_t5 = false;
@@ -14998,6 +15000,7 @@ void setCurveCollisionFastLegCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runt
 // setRunStopTurnAngleFastLegCtrlWork (0x1440f48-0x1440f60)
 void setRunStopTurnAngleFastLegCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; A3_CHK(setRunStopTurnAngleFastLegCtrlWork, a2_4, a2_f12); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[12])}; const float a2_r = typed::setRunStopTurnAngleFastLegCtrlWork(rdram, runtime, a2_4, a2_f12, a3_xo); ctx->f[0] = a2_r; ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f12 = ctx->f[12];
     at = 0x3C8E0000u;
@@ -15097,6 +15100,7 @@ void gamecore_sub_01440FE0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_01441020 (0x1441020-0x1441080)
 void gamecore_sub_01441020(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A3_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(gamecore_sub_01441020, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; const uint32_t a2_r = typed::gamecore_sub_01441020(rdram, runtime, a2_4, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     v1 = READ32_B(a0, 28);
     a0 = READ32_B(a0, 204);

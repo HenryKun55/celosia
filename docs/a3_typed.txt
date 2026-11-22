@@ -1,0 +1,342 @@
+# a3_typed.txt: round A3's typed functions (tools/typed_lift2.py stage 3; docs/decomp_a3.md). 340 converted; tiers {'frame depth 1': 14, 'frame leaf': 2, 'leaf': 168, 'loop frame depth 1': 7, 'loop frame leaf': 3, 'loop leaf': 146}; returns {'uint32_t': 155, 'uint64_t': 118, 'void': 14, 'float': 21, 'a1::RetVF': 32}
+# address name | C signature | dropped scratch slots | tier | PS2 float helpers
+001004b8 RelocateElfInfoHeader | uint32_t RelocateElfInfoHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8,g9 | loop2 depth0 | 
+001018b8 RelocateSelfSymbol | uint32_t RelocateSelfSymbol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g10,g11,g12,g3,g4,g6,g7,g8,g9 | loop1 depth0 | 
+00102730 LoaderSysEntryExternalIntcHandlerList | uint32_t LoaderSysEntryExternalIntcHandlerList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8,g9 | loop1 depth0 | 
+00102790 LoaderSysEntryExternalThreadList | uint32_t LoaderSysEntryExternalThreadList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7,g8 | loop1 depth0 | 
+001027e0 LoaderSysEntryExternalSemaList | uint32_t LoaderSysEntryExternalSemaList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g5,g6,g7,g8 | loop1 depth0 | 
+00102830 LoaderSysEntryExternalIopMemoryList | uint64_t LoaderSysEntryExternalIopMemoryList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop2 depth0 | 
+001028a0 LoaderSysDeleteExternalIntcHandlerList | uint64_t LoaderSysDeleteExternalIntcHandlerList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g5,g6 | loop1 depth0 | 
+001028f0 LoaderSysDeleteExternalThreadList | uint64_t LoaderSysDeleteExternalThreadList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
+00102930 LoaderSysDeleteExternalSemaList | uint64_t LoaderSysDeleteExternalSemaList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
+00102970 LoaderSysDeleteExternalIopMemoryList | uint64_t LoaderSysDeleteExternalIopMemoryList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7,g8 | loop1 depth0 | 
+001029c8 LoaderSysInitExternalIntcHandlerList | uint32_t LoaderSysInitExternalIntcHandlerList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 depth0 | 
+00102a00 LoaderSysInitExternalSemaList | uint32_t LoaderSysInitExternalSemaList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 depth0 | 
+00102a40 LoaderSysInitExternalThreadList | uint32_t LoaderSysInitExternalThreadList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 depth0 | 
+00102c58 LoaderSysInitExternalIopMemoryList | uint32_t LoaderSysInitExternalIopMemoryList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | loop1 depth0 | 
+00103110 LoaderSysGetMemoryInfo | uint64_t LoaderSysGetMemoryInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t gp, uint64_t *xo = nullptr) | g10,g11,g12,g3,g4,g5,g6,g7,g8,g9 | loop2 depth0 | 
+00106390 ScrollDisplay | uint64_t ScrollDisplay(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t gp) | g3,g4,g5,g6,g7 | loop3 depth0 | 
+00106430 ClearDisplay | uint64_t ClearDisplay(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t gp) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+00109640 sub_00109640 | uint32_t sub_00109640(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1) | g3,g5 | loop2 depth0 | 
+0010f370 sub_0010F370 | uint32_t sub_0010F370(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g3,g4,g5,g6,g7 | loop1 depth0 | 
+0010fc08 sub_0010FC08 | uint32_t sub_0010FC08(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g3,g4,g5,g6,g7 | loop1 depth0 | 
+0010fc40 sub_0010FC40 | uint64_t sub_0010FC40(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2) | g4 | loop1 depth0 | 
+0010fe50 sub_0010FE50 | uint32_t sub_0010FE50(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g3,g4,g5,g6,g7 | loop1 depth0 | 
+0010ffc0 sub_0010FFC0 | uint32_t sub_0010FFC0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t a2) | g3,g4,g5,g7 | loop1 depth0 | 
+00110270 sub_00110270 | uint32_t sub_00110270(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g3,g4,g5,g6,g7 | loop1 depth0 | 
+00110910 sub_00110910 | uint64_t sub_00110910(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+00110c78 iGetTimerSystemTime | uint64_t iGetTimerSystemTime(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g10,g3,g4,g8,g9 | depth0 | 
+00110d48 iAllocTimerCounter | uint32_t iAllocTimerCounter(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+00111288 iGetTimerBaseTime | uint64_t iGetTimerBaseTime(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+00111700 ps2__InitAlarm | uint32_t ps2__InitAlarm(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | loop1 depth0 | 
+00113368 sceVif1PkAddGsData | uint64_t sceVif1PkAddGsData(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+00114020 sceGsSetDefAlphaEnv | uint64_t sceGsSetDefAlphaEnv(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g5,g6,g7,g8,g9 | depth0 | 
+00114080 sceGsSetHalfOffset | uint64_t sceGsSetHalfOffset(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t *xo = nullptr) | g3,g5,g6,g7 | depth0 | 
+001157d8 sub_001157D8 | uint64_t sub_001157D8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g10,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+0011bae8 sub_0011BAE8 | uint32_t sub_0011BAE8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
+0011bbb8 sub_0011BBB8 | uint32_t sub_0011BBB8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+0011bf68 sub_0011BF68 | uint64_t sub_0011BF68(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6 | loop1 depth0 | 
+0011c138 _sceMcFatInit | uint32_t _sceMcFatInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8 | loop1 depth0 | 
+0011c198 _sceMcFatInit2 | uint32_t _sceMcFatInit2(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g10,g11,g3,g4,g5,g6,g7,g8,g9,xhi,xlo | depth0 | 
+00120438 _sceMcpInit | uint32_t _sceMcpInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | loop1 depth0 | 
+00120d10 _sceMcpIsSpeckOutBlock | uint32_t _sceMcpIsSpeckOutBlock(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4,xhi,xlo | loop1 depth0 | 
+00121ec0 sub_00121EC0 | uint64_t sub_00121EC0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 depth0 | 
+00122378 sceNetcnfifGetResult | uint64_t sceNetcnfifGetResult(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+00125080 sub_00125080 | uint64_t sub_00125080(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2) | g10,g11,g12,g3,g4,g5,g7,g8,g9 | loop3 depth0 | 
+00125998 sub_00125998 | uint32_t sub_00125998(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7 | loop1 depth0 | 
+001259e0 sub_001259E0 | uint32_t sub_001259E0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g3,g4,g6,g7,g8 | loop1 depth0 | 
+00125a38 sub_00125A38 | uint64_t sub_00125A38(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g10,g11,g12,g13,g14,g15,g24,g25,g3,g4,g5,g6,g7,g8,g9 | loop2 frame16 depth0 | 
+001262b8 sub_001262B8 | uint64_t sub_001262B8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+00126388 sub_00126388 | uint64_t sub_00126388(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7 | loop1 depth0 | 
+001271b0 ps2___unpack_d | uint64_t ps2___unpack_d(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+0012e890 ps2__Bfree | void ps2__Bfree(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g2,g3,g4 | depth0 | 
+0012f0d8 ps2___mcmp | uint32_t ps2___mcmp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+0012f2d0 _ulp | uint64_t _ulp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6 | depth0 | 
+001acdf8 iosCdStStart | uint64_t iosCdStStart(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+001ad528 iosGetTCountExtension | uint64_t iosGetTCountExtension(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+001ad628 iosResetCpuRapCounter | uint32_t iosResetCpuRapCounter(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | depth0 | 
+001b27b0 iosPadRead | uint64_t iosPadRead(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g1,g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+001b2a18 iosMemToSprDmaAdrCopy | uint32_t iosMemToSprDmaAdrCopy(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g10,g11,g3,g4,g7,g8,g9 | depth0 | 
+001b3c50 Init_Shock | uint32_t Init_Shock(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+001b40d0 kernel_sub_001B40D0 | uint32_t kernel_sub_001B40D0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6 | loop1 depth0 | 
+001b7500 iosLoaderGetFileSize | uint32_t iosLoaderGetFileSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | loop1 depth0 | 
+001b7550 initDldSys | uint32_t initDldSys(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4 | loop1 depth0 | 
+001ba690 kernel_sub_001BA690 | float kernel_sub_001BA690(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | f1,f2,f3,f4,f5,g1,g10,g11,g12,g2,g3,g4,g5,g6,g7,g8,g9,xfcr31 | depth0 | a1f::add,a1f::addFinite,a1f::div,a1f::eq,a1f::lt,a1f::mul,a1f::sqrt,a1f::sub
+001be570 iosGetTableCos | a1::RetVF iosGetTableCos(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g1,g3,g4 | depth0 | 
+001bf160 iosSetDCViewPortCenter | uint64_t iosSetDCViewPortCenter(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0, uint64_t t1, uint64_t t2, uint64_t *xo = nullptr) | g10,g11,g12,g3,g9 | depth0 | 
+001bfad8 iosUsedPacketBufferSize | a1::RetVF iosUsedPacketBufferSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | f1,g3,g4,g5,xfcr31 | depth0 | a1f::add,a1f::div
+001bfc08 iosAllocPacketPtrPath1 | uint32_t iosAllocPacketPtrPath1(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+001bfcf8 iosDlChainTail | uint64_t iosDlChainTail(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9 | depth0 | 
+001c1538 kernel_sub_001C1538 | uint64_t kernel_sub_001C1538(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g10,g11,g12,g13,g14,g15,g3,g4,g5,g6,g7,g8,g9 | frame16 depth0 | 
+001c15f8 iosGsSetMode | uint32_t iosGsSetMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g10,g11,g3,g4,g5,g6,g7,g8,g9 | depth0 | 
+001c35e8 iosChkGpDlTransExec | uint64_t iosChkGpDlTransExec(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+001c5e00 getTWH | uint64_t getTWH(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g5 | loop1 depth0 | 
+001c7948 isysGetLinkNum | uint32_t isysGetLinkNum(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | loop1 depth0 | 
+001c7dc8 getVIntrDiffTime | a1::RetVF getVIntrDiffTime(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f1,f2,f3,f4,f5,g1,g3,g5 | depth0 | a1f::add,a1f::cvtw,a1f::mul,a1f::sub
+001c7e30 addVIntrTime | a1::RetVF addVIntrTime(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f1,f12,f2,f3,f4,g1,g3,g5 | depth0 | a1f::add,a1f::cvtw,a1f::mul,a1f::sub
+001c7fb0 ischedStop | uint32_t ischedStop(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+001c8910 get_next_letter_in_post | uint32_t get_next_letter_in_post(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3 | depth0 | 
+001c8af0 entry_new_letter_type | uint64_t entry_new_letter_type(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g5 | loop1 depth0 | 
+001c8b30 init_letter_type_store | uint32_t init_letter_type_store(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | loop1 depth0 | 
+001c8b98 kernel_sub_001C8B98 | uint32_t kernel_sub_001C8B98(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g10,g11,g12,g13,g14,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001c9678 iosGetFontInfo | uint64_t iosGetFontInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g1,g3,g5,g6,g7 | depth0 | 
+001cab80 sndSepPlayerSrh | uint64_t sndSepPlayerSrh(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g10,g3,g4,g7,g8,g9 | loop5 depth0 | 
+001cac08 sndSepPlayerSrh2 | uint64_t sndSepPlayerSrh2(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8,g9 | loop4 depth0 | 
+001cac98 sndSepSetVol | a1::RetVF sndSepSetVol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f1,f12,g1,g3,g5,g6 | depth0 | a1f::cvtw,a1f::mul
+001cacd8 sndSepSetPan | a1::RetVF sndSepSetPan(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12) | f1,f12,g1,xfcr31 | depth0 | a1f::addFinite,a1f::cvtw,a1f::lt,a1f::mul
+001cadf8 sndSepStopTypeAll | uint64_t sndSepStopTypeAll(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g5,g6,g7 | loop1 depth0 | 
+001caf10 sndVabCreate | uint64_t sndVabCreate(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001cb170 sndVabInit | uint32_t sndVabInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | loop1 depth0 | 
+001cbd70 AddStrHashKey | uint32_t AddStrHashKey(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g6,g7 | depth0 | 
+001cc0c8 Sg2CtrlEntryTickProcById | uint64_t Sg2CtrlEntryTickProcById(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8 | depth0 | 
+001cc7f8 Sg2DspInit | uint32_t Sg2DspInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | loop1 depth0 | 
+001cd448 ps2_____VolPerBackup | uint32_t ps2_____VolPerBackup(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4,g5 | loop1 depth0 | 
+001cdde8 kernel_sub_001CDDE8 | uint64_t kernel_sub_001CDDE8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g1,g10,g11,g12,g13,g14,g15,g24,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001cdf38 kernel_sub_001CDF38 | uint32_t kernel_sub_001CDF38(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g1,g10,g11,g12,g13,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001d2da0 Sg2SepMidiOut | uint64_t Sg2SepMidiOut(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2) | g10,g11,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001d3b08 Sg2SlotGetSlotClassIdx | uint64_t Sg2SlotGetSlotClassIdx(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+001d5cb8 Sg2SlotBlock | uint32_t Sg2SlotBlock(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g10,g11,g12,g13,g3,g5,g6,g7,g8,g9 | depth0 | 
+001d5d58 Sg2SlotCheckSlotClass | uint64_t Sg2SlotCheckSlotClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop2 depth0 | 
+001d5db0 Sg2SlotFindLoop | uint64_t Sg2SlotFindLoop(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g4,g5,g6 | loop1 depth0 | 
+001d5df8 Sg2SlotFindVab | uint64_t Sg2SlotFindVab(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4,g6,g7 | loop1 depth0 | 
+001d5e48 Sg2SlotFindVabCh | uint64_t Sg2SlotFindVabCh(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2) | g3,g4,g7,g8 | loop1 depth0 | 
+001d5ea8 Sg2SlotFindVabChNote | uint64_t Sg2SlotFindVabChNote(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, uint64_t a3) | g3,g4,g8,g9 | loop1 depth0 | 
+001d5f10 Sg2SlotFindVabChSsaBaseNote | uint64_t Sg2SlotFindVabChSsaBaseNote(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0) | g10,g3,g4,g9 | loop1 depth0 | 
+001d5f88 Sg2SlotFindSlotClass | uint64_t Sg2SlotFindSlotClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7 | loop1 depth0 | 
+001d5fd8 Sg2SlotFindSlotClassCh | uint64_t Sg2SlotFindSlotClassCh(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g3,g4,g7,g8 | loop1 depth0 | 
+001d6038 Sg2SlotFindSlotClassChNote | uint64_t Sg2SlotFindSlotClassChNote(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, uint64_t a3) | g3,g4,g8,g9 | loop1 depth0 | 
+001d60a0 Sg2SlotFindSlotClassChSsaBaseNote | uint64_t Sg2SlotFindSlotClassChSsaBaseNote(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0, uint64_t *xo = nullptr) | g10,g3,g4,g9 | loop1 depth0 | 
+001d62f0 Sg2SlotSetMasVol | uint32_t Sg2SlotSetMasVol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g10,g3,g4,g5,g7,g8,g9 | depth0 | 
+001d6360 Sg2SlotSetSeMasVol | uint32_t Sg2SlotSetSeMasVol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+001d63b8 Sg2SlotSetBaseVol | uint32_t Sg2SlotSetBaseVol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+001d6410 Sg2SlotSetVol | uint32_t Sg2SlotSetVol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+001d6440 Sg2SlotSetMasPan | uint32_t Sg2SlotSetMasPan(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+001d64a0 Sg2SlotSetBasePan | uint32_t Sg2SlotSetBasePan(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+001d64f8 Sg2SlotSetPan | uint32_t Sg2SlotSetPan(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+001d66a0 Sg2SlotSetMasTune | uint32_t Sg2SlotSetMasTune(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+001d6720 Sg2SlotSetVolPhase | uint64_t Sg2SlotSetVolPhase(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g7,g8 | depth0 | 
+001d67a8 Sg2SlotSetLfoPitchTbl | uint64_t Sg2SlotSetLfoPitchTbl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+001d68a8 Sg2SlotSetLfoPitchDepth | uint64_t Sg2SlotSetLfoPitchDepth(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8,g9 | depth0 | 
+001d6cf0 Sg2SlotSetPoltamentParam | uint32_t Sg2SlotSetPoltamentParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, float f12, uint64_t *xo = nullptr) | f12,g1,g3,g4 | depth0 | 
+001d8000 Sg2SlotTbl | uint32_t Sg2SlotTbl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g10,g11,g12,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001d8de0 Sg2SmfpMidiOut | uint32_t Sg2SmfpMidiOut(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a2) | g1,g10,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+001d9ec8 get_vabid | uint64_t get_vabid(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+001d9f08 kernel_sub_001D9F08 | uint32_t kernel_sub_001D9F08(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g5,g6 | depth0 | 
+001daab0 kernel_sub_001DAAB0 | void kernel_sub_001DAAB0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | f0,f1,f2,g1,g2,g3,g4,g5,g6,g7,g8 | loop1 depth0 | a1f::add,a1f::mul
+001dac18 kernel_sub_001DAC18 | uint32_t kernel_sub_001DAC18(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t a2, uint64_t *xo = nullptr) | f0,f1,g3,g6 | loop1 depth0 | a1f::add
+001db678 kernel_sub_001DB678 | uint64_t kernel_sub_001DB678(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+001dcb48 IirFilter | a1::RetVF IirFilter(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint32_t a2) | f1,f10,f11,f12,f13,f14,f2,f3,f4,f5,f6,f7,f8,f9,g3 | loop1 frame16 depth0 | a1f::addFinite,a1f::mul,a1f::subFinite
+001de720 ps2___ieee754_fmodf | a1::RetVF ps2___ieee754_fmodf(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13) | f1,g1,g10,g3,g4,g5,g6,g7,g8,g9,xfcr31 | loop3 frame16 depth0 | a1f::div,a1f::mul
+0107da28 GAMEUTIL_inc_or_dec_for_near_to_aim_pitch | uint64_t GAMEUTIL_inc_or_dec_for_near_to_aim_pitch(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, float f12, float f13, float f14, float f15, float f16, uint64_t *xo = nullptr) | f0,f1,f14,f2,f3,f4,f5,f6,g1,g3,xfcr31 | depth0 | a1f::add,a1f::eq,a1f::le,a1f::lt,a1f::sub
+0107dd80 GAMEUTIL_get_interp_pitch | float GAMEUTIL_get_interp_pitch(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, uint64_t *xo = nullptr) | f1,f13,f2,f3,f4,f5,g1,g2,xfcr31 | depth0 | a1f::add,a1f::le,a1f::lt,a1f::mul,a1f::sub
+0107ed30 GAMEUTIL_is_diff_nearly_equal_zero | a1::RetVF GAMEUTIL_is_diff_nearly_equal_zero(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, uint64_t *xo = nullptr) | f12,xfcr31 | depth0 | a1f::le,a1f::lt,a1f::sub
+0107eec8 GAMEUTIL_get_cross_position_coefficient_t_by_dist_factor | a1::RetVF GAMEUTIL_get_cross_position_coefficient_t_by_dist_factor(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t t0, float f12, uint64_t *xo = nullptr) | f1,f2,f3,f4,f5,f6,g1,g10,g3,g4,g9,xfcr31 | loop1 depth0 | a1f::add,a1f::addFinite,a1f::div,a1f::lt,a1f::mul,a1f::sqrt,a1f::sub,a1f::subFinite
+0107f078 GAMEUTIL_get_segment_num_and_data | uint32_t GAMEUTIL_get_segment_num_and_data(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g5,g6 | depth0 | 
+0107fa60 GAMEUTIL_get_new_velocity | float GAMEUTIL_get_new_velocity(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, uint64_t *xo = nullptr) | f1,f13,g1,g2,g3,xfcr31 | depth0 | a1f::add,a1f::le,a1f::lt,a1f::mul,a1f::sub
+010806a8 GAMEUTIL_increase_pitch | a1::RetVF GAMEUTIL_increase_pitch(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, float f12, float f13, float f14, float f15, uint64_t *xo = nullptr) | f1,f14,f15,f2,g1,g3,xfcr31 | depth0 | a1f::add,a1f::le,a1f::lt
+01080968 GAMEUTIL_get_difference_yaw_and_yaw | float GAMEUTIL_get_difference_yaw_and_yaw(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, uint64_t *xo = nullptr) | f13,g1,xfcr31 | depth0 | a1f::lt,a1f::sub
+01081090 GAMEUTIL_is_reach_aim_pitch_angle | uint32_t GAMEUTIL_is_reach_aim_pitch_angle(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, float f13, float f14, uint64_t *xo = nullptr) | f0,f1,g1,g3,xfcr31 | depth0 | a1f::le,a1f::lt,a1f::sub
+010842a0 GAMEUTIL_reset_interp_ratio_cntrl | uint32_t GAMEUTIL_reset_interp_ratio_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f0,g1,g3 | depth0 | 
+010846a8 reset_double_spring_interp_cntrl3D | a1::RetVF reset_double_spring_interp_cntrl3D(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8 | loop1 depth0 | 
+010871d8 endBossDeathEffect | uint32_t endBossDeathEffect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+01088a38 fsEffectSetParam | uint32_t fsEffectSetParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+01088d60 fsEffectManagerSetDemoParam | uint32_t fsEffectManagerSetDemoParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+01088eb8 fsEffectManagerInit | uint64_t fsEffectManagerInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+01088f80 initFsEffect | uint64_t initFsEffect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7,g8 | loop4 depth0 | 
+01089aa0 setFogParamDefault | uint64_t setFogParamDefault(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | depth0 | 
+0108d150 glBlendFunc | uint64_t glBlendFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | depth0 | 
+0108d290 glBlendFuncParticle | uint64_t glBlendFuncParticle(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+0108e8b8 glColor4f | a1::RetVF glColor4f(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, uint64_t *xo = nullptr) | f1,f12,f13,f14,f15,f2,g1,g3,g4,xfcr31 | loop1 depth0 | a1f::lt,a1f::mul
+0108e938 glColor4fv | a1::RetVF glColor4fv(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f1,f2,f3,f4,f5,g1,g3,g5,xfcr31 | loop1 depth0 | a1f::lt,a1f::mul
+01096a80 modelGetDlLayer | uint64_t modelGetDlLayer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+010993c8 modelResetSurface | uint32_t modelResetSurface(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+01099438 modelSetMatrixTransTag | uint64_t modelSetMatrixTransTag(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t *xo = nullptr) | g10,g11,g12,g13,g3,g4,g5,g6,g8,g9 | loop1 depth0 | 
+01099e00 ptclmanBuildMatPacket | a1::RetVF ptclmanBuildMatPacket(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, float f13, uint64_t *xo = nullptr) | g1,g10,g11,g12,g3,g4,g5,g6,g7,g8,g9,xfcr31 | depth0 | a1f::le
+0109aa48 GetMeshClass | uint64_t GetMeshClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+0109abc8 meshFlip | uint32_t meshFlip(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+010a52e0 spriteSetTextureCoordinateST | uint64_t spriteSetTextureCoordinateST(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, float f13, float f14, float f15, uint64_t *xo = nullptr) | f14,f15,g3 | depth0 | a1f::add
+010a5440 spriteSetBlendMode | uint64_t spriteSetBlendMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t *xo = nullptr) | g3,g5,g6,g7,g8 | depth0 | 
+010aacb8 texGetTexTBPSize | uint64_t texGetTexTBPSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g5,g7,xhi,xlo | depth0 | 
+010ae658 manager_sub_010AE658 | uint64_t manager_sub_010AE658(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint32_t a2, float f12, float f13, uint64_t *xo = nullptr) | f0,f1,g10,g3,g5,g6,g7,g8,g9,xfcr31 | loop3 depth0 | a1f::add,a1f::cvtw,a1f::le,a1f::lt
+010b2790 getBlendBaseMotion | uint64_t getBlendBaseMotion(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9,xhi,xlo | loop1 depth0 | 
+010b62f0 GetMotionFrameDirectResource | a1::RetVF GetMotionFrameDirectResource(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t a2, float f12, float f13) | f1,f12,f2,g3,g6,xfcr31 | loop1 depth0 | a1f::add,a1f::le,a1f::lt,a1f::mul,a1f::sub
+010b63c0 GetMotionOptionNodeParentId | uint32_t GetMotionOptionNodeParentId(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g3,g5 | depth0 | 
+010b7618 InitMotionBoolInfo | uint32_t InitMotionBoolInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | depth0 | 
+010c1158 ResetCharacterClassIKInfo | uint32_t ResetCharacterClassIKInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f0,f1,g1,g3,g4 | loop1 depth0 | 
+010c1a80 GetCharacterClassCurAnimationCurFrame | float GetCharacterClassCurAnimationCurFrame(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f1,g4 | depth0 | a1f::mul
+010c1d38 SetCharacterObjControlBypassFunc | uint32_t SetCharacterObjControlBypassFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6 | depth0 | 
+010c2910 SetCharacterObjParentPlaneDiscontinuousJudgeFunc | uint32_t SetCharacterObjParentPlaneDiscontinuousJudgeFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6 | depth0 | 
+010c2940 SetCharacterObjParentPointXZFitGpChangeJudgeFunc | uint32_t SetCharacterObjParentPointXZFitGpChangeJudgeFunc(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g7 | depth0 | 
+010c9888 manager_sub_010C9888 | uint64_t manager_sub_010C9888(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f0,f1,f2,g1,g3,g5,g6,g7,g8,g9,xfcr31 | depth0 | a1f::le,a1f::lt
+010cc4f0 InitScriptControlButtonCallBack | uint64_t InitScriptControlButtonCallBack(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | depth0 | 
+010cd400 manager_sub_010CD400 | void manager_sub_010CD400(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f0,f1,f2,f3,f4,f5,g2,g3,g5,xfcr31 | depth0 | a1f::add,a1f::div,a1f::le,a1f::lt,a1f::mul,a1f::sub
+010d2848 OptimizeMotionOrient | uint64_t OptimizeMotionOrient(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g12,g13,g14,g3,g4,g5,g6,g7,g8,g9,xhi,xlo | loop1 depth0 | 
+010d2b18 RequestCharacterClassMotionChangeWithParam | uint32_t RequestCharacterClassMotionChangeWithParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, float f12, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+010de398 charrootdyn_getLimitMode | uint32_t charrootdyn_getLimitMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f0 | depth0 | 
+010e2170 resetExpressionLocalHeightDiff | uint32_t resetExpressionLocalHeightDiff(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g5 | loop1 depth0 | 
+010ebb90 GetDemoOrientNext | uint32_t GetDemoOrientNext(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9,xhi,xlo | depth0 | 
+010ed440 UpdateFogCol | float UpdateFogCol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f1,f2,g1,g2,g3,xfcr31 | depth0 | a1f::cvtw,a1f::le,a1f::sub
+010f8f90 IsEnvelopeDistantLightType | uint32_t IsEnvelopeDistantLightType(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1) | g3,g5,g6,g7,g8 | loop1 depth0 | 
+010f8ff0 globalLightCalcLightNum | uint32_t globalLightCalcLightNum(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g6 | depth0 | 
+010f92b0 GetImpactWorstWorkLightClass | uint32_t GetImpactWorstWorkLightClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | f0,f1,g3,g4,g5,xfcr31 | loop1 depth0 | a1f::lt
+010fc1f0 GetLwsOrientNodeNum | uint32_t GetLwsOrientNodeNum(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop1 depth0 | 
+010fc618 manager_sub_010FC618 | uint64_t manager_sub_010FC618(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g3,g4,g5,g6,g7,g8,g9,xhi,xlo | loop1 depth0 | 
+01100af8 initAnimationObjResource | uint32_t initAnimationObjResource(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,xhi,xlo | depth0 | 
+01101650 InitBinarySize | uint32_t InitBinarySize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | loop1 depth0 | 
+0110a670 SetScriptAnimationGlobalBaseInfo | uint64_t SetScriptAnimationGlobalBaseInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | depth0 | 
+0110a7d8 CopyScriptAnimationWindGeometryPointer | uint64_t CopyScriptAnimationWindGeometryPointer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop1 depth0 | 
+011117c0 manager_sub_011117C0 | uint64_t manager_sub_011117C0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g12,g13,g3,g4,g5,g6,g7,g9 | loop2 depth0 | 
+01111998 GetSpriteMenuClass | uint64_t GetSpriteMenuClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+011119d8 SpriteMenuSetPadEventCallback | uint32_t SpriteMenuSetPadEventCallback(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g7 | depth0 | 
+01111a08 SpriteSubMenuSetPadEventCallback | uint32_t SpriteSubMenuSetPadEventCallback(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g7 | depth0 | 
+01111a38 SpriteMenuSetDispFlag | uint32_t SpriteMenuSetDispFlag(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t a2, uint64_t *xo = nullptr) | g3,g4,g5,g7 | depth0 | 
+01111b78 SpriteMenuSetDispFlagByHash | uint64_t SpriteMenuSetDispFlagByHash(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g10,g11,g3,g4,g5,g7,g8,g9 | loop1 depth0 | 
+01111e20 SpriteMenuSetLayer | uint32_t SpriteMenuSetLayer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8 | depth0 | 
+01111f60 SpriteMenuGetLayerStatus | uint32_t SpriteMenuGetLayerStatus(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6 | depth0 | 
+01111f90 SpriteMenuGetLayerByHash | uint64_t SpriteMenuGetLayerByHash(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8,g9 | loop1 depth0 | 
+01112008 SpriteMenuGetLayerNoByHash | uint64_t SpriteMenuGetLayerNoByHash(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8 | loop1 depth0 | 
+01112c88 SpriteMenuGetMenuIdByHash | uint64_t SpriteMenuGetMenuIdByHash(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g10,g11,g3,g4,g5,g7,g8,g9 | loop2 depth0 | 
+01112e68 SpriteMenuGetSelectMenuIdBySpriteMenuClass | uint32_t SpriteMenuGetSelectMenuIdBySpriteMenuClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+01112ef0 SpriteMenuSetSelectMenuId | uint32_t SpriteMenuSetSelectMenuId(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6 | depth0 | 
+01113088 SpriteMenuGetSelectMenuMode | uint32_t SpriteMenuGetSelectMenuMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+01113130 SpriteMenuSetDefaultSelectMenu | uint32_t SpriteMenuSetDefaultSelectMenu(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7 | depth0 | 
+011137b8 SpriteMenuSetNumPartsFormatByPartsParam | uint32_t SpriteMenuSetNumPartsFormatByPartsParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g6 | depth0 | 
+011137e0 SpriteMenuSetAnimParam | void SpriteMenuSetAnimParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a2, uint64_t a3, float f12, uint64_t *xo = nullptr) | g2,g3,g4,g8 | depth0 | 
+01114170 GetSpriteClass | uint64_t GetSpriteClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+01128778 ChangeCollisionResourceAttribute | uint64_t ChangeCollisionResourceAttribute(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0, uint64_t t1, uint64_t t2) | g11,g12,g13,g3,g4,g9 | loop1 depth0 | 
+01128898 ConstructorCollisionObjectJudgeCallbackData | uint32_t ConstructorCollisionObjectJudgeCallbackData(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g4 | loop1 depth0 | 
+0112a350 CopyCollisionFinder | uint64_t CopyCollisionFinder(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3,g6 | depth0 | 
+01132a00 GetGeometryPointerObjectParentNodeId | uint32_t GetGeometryPointerObjectParentNodeId(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+01139128 GetClothWorkSize | uint32_t GetClothWorkSize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7,xhi,xlo | loop2 depth0 | 
+01140630 manager_sub_01140630 | uint32_t manager_sub_01140630(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop1 depth0 | 
+011408e0 manager_sub_011408E0 | uint64_t manager_sub_011408E0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9 | depth0 | 
+01140e60 manager_sub_01140E60 | uint32_t manager_sub_01140E60(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2) | g3 | depth0 | 
+01140fd8 manager_sub_01140FD8 | a1::RetVF manager_sub_01140FD8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | f1,g1,g3 | depth0 | a1f::add
+011418d8 manager_sub_011418D8 | uint32_t manager_sub_011418D8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | f0,g3 | depth0 | 
+01141e80 manager_sub_01141E80 | uint32_t manager_sub_01141E80(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
+01145ba8 get_particle_parameter_blend_disp | a1::RetVF get_particle_parameter_blend_disp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t a2, uint64_t a3, float f12, uint64_t *xo = nullptr) | f1,f2,f3,g1,g3,g5,g8,g9,xfcr31 | depth0 | a1f::add,a1f::addFinite,a1f::lt,a1f::mul,a1f::sub
+011479b0 InitModifiedManager | void InitModifiedManager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g2,g3,g6 | loop1 depth0 | 
+01147a78 InitTwoWayLink | void InitTwoWayLink(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) |  | depth0 | 
+01147a88 AddTwoWayLinkNext | uint32_t AddTwoWayLinkNext(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) |  | depth0 | 
+01147ab0 DeleteTwoWayLink | uint32_t DeleteTwoWayLink(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
+01157a98 adpcmSetPan | uint32_t adpcmSetPan(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | g1,g4,xhi,xlo | depth0 | 
+0115a060 dsysFileInit | uint32_t dsysFileInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+0115cf90 sheetFileGetDataAdrs | uint32_t sheetFileGetDataAdrs(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,xhi,xlo | depth0 | 
+0115ec60 sheetMgrSheetHeaderSearchSheetDataObj | uint32_t sheetMgrSheetHeaderSearchSheetDataObj(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4 | loop1 depth0 | 
+0115ed70 sheetMgrCheckSegInitList | uint32_t sheetMgrCheckSegInitList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | loop1 depth0 | 
+011629e8 manager_sub_011629E8 | uint32_t manager_sub_011629E8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
+01163848 get_hit_region_ofst_camera_region | float get_hit_region_ofst_camera_region(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g2,g3 | depth0 | 
+011644d0 set_scissor_screen_size | uint32_t set_scissor_screen_size(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint64_t *xo = nullptr) | g4,g5 | depth0 | 
+01166e50 DecreaseDamageLockTime | uint32_t DecreaseDamageLockTime(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f0,f1,xfcr31 | depth0 | a1f::lt,a1f::sub
+01166e98 GetDamagerClassDamageSheetType | uint32_t GetDamagerClassDamageSheetType(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+011692a8 ResetAnimeFrameTableInfo | uint64_t ResetAnimeFrameTableInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,xhi,xlo | depth0 | 
+0116ad80 rintf | a1::RetVF rintf(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, uint64_t *xo = nullptr) | f1,f12,g1,g3,g4,g5,g6,g7,g8,g9 | frame16 depth0 | a1f::add,a1f::sub
+01343eb8 GAMEUTIL_set_parameter_look_at_vs_offset | float GAMEUTIL_set_parameter_look_at_vs_offset(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, float f13, float f14, float f15, float f16, uint64_t *xo = nullptr) | f12,f13,f14,g1 | depth0 | a1f::mul
+013445d8 GAMEUTIL_doit_status_manager | uint32_t GAMEUTIL_doit_status_manager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, float f12, uint64_t *xo = nullptr) | f0 | depth0 | a1f::add
+01345ce0 ReleaseGame | uint32_t ReleaseGame(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+01346300 getDemoBarFade | a1::RetVF getDemoBarFade(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | f1,g1 | depth0 | a1f::sub
+01347028 set_base_pitch_parameter_nico_yaw_pitch_cntrl | float set_base_pitch_parameter_nico_yaw_pitch_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, float f12, float f13, float f14, float f15, float f16, float f17, uint64_t *xo = nullptr) | f12,f13,f14,f15,f16,g1 | depth0 | a1f::mul
+01347b28 gamecore_sub_01347B28 | uint64_t gamecore_sub_01347B28(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, float f13, uint64_t *xo = nullptr) | f0,f1,g3,g5 | loop1 depth0 | 
+01347b88 gamecore_sub_01347B88 | float gamecore_sub_01347B88(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | f1,f2,f3,g2,g3,g7,xfcr31 | loop1 depth0 | a1f::add,a1f::div
+01349318 backStageCheckPointSave | uint64_t backStageCheckPointSave(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+013493e0 backStageCheckPointLoad | uint64_t backStageCheckPointLoad(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+0134ef50 _optionWorkSet | void _optionWorkSet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g1,g4 | depth0 | 
+0134efb0 _gameFlagSet | uint64_t _gameFlagSet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g1,g3,g4,g5,g6 | depth0 | 
+0134eff0 _gameFlagCls | uint64_t _gameFlagCls(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g1,g3,g4,g5,g6 | depth0 | 
+0134f030 _gameFlagChk | uint64_t _gameFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+0134f0a8 _gameWorkSet | void _gameWorkSet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g1,g4 | depth0 | 
+0134f0c0 _gameFWorkSet | uint32_t _gameFWorkSet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+0134f120 _gameFWorkChk | a1::RetVF _gameFWorkChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+0134f1b0 fruitsFlagChk | uint32_t fruitsFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a3, uint64_t *xo = nullptr) | g3,g6,g7,g8 | depth0 | 
+0134f350 gameFlagCheckPointLoad | uint64_t gameFlagCheckPointLoad(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t t0, uint64_t t1, uint64_t *xo = nullptr) | g10,g11,g12,g13,g3,g4,g5,g6,g7,g8,g9 | loop11 depth0 | 
+0134f820 tailsFlagChk | uint32_t tailsFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a3, uint64_t *xo = nullptr) | g3,g6,g7,g8 | depth0 | 
+0134f938 gexsFlagChk | uint32_t gexsFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a3, uint64_t *xo = nullptr) | g3,g6,g7,g8 | depth0 | 
+0134fa18 _omakeGetFlagChk | uint64_t _omakeGetFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+0134fb28 _omakeSelectFlagChk | uint64_t _omakeSelectFlagChk(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+01352030 gameflowBossEyeCameraDisable | uint32_t gameflowBossEyeCameraDisable(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | depth0 | 
+01352b30 gameModeSet | uint64_t gameModeSet(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+01352b88 gameModeCls | void gameModeCls(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g2,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+01353440 gStatPlaceIdToSavePoint | uint32_t gStatPlaceIdToSavePoint(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | loop1 depth0 | 
+01353e18 gstatBootMcSetLastSaveOmakeStat | uint32_t gstatBootMcSetLastSaveOmakeStat(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop1 depth0 | 
+013576d8 opflowSetDemoFrame | a1::RetVF opflowSetDemoFrame(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, uint64_t *xo = nullptr) | f12,g1,xfcr31 | depth0 | a1f::div
+01358888 getStageChipID | a1::RetVF getStageChipID(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | f1,f2,f3,g1,g3,g7,xfcr31 | depth0 | a1f::cvtw,a1f::div,a1f::lt,a1f::sub
+01358a68 gamecore_sub_01358A68 | uint32_t gamecore_sub_01358A68(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,xhi,xlo | depth0 | 
+01365ab0 stagemanager_checkstageAlreadyLoadRequestedByStrptr | uint32_t stagemanager_checkstageAlreadyLoadRequestedByStrptr(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,xhi,xlo | depth0 | 
+01365d18 gcGetStageData | uint32_t gcGetStageData(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+013663d0 stagemanager_getStageNumberWithStageDataStrptr | uint32_t stagemanager_getStageNumberWithStageDataStrptr(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6,xhi,xlo | depth0 | 
+013678e8 PauseStageBoundaryManager | uint32_t PauseStageBoundaryManager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g12,g3,g4,g5,g6,g7,g8,g9 | depth0 | 
+0136a2e0 initBgmScript | uint64_t initBgmScript(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+0136a328 gamecore_sub_0136A328 | uint32_t gamecore_sub_0136A328(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g5 | loop1 depth0 | 
+01379270 GetBossPartsDamagePerParts | a1::RetVF GetBossPartsDamagePerParts(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f1,g3,g6,g7,xfcr31 | depth0 | a1f::div,a1f::sub
+0137def8 getexpressiondatapoint | float getexpressiondatapoint(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g5 | depth0 | 
+0137e828 controllerAlertDisable | uint32_t controllerAlertDisable(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | depth0 | 
+01386b98 gamecore_sub_01386B98 | uint32_t gamecore_sub_01386B98(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | f0,g10,g11,g12,g3,g4,g5,g6,g7,g8,g9 | loop3 depth0 | 
+013883b0 fadeout_weakpoint_effect | uint32_t fadeout_weakpoint_effect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 depth0 | 
+013883f8 cancel_fadeout_weakpoint_effect | uint32_t cancel_fadeout_weakpoint_effect(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 depth0 | 
+0138be30 set_node_data_expression | void set_node_data_expression(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint32_t a2, float f12, float f13, float f14, uint64_t *xo = nullptr) | g2,g3,g4,g7 | loop1 depth0 | 
+0138bec8 constructor_expression_change | uint32_t constructor_expression_change(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g4 | loop1 depth0 | 
+0138eab0 EnableArrowWater | uint32_t EnableArrowWater(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
+0138eaf8 EndArrowWater | uint32_t EndArrowWater(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
+01393e58 gamecore_sub_01393E58 | a1::RetVF gamecore_sub_01393E58(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, float f12, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8,g9,xfcr31,xhi,xlo | depth0 | a1f::lt
+0139f3b0 gamecore_sub_0139F3B0 | uint64_t gamecore_sub_0139F3B0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5,g6,g7 | loop1 depth0 | 
+013d46d8 AI_GetPosition3 | float AI_GetPosition3(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, uint64_t *xo = nullptr) | f1,f12,f13,f14,f16,f17,f2,f3,f4,g1,xfcr31 | depth0 | a1f::add,a1f::addFinite,a1f::div,a1f::mul
+013d4a28 AI_GetInterRatio | float AI_GetInterRatio(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, uint64_t *xo = nullptr) | f1,f14,xfcr31 | depth0 | a1f::add,a1f::div,a1f::eq,a1f::sub
+013d4a60 AI_GetInterRatioOutCut | float AI_GetInterRatioOutCut(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, uint64_t *xo = nullptr) | f1,f14,xfcr31 | depth0 | a1f::add,a1f::div,a1f::eq,a1f::le,a1f::sub
+013e79c8 Kite_CmpPathPoint | uint32_t Kite_CmpPathPoint(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
+013ef210 gamecore_sub_013EF210 | a1::RetVF gamecore_sub_013EF210(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a2) | g10,g11,g12,g13,g14,g15,g24,g25,g3,g4,g5,g7,g8,g9 | loop3 depth0 | 
+013f0d60 getSObjNode | uint32_t getSObjNode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g3,g5,g6,g7,g8,g9 | loop2 depth0 | 
+013f1290 gamecore_sub_013F1290 | uint32_t gamecore_sub_013F1290(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
+013f12f0 gamecore_sub_013F12F0 | uint64_t gamecore_sub_013F12F0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4 | loop1 depth0 | 
+013f1330 gamecore_sub_013F1330 | uint64_t gamecore_sub_013F1330(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6 | loop1 depth0 | 
+013f1370 gamecore_sub_013F1370 | uint64_t gamecore_sub_013F1370(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g10,g11,g3,g4,g5,g6,g7,g8,g9 | loop2 depth0 | 
+013f13e0 gamecore_sub_013F13E0 | uint32_t gamecore_sub_013F13E0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4 | loop1 depth0 | 
+013f1430 gamecore_sub_013F1430 | uint64_t gamecore_sub_013F1430(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g3,g4,g7 | loop2 depth0 | 
+013f2558 gamecore_sub_013F2558 | uint32_t gamecore_sub_013F2558(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f0,f1,f2,f3,g3,xfcr31 | depth0 | a1f::addFinite,a1f::div,a1f::lt,a1f::mul
+013f95a0 initWeaponSpriteStatus | a1::RetVF initWeaponSpriteStatus(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | f1,f2,g1,g3,g4 | loop1 depth0 | 
+0140f418 get_camera_collision_data_base_filter_radius | float get_camera_collision_data_base_filter_radius(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, uint64_t *xo = nullptr) | f12,f13,g1,xfcr31 | depth0 | a1f::add,a1f::lt
+01413538 is_cliff_rise_ok_camera_place_status | uint64_t is_cliff_rise_ok_camera_place_status(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+01413608 act_local_vs_ofst_camera_place_status | uint64_t act_local_vs_ofst_camera_place_status(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6 | depth0 | 
+014144f0 gamecore_sub_014144F0 | float gamecore_sub_014144F0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14) | f1,f2,g1,g2,xfcr31 | depth0 | a1f::add,a1f::cvtw,a1f::div,a1f::eq,a1f::le,a1f::mul,a1f::sub
+01414e78 gamecore_sub_01414E78 | uint32_t gamecore_sub_01414E78(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | f0,f1,g1,g3,xfcr31 | depth0 | a1f::le
+0141b6c0 gamecore_sub_0141B6C0 | uint64_t gamecore_sub_0141B6C0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a3) | g3,g4,g5,g6,g7,g8 | loop2 depth0 | 
+0141b900 gamecore_sub_0141B900 | uint32_t gamecore_sub_0141B900(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f0,f1,g3,g5,xfcr31 | depth0 | a1f::lt
+0141ba40 gamecore_sub_0141BA40 | uint32_t gamecore_sub_0141BA40(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f0,xfcr31 | depth0 | a1f::le
+0141bc78 gamecore_sub_0141BC78 | uint32_t gamecore_sub_0141BC78(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, float f12, float f13, uint64_t *xo = nullptr) | f0,f1,g3,g6,xfcr31 | depth0 | a1f::add,a1f::le,a1f::lt,a1f::sub
+014255a0 add_camera_mode_common_param_segment | void add_camera_mode_common_param_segment(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g2,g3,g4,g5,g6 | loop1 depth0 | 
+014255f0 add_camera_mode_manager_segment | void add_camera_mode_manager_segment(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g10,g2,g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
+0142c1a0 is_base_default_dir_attr_change_game_camera_param_manager | uint32_t is_base_default_dir_attr_change_game_camera_param_manager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,g6 | depth0 | 
+0142c7a0 gamecore_sub_0142C7A0 | uint32_t gamecore_sub_0142C7A0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | f0,f1,g1,g3,g6,g7,xfcr31 | loop1 depth0 | a1f::lt
+01430248 gamecore_sub_01430248 | uint32_t gamecore_sub_01430248(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t a3, uint64_t t0, uint32_t t1, float f12, uint64_t *xo = nullptr) | f0,f12,g10,g11,g12,g13,g14,g3,g4,g7,xfcr31 | loop1 depth0 | a1f::add,a1f::lt
+01433340 getPathDataAddr | uint64_t getPathDataAddr(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g1,g3,g4,g6,g7,g8 | loop1 depth0 | 
+01434610 gamecore_sub_01434610 | uint32_t gamecore_sub_01434610(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t a2, uint64_t *xo = nullptr) | g1,g10,g3,g4,g7,g8,g9 | loop1 depth0 | 
+01437f28 calcDownSpeedRatio | float calcDownSpeedRatio(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, uint64_t *xo = nullptr) | f1,f12,f13,f2,g1,xfcr31 | depth0 | a1f::div,a1f::le,a1f::lt,a1f::mul,a1f::sub
+0143d6f8 gamecore_sub_0143D6F8 | uint32_t gamecore_sub_0143D6F8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | depth0 | 
+01440f48 setRunStopTurnAngleFastLegCtrlWork | float setRunStopTurnAngleFastLegCtrlWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f12,g1 | depth0 | a1f::mul
+01441020 gamecore_sub_01441020 | uint32_t gamecore_sub_01441020(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5 | depth0 | 
+01441210 gamecore_sub_01441210 | uint32_t gamecore_sub_01441210(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | f0,f1,f2,f3,g1,g3,g6,xfcr31 | depth0 | a1f::div,a1f::lt,a1f::mul
+01444370 gamecore_sub_01444370 | uint32_t gamecore_sub_01444370(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | f0,f1,f2,g1,g3,g6,xfcr31 | depth0 | a1f::div,a1f::lt,a1f::mul
+01446f80 adjustAnglePI | float adjustAnglePI(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, uint64_t *xo = nullptr) | f1,f12,g1,xfcr31 | depth0 | a1f::add,a1f::lt,a1f::sub
+0145f0e8 initBeardIKWork | uint32_t initBeardIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a2) | g6 | loop1 depth0 | 
+01461758 setRatioGazeIKWork | uint32_t setRatioGazeIKWork(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, float f13, float f14, uint64_t *xo = nullptr) | f0,g1,xfcr31 | depth0 | a1f::eq
+014647f0 setWormIKNodeLimit | uint32_t setWormIKNodeLimit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12) | g4 | loop1 depth0 | 
+001ad958 kernel_sub_001AD958 | uint64_t kernel_sub_001AD958(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint32_t a2) | g3,g4,g5,g6 | loop1 frame112 depth1 | 
+001cc278 Sg2CtrlInit | uint64_t Sg2CtrlInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4 | loop1 frame16 depth1 | 
+01084428 GAMEUTIL_reset_interp_value_cntrl | float GAMEUTIL_reset_interp_value_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, uint64_t *xo = nullptr) | g2 | frame16 depth1 | 
+01084528 constructor_double_spring_interp_cntrl | void constructor_double_spring_interp_cntrl(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, float f20, uint64_t *xo = nullptr) | f12,f13,f14,f15,f20,g1 | frame32 depth1 | 
+010845f8 constructor_double_spring_interp_cntrl3D | uint32_t constructor_double_spring_interp_cntrl3D(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f12, float f13, float f20, float f21, uint64_t *xo = nullptr) | f12,f13,f14,f15,f20,f21,g1,g3,g4,g5,g6,g7,g8,g9 | loop1 frame32 depth1 | 
+010df5d0 manager_sub_010DF5D0 | uint64_t manager_sub_010DF5D0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3,g4,g5,g6 | loop4 frame32 depth1 | 
+0110d0a0 SetScriptLayoutObjLetterProcMode | uint64_t SetScriptLayoutObjLetterProcMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t *xo = nullptr) | g3,g4,g6 | frame16 depth1 | 
+013538e8 gStatGetHorseDemoStageIndex | uint64_t gStatGetHorseDemoStageIndex(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g4,g5 | loop1 frame48 depth1 | 
+013586d0 getPlayerMaxGripRatio | a1::RetVF getPlayerMaxGripRatio(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f0) | f1,g1,g3,g4,xfcr31 | frame16 depth1 | a1f::div
+01366d20 initGameObject | uint32_t initGameObject(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) | g3,g4,g5,g6,xhi,xlo | loop1 frame48 depth1 | 
+013ae748 gamecore_sub_013AE748 | void gamecore_sub_013AE748(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g1,g4,g5 | frame16 depth1 | 
+013f3378 gamecore_sub_013F3378 | a1::RetVF gamecore_sub_013F3378(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, float f12, float f13, float f20, uint64_t *xo = nullptr) | f1,f12,f13,f2,f20,f3,g3,g4,xfcr31 | frame48 depth1 | a1f::add,a1f::eq,a1f::lt,a1f::mul,a1f::sub
+013f3778 gamecore_sub_013F3778 | a1::RetVF gamecore_sub_013F3778(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f20, uint64_t *xo = nullptr) | f1,f12,f13,f2,f20,f3,f4,g1,g3,g4,xfcr31 | frame32 depth1 | a1f::add,a1f::addFinite,a1f::le,a1f::mul
+013f3868 gamecore_sub_013F3868 | a1::RetVF gamecore_sub_013F3868(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, float f20, uint64_t *xo = nullptr) | f1,f12,f13,f20,g3,g4,xfcr31 | frame48 depth1 | a1f::mul
+013ff4a8 checkChangeWeaponTypeSwordToOther | uint64_t checkChangeWeaponTypeSwordToOther(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1) | g3,g4 | frame16 depth1 | 
+014072f8 initWeapon | a1::RetVF initWeapon(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | f1,f2,g1,g3,g4 | frame16 depth1 | 
+014140b8 gamecore_sub_014140B8 | float gamecore_sub_014140B8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, float f0, float f20, uint64_t *xo = nullptr) | f1,f12,f13,f14,f2,f20,g1,g2,xfcr31 | frame32 depth1 | a1f::add,a1f::le,a1f::lt,a1f::mul
+01425518 is_view_angle_zoom_game_camera | uint64_t is_view_angle_zoom_game_camera(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3,g4,g5 | frame16 depth1 | 
+01459a20 SCRConditionInvisibilityCloak | uint64_t SCRConditionInvisibilityCloak(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3,g4,g5 | frame16 depth1 | 
+01459a38 SCRConditionGetOmakeFlag | uint64_t SCRConditionGetOmakeFlag(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a1) | g3,g4,g5 | frame16 depth1 | 
+0145aeb0 eventBgmAllClose | uint32_t eventBgmAllClose(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a1, uint64_t *xo = nullptr) | f12,g1,g4,g5 | loop1 frame32 depth1 | 
