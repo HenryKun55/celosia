@@ -23614,3 +23614,30 @@ docs/decomp_a5.md. Scripts, runs and logs: `build/agent-scratch/a5/`. Switch `SO
 - **Next**: typed interfaces for the hand natives and the syscall / libc calls (GetScriptLayoutClass, GetLightClass,
   dynamic_cast_to_camera_obj each hold ~1 000 waiting functions).
 
+## Perf P2: the particle frame for the Vita (p2ptcl) (2026-11-22)
+
+docs/perf_p2.md. Scripts, runs and logs: `build/agent-scratch/p2/`. Switch `SOTC_P2PTCL` (A/B `p2ptcl`, `kP2Ptcl`),
+**off by default**; console package `build/agent-scratch/p2/celosia-p2.vpk` + `env-ab.txt`.
+
+- **Aim**: the console's particle / wind module, 3.5-4.1 ms of the game thread riding (~2.8x its Vita3K share); target
+  2 ms off it, exact.
+- **What riding is**: ~40-60 particle geodisps a frame, one emitter and 1-3 particles each (Agro's hoof grass / dust /
+  sand, feathers, the shrine's fog): the cost is per geodisp (~50 KB of native code and ~50 guest lines each), not per
+  particle (S5 already moved the per-particle step, a ~0.1 ms job never waited for).
+- **What p2ptcl does**: doit_particle_manager's layers pass (five guest walks of the group with 011408E0 per emitter) as
+  one host pass with 011408E0's display-budget rule in the original order; a prefetch helper on cores 1-2 walks last
+  frame's particle geodisps (nodes, effect sets, LOD records, particles; plus the hottest natives' code) at the camera
+  manager's entry and at the frame's end and asks for their lines. The step itself stays on the game thread: every exact
+  split meets the VU0 random stream, the heap and the guest-shaped code; round 91/95's job lost 2.5-3 ms on the console.
+- **Exact**: SOTC_P2PTCL_CHECK runs the layers both ways: attract 15 550 passes / 208 347 emitters and 130 whole-RAM
+  compares (32 MB), ride7 16 147 / 916 387, lake6 8 949 / 434 245: **0 differences** (the budget count too; 0 RAM words
+  outside the dead stack). Registers left otherwise: v0 / v1 / a2 / a3 / t0 / t1 (scratch, dead at the particle task's
+  next call). The helper writes nothing. (The RAM check's 64 MB of copies ran ride7 / lake6 out of memory: rerun without.)
+- **Measured** (Vita3K 222, off - on, 2 SE): lake6 **+0.164 +- 0.109** (z 3); ride7 +0.085 +- 0.390 / +0.011 +- 0.410
+  (the Mac at load 35-45 from another project's build; the first pair +0.256 +- 0.716 / -0.387 +- 0.884); pooled
+  +0.087 +- 0.096 ms (1 SE), busy +0.140 +- 0.097. Sampler: the layers' code at 31% of before, 0.09-0.16 ms a frame
+  saved (z 52-83). Helper 0.20-0.46 ms a frame on cores 1-2.
+- **Boot**: 89 MB taken, mounted at 2 527, rode the 600 s; pictures normal (gallop on the plain, the ruins in the fog).
+  spalign 0.
+- **Honest size**: Vita3K ~0.1-0.16 ms; console estimate 0.2-1 ms (0.2 from the layers, the rest only if the prefetch
+  turns the step side's misses into L2 hits), not 2 ms. The 2 ms needs the per-geodisp chain rewritten as plain C++.
