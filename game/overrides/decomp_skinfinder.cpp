@@ -33,6 +33,7 @@
 // compare the dead stack). A blend list with no entry (the original would
 // count down from -2 and run away) goes to the recompiled code.
 #include "sotc_decomp.h"
+#include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -122,6 +123,7 @@ namespace decomp_skinfinder
     A9S_HOIST(bool, a9s_decomp_skinfinder_stats_135, ps2_diag::env("SOTC_SKINFINDER_STATS") != nullptr); // round A9 sweep (a9sweep.h)
     void corners(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x01116108u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         const Ram ram{rdram};
         const uint32_t out = GPR_U32(ctx, 4), pairsOut = GPR_U32(ctx, 5), blend = GPR_U32(ctx, 6), managers = GPR_U32(ctx, 7);
         const uint32_t matrices = GPR_U32(ctx, 8), lists = GPR_U32(ctx, 9), blendLists = GPR_U32(ctx, 10), pairs = GPR_U32(ctx, 11);

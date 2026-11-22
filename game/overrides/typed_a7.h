@@ -341,8 +341,6 @@ void kernel_sub_001CDDE8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void manager_sub_01082BD8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void manager_sub_01084A70(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void manager_sub_01084C30(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-void manager_sub_010B53F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-void manager_sub_010B5738(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void manager_sub_010BA140(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void manager_sub_01129258(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void manager_sub_011601C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

@@ -33,6 +33,7 @@ namespace A3CK_NS
     extern const uint32_t kEntryCount;
     inline a1ck::CkStats g_stats;
     inline bool g_trace = false;
+    inline uint64_t g_stale = 0, g_staleReads = 0; // A8: checks given up for a stale-stack read that differed / stale reads that agreed
     inline uint64_t g_unknownCalls = 0, g_frameStores = 0, g_unverified = 0, g_capped = 0, g_xo = 0, g_backs[2] = {0, 0}, g_vu = 0;
     constexpr uint32_t kDeadStack = 0x40000u; // a store in [sp - this, sp) is to the dead stack
     constexpr uint32_t kSlotsLog2 = 17;
@@ -61,6 +62,7 @@ namespace A3CK_NS
         // A5: a guest frame's prologue save slots (entry-sp-relative), and the reference leg's stores into each (its save is one)
         uint32_t svLo[16] = {}, svHi[16] = {}, svHits[16] = {}, svN = 0;
         bool ovf = false, io = false, active = false;
+        bool stale = false; // A8: the typed leg loaded a dead-stack byte only the reference leg stored (a frame slot of the reference's own)
         uint32_t ix[2][kSlots / 2u] = {}; // A6: each leg's used overlay slots in order (A6_NCHK reads the typed leg's stores back)
         uint8_t *ram = nullptr;
         PS2Runtime *rt = nullptr;
@@ -133,6 +135,20 @@ namespace A3CK_NS
         if (s.used[s.cur])
             for (uint32_t k = 0; k < sizeof(T); ++k)
                 ovGet(s.ov[s.cur], s.gen, a + k, b[k]);
+#if defined(A8_CHECK_TU)
+        // A8: a load in the typed leg from the dead stack below the entry sp, of a byte the reference leg stored in this call and
+        // the typed leg did not: a slot of one of the reference's own frames (a register save, or a host-frame local the lifted
+        // text keeps in guest RAM), reached through a frame address the function computed (an escaped frame pointer plus a
+        // drawn index); the two legs' frames hold different bytes there by construction (the typed functions keep their
+        // registers and host-frame locals out of guest RAM): stale stack, not a value the function defines
+        if (s.cur == 1 && s.sp - a - 1u < kDeadStack)
+            for (uint32_t k = 0; k < sizeof(T); ++k)
+            {
+                uint8_t t0, t1;
+                if (ovGet(s.ov[0], s.gen, a + k, t0) && !ovGet(s.ov[1], s.gen, a + k, t1))
+                    s.stale = true;
+            }
+#endif
         T v;
         std::memcpy(&v, b, sizeof(T));
 #if defined(A3_OFFLINE)
@@ -161,6 +177,10 @@ namespace A3CK_NS
         if (s.sp - a - 1u < kDeadStack) // the dead stack: the reference's frames
         {
             g_frameStores += c == 0;
+#if defined(A3_OFFLINE) && defined(A8_TRACE_DEAD) // round A8: the dead stack's stores in a trace too (D lines)
+            if (g_trace)
+                std::fprintf(stderr, "D%d %08x %u %llx\n", c, a, (unsigned)sizeof(T), (unsigned long long)x);
+#endif
             return;
         }
         uint64_t h = s.h[c] ^ (static_cast<uint64_t>(a) << 8 | sizeof(T));
@@ -228,6 +248,31 @@ namespace A3CK_NS
                 out = true;
         }
         g_hOut += out;
+#if defined(A3_OFFLINE) && defined(A8_TRACE_DEAD)
+        if (d && g_trace)
+        {
+            for (int r = 0; r < 32; ++r)
+                if (std::memcmp(&t.vu0_vf[r], &ref.vu0_vf[r], 16) != 0)
+                {
+                    uint32_t x[4], y[4];
+                    std::memcpy(x, &ref.vu0_vf[r], 16);
+                    std::memcpy(y, &t.vu0_vf[r], 16);
+                    std::fprintf(stderr, "V vf%d ref %08x %08x %08x %08x typed %08x %08x %08x %08x\n", r, x[0], x[1], x[2], x[3], y[0], y[1], y[2], y[3]);
+                }
+            if (std::memcmp(&t.vu0_acc, &ref.vu0_acc, 16) != 0)
+                std::fprintf(stderr, "V acc\n");
+            for (int r = 1; r < 32; ++r)
+                if ((mask & (1u << r)) && std::memcmp(reinterpret_cast<const uint8_t *>(&t.r[r]) + 8, reinterpret_cast<const uint8_t *>(&ref.r[r]) + 8, 8) != 0)
+                {
+                    uint64_t x, y;
+                    std::memcpy(&x, reinterpret_cast<const uint8_t *>(&ref.r[r]) + 8, 8);
+                    std::memcpy(&y, reinterpret_cast<const uint8_t *>(&t.r[r]) + 8, 8);
+                    std::fprintf(stderr, "V h%d ref %llx typed %llx\n", r, (unsigned long long)x, (unsigned long long)y);
+                }
+            if (a1ck::ckBits(t.vu0_q) != a1ck::ckBits(ref.vu0_q) || t.vu0_status != ref.vu0_status)
+                std::fprintf(stderr, "V q %08x/%08x status %04x/%04x\n", a1ck::ckBits(ref.vu0_q), a1ck::ckBits(t.vu0_q), ref.vu0_status, t.vu0_status);
+        }
+#endif
         return d;
     }
 
@@ -290,6 +335,7 @@ namespace A3CK_NS
         s.cur = 0;
         s.svN = 0;
         s.ovf = s.io = false;
+        s.stale = false;
         s.ram = ram;
         s.rt = rt;
 #if defined(A3_OFFLINE)
@@ -402,6 +448,16 @@ namespace A3CK_NS
             ++g.ovf;
         if (dropped)
             ++g.droppedChanged;
+#if defined(A8_CHECK_TU)
+        if ((ret || mem || pc || sp || other) && s.stale)
+        {
+            // A8: the typed leg read stale stack (see rd): counted apart, never as equal
+            ++g_stale;
+            s.active = false;
+            return;
+        }
+        g_staleReads += s.stale;
+#endif
         if (ret || mem || pc || sp || other)
         {
             ++g.differ;
@@ -442,6 +498,10 @@ namespace A3CK_NS
         std::fprintf(stderr, A3CK_LABEL " frame %llu: upper halves outside the interface that differ (an A1-A3 callee's movz $zero) %llu; "
                              "guest-frame save slots stored into by the reference (checks given up) %llu\n", frame,
                      (unsigned long long)g_hOut, (unsigned long long)g_saveClob);
+#endif
+#if defined(A8_CHECK_TU)
+        std::fprintf(stderr, A3CK_LABEL " frame %llu: typed-leg loads of stale stack (a dead-stack byte only the reference stored): checks that differed (given up) %llu, "
+                             "that agreed %llu\n", frame, (unsigned long long)g_stale, (unsigned long long)g_staleReads);
 #endif
     }
 }

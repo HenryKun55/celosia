@@ -6,6 +6,7 @@
 // context (FPU registers and fcr31, VU0 vf15-vf19, Q and status, v0 / at /
 // a3 / t0) is written back at the end.
 #include "sotc_decomp.h"
+#include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "runtime/ps2_diag.h"
 
@@ -335,6 +336,7 @@ namespace decomp_copymatrix
 {
     void copyMulti(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x01132EC8u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         static const bool siteOk = sotc_decomp::jalTarget(rdram, 0x01132F04u) == 0x001B9148u;
         const uint64_t count = GPR_U64(ctx, 6);
         if (!sotc_decomp::leavesOn() || !siteOk || count > 0x10000u)
@@ -386,6 +388,7 @@ namespace decomp_copymatrix
 {
     void pastSimple(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x010F24D8u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         if (!sotc_decomp::leavesOn())
             return sotc_decomp::recompiled(0x010F24D8u)(rdram, ctx, runtime);
         const uint32_t lc = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29);

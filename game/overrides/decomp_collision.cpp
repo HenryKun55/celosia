@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "a9cmp.h"
 #include "sotc_pf141.h"
@@ -5372,6 +5373,7 @@ namespace decomp_collision
     // manager_sub_01114C70 from guest code (round 39).
     void verticesIndepEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x01114C70u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         if (!sotc_decomp::camCollOn())
             return sotc_decomp::recompiled(kVerticesIndep)(rdram, ctx, runtime);
         const G g{rdram, ctx, runtime};

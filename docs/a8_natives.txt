@@ -1,0 +1,21 @@
+# a8_natives.txt: more hand natives tools/typed_lift2.py stage 8 types from their MIPS (round A8; docs/decomp_a8.md), A6's / A7's
+# rule: each was read against the recompiled MIPS (build/runner, build/recomp/game/output); the guest stores and v0 (f0, VU0
+# where the native writes them) are the MIPS's; what a native leaves different is only the dead frame below sp and caller-saved
+# scratch registers (a typed caller takes the typed function's, which are the MIPS's, as its lifted reference does). No host
+# state, no non-exact float path, its fallback the recompiled MIPS. A check build compares each with its typed function at its
+# own entry (A8_NCHK). address | the native symbol its registrar puts in the slot
+01116108 decomp_skinfinder::corners                  # manager_sub_01116108 (skinfinder corners): stores, v0 / v1, VU0 (the last product's vf8 vf10 vf14-17 ACC, vf29-31) as the MIPS; "host memo" was a per-call local (struct Last); a0-t3 left as on entry
+010ed688 decomp_ptcl62::geoDispClass                 # GetGeoDispClass: the seven MIPS instructions (xori, li, addiu, movn), no store
+01160f68 decomp_leaves::curCameraContext             # get_cur_camera_context: v1 = word << 2, v0 = the table word, no store
+0113f378 decomp_ptcl62::topEmitters                  # get_top_emitter_list_from_particle_geodisp: v0 as the MIPS (GetGeoDispClass inline); the sd ra and a0 / v1 not left
+01132ec8 decomp_copymatrix::copyMulti                # CopyMultiMatrix: the qword copies (iosCopyMatrix's native, A6) as the MIPS; the frame saves and a0 (last dst + 0x40) not left
+010f24d8 decomp_copymatrix::pastSimple               # UpdateLayoutClassPastSimpleGeometry: the ra save, v0 / v1 / a0 / a1 and the copies as the MIPS; flag 0x20: CopyMultiMatrix's native (above)
+010ac4a0 decomp_hot44d::nodeQuatPos                  # manager_sub_010AC4A0: the MIPS step by step (frame, quatMul as lift_d1 writes it); its five calls through the table (typed callees under A8_HOLDS)
+# manager_sub_01114C70 (decomp_collision::verticesIndepEntry) is A7's (docs/a7_natives.txt); stage 8 takes it again: its loops exit on
+# a register counter (++s5 < 3), which spin_filter's flow-insensitive taint misread (stage 8's spin_flow).
+# Not listed: isysGroupForExit (GetThreadId on every path, WaitSema / SignalSema when the lock is not held: thread state, phase B);
+# GetMatrixFromQuatPos, iosGetSinCosf and the quaternion natives (quat122 / geo126 plain host float on by default: not their MIPS);
+# SetQuaternionByAxisRotateVWithNoRegularize (quat122's path: the 16 bytes and f0 as the MIPS for a finite axis, but v0 / vf5 / vf6 not left and the
+# typed function returns v0: A8_NCHK would compare a v0 the native never writes; tried: +24 functions);
+# GetAnimationClass (dc2::entryAnimationClass: dc2chara's path when that switch is on); FlushModifiedManager / manager_sub_011370E8
+# (host state: fin125's cache, the cloth worker join); iosGetACosfExact / iosGetATan2fExact (host acos / atan2 under quat122).

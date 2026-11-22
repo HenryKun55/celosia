@@ -28,6 +28,7 @@
 // registers, return addresses, frame sp and s-registers. Not as the
 // original: the scratch GPRs (at, v1, a0-a3, t*) past what the calls need.
 #include "sotc_decomp.h"
+#include "typed_a8_nchk.h" // a8: A8_NCHK
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -73,6 +74,7 @@ namespace decomp_ptcl62
 
     void geoDispClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x010ED688u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         if (!on())
             return fallback(kClass, rdram, ctx, runtime);
         const uint64_t a0 = GPR_U64(ctx, 4);
@@ -94,6 +96,7 @@ namespace decomp_ptcl62
 
     void topEmitters(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x0113F378u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         if (!on())
             return fallback(kTopList, rdram, ctx, runtime);
         SET_GPR_U64(ctx, 2, topList(rdram, ctx, runtime, GPR_U64(ctx, 4)));

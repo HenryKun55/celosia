@@ -32,6 +32,7 @@
 // - iosFTOI4Vector (0x1be700): vftoi4 of the quadword at a1 to a0 (vf5 /
 //   vf6 as the code leaves them).
 #include "sotc_decomp.h"
+#include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "a9cmp.h"
 #include "s9rt.h"
@@ -76,6 +77,7 @@ namespace decomp_leaves
 
     void curCameraContext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A8_NCHK(0x01160F68u); // round A8: a check build compares the typed function made from its MIPS (typed_a8_nchk.h)
         if (!sotc_decomp::leavesOn())
             return sotc_decomp::recompiled(kCurCameraContext)(rdram, ctx, runtime);
         uint32_t v1;

@@ -176,7 +176,6 @@ void manager_sub_01084A70(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void manager_sub_01084C30(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float, float, float, float, float, float, float);
 void foginterp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
 void GetMotionResourceFrames(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, float, float, float, float, float, float, float, float);
-void GetMotionNS_RootShiftInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint64_t, float, float, float, float, float, float, float, float, float, float, float, float);
 void constructor_motion_ik_interest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, float, float);
 void begin_motion_ik_interest(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, float, float);
 void InitAnimationClassWithFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, float, float, float, float, float, float, float, float);
@@ -828,7 +827,6 @@ void fsEffectDefault_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void fsEffectManagerInit_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void modelGetDlLayer_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t);
 void getBlendBaseMotion_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
-void manager_sub_010B53F8_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint32_t, float);
 void GetTRS_Onake_From_ObjectAnimation_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t);
 void GetMotionFrameDirectResource_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint64_t, float, float);
 void GetCharacterClass_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
@@ -885,7 +883,6 @@ void GAMEUTIL_get_move_radi_from_yaw1_to_yaw2_extend_x7(uint8_t *rdram, R5900Con
 void GAMEUTIL_get_offset_position_by_option_space_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t);
 void constructor_double_spring_interp_cntrl_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, float, float);
 void constructor_double_spring_interp_cntrl3D_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, float, float, float, float);
-void manager_sub_010B5738_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, float, float, float, float, float, float);
 void GetScriptLayoutClass_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void ConstructorCollisionDynamics_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint32_t, float, float, float, float, float, float, float, float);
 void set_npe_blend_ratio_particle_emitter_x7(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float, float);

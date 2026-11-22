@@ -10,6 +10,7 @@
 #include "typed_a5.h" // a5
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
+#include "typed_a8.h" // a8
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -15372,6 +15373,7 @@ L_108b9ac:
 void cameraBlurClearIntensityArray(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x108B9C8u, 0)) { cameraBlurClearIntensityArray_0x108b9c8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A8_GO() && A8_HOLDS(0x108F618u, lift_d1::gluGetLookAtPosition) && A8_HOLDS(0x1160F68u, ::decomp_leaves::curCameraContext), 1)) { const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; const float a2_f20 = ctx->f[20]; A8_CHK(cameraBlurClearIntensityArray, a2_29, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a4_h4 = a4::hi64(ctx->r[4]); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[12]), (uint64_t)a1_bits(ctx->f[20])}; A8_IN(26); const uint32_t a2_r = typed::cameraBlurClearIntensityArray(rdram, runtime, a2_29, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20, a4_vf5, a4_vf6, a4_h3, a4_h4, a3_xo); A8_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); ctx->f[20] = a1_flt((uint32_t)a3_xo[1]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a8
     uint32_t v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     float f12 = ctx->f[12];

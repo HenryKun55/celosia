@@ -51,6 +51,11 @@ bool g_a7Typed = true; // round A7 (typed_a7_rt.h): the switch a7typed, likewise
 #if PS2X_A7_CHECK
 A3Stats g_a7s; // round A7's check build: its adapters' test and deferred checkpoints (A3's counters)
 #endif
+bool g_a8Typed = true; // round A8 (typed_a8_rt.h): the switch a8typed, likewise
+#include "typed_a8_rt.h"
+#if PS2X_A8_CHECK
+A3Stats g_a8s; // round A8's check build: its adapters' test and deferred checkpoints (A3's counters)
+#endif
 namespace a6
 {
     // the breaks a typed call took, on the adapter's context after the call: handleBreak at the first site and, when more
