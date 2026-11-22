@@ -1336,7 +1336,7 @@
   {
    "round": "B2",
    "date": "2026-11-22",
-   "commit": "",
+   "commit": "89d076c",
    "focus": "Phase B step 2: the loader / CD streaming thread as a host thread",
    "summary": "Round B2 (switch b2load, off by default): B1's carrier becomes a table of carried threads, each with its own switch and counts. The game's one loader thread, t11 (GAMECORE's sheet manager 0x115e4c0: every load and stream job, all disc reads), runs as host C++ on a carrier of its own; its CD and stream waits park in place instead of unwinding (sceCdSync, sceCdStRead, MPEG and DelayThread return after the wait). The boot loader t6 is dead after GAMECORE's entry and stays generated code; no message box became a host queue (each has an uncarried thread at one end).",
    "result": "Exact: ride7 600 s / attract 400 s / lake6 400 s check runs with both carriers: audit 0 bad of 888 330, kept registers 0 bad, 0 hand-backs, 2 048 jobs, 7 826 in-place waits, watchdog silent; t11's CD reads per sync equal on and off. Loads: no hitch added (longest frames equal, frames over 100 ms 11 / 14 and 9 / 10 on / off). Vita3K A/B (222 MHz, off - on, 2 SE): ride7 +0.049 +- 0.129, +0.053 +- 0.129, lake6 -0.073 +- 0.141; pooled +0.010 +- 0.038 ms (even); 968 take-overs / hand-backs plus 226 at an in-place wait, no freeze. 89 MB boot rode, attract normal; 0 sp-based NEON accesses. Console A/B package celosia-b2.vpk + env-ab.txt."
