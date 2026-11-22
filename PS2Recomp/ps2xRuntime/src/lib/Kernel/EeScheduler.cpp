@@ -24,6 +24,10 @@
 #if !defined(__vita__)
 #include <execinfo.h>
 #endif
+#include "ThreadNaming.h"
+#if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
+#include "runtime/native_renderer.h"
+#endif
 
 void (*g_eeDispatchProbe)(R5900Context *, int) = nullptr;
 
@@ -40,6 +44,193 @@ uint32_t g_ps2xN5Log = 0u;
 // cycles each) since its dispatch, an equal-priority ready thread takes over at the next checkpoint (the time slice's
 // rule, at 1 / g_ps2xN5Spin of its rate); 0: never (the kernel's rule only). Set by the game (SOTC_N5_SPIN).
 uint32_t g_ps2xN5Spin = 0u;
+
+// ---- Round B1: host-carried guest threads (ee_scheduler.h, g_ps2xB1Carry; docs/decomp_b1.md) ------------------------
+uint32_t g_ps2xB1Carry = 0u;
+uint32_t g_ps2xB1Check = 0u;
+EeB1Stats g_eeB1;
+
+// One host thread that runs a guest thread's own code (the body the game registered) while it holds the baton. The
+// dispatcher's host thread (the executor) and the carrier pass the baton through `carrierTurn`: the one that hands it
+// over waits until it comes back, so exactly one of them runs guest-visible code at a time, and every hand-over is a
+// mutex hand-over (the other side sees everything written before it).
+struct EeHostCarrier
+{
+    std::mutex m;
+    std::condition_variable cv;
+    bool carrierTurn = false; // the baton: the carrier's while true
+    bool ready = false;       // the host thread is up (hostId / floor set)
+    bool haveJob = false;     // a body to start at the next hand-over
+    bool unwind = false;      // the dispatcher's answer at a yield: unwind there (the thread is handed back)
+    bool ended = false;       // the body returned (or an exception ended it): the thread is generated code again
+    bool threw = false;
+    std::thread::id hostId{};
+    uintptr_t floor = 0;
+    // The per-stack state of the generated code's calls, the carrier's own while it holds the baton (as S17's nested
+    // dispatch keeps the home thread's): the frames that cannot return early, the guest jumps' serial.
+    int throwDepth = 0;
+    uint32_t jumpSerial = 0;
+    EeScheduler::HostBody body = nullptr;
+    uint8_t *rdram = nullptr;
+    R5900Context *ctx = nullptr;
+    PS2Runtime *runtime = nullptr;
+};
+
+namespace
+{
+    constexpr unsigned kCarrierStack = 512u * 1024u;     // the carrier's host stack
+    constexpr unsigned kCarrierStackSlack = 96u * 1024u; // left below its host stack floor
+    // Hand the baton to the other side (toCarrier: to the carrier) and wait until it comes back.
+    void passBaton(EeHostCarrier &c, bool toCarrier)
+    {
+        std::unique_lock<std::mutex> lock(c.m);
+        c.carrierTurn = toCarrier;
+        c.cv.notify_all();
+        c.cv.wait(lock, [&] { return c.carrierTurn != toCarrier; });
+    }
+    void carrierMain(EeHostCarrier *c)
+    {
+        ThreadNaming::SetCurrentThreadName("B1Carrier");
+#if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
+        native_renderer::threads::place(native_renderer::threads::kGame); // the game thread's core: the two never run at once
+#endif
+        ps2_load::setThreadSlot(ps2_load::kGame);
+        ps2SetEeFloatingPointMode(); // the game thread's rounding (toward zero) and flush-to-zero
+        {
+            char probe = 0;
+            std::lock_guard<std::mutex> lock(c->m);
+            c->hostId = std::this_thread::get_id();
+            c->floor = reinterpret_cast<uintptr_t>(&probe) - (kCarrierStack - kCarrierStackSlack);
+            c->ready = true;
+            c->cv.notify_all();
+        }
+        for (;;)
+        {
+            {
+                std::unique_lock<std::mutex> lock(c->m);
+                c->cv.wait(lock, [c] { return c->carrierTurn && c->haveJob; });
+                c->haveJob = false;
+            }
+            bool threw = false;
+            try
+            {
+                c->body(c->rdram, c->ctx, c->runtime);
+            }
+            catch (const EeDispatcherTransfer &)
+            {
+                threw = true; // a thread switch by the exception (blockCurrent, exitCurrent, invokeCurrent ...): unwound
+            }
+            std::lock_guard<std::mutex> lock(c->m);
+            c->ended = true;
+            c->threw = threw;
+            c->carrierTurn = false;
+            c->cv.notify_all();
+        }
+    }
+}
+
+void EeScheduler::b1Audit(int) const noexcept
+{
+    ++g_eeB1.auditChecks;
+    if (std::this_thread::get_id() != m_executorThread)
+        ++g_eeB1.auditBad;
+}
+
+// The dispatcher is about to run `thread`'s own context: take it over when it is the carried thread at its take-over
+// pc and B1 is on (the body then starts at the next resumeCarrier).
+bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
+{
+    if (__builtin_expect(g_ps2xB1Carry == 0u || m_carryBody == nullptr, 1) || thread.entry != m_carryEntry || context.pc != m_carryPc ||
+        m_activeCarrier != nullptr || m_stopRequested.load(std::memory_order_relaxed))
+        return false;
+    EeHostCarrier *c = m_spareCarrier;
+    m_spareCarrier = nullptr;
+    if (!c)
+    {
+        c = new EeHostCarrier;
+#if defined(PLATFORM_VITA)
+        extern unsigned int _pthread_stack_default_user;
+        const unsigned int stackDefault = _pthread_stack_default_user;
+        _pthread_stack_default_user = kCarrierStack;
+#endif
+        std::thread(carrierMain, c).detach();
+#if defined(PLATFORM_VITA)
+        _pthread_stack_default_user = stackDefault;
+#endif
+        std::unique_lock<std::mutex> lock(c->m);
+        c->cv.wait(lock, [c] { return c->ready; });
+    }
+    c->body = m_carryBody;
+    c->rdram = m_rdram;
+    c->ctx = &thread.context;
+    c->runtime = &m_runtime;
+    c->haveJob = true;
+    c->unwind = c->ended = c->threw = false;
+    c->throwDepth = 0;
+    c->jumpSerial = m_runtime.m_guestJumpSerial;
+    thread.carrier = c;
+    ++g_eeB1.claims;
+    return true;
+}
+
+// Instead of calling the thread's generated code: the carrier runs until it yields (a checkpoint for the scheduler, a
+// park or a thread switch) or its body ends. The executor's identity and the host stack floors are the carrier's while
+// it holds the baton (syncAccounting, the S17 checks, the calls' depth test read them). At a yield with B1 off the
+// carrier is told to unwind there, as the generated code would have: the thread is handed back.
+void EeScheduler::resumeCarrier(GuestThread &thread)
+{
+    EeHostCarrier &c = *thread.carrier;
+    const std::thread::id executor = m_executorThread;
+    const uintptr_t floor = m_runtime.m_hostStackFloor, noCheckFloor = m_runtime.m_noCheckFloor;
+    const uint64_t t0 = g_ps2xB1Check ? ps2_stats::nowUs() : 0u;
+    const int throwDepth = m_xferThrowDepth;
+    const uint32_t jumpSerial = m_runtime.m_guestJumpSerial;
+    m_xferThrowDepth = c.throwDepth;
+    m_runtime.m_guestJumpSerial = c.jumpSerial;
+    m_executorThread = c.hostId;
+    m_runtime.m_hostStackFloor = c.floor;
+    if (noCheckFloor != UINTPTR_MAX)
+        m_runtime.m_noCheckFloor = c.floor;
+    m_activeCarrier = &c;
+    ++g_eeB1.resumes;
+    passBaton(c, true);
+    if (!c.ended && (g_ps2xB1Carry == 0u || m_stopRequested.load(std::memory_order_relaxed)))
+    {
+        c.unwind = true;
+        ++(m_stopRequested.load(std::memory_order_relaxed) ? g_eeB1.handBackStop : g_eeB1.handBackSwitch);
+        passBaton(c, true);
+    }
+    m_activeCarrier = nullptr;
+    c.throwDepth = m_xferThrowDepth;
+    c.jumpSerial = m_runtime.m_guestJumpSerial;
+    m_xferThrowDepth = throwDepth;
+    m_runtime.m_guestJumpSerial = jumpSerial;
+    m_executorThread = executor;
+    m_runtime.m_hostStackFloor = floor;
+    m_runtime.m_noCheckFloor = noCheckFloor;
+    if (t0)
+        g_eeB1.carrierUs += ps2_stats::nowUs() - t0;
+    if (c.ended)
+    {
+        if (c.threw)
+            ++g_eeB1.handBackThrow;
+        else if (!c.unwind)
+            ++g_eeB1.handBackUnwind;
+        thread.carrier = nullptr;
+        m_spareCarrier = &c;
+    }
+}
+
+// On the carrier: hand the baton back where the generated code would have unwound to the dispatcher (why: 0 a
+// checkpoint, 1 a park / thread switch). The dispatcher does what it does after an unwind and resumes the carrier
+// where it would have dispatched the thread again. True: unwind here after all (the thread is handed back).
+bool EeScheduler::carrierYield(int why)
+{
+    EeHostCarrier &c = *m_activeCarrier;
+    ++(why == 0 ? g_eeB1.yieldCheckpoint : g_eeB1.yieldLeave);
+    passBaton(c, false);
+    return c.unwind;
+}
 namespace n5stat
 {
     static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
@@ -241,6 +432,16 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     publishSnapshot();
 }
 
+// Round B1: the dispatch itself: the carrier's turn for a carried thread's own context, else its generated code.
+#define B1_INVOKE()                                  \
+    do                                               \
+    {                                                \
+        if (carried)                                 \
+            resumeCarrier(*running);                 \
+        else                                         \
+            function(m_rdram, &context, &m_runtime); \
+    } while (0)
+
 void EeScheduler::run()
 {
     assertExecutor();
@@ -340,7 +541,9 @@ void EeScheduler::run()
         publishDebugContext(context);
         m_profileContext.store(&context, std::memory_order_relaxed);
 
-        if (context.pc == 0u)
+        // Round B1: a carried thread's own context is its carrier's (its pc is not looked at).
+        const bool carriedOwn = running->carrier != nullptr && running->invocations.empty();
+        if (!carriedOwn && context.pc == 0u)
         {
             if (!running->invocations.empty())
             {
@@ -387,7 +590,8 @@ void EeScheduler::run()
             continue;
         }
 
-        if (!m_runtime.hasFunction(context.pc))
+        const bool carried = carriedOwn || (running->invocations.empty() && claimCarrier(*running, context));
+        if (!carried && !m_runtime.hasFunction(context.pc))
         {
             if (!running->invocations.empty())
             {
@@ -406,7 +610,7 @@ void EeScheduler::run()
             }
             continue;
         }
-        PS2Runtime::RecompiledFunction function = m_runtime.lookupFunction(context.pc);
+        PS2Runtime::RecompiledFunction function = carried ? nullptr : m_runtime.lookupFunction(context.pc);
 
         if (checkpointDue(kGuestDispatchCycles))
         {
@@ -532,14 +736,14 @@ void EeScheduler::run()
                     for (auto &e : stat139::leavePc)
                         e = {};
                 }
-                function(m_rdram, &context, &m_runtime);
+                B1_INVOKE();
                 lastEnd = ps2_stats::nowUs();
             }
             else if (__builtin_expect(g_ps2xN5Log != 0u, 0))
             {
                 const uint64_t t0 = ps2_stats::nowUs(), n0 = n5stat::nestedUs;
                 const uint32_t tid = static_cast<uint32_t>(running->id) & 31u;
-                function(m_rdram, &context, &m_runtime);
+                B1_INVOKE();
                 n5stat::us[tid] += (ps2_stats::nowUs() - t0) - (n5stat::nestedUs - n0);
                 ++n5stat::runs[tid];
                 if (n5stat::line(ps2_stats::vif1Chains.load(std::memory_order_relaxed)))
@@ -562,7 +766,7 @@ void EeScheduler::run()
                 }
             }
             else
-                function(m_rdram, &context, &m_runtime);
+                B1_INVOKE();
             m_guestExecuting.store(false, std::memory_order_relaxed);
             m_insideInterrupt = false;
             // A switch made by returning (leaveThread) ends here as the
@@ -643,7 +847,31 @@ bool EeScheduler::checkpointDue(uint32_t cycles) noexcept
 
 EeS11Stats g_eeS11;
 
+// Round B1: on a carrier a checkpoint that must reach the scheduler hands the baton back and goes on in place.
 bool EeScheduler::checkpointSlow() noexcept
+{
+    const bool r = checkpointSlowInner();
+    if (__builtin_expect(m_activeCarrier != nullptr, 0))
+    {
+        if (g_ps2xB1Check)
+            b1Audit(0);
+        if (r && !m_stopRequested.load(std::memory_order_relaxed))
+        {
+            m_unwinding = false;
+            if (carrierYield(0))
+            {
+                m_unwinding = true;
+                return true;
+            }
+            return false;
+        }
+    }
+    else if (__builtin_expect(g_ps2xB1Check != 0u, 0))
+        b1Audit(1);
+    return r;
+}
+
+bool EeScheduler::checkpointSlowInner() noexcept
 {
     ++g_eeS11.slow;
 #if !defined(__vita__)
@@ -2365,6 +2593,15 @@ namespace
 
 void EeScheduler::leaveThread()
 {
+    // Round B1: on a carrier the thread just parks / gives way where it is: the baton goes back to the dispatcher and
+    // this returns when the thread runs again (unless it is handed back: then it leaves as below).
+    if (__builtin_expect(m_activeCarrier != nullptr, 0))
+    {
+        if (g_ps2xB1Check)
+            b1Audit(2);
+        if (!carrierYield(1))
+            return;
+    }
     // Round 52. The thread switch used to throw EeDispatcherTransfer to
     // run(); on the Vita each throw is an ARM EHABI unwind (the table
     // lookups, every frame's register pops, the personality routine's LSDA
@@ -3209,6 +3446,8 @@ int EeScheduler::s17Checkpoint() noexcept
     };
     if (m_s17Depth != 0)
         return no(7, nullptr);
+    if (m_activeCarrier != nullptr)
+        return no(9, nullptr); // round B1: a carried thread's checkpoints yield to the dispatcher instead
     GuestThread *home = currentThread();
     if (!home || std::this_thread::get_id() != m_executorThread)
         return no(2, nullptr);
@@ -3390,7 +3629,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         }
         R5900Context &context = running->activeContext();
         m_profileContext.store(&context, std::memory_order_relaxed);
-        if (context.pc == 0u)
+        const bool carriedOwn = running->carrier != nullptr && running->invocations.empty(); // round B1 (as run())
+        if (!carriedOwn && context.pc == 0u)
         {
             if (!running->invocations.empty())
             {
@@ -3421,7 +3661,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             pushInvocation(*running);
             continue;
         }
-        if (!m_runtime.hasFunction(context.pc))
+        const bool carried = carriedOwn || (running->invocations.empty() && claimCarrier(*running, context));
+        if (!carried && !m_runtime.hasFunction(context.pc))
         {
             if (!running->invocations.empty())
                 context.pc = 0u;
@@ -3433,7 +3674,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             }
             continue;
         }
-        PS2Runtime::RecompiledFunction function = m_runtime.lookupFunction(context.pc);
+        PS2Runtime::RecompiledFunction function = carried ? nullptr : m_runtime.lookupFunction(context.pc);
         if (checkpointDue(kGuestDispatchCycles))
             continue;
         handOverVu0(*running, context);
@@ -3448,14 +3689,14 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
                 // Round N5: a nested thread's time, taken out of the home thread's run around it (run() above).
                 const uint64_t t0 = ps2_stats::nowUs(), n0 = n5stat::nestedUs;
                 const uint32_t tid = static_cast<uint32_t>(running->id) & 31u;
-                function(m_rdram, &context, &m_runtime);
+                B1_INVOKE();
                 const uint64_t d = ps2_stats::nowUs() - t0;
                 n5stat::us[tid] += d - (n5stat::nestedUs - n0);
                 ++n5stat::runs[tid];
                 n5stat::nestedUs = n0 + d;
             }
             else
-                function(m_rdram, &context, &m_runtime);
+                B1_INVOKE();
         }
         catch (const EeDispatcherTransfer &)
         {

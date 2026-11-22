@@ -102,6 +102,8 @@ struct GuestInvocation
     std::function<void(const R5900Context &, R5900Context &)> onComplete;
 };
 
+struct EeHostCarrier; // round B1 (EeScheduler.cpp): a guest thread whose own code runs on a host thread of its own
+
 struct GuestThread
 {
     int id = 0;
@@ -123,6 +125,9 @@ struct GuestThread
     EeWaitState wait{};
     std::function<void(R5900Context &)> resumeCompletion;
     std::vector<GuestInvocation> invocations;
+    // Round B1: set while the thread's own code (not its handler invocations) runs on a host carrier thread
+    // (EeScheduler::resumeCarrier); null: it runs as generated code dispatched by run() as before.
+    EeHostCarrier *carrier = nullptr;
 
     [[nodiscard]] R5900Context &activeContext()
     {
@@ -284,6 +289,24 @@ extern uint32_t g_ps2xSliceStretch;
 // of its guest call chain through the dispatcher). g_ps2xS17Parts bit 1: on. g_ps2xS17Check: every other episode the
 // old way. g_ps2xS17Log: record episodes (threads run, resume pcs, the kernel calls) for the log. Executor only.
 extern uint32_t g_ps2xS17Parts, g_ps2xS17Check, g_ps2xS17Log;
+// Round B1 (docs/decomp_b1.md): host-carried guest threads. The game names one guest thread (its entry) and the pc
+// where its host body takes it over (setHostCarry); while g_ps2xB1Carry is set, the dispatcher that would run that
+// thread's own context at that pc starts the body on a host thread of its own instead, and from then on resumes that
+// host thread wherever it would have dispatched the guest thread. The two host threads pass one baton: only one of
+// them runs guest-visible code at any time, and every scheduling decision is still the dispatcher's own. Where the
+// guest code would unwind to the dispatcher (a checkpoint that must reach the scheduler, a park, a thread switch) the
+// carrier hands the baton back and later goes on in place: no unwinding, no resume entries for the thread's frames.
+// Anything else that unwinds on the carrier (an exception, the host stack's floor, the switch turned off) unwinds as
+// before and the thread goes on as generated code from its resume pc (the body keeps the guest registers and frames
+// the generated code would have, so that is exact).
+extern uint32_t g_ps2xB1Carry;  // 0: no new take-overs; a carried thread is handed back at its next yield
+extern uint32_t g_ps2xB1Check;  // check mode: the executor audit (guest code on the wrong host thread) and the counts
+struct EeB1Stats
+{
+    uint64_t claims = 0, resumes = 0, yieldCheckpoint = 0, yieldLeave = 0, handBackSwitch = 0, handBackUnwind = 0,
+             handBackThrow = 0, handBackStop = 0, auditBad = 0, auditChecks = 0, handoffUs = 0, carrierUs = 0;
+};
+extern EeB1Stats g_eeB1;
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
 {
@@ -516,6 +539,18 @@ public:
     // a sampling profiler on another thread: its pc / ra are read racily).
     [[nodiscard]] const R5900Context *profileContext() const noexcept { return m_profileContext.load(std::memory_order_relaxed); }
 
+    // Round B1: the host-carried thread (one): its entry, the pc at which the body takes it over, the body.
+    using HostBody = void (*)(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void setHostCarry(uint32_t entry, uint32_t claimPc, HostBody body) noexcept
+    {
+        m_carryEntry = entry;
+        m_carryPc = claimPc;
+        m_carryBody = body;
+    }
+    // On the carrier thread while it holds the baton (B1 code asks: a guest call that came back false there has
+    // unwound, and the thread goes on as generated code).
+    [[nodiscard]] bool onCarrier() const noexcept { return m_activeCarrier != nullptr; }
+
     // Direct syscall tests use the same main-thread record without starting a
     // second executor. Production execution calls reset() before run().
     void bindMainContextForSyscall(R5900Context &ctx, uint8_t *rdram);
@@ -544,6 +579,17 @@ private:
     };
 
     void assertExecutor() const;
+    // Round B1 (see g_ps2xB1Carry): the dispatcher's side (take a thread over / run its carrier until it yields or ends)
+    // and the carrier's (hand the baton back; true: unwind here instead of going on).
+    bool claimCarrier(GuestThread &thread, const R5900Context &context);
+    void resumeCarrier(GuestThread &thread);
+    bool carrierYield(int why);
+    bool checkpointSlowInner() noexcept;
+    void b1Audit(int site) const noexcept;
+    EeHostCarrier *m_activeCarrier = nullptr;
+    EeHostCarrier *m_spareCarrier = nullptr; // the host thread of a carrier that ended, kept for the next take-over
+    uint32_t m_carryEntry = 0, m_carryPc = 0;
+    HostBody m_carryBody = nullptr;
     [[nodiscard]] int allocateThreadId();
     GuestThread &acquireInvocationThread();
     void enqueueReady(GuestThread &thread, bool front = false);

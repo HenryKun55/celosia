@@ -111,6 +111,10 @@ extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (ro
 #include "s14hook.h"
 #include "s17iop.h"
 #include "s16plan.h"
+namespace b1sound
+{
+    void frame(uint64_t frame, uint8_t *rdram); // round B1 (b1_sound.cpp): the carrier's switch for the next frame, the log
+}
 // Round N5 (EeScheduler.cpp): n5sched's per-frame state and the [n5] log period (declared here, not in ee_scheduler.h,
 // so the recompiled code that includes the runtime headers is not rebuilt for them).
 extern uint32_t g_ps2xN5Sched;
@@ -3672,7 +3676,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4317,6 +4321,9 @@ namespace sotc_native
         // and the recompiled modules were captured with that order (with n5sched from the start a module landed
         // elsewhere and its entry, 0x124a448, had no code: the loader thread died and the boot never ended).
         g_ps2xN5Sched = sotc_decomp::switchOn(sotc_decomp::kN5Sched) && sotc_decomp::gamecoreEntered() ? 1u : 0u;
+        // Round B1 (b1sound): the VBlank / sound thread's carrier for the next frame (likewise only once GAMECORE runs), and
+        // its log.
+        b1sound::frame(g_frame, g_runtimeForLog ? g_runtimeForLog->memory().getRDRAM() : nullptr);
         // Round N6 (n6nochk): the NOCHK calls skip the dispatch checkpoint's test only while n5sched is in effect (with the
         // time slice a slice's end could be due at the call).
         if (g_runtimeForLog)
@@ -14615,6 +14622,10 @@ namespace s8cloth
 {
     void install(PS2Runtime &runtime);
 }
+namespace b1sound
+{
+    void install(PS2Runtime &runtime); // round B1 (b1_sound.cpp)
+}
 // After sotc_decomp::install (the natives at these addresses wrapped too).
 void installSotcNativeLate(PS2Runtime &runtime)
 {
@@ -14662,6 +14673,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
         g_a1Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }
     s16plan::init();                     // round S16: the draw plans' check and log (SOTC_S16PLAN_*)
+    b1sound::install(runtime);           // round B1: the VBlank / sound thread's carrier and host tick functions (SOTC_B1SOUND)
     g_ps2xIopBatchEeCycles = s11rt::on(s11rt::kIop) ? s11rt::g_iopBatch : 2048u;
     g_ps2xSliceStretch = s13mot::on(s13mot::kSlice) ? s13mot::g_stretch : 1u;
     g_ps2xFpuZeroFast = s13mot::on(s13mot::kZeroDiv);
